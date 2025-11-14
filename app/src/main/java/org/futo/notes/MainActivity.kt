@@ -25,6 +25,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import org.futo.notes.core.Note
 import org.futo.notes.ui.theme.FUTONotesTheme
 
 class MainActivity : ComponentActivity() {
@@ -42,7 +43,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun NotesApp() {
     var text by remember { mutableStateOf("") }
-    val notes = remember { mutableStateListOf<String>() }
+    val notes = remember { mutableStateListOf<Note>() }
 
     Column(Modifier.padding(16.dp)) {
         Row {
@@ -54,7 +55,7 @@ fun NotesApp() {
             Button(
                 onClick = {
                     if (text.isNotBlank()) {
-                        notes.add(text)
+                        notes.add(Note(title = text))
                         text = ""
                     }
                 },
@@ -67,7 +68,7 @@ fun NotesApp() {
 
         LazyColumn {
             items(notes) { note ->
-                Text(note, Modifier.padding(vertical = 4.dp))
+                Text(note.title, Modifier.padding(vertical = 4.dp))
             }
         }
     }
