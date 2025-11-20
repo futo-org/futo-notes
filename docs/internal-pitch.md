@@ -1,18 +1,5 @@
 This is an abridged/edited version of the pitch I made internally for FUTO Notes. Some things have changed slightly.
 
-For FUTO eyes only.
-```table-of-contents
-title:
-style: nestedList # TOC style (nestedList|nestedOrderedList|inlineFirstLevel)
-minLevel: 0 # Include headings from the specified level
-maxLevel: 2 # Include headings up to the specified level
-include:
-exclude:
-includeLinks: true # Make headings clickable
-hideWhenEmpty: false # Hide TOC if no headings are found
-debugInConsole: false # Print debug info in Obsidian console
-```
-
 ## Introduction - Why build a notes app?
 
 A vision for FUTO that has stuck with me is Eron's idea that we should build a replacement for every app that comes preinstalled on phones. *Notes* is the app we should try to replace next.
