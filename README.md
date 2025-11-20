@@ -1,1 +1,1 @@
-FUTO Notes is a notes app primarily focused on Android.
+FUTO Notes is a simple, beautiful notes app that gets out of your way. It relies on markdown, but doesn't require knowledge of the syntax. FUTO Notes works entirely offline, but you have the option to sync to your other devices.
