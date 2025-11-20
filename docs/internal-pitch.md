@@ -33,12 +33,12 @@ I bought into it, briefly, despite having a rich inner life.
 
 I got this out of it:
 
-![[Pasted image 20250911145843.png]]
+![](img/Pasted%20image%2020250911145843.png)
 It looks cool! But it illustrates how infrequently I link things together. The vast majority of nodes are disconnected. You see that hyperconnected mass in the middle? That's from a history course I took on the making of the atomic bomb. I made separate notes for every lecture and for every important historical figure.
 
 Was it helpful?
 
-![[this-is-worthless-graph.jpg]]
+![](img/this-is-worthless-graph.jpg)
 
 No. It's actually just gardening.
 
@@ -55,7 +55,7 @@ Google made the open web accessible to everyone when every other search engine w
 **I want to build the ML-augmented notes app for everyone.**
 
 As I write this pitch, I should be able to look for things I've written on related subjects. I know for a fact I've written about software. But because I didn't tag it and I can't remember the exact name of the note, it is buried.
-![[Pasted image 20250916100224.png]]
+![](img/Pasted%20image%2020250916100224.png)
 
 I don't want a graph of all my notes. I want better search. I want to be able to ask a question like "what are some best practices for building Android apps?" and get a straightforward answer that references my own thoughts and notes with citations. I want to be suggested past notes for sake of serendipity. I want to tell an LLM to fix my headings for me to all have the same capitalization structure.
 ## Core Principles
@@ -113,29 +113,29 @@ I want to spend some time exploring this space and I plan on working with a desi
 
 Obsidian's basic layout is pretty good. A little lifeless, though. Also, too many icons and panels.
 
-![[Pasted image 20250911160143.png]]
+![](img/Pasted%20image%2020250911160143.png)
 
 I was also a big fan of the Bear app when I was a Mac guy. It has more personality while being simpler.
-![[Pasted image 20250911160218.png]]
+![](img/Pasted%20image%2020250911160218.png)
 
 nvALT was my first introduction to using a bunch of text files as your notes database. It looks dated now (not updated since 2011), but it had some good ideas.
-[nvALT](https://brettterpstra.com/projects/nvalt/) ![[Pasted image 20250911110802.png]]
+[nvALT](https://brettterpstra.com/projects/nvalt/) ![](img/Pasted%20image%2020250911110802.png)
 
 Apple Notes is one of the nicer/easy to use notes apps. I don't like the organization aspect, but I do think it strikes a nice balance of power and simplicity.
-![[Pasted image 20250911160541.png]]
+![](img/Pasted%20image%2020250911160541.png)
 
 Not a notes app, but one of my favorite apps ever is Things 3. Not only is it beautiful, but it feels at-home on a Mac. I love their iconography, too.
 
-![[Pasted image 20250911160740.png]]
+![](img/Pasted%20image%2020250911160740.png)
 
 Not a piece of software, but I really like [teenage engineering's](https://teenage.engineering/) designs for hardware. [Example](https://teenage.engineering/store/ep-133):
-![[Pasted image 20250911160945.png]]
+![](img/Pasted%20image%2020250911160945.png)
 
 Don't you want to press those buttons?
 
 If we're to build a distraction free note-taking experience, typography will make up most of the design. By far the best typography I've seen in a note-taking app is [iA Writer](https://ia.net/writer). Their homepage has a great intro video.
 
-![[Pasted image 20250916102354.png]]
+![](img/Pasted%20image%2020250916102354.png)
 
 They have a [full blog post](https://ia.net/topics/a-typographic-christmas) on their typography. I won't bore you with the details other than to say that this is something I'll put a lot of thought into.
 ## Tech Stack and Encryption
@@ -282,20 +282,20 @@ Way too heavy. I have a general disdain for OneNote. Cross-platform, including w
 Leans very heavily into the AI stuff. Probably venture-backed.
 #### [Roam Research](https://roamresearch.com/)
 I was using this right before Obsidian. Pioneered the idea of linking notes. Focused on academics. Premium pricing. UI is quite bare. All platforms, including Linux & web.
-![[Pasted image 20250915113851.png]]
+![](img/Pasted%20image%2020250915113851.png)
 #### [Mem.ai](https://get.mem.ai/)
 I found this *after* coming up with my ideas for AI + notes. Looks like they had the same ideas, too. Would be good to test out.
 
 Not e2e encrypted.
 
 From my very brief testing, the UI seems good but I need to do more testing with the AI features. I would need to upload all my notes to truly test that but... I would rather not do that.
-![[Pasted image 20250915155617.png]]
+![](img/Pasted%20image%2020250915155617.png)
 ### Open Source
 #### [Joplin Notes](https://joplinapp.org/)
 UI is a bit too busy, but it does have a small but active [community](https://www.reddit.com/r/joplinapp/). Cross-platform. Offers a cloud service with E2EE.
 
 Looking at the sponsors section tells me they aren't making a ton of money.
-![[Pasted image 20250915124326.png]]
+![](img/Pasted%20image%2020250915124326.png)
 
 #### [LogSeq](https://logseq.com/)
 Probably the closest to what we want to build. [Web-based live demo](https://demo.logseq.com/) available. They offer a pro service for syncing.
