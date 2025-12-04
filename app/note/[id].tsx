@@ -5,8 +5,16 @@ import {
 import { Directory, File, Paths } from "expo-file-system";
 import { useLocalSearchParams, useNavigation } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { StyleSheet, View } from "react-native";
+import {
+  ActivityIndicator,
+  Alert,
+  Pressable,
+  StyleSheet,
+  View,
+} from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { useNotesStore } from "../../lib/notesStore";
+import { useVoiceTranscription } from "../../lib/useVoiceTranscription";
 
 const NOTES_DIR = "notes";
 
@@ -62,6 +70,36 @@ export default function NoteScreen() {
   const currentFileRef = useRef<File | null>(null);
   const originalIdRef = useRef<string>("");
   const originalTextRef = useRef<string>("");
+
+  const voiceTranscription = useVoiceTranscription({
+    onTranscription: (transcribedText) => {
+      setText((prev) => {
+        const separator =
+          prev && !prev.endsWith("\n") && !prev.endsWith(" ") ? " " : "";
+        return prev + separator + transcribedText;
+      });
+    },
+    onError: (error) => {
+      Alert.alert("Transcription Error", error);
+    },
+  });
+
+  const isRecording = voiceTranscription.state === "recording";
+  const isProcessing = ["downloading_model", "initializing", "transcribing"].includes(
+    voiceTranscription.state
+  );
+  const isReady = voiceTranscription.state === "ready";
+
+  const handleMicPressIn = async () => {
+    if (!isReady) return;
+    await voiceTranscription.startRecording();
+  };
+
+  const handleMicPressOut = async () => {
+    if (voiceTranscription.state === "recording") {
+      await voiceTranscription.stopRecording();
+    }
+  };
 
   useEffect(() => {
     loadNote();
@@ -159,6 +197,26 @@ export default function NoteScreen() {
         placeholder="Start typing your note..."
         autoFocus={id === "new"}
       />
+      <Pressable
+        style={[
+          styles.fab,
+          isRecording && styles.fabRecording,
+          !isReady && !isRecording && styles.fabProcessing,
+        ]}
+        onPressIn={handleMicPressIn}
+        onPressOut={handleMicPressOut}
+        disabled={!isReady && !isRecording}
+      >
+        {isProcessing ? (
+          <ActivityIndicator color="#fff" size="small" />
+        ) : (
+          <Ionicons
+            name={isRecording ? "mic" : "mic-outline"}
+            size={24}
+            color="#fff"
+          />
+        )}
+      </Pressable>
     </View>
   );
 }
@@ -173,5 +231,27 @@ const styles = StyleSheet.create({
     padding: 16,
     fontSize: 16,
     textAlignVertical: "top",
+  },
+  fab: {
+    position: "absolute",
+    right: 20,
+    bottom: 20,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: "#007AFF",
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  fabRecording: {
+    backgroundColor: "#FF3B30",
+  },
+  fabProcessing: {
+    backgroundColor: "#8E8E93",
   },
 });
