@@ -8,43 +8,42 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
-  View,
+  TextInput,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useNotesStore } from "../../lib/notesStore";
-import { useVoiceTranscription } from "../../lib/useVoiceTranscription";
+import { useNotesStore } from "@/lib/notesStore";
+import { useVoiceTranscription } from "@/lib/useVoiceTranscription";
+import { useSemanticSearch } from "@/lib/useSemanticSearch";
 
 const NOTES_DIR = "notes";
 
 /**
  * Sanitize a string to be used as a filename.
  * Removes or replaces characters that are invalid in filenames.
+ * Preserves spaces for readability (supported on iOS/Android/macOS).
  */
-function sanitizeFilename(text: string): string {
-  // Get the first line of text
-  const firstLine = text.split("\n")[0].trim();
-
-  // Remove markdown heading markers
-  const withoutHeading = firstLine.replace(/^#+\s*/, "");
-
-  // Replace invalid filename characters with underscores
+function sanitizeFilename(title: string): string {
+  // Replace invalid filename characters with dashes
   // Invalid chars: / \ : * ? " < > |
-  let sanitized = withoutHeading.replace(/[/\\:*?"<>|]/g, "_");
+  let sanitized = title.replace(/[/\\:*?"<>|]/g, "-");
 
-  // Replace multiple spaces/underscores with single underscore
-  sanitized = sanitized.replace(/[\s_]+/g, "_");
+  // Collapse multiple spaces into single space
+  sanitized = sanitized.replace(/\s+/g, " ");
 
-  // Remove leading/trailing underscores and dots
-  sanitized = sanitized.replace(/^[_.\s]+|[_.\s]+$/g, "");
+  // Remove leading/trailing spaces and dots
+  sanitized = sanitized.replace(/^[\s.]+|[\s.]+$/g, "");
 
   // Limit length to 100 characters
   sanitized = sanitized.slice(0, 100);
 
   // If empty after sanitization, use a default name
   if (!sanitized) {
-    sanitized = "untitled";
+    sanitized = "Untitled";
   }
 
   return sanitized;
@@ -66,10 +65,16 @@ export default function NoteScreen() {
   const navigation = useNavigation();
   const updateNote = useNotesStore((state) => state.updateNote);
   const [text, setText] = useState("");
+  const [title, setTitle] = useState("");
   const [isLoaded, setIsLoaded] = useState(false);
   const currentFileRef = useRef<File | null>(null);
   const originalIdRef = useRef<string>("");
   const originalTextRef = useRef<string>("");
+  const originalTitleRef = useRef<string>("");
+  const [isScrolling, setIsScrolling] = useState(false);
+  const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const { indexNote, removeNoteFromIndex, isModelReady } = useSemanticSearch();
 
   const voiceTranscription = useVoiceTranscription({
     onTranscription: (transcribedText) => {
@@ -101,47 +106,77 @@ export default function NoteScreen() {
     }
   };
 
+  const handleScrollBegin = () => {
+    if (scrollTimeoutRef.current) {
+      clearTimeout(scrollTimeoutRef.current);
+      scrollTimeoutRef.current = null;
+    }
+    setIsScrolling(true);
+  };
+
+  const handleScrollEnd = () => {
+    // Delay re-enabling input to prevent accidental focus
+    scrollTimeoutRef.current = setTimeout(() => {
+      setIsScrolling(false);
+    }, 150);
+  };
+
   useEffect(() => {
     loadNote();
   }, [id]);
 
-  // Only save if content has actually changed from original
+  // Update the header with editable title
   useEffect(() => {
-    if (isLoaded && text && text !== originalTextRef.current) {
+    navigation.setOptions({
+      headerTitle: () => (
+        <TextInput
+          style={styles.headerTitleInput}
+          value={title}
+          onChangeText={setTitle}
+          selectTextOnFocus
+          placeholder="Untitled"
+        />
+      ),
+    });
+  }, [title, navigation]);
+
+  // Only save if content or title has actually changed from original
+  useEffect(() => {
+    if (isLoaded && (text !== originalTextRef.current || title !== originalTitleRef.current)) {
       saveNote();
     }
-  }, [text, isLoaded]);
-
-  // Update the header title based on the note content
-  useEffect(() => {
-    if (text) {
-      // Convert underscores to spaces for display
-      const title = sanitizeFilename(text).replace(/_/g, " ") || "New Note";
-      navigation.setOptions({ title });
-    } else {
-      navigation.setOptions({ title: "New Note" });
-    }
-  }, [text, navigation]);
+  }, [text, title, isLoaded]);
 
   const loadNote = useCallback(async () => {
     try {
       if (id === "new") {
-        // Creating a new note - original is empty
+        // Creating a new note - start with "Untitled"
+        const newTitle = "Untitled";
+        setTitle(newTitle);
         originalIdRef.current = "";
         originalTextRef.current = "";
+        originalTitleRef.current = newTitle;
         setIsLoaded(true);
         return;
       }
 
       const notesDir = getNotesDirectory();
-      const noteFile = new File(notesDir, `${id}.md`);
+      // Try the filename as-is first, then try URL-encoded version for legacy files
+      let noteFile = new File(notesDir, `${id}.md`);
+      if (!noteFile.exists) {
+        // Try with URL-encoded filename (for files imported from Obsidian with %20)
+        const encodedFilename = encodeURIComponent(id) + ".md";
+        noteFile = new File(notesDir, encodedFilename);
+      }
 
       if (noteFile.exists) {
         const content = await noteFile.text();
         currentFileRef.current = noteFile;
         originalIdRef.current = id;
         originalTextRef.current = content;
+        originalTitleRef.current = id;
         setText(content);
+        setTitle(id);
       }
     } catch (error) {
       console.error("Error loading note:", error);
@@ -153,17 +188,22 @@ export default function NoteScreen() {
   const saveNote = useCallback(async () => {
     try {
       const notesDir = getNotesDirectory();
-      const newId = sanitizeFilename(text);
+      const newId = sanitizeFilename(title);
       const filename = newId + ".md";
       const newFile = new File(notesDir, filename);
 
+      const oldId = originalIdRef.current || newId;
+      const isRename =
+        currentFileRef.current && currentFileRef.current.uri !== newFile.uri;
+
       // If the filename changed and we have an existing file, delete the old one
-      if (
-        currentFileRef.current &&
-        currentFileRef.current.uri !== newFile.uri
-      ) {
-        if (currentFileRef.current.exists) {
-          currentFileRef.current.delete();
+      if (isRename) {
+        if (currentFileRef.current!.exists) {
+          currentFileRef.current!.delete();
+        }
+        // Remove old note from search index
+        if (isModelReady) {
+          removeNoteFromIndex(oldId);
         }
       }
 
@@ -175,28 +215,50 @@ export default function NoteScreen() {
       currentFileRef.current = newFile;
 
       // Optimistically update the store so the list shows changes immediately
-      const oldId = originalIdRef.current || newId;
       updateNote(oldId, newId, text);
+
+      // Update search index
+      if (isModelReady) {
+        indexNote(newId, text);
+      }
 
       // Update refs so we don't re-save unchanged content
       originalIdRef.current = newId;
       originalTextRef.current = text;
+      originalTitleRef.current = title;
     } catch (error) {
       console.error("Error saving note:", error);
     }
-  }, [text, updateNote]);
+  }, [text, title, updateNote, indexNote, removeNoteFromIndex, isModelReady]);
 
   return (
-    <View style={styles.container}>
-      <MarkdownTextInput
-        value={text}
-        onChangeText={setText}
-        style={styles.input}
-        multiline
-        parser={parseExpensiMark}
-        placeholder="Start typing your note..."
-        autoFocus={id === "new"}
-      />
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
+    >
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        keyboardDismissMode="on-drag"
+        keyboardShouldPersistTaps="handled"
+        onScrollBeginDrag={handleScrollBegin}
+        onScrollEndDrag={handleScrollEnd}
+        onMomentumScrollBegin={handleScrollBegin}
+        onMomentumScrollEnd={handleScrollEnd}
+      >
+        <MarkdownTextInput
+          value={text}
+          onChangeText={setText}
+          style={styles.input}
+          multiline
+          parser={parseExpensiMark}
+          placeholder="Start typing your note..."
+          autoFocus={id === "new"}
+          scrollEnabled={false}
+          pointerEvents={isScrolling ? "none" : "auto"}
+        />
+      </ScrollView>
       <Pressable
         style={[
           styles.fab,
@@ -217,7 +279,7 @@ export default function NoteScreen() {
           />
         )}
       </Pressable>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -225,6 +287,18 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#fff",
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
+  },
+  headerTitleInput: {
+    fontSize: 17,
+    fontWeight: "600",
+    minWidth: 200,
+    textAlign: "center",
   },
   input: {
     flex: 1,

@@ -10,7 +10,10 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.anonymous.futonotes"
+      "bundleIdentifier": "com.anonymous.futonotes",
+      "infoPlist": {
+        "UISupportsDocumentBrowser": true
+      }
     },
     "android": {
       "adaptiveIcon": {

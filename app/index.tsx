@@ -1,7 +1,8 @@
 import { Directory, File, Paths } from "expo-file-system";
 import { useFocusEffect, useRouter } from "expo-router";
-import { useCallback } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   FlatList,
   Pressable,
   StyleSheet,
@@ -9,7 +10,9 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { NotePreview, useNotesStore } from "../lib/notesStore";
+import { SearchBar } from "@/components/SearchBar";
+import { NotePreview, useNotesStore } from "@/lib/notesStore";
+import { useSemanticSearch, SearchResult } from "@/lib/useSemanticSearch";
 
 const NOTES_DIR = "notes";
 
@@ -24,30 +27,42 @@ function getNotesDirectory(): Directory {
   return notesDir;
 }
 
-/**
- * Convert filename (with underscores) to display title (with spaces)
- */
-function formatDisplayTitle(filename: string): string {
-  return filename.replace(/_/g, " ");
-}
 
 /**
- * Extract preview text from note content (first ~100 chars after title)
+ * Extract preview text from note content (first ~100 chars)
  */
 function getPreviewText(content: string): string {
-  const lines = content.split("\n");
-  // Skip the first line (title) and get remaining content
-  const restContent = lines.slice(1).join(" ").trim();
-  if (restContent.length > 100) {
-    return restContent.slice(0, 100) + "...";
+  const preview = content.replace(/\s+/g, " ").trim();
+  if (preview.length > 100) {
+    return preview.slice(0, 100) + "...";
   }
-  return restContent || "No additional content";
+  return preview || "No content";
 }
+
+const SEARCH_DEBOUNCE_MS = 300;
 
 export default function NotesListScreen() {
   const notes = useNotesStore((state) => state.notes);
   const setNotes = useNotesStore((state) => state.setNotes);
+  const searchQuery = useNotesStore((state) => state.searchQuery);
+  const setSearchQuery = useNotesStore((state) => state.setSearchQuery);
   const router = useRouter();
+
+  const [searchResults, setSearchResults] = useState<SearchResult[] | null>(
+    null
+  );
+  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const {
+    search,
+    syncIndex,
+    isIndexing,
+    isSearching,
+    indexProgress,
+    isModelReady,
+    isModelDownloading,
+    modelDownloadProgress,
+  } = useSemanticSearch();
 
   // Reload notes from filesystem when screen comes into focus
   // This syncs filesystem -> store (handles external changes, first load, etc.)
@@ -56,6 +71,20 @@ export default function NotesListScreen() {
       loadNotes();
     }, [])
   );
+
+  // Sync search index after notes are loaded
+  // Use a ref to track if we've already triggered sync for this session
+  const hasSyncedRef = useRef(false);
+  useEffect(() => {
+    if (notes.length > 0 && isModelReady && !isIndexing && !hasSyncedRef.current) {
+      hasSyncedRef.current = true;
+      // Defer sync to let the UI settle first
+      const timeout = setTimeout(() => {
+        syncIndex(notes);
+      }, 500);
+      return () => clearTimeout(timeout);
+    }
+  }, [notes, isModelReady, isIndexing]);
 
   const loadNotes = async () => {
     try {
@@ -71,11 +100,12 @@ export default function NotesListScreen() {
         mdFiles.map(async (file) => {
           const content = await file.text();
           const filename = file.uri.split("/").pop() || "";
-          const title = filename.replace(/\.md$/, "");
+          // Decode URL-encoded characters (e.g., %20 -> space)
+          const id = decodeURIComponent(filename.replace(/\.md$/, ""));
 
           return {
-            id: title,
-            title,
+            id,
+            title: id,
             preview: getPreviewText(content),
             modificationTime: file.modificationTime ?? 0,
           };
@@ -98,10 +128,56 @@ export default function NotesListScreen() {
     router.push("/note/new");
   };
 
+  // Debounced search
+  const handleSearchChange = useCallback(
+    (query: string) => {
+      setSearchQuery(query);
+
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+      }
+
+      if (!query.trim()) {
+        setSearchResults(null);
+        return;
+      }
+
+      searchTimeoutRef.current = setTimeout(async () => {
+        const results = await search(query);
+        setSearchResults(results);
+      }, SEARCH_DEBOUNCE_MS);
+    },
+    [search, setSearchQuery]
+  );
+
+  const handleClearSearch = useCallback(() => {
+    setSearchQuery("");
+    setSearchResults(null);
+  }, [setSearchQuery]);
+
+  // Compute displayed notes: search results or default sorted list
+  const displayedNotes = useMemo(() => {
+    if (!searchResults || !searchQuery.trim()) {
+      return notes;
+    }
+
+    // Create a map of noteId to score
+    const scoreMap = new Map(searchResults.map((r) => [r.noteId, r.score]));
+
+    // Filter to only notes in results and sort by score
+    return notes
+      .filter((note) => scoreMap.has(note.id))
+      .sort((a, b) => {
+        const scoreA = scoreMap.get(a.id) ?? 0;
+        const scoreB = scoreMap.get(b.id) ?? 0;
+        return scoreB - scoreA;
+      });
+  }, [notes, searchResults, searchQuery]);
+
   const renderNoteItem = ({ item }: { item: NotePreview }) => (
     <TouchableOpacity style={styles.noteItem} onPress={() => openNote(item.id)}>
       <Text style={styles.noteTitle} numberOfLines={1}>
-        {formatDisplayTitle(item.title)}
+        {item.title}
       </Text>
       <Text style={styles.notePreview} numberOfLines={2}>
         {item.preview}
@@ -118,12 +194,39 @@ export default function NotesListScreen() {
 
   return (
     <View style={styles.container}>
+      <SearchBar
+        value={searchQuery}
+        onChangeText={handleSearchChange}
+        onClear={handleClearSearch}
+        isSearching={isSearching}
+      />
+      {(isIndexing || isModelDownloading) && (
+        <View style={styles.indexingIndicator}>
+          <ActivityIndicator size="small" color="#007AFF" />
+          <Text style={styles.indexingText}>
+            {isModelDownloading
+              ? `Downloading model: ${Math.round(modelDownloadProgress * 100)}%`
+              : indexProgress
+                ? `Indexing ${indexProgress.current}/${indexProgress.total}...`
+                : "Preparing search..."}
+          </Text>
+        </View>
+      )}
+      {searchQuery.trim() && searchResults?.length === 0 && !isSearching && (
+        <View style={styles.noResults}>
+          <Text style={styles.noResultsText}>No matching notes found</Text>
+        </View>
+      )}
       <FlatList
-        data={notes}
+        data={displayedNotes}
         keyExtractor={(item) => item.id}
         renderItem={renderNoteItem}
-        contentContainerStyle={notes.length === 0 ? styles.emptyList : undefined}
-        ListEmptyComponent={renderEmptyList}
+        contentContainerStyle={
+          displayedNotes.length === 0 && !searchQuery.trim()
+            ? styles.emptyList
+            : undefined
+        }
+        ListEmptyComponent={!searchQuery.trim() ? renderEmptyList : null}
         ItemSeparatorComponent={() => <View style={styles.separator} />}
       />
       <Pressable style={styles.fab} onPress={createNewNote}>
@@ -137,6 +240,26 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#fff",
+  },
+  indexingIndicator: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    backgroundColor: "#F2F2F7",
+  },
+  indexingText: {
+    fontSize: 13,
+    color: "#666",
+    marginLeft: 8,
+  },
+  noResults: {
+    paddingVertical: 20,
+    alignItems: "center",
+  },
+  noResultsText: {
+    fontSize: 15,
+    color: "#8E8E93",
   },
   noteItem: {
     padding: 16,
