@@ -5,15 +5,35 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Build & Run Commands
 
 ```bash
-npx expo start                    # Start Expo dev server
-npx expo run:ios --device         # Build and run on iOS device
-npx expo run:android              # Build and run on Android
-npm run lint                      # Run ESLint
+npx expo start                          # Start Expo dev server
+npx expo run:ios --device               # Build and run on iOS device
+npx expo run:android                    # Build and run on Android (debug)
+npx expo run:android --variant release  # Build and run release build
+npm run lint                            # Run ESLint
 ```
+
+### When to Use Release Build
+
+Use `npx expo run:android --variant release` when:
+
+- Testing performance (release builds are optimized, debug builds are slower)
+- Verifying production behavior (ProGuard/R8 minification, no debug logging)
+- Testing signed APK behavior before distribution
+- Debugging issues that only occur in release mode
+
+### When to Use Prebuild
+
+Use `npx expo prebuild` when:
+
+- Adding native modules that require configuration (not auto-linked)
+- Customizing native Android/iOS code (MainActivity, AppDelegate, etc.)
+- Modifying native build settings (gradle.properties, Info.plist)
+- Debugging native build issues
+- **Note**: This generates `android/` and `ios/` directories.
 
 ## Architecture
 
-FUTO Notes is a React Native/Expo app (SDK 54) for offline-first markdown note-taking with local ML features via Cactus (semantic search embeddings and voice transcription).
+FUTO Notes is a React Native/Expo app (SDK 54) for offline-first markdown note-taking.
 
 ### Tech Stack
 
@@ -21,31 +41,24 @@ FUTO Notes is a React Native/Expo app (SDK 54) for offline-first markdown note-t
 - **Routing**: Expo Router (file-based, Stack navigation)
 - **State**: Zustand 5.0
 - **Editor**: @expensify/react-native-live-markdown
-- **ML**: Cactus React Native (qwen3-0.6-embed for embeddings, whisper-small for STT)
-- **Audio**: @siteed/expo-audio-studio
 
 ### Key Design Decisions
 
 - **File-based storage**: Notes stored as `.md` files in `notes/` folder. No database, no frontmatter.
 - **Title = filename**: Title derived from first line, sanitized for filesystem (spaces preserved, special chars removed).
-- **Local ML**: All AI runs on-device (embeddings, transcription). No cloud dependencies.
-- **Hybrid search**: Combines keyword matching (40%) + semantic similarity (60%) with baseline normalization.
+- **Simple keyword search**: Text-based search using keyword matching.
 
 ### File Structure
 
 ```
 app/
-├── _layout.tsx          # Root Stack layout, indexing progress in header
+├── _layout.tsx          # Root Stack layout
 ├── index.tsx            # Notes list with search
-└── note/[id].tsx        # Note editor with voice input
+└── note/[id].tsx        # Note editor
 
 lib/
-├── notesStore.ts        # Zustand store (notes, search state, indexing state)
-├── useSemanticSearch.ts # Search hook (indexing, embedding, hybrid scoring)
-├── searchIndex.ts       # Index persistence (.search-index/index.json)
-├── chunking.ts          # Text chunking (paragraphs → sentences, max 500 chars)
-├── vectorMath.ts        # Cosine similarity, keyword scoring
-└── useVoiceTranscription.ts # Whisper STT hook
+├── notesStore.ts        # Zustand store (notes, search state)
+└── useSemanticSearch.ts # Simple keyword search hook
 
 components/
 └── SearchBar.tsx        # Search input component
@@ -53,18 +66,9 @@ components/
 
 ### Data Flow
 
-1. **Startup**: Init embedding model → Load search index → Load notes → Sync index if needed
-2. **Editing**: Text change → Auto-save to disk → Update store → Update search index
-3. **Search**: Query → Debounce 300ms → Embed → Score chunks → Aggregate per note → Filter by threshold
-4. **Voice**: Record audio → Transcribe with Whisper → Append to note
-
-### Semantic Search Details
-
-- **Chunking**: Notes split by paragraphs, large paragraphs split at sentence boundaries (max 500 chars)
-- **Embedding**: Qwen3-0.6-embed model via Cactus
-- **Scoring**: Raw cosine similarity normalized (baseline 0.50), threshold 0.35
-- **Concurrency**: EmbedLock mutex serializes all embedding calls (Cactus limitation)
-- **Memory**: Batched indexing (5 notes), pauses between notes, max 10 chunks per note
+1. **Startup**: Load notes from filesystem
+2. **Editing**: Text change → Auto-save to disk → Update store
+3. **Search**: Query → Debounce 300ms → Keyword match → Filter results
 
 ### Path Alias
 

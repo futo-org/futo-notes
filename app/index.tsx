@@ -1,8 +1,7 @@
 import { Directory, File, Paths } from "expo-file-system";
 import { useFocusEffect, useRouter } from "expo-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   FlatList,
   Pressable,
   StyleSheet,
@@ -10,6 +9,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { SearchBar } from "@/components/SearchBar";
 import { NotePreview, useNotesStore } from "@/lib/notesStore";
 import { useSemanticSearch, SearchResult } from "@/lib/useSemanticSearch";
@@ -47,22 +47,14 @@ export default function NotesListScreen() {
   const searchQuery = useNotesStore((state) => state.searchQuery);
   const setSearchQuery = useNotesStore((state) => state.setSearchQuery);
   const router = useRouter();
+  const insets = useSafeAreaInsets();
 
   const [searchResults, setSearchResults] = useState<SearchResult[] | null>(
     null
   );
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const {
-    search,
-    syncIndex,
-    isIndexing,
-    isSearching,
-    indexProgress,
-    isModelReady,
-    isModelDownloading,
-    modelDownloadProgress,
-  } = useSemanticSearch();
+  const { search, isSearching } = useSemanticSearch();
 
   // Reload notes from filesystem when screen comes into focus
   // This syncs filesystem -> store (handles external changes, first load, etc.)
@@ -71,20 +63,6 @@ export default function NotesListScreen() {
       loadNotes();
     }, [])
   );
-
-  // Sync search index after notes are loaded
-  // Use a ref to track if we've already triggered sync for this session
-  const hasSyncedRef = useRef(false);
-  useEffect(() => {
-    if (notes.length > 0 && isModelReady && !isIndexing && !hasSyncedRef.current) {
-      hasSyncedRef.current = true;
-      // Defer sync to let the UI settle first
-      const timeout = setTimeout(() => {
-        syncIndex(notes);
-      }, 500);
-      return () => clearTimeout(timeout);
-    }
-  }, [notes, isModelReady, isIndexing]);
 
   const loadNotes = async () => {
     try {
@@ -200,18 +178,6 @@ export default function NotesListScreen() {
         onClear={handleClearSearch}
         isSearching={isSearching}
       />
-      {(isIndexing || isModelDownloading) && (
-        <View style={styles.indexingIndicator}>
-          <ActivityIndicator size="small" color="#007AFF" />
-          <Text style={styles.indexingText}>
-            {isModelDownloading
-              ? `Downloading model: ${Math.round(modelDownloadProgress * 100)}%`
-              : indexProgress
-                ? `Indexing ${indexProgress.current}/${indexProgress.total}...`
-                : "Preparing search..."}
-          </Text>
-        </View>
-      )}
       {searchQuery.trim() && searchResults?.length === 0 && !isSearching && (
         <View style={styles.noResults}>
           <Text style={styles.noResultsText}>No matching notes found</Text>
@@ -229,7 +195,7 @@ export default function NotesListScreen() {
         ListEmptyComponent={!searchQuery.trim() ? renderEmptyList : null}
         ItemSeparatorComponent={() => <View style={styles.separator} />}
       />
-      <Pressable style={styles.fab} onPress={createNewNote}>
+      <Pressable style={[styles.fab, { bottom: 20 + insets.bottom }]} onPress={createNewNote}>
         <Text style={styles.fabText}>+</Text>
       </Pressable>
     </View>
@@ -240,18 +206,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#fff",
-  },
-  indexingIndicator: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 6,
-    backgroundColor: "#F2F2F7",
-  },
-  indexingText: {
-    fontSize: 13,
-    color: "#666",
-    marginLeft: 8,
   },
   noResults: {
     paddingVertical: 20,

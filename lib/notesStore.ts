@@ -16,13 +16,10 @@ interface NotesStore {
   notes: NotePreview[];
   searchQuery: string;
   searchResults: SearchResult[] | null;
-  isIndexing: boolean;
-  indexProgress: { current: number; total: number } | null;
   setNotes: (notes: NotePreview[]) => void;
   updateNote: (oldId: string, newId: string, content: string) => void;
   setSearchQuery: (query: string) => void;
   setSearchResults: (results: SearchResult[] | null) => void;
-  setIndexingState: (isIndexing: boolean, progress: { current: number; total: number } | null) => void;
 }
 
 /**
@@ -40,8 +37,6 @@ export const useNotesStore = create<NotesStore>((set) => ({
   notes: [],
   searchQuery: "",
   searchResults: null,
-  isIndexing: false,
-  indexProgress: null,
 
   setNotes: (notes) => set({ notes }),
 
@@ -67,6 +62,4 @@ export const useNotesStore = create<NotesStore>((set) => ({
   setSearchQuery: (query) => set({ searchQuery: query }),
 
   setSearchResults: (results) => set({ searchResults: results }),
-
-  setIndexingState: (isIndexing, progress) => set({ isIndexing, indexProgress: progress }),
 }));

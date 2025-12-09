@@ -6,19 +6,13 @@ import { Directory, File, Paths } from "expo-file-system";
 import { useLocalSearchParams, useNavigation } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
   TextInput,
 } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
 import { useNotesStore } from "@/lib/notesStore";
-import { useVoiceTranscription } from "@/lib/useVoiceTranscription";
-import { useSemanticSearch } from "@/lib/useSemanticSearch";
 
 const NOTES_DIR = "notes";
 
@@ -73,38 +67,6 @@ export default function NoteScreen() {
   const originalTitleRef = useRef<string>("");
   const [isScrolling, setIsScrolling] = useState(false);
   const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const { indexNote, removeNoteFromIndex, isModelReady } = useSemanticSearch();
-
-  const voiceTranscription = useVoiceTranscription({
-    onTranscription: (transcribedText) => {
-      setText((prev) => {
-        const separator =
-          prev && !prev.endsWith("\n") && !prev.endsWith(" ") ? " " : "";
-        return prev + separator + transcribedText;
-      });
-    },
-    onError: (error) => {
-      Alert.alert("Transcription Error", error);
-    },
-  });
-
-  const isRecording = voiceTranscription.state === "recording";
-  const isProcessing = ["downloading_model", "initializing", "transcribing"].includes(
-    voiceTranscription.state
-  );
-  const isReady = voiceTranscription.state === "ready";
-
-  const handleMicPressIn = async () => {
-    if (!isReady) return;
-    await voiceTranscription.startRecording();
-  };
-
-  const handleMicPressOut = async () => {
-    if (voiceTranscription.state === "recording") {
-      await voiceTranscription.stopRecording();
-    }
-  };
 
   const handleScrollBegin = () => {
     if (scrollTimeoutRef.current) {
@@ -201,10 +163,6 @@ export default function NoteScreen() {
         if (currentFileRef.current!.exists) {
           currentFileRef.current!.delete();
         }
-        // Remove old note from search index
-        if (isModelReady) {
-          removeNoteFromIndex(oldId);
-        }
       }
 
       // Write the content to the new file
@@ -217,11 +175,6 @@ export default function NoteScreen() {
       // Optimistically update the store so the list shows changes immediately
       updateNote(oldId, newId, text);
 
-      // Update search index
-      if (isModelReady) {
-        indexNote(newId, text);
-      }
-
       // Update refs so we don't re-save unchanged content
       originalIdRef.current = newId;
       originalTextRef.current = text;
@@ -229,7 +182,7 @@ export default function NoteScreen() {
     } catch (error) {
       console.error("Error saving note:", error);
     }
-  }, [text, title, updateNote, indexNote, removeNoteFromIndex, isModelReady]);
+  }, [text, title, updateNote]);
 
   return (
     <KeyboardAvoidingView
@@ -259,26 +212,6 @@ export default function NoteScreen() {
           pointerEvents={isScrolling ? "none" : "auto"}
         />
       </ScrollView>
-      <Pressable
-        style={[
-          styles.fab,
-          isRecording && styles.fabRecording,
-          !isReady && !isRecording && styles.fabProcessing,
-        ]}
-        onPressIn={handleMicPressIn}
-        onPressOut={handleMicPressOut}
-        disabled={!isReady && !isRecording}
-      >
-        {isProcessing ? (
-          <ActivityIndicator color="#fff" size="small" />
-        ) : (
-          <Ionicons
-            name={isRecording ? "mic" : "mic-outline"}
-            size={24}
-            color="#fff"
-          />
-        )}
-      </Pressable>
     </KeyboardAvoidingView>
   );
 }
@@ -305,27 +238,5 @@ const styles = StyleSheet.create({
     padding: 16,
     fontSize: 16,
     textAlignVertical: "top",
-  },
-  fab: {
-    position: "absolute",
-    right: 20,
-    bottom: 20,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: "#007AFF",
-    justifyContent: "center",
-    alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-    elevation: 5,
-  },
-  fabRecording: {
-    backgroundColor: "#FF3B30",
-  },
-  fabProcessing: {
-    backgroundColor: "#8E8E93",
   },
 });

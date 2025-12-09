@@ -56,12 +56,6 @@
           "supportsOpeningDocumentsInPlace": true,
           "enableFileSharing": true
         }
-      ],
-      [
-        "expo-audio",
-        {
-          "microphonePermission": "Allow $(PRODUCT_NAME) to record audio for voice-to-text transcription."
-        }
       ]
     ],
     "experiments": {
