@@ -1,18 +1,14 @@
-import {
-  MarkdownTextInput,
-  parseExpensiMark,
-} from "@expensify/react-native-live-markdown";
 import { Directory, File, Paths } from "expo-file-system";
 import { useLocalSearchParams, useNavigation } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
   Platform,
-  ScrollView,
   StyleSheet,
   TextInput,
 } from "react-native";
 import { useNotesStore } from "@/lib/notesStore";
+import CodeMirrorEditor from "@/components/CodeMirrorEditor";
 
 const NOTES_DIR = "notes";
 
@@ -65,24 +61,6 @@ export default function NoteScreen() {
   const originalIdRef = useRef<string>("");
   const originalTextRef = useRef<string>("");
   const originalTitleRef = useRef<string>("");
-  const [isScrolling, setIsScrolling] = useState(false);
-  const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const handleScrollBegin = () => {
-    if (scrollTimeoutRef.current) {
-      clearTimeout(scrollTimeoutRef.current);
-      scrollTimeoutRef.current = null;
-    }
-    setIsScrolling(true);
-  };
-
-  const handleScrollEnd = () => {
-    // Delay re-enabling input to prevent accidental focus
-    scrollTimeoutRef.current = setTimeout(() => {
-      setIsScrolling(false);
-    }, 150);
-  };
-
   useEffect(() => {
     loadNote();
   }, [id]);
@@ -190,28 +168,11 @@ export default function NoteScreen() {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
       keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
     >
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
-        keyboardDismissMode="on-drag"
-        keyboardShouldPersistTaps="handled"
-        onScrollBeginDrag={handleScrollBegin}
-        onScrollEndDrag={handleScrollEnd}
-        onMomentumScrollBegin={handleScrollBegin}
-        onMomentumScrollEnd={handleScrollEnd}
-      >
-        <MarkdownTextInput
-          value={text}
-          onChangeText={setText}
-          style={styles.input}
-          multiline
-          parser={parseExpensiMark}
-          placeholder="Start typing your note..."
-          autoFocus={id === "new"}
-          scrollEnabled={false}
-          pointerEvents={isScrolling ? "none" : "auto"}
-        />
-      </ScrollView>
+      <CodeMirrorEditor
+        value={text}
+        onChangeText={setText}
+        autoFocus={id === "new"}
+      />
     </KeyboardAvoidingView>
   );
 }
