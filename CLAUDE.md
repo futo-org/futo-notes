@@ -40,7 +40,7 @@ FUTO Notes is a React Native/Expo app (SDK 54) for offline-first markdown note-t
 - **Framework**: React Native 0.81.5 with Expo SDK 54
 - **Routing**: Expo Router (file-based, Stack navigation)
 - **State**: Zustand 5.0
-- **Editor**: @expensify/react-native-live-markdown
+- **Editor**: CodeMirror 6 in a WebView (with clipboard bridge via expo-clipboard)
 
 ### Key Design Decisions
 
@@ -61,6 +61,7 @@ lib/
 └── useSemanticSearch.ts # Simple keyword search hook
 
 components/
+├── CodeMirrorEditor.tsx # WebView-based CodeMirror 6 editor
 └── SearchBar.tsx        # Search input component
 ```
 

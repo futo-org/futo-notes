@@ -70,6 +70,7 @@ const styles = StyleSheet.create({
     marginRight: 6,
   },
   input: {
+    fontFamily: "IBMPlexSans-Regular",
     flex: 1,
     fontSize: 16,
     color: "#000",

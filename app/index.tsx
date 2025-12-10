@@ -27,7 +27,6 @@ function getNotesDirectory(): Directory {
   return notesDir;
 }
 
-
 /**
  * Extract preview text from note content (first ~100 chars)
  */
@@ -70,8 +69,7 @@ export default function NotesListScreen() {
       const contents = notesDir.list();
 
       const mdFiles = contents.filter(
-        (item): item is File =>
-          item instanceof File && item.uri.endsWith(".md")
+        (item): item is File => item instanceof File && item.uri.endsWith(".md")
       );
 
       const notePreviews: NotePreview[] = await Promise.all(
@@ -195,7 +193,10 @@ export default function NotesListScreen() {
         ListEmptyComponent={!searchQuery.trim() ? renderEmptyList : null}
         ItemSeparatorComponent={() => <View style={styles.separator} />}
       />
-      <Pressable style={[styles.fab, { bottom: 20 + insets.bottom }]} onPress={createNewNote}>
+      <Pressable
+        style={[styles.fab, { bottom: 20 + insets.bottom }]}
+        onPress={createNewNote}
+      >
         <Text style={styles.fabText}>+</Text>
       </Pressable>
     </View>
@@ -212,6 +213,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   noResultsText: {
+    fontFamily: "IBMPlexSans-Regular",
     fontSize: 15,
     color: "#8E8E93",
   },
@@ -219,11 +221,12 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   noteTitle: {
+    fontFamily: "IBMPlexSans-SemiBold",
     fontSize: 17,
-    fontWeight: "600",
     marginBottom: 4,
   },
   notePreview: {
+    fontFamily: "IBMPlexSans-Regular",
     fontSize: 15,
     color: "#666",
   },
@@ -241,11 +244,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   emptyText: {
+    fontFamily: "IBMPlexSans-SemiBold",
     fontSize: 18,
-    fontWeight: "600",
     color: "#666",
   },
   emptySubtext: {
+    fontFamily: "IBMPlexSans-Regular",
     fontSize: 14,
     color: "#999",
     marginTop: 8,
@@ -267,9 +271,9 @@ const styles = StyleSheet.create({
     elevation: 5,
   },
   fabText: {
+    fontFamily: "IBMPlexSans-Regular",
     fontSize: 28,
     color: "#fff",
-    fontWeight: "400",
     marginTop: -2,
   },
 });

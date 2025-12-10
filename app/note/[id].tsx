@@ -82,7 +82,10 @@ export default function NoteScreen() {
 
   // Only save if content or title has actually changed from original
   useEffect(() => {
-    if (isLoaded && (text !== originalTextRef.current || title !== originalTitleRef.current)) {
+    if (
+      isLoaded &&
+      (text !== originalTextRef.current || title !== originalTitleRef.current)
+    ) {
       saveNote();
     }
   }, [text, title, isLoaded]);
@@ -189,10 +192,10 @@ const styles = StyleSheet.create({
     flexGrow: 1,
   },
   headerTitleInput: {
+    fontFamily: "IBMPlexSans-SemiBold",
     fontSize: 17,
-    fontWeight: "600",
     minWidth: 200,
-    textAlign: "center",
+    textAlign: "left",
   },
   input: {
     flex: 1,

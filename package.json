@@ -12,14 +12,13 @@
     "postinstall": "patch-package"
   },
   "dependencies": {
-    "@expensify/react-native-live-markdown": "^0.1.315",
     "@expo/vector-icons": "^15.0.3",
     "@react-native-async-storage/async-storage": "^2.2.0",
     "@react-navigation/bottom-tabs": "^7.4.0",
     "@react-navigation/elements": "^2.6.3",
     "@react-navigation/native": "^7.1.8",
-    "expensify-common": "^2.0.166",
     "expo": "~54.0.25",
+    "expo-clipboard": "~8.0.8",
     "expo-constants": "~18.0.10",
     "expo-file-system": "~19.0.19",
     "expo-font": "~14.0.9",

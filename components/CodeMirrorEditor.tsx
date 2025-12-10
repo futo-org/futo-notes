@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useCallback } from "react";
 import { StyleSheet, Platform } from "react-native";
 import { WebView, WebViewMessageEvent } from "react-native-webview";
+import * as Clipboard from "expo-clipboard";
 
 interface CodeMirrorEditorProps {
   value: string;
@@ -14,6 +15,7 @@ const CODEMIRROR_HTML = `
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
   <style>
     * {
       box-sizing: border-box;
@@ -24,7 +26,7 @@ const CODEMIRROR_HTML = `
       width: 100%;
       height: 100%;
       background: #fff;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     }
     #editor {
       width: 100%;
@@ -75,7 +77,7 @@ const CODEMIRROR_HTML = `
         fontSize: "16px"
       },
       ".cm-scroller": {
-        fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+        fontFamily: "'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
         padding: "16px"
       },
       ".cm-content": {
@@ -100,6 +102,53 @@ const CODEMIRROR_HTML = `
       }
     });
 
+    // Clipboard handling - intercept copy/cut/paste
+    const clipboardHandler = EditorView.domEventHandlers({
+      copy(event, view) {
+        const selection = view.state.sliceDoc(
+          view.state.selection.main.from,
+          view.state.selection.main.to
+        );
+        if (selection) {
+          window.ReactNativeWebView.postMessage(JSON.stringify({
+            type: 'copy',
+            text: selection
+          }));
+        }
+        event.preventDefault();
+        return true;
+      },
+      cut(event, view) {
+        const selection = view.state.sliceDoc(
+          view.state.selection.main.from,
+          view.state.selection.main.to
+        );
+        if (selection) {
+          window.ReactNativeWebView.postMessage(JSON.stringify({
+            type: 'copy',
+            text: selection
+          }));
+          // Delete the selected text
+          view.dispatch({
+            changes: {
+              from: view.state.selection.main.from,
+              to: view.state.selection.main.to,
+              insert: ''
+            }
+          });
+        }
+        event.preventDefault();
+        return true;
+      },
+      paste(event, view) {
+        event.preventDefault();
+        window.ReactNativeWebView.postMessage(JSON.stringify({
+          type: 'paste'
+        }));
+        return true;
+      }
+    });
+
     // Initialize editor
     function initEditor(initialContent = '') {
       // Clear loading message
@@ -112,6 +161,7 @@ const CODEMIRROR_HTML = `
           markdown(),
           cleanTheme,
           updateListener,
+          clipboardHandler,
           EditorView.lineWrapping
         ],
         parent: document.getElementById('editor')
@@ -135,6 +185,16 @@ const CODEMIRROR_HTML = `
       isUpdatingFromRN = false;
     }
 
+    // Insert text at cursor (for paste)
+    function insertAtCursor(text) {
+      if (!view) return;
+      const { from, to } = view.state.selection.main;
+      view.dispatch({
+        changes: { from, to, insert: text },
+        selection: { anchor: from + text.length }
+      });
+    }
+
     // Handle messages from React Native
     window.handleRNMessage = function(message) {
       try {
@@ -144,6 +204,8 @@ const CODEMIRROR_HTML = `
           setContent(data.content || '');
         } else if (data.type === 'focus' && view) {
           view.focus();
+        } else if (data.type === 'pasteContent') {
+          insertAtCursor(data.text || '');
         }
       } catch (e) {
         console.error('Error handling RN message:', e);
@@ -188,7 +250,7 @@ export default function CodeMirrorEditor({
 
   // Handle messages from WebView
   const handleMessage = useCallback(
-    (event: WebViewMessageEvent) => {
+    async (event: WebViewMessageEvent) => {
       try {
         const data = JSON.parse(event.nativeEvent.data);
 
@@ -209,6 +271,13 @@ export default function CodeMirrorEditor({
             lastSentValueRef.current = data.content;
             onChangeTextRef.current(data.content);
           }
+        } else if (data.type === "copy") {
+          // Copy to system clipboard
+          await Clipboard.setStringAsync(data.text);
+        } else if (data.type === "paste") {
+          // Get from system clipboard and send to WebView
+          const text = await Clipboard.getStringAsync();
+          sendMessage({ type: "pasteContent", text });
         }
       } catch (e) {
         console.error("Error parsing WebView message:", e);
@@ -241,6 +310,9 @@ export default function CodeMirrorEditor({
       allowsInlineMediaPlayback={true}
       mixedContentMode="compatibility"
       androidLayerType={Platform.OS === "android" ? "hardware" : undefined}
+      allowFileAccess={true}
+      allowUniversalAccessFromFileURLs={true}
+      textInteractionEnabled={true}
     />
   );
 }
