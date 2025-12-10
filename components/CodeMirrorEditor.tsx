@@ -166,6 +166,15 @@ const CODEMIRROR_HTML = `
         ],
         parent: document.getElementById('editor')
       });
+
+      // Enable iOS keyboard features (autocorrect, autocomplete, spellcheck)
+      const contentEditable = view.contentDOM;
+      if (contentEditable) {
+        contentEditable.setAttribute('autocorrect', 'on');
+        contentEditable.setAttribute('autocomplete', 'on');
+        contentEditable.setAttribute('autocapitalize', 'sentences');
+        contentEditable.setAttribute('spellcheck', 'true');
+      }
     }
 
     // Set content without re-creating editor
@@ -306,7 +315,7 @@ export default function CodeMirrorEditor({
       scrollEnabled={true}
       showsVerticalScrollIndicator={true}
       keyboardDisplayRequiresUserAction={false}
-      hideKeyboardAccessoryView={false}
+      hideKeyboardAccessoryView={true}
       allowsInlineMediaPlayback={true}
       mixedContentMode="compatibility"
       androidLayerType={Platform.OS === "android" ? "hardware" : undefined}

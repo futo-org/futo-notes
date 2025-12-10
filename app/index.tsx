@@ -55,15 +55,7 @@ export default function NotesListScreen() {
 
   const { search, isSearching } = useSemanticSearch();
 
-  // Reload notes from filesystem when screen comes into focus
-  // This syncs filesystem -> store (handles external changes, first load, etc.)
-  useFocusEffect(
-    useCallback(() => {
-      loadNotes();
-    }, [])
-  );
-
-  const loadNotes = async () => {
+  const loadNotes = useCallback(async () => {
     try {
       const notesDir = getNotesDirectory();
       const contents = notesDir.list();
@@ -94,7 +86,15 @@ export default function NotesListScreen() {
     } catch (error) {
       console.error("Error loading notes:", error);
     }
-  };
+  }, [setNotes]);
+
+  // Reload notes from filesystem when screen comes into focus
+  // This syncs filesystem -> store (handles external changes, first load, etc.)
+  useFocusEffect(
+    useCallback(() => {
+      loadNotes();
+    }, [loadNotes])
+  );
 
   const openNote = (id: string) => {
     router.push(`/note/${encodeURIComponent(id)}`);

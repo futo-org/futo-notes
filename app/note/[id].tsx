@@ -61,9 +61,11 @@ export default function NoteScreen() {
   const originalIdRef = useRef<string>("");
   const originalTextRef = useRef<string>("");
   const originalTitleRef = useRef<string>("");
+  const titleDebounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+
   useEffect(() => {
     loadNote();
-  }, [id]);
+  }, [id, loadNote]);
 
   // Update the header with editable title
   useEffect(() => {
@@ -80,15 +82,34 @@ export default function NoteScreen() {
     });
   }, [title, navigation]);
 
-  // Only save if content or title has actually changed from original
+  // Save text changes immediately (but only if text changed)
   useEffect(() => {
-    if (
-      isLoaded &&
-      (text !== originalTextRef.current || title !== originalTitleRef.current)
-    ) {
+    if (isLoaded && text !== originalTextRef.current) {
       saveNote();
     }
-  }, [text, title, isLoaded]);
+  }, [text, isLoaded, saveNote]);
+
+  // Debounce title changes to avoid rapid saves
+  useEffect(() => {
+    if (isLoaded && title !== originalTitleRef.current) {
+      // Clear any existing timer
+      if (titleDebounceTimerRef.current) {
+        clearTimeout(titleDebounceTimerRef.current);
+      }
+
+      // Set a new timer to save after 500ms of inactivity
+      titleDebounceTimerRef.current = setTimeout(() => {
+        saveNote();
+      }, 500);
+    }
+
+    // Cleanup timer on unmount
+    return () => {
+      if (titleDebounceTimerRef.current) {
+        clearTimeout(titleDebounceTimerRef.current);
+      }
+    };
+  }, [title, isLoaded, saveNote]);
 
   const loadNote = useCallback(async () => {
     try {
