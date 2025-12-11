@@ -1,15 +1,9 @@
 import { Directory, File, Paths } from "expo-file-system";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useMemo, useRef, useState } from "react";
-import {
-  FlatList,
-  Pressable,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { FlashList } from "@shopify/flash-list";
 import { SearchBar } from "@/components/SearchBar";
 import { NotePreview, useNotesStore } from "@/lib/notesStore";
 import { useSemanticSearch, SearchResult } from "@/lib/useSemanticSearch";
@@ -43,13 +37,14 @@ const SEARCH_DEBOUNCE_MS = 300;
 export default function NotesListScreen() {
   const notes = useNotesStore((state) => state.notes);
   const setNotes = useNotesStore((state) => state.setNotes);
+  const storeDeleteNote = useNotesStore((state) => state.deleteNote);
   const searchQuery = useNotesStore((state) => state.searchQuery);
   const setSearchQuery = useNotesStore((state) => state.setSearchQuery);
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
   const [searchResults, setSearchResults] = useState<SearchResult[] | null>(
-    null
+    null,
   );
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -61,7 +56,8 @@ export default function NotesListScreen() {
       const contents = notesDir.list();
 
       const mdFiles = contents.filter(
-        (item): item is File => item instanceof File && item.uri.endsWith(".md")
+        (item): item is File =>
+          item instanceof File && item.uri.endsWith(".md"),
       );
 
       const notePreviews: NotePreview[] = await Promise.all(
@@ -77,7 +73,7 @@ export default function NotesListScreen() {
             preview: getPreviewText(content),
             modificationTime: file.modificationTime ?? 0,
           };
-        })
+        }),
       );
 
       // Sort by modification time (most recent first)
@@ -93,12 +89,28 @@ export default function NotesListScreen() {
   useFocusEffect(
     useCallback(() => {
       loadNotes();
-    }, [loadNotes])
+    }, [loadNotes]),
   );
 
   const openNote = (id: string) => {
     router.push(`/note/${encodeURIComponent(id)}`);
   };
+
+  const deleteNote = useCallback(
+    (id: string) => {
+      try {
+        const notesDir = getNotesDirectory();
+        const file = new File(notesDir, `${encodeURIComponent(id)}.md`);
+        if (file.exists) {
+          file.delete();
+        }
+        storeDeleteNote(id);
+      } catch (error) {
+        console.error("Error deleting note:", error);
+      }
+    },
+    [storeDeleteNote],
+  );
 
   const createNewNote = () => {
     router.push("/note/new");
@@ -123,7 +135,7 @@ export default function NotesListScreen() {
         setSearchResults(results);
       }, SEARCH_DEBOUNCE_MS);
     },
-    [search, setSearchQuery]
+    [search, setSearchQuery],
   );
 
   const handleClearSearch = useCallback(() => {
@@ -151,14 +163,14 @@ export default function NotesListScreen() {
   }, [notes, searchResults, searchQuery]);
 
   const renderNoteItem = ({ item }: { item: NotePreview }) => (
-    <TouchableOpacity style={styles.noteItem} onPress={() => openNote(item.id)}>
+    <Pressable style={styles.noteItem} onPress={() => openNote(item.id)}>
       <Text style={styles.noteTitle} numberOfLines={1}>
         {item.title}
       </Text>
       <Text style={styles.notePreview} numberOfLines={2}>
         {item.preview}
       </Text>
-    </TouchableOpacity>
+    </Pressable>
   );
 
   const renderEmptyList = () => (
@@ -181,10 +193,11 @@ export default function NotesListScreen() {
           <Text style={styles.noResultsText}>No matching notes found</Text>
         </View>
       )}
-      <FlatList
+      <FlashList
         data={displayedNotes}
         keyExtractor={(item) => item.id}
         renderItem={renderNoteItem}
+        estimatedItemSize={80}
         contentContainerStyle={
           displayedNotes.length === 0 && !searchQuery.trim()
             ? styles.emptyList
@@ -219,6 +232,7 @@ const styles = StyleSheet.create({
   },
   noteItem: {
     padding: 16,
+    backgroundColor: "#fff",
   },
   noteTitle: {
     fontFamily: "IBMPlexSans-SemiBold",

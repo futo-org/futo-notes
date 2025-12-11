@@ -6,6 +6,7 @@ import {
   Platform,
   StyleSheet,
   TextInput,
+  TextInput as TextInputType,
 } from "react-native";
 import { useNotesStore } from "@/lib/notesStore";
 import CodeMirrorEditor from "@/components/CodeMirrorEditor";
@@ -62,25 +63,42 @@ export default function NoteScreen() {
   const originalTextRef = useRef<string>("");
   const originalTitleRef = useRef<string>("");
   const titleDebounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const titleInputRef = useRef<TextInputType>(null);
+  const setTitleRef = useRef(setTitle);
 
   useEffect(() => {
     loadNote();
   }, [id, loadNote]);
 
-  // Update the header with editable title
+  // Keep setTitleRef in sync
+  useEffect(() => {
+    setTitleRef.current = setTitle;
+  }, [setTitle]);
+
+  // Set up the header with editable title - only once to avoid cursor issues
   useEffect(() => {
     navigation.setOptions({
       headerTitle: () => (
         <TextInput
+          ref={titleInputRef}
           style={styles.headerTitleInput}
-          value={title}
-          onChangeText={setTitle}
+          defaultValue=""
+          onChangeText={(text) => setTitleRef.current(text)}
           selectTextOnFocus
           placeholder="Untitled"
         />
       ),
     });
-  }, [title, navigation]);
+  }, [navigation]);
+
+  // Set initial title in input after note is loaded (handles timing with ref setup)
+  // We intentionally omit `title` from deps - we only want to set the initial value once
+  useEffect(() => {
+    if (isLoaded && titleInputRef.current) {
+      titleInputRef.current.setNativeProps({ text: title });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoaded]);
 
   // Save text changes immediately (but only if text changed)
   useEffect(() => {

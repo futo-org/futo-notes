@@ -18,6 +18,7 @@ interface NotesStore {
   searchResults: SearchResult[] | null;
   setNotes: (notes: NotePreview[]) => void;
   updateNote: (oldId: string, newId: string, content: string) => void;
+  deleteNote: (id: string) => void;
   setSearchQuery: (query: string) => void;
   setSearchResults: (results: SearchResult[] | null) => void;
 }
@@ -58,6 +59,11 @@ export const useNotesStore = create<NotesStore>((set) => ({
       // Put updated note at the top
       return { notes: [updatedNote, ...filtered] };
     }),
+
+  deleteNote: (id) =>
+    set((state) => ({
+      notes: state.notes.filter((n) => n.id !== id),
+    })),
 
   setSearchQuery: (query) => set({ searchQuery: query }),
 
