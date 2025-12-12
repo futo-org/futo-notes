@@ -58,7 +58,7 @@ app/
 
 lib/
 ├── notesStore.ts        # Zustand store (notes, search state)
-└── useSemanticSearch.ts # Simple keyword search hook
+└── useSearch.ts # Simple keyword search hook
 
 components/
 ├── CodeMirrorEditor.tsx # WebView-based CodeMirror 6 editor
@@ -74,3 +74,26 @@ components/
 ### Path Alias
 
 `@/*` maps to project root (configured in `tsconfig.json`).
+
+### Conventions
+
+Use `interface` for object shapes.
+
+## Load Testing with Fake Notes (Android)
+
+To import large numbers of test notes into the Android emulator:
+
+```bash
+# 1. Push notes to /data/local/tmp (world-readable, bypasses scoped storage)
+adb push /path/to/fake-notes/. /data/local/tmp/fake-notes/
+
+# 2. Long-press the + FAB in the app to trigger import
+#    (uses importTestNotes() in app/index.tsx)
+```
+
+**Why `/data/local/tmp`?**
+- Android scoped storage blocks apps from reading `/sdcard/Download` contents
+- `/data/local/tmp` is world-readable, no permissions needed
+- App can list and read files from this location
+
+**Note**: The `importTestNotes()` function in `app/index.tsx` is debug code that should be removed before release.

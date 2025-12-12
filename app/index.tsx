@@ -6,7 +6,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { FlashList } from "@shopify/flash-list";
 import { SearchBar } from "@/components/SearchBar";
 import { NotePreview, useNotesStore } from "@/lib/notesStore";
-import { useSemanticSearch, SearchResult } from "@/lib/useSemanticSearch";
+import { useSearch, SearchResult } from "@/lib/useSearch";
 
 const NOTES_DIR = "notes";
 
@@ -19,6 +19,54 @@ function getNotesDirectory(): Directory {
     notesDir.create();
   }
   return notesDir;
+}
+
+/**
+ * DEBUG: Import test notes from /sdcard/Download/fake-notes
+ */
+async function importTestNotes(): Promise<number> {
+  // Try different path formats
+  const paths = [
+    "file:///data/local/tmp/fake-notes",
+    "/data/local/tmp/fake-notes",
+  ];
+
+  let source: Directory | null = null;
+  for (const p of paths) {
+    const dir = new Directory(p);
+    if (dir.exists) {
+      source = dir;
+      break;
+    }
+  }
+
+  const dest = getNotesDirectory();
+
+  if (!source) {
+    console.log("Source directory not found. Push notes with: adb push /path/to/notes/. /data/local/tmp/fake-notes/");
+    return 0;
+  }
+
+  const items = source.list();
+  let count = 0;
+
+  for (const item of items) {
+    if (item instanceof File && item.uri.endsWith(".md")) {
+      try {
+        const content = await item.text();
+        const filename = item.uri.split("/").pop()!;
+        const newFile = new File(dest, filename);
+        newFile.write(content);
+        count++;
+        if (count % 500 === 0) console.log(`Imported ${count} notes...`);
+      } catch (e) {
+        console.error("Failed to import:", item.uri, e);
+      }
+    }
+  }
+
+  console.log(`Import complete: ${count} notes`);
+  return count;
 }
 
 /**
@@ -44,11 +92,11 @@ export default function NotesListScreen() {
   const insets = useSafeAreaInsets();
 
   const [searchResults, setSearchResults] = useState<SearchResult[] | null>(
-    null,
+    null
   );
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const { search, isSearching } = useSemanticSearch();
+  const { search, isSearching } = useSearch();
 
   const loadNotes = useCallback(async () => {
     try {
@@ -56,8 +104,7 @@ export default function NotesListScreen() {
       const contents = notesDir.list();
 
       const mdFiles = contents.filter(
-        (item): item is File =>
-          item instanceof File && item.uri.endsWith(".md"),
+        (item): item is File => item instanceof File && item.uri.endsWith(".md")
       );
 
       const notePreviews: NotePreview[] = await Promise.all(
@@ -73,7 +120,7 @@ export default function NotesListScreen() {
             preview: getPreviewText(content),
             modificationTime: file.modificationTime ?? 0,
           };
-        }),
+        })
       );
 
       // Sort by modification time (most recent first)
@@ -89,7 +136,7 @@ export default function NotesListScreen() {
   useFocusEffect(
     useCallback(() => {
       loadNotes();
-    }, [loadNotes]),
+    }, [loadNotes])
   );
 
   const openNote = (id: string) => {
@@ -109,7 +156,7 @@ export default function NotesListScreen() {
         console.error("Error deleting note:", error);
       }
     },
-    [storeDeleteNote],
+    [storeDeleteNote]
   );
 
   const createNewNote = () => {
@@ -135,7 +182,7 @@ export default function NotesListScreen() {
         setSearchResults(results);
       }, SEARCH_DEBOUNCE_MS);
     },
-    [search, setSearchQuery],
+    [search, setSearchQuery]
   );
 
   const handleClearSearch = useCallback(() => {
@@ -209,6 +256,12 @@ export default function NotesListScreen() {
       <Pressable
         style={[styles.fab, { bottom: 20 + insets.bottom }]}
         onPress={createNewNote}
+        onLongPress={async () => {
+          console.log("Starting import...");
+          const count = await importTestNotes();
+          console.log(`Imported ${count} notes, reloading...`);
+          loadNotes();
+        }}
       >
         <Text style={styles.fabText}>+</Text>
       </Pressable>
