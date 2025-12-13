@@ -1,4 +1,6 @@
 import { create } from "zustand";
+import MiniSearch from "minisearch";
+import type { NoteDocument } from "./notesLoader";
 
 export interface NotePreview {
   id: string;
@@ -14,51 +16,25 @@ export interface SearchResult {
 
 interface NotesStore {
   notes: NotePreview[];
+  searchIndex: MiniSearch<NoteDocument> | null;
   searchQuery: string;
   searchResults: SearchResult[] | null;
   setNotes: (notes: NotePreview[]) => void;
-  updateNote: (oldId: string, newId: string, content: string) => void;
+  setSearchIndex: (index: MiniSearch<NoteDocument>) => void;
   deleteNote: (id: string) => void;
   setSearchQuery: (query: string) => void;
   setSearchResults: (results: SearchResult[] | null) => void;
 }
 
-/**
- * Extract preview text from note content (first ~100 chars)
- */
-function getPreviewText(content: string): string {
-  const preview = content.replace(/\s+/g, " ").trim();
-  if (preview.length > 100) {
-    return preview.slice(0, 100) + "...";
-  }
-  return preview || "No content";
-}
-
 export const useNotesStore = create<NotesStore>((set) => ({
   notes: [],
+  searchIndex: null,
   searchQuery: "",
   searchResults: null,
 
   setNotes: (notes) => set({ notes }),
 
-  updateNote: (oldId, newId, content) =>
-    set((state) => {
-      // Remove old entry (and new entry if it exists to avoid duplicates)
-      const filtered = state.notes.filter(
-        (n) => n.id !== oldId && n.id !== newId
-      );
-
-      // Create updated note preview
-      const updatedNote: NotePreview = {
-        id: newId,
-        title: newId,
-        preview: getPreviewText(content),
-        modificationTime: Date.now(),
-      };
-
-      // Put updated note at the top
-      return { notes: [updatedNote, ...filtered] };
-    }),
+  setSearchIndex: (index) => set({ searchIndex: index }),
 
   deleteNote: (id) =>
     set((state) => ({

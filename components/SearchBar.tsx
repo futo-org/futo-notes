@@ -11,7 +11,7 @@ interface SearchBarProps {
   value: string;
   onChangeText: (text: string) => void;
   onClear: () => void;
-  isSearching: boolean;
+  isSearching?: boolean;
   placeholder?: string;
 }
 

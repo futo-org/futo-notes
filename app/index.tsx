@@ -1,5 +1,5 @@
 import { Directory, File, Paths } from "expo-file-system";
-import { useFocusEffect, useRouter } from "expo-router";
+import { useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -7,6 +7,7 @@ import { FlashList } from "@shopify/flash-list";
 import { SearchBar } from "@/components/SearchBar";
 import { NotePreview, useNotesStore } from "@/lib/notesStore";
 import { useSearch, SearchResult } from "@/lib/useSearch";
+import { loadNotesWithIndex, removeNoteFromIndex } from "@/lib/notesLoader";
 
 const NOTES_DIR = "notes";
 
@@ -25,7 +26,6 @@ function getNotesDirectory(): Directory {
  * DEBUG: Import test notes from /sdcard/Download/fake-notes
  */
 async function importTestNotes(): Promise<number> {
-  // Try different path formats
   const paths = [
     "file:///data/local/tmp/fake-notes",
     "/data/local/tmp/fake-notes",
@@ -44,7 +44,7 @@ async function importTestNotes(): Promise<number> {
 
   if (!source) {
     console.log(
-      "Source directory not found. Push notes with: adb push /path/to/notes/. /data/local/tmp/fake-notes/"
+      "Source directory not found. Push notes with: adb push /path/to/notes/. /data/local/tmp/fake-notes/",
     );
     return 0;
   }
@@ -71,22 +71,13 @@ async function importTestNotes(): Promise<number> {
   return count;
 }
 
-/**
- * Extract preview text from note content (first ~100 chars)
- */
-function getPreviewText(content: string): string {
-  const preview = content.replace(/\s+/g, " ").trim();
-  if (preview.length > 100) {
-    return preview.slice(0, 100) + "...";
-  }
-  return preview || "No content";
-}
-
 const SEARCH_DEBOUNCE_MS = 300;
 
 export default function NotesListScreen() {
   const notes = useNotesStore((state) => state.notes);
   const setNotes = useNotesStore((state) => state.setNotes);
+  const searchIndex = useNotesStore((state) => state.searchIndex);
+  const setSearchIndex = useNotesStore((state) => state.setSearchIndex);
   const storeDeleteNote = useNotesStore((state) => state.deleteNote);
   const searchQuery = useNotesStore((state) => state.searchQuery);
   const setSearchQuery = useNotesStore((state) => state.setSearchQuery);
@@ -94,52 +85,29 @@ export default function NotesListScreen() {
   const insets = useSafeAreaInsets();
 
   const [searchResults, setSearchResults] = useState<SearchResult[] | null>(
-    null
+    null,
   );
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const { search, isSearching } = useSearch();
+  const { search } = useSearch();
 
   const loadNotes = useCallback(async () => {
     try {
-      const notesDir = getNotesDirectory();
-      const contents = notesDir.list();
-
-      const mdFiles = contents.filter(
-        (item): item is File => item instanceof File && item.uri.endsWith(".md")
-      );
-
-      const notePreviews: NotePreview[] = await Promise.all(
-        mdFiles.map(async (file) => {
-          const content = await file.text();
-          const filename = file.uri.split("/").pop() || "";
-          // Decode URL-encoded characters (e.g., %20 -> space)
-          const id = decodeURIComponent(filename.replace(/\.md$/, ""));
-
-          return {
-            id,
-            title: id,
-            preview: getPreviewText(content),
-            modificationTime: file.modificationTime ?? 0,
-          };
-        })
-      );
-
-      // Sort by modification time (most recent first)
-      notePreviews.sort((a, b) => b.modificationTime - a.modificationTime);
-      setNotes(notePreviews);
+      const { previews, searchIndex: index } = await loadNotesWithIndex();
+      setNotes(previews);
+      setSearchIndex(index);
     } catch (error) {
       console.error("Error loading notes:", error);
     }
-  }, [setNotes]);
+  }, [setNotes, setSearchIndex]);
 
-  // Reload notes from filesystem when screen comes into focus
-  // This syncs filesystem -> store (handles external changes, first load, etc.)
+  // Load notes and search index on mount
   useEffect(() => {
-    if (notes.length === 0) {
+    if (notes.length === 0 && !searchIndex) {
       loadNotes();
     }
-  }, [loadNotes]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const openNote = (id: string) => {
     router.push(`/note/${encodeURIComponent(id)}`);
@@ -153,19 +121,26 @@ export default function NotesListScreen() {
         if (file.exists) {
           file.delete();
         }
-        storeDeleteNote(id);
+
+        // Update search index
+        if (searchIndex) {
+          const updatedPreviews = removeNoteFromIndex(searchIndex, id, notes);
+          setNotes(updatedPreviews);
+        } else {
+          storeDeleteNote(id);
+        }
       } catch (error) {
         console.error("Error deleting note:", error);
       }
     },
-    [storeDeleteNote]
+    [storeDeleteNote, searchIndex, notes, setNotes],
   );
 
   const createNewNote = () => {
     router.push("/note/new");
   };
 
-  // Debounced search
+  // Debounced search - now synchronous since index is pre-built
   const handleSearchChange = useCallback(
     (query: string) => {
       setSearchQuery(query);
@@ -179,12 +154,12 @@ export default function NotesListScreen() {
         return;
       }
 
-      searchTimeoutRef.current = setTimeout(async () => {
-        const results = await search(query);
+      searchTimeoutRef.current = setTimeout(() => {
+        const results = search(query);
         setSearchResults(results);
       }, SEARCH_DEBOUNCE_MS);
     },
-    [search, setSearchQuery]
+    [search, setSearchQuery],
   );
 
   const handleClearSearch = useCallback(() => {
@@ -235,9 +210,8 @@ export default function NotesListScreen() {
         value={searchQuery}
         onChangeText={handleSearchChange}
         onClear={handleClearSearch}
-        isSearching={isSearching}
       />
-      {searchQuery.trim() && searchResults?.length === 0 && !isSearching && (
+      {searchQuery.trim() && searchResults?.length === 0 && (
         <View style={styles.noResults}>
           <Text style={styles.noResultsText}>No matching notes found</Text>
         </View>
@@ -246,7 +220,6 @@ export default function NotesListScreen() {
         data={displayedNotes}
         keyExtractor={(item) => item.id}
         renderItem={renderNoteItem}
-        estimatedItemSize={80}
         contentContainerStyle={
           displayedNotes.length === 0 && !searchQuery.trim()
             ? styles.emptyList

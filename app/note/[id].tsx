@@ -9,6 +9,7 @@ import {
   TextInput as TextInputType,
 } from "react-native";
 import { useNotesStore } from "@/lib/notesStore";
+import { renameNoteInIndex, updateNoteInIndex } from "@/lib/notesLoader";
 import CodeMirrorEditor from "@/components/CodeMirrorEditor";
 
 const NOTES_DIR = "notes";
@@ -54,7 +55,9 @@ function getNotesDirectory(): Directory {
 export default function NoteScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const navigation = useNavigation();
-  const updateNote = useNotesStore((state) => state.updateNote);
+  const notes = useNotesStore((state) => state.notes);
+  const setNotes = useNotesStore((state) => state.setNotes);
+  const searchIndex = useNotesStore((state) => state.searchIndex);
   const [text, setText] = useState("");
   const [title, setTitle] = useState("");
   const [isLoaded, setIsLoaded] = useState(false);
@@ -62,72 +65,16 @@ export default function NoteScreen() {
   const originalIdRef = useRef<string>("");
   const originalTextRef = useRef<string>("");
   const originalTitleRef = useRef<string>("");
-  const titleDebounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const titleDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const titleInputRef = useRef<TextInputType>(null);
   const setTitleRef = useRef(setTitle);
-
-  useEffect(() => {
-    loadNote();
-  }, [id, loadNote]);
 
   // Keep setTitleRef in sync
   useEffect(() => {
     setTitleRef.current = setTitle;
   }, [setTitle]);
-
-  // Set up the header with editable title - only once to avoid cursor issues
-  useEffect(() => {
-    navigation.setOptions({
-      headerTitle: () => (
-        <TextInput
-          ref={titleInputRef}
-          style={styles.headerTitleInput}
-          defaultValue=""
-          onChangeText={(text) => setTitleRef.current(text)}
-          selectTextOnFocus
-          placeholder="Untitled"
-        />
-      ),
-    });
-  }, [navigation]);
-
-  // Set initial title in input after note is loaded (handles timing with ref setup)
-  // We intentionally omit `title` from deps - we only want to set the initial value once
-  useEffect(() => {
-    if (isLoaded && titleInputRef.current) {
-      titleInputRef.current.setNativeProps({ text: title });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLoaded]);
-
-  // Save text changes immediately (but only if text changed)
-  useEffect(() => {
-    if (isLoaded && text !== originalTextRef.current) {
-      saveNote();
-    }
-  }, [text, isLoaded, saveNote]);
-
-  // Debounce title changes to avoid rapid saves
-  useEffect(() => {
-    if (isLoaded && title !== originalTitleRef.current) {
-      // Clear any existing timer
-      if (titleDebounceTimerRef.current) {
-        clearTimeout(titleDebounceTimerRef.current);
-      }
-
-      // Set a new timer to save after 500ms of inactivity
-      titleDebounceTimerRef.current = setTimeout(() => {
-        saveNote();
-      }, 500);
-    }
-
-    // Cleanup timer on unmount
-    return () => {
-      if (titleDebounceTimerRef.current) {
-        clearTimeout(titleDebounceTimerRef.current);
-      }
-    };
-  }, [title, isLoaded, saveNote]);
 
   const loadNote = useCallback(async () => {
     try {
@@ -192,8 +139,31 @@ export default function NoteScreen() {
       newFile.write(text);
       currentFileRef.current = newFile;
 
-      // Optimistically update the store so the list shows changes immediately
-      updateNote(oldId, newId, text);
+      const modificationTime = Date.now();
+
+      // Update search index and store
+      if (searchIndex) {
+        let updatedPreviews;
+        if (isRename && oldId !== newId) {
+          updatedPreviews = renameNoteInIndex(
+            searchIndex,
+            oldId,
+            newId,
+            text,
+            modificationTime,
+            notes,
+          );
+        } else {
+          updatedPreviews = updateNoteInIndex(
+            searchIndex,
+            newId,
+            text,
+            modificationTime,
+            notes,
+          );
+        }
+        setNotes(updatedPreviews);
+      }
 
       // Update refs so we don't re-save unchanged content
       originalIdRef.current = newId;
@@ -202,7 +172,66 @@ export default function NoteScreen() {
     } catch (error) {
       console.error("Error saving note:", error);
     }
-  }, [text, title, updateNote]);
+  }, [text, title, searchIndex, notes, setNotes]);
+
+  // Load note on mount
+  useEffect(() => {
+    loadNote();
+  }, [id, loadNote]);
+
+  // Set up the header with editable title - only once to avoid cursor issues
+  useEffect(() => {
+    navigation.setOptions({
+      headerTitle: () => (
+        <TextInput
+          ref={titleInputRef}
+          style={styles.headerTitleInput}
+          defaultValue=""
+          onChangeText={(text) => setTitleRef.current(text)}
+          selectTextOnFocus
+          placeholder="Untitled"
+        />
+      ),
+    });
+  }, [navigation]);
+
+  // Set initial title in input after note is loaded (handles timing with ref setup)
+  // We intentionally omit `title` from deps - we only want to set the initial value once
+  useEffect(() => {
+    if (isLoaded && titleInputRef.current) {
+      titleInputRef.current.setNativeProps({ text: title });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoaded]);
+
+  // Save text changes immediately (but only if text changed)
+  useEffect(() => {
+    if (isLoaded && text !== originalTextRef.current) {
+      saveNote();
+    }
+  }, [text, isLoaded, saveNote]);
+
+  // Debounce title changes to avoid rapid saves
+  useEffect(() => {
+    if (isLoaded && title !== originalTitleRef.current) {
+      // Clear any existing timer
+      if (titleDebounceTimerRef.current) {
+        clearTimeout(titleDebounceTimerRef.current);
+      }
+
+      // Set a new timer to save after 500ms of inactivity
+      titleDebounceTimerRef.current = setTimeout(() => {
+        saveNote();
+      }, 500);
+    }
+
+    // Cleanup timer on unmount
+    return () => {
+      if (titleDebounceTimerRef.current) {
+        clearTimeout(titleDebounceTimerRef.current);
+      }
+    };
+  }, [title, isLoaded, saveNote]);
 
   return (
     <KeyboardAvoidingView
