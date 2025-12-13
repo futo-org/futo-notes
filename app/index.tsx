@@ -1,6 +1,6 @@
 import { Directory, File, Paths } from "expo-file-system";
 import { useFocusEffect, useRouter } from "expo-router";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { FlashList } from "@shopify/flash-list";
@@ -43,7 +43,9 @@ async function importTestNotes(): Promise<number> {
   const dest = getNotesDirectory();
 
   if (!source) {
-    console.log("Source directory not found. Push notes with: adb push /path/to/notes/. /data/local/tmp/fake-notes/");
+    console.log(
+      "Source directory not found. Push notes with: adb push /path/to/notes/. /data/local/tmp/fake-notes/"
+    );
     return 0;
   }
 
@@ -133,11 +135,11 @@ export default function NotesListScreen() {
 
   // Reload notes from filesystem when screen comes into focus
   // This syncs filesystem -> store (handles external changes, first load, etc.)
-  useFocusEffect(
-    useCallback(() => {
+  useEffect(() => {
+    if (notes.length === 0) {
       loadNotes();
-    }, [loadNotes])
-  );
+    }
+  }, [loadNotes]);
 
   const openNote = (id: string) => {
     router.push(`/note/${encodeURIComponent(id)}`);

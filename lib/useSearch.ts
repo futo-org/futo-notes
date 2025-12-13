@@ -51,7 +51,6 @@ export function useSearch(): UseSearchReturn {
     });
 
     const notesDir = getNotesDirectory();
-    console.log(notesDir);
     if (!notesDir.exists) {
       miniSearchRef.current = miniSearch;
       lastIndexedRef.current = Date.now();
@@ -78,8 +77,6 @@ export function useSearch(): UseSearchReturn {
 
     miniSearchRef.current = miniSearch;
     lastIndexedRef.current = Date.now();
-    console.log("just built db");
-    console.log(miniSearch);
     return miniSearch;
   }, []);
 
@@ -92,7 +89,7 @@ export function useSearch(): UseSearchReturn {
       setIsSearching(true);
 
       try {
-        const isStale = Date.now() - lastIndexedRef.current > 5000;
+        const isStale = Date.now() - lastIndexedRef.current > 50000;
         const miniSearch =
           miniSearchRef.current && !isStale
             ? miniSearchRef.current
