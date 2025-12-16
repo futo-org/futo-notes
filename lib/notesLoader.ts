@@ -1,6 +1,6 @@
 import { Directory, File, Paths } from "expo-file-system";
 import MiniSearch from "minisearch";
-import { storage, STORAGE_KEYS } from "./storage";
+import { storage, STORAGE_KEYS, CURRENT_CACHE_VERSION } from "./storage";
 import { NotePreview } from "./notesStore";
 
 const NOTES_DIR = "notes";
@@ -80,6 +80,12 @@ function loadCachedData(): {
   previews: NotePreview[];
 } {
   try {
+    // Check cache version - invalidate if outdated
+    const cachedVersion = storage.getNumber(STORAGE_KEYS.CACHE_VERSION);
+    if (cachedVersion !== CURRENT_CACHE_VERSION) {
+      return { index: null, metadata: {}, previews: [] };
+    }
+
     const indexJson = storage.getString(STORAGE_KEYS.SEARCH_INDEX);
     const metadataJson = storage.getString(STORAGE_KEYS.INDEX_METADATA);
     const previewsJson = storage.getString(STORAGE_KEYS.NOTE_PREVIEWS);
@@ -115,6 +121,7 @@ function persistData(
     storage.set(STORAGE_KEYS.SEARCH_INDEX, JSON.stringify(index));
     storage.set(STORAGE_KEYS.INDEX_METADATA, JSON.stringify(metadata));
     storage.set(STORAGE_KEYS.NOTE_PREVIEWS, JSON.stringify(previews));
+    storage.set(STORAGE_KEYS.CACHE_VERSION, CURRENT_CACHE_VERSION);
   } catch (error) {
     console.error("Failed to persist data:", error);
   }

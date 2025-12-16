@@ -56,7 +56,9 @@ async function importTestNotes(): Promise<number> {
     if (item instanceof File && item.uri.endsWith(".md")) {
       try {
         const content = await item.text();
-        const filename = item.uri.split("/").pop()!;
+        const rawFilename = item.uri.split("/").pop()!;
+        // Decode URL-encoded filename (e.g., %20 → space)
+        const filename = decodeURIComponent(rawFilename);
         const newFile = new File(dest, filename);
         newFile.write(content);
         count++;
