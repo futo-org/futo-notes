@@ -40,13 +40,15 @@ FUTO Notes is a React Native/Expo app (SDK 54) for offline-first markdown note-t
 - **Framework**: React Native 0.81.5 with Expo SDK 54
 - **Routing**: Expo Router (file-based, Stack navigation)
 - **State**: Zustand 5.0
+- **Storage**: MMKV (react-native-mmkv) for caching search index and previews
+- **Search**: MiniSearch for full-text search with fuzzy matching
 - **Editor**: CodeMirror 6 in a WebView (with clipboard bridge via expo-clipboard)
 
 ### Key Design Decisions
 
 - **File-based storage**: Notes stored as `.md` files in `notes/` folder. No database, no frontmatter.
 - **Title = filename**: Title derived from first line, sanitized for filesystem (spaces preserved, special chars removed).
-- **Simple keyword search**: Text-based search using keyword matching.
+- **Cached search index**: MiniSearch index persisted to MMKV with incremental updates on startup.
 
 ### File Structure
 
@@ -58,7 +60,9 @@ app/
 
 lib/
 ├── notesStore.ts        # Zustand store (notes, search state)
-└── useSearch.ts # Simple keyword search hook
+├── notesLoader.ts       # Load notes with cached MiniSearch index
+├── storage.ts           # MMKV storage singleton
+└── useSearch.ts         # Search hook using MiniSearch
 
 components/
 ├── CodeMirrorEditor.tsx # WebView-based CodeMirror 6 editor
@@ -67,9 +71,9 @@ components/
 
 ### Data Flow
 
-1. **Startup**: Load notes from filesystem
-2. **Editing**: Text change → Auto-save to disk → Update store
-3. **Search**: Query → Debounce 300ms → Keyword match → Filter results
+1. **Startup**: Load cached index from MMKV → Diff against filesystem → Incremental update if needed
+2. **Editing**: Text change → Auto-save to disk → Update index in MMKV → Update store
+3. **Search**: Query → MiniSearch (fuzzy, prefix matching) → Return results
 
 ### Path Alias
 
