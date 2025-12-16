@@ -36,6 +36,9 @@ yarn-error.*
 # typescript
 *.tsbuildinfo
 
+# generated bundles
+lib/codemirror-bundle-string.ts
+
 app-example
 
 # generated native folders
