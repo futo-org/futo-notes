@@ -28,11 +28,13 @@ Transformation occurs when the cursor leaves the line containing the markdown el
 
 **Rationale:** These are block-level elements where the syntax characters are at the beginning of the line. Users typically finish typing the line content before moving on, making line-exit a natural trigger point.
 
-### Mode 2: Space-After-Close Transform
+### Mode 2: Inline Element Transform
 
-Transformation occurs when the user:
-1. Completes the closing syntax (e.g., `**`, `*`, `` ` ``, `)`)
-2. Presses the space bar
+Transformation occurs progressively as the user types:
+
+1. **Cursor inside element:** Raw syntax shown (for editing)
+2. **Cursor at end of element:** Styling applied, but markers remain visible (preview state)
+3. **Cursor moved away:** Full transformation (styling applied, markers hidden)
 
 **Applies to:**
 - Bold (`**text**` or `__text__`)
@@ -41,7 +43,7 @@ Transformation occurs when the user:
 - Inline code (`` `code` ``)
 - Links (`[text](url)`)
 
-**Rationale:** These are inline elements that appear mid-sentence. Waiting for line-exit would be disruptive since users often write multiple inline elements on the same line. The space character serves as a natural delimiter indicating the user has finished the element and is moving to the next word.
+**Rationale:** These are inline elements that appear mid-sentence. The progressive reveal allows users to see the styled result immediately after completing the syntax, while keeping markers visible until they continue typing. This provides visual feedback that the syntax is valid before fully hiding the markers.
 
 ## Supported Elements
 
@@ -49,12 +51,12 @@ Transformation occurs when the user:
 
 | Syntax | CSS Class | Styling |
 |--------|-----------|---------|
-| `# text` | `.cm-md-h1` | 1.8em, font-weight: 700 |
-| `## text` | `.cm-md-h2` | 1.5em, font-weight: 700 |
-| `### text` | `.cm-md-h3` | 1.25em, font-weight: 600 |
-| `#### text` | `.cm-md-h4` | 1.1em, font-weight: 600 |
-| `##### text` | `.cm-md-h5` | 1em, font-weight: 600 |
-| `###### text` | `.cm-md-h6` | 0.9em, font-weight: 600, color: #666 |
+| `# text` | `.cm-md-h1` | 1.8em |
+| `## text` | `.cm-md-h2` | 1.5em |
+| `### text` | `.cm-md-h3` | 1.25em |
+| `#### text` | `.cm-md-h4` | 1.1em |
+| `##### text` | `.cm-md-h5` | 1em |
+| `###### text` | `.cm-md-h6` | 0.9em, color: #666 |
 
 **Trigger:** Line-exit  
 **Behavior:** Header mark (`#` characters and trailing space) is hidden. Remaining content receives heading styling.
@@ -66,8 +68,8 @@ Transformation occurs when the user:
 | `**text**` | `.cm-md-strong` | font-weight: 700 |
 | `__text__` | `.cm-md-strong` | font-weight: 700 |
 
-**Trigger:** Space after closing `**` or `__`  
-**Behavior:** Opening and closing emphasis marks are hidden. Content between marks receives bold styling.
+**Trigger:** Inline element transform
+**Behavior:** Content between marks receives bold styling. Markers hidden when cursor moves away.
 
 ### Italic (Emphasis)
 
@@ -76,8 +78,8 @@ Transformation occurs when the user:
 | `*text*` | `.cm-md-emphasis` | font-style: italic |
 | `_text_` | `.cm-md-emphasis` | font-style: italic |
 
-**Trigger:** Space after closing `*` or `_`  
-**Behavior:** Opening and closing emphasis marks are hidden. Content between marks receives italic styling.
+**Trigger:** Inline element transform
+**Behavior:** Content between marks receives italic styling. Markers hidden when cursor moves away.
 
 ### Strikethrough
 
@@ -85,8 +87,8 @@ Transformation occurs when the user:
 |--------|-----------|---------|
 | `~~text~~` | `.cm-md-strikethrough` | text-decoration: line-through, color: #888 |
 
-**Trigger:** Space after closing `~~`  
-**Behavior:** Opening and closing strikethrough marks are hidden. Content between marks receives strikethrough styling.
+**Trigger:** Inline element transform
+**Behavior:** Content between marks receives strikethrough styling. Markers hidden when cursor moves away.
 
 ### Inline Code
 
@@ -94,8 +96,8 @@ Transformation occurs when the user:
 |--------|-----------|---------|
 | `` `code` `` | `.cm-md-code` | monospace font, background: #f4f4f4, padding, border-radius |
 
-**Trigger:** Space after closing `` ` ``  
-**Behavior:** Opening and closing backticks are hidden. Content between marks receives code styling (monospace font with subtle background).
+**Trigger:** Inline element transform
+**Behavior:** Content between marks receives code styling (monospace font with subtle background). Backticks hidden when cursor moves away.
 
 ### Links
 
@@ -103,8 +105,8 @@ Transformation occurs when the user:
 |--------|-----------|---------|
 | `[text](url)` | `.cm-md-link` | color: #007AFF, text-decoration: underline |
 
-**Trigger:** Space after closing `)`  
-**Behavior:** All link syntax is hidden (`[`, `]`, `(url)`). Only the link text remains visible with link styling.
+**Trigger:** Inline element transform
+**Behavior:** Link text receives link styling (blue, underlined). All syntax (`[`, `]`, `(url)`) hidden when cursor moves away.
 
 ### Blockquotes
 
@@ -159,14 +161,29 @@ code
 **Trigger:** Line-exit  
 **Behavior:** Entire syntax is replaced with a styled `<div>` widget rendering as a horizontal line.
 
-## Cursor Line Behavior
+## Cursor Behavior
 
-When the cursor is on a line containing transformed elements, the raw markdown syntax is revealed for editing. This applies to both trigger modes:
+### Block Elements (Line-Exit)
 
-- **Line-exit elements:** Raw syntax shown while cursor is anywhere on the line
-- **Space-after-close elements:** Raw syntax shown while cursor is within or immediately adjacent to the element
+Raw syntax shown while cursor is anywhere on the line. When cursor leaves the line, full transformation is applied.
 
-This ensures users can always see and edit the underlying markdown syntax when needed.
+### Inline Elements
+
+Three states based on cursor position:
+
+| Cursor Position | Styling | Markers |
+|-----------------|---------|---------|
+| Inside element (`**wo\|rd**`) | None | Visible |
+| At end of element (`**word**\|`) | Applied | Visible |
+| Moved away (`**word**X\|`) | Applied | Hidden |
+
+This progressive reveal provides immediate visual feedback when syntax is complete, while keeping markers visible until the user continues typing.
+
+**Example flow:**
+1. Type `**bold` — raw text, no transformation
+2. Type `**` — completes syntax, cursor at `**bold**|`, shows **bold** with visible `**`
+3. Type `,` — cursor at `**bold**,|`, shows **bold**, (markers hidden)
+4. Click inside "bold" — reveals `**bold**` for editing
 
 ## Implementation Notes
 
