@@ -83,6 +83,27 @@ components/
 
 Use `interface` for object shapes.
 
+### FlashList v2
+
+This project uses **FlashList v2** (`@shopify/flash-list`), which has significant API changes from v1:
+
+**Removed props (do NOT use):**
+- `estimatedItemSize` - v2 handles sizing automatically
+- `estimatedListSize`, `estimatedFirstItemOffset`
+- `inverted` - use `maintainVisibleContentPosition` + reversed data instead
+- `onBlankArea`, `disableHorizontalListHeightMeasurement`, `disableAutoLayout`
+
+**Key v2 features:**
+- `maintainVisibleContentPosition` is enabled by default
+- `masonry` prop for grid layouts with varying heights
+- `onStartReached` callback for loading older content
+
+**Still supported:**
+- `extraData` - use when renderItem depends on data outside the `data` prop (e.g., external state). Treat immutably.
+- `overrideItemLayout` - still works for span, but size estimates are ignored
+
+**Note:** FlashList v2 requires React Native's new architecture.
+
 ## Load Testing with Fake Notes (Android)
 
 To import large numbers of test notes into the Android emulator:

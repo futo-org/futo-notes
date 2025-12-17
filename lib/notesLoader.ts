@@ -304,11 +304,16 @@ export function updateNoteInIndex(
   }
 
   // Add new entry
-  index.add({
-    id: noteId,
-    noteId,
-    content,
-  });
+  try {
+    index.add({
+      id: noteId,
+      noteId,
+      content,
+    });
+  } catch (error) {
+    console.error(`Failed to add note "${noteId}" to index:`, error);
+    // Continue anyway - the file is saved, we just can't search it until next reload
+  }
 
   // Update previews
   const filteredPreviews = previews.filter((p) => p.id !== noteId);
@@ -356,11 +361,18 @@ export function renameNoteInIndex(
   }
 
   // Add new entry
-  index.add({
-    id: newNoteId,
-    noteId: newNoteId,
-    content,
-  });
+  try {
+    index.add({
+      id: newNoteId,
+      noteId: newNoteId,
+      content,
+    });
+  } catch (error) {
+    console.error(
+      `Failed to add renamed note "${newNoteId}" to index:`,
+      error,
+    );
+  }
 
   // Update previews
   const filteredPreviews = previews.filter(

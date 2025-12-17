@@ -2,8 +2,8 @@ import { Directory, File, Paths } from "expo-file-system";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { FlashList } from "@shopify/flash-list";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { SearchBar } from "@/components/SearchBar";
 import { NotePreview, useNotesStore } from "@/lib/notesStore";
 import { useSearch, SearchResult } from "@/lib/useSearch";
@@ -111,9 +111,12 @@ export default function NotesListScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const openNote = (id: string) => {
-    router.push(`/note/${encodeURIComponent(id)}`);
-  };
+  const openNote = useCallback(
+    (id: string) => {
+      router.push(`/note/${encodeURIComponent(id)}`);
+    },
+    [router],
+  );
 
   const deleteNote = useCallback(
     (id: string) => {
@@ -188,15 +191,18 @@ export default function NotesListScreen() {
       });
   }, [notes, searchResults, searchQuery]);
 
-  const renderNoteItem = ({ item }: { item: NotePreview }) => (
-    <Pressable style={styles.noteItem} onPress={() => openNote(item.id)}>
-      <Text style={styles.noteTitle} numberOfLines={1}>
-        {item.title}
-      </Text>
-      <Text style={styles.notePreview} numberOfLines={2}>
-        {item.preview}
-      </Text>
-    </Pressable>
+  const renderNoteItem = useCallback(
+    ({ item }: { item: NotePreview }) => (
+      <Pressable style={styles.noteItem} onPress={() => openNote(item.id)}>
+        <Text style={styles.noteTitle} numberOfLines={1}>
+          {item.title}
+        </Text>
+        <Text style={styles.notePreview} numberOfLines={2}>
+          {item.preview}
+        </Text>
+      </Pressable>
+    ),
+    [openNote],
   );
 
   const renderEmptyList = () => (
@@ -222,6 +228,9 @@ export default function NotesListScreen() {
         data={displayedNotes}
         keyExtractor={(item) => item.id}
         renderItem={renderNoteItem}
+        extraData={notes.length}
+        maintainVisibleContentPosition={{ disabled: true }}
+        drawDistance={500}
         contentContainerStyle={
           displayedNotes.length === 0 && !searchQuery.trim()
             ? styles.emptyList

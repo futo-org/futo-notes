@@ -117,7 +117,10 @@ export default function NoteScreen() {
   const saveNote = useCallback(async () => {
     try {
       const notesDir = getNotesDirectory();
-      const newId = sanitizeFilename(title);
+      // Use original title if current title is empty (prevents accidental renames)
+      const effectiveTitle =
+        title.trim() || originalTitleRef.current || "Untitled";
+      const newId = sanitizeFilename(effectiveTitle);
       const filename = newId + ".md";
       const newFile = new File(notesDir, filename);
 
@@ -195,14 +198,13 @@ export default function NoteScreen() {
     });
   }, [navigation]);
 
-  // Set initial title in input after note is loaded (handles timing with ref setup)
-  // We intentionally omit `title` from deps - we only want to set the initial value once
+  // Sync title to TextInput - runs when loaded and when title changes
+  // This ensures the input value is correct even if navigation recreates the header
   useEffect(() => {
     if (isLoaded && titleInputRef.current) {
       titleInputRef.current.setNativeProps({ text: title });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLoaded]);
+  }, [isLoaded, title]);
 
   // Save text changes immediately (but only if text changed)
   useEffect(() => {
@@ -253,22 +255,10 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#fff",
   },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    flexGrow: 1,
-  },
   headerTitleInput: {
     fontFamily: "IBMPlexSans-SemiBold",
     fontSize: 17,
     minWidth: 200,
     textAlign: "left",
-  },
-  input: {
-    flex: 1,
-    padding: 16,
-    fontSize: 16,
-    textAlignVertical: "top",
   },
 });
