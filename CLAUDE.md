@@ -43,6 +43,7 @@ FUTO Notes is a React Native/Expo app (SDK 54) for offline-first markdown note-t
 - **Storage**: MMKV (react-native-mmkv) for caching search index and previews
 - **Search**: MiniSearch for full-text search with fuzzy matching
 - **Editor**: CodeMirror 6 in a WebView (with clipboard bridge via expo-clipboard)
+- **Markdown**: GitHub Flavored Markdown (GFM) support via `@lezer/markdown`
 
 ### Key Design Decisions
 
@@ -62,11 +63,19 @@ lib/
 ├── notesStore.ts        # Zustand store (notes, search state)
 ├── notesLoader.ts       # Load notes with cached MiniSearch index
 ├── storage.ts           # MMKV storage singleton
-└── useSearch.ts         # Search hook using MiniSearch
+├── useSearch.ts         # Search hook using MiniSearch
+├── codemirror-bundle.js # CodeMirror imports for WebView
+└── editor-setup.js      # CodeMirror editor config & markdown plugin
 
 components/
 ├── CodeMirrorEditor.tsx # WebView-based CodeMirror 6 editor
 └── SearchBar.tsx        # Search input component
+
+tests/
+├── gfm-test-note.md            # GFM test file
+├── gfm-test-note.snapshot.json # Rendering snapshot
+├── markdown-render-test.js     # Test harness
+└── README.md                   # Test documentation
 ```
 
 ### Data Flow
@@ -122,3 +131,74 @@ adb push /path/to/fake-notes/. /data/local/tmp/fake-notes/
 - App can list and read files from this location
 
 **Note**: The `importTestNotes()` function in `app/index.tsx` is debug code that should be removed before release.
+
+## Markdown Rendering & Testing
+
+### CodeMirror Setup
+
+The app uses CodeMirror 6 with a custom markdown rendering pipeline:
+
+**Key Files:**
+- `lib/codemirror-bundle.js` - Bundles CodeMirror and dependencies for WebView
+- `lib/editor-setup.js` - Custom markdown decorations plugin
+- `components/CodeMirrorEditor.tsx` - WebView wrapper with styling
+- `scripts/bundle-codemirror.js` - Bundles everything into `lib/codemirror-bundle-string.ts`
+
+**Markdown Features:**
+- **GFM Support**: Enabled via `@lezer/markdown` GFM extension
+- **Decorations Plugin**: Custom `hideMarkdownPlugin` that:
+  - Hides markdown syntax (e.g., `**`, `*`, `#`, `[]()`) when cursor is not on that line
+  - Applies CSS classes for styling (`.cm-md-h1`, `.cm-md-strong`, `.cm-md-emphasis`, etc.)
+  - Replaces list markers with bullets (`•`)
+  - Renders task checkboxes (`☐`, `☑`)
+  - Replaces horizontal rules with styled divs
+
+**Supported GFM Features:**
+- ATX headings (`#` through `######`)
+- Setext headings (`===` and `---`)
+- Bold, italic, strikethrough
+- Inline code and code blocks (fenced and indented)
+- Links (inline, reference, autolinks)
+- Images
+- Tables (with delimiter hiding)
+- Blockquotes (nested supported)
+- Lists (ordered, unordered, task lists)
+- Horizontal rules
+- HTML (passed through)
+
+### Markdown Test Harness
+
+**Purpose**: Verify markdown rendering without manual inspection. Essential for making changes to the CodeMirror configuration.
+
+**Files:**
+- `tests/gfm-test-note.md` - Comprehensive GFM test file (all features)
+- `tests/gfm-test-note.html` - Expected HTML from Obsidian (reference)
+- `tests/gfm-test-note.snapshot.json` - Current rendering snapshot
+- `tests/markdown-render-test.js` - Test harness using Puppeteer
+- `tests/README.md` - Full documentation
+
+**Commands:**
+```bash
+npm run test:markdown          # Generate/update snapshot
+npm run test:markdown:verify   # Verify rendering matches snapshot
+```
+
+**How It Works:**
+1. Launches headless browser with Puppeteer
+2. Loads actual CodeMirror setup (same as app)
+3. Renders test markdown file
+4. Extracts DOM structure with CSS classes
+5. Saves/compares snapshot
+
+**Workflow for Markdown Changes:**
+1. Make changes to `lib/editor-setup.js` or `components/CodeMirrorEditor.tsx`
+2. Rebuild: `npm run bundle:codemirror`
+3. Verify: `npm run test:markdown:verify`
+4. If intentional change: `npm run test:markdown` to update snapshot
+5. Commit both code and updated snapshot
+
+**Important Notes:**
+- Test captures which CSS classes are applied (not visual appearance)
+- Snapshot must be updated after intentional rendering changes
+- Test ensures no regressions when modifying editor setup
+- The `.html` file is for reference (Obsidian output) but test compares against snapshot

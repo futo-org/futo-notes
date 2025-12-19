@@ -10,7 +10,9 @@
     "web": "expo start --web",
     "lint": "expo lint",
     "bundle:codemirror": "node ./scripts/bundle-codemirror.js",
-    "postinstall": "patch-package && npm run bundle:codemirror"
+    "postinstall": "patch-package && npm run bundle:codemirror",
+    "test:markdown": "node tests/markdown-render-test.js",
+    "test:markdown:verify": "node tests/markdown-render-test.js --verify"
   },
   "dependencies": {
     "@codemirror/commands": "^6.10.0",
@@ -51,6 +53,7 @@
     "eslint-config-expo": "~10.0.0",
     "patch-package": "^8.0.1",
     "postinstall-postinstall": "^2.1.0",
+    "puppeteer": "^23.11.1",
     "typescript": "~5.9.2"
   },
   "private": true

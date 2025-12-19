@@ -56,12 +56,12 @@ const getCodeMirrorHTML = (cmBundle: string, editorSetup: string, fonts: string)
     }
 
     /* Markdown styles */
-    .cm-md-h1 { font-size: 1.8em; line-height: 1.3; }
-    .cm-md-h2 { font-size: 1.5em; line-height: 1.3; }
-    .cm-md-h3 { font-size: 1.25em; line-height: 1.4; }
-    .cm-md-h4 { font-size: 1.1em; line-height: 1.4; }
-    .cm-md-h5 { font-size: 1em; line-height: 1.5; }
-    .cm-md-h6 { font-size: 0.9em; line-height: 1.5; color: #666; }
+    .cm-md-h1 { font-size: 1.8em; line-height: 1.3; font-weight: 600; }
+    .cm-md-h2 { font-size: 1.5em; line-height: 1.3; font-weight: 600; }
+    .cm-md-h3 { font-size: 1.25em; line-height: 1.4; font-weight: 600; }
+    .cm-md-h4 { font-size: 1.1em; line-height: 1.4; font-weight: 600; }
+    .cm-md-h5 { font-size: 1em; line-height: 1.5; font-weight: 600; }
+    .cm-md-h6 { font-size: 0.9em; line-height: 1.5; font-weight: 600; color: #666; }
     .cm-md-emphasis { font-style: italic; }
     .cm-md-strong { font-weight: 700; }
     .cm-md-strikethrough { text-decoration: line-through; color: #888; }
@@ -76,6 +76,8 @@ const getCodeMirrorHTML = (cmBundle: string, editorSetup: string, fonts: string)
       font-family: 'IBM Plex Mono', ui-monospace, monospace;
       background: #f4f4f4;
       font-size: 0.9em;
+      padding: 8px;
+      border-radius: 3px;
     }
     .cm-md-link { color: #007AFF; text-decoration: underline; }
     .cm-md-task-checked { text-decoration: line-through; color: #888; }
@@ -89,6 +91,10 @@ const getCodeMirrorHTML = (cmBundle: string, editorSetup: string, fonts: string)
       height: 2px;
       background: #ddd;
       margin: 8px 0;
+    }
+    .cm-md-table {
+      font-family: 'IBM Plex Mono', ui-monospace, monospace;
+      font-size: 0.9em;
     }
   </style>
 </head>
@@ -157,8 +163,8 @@ export default function CodeMirrorEditor({
       javaScriptEnabled={true}
       domStorageEnabled={true}
       originWhitelist={["*"]}
-      scrollEnabled={true}
-      showsVerticalScrollIndicator={true}
+      scrollEnabled={false}
+      showsVerticalScrollIndicator={false}
       keyboardDisplayRequiresUserAction={false}
       hideKeyboardAccessoryView={true}
       allowsInlineMediaPlayback={true}
@@ -167,6 +173,8 @@ export default function CodeMirrorEditor({
       allowFileAccess={true}
       allowUniversalAccessFromFileURLs={true}
       textInteractionEnabled={true}
+      nestedScrollEnabled={true}
+      overScrollMode="never"
     />
   );
 }
