@@ -6707,74 +6707,167 @@
       },
       {
         "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 1
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 1
-      },
-      {
-        "type": "element",
-        "tag": "span",
+        "tag": "table",
         "classes": [
           "cm-md-table"
         ],
         "depth": 1
       },
       {
-        "type": "text",
-        "content": " Left ",
+        "type": "element",
+        "tag": "tr",
+        "classes": [],
         "depth": 2
       },
       {
         "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
+        "tag": "th",
+        "classes": [],
+        "depth": 3
       },
       {
         "type": "text",
-        "content": " Center ",
-        "depth": 2
+        "content": "Left",
+        "depth": 4
       },
       {
         "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
+        "tag": "th",
+        "classes": [],
+        "depth": 3
       },
       {
         "type": "text",
-        "content": " Right ",
+        "content": "Center",
+        "depth": 4
+      },
+      {
+        "type": "element",
+        "tag": "th",
+        "classes": [],
+        "depth": 3
+      },
+      {
+        "type": "text",
+        "content": "Right",
+        "depth": 4
+      },
+      {
+        "type": "element",
+        "tag": "tr",
+        "classes": [],
         "depth": 2
+      },
+      {
+        "type": "element",
+        "tag": "td",
+        "classes": [],
+        "depth": 3
+      },
+      {
+        "type": "text",
+        "content": "L1",
+        "depth": 4
+      },
+      {
+        "type": "element",
+        "tag": "td",
+        "classes": [],
+        "depth": 3
+      },
+      {
+        "type": "text",
+        "content": "C1",
+        "depth": 4
+      },
+      {
+        "type": "element",
+        "tag": "td",
+        "classes": [],
+        "depth": 3
+      },
+      {
+        "type": "text",
+        "content": "R1",
+        "depth": 4
+      },
+      {
+        "type": "element",
+        "tag": "tr",
+        "classes": [],
+        "depth": 2
+      },
+      {
+        "type": "element",
+        "tag": "td",
+        "classes": [],
+        "depth": 3
+      },
+      {
+        "type": "text",
+        "content": "L2",
+        "depth": 4
+      },
+      {
+        "type": "element",
+        "tag": "td",
+        "classes": [],
+        "depth": 3
+      },
+      {
+        "type": "text",
+        "content": "C2",
+        "depth": 4
+      },
+      {
+        "type": "element",
+        "tag": "td",
+        "classes": [],
+        "depth": 3
+      },
+      {
+        "type": "text",
+        "content": "R2",
+        "depth": 4
+      },
+      {
+        "type": "element",
+        "tag": "tr",
+        "classes": [],
+        "depth": 2
+      },
+      {
+        "type": "element",
+        "tag": "td",
+        "classes": [],
+        "depth": 3
+      },
+      {
+        "type": "text",
+        "content": "L3",
+        "depth": 4
+      },
+      {
+        "type": "element",
+        "tag": "td",
+        "classes": [],
+        "depth": 3
+      },
+      {
+        "type": "text",
+        "content": "C3",
+        "depth": 4
+      },
+      {
+        "type": "element",
+        "tag": "td",
+        "classes": [],
+        "depth": 3
+      },
+      {
+        "type": "text",
+        "content": "R3",
+        "depth": 4
       },
       {
         "type": "element",
@@ -6782,7 +6875,7 @@
         "classes": [
           "cm-widgetBuffer"
         ],
-        "depth": 2
+        "depth": 1
       },
       {
         "type": "element",
@@ -6790,7 +6883,15 @@
         "classes": [
           "cm-widgetBuffer"
         ],
-        "depth": 2
+        "depth": 1
+      },
+      {
+        "type": "element",
+        "tag": "img",
+        "classes": [
+          "cm-widgetBuffer"
+        ],
+        "depth": 1
       }
     ]
   },
@@ -6800,14 +6901,16 @@
       {
         "type": "element",
         "tag": "div",
-        "classes": [],
+        "classes": [
+          "cm-md-table-hidden-line"
+        ],
         "depth": 0
       },
       {
         "type": "element",
-        "tag": "span",
+        "tag": "img",
         "classes": [
-          "cm-md-table"
+          "cm-widgetBuffer"
         ],
         "depth": 1
       },
@@ -6817,15 +6920,7 @@
         "classes": [
           "cm-widgetBuffer"
         ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
+        "depth": 1
       }
     ]
   },
@@ -6835,14 +6930,16 @@
       {
         "type": "element",
         "tag": "div",
-        "classes": [],
+        "classes": [
+          "cm-md-table-hidden-line"
+        ],
         "depth": 0
       },
       {
         "type": "element",
-        "tag": "span",
+        "tag": "img",
         "classes": [
-          "cm-md-table"
+          "cm-widgetBuffer"
         ],
         "depth": 1
       },
@@ -6852,78 +6949,7 @@
         "classes": [
           "cm-widgetBuffer"
         ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "text",
-        "content": " L1   ",
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "text",
-        "content": "   C1   ",
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "text",
-        "content": "    R1 ",
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
+        "depth": 1
       }
     ]
   },
@@ -6933,14 +6959,16 @@
       {
         "type": "element",
         "tag": "div",
-        "classes": [],
+        "classes": [
+          "cm-md-table-hidden-line"
+        ],
         "depth": 0
       },
       {
         "type": "element",
-        "tag": "span",
+        "tag": "img",
         "classes": [
-          "cm-md-table"
+          "cm-widgetBuffer"
         ],
         "depth": 1
       },
@@ -6950,78 +6978,7 @@
         "classes": [
           "cm-widgetBuffer"
         ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "text",
-        "content": " L2   ",
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "text",
-        "content": "   C2   ",
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "text",
-        "content": "    R2 ",
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
+        "depth": 1
       }
     ]
   },
@@ -7031,79 +6988,10 @@
       {
         "type": "element",
         "tag": "div",
-        "classes": [],
+        "classes": [
+          "cm-md-table-hidden-line"
+        ],
         "depth": 0
-      },
-      {
-        "type": "element",
-        "tag": "span",
-        "classes": [
-          "cm-md-table"
-        ],
-        "depth": 1
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "text",
-        "content": " L3   ",
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "text",
-        "content": "   C3   ",
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "text",
-        "content": "    R3 ",
-        "depth": 2
       },
       {
         "type": "element",
@@ -7184,53 +7072,67 @@
       },
       {
         "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 1
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 1
-      },
-      {
-        "type": "element",
-        "tag": "span",
+        "tag": "table",
         "classes": [
           "cm-md-table"
         ],
         "depth": 1
       },
       {
-        "type": "text",
-        "content": " Foo ",
+        "type": "element",
+        "tag": "tr",
+        "classes": [],
         "depth": 2
       },
       {
         "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
+        "tag": "th",
+        "classes": [],
+        "depth": 3
       },
       {
         "type": "text",
-        "content": " Bar ",
+        "content": "Foo",
+        "depth": 4
+      },
+      {
+        "type": "element",
+        "tag": "th",
+        "classes": [],
+        "depth": 3
+      },
+      {
+        "type": "text",
+        "content": "Bar",
+        "depth": 4
+      },
+      {
+        "type": "element",
+        "tag": "tr",
+        "classes": [],
         "depth": 2
+      },
+      {
+        "type": "element",
+        "tag": "td",
+        "classes": [],
+        "depth": 3
+      },
+      {
+        "type": "text",
+        "content": "Baz",
+        "depth": 4
+      },
+      {
+        "type": "element",
+        "tag": "td",
+        "classes": [],
+        "depth": 3
+      },
+      {
+        "type": "text",
+        "content": "Qux",
+        "depth": 4
       },
       {
         "type": "element",
@@ -7238,7 +7140,7 @@
         "classes": [
           "cm-widgetBuffer"
         ],
-        "depth": 2
+        "depth": 1
       },
       {
         "type": "element",
@@ -7246,7 +7148,15 @@
         "classes": [
           "cm-widgetBuffer"
         ],
-        "depth": 2
+        "depth": 1
+      },
+      {
+        "type": "element",
+        "tag": "img",
+        "classes": [
+          "cm-widgetBuffer"
+        ],
+        "depth": 1
       }
     ]
   },
@@ -7256,14 +7166,16 @@
       {
         "type": "element",
         "tag": "div",
-        "classes": [],
+        "classes": [
+          "cm-md-table-hidden-line"
+        ],
         "depth": 0
       },
       {
         "type": "element",
-        "tag": "span",
+        "tag": "img",
         "classes": [
-          "cm-md-table"
+          "cm-widgetBuffer"
         ],
         "depth": 1
       },
@@ -7273,15 +7185,7 @@
         "classes": [
           "cm-widgetBuffer"
         ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
+        "depth": 1
       }
     ]
   },
@@ -7291,58 +7195,10 @@
       {
         "type": "element",
         "tag": "div",
-        "classes": [],
+        "classes": [
+          "cm-md-table-hidden-line"
+        ],
         "depth": 0
-      },
-      {
-        "type": "element",
-        "tag": "span",
-        "classes": [
-          "cm-md-table"
-        ],
-        "depth": 1
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "text",
-        "content": " Baz ",
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "text",
-        "content": " Qux ",
-        "depth": 2
       },
       {
         "type": "element",
@@ -7423,53 +7279,179 @@
       },
       {
         "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 1
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 1
-      },
-      {
-        "type": "element",
-        "tag": "span",
+        "tag": "table",
         "classes": [
           "cm-md-table"
         ],
         "depth": 1
       },
       {
-        "type": "text",
-        "content": " Feature                      ",
+        "type": "element",
+        "tag": "tr",
+        "classes": [],
         "depth": 2
       },
       {
         "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
+        "tag": "th",
+        "classes": [],
+        "depth": 3
       },
       {
         "type": "text",
-        "content": " Supported ",
+        "content": "Feature",
+        "depth": 4
+      },
+      {
+        "type": "element",
+        "tag": "th",
+        "classes": [],
+        "depth": 3
+      },
+      {
+        "type": "text",
+        "content": "Supported",
+        "depth": 4
+      },
+      {
+        "type": "element",
+        "tag": "tr",
+        "classes": [],
         "depth": 2
+      },
+      {
+        "type": "element",
+        "tag": "td",
+        "classes": [],
+        "depth": 3
+      },
+      {
+        "type": "text",
+        "content": "**Bold**",
+        "depth": 4
+      },
+      {
+        "type": "element",
+        "tag": "td",
+        "classes": [],
+        "depth": 3
+      },
+      {
+        "type": "text",
+        "content": "Yes",
+        "depth": 4
+      },
+      {
+        "type": "element",
+        "tag": "tr",
+        "classes": [],
+        "depth": 2
+      },
+      {
+        "type": "element",
+        "tag": "td",
+        "classes": [],
+        "depth": 3
+      },
+      {
+        "type": "text",
+        "content": "_Italic_",
+        "depth": 4
+      },
+      {
+        "type": "element",
+        "tag": "td",
+        "classes": [],
+        "depth": 3
+      },
+      {
+        "type": "text",
+        "content": "Yes",
+        "depth": 4
+      },
+      {
+        "type": "element",
+        "tag": "tr",
+        "classes": [],
+        "depth": 2
+      },
+      {
+        "type": "element",
+        "tag": "td",
+        "classes": [],
+        "depth": 3
+      },
+      {
+        "type": "text",
+        "content": "`Code`",
+        "depth": 4
+      },
+      {
+        "type": "element",
+        "tag": "td",
+        "classes": [],
+        "depth": 3
+      },
+      {
+        "type": "text",
+        "content": "Yes",
+        "depth": 4
+      },
+      {
+        "type": "element",
+        "tag": "tr",
+        "classes": [],
+        "depth": 2
+      },
+      {
+        "type": "element",
+        "tag": "td",
+        "classes": [],
+        "depth": 3
+      },
+      {
+        "type": "text",
+        "content": "~~Strike~~",
+        "depth": 4
+      },
+      {
+        "type": "element",
+        "tag": "td",
+        "classes": [],
+        "depth": 3
+      },
+      {
+        "type": "text",
+        "content": "Yes",
+        "depth": 4
+      },
+      {
+        "type": "element",
+        "tag": "tr",
+        "classes": [],
+        "depth": 2
+      },
+      {
+        "type": "element",
+        "tag": "td",
+        "classes": [],
+        "depth": 3
+      },
+      {
+        "type": "text",
+        "content": "[Links](https://example.com)",
+        "depth": 4
+      },
+      {
+        "type": "element",
+        "tag": "td",
+        "classes": [],
+        "depth": 3
+      },
+      {
+        "type": "text",
+        "content": "Yes",
+        "depth": 4
       },
       {
         "type": "element",
@@ -7477,7 +7459,7 @@
         "classes": [
           "cm-widgetBuffer"
         ],
-        "depth": 2
+        "depth": 1
       },
       {
         "type": "element",
@@ -7485,7 +7467,15 @@
         "classes": [
           "cm-widgetBuffer"
         ],
-        "depth": 2
+        "depth": 1
+      },
+      {
+        "type": "element",
+        "tag": "img",
+        "classes": [
+          "cm-widgetBuffer"
+        ],
+        "depth": 1
       }
     ]
   },
@@ -7495,14 +7485,16 @@
       {
         "type": "element",
         "tag": "div",
-        "classes": [],
+        "classes": [
+          "cm-md-table-hidden-line"
+        ],
         "depth": 0
       },
       {
         "type": "element",
-        "tag": "span",
+        "tag": "img",
         "classes": [
-          "cm-md-table"
+          "cm-widgetBuffer"
         ],
         "depth": 1
       },
@@ -7512,15 +7504,7 @@
         "classes": [
           "cm-widgetBuffer"
         ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
+        "depth": 1
       }
     ]
   },
@@ -7530,14 +7514,16 @@
       {
         "type": "element",
         "tag": "div",
-        "classes": [],
+        "classes": [
+          "cm-md-table-hidden-line"
+        ],
         "depth": 0
       },
       {
         "type": "element",
-        "tag": "span",
+        "tag": "img",
         "classes": [
-          "cm-md-table"
+          "cm-widgetBuffer"
         ],
         "depth": 1
       },
@@ -7547,107 +7533,7 @@
         "classes": [
           "cm-widgetBuffer"
         ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "text",
-        "content": " ",
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "span",
-        "classes": [
-          "cm-md-strong"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "text",
-        "content": "Bold",
-        "depth": 3
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "text",
-        "content": "                     ",
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "text",
-        "content": " Yes       ",
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
+        "depth": 1
       }
     ]
   },
@@ -7657,14 +7543,16 @@
       {
         "type": "element",
         "tag": "div",
-        "classes": [],
+        "classes": [
+          "cm-md-table-hidden-line"
+        ],
         "depth": 0
       },
       {
         "type": "element",
-        "tag": "span",
+        "tag": "img",
         "classes": [
-          "cm-md-table"
+          "cm-widgetBuffer"
         ],
         "depth": 1
       },
@@ -7674,107 +7562,7 @@
         "classes": [
           "cm-widgetBuffer"
         ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "text",
-        "content": " ",
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "span",
-        "classes": [
-          "cm-md-emphasis"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "text",
-        "content": "Italic",
-        "depth": 3
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "text",
-        "content": "                     ",
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "text",
-        "content": " Yes       ",
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
+        "depth": 1
       }
     ]
   },
@@ -7784,14 +7572,16 @@
       {
         "type": "element",
         "tag": "div",
-        "classes": [],
+        "classes": [
+          "cm-md-table-hidden-line"
+        ],
         "depth": 0
       },
       {
         "type": "element",
-        "tag": "span",
+        "tag": "img",
         "classes": [
-          "cm-md-table"
+          "cm-widgetBuffer"
         ],
         "depth": 1
       },
@@ -7801,107 +7591,7 @@
         "classes": [
           "cm-widgetBuffer"
         ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "text",
-        "content": " ",
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "span",
-        "classes": [
-          "cm-md-code"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "text",
-        "content": "Code",
-        "depth": 3
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "text",
-        "content": "                       ",
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "text",
-        "content": " Yes       ",
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
+        "depth": 1
       }
     ]
   },
@@ -7911,14 +7601,16 @@
       {
         "type": "element",
         "tag": "div",
-        "classes": [],
+        "classes": [
+          "cm-md-table-hidden-line"
+        ],
         "depth": 0
       },
       {
         "type": "element",
-        "tag": "span",
+        "tag": "img",
         "classes": [
-          "cm-md-table"
+          "cm-widgetBuffer"
         ],
         "depth": 1
       },
@@ -7928,107 +7620,7 @@
         "classes": [
           "cm-widgetBuffer"
         ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "text",
-        "content": " ",
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "span",
-        "classes": [
-          "cm-md-strikethrough"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "text",
-        "content": "Strike",
-        "depth": 3
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "text",
-        "content": "                   ",
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "text",
-        "content": " Yes       ",
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
+        "depth": 1
       }
     ]
   },
@@ -8038,140 +7630,10 @@
       {
         "type": "element",
         "tag": "div",
-        "classes": [],
+        "classes": [
+          "cm-md-table-hidden-line"
+        ],
         "depth": 0
-      },
-      {
-        "type": "element",
-        "tag": "span",
-        "classes": [
-          "cm-md-table"
-        ],
-        "depth": 1
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "text",
-        "content": " ",
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "span",
-        "classes": [
-          "cm-md-link"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "text",
-        "content": "Links",
-        "depth": 3
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "text",
-        "content": " ",
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "text",
-        "content": " Yes       ",
-        "depth": 2
       },
       {
         "type": "element",
@@ -8252,53 +7714,89 @@
       },
       {
         "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 1
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 1
-      },
-      {
-        "type": "element",
-        "tag": "span",
+        "tag": "table",
         "classes": [
           "cm-md-table"
         ],
         "depth": 1
       },
       {
-        "type": "text",
-        "content": " Expression ",
+        "type": "element",
+        "tag": "tr",
+        "classes": [],
         "depth": 2
       },
       {
         "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
+        "tag": "th",
+        "classes": [],
+        "depth": 3
       },
       {
         "type": "text",
-        "content": " Result ",
+        "content": "Expression",
+        "depth": 4
+      },
+      {
+        "type": "element",
+        "tag": "th",
+        "classes": [],
+        "depth": 3
+      },
+      {
+        "type": "text",
+        "content": "Result",
+        "depth": 4
+      },
+      {
+        "type": "element",
+        "tag": "tr",
+        "classes": [],
         "depth": 2
+      },
+      {
+        "type": "element",
+        "tag": "td",
+        "classes": [],
+        "depth": 3
+      },
+      {
+        "type": "text",
+        "content": "`a \\",
+        "depth": 4
+      },
+      {
+        "type": "element",
+        "tag": "td",
+        "classes": [],
+        "depth": 3
+      },
+      {
+        "type": "text",
+        "content": "b`",
+        "depth": 4
+      },
+      {
+        "type": "element",
+        "tag": "td",
+        "classes": [],
+        "depth": 3
+      },
+      {
+        "type": "text",
+        "content": "a \\",
+        "depth": 4
+      },
+      {
+        "type": "element",
+        "tag": "td",
+        "classes": [],
+        "depth": 3
+      },
+      {
+        "type": "text",
+        "content": "b",
+        "depth": 4
       },
       {
         "type": "element",
@@ -8306,7 +7804,7 @@
         "classes": [
           "cm-widgetBuffer"
         ],
-        "depth": 2
+        "depth": 1
       },
       {
         "type": "element",
@@ -8314,7 +7812,15 @@
         "classes": [
           "cm-widgetBuffer"
         ],
-        "depth": 2
+        "depth": 1
+      },
+      {
+        "type": "element",
+        "tag": "img",
+        "classes": [
+          "cm-widgetBuffer"
+        ],
+        "depth": 1
       }
     ]
   },
@@ -8324,14 +7830,16 @@
       {
         "type": "element",
         "tag": "div",
-        "classes": [],
+        "classes": [
+          "cm-md-table-hidden-line"
+        ],
         "depth": 0
       },
       {
         "type": "element",
-        "tag": "span",
+        "tag": "img",
         "classes": [
-          "cm-md-table"
+          "cm-widgetBuffer"
         ],
         "depth": 1
       },
@@ -8341,15 +7849,7 @@
         "classes": [
           "cm-widgetBuffer"
         ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
+        "depth": 1
       }
     ]
   },
@@ -8359,108 +7859,10 @@
       {
         "type": "element",
         "tag": "div",
-        "classes": [],
+        "classes": [
+          "cm-md-table-hidden-line"
+        ],
         "depth": 0
-      },
-      {
-        "type": "element",
-        "tag": "span",
-        "classes": [
-          "cm-md-table"
-        ],
-        "depth": 1
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "text",
-        "content": " ",
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "span",
-        "classes": [
-          "cm-md-code"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "text",
-        "content": "a \\| b",
-        "depth": 3
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "text",
-        "content": "   ",
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "text",
-        "content": " a \\| b ",
-        "depth": 2
       },
       {
         "type": "element",
@@ -10435,53 +9837,67 @@
       },
       {
         "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 1
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 1
-      },
-      {
-        "type": "element",
-        "tag": "span",
+        "tag": "table",
         "classes": [
           "cm-md-table"
         ],
         "depth": 1
       },
       {
-        "type": "text",
-        "content": " Name    ",
+        "type": "element",
+        "tag": "tr",
+        "classes": [],
         "depth": 2
       },
       {
         "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
+        "tag": "th",
+        "classes": [],
+        "depth": 3
       },
       {
         "type": "text",
-        "content": " Link                         ",
+        "content": "Name",
+        "depth": 4
+      },
+      {
+        "type": "element",
+        "tag": "th",
+        "classes": [],
+        "depth": 3
+      },
+      {
+        "type": "text",
+        "content": "Link",
+        "depth": 4
+      },
+      {
+        "type": "element",
+        "tag": "tr",
+        "classes": [],
         "depth": 2
+      },
+      {
+        "type": "element",
+        "tag": "td",
+        "classes": [],
+        "depth": 3
+      },
+      {
+        "type": "text",
+        "content": "Example",
+        "depth": 4
+      },
+      {
+        "type": "element",
+        "tag": "td",
+        "classes": [],
+        "depth": 3
+      },
+      {
+        "type": "text",
+        "content": "[Click](https://example.com)",
+        "depth": 4
       },
       {
         "type": "element",
@@ -10489,7 +9905,7 @@
         "classes": [
           "cm-widgetBuffer"
         ],
-        "depth": 2
+        "depth": 1
       },
       {
         "type": "element",
@@ -10497,7 +9913,15 @@
         "classes": [
           "cm-widgetBuffer"
         ],
-        "depth": 2
+        "depth": 1
+      },
+      {
+        "type": "element",
+        "tag": "img",
+        "classes": [
+          "cm-widgetBuffer"
+        ],
+        "depth": 1
       }
     ]
   },
@@ -10507,14 +9931,16 @@
       {
         "type": "element",
         "tag": "div",
-        "classes": [],
+        "classes": [
+          "cm-md-table-hidden-line"
+        ],
         "depth": 0
       },
       {
         "type": "element",
-        "tag": "span",
+        "tag": "img",
         "classes": [
-          "cm-md-table"
+          "cm-widgetBuffer"
         ],
         "depth": 1
       },
@@ -10524,15 +9950,7 @@
         "classes": [
           "cm-widgetBuffer"
         ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
+        "depth": 1
       }
     ]
   },
@@ -10542,140 +9960,10 @@
       {
         "type": "element",
         "tag": "div",
-        "classes": [],
+        "classes": [
+          "cm-md-table-hidden-line"
+        ],
         "depth": 0
-      },
-      {
-        "type": "element",
-        "tag": "span",
-        "classes": [
-          "cm-md-table"
-        ],
-        "depth": 1
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "text",
-        "content": " Example ",
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "text",
-        "content": " ",
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "span",
-        "classes": [
-          "cm-md-link"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "text",
-        "content": "Click",
-        "depth": 3
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "text",
-        "content": " ",
-        "depth": 2
       },
       {
         "type": "element",
@@ -10780,53 +10068,67 @@
       },
       {
         "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 1
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 1
-      },
-      {
-        "type": "element",
-        "tag": "span",
+        "tag": "table",
         "classes": [
           "cm-md-table"
         ],
         "depth": 1
       },
       {
-        "type": "text",
-        "content": " Short ",
+        "type": "element",
+        "tag": "tr",
+        "classes": [],
         "depth": 2
       },
       {
         "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
+        "tag": "th",
+        "classes": [],
+        "depth": 3
       },
       {
         "type": "text",
-        "content": " This is a very long cell that contains a lot of text to test how tables handle overflow ",
+        "content": "Short",
+        "depth": 4
+      },
+      {
+        "type": "element",
+        "tag": "th",
+        "classes": [],
+        "depth": 3
+      },
+      {
+        "type": "text",
+        "content": "This is a very long cell that contains a lot of text to test how tables handle overflow",
+        "depth": 4
+      },
+      {
+        "type": "element",
+        "tag": "tr",
+        "classes": [],
         "depth": 2
+      },
+      {
+        "type": "element",
+        "tag": "td",
+        "classes": [],
+        "depth": 3
+      },
+      {
+        "type": "text",
+        "content": "A",
+        "depth": 4
+      },
+      {
+        "type": "element",
+        "tag": "td",
+        "classes": [],
+        "depth": 3
+      },
+      {
+        "type": "text",
+        "content": "B",
+        "depth": 4
       },
       {
         "type": "element",
@@ -10834,7 +10136,7 @@
         "classes": [
           "cm-widgetBuffer"
         ],
-        "depth": 2
+        "depth": 1
       },
       {
         "type": "element",
@@ -10842,7 +10144,15 @@
         "classes": [
           "cm-widgetBuffer"
         ],
-        "depth": 2
+        "depth": 1
+      },
+      {
+        "type": "element",
+        "tag": "img",
+        "classes": [
+          "cm-widgetBuffer"
+        ],
+        "depth": 1
       }
     ]
   },
@@ -10852,14 +10162,16 @@
       {
         "type": "element",
         "tag": "div",
-        "classes": [],
+        "classes": [
+          "cm-md-table-hidden-line"
+        ],
         "depth": 0
       },
       {
         "type": "element",
-        "tag": "span",
+        "tag": "img",
         "classes": [
-          "cm-md-table"
+          "cm-widgetBuffer"
         ],
         "depth": 1
       },
@@ -10869,15 +10181,7 @@
         "classes": [
           "cm-widgetBuffer"
         ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
+        "depth": 1
       }
     ]
   },
@@ -10887,58 +10191,10 @@
       {
         "type": "element",
         "tag": "div",
-        "classes": [],
+        "classes": [
+          "cm-md-table-hidden-line"
+        ],
         "depth": 0
-      },
-      {
-        "type": "element",
-        "tag": "span",
-        "classes": [
-          "cm-md-table"
-        ],
-        "depth": 1
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "text",
-        "content": " A     ",
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 2
-      },
-      {
-        "type": "text",
-        "content": " B                                                                                       ",
-        "depth": 2
       },
       {
         "type": "element",

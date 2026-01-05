@@ -123,9 +123,25 @@ const getCodeMirrorHTML = (cmBundle: string, editorSetup: string, fonts: string)
       background: #ddd;
       margin: 8px 0;
     }
-    .cm-md-table {
+    /* Table styling */
+    table.cm-md-table {
+      border-collapse: collapse;
       font-family: 'IBM Plex Mono', ui-monospace, monospace;
       font-size: 0.9em;
+      margin: 4px 0;
+    }
+    table.cm-md-table th,
+    table.cm-md-table td {
+      border: 1px solid #ddd;
+      padding: 4px 8px;
+    }
+    table.cm-md-table th {
+      font-weight: 600;
+    }
+    .cm-line.cm-md-table-hidden-line {
+      height: 0;
+      overflow: hidden;
+      line-height: 0;
     }
   </style>
 </head>
