@@ -7326,9 +7326,15 @@
         "depth": 3
       },
       {
-        "type": "text",
-        "content": "**Bold**",
+        "type": "element",
+        "tag": "strong",
+        "classes": [],
         "depth": 4
+      },
+      {
+        "type": "text",
+        "content": "Bold",
+        "depth": 5
       },
       {
         "type": "element",
@@ -7354,9 +7360,15 @@
         "depth": 3
       },
       {
-        "type": "text",
-        "content": "_Italic_",
+        "type": "element",
+        "tag": "em",
+        "classes": [],
         "depth": 4
+      },
+      {
+        "type": "text",
+        "content": "Italic",
+        "depth": 5
       },
       {
         "type": "element",
@@ -7382,9 +7394,15 @@
         "depth": 3
       },
       {
-        "type": "text",
-        "content": "`Code`",
+        "type": "element",
+        "tag": "code",
+        "classes": [],
         "depth": 4
+      },
+      {
+        "type": "text",
+        "content": "Code",
+        "depth": 5
       },
       {
         "type": "element",
@@ -7410,9 +7428,15 @@
         "depth": 3
       },
       {
-        "type": "text",
-        "content": "~~Strike~~",
+        "type": "element",
+        "tag": "del",
+        "classes": [],
         "depth": 4
+      },
+      {
+        "type": "text",
+        "content": "Strike",
+        "depth": 5
       },
       {
         "type": "element",
@@ -7438,9 +7462,15 @@
         "depth": 3
       },
       {
-        "type": "text",
-        "content": "[Links](https://example.com)",
+        "type": "element",
+        "tag": "a",
+        "classes": [],
         "depth": 4
+      },
+      {
+        "type": "text",
+        "content": "Links",
+        "depth": 5
       },
       {
         "type": "element",
@@ -7761,9 +7791,15 @@
         "depth": 3
       },
       {
-        "type": "text",
-        "content": "`a \\",
+        "type": "element",
+        "tag": "code",
+        "classes": [],
         "depth": 4
+      },
+      {
+        "type": "text",
+        "content": "a | b",
+        "depth": 5
       },
       {
         "type": "element",
@@ -7773,29 +7809,7 @@
       },
       {
         "type": "text",
-        "content": "b`",
-        "depth": 4
-      },
-      {
-        "type": "element",
-        "tag": "td",
-        "classes": [],
-        "depth": 3
-      },
-      {
-        "type": "text",
-        "content": "a \\",
-        "depth": 4
-      },
-      {
-        "type": "element",
-        "tag": "td",
-        "classes": [],
-        "depth": 3
-      },
-      {
-        "type": "text",
-        "content": "b",
+        "content": "a | b",
         "depth": 4
       },
       {
@@ -9895,9 +9909,15 @@
         "depth": 3
       },
       {
-        "type": "text",
-        "content": "[Click](https://example.com)",
+        "type": "element",
+        "tag": "a",
+        "classes": [],
         "depth": 4
+      },
+      {
+        "type": "text",
+        "content": "Click",
+        "depth": 5
       },
       {
         "type": "element",

@@ -138,6 +138,18 @@ const getCodeMirrorHTML = (cmBundle: string, editorSetup: string, fonts: string)
     table.cm-md-table th {
       font-weight: 600;
     }
+    table.cm-md-table code {
+      background: #f4f4f4;
+      padding: 1px 4px;
+      border-radius: 3px;
+    }
+    table.cm-md-table a {
+      color: #007AFF;
+      text-decoration: underline;
+    }
+    table.cm-md-table del {
+      color: #888;
+    }
     .cm-line.cm-md-table-hidden-line {
       height: 0;
       overflow: hidden;
