@@ -72,20 +72,51 @@ const getCodeMirrorHTML = (cmBundle: string, editorSetup: string, fonts: string)
       border-radius: 3px;
       font-size: 0.9em;
     }
-    .cm-md-codeblock {
+    /* Code block line decorations */
+    .cm-line.cm-md-codeblock {
       font-family: 'IBM Plex Mono', ui-monospace, monospace;
       background: #f4f4f4;
       font-size: 0.9em;
-      padding: 8px;
-      border-radius: 3px;
+      padding-left: 8px;
+      padding-right: 8px;
+      margin-left: -8px;
+      margin-right: -8px;
+    }
+    .cm-line.cm-md-codeblock-single {
+      border-radius: 6px;
+      padding-top: 8px;
+      padding-bottom: 8px;
+    }
+    .cm-line.cm-md-codeblock-first {
+      border-radius: 6px 6px 0 0;
+      padding-top: 8px;
+    }
+    .cm-line.cm-md-codeblock-middle {
+      border-radius: 0;
+    }
+    .cm-line.cm-md-codeblock-last {
+      border-radius: 0 0 6px 6px;
+      padding-bottom: 8px;
     }
     .cm-md-link { color: #007AFF; text-decoration: underline; }
     .cm-md-task-checked { text-decoration: line-through; color: #888; }
-    .cm-md-blockquote {
+    /* Blockquote line decorations */
+    .cm-line.cm-md-blockquote {
       border-left: 3px solid #ddd;
       padding-left: 12px;
+      margin-left: -8px;
       color: #666;
       font-style: italic;
+    }
+    .cm-line.cm-md-blockquote-2 {
+      background: linear-gradient(to right, transparent 12px, #ccc 12px, #ccc 15px, transparent 15px);
+      padding-left: 27px;
+    }
+    .cm-line.cm-md-blockquote-3 {
+      background: linear-gradient(to right,
+        transparent 12px, #ccc 12px, #ccc 15px,
+        transparent 15px, transparent 27px, #bbb 27px, #bbb 30px, transparent 30px);
+      padding-left: 42px;
     }
     .cm-md-hr {
       height: 2px;
