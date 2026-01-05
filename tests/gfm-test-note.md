@@ -201,11 +201,7 @@ Check out https://example.com/path for details.
 
 ## Images
 
-![Alt text](https://via.placeholder.com/150 "Image Title")
-
-![Reference image][img-ref]
-
-[img-ref]: https://via.placeholder.com/150 "Reference Image"
+![Alt text](https://futo.org/images/authors/futologo.png "Image Title")
 
 ## Tables (GFM Extension)
 
