@@ -136,7 +136,9 @@ adb push /path/to/fake-notes/. /data/local/tmp/fake-notes/
 
 ### CodeMirror Setup
 
-The app uses CodeMirror 6 with a custom markdown rendering pipeline:
+The app uses CodeMirror 6 with a custom markdown rendering pipeline.
+
+**Important**: When testing the editor on Android, use a physical device—the emulator has rendering quirks (scroll hijacking, visual flashing) that don't occur on real hardware.
 
 **Key Files:**
 - `lib/codemirror-bundle.js` - Bundles CodeMirror and dependencies for WebView
