@@ -5313,21 +5313,11 @@
         "depth": 1
       },
       {
-        "type": "text",
-        "content": "•",
-        "depth": 2
-      },
-      {
         "type": "element",
         "tag": "img",
         "classes": [
           "cm-widgetBuffer"
         ],
-        "depth": 1
-      },
-      {
-        "type": "text",
-        "content": " ",
         "depth": 1
       },
       {
@@ -5337,11 +5327,6 @@
           "cm-widgetBuffer"
         ],
         "depth": 1
-      },
-      {
-        "type": "text",
-        "content": "☑",
-        "depth": 2
       },
       {
         "type": "element",
@@ -5361,7 +5346,7 @@
       },
       {
         "type": "text",
-        "content": " Completed task",
+        "content": "Completed task",
         "depth": 2
       }
     ]
@@ -5384,21 +5369,11 @@
         "depth": 1
       },
       {
-        "type": "text",
-        "content": "•",
-        "depth": 2
-      },
-      {
         "type": "element",
         "tag": "img",
         "classes": [
           "cm-widgetBuffer"
         ],
-        "depth": 1
-      },
-      {
-        "type": "text",
-        "content": " ",
         "depth": 1
       },
       {
@@ -5408,11 +5383,6 @@
           "cm-widgetBuffer"
         ],
         "depth": 1
-      },
-      {
-        "type": "text",
-        "content": "☑",
-        "depth": 2
       },
       {
         "type": "element",
@@ -5432,7 +5402,7 @@
       },
       {
         "type": "text",
-        "content": " Another completed task",
+        "content": "Another completed task",
         "depth": 2
       }
     ]
@@ -5455,21 +5425,11 @@
         "depth": 1
       },
       {
-        "type": "text",
-        "content": "•",
-        "depth": 2
-      },
-      {
         "type": "element",
         "tag": "img",
         "classes": [
           "cm-widgetBuffer"
         ],
-        "depth": 1
-      },
-      {
-        "type": "text",
-        "content": " ",
         "depth": 1
       },
       {
@@ -5481,11 +5441,6 @@
         "depth": 1
       },
       {
-        "type": "text",
-        "content": "☐",
-        "depth": 2
-      },
-      {
         "type": "element",
         "tag": "img",
         "classes": [
@@ -5495,7 +5450,7 @@
       },
       {
         "type": "text",
-        "content": " Incomplete task",
+        "content": "Incomplete task",
         "depth": 1
       }
     ]
@@ -5518,21 +5473,11 @@
         "depth": 1
       },
       {
-        "type": "text",
-        "content": "•",
-        "depth": 2
-      },
-      {
         "type": "element",
         "tag": "img",
         "classes": [
           "cm-widgetBuffer"
         ],
-        "depth": 1
-      },
-      {
-        "type": "text",
-        "content": " ",
         "depth": 1
       },
       {
@@ -5544,11 +5489,6 @@
         "depth": 1
       },
       {
-        "type": "text",
-        "content": "☐",
-        "depth": 2
-      },
-      {
         "type": "element",
         "tag": "img",
         "classes": [
@@ -5558,7 +5498,7 @@
       },
       {
         "type": "text",
-        "content": " Another incomplete task",
+        "content": "Another incomplete task",
         "depth": 1
       }
     ]
@@ -5611,8 +5551,11 @@
         "depth": 1
       },
       {
-        "type": "text",
-        "content": " ",
+        "type": "element",
+        "tag": "img",
+        "classes": [
+          "cm-widgetBuffer"
+        ],
         "depth": 1
       },
       {
@@ -5624,9 +5567,12 @@
         "depth": 1
       },
       {
-        "type": "text",
-        "content": "☑",
-        "depth": 2
+        "type": "element",
+        "tag": "img",
+        "classes": [
+          "cm-widgetBuffer"
+        ],
+        "depth": 1
       },
       {
         "type": "element",
@@ -5646,7 +5592,7 @@
       },
       {
         "type": "text",
-        "content": " Ordered task list",
+        "content": "Ordered task list",
         "depth": 2
       }
     ]
@@ -5682,8 +5628,27 @@
         "depth": 1
       },
       {
-        "type": "text",
-        "content": " ",
+        "type": "element",
+        "tag": "img",
+        "classes": [
+          "cm-widgetBuffer"
+        ],
+        "depth": 1
+      },
+      {
+        "type": "element",
+        "tag": "img",
+        "classes": [
+          "cm-widgetBuffer"
+        ],
+        "depth": 1
+      },
+      {
+        "type": "element",
+        "tag": "img",
+        "classes": [
+          "cm-widgetBuffer"
+        ],
         "depth": 1
       },
       {
@@ -5696,20 +5661,7 @@
       },
       {
         "type": "text",
-        "content": "☐",
-        "depth": 2
-      },
-      {
-        "type": "element",
-        "tag": "img",
-        "classes": [
-          "cm-widgetBuffer"
-        ],
-        "depth": 1
-      },
-      {
-        "type": "text",
-        "content": " Also works with numbers",
+        "content": "Also works with numbers",
         "depth": 1
       }
     ]
