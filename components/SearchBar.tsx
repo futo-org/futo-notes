@@ -27,7 +27,7 @@ export function SearchBar({
       <Ionicons
         name="search"
         size={18}
-        color="#8E8E93"
+        color="#86868B"
         style={styles.searchIcon}
       />
       <TextInput
@@ -35,7 +35,7 @@ export function SearchBar({
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
-        placeholderTextColor="#8E8E93"
+        placeholderTextColor="#86868B"
         returnKeyType="search"
         autoCorrect={false}
         autoCapitalize="none"
@@ -43,12 +43,12 @@ export function SearchBar({
       {isSearching ? (
         <ActivityIndicator
           size="small"
-          color="#8E8E93"
+          color="#86868B"
           style={styles.rightIcon}
         />
       ) : value ? (
         <Pressable onPress={onClear} style={styles.rightIcon} hitSlop={8}>
-          <Ionicons name="close-circle" size={18} color="#8E8E93" />
+          <Ionicons name="close-circle" size={18} color="#86868B" />
         </Pressable>
       ) : null}
     </View>
@@ -59,7 +59,7 @@ const styles = StyleSheet.create({
   container: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#E5E5EA",
+    backgroundColor: "#E8E8E6",
     borderRadius: 10,
     marginHorizontal: 16,
     marginVertical: 8,
@@ -73,7 +73,7 @@ const styles = StyleSheet.create({
     fontFamily: "IBMPlexSans-Regular",
     flex: 1,
     fontSize: 16,
-    color: "#000",
+    color: "#1C1C1E",
     paddingVertical: 0,
   },
   rightIcon: {

@@ -14,7 +14,7 @@ This test harness verifies that the CodeMirror markdown rendering matches expect
 The test harness:
 
 1. Spins up a headless browser (Puppeteer)
-2. Loads the exact CodeMirror setup used in the app (from `components/CodeMirrorEditor.tsx`)
+2. Loads the CodeMirror bundle from `lib/codemirror-bundle-string.ts`
 3. Renders the test markdown file
 4. Captures the DOM structure with all CSS classes that CodeMirror applies
 5. Saves a snapshot for comparison
@@ -48,7 +48,7 @@ This compares the current rendering against the saved snapshot. If they don't ma
 
 ### Making Changes to Markdown Rendering
 
-1. Make changes to CodeMirror config (e.g., `lib/editor-setup.js`, `components/CodeMirrorEditor.tsx`)
+1. Make changes to CodeMirror config (e.g., `lib/editor-setup.js`, `lib/PreloadedEditorContext.tsx`)
 2. Rebuild the CodeMirror bundle: `npm run bundle:codemirror`
 3. Run the test: `npm run test:markdown:verify`
 4. If the rendering changed:

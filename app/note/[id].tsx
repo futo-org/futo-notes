@@ -1,16 +1,10 @@
 import { Directory, File, Paths } from "expo-file-system";
 import { useLocalSearchParams, useNavigation } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  KeyboardAvoidingView,
-  Platform,
-  StyleSheet,
-  TextInput,
-  TextInput as TextInputType,
-} from "react-native";
+import { StyleSheet, TextInput, TextInput as TextInputType } from "react-native";
 import { useNotesStore } from "@/lib/notesStore";
 import { renameNoteInIndex, updateNoteInIndex } from "@/lib/notesLoader";
-import CodeMirrorEditor from "@/components/CodeMirrorEditor";
+import { usePreloadedEditor } from "@/lib/PreloadedEditorContext";
 
 const NOTES_DIR = "notes";
 
@@ -55,6 +49,7 @@ function getNotesDirectory(): Directory {
 export default function NoteScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const navigation = useNavigation();
+  const editor = usePreloadedEditor();
   const notes = useNotesStore((state) => state.notes);
   const setNotes = useNotesStore((state) => state.setNotes);
   const searchIndex = useNotesStore((state) => state.searchIndex);
@@ -182,6 +177,21 @@ export default function NoteScreen() {
     loadNote();
   }, [id, loadNote]);
 
+  // Show the preloaded editor once loaded
+  const textRef = useRef(text);
+  textRef.current = text;
+
+  useEffect(() => {
+    if (isLoaded) {
+      editor.show(textRef.current, setText, {
+        autoFocus: id === "new",
+      });
+    }
+    return () => {
+      editor.hide();
+    };
+  }, [isLoaded, editor, id]);
+
   // Set up the header with editable title - only once to avoid cursor issues
   useEffect(() => {
     navigation.setOptions({
@@ -235,26 +245,12 @@ export default function NoteScreen() {
     };
   }, [title, isLoaded, saveNote]);
 
-  return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-      keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
-    >
-      <CodeMirrorEditor
-        value={text}
-        onChangeText={setText}
-        autoFocus={id === "new"}
-      />
-    </KeyboardAvoidingView>
-  );
+  // The editor is rendered at the root level via PreloadedEditorProvider
+  // This component just manages the note data and shows/hides the editor
+  return null;
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#fff",
-  },
   headerTitleInput: {
     fontFamily: "IBMPlexSans-SemiBold",
     fontSize: 17,

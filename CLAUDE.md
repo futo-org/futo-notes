@@ -68,7 +68,6 @@ lib/
 └── editor-setup.js      # CodeMirror editor config & markdown plugin
 
 components/
-├── CodeMirrorEditor.tsx # WebView-based CodeMirror 6 editor
 └── SearchBar.tsx        # Search input component
 
 tests/
@@ -143,7 +142,7 @@ The app uses CodeMirror 6 with a custom markdown rendering pipeline.
 **Key Files:**
 - `lib/codemirror-bundle.js` - Bundles CodeMirror and dependencies for WebView
 - `lib/editor-setup.js` - Custom markdown decorations plugin
-- `components/CodeMirrorEditor.tsx` - WebView wrapper with styling
+- `lib/PreloadedEditorContext.tsx` - WebView wrapper with styling (preloaded at app root)
 - `scripts/bundle-codemirror.js` - Bundles everything into `lib/codemirror-bundle-string.ts`
 
 **Markdown Features:**
@@ -193,8 +192,8 @@ npm run test:markdown:verify   # Verify rendering matches snapshot
 5. Saves/compares snapshot
 
 **Workflow for Markdown Changes:**
-1. Make changes to `lib/editor-setup.js` or `components/CodeMirrorEditor.tsx`
-2. Rebuild: `npm run bundle:codemirror`
+1. Make changes to `lib/editor-setup.js` or `lib/PreloadedEditorContext.tsx`
+2. Rebuild: `npm run bundle:codemirror` (only needed for editor-setup.js changes)
 3. Verify: `npm run test:markdown:verify`
 4. If intentional change: `npm run test:markdown` to update snapshot
 5. Commit both code and updated snapshot

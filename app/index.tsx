@@ -44,7 +44,7 @@ async function importTestNotes(): Promise<number> {
 
   if (!source) {
     console.log(
-      "Source directory not found. Push notes with: adb push /path/to/notes/. /data/local/tmp/fake-notes/",
+      "Source directory not found. Push notes with: adb push /path/to/notes/. /data/local/tmp/fake-notes/"
     );
     return 0;
   }
@@ -87,7 +87,7 @@ export default function NotesListScreen() {
   const insets = useSafeAreaInsets();
 
   const [searchResults, setSearchResults] = useState<SearchResult[] | null>(
-    null,
+    null
   );
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -115,7 +115,7 @@ export default function NotesListScreen() {
     (id: string) => {
       router.push(`/note/${encodeURIComponent(id)}`);
     },
-    [router],
+    [router]
   );
 
   const deleteNote = useCallback(
@@ -138,7 +138,7 @@ export default function NotesListScreen() {
         console.error("Error deleting note:", error);
       }
     },
-    [storeDeleteNote, searchIndex, notes, setNotes],
+    [storeDeleteNote, searchIndex, notes, setNotes]
   );
 
   const createNewNote = () => {
@@ -164,7 +164,7 @@ export default function NotesListScreen() {
         setSearchResults(results);
       }, SEARCH_DEBOUNCE_MS);
     },
-    [search, setSearchQuery],
+    [search, setSearchQuery]
   );
 
   const handleClearSearch = useCallback(() => {
@@ -202,7 +202,7 @@ export default function NotesListScreen() {
         </Text>
       </Pressable>
     ),
-    [openNote],
+    [openNote]
   );
 
   const renderEmptyList = () => (
@@ -258,7 +258,7 @@ export default function NotesListScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#fff",
+    backgroundColor: "#F5F5F3",
   },
   noResults: {
     paddingVertical: 20,
@@ -267,25 +267,26 @@ const styles = StyleSheet.create({
   noResultsText: {
     fontFamily: "IBMPlexSans-Regular",
     fontSize: 15,
-    color: "#8E8E93",
+    color: "#86868B",
   },
   noteItem: {
     padding: 16,
-    backgroundColor: "#fff",
+    backgroundColor: "#F5F5F3",
   },
   noteTitle: {
     fontFamily: "IBMPlexSans-SemiBold",
     fontSize: 17,
     marginBottom: 4,
+    color: "#1C1C1E",
   },
   notePreview: {
     fontFamily: "IBMPlexSans-Regular",
     fontSize: 15,
-    color: "#666",
+    color: "#636366",
   },
   separator: {
     height: StyleSheet.hairlineWidth,
-    backgroundColor: "#ccc",
+    backgroundColor: "#C7C7CC",
     marginLeft: 16,
   },
   emptyList: {
@@ -299,12 +300,12 @@ const styles = StyleSheet.create({
   emptyText: {
     fontFamily: "IBMPlexSans-SemiBold",
     fontSize: 18,
-    color: "#666",
+    color: "#48484A",
   },
   emptySubtext: {
     fontFamily: "IBMPlexSans-Regular",
     fontSize: 14,
-    color: "#999",
+    color: "#86868B",
     marginTop: 8,
   },
   fab: {
@@ -314,19 +315,19 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: "#007AFF",
+    backgroundColor: "#1C1C1E",
     justifyContent: "center",
     alignItems: "center",
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-    elevation: 5,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 6,
   },
   fabText: {
     fontFamily: "IBMPlexSans-Regular",
     fontSize: 28,
-    color: "#fff",
+    color: "#F5F5F3",
     marginTop: -2,
   },
 });
