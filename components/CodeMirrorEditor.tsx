@@ -38,6 +38,7 @@ const getCodeMirrorHTML = (cmBundle: string, editorSetup: string, fonts: string)
     .cm-editor .cm-scroller {
       padding: 16px;
       line-height: 1.5;
+      overflow-x: hidden;
     }
     .cm-editor .cm-content {
       caret-color: #007AFF;
@@ -124,19 +125,26 @@ const getCodeMirrorHTML = (cmBundle: string, editorSetup: string, fonts: string)
       margin: 8px 0;
     }
     /* Table styling */
+    .cm-md-table-wrapper {
+      overflow-x: auto;
+      overflow-y: visible;
+      max-width: calc(100vw - 32px);
+      margin: 4px 0;
+    }
     table.cm-md-table {
       border-collapse: collapse;
       font-family: 'IBM Plex Mono', ui-monospace, monospace;
       font-size: 0.9em;
-      margin: 4px 0;
     }
     table.cm-md-table th,
     table.cm-md-table td {
       border: 1px solid #ddd;
       padding: 4px 8px;
+      min-width: 70px;
     }
     table.cm-md-table th {
       font-weight: 600;
+      text-align: left;
     }
     table.cm-md-table code {
       background: #f4f4f4;

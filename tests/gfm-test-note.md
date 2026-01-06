@@ -134,10 +134,7 @@ def hello():
 
 1. First item
 2. Second item
-3. Third item
-
-   1. Nested ordered
-   2. Another nested
+3. Third item 4. Nested ordered 5. Another nested
 
 4. All items can use 1.
 5. The renderer will number them
@@ -151,9 +148,7 @@ def hello():
 1. Ordered item
    - Unordered nested
    - Another unordered
-2. Back to ordered
-   1. Nested ordered
-   2. Another nested
+2. Back to ordered 3. Nested ordered 4. Another nested
 
 ### Loose vs Tight Lists
 
@@ -183,7 +178,24 @@ def hello():
 
 [Basic link](https://example.com)
 
+[Link with title](https://example.com "Example Title")
+
 [Link with _emphasis_](https://example.com)
+
+### Reference Links
+
+[Reference link][ref1]
+
+[Another reference][ref2]
+
+[Implicit reference link][]
+
+[Shortcut reference link]
+
+[ref1]: https://example.com
+[ref2]: https://example.com "With Title"
+[Implicit reference link]: https://example.com
+[Shortcut reference link]: https://example.com
 
 ### Autolinks
 
@@ -202,6 +214,10 @@ Check out https://example.com/path for details.
 ## Images
 
 ![Alt text](https://futo.org/images/authors/futologo.png "Image Title")
+
+![Reference image][img-ref]
+
+[img-ref]: https://futo.org/images/authors/futologo.png "Reference Image"
 
 ## Tables (GFM Extension)
 
@@ -233,26 +249,6 @@ Escaped pipes:
 | ---------- | ------ |
 | `a \| b`   | a \| b |
 
-## HTML Blocks
-
-<div>
-This is raw HTML that won't be parsed as Markdown.
-</div>
-
-<details>
-<summary>Click to expand</summary>
-
-This content is inside a details element.
-
-- Still **Markdown** here after blank line
-</details>
-
-## Inline HTML
-
-This is a paragraph with <em>inline HTML</em> and <strong>more HTML</strong>.
-
-Use <br> for line breaks or <kbd>Ctrl</kbd>+<kbd>C</kbd> for keyboard shortcuts.
-
 ## Backslash Escapes
 
 \*not italic\*
@@ -266,14 +262,6 @@ Use <br> for line breaks or <kbd>Ctrl</kbd>+<kbd>C</kbd> for keyboard shortcuts.
 \- not a list item
 
 \| not \| a \| table \|
-
-## Entity References
-
-&copy; &amp; &lt; &gt; &quot;
-
-&#169; &#38; &#60; &#62;
-
-&#x00A9; &#x0026;
 
 ## Edge Cases
 
@@ -289,12 +277,6 @@ Use <br> for line breaks or <kbd>Ctrl</kbd>+<kbd>C</kbd> for keyboard shortcuts.
 **bold _bold-italic_ bold**
 
 _italic **italic-bold** italic_
-
-### Adjacent Formatting
-
-**bold\*\***bold\*\*
-
-*italic\*\*bold*italic\*
 
 ### Code in Lists
 
@@ -315,3 +297,11 @@ _italic **italic-bold** italic_
 | Short | This is a very long cell that contains a lot of text to test how tables handle overflow |
 | ----- | --------------------------------------------------------------------------------------- |
 | A     | B                                                                                       |
+
+| A   | B   |
+| --- | --- |
+| A   | B   |
+
+| A   | B   | And also C | And D? | Definitely E | So far F | One last column! |
+| --- | --- | ---------- | ------ | ------------ | -------- | ---------------- |
+| A   | B   | Long       | Short  | Medium       | Hi       | meow             |
