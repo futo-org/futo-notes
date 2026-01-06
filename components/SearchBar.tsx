@@ -6,6 +6,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { colors, fonts, spacing, radius } from "@/lib/theme";
 
 interface SearchBarProps {
   value: string;
@@ -20,14 +21,14 @@ export function SearchBar({
   onChangeText,
   onClear,
   isSearching,
-  placeholder = "Search notes...",
+  placeholder = "Search notes…",
 }: SearchBarProps) {
   return (
     <View style={styles.container}>
       <Ionicons
-        name="search"
+        name="search-outline"
         size={18}
-        color="#86868B"
+        color={colors.textTertiary}
         style={styles.searchIcon}
       />
       <TextInput
@@ -35,20 +36,28 @@ export function SearchBar({
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
-        placeholderTextColor="#86868B"
+        placeholderTextColor={colors.textTertiary}
         returnKeyType="search"
         autoCorrect={false}
         autoCapitalize="none"
+        selectionColor={colors.accent}
       />
       {isSearching ? (
         <ActivityIndicator
           size="small"
-          color="#86868B"
+          color={colors.accent}
           style={styles.rightIcon}
         />
       ) : value ? (
-        <Pressable onPress={onClear} style={styles.rightIcon} hitSlop={8}>
-          <Ionicons name="close-circle" size={18} color="#86868B" />
+        <Pressable
+          onPress={onClear}
+          style={({ pressed }) => [
+            styles.rightIcon,
+            pressed && styles.rightIconPressed,
+          ]}
+          hitSlop={8}
+        >
+          <Ionicons name="close-circle" size={18} color={colors.textTertiary} />
         </Pressable>
       ) : null}
     </View>
@@ -59,24 +68,29 @@ const styles = StyleSheet.create({
   container: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#E8E8E6",
-    borderRadius: 10,
-    marginHorizontal: 16,
-    marginVertical: 8,
-    paddingHorizontal: 8,
-    height: 36,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    marginHorizontal: spacing.lg,
+    marginVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    height: 40,
   },
   searchIcon: {
-    marginRight: 6,
+    marginRight: spacing.sm,
   },
   input: {
-    fontFamily: "IBMPlexSans-Regular",
+    fontFamily: fonts.body.regular,
     flex: 1,
     fontSize: 16,
-    color: "#1C1C1E",
+    color: colors.textPrimary,
     paddingVertical: 0,
   },
   rightIcon: {
-    marginLeft: 6,
+    marginLeft: spacing.sm,
+    padding: spacing.xs,
+    borderRadius: radius.full,
+  },
+  rightIconPressed: {
+    backgroundColor: colors.border,
   },
 });

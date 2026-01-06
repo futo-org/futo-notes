@@ -2,17 +2,31 @@ import { Stack } from "expo-router";
 import { useFonts } from "expo-font";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect } from "react";
+import { Text, StyleSheet } from "react-native";
 import { PreloadedEditorProvider } from "@/lib/PreloadedEditorContext";
+import { colors, fonts } from "@/lib/theme";
 
 // Keep the splash screen visible while we fetch resources
 SplashScreen.preventAutoHideAsync();
 
+function HeaderTitle({ children }: { children: string }) {
+  return <Text style={styles.headerTitle}>{children}</Text>;
+}
+
 export default function RootLayout() {
   const [fontsLoaded, error] = useFonts({
+    // Display fonts - Vollkorn for elegant serif headings
+    "Vollkorn-Regular": require("../assets/fonts/Vollkorn-Regular.ttf"),
+    "Vollkorn-Medium": require("../assets/fonts/Vollkorn-Medium.ttf"),
+    "Vollkorn-SemiBold": require("../assets/fonts/Vollkorn-SemiBold.ttf"),
+    "Vollkorn-Bold": require("../assets/fonts/Vollkorn-Bold.ttf"),
+    "Vollkorn-Italic": require("../assets/fonts/Vollkorn-Italic.ttf"),
+    // Body fonts - IBM Plex Sans
     "IBMPlexSans-Regular": require("../assets/fonts/IBMPlexSans-Regular.otf"),
     "IBMPlexSans-Medium": require("../assets/fonts/IBMPlexSans-Medium.otf"),
     "IBMPlexSans-SemiBold": require("../assets/fonts/IBMPlexSans-SemiBold.otf"),
     "IBMPlexSans-Bold": require("../assets/fonts/IBMPlexSans-Bold.otf"),
+    // Mono fonts - IBM Plex Mono
     "IBMPlexMono-Regular": require("../assets/fonts/IBMPlexMono-Regular.otf"),
     "IBMPlexMono-SemiBold": require("../assets/fonts/IBMPlexMono-SemiBold.otf"),
   });
@@ -31,25 +45,45 @@ export default function RootLayout() {
     <PreloadedEditorProvider>
       <Stack
         screenOptions={{
-          headerStyle: { backgroundColor: "#F5F5F3" },
-          contentStyle: { backgroundColor: "#F5F5F3" },
+          headerStyle: {
+            backgroundColor: colors.background,
+          },
+          contentStyle: {
+            backgroundColor: colors.background,
+          },
           headerShadowVisible: false,
           statusBarStyle: "dark",
+          statusBarBackgroundColor: colors.background,
+          headerTitleStyle: {
+            fontFamily: fonts.display.semiBold,
+            fontSize: 18,
+            color: colors.textPrimary,
+          },
+          headerTintColor: colors.textSecondary,
         }}
       >
         <Stack.Screen
           name="index"
           options={{
-            title: "Notes",
+            headerTitle: () => <HeaderTitle>Notes</HeaderTitle>,
           }}
         />
         <Stack.Screen
           name="note/[id]"
           options={{
-            title: "Note",
+            title: "",
           }}
         />
       </Stack>
     </PreloadedEditorProvider>
   );
 }
+
+const styles = StyleSheet.create({
+  headerTitle: {
+    fontFamily: fonts.display.semiBold,
+    fontSize: 22,
+    color: colors.textPrimary,
+    letterSpacing: -0.3,
+  },
+});

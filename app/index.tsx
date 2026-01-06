@@ -8,6 +8,7 @@ import { SearchBar } from "@/components/SearchBar";
 import { NotePreview, useNotesStore } from "@/lib/notesStore";
 import { useSearch, SearchResult } from "@/lib/useSearch";
 import { loadNotesWithIndex, removeNoteFromIndex } from "@/lib/notesLoader";
+import { colors, fonts, shadows, spacing, radius } from "@/lib/theme";
 
 const NOTES_DIR = "notes";
 
@@ -193,7 +194,10 @@ export default function NotesListScreen() {
 
   const renderNoteItem = useCallback(
     ({ item }: { item: NotePreview }) => (
-      <Pressable style={styles.noteItem} onPress={() => openNote(item.id)}>
+      <Pressable
+        style={({ pressed }) => [styles.noteItem, pressed && styles.noteItemPressed]}
+        onPress={() => openNote(item.id)}
+      >
         <Text style={styles.noteTitle} numberOfLines={1}>
           {item.title}
         </Text>
@@ -234,13 +238,17 @@ export default function NotesListScreen() {
         contentContainerStyle={
           displayedNotes.length === 0 && !searchQuery.trim()
             ? styles.emptyList
-            : undefined
+            : styles.listContent
         }
         ListEmptyComponent={!searchQuery.trim() ? renderEmptyList : null}
         ItemSeparatorComponent={() => <View style={styles.separator} />}
       />
       <Pressable
-        style={[styles.fab, { bottom: 20 + insets.bottom }]}
+        style={({ pressed }) => [
+          styles.fab,
+          { bottom: spacing.xl + insets.bottom },
+          pressed && styles.fabPressed,
+        ]}
         onPress={createNewNote}
         onLongPress={async () => {
           console.log("Starting import...");
@@ -249,7 +257,7 @@ export default function NotesListScreen() {
           loadNotes();
         }}
       >
-        <Text style={styles.fabText}>+</Text>
+        <Text style={styles.fabIcon}>+</Text>
       </Pressable>
     </View>
   );
@@ -258,36 +266,45 @@ export default function NotesListScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F5F5F3",
+    backgroundColor: colors.background,
+  },
+  listContent: {
+    paddingBottom: spacing["4xl"],
   },
   noResults: {
-    paddingVertical: 20,
+    paddingVertical: spacing.xl,
     alignItems: "center",
   },
   noResultsText: {
-    fontFamily: "IBMPlexSans-Regular",
+    fontFamily: fonts.body.regular,
     fontSize: 15,
-    color: "#86868B",
+    color: colors.textTertiary,
   },
   noteItem: {
-    padding: 16,
-    backgroundColor: "#F5F5F3",
+    paddingVertical: spacing.lg,
+    paddingHorizontal: spacing.xl,
+    backgroundColor: colors.background,
+  },
+  noteItemPressed: {
+    backgroundColor: colors.surface,
   },
   noteTitle: {
-    fontFamily: "IBMPlexSans-SemiBold",
-    fontSize: 17,
-    marginBottom: 4,
-    color: "#1C1C1E",
+    fontFamily: fonts.display.semiBold,
+    fontSize: 18,
+    marginBottom: spacing.xs,
+    color: colors.textPrimary,
+    letterSpacing: -0.2,
   },
   notePreview: {
-    fontFamily: "IBMPlexSans-Regular",
+    fontFamily: fonts.body.regular,
     fontSize: 15,
-    color: "#636366",
+    lineHeight: 22,
+    color: colors.textSecondary,
   },
   separator: {
     height: StyleSheet.hairlineWidth,
-    backgroundColor: "#C7C7CC",
-    marginLeft: 16,
+    backgroundColor: colors.border,
+    marginLeft: spacing.xl,
   },
   emptyList: {
     flex: 1,
@@ -296,38 +313,38 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
+    paddingBottom: 100,
   },
   emptyText: {
-    fontFamily: "IBMPlexSans-SemiBold",
-    fontSize: 18,
-    color: "#48484A",
+    fontFamily: fonts.display.semiBold,
+    fontSize: 20,
+    color: colors.textSecondary,
   },
   emptySubtext: {
-    fontFamily: "IBMPlexSans-Regular",
-    fontSize: 14,
-    color: "#86868B",
-    marginTop: 8,
+    fontFamily: fonts.body.regular,
+    fontSize: 15,
+    color: colors.textTertiary,
+    marginTop: spacing.sm,
   },
   fab: {
     position: "absolute",
-    right: 20,
-    bottom: 20,
+    right: spacing.xl,
     width: 56,
     height: 56,
-    borderRadius: 28,
-    backgroundColor: "#1C1C1E",
+    borderRadius: radius.full,
+    backgroundColor: colors.accent,
     justifyContent: "center",
     alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 6,
+    ...shadows.lg,
   },
-  fabText: {
-    fontFamily: "IBMPlexSans-Regular",
+  fabPressed: {
+    backgroundColor: colors.accentLight,
+    transform: [{ scale: 0.96 }],
+  },
+  fabIcon: {
     fontSize: 28,
-    color: "#F5F5F3",
+    color: colors.background,
     marginTop: -2,
+    fontWeight: "300",
   },
 });

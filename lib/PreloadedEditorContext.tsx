@@ -4,7 +4,6 @@ import React, {
   useRef,
   useState,
   useCallback,
-  useEffect,
 } from "react";
 import { StyleSheet, View } from "react-native";
 import { WebView, WebViewMessageEvent } from "react-native-webview";
@@ -14,7 +13,19 @@ import {
   EDITOR_SETUP,
   FONTS_CSS,
 } from "@/lib/codemirror-bundle-string";
+import { colors } from "@/lib/theme";
 
+/**
+ * Quiet Luxury Theme - Editor Styles
+ *
+ * A warm, editorial aesthetic inspired by:
+ * - iA Writer: Clean minimalism, distraction-free
+ * - Things 3: Muted palette (slate blues, warm creams)
+ * - Not Boring: Tactile depth, soft shadows
+ * - Instapaper: Literary reading, generous spacing
+ *
+ * Typography: Vollkorn (serif) for headings, IBM Plex Sans for body
+ */
 const CODEMIRROR_HTML = `
 <!DOCTYPE html>
 <html>
@@ -23,147 +34,296 @@ const CODEMIRROR_HTML = `
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
   <style>
     ${FONTS_CSS}
+
+    /* === Base Reset & Quiet Luxury Theme === */
+    :root {
+      /* Warm paper backgrounds */
+      --bg: #FAF9F6;
+      --surface: #F4F1EC;
+
+      /* Text hierarchy - soft, not harsh */
+      --text-primary: #2C2C2C;
+      --text-secondary: #5C5C5C;
+      --text-tertiary: #8A8A8A;
+
+      /* Accent - muted slate blue (Things 3 inspired) */
+      --accent: #3D5A80;
+      --accent-light: #4A6FA5;
+
+      /* Highlight - deep burgundy for emphasis */
+      --highlight: #8B2635;
+
+      /* Borders - very subtle warmth */
+      --border: #E8E4DE;
+      --border-light: #F0EDE8;
+      --separator: #DDD8D0;
+
+      /* Code */
+      --code-bg: #F4F1EC;
+      --blockquote-border: #C4BFB6;
+    }
+
     * { box-sizing: border-box; }
+
     html, body {
       margin: 0;
       padding: 0;
       width: 100%;
       height: 100%;
-      background: #F5F5F3;
+      background: var(--bg);
       font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, sans-serif;
-      color: #1C1C1E;
+      color: var(--text-primary);
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
     }
+
     #editor {
       width: 100%;
       height: 100%;
     }
+
+    /* === CodeMirror Core === */
     .cm-editor {
       height: 100%;
       font-size: 16px;
     }
+
     .cm-editor .cm-scroller {
-      padding: 16px;
-      line-height: 1.5;
+      padding: 20px;
+      line-height: 1.7;
       overflow-x: hidden;
     }
+
     .cm-editor .cm-content {
-      caret-color: #1C1C1E;
-    }
-    .cm-editor.cm-focused {
-      outline: none;
-    }
-    .cm-editor .cm-gutters {
-      display: none;
-    }
-    .cm-editor .cm-activeLine {
-      background: transparent;
-    }
-    .cm-editor .cm-activeLineGutter {
-      background: transparent;
+      caret-color: var(--accent);
+      max-width: 680px;
     }
 
-    /* Markdown styles */
-    .cm-md-h1 { font-size: 1.8em; line-height: 1.3; font-weight: 600; color: #3A3A3C; }
-    .cm-md-h2 { font-size: 1.5em; line-height: 1.3; font-weight: 600; color: #424244; }
-    .cm-md-h3 { font-size: 1.25em; line-height: 1.4; font-weight: 600; color: #4A4A4D; }
-    .cm-md-h4 { font-size: 1.1em; line-height: 1.4; font-weight: 600; color: #525255; }
-    .cm-md-h5 { font-size: 1em; line-height: 1.5; font-weight: 600; color: #5B5B5E; }
-    .cm-md-h6 { font-size: 0.9em; line-height: 1.5; font-weight: 600; color: #636366; }
-    .cm-md-emphasis { font-style: italic; }
-    .cm-md-strong { font-weight: 700; }
-    .cm-md-strikethrough { text-decoration: line-through; color: #86868B; }
+    .cm-editor.cm-focused { outline: none; }
+    .cm-editor .cm-gutters { display: none; }
+    .cm-editor .cm-activeLine { background: transparent; }
+    .cm-editor .cm-activeLineGutter { background: transparent; }
+
+    .cm-editor .cm-selectionBackground,
+    .cm-editor.cm-focused .cm-selectionBackground {
+      background: rgba(61, 90, 128, 0.12) !important;
+    }
+
+    /* === Typography - Headings (Vollkorn) === */
+    .cm-md-h1 {
+      font-family: 'Vollkorn', Georgia, 'Times New Roman', serif;
+      font-size: 2em;
+      line-height: 1.25;
+      font-weight: 700;
+      color: var(--text-primary);
+      letter-spacing: -0.02em;
+      margin-top: 0.5em;
+    }
+
+    .cm-md-h2 {
+      font-family: 'Vollkorn', Georgia, 'Times New Roman', serif;
+      font-size: 1.55em;
+      line-height: 1.3;
+      font-weight: 600;
+      color: var(--text-primary);
+      letter-spacing: -0.015em;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0.15em;
+    }
+
+    .cm-md-h3 {
+      font-family: 'Vollkorn', Georgia, 'Times New Roman', serif;
+      font-size: 1.3em;
+      line-height: 1.35;
+      font-weight: 600;
+      color: var(--text-primary);
+      letter-spacing: -0.01em;
+    }
+
+    .cm-md-h4 {
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-size: 1.1em;
+      line-height: 1.4;
+      font-weight: 600;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .cm-md-h5 {
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-size: 1em;
+      line-height: 1.5;
+      font-weight: 600;
+      color: var(--text-secondary);
+    }
+
+    .cm-md-h6 {
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-size: 0.9em;
+      line-height: 1.5;
+      font-weight: 600;
+      color: var(--text-tertiary);
+      font-style: italic;
+    }
+
+    /* === Inline Formatting === */
+    .cm-md-emphasis {
+      font-style: italic;
+      color: var(--text-primary);
+    }
+
+    .cm-md-strong {
+      font-weight: 700;
+      color: var(--text-primary);
+    }
+
+    .cm-md-strikethrough {
+      text-decoration: line-through;
+      color: var(--text-tertiary);
+    }
+
+    /* === Links - Editorial Blue === */
+    .cm-md-link {
+      color: var(--accent);
+      text-decoration: none;
+      border-bottom: 1px solid var(--accent-light);
+      transition: border-color 0.15s ease;
+    }
+
+    /* === Inline Code === */
     .cm-md-code {
       font-family: 'IBM Plex Mono', ui-monospace, monospace;
-      background: #E8E8E6;
-      padding: 2px 4px;
-      border-radius: 3px;
-      font-size: 0.9em;
+      background: var(--code-bg);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 0.88em;
+      border: 1px solid var(--border);
     }
-    /* Code block line decorations */
+
+    /* === Code Blocks === */
     .cm-line.cm-md-codeblock {
       font-family: 'IBM Plex Mono', ui-monospace, monospace;
-      background: #E8E8E6;
-      font-size: 0.9em;
-      padding-left: 8px;
-      padding-right: 8px;
-      margin-left: -8px;
-      margin-right: -8px;
+      background: var(--code-bg);
+      font-size: 0.88em;
+      padding-left: 12px;
+      padding-right: 12px;
+      margin-left: -12px;
+      margin-right: -12px;
+      border-left: 3px solid var(--accent);
     }
+
     .cm-line.cm-md-codeblock-single {
-      border-radius: 6px;
-      padding-top: 8px;
-      padding-bottom: 8px;
+      border-radius: 0 6px 6px 0;
+      padding-top: 12px;
+      padding-bottom: 12px;
     }
+
     .cm-line.cm-md-codeblock-first {
-      border-radius: 6px 6px 0 0;
-      padding-top: 8px;
+      border-radius: 0 6px 0 0;
+      padding-top: 12px;
     }
+
     .cm-line.cm-md-codeblock-middle {
       border-radius: 0;
     }
+
     .cm-line.cm-md-codeblock-last {
-      border-radius: 0 0 6px 6px;
-      padding-bottom: 8px;
+      border-radius: 0 0 6px 0;
+      padding-bottom: 12px;
     }
-    .cm-md-link { color: #48484A; text-decoration: underline; }
-    .cm-md-task-checked { text-decoration: line-through; color: #86868B; }
-    /* Blockquote line decorations */
+
+    /* === Task Lists === */
+    .cm-md-task-checked {
+      text-decoration: line-through;
+      color: var(--text-tertiary);
+    }
+
+    /* === Blockquotes - Literary Style === */
     .cm-line.cm-md-blockquote {
-      border-left: 3px solid #C7C7CC;
-      padding-left: 12px;
-      margin-left: -8px;
-      color: #636366;
+      border-left: 3px solid var(--highlight);
+      padding-left: 16px;
+      margin-left: -12px;
+      color: var(--text-secondary);
       font-style: italic;
+      background: linear-gradient(to right, rgba(139, 38, 53, 0.03), transparent 60%);
     }
+
     .cm-line.cm-md-blockquote-2 {
-      background: linear-gradient(to right, transparent 12px, #AEAEB2 12px, #AEAEB2 15px, transparent 15px);
-      padding-left: 27px;
+      background: linear-gradient(to right,
+        rgba(139, 38, 53, 0.03) 0%, transparent 60%,
+        transparent 16px, var(--blockquote-border) 16px, var(--blockquote-border) 19px, transparent 19px);
+      padding-left: 32px;
     }
+
     .cm-line.cm-md-blockquote-3 {
       background: linear-gradient(to right,
-        transparent 12px, #AEAEB2 12px, #AEAEB2 15px,
-        transparent 15px, transparent 27px, #8E8E93 27px, #8E8E93 30px, transparent 30px);
-      padding-left: 42px;
+        rgba(139, 38, 53, 0.03) 0%, transparent 60%,
+        transparent 16px, var(--blockquote-border) 16px, var(--blockquote-border) 19px,
+        transparent 19px, transparent 32px, var(--text-tertiary) 32px, var(--text-tertiary) 35px, transparent 35px);
+      padding-left: 48px;
     }
+
+    /* === Horizontal Rules === */
     .cm-md-hr {
-      height: 2px;
-      background: #C7C7CC;
-      margin: 8px 0;
+      height: 1px;
+      background: linear-gradient(to right, transparent, var(--separator) 20%, var(--separator) 80%, transparent);
+      margin: 20px 0;
     }
-    /* Table styling */
+
+    /* === Tables === */
     .cm-md-table-wrapper {
       overflow-x: auto;
       overflow-y: visible;
-      max-width: calc(100vw - 32px);
-      margin: 4px 0;
+      max-width: calc(100vw - 40px);
+      margin: 16px 0;
     }
+
     table.cm-md-table {
       border-collapse: collapse;
       font-family: 'IBM Plex Mono', ui-monospace, monospace;
-      font-size: 0.9em;
+      font-size: 0.88em;
+      width: 100%;
     }
+
     table.cm-md-table th,
     table.cm-md-table td {
-      border: 1px solid #C7C7CC;
-      padding: 4px 8px;
-      min-width: 70px;
+      border: 1px solid var(--border);
+      padding: 10px 14px;
+      min-width: 80px;
     }
+
     table.cm-md-table th {
       font-weight: 600;
       text-align: left;
+      background: var(--surface);
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      font-size: 0.85em;
+      letter-spacing: 0.03em;
     }
+
+    table.cm-md-table tr:nth-child(even) {
+      background: rgba(244, 241, 236, 0.5);
+    }
+
     table.cm-md-table code {
-      background: #E8E8E6;
+      background: var(--bg);
       padding: 1px 4px;
       border-radius: 3px;
+      border: 1px solid var(--border);
     }
+
     table.cm-md-table a {
-      color: #48484A;
-      text-decoration: underline;
+      color: var(--accent);
+      text-decoration: none;
+      border-bottom: 1px solid var(--accent-light);
     }
+
     table.cm-md-table del {
-      color: #86868B;
+      color: var(--text-tertiary);
     }
+
     .cm-line.cm-md-table-hidden-line {
       height: 0;
       overflow: hidden;
@@ -333,11 +493,11 @@ export function PreloadedEditorProvider({
 const styles = StyleSheet.create({
   webviewContainer: {
     position: "absolute",
-    top: 85, // Standard Android header height
+    top: 85,
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: "#F5F5F3",
+    backgroundColor: colors.background,
   },
   visible: {
     opacity: 1,
@@ -349,6 +509,6 @@ const styles = StyleSheet.create({
   },
   webview: {
     flex: 1,
-    backgroundColor: "#F5F5F3",
+    backgroundColor: colors.background,
   },
 });

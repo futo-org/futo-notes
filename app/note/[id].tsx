@@ -5,6 +5,7 @@ import { StyleSheet, TextInput, TextInput as TextInputType } from "react-native"
 import { useNotesStore } from "@/lib/notesStore";
 import { renameNoteInIndex, updateNoteInIndex } from "@/lib/notesLoader";
 import { usePreloadedEditor } from "@/lib/PreloadedEditorContext";
+import { colors, fonts } from "@/lib/theme";
 
 const NOTES_DIR = "notes";
 
@@ -203,6 +204,7 @@ export default function NoteScreen() {
           onChangeText={(text) => setTitleRef.current(text)}
           selectTextOnFocus
           placeholder="Untitled"
+          placeholderTextColor={colors.textTertiary}
         />
       ),
     });
@@ -252,9 +254,11 @@ export default function NoteScreen() {
 
 const styles = StyleSheet.create({
   headerTitleInput: {
-    fontFamily: "IBMPlexSans-SemiBold",
-    fontSize: 17,
+    fontFamily: fonts.display.semiBold,
+    fontSize: 18,
+    color: colors.textPrimary,
     minWidth: 200,
     textAlign: "left",
+    letterSpacing: -0.2,
   },
 });

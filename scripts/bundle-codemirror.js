@@ -11,10 +11,18 @@ const fontsDir = path.join(__dirname, "../assets/fonts");
 // Bundle fonts as base64
 function bundleFonts() {
   const fonts = [
+    // Vollkorn - Serif display font for headings
+    { file: "Vollkorn-Regular.ttf", family: "Vollkorn", weight: 400, format: "truetype" },
+    { file: "Vollkorn-Medium.ttf", family: "Vollkorn", weight: 500, format: "truetype" },
+    { file: "Vollkorn-SemiBold.ttf", family: "Vollkorn", weight: 600, format: "truetype" },
+    { file: "Vollkorn-Bold.ttf", family: "Vollkorn", weight: 700, format: "truetype" },
+    { file: "Vollkorn-Italic.ttf", family: "Vollkorn", weight: 400, style: "italic", format: "truetype" },
+    // IBM Plex Sans - Body text
     { file: "IBMPlexSans-Regular.otf", family: "IBM Plex Sans", weight: 400 },
     { file: "IBMPlexSans-Medium.otf", family: "IBM Plex Sans", weight: 500 },
     { file: "IBMPlexSans-SemiBold.otf", family: "IBM Plex Sans", weight: 600 },
     { file: "IBMPlexSans-Bold.otf", family: "IBM Plex Sans", weight: 700 },
+    // IBM Plex Mono - Code
     { file: "IBMPlexMono-Regular.otf", family: "IBM Plex Mono", weight: 400 },
     { file: "IBMPlexMono-SemiBold.otf", family: "IBM Plex Mono", weight: 600 },
   ];
@@ -26,7 +34,10 @@ function bundleFonts() {
     const fontData = fs.readFileSync(fontPath);
     totalSize += fontData.length;
     const base64 = fontData.toString("base64");
-    css += `@font-face { font-family: '${font.family}'; font-weight: ${font.weight}; src: url(data:font/otf;base64,${base64}) format('opentype'); }\n`;
+    const format = font.format || "opentype";
+    const mimeType = format === "truetype" ? "font/ttf" : "font/otf";
+    const styleDecl = font.style ? `font-style: ${font.style};` : "";
+    css += `@font-face { font-family: '${font.family}'; font-weight: ${font.weight}; ${styleDecl} src: url(data:${mimeType};base64,${base64}) format('${format}'); }\n`;
   }
   console.log(`Bundled fonts: ${(totalSize / 1024).toFixed(1)} KB`);
   return css;
