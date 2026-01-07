@@ -3,6 +3,7 @@ import { useFonts } from "expo-font";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect } from "react";
 import { Text, StyleSheet } from "react-native";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { colors, fonts } from "@/lib/theme";
 
 // Keep the splash screen visible while we fetch resources
@@ -41,42 +42,47 @@ export default function RootLayout() {
   }
 
   return (
-    <Stack
-      screenOptions={{
-        headerStyle: {
-          backgroundColor: colors.background,
-        },
-        contentStyle: {
-          backgroundColor: colors.background,
-        },
-        headerShadowVisible: false,
-        statusBarStyle: "dark",
-        statusBarBackgroundColor: colors.background,
-        headerTitleStyle: {
-          fontFamily: fonts.display.semiBold,
-          fontSize: 18,
-          color: colors.textPrimary,
-        },
-        headerTintColor: colors.textSecondary,
-      }}
-    >
-      <Stack.Screen
-        name="index"
-        options={{
-          headerTitle: () => <HeaderTitle>Notes</HeaderTitle>,
+    <GestureHandlerRootView style={styles.root}>
+      <Stack
+        screenOptions={{
+          headerStyle: {
+            backgroundColor: colors.background,
+          },
+          contentStyle: {
+            backgroundColor: colors.background,
+          },
+          headerShadowVisible: false,
+          statusBarStyle: "dark",
+          statusBarBackgroundColor: colors.background,
+          headerTitleStyle: {
+            fontFamily: fonts.display.semiBold,
+            fontSize: 18,
+            color: colors.textPrimary,
+          },
+          headerTintColor: colors.textSecondary,
         }}
-      />
-      <Stack.Screen
-        name="note/[id]"
-        options={{
-          title: "",
-        }}
-      />
-    </Stack>
+      >
+        <Stack.Screen
+          name="index"
+          options={{
+            headerTitle: () => <HeaderTitle>Notes</HeaderTitle>,
+          }}
+        />
+        <Stack.Screen
+          name="note/[id]"
+          options={{
+            title: "",
+          }}
+        />
+      </Stack>
+    </GestureHandlerRootView>
   );
 }
 
 const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+  },
   headerTitle: {
     fontFamily: fonts.display.semiBold,
     fontSize: 22,

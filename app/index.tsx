@@ -5,6 +5,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { FlashList } from "@shopify/flash-list";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { SearchBar } from "@/components/SearchBar";
+import { SwipeableNoteItem } from "@/components/SwipeableNoteItem";
 import { NotePreview, useNotesStore } from "@/lib/notesStore";
 import { useSearch, SearchResult } from "@/lib/useSearch";
 import { loadNotesWithIndex, removeNoteFromIndex } from "@/lib/notesLoader";
@@ -194,19 +195,13 @@ export default function NotesListScreen() {
 
   const renderNoteItem = useCallback(
     ({ item }: { item: NotePreview }) => (
-      <Pressable
-        style={({ pressed }) => [styles.noteItem, pressed && styles.noteItemPressed]}
-        onPress={() => openNote(item.id)}
-      >
-        <Text style={styles.noteTitle} numberOfLines={1}>
-          {item.title}
-        </Text>
-        <Text style={styles.notePreview} numberOfLines={2}>
-          {item.preview}
-        </Text>
-      </Pressable>
+      <SwipeableNoteItem
+        item={item}
+        onPress={openNote}
+        onDelete={deleteNote}
+      />
     ),
-    [openNote]
+    [openNote, deleteNote]
   );
 
   const renderEmptyList = () => (
@@ -279,27 +274,6 @@ const styles = StyleSheet.create({
     fontFamily: fonts.body.regular,
     fontSize: 15,
     color: colors.textTertiary,
-  },
-  noteItem: {
-    paddingVertical: spacing.lg,
-    paddingHorizontal: spacing.xl,
-    backgroundColor: colors.background,
-  },
-  noteItemPressed: {
-    backgroundColor: colors.surface,
-  },
-  noteTitle: {
-    fontFamily: fonts.display.semiBold,
-    fontSize: 18,
-    marginBottom: spacing.xs,
-    color: colors.textPrimary,
-    letterSpacing: -0.2,
-  },
-  notePreview: {
-    fontFamily: fonts.body.regular,
-    fontSize: 15,
-    lineHeight: 22,
-    color: colors.textSecondary,
   },
   separator: {
     height: StyleSheet.hairlineWidth,
