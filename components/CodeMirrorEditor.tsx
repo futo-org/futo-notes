@@ -110,8 +110,6 @@ const CODEMIRROR_HTML = `
       font-weight: 600;
       color: var(--text-primary);
       letter-spacing: -0.015em;
-      border-bottom: 1px solid var(--border);
-      padding-bottom: 0.15em;
     }
 
     .cm-md-h3 {
@@ -129,8 +127,7 @@ const CODEMIRROR_HTML = `
       line-height: 1.4;
       font-weight: 600;
       color: var(--text-secondary);
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
+      letter-spacing: 0.01em;
     }
 
     .cm-md-h5 {
@@ -233,18 +230,18 @@ const CODEMIRROR_HTML = `
     }
 
     .cm-line.cm-md-blockquote-2 {
-      background: linear-gradient(to right,
-        rgba(139, 38, 53, 0.03) 0%, transparent 60%,
-        transparent 16px, var(--blockquote-border) 16px, var(--blockquote-border) 19px, transparent 19px);
+      border-left: 3px solid var(--highlight);
+      background: linear-gradient(to right, rgba(139, 38, 53, 0.03), transparent 60%);
       padding-left: 32px;
+      box-shadow: inset 16px 0 0 0 var(--bg), inset 19px 0 0 0 var(--blockquote-border);
     }
 
     .cm-line.cm-md-blockquote-3 {
-      background: linear-gradient(to right,
-        rgba(139, 38, 53, 0.03) 0%, transparent 60%,
-        transparent 16px, var(--blockquote-border) 16px, var(--blockquote-border) 19px,
-        transparent 19px, transparent 32px, var(--text-tertiary) 32px, var(--text-tertiary) 35px, transparent 35px);
+      border-left: 3px solid var(--highlight);
+      background: linear-gradient(to right, rgba(139, 38, 53, 0.03), transparent 60%);
       padding-left: 48px;
+      box-shadow: inset 16px 0 0 0 var(--bg), inset 19px 0 0 0 var(--blockquote-border),
+                  inset 32px 0 0 0 var(--bg), inset 35px 0 0 0 var(--text-tertiary);
     }
 
     /* === Horizontal Rules === */
@@ -281,9 +278,6 @@ const CODEMIRROR_HTML = `
       text-align: left;
       background: var(--surface);
       color: var(--text-secondary);
-      text-transform: uppercase;
-      font-size: 0.85em;
-      letter-spacing: 0.03em;
     }
 
     table.cm-md-table tr:nth-child(even) {
