@@ -1,10 +1,10 @@
 import { Directory, File, Paths } from "expo-file-system";
 import { useLocalSearchParams, useNavigation } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { StyleSheet, TextInput, TextInput as TextInputType } from "react-native";
+import { StyleSheet, TextInput, TextInput as TextInputType, View } from "react-native";
 import { useNotesStore } from "@/lib/notesStore";
 import { renameNoteInIndex, updateNoteInIndex } from "@/lib/notesLoader";
-import { usePreloadedEditor } from "@/lib/PreloadedEditorContext";
+import { CodeMirrorEditor } from "@/components/CodeMirrorEditor";
 import { colors, fonts } from "@/lib/theme";
 
 const NOTES_DIR = "notes";
@@ -50,7 +50,6 @@ function getNotesDirectory(): Directory {
 export default function NoteScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const navigation = useNavigation();
-  const editor = usePreloadedEditor();
   const notes = useNotesStore((state) => state.notes);
   const setNotes = useNotesStore((state) => state.setNotes);
   const searchIndex = useNotesStore((state) => state.searchIndex);
@@ -178,21 +177,6 @@ export default function NoteScreen() {
     loadNote();
   }, [id, loadNote]);
 
-  // Show the preloaded editor once loaded
-  const textRef = useRef(text);
-  textRef.current = text;
-
-  useEffect(() => {
-    if (isLoaded) {
-      editor.show(textRef.current, setText, {
-        autoFocus: id === "new",
-      });
-    }
-    return () => {
-      editor.hide();
-    };
-  }, [isLoaded, editor, id]);
-
   // Set up the header with editable title - only once to avoid cursor issues
   useEffect(() => {
     navigation.setOptions({
@@ -247,12 +231,27 @@ export default function NoteScreen() {
     };
   }, [title, isLoaded, saveNote]);
 
-  // The editor is rendered at the root level via PreloadedEditorProvider
-  // This component just manages the note data and shows/hides the editor
-  return null;
+  // Don't render editor until content is loaded
+  if (!isLoaded) {
+    return <View style={styles.container} />;
+  }
+
+  return (
+    <View style={styles.container}>
+      <CodeMirrorEditor
+        initialContent={text}
+        onChange={setText}
+        autoFocus={id === "new"}
+      />
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
   headerTitleInput: {
     fontFamily: fonts.display.semiBold,
     fontSize: 18,

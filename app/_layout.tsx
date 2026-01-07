@@ -3,7 +3,6 @@ import { useFonts } from "expo-font";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect } from "react";
 import { Text, StyleSheet } from "react-native";
-import { PreloadedEditorProvider } from "@/lib/PreloadedEditorContext";
 import { colors, fonts } from "@/lib/theme";
 
 // Keep the splash screen visible while we fetch resources
@@ -42,40 +41,38 @@ export default function RootLayout() {
   }
 
   return (
-    <PreloadedEditorProvider>
-      <Stack
-        screenOptions={{
-          headerStyle: {
-            backgroundColor: colors.background,
-          },
-          contentStyle: {
-            backgroundColor: colors.background,
-          },
-          headerShadowVisible: false,
-          statusBarStyle: "dark",
-          statusBarBackgroundColor: colors.background,
-          headerTitleStyle: {
-            fontFamily: fonts.display.semiBold,
-            fontSize: 18,
-            color: colors.textPrimary,
-          },
-          headerTintColor: colors.textSecondary,
+    <Stack
+      screenOptions={{
+        headerStyle: {
+          backgroundColor: colors.background,
+        },
+        contentStyle: {
+          backgroundColor: colors.background,
+        },
+        headerShadowVisible: false,
+        statusBarStyle: "dark",
+        statusBarBackgroundColor: colors.background,
+        headerTitleStyle: {
+          fontFamily: fonts.display.semiBold,
+          fontSize: 18,
+          color: colors.textPrimary,
+        },
+        headerTintColor: colors.textSecondary,
+      }}
+    >
+      <Stack.Screen
+        name="index"
+        options={{
+          headerTitle: () => <HeaderTitle>Notes</HeaderTitle>,
         }}
-      >
-        <Stack.Screen
-          name="index"
-          options={{
-            headerTitle: () => <HeaderTitle>Notes</HeaderTitle>,
-          }}
-        />
-        <Stack.Screen
-          name="note/[id]"
-          options={{
-            title: "",
-          }}
-        />
-      </Stack>
-    </PreloadedEditorProvider>
+      />
+      <Stack.Screen
+        name="note/[id]"
+        options={{
+          title: "",
+        }}
+      />
+    </Stack>
   );
 }
 

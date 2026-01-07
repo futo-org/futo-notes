@@ -1,16 +1,6 @@
-import React, {
-  createContext,
-  useContext,
-  useRef,
-  useState,
-  useCallback,
-} from "react";
-import { Platform, StyleSheet, View } from "react-native";
+import React, { useRef, useCallback, useState, useEffect } from "react";
+import { StyleSheet, View } from "react-native";
 import { WebView, WebViewMessageEvent } from "react-native-webview";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-
-// Standard navigation header heights
-const HEADER_HEIGHT = Platform.OS === "ios" ? 44 : 56;
 import * as Clipboard from "expo-clipboard";
 import {
   CODEMIRROR_BUNDLE,
@@ -19,17 +9,6 @@ import {
 } from "@/lib/codemirror-bundle-string";
 import { colors } from "@/lib/theme";
 
-/**
- * Quiet Luxury Theme - Editor Styles
- *
- * A warm, editorial aesthetic inspired by:
- * - iA Writer: Clean minimalism, distraction-free
- * - Things 3: Muted palette (slate blues, warm creams)
- * - Not Boring: Tactile depth, soft shadows
- * - Instapaper: Literary reading, generous spacing
- *
- * Typography: Vollkorn (serif) for headings, IBM Plex Sans for body
- */
 const CODEMIRROR_HTML = `
 <!DOCTYPE html>
 <html>
@@ -345,69 +324,48 @@ const CODEMIRROR_HTML = `
 
 const WEBVIEW_SOURCE = { html: CODEMIRROR_HTML };
 
-interface EditorState {
-  isReady: boolean;
-  isVisible: boolean;
-  show: (
-    content: string,
-    onChange: (text: string) => void,
-    options?: { autoFocus?: boolean }
-  ) => void;
-  hide: () => void;
-  updateContent: (content: string) => void;
+interface CodeMirrorEditorProps {
+  initialContent: string;
+  onChange: (content: string) => void;
+  autoFocus?: boolean;
 }
 
-const PreloadedEditorContext = createContext<EditorState | null>(null);
-
-export function usePreloadedEditor() {
-  const context = useContext(PreloadedEditorContext);
-  if (!context) {
-    throw new Error(
-      "usePreloadedEditor must be used within PreloadedEditorProvider"
-    );
-  }
-  return context;
-}
-
-interface PreloadedEditorProviderProps {
-  children: React.ReactNode;
-}
-
-export function PreloadedEditorProvider({
-  children,
-}: PreloadedEditorProviderProps) {
+export function CodeMirrorEditor({
+  initialContent,
+  onChange,
+  autoFocus = false,
+}: CodeMirrorEditorProps) {
   const webViewRef = useRef<WebView>(null);
-  const insets = useSafeAreaInsets();
   const [isReady, setIsReady] = useState(false);
-  const [isVisible, setIsVisible] = useState(false);
-  const onChangeRef = useRef<((text: string) => void) | null>(null);
-  const lastSentValueRef = useRef<string>("");
-  const pendingContentRef = useRef<{ content: string; autoFocus?: boolean } | null>(null);
+  const onChangeRef = useRef(onChange);
+  const lastSentValueRef = useRef(initialContent);
+  const initialContentRef = useRef(initialContent);
+
+  // Keep onChange ref updated
+  useEffect(() => {
+    onChangeRef.current = onChange;
+  }, [onChange]);
 
   const sendMessage = useCallback((message: object) => {
     webViewRef.current?.injectJavaScript(
-      `window.handleRNMessage(${JSON.stringify(
-        JSON.stringify(message)
-      )}); true;`
+      `window.handleRNMessage(${JSON.stringify(JSON.stringify(message))}); true;`
     );
   }, []);
 
   const handleMessage = useCallback(
     async (event: WebViewMessageEvent) => {
       const data = JSON.parse(event.nativeEvent.data);
-      console.log("[Editor] Message from WebView:", data.type);
       if (data.type === "error") {
         console.error("[Editor] JavaScript error:", data.message);
         console.error("[Editor] Stack:", data.stack);
       } else if (data.type === "ready") {
-        console.log("[Editor] WebView is ready");
         setIsReady(true);
       } else if (
         data.type === "change" &&
         data.content !== lastSentValueRef.current
       ) {
         lastSentValueRef.current = data.content;
-        onChangeRef.current?.(data.content);
+        onChangeRef.current(data.content);
       } else if (data.type === "copy") {
         await Clipboard.setStringAsync(data.text);
       } else if (data.type === "paste") {
@@ -418,132 +376,48 @@ export function PreloadedEditorProvider({
     [sendMessage]
   );
 
-  const show = useCallback(
-    (
-      content: string,
-      onChange: (text: string) => void,
-      options?: { autoFocus?: boolean }
-    ) => {
-      console.log("[Editor] show() called, isReady=", isReady, "content length=", content.length);
-      onChangeRef.current = onChange;
-      lastSentValueRef.current = content;
-      setIsVisible(true);
-
-      if (isReady) {
-        console.log("[Editor] Sending init immediately");
-        sendMessage({ type: "init", content });
-        if (options?.autoFocus) {
-          setTimeout(() => sendMessage({ type: "focus" }), 100);
-        }
-        pendingContentRef.current = null;
-      } else {
-        console.log("[Editor] Queuing content for later");
-        // Store for when WebView becomes ready
-        pendingContentRef.current = { content, autoFocus: options?.autoFocus };
-      }
-    },
-    [isReady, sendMessage]
-  );
-
-  const hide = useCallback(() => {
-    console.log("[Editor] hide() called");
-    setIsVisible(false);
-    onChangeRef.current = null;
-    pendingContentRef.current = null;
-    // Clear editor content when hiding
+  // Initialize editor when ready
+  useEffect(() => {
     if (isReady) {
-      sendMessage({ type: "init", content: "" });
-    }
-  }, [isReady, sendMessage]);
-
-  const updateContent = useCallback(
-    (content: string) => {
-      if (isReady && content !== lastSentValueRef.current) {
-        sendMessage({ type: "update", content });
-        lastSentValueRef.current = content;
-      }
-    },
-    [isReady, sendMessage]
-  );
-
-  // Send pending content when WebView becomes ready
-  React.useEffect(() => {
-    console.log("[Editor] Effect: isReady=", isReady, "hasPending=", !!pendingContentRef.current);
-    if (isReady && pendingContentRef.current) {
-      const { content, autoFocus } = pendingContentRef.current;
-      console.log("[Editor] Sending pending content, length=", content.length);
-      sendMessage({ type: "init", content });
+      sendMessage({ type: "init", content: initialContentRef.current });
       if (autoFocus) {
         setTimeout(() => sendMessage({ type: "focus" }), 100);
       }
-      pendingContentRef.current = null;
     }
-  }, [isReady, sendMessage]);
-
-  const editorState: EditorState = {
-    isReady,
-    isVisible,
-    show,
-    hide,
-    updateContent,
-  };
+  }, [isReady, sendMessage, autoFocus]);
 
   return (
-    <PreloadedEditorContext.Provider value={editorState}>
-      {children}
-      <View
-        style={[
-          styles.webviewContainer,
-          { top: insets.top + HEADER_HEIGHT },
-          isVisible ? styles.visible : styles.hidden,
-        ]}
-        pointerEvents={isVisible ? "auto" : "none"}
-      >
-        <WebView
-          ref={webViewRef}
-          source={WEBVIEW_SOURCE}
-          style={styles.webview}
-          onMessage={handleMessage}
-          onError={(e) => console.log("[Editor] WebView error:", e.nativeEvent)}
-          onLoadEnd={() => console.log("[Editor] WebView load ended")}
-          javaScriptEnabled={true}
-          domStorageEnabled={true}
-          originWhitelist={["*"]}
-          scrollEnabled={false}
-          showsVerticalScrollIndicator={false}
-          keyboardDisplayRequiresUserAction={false}
-          hideKeyboardAccessoryView={true}
-          allowsInlineMediaPlayback={true}
-          mixedContentMode="compatibility"
-          androidLayerType="hardware"
-          allowFileAccess={true}
-          allowUniversalAccessFromFileURLs={true}
-          textInteractionEnabled={true}
-          nestedScrollEnabled={true}
-          overScrollMode="never"
-        />
-      </View>
-    </PreloadedEditorContext.Provider>
+    <View style={styles.container}>
+      <WebView
+        ref={webViewRef}
+        source={WEBVIEW_SOURCE}
+        style={styles.webview}
+        onMessage={handleMessage}
+        onError={(e) => console.error("[Editor] WebView error:", e.nativeEvent)}
+        javaScriptEnabled={true}
+        domStorageEnabled={true}
+        originWhitelist={["*"]}
+        scrollEnabled={false}
+        showsVerticalScrollIndicator={false}
+        keyboardDisplayRequiresUserAction={false}
+        hideKeyboardAccessoryView={true}
+        allowsInlineMediaPlayback={true}
+        mixedContentMode="compatibility"
+        androidLayerType="hardware"
+        allowFileAccess={true}
+        allowUniversalAccessFromFileURLs={true}
+        textInteractionEnabled={true}
+        nestedScrollEnabled={true}
+        overScrollMode="never"
+      />
+    </View>
   );
 }
 
-const SWIPE_EDGE_WIDTH = 20;
-
 const styles = StyleSheet.create({
-  webviewContainer: {
-    position: "absolute",
-    left: SWIPE_EDGE_WIDTH,
-    right: 0,
-    bottom: 0,
+  container: {
+    flex: 1,
     backgroundColor: colors.background,
-  },
-  visible: {
-    opacity: 1,
-    zIndex: 10,
-  },
-  hidden: {
-    opacity: 0,
-    zIndex: -1,
   },
   webview: {
     flex: 1,
