@@ -10,6 +10,7 @@ import { NotePreview, useNotesStore } from "@/lib/notesStore";
 import { useSearch, SearchResult } from "@/lib/useSearch";
 import { loadNotesWithIndex, removeNoteFromIndex } from "@/lib/notesLoader";
 import { colors, fonts, shadows, spacing, radius } from "@/lib/theme";
+import { haptics } from "@/lib/haptics";
 
 const NOTES_DIR = "notes";
 
@@ -144,6 +145,7 @@ export default function NotesListScreen() {
   );
 
   const createNewNote = () => {
+    haptics.softTap();
     router.push("/note/new");
   };
 
