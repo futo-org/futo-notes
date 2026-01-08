@@ -95,17 +95,35 @@ export default function NoteScreen() {
     noteOpenStartTime = null; // Reset for next open
   }, []);
 
+  // Track when we have a valid layout (header is visible)
+  const [hasValidLayout, setHasValidLayout] = useState(false);
+  const layoutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Measure container and update persistent editor layout
   const handleContainerLayout = useCallback((_event: LayoutChangeEvent) => {
-    // Measure relative to window (more accurate than layout event values)
-    editorContainerRef.current?.measureInWindow((windowX, windowY, windowWidth, windowHeight) => {
-      editor.setTargetLayout({
-        x: windowX,
-        y: windowY,
-        width: windowWidth,
-        height: windowHeight,
+    // Debounce measurements to get stable final layout
+    if (layoutTimerRef.current) {
+      clearTimeout(layoutTimerRef.current);
+    }
+    layoutTimerRef.current = setTimeout(() => {
+      editorContainerRef.current?.measureInWindow((windowX, windowY, windowWidth, windowHeight) => {
+        // Only accept layout if y > 40 (header must be present)
+        if (windowY > 40) {
+          // Add offset to avoid covering the header (edge-to-edge mode shifts things)
+          const headerOffset = 30;
+          console.log(`[NoteScreen] Layout stable: y=${windowY} + ${headerOffset}, h=${windowHeight - headerOffset}`);
+          editor.setTargetLayout({
+            x: windowX,
+            y: windowY + headerOffset,
+            width: windowWidth,
+            height: windowHeight - headerOffset,
+          });
+          setHasValidLayout(true);
+        } else {
+          console.log(`[NoteScreen] Layout not ready: y=${windowY}`);
+        }
       });
-    });
+    }, 150);
   }, [editor]);
 
   // Keep setTitleRef in sync
@@ -253,10 +271,10 @@ export default function NoteScreen() {
     }
   }, [text, isLoaded, saveNote]);
 
-  // Activate persistent editor when content is loaded (only once)
+  // Activate persistent editor when content is loaded AND layout is valid
   const hasActivatedRef = useRef(false);
   useEffect(() => {
-    if (isLoaded && !hasActivatedRef.current) {
+    if (isLoaded && hasValidLayout && !hasActivatedRef.current) {
       hasActivatedRef.current = true;
       logPerf("Activating persistent editor");
       editor.setOnReady(handleEditorReady);
@@ -271,7 +289,16 @@ export default function NoteScreen() {
         hasActivatedRef.current = false;
       }
     };
-  }, [isLoaded, editor, id, handleEditorReady]);
+  }, [isLoaded, hasValidLayout, editor, id, handleEditorReady]);
+
+  // Cleanup layout timer on unmount
+  useEffect(() => {
+    return () => {
+      if (layoutTimerRef.current) {
+        clearTimeout(layoutTimerRef.current);
+      }
+    };
+  }, []);
 
   // Debounce title changes to avoid rapid saves
   useEffect(() => {
@@ -315,8 +342,7 @@ export default function NoteScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    // Transparent so persistent WebView shows through
-    backgroundColor: "transparent",
+    backgroundColor: colors.background,
   },
   headerTitleInput: {
     fontFamily: fonts.display.semiBold,

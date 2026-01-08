@@ -53,9 +53,8 @@ export default function RootLayout() {
             contentStyle: {
               backgroundColor: colors.background,
             },
-            headerShadowVisible: false,
+            headerShadowVisible: true,
             statusBarStyle: "dark",
-            statusBarBackgroundColor: colors.background,
             headerTitleStyle: {
               fontFamily: fonts.display.semiBold,
               fontSize: 18,
@@ -68,14 +67,16 @@ export default function RootLayout() {
             name="index"
             options={{
               headerTitle: () => <HeaderTitle>Notes</HeaderTitle>,
+              headerShadowVisible: false, // Shadow is on SearchBar instead
             }}
           />
           <Stack.Screen
             name="note/[id]"
             options={{
               title: "",
-              // Transparent content so persistent WebView shows through
-              contentStyle: { backgroundColor: "transparent" },
+              // Fast fade animation for budget devices
+              animation: "fade",
+              animationDuration: 150,
             }}
           />
         </Stack>

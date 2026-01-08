@@ -307,14 +307,15 @@ export function PersistentEditorProvider({ children }: PersistentEditorProviderP
         top: targetLayout.y,
         width: targetLayout.width,
         height: targetLayout.height,
-        // No zIndex - let sibling order handle stacking (children render on top)
+        zIndex: 10, // On top of transparent content area, but below header (header not overlapped due to y offset)
       }
     : styles.hidden;
 
   return (
     <PersistentEditorContext.Provider value={contextValue}>
-      {/* WebView rendered FIRST so children (including nav bar) render on top */}
-      <View style={[styles.editorContainer, editorStyle]} pointerEvents={showEditor ? "auto" : "none"}>
+      {children}
+      {/* Absolutely positioned WebView overlay */}
+      <View style={editorStyle} pointerEvents={showEditor ? "auto" : "none"}>
         <WebView
           ref={webViewRef}
           source={EDITOR_HTML}
@@ -338,16 +339,11 @@ export function PersistentEditorProvider({ children }: PersistentEditorProviderP
           overScrollMode="never"
         />
       </View>
-      {children}
     </PersistentEditorContext.Provider>
   );
 }
 
 const styles = StyleSheet.create({
-  editorContainer: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
   hidden: {
     position: "absolute",
     width: 1,
