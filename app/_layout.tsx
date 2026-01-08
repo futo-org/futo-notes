@@ -5,6 +5,7 @@ import { useEffect } from "react";
 import { Text, StyleSheet } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { colors, fonts } from "@/lib/theme";
+import { PersistentEditorProvider } from "@/lib/PersistentEditor";
 
 // Keep the splash screen visible while we fetch resources
 SplashScreen.preventAutoHideAsync();
@@ -43,38 +44,42 @@ export default function RootLayout() {
 
   return (
     <GestureHandlerRootView style={styles.root}>
-      <Stack
-        screenOptions={{
-          headerStyle: {
-            backgroundColor: colors.background,
-          },
-          contentStyle: {
-            backgroundColor: colors.background,
-          },
-          headerShadowVisible: false,
-          statusBarStyle: "dark",
-          statusBarBackgroundColor: colors.background,
-          headerTitleStyle: {
-            fontFamily: fonts.display.semiBold,
-            fontSize: 18,
-            color: colors.textPrimary,
-          },
-          headerTintColor: colors.textSecondary,
-        }}
-      >
-        <Stack.Screen
-          name="index"
-          options={{
-            headerTitle: () => <HeaderTitle>Notes</HeaderTitle>,
+      <PersistentEditorProvider>
+        <Stack
+          screenOptions={{
+            headerStyle: {
+              backgroundColor: colors.background,
+            },
+            contentStyle: {
+              backgroundColor: colors.background,
+            },
+            headerShadowVisible: false,
+            statusBarStyle: "dark",
+            statusBarBackgroundColor: colors.background,
+            headerTitleStyle: {
+              fontFamily: fonts.display.semiBold,
+              fontSize: 18,
+              color: colors.textPrimary,
+            },
+            headerTintColor: colors.textSecondary,
           }}
-        />
-        <Stack.Screen
-          name="note/[id]"
-          options={{
-            title: "",
-          }}
-        />
-      </Stack>
+        >
+          <Stack.Screen
+            name="index"
+            options={{
+              headerTitle: () => <HeaderTitle>Notes</HeaderTitle>,
+            }}
+          />
+          <Stack.Screen
+            name="note/[id]"
+            options={{
+              title: "",
+              // Transparent content so persistent WebView shows through
+              contentStyle: { backgroundColor: "transparent" },
+            }}
+          />
+        </Stack>
+      </PersistentEditorProvider>
     </GestureHandlerRootView>
   );
 }

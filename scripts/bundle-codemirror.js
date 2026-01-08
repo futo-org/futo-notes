@@ -7,29 +7,72 @@ const cmTempFile = path.join(__dirname, "../lib/codemirror-bundle.min.js");
 const editorTempFile = path.join(__dirname, "../lib/editor-setup.min.js");
 const outFile = path.join(__dirname, "../lib/codemirror-bundle-string.ts");
 const fontsDir = path.join(__dirname, "../assets/fonts");
+const androidAssetsDir = path.join(__dirname, "../android/app/src/main/assets/fonts");
 
-// Bundle fonts as base64
-function bundleFonts() {
-  const fonts = [
-    // Vollkorn - Serif display font for headings
-    { file: "Vollkorn-Regular.ttf", family: "Vollkorn", weight: 400, format: "truetype" },
-    { file: "Vollkorn-Medium.ttf", family: "Vollkorn", weight: 500, format: "truetype" },
-    { file: "Vollkorn-SemiBold.ttf", family: "Vollkorn", weight: 600, format: "truetype" },
-    { file: "Vollkorn-Bold.ttf", family: "Vollkorn", weight: 700, format: "truetype" },
-    { file: "Vollkorn-Italic.ttf", family: "Vollkorn", weight: 400, style: "italic", format: "truetype" },
-    // IBM Plex Sans - Body text
-    { file: "IBMPlexSans-Regular.otf", family: "IBM Plex Sans", weight: 400 },
-    { file: "IBMPlexSans-Medium.otf", family: "IBM Plex Sans", weight: 500 },
-    { file: "IBMPlexSans-SemiBold.otf", family: "IBM Plex Sans", weight: 600 },
-    { file: "IBMPlexSans-Bold.otf", family: "IBM Plex Sans", weight: 700 },
-    // IBM Plex Mono - Code
-    { file: "IBMPlexMono-Regular.otf", family: "IBM Plex Mono", weight: 400 },
-    { file: "IBMPlexMono-SemiBold.otf", family: "IBM Plex Mono", weight: 600 },
-  ];
+const FONT_DEFINITIONS = [
+  // Vollkorn - Serif display font for headings
+  { file: "Vollkorn-Regular.ttf", family: "Vollkorn", weight: 400, format: "truetype" },
+  { file: "Vollkorn-Medium.ttf", family: "Vollkorn", weight: 500, format: "truetype" },
+  { file: "Vollkorn-SemiBold.ttf", family: "Vollkorn", weight: 600, format: "truetype" },
+  { file: "Vollkorn-Bold.ttf", family: "Vollkorn", weight: 700, format: "truetype" },
+  { file: "Vollkorn-Italic.ttf", family: "Vollkorn", weight: 400, style: "italic", format: "truetype" },
+  // IBM Plex Sans - Body text
+  { file: "IBMPlexSans-Regular.otf", family: "IBM Plex Sans", weight: 400 },
+  { file: "IBMPlexSans-Medium.otf", family: "IBM Plex Sans", weight: 500 },
+  { file: "IBMPlexSans-SemiBold.otf", family: "IBM Plex Sans", weight: 600 },
+  { file: "IBMPlexSans-Bold.otf", family: "IBM Plex Sans", weight: 700 },
+  // IBM Plex Mono - Code
+  { file: "IBMPlexMono-Regular.otf", family: "IBM Plex Mono", weight: 400 },
+  { file: "IBMPlexMono-SemiBold.otf", family: "IBM Plex Mono", weight: 600 },
+];
 
+// Copy fonts to Android assets folder for file:// access
+function copyFontsToAndroid() {
+  // Create android assets/fonts directory if it doesn't exist
+  if (!fs.existsSync(androidAssetsDir)) {
+    fs.mkdirSync(androidAssetsDir, { recursive: true });
+    console.log(`Created: ${androidAssetsDir}`);
+  }
+
+  let copiedCount = 0;
+  for (const font of FONT_DEFINITIONS) {
+    const srcPath = path.join(fontsDir, font.file);
+    const destPath = path.join(androidAssetsDir, font.file);
+
+    // Only copy if source is newer or dest doesn't exist
+    const srcExists = fs.existsSync(srcPath);
+    const destExists = fs.existsSync(destPath);
+
+    if (srcExists && (!destExists || fs.statSync(srcPath).mtime > fs.statSync(destPath).mtime)) {
+      fs.copyFileSync(srcPath, destPath);
+      copiedCount++;
+    }
+  }
+
+  if (copiedCount > 0) {
+    console.log(`Copied ${copiedCount} fonts to Android assets`);
+  }
+}
+
+// Generate font CSS with file:// URLs (for Android) - uses placeholder for iOS
+function generateFontCSS() {
+  let css = "";
+
+  for (const font of FONT_DEFINITIONS) {
+    const format = font.format || "opentype";
+    const styleDecl = font.style ? `font-style: ${font.style};` : "";
+    // Use FONT_BASE_URL placeholder - replaced at runtime based on platform
+    css += `@font-face { font-family: '${font.family}'; font-weight: ${font.weight}; ${styleDecl} src: url(FONT_BASE_URL/${font.file}) format('${format}'); }\n`;
+  }
+
+  return css;
+}
+
+// Legacy: Bundle fonts as base64 (fallback for iOS or if file:// doesn't work)
+function bundleFontsBase64() {
   let css = "";
   let totalSize = 0;
-  for (const font of fonts) {
+  for (const font of FONT_DEFINITIONS) {
     const fontPath = path.join(fontsDir, font.file);
     const fontData = fs.readFileSync(fontPath);
     totalSize += fontData.length;
@@ -39,11 +82,14 @@ function bundleFonts() {
     const styleDecl = font.style ? `font-style: ${font.style};` : "";
     css += `@font-face { font-family: '${font.family}'; font-weight: ${font.weight}; ${styleDecl} src: url(data:${mimeType};base64,${base64}) format('${format}'); }\n`;
   }
-  console.log(`Bundled fonts: ${(totalSize / 1024).toFixed(1)} KB`);
+  console.log(`Base64 fonts: ${(totalSize / 1024).toFixed(1)} KB`);
   return css;
 }
 
 async function bundle() {
+  // Copy fonts to Android assets folder
+  copyFontsToAndroid();
+
   // Bundle CodeMirror
   await esbuild.build({
     entryPoints: [path.join(__dirname, "../lib/codemirror-bundle.js")],
@@ -66,12 +112,18 @@ async function bundle() {
 
   const cmCode = fs.readFileSync(cmTempFile, "utf-8");
   const editorCode = fs.readFileSync(editorTempFile, "utf-8");
-  const fontsCss = bundleFonts();
+
+  // Generate both font CSS versions
+  const fontsCssExternal = generateFontCSS();  // Uses FONT_BASE_URL placeholder
+  const fontsCssBase64 = bundleFontsBase64();  // Fallback with embedded base64
 
   const tsContent = `// Auto-generated by scripts/bundle-codemirror.js - do not edit
 export const CODEMIRROR_BUNDLE = ${JSON.stringify(cmCode)};
 export const EDITOR_SETUP = ${JSON.stringify(editorCode)};
-export const FONTS_CSS = ${JSON.stringify(fontsCss)};
+// Font CSS with FONT_BASE_URL placeholder - replace at runtime with platform-specific path
+export const FONTS_CSS_EXTERNAL = ${JSON.stringify(fontsCssExternal)};
+// Fallback: base64-encoded fonts (larger but works everywhere)
+export const FONTS_CSS_BASE64 = ${JSON.stringify(fontsCssBase64)};
 `;
 
   fs.writeFileSync(outFile, tsContent);
@@ -80,6 +132,7 @@ export const FONTS_CSS = ${JSON.stringify(fontsCss)};
 
   console.log(`Bundled CodeMirror: ${(cmCode.length / 1024).toFixed(1)} KB`);
   console.log(`Bundled Editor Setup: ${(editorCode.length / 1024).toFixed(1)} KB`);
+  console.log(`External fonts CSS: ${(fontsCssExternal.length / 1024).toFixed(1)} KB`);
   console.log(`Output: ${outFile}`);
 }
 

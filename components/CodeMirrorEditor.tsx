@@ -1,22 +1,46 @@
-import React, { useRef, useCallback, useState, useEffect } from "react";
-import { StyleSheet, View } from "react-native";
+import React, { useRef, useCallback, useState, useEffect, useMemo } from "react";
+import { StyleSheet, View, Platform } from "react-native";
 import { WebView, WebViewMessageEvent } from "react-native-webview";
 import * as Clipboard from "expo-clipboard";
 import {
   CODEMIRROR_BUNDLE,
   EDITOR_SETUP,
-  FONTS_CSS,
+  FONTS_CSS_EXTERNAL,
+  FONTS_CSS_BASE64,
 } from "@/lib/codemirror-bundle-string";
 import { colors } from "@/lib/theme";
 
-const CODEMIRROR_HTML = `
+// Platform-specific font base URL
+// Android: file:///android_asset/fonts
+// iOS: Uses base64 fallback (file:// paths are more complex on iOS)
+const FONT_BASE_URL = Platform.OS === "android"
+  ? "file:///android_asset/fonts"
+  : null; // Use base64 fallback on iOS
+
+// Get the appropriate font CSS based on platform
+function getFontCSS(): string {
+  if (FONT_BASE_URL) {
+    // Use external fonts with file:// URLs (Android)
+    return FONTS_CSS_EXTERNAL.replace(/FONT_BASE_URL/g, FONT_BASE_URL);
+  }
+  // Fallback to base64 (iOS)
+  return FONTS_CSS_BASE64;
+}
+
+// Generate HTML with embedded initial content to avoid two-phase initialization
+function generateEditorHTML(initialContent: string): string {
+  const fontCSS = getFontCSS();
+  // Escape content for safe embedding in JavaScript
+  const escapedContent = JSON.stringify(initialContent);
+
+  return `
 <!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
   <style>
-    ${FONTS_CSS}
+    ${fontCSS}
 
     /* === Base Reset & Quiet Luxury Theme === */
     :root {
@@ -310,30 +334,46 @@ const CODEMIRROR_HTML = `
 </head>
 <body>
   <div id="editor"></div>
+  <script>window.INITIAL_CONTENT = ${escapedContent};</script>
   <script>${CODEMIRROR_BUNDLE}</script>
   <script>${EDITOR_SETUP}</script>
 </body>
 </html>
 `;
-
-const WEBVIEW_SOURCE = { html: CODEMIRROR_HTML };
+}
 
 interface CodeMirrorEditorProps {
   initialContent: string;
   onChange: (content: string) => void;
   autoFocus?: boolean;
+  onReady?: () => void;
 }
 
 export function CodeMirrorEditor({
   initialContent,
   onChange,
   autoFocus = false,
+  onReady,
 }: CodeMirrorEditorProps) {
   const webViewRef = useRef<WebView>(null);
   const [isReady, setIsReady] = useState(false);
   const onChangeRef = useRef(onChange);
+  const onReadyRef = useRef(onReady);
   const lastSentValueRef = useRef(initialContent);
-  const initialContentRef = useRef(initialContent);
+
+  // Keep onReady ref updated
+  useEffect(() => {
+    onReadyRef.current = onReady;
+  }, [onReady]);
+
+  // Generate HTML with embedded content - memoized to avoid regeneration
+  // Note: initialContent is intentionally captured only at first render
+  // Subsequent content changes are handled via WebView messages, not HTML regeneration
+  const webViewSource = useMemo(
+    () => ({ html: generateEditorHTML(initialContent) }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [] // Empty deps intentional - only generate once with initial content
+  );
 
   // Keep onChange ref updated
   useEffect(() => {
@@ -354,6 +394,7 @@ export function CodeMirrorEditor({
         console.error("[Editor] Stack:", data.stack);
       } else if (data.type === "ready") {
         setIsReady(true);
+        onReadyRef.current?.();
       } else if (
         data.type === "change" &&
         data.content !== lastSentValueRef.current
@@ -370,13 +411,11 @@ export function CodeMirrorEditor({
     [sendMessage]
   );
 
-  // Initialize editor when ready
+  // Auto-focus when ready (content is already embedded in HTML)
   useEffect(() => {
-    if (isReady) {
-      sendMessage({ type: "init", content: initialContentRef.current });
-      if (autoFocus) {
-        setTimeout(() => sendMessage({ type: "focus" }), 100);
-      }
+    if (isReady && autoFocus) {
+      // Small delay to ensure editor is fully initialized
+      setTimeout(() => sendMessage({ type: "focus" }), 50);
     }
   }, [isReady, sendMessage, autoFocus]);
 
@@ -384,7 +423,7 @@ export function CodeMirrorEditor({
     <View style={styles.container}>
       <WebView
         ref={webViewRef}
-        source={WEBVIEW_SOURCE}
+        source={webViewSource}
         style={styles.webview}
         onMessage={handleMessage}
         onError={(e) => console.error("[Editor] WebView error:", e.nativeEvent)}

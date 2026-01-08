@@ -1,10 +1,10 @@
 import { Directory, File, Paths } from "expo-file-system";
 import { useLocalSearchParams, useNavigation } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { StyleSheet, TextInput, TextInput as TextInputType, View } from "react-native";
+import { StyleSheet, TextInput, TextInput as TextInputType, View, LayoutChangeEvent } from "react-native";
 import { useNotesStore } from "@/lib/notesStore";
 import { renameNoteInIndex, updateNoteInIndex } from "@/lib/notesLoader";
-import { CodeMirrorEditor } from "@/components/CodeMirrorEditor";
+import { usePersistentEditor } from "@/lib/PersistentEditor";
 import { colors, fonts } from "@/lib/theme";
 
 const NOTES_DIR = "notes";
@@ -47,6 +47,16 @@ function getNotesDirectory(): Directory {
   return notesDir;
 }
 
+// Performance timing - tracks note opening latency
+const PERF_LOGGING = __DEV__ || true; // Enable in release for testing
+let noteOpenStartTime: number | null = null;
+
+function logPerf(label: string) {
+  if (!PERF_LOGGING || noteOpenStartTime === null) return;
+  const elapsed = Date.now() - noteOpenStartTime;
+  console.log(`[PERF] ${label}: ${elapsed}ms`);
+}
+
 export default function NoteScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const navigation = useNavigation();
@@ -65,6 +75,38 @@ export default function NoteScreen() {
   );
   const titleInputRef = useRef<TextInputType>(null);
   const setTitleRef = useRef(setTitle);
+  const editorContainerRef = useRef<View>(null);
+
+  // Get persistent editor
+  const editor = usePersistentEditor();
+
+  // Start timing when component mounts
+  useEffect(() => {
+    noteOpenStartTime = Date.now();
+    logPerf("NoteScreen mounted");
+    return () => {
+      noteOpenStartTime = null;
+    };
+  }, []);
+
+  // Callback when editor is ready
+  const handleEditorReady = useCallback(() => {
+    logPerf("Editor ready (content visible)");
+    noteOpenStartTime = null; // Reset for next open
+  }, []);
+
+  // Measure container and update persistent editor layout
+  const handleContainerLayout = useCallback((_event: LayoutChangeEvent) => {
+    // Measure relative to window (more accurate than layout event values)
+    editorContainerRef.current?.measureInWindow((windowX, windowY, windowWidth, windowHeight) => {
+      editor.setTargetLayout({
+        x: windowX,
+        y: windowY,
+        width: windowWidth,
+        height: windowHeight,
+      });
+    });
+  }, [editor]);
 
   // Keep setTitleRef in sync
   useEffect(() => {
@@ -95,6 +137,7 @@ export default function NoteScreen() {
 
       if (noteFile.exists) {
         const content = await noteFile.text();
+        logPerf("File read complete");
         currentFileRef.current = noteFile;
         originalIdRef.current = id;
         originalTextRef.current = content;
@@ -106,6 +149,7 @@ export default function NoteScreen() {
       console.error("Error loading note:", error);
     } finally {
       setIsLoaded(true);
+      logPerf("Content loaded, rendering editor");
     }
   }, [id]);
 
@@ -209,6 +253,26 @@ export default function NoteScreen() {
     }
   }, [text, isLoaded, saveNote]);
 
+  // Activate persistent editor when content is loaded (only once)
+  const hasActivatedRef = useRef(false);
+  useEffect(() => {
+    if (isLoaded && !hasActivatedRef.current) {
+      hasActivatedRef.current = true;
+      logPerf("Activating persistent editor");
+      editor.setOnReady(handleEditorReady);
+      // Use originalTextRef to get the initial content (not reactive text state)
+      editor.activate(originalTextRef.current, setText, { autoFocus: id === "new" });
+    }
+
+    // Deactivate on unmount
+    return () => {
+      if (hasActivatedRef.current) {
+        editor.deactivate();
+        hasActivatedRef.current = false;
+      }
+    };
+  }, [isLoaded, editor, id, handleEditorReady]);
+
   // Debounce title changes to avoid rapid saves
   useEffect(() => {
     if (isLoaded && title !== originalTitleRef.current) {
@@ -236,13 +300,14 @@ export default function NoteScreen() {
     return <View style={styles.container} />;
   }
 
+  // Render a placeholder that the persistent editor will overlay
   return (
-    <View style={styles.container}>
-      <CodeMirrorEditor
-        initialContent={text}
-        onChange={setText}
-        autoFocus={id === "new"}
-      />
+    <View
+      ref={editorContainerRef}
+      style={styles.container}
+      onLayout={handleContainerLayout}
+    >
+      {/* The persistent editor WebView overlays this container */}
     </View>
   );
 }
@@ -250,7 +315,8 @@ export default function NoteScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.background,
+    // Transparent so persistent WebView shows through
+    backgroundColor: "transparent",
   },
   headerTitleInput: {
     fontFamily: fonts.display.semiBold,
