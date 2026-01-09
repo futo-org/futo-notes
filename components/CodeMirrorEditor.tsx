@@ -146,16 +146,16 @@ function generateEditorHTML(initialContent: string): string {
     }
 
     .cm-md-h4 {
-      font-family: 'IBM Plex Sans', sans-serif;
+      font-family: 'Vollkorn', Georgia, 'Times New Roman', serif;
       font-size: 1.1em;
       line-height: 1.4;
       font-weight: 600;
       color: var(--text-secondary);
-      letter-spacing: 0.01em;
+      letter-spacing: -0.01em;
     }
 
     .cm-md-h5 {
-      font-family: 'IBM Plex Sans', sans-serif;
+      font-family: 'Vollkorn', Georgia, 'Times New Roman', serif;
       font-size: 1em;
       line-height: 1.5;
       font-weight: 600;
@@ -163,7 +163,7 @@ function generateEditorHTML(initialContent: string): string {
     }
 
     .cm-md-h6 {
-      font-family: 'IBM Plex Sans', sans-serif;
+      font-family: 'Vollkorn', Georgia, 'Times New Roman', serif;
       font-size: 0.9em;
       line-height: 1.5;
       font-weight: 600;

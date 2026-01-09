@@ -112,9 +112,9 @@ function generateEditorHTML(): string {
     .cm-md-h1 { font-family: 'Vollkorn', Georgia, serif; font-size: 2em; line-height: 1.25; font-weight: 700; letter-spacing: -0.02em; margin-top: 0.5em; }
     .cm-md-h2 { font-family: 'Vollkorn', Georgia, serif; font-size: 1.55em; line-height: 1.3; font-weight: 600; letter-spacing: -0.015em; }
     .cm-md-h3 { font-family: 'Vollkorn', Georgia, serif; font-size: 1.3em; line-height: 1.35; font-weight: 600; letter-spacing: -0.01em; }
-    .cm-md-h4 { font-family: 'IBM Plex Sans', sans-serif; font-size: 1.1em; line-height: 1.4; font-weight: 600; color: var(--text-secondary); }
-    .cm-md-h5 { font-family: 'IBM Plex Sans', sans-serif; font-size: 1em; line-height: 1.5; font-weight: 600; color: var(--text-secondary); }
-    .cm-md-h6 { font-family: 'IBM Plex Sans', sans-serif; font-size: 0.9em; line-height: 1.5; font-weight: 600; color: var(--text-tertiary); font-style: italic; }
+    .cm-md-h4 { font-family: 'Vollkorn', Georgia, serif; font-size: 1.1em; line-height: 1.4; font-weight: 600; color: var(--text-secondary); }
+    .cm-md-h5 { font-family: 'Vollkorn', Georgia, serif; font-size: 1em; line-height: 1.5; font-weight: 600; color: var(--text-secondary); }
+    .cm-md-h6 { font-family: 'Vollkorn', Georgia, serif; font-size: 0.9em; line-height: 1.5; font-weight: 600; color: var(--text-tertiary); font-style: italic; }
 
     .cm-md-emphasis { font-style: italic; }
     .cm-md-strong { font-weight: 700; }

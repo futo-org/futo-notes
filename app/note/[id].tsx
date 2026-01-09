@@ -1,7 +1,7 @@
 import { Directory, File, Paths } from "expo-file-system";
 import { useLocalSearchParams, useNavigation } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { StyleSheet, TextInput, TextInput as TextInputType, View, LayoutChangeEvent } from "react-native";
+import { StyleSheet, TextInput, TextInput as TextInputType, View, LayoutChangeEvent, Text, Pressable } from "react-native";
 import { useNotesStore } from "@/lib/notesStore";
 import { renameNoteInIndex, updateNoteInIndex } from "@/lib/notesLoader";
 import { usePersistentEditor } from "@/lib/PersistentEditor";
@@ -76,6 +76,8 @@ export default function NoteScreen() {
   const titleInputRef = useRef<TextInputType>(null);
   const setTitleRef = useRef(setTitle);
   const editorContainerRef = useRef<View>(null);
+  const [isTitleFocused, setIsTitleFocused] = useState(false);
+  const titleValueRef = useRef("");
 
   // Get persistent editor
   const editor = usePersistentEditor();
@@ -239,28 +241,54 @@ export default function NoteScreen() {
     loadNote();
   }, [id, loadNote]);
 
-  // Set up the header with editable title - only once to avoid cursor issues
+  // Set up the header with editable title - re-renders on focus change for truncation
   useEffect(() => {
+    const handleTitlePress = () => {
+      titleInputRef.current?.focus();
+    };
+
     navigation.setOptions({
       headerTitle: () => (
-        <TextInput
-          ref={titleInputRef}
-          style={styles.headerTitleInput}
-          defaultValue=""
-          onChangeText={(text) => setTitleRef.current(text)}
-          selectTextOnFocus
-          placeholder="Untitled"
-          placeholderTextColor={colors.textTertiary}
-        />
+        <Pressable onPress={handleTitlePress} style={styles.headerTitleContainer}>
+          <TextInput
+            ref={titleInputRef}
+            style={[
+              styles.headerTitleInput,
+              !isTitleFocused && styles.headerTitleInputHidden,
+            ]}
+            defaultValue=""
+            onChangeText={(text) => {
+              titleValueRef.current = text;
+              setTitleRef.current(text);
+            }}
+            onFocus={() => setIsTitleFocused(true)}
+            onBlur={() => setIsTitleFocused(false)}
+            selectTextOnFocus
+            placeholder="Untitled"
+            placeholderTextColor={colors.textTertiary}
+          />
+          {!isTitleFocused && (
+            <Text
+              style={styles.headerTitleText}
+              numberOfLines={1}
+              ellipsizeMode="tail"
+            >
+              {titleValueRef.current || "Untitled"}
+            </Text>
+          )}
+        </Pressable>
       ),
     });
-  }, [navigation]);
+  }, [navigation, isTitleFocused]);
 
-  // Sync title to TextInput - runs when loaded and when title changes
+  // Sync title to TextInput and ref - runs when loaded and when title changes
   // This ensures the input value is correct even if navigation recreates the header
   useEffect(() => {
-    if (isLoaded && titleInputRef.current) {
-      titleInputRef.current.setNativeProps({ text: title });
+    if (isLoaded) {
+      titleValueRef.current = title;
+      if (titleInputRef.current) {
+        titleInputRef.current.setNativeProps({ text: title });
+      }
     }
   }, [isLoaded, title]);
 
@@ -344,11 +372,26 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
+  headerTitleContainer: {
+    flex: 1,
+    minWidth: 200,
+    maxWidth: 320,
+  },
   headerTitleInput: {
     fontFamily: fonts.display.semiBold,
     fontSize: 18,
     color: colors.textPrimary,
-    minWidth: 200,
+    textAlign: "left",
+    letterSpacing: -0.2,
+  },
+  headerTitleInputHidden: {
+    position: "absolute",
+    opacity: 0,
+  },
+  headerTitleText: {
+    fontFamily: fonts.display.semiBold,
+    fontSize: 18,
+    color: colors.textPrimary,
     textAlign: "left",
     letterSpacing: -0.2,
   },
