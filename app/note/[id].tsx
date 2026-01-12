@@ -1,10 +1,19 @@
+import {
+  MarkdownTextInput,
+  parseMarkdown,
+} from "@expensify/react-native-live-markdown";
 import { Directory, File, Paths } from "expo-file-system";
 import { useLocalSearchParams, useNavigation } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { StyleSheet, TextInput, TextInput as TextInputType, View, LayoutChangeEvent, Text, Pressable } from "react-native";
+import {
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  TextInput,
+} from "react-native";
 import { useNotesStore } from "@/lib/notesStore";
 import { renameNoteInIndex, updateNoteInIndex } from "@/lib/notesLoader";
-import { usePersistentEditor } from "@/lib/PersistentEditor";
 import { colors, fonts } from "@/lib/theme";
 
 const NOTES_DIR = "notes";
@@ -47,16 +56,6 @@ function getNotesDirectory(): Directory {
   return notesDir;
 }
 
-// Performance timing - tracks note opening latency
-const PERF_LOGGING = __DEV__ || true; // Enable in release for testing
-let noteOpenStartTime: number | null = null;
-
-function logPerf(label: string) {
-  if (!PERF_LOGGING || noteOpenStartTime === null) return;
-  const elapsed = Date.now() - noteOpenStartTime;
-  console.log(`[PERF] ${label}: ${elapsed}ms`);
-}
-
 export default function NoteScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const navigation = useNavigation();
@@ -70,68 +69,52 @@ export default function NoteScreen() {
   const originalIdRef = useRef<string>("");
   const originalTextRef = useRef<string>("");
   const originalTitleRef = useRef<string>("");
-  const titleDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
-  );
-  const titleInputRef = useRef<TextInputType>(null);
-  const setTitleRef = useRef(setTitle);
-  const editorContainerRef = useRef<View>(null);
-  const [isTitleFocused, setIsTitleFocused] = useState(false);
-  const titleValueRef = useRef("");
+  const [isScrolling, setIsScrolling] = useState(false);
+  const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Get persistent editor
-  const editor = usePersistentEditor();
-
-  // Start timing when component mounts
-  useEffect(() => {
-    noteOpenStartTime = Date.now();
-    logPerf("NoteScreen mounted");
-    return () => {
-      noteOpenStartTime = null;
-    };
-  }, []);
-
-  // Callback when editor is ready
-  const handleEditorReady = useCallback(() => {
-    logPerf("Editor ready (content visible)");
-    noteOpenStartTime = null; // Reset for next open
-  }, []);
-
-  // Track when we have a valid layout (header is visible)
-  const [hasValidLayout, setHasValidLayout] = useState(false);
-  const layoutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Measure container and update persistent editor layout
-  const handleContainerLayout = useCallback((_event: LayoutChangeEvent) => {
-    // Debounce measurements to get stable final layout
-    if (layoutTimerRef.current) {
-      clearTimeout(layoutTimerRef.current);
+  const handleScrollBegin = () => {
+    if (scrollTimeoutRef.current) {
+      clearTimeout(scrollTimeoutRef.current);
+      scrollTimeoutRef.current = null;
     }
-    layoutTimerRef.current = setTimeout(() => {
-      editorContainerRef.current?.measureInWindow((windowX, windowY, windowWidth, windowHeight) => {
-        // Only accept layout if y > 40 (header must be present)
-        if (windowY > 40) {
-          // Add offset to avoid covering the header (edge-to-edge mode shifts things)
-          const headerOffset = 30;
-          console.log(`[NoteScreen] Layout stable: y=${windowY} + ${headerOffset}, h=${windowHeight - headerOffset}`);
-          editor.setTargetLayout({
-            x: windowX,
-            y: windowY + headerOffset,
-            width: windowWidth,
-            height: windowHeight - headerOffset,
-          });
-          setHasValidLayout(true);
-        } else {
-          console.log(`[NoteScreen] Layout not ready: y=${windowY}`);
-        }
-      });
-    }, 150);
-  }, [editor]);
+    setIsScrolling(true);
+  };
 
-  // Keep setTitleRef in sync
+  const handleScrollEnd = () => {
+    // Delay re-enabling input to prevent accidental focus
+    scrollTimeoutRef.current = setTimeout(() => {
+      setIsScrolling(false);
+    }, 150);
+  };
+
   useEffect(() => {
-    setTitleRef.current = setTitle;
-  }, [setTitle]);
+    loadNote();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
+
+  // Update the header with editable title
+  useEffect(() => {
+    navigation.setOptions({
+      headerTitle: () => (
+        <TextInput
+          style={styles.headerTitleInput}
+          value={title}
+          onChangeText={setTitle}
+          selectTextOnFocus
+          placeholder="Untitled"
+          placeholderTextColor={colors.textTertiary}
+        />
+      ),
+    });
+  }, [title, navigation]);
+
+  // Only save if content or title has actually changed from original
+  useEffect(() => {
+    if (isLoaded && (text !== originalTextRef.current || title !== originalTitleRef.current)) {
+      saveNote();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [text, title, isLoaded]);
 
   const loadNote = useCallback(async () => {
     try {
@@ -157,7 +140,6 @@ export default function NoteScreen() {
 
       if (noteFile.exists) {
         const content = await noteFile.text();
-        logPerf("File read complete");
         currentFileRef.current = noteFile;
         originalIdRef.current = id;
         originalTextRef.current = content;
@@ -169,17 +151,13 @@ export default function NoteScreen() {
       console.error("Error loading note:", error);
     } finally {
       setIsLoaded(true);
-      logPerf("Content loaded, rendering editor");
     }
   }, [id]);
 
   const saveNote = useCallback(async () => {
     try {
       const notesDir = getNotesDirectory();
-      // Use original title if current title is empty (prevents accidental renames)
-      const effectiveTitle =
-        title.trim() || originalTitleRef.current || "Untitled";
-      const newId = sanitizeFilename(effectiveTitle);
+      const newId = sanitizeFilename(title);
       const filename = newId + ".md";
       const newFile = new File(notesDir, filename);
 
@@ -236,134 +214,36 @@ export default function NoteScreen() {
     }
   }, [text, title, searchIndex, notes, setNotes]);
 
-  // Load note on mount
-  useEffect(() => {
-    loadNote();
-  }, [id, loadNote]);
-
-  // Set up the header with editable title - re-renders on focus change for truncation
-  useEffect(() => {
-    const handleTitlePress = () => {
-      titleInputRef.current?.focus();
-    };
-
-    navigation.setOptions({
-      headerTitle: () => (
-        <Pressable onPress={handleTitlePress} style={styles.headerTitleContainer}>
-          <TextInput
-            ref={titleInputRef}
-            style={[
-              styles.headerTitleInput,
-              !isTitleFocused && styles.headerTitleInputHidden,
-            ]}
-            defaultValue=""
-            onChangeText={(text) => {
-              titleValueRef.current = text;
-              setTitleRef.current(text);
-            }}
-            onFocus={() => setIsTitleFocused(true)}
-            onBlur={() => setIsTitleFocused(false)}
-            selectTextOnFocus
-            placeholder="Untitled"
-            placeholderTextColor={colors.textTertiary}
-          />
-          {!isTitleFocused && (
-            <Text
-              style={styles.headerTitleText}
-              numberOfLines={1}
-              ellipsizeMode="tail"
-            >
-              {titleValueRef.current || "Untitled"}
-            </Text>
-          )}
-        </Pressable>
-      ),
-    });
-  }, [navigation, isTitleFocused]);
-
-  // Sync title to TextInput and ref - runs when loaded and when title changes
-  // This ensures the input value is correct even if navigation recreates the header
-  useEffect(() => {
-    if (isLoaded) {
-      titleValueRef.current = title;
-      if (titleInputRef.current) {
-        titleInputRef.current.setNativeProps({ text: title });
-      }
-    }
-  }, [isLoaded, title]);
-
-  // Save text changes immediately (but only if text changed)
-  useEffect(() => {
-    if (isLoaded && text !== originalTextRef.current) {
-      saveNote();
-    }
-  }, [text, isLoaded, saveNote]);
-
-  // Activate persistent editor when content is loaded AND layout is valid
-  const hasActivatedRef = useRef(false);
-  useEffect(() => {
-    if (isLoaded && hasValidLayout && !hasActivatedRef.current) {
-      hasActivatedRef.current = true;
-      logPerf("Activating persistent editor");
-      editor.setOnReady(handleEditorReady);
-      // Use originalTextRef to get the initial content (not reactive text state)
-      editor.activate(originalTextRef.current, setText, { autoFocus: id === "new" });
-    }
-
-    // Deactivate on unmount
-    return () => {
-      if (hasActivatedRef.current) {
-        editor.deactivate();
-        hasActivatedRef.current = false;
-      }
-    };
-  }, [isLoaded, hasValidLayout, editor, id, handleEditorReady]);
-
-  // Cleanup layout timer on unmount
-  useEffect(() => {
-    return () => {
-      if (layoutTimerRef.current) {
-        clearTimeout(layoutTimerRef.current);
-      }
-    };
-  }, []);
-
-  // Debounce title changes to avoid rapid saves
-  useEffect(() => {
-    if (isLoaded && title !== originalTitleRef.current) {
-      // Clear any existing timer
-      if (titleDebounceTimerRef.current) {
-        clearTimeout(titleDebounceTimerRef.current);
-      }
-
-      // Set a new timer to save after 500ms of inactivity
-      titleDebounceTimerRef.current = setTimeout(() => {
-        saveNote();
-      }, 500);
-    }
-
-    // Cleanup timer on unmount
-    return () => {
-      if (titleDebounceTimerRef.current) {
-        clearTimeout(titleDebounceTimerRef.current);
-      }
-    };
-  }, [title, isLoaded, saveNote]);
-
-  // Don't render editor until content is loaded
-  if (!isLoaded) {
-    return <View style={styles.container} />;
-  }
-
-  // Render a placeholder that the persistent editor will overlay
   return (
-    <View
-      ref={editorContainerRef}
+    <KeyboardAvoidingView
       style={styles.container}
-      onLayout={handleContainerLayout}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
     >
-      {/* The persistent editor WebView overlays this container */}
-    </View>
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        keyboardDismissMode="on-drag"
+        keyboardShouldPersistTaps="handled"
+        onScrollBeginDrag={handleScrollBegin}
+        onScrollEndDrag={handleScrollEnd}
+        onMomentumScrollBegin={handleScrollBegin}
+        onMomentumScrollEnd={handleScrollEnd}
+      >
+        <MarkdownTextInput
+          value={text}
+          onChangeText={setText}
+          style={styles.input}
+          multiline
+          parser={parseMarkdown}
+          placeholder="Start typing your note..."
+          placeholderTextColor={colors.textTertiary}
+          autoFocus={id === "new"}
+          scrollEnabled={false}
+          pointerEvents={isScrolling ? "none" : "auto"}
+        />
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -372,27 +252,25 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
-  headerTitleContainer: {
+  scrollView: {
     flex: 1,
-    minWidth: 200,
-    maxWidth: 320,
+  },
+  scrollContent: {
+    flexGrow: 1,
   },
   headerTitleInput: {
     fontFamily: fonts.display.semiBold,
     fontSize: 18,
     color: colors.textPrimary,
+    minWidth: 200,
     textAlign: "left",
     letterSpacing: -0.2,
   },
-  headerTitleInputHidden: {
-    position: "absolute",
-    opacity: 0,
-  },
-  headerTitleText: {
-    fontFamily: fonts.display.semiBold,
-    fontSize: 18,
+  input: {
+    flex: 1,
+    padding: 16,
+    fontSize: 16,
+    textAlignVertical: "top",
     color: colors.textPrimary,
-    textAlign: "left",
-    letterSpacing: -0.2,
   },
 });

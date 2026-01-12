@@ -42,40 +42,52 @@ FUTO Notes is a React Native/Expo app (SDK 54) for offline-first markdown note-t
 - **State**: Zustand 5.0
 - **Storage**: MMKV (react-native-mmkv) for caching search index and previews
 - **Search**: MiniSearch for full-text search with fuzzy matching
-- **Editor**: CodeMirror 6 in a WebView (with clipboard bridge via expo-clipboard)
-- **Markdown**: GitHub Flavored Markdown (GFM) support via `@lezer/markdown`
+- **Editor**: @expensify/react-native-live-markdown (native markdown rendering)
+
+### Forked Dependencies
+
+We forked `@expensify/react-native-live-markdown` so we can patch the editor without waiting on upstream releases.
+
+- Repo: `SomewhatJustin/react-native-live-markdown`, branch `futo`
+- Local checkout: `react-native-live-markdown/` at the repo root (tracked in git)
+- App dependency: `package.json` points to `github:SomewhatJustin/react-native-live-markdown#futo`
+- Peer requirements: keep `react-native-worklets` at `^0.6.1` or newer so installs succeed
+
+#### Working on the Fork
+
+1. `cd react-native-live-markdown`
+2. `npm install` (installs the fork's dev deps)
+3. Make code changes (package uses Bob + TypeScript; JS/TS sources live in `src/`)
+4. `npm run test`, `npm run lint`, and `npm run prepare` (prepare runs `patch-package` + `bob build`)
+5. `git status`, `git commit`, and `git push origin futo`
+6. Back in the main app folder, run `npm install` to pull the new commit via the git dependency
+
+Because the app depends on the `futo` branch, any pushed commit automatically becomes the installed version the next time `npm install` runs (no npm publish needed). Keep the fork directory up to date (e.g., `git pull --rebase origin futo`) if multiple people are editing it.
 
 ### Key Design Decisions
 
 - **File-based storage**: Notes stored as `.md` files in `notes/` folder. No database, no frontmatter.
 - **Title = filename**: Title derived from first line, sanitized for filesystem (spaces preserved, special chars removed).
 - **Cached search index**: MiniSearch index persisted to MMKV with incremental updates on startup.
+- **Native markdown**: Uses MarkdownTextInput for native rendering (no WebView).
 
 ### File Structure
 
 ```
 app/
-├── _layout.tsx          # Root Stack layout
-├── index.tsx            # Notes list with search
-└── note/[id].tsx        # Note editor
+├── _layout.tsx          # Root Stack layout with font loading
+├── index.tsx            # Notes list with search (FlashList)
+└── note/[id].tsx        # Note editor with MarkdownTextInput
 
 lib/
 ├── notesStore.ts        # Zustand store (notes, search state)
 ├── notesLoader.ts       # Load notes with cached MiniSearch index
 ├── storage.ts           # MMKV storage singleton
 ├── useSearch.ts         # Search hook using MiniSearch
-├── codemirror-bundle.js # CodeMirror imports for WebView
-└── editor-setup.js      # CodeMirror editor config & markdown plugin
+└── theme.ts             # Design system (colors, fonts, spacing)
 
 components/
-├── CodeMirrorEditor.tsx # WebView-based markdown editor
 └── SearchBar.tsx        # Search input component
-
-tests/
-├── gfm-test-note.md            # GFM test file
-├── gfm-test-note.snapshot.json # Rendering snapshot
-├── markdown-render-test.js     # Test harness
-└── README.md                   # Test documentation
 ```
 
 ### Data Flow
@@ -132,75 +144,47 @@ adb push /path/to/fake-notes/. /data/local/tmp/fake-notes/
 
 **Note**: The `importTestNotes()` function in `app/index.tsx` is debug code that should be removed before release.
 
-## Markdown Rendering & Testing
+## Editor (react-native-live-markdown)
 
-### CodeMirror Setup
+The app uses `@expensify/react-native-live-markdown` for the editor, which provides:
 
-The app uses CodeMirror 6 with a custom markdown rendering pipeline.
+- **Native rendering**: Markdown is rendered natively (not in a WebView)
+- **Live preview**: See formatted markdown as you type
+- **MarkdownTextInput**: Drop-in replacement for TextInput with markdown support
 
-**Important**: When testing the editor on Android, use a physical device—the emulator has rendering quirks (scroll hijacking, visual flashing) that don't occur on real hardware.
+### Usage
 
-**Key Files:**
-- `lib/codemirror-bundle.js` - Bundles CodeMirror and dependencies for WebView
-- `lib/editor-setup.js` - Custom markdown decorations plugin
-- `components/CodeMirrorEditor.tsx` - WebView editor component (rendered in note screen)
-- `scripts/bundle-codemirror.js` - Bundles everything into `lib/codemirror-bundle-string.ts`
+```tsx
+import {
+  MarkdownTextInput,
+  parseMarkdown,
+} from "@expensify/react-native-live-markdown";
 
-**Markdown Features:**
-- **GFM Support**: Enabled via `@lezer/markdown` GFM extension
-- **Decorations Plugin**: Custom `hideMarkdownPlugin` that:
-  - Hides markdown syntax (e.g., `**`, `*`, `#`, `[]()`) when cursor is not on that line
-  - Applies CSS classes for styling (`.cm-md-h1`, `.cm-md-strong`, `.cm-md-emphasis`, etc.)
-  - Replaces list markers with bullets (`•`)
-  - Renders task checkboxes (`☐`, `☑`)
-  - Replaces horizontal rules with styled divs
-
-**Supported GFM Features:**
-- ATX headings (`#` through `######`)
-- Setext headings (`===` and `---`)
-- Bold, italic, strikethrough
-- Inline code and code blocks (fenced and indented)
-- Links (inline, reference, autolinks)
-- Images
-- Tables (with delimiter hiding)
-- Blockquotes (nested supported)
-- Lists (ordered, unordered, task lists)
-- Horizontal rules
-- HTML (passed through)
-
-### Markdown Test Harness
-
-**Purpose**: Verify markdown rendering without manual inspection. Essential for making changes to the CodeMirror configuration.
-
-**Files:**
-- `tests/gfm-test-note.md` - Comprehensive GFM test file (all features)
-- `tests/gfm-test-note.html` - Expected HTML from Obsidian (reference)
-- `tests/gfm-test-note.snapshot.json` - Current rendering snapshot
-- `tests/markdown-render-test.js` - Test harness using Puppeteer
-- `tests/README.md` - Full documentation
-
-**Commands:**
-```bash
-npm run test:markdown          # Generate/update snapshot
-npm run test:markdown:verify   # Verify rendering matches snapshot
+<MarkdownTextInput
+  value={text}
+  onChangeText={setText}
+  parser={parseMarkdown}
+  multiline
+/>
 ```
 
-**How It Works:**
-1. Launches headless browser with Puppeteer
-2. Loads actual CodeMirror setup (same as app)
-3. Renders test markdown file
-4. Extracts DOM structure with CSS classes
-5. Saves/compares snapshot
+### Supported Markdown
 
-**Workflow for Markdown Changes:**
-1. Make changes to `lib/editor-setup.js` or `components/CodeMirrorEditor.tsx`
-2. Rebuild: `npm run bundle:codemirror` (only needed for editor-setup.js changes)
-3. Verify: `npm run test:markdown:verify`
-4. If intentional change: `npm run test:markdown` to update snapshot
-5. Commit both code and updated snapshot
+- Bold (`**text**`)
+- Italic (`*text*`)
+- Strikethrough (`~~text~~`)
+- Inline code (`` `code` ``)
+- Code blocks (triple backticks)
+- Links (`[text](url)`)
+- Headings (`# H1`, `## H2`, etc.)
+- Lists (ordered and unordered)
+- Blockquotes (`> quote`)
 
-**Important Notes:**
-- Test captures which CSS classes are applied (not visual appearance)
-- Snapshot must be updated after intentional rendering changes
-- Test ensures no regressions when modifying editor setup
-- The `.html` file is for reference (Obsidian output) but test compares against snapshot
+### Native Dependencies
+
+The editor requires these peer dependencies:
+- `react-native-reanimated` - for animations
+- `react-native-worklets` - for worklet runtime
+- `expensify-common` - shared utilities
+
+Metro config (`metro.config.js`) handles resolving the submodule's peer dependencies from the main app's node_modules.

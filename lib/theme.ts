@@ -242,11 +242,3 @@ export const animation = {
   slow: 400,
 };
 
-/**
- * CSS-compatible font stacks for WebView (CodeMirror)
- */
-export const webFontStacks = {
-  display: "'Vollkorn', Georgia, 'Times New Roman', serif",
-  body: "'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-  mono: "'IBM Plex Mono', ui-monospace, 'SF Mono', Consolas, monospace",
-};

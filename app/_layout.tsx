@@ -5,7 +5,6 @@ import { useEffect } from "react";
 import { Text, StyleSheet } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { colors, fonts } from "@/lib/theme";
-import { PersistentEditorProvider } from "@/lib/PersistentEditor";
 
 // Keep the splash screen visible while we fetch resources
 SplashScreen.preventAutoHideAsync();
@@ -44,8 +43,7 @@ export default function RootLayout() {
 
   return (
     <GestureHandlerRootView style={styles.root}>
-      <PersistentEditorProvider>
-        <Stack
+      <Stack
           screenOptions={{
             headerStyle: {
               backgroundColor: colors.background,
@@ -79,8 +77,7 @@ export default function RootLayout() {
               animationDuration: 150,
             }}
           />
-        </Stack>
-      </PersistentEditorProvider>
+      </Stack>
     </GestureHandlerRootView>
   );
 }

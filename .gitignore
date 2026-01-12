@@ -36,8 +36,8 @@ yarn-error.*
 # typescript
 *.tsbuildinfo
 
-# generated bundles
-lib/codemirror-bundle-string.ts
+# Forked dependency (local checkout for development, npm pulls from GitHub)
+react-native-live-markdown/
 
 app-example
 
