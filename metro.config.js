@@ -8,9 +8,10 @@ const liveMarkdownPath = path.resolve(__dirname, 'react-native-live-markdown');
 
 config.watchFolders = [liveMarkdownPath];
 
+// Only use the main app's node_modules to avoid duplicate dependency issues
+// The fork's peer dependencies will resolve via extraNodeModules below
 config.resolver.nodeModulesPaths = [
   path.resolve(__dirname, 'node_modules'),
-  path.resolve(liveMarkdownPath, 'node_modules'),
 ];
 
 // Ensure the symlinked package can resolve its peer dependencies from the main app
