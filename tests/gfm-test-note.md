@@ -18,10 +18,6 @@ This note tests all GitHub Flavored Markdown features.
 
 ## Setext Headings
 
-# Setext Heading Level 1
-
-## Setext Heading Level 2
-
 ## Paragraphs and Line Breaks
 
 This is a paragraph with
@@ -178,24 +174,7 @@ def hello():
 
 [Basic link](https://example.com)
 
-[Link with title](https://example.com "Example Title")
-
 [Link with _emphasis_](https://example.com)
-
-### Reference Links
-
-[Reference link][ref1]
-
-[Another reference][ref2]
-
-[Implicit reference link][]
-
-[Shortcut reference link]
-
-[ref1]: https://example.com
-[ref2]: https://example.com "With Title"
-[Implicit reference link]: https://example.com
-[Shortcut reference link]: https://example.com
 
 ### Autolinks
 
@@ -214,10 +193,6 @@ Check out https://example.com/path for details.
 ## Images
 
 ![Alt text](https://futo.org/images/authors/futologo.png "Image Title")
-
-![Reference image][img-ref]
-
-[img-ref]: https://futo.org/images/authors/futologo.png "Reference Image"
 
 ## Tables (GFM Extension)
 

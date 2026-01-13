@@ -14,6 +14,8 @@ npm run lint                            # ESLint
 
 React Native/Expo SDK 54 app for offline-first markdown notes. Uses Expo Router, Zustand, MMKV, MiniSearch, and a forked `@expensify/react-native-live-markdown`.
 
+**Development**: Uses dev build (not Expo Go). Test on physical Android device with 3-button navigation.
+
 **Storage**: Notes are `.md` files in `notes/` folder. Title = first line (sanitized for filesystem). No database.
 
 **Path alias**: `@/*` → project root.

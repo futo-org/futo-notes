@@ -11,6 +11,7 @@ import {
   ScrollView,
   StyleSheet,
   TextInput,
+  PixelRatio,
 } from "react-native";
 import { useNotesStore } from "@/lib/notesStore";
 import { renameNoteInIndex, updateNoteInIndex } from "@/lib/notesLoader";
@@ -71,6 +72,8 @@ export default function NoteScreen() {
   const originalTitleRef = useRef<string>("");
   const [isScrolling, setIsScrolling] = useState(false);
   const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const inputRef = useRef<any>(null);
 
   const handleScrollBegin = () => {
     if (scrollTimeoutRef.current) {
@@ -85,6 +88,38 @@ export default function NoteScreen() {
     scrollTimeoutRef.current = setTimeout(() => {
       setIsScrolling(false);
     }, 150);
+  };
+
+  const handleTouchStart = (e: any) => {
+    // Use locationX/Y which are relative to the component, more reliable across devices
+    touchStartRef.current = {
+      x: e.nativeEvent.locationX || e.nativeEvent.pageX,
+      y: e.nativeEvent.locationY || e.nativeEvent.pageY,
+    };
+  };
+
+  const handleTouchMove = (e: any) => {
+    if (!touchStartRef.current) return;
+
+    const currentX = e.nativeEvent.locationX || e.nativeEvent.pageX;
+    const currentY = e.nativeEvent.locationY || e.nativeEvent.pageY;
+
+    const dx = Math.abs(currentX - touchStartRef.current.x);
+    const dy = Math.abs(currentY - touchStartRef.current.y);
+
+    // Use PixelRatio to make threshold device-independent (roughly 5dp)
+    const threshold = PixelRatio.getPixelSizeForLayoutSize(5);
+
+    // If moved more than threshold vertically, it's a scroll gesture
+    if (dy > threshold && dy > dx) {
+      inputRef.current?.blur();
+      setIsScrolling(true);
+      touchStartRef.current = null;
+    }
+  };
+
+  const handleTouchEnd = () => {
+    touchStartRef.current = null;
   };
 
   useEffect(() => {
@@ -231,6 +266,7 @@ export default function NoteScreen() {
         onMomentumScrollEnd={handleScrollEnd}
       >
         <MarkdownTextInput
+          ref={inputRef}
           value={text}
           onChangeText={setText}
           style={styles.input}
@@ -240,7 +276,10 @@ export default function NoteScreen() {
           placeholderTextColor={colors.textTertiary}
           autoFocus={id === "new"}
           scrollEnabled={false}
-          pointerEvents={isScrolling ? "none" : "auto"}
+          editable={!isScrolling}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
         />
       </ScrollView>
     </KeyboardAvoidingView>
