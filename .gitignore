@@ -36,9 +36,6 @@ yarn-error.*
 # typescript
 *.tsbuildinfo
 
-# Forked dependency (local checkout for development, npm pulls from GitHub)
-react-native-live-markdown/
-
 app-example
 
 # generated native folders
