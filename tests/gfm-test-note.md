@@ -5,18 +5,11 @@ This note tests all GitHub Flavored Markdown features.
 ## ATX Headings (1-6 levels)
 
 # Heading 1
-
 ## Heading 2
-
 ### Heading 3
-
 #### Heading 4
-
 ##### Heading 5
-
 ###### Heading 6
-
-## Setext Headings
 
 ## Paragraphs and Line Breaks
 
@@ -33,22 +26,22 @@ to create a hard line break.
 
 ---
 
----
+***
 
----
+___
 
 ## Emphasis and Strong Emphasis
 
-_italic with asterisks_
+*italic with asterisks*
 _italic with underscores_
 
 **bold with asterisks**
-**bold with underscores**
+__bold with underscores__
 
-**_bold and italic_**
-**_bold and italic_**
+***bold and italic***
+___bold and italic___
 
-**bold with _nested italic_ inside**
+**bold with *nested italic* inside**
 
 ## Strikethrough (GFM Extension)
 
@@ -60,7 +53,7 @@ _italic with underscores_
 
 Use `inline code` for short snippets.
 
-Use `` backticks ` inside code `` with double backticks.
+Use ``backticks ` inside code`` with double backticks.
 
 ## Fenced Code Blocks
 
@@ -76,17 +69,17 @@ function hello() {
 }
 ```
 
-```python
+~~~python
 # Tildes also work
 def hello():
     print("Hello, world!")
-```
+~~~
 
 ## Indented Code Blocks
 
     This is an indented code block.
     It requires 4 spaces of indentation.
-
+    
     Blank lines are preserved.
 
 ## Block Quotes
@@ -123,28 +116,32 @@ def hello():
 * Item with asterisk
 * Another item
 
-- Item with plus
-- Another item
++ Item with plus
++ Another item
 
 ### Ordered Lists
 
 1. First item
 2. Second item
-3. Third item 4. Nested ordered 5. Another nested
+3. Third item
+   4. Nested ordered
+   5. Another nested
 
-4. All items can use 1.
-5. The renderer will number them
-6. Correctly
+6. All items can use 1.
+7. The renderer will number them
+8. Correctly
 
-7. Start at any number
-8. And continue from there
+9. Start at any number
+10. And continue from there
 
 ### Mixed Lists
 
 1. Ordered item
    - Unordered nested
    - Another unordered
-2. Back to ordered 3. Nested ordered 4. Another nested
+2. Back to ordered
+   3. Nested ordered
+   4. Another nested
 
 ### Loose vs Tight Lists
 
@@ -174,7 +171,7 @@ def hello():
 
 [Basic link](https://example.com)
 
-[Link with _emphasis_](https://example.com)
+[Link with *emphasis*](https://example.com)
 
 ### Autolinks
 
@@ -194,34 +191,35 @@ Check out https://example.com/path for details.
 
 ![Alt text](https://futo.org/images/authors/futologo.png "Image Title")
 
+
 ## Tables (GFM Extension)
 
 | Left | Center | Right |
-| :--- | :----: | ----: |
+|:-----|:------:|------:|
 | L1   |   C1   |    R1 |
 | L2   |   C2   |    R2 |
 | L3   |   C3   |    R3 |
 
 Minimal table:
 
-| Foo | Bar |
-| --- | --- |
-| Baz | Qux |
+Foo | Bar
+--- | ---
+Baz | Qux
 
 Table with inline formatting:
 
-| Feature                      | Supported |
-| ---------------------------- | --------- |
-| **Bold**                     | Yes       |
-| _Italic_                     | Yes       |
-| `Code`                       | Yes       |
-| ~~Strike~~                   | Yes       |
-| [Links](https://example.com) | Yes       |
+| Feature | Supported |
+|---------|-----------|
+| **Bold** | Yes |
+| *Italic* | Yes |
+| `Code` | Yes |
+| ~~Strike~~ | Yes |
+| [Links](https://example.com) | Yes |
 
 Escaped pipes:
 
 | Expression | Result |
-| ---------- | ------ |
+|------------|--------|
 | `a \| b`   | a \| b |
 
 ## Backslash Escapes
@@ -238,20 +236,23 @@ Escaped pipes:
 
 \| not \| a \| table \|
 
+
+
 ## Edge Cases
 
 ### Empty Elements
 
->
+> 
 
 -
--
+- 
 
 ### Nested Formatting
 
-**bold _bold-italic_ bold**
+**bold *bold-italic* bold**
 
-_italic **italic-bold** italic_
+*italic **italic-bold** italic*
+
 
 ### Code in Lists
 
@@ -263,14 +264,14 @@ _italic **italic-bold** italic_
 
 ### Links in Tables
 
-| Name    | Link                         |
-| ------- | ---------------------------- |
+| Name | Link |
+|------|------|
 | Example | [Click](https://example.com) |
 
 ### Very Long Content
 
 | Short | This is a very long cell that contains a lot of text to test how tables handle overflow |
-| ----- | --------------------------------------------------------------------------------------- |
+|-------|-----------------------------------------------------------------------------------------|
 | A     | B                                                                                       |
 
 | A   | B   |
