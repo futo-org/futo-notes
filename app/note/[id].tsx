@@ -15,9 +15,33 @@ import {
 } from "react-native";
 import { useNotesStore } from "@/lib/notesStore";
 import { renameNoteInIndex, updateNoteInIndex } from "@/lib/notesLoader";
-import { colors, fonts } from "@/lib/theme";
+import { colors, fonts, radius } from "@/lib/theme";
+import type { PartialMarkdownStyle } from "@expensify/react-native-live-markdown";
 
 const NOTES_DIR = "notes";
+
+const markdownStyle: PartialMarkdownStyle = {
+  code: {
+    fontFamily: fonts.mono.regular,
+    fontSize: 14,
+    color: colors.textPrimary,
+    backgroundColor: colors.codeBackground,
+    borderColor: colors.border,
+    borderWidth: 1,
+    borderRadius: radius.sm,
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+  },
+  pre: {
+    fontFamily: fonts.mono.regular,
+    fontSize: 14,
+    color: colors.textPrimary,
+    backgroundColor: colors.codeBlockBackground,
+  },
+  syntax: {
+    color: colors.textTertiary,
+  },
+};
 
 /**
  * Sanitize a string to be used as a filename.
@@ -272,6 +296,7 @@ export default function NoteScreen() {
           style={styles.input}
           multiline
           parser={parseMarkdown}
+          markdownStyle={markdownStyle}
           placeholder="Start typing your note..."
           placeholderTextColor={colors.textTertiary}
           autoFocus={id === "new"}

@@ -50,7 +50,8 @@ export const colors = {
   separator: "#DDD8D0", // Line separators
 
   // Special surfaces
-  codeBackground: "#F4F1EC", // Code block background
+  codeBackground: "#F4F1EC", // Inline code background
+  codeBlockBackground: "#EBE7E0", // Code block background (darker)
   blockquoteBorder: "#C4BFB6", // Blockquote left border
 };
 
