@@ -33,6 +33,14 @@ React Native/Expo SDK 54 app for offline-first markdown notes. Uses Expo Router,
 rm -rf react-native-live-markdown/node_modules/{react-native-reanimated,react-native-worklets,react,react-native}
 ```
 
+## iOS Device Logs
+
+```bash
+idevicesyslog | grep "search term"
+```
+
+Install via `brew install libimobiledevice` if needed.
+
 ## FlashList v2
 
 **Do NOT use** (removed in v2): `estimatedItemSize`, `estimatedListSize`, `inverted`, `onBlankArea`
