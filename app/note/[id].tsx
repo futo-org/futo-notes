@@ -12,6 +12,8 @@ import {
   StyleSheet,
   TextInput,
   PixelRatio,
+  NativeSyntheticEvent,
+  TextInputSelectionChangeEventData,
 } from "react-native";
 import { useNotesStore } from "@/lib/notesStore";
 import { renameNoteInIndex, updateNoteInIndex } from "@/lib/notesLoader";
@@ -98,6 +100,8 @@ export default function NoteScreen() {
   const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const inputRef = useRef<any>(null);
+  const selectionRef = useRef<{ start: number; end: number }>({ start: 0, end: 0 });
+  const prevTextRef = useRef<string>("");
 
   const handleScrollBegin = () => {
     if (scrollTimeoutRef.current) {
@@ -145,6 +149,127 @@ export default function NoteScreen() {
   const handleTouchEnd = () => {
     touchStartRef.current = null;
   };
+
+  const handleSelectionChange = useCallback(
+    (e: NativeSyntheticEvent<TextInputSelectionChangeEventData>) => {
+      selectionRef.current = e.nativeEvent.selection;
+    },
+    []
+  );
+
+  /**
+   * Handle text changes with list continuation support.
+   * When Enter is pressed at the end of a list item, automatically insert the list prefix.
+   */
+  const handleTextChange = useCallback((newText: string) => {
+    const oldText = prevTextRef.current;
+    prevTextRef.current = newText;
+
+    // Check if a single newline was just inserted
+    if (newText.length === oldText.length + 1) {
+      // Find where the character was inserted
+      let insertPos = -1;
+      for (let i = 0; i < newText.length; i++) {
+        if (i >= oldText.length || newText[i] !== oldText[i]) {
+          insertPos = i;
+          break;
+        }
+      }
+
+      if (insertPos >= 0 && newText[insertPos] === '\n') {
+        // Get the line before the newline
+        const lineStart = newText.lastIndexOf('\n', insertPos - 1) + 1;
+        const lineBeforeNewline = newText.substring(lineStart, insertPos);
+
+        // Check for unordered list: -, *, +
+        const ulMatch = lineBeforeNewline.match(/^([ \t]*)([-*+])[ \t]+(.*)$/);
+        if (ulMatch) {
+          const [, indent, marker, content] = ulMatch;
+          // If the line has content, continue the list
+          if (content && content.trim().length > 0) {
+            const prefix = `${indent}${marker} `;
+            const newCursorPos = insertPos + 1 + prefix.length;
+            const textWithPrefix =
+              newText.substring(0, insertPos + 1) +
+              prefix +
+              newText.substring(insertPos + 1);
+            prevTextRef.current = textWithPrefix;
+            setText(textWithPrefix);
+            // Set cursor position after the prefix
+            setTimeout(() => {
+              inputRef.current?.setSelection?.(newCursorPos, newCursorPos);
+            }, 0);
+            return;
+          }
+          // If the line is empty (just the marker), remove the marker
+          if (!content || content.trim().length === 0) {
+            // Remove the list marker line and the newline
+            const textWithoutMarker = oldText.substring(0, lineStart) + oldText.substring(insertPos);
+            prevTextRef.current = textWithoutMarker;
+            setText(textWithoutMarker);
+            setTimeout(() => {
+              inputRef.current?.setSelection?.(lineStart, lineStart);
+            }, 0);
+            return;
+          }
+        }
+
+        // Check for ordered list: 1., 2., etc.
+        const olMatch = lineBeforeNewline.match(/^([ \t]*)(\d+)([.)])[ \t]+(.*)$/);
+        if (olMatch) {
+          const [, indent, num, punct, content] = olMatch;
+          // If the line has content, continue the list with incremented number
+          if (content && content.trim().length > 0) {
+            const nextNum = parseInt(num, 10) + 1;
+            const prefix = `${indent}${nextNum}${punct} `;
+            const newCursorPos = insertPos + 1 + prefix.length;
+            const textWithPrefix =
+              newText.substring(0, insertPos + 1) +
+              prefix +
+              newText.substring(insertPos + 1);
+            prevTextRef.current = textWithPrefix;
+            setText(textWithPrefix);
+            setTimeout(() => {
+              inputRef.current?.setSelection?.(newCursorPos, newCursorPos);
+            }, 0);
+            return;
+          }
+          // If the line is empty (just the marker), remove the marker
+          if (!content || content.trim().length === 0) {
+            const textWithoutMarker = oldText.substring(0, lineStart) + oldText.substring(insertPos);
+            prevTextRef.current = textWithoutMarker;
+            setText(textWithoutMarker);
+            setTimeout(() => {
+              inputRef.current?.setSelection?.(lineStart, lineStart);
+            }, 0);
+            return;
+          }
+        }
+
+        // Check for task list: - [ ] or - [x]
+        const taskMatch = lineBeforeNewline.match(/^(\s*[-*+])\s+\[[ xX]\]\s+(.*)$/);
+        if (taskMatch) {
+          const [, marker, content] = taskMatch;
+          if (content && content.trim().length > 0) {
+            const prefix = `${marker} [ ] `;
+            const newCursorPos = insertPos + 1 + prefix.length;
+            const textWithPrefix =
+              newText.substring(0, insertPos + 1) +
+              prefix +
+              newText.substring(insertPos + 1);
+            prevTextRef.current = textWithPrefix;
+            setText(textWithPrefix);
+            setTimeout(() => {
+              inputRef.current?.setSelection?.(newCursorPos, newCursorPos);
+            }, 0);
+            return;
+          }
+        }
+      }
+    }
+
+    setText(newText);
+  }, []);
 
   useEffect(() => {
     loadNote();
@@ -203,6 +328,7 @@ export default function NoteScreen() {
         originalIdRef.current = id;
         originalTextRef.current = content;
         originalTitleRef.current = id;
+        prevTextRef.current = content;
         setText(content);
         setTitle(id);
       }
@@ -292,7 +418,8 @@ export default function NoteScreen() {
         <MarkdownTextInput
           ref={inputRef}
           value={text}
-          onChangeText={setText}
+          onChangeText={handleTextChange}
+          onSelectionChange={handleSelectionChange}
           style={styles.input}
           multiline
           parser={parseMarkdown}

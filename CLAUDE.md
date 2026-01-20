@@ -46,3 +46,25 @@ Install via `brew install libimobiledevice` if needed.
 **Do NOT use** (removed in v2): `estimatedItemSize`, `estimatedListSize`, `inverted`, `onBlankArea`
 
 **Use instead**: `maintainVisibleContentPosition` (default on), `masonry` for grids, `onStartReached` for loading older content.
+
+## Visual Editor Development Workflow
+
+Reference screenshots: `tests/reference-screenshots/` (from Obsidian)
+
+### MVP Scope (tests/mvp-test-note.md)
+Currently testing with reduced GFM feature set. The following are **disabled** (commented out in parser):
+- Thematic breaks / horizontal rules (`---`, `***`, `___`)
+- Autolinks (`<https://...>`, `<user@example.com>`)
+- Extended autolinks (bare URLs like `www.example.com`, `https://...`, `user@example.com`)
+- Tables (GFM)
+
+Full GFM test file: `tests/gfm-test-note.md` (for later)
+
+### MCP Commands Available
+- `ios_simulator_screenshot` - Capture current simulator screen
+- `xcodebuild_build` - Incremental iOS build
+- `xcodebuild_run` - Launch on simulator
+
+### Known Patterns (update as discovered)
+- iOS TextKit 2: [patterns here]
+- Android: [patterns here]

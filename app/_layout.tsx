@@ -66,6 +66,7 @@ export default function RootLayout() {
             options={{
               headerTitle: () => <HeaderTitle>Notes</HeaderTitle>,
               headerShadowVisible: false, // Shadow is on SearchBar instead
+              headerBackTitle: "", // Just show back arrow, not "index"
             }}
           />
           <Stack.Screen
