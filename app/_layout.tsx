@@ -59,6 +59,7 @@ export default function RootLayout() {
               color: colors.textPrimary,
             },
             headerTintColor: colors.textSecondary,
+            headerBackButtonDisplayMode: "minimal",
           }}
         >
           <Stack.Screen
@@ -66,7 +67,6 @@ export default function RootLayout() {
             options={{
               headerTitle: () => <HeaderTitle>Notes</HeaderTitle>,
               headerShadowVisible: false, // Shadow is on SearchBar instead
-              headerBackTitle: "", // Just show back arrow, not "index"
             }}
           />
           <Stack.Screen
