@@ -6,6 +6,8 @@ import ReanimatedSwipeable, {
 import Reanimated, {
   SharedValue,
   useAnimatedStyle,
+  interpolate,
+  Extrapolation,
 } from "react-native-reanimated";
 import { Ionicons } from "@expo/vector-icons";
 import { NotePreview } from "@/lib/notesStore";
@@ -14,14 +16,27 @@ import { colors, fonts, spacing } from "@/lib/theme";
 const DELETE_BUTTON_WIDTH = 80;
 
 interface RightActionProps {
+  progress: SharedValue<number>;
   dragX: SharedValue<number>;
   onPress: () => void;
 }
 
-function RightAction({ dragX, onPress }: RightActionProps) {
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: dragX.value + DELETE_BUTTON_WIDTH }],
-  }));
+function RightAction({ progress, dragX, onPress }: RightActionProps) {
+  const animatedStyle = useAnimatedStyle(() => {
+    // Calculate opacity based on swipe distance
+    // dragX goes from 0 (closed) to -DELETE_BUTTON_WIDTH (fully open)
+    const opacity = interpolate(
+      dragX.value,
+      [-DELETE_BUTTON_WIDTH, 0],
+      [1, 0],
+      Extrapolation.CLAMP
+    );
+
+    return {
+      transform: [{ translateX: dragX.value + DELETE_BUTTON_WIDTH }],
+      opacity,
+    };
+  });
 
   return (
     <Reanimated.View style={[styles.deleteAction, animatedStyle]}>
@@ -74,8 +89,8 @@ export function SwipeableNoteItem({
   }, [item.id, item.title, onDelete]);
 
   const renderRightActions = useCallback(
-    (_progress: SharedValue<number>, dragX: SharedValue<number>) => (
-      <RightAction dragX={dragX} onPress={handleDelete} />
+    (progress: SharedValue<number>, dragX: SharedValue<number>) => (
+      <RightAction progress={progress} dragX={dragX} onPress={handleDelete} />
     ),
     [handleDelete]
   );
