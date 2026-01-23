@@ -29,7 +29,13 @@ build-android:
     - git submodule update --init --recursive
     - yarn install
     - rm -rf react-native-live-markdown/node_modules/{react-native-reanimated,react-native-worklets,react,react-native}
-    - echo "$KEYSTORE_BASE64" | base64 -d > android/app/release.keystore
+    - |
+      if [ -n "$KEYSTORE_BASE64" ]; then
+        echo "Using release keystore from CI variables"
+        echo "$KEYSTORE_BASE64" | base64 -d > android/app/release.keystore
+      else
+        echo "No keystore configured - using debug signing"
+      fi
     - cd android && ./gradlew assembleRelease
   artifacts:
     paths:
