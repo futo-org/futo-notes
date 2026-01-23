@@ -17,6 +17,7 @@ expo-env.d.ts
 *.p12
 *.key
 *.mobileprovision
+release.keystore
 
 # Metro
 .metro-health-check*
@@ -40,6 +41,6 @@ app-example
 
 # generated native folders
 /ios
-/android
+# /android - tracked for bare workflow CI/CD
 
 .vscode

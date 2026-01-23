@@ -1,0 +1,104 @@
+default:
+  tags:
+    - futocore_dind
+  image: gitlab.futo.org:5050/futocore/ci/kitchensink:latest
+  before_script:
+    - . $HOME/.nvm/nvm.sh
+
+variables:
+  ANDROID_HOME: /opt/android-sdk
+
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_TAG
+
+stages:
+  - build
+  - upload_assets
+  - create_release
+
+# ─────────────────────────────────────────────────────────────
+# Android Build
+# ─────────────────────────────────────────────────────────────
+
+build-android:
+  stage: build
+  script:
+    - git submodule update --init --recursive
+    - yarn install
+    - rm -rf react-native-live-markdown/node_modules/{react-native-reanimated,react-native-worklets,react,react-native}
+    - echo "$KEYSTORE_BASE64" | base64 -d > android/app/release.keystore
+    - cd android && ./gradlew assembleRelease
+  artifacts:
+    paths:
+      - android/app/build/outputs/apk/release/app-release.apk
+    expire_in: 1 week
+  rules:
+    - if: $CI_COMMIT_TAG
+      when: always
+
+# ─────────────────────────────────────────────────────────────
+# iOS Build (Future - Mac Mini with Cirrus/Tart)
+# ─────────────────────────────────────────────────────────────
+
+# build-ios:
+#   stage: build
+#   tags:
+#     - macos  # Mac Mini runner
+#   script:
+#     - # Cirrus/Tart setup TBD
+#     - # Build IPA and upload to TestFlight
+#   rules:
+#     - if: $CI_COMMIT_TAG
+#       when: always
+
+# ─────────────────────────────────────────────────────────────
+# Upload APK to Package Registry
+# ─────────────────────────────────────────────────────────────
+
+upload-apk:
+  stage: upload_assets
+  needs:
+    - job: build-android
+      artifacts: true
+  script:
+    - export APK_NAME="futo-notes-${CI_COMMIT_TAG}.apk"
+    - export APK_PATH="android/app/build/outputs/apk/release/app-release.apk"
+    - export PACKAGE_REGISTRY_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/futo-notes-apk/${CI_COMMIT_TAG}"
+    - export APK_ASSET_URL="${PACKAGE_REGISTRY_URL}/${APK_NAME}"
+    - 'echo "Uploading ${APK_PATH} to ${APK_ASSET_URL}"'
+    - 'curl --fail --header "JOB-TOKEN: ${CI_JOB_TOKEN}" --upload-file "${APK_PATH}" "${APK_ASSET_URL}"'
+    - echo "APK_ASSET_NAME=${APK_NAME}" >> release_vars.env
+    - echo "APK_ASSET_URL=${APK_ASSET_URL}" >> release_vars.env
+  artifacts:
+    reports:
+      dotenv: release_vars.env
+  rules:
+    - if: $CI_COMMIT_TAG
+      when: always
+
+# ─────────────────────────────────────────────────────────────
+# Create GitLab Release
+# ─────────────────────────────────────────────────────────────
+
+create-release:
+  stage: create_release
+  image: registry.gitlab.com/gitlab-org/release-cli:latest
+  needs:
+    - job: upload-apk
+      artifacts: true
+  before_script: []
+  script:
+    - |
+      echo "Creating release for tag ${CI_COMMIT_TAG}"
+      echo "APK: ${APK_ASSET_NAME} at ${APK_ASSET_URL}"
+
+      release-cli create --name "Futo Notes ${CI_COMMIT_TAG}" \
+        --tag-name "${CI_COMMIT_TAG}" \
+        --description "Futo Notes release ${CI_COMMIT_TAG}" \
+        --assets-link "{\"name\":\"${APK_ASSET_NAME}\",\"url\":\"${APK_ASSET_URL}\",\"filepath\":\"/futo-notes.apk\",\"link_type\":\"package\"}"
+  rules:
+    - if: $CI_COMMIT_TAG
+      when: always
