@@ -1,4 +1,4 @@
-import { Directory, File, Paths } from "expo-file-system";
+import { Directory, File } from "expo-file-system";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
@@ -11,19 +11,7 @@ import { useSearch, SearchResult } from "@/lib/useSearch";
 import { loadNotesWithIndex, removeNoteFromIndex } from "@/lib/notesLoader";
 import { colors, fonts, shadows, spacing, radius } from "@/lib/theme";
 import { haptics } from "@/lib/haptics";
-
-const NOTES_DIR = "notes";
-
-/**
- * Get or create the notes directory in the app's private document directory.
- */
-function getNotesDirectory(): Directory {
-  const notesDir = new Directory(Paths.document, NOTES_DIR);
-  if (!notesDir.exists) {
-    notesDir.create();
-  }
-  return notesDir;
-}
+import { getNotesDirectory } from "@/lib/fileSystem";
 
 /**
  * DEBUG: Import test notes from /sdcard/Download/fake-notes
@@ -83,7 +71,6 @@ export default function NotesListScreen() {
   const setNotes = useNotesStore((state) => state.setNotes);
   const searchIndex = useNotesStore((state) => state.searchIndex);
   const setSearchIndex = useNotesStore((state) => state.setSearchIndex);
-  const storeDeleteNote = useNotesStore((state) => state.deleteNote);
   const searchQuery = useNotesStore((state) => state.searchQuery);
   const setSearchQuery = useNotesStore((state) => state.setSearchQuery);
   const router = useRouter();
@@ -134,14 +121,12 @@ export default function NotesListScreen() {
         if (searchIndex) {
           const updatedPreviews = removeNoteFromIndex(searchIndex, id, notes);
           setNotes(updatedPreviews);
-        } else {
-          storeDeleteNote(id);
         }
       } catch (error) {
         console.error("Error deleting note:", error);
       }
     },
-    [storeDeleteNote, searchIndex, notes, setNotes]
+    [searchIndex, notes, setNotes]
   );
 
   const createNewNote = () => {

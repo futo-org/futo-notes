@@ -1,9 +1,8 @@
-import { Directory, File, Paths } from "expo-file-system";
+import { File } from "expo-file-system";
 import MiniSearch from "minisearch";
 import { storage, STORAGE_KEYS, CURRENT_CACHE_VERSION } from "./storage";
 import { NotePreview } from "./notesStore";
-
-const NOTES_DIR = "notes";
+import { getNotesDirectory } from "./fileSystem";
 
 export interface NoteDocument {
   id: string;
@@ -35,14 +34,6 @@ export const MINISEARCH_OPTIONS = {
     prefix: true,
   },
 };
-
-function getNotesDirectory(): Directory {
-  const notesDir = new Directory(Paths.document, NOTES_DIR);
-  if (!notesDir.exists) {
-    notesDir.create();
-  }
-  return notesDir;
-}
 
 function getPreviewText(content: string): string {
   const preview = content.replace(/\s+/g, " ").trim();

@@ -2,7 +2,7 @@ import {
   MarkdownTextInput,
   parseMarkdown,
 } from "@expensify/react-native-live-markdown";
-import { Directory, File, Paths } from "expo-file-system";
+import { File } from "expo-file-system";
 import { useLocalSearchParams, useNavigation } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -18,11 +18,10 @@ import {
 import { useNotesStore } from "@/lib/notesStore";
 import { renameNoteInIndex, updateNoteInIndex } from "@/lib/notesLoader";
 import { colors, fonts, radius } from "@/lib/theme";
-import type { PartialMarkdownStyle } from "@expensify/react-native-live-markdown";
+import { getNotesDirectory } from "@/lib/fileSystem";
+import type { MarkdownStyle } from "@expensify/react-native-live-markdown";
 
-const NOTES_DIR = "notes";
-
-const markdownStyle: PartialMarkdownStyle = {
+const markdownStyle: MarkdownStyle = {
   code: {
     fontFamily: fonts.mono.regular,
     fontSize: 14,
@@ -70,17 +69,6 @@ function sanitizeFilename(title: string): string {
   }
 
   return sanitized;
-}
-
-/**
- * Get or create the notes directory in the app's private document directory.
- */
-function getNotesDirectory(): Directory {
-  const notesDir = new Directory(Paths.document, NOTES_DIR);
-  if (!notesDir.exists) {
-    notesDir.create();
-  }
-  return notesDir;
 }
 
 export default function NoteScreen() {
@@ -158,6 +146,53 @@ export default function NoteScreen() {
   );
 
   /**
+   * Find the position where a single character was inserted.
+   * Returns -1 if not a single character insertion.
+   */
+  const findInsertPosition = (oldText: string, newText: string): number => {
+    if (newText.length !== oldText.length + 1) return -1;
+    for (let i = 0; i < newText.length; i++) {
+      if (i >= oldText.length || newText[i] !== oldText[i]) return i;
+    }
+    return -1;
+  };
+
+  /**
+   * Insert text at a position and update state with cursor positioning.
+   */
+  const applyListContinuation = (
+    text: string,
+    insertPos: number,
+    prefix: string
+  ) => {
+    const textWithPrefix =
+      text.substring(0, insertPos + 1) + prefix + text.substring(insertPos + 1);
+    const newCursorPos = insertPos + 1 + prefix.length;
+    prevTextRef.current = textWithPrefix;
+    setText(textWithPrefix);
+    setTimeout(() => {
+      inputRef.current?.setSelection?.(newCursorPos, newCursorPos);
+    }, 0);
+  };
+
+  /**
+   * Remove the list marker when user presses Enter on an empty list item.
+   */
+  const removeEmptyListMarker = (
+    oldText: string,
+    lineStart: number,
+    insertPos: number
+  ) => {
+    const textWithoutMarker =
+      oldText.substring(0, lineStart) + oldText.substring(insertPos);
+    prevTextRef.current = textWithoutMarker;
+    setText(textWithoutMarker);
+    setTimeout(() => {
+      inputRef.current?.setSelection?.(lineStart, lineStart);
+    }, 0);
+  };
+
+  /**
    * Handle text changes with list continuation support.
    * When Enter is pressed at the end of a list item, automatically insert the list prefix.
    */
@@ -165,106 +200,47 @@ export default function NoteScreen() {
     const oldText = prevTextRef.current;
     prevTextRef.current = newText;
 
-    // Check if a single newline was just inserted
-    if (newText.length === oldText.length + 1) {
-      // Find where the character was inserted
-      let insertPos = -1;
-      for (let i = 0; i < newText.length; i++) {
-        if (i >= oldText.length || newText[i] !== oldText[i]) {
-          insertPos = i;
-          break;
-        }
+    const insertPos = findInsertPosition(oldText, newText);
+    if (insertPos < 0 || newText[insertPos] !== '\n') {
+      setText(newText);
+      return;
+    }
+
+    const lineStart = newText.lastIndexOf('\n', insertPos - 1) + 1;
+    const lineBeforeNewline = newText.substring(lineStart, insertPos);
+
+    // Unordered list: -, *, +
+    const ulMatch = lineBeforeNewline.match(/^([ \t]*)([-*+])[ \t]+(.*)$/);
+    if (ulMatch) {
+      const [, indent, marker, content] = ulMatch;
+      if (content?.trim()) {
+        applyListContinuation(newText, insertPos, `${indent}${marker} `);
+        return;
       }
+      removeEmptyListMarker(oldText, lineStart, insertPos);
+      return;
+    }
 
-      if (insertPos >= 0 && newText[insertPos] === '\n') {
-        // Get the line before the newline
-        const lineStart = newText.lastIndexOf('\n', insertPos - 1) + 1;
-        const lineBeforeNewline = newText.substring(lineStart, insertPos);
+    // Ordered list: 1., 2., etc.
+    const olMatch = lineBeforeNewline.match(/^([ \t]*)(\d+)([.)])[ \t]+(.*)$/);
+    if (olMatch) {
+      const [, indent, num, punct, content] = olMatch;
+      if (content?.trim()) {
+        const nextNum = parseInt(num, 10) + 1;
+        applyListContinuation(newText, insertPos, `${indent}${nextNum}${punct} `);
+        return;
+      }
+      removeEmptyListMarker(oldText, lineStart, insertPos);
+      return;
+    }
 
-        // Check for unordered list: -, *, +
-        const ulMatch = lineBeforeNewline.match(/^([ \t]*)([-*+])[ \t]+(.*)$/);
-        if (ulMatch) {
-          const [, indent, marker, content] = ulMatch;
-          // If the line has content, continue the list
-          if (content && content.trim().length > 0) {
-            const prefix = `${indent}${marker} `;
-            const newCursorPos = insertPos + 1 + prefix.length;
-            const textWithPrefix =
-              newText.substring(0, insertPos + 1) +
-              prefix +
-              newText.substring(insertPos + 1);
-            prevTextRef.current = textWithPrefix;
-            setText(textWithPrefix);
-            // Set cursor position after the prefix
-            setTimeout(() => {
-              inputRef.current?.setSelection?.(newCursorPos, newCursorPos);
-            }, 0);
-            return;
-          }
-          // If the line is empty (just the marker), remove the marker
-          if (!content || content.trim().length === 0) {
-            // Remove the list marker line and the newline
-            const textWithoutMarker = oldText.substring(0, lineStart) + oldText.substring(insertPos);
-            prevTextRef.current = textWithoutMarker;
-            setText(textWithoutMarker);
-            setTimeout(() => {
-              inputRef.current?.setSelection?.(lineStart, lineStart);
-            }, 0);
-            return;
-          }
-        }
-
-        // Check for ordered list: 1., 2., etc.
-        const olMatch = lineBeforeNewline.match(/^([ \t]*)(\d+)([.)])[ \t]+(.*)$/);
-        if (olMatch) {
-          const [, indent, num, punct, content] = olMatch;
-          // If the line has content, continue the list with incremented number
-          if (content && content.trim().length > 0) {
-            const nextNum = parseInt(num, 10) + 1;
-            const prefix = `${indent}${nextNum}${punct} `;
-            const newCursorPos = insertPos + 1 + prefix.length;
-            const textWithPrefix =
-              newText.substring(0, insertPos + 1) +
-              prefix +
-              newText.substring(insertPos + 1);
-            prevTextRef.current = textWithPrefix;
-            setText(textWithPrefix);
-            setTimeout(() => {
-              inputRef.current?.setSelection?.(newCursorPos, newCursorPos);
-            }, 0);
-            return;
-          }
-          // If the line is empty (just the marker), remove the marker
-          if (!content || content.trim().length === 0) {
-            const textWithoutMarker = oldText.substring(0, lineStart) + oldText.substring(insertPos);
-            prevTextRef.current = textWithoutMarker;
-            setText(textWithoutMarker);
-            setTimeout(() => {
-              inputRef.current?.setSelection?.(lineStart, lineStart);
-            }, 0);
-            return;
-          }
-        }
-
-        // Check for task list: - [ ] or - [x]
-        const taskMatch = lineBeforeNewline.match(/^(\s*[-*+])\s+\[[ xX]\]\s+(.*)$/);
-        if (taskMatch) {
-          const [, marker, content] = taskMatch;
-          if (content && content.trim().length > 0) {
-            const prefix = `${marker} [ ] `;
-            const newCursorPos = insertPos + 1 + prefix.length;
-            const textWithPrefix =
-              newText.substring(0, insertPos + 1) +
-              prefix +
-              newText.substring(insertPos + 1);
-            prevTextRef.current = textWithPrefix;
-            setText(textWithPrefix);
-            setTimeout(() => {
-              inputRef.current?.setSelection?.(newCursorPos, newCursorPos);
-            }, 0);
-            return;
-          }
-        }
+    // Task list: - [ ] or - [x]
+    const taskMatch = lineBeforeNewline.match(/^(\s*[-*+])\s+\[[ xX]\]\s+(.*)$/);
+    if (taskMatch) {
+      const [, marker, content] = taskMatch;
+      if (content?.trim()) {
+        applyListContinuation(newText, insertPos, `${marker} [ ] `);
+        return;
       }
     }
 
