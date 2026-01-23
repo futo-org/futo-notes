@@ -1,6 +1,6 @@
 default:
   tags:
-    - futocore_dind
+    - dind
   image: gitlab.futo.org:5050/futocore/ci/kitchensink:latest
   before_script:
     - . $HOME/.nvm/nvm.sh
