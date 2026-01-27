@@ -1,0 +1,67 @@
+build_ios_task:
+  name: buildFutoNotesIOS
+  macos_instance:
+    image: ghcr.io/cirruslabs/macos-ventura-xcode:14.3.1
+  buildFutoNotesIOS_script:
+    # Fetch secure files
+    - curl --silent "https://gitlab.com/gitlab-org/incubation-engineering/mobile-devops/download-secure-files/-/raw/main/installer" | bash
+
+    # Install signing certificate
+    - security unlock-keychain -p "admin" ~/Library/Keychains/login.keychain
+    - security import ./.secure_files/Certificates.p12 -k ~/Library/Keychains/login.keychain -P "$IOS_CERT_PASSWORD" -T /usr/bin/codesign
+    - "security set-key-partition-list -S apple-tool:,apple: -s -k admin ~/Library/Keychains/login.keychain"
+
+    # Install provisioning profile
+    - mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+    - PROFILE_PATH=$(ls .secure_files/*.mobileprovision | head -1)
+    - PROFILE_UUID=$(/usr/libexec/PlistBuddy -c "Print UUID" /dev/stdin <<< $(/usr/bin/security cms -D -i "$PROFILE_PATH"))
+    - cp "$PROFILE_PATH" ~/Library/MobileDevice/Provisioning\ Profiles/${PROFILE_UUID}.mobileprovision
+
+    # Derive version from git tag
+    - VERSION_NAME="${CI_COMMIT_TAG#v}"
+    - IFS='.' read -r major minor patch <<< "$VERSION_NAME"
+    - VERSION_CODE=$((major * 10000 + minor * 100 + patch))
+    - echo "Building iOS version $VERSION_NAME (build $VERSION_CODE)"
+
+    # Install dependencies
+    - yarn install
+    - rm -rf react-native-live-markdown/node_modules/{react-native-reanimated,react-native-worklets,react,react-native}
+
+    # Prebuild with Expo
+    - npx expo prebuild --platform ios --clean
+
+    # Update version in Xcode project
+    - /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION_NAME" ios/futonotes/Info.plist
+    - /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $VERSION_CODE" ios/futonotes/Info.plist
+
+    # Build archive
+    - cd ios
+    - xcodebuild -workspace futonotes.xcworkspace
+        -scheme futonotes
+        -configuration Release
+        -archivePath build/futonotes.xcarchive
+        archive
+        CODE_SIGN_STYLE=Manual
+        DEVELOPMENT_TEAM=2W7AC6T8T5
+        CODE_SIGN_IDENTITY="Apple Distribution"
+        PROVISIONING_PROFILE_SPECIFIER="FUTO Notes App Store"
+
+    # Export IPA
+    - xcodebuild -exportArchive
+        -archivePath build/futonotes.xcarchive
+        -exportPath build/ipa
+        -exportOptionsPlist ../ExportOptions.plist
+
+    # Upload to TestFlight
+    - API_KEY_PATH=$(ls ../.secure_files/AuthKey*.p8 | head -1)
+    - xcrun altool --upload-app
+        --type ios
+        --file build/ipa/futonotes.ipa
+        --apiKey "$ASC_KEY_ID"
+        --apiIssuer "$ASC_ISSUER_ID"
+        --apiKeyPath "$API_KEY_PATH"
+
+    # Copy IPA to artifacts location
+    - cp build/ipa/*.ipa ../
+  binary_artifacts:
+    path: "*.ipa"
