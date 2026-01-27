@@ -72,7 +72,7 @@ upload-apk:
   script:
     - export APK_NAME="futo-notes-${CI_COMMIT_TAG}.apk"
     - export APK_PATH="android/app/build/outputs/apk/release/app-release.apk"
-    - export PACKAGE_REGISTRY_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/futo-notes-apk/${CI_COMMIT_TAG}"
+    - export PACKAGE_REGISTRY_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/futo-notes/${CI_COMMIT_TAG}"
     - export APK_ASSET_URL="${PACKAGE_REGISTRY_URL}/${APK_NAME}"
     - 'echo "Uploading ${APK_PATH} to ${APK_ASSET_URL}"'
     - 'curl --fail --header "JOB-TOKEN: ${CI_JOB_TOKEN}" --upload-file "${APK_PATH}" "${APK_ASSET_URL}"'
@@ -104,7 +104,7 @@ create-release:
       release-cli create --name "Futo Notes ${CI_COMMIT_TAG}" \
         --tag-name "${CI_COMMIT_TAG}" \
         --description "Futo Notes release ${CI_COMMIT_TAG}" \
-        --assets-link "{\"name\":\"${APK_ASSET_NAME}\",\"url\":\"${APK_ASSET_URL}\",\"filepath\":\"/futo-notes.apk\",\"link_type\":\"package\"}"
+        --assets-link "{\"name\":\"${APK_ASSET_NAME}\",\"url\":\"${APK_ASSET_URL}\",\"link_type\":\"other\"}"
   rules:
     - if: $CI_COMMIT_TAG
       when: always
