@@ -17,6 +17,14 @@ build_ios_task:
     - PROFILE_UUID=$(/usr/libexec/PlistBuddy -c "Print UUID" /dev/stdin <<< $(/usr/bin/security cms -D -i "$PROFILE_PATH"))
     - cp "$PROFILE_PATH" ~/Library/MobileDevice/Provisioning\ Profiles/${PROFILE_UUID}.mobileprovision
 
+    # Update Node to required version
+    - brew install nvm
+    - export NVM_DIR="$HOME/.nvm"
+    - source $(brew --prefix nvm)/nvm.sh
+    - nvm install 20
+    - nvm use 20
+    - node --version
+
     # Derive version from git tag
     - VERSION_NAME="${CI_COMMIT_TAG#v}"
     - IFS='.' read -r major minor patch <<< "$VERSION_NAME"
@@ -24,7 +32,7 @@ build_ios_task:
     - echo "Building iOS version $VERSION_NAME (build $VERSION_CODE)"
 
     # Install dependencies
-    - yarn install
+    - npm ci
     - rm -rf react-native-live-markdown/node_modules/{react-native-reanimated,react-native-worklets,react,react-native}
 
     # Prebuild with Expo
