@@ -42,23 +42,27 @@ build_ios_task:
     - /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION_NAME" ios/futonotes/Info.plist
     - /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $VERSION_CODE" ios/futonotes/Info.plist
 
-    # Build archive
+    # Build archive (quiet mode, log to file)
     - cd ios
-    - xcodebuild -workspace futonotes.xcworkspace
-        -scheme futonotes
-        -configuration Release
-        -archivePath build/futonotes.xcarchive
-        archive
-        CODE_SIGN_STYLE=Manual
-        DEVELOPMENT_TEAM=2W7AC6T8T5
-        CODE_SIGN_IDENTITY="Apple Distribution"
-        PROVISIONING_PROFILE_SPECIFIER="FUTO Notes App Store"
+    - |
+      xcodebuild -workspace futonotes.xcworkspace \
+        -scheme futonotes \
+        -configuration Release \
+        -archivePath build/futonotes.xcarchive \
+        archive \
+        CODE_SIGN_STYLE=Manual \
+        DEVELOPMENT_TEAM=2W7AC6T8T5 \
+        CODE_SIGN_IDENTITY="Apple Distribution" \
+        PROVISIONING_PROFILE_SPECIFIER="FUTO Notes App Store" \
+        -quiet 2>&1 | tee ../xcodebuild-archive.log || (tail -100 ../xcodebuild-archive.log && exit 1)
 
     # Export IPA
-    - xcodebuild -exportArchive
-        -archivePath build/futonotes.xcarchive
-        -exportPath build/ipa
-        -exportOptionsPlist ../ExportOptions.plist
+    - |
+      xcodebuild -exportArchive \
+        -archivePath build/futonotes.xcarchive \
+        -exportPath build/ipa \
+        -exportOptionsPlist ../ExportOptions.plist \
+        -quiet 2>&1 | tee ../xcodebuild-export.log || (tail -100 ../xcodebuild-export.log && exit 1)
 
     # Upload to TestFlight
     - API_KEY_PATH=$(ls ../.secure_files/AuthKey*.p8 | head -1)
@@ -73,3 +77,5 @@ build_ios_task:
     - cp build/ipa/*.ipa ../
   binary_artifacts:
     path: "*.ipa"
+  logs_artifacts:
+    path: "xcodebuild-*.log"
