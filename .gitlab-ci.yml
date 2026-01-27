@@ -36,7 +36,18 @@ build-android:
       else
         echo "No keystore configured - using debug signing"
       fi
-    - cd android && ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a,armeabi-v7a -x lintVitalAnalyzeRelease -x lintVitalRelease
+    - |
+      # Derive version from git tag (v0.0.7 → 0.0.7)
+      VERSION_NAME="${CI_COMMIT_TAG#v}"
+      # Compute version code: major*10000 + minor*100 + patch
+      IFS='.' read -r major minor patch <<< "$VERSION_NAME"
+      VERSION_CODE=$((major * 10000 + minor * 100 + patch))
+      echo "Building version $VERSION_NAME (code: $VERSION_CODE)"
+      cd android && ./gradlew assembleRelease \
+        -PVERSION_NAME="$VERSION_NAME" \
+        -PVERSION_CODE="$VERSION_CODE" \
+        -PreactNativeArchitectures=arm64-v8a,armeabi-v7a \
+        -x lintVitalAnalyzeRelease -x lintVitalRelease
   artifacts:
     paths:
       - android/app/build/outputs/apk/release/app-release.apk
