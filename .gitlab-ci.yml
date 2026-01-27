@@ -62,7 +62,7 @@ build-android:
 
 build-ios:
   stage: build
-  image: ghcr.io/cirruslabs/macos-ventura-xcode:14.3.1
+  image: ghcr.io/cirruslabs/macos-sequoia-xcode:26.2
   tags:
     - macscript
   before_script:

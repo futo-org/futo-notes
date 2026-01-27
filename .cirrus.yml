@@ -1,7 +1,7 @@
 build_ios_task:
   name: buildFutoNotesIOS
   macos_instance:
-    image: ghcr.io/cirruslabs/macos-ventura-xcode:14.3.1
+    image: ghcr.io/cirruslabs/macos-sequoia-xcode:26.2
   buildFutoNotesIOS_script:
     # Fetch secure files
     - curl --silent "https://gitlab.com/gitlab-org/incubation-engineering/mobile-devops/download-secure-files/-/raw/main/installer" | bash
