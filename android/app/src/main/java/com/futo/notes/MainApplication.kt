@@ -1,4 +1,4 @@
-package com.anonymous.futonotes
+package com.futo.notes
 
 import android.app.Application
 import android.content.res.Configuration

@@ -1,4 +1,4 @@
-package com.anonymous.futonotes
+package com.futo.notes
 import expo.modules.splashscreen.SplashScreenManager
 
 import android.os.Build

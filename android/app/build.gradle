@@ -87,9 +87,9 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace 'com.anonymous.futonotes'
+    namespace 'com.futo.notes'
     defaultConfig {
-        applicationId 'com.anonymous.futonotes'
+        applicationId 'com.futo.notes'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode Integer.parseInt(findProperty('VERSION_CODE') ?: '1')
