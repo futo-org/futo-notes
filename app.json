@@ -13,7 +13,8 @@
       "bundleIdentifier": "com.futo.notes",
       "deploymentTarget": "18.0",
       "infoPlist": {
-        "UISupportsDocumentBrowser": true
+        "UISupportsDocumentBrowser": true,
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
