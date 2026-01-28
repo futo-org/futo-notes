@@ -68,13 +68,13 @@ build_ios_task:
         -quiet 2>&1 | tee ../xcodebuild-export.log || (tail -100 ../xcodebuild-export.log && exit 1)
 
     # Upload to TestFlight
-    - API_KEY_PATH=$(ls ../.secure_files/AuthKey*.p8 | head -1)
+    - mkdir -p ~/.private_keys
+    - cp ../.secure_files/AuthKey*.p8 ~/.private_keys/
     - xcrun altool --upload-app
         --type ios
         --file build/ipa/futonotes.ipa
         --apiKey "$ASC_KEY_ID"
         --apiIssuer "$ASC_ISSUER_ID"
-        --apiKeyPath "$API_KEY_PATH"
 
     # Copy IPA to artifacts location
     - cp build/ipa/*.ipa ../
