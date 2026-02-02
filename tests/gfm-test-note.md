@@ -1,6 +1,6 @@
 # GFM Syntax Test Note
 
-This note tests all GitHub Flavored Markdown features.
+This note tests GitHub Flavored Markdown features commonly used by LLMs.
 
 ## ATX Headings (1-6 levels)
 
@@ -16,7 +16,7 @@ This note tests all GitHub Flavored Markdown features.
 This is a paragraph with
 a soft line break (just a newline).
 
-This paragraph ends with two spaces  
+This paragraph ends with two spaces
 to create a hard line break.
 
 This paragraph ends with a backslash\
@@ -26,20 +26,13 @@ to create a hard line break.
 
 ---
 
-***
-
-___
-
 ## Emphasis and Strong Emphasis
 
-*italic with asterisks*
-_italic with underscores_
+*italic text*
 
-**bold with asterisks**
-__bold with underscores__
+**bold text**
 
 ***bold and italic***
-___bold and italic___
 
 **bold with *nested italic* inside**
 
@@ -69,18 +62,11 @@ function hello() {
 }
 ```
 
-~~~python
-# Tildes also work
+```python
+# Python example
 def hello():
     print("Hello, world!")
-~~~
-
-## Indented Code Blocks
-
-    This is an indented code block.
-    It requires 4 spaces of indentation.
-    
-    Blank lines are preserved.
+```
 
 ## Block Quotes
 
@@ -107,32 +93,19 @@ def hello():
 
 ### Unordered Lists
 
-- Item with dash
-- Another item
+- Item one
+- Item two
   - Nested item
   - Another nested item
     - Deeply nested
-
-* Item with asterisk
-* Another item
-
-+ Item with plus
-+ Another item
 
 ### Ordered Lists
 
 1. First item
 2. Second item
 3. Third item
-   4. Nested ordered
-   5. Another nested
-
-6. All items can use 1.
-7. The renderer will number them
-8. Correctly
-
-9. Start at any number
-10. And continue from there
+   1. Nested ordered
+   2. Another nested
 
 ### Mixed Lists
 
@@ -140,8 +113,8 @@ def hello():
    - Unordered nested
    - Another unordered
 2. Back to ordered
-   3. Nested ordered
-   4. Another nested
+   1. Nested ordered
+   2. Another nested
 
 ### Loose vs Tight Lists
 
@@ -167,30 +140,13 @@ def hello():
 
 ## Links
 
-### Inline Links
-
 [Basic link](https://example.com)
 
 [Link with *emphasis*](https://example.com)
 
-### Autolinks
-
-<https://example.com>
-
-<user@example.com>
-
-### Autolinks Extended (GFM Extension)
-
-Visit www.example.com for more info.
-
-Contact us at user@example.com today.
-
-Check out https://example.com/path for details.
-
 ## Images
 
 ![Alt text](https://futo.org/images/authors/futologo.png "Image Title")
-
 
 ## Tables (GFM Extension)
 
@@ -202,9 +158,9 @@ Check out https://example.com/path for details.
 
 Minimal table:
 
-Foo | Bar
---- | ---
-Baz | Qux
+| Foo | Bar |
+| --- | --- |
+| Baz | Qux |
 
 Table with inline formatting:
 
@@ -236,23 +192,13 @@ Escaped pipes:
 
 \| not \| a \| table \|
 
-
-
 ## Edge Cases
-
-### Empty Elements
-
-> 
-
--
-- 
 
 ### Nested Formatting
 
 **bold *bold-italic* bold**
 
 *italic **italic-bold** italic*
-
 
 ### Code in Lists
 
@@ -268,16 +214,12 @@ Escaped pipes:
 |------|------|
 | Example | [Click](https://example.com) |
 
-### Very Long Content
+### Wide Tables
 
 | Short | This is a very long cell that contains a lot of text to test how tables handle overflow |
 |-------|-----------------------------------------------------------------------------------------|
 | A     | B                                                                                       |
 
-| A   | B   |
-| --- | --- |
-| A   | B   |
-
-| A   | B   | And also C | And D? | Definitely E | So far F | One last column! |
-| --- | --- | ---------- | ------ | ------------ | -------- | ---------------- |
-| A   | B   | Long       | Short  | Medium       | Hi       | meow             |
+| A | B | C | D | E | F | G |
+|---|---|---|---|---|---|---|
+| 1 | 2 | 3 | 4 | 5 | 6 | 7 |
