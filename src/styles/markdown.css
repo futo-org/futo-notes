@@ -1,0 +1,226 @@
+/* Live Markdown Transform Styles */
+
+/* Headings */
+.cm-md-h1,
+.cm-md-h2,
+.cm-md-h3,
+.cm-md-h4,
+.cm-md-h5,
+.cm-md-h6 {
+  font-weight: 600;
+  margin-top: 12px;
+  margin-bottom: 8px;
+  display: block;
+}
+
+.cm-md-h1 {
+  font-size: 28px;
+}
+
+.cm-md-h2 {
+  font-size: 24px;
+}
+
+.cm-md-h3 {
+  font-size: 20px;
+  color: #333;
+}
+
+.cm-md-h4 {
+  font-size: 18px;
+  color: #444;
+}
+
+.cm-md-h5 {
+  font-size: 16px;
+  color: #555;
+}
+
+.cm-md-h6 {
+  font-size: 14px;
+  color: #666;
+}
+
+/* Emphasis */
+.cm-md-emphasis {
+  font-style: italic;
+  color: inherit;
+}
+
+/* Strong emphasis */
+.cm-md-strong {
+  font-weight: 700;
+  color: inherit;
+}
+
+/* Code */
+.cm-md-code {
+  background: #f5f5f5;
+  color: #d63384;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 0.9em;
+}
+
+/* Code blocks */
+.cm-md-code-block {
+  background: #f8f8f8;
+  color: #333;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 0.9em;
+  padding: 8px;
+  border-left: 3px solid #ddd;
+  border-radius: 4px;
+  margin: 8px 0;
+  display: block;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+/* Strikethrough */
+.cm-md-strikethrough {
+  text-decoration: line-through;
+  color: #999;
+}
+
+/* Links */
+.cm-md-link {
+  color: #0969da;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.cm-md-link:hover {
+  color: #0860ca;
+}
+
+/* Block quotes */
+.cm-md-quote {
+  border-left: 4px solid #ddd;
+  padding-left: 12px;
+  color: #666;
+  font-style: italic;
+  margin-left: 0;
+}
+
+/* Unordered list items */
+.cm-md-ul-item {
+  margin-left: 0;
+}
+
+.cm-md-ul-item::before {
+  content: attr(data-bullet);
+  margin-right: 8px;
+  font-weight: 600;
+}
+
+/* Ordered list items */
+.cm-md-ol-item {
+  margin-left: 0;
+}
+
+.cm-md-ol-item::before {
+  content: attr(data-number) '.';
+  margin-right: 8px;
+  font-weight: 600;
+}
+
+/* Task items */
+.cm-md-task {
+  margin-left: 0;
+}
+
+.cm-md-task-checkbox {
+  appearance: checkbox;
+  -webkit-appearance: checkbox;
+  margin-right: 6px;
+  cursor: pointer;
+}
+
+/* Horizontal rule widget */
+.cm-md-hr-widget {
+  margin: 12px 0;
+  display: flex;
+  align-items: center;
+}
+
+.cm-md-hr-widget > div {
+  flex: 1;
+  border-top: 2px solid #ccc;
+  opacity: 0.5;
+}
+
+/* Image widget */
+.cm-md-image-widget {
+  max-width: 100%;
+  max-height: 300px;
+  margin: 8px 0;
+  border-radius: 4px;
+  display: block;
+}
+
+/* Table widget */
+.cm-md-table-widget {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 8px 0;
+  border: 1px solid #ddd;
+  font-size: 0.95em;
+}
+
+.cm-md-table-widget td {
+  padding: 8px;
+  border: 1px solid #ddd;
+  text-align: left;
+}
+
+.cm-md-table-widget tr:first-child td {
+  font-weight: bold;
+  background: #f5f5f5;
+}
+
+/* Decorative markers (hidden by display: none) */
+.cm-md-marker-hidden {
+  display: none;
+}
+
+/* Focus state - show hidden elements when editing */
+.cm-editor:focus-within .cm-md-h1 .cm-md-h1-marker,
+.cm-editor:focus-within .cm-md-h2 .cm-md-h2-marker,
+.cm-editor:focus-within .cm-md-h3 .cm-md-h3-marker,
+.cm-editor:focus-within .cm-md-h4 .cm-md-h4-marker,
+.cm-editor:focus-within .cm-md-h5 .cm-md-h5-marker,
+.cm-editor:focus-within .cm-md-h6 .cm-md-h6-marker {
+  display: inline;
+  color: #ccc;
+}
+
+/* Mobile adjustments */
+@media (max-width: 480px) {
+  .cm-md-h1 {
+    font-size: 24px;
+  }
+
+  .cm-md-h2 {
+    font-size: 20px;
+  }
+
+  .cm-md-h3 {
+    font-size: 18px;
+  }
+
+  .cm-md-code-block {
+    font-size: 0.85em;
+    padding: 6px;
+  }
+
+  .cm-md-table-widget {
+    font-size: 0.85em;
+    overflow-x: auto;
+  }
+
+  .cm-md-table-widget td {
+    padding: 6px;
+  }
+}

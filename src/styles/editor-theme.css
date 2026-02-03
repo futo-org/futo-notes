@@ -1,0 +1,677 @@
+/**
+ * FUTO Notes - Editor Theme CSS
+ *
+ * "Quiet Luxury" markdown rendering theme
+ * Clean, readable, not overwhelming
+ *
+ * Inspired by:
+ * - iA Writer: Distraction-free, typography-first
+ * - Things 3: Muted palette, warm aesthetics
+ * - Literary reading: Generous spacing, clear hierarchy
+ *
+ * Color Palette (Things 3 inspired):
+ * - Background: Warm paper tones (#FAF9F6)
+ * - Text: Soft black (#2C2C2C) and grays
+ * - Accents: Muted slate blue (#3D5A80)
+ * - Emphasis: Deep burgundy (#8B2635)
+ */
+
+/* ============================================================================
+   RESET & BASE STYLES
+   ============================================================================ */
+
+.editor-content {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'IBM Plex Sans', sans-serif;
+  font-size: 16px;
+  line-height: 1.6;
+  color: #2C2C2C;
+  background: #FAF9F6;
+  padding: 24px;
+  word-wrap: break-word;
+  word-break: break-word;
+}
+
+/* Ensure reasonable max-width for readability */
+@media (min-width: 1200px) {
+  .editor-content {
+    max-width: 900px;
+    margin: 0 auto;
+  }
+}
+
+/* ============================================================================
+   INLINE ELEMENTS - Syntax Transformations
+   ============================================================================ */
+
+/* Bold / Strong */
+.cm-md-strong {
+  font-weight: 700;
+  color: #2C2C2C;
+}
+
+/* Italic / Emphasis */
+.cm-md-emphasis {
+  font-style: italic;
+  color: #2C2C2C;
+}
+
+/* Both Bold and Italic */
+.cm-md-strong.cm-md-emphasis,
+.cm-md-emphasis.cm-md-strong {
+  font-weight: 700;
+  font-style: italic;
+}
+
+/* Strikethrough */
+.cm-md-strikethrough {
+  text-decoration: line-through;
+  color: #8A8A8A;
+  text-decoration-color: #C4BFB6;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+/* Inline Code */
+.cm-md-code {
+  font-family: 'IBM Plex Mono', 'Courier New', monospace;
+  font-size: 0.9em;
+  background-color: #F4F1EC;
+  color: #2C2C2C;
+  padding: 2px 6px;
+  border-radius: 3px;
+  border: 1px solid #E8E4DE;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Link */
+.cm-md-link {
+  color: #3D5A80;
+  text-decoration: none;
+  border-bottom: 1px solid #AEAEAE;
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+
+.cm-md-link:hover {
+  color: #4A6FA5;
+  border-bottom-color: #3D5A80;
+}
+
+/* Image (inline) */
+.cm-md-image {
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+  margin: 8px 0;
+  display: inline-block;
+}
+
+/* Syntax markers (hidden by design, but styled for debugging) */
+.cm-md-syntax {
+  color: #AEAEAE;
+  font-weight: normal;
+  opacity: 0.6;
+}
+
+/* ============================================================================
+   BLOCK ELEMENTS - Headings & Structure
+   ============================================================================ */
+
+/* H1 - Largest, most prominent */
+.cm-md-h1 {
+  font-size: 32px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: #2C2C2C;
+  margin: 32px 0 16px 0;
+  padding-top: 16px;
+  letter-spacing: -0.5px;
+  border-bottom: 2px solid #E8E4DE;
+  padding-bottom: 12px;
+}
+
+/* H2 - Secondary heading */
+.cm-md-h2 {
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: #2C2C2C;
+  margin: 28px 0 12px 0;
+  padding-top: 12px;
+  letter-spacing: -0.3px;
+  border-bottom: 1px solid #F0EDE8;
+  padding-bottom: 8px;
+}
+
+/* H3 - Tertiary heading */
+.cm-md-h3 {
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: #2C2C2C;
+  margin: 20px 0 8px 0;
+  padding-top: 8px;
+}
+
+/* H4 - Small heading */
+.cm-md-h4 {
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: #2C2C2C;
+  margin: 16px 0 6px 0;
+}
+
+/* H5 - Smaller heading */
+.cm-md-h5 {
+  font-size: 16px;
+  font-weight: 700;
+  color: #2C2C2C;
+  margin: 12px 0 4px 0;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-size: 14px;
+}
+
+/* H6 - Smallest heading */
+.cm-md-h6 {
+  font-size: 14px;
+  font-weight: 700;
+  color: #5C5C5C;
+  margin: 8px 0 4px 0;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* ============================================================================
+   BLOCK QUOTES
+   ============================================================================ */
+
+.cm-md-quote,
+.cm-md-blockquote {
+  border-left: 3px solid #8B2635;
+  padding-left: 16px;
+  margin-left: 0;
+  margin-right: 0;
+  margin-top: 12px;
+  margin-bottom: 12px;
+  color: #5C5C5C;
+  background-color: rgba(139, 38, 53, 0.04);
+  padding: 12px 12px 12px 16px;
+  border-radius: 0 4px 4px 0;
+}
+
+.cm-md-quote p,
+.cm-md-blockquote p {
+  margin: 0;
+  line-height: 1.6;
+}
+
+.cm-md-quote + .cm-md-quote,
+.cm-md-blockquote + .cm-md-blockquote {
+  margin-top: 0;
+}
+
+/* Nested block quotes */
+.cm-md-quote .cm-md-quote,
+.cm-md-blockquote .cm-md-blockquote {
+  border-left-color: #C4BFB6;
+  margin-top: 8px;
+  margin-bottom: 8px;
+}
+
+.cm-md-blockquote-marker {
+  color: #8B2635;
+  opacity: 0.4;
+}
+
+/* ============================================================================
+   CODE BLOCKS
+   ============================================================================ */
+
+.cm-md-codeblock,
+.cm-md-code-block,
+.cm-md-pre {
+  font-family: 'IBM Plex Mono', 'Courier New', monospace;
+  font-size: 14px;
+  line-height: 1.5;
+  background-color: #EBE7E0;
+  color: #2C2C2C;
+  padding: 16px;
+  border: 1px solid #DDD8D0;
+  border-radius: 4px;
+  margin: 16px 0;
+  overflow-x: auto;
+  white-space: pre;
+  word-break: normal;
+  word-wrap: normal;
+}
+
+.cm-md-code-block code {
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+  font-size: inherit;
+}
+
+/* Scrollable on mobile */
+@media (max-width: 600px) {
+  .cm-md-codeblock,
+  .cm-md-code-block,
+  .cm-md-pre {
+    padding: 12px;
+    font-size: 13px;
+  }
+}
+
+/* ============================================================================
+   LISTS
+   ============================================================================ */
+
+.cm-md-ul-item,
+.cm-md-list-item {
+  margin-left: 24px;
+  margin-top: 6px;
+  margin-bottom: 6px;
+}
+
+.cm-md-ul-item {
+  list-style-type: disc;
+}
+
+.cm-md-ol-item {
+  list-style-type: decimal;
+  margin-left: 24px;
+  margin-top: 6px;
+  margin-bottom: 6px;
+}
+
+/* Nested list items - visual hierarchy */
+.cm-md-ul-item .cm-md-ul-item,
+.cm-md-ul-item .cm-md-ol-item {
+  margin-left: 24px;
+  margin-top: 4px;
+  margin-bottom: 4px;
+}
+
+.cm-md-ol-item .cm-md-ul-item,
+.cm-md-ol-item .cm-md-ol-item {
+  margin-left: 24px;
+  margin-top: 4px;
+  margin-bottom: 4px;
+}
+
+/* Deeply nested */
+.cm-md-ul-item .cm-md-ul-item .cm-md-ul-item {
+  margin-left: 24px;
+}
+
+.cm-md-list-bullet {
+  color: #AEAEAE;
+  font-weight: normal;
+}
+
+.cm-md-list-number {
+  color: #AEAEAE;
+  font-weight: normal;
+}
+
+/* Loose list items (with space between) */
+.cm-md-ul-item + .cm-md-ul-item.loose,
+.cm-md-ol-item + .cm-md-ol-item.loose {
+  margin-top: 12px;
+}
+
+/* ============================================================================
+   TASK LISTS
+   ============================================================================ */
+
+.cm-md-task {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-left: 0;
+  margin-top: 6px;
+  margin-bottom: 6px;
+}
+
+.cm-md-task-checked,
+.cm-md-task-unchecked {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  border: 2px solid #C4BFB6;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+
+.cm-md-task-unchecked {
+  background: white;
+  border-color: #C4BFB6;
+}
+
+.cm-md-task-unchecked:hover {
+  border-color: #3D5A80;
+  background: rgba(61, 90, 128, 0.05);
+}
+
+.cm-md-task-checked {
+  background: #3D5A80;
+  border-color: #3D5A80;
+  color: white;
+  font-size: 12px;
+  font-weight: bold;
+}
+
+.cm-md-task-checked::after {
+  content: '✓';
+}
+
+/* Task content styling */
+.cm-md-task-content-checked {
+  text-decoration: line-through;
+  color: #8A8A8A;
+}
+
+.cm-md-task-content-checked.cm-md-strong {
+  text-decoration: line-through;
+  color: #8A8A8A;
+}
+
+/* Task list items should be flex containers */
+.cm-md-ul-item.cm-md-task,
+.cm-md-ol-item.cm-md-task {
+  list-style: none;
+  margin-left: 0;
+}
+
+/* ============================================================================
+   HORIZONTAL RULES
+   ============================================================================ */
+
+.cm-md-hr {
+  height: 2px;
+  background: linear-gradient(to right, #E8E4DE 0%, #E8E4DE 100%);
+  border: none;
+  margin: 28px 0;
+  opacity: 0.7;
+  transition: opacity 150ms ease;
+}
+
+.cm-md-hr:hover {
+  opacity: 1;
+}
+
+/* ============================================================================
+   TABLES
+   ============================================================================ */
+
+.cm-md-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 16px 0;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.cm-md-table-row {
+  border-bottom: 1px solid #E8E4DE;
+}
+
+.cm-md-table-row:last-child {
+  border-bottom: 1px solid #DDD8D0;
+}
+
+.cm-md-table-row:hover {
+  background-color: rgba(61, 90, 128, 0.02);
+}
+
+.cm-md-table-cell {
+  padding: 10px 12px;
+  border-right: 1px solid #E8E4DE;
+  text-align: left;
+  vertical-align: top;
+}
+
+.cm-md-table-cell:last-child {
+  border-right: none;
+}
+
+/* Header cells */
+.cm-md-table-row:first-child .cm-md-table-cell {
+  background-color: #F4F1EC;
+  font-weight: 600;
+  color: #2C2C2C;
+  border-bottom: 2px solid #DDD8D0;
+}
+
+/* Table alignment support */
+.cm-md-table-cell.text-left {
+  text-align: left;
+}
+
+.cm-md-table-cell.text-center {
+  text-align: center;
+}
+
+.cm-md-table-cell.text-right {
+  text-align: right;
+}
+
+/* Table delimiter / pipes (visual markers, usually hidden) */
+.cm-md-table-delimiter,
+.cm-md-table-pipe {
+  color: #AEAEAE;
+  opacity: 0.4;
+}
+
+/* Responsive tables - horizontal scroll on mobile */
+@media (max-width: 600px) {
+  .cm-md-table {
+    font-size: 13px;
+  }
+
+  .cm-md-table-cell {
+    padding: 8px 10px;
+  }
+}
+
+/* ============================================================================
+   RESPONSIVE DESIGN
+   ============================================================================ */
+
+/* Tablet (600px - 1024px) */
+@media (max-width: 1024px) {
+  .editor-content {
+    padding: 20px;
+    font-size: 15px;
+  }
+
+  .cm-md-h1 {
+    font-size: 28px;
+    margin: 24px 0 12px 0;
+  }
+
+  .cm-md-h2 {
+    font-size: 22px;
+    margin: 20px 0 10px 0;
+  }
+
+  .cm-md-h3 {
+    font-size: 18px;
+    margin: 16px 0 8px 0;
+  }
+
+  .cm-md-code {
+    font-size: 0.85em;
+  }
+}
+
+/* Mobile (< 600px) */
+@media (max-width: 600px) {
+  .editor-content {
+    padding: 16px;
+    font-size: 16px;
+  }
+
+  .cm-md-h1 {
+    font-size: 24px;
+    margin: 20px 0 10px 0;
+    padding-bottom: 8px;
+  }
+
+  .cm-md-h2 {
+    font-size: 20px;
+    margin: 16px 0 8px 0;
+    padding-bottom: 6px;
+  }
+
+  .cm-md-h3 {
+    font-size: 17px;
+    margin: 14px 0 6px 0;
+  }
+
+  .cm-md-h4 {
+    font-size: 16px;
+    margin: 12px 0 4px 0;
+  }
+
+  .cm-md-h5,
+  .cm-md-h6 {
+    font-size: 14px;
+  }
+
+  .cm-md-quote,
+  .cm-md-blockquote {
+    margin-left: 0;
+    padding: 10px 10px 10px 12px;
+  }
+
+  .cm-md-ul-item,
+  .cm-md-ol-item {
+    margin-left: 20px;
+  }
+
+  .cm-md-ul-item .cm-md-ul-item,
+  .cm-md-ul-item .cm-md-ol-item,
+  .cm-md-ol-item .cm-md-ul-item,
+  .cm-md-ol-item .cm-md-ol-item {
+    margin-left: 16px;
+  }
+
+  .cm-md-codeblock,
+  .cm-md-code-block,
+  .cm-md-pre {
+    margin: 12px 0;
+    padding: 10px;
+    font-size: 13px;
+  }
+
+  .cm-md-image {
+    max-width: 100%;
+  }
+}
+
+/* ============================================================================
+   EDGE CASES & SPECIAL HANDLING
+   ============================================================================ */
+
+/* Prevent text selection interference */
+.cm-md-strong,
+.cm-md-emphasis,
+.cm-md-code,
+.cm-md-link {
+  user-select: text;
+}
+
+/* Long URLs in links should wrap */
+.cm-md-link {
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+  word-break: break-all;
+}
+
+/* Code blocks with overflow */
+.cm-md-codeblock,
+.cm-md-code-block,
+.cm-md-pre {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Tables with overflow */
+.cm-md-table {
+  overflow-x: auto;
+  display: block;
+}
+
+/* Prevent padding collapse */
+.cm-md-quote,
+.cm-md-blockquote,
+.cm-md-codeblock,
+.cm-md-code-block,
+.cm-md-pre {
+  overflow: hidden;
+}
+
+/* Line height consistency */
+.cm-md-h1,
+.cm-md-h2,
+.cm-md-h3,
+.cm-md-h4,
+.cm-md-h5,
+.cm-md-h6 {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ============================================================================
+   DARK MODE SUPPORT (Future)
+   ============================================================================ */
+
+@media (prefers-color-scheme: dark) {
+  /* Future: Add dark mode colors here
+     - Background: #1A1A1A
+     - Text: #E8E8E8
+     - Accents: #7B9FBF
+     - Emphasis: #D97777
+  */
+}
+
+/* ============================================================================
+   PRINT STYLES (Optional)
+   ============================================================================ */
+
+@media print {
+  .editor-content {
+    background: white;
+    color: black;
+  }
+
+  .cm-md-link {
+    color: black;
+    text-decoration: underline;
+  }
+
+  .cm-md-quote,
+  .cm-md-blockquote {
+    page-break-inside: avoid;
+  }
+
+  .cm-md-codeblock,
+  .cm-md-code-block,
+  .cm-md-pre {
+    page-break-inside: avoid;
+  }
+
+  .cm-md-table {
+    page-break-inside: avoid;
+  }
+}
