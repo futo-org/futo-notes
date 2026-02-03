@@ -9,11 +9,10 @@ import './styles/index.css';
 
 async function init() {
   try {
-    await initDB();
-    await ensureNotesDir();
-
-    // Set status bar style on native platforms
+    // Only init native features on native platforms
     if (Capacitor.isNativePlatform()) {
+      await initDB();
+      await ensureNotesDir();
       await StatusBar.setStyle({ style: Style.Light });
       await StatusBar.setBackgroundColor({ color: '#ffffff' });
     }

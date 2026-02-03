@@ -276,6 +276,23 @@ adb logcat | grep "futo\|JS\|error"
 - ✅ Custom router instead of Expo Router
 - ✅ Same core functionality, better performance, smaller bundle
 
+## Testing with Playwright
+
+**IMPORTANT**: Always set a timeout when running tests via Bash to avoid hanging:
+
+```bash
+# WRONG - can hang forever
+npm run test
+
+# CORRECT - always use timeout
+npm run test 2>&1 | head -100  # Or use timeout parameter
+```
+
+When running `npm run test`, always:
+1. Set `timeout` parameter in Bash tool (e.g., 120000 for 2 minutes)
+2. Use `| head -N` to limit output
+3. Run specific tests with `--grep "test name"` to reduce runtime
+
 ## Next Steps
 
 - [ ] Dark mode support (CSS vars already prepared)

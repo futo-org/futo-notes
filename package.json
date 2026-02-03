@@ -7,6 +7,9 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "lint": "eslint src --ext .ts",
+    "test": "npx playwright test",
+    "test:headed": "npx playwright test --headed",
+    "test:ui": "npx playwright test --ui",
     "cap:add:ios": "npx cap add ios",
     "cap:add:android": "npx cap add android",
     "cap:build": "npm run build && npx cap sync",
@@ -16,22 +19,25 @@
     "cap:open:android": "npx cap open android"
   },
   "dependencies": {
+    "@capacitor-community/sqlite": "8.0.0",
     "@capacitor/core": "8.0.2",
     "@capacitor/filesystem": "8.1.0",
     "@capacitor/haptics": "8.0.0",
     "@capacitor/keyboard": "8.0.0",
     "@capacitor/status-bar": "8.0.0",
-    "@capacitor-community/sqlite": "8.0.0",
-    "codemirror": "6.0.2",
     "@codemirror/lang-markdown": "6.5.0",
     "@codemirror/language-data": "6.5.2",
+    "codemirror": "6.0.2",
     "minisearch": "7.2.0"
   },
   "devDependencies": {
+    "@capacitor/android": "8.0.2",
     "@capacitor/cli": "8.0.2",
     "@capacitor/ios": "8.0.2",
-    "@capacitor/android": "8.0.2",
+    "@eslint/js": "^9.39.2",
+    "@playwright/test": "^1.58.1",
     "typescript": "5.9.3",
+    "typescript-eslint": "^8.54.0",
     "vite": "7.3.1"
   }
 }

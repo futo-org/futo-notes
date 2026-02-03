@@ -39,63 +39,44 @@ class TaskCheckboxWidget extends WidgetType {
   }
 
   toDOM(): HTMLElement {
+    // Wrap checkbox in a span for larger tap target
+    const wrapper = document.createElement('span');
+    wrapper.className = 'cm-md-task-checkbox-wrapper';
+    wrapper.style.cssText = `
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 28px;
+      min-height: 28px;
+      margin-right: 4px;
+      cursor: pointer;
+      vertical-align: middle;
+    `;
+
     const checkbox = document.createElement('input');
     checkbox.type = 'checkbox';
     checkbox.checked = this.checked;
     checkbox.className = 'cm-md-task-checkbox';
-    checkbox.style.cssText = 'margin-right: 6px; cursor: pointer;';
-    return checkbox;
+    checkbox.style.cssText = `
+      width: 18px;
+      height: 18px;
+      cursor: pointer;
+      margin: 0;
+    `;
+
+    // Make wrapper clicks toggle the checkbox
+    wrapper.addEventListener('click', (e) => {
+      if (e.target !== checkbox) {
+        checkbox.click();
+      }
+    });
+
+    wrapper.appendChild(checkbox);
+    return wrapper;
   }
 
   eq(other: any): boolean {
     return other instanceof TaskCheckboxWidget && other.checked === this.checked;
-  }
-
-  ignoreEvent(): boolean {
-    return false;
-  }
-}
-
-class TableWidget extends WidgetType {
-  constructor(private rows: string[][]) {
-    super();
-  }
-
-  toDOM(): HTMLElement {
-    const table = document.createElement('table');
-    table.className = 'cm-md-table-widget';
-    table.style.cssText = `
-      border-collapse: collapse;
-      width: 100%;
-      margin: 8px 0;
-      border: 1px solid #ddd;
-      font-size: 0.95em;
-    `;
-
-    this.rows.forEach((row, rowIdx) => {
-      const tr = document.createElement('tr');
-      row.forEach((cell) => {
-        const td = document.createElement('td');
-        td.textContent = cell;
-        td.style.cssText = `
-          padding: 8px;
-          border: 1px solid #ddd;
-          text-align: left;
-        `;
-        if (rowIdx === 0) {
-          td.style.fontWeight = 'bold';
-          td.style.backgroundColor = '#f5f5f5';
-        }
-        tr.appendChild(td);
-      });
-      table.appendChild(tr);
-    });
-
-    return table;
-  }
-
-  eq(other: any): boolean {
-    return other instanceof TableWidget && JSON.stringify(other.rows) === JSON.stringify(this.rows);
   }
 
   ignoreEvent(): boolean {
@@ -143,6 +124,42 @@ class HiddenWidget extends WidgetType {
   }
 }
 
+class BulletWidget extends WidgetType {
+  constructor(private indent: number = 0) {
+    super();
+  }
+
+  toDOM(): HTMLElement {
+    const span = document.createElement('span');
+    span.className = 'cm-md-bullet';
+    span.textContent = '•';
+    span.style.cssText = `margin-right: 8px; color: #666; margin-left: ${this.indent * 16}px;`;
+    return span;
+  }
+
+  eq(other: any): boolean {
+    return other instanceof BulletWidget && other.indent === this.indent;
+  }
+}
+
+class NumberWidget extends WidgetType {
+  constructor(private num: number, private indent: number = 0) {
+    super();
+  }
+
+  toDOM(): HTMLElement {
+    const span = document.createElement('span');
+    span.className = 'cm-md-number';
+    span.textContent = `${this.num}.`;
+    span.style.cssText = `margin-right: 8px; color: #666; font-weight: 500; margin-left: ${this.indent * 16}px;`;
+    return span;
+  }
+
+  eq(other: any): boolean {
+    return other instanceof NumberWidget && other.num === this.num && other.indent === this.indent;
+  }
+}
+
 // Parser utilities
 class MarkdownParser {
   static isHeading(nodeName: string): boolean {
@@ -178,10 +195,6 @@ class MarkdownParser {
     return nodeName === 'Blockquote';
   }
 
-  static isTable(nodeName: string): boolean {
-    return nodeName === 'Table';
-  }
-
   static isStrikethrough(nodeName: string): boolean {
     return nodeName === 'Strikethrough';
   }
@@ -198,16 +211,26 @@ class MarkdownParser {
 // Main Plugin
 class LiveMarkdownPlugin implements PluginValue {
   decorations: DecorationSet = Decoration.none;
+  lastTreeLength: number = 0;
 
   constructor(view: EditorView) {
+    this.lastTreeLength = syntaxTree(view.state).length;
     this.decorations = this.buildDecorations(view);
   }
 
   update(update: ViewUpdate): void {
+    const tree = syntaxTree(update.state);
+    const treeGrew = tree.length > this.lastTreeLength;
+
+    if (treeGrew) {
+      this.lastTreeLength = tree.length;
+    }
+
     if (
       update.docChanged ||
       update.selectionSet ||
-      update.focusChanged
+      update.focusChanged ||
+      treeGrew
     ) {
       this.decorations = this.buildDecorations(update.view);
     }
@@ -249,30 +272,44 @@ class LiveMarkdownPlugin implements PluginValue {
       }
     });
 
-    // Convert to Decoration.set format
-    const built: Array<{ from: number; to: number; value: any }> = [];
-    for (const dec of decorations.sort((a, b) => a.from - b.from)) {
-      built.push(dec);
-    }
+    // Sort decorations by from position, then by whether they are widgets at point (side)
+    // Widgets with side:-1 come before widgets at same position
+    const sorted = decorations.sort((a, b) => {
+      if (a.from !== b.from) return a.from - b.from;
+      // Point widgets with side:-1 should come first
+      const aSide = a.value.side ?? 0;
+      const bSide = b.value.side ?? 0;
+      return aSide - bSide;
+    });
 
-    return Decoration.set(
-      built.map((d) => {
+    // Build decoration ranges
+    const ranges: any[] = [];
+    for (const d of sorted) {
+      try {
         if (d.value.startSide !== undefined || d.value.endSide !== undefined) {
           // Line decoration
-          return Decoration.line(d.value).range(d.from);
+          ranges.push(Decoration.line(d.value).range(d.from));
         } else if (d.value.class !== undefined && d.value.widget === undefined) {
-          // Mark decoration
-          return Decoration.mark(d.value).range(d.from, d.to);
+          // Mark decoration - skip if empty (from === to)
+          if (d.from !== d.to) {
+            ranges.push(Decoration.mark(d.value).range(d.from, d.to));
+          }
         } else if (d.value.widget !== undefined && d.from === d.to) {
-          // Widget at point
-          return Decoration.widget(d.value.widget).range(d.from);
-        } else if (d.value.widget !== undefined) {
+          // Widget at point - include side if specified
+          const widgetSpec: any = { widget: d.value.widget };
+          if (d.value.side !== undefined) widgetSpec.side = d.value.side;
+          ranges.push(Decoration.widget(widgetSpec).range(d.from));
+        } else if (d.value.widget !== undefined && d.from !== d.to) {
           // Replace decoration (hide text with widget)
-          return Decoration.replace({ widget: d.value.widget }).range(d.from, d.to);
+          ranges.push(Decoration.replace({ widget: d.value.widget }).range(d.from, d.to));
         }
-        return undefined;
-      }).filter(Boolean) as any
-    );
+      } catch (e) {
+        // Skip invalid decorations
+        console.warn('Invalid decoration:', d, e);
+      }
+    }
+
+    return Decoration.set(ranges, true);
   }
 
   private getCursorLines(view: EditorView): Set<number> {
@@ -285,7 +322,7 @@ class LiveMarkdownPlugin implements PluginValue {
   }
 
   private isBlockElement(nodeName: string): boolean {
-    return /^(ATXHeading|Blockquote|ListItem|FencedCode|CodeBlock|Table|HorizontalRule)/.test(
+    return /^(ATXHeading|Blockquote|ListItem|FencedCode|CodeBlock|HorizontalRule)/.test(
       nodeName
     );
   }
@@ -317,7 +354,7 @@ class LiveMarkdownPlugin implements PluginValue {
     } else if (MarkdownParser.isEmphasis(nodeName)) {
       this.processEmphasis(nodeName, from, to, text, decorations);
     } else if (MarkdownParser.isCode(nodeName)) {
-      this.processCode(nodeName, from, to, text, decorations);
+      this.processCode(nodeName, from, to, text, view, decorations);
     } else if (MarkdownParser.isStrikethrough(nodeName)) {
       this.processStrikethrough(from, to, decorations);
     } else if (MarkdownParser.isLink(nodeName)) {
@@ -328,8 +365,6 @@ class LiveMarkdownPlugin implements PluginValue {
       this.processBlockQuote(from, to, view, decorations);
     } else if (MarkdownParser.isListItem(nodeName)) {
       this.processListItem(from, to, text, view, decorations);
-    } else if (MarkdownParser.isTable(nodeName)) {
-      this.processTable(from, to, text, decorations);
     } else if (MarkdownParser.isHorizontalRule(nodeName)) {
       this.processHorizontalRule(from, to, decorations);
     }
@@ -407,6 +442,7 @@ class LiveMarkdownPlugin implements PluginValue {
     from: number,
     to: number,
     text: string,
+    view: EditorView,
     decorations: Array<{ from: number; to: number; value: any }>
   ): void {
     if (nodeName === 'InlineCode') {
@@ -433,36 +469,67 @@ class LiveMarkdownPlugin implements PluginValue {
         value: { class: 'cm-md-code' }
       });
     } else {
-      // FencedCode or CodeBlock
-      const fenceMatch = text.match(/^(`{3,}|~{3,})/);
-      if (fenceMatch) {
-        const fenceLength = fenceMatch[0].length;
-        const afterFence = text.substring(fenceLength);
-        const langEnd = afterFence.indexOf('\n');
-        const language = langEnd >= 0 ? afterFence.substring(0, langEnd) : afterFence;
+      // FencedCode or CodeBlock - apply line decorations for unified block
+      const doc = view.state.doc;
+      const startLine = doc.lineAt(from);
+      const endLine = doc.lineAt(to);
 
-        // Hide opening fence and language specifier
-        decorations.push({
-          from,
-          to: from + fenceLength + language.length + 1,
-          value: { widget: new HiddenWidget() }
-        });
+      // Collect content lines (excluding fence lines)
+      const contentLines: number[] = [];
 
-        // Hide closing fence
-        const closingMatch = text.substring(text.length - 10).match(/(`{3,}|~{3,})$/);
-        if (closingMatch) {
-          decorations.push({
-            from: to - closingMatch[0].length,
-            to,
-            value: { widget: new HiddenWidget() }
-          });
+      for (let lineNum = startLine.number; lineNum <= endLine.number; lineNum++) {
+        const line = doc.line(lineNum);
+        const lineText = line.text;
+
+        // First line: hide the opening fence (```lang) - allow indentation
+        if (lineNum === startLine.number) {
+          const fenceMatch = lineText.match(/^\s*(`{3,}|~{3,}).*$/);
+          if (fenceMatch) {
+            decorations.push({
+              from: line.from,
+              to: line.to,
+              value: { widget: new HiddenWidget() }
+            });
+          }
+        }
+        // Last line: hide the closing fence (```) - allow indentation
+        else if (lineNum === endLine.number) {
+          const closingMatch = lineText.match(/^\s*(`{3,}|~{3,})\s*$/);
+          if (closingMatch) {
+            decorations.push({
+              from: line.from,
+              to: line.to,
+              value: { widget: new HiddenWidget() }
+            });
+          }
+        }
+        // Content lines
+        else {
+          contentLines.push(lineNum);
+        }
+      }
+
+      // Apply position-aware classes to content lines
+      for (let i = 0; i < contentLines.length; i++) {
+        const lineNum = contentLines[i];
+        const line = doc.line(lineNum);
+
+        let posClass = 'cm-md-code-block';
+        if (contentLines.length === 1) {
+          posClass += ' cm-md-code-block-single';
+        } else if (i === 0) {
+          posClass += ' cm-md-code-block-first';
+        } else if (i === contentLines.length - 1) {
+          posClass += ' cm-md-code-block-last';
+        } else {
+          posClass += ' cm-md-code-block-middle';
         }
 
-        // Add className
+        // Use line decoration for unified styling
         decorations.push({
-          from,
-          to,
-          value: { class: 'cm-md-code-block' }
+          from: line.from,
+          to: line.from,
+          value: { class: posClass, startSide: 0, endSide: 0 }
         });
       }
     }
@@ -536,7 +603,8 @@ class LiveMarkdownPlugin implements PluginValue {
     text: string,
     decorations: Array<{ from: number; to: number; value: any }>
   ): void {
-    const match = text.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
+    // Handle optional title: ![alt](url) or ![alt](url "title")
+    const match = text.match(/^!\[([^\]]*)\]\(([^\s)]+)(?:\s+"[^"]*")?\)$/);
     if (match) {
       const alt = match[1];
       const url = match[2];
@@ -559,32 +627,63 @@ class LiveMarkdownPlugin implements PluginValue {
     const startLine = doc.lineAt(from).number;
     const endLine = doc.lineAt(to).number;
 
+    // Collect all quote lines for position-aware styling
+    const quoteLines: { lineNum: number; nestLevel: number }[] = [];
+
     for (let i = startLine; i <= endLine; i++) {
       const line = doc.line(i);
-      if (line.text.startsWith('>')) {
-        // Hide the > marker
-        decorations.push({
-          from: line.from,
-          to: line.from + 1,
-          value: { widget: new HiddenWidget() }
-        });
+      const lineText = line.text;
 
-        // Hide optional space after >
-        if (line.text[1] === ' ') {
+      // Count nesting level and find content start
+      let nestLevel = 0;
+      let pos = 0;
+      while (pos < lineText.length) {
+        if (lineText[pos] === '>') {
+          nestLevel++;
+          pos++;
+          // Skip optional space after >
+          if (lineText[pos] === ' ') pos++;
+        } else {
+          break;
+        }
+      }
+
+      if (nestLevel > 0) {
+        // Hide all > markers and spaces
+        if (pos > 0) {
           decorations.push({
-            from: line.from + 1,
-            to: line.from + 2,
+            from: line.from,
+            to: line.from + pos,
             value: { widget: new HiddenWidget() }
           });
         }
 
-        // Add className
-        decorations.push({
-          from: line.from,
-          to: line.from,
-          value: { class: 'cm-md-quote' }
-        });
+        quoteLines.push({ lineNum: i, nestLevel });
       }
+    }
+
+    // Apply position-aware line decorations
+    for (let i = 0; i < quoteLines.length; i++) {
+      const { lineNum, nestLevel } = quoteLines[i];
+      const line = doc.line(lineNum);
+
+      let posClass = `cm-md-quote cm-md-quote-level-${nestLevel}`;
+      if (quoteLines.length === 1) {
+        posClass += ' cm-md-quote-single';
+      } else if (i === 0) {
+        posClass += ' cm-md-quote-first';
+      } else if (i === quoteLines.length - 1) {
+        posClass += ' cm-md-quote-last';
+      } else {
+        posClass += ' cm-md-quote-middle';
+      }
+
+      // Use line decoration
+      decorations.push({
+        from: line.from,
+        to: line.from,
+        value: { class: posClass, startSide: 0, endSide: 0 }
+      });
     }
   }
 
@@ -592,122 +691,170 @@ class LiveMarkdownPlugin implements PluginValue {
     from: number,
     _to: number,
     text: string,
-    _view: EditorView,
+    view: EditorView,
     decorations: Array<{ from: number; to: number; value: any }>
   ): void {
-    // Check for task first (checkbox syntax)
-    const taskMatch = text.match(/^(\s*)([-*+])\s+\[([ xX])\]/);
-    if (taskMatch) {
-      const indent = taskMatch[1];
-      const bullet = taskMatch[2];
-      const checked = taskMatch[3];
-      const indentLen = indent.length;
-      const bulletEnd = indentLen + bullet.length + 4;
+    const doc = view.state.doc;
+    const line = doc.lineAt(from);
+    const lineEnd = line.to;
 
-      // Hide bullet and checkbox
+    // Check for unordered task first (checkbox syntax with bullet)
+    const unorderedTaskMatch = text.match(/^(\s*)([-*+])\s+\[([ xX])\]\s*/);
+    if (unorderedTaskMatch) {
+      const indent = unorderedTaskMatch[1];
+      const checked = unorderedTaskMatch[3];
+      const indentLen = indent.length;
+      const fullMarkerLen = unorderedTaskMatch[0].length;
+      const contentStart = from + fullMarkerLen;
+
+      // Hide bullet and checkbox syntax
       decorations.push({
         from: from + indentLen,
-        to: from + bulletEnd,
+        to: contentStart,
         value: { widget: new HiddenWidget() }
       });
 
       // Add checkbox widget
+      const checkbox = new TaskCheckboxWidget(checked === 'x' || checked === 'X');
       decorations.push({
         from: from + indentLen,
         to: from + indentLen,
         value: {
-          widget: new TaskCheckboxWidget(checked === 'x' || checked === 'X'),
+          widget: checkbox,
           side: -1
         }
       });
 
-      // Add className
+      // Add className to content (not empty range)
+      if (contentStart < lineEnd) {
+        decorations.push({
+          from: contentStart,
+          to: lineEnd,
+          value: { class: 'cm-md-task' }
+        });
+      }
+      return;
+    }
+
+    // Check for ordered task (checkbox syntax with number)
+    const orderedTaskMatch = text.match(/^(\s*)(\d+)\.\s+\[([ xX])\]\s*/);
+    if (orderedTaskMatch) {
+      const indentLen = orderedTaskMatch[1].length;
+      const num = parseInt(orderedTaskMatch[2]);
+      const checked = orderedTaskMatch[3];
+      const indentLevel = Math.floor(indentLen / 2);
+      const fullMarkerLen = orderedTaskMatch[0].length;
+      const contentStart = from + fullMarkerLen;
+
+      // Hide number, dot, and checkbox syntax
       decorations.push({
-        from,
-        to: from,
-        value: { class: 'cm-md-task' }
+        from: from + indentLen,
+        to: contentStart,
+        value: { widget: new HiddenWidget() }
       });
+
+      // Add number widget
+      decorations.push({
+        from: from + indentLen,
+        to: from + indentLen,
+        value: {
+          widget: new NumberWidget(num, indentLevel),
+          side: -1
+        }
+      });
+
+      // Add checkbox widget after number
+      const checkbox = new TaskCheckboxWidget(checked === 'x' || checked === 'X');
+      decorations.push({
+        from: from + indentLen,
+        to: from + indentLen,
+        value: {
+          widget: checkbox,
+          side: -1
+        }
+      });
+
+      // Add className to content
+      if (contentStart < lineEnd) {
+        decorations.push({
+          from: contentStart,
+          to: lineEnd,
+          value: { class: 'cm-md-task' }
+        });
+      }
       return;
     }
 
     // Regular unordered list
     const bulletMatch = text.match(/^(\s*)([-*+])\s+/);
     if (bulletMatch) {
-      const indent = bulletMatch[1];
-      const bullet = bulletMatch[2];
-      const indentLen = indent.length;
-      const markerEnd = indentLen + 1 + (text[indentLen + 1] === ' ' ? 1 : 0);
+      const indentLen = bulletMatch[1].length;
+      const indentLevel = Math.floor(indentLen / 2);
+      const fullMarkerLen = bulletMatch[0].length;
+      const contentStart = from + fullMarkerLen;
 
-      // Hide bullet
+      // Hide bullet and space
       decorations.push({
         from: from + indentLen,
-        to: from + markerEnd,
+        to: contentStart,
         value: { widget: new HiddenWidget() }
       });
 
-      // Add className
+      // Add bullet widget
       decorations.push({
-        from,
-        to: from,
+        from: from + indentLen,
+        to: from + indentLen,
         value: {
-          class: 'cm-md-ul-item',
-          attributes: { 'data-bullet': bullet }
+          widget: new BulletWidget(indentLevel),
+          side: -1
         }
       });
+
+      // Add className to content
+      if (contentStart < lineEnd) {
+        decorations.push({
+          from: contentStart,
+          to: lineEnd,
+          value: { class: 'cm-md-ul-item' }
+        });
+      }
       return;
     }
 
     // Ordered list
     const orderedMatch = text.match(/^(\s*)(\d+)\.\s+/);
     if (orderedMatch) {
-      const indent = orderedMatch[1];
-      const number = orderedMatch[2];
-      const indentLen = indent.length;
-      const numberLen = number.length;
-      const markerEnd = indentLen + numberLen + 2 + (text[indentLen + numberLen + 2] === ' ' ? 1 : 0);
+      const indentLen = orderedMatch[1].length;
+      const indentLevel = Math.floor(indentLen / 2);
+      const num = parseInt(orderedMatch[2]);
+      const fullMarkerLen = orderedMatch[0].length;
+      const contentStart = from + fullMarkerLen;
 
-      // Hide dot and space after number
+      // Hide number, dot and space
       decorations.push({
-        from: from + indentLen + numberLen,
-        to: from + markerEnd,
+        from: from + indentLen,
+        to: contentStart,
         value: { widget: new HiddenWidget() }
       });
 
-      // Add className
+      // Add number widget
       decorations.push({
-        from,
-        to: from,
+        from: from + indentLen,
+        to: from + indentLen,
         value: {
-          class: 'cm-md-ol-item',
-          attributes: { 'data-number': number }
+          widget: new NumberWidget(num, indentLevel),
+          side: -1
         }
       });
-    }
-  }
 
-  private processTable(
-    from: number,
-    to: number,
-    text: string,
-    decorations: Array<{ from: number; to: number; value: any }>
-  ): void {
-    // Simple table parsing
-    const rows = text
-      .split('\n')
-      .filter((line) => line.includes('|'))
-      .map((line) =>
-        line
-          .split('|')
-          .slice(1, -1)
-          .map((cell) => cell.trim())
-      );
-
-    if (rows.length > 0) {
-      decorations.push({
-        from,
-        to,
-        value: { widget: new TableWidget(rows) }
-      });
+      // Add className to content
+      if (contentStart < lineEnd) {
+        decorations.push({
+          from: contentStart,
+          to: lineEnd,
+          value: { class: 'cm-md-ol-item' }
+        });
+      }
     }
   }
 

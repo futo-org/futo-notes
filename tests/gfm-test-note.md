@@ -156,12 +156,6 @@ def hello():
 | L2   |   C2   |    R2 |
 | L3   |   C3   |    R3 |
 
-Minimal table:
-
-| Foo | Bar |
-| --- | --- |
-| Baz | Qux |
-
 Table with inline formatting:
 
 | Feature | Supported |

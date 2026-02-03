@@ -1,3 +1,4 @@
+import { Capacitor } from '@capacitor/core';
 import { router } from '../router';
 import { readNote, writeNote, renameNote } from '../lib/fileSystem';
 import { upsertNoteMeta, loadSearchIndex, saveSearchIndex, createSearchIndex } from '../lib/db';
@@ -9,6 +10,7 @@ let cleanup: (() => void) | null = null;
 export async function renderNoteEditor(params: { id: string }): Promise<void> {
   if (cleanup) cleanup();
 
+  const isNative = Capacitor.isNativePlatform();
   const isNew = params.id === 'new';
   let noteId = isNew ? '' : params.id;
   let originalId = noteId;
@@ -31,7 +33,7 @@ export async function renderNoteEditor(params: { id: string }): Promise<void> {
   // Load content
   let content = '';
   let title = 'Untitled';
-  if (!isNew) {
+  if (!isNew && isNative) {
     try {
       content = await readNote(noteId);
       title = noteId;
@@ -50,14 +52,16 @@ export async function renderNoteEditor(params: { id: string }): Promise<void> {
 
   if (isNew) editor.focus();
 
-  // Save logic
+  // Save logic (only on native)
   let saveTimeout: number;
   const debouncedSave = () => {
+    if (!isNative) return; // Skip save in browser mode
     clearTimeout(saveTimeout);
     saveTimeout = window.setTimeout(saveNote, 500);
   };
 
   const saveNote = async () => {
+    if (!isNative) return;
     const newTitle = titleInput.value.trim() || 'Untitled';
     const newId = sanitizeFilename(newTitle);
     const newContent = editor.getContent();

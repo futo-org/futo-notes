@@ -8,8 +8,8 @@
 .cm-md-h5,
 .cm-md-h6 {
   font-weight: 600;
-  margin-top: 12px;
-  margin-bottom: 8px;
+  margin-top: 4px;
+  margin-bottom: 2px;
   display: block;
 }
 
@@ -63,19 +63,40 @@
   font-size: 0.9em;
 }
 
-/* Code blocks */
-.cm-md-code-block {
+/* Code blocks - unified styling via line decorations */
+.cm-line.cm-md-code-block {
   background: #f8f8f8;
   color: #333;
   font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
   font-size: 0.9em;
-  padding: 8px;
+  padding: 4px 12px;
+  margin-left: 0;
+  margin-right: 0;
   border-left: 3px solid #ddd;
+}
+
+.cm-line.cm-md-code-block-single {
   border-radius: 4px;
-  margin: 8px 0;
-  display: block;
-  white-space: pre-wrap;
-  word-wrap: break-word;
+  margin-top: 4px;
+  margin-bottom: 4px;
+}
+
+.cm-line.cm-md-code-block-first {
+  border-top-left-radius: 4px;
+  border-top-right-radius: 4px;
+  margin-top: 4px;
+  padding-top: 8px;
+}
+
+.cm-line.cm-md-code-block-middle {
+  border-radius: 0;
+}
+
+.cm-line.cm-md-code-block-last {
+  border-bottom-left-radius: 4px;
+  border-bottom-right-radius: 4px;
+  margin-bottom: 4px;
+  padding-bottom: 8px;
 }
 
 /* Strikethrough */
@@ -95,13 +116,82 @@
   color: #0860ca;
 }
 
-/* Block quotes */
-.cm-md-quote {
-  border-left: 4px solid #ddd;
-  padding-left: 12px;
+/* Block quotes - unified styling via line decorations */
+.cm-line.cm-md-quote {
+  padding-left: 15px;
   color: #666;
   font-style: italic;
   margin-left: 0;
+  position: relative;
+  overflow: visible;
+}
+
+/* Level 1: single blue line - always extend to connect */
+.cm-line.cm-md-quote::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: -10px;
+  bottom: -10px;
+  width: 3px;
+  background: #3b82f6;
+  z-index: 1;
+}
+
+/* Only clip at the very start/end of the entire blockquote */
+.cm-line.cm-md-quote-first:not(.cm-md-quote-level-2):not(.cm-md-quote-level-3)::before {
+  top: 0;
+}
+
+.cm-line.cm-md-quote-last:not(.cm-md-quote-level-2):not(.cm-md-quote-level-3)::before {
+  bottom: 0;
+}
+
+.cm-line.cm-md-quote-single {
+  margin-top: 4px;
+  margin-bottom: 4px;
+}
+
+.cm-line.cm-md-quote-first {
+  margin-top: 4px;
+}
+
+.cm-line.cm-md-quote-last {
+  margin-bottom: 4px;
+}
+
+/* Level 2: two blue lines */
+.cm-line.cm-md-quote-level-2 {
+  padding-left: 27px;
+}
+
+.cm-line.cm-md-quote-level-2::after {
+  content: '';
+  position: absolute;
+  left: 12px;
+  top: -10px;
+  bottom: -10px;
+  width: 3px;
+  background: #3b82f6;
+  z-index: 1;
+}
+
+/* Level 3: three blue lines - use box-shadow for third line */
+.cm-line.cm-md-quote-level-3 {
+  padding-left: 39px;
+}
+
+.cm-line.cm-md-quote-level-3::after {
+  content: '';
+  position: absolute;
+  left: 12px;
+  top: -10px;
+  bottom: -10px;
+  width: 3px;
+  background: #3b82f6;
+  z-index: 1;
+  /* Add third line via box-shadow */
+  box-shadow: 12px 0 0 0 #3b82f6;
 }
 
 /* Unordered list items */
@@ -109,21 +199,9 @@
   margin-left: 0;
 }
 
-.cm-md-ul-item::before {
-  content: attr(data-bullet);
-  margin-right: 8px;
-  font-weight: 600;
-}
-
 /* Ordered list items */
 .cm-md-ol-item {
   margin-left: 0;
-}
-
-.cm-md-ol-item::before {
-  content: attr(data-number) '.';
-  margin-right: 8px;
-  font-weight: 600;
 }
 
 /* Task items */
@@ -160,24 +238,71 @@
   display: block;
 }
 
-/* Table widget */
-.cm-md-table-widget {
-  border-collapse: collapse;
-  width: 100%;
+/* Table rendering - scrollable wrapper */
+.cm-md-table-wrapper {
+  display: block;
+  position: relative;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  max-width: calc(100vw - 32px);
   margin: 8px 0;
-  border: 1px solid #ddd;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+/* Rendered table styling */
+.cm-md-table-rendered {
+  border-collapse: collapse;
+  min-width: 100%;
   font-size: 0.95em;
+  border: 1px solid #e0e0e0;
 }
 
-.cm-md-table-widget td {
-  padding: 8px;
-  border: 1px solid #ddd;
-  text-align: left;
+.cm-md-table-rendered th,
+.cm-md-table-rendered td {
+  padding: 10px 14px;
+  border: 1px solid #e0e0e0;
+  white-space: nowrap;
 }
 
-.cm-md-table-widget tr:first-child td {
-  font-weight: bold;
+.cm-md-table-rendered th {
   background: #f5f5f5;
+  font-weight: 600;
+  color: #333;
+}
+
+.cm-md-table-rendered tbody tr:nth-child(even) {
+  background: #fafafa;
+}
+
+.cm-md-table-rendered tbody tr:hover {
+  background: #f0f7ff;
+}
+
+/* Click hint on hover */
+.cm-md-table-wrapper:hover {
+  box-shadow: 0 0 0 2px #3b82f6;
+}
+
+/* Inline formatting within tables */
+.cm-md-table-rendered code.cm-md-table-code {
+  background: #f0f0f0;
+  color: #d63384;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 0.9em;
+}
+
+.cm-md-table-rendered a.cm-md-table-link {
+  color: #0969da;
+  text-decoration: underline;
+}
+
+.cm-md-table-rendered del {
+  color: #999;
 }
 
 /* Decorative markers (hidden by display: none) */
@@ -215,12 +340,12 @@
     padding: 6px;
   }
 
-  .cm-md-table-widget {
+  .cm-md-table-rendered {
     font-size: 0.85em;
-    overflow-x: auto;
   }
 
-  .cm-md-table-widget td {
-    padding: 6px;
+  .cm-md-table-rendered th,
+  .cm-md-table-rendered td {
+    padding: 8px 10px;
   }
 }

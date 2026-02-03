@@ -67,3 +67,8 @@ app-example
 # Capacitor platform folders (tracked for CI/CD)
 # /ios
 # /android
+
+
+# Playwright
+.playwright-mcp
+test-results/

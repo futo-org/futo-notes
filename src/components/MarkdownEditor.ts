@@ -3,6 +3,7 @@ import { EditorState } from '@codemirror/state';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { listContinuationKeymap } from '../lib/listContinuation';
+import { tableRendering } from '../lib/tableRenderingField';
 import { liveMarkdownTransform } from '../lib/liveMarkdownTransform';
 
 export interface EditorOptions {
@@ -19,6 +20,7 @@ export class MarkdownEditor {
       history(),
       keymap.of([...defaultKeymap, ...historyKeymap]),
       markdown({ base: markdownLanguage }),
+      tableRendering,
       liveMarkdownTransform,
       EditorView.lineWrapping,
       EditorView.theme({

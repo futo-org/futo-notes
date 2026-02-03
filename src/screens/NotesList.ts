@@ -1,3 +1,4 @@
+import { Capacitor } from '@capacitor/core';
 import { store } from '../store';
 import { router } from '../router';
 import { getAllNotes, deleteNoteMeta, loadSearchIndex, upsertNoteMeta, createSearchIndex, saveSearchIndex } from '../lib/db';
@@ -237,6 +238,8 @@ let cleanup: (() => void) | null = null;
 export async function renderNotesList(): Promise<void> {
   if (cleanup) cleanup();
 
+  const isNative = Capacitor.isNativePlatform();
+
   const app = document.getElementById('app')!;
   app.innerHTML = `
     <div class="notes-screen">
@@ -253,8 +256,8 @@ export async function renderNotesList(): Promise<void> {
   const listContainer = app.querySelector('.notes-list')!;
   const fab = app.querySelector('.fab')!;
 
-  // Load notes
-  const notes = await getAllNotes();
+  // Load notes (empty array in browser mode)
+  const notes = isNative ? await getAllNotes() : [];
   store.setState({ notes });
 
   // Render list
@@ -295,14 +298,17 @@ export async function renderNotesList(): Promise<void> {
   };
 
   const deleteNote = async (id: string) => {
-    await deleteNoteFile(id);
-    await deleteNoteMeta(id);
+    if (isNative) {
+      await deleteNoteFile(id);
+      await deleteNoteMeta(id);
+    }
     const updated = store.getState().notes.filter(n => n.id !== id);
     store.setState({ notes: updated });
     renderList(updated);
   };
 
   const createTestNote = async () => {
+    if (!isNative) return;
     const title = 'Markdown test note';
     const id = sanitizeFilename(title);
     const mtime = await writeNote(id, GFM_TEST_CONTENT);
@@ -332,12 +338,14 @@ export async function renderNotesList(): Promise<void> {
         renderList(store.getState().notes);
         return;
       }
-      const index = await loadSearchIndex();
-      if (index) {
-        const results = index.search(query);
-        const ids = new Set(results.map(r => r.noteId));
-        const filtered = store.getState().notes.filter(n => ids.has(n.id));
-        renderList(filtered);
+      if (isNative) {
+        const index = await loadSearchIndex();
+        if (index) {
+          const results = index.search(query);
+          const ids = new Set(results.map(r => r.noteId));
+          const filtered = store.getState().notes.filter(n => ids.has(n.id));
+          renderList(filtered);
+        }
       }
     }, 300);
   };
