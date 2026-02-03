@@ -20,13 +20,12 @@ html, body {
   padding: 0;
 }
 
-@supports (padding: max(0px)) {
-  body {
-    padding-top: max(0px, env(safe-area-inset-top));
-    padding-bottom: max(0px, env(safe-area-inset-bottom));
-    padding-left: max(0px, env(safe-area-inset-left));
-    padding-right: max(0px, env(safe-area-inset-right));
-  }
+button,
+a,
+.note-item,
+.drawer-overlay,
+input {
+  -webkit-tap-highlight-color: transparent;
 }
 
 body {
@@ -162,7 +161,7 @@ body {
   width: 56px;
   height: 56px;
   border-radius: 50%;
-  background: #2196F3;
+  background: #2196f3;
   color: white;
   border: none;
   font-size: 32px;
@@ -225,23 +224,254 @@ body {
 }
 
 .editor-container {
-  flex: 1;
-  overflow: hidden;
+  overflow: visible;
+  background: transparent;
+  overflow-x: hidden;
+  flex: 0 0 auto;
 }
 
 .editor-container .cm-editor {
-  height: 100%;
+  height: auto !important;
   font-size: 16px;
+  background: transparent !important;
+}
+
+.editor-container .cm-scroller {
+  overflow: visible !important;
+  background: transparent;
+  overflow-x: hidden;
+  height: auto !important;
+  flex: 0 0 auto !important;
+}
+
+.editor-container .cm-content {
+  background: transparent;
+  height: auto !important;
+  padding-top: 0;
 }
 
 .editor-container .cm-line {
   line-height: 1.6;
 }
 
+/* Notes Shell */
+.notes-shell {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  --drawer-width: min(320px, 85vw);
+  --drawer-offset: 0px;
+  --drawer-bg: #ffffff;
+}
+
+.note-main {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  transform: translateX(var(--drawer-offset));
+  transition: transform 0.25s ease;
+  will-change: transform;
+  background-color: var(--drawer-bg);
+}
+
+.drawer-toggle {
+  width: 40px;
+  height: 40px;
+  border: none;
+  background: transparent;
+  font-size: 22px;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.drawer-toggle.floating {
+  position: fixed;
+  top: max(12px, calc(12px + env(safe-area-inset-top)));
+  left: max(12px, calc(12px + env(safe-area-inset-left)));
+  width: 44px;
+  height: 44px;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
+  z-index: 35;
+  transform: translateX(var(--drawer-offset));
+  transition: transform 0.25s ease;
+  will-change: transform;
+}
+
+.note-body {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: none;
+  touch-action: pan-y;
+}
+
+.note-title-row {
+  padding: 16px;
+  padding-top: max(128px, calc(16px + env(safe-area-inset-top)));
+  padding-left: max(16px, calc(16px + env(safe-area-inset-left)));
+  padding-right: max(16px, calc(16px + env(safe-area-inset-right)));
+  padding-bottom: 4px;
+}
+
+.note-title-row .title-input {
+  width: 100%;
+  border: none;
+  background: transparent;
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.3px;
+  padding: 0;
+}
+
+.note-title-row .title-input:focus {
+  outline: none;
+}
+
+.note-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 32px;
+  text-align: center;
+  color: #888;
+}
+
+.note-empty-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #666;
+}
+
+.note-empty-subtitle {
+  font-size: 14px;
+  color: #888;
+}
+
+.note-empty-action {
+  border: none;
+  background: #2196f3;
+  color: white;
+  border-radius: 18px;
+  padding: 10px 16px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.note-empty-action:active {
+  opacity: 0.8;
+}
+
+.notes-drawer {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: var(--drawer-width);
+  background: #fff;
+  transform: translateX(calc(var(--drawer-offset) - var(--drawer-width)));
+  transition: transform 0.25s ease;
+  box-shadow: 4px 0 16px rgba(0, 0, 0, 0.2);
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: max(24px, calc(24px + env(safe-area-inset-bottom)));
+}
+
+.drawer-overlay {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: var(--drawer-width);
+  right: 0;
+  background: transparent;
+  opacity: 1;
+  pointer-events: none;
+  z-index: 15;
+}
+
+.notes-shell.drawer-open .drawer-overlay {
+  pointer-events: auto;
+}
+
+.notes-shell.drawer-dragging .note-main,
+.notes-shell.drawer-dragging .notes-drawer,
+.notes-shell.drawer-dragging .drawer-toggle.floating {
+  transition: none;
+}
+
+.notes-drawer .notes-list {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: max(16px, calc(16px + env(safe-area-inset-top))) 12px 72px;
+}
+
+.notes-drawer .fab {
+  position: absolute;
+  right: max(16px, calc(16px + env(safe-area-inset-right)));
+  bottom: max(16px, calc(16px + env(safe-area-inset-bottom)));
+}
+
+.notes-drawer .note-item {
+  border-bottom: none;
+  padding: 10px 12px;
+  border-radius: 999px;
+  margin-bottom: 6px;
+}
+
+.notes-drawer .note-item:active {
+  background: #f5f5f5;
+}
+
+.notes-drawer .note-title {
+  margin-bottom: 0;
+  font-weight: 600;
+}
+
+.notes-drawer .note-preview {
+  display: none;
+}
+
+.notes-drawer .note-item.selected {
+  background: #eef3ff;
+}
+
+.title-input:disabled {
+  color: #999;
+}
+
 /* CodeMirror customization */
 .cm-editor {
-  background: white !important;
+  background: transparent !important;
   color: #333 !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.cm-editor.cm-focused,
+.cm-editor:focus-within,
+.cm-scroller,
+.cm-content {
+  outline: none !important;
+  box-shadow: none !important;
 }
 
 .cm-gutters {
@@ -254,7 +484,7 @@ body {
 }
 
 .cm-cursor {
-  border-left-color: #2196F3 !important;
+  border-left-color: #2196f3 !important;
 }
 
 .cm-selectionMatch {

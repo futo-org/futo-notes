@@ -24,7 +24,7 @@ export class MarkdownEditor {
       liveMarkdownTransform,
       EditorView.lineWrapping,
       EditorView.theme({
-        '&': { height: '100%', fontSize: '16px' },
+        '&': { height: 'auto', fontSize: '16px' },
         '.cm-content': { padding: '16px', fontFamily: 'system-ui, sans-serif' },
         '.cm-focused': { outline: 'none' }
       })
@@ -61,6 +61,14 @@ export class MarkdownEditor {
 
   focus(): void {
     this.view.focus();
+  }
+
+  blur(): void {
+    this.view.dom.blur();
+  }
+
+  hasFocus(): boolean {
+    return this.view.hasFocus;
   }
 
   destroy(): void {

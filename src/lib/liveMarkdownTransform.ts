@@ -314,6 +314,9 @@ class LiveMarkdownPlugin implements PluginValue {
 
   private getCursorLines(view: EditorView): Set<number> {
     const lines = new Set<number>();
+    if (!view.hasFocus) {
+      return lines;
+    }
     for (const range of view.state.selection.ranges) {
       const line = view.state.doc.lineAt(range.from).number;
       lines.add(line);
@@ -381,7 +384,9 @@ class LiveMarkdownPlugin implements PluginValue {
     const markerMatch = text.match(/^#+/);
 
     if (markerMatch) {
-      const markerEnd = from + markerMatch[0].length;
+      const markerLength = markerMatch[0].length;
+      const hasSpace = text[markerLength] === ' ';
+      const markerEnd = from + markerLength + (hasSpace ? 1 : 0);
 
       // Hide markdown markers
       decorations.push({

@@ -3,8 +3,7 @@ import { StatusBar, Style } from '@capacitor/status-bar';
 import { router } from './router';
 import { initDB } from './lib/db';
 import { ensureNotesDir } from './lib/fileSystem';
-import { renderNotesList } from './screens/NotesList';
-import { renderNoteEditor } from './screens/NoteEditor';
+import { renderNotesShell } from './screens/NotesShell';
 import './styles/index.css';
 
 async function init() {
@@ -17,8 +16,8 @@ async function init() {
       await StatusBar.setBackgroundColor({ color: '#ffffff' });
     }
 
-    router.register('/', () => renderNotesList());
-    router.register('/note/:id', (params) => renderNoteEditor(params as { id: string }));
+    router.register('/', () => renderNotesShell({}));
+    router.register('/note/:id', (params) => renderNotesShell(params as { id: string }));
     router.start();
   } catch (error) {
     console.error('App initialization failed:', error);

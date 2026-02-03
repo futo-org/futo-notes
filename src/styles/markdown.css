@@ -246,6 +246,7 @@
   overflow-y: hidden;
   overscroll-behavior-x: contain;
   -webkit-overflow-scrolling: touch;
+  touch-action: pan-x;
   max-width: calc(100vw - 32px);
   margin: 8px 0;
   cursor: pointer;
