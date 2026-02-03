@@ -1,16 +1,37 @@
 # Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
 
-# dependencies
+# Dependencies
 node_modules/
+Pods/
 
-# Expo
-.expo/
+# Build output
 dist/
-web-build/
-expo-env.d.ts
+.sourcemaps
 
-# Native
+# Capacitor generated assets (regenerated on cap sync)
+android/app/src/main/assets/public/*
+!android/app/src/main/assets/public/.gitkeep
+android/app/src/main/assets/capacitor.config.json
+android/app/src/main/assets/capacitor.plugins.json
+ios/App/App/public/*
+!ios/App/App/public/.gitkeep
+
+# Android
+.gradle/
 .kotlin/
+local.properties
+*.iml
+.settings/
+.project
+
+# iOS
+xcuserdata/
+Podfile.lock
+Build/*
+Index/
+DerivedData/
+
+# Native signing
 *.orig.*
 *.jks
 *.p8
@@ -19,28 +40,30 @@ expo-env.d.ts
 *.mobileprovision
 release.keystore
 
-# Metro
-.metro-health-check*
-
-# debug
+# Debug
 npm-debug.*
 yarn-debug.*
 yarn-error.*
+capacitor-build.log
 
 # macOS
 .DS_Store
 *.pem
 
-# local env files
+# Environment files
+.env
 .env*.local
 
-# typescript
+# TypeScript
 *.tsbuildinfo
+
+# IDE
+.vscode
+.idea/
+.*sw*
 
 app-example
 
-# generated native folders
-/ios
-# /android - tracked for bare workflow CI/CD
-
-.vscode
+# Capacitor platform folders (tracked for CI/CD)
+# /ios
+# /android

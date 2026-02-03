@@ -13,49 +13,54 @@ The title of the note is the name of the file minus `.md`. So `my grocery list.m
 ### First-Time Setup
 
 ```bash
-# Clone with submodules (recommended for fresh clone)
-git clone --recurse-submodules https://github.com/your-repo/futo-notes.git
-
-# OR if you already cloned without submodules:
-git submodule update --init
-
 # Install dependencies
 npm install
-
-# Clean up duplicate peer deps in the forked editor (required after npm install)
-rm -rf react-native-live-markdown/node_modules/{react-native-reanimated,react-native-worklets,react,react-native}
 ```
 
 ### Development Commands
 
 ```bash
-npx expo start                          # launches the Expo dev server
-npx expo run:ios --device               # builds & runs on a connected iOS device/simulator
-npx expo run:android                    # builds & runs on Android (debug)
-npx expo run:android --variant release  # release build for perf testing
-npm run lint                            # ESLint
+# Development & Building
+npm run dev                                 # Dev server (web preview only)
+npm run build                               # Build for production
+npm run lint                                # Run ESLint
+
+# Capacitor (Platform Management)
+npx cap sync                                # Sync web build to native platforms
+npx cap sync android                        # Sync to Android only
+npx cap sync ios                            # Sync to iOS only
+
+# Running on Devices
+npx cap run android --target "DEVICE_ID"    # Android device (use serial number)
+npx cap run android                         # Android (interactive device selection)
+npx cap run ios                             # iOS device
+
+# Platform IDEs
+npx cap open android                        # Open Android Studio
+npx cap open ios                            # Open Xcode
 ```
 
-Use `npx expo prebuild` when you need to customize native code or add manual native deps. Release/production issues should be verified with `npx expo run:android --variant release` (optimized build).
+### Development Workflow
 
-### Submodule: react-native-live-markdown
-
-This project uses a forked version of `@expensify/react-native-live-markdown` as a git submodule. The fork lives in the `react-native-live-markdown/` directory and is linked via `file:./react-native-live-markdown` in package.json.
-
-**To update the submodule to latest:**
 ```bash
-cd react-native-live-markdown
-git pull origin main
-cd ..
-git add react-native-live-markdown
-git commit -m "Update react-native-live-markdown submodule"
+# 1. Make changes to TypeScript/CSS
+# 2. Build
+npm run build
+
+# 3. Sync to platform
+npx cap sync android
+
+# 4. Run on device
+npx cap run android
 ```
 
-**To modify the forked editor:**
-1. Edit files in `react-native-live-markdown/src/`
-2. Run `npm run prepare` inside the submodule directory
-3. Metro will pick up changes automatically
+### Architecture
 
-**Troubleshooting:**
-- If you see duplicate React errors, run the cleanup command: `rm -rf react-native-live-markdown/node_modules/{react-native-reanimated,react-native-worklets,react,react-native}`
-- If submodule is empty after clone, run: `git submodule update --init`
+**Framework**: Vanilla TypeScript + Capacitor 8
+**Build Tool**: Vite
+**Editor**: CodeMirror 6 with live markdown transformations
+**Storage**: Capacitor Filesystem for `.md` files
+**Metadata**: @capacitor-community/sqlite (metadata cache + search index)
+**Search**: MiniSearch (in-memory full-text search)
+
+For detailed architecture and development information, see [CLAUDE.md](./CLAUDE.md).
