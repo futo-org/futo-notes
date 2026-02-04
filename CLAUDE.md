@@ -29,13 +29,13 @@ npx cap open ios                            # Open Xcode
 
 ## Architecture Overview
 
-**Framework**: Vanilla TypeScript + Capacitor 8
-**Build Tool**: Vite
+**Framework**: Svelte 5 + Capacitor 8
+**Build Tool**: Vite with @sveltejs/vite-plugin-svelte
 **Editor**: CodeMirror 6 with live markdown transformations
 **Storage**: File-first - `.md` files in OS Documents directory
 **Search**: MiniSearch (in-memory, rebuilt on startup)
-**State**: Simple pub/sub pattern (no framework dependency)
-**Router**: Hash-based custom router
+**State**: Svelte 5 runes (`$state`, `$derived`, `$effect`)
+**Router**: Hash-based routing in App.svelte
 
 **Key Features**:
 - File-first: notes are `.md` files at root of Documents directory
@@ -51,19 +51,16 @@ npx cap open ios                            # Open Xcode
 
 ```
 src/
-├── main.ts                          # App entry point, Capacitor + router init
+├── main.ts                          # Mounts Svelte app
+├── App.svelte                       # Root component with routing
+├── state.svelte.ts                  # Global reactive state (Svelte 5 runes)
 ├── types.ts                         # TypeScript interfaces
-├── store.ts                         # Pub/sub state management
-├── router.ts                        # Hash-based routing (/, /note/:id)
-│
-├── screens/
-│   ├── NotesList.ts                 # Notes list + search + FAB
-│   ├── NoteEditor.ts                # Editor with auto-save
-│   └── NotesShell.ts                # Unified drawer + editor shell
+├── router.ts                        # Navigation helper
 │
 ├── components/
-│   ├── MarkdownEditor.ts            # CodeMirror 6 wrapper
-│   └── VirtualList.ts               # Virtual scrolling list
+│   ├── NotesShell.svelte            # Main screen (drawer + editor)
+│   ├── MarkdownEditor.svelte        # CodeMirror 6 wrapper
+│   └── VirtualList.svelte           # Notes list with {#each}
 │
 ├── lib/
 │   ├── fileSystem.ts                # Capacitor Filesystem wrapper
@@ -71,15 +68,17 @@ src/
 │   ├── searchIndex.ts               # MiniSearch wrapper (in-memory)
 │   ├── listContinuation.ts          # CodeMirror Enter key handler
 │   ├── liveMarkdownTransform.ts     # Live transformation ViewPlugin
+│   ├── tableWidget.ts               # Table parsing + rendering
+│   ├── tableRenderingField.ts       # Table state field
 │   └── utils.ts                     # Filename sanitization, HTML escaping
 │
 └── styles/
     ├── index.css                    # Main styles + safe areas
     └── markdown.css                 # Markdown element styling
 
-public/
-└── index.html                       # HTML entry point
-
+index.html                           # HTML entry point
+svelte.config.js                     # Svelte 5 config (runes mode)
+vite.config.ts                       # Vite config with Svelte plugin
 dist/                                # Built output (generated)
 android/                             # Android native project (generated)
 ios/                                 # iOS native project (generated)
@@ -90,7 +89,7 @@ ios/                                 # iOS native project (generated)
 ### Local Development
 
 ```bash
-# 1. Make changes to TypeScript/CSS
+# 1. Make changes to Svelte/TypeScript/CSS
 # 2. Build
 npm run build
 
@@ -116,6 +115,12 @@ npm run dev
 
 ## Key Technologies
 
+### Svelte 5
+- **Runes**: `$state`, `$derived`, `$effect`, `$props`
+- **Components**: `.svelte` files with reactive state
+- **Modules**: `.svelte.ts` files for shared reactive state
+- **Config**: `svelte.config.js` with `runes: true`
+
 ### CodeMirror 6
 - **Packages**: `codemirror@6.0.2`, `@codemirror/lang-markdown@6.5.0`
 - **Features**: Markdown syntax highlighting + live transformations
@@ -129,9 +134,10 @@ npm run dev
 - `@capacitor/status-bar` - Status bar styling
 
 ### State Management
-- **Store**: Simple pub/sub (`src/store.ts`)
-- **No Redux/Zustand**: Vanilla pattern keeps bundle size small
-- **Pattern**: `store.setState()` triggers subscribers
+- **Global state**: `src/state.svelte.ts` using `$state` rune
+- **Component state**: Local `$state` in each component
+- **Derived values**: `$derived` for computed values
+- **Side effects**: `$effect` for lifecycle and reactions
 
 ### Markdown Features
 **Source of Truth**: `tests/gfm-test-note.md`
@@ -199,6 +205,29 @@ App startup → Scan .md files → Build in-memory cache → Build search index
 Edit note → Auto-save to .md file → Update in-memory cache → Update search index
 ```
 
+## Component Architecture
+
+### App.svelte
+- Hash-based routing with `$state` and `$derived`
+- Capacitor initialization on mount
+- Renders NotesShell with noteId prop
+
+### NotesShell.svelte
+- Main unified screen with drawer + editor
+- Edge swipe gesture handling for drawer
+- Auto-save with 500ms debounce
+- FAB with long-press for test note creation
+
+### MarkdownEditor.svelte
+- Wraps CodeMirror 6 with `$effect` for lifecycle
+- Exposes `focus()`, `blur()`, `getContent()`, `hasFocus()`
+- Includes all markdown extensions (live transforms, tables, list continuation)
+
+### VirtualList.svelte
+- Simple `{#each}` loop with keyed iteration
+- Semantic `<button>` elements for accessibility
+- No external dependencies
+
 ## Known Issues & Quirks
 
 ### Android
@@ -260,6 +289,12 @@ adb logcat | grep "futo\|JS\|error"
 3. Add CSS class to `src/styles/markdown.css`
 4. Test with `tests/gfm-test-note.md`
 
+### Add a new Svelte component
+1. Create `.svelte` file in `src/components/`
+2. Use `$props()` for inputs, `$state()` for local state
+3. Use `$effect()` for side effects and cleanup
+4. Import and use in parent component
+
 ### Change app styling
 - Global: `src/styles/index.css`
 - Markdown: `src/styles/markdown.css`
@@ -270,6 +305,7 @@ adb logcat | grep "futo\|JS\|error"
 
 ## Resources
 
+- **Svelte 5 Docs**: https://svelte.dev/docs/svelte
 - **CodeMirror 6 Docs**: https://codemirror.net/docs/
 - **Capacitor Docs**: https://capacitorjs.com/docs
 - **GFM Spec**: https://github.github.com/gfm/

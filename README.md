@@ -43,7 +43,7 @@ npx cap open ios                            # Open Xcode
 ### Development Workflow
 
 ```bash
-# 1. Make changes to TypeScript/CSS
+# 1. Make changes to Svelte/TypeScript/CSS
 # 2. Build
 npm run build
 
@@ -56,11 +56,11 @@ npx cap run android
 
 ### Architecture
 
-**Framework**: Vanilla TypeScript + Capacitor 8
+**Framework**: Svelte 5 + Capacitor 8
 **Build Tool**: Vite
 **Editor**: CodeMirror 6 with live markdown transformations
 **Storage**: Capacitor Filesystem for `.md` files
-**Metadata**: @capacitor-community/sqlite (metadata cache + search index)
 **Search**: MiniSearch (in-memory full-text search)
+**State**: Svelte 5 runes (`$state`, `$derived`, `$effect`)
 
 For detailed architecture and development information, see [CLAUDE.md](./CLAUDE.md).

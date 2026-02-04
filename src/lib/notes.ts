@@ -95,7 +95,7 @@ export async function updateNote(
   originalId?: string
 ): Promise<{ id: string; mtime: number }> {
   const preview = content.slice(0, 100).replace(/\n/g, ' ');
-  let finalId = await getUniqueNoteId(id, originalId);
+  const finalId = await getUniqueNoteId(id, originalId);
   let mtime: number;
 
   if (originalId && originalId !== finalId) {

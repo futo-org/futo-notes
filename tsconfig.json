@@ -17,12 +17,13 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
-    "jsx": "react-jsx",
     "baseUrl": ".",
     "paths": {
+      "$lib/*": ["src/lib/*"],
       "@/*": ["./*"]
-    }
+    },
+    "types": ["svelte"]
   },
-  "include": ["src"],
+  "include": ["src/**/*.ts", "src/**/*.svelte", "src/**/*.svelte.ts"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }
