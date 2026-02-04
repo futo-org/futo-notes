@@ -1,7 +1,6 @@
 import { Capacitor } from '@capacitor/core';
 import { router } from '../router';
-import { readNote, writeNote, renameNote } from '../lib/fileSystem';
-import { upsertNoteMeta, loadSearchIndex, saveSearchIndex, createSearchIndex } from '../lib/db';
+import { readNote, updateNote } from '../lib/notes';
 import { MarkdownEditor } from '../components/MarkdownEditor';
 import { sanitizeFilename } from '../lib/utils';
 
@@ -65,27 +64,11 @@ export async function renderNoteEditor(params: { id: string }): Promise<void> {
     const newTitle = titleInput.value.trim() || 'Untitled';
     const newId = sanitizeFilename(newTitle);
     const newContent = editor.getContent();
-    const preview = newContent.slice(0, 100).replace(/\n/g, ' ');
 
-    let mtime: number;
-    if (originalId && originalId !== newId) {
-      // Rename
-      mtime = await renameNote(originalId, newId, newContent);
-    } else {
-      mtime = await writeNote(newId, newContent);
-    }
+    const result = await updateNote(newId, newTitle, newContent, originalId || undefined);
 
-    await upsertNoteMeta({ id: newId, title: newTitle, preview, modificationTime: mtime });
-
-    // Update search index
-    let index = await loadSearchIndex();
-    if (!index) index = createSearchIndex();
-    if (originalId) index.discard(originalId);
-    index.add({ id: newId, noteId: newId, content: newContent });
-    await saveSearchIndex(index);
-
-    originalId = newId;
-    noteId = newId;
+    originalId = result.id;
+    noteId = result.id;
   };
 
   // Event handlers

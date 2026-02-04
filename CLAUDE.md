@@ -1,4 +1,4 @@
-# CLAUDE.md - FUTO Notes Capacitor 8 Edition
+# CLAUDE.md - FUTO Notes
 
 ## Commands
 
@@ -19,6 +19,9 @@ npx cap run android --target "4A121FDJH001XW"  # Android device (use serial numb
 npx cap run android                         # Android (interactive device selection)
 npx cap run ios                             # iOS device
 
+# Quick iteration (build + sync + install to iOS)
+npm run build && npx cap sync ios && npx cap run ios --target "00008150-001C70A634F0401C"
+
 # Platform IDEs
 npx cap open android                        # Open Android Studio
 npx cap open ios                            # Open Xcode
@@ -29,19 +32,20 @@ npx cap open ios                            # Open Xcode
 **Framework**: Vanilla TypeScript + Capacitor 8
 **Build Tool**: Vite
 **Editor**: CodeMirror 6 with live markdown transformations
-**Storage**: Capacitor Filesystem for `.md` files
-**Metadata**: @capacitor-community/sqlite (metadata cache + search index)
-**Search**: MiniSearch (in-memory full-text search)
+**Storage**: File-first - `.md` files in OS Documents directory
+**Search**: MiniSearch (in-memory, rebuilt on startup)
 **State**: Simple pub/sub pattern (no framework dependency)
 **Router**: Hash-based custom router
 
 **Key Features**:
-- ✅ Live markdown transformations (syntax hides, text styles appear as you type)
-- ✅ Full GitHub Flavored Markdown support
-- ✅ List continuation on Enter (bullets, numbers, tasks)
-- ✅ Fast full-text search
-- ✅ Offline-first, local-only storage
-- ✅ Cross-platform (iOS + Android + Web)
+- File-first: notes are `.md` files at root of Documents directory
+- No database - metadata derived from files on startup
+- Live markdown transformations (syntax hides, text styles appear as you type)
+- Full GitHub Flavored Markdown support
+- List continuation on Enter (bullets, numbers, tasks)
+- Fast full-text search (in-memory index)
+- Offline-first, local-only storage
+- Cross-platform (iOS + Android + Web)
 
 ## Project Structure
 
@@ -54,14 +58,17 @@ src/
 │
 ├── screens/
 │   ├── NotesList.ts                 # Notes list + search + FAB
-│   └── NoteEditor.ts                # Editor with auto-save
+│   ├── NoteEditor.ts                # Editor with auto-save
+│   └── NotesShell.ts                # Unified drawer + editor shell
 │
 ├── components/
-│   └── MarkdownEditor.ts            # CodeMirror 6 wrapper
+│   ├── MarkdownEditor.ts            # CodeMirror 6 wrapper
+│   └── VirtualList.ts               # Virtual scrolling list
 │
 ├── lib/
-│   ├── db.ts                        # SQLite database layer
 │   ├── fileSystem.ts                # Capacitor Filesystem wrapper
+│   ├── notes.ts                     # Notes API (CRUD, in-memory cache)
+│   ├── searchIndex.ts               # MiniSearch wrapper (in-memory)
 │   ├── listContinuation.ts          # CodeMirror Enter key handler
 │   ├── liveMarkdownTransform.ts     # Live transformation ViewPlugin
 │   └── utils.ts                     # Filename sanitization, HTML escaping
@@ -97,7 +104,7 @@ npx cap run android --target "4A121FDJH001XW"
 ### Testing on Device
 
 1. **Android**: Connect device or start emulator
-2. **iOS**: Must use physical device (simulator not supported for Capacitor filesystem/SQLite)
+2. **iOS**: Physical device recommended for full functionality
 
 ### Hot Reload (Web Only)
 
@@ -117,7 +124,6 @@ npm run dev
 
 ### Capacitor 8 Plugins Used
 - `@capacitor/filesystem` - Note file I/O
-- `@capacitor-community/sqlite` - Metadata + search index persistence
 - `@capacitor/haptics` - Tactile feedback
 - `@capacitor/keyboard` - Keyboard behavior
 - `@capacitor/status-bar` - Status bar styling
@@ -171,31 +177,35 @@ User sees bold text without syntax
 
 ## Storage Architecture
 
-### Filesystem (`src/lib/fileSystem.ts`)
-- Notes stored as `.md` files in `Documents/notes/` directory
+### File-First Design
+- Notes stored as `.md` files directly in Documents directory (no subdirectory)
 - Filename = sanitized title (e.g., "My Note" → `my-note.md`)
-- Using `@capacitor/filesystem` API
+- Using `@capacitor/filesystem` API with `Directory.Documents`
 
-### Database (`src/lib/db.ts`)
-- **Metadata table**: id, title, preview, modificationTime
-- **Search index table**: Persisted MiniSearch index (JSON)
-- **For**: Fast listing, sorting, search without parsing files
-- **Why**: File I/O is slow; metadata cache is fast
+### In-Memory Cache (`src/lib/notes.ts`)
+- On startup, all `.md` files are scanned
+- Metadata (title, preview, mtime) extracted and cached in memory
+- Search index built from file contents
+- No persistence of cache - rebuilt fresh on each app launch
 
-### Sync Logic
+### Search Index (`src/lib/searchIndex.ts`)
+- MiniSearch for full-text search
+- In-memory only, rebuilt on startup
+- Supports fuzzy matching and prefix search
+
+### Data Flow
 ```
-Edit note → Auto-save to file → Update metadata in DB → Update search index
+App startup → Scan .md files → Build in-memory cache → Build search index
+Edit note → Auto-save to .md file → Update in-memory cache → Update search index
 ```
 
 ## Known Issues & Quirks
 
 ### Android
-- First app startup may take ~2-3 seconds (SQLite init)
 - Large documents (10k+ lines) need to scroll smoothly (performance tested)
 
 ### iOS
-- Requires physical device (simulator lacks native plugins)
-- Build must use Xcode (can't use `cap run ios` on simulator)
+- Physical device recommended for full functionality
 
 ### Safe Areas
 - Use `env(safe-area-inset-*)` in CSS for notches/home indicators
@@ -206,7 +216,7 @@ Edit note → Auto-save to file → Update metadata in DB → Update search inde
 - **Decoration rebuild**: ~5ms for 10,000 line documents
 - **Typing latency**: <5ms per character (no lag)
 - **Search**: <50ms for 500 notes
-- **Startup**: ~1-2 seconds (SQLite init + index load)
+- **Startup**: Fast - just file scanning + index build
 
 ## Testing Checklist
 
@@ -256,7 +266,7 @@ adb logcat | grep "futo\|JS\|error"
 
 ### Modify storage behavior
 - File operations: `src/lib/fileSystem.ts`
-- Database schema: `src/lib/db.ts` (initDB function)
+- Notes API: `src/lib/notes.ts`
 
 ## Resources
 
@@ -266,15 +276,6 @@ adb logcat | grep "futo\|JS\|error"
 - **Test Files**:
   - `tests/gfm-test-note.md` - Full GFM feature test
   - `tests/editor-theme-test.md` - Live transformation test
-
-## Recent Changes (Capacitor 8 Migration)
-
-- ✅ Migrated from React Native/Expo to Capacitor 8
-- ✅ Built vanilla TypeScript + Vite instead of React
-- ✅ Implemented live markdown transformations (CodeMirror ViewPlugin)
-- ✅ SQLite for metadata + search (instead of MMKV + file scanning)
-- ✅ Custom router instead of Expo Router
-- ✅ Same core functionality, better performance, smaller bundle
 
 ## Testing with Playwright
 

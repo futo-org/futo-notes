@@ -25,7 +25,7 @@ export class MarkdownEditor {
       EditorView.lineWrapping,
       EditorView.theme({
         '&': { height: 'auto', fontSize: '16px' },
-        '.cm-content': { padding: '16px', fontFamily: 'system-ui, sans-serif' },
+        '.cm-content': { padding: '0', fontFamily: 'system-ui, sans-serif' },
         '.cm-focused': { outline: 'none' }
       })
     ];
@@ -64,6 +64,8 @@ export class MarkdownEditor {
   }
 
   blur(): void {
+    this.view.contentDOM.blur();
+    // Also blur the view DOM for good measure
     this.view.dom.blur();
   }
 

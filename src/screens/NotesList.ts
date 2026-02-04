@@ -1,10 +1,9 @@
 import { Capacitor } from '@capacitor/core';
 import { store } from '../store';
 import { router } from '../router';
-import { getAllNotes, deleteNoteMeta, loadSearchIndex, upsertNoteMeta, createSearchIndex, saveSearchIndex } from '../lib/db';
-import { deleteNoteFile, writeNote } from '../lib/fileSystem';
-import { NotePreview } from '../types';
-import { escapeHtml, sanitizeFilename } from '../lib/utils';
+import { getAllNotes, deleteNote, search, createNote } from '../lib/notes';
+import { sanitizeFilename } from '../lib/utils';
+import { VirtualList } from '../components/VirtualList';
 
 const GFM_TEST_CONTENT = `# GFM Syntax Test Note
 
@@ -234,6 +233,7 @@ Escaped pipes:
 `;
 
 let cleanup: (() => void) | null = null;
+let virtualList: VirtualList | null = null;
 
 export async function renderNotesList(): Promise<void> {
   if (cleanup) cleanup();
@@ -247,105 +247,66 @@ export async function renderNotesList(): Promise<void> {
       <div class="search-bar">
         <input type="text" placeholder="Search notes..." />
       </div>
-      <div class="notes-list"></div>
+      <div class="notes-list-scroll">
+        <div class="notes-list-content"></div>
+      </div>
       <button class="fab">+</button>
     </div>
   `;
 
   const searchInput = app.querySelector('.search-bar input') as HTMLInputElement;
-  const listContainer = app.querySelector('.notes-list')!;
+  const listScrollContainer = app.querySelector('.notes-list-scroll') as HTMLElement;
+  const listContentContainer = app.querySelector('.notes-list-content') as HTMLElement;
   const fab = app.querySelector('.fab')!;
 
   // Load notes (empty array in browser mode)
-  const notes = isNative ? await getAllNotes() : [];
+  const notes = isNative ? getAllNotes() : [];
   store.setState({ notes });
 
-  // Render list
-  const renderList = (notesToRender: NotePreview[]) => {
-    if (notesToRender.length === 0) {
-      listContainer.innerHTML = '<div class="empty">No notes yet. Tap + to create one.</div>';
-      return;
-    }
-    listContainer.innerHTML = notesToRender.map(note => `
-      <div class="note-item" data-id="${note.id}">
-        <div class="note-content">
-          <div class="note-title">${escapeHtml(note.title)}</div>
-          <div class="note-preview">${escapeHtml(note.preview)}</div>
-        </div>
-        <button class="delete-btn" data-id="${note.id}">×</button>
-      </div>
-    `).join('');
-  };
+  // Initialize VirtualList
+  virtualList = new VirtualList({
+    scrollElement: listScrollContainer,
+    contentElement: listContentContainer,
+    rowHeight: 72,
+    showPreview: true,
+    onItemClick: (id) => router.navigate(`/note/${encodeURIComponent(id)}`)
+  });
 
-  renderList(notes);
+  virtualList.update(notes);
 
-  // Event handlers
-  const handleClick = (e: Event) => {
-    const target = e.target as HTMLElement;
-    const deleteBtn = target.closest('.delete-btn') as HTMLElement;
-    if (deleteBtn) {
-      e.stopPropagation();
-      const id = deleteBtn.dataset.id!;
-      if (confirm('Delete this note?')) {
-        deleteNote(id);
-      }
-      return;
-    }
-    const noteItem = target.closest('.note-item') as HTMLElement;
-    if (noteItem) {
-      router.navigate(`/note/${encodeURIComponent(noteItem.dataset.id!)}`);
-    }
-  };
-
-  const deleteNote = async (id: string) => {
+  const handleDeleteNote = async (id: string) => {
     if (isNative) {
-      await deleteNoteFile(id);
-      await deleteNoteMeta(id);
+      await deleteNote(id);
     }
     const updated = store.getState().notes.filter(n => n.id !== id);
     store.setState({ notes: updated });
-    renderList(updated);
+    virtualList?.update(updated);
   };
 
   const createTestNote = async () => {
     if (!isNative) return;
     const title = 'Markdown test note';
-    const id = sanitizeFilename(title);
-    const mtime = await writeNote(id, GFM_TEST_CONTENT);
-    const preview = GFM_TEST_CONTENT.slice(0, 100).replace(/\n/g, ' ');
-
-    await upsertNoteMeta({ id, title, preview, modificationTime: mtime });
-
-    // Update search index
-    let index = await loadSearchIndex();
-    if (!index) index = createSearchIndex();
-    index.add({ id, noteId: id, content: GFM_TEST_CONTENT });
-    await saveSearchIndex(index);
+    await createNote(sanitizeFilename(title), GFM_TEST_CONTENT);
 
     // Refresh list
-    const updated = await getAllNotes();
+    const updated = getAllNotes();
     store.setState({ notes: updated });
-    renderList(updated);
+    virtualList?.update(updated);
   };
 
   let searchTimeout: number;
   const handleSearch = () => {
     clearTimeout(searchTimeout);
-    searchTimeout = window.setTimeout(async () => {
+    searchTimeout = window.setTimeout(() => {
       const query = searchInput.value.trim();
       store.setState({ searchQuery: query });
       if (!query) {
-        renderList(store.getState().notes);
+        virtualList?.update(store.getState().notes);
         return;
       }
       if (isNative) {
-        const index = await loadSearchIndex();
-        if (index) {
-          const results = index.search(query);
-          const ids = new Set(results.map(r => r.noteId));
-          const filtered = store.getState().notes.filter(n => ids.has(n.id));
-          renderList(filtered);
-        }
+        const filtered = search(query);
+        virtualList?.update(filtered);
       }
     }, 300);
   };
@@ -366,7 +327,6 @@ export async function renderNotesList(): Promise<void> {
     }
   };
 
-  listContainer.addEventListener('click', handleClick);
   searchInput.addEventListener('input', handleSearch);
   fab.addEventListener('touchstart', handleFabTouchStart);
   fab.addEventListener('touchend', handleFabTouchEnd);
@@ -378,9 +338,14 @@ export async function renderNotesList(): Promise<void> {
   });
 
   cleanup = () => {
-    listContainer.removeEventListener('click', handleClick);
+    virtualList?.destroy();
+    virtualList = null;
     searchInput.removeEventListener('input', handleSearch);
     fab.removeEventListener('touchstart', handleFabTouchStart);
     fab.removeEventListener('touchend', handleFabTouchEnd);
   };
+
+  // Note: handleDeleteNote is available but not currently wired up to UI
+  // The standalone list view could add delete buttons if needed
+  void handleDeleteNote;
 }

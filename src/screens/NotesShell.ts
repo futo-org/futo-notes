@@ -3,15 +3,14 @@ import { store } from '../store';
 import { router } from '../router';
 import {
   getAllNotes,
-  loadSearchIndex,
-  upsertNoteMeta,
-  createSearchIndex,
-  saveSearchIndex
-} from '../lib/db';
-import { writeNote, readNote, renameNote } from '../lib/fileSystem';
+  updateNote,
+  readNote,
+  createNote
+} from '../lib/notes';
 import { MarkdownEditor } from '../components/MarkdownEditor';
+import { VirtualList } from '../components/VirtualList';
 import { NotePreview } from '../types';
-import { escapeHtml, sanitizeFilename } from '../lib/utils';
+import { sanitizeFilename } from '../lib/utils';
 
 const GFM_TEST_CONTENT = `# GFM Syntax Test Note
 
@@ -243,6 +242,7 @@ Escaped pipes:
 let mounted = false;
 let notesLoaded = false;
 let editor: MarkdownEditor | null = null;
+let virtualList: VirtualList | null = null;
 let currentNoteId: string | null = null;
 let originalId: string | null = null;
 let saveTimeout: number | null = null;
@@ -253,7 +253,8 @@ let drawerWidth = 0;
 let shell: HTMLElement;
 let drawer: HTMLElement;
 let overlay: HTMLElement;
-let listContainer: HTMLElement;
+let listScrollContainer: HTMLElement;
+let listContentContainer: HTMLElement;
 let fab: HTMLButtonElement;
 let menuBtn: HTMLButtonElement;
 let titleInput: HTMLInputElement;
@@ -289,7 +290,9 @@ function mount(): void {
     <div class="notes-shell">
       <div class="drawer-overlay" aria-hidden="true"></div>
       <aside class="notes-drawer" aria-hidden="true">
-        <div class="notes-list"></div>
+        <div class="notes-list-scroll">
+          <div class="notes-list-content"></div>
+        </div>
         <button class="fab" aria-label="New note">+</button>
       </aside>
       <button class="drawer-toggle floating" aria-label="Open notes list" aria-expanded="false">&#9776;</button>
@@ -312,7 +315,8 @@ function mount(): void {
   shell = app.querySelector('.notes-shell') as HTMLElement;
   drawer = app.querySelector('.notes-drawer') as HTMLElement;
   overlay = app.querySelector('.drawer-overlay') as HTMLElement;
-  listContainer = app.querySelector('.notes-list') as HTMLElement;
+  listScrollContainer = app.querySelector('.notes-list-scroll') as HTMLElement;
+  listContentContainer = app.querySelector('.notes-list-content') as HTMLElement;
   fab = app.querySelector('.fab') as HTMLButtonElement;
   menuBtn = app.querySelector('.drawer-toggle') as HTMLButtonElement;
   titleInput = app.querySelector('.title-input') as HTMLInputElement;
@@ -320,7 +324,15 @@ function mount(): void {
   emptyState = app.querySelector('.note-empty') as HTMLElement;
   emptyOpenBtn = app.querySelector('.note-empty-action') as HTMLButtonElement;
 
-  listContainer.addEventListener('click', handleListClick);
+  // Initialize VirtualList for drawer
+  virtualList = new VirtualList({
+    scrollElement: listScrollContainer,
+    contentElement: listContentContainer,
+    rowHeight: 48,
+    showPreview: false,
+    onItemClick: handleListItemClick
+  });
+
   fab.addEventListener('touchstart', handleFabTouchStart);
   fab.addEventListener('touchend', handleFabTouchEnd);
   fab.addEventListener('touchcancel', handleFabTouchCancel);
@@ -329,6 +341,7 @@ function mount(): void {
   overlay.addEventListener('click', () => setDrawerOpen(false));
   emptyOpenBtn.addEventListener('click', () => setDrawerOpen(true));
   titleInput.addEventListener('input', debouncedSave);
+  editorContainer.addEventListener('click', handleEditorContainerClick);
 
   setupEdgeSwipe();
   setEmptyState(true);
@@ -398,53 +411,39 @@ function setEmptyState(isEmpty: boolean): void {
   }
 }
 
-function renderList(notesToRender: NotePreview[]): void {
+function updateList(notesToRender: NotePreview[]): void {
+  if (!virtualList) return;
   const selectedId = currentNoteId && currentNoteId !== 'new' ? currentNoteId : null;
-
-  if (notesToRender.length === 0) {
-    const message = 'No notes yet. Tap + to create one.';
-    listContainer.innerHTML = `<div class="empty">${message}</div>`;
-    return;
-  }
-
-  listContainer.innerHTML = notesToRender.map(note => `
-    <div class="note-item${note.id === selectedId ? ' selected' : ''}" data-id="${note.id}">
-      <div class="note-title">${escapeHtml(note.title)}</div>
-    </div>
-  `).join('');
+  virtualList.setSelected(selectedId);
+  virtualList.update(notesToRender);
 }
 
-async function refreshNotesList(): Promise<void> {
-  const notes = isNative ? await getAllNotes() : [];
+function refreshNotesList(): void {
+  const notes = isNative ? getAllNotes() : [];
   store.setState({ notes });
-  renderList(notes);
+  updateList(notes);
 }
 
-function handleListClick(event: Event): void {
+function handleListItemClick(id: string): void {
+  setDrawerOpen(false);
+  router.navigate(`/note/${encodeURIComponent(id)}`);
+}
+
+function handleEditorContainerClick(event: Event): void {
+  // Focus editor when clicking empty space in editor container
+  if (!editor || drawerOpen) return;
   const target = event.target as HTMLElement;
-  const noteItem = target.closest('.note-item') as HTMLElement | null;
-  if (noteItem) {
-    const id = noteItem.dataset.id!;
-    setDrawerOpen(false);
-    router.navigate(`/note/${encodeURIComponent(id)}`);
+  // Only focus if clicking directly on container, not on editor content
+  if (target === editorContainer || target.classList.contains('cm-scroller')) {
+    editor.focus();
   }
 }
 
 async function createTestNote(): Promise<void> {
   if (!isNative) return;
   const title = 'Markdown test note';
-  const id = sanitizeFilename(title);
-  const mtime = await writeNote(id, GFM_TEST_CONTENT);
-  const preview = GFM_TEST_CONTENT.slice(0, 100).replace(/\n/g, ' ');
-
-  await upsertNoteMeta({ id, title, preview, modificationTime: mtime });
-
-  let index = await loadSearchIndex();
-  if (!index) index = createSearchIndex();
-  index.add({ id, noteId: id, content: GFM_TEST_CONTENT });
-  await saveSearchIndex(index);
-
-  await refreshNotesList();
+  await createNote(sanitizeFilename(title), GFM_TEST_CONTENT);
+  refreshNotesList();
 }
 
 let fabPressTimer: number | null = null;
@@ -504,6 +503,7 @@ async function setCurrentNote(noteId: string | null): Promise<void> {
 
   if (!noteId) {
     setEmptyState(true);
+    virtualList?.setSelected(null);
     return;
   }
 
@@ -536,7 +536,7 @@ async function setCurrentNote(noteId: string | null): Promise<void> {
     titleInput.blur();
   }
 
-  renderList(store.getState().notes);
+  virtualList?.setSelected(noteId !== 'new' ? noteId : null);
 }
 
 function debouncedSave(): void {
@@ -559,40 +559,28 @@ async function saveNote(): Promise<void> {
   const newTitle = titleInput.value.trim() || 'Untitled';
   const newId = sanitizeFilename(newTitle);
   const newContent = editor.getContent();
-  const preview = newContent.slice(0, 100).replace(/\n/g, ' ');
 
-  let mtime: number;
-  if (originalId && originalId !== newId) {
-    mtime = await renameNote(originalId, newId, newContent);
-  } else {
-    mtime = await writeNote(newId, newContent);
-  }
+  const result = await updateNote(newId, newTitle, newContent, originalId ?? undefined);
 
-  await upsertNoteMeta({ id: newId, title: newTitle, preview, modificationTime: mtime });
+  originalId = result.id;
+  currentNoteId = result.id;
 
-  let index = await loadSearchIndex();
-  if (!index) index = createSearchIndex();
-  if (originalId) index.discard(originalId);
-  index.add({ id: newId, noteId: newId, content: newContent });
-  await saveSearchIndex(index);
+  refreshNotesList();
 
-  originalId = newId;
-  currentNoteId = newId;
-
-  await refreshNotesList();
-
-  const expectedHash = `#/note/${encodeURIComponent(newId)}`;
+  const expectedHash = `#/note/${encodeURIComponent(result.id)}`;
   if (window.location.hash !== expectedHash) {
-    router.navigate(`/note/${encodeURIComponent(newId)}`);
+    router.navigate(`/note/${encodeURIComponent(result.id)}`);
   }
 }
 
 function setupEdgeSwipe(): void {
-  const threshold = 60;
   let tracking = false;
   let dragging = false;
   let startX = 0;
   let startY = 0;
+  let lastX = 0;
+  let lastTime = 0;
+  let velocity = 0;
   let ignoreSwipe = false;
   let startProgress = 0;
 
@@ -615,6 +603,9 @@ function setupEdgeSwipe(): void {
     dragging = false;
     startX = touch.clientX;
     startY = touch.clientY;
+    lastX = startX;
+    lastTime = Date.now();
+    velocity = 0;
     ignoreSwipe = false;
     updateDrawerMetrics();
     startProgress = drawerOpen ? 1 : 0;
@@ -627,33 +618,46 @@ function setupEdgeSwipe(): void {
     const deltaX = touch.clientX - startX;
     const deltaY = touch.clientY - startY;
     if (!dragging && Math.abs(deltaX) < Math.abs(deltaY)) return;
-    if (!dragging && Math.abs(deltaX) < 8) return;
+    if (!dragging && Math.abs(deltaX) < 5) return;
 
     if (!dragging) {
       dragging = true;
       shell.classList.add('drawer-dragging');
+      titleInput.blur();
+      editor?.blur();
     }
+
+    // Track velocity
+    const now = Date.now();
+    const dt = now - lastTime;
+    if (dt > 0) {
+      velocity = (touch.clientX - lastX) / dt;
+    }
+    lastX = touch.clientX;
+    lastTime = now;
 
     const nextProgress = startProgress + deltaX / drawerWidth;
     setDrawerProgress(nextProgress);
     event.preventDefault();
-
-    if (!drawerOpen && deltaX > threshold) {
-      // keep dragging for live progress
-    }
-    if (drawerOpen && deltaX < -threshold) {
-      // keep dragging for live progress
-    }
   };
 
   const onTouchEnd = () => {
     if (dragging) {
       shell.classList.remove('drawer-dragging');
-      setDrawerOpen(drawerProgress >= 0.5);
+      // Use velocity for quick flicks, or position for slow drags
+      const velocityThreshold = 0.5; // px/ms
+      if (Math.abs(velocity) > velocityThreshold) {
+        // Quick flick - use direction
+        setDrawerOpen(velocity > 0);
+      } else {
+        // Slow drag - use position (30% threshold)
+        setDrawerOpen(drawerProgress >= 0.3);
+      }
     }
     tracking = false;
     dragging = false;
     ignoreSwipe = false;
+    velocity = 0;
   };
 
   shell.addEventListener('touchstart', onTouchStart);

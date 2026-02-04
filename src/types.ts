@@ -5,12 +5,6 @@ export interface NotePreview {
   modificationTime: number;
 }
 
-export interface NoteDocument {
-  id: string;
-  noteId: string;
-  content: string;
-}
-
 export interface AppState {
   notes: NotePreview[];
   searchQuery: string;

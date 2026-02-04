@@ -10,6 +10,9 @@ const config: CapacitorConfig = {
   android: {
     useSafeArea: true
   },
+  ios: {
+    contentInset: 'always'
+  },
   plugins: {
     CapacitorSQLite: {
       iosDatabaseLocation: 'Library/CapacitorDatabase',

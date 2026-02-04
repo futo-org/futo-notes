@@ -3,6 +3,7 @@ import path from 'path';
 
 export default defineConfig({
   root: 'public',
+  base: './',
   build: {
     target: 'ES2020',
     outDir: '../dist',
