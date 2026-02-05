@@ -25,6 +25,19 @@ stages:
 
 build-android:
   stage: build
+  before_script:
+    - . $HOME/.nvm/nvm.sh
+    - |
+      # Install JDK 21 (required by Capacitor 8)
+      if [ ! -d "/opt/jdk-21" ]; then
+        curl -sL https://download.oracle.com/java/21/latest/jdk-21_linux-x64_bin.tar.gz | tar xz -C /opt
+        mv /opt/jdk-21* /opt/jdk-21
+      fi
+      export JAVA_HOME=/opt/jdk-21
+      export PATH="$JAVA_HOME/bin:$PATH"
+      java -version
+  variables:
+    JAVA_HOME: /opt/jdk-21
   script:
     - npm ci
     - npm run build
@@ -43,6 +56,7 @@ build-android:
       IFS='.' read -r major minor patch <<< "$VERSION_NAME"
       VERSION_CODE=$((major * 10000 + minor * 100 + patch))
       echo "Building version $VERSION_NAME (code: $VERSION_CODE)"
+      export PATH="$JAVA_HOME/bin:$PATH"
       cd android && ./gradlew assembleRelease \
         -PVERSION_NAME="$VERSION_NAME" \
         -PVERSION_CODE="$VERSION_CODE"
