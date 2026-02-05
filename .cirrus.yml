@@ -21,8 +21,8 @@ build_ios_task:
     - brew install nvm
     - export NVM_DIR="$HOME/.nvm"
     - source $(brew --prefix nvm)/nvm.sh
-    - nvm install 20
-    - nvm use 20
+    - nvm install 22
+    - nvm use 22
     - node --version
 
     # Derive version from git tag
