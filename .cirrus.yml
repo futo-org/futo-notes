@@ -3,9 +3,6 @@ build_ios_task:
   macos_instance:
     image: ghcr.io/cirruslabs/macos-sequoia-xcode:26.2
   buildFutoNotesIOS_script:
-    # Initialize git submodules
-    - git submodule update --init --recursive
-
     # Fetch secure files
     - curl --silent "https://gitlab.com/gitlab-org/incubation-engineering/mobile-devops/download-secure-files/-/raw/main/installer" | bash
 
@@ -34,25 +31,21 @@ build_ios_task:
     - VERSION_CODE=$((major * 10000 + minor * 100 + patch))
     - echo "Building iOS version $VERSION_NAME (build $VERSION_CODE)"
 
-    # Install dependencies
+    # Install dependencies and build web assets
     - npm ci
-    - rm -rf react-native-live-markdown/node_modules/{react-native-reanimated,react-native-worklets,react,react-native}
+    - npm run build
+    - npx cap sync ios
 
-    # Prebuild with Expo
-    - npx expo prebuild --platform ios --clean
-
-    # Update version in Xcode project
-    - /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION_NAME" ios/futonotes/Info.plist
-    - /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $VERSION_CODE" ios/futonotes/Info.plist
-
-    # Build archive (quiet mode, log to file)
+    # Build archive
     - cd ios
     - |
-      xcodebuild -workspace futonotes.xcworkspace \
-        -scheme futonotes \
+      xcodebuild -project App/App.xcodeproj \
+        -scheme App \
         -configuration Release \
-        -archivePath build/futonotes.xcarchive \
+        -archivePath build/App.xcarchive \
         archive \
+        MARKETING_VERSION="$VERSION_NAME" \
+        CURRENT_PROJECT_VERSION="$VERSION_CODE" \
         CODE_SIGN_STYLE=Manual \
         DEVELOPMENT_TEAM=2W7AC6T8T5 \
         CODE_SIGN_IDENTITY="Apple Distribution" \
@@ -62,7 +55,7 @@ build_ios_task:
     # Export IPA
     - |
       xcodebuild -exportArchive \
-        -archivePath build/futonotes.xcarchive \
+        -archivePath build/App.xcarchive \
         -exportPath build/ipa \
         -exportOptionsPlist ../ExportOptions.plist \
         -quiet 2>&1 | tee ../xcodebuild-export.log || (tail -100 ../xcodebuild-export.log && exit 1)
@@ -72,7 +65,7 @@ build_ios_task:
     - cp ../.secure_files/AuthKey*.p8 ~/.private_keys/
     - xcrun altool --upload-app
         --type ios
-        --file build/ipa/futonotes.ipa
+        --file build/ipa/App.ipa
         --apiKey "$ASC_KEY_ID"
         --apiIssuer "$ASC_ISSUER_ID"
 

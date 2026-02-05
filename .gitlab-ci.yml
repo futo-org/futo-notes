@@ -26,9 +26,9 @@ stages:
 build-android:
   stage: build
   script:
-    - git submodule update --init --recursive
-    - yarn install
-    - rm -rf react-native-live-markdown/node_modules/{react-native-reanimated,react-native-worklets,react,react-native}
+    - npm ci
+    - npm run build
+    - npx cap sync android
     - |
       if [ -n "$KEYSTORE_BASE64" ]; then
         echo "Using release keystore from CI variables"
@@ -45,9 +45,7 @@ build-android:
       echo "Building version $VERSION_NAME (code: $VERSION_CODE)"
       cd android && ./gradlew assembleRelease \
         -PVERSION_NAME="$VERSION_NAME" \
-        -PVERSION_CODE="$VERSION_CODE" \
-        -PreactNativeArchitectures=arm64-v8a,armeabi-v7a \
-        -x lintVitalAnalyzeRelease -x lintVitalRelease
+        -PVERSION_CODE="$VERSION_CODE"
   artifacts:
     paths:
       - android/app/build/outputs/apk/release/app-release.apk
