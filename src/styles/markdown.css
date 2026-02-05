@@ -69,7 +69,7 @@
   color: #333;
   font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
   font-size: 0.9em;
-  padding: 4px 12px;
+  padding: 4px 16px !important;
   margin-left: 0;
   margin-right: 0;
   border-left: 3px solid #ddd;
@@ -118,7 +118,7 @@
 
 /* Block quotes - unified styling via line decorations */
 .cm-line.cm-md-quote {
-  padding-left: 15px;
+  padding-left: 18px !important;
   color: #666;
   font-style: italic;
   margin-left: 0;
@@ -162,7 +162,7 @@
 
 /* Level 2: two blue lines */
 .cm-line.cm-md-quote-level-2 {
-  padding-left: 27px;
+  padding-left: 30px !important;
 }
 
 .cm-line.cm-md-quote-level-2::after {
@@ -178,7 +178,7 @@
 
 /* Level 3: three blue lines - use box-shadow for third line */
 .cm-line.cm-md-quote-level-3 {
-  padding-left: 39px;
+  padding-left: 42px !important;
 }
 
 .cm-line.cm-md-quote-level-3::after {

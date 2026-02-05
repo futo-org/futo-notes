@@ -5,7 +5,7 @@
   import type { NotePreview } from '../types';
   import { getAllNotes, updateNote, readNote, createNote, getNoteById } from '$lib/notes';
   import { sanitizeFilename } from '$lib/utils';
-  import { router } from '../router';
+  import { navigate } from '../router';
 
   const GFM_TEST_CONTENT = `# GFM Syntax Test Note
 
@@ -241,14 +241,12 @@ Escaped pipes:
   const DrawerBack = registerPlugin<DrawerBackPlugin>('DrawerBack');
   const isNative = Capacitor.isNativePlatform();
 
-  // Props
   interface Props {
     noteId: string | null;
   }
 
   let { noteId }: Props = $props();
 
-  // State
   let drawerOpen = $state(false);
   let drawerProgress = $state(0);
   let title = $state('');
@@ -256,17 +254,18 @@ Escaped pipes:
   let originalId: string | null = $state(null);
   let notes: NotePreview[] = $state([]);
 
-  // Refs
   let editor: ReturnType<typeof MarkdownEditor> | null = $state(null);
   let shell: HTMLElement | undefined = $state(undefined);
   let drawer: HTMLElement | undefined = $state(undefined);
 
-  // Internal state
   let drawerWidth = $state(0);
   let saveTimeout: number | null = null;
   let notesLoaded = false;
+  let loading = false;
+  let titleWarning = $state('');
+  let titleWarningTimer: number | null = null;
 
-  // Touch tracking for edge swipe
+  // Edge swipe tracking
   let tracking = false;
   let isDragging = $state(false);
   let startX = 0;
@@ -277,29 +276,25 @@ Escaped pipes:
   let ignoreSwipe = false;
   let startProgress = 0;
 
-  // FAB long-press tracking
+  // FAB long-press
   let fabPressTimer: number | null = null;
   let ignoreFabClick = false;
 
-  // Update drawer metrics
   function updateDrawerMetrics(): void {
     if (drawer) {
       drawerWidth = drawer.getBoundingClientRect().width || 1;
     }
   }
 
-  // Set drawer open state with animation
   function setDrawerOpen(open: boolean): void {
     drawerOpen = open;
-    if (open && shell) {
-      title; // access to blur
+    if (open) {
       editor?.blur();
     }
     setDrawerProgress(open ? 1 : 0, true);
     void updateNativeDrawerState(open);
   }
 
-  // Set drawer progress (0-1)
   function setDrawerProgress(progress: number, snap: boolean = false): void {
     drawerProgress = Math.min(1, Math.max(0, progress));
     if (drawerProgress > 0) {
@@ -310,7 +305,6 @@ Escaped pipes:
     }
   }
 
-  // Update native drawer state
   async function updateNativeDrawerState(open: boolean): Promise<void> {
     if (!isNative) return;
     try {
@@ -320,24 +314,30 @@ Escaped pipes:
     }
   }
 
-  // Refresh notes list from storage
+  function getNextUntitledTitle(): string {
+    const base = 'Untitled';
+    const existingIds = new Set(notes.map(n => n.id));
+    if (!existingIds.has(sanitizeFilename(base))) return base;
+    let i = 1;
+    while (existingIds.has(sanitizeFilename(`${base} (${i})`))) i++;
+    return `${base} (${i})`;
+  }
+
   function refreshNotesList(): void {
     notes = isNative ? getAllNotes() : [];
   }
 
-  // Handle note selection from list
   function handleNoteSelect(id: string): void {
     setDrawerOpen(false);
-    router.navigate(`/note/${encodeURIComponent(id)}`);
+    navigate(`/note/${encodeURIComponent(id)}`);
   }
 
-  // Create new note
-  function createNewNote(): void {
+  async function createNewNote(): Promise<void> {
     setDrawerOpen(false);
-    router.navigate('/note/new');
+    await flushSave();
+    navigate('/note/new');
   }
 
-  // Create GFM test note (long-press)
   async function createTestNote(): Promise<void> {
     if (!isNative) return;
     const noteTitle = 'Markdown test note';
@@ -345,16 +345,14 @@ Escaped pipes:
     refreshNotesList();
   }
 
-  // Debounced save
   function debouncedSave(): void {
-    if (!isNative || !editor || noteId === null) return;
+    if (loading || !isNative || !editor || noteId === null) return;
     if (saveTimeout !== null) {
       clearTimeout(saveTimeout);
     }
     saveTimeout = window.setTimeout(saveNote, 500);
   }
 
-  // Flush pending save
   async function flushSave(): Promise<void> {
     if (saveTimeout === null) return;
     clearTimeout(saveTimeout);
@@ -362,12 +360,12 @@ Escaped pipes:
     await saveNote();
   }
 
-  // Save current note
   async function saveNote(): Promise<void> {
     if (!isNative || !editor || noteId === null) return;
     const newTitle = title.trim() || 'Untitled';
     const newId = sanitizeFilename(newTitle);
     const newContent = editor.getContent();
+    const savedOriginalId = originalId;
 
     const result = await updateNote(newId, newTitle, newContent, originalId ?? undefined);
 
@@ -375,13 +373,35 @@ Escaped pipes:
 
     refreshNotesList();
 
-    const expectedHash = `#/note/${encodeURIComponent(result.id)}`;
-    if (window.location.hash !== expectedHash) {
-      router.navigate(`/note/${encodeURIComponent(result.id)}`);
+    // Only update URL if user is still viewing this note (not mid-switch)
+    const currentPath = window.location.hash.slice(1) || '/';
+    const stillOnThisNote = savedOriginalId
+      ? currentPath === `/note/${encodeURIComponent(savedOriginalId)}`
+      : currentPath === '/note/new';
+
+    if (stillOnThisNote && currentPath !== `/note/${encodeURIComponent(result.id)}`) {
+      prevNoteId = result.id;
+      navigate(`/note/${encodeURIComponent(result.id)}`);
     }
   }
 
-  // Handle editor container click
+  function handleTitleInput(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    // eslint-disable-next-line no-control-regex
+    const cleaned = input.value.replace(/[<>:"/\\|?*\x00-\x1f]/g, '');
+    if (cleaned !== input.value) {
+      const pos = input.selectionStart ?? cleaned.length;
+      title = cleaned;
+      requestAnimationFrame(() => {
+        input.setSelectionRange(pos - 1, pos - 1);
+      });
+      if (titleWarningTimer !== null) clearTimeout(titleWarningTimer);
+      titleWarning = 'That character can\'t be used in a note title';
+      titleWarningTimer = window.setTimeout(() => { titleWarning = ''; }, 2000);
+    }
+    debouncedSave();
+  }
+
   function handleEditorContainerClick(event: MouseEvent): void {
     if (!editor || drawerOpen) return;
     const target = event.target as HTMLElement;
@@ -390,7 +410,6 @@ Escaped pipes:
     }
   }
 
-  // FAB touch handlers
   function handleFabTouchStart(): void {
     fabPressTimer = window.setTimeout(() => {
       createTestNote();
@@ -427,7 +446,6 @@ Escaped pipes:
     createNewNote();
   }
 
-  // Edge swipe gesture handlers
   function isTableSwipeTarget(target: EventTarget | null): boolean {
     if (!(target instanceof HTMLElement)) return false;
     return Boolean(
@@ -469,7 +487,6 @@ Escaped pipes:
       editor?.blur();
     }
 
-    // Track velocity
     const now = Date.now();
     const dt = now - lastTime;
     if (dt > 0) {
@@ -486,13 +503,10 @@ Escaped pipes:
   function handleTouchEnd(): void {
     if (isDragging) {
       isDragging = false;
-      // Use velocity for quick flicks, or position for slow drags
       const velocityThreshold = 0.5; // px/ms
       if (Math.abs(velocity) > velocityThreshold) {
-        // Quick flick - use direction
         setDrawerOpen(velocity > 0);
       } else {
-        // Slow drag - use position (30% threshold)
         setDrawerOpen(drawerProgress >= 0.3);
       }
     }
@@ -502,29 +516,31 @@ Escaped pipes:
     velocity = 0;
   }
 
-  // Register back swipe handler
   function registerBackSwipeHandler(): void {
     const win = window as typeof window & { __toggleNotesDrawer?: () => void };
     win.__toggleNotesDrawer = () => setDrawerOpen(!drawerOpen);
   }
 
-  // Load note content when noteId changes
   async function loadNote(id: string | null): Promise<void> {
     await flushSave();
+
+    loading = true;
 
     if (!id) {
       title = '';
       content = '';
       originalId = null;
+      loading = false;
       return;
     }
 
     originalId = id !== 'new' ? id : null;
 
     if (id === 'new') {
-      title = '';
+      title = getNextUntitledTitle();
       content = '';
-      // Focus editor after it mounts
+      editor?.setContent('');
+      loading = false;
       requestAnimationFrame(() => {
         editor?.focus();
       });
@@ -533,14 +549,16 @@ Escaped pipes:
         content = await readNote(id);
         const meta = getNoteById(id);
         title = meta?.title || id;
+        editor?.setContent(content);
       } catch {
-        router.navigate('/');
+        loading = false;
+        navigate('/');
         return;
       }
+      loading = false;
     }
   }
 
-  // Initialize on mount
   $effect(() => {
     if (isNative && !notesLoaded) {
       refreshNotesList();
@@ -554,10 +572,8 @@ Escaped pipes:
     };
   });
 
-  // Track previous noteId to detect changes
   let prevNoteId: string | null | undefined = undefined;
 
-  // React to noteId changes
   $effect(() => {
     const currentNoteId = noteId;
     if (prevNoteId !== currentNoteId) {
@@ -566,9 +582,8 @@ Escaped pipes:
     }
   });
 
-  // Computed style values
   const drawerOffset = $derived(drawerProgress * drawerWidth);
-  const drawerBgShade = $derived(Math.round(255 - drawerProgress * 24));
+  const drawerDim = $derived(`brightness(${1 - drawerProgress * 0.06}) contrast(${1 - drawerProgress * 0.35})`);
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -577,21 +592,12 @@ Escaped pipes:
   class="notes-shell"
   class:drawer-open={drawerOpen}
   class:drawer-dragging={isDragging}
-  style="--drawer-offset: {drawerOffset}px; --drawer-bg: rgb({drawerBgShade}, {drawerBgShade}, {drawerBgShade})"
+  style="--drawer-offset: {drawerOffset}px"
   ontouchstart={handleTouchStart}
   ontouchmove={handleTouchMove}
   ontouchend={handleTouchEnd}
   ontouchcancel={handleTouchEnd}
 >
-  <!-- Overlay -->
-  <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-  <div
-    class="drawer-overlay"
-    style="pointer-events: {drawerProgress > 0 ? 'auto' : 'none'}"
-    onclick={() => setDrawerOpen(false)}
-    aria-hidden="true"
-  ></div>
-
   <!-- Drawer -->
   <aside bind:this={drawer} class="notes-drawer" aria-hidden={!drawerOpen}>
     <VirtualList
@@ -617,18 +623,23 @@ Escaped pipes:
     onclick={() => setDrawerOpen(!drawerOpen)}
   >&#9776;</button>
 
+  <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
   <!-- Main content -->
-  <div class="note-main">
+  <div class="note-main" style="filter: {drawerDim}" onclick={() => { if (drawerOpen) setDrawerOpen(false); }}>
     <div class="note-body">
       {#if noteId}
         <div class="note-title-row">
           <input
             type="text"
-            class="title-input"
+            class="title-input w-full border-none bg-transparent text-[28px] font-bold leading-tight tracking-tight p-0 focus:outline-none"
             placeholder="Untitled"
             bind:value={title}
-            oninput={debouncedSave}
+            oninput={handleTitleInput}
+            maxlength={100}
           />
+          {#if titleWarning}
+            <div class="text-xs text-red-700 pt-0.5">{titleWarning}</div>
+          {/if}
         </div>
         <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
         <div class="editor-container" onclick={handleEditorContainerClick}>
@@ -639,9 +650,9 @@ Escaped pipes:
           />
         </div>
       {:else}
-        <div class="note-empty">
-          <div class="note-empty-subtitle">Swipe from the left edge or tap the menu to browse notes.</div>
-          <button class="note-empty-action" onclick={() => setDrawerOpen(true)}>Browse notes</button>
+        <div class="flex-1 flex flex-col items-center justify-center gap-3 p-8 text-center text-muted">
+          <div class="text-sm text-muted">Swipe from the left edge or tap the menu to browse notes.</div>
+          <button class="border-none bg-primary text-white rounded-full px-4 py-2.5 text-sm cursor-pointer active:opacity-80" onclick={(e) => { e.stopPropagation(); setDrawerOpen(true); }}>Browse notes</button>
         </div>
       {/if}
     </div>

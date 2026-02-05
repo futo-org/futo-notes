@@ -57,6 +57,13 @@
     };
   });
 
+  export function setContent(text: string): void {
+    if (!view) return;
+    view.dispatch({
+      changes: { from: 0, to: view.state.doc.length, insert: text }
+    });
+  }
+
   export function focus(): void {
     view?.focus();
   }

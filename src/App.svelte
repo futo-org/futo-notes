@@ -4,38 +4,26 @@
   import NotesShell from './components/NotesShell.svelte';
   import { initNotes } from '$lib/notes';
 
-  // State
   let hash = $state(window.location.hash.slice(1) || '/');
   let initialized = $state(false);
   let error: string | null = $state(null);
 
-  // Derived: extract note ID from hash
   const noteId = $derived.by(() => {
-    // '/' or '' -> null
     if (hash === '/' || hash === '') return null;
-
-    // '/note/:id' pattern
     const match = hash.match(/^\/note\/(.+)$/);
     if (match) {
       const id = match[1];
-      // '/note/new' -> 'new'
-      // '/note/:id' -> decodeURIComponent(id)
       return id === 'new' ? 'new' : decodeURIComponent(id);
     }
-
-    // Unknown route
     return null;
   });
 
-  // Initialize app on mount
   $effect(() => {
-    // Hash change listener
     function onHashChange(): void {
       hash = window.location.hash.slice(1) || '/';
     }
     window.addEventListener('hashchange', onHashChange);
 
-    // Initialize app
     async function init(): Promise<void> {
       try {
         if (Capacitor.isNativePlatform()) {
@@ -50,7 +38,6 @@
     }
     init();
 
-    // Cleanup
     return () => {
       window.removeEventListener('hashchange', onHashChange);
     };
@@ -65,5 +52,5 @@
 {:else if initialized}
   <NotesShell {noteId} />
 {:else}
-  <!-- Loading state - could add spinner if desired -->
+  <!-- Loading -->
 {/if}

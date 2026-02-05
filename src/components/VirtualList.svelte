@@ -19,15 +19,12 @@
   let pendingSelect: string | null = null;
 
   function handleTouchStart(id: string, event: TouchEvent): void {
-    // Prevent if this touch is part of a scroll
     pressedId = id;
   }
 
   function handleTouchEnd(id: string): void {
     if (pressedId === id) {
-      // Item was tapped (not scrolled away)
       pendingSelect = id;
-      // Small delay to show the pressed state before navigation
       setTimeout(() => {
         pressedId = null;
         if (pendingSelect === id) {
@@ -46,7 +43,6 @@
   }
 
   function handleTouchMove(): void {
-    // User is scrolling, cancel the press
     pressedId = null;
     pendingSelect = null;
   }
@@ -64,15 +60,15 @@
       ontouchmove={handleTouchMove}
     >
       {#if showPreview}
-        <div class="note-content">
-          <div class="note-title">{note.title}</div>
-          <div class="note-preview">{note.preview}</div>
+        <div class="flex-1 min-w-0">
+          <div class="font-semibold text-base mb-1 overflow-hidden text-ellipsis whitespace-nowrap">{note.title}</div>
+          <div class="note-preview text-sm text-muted overflow-hidden text-ellipsis line-clamp-2">{note.preview}</div>
         </div>
       {:else}
-        <div class="note-title">{note.title}</div>
+        <div class="note-title font-semibold text-base overflow-hidden text-ellipsis whitespace-nowrap">{note.title}</div>
       {/if}
     </button>
   {:else}
-    <div class="empty">No notes yet. Tap + to create one.</div>
+    <div class="flex items-center justify-center h-full text-base text-gray-400 text-center p-8">No notes yet. Tap + to create one.</div>
   {/each}
 </div>

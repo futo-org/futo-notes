@@ -15,11 +15,6 @@ const config: CapacitorConfig = {
     scrollEnabled: false
   },
   plugins: {
-    CapacitorSQLite: {
-      iosDatabaseLocation: 'Library/CapacitorDatabase',
-      iosIsEncryption: false,
-      androidIsEncryption: false
-    },
     Keyboard: {
       resize: 'none',
       resizeOnFullScreen: false

@@ -1,0 +1,91 @@
+@import "tailwindcss";
+@import "./components.css" layer(components);
+@import "./markdown.css" layer(components);
+
+@theme {
+  --color-primary: #2196f3;
+  --color-text: #333;
+  --color-border: #e0e0e0;
+  --color-surface: #f5f5f5;
+  --color-muted: #888;
+  --color-bg: #fff;
+}
+
+@layer base {
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+
+  html {
+    width: 100%;
+    height: 100%;
+    height: -webkit-fill-available;
+    background: var(--color-bg);
+  }
+
+  body {
+    width: 100%;
+    height: 100%;
+    height: -webkit-fill-available;
+    min-height: 100vh;
+    min-height: -webkit-fill-available;
+    font-family: system-ui, -apple-system, sans-serif;
+    background: var(--color-bg);
+    color: var(--color-text);
+    -webkit-font-smoothing: antialiased;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    position: fixed;
+    inset: 0;
+  }
+
+  button,
+  a,
+  .note-item,
+  input {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* CodeMirror global overrides */
+  .cm-editor {
+    background: transparent !important;
+    color: var(--color-text) !important;
+    outline: none !important;
+    box-shadow: none !important;
+  }
+
+  .cm-editor.cm-focused,
+  .cm-editor:focus-within,
+  .cm-scroller,
+  .cm-content {
+    outline: none !important;
+    box-shadow: none !important;
+  }
+
+  .cm-gutters {
+    background: var(--color-surface) !important;
+    border-right: 1px solid var(--color-border) !important;
+  }
+
+  .cm-activeLineGutter {
+    background: #efefef !important;
+  }
+
+  .cm-cursor {
+    border-left-color: var(--color-primary) !important;
+  }
+
+  .cm-selectionMatch {
+    background: #e8f4ff !important;
+  }
+
+  .cm-selection {
+    background: #e8f4ff !important;
+  }
+}

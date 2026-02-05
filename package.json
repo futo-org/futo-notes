@@ -28,9 +28,11 @@
     "@codemirror/lang-markdown": "6.5.0",
     "@codemirror/language-data": "6.5.2",
     "@sveltejs/vite-plugin-svelte": "^6.2.4",
+    "@tailwindcss/vite": "^4.1.18",
     "codemirror": "6.0.2",
     "minisearch": "7.2.0",
-    "svelte": "^5.49.2"
+    "svelte": "^5.49.2",
+    "tailwindcss": "^4.1.18"
   },
   "devDependencies": {
     "@capacitor/android": "8.0.2",
@@ -38,7 +40,6 @@
     "@capacitor/ios": "8.0.2",
     "@eslint/js": "^9.39.2",
     "@playwright/test": "^1.58.1",
-    "@types/clusterize.js": "^0.18.3",
     "typescript": "5.9.3",
     "typescript-eslint": "^8.54.0",
     "vite": "7.3.1"

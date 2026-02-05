@@ -31,6 +31,7 @@ npx cap open ios                            # Open Xcode
 
 **Framework**: Svelte 5 + Capacitor 8
 **Build Tool**: Vite with @sveltejs/vite-plugin-svelte
+**CSS**: Tailwind CSS v4 (`@tailwindcss/vite` plugin, CSS-first config)
 **Editor**: CodeMirror 6 with live markdown transformations
 **Storage**: File-first - `.md` files in OS Documents directory
 **Search**: MiniSearch (in-memory, rebuilt on startup)
@@ -73,8 +74,9 @@ src/
 │   └── utils.ts                     # Filename sanitization, HTML escaping
 │
 └── styles/
-    ├── index.css                    # Main styles + safe areas
-    └── markdown.css                 # Markdown element styling
+    ├── app.css                      # Tailwind entry point (@theme tokens, @layer base)
+    ├── components.css               # Custom CSS (drawer, safe areas, CodeMirror overrides)
+    └── markdown.css                 # Markdown element styling (headings, code, quotes, tables)
 
 index.html                           # HTML entry point
 svelte.config.js                     # Svelte 5 config (runes mode)
@@ -238,7 +240,7 @@ Edit note → Auto-save to .md file → Update in-memory cache → Update search
 
 ### Safe Areas
 - Use `env(safe-area-inset-*)` in CSS for notches/home indicators
-- Already configured in `src/styles/index.css`
+- Configured in `src/styles/components.css`
 
 ## Performance Notes
 
@@ -296,8 +298,12 @@ adb logcat | grep "futo\|JS\|error"
 4. Import and use in parent component
 
 ### Change app styling
-- Global: `src/styles/index.css`
-- Markdown: `src/styles/markdown.css`
+- **Tailwind utilities**: Use directly in Svelte templates for layout/component styles
+- **Theme tokens**: `src/styles/app.css` — `@theme` block defines color tokens (primary, text, border, surface, muted, bg)
+- **Base styles**: `src/styles/app.css` — `@layer base` for html/body, CodeMirror global overrides
+- **Custom CSS**: `src/styles/components.css` — drawer system, safe areas, CodeMirror editor overrides, FAB
+- **Markdown**: `src/styles/markdown.css` — headings, code blocks, blockquotes, tables, etc.
+- **Important**: Styles in `@layer(components)` lose to CodeMirror's unlayered JS-injected CSS. Use `!important` on CodeMirror overrides (`.cm-line`, `.cm-content`, `.cm-editor`, etc.)
 
 ### Modify storage behavior
 - File operations: `src/lib/fileSystem.ts`
