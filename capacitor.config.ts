@@ -11,13 +11,18 @@ const config: CapacitorConfig = {
     useSafeArea: true
   },
   ios: {
-    contentInset: 'always'
+    contentInset: 'never',
+    scrollEnabled: false
   },
   plugins: {
     CapacitorSQLite: {
       iosDatabaseLocation: 'Library/CapacitorDatabase',
       iosIsEncryption: false,
       androidIsEncryption: false
+    },
+    Keyboard: {
+      resize: 'none',
+      resizeOnFullScreen: false
     }
   }
 };

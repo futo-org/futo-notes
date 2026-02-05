@@ -620,18 +620,16 @@ Escaped pipes:
   <!-- Main content -->
   <div class="note-main">
     <div class="note-body">
-      <div class="note-title-row">
-        <input
-          type="text"
-          class="title-input"
-          placeholder={noteId ? 'Untitled' : 'Select a note'}
-          disabled={!noteId}
-          bind:value={title}
-          oninput={debouncedSave}
-        />
-      </div>
-
       {#if noteId}
+        <div class="note-title-row">
+          <input
+            type="text"
+            class="title-input"
+            placeholder="Untitled"
+            bind:value={title}
+            oninput={debouncedSave}
+          />
+        </div>
         <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
         <div class="editor-container" onclick={handleEditorContainerClick}>
           <MarkdownEditor
@@ -642,7 +640,6 @@ Escaped pipes:
         </div>
       {:else}
         <div class="note-empty">
-          <div class="note-empty-title">No note selected</div>
           <div class="note-empty-subtitle">Swipe from the left edge or tap the menu to browse notes.</div>
           <button class="note-empty-action" onclick={() => setDrawerOpen(true)}>Browse notes</button>
         </div>

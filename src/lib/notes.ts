@@ -34,8 +34,10 @@ async function rebuildFromFiles(): Promise<void> {
     const id = file.name.replace(/\.md$/, '');
     try {
       const content = await readNote(id);
-      const firstLine = content.split('\n')[0] || '';
-      const title = firstLine.replace(/^#*\s*/, '') || id;
+      // Title is derived from filename: convert dashes/underscores to spaces, capitalize words
+      const title = id
+        .replace(/[-_]/g, ' ')
+        .replace(/\b\w/g, c => c.toUpperCase());
       const preview = content.slice(0, 100).replace(/\n/g, ' ');
 
       notesCache.push({

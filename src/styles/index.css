@@ -6,9 +6,19 @@
   box-sizing: border-box;
 }
 
-html, body {
+html {
   width: 100%;
   height: 100%;
+  height: -webkit-fill-available;
+  background: #fff;
+}
+
+body {
+  width: 100%;
+  height: 100%;
+  height: -webkit-fill-available;
+  min-height: 100vh;
+  min-height: -webkit-fill-available;
   font-family: system-ui, -apple-system, sans-serif;
   background: #fff;
   color: #333;
@@ -18,6 +28,10 @@ html, body {
   user-select: none;
   margin: 0;
   padding: 0;
+  overflow: hidden;
+  /* Prevent iOS keyboard from pushing content */
+  position: fixed;
+  inset: 0;
 }
 
 button,
@@ -28,17 +42,18 @@ input {
   -webkit-tap-highlight-color: transparent;
 }
 
-body {
-  display: flex;
-  min-height: 100%;
-  min-height: 100dvh;
-}
-
 #app {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
   width: 100%;
   height: 100%;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+  background: #fff;
 }
 
 /* Notes Screen */
@@ -128,10 +143,14 @@ body {
   justify-content: space-between;
   align-items: center;
   padding: 12px 16px;
+  border: none;
   border-bottom: 1px solid #f0f0f0;
+  background: transparent;
   cursor: pointer;
   user-select: none;
   box-sizing: border-box;
+  font-family: inherit;
+  font-size: inherit;
   /* Default height for standalone list with preview (72px) */
   height: 72px;
 }
@@ -267,11 +286,11 @@ body {
   overflow: visible;
   background: #fff;
   overflow-x: hidden;
-  flex: 1;
-  min-height: 300px;
+  flex: 1 0 auto;
+  min-height: 50vh;
   padding-left: max(16px, calc(16px + env(safe-area-inset-left)));
   padding-right: max(16px, calc(16px + env(safe-area-inset-right)));
-  padding-bottom: max(300px, calc(50vh + env(safe-area-inset-bottom)));
+  padding-bottom: max(200px, calc(40vh + env(safe-area-inset-bottom, 0)));
 }
 
 .editor-container .cm-editor {
@@ -300,25 +319,25 @@ body {
 
 /* Notes Shell */
 .notes-shell {
-  position: relative;
-  width: 100%;
-  height: 100%;
+  position: absolute;
+  inset: 0;
   overflow: hidden;
+  background: #fff;
   --drawer-width: min(320px, 85vw);
   --drawer-offset: 0px;
   --drawer-bg: #ffffff;
 }
 
 .note-main {
-  position: relative;
+  position: absolute;
+  inset: 0;
   display: flex;
   flex-direction: column;
-  height: 100%;
-  width: 100%;
   transform: translateX(var(--drawer-offset));
   transition: transform 0.25s ease;
   will-change: transform;
   background-color: var(--drawer-bg);
+  overflow: hidden;
 }
 
 .drawer-toggle {
@@ -336,7 +355,7 @@ body {
 }
 
 .drawer-toggle.floating {
-  position: fixed;
+  position: absolute;
   top: max(12px, calc(12px + env(safe-area-inset-top)));
   left: max(12px, calc(12px + env(safe-area-inset-left)));
   width: 44px;
@@ -361,14 +380,16 @@ body {
   overscroll-behavior-x: none;
   touch-action: pan-y;
   background: #fff;
+  padding-bottom: env(safe-area-inset-bottom, 0);
 }
 
 .note-title-row {
   padding: 16px;
-  padding-top: max(128px, calc(16px + env(safe-area-inset-top)));
+  padding-top: calc(64px + env(safe-area-inset-top, 0));
   padding-left: max(16px, calc(16px + env(safe-area-inset-left)));
   padding-right: max(16px, calc(16px + env(safe-area-inset-right)));
   padding-bottom: 4px;
+  flex-shrink: 0;
 }
 
 .note-title-row .title-input {
@@ -387,8 +408,7 @@ body {
 }
 
 .note-empty {
-  position: absolute;
-  inset: 0;
+  flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -425,7 +445,7 @@ body {
 }
 
 .notes-drawer {
-  position: fixed;
+  position: absolute;
   top: 0;
   left: 0;
   bottom: 0;
@@ -437,17 +457,12 @@ body {
   z-index: 30;
   display: flex;
   flex-direction: column;
-  padding-bottom: max(24px, calc(24px + env(safe-area-inset-bottom)));
 }
 
 .drawer-overlay {
-  position: fixed;
-  top: 0;
-  bottom: 0;
-  left: var(--drawer-width);
-  right: 0;
+  position: absolute;
+  inset: 0;
   background: transparent;
-  opacity: 1;
   pointer-events: none;
   z-index: 15;
 }
@@ -462,6 +477,21 @@ body {
   transition: none;
 }
 
+.notes-shell.drawer-dragging .editor-container,
+.notes-shell.drawer-dragging .title-input {
+  pointer-events: none;
+}
+
+.notes-shell.drawer-dragging .note-body {
+  overflow: hidden !important;
+  touch-action: none;
+}
+
+.notes-shell.drawer-open .editor-container,
+.notes-shell.drawer-open .title-input {
+  pointer-events: none;
+}
+
 /* Legacy drawer notes-list support - now using notes-list-scroll */
 
 .notes-drawer .fab {
@@ -474,20 +504,24 @@ body {
   flex: 1;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  padding: max(16px, calc(16px + env(safe-area-inset-top))) 12px 72px;
+  padding: max(16px, calc(16px + env(safe-area-inset-top))) 12px calc(80px + env(safe-area-inset-bottom, 0));
 }
 
 .notes-drawer .note-item {
+  border: none;
   border-bottom: none;
   padding: 7px 12px;
   border-radius: 999px;
   margin: 0;
   height: 48px;
   box-sizing: border-box;
+  background: transparent;
+  width: 100%;
+  text-align: left;
 }
 
-.notes-drawer .note-item:active {
-  background: #f5f5f5;
+.notes-drawer .note-item.pressed {
+  background: #e8e8e8;
 }
 
 .notes-drawer .note-title {
@@ -500,7 +534,11 @@ body {
 }
 
 .notes-drawer .note-item.selected {
-  background: #eef3ff;
+  background: #e3edff;
+}
+
+.notes-drawer .note-item.selected:active {
+  background: #d4e2ff;
 }
 
 .title-input:disabled {
