@@ -18,11 +18,7 @@
   let container: HTMLDivElement;
   let view: EditorView | null = $state(null);
 
-  // Scroll compensation state — shared between CM updateListener and scroll handler.
-  // Tracks an "anchor" line at the top of the viewport. When CM recalculates
-  // line heights (rendering off-screen wrapped lines), the anchor's document-relative
-  // top shifts. We compensate by adjusting scrollParent.scrollTop by the delta,
-  // keeping the visible content in place.
+  // Scroll compensation — see docs/devlog.md
   let anchorPos = -1;
   let anchorBlockTop = 0;
   let compensating = false;
@@ -46,7 +42,6 @@
   }
 
   $effect(() => {
-    // content is read synchronously — tracked as $effect dependency
     preloadImages(content);
 
     // Reset anchor state for new editor
@@ -70,12 +65,9 @@
         },
         '.cm-focused': { outline: 'none' }
       }),
-      // Scroll compensation: when CM recalculates heights (e.g. after rendering
-      // wrapped lines that were previously estimated), adjust the scroll parent
-      // to cancel the visible shift. This fires within the same rAF as CM's
-      // measure cycle, so the correction happens before the browser paints.
+      // Scroll compensation (see docs/devlog.md)
       EditorView.updateListener.of(update => {
-        const sp = scrollParent; // lazy read — not tracked as $effect dependency
+        const sp = scrollParent;
         if (!sp) return;
 
         // Only compensate for rendering-induced height changes, not user edits
@@ -94,7 +86,6 @@
 
         updateScrollAnchor(update.view);
       }),
-      // Change listener — reads onchange lazily to avoid it being an $effect dependency
       EditorView.updateListener.of(update => {
         if (update.docChanged && onchange) {
           onchange(update.state.doc.toString());
@@ -118,8 +109,6 @@
     };
   });
 
-  // Separate effect: attach scroll listener to scrollParent to keep anchor fresh.
-  // Depends on view and scrollParent, re-runs when either changes.
   $effect(() => {
     const v = view;
     const sp = scrollParent;

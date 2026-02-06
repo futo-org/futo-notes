@@ -20,12 +20,7 @@ interface TableFieldValue {
   treeLength: number;
 }
 
-/**
- * StateField that renders tables as HTML widgets when cursor is outside.
- * Must be StateField (not ViewPlugin) because block replacements require
- * decorations to be computed before viewport calculation.
- * Tree length is tracked inline to avoid async setTimeout dispatches.
- */
+/** StateField — block replacements must be computed before viewport calculation. */
 const tableRenderingField = StateField.define<TableFieldValue>({
   create(state): TableFieldValue {
     // Force full parse so table decorations are present from the start

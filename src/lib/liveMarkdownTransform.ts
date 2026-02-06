@@ -80,7 +80,7 @@ class TaskCheckboxWidget extends WidgetType {
   }
 
   get estimatedHeight(): number {
-    return 0; // inline widget, no height contribution
+    return 0;
   }
 
   eq(other: any): boolean {
@@ -187,7 +187,7 @@ class HiddenWidget extends WidgetType {
   }
 
   get estimatedHeight(): number {
-    return 0; // display:none, contributes zero height
+    return 0;
   }
 
   eq(): boolean {
@@ -209,7 +209,7 @@ class BulletWidget extends WidgetType {
   }
 
   get estimatedHeight(): number {
-    return 0; // inline widget, no height contribution
+    return 0;
   }
 
   eq(other: any): boolean {
@@ -231,7 +231,7 @@ class NumberWidget extends WidgetType {
   }
 
   get estimatedHeight(): number {
-    return 0; // inline widget, no height contribution
+    return 0;
   }
 
   eq(other: any): boolean {
