@@ -76,26 +76,15 @@
 }
 
 .cm-line.cm-md-code-block-single {
-  border-radius: 4px;
-  margin-top: 4px;
-  margin-bottom: 4px;
+  padding-top: 8px;
+  padding-bottom: 8px;
 }
 
 .cm-line.cm-md-code-block-first {
-  border-top-left-radius: 4px;
-  border-top-right-radius: 4px;
-  margin-top: 4px;
   padding-top: 8px;
 }
 
-.cm-line.cm-md-code-block-middle {
-  border-radius: 0;
-}
-
 .cm-line.cm-md-code-block-last {
-  border-bottom-left-radius: 4px;
-  border-bottom-right-radius: 4px;
-  margin-bottom: 4px;
   padding-bottom: 8px;
 }
 
@@ -118,80 +107,24 @@
 
 /* Block quotes - unified styling via line decorations */
 .cm-line.cm-md-quote {
-  padding-left: 18px !important;
+  padding-left: 15px !important;
   color: #666;
   font-style: italic;
   margin-left: 0;
-  position: relative;
-  overflow: visible;
+  border-left: 3px solid #3b82f6;
 }
 
-/* Level 1: single blue line - always extend to connect */
-.cm-line.cm-md-quote::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: -10px;
-  bottom: -10px;
-  width: 3px;
-  background: #3b82f6;
-  z-index: 1;
-}
-
-/* Only clip at the very start/end of the entire blockquote */
-.cm-line.cm-md-quote-first:not(.cm-md-quote-level-2):not(.cm-md-quote-level-3)::before {
-  top: 0;
-}
-
-.cm-line.cm-md-quote-last:not(.cm-md-quote-level-2):not(.cm-md-quote-level-3)::before {
-  bottom: 0;
-}
-
-.cm-line.cm-md-quote-single {
-  margin-top: 4px;
-  margin-bottom: 4px;
-}
-
-.cm-line.cm-md-quote-first {
-  margin-top: 4px;
-}
-
-.cm-line.cm-md-quote-last {
-  margin-bottom: 4px;
-}
-
-/* Level 2: two blue lines */
+/* Level 2: double blue line via box-shadow (no pseudo-elements) */
 .cm-line.cm-md-quote-level-2 {
-  padding-left: 30px !important;
+  padding-left: 27px !important;
+  box-shadow: inset 15px 0 0 0 transparent, inset 18px 0 0 0 #3b82f6;
 }
 
-.cm-line.cm-md-quote-level-2::after {
-  content: '';
-  position: absolute;
-  left: 12px;
-  top: -10px;
-  bottom: -10px;
-  width: 3px;
-  background: #3b82f6;
-  z-index: 1;
-}
-
-/* Level 3: three blue lines - use box-shadow for third line */
+/* Level 3: triple blue line */
 .cm-line.cm-md-quote-level-3 {
-  padding-left: 42px !important;
-}
-
-.cm-line.cm-md-quote-level-3::after {
-  content: '';
-  position: absolute;
-  left: 12px;
-  top: -10px;
-  bottom: -10px;
-  width: 3px;
-  background: #3b82f6;
-  z-index: 1;
-  /* Add third line via box-shadow */
-  box-shadow: 12px 0 0 0 #3b82f6;
+  padding-left: 39px !important;
+  box-shadow: inset 15px 0 0 0 transparent, inset 18px 0 0 0 #3b82f6,
+              inset 27px 0 0 0 transparent, inset 30px 0 0 0 #3b82f6;
 }
 
 /* Unordered list items */
@@ -230,10 +163,14 @@
 }
 
 /* Image widget */
+.cm-md-image-wrapper {
+  margin: 8px 0;
+  overflow: hidden;
+}
+
 .cm-md-image-widget {
   max-width: 100%;
   max-height: 300px;
-  margin: 8px 0;
   border-radius: 4px;
   display: block;
 }
@@ -241,7 +178,6 @@
 /* Table rendering - scrollable wrapper */
 .cm-md-table-wrapper {
   display: block;
-  position: relative;
   overflow-x: auto;
   overflow-y: hidden;
   overscroll-behavior-x: contain;
@@ -282,9 +218,10 @@
   background: #f0f7ff;
 }
 
-/* Click hint on hover */
+/* Click hint on hover - use outline instead of box-shadow to avoid repaint */
 .cm-md-table-wrapper:hover {
-  box-shadow: 0 0 0 2px #3b82f6;
+  outline: 2px solid #3b82f6;
+  outline-offset: 0;
 }
 
 /* Inline formatting within tables */

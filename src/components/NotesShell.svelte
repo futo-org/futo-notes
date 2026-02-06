@@ -7,6 +7,7 @@
   import { getAllNotes, updateNote, readNote, createNote, getNoteById } from '$lib/notes';
   import { sanitizeFilename } from '$lib/utils';
   import { navigate } from '../router';
+  import { SCROLL_TEST_NOTES } from '$lib/scrollTestNotes';
 
   const GFM_TEST_CONTENT = `# GFM Syntax Test Note
 
@@ -258,6 +259,7 @@ Escaped pipes:
   let editor: ReturnType<typeof MarkdownEditor> | null = $state(null);
   let shell: HTMLElement | undefined = $state(undefined);
   let drawer: HTMLElement | undefined = $state(undefined);
+  let noteBody: HTMLElement | undefined = $state(undefined);
 
   let drawerWidth = $state(0);
   let saveTimeout: number | null = null;
@@ -343,6 +345,10 @@ Escaped pipes:
     if (!isNative) return;
     const noteTitle = 'Markdown test note';
     await createNote(sanitizeFilename(noteTitle), GFM_TEST_CONTENT);
+    // Also create scroll test notes for performance testing
+    for (const note of SCROLL_TEST_NOTES) {
+      await createNote(sanitizeFilename(note.title), note.content);
+    }
     refreshNotesList();
   }
 
@@ -627,7 +633,7 @@ Escaped pipes:
   <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
   <!-- Main content -->
   <div class="note-main" style="filter: {drawerDim}" onclick={() => { if (drawerOpen) setDrawerOpen(false); }}>
-    <div class="note-body">
+    <div class="note-body" bind:this={noteBody}>
       {#if noteId}
         <div class="note-title-row">
           <input
@@ -648,6 +654,7 @@ Escaped pipes:
             bind:this={editor}
             {content}
             onchange={debouncedSave}
+            scrollParent={noteBody ?? null}
           />
         </div>
       {:else}

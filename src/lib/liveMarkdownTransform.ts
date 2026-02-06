@@ -7,7 +7,7 @@ import {
   WidgetType,
   ViewUpdate
 } from '@codemirror/view';
-import { syntaxTree } from '@codemirror/language';
+import { syntaxTree, ensureSyntaxTree } from '@codemirror/language';
 
 // Widget Classes
 class HorizontalRuleWidget extends WidgetType {
@@ -22,6 +22,10 @@ class HorizontalRuleWidget extends WidgetType {
     `;
     hr.appendChild(line);
     return hr;
+  }
+
+  get estimatedHeight(): number {
+    return 18; // 2px border + 8px margin top + 8px margin bottom
   }
 
   eq(): boolean {
@@ -75,6 +79,10 @@ class TaskCheckboxWidget extends WidgetType {
     return wrapper;
   }
 
+  get estimatedHeight(): number {
+    return 0; // inline widget, no height contribution
+  }
+
   eq(other: any): boolean {
     return other instanceof TaskCheckboxWidget && other.checked === this.checked;
   }
@@ -84,23 +92,82 @@ class TaskCheckboxWidget extends WidgetType {
   }
 }
 
+// Cache image dimensions to avoid layout shift on widget recreation
+const imageSizeCache = new Map<string, { width: number; height: number }>();
+
+// Max display width for images (matches CSS max-width: 100% within editor)
+const MAX_IMAGE_HEIGHT = 300; // matches CSS max-height
+
+/**
+ * Preload all images found in markdown text and cache their dimensions.
+ * Call this when a note is opened so images are ready before the user scrolls.
+ */
+export function preloadImages(markdownText: string): void {
+  const imageRegex = /!\[[^\]]*\]\(([^\s)]+)(?:\s+"[^"]*")?\)/g;
+  let match;
+  while ((match = imageRegex.exec(markdownText)) !== null) {
+    const url = match[1];
+    if (imageSizeCache.has(url)) continue;
+
+    const img = new Image();
+    img.src = url;
+    img.onload = () => {
+      if (imageSizeCache.has(url)) return;
+      // Compute display size respecting max-height constraint
+      let w = img.naturalWidth;
+      let h = img.naturalHeight;
+      if (h > MAX_IMAGE_HEIGHT) {
+        w = Math.round(w * (MAX_IMAGE_HEIGHT / h));
+        h = MAX_IMAGE_HEIGHT;
+      }
+      imageSizeCache.set(url, { width: w, height: h });
+    };
+  }
+}
+
 class ImageWidget extends WidgetType {
   constructor(private alt: string, private src: string) {
     super();
   }
 
+  get estimatedHeight(): number {
+    const cached = imageSizeCache.get(this.src);
+    return cached ? cached.height : 200;
+  }
+
   toDOM(): HTMLElement {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'cm-md-image-wrapper';
+
+    const cached = imageSizeCache.get(this.src);
+    if (cached) {
+      wrapper.style.cssText = `height: ${cached.height}px;`;
+    } else {
+      wrapper.style.cssText = `min-height: 200px;`;
+    }
+
     const img = document.createElement('img');
     img.alt = this.alt;
     img.src = this.src;
     img.className = 'cm-md-image-widget';
-    img.style.cssText = `
-      max-width: 100%;
-      max-height: 300px;
-      margin: 8px 0;
-      border-radius: 4px;
-    `;
-    return img;
+
+    if (cached) {
+      img.width = cached.width;
+      img.height = cached.height;
+    }
+
+    img.onload = () => {
+      if (!imageSizeCache.has(this.src)) {
+        const displayWidth = img.offsetWidth;
+        const displayHeight = img.offsetHeight;
+        imageSizeCache.set(this.src, { width: displayWidth, height: displayHeight });
+      }
+      // Always sync wrapper height to actual rendered size
+      wrapper.style.cssText = `height: ${img.offsetHeight}px;`;
+    };
+
+    wrapper.appendChild(img);
+    return wrapper;
   }
 
   eq(other: any): boolean {
@@ -117,6 +184,10 @@ class HiddenWidget extends WidgetType {
     const span = document.createElement('span');
     span.style.display = 'none';
     return span;
+  }
+
+  get estimatedHeight(): number {
+    return 0; // display:none, contributes zero height
   }
 
   eq(): boolean {
@@ -137,6 +208,10 @@ class BulletWidget extends WidgetType {
     return span;
   }
 
+  get estimatedHeight(): number {
+    return 0; // inline widget, no height contribution
+  }
+
   eq(other: any): boolean {
     return other instanceof BulletWidget && other.indent === this.indent;
   }
@@ -153,6 +228,10 @@ class NumberWidget extends WidgetType {
     span.textContent = `${this.num}.`;
     span.style.cssText = `margin-right: 8px; color: #666; font-weight: 500; margin-left: ${this.indent * 16}px;`;
     return span;
+  }
+
+  get estimatedHeight(): number {
+    return 0; // inline widget, no height contribution
   }
 
   eq(other: any): boolean {
@@ -214,6 +293,9 @@ class LiveMarkdownPlugin implements PluginValue {
   lastTreeLength: number = 0;
 
   constructor(view: EditorView) {
+    // Force full parse so all decorations are present from the start,
+    // preventing scroll jumps from height estimation mismatches
+    ensureSyntaxTree(view.state, view.state.doc.length, 5000);
     this.lastTreeLength = syntaxTree(view.state).length;
     this.decorations = this.buildDecorations(view);
   }
@@ -226,12 +308,9 @@ class LiveMarkdownPlugin implements PluginValue {
       this.lastTreeLength = tree.length;
     }
 
-    if (
-      update.docChanged ||
-      update.selectionSet ||
-      update.focusChanged ||
-      treeGrew
-    ) {
+    const shouldRebuild = update.docChanged || update.selectionSet || update.focusChanged || treeGrew;
+
+    if (shouldRebuild) {
       this.decorations = this.buildDecorations(update.view);
     }
   }
@@ -243,7 +322,7 @@ class LiveMarkdownPlugin implements PluginValue {
     // Get syntax tree
     const tree = syntaxTree(view.state);
 
-    // Iterate through tree
+    // Iterate through full tree
     tree.iterate({
       enter: (node) => {
         const nodeName = node.name;

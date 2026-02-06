@@ -139,9 +139,11 @@ function renderInlineMarkdown(text: string): string {
 export class TableWidget extends WidgetType {
   private table: ParsedTable;
   private tableFrom: number;
+  private sourceText: string;
 
   constructor(text: string, from: number, _to: number) {
     super();
+    this.sourceText = text;
     this.table = parseMarkdownTable(text) || { headers: [], rows: [], alignments: [] };
     this.tableFrom = from;
   }
@@ -244,25 +246,7 @@ export class TableWidget extends WidgetType {
   }
 
   eq(other: TableWidget): boolean {
-    // Compare based on table content
-    if (!(other instanceof TableWidget)) return false;
-    if (this.table.headers.length !== other.table.headers.length) return false;
-    if (this.table.rows.length !== other.table.rows.length) return false;
-
-    // Compare headers
-    for (let i = 0; i < this.table.headers.length; i++) {
-      if (this.table.headers[i].content !== other.table.headers[i].content) return false;
-      if (this.table.headers[i].align !== other.table.headers[i].align) return false;
-    }
-
-    // Compare rows
-    for (let i = 0; i < this.table.rows.length; i++) {
-      for (let j = 0; j < this.table.rows[i].length; j++) {
-        if (this.table.rows[i][j].content !== other.table.rows[i][j].content) return false;
-      }
-    }
-
-    return true;
+    return other instanceof TableWidget && this.sourceText === other.sourceText;
   }
 
   get estimatedHeight(): number {

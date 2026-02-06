@@ -1,6 +1,6 @@
-import { StateField, StateEffect, EditorState, RangeSet } from '@codemirror/state';
-import { Decoration, DecorationSet, EditorView, ViewPlugin, ViewUpdate } from '@codemirror/view';
-import { syntaxTree } from '@codemirror/language';
+import { StateField, RangeSet, EditorState } from '@codemirror/state';
+import { Decoration, DecorationSet, EditorView } from '@codemirror/view';
+import { syntaxTree, ensureSyntaxTree } from '@codemirror/language';
 import { TableWidget } from './tableWidget';
 
 /**
@@ -15,49 +15,44 @@ function isCursorInRange(state: EditorState, from: number, to: number): boolean 
   return false;
 }
 
-// Effect to trigger table decoration rebuild when syntax tree grows
-const rebuildTablesEffect = StateEffect.define<null>();
+interface TableFieldValue {
+  decorations: DecorationSet;
+  treeLength: number;
+}
 
 /**
  * StateField that renders tables as HTML widgets when cursor is outside.
  * Must be StateField (not ViewPlugin) because block replacements require
  * decorations to be computed before viewport calculation.
+ * Tree length is tracked inline to avoid async setTimeout dispatches.
  */
-const tableRenderingField = StateField.define<DecorationSet>({
-  create(state): DecorationSet {
-    return buildTableDecorations(state);
+const tableRenderingField = StateField.define<TableFieldValue>({
+  create(state): TableFieldValue {
+    // Force full parse so table decorations are present from the start
+    ensureSyntaxTree(state, state.doc.length, 5000);
+    const tree = syntaxTree(state);
+    return {
+      decorations: buildTableDecorations(state),
+      treeLength: tree.length
+    };
   },
 
-  update(decorations, tr): DecorationSet {
-    if (tr.docChanged || tr.selection || tr.effects.some(e => e.is(rebuildTablesEffect))) {
-      return buildTableDecorations(tr.state);
+  update(value, tr): TableFieldValue {
+    const tree = syntaxTree(tr.state);
+    const treeGrew = tree.length > value.treeLength;
+
+    if (tr.docChanged || tr.selection || treeGrew) {
+      return {
+        decorations: buildTableDecorations(tr.state),
+        treeLength: tree.length
+      };
     }
-    return decorations;
+    return value;
   },
 
   provide(field) {
-    return EditorView.decorations.from(field);
+    return EditorView.decorations.from(field, v => v.decorations);
   }
-});
-
-/**
- * ViewPlugin that watches for syntax tree growth and triggers rebuilds.
- */
-const tableTreeWatcher = ViewPlugin.define(view => {
-  let lastTreeLength = syntaxTree(view.state).length;
-
-  return {
-    update(update: ViewUpdate) {
-      const tree = syntaxTree(update.state);
-      if (tree.length > lastTreeLength) {
-        lastTreeLength = tree.length;
-        // Use setTimeout to avoid dispatch during update
-        setTimeout(() => {
-          update.view.dispatch({ effects: rebuildTablesEffect.of(null) });
-        }, 0);
-      }
-    }
-  };
 });
 
 function buildTableDecorations(state: EditorState): DecorationSet {
@@ -94,5 +89,4 @@ function buildTableDecorations(state: EditorState): DecorationSet {
   );
 }
 
-// Export both extensions
-export const tableRendering = [tableRenderingField, tableTreeWatcher];
+export const tableRendering = tableRenderingField;

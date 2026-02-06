@@ -336,6 +336,16 @@ When running `npm run test`, always:
 2. Use `| head -N` to limit output
 3. Run specific tests with `--grep "test name"` to reduce runtime
 
+## Engineering Log
+
+Detailed write-ups of significant problems and solutions live in [`docs/devlog.md`](docs/devlog.md). These serve as institutional knowledge for future debugging sessions.
+
+### 2026-02-06 — Scroll jumping with CM6 external scroll container
+**Problem**: Visible scroll jumps when scrolling notes with wrapped lines + live decorations.
+**Root cause**: `.cm-scroller` has `overflow: visible` (so title scrolls with editor), which means CM6's built-in scroll compensation (`scrollDOM.scrollTop += adjust`) is a no-op. Height estimation mismatches go uncompensated.
+**Solution**: Real-time scroll compensation — track an anchor line at the viewport top, detect when CM's height recalculation shifts it, adjust `scrollParent.scrollTop` by the delta. Runs within CM's rAF measure cycle (before paint), so corrections are invisible.
+**Key takeaway**: When using CM6 with an external scroll container, you must implement your own scroll compensation. `lineBlockAtHeight()` and `lineBlockAt()` are the right APIs.
+
 ## Next Steps
 
 - [ ] Dark mode support (CSS vars already prepared)
