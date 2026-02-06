@@ -266,6 +266,49 @@
   -webkit-overflow-scrolling: touch;
 }
 
+/* Markdown Toolbar */
+.markdown-toolbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 8px;
+  padding-left: max(8px, env(safe-area-inset-left));
+  padding-right: max(8px, env(safe-area-inset-right));
+  background: #f0f0f0;
+  border-top: 1px solid #d4d4d4;
+  z-index: 1000;
+}
+
+.toolbar-btn {
+  width: 44px;
+  height: 36px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  font-size: 17px;
+  font-family: system-ui, -apple-system, sans-serif;
+  color: #333;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.toolbar-btn:active {
+  background: #d8d8d8;
+}
+
+.toolbar-strikethrough {
+  text-decoration: line-through;
+}
+
 /* Mobile adjustments for custom classes */
 @media (max-width: 480px) {
   .note-item {

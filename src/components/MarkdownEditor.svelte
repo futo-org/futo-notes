@@ -82,6 +82,10 @@
   export function hasFocus(): boolean {
     return view?.hasFocus ?? false;
   }
+
+  export function getView(): EditorView | null {
+    return view;
+  }
 </script>
 
 <div bind:this={container}></div>

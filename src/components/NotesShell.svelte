@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Capacitor, registerPlugin } from '@capacitor/core';
   import MarkdownEditor from './MarkdownEditor.svelte';
+  import MarkdownToolbar from './MarkdownToolbar.svelte';
   import VirtualList from './VirtualList.svelte';
   import type { NotePreview } from '../types';
   import { getAllNotes, updateNote, readNote, createNote, getNoteById } from '$lib/notes';
@@ -657,4 +658,9 @@ Escaped pipes:
       {/if}
     </div>
   </div>
+
+  <MarkdownToolbar
+    getView={() => editor?.getView() ?? null}
+    noteOpen={noteId !== null}
+  />
 </div>
