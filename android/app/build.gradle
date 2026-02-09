@@ -1,5 +1,10 @@
 apply plugin: 'com.android.application'
 
+// Derive version from git tags (single source of truth)
+def gitVersion = "git describe --tags --abbrev=0".execute(null, rootDir).text.trim().replaceFirst('^v', '') ?: "0.0.0"
+def (major, minor, patch) = gitVersion.tokenize('.').collect { it as int }
+def gitVersionCode = major * 10000 + minor * 100 + patch
+
 android {
     namespace = "com.futo.notes"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -7,8 +12,8 @@ android {
         applicationId "com.futo.notes"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode project.hasProperty('VERSION_CODE') ? project.property('VERSION_CODE') as int : 1
-        versionName project.hasProperty('VERSION_NAME') ? project.property('VERSION_NAME') : "1.0"
+        versionCode project.hasProperty('VERSION_CODE') ? project.property('VERSION_CODE') as int : gitVersionCode
+        versionName project.hasProperty('VERSION_NAME') ? project.property('VERSION_NAME') : gitVersion
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
