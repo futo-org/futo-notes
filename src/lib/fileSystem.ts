@@ -1,4 +1,7 @@
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
+// Documents directory — on iOS visible in Files app → On My iPhone → FUTO Notes
+// On Android, stored in public Documents folder (scoped storage on Android 11+)
+const notesDirectory = Directory.Documents;
 
 export interface NoteFile {
   name: string;
@@ -8,7 +11,7 @@ export interface NoteFile {
 export async function listNoteFiles(): Promise<NoteFile[]> {
   const result = await Filesystem.readdir({
     path: '',
-    directory: Directory.Documents
+    directory: notesDirectory
   });
   return result.files
     .filter(f => f.name.endsWith('.md'))
@@ -18,7 +21,7 @@ export async function listNoteFiles(): Promise<NoteFile[]> {
 export async function readNote(id: string): Promise<string> {
   const result = await Filesystem.readFile({
     path: `${id}.md`,
-    directory: Directory.Documents,
+    directory: notesDirectory,
     encoding: Encoding.UTF8
   });
   return result.data as string;
@@ -28,7 +31,7 @@ export async function writeNote(id: string, content: string): Promise<number> {
   await Filesystem.writeFile({
     path: `${id}.md`,
     data: content,
-    directory: Directory.Documents,
+    directory: notesDirectory,
     encoding: Encoding.UTF8
   });
   return Date.now();
@@ -37,7 +40,7 @@ export async function writeNote(id: string, content: string): Promise<number> {
 export async function deleteNoteFile(id: string): Promise<void> {
   await Filesystem.deleteFile({
     path: `${id}.md`,
-    directory: Directory.Documents
+    directory: notesDirectory
   });
 }
 
@@ -45,7 +48,7 @@ export async function noteExists(id: string): Promise<boolean> {
   try {
     await Filesystem.stat({
       path: `${id}.md`,
-      directory: Directory.Documents
+      directory: notesDirectory
     });
     return true;
   } catch {
