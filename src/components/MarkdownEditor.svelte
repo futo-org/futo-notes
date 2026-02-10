@@ -153,6 +153,11 @@
       autoLinkHighlight,
       tableRendering,
       linkClickHandler,
+      EditorView.contentAttributes.of({
+        autocorrect: 'on',
+        autocapitalize: 'sentences',
+        spellcheck: 'true'
+      }),
       EditorView.lineWrapping,
       EditorView.theme({
         '&': { height: 'auto', fontSize: '16px' },
