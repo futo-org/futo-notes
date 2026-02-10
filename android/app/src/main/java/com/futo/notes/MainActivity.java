@@ -16,6 +16,7 @@ public class MainActivity extends BridgeActivity {
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     registerPlugin(DrawerBackPlugin.class);
+    registerPlugin(FolderImportPlugin.class);
     super.onCreate(savedInstanceState);
     setupBackCallbacks();
   }

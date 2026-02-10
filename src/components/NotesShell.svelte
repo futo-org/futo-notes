@@ -2,6 +2,7 @@
   import { Capacitor, registerPlugin } from '@capacitor/core';
   import MarkdownEditor from './MarkdownEditor.svelte';
   import MarkdownToolbar from './MarkdownToolbar.svelte';
+  import SettingsScreen from './SettingsScreen.svelte';
   import VirtualList from './VirtualList.svelte';
   import type { NotePreview } from '../types';
   import { getAllNotes, updateNote, readNote, createNote, getNoteById } from '$lib/notes';
@@ -282,6 +283,29 @@ Escaped pipes:
   // FAB long-press
   let fabPressTimer: number | null = null;
   let ignoreFabClick = false;
+
+  // Settings
+  let settingsOpen = $state(false);
+
+  // Toast
+  let toastMessage = $state('');
+  let toastTimer: number | null = null;
+
+  function showToast(message: string): void {
+    if (toastTimer !== null) clearTimeout(toastTimer);
+    toastMessage = message;
+    toastTimer = window.setTimeout(() => { toastMessage = ''; toastTimer = null; }, 3000);
+  }
+
+  function handleImported(count: number): void {
+    refreshNotesList();
+    settingsOpen = false;
+    if (count > 0) {
+      showToast(`Imported ${count} notes`);
+    } else {
+      showToast('All notes deleted');
+    }
+  }
 
   function updateDrawerMetrics(): void {
     if (drawer) {
@@ -661,6 +685,11 @@ Escaped pipes:
       onselect={handleNoteSelect}
     />
     <button
+      class="settings-fab"
+      aria-label="Settings"
+      onclick={() => { settingsOpen = true; }}
+    >&#9881;</button>
+    <button
       class="fab"
       aria-label="New note"
       ontouchstart={handleFabTouchStart}
@@ -722,3 +751,11 @@ Escaped pipes:
     noteOpen={noteId !== null}
   />
 </div>
+
+{#if settingsOpen}
+  <SettingsScreen onclose={() => { settingsOpen = false; }} onimported={handleImported} />
+{/if}
+
+{#if toastMessage}
+  <div class="toast">{toastMessage}</div>
+{/if}
