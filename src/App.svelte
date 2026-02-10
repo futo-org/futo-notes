@@ -28,8 +28,15 @@
       try {
         if (Capacitor.isNativePlatform()) {
           await initNotes();
-          await StatusBar.setStyle({ style: Style.Light });
-          await StatusBar.setBackgroundColor({ color: '#ffffff' });
+          try {
+            if (Capacitor.getPlatform() === 'android') {
+              await StatusBar.setOverlaysWebView({ overlay: false });
+            }
+            await StatusBar.setStyle({ style: Style.Light });
+            await StatusBar.setBackgroundColor({ color: '#ffffff' });
+          } catch {
+            // Some status bar APIs are unavailable on newer Android versions.
+          }
         }
         initialized = true;
       } catch (e) {

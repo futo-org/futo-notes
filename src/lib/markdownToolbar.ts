@@ -9,6 +9,24 @@ const BOLD: MarkdownSyntax = { prefix: '**', suffix: '**' };
 const ITALIC: MarkdownSyntax = { prefix: '*', suffix: '*' };
 const STRIKETHROUGH: MarkdownSyntax = { prefix: '~~', suffix: '~~' };
 
+function splitSelectionWhitespace(text: string): { leading: number; trailing: number } {
+  const leading = text.match(/^\s*/)?.[0].length ?? 0;
+  const trailing = text.match(/\s*$/)?.[0].length ?? 0;
+  return { leading, trailing };
+}
+
+function findOpeningMarkerOnLine(
+  view: EditorView,
+  cursorPos: number,
+  prefix: string
+): number | null {
+  const line = view.state.doc.lineAt(cursorPos);
+  const lineTextBeforeCursor = view.state.sliceDoc(line.from, cursorPos);
+  const idx = lineTextBeforeCursor.lastIndexOf(prefix);
+  if (idx === -1) return null;
+  return line.from + idx;
+}
+
 function toggleSyntax(view: EditorView, { prefix, suffix }: MarkdownSyntax): void {
   const { state } = view;
   const { from, to } = state.selection.main;
@@ -27,10 +45,33 @@ function toggleSyntax(view: EditorView, { prefix, suffix }: MarkdownSyntax): voi
           selection: { anchor: from - prefix.length }
         });
       } else {
-        // Has content (e.g. **word|**) — jump past closing markers
-        view.dispatch({
-          selection: { anchor: from + suffix.length }
-        });
+        // Has content (e.g. **word |**) — if there is trailing whitespace before
+        // closing markers, move it after the markers so markdown stays valid.
+        const openPos = findOpeningMarkerOnLine(view, from, prefix);
+        if (openPos !== null) {
+          const contentStart = openPos + prefix.length;
+          const innerText = state.sliceDoc(contentStart, from);
+          const trailingWs = innerText.match(/\s+$/)?.[0] ?? '';
+          if (trailingWs.length > 0) {
+            const trimmedInner = innerText.slice(0, innerText.length - trailingWs.length);
+            const replacement = `${prefix}${trimmedInner}${suffix}${trailingWs}`;
+            view.dispatch({
+              changes: {
+                from: openPos,
+                to: from + suffix.length,
+                insert: replacement
+              },
+              selection: {
+                anchor: openPos + prefix.length + trimmedInner.length + suffix.length + trailingWs.length
+              }
+            });
+            view.focus();
+            return;
+          }
+        }
+
+        // No trailing whitespace to normalize, just jump past closing markers.
+        view.dispatch({ selection: { anchor: from + suffix.length } });
       }
       view.focus();
       return;
@@ -45,29 +86,47 @@ function toggleSyntax(view: EditorView, { prefix, suffix }: MarkdownSyntax): voi
     return;
   }
 
-  // Has selection - check if markers surround it
-  const prefixStart = Math.max(0, from - prefix.length);
-  const suffixEnd = Math.min(state.doc.length, to + suffix.length);
-  const before = state.sliceDoc(prefixStart, from);
-  const after = state.sliceDoc(to, suffixEnd);
+  const selectedText = state.sliceDoc(from, to);
+  const { leading, trailing } = splitSelectionWhitespace(selectedText);
+  const coreFrom = from + leading;
+  const coreTo = to - trailing;
 
-  if (before === prefix && after === suffix) {
-    // Already wrapped - remove surrounding markers
-    view.dispatch({
-      changes: [
-        { from: prefixStart, to: from, insert: '' },
-        { from: to, to: suffixEnd, insert: '' }
-      ],
-      selection: { anchor: prefixStart, head: prefixStart + (to - from) }
-    });
-  } else {
-    // Wrap selection with markers
+  // Selection is whitespace only; wrap as-is.
+  if (coreFrom >= coreTo) {
     view.dispatch({
       changes: [
         { from, insert: prefix },
         { from: to, insert: suffix }
       ],
       selection: { anchor: from + prefix.length, head: to + prefix.length }
+    });
+    view.focus();
+    return;
+  }
+
+  // Has selection - check if markers surround non-whitespace core
+  const prefixStart = Math.max(0, coreFrom - prefix.length);
+  const suffixEnd = Math.min(state.doc.length, coreTo + suffix.length);
+  const before = state.sliceDoc(prefixStart, coreFrom);
+  const after = state.sliceDoc(coreTo, suffixEnd);
+
+  if (before === prefix && after === suffix) {
+    // Already wrapped - remove surrounding markers
+    view.dispatch({
+      changes: [
+        { from: prefixStart, to: coreFrom, insert: '' },
+        { from: coreTo, to: suffixEnd, insert: '' }
+      ],
+      selection: { anchor: coreFrom - prefix.length, head: coreTo - prefix.length }
+    });
+  } else {
+    // Wrap non-whitespace core with markers; keep outer whitespace outside markers.
+    view.dispatch({
+      changes: [
+        { from: coreFrom, insert: prefix },
+        { from: coreTo, insert: suffix }
+      ],
+      selection: { anchor: coreFrom + prefix.length, head: coreTo + prefix.length }
     });
   }
 
