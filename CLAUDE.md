@@ -3,18 +3,11 @@
 ## Quick Start
 
 ```bash
-# Development
-npm install                                 # Install dependencies
-npm run dev                                 # Dev server (web preview only)
-npm run build                               # Build for production
+# Install dependencies
+npm install
 
-# Deploy to Device (full cycle)
-npm run build && npx cap sync android && npx cap run android --target "emulator-5554"
-
-# Platform Management
-npx cap sync [android|ios]                  # Sync web build to native platforms
-npx cap run android --target "4A121FDJH001XW"  # Run on physical device
-npx cap open [android|ios]                  # Open platform IDE
+# List all available project scripts
+npm run
 ```
 
 ## Architecture
@@ -99,6 +92,33 @@ adb logcat | grep "futo\|JS\|error"  # Android logs
 - **IMPORTANT**: Styles in `@layer(components)` lose to CM6's unlayered CSS. Use `!important` on CM6 overrides.
 
 **Modify storage**: `fileSystem.ts` (file ops), `notes.ts` (CRUD, cache)
+
+## Bugfix Test Workflow
+
+When fixing user-reported bugs, follow this loop:
+
+1. Reproduce and identify code path(s).
+2. Implement the fix.
+3. Add focused regression tests before closing the bug.
+4. Run targeted tests + build/lint locally.
+5. Add/refresh manual QA checklist docs for device-only behavior.
+
+### Regression Test Files
+- `tests/p0-regressions.spec.ts` — crash/IME safety regressions (web-observable subset)
+- `tests/p1-regressions.spec.ts` — clickable links and table link rendering regressions
+- `tests/p2-regressions.spec.ts` — title Enter behavior + trailing-space markdown formatting regressions
+
+### Manual QA Checklists
+- `docs/qa/p0-ime-checklist.md`
+- `docs/qa/p1-checklist.md`
+- `docs/qa/p2-checklist.md`
+
+### Commands Used During Bugfix Work
+- Run `npm run` to view current scripts.
+- Use the listed script names for lint/build/test flows.
+- For targeted bugfix regressions, run the relevant Playwright spec files in `tests/`.
+
+Note: Some Android-native issues (IME internals, status bar edge cases) still require device QA even when Playwright passes.
 
 ## Engineering Log
 
