@@ -3,7 +3,13 @@ import UIKit
 import UniformTypeIdentifiers
 
 @objc(FolderImportPlugin)
-public class FolderImportPlugin: CAPPlugin, UIDocumentPickerDelegate {
+public class FolderImportPlugin: CAPPlugin, CAPBridgedPlugin, UIDocumentPickerDelegate {
+    public let identifier = "FolderImportPlugin"
+    public let jsName = "FolderImport"
+    public let pluginMethods: [CAPPluginMethod] = [
+        CAPPluginMethod(name: "pickAndReadMarkdownFiles", returnType: CAPPluginReturnPromise)
+    ]
+
     private var savedCall: CAPPluginCall?
 
     @objc func pickAndReadMarkdownFiles(_ call: CAPPluginCall) {
