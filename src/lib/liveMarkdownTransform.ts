@@ -291,6 +291,7 @@ class MarkdownParser {
 class LiveMarkdownPlugin implements PluginValue {
   decorations: DecorationSet = Decoration.none;
   lastTreeLength: number = 0;
+  compositionSuspended = false;
 
   constructor(view: EditorView) {
     // Force full parse so all decorations are present from the start,
@@ -301,6 +302,24 @@ class LiveMarkdownPlugin implements PluginValue {
   }
 
   update(update: ViewUpdate): void {
+    // Android IME composition can conflict with heavy mark/replace decorations.
+    // Temporarily suspend live transforms while composing to avoid crashes and
+    // preserve native composition highlighting behavior.
+    if (update.view.composing || update.view.compositionStarted) {
+      if (!this.compositionSuspended) {
+        this.decorations = Decoration.none;
+        this.compositionSuspended = true;
+      }
+      return;
+    }
+
+    if (this.compositionSuspended) {
+      this.compositionSuspended = false;
+      this.decorations = this.buildDecorations(update.view);
+      this.lastTreeLength = syntaxTree(update.state).length;
+      return;
+    }
+
     const tree = syntaxTree(update.state);
     const treeGrew = tree.length > this.lastTreeLength;
 
@@ -316,6 +335,10 @@ class LiveMarkdownPlugin implements PluginValue {
   }
 
   private buildDecorations(view: EditorView): DecorationSet {
+    if (view.composing || view.compositionStarted) {
+      return Decoration.none;
+    }
+
     const decorations: Array<{ from: number; to: number; value: any }> = [];
     const cursorLines = this.getCursorLines(view);
 

@@ -289,9 +289,13 @@ Escaped pipes:
     }
   }
 
+  function editorIsComposing(): boolean {
+    return editor?.isComposing?.() ?? false;
+  }
+
   function setDrawerOpen(open: boolean): void {
     drawerOpen = open;
-    if (open) {
+    if (open && !editorIsComposing()) {
       editor?.blur();
     }
     setDrawerProgress(open ? 1 : 0, true);
@@ -300,7 +304,7 @@ Escaped pipes:
 
   function setDrawerProgress(progress: number, snap: boolean = false): void {
     drawerProgress = Math.min(1, Math.max(0, progress));
-    if (drawerProgress > 0) {
+    if (drawerProgress > 0 && !editorIsComposing()) {
       editor?.blur();
     }
     if (snap) {
@@ -357,38 +361,48 @@ Escaped pipes:
     if (saveTimeout !== null) {
       clearTimeout(saveTimeout);
     }
-    saveTimeout = window.setTimeout(saveNote, 500);
+    saveTimeout = window.setTimeout(() => {
+      void saveNote();
+    }, 500);
   }
 
   async function flushSave(): Promise<void> {
     if (saveTimeout === null) return;
     clearTimeout(saveTimeout);
     saveTimeout = null;
-    await saveNote();
+    try {
+      await saveNote();
+    } catch (e) {
+      console.warn('Failed to flush note save:', e);
+    }
   }
 
   async function saveNote(): Promise<void> {
     if (!isNative || !editor || noteId === null) return;
-    const newTitle = title.trim() || 'Untitled';
-    const newId = sanitizeFilename(newTitle);
-    const newContent = editor.getContent();
-    const savedOriginalId = originalId;
+    try {
+      const newTitle = title.trim() || 'Untitled';
+      const newId = sanitizeFilename(newTitle);
+      const newContent = editor.getContent();
+      const savedOriginalId = originalId;
 
-    const result = await updateNote(newId, newTitle, newContent, originalId ?? undefined);
+      const result = await updateNote(newId, newTitle, newContent, originalId ?? undefined);
 
-    originalId = result.id;
+      originalId = result.id;
 
-    refreshNotesList();
+      refreshNotesList();
 
-    // Only update URL if user is still viewing this note (not mid-switch)
-    const currentPath = window.location.hash.slice(1) || '/';
-    const stillOnThisNote = savedOriginalId
-      ? currentPath === `/note/${encodeURIComponent(savedOriginalId)}`
-      : currentPath === '/note/new';
+      // Only update URL if user is still viewing this note (not mid-switch)
+      const currentPath = window.location.hash.slice(1) || '/';
+      const stillOnThisNote = savedOriginalId
+        ? currentPath === `/note/${encodeURIComponent(savedOriginalId)}`
+        : currentPath === '/note/new';
 
-    if (stillOnThisNote && currentPath !== `/note/${encodeURIComponent(result.id)}`) {
-      prevNoteId = result.id;
-      navigate(`/note/${encodeURIComponent(result.id)}`);
+      if (stillOnThisNote && currentPath !== `/note/${encodeURIComponent(result.id)}`) {
+        prevNoteId = result.id;
+        navigate(`/note/${encodeURIComponent(result.id)}`);
+      }
+    } catch (e) {
+      console.warn('Failed to save note:', e);
     }
   }
 
@@ -407,6 +421,40 @@ Escaped pipes:
       titleWarningTimer = window.setTimeout(() => { titleWarning = ''; }, 2000);
     }
     debouncedSave();
+  }
+
+  function handleTitleKeydown(event: KeyboardEvent): void {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      editor?.focus();
+    }
+  }
+
+  function shouldAutoSelectUntitledTitle(value: string): boolean {
+    return value.startsWith('Untitled');
+  }
+
+  function selectAllTitleText(input: HTMLInputElement): void {
+    input.setSelectionRange(0, input.value.length);
+    requestAnimationFrame(() => {
+      input.setSelectionRange(0, input.value.length);
+    });
+  }
+
+  function handleTitleFocus(event: FocusEvent): void {
+    const input = event.currentTarget as HTMLInputElement;
+    if (shouldAutoSelectUntitledTitle(input.value)) {
+      selectAllTitleText(input);
+    }
+  }
+
+  function handleTitlePointerDown(event: PointerEvent): void {
+    const input = event.currentTarget as HTMLInputElement;
+    if (shouldAutoSelectUntitledTitle(input.value)) {
+      event.preventDefault();
+      input.focus();
+      selectAllTitleText(input);
+    }
   }
 
   function handleEditorContainerClick(event: MouseEvent): void {
@@ -642,6 +690,9 @@ Escaped pipes:
             placeholder="Untitled"
             bind:value={title}
             oninput={handleTitleInput}
+            onkeydown={handleTitleKeydown}
+            onfocus={handleTitleFocus}
+            onpointerdown={handleTitlePointerDown}
             maxlength={100}
           />
           {#if titleWarning}

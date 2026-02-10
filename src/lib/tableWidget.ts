@@ -128,7 +128,10 @@ function renderInlineMarkdown(text: string): string {
   html = html.replace(/~~([^~]+)~~/g, '<del>$1</del>');
 
   // Links: [text](url)
-  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" class="cm-md-table-link">$1</a>');
+  html = html.replace(
+    /\[([^\]]+)\]\(([^)]+)\)/g,
+    '<a href="$2" class="cm-md-table-link" target="_blank" rel="noopener noreferrer">$1</a>'
+  );
 
   return html;
 }
@@ -220,7 +223,11 @@ export class TableWidget extends WidgetType {
       // Don't stop propagation - let browser handle scrolling
     }, { passive: true });
 
-    wrapper.addEventListener('touchend', () => {
+    wrapper.addEventListener('touchend', (e) => {
+      const target = e.target as HTMLElement | null;
+      if (target?.closest('a.cm-md-table-link')) {
+        return;
+      }
       // Only enter edit mode if it was a tap (no scroll movement)
       if (!didScroll) {
         view.dispatch({
@@ -234,6 +241,11 @@ export class TableWidget extends WidgetType {
     wrapper.addEventListener('click', (e) => {
       // Ignore if this came from touch
       if (e.detail === 0) return;
+
+      const target = e.target as HTMLElement | null;
+      if (target?.closest('a.cm-md-table-link')) {
+        return;
+      }
 
       e.preventDefault();
       view.dispatch({

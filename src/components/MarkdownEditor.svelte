@@ -1,5 +1,12 @@
 <script lang="ts">
-  import { EditorView, keymap } from '@codemirror/view';
+  import {
+    EditorView,
+    keymap,
+    Decoration,
+    MatchDecorator,
+    ViewPlugin
+  } from '@codemirror/view';
+  import type { DecorationSet, ViewUpdate } from '@codemirror/view';
   import { EditorState } from '@codemirror/state';
   import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
   import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
@@ -22,6 +29,94 @@
   let anchorPos = -1;
   let anchorBlockTop = 0;
   let compensating = false;
+
+  const PLAIN_URL_REGEX = /\b(?:https?:\/\/|www\.)[^\s<>()]+[^\s<>().,!?;:]/g;
+  const MARKDOWN_LINK_REGEX = /\[([^\]]+)\]\(((?:https?:\/\/|www\.)[^)\s]+)(?:\s+"[^"]*")?\)/g;
+
+  const autoLinkMatcher = new MatchDecorator({
+    regexp: PLAIN_URL_REGEX,
+    decoration: Decoration.mark({ class: 'cm-md-link cm-md-autolink' })
+  });
+
+  const autoLinkHighlight = ViewPlugin.fromClass(class {
+    decorations: DecorationSet;
+    constructor(v: EditorView) {
+      this.decorations = autoLinkMatcher.createDeco(v);
+    }
+    update(update: ViewUpdate) {
+      this.decorations = autoLinkMatcher.updateDeco(update, this.decorations);
+    }
+  }, {
+    decorations: (v) => v.decorations
+  });
+
+  function normalizeUrl(url: string): string {
+    return url.startsWith('www.') ? `https://${url}` : url;
+  }
+
+  function findUrlAtPosition(v: EditorView, pos: number): string | null {
+    const line = v.state.doc.lineAt(pos);
+    const lineOffset = pos - line.from;
+    const text = line.text;
+
+    const markdownRegex = new RegExp(MARKDOWN_LINK_REGEX.source, 'g');
+    let markdownMatch: RegExpExecArray | null;
+    while ((markdownMatch = markdownRegex.exec(text)) !== null) {
+      const linkText = markdownMatch[1];
+      const url = markdownMatch[2];
+      const fullStart = markdownMatch.index;
+      const linkTextStart = fullStart + 1;
+      const linkTextEnd = linkTextStart + linkText.length;
+      if (lineOffset >= linkTextStart && lineOffset <= linkTextEnd) {
+        return normalizeUrl(url);
+      }
+    }
+
+    const plainRegex = new RegExp(PLAIN_URL_REGEX.source, 'g');
+    let plainMatch: RegExpExecArray | null;
+    while ((plainMatch = plainRegex.exec(text)) !== null) {
+      const matchText = plainMatch[0];
+      const start = plainMatch.index;
+      const end = start + matchText.length;
+      if (lineOffset >= start && lineOffset <= end) {
+        return normalizeUrl(matchText);
+      }
+    }
+
+    return null;
+  }
+
+  function openExternalUrl(url: string): void {
+    const opened = window.open(url, '_blank', 'noopener,noreferrer');
+    if (!opened) {
+      window.location.href = url;
+    }
+  }
+
+  const linkClickHandler = EditorView.domEventHandlers({
+    mousedown: (event, v) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('a.cm-md-table-link')) return false;
+      const pos = v.posAtCoords({ x: event.clientX, y: event.clientY });
+      if (pos === null) return false;
+      const url = findUrlAtPosition(v, pos);
+      if (!url) return false;
+      event.preventDefault();
+      return true;
+    },
+    click: (event, v) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('a.cm-md-table-link')) return false;
+      const pos = v.posAtCoords({ x: event.clientX, y: event.clientY });
+      if (pos === null) return false;
+      const url = findUrlAtPosition(v, pos);
+      if (!url) return false;
+      event.preventDefault();
+      event.stopPropagation();
+      openExternalUrl(url);
+      return true;
+    }
+  });
 
   function updateScrollAnchor(v: EditorView) {
     const sp = scrollParent;
@@ -55,7 +150,9 @@
       keymap.of([...defaultKeymap, ...historyKeymap]),
       markdown({ base: markdownLanguage }),
       liveMarkdownTransform,
+      autoLinkHighlight,
       tableRendering,
+      linkClickHandler,
       EditorView.lineWrapping,
       EditorView.theme({
         '&': { height: 'auto', fontSize: '16px' },
@@ -147,6 +244,10 @@
 
   export function hasFocus(): boolean {
     return view?.hasFocus ?? false;
+  }
+
+  export function isComposing(): boolean {
+    return Boolean(view?.composing || view?.compositionStarted);
   }
 
   export function getView(): EditorView | null {
