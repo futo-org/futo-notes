@@ -97,6 +97,8 @@ build-ios:
   image: ghcr.io/cirruslabs/macos-sequoia-xcode:26.2
   tags:
     - macscript
+  variables:
+    GIT_STRATEGY: clone
   before_script:
     - env | grep -E '^(CI_|IOS_|ASC_)' > .cienv
   script:
