@@ -7,10 +7,12 @@
     name: string;
     path: string;
     content: string;
+    lastModified?: number;
   }
 
   interface FolderImportPlugin {
     pickAndReadMarkdownFiles(): Promise<{ files: ImportedFile[] }>;
+    setFileModificationTime(options: { filename: string; mtime: number }): Promise<void>;
   }
 
   const FolderImport = registerPlugin<FolderImportPlugin>('FolderImport');
@@ -62,7 +64,12 @@
           id = sanitizeFilename(`${file.name} (${file.path})`);
         }
         if (id) {
-          await createNote(id, file.content);
+          await createNote(id, file.content, file.lastModified);
+          if (file.lastModified) {
+            try {
+              await FolderImport.setFileModificationTime({ filename: id + '.md', mtime: file.lastModified });
+            } catch (_) { /* best-effort */ }
+          }
           imported++;
         }
       }

@@ -11,7 +11,8 @@ import {
   writeNote,
   deleteNoteFile,
   renameNote as renameNoteFile,
-  getUniqueNoteId
+  getUniqueNoteId,
+  ensureNotesFolder
 } from './fileSystem';
 
 // In-memory cache of notes metadata
@@ -22,6 +23,7 @@ export async function initNotes(): Promise<void> {
   if (initialized) return;
 
   initSearchIndex();
+  await ensureNotesFolder();
   await rebuildFromFiles();
   initialized = true;
 }
@@ -79,9 +81,10 @@ function removeFromCache(id: string): void {
   notesCache = notesCache.filter(n => n.id !== id);
 }
 
-export async function createNote(title: string, content: string): Promise<{ id: string; mtime: number }> {
+export async function createNote(title: string, content: string, overrideMtime?: number): Promise<{ id: string; mtime: number }> {
   const id = await getUniqueNoteId(title);
-  const mtime = await writeNote(id, content);
+  const writeMtime = await writeNote(id, content);
+  const mtime = overrideMtime ?? writeMtime;
   const preview = content.slice(0, 100).replace(/\n/g, ' ');
 
   updateCache({ id, title, preview, modificationTime: mtime });

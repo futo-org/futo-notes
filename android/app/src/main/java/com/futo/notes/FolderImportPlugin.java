@@ -2,8 +2,11 @@ package com.futo.notes;
 
 import android.app.Activity;
 import android.content.ContentResolver;
+import android.content.ContentValues;
 import android.content.Intent;
+import android.database.Cursor;
 import android.net.Uri;
+import android.provider.MediaStore;
 
 import androidx.activity.result.ActivityResult;
 import androidx.documentfile.provider.DocumentFile;
@@ -17,6 +20,7 @@ import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
@@ -86,11 +90,66 @@ public class FolderImportPlugin extends Plugin {
                         fileObj.put("name", name.substring(0, name.length() - 3));
                         fileObj.put("path", relativePath);
                         fileObj.put("content", content);
+                        fileObj.put("lastModified", entry.lastModified());
                         files.add(fileObj);
                     }
                 }
             }
         }
+    }
+
+    @PluginMethod
+    public void setFileModificationTime(PluginCall call) {
+        String filename = call.getString("filename");
+
+        if (filename == null || !call.getData().has("mtime")) {
+            call.reject("Missing filename or mtime");
+            return;
+        }
+
+        long mtimeMs = call.getData().optLong("mtime", 0);
+        long mtimeSec = mtimeMs / 1000;
+
+        // Update via MediaStore (works with scoped storage on Android 11+)
+        ContentResolver resolver = getContext().getContentResolver();
+        String relativePath = "Documents/futo-notes/";
+
+        // Find the file in MediaStore by display name and relative path
+        Uri filesUri = MediaStore.Files.getContentUri("external");
+        String selection = MediaStore.MediaColumns.DISPLAY_NAME + " = ? AND "
+                + MediaStore.MediaColumns.RELATIVE_PATH + " = ?";
+        String[] selectionArgs = new String[] { filename, relativePath };
+
+        // First query to find the file
+        try (Cursor cursor = resolver.query(filesUri, new String[] { MediaStore.MediaColumns._ID },
+                selection, selectionArgs, null)) {
+            if (cursor != null && cursor.moveToFirst()) {
+                long id = cursor.getLong(0);
+                Uri fileUri = Uri.withAppendedPath(filesUri, String.valueOf(id));
+
+                ContentValues values = new ContentValues();
+                values.put(MediaStore.MediaColumns.DATE_MODIFIED, mtimeSec);
+                int updated = resolver.update(fileUri, values, null, null);
+                if (updated > 0) {
+                    call.resolve();
+                    return;
+                }
+            }
+        } catch (Exception e) {
+            // MediaStore approach failed, try fallback
+        }
+
+        // Fallback: try direct File API
+        File docsDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOCUMENTS);
+        if (docsDir != null) {
+            File file = new File(new File(docsDir, "futo-notes"), filename);
+            if (file.setLastModified(mtimeMs)) {
+                call.resolve();
+                return;
+            }
+        }
+
+        call.reject("Failed to set modification time");
     }
 
     private String readFileContent(Uri uri) {
