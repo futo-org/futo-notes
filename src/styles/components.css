@@ -138,6 +138,26 @@
   flex-direction: column;
 }
 
+/* Drawer overlay (replaces filter: brightness/contrast) */
+.drawer-overlay {
+  position: absolute;
+  inset: 0;
+  background: black;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 25;
+  will-change: opacity;
+  transition: opacity 0.25s ease;
+}
+
+.drawer-overlay.active {
+  pointer-events: auto;
+}
+
+.drawer-dragging .drawer-overlay {
+  transition: none;
+}
+
 /* Drawer dragging state */
 .notes-shell.drawer-dragging .note-main,
 .notes-shell.drawer-dragging .notes-drawer,
