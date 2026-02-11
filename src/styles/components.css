@@ -150,9 +150,16 @@
   pointer-events: none;
 }
 
-.notes-shell.drawer-dragging .note-body {
+.notes-shell.drawer-dragging .note-body,
+.notes-shell.drawer-dragging .notes-list-scroll {
   overflow: hidden !important;
   touch-action: none;
+}
+
+.notes-shell.drawer-dragging .notes-list-scroll,
+.notes-shell.drawer-dragging .fab,
+.notes-shell.drawer-dragging .settings-fab {
+  pointer-events: none;
 }
 
 /* Drawer open state */

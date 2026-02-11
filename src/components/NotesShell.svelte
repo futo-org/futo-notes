@@ -559,6 +559,12 @@ Escaped pipes:
     const deltaX = touch.clientX - startX;
     const deltaY = touch.clientY - startY;
     if (!isDragging && Math.abs(deltaX) < Math.abs(deltaY)) return;
+
+    // When closing (drawer open), prevent list scroll as soon as horizontal intent is clear
+    if (startProgress > 0 && Math.abs(deltaX) > Math.abs(deltaY)) {
+      event.preventDefault();
+    }
+
     if (!isDragging && Math.abs(deltaX) < 5) return;
 
     if (!isDragging) {
@@ -683,6 +689,7 @@ Escaped pipes:
       items={notes}
       selectedId={noteId !== 'new' ? noteId : null}
       onselect={handleNoteSelect}
+      {isDragging}
     />
     <button
       class="settings-fab"

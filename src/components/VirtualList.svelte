@@ -5,6 +5,7 @@
     items: NotePreview[];
     selectedId?: string | null;
     showPreview?: boolean;
+    isDragging?: boolean;
     onselect?: (id: string) => void;
   }
 
@@ -12,17 +13,28 @@
     items,
     selectedId = null,
     showPreview = false,
+    isDragging = false,
     onselect
   }: Props = $props();
 
   let pressedId: string | null = $state(null);
   let pendingSelect: string | null = null;
 
+  // Cancel any pending press/selection when a drawer swipe begins
+  $effect(() => {
+    if (isDragging) {
+      pressedId = null;
+      pendingSelect = null;
+    }
+  });
+
   function handleTouchStart(id: string, event: TouchEvent): void {
+    if (isDragging) return;
     pressedId = id;
   }
 
   function handleTouchEnd(id: string): void {
+    if (isDragging) { pressedId = null; pendingSelect = null; return; }
     if (pressedId === id) {
       pendingSelect = id;
       setTimeout(() => {
