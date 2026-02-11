@@ -602,7 +602,7 @@ Escaped pipes:
       if (noteMainEl) noteMainEl.style.transform = '';
       if (drawer) drawer.style.transform = '';
       if (menuButtonEl) menuButtonEl.style.transform = '';
-      if (overlayEl) overlayEl.style.opacity = '';
+      if (overlayEl) overlayEl.style.opacity = String(dragProgress * 0.5);
 
       // Re-enable CSS transitions
       isDragging = false;

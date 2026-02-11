@@ -216,15 +216,15 @@
   position: fixed;
   bottom: max(16px, calc(16px + env(safe-area-inset-bottom)));
   left: max(16px, calc(16px + env(safe-area-inset-left)));
-  width: 44px;
-  height: 44px;
+  width: 56px;
+  height: 56px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.96);
-  color: #555;
+  background: #3a3a3c;
+  color: #fff;
   border: none;
-  font-size: 22px;
+  font-size: 28px;
   cursor: pointer;
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
   z-index: 99;
   -webkit-user-select: none;
   user-select: none;
@@ -377,22 +377,22 @@
   .fab {
     width: 48px;
     height: 48px;
-    bottom: 12px;
-    right: 12px;
+    bottom: max(12px, calc(12px + env(safe-area-inset-bottom)));
+    right: max(12px, calc(12px + env(safe-area-inset-right)));
     font-size: 28px;
   }
 
   .settings-fab {
-    width: 40px;
-    height: 40px;
-    bottom: 12px;
-    left: 12px;
-    font-size: 20px;
+    width: 48px;
+    height: 48px;
+    bottom: max(12px, calc(12px + env(safe-area-inset-bottom)));
+    left: max(12px, calc(12px + env(safe-area-inset-left)));
+    font-size: 24px;
   }
 
   .notes-drawer .settings-fab {
-    bottom: 12px;
-    left: 12px;
+    bottom: max(12px, calc(12px + env(safe-area-inset-bottom)));
+    left: max(12px, calc(12px + env(safe-area-inset-left)));
   }
 }
 
