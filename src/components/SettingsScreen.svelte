@@ -64,10 +64,10 @@
           id = sanitizeFilename(`${file.name} (${file.path})`);
         }
         if (id) {
-          await createNote(id, file.content, file.lastModified);
+          const created = await createNote(id, file.content, file.lastModified);
           if (file.lastModified) {
             try {
-              await FolderImport.setFileModificationTime({ filename: id + '.md', mtime: file.lastModified });
+              await FolderImport.setFileModificationTime({ filename: created.id + '.md', mtime: file.lastModified });
             } catch (_) { /* best-effort */ }
           }
           imported++;
@@ -98,18 +98,21 @@
 
   async function doNuke(): Promise<void> {
     nuking = true;
-    const allNotes = getAllNotes();
-    for (const note of allNotes) {
-      await deleteNote(note.id);
+    try {
+      const allNotes = getAllNotes();
+      for (const note of allNotes) {
+        await deleteNote(note.id);
+      }
+      onimported(0);
+    } catch {
+      nuking = false;
+      nukeConfirm = false;
     }
-    onimported(0);
   }
 </script>
 
-<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-<div class="settings-overlay" onclick={onclose}>
-  <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-  <div class="settings-panel" onclick={(e) => e.stopPropagation()}>
+<div class="settings-overlay" role="button" tabindex="-1" onclick={onclose} onkeydown={(e) => e.key === 'Escape' && onclose()}>
+  <div class="settings-panel" role="dialog" aria-modal="true" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
     <div class="settings-header">
       <h2 class="settings-title">Settings</h2>
       <button class="settings-close" aria-label="Close settings" onclick={onclose}>&times;</button>

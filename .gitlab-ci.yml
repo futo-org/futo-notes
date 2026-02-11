@@ -15,9 +15,27 @@ workflow:
     - if: $CI_COMMIT_TAG
 
 stages:
+  - test
   - build
   - upload_assets
   - create_release
+
+# ─────────────────────────────────────────────────────────────
+# Lint & Test
+# ─────────────────────────────────────────────────────────────
+
+lint:
+  stage: test
+  script:
+    - npm ci
+    - npm run lint
+
+test:
+  stage: test
+  script:
+    - npm ci
+    - npx playwright install --with-deps chromium
+    - npm test
 
 # ─────────────────────────────────────────────────────────────
 # Android Build
@@ -25,6 +43,7 @@ stages:
 
 build-android:
   stage: build
+  needs: [lint, test]
   before_script:
     - . $HOME/.nvm/nvm.sh
     - |
@@ -74,6 +93,7 @@ build-android:
 
 build-ios:
   stage: build
+  needs: [lint, test]
   image: ghcr.io/cirruslabs/macos-sequoia-xcode:26.2
   tags:
     - macscript
@@ -100,7 +120,6 @@ upload-apk:
       artifacts: true
     - job: build-ios
       artifacts: true
-      optional: true
   script:
     - export APK_NAME="futo-notes-${CI_COMMIT_TAG}.apk"
     - export APK_PATH="android/app/build/outputs/apk/release/app-release.apk"

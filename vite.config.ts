@@ -11,7 +11,8 @@ export default defineConfig({
     target: 'ES2020',
     outDir: 'dist',
     emptyOutDir: true,
-    sourcemap: false
+    sourcemap: false,
+    chunkSizeWarningLimit: 700
   },
   resolve: {
     alias: {

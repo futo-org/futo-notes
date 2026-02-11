@@ -95,6 +95,7 @@
 
   const linkClickHandler = EditorView.domEventHandlers({
     mousedown: (event, v) => {
+      if (v.hasFocus) return false;
       const target = event.target as HTMLElement | null;
       if (target?.closest('a.cm-md-table-link')) return false;
       const pos = v.posAtCoords({ x: event.clientX, y: event.clientY });
@@ -105,6 +106,7 @@
       return true;
     },
     click: (event, v) => {
+      if (v.hasFocus) return false;
       const target = event.target as HTMLElement | null;
       if (target?.closest('a.cm-md-table-link')) return false;
       const pos = v.posAtCoords({ x: event.clientX, y: event.clientY });

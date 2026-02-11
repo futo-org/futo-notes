@@ -689,7 +689,7 @@ Escaped pipes:
   const drawerOffset = $derived(drawerProgress * drawerWidth);
   const overlayOpacity = $derived(drawerProgress * 0.5);
 
-  // Fix 3: Direct DOM refs for bypassing reactivity during drag
+  // Direct DOM refs for bypassing reactivity during drag
   let noteMainEl: HTMLElement | undefined = $state(undefined);
   let menuButtonEl: HTMLElement | undefined = $state(undefined);
   let overlayEl: HTMLElement | undefined = $state(undefined);

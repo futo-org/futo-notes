@@ -1,10 +1,12 @@
 package com.futo.notes;
 
+import android.graphics.Color;
 import android.os.Build;
 import android.os.Bundle;
 import android.window.OnBackInvokedCallback;
 import android.window.OnBackInvokedDispatcher;
 import androidx.activity.OnBackPressedCallback;
+import androidx.core.view.WindowCompat;
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
@@ -18,6 +20,12 @@ public class MainActivity extends BridgeActivity {
     registerPlugin(DrawerBackPlugin.class);
     registerPlugin(FolderImportPlugin.class);
     super.onCreate(savedInstanceState);
+
+    // Edge-to-edge: draw behind status bar and navigation bar
+    WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+    getWindow().setStatusBarColor(Color.TRANSPARENT);
+    getWindow().setNavigationBarColor(Color.TRANSPARENT);
+
     setupBackCallbacks();
   }
 
