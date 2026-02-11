@@ -29,11 +29,9 @@
         if (Capacitor.isNativePlatform()) {
           await initNotes();
           try {
-            if (Capacitor.getPlatform() === 'android') {
-              await StatusBar.setOverlaysWebView({ overlay: false });
-            }
+            await StatusBar.setOverlaysWebView({ overlay: true });
             await StatusBar.setStyle({ style: Style.Light });
-            await StatusBar.setBackgroundColor({ color: '#ffffff' });
+            await StatusBar.setBackgroundColor({ color: '#00000000' });
           } catch {
             // Some status bar APIs are unavailable on newer Android versions.
           }

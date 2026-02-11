@@ -2,6 +2,7 @@
   import { Capacitor, registerPlugin } from '@capacitor/core';
   import MarkdownEditor from './MarkdownEditor.svelte';
   import MarkdownToolbar from './MarkdownToolbar.svelte';
+  import SettingsScreen from './SettingsScreen.svelte';
   import VirtualList from './VirtualList.svelte';
   import type { NotePreview } from '../types';
   import { getAllNotes, updateNote, readNote, createNote, getNoteById } from '$lib/notes';
@@ -283,6 +284,29 @@ Escaped pipes:
   let fabPressTimer: number | null = null;
   let ignoreFabClick = false;
 
+  // Settings
+  let settingsOpen = $state(false);
+
+  // Toast
+  let toastMessage = $state('');
+  let toastTimer: number | null = null;
+
+  function showToast(message: string): void {
+    if (toastTimer !== null) clearTimeout(toastTimer);
+    toastMessage = message;
+    toastTimer = window.setTimeout(() => { toastMessage = ''; toastTimer = null; }, 3000);
+  }
+
+  function handleImported(count: number): void {
+    refreshNotesList();
+    settingsOpen = false;
+    if (count > 0) {
+      showToast(`Imported ${count} notes`);
+    } else {
+      showToast('All notes deleted');
+    }
+  }
+
   function updateDrawerMetrics(): void {
     if (drawer) {
       drawerWidth = drawer.getBoundingClientRect().width || 1;
@@ -526,6 +550,7 @@ Escaped pipes:
     ignoreSwipe = false;
     updateDrawerMetrics();
     startProgress = drawerOpen ? 1 : 0;
+    dragProgress = startProgress;
     setDrawerProgress(startProgress);
   }
 
@@ -535,6 +560,12 @@ Escaped pipes:
     const deltaX = touch.clientX - startX;
     const deltaY = touch.clientY - startY;
     if (!isDragging && Math.abs(deltaX) < Math.abs(deltaY)) return;
+
+    // When closing (drawer open), prevent list scroll as soon as horizontal intent is clear
+    if (startProgress > 0 && Math.abs(deltaX) > Math.abs(deltaY)) {
+      event.preventDefault();
+    }
+
     if (!isDragging && Math.abs(deltaX) < 5) return;
 
     if (!isDragging) {
@@ -550,20 +581,38 @@ Escaped pipes:
     lastX = touch.clientX;
     lastTime = now;
 
-    const nextProgress = startProgress + deltaX / drawerWidth;
-    setDrawerProgress(nextProgress);
+    // Direct DOM manipulation — bypass Svelte reactivity during drag
+    dragProgress = Math.min(1, Math.max(0, startProgress + deltaX / drawerWidth));
+    scheduleFrame();
     event.preventDefault();
   }
 
   function handleTouchEnd(): void {
     if (isDragging) {
-      isDragging = false;
-      const velocityThreshold = 0.5; // px/ms
-      if (Math.abs(velocity) > velocityThreshold) {
-        setDrawerOpen(velocity > 0);
-      } else {
-        setDrawerOpen(drawerProgress >= 0.3);
+      // Cancel any pending rAF
+      if (rafId) {
+        cancelAnimationFrame(rafId);
+        rafId = 0;
       }
+
+      // Sync plain var back to Svelte state so CSS variables match visual position
+      drawerProgress = dragProgress;
+
+      // Clear inline styles — no visual jump since CSS vars hold the same values
+      if (noteMainEl) noteMainEl.style.transform = '';
+      if (drawer) drawer.style.transform = '';
+      if (menuButtonEl) menuButtonEl.style.transform = '';
+      if (overlayEl) overlayEl.style.opacity = String(dragProgress * 0.5);
+
+      // Re-enable CSS transitions
+      isDragging = false;
+
+      // Snap to open or closed on next frame
+      const velocityThreshold = 0.5; // px/ms
+      const shouldOpen = Math.abs(velocity) > velocityThreshold ? velocity > 0 : drawerProgress >= 0.3;
+      requestAnimationFrame(() => {
+        setDrawerOpen(shouldOpen);
+      });
     }
     tracking = false;
     isDragging = false;
@@ -638,7 +687,28 @@ Escaped pipes:
   });
 
   const drawerOffset = $derived(drawerProgress * drawerWidth);
-  const drawerDim = $derived(`brightness(${1 - drawerProgress * 0.06}) contrast(${1 - drawerProgress * 0.35})`);
+  const overlayOpacity = $derived(drawerProgress * 0.5);
+
+  // Direct DOM refs for bypassing reactivity during drag
+  let noteMainEl: HTMLElement | undefined = $state(undefined);
+  let menuButtonEl: HTMLElement | undefined = $state(undefined);
+  let overlayEl: HTMLElement | undefined = $state(undefined);
+  let dragProgress = 0;
+  let rafId = 0;
+
+  function applyDragFrame(): void {
+    rafId = 0;
+    const offset = dragProgress * drawerWidth;
+    if (noteMainEl) noteMainEl.style.transform = `translateX(${offset}px)`;
+    if (drawer) drawer.style.transform = `translateX(${offset - drawerWidth}px)`;
+    if (menuButtonEl) menuButtonEl.style.transform = `translateX(${offset}px)`;
+    if (overlayEl) overlayEl.style.opacity = `${dragProgress * 0.5}`;
+  }
+
+  function scheduleFrame(): void {
+    if (rafId) return;
+    rafId = requestAnimationFrame(applyDragFrame);
+  }
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -659,7 +729,13 @@ Escaped pipes:
       items={notes}
       selectedId={noteId !== 'new' ? noteId : null}
       onselect={handleNoteSelect}
+      {isDragging}
     />
+    <button
+      class="settings-fab"
+      aria-label="Settings"
+      onclick={() => { settingsOpen = true; }}
+    >&#9881;</button>
     <button
       class="fab"
       aria-label="New note"
@@ -672,6 +748,7 @@ Escaped pipes:
 
   <!-- Menu button -->
   <button
+    bind:this={menuButtonEl}
     class="drawer-toggle floating"
     aria-label="Open notes list"
     aria-expanded={drawerOpen}
@@ -680,7 +757,15 @@ Escaped pipes:
 
   <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
   <!-- Main content -->
-  <div class="note-main" style="filter: {drawerDim}" onclick={() => { if (drawerOpen) setDrawerOpen(false); }}>
+  <div bind:this={noteMainEl} class="note-main" onclick={() => { if (drawerOpen) setDrawerOpen(false); }}>
+    <!-- Overlay replaces filter: brightness/contrast for GPU-composited dimming -->
+    <div
+      bind:this={overlayEl}
+      class="drawer-overlay"
+      class:active={drawerOpen}
+      style="opacity: {overlayOpacity}"
+      onclick={() => setDrawerOpen(false)}
+    ></div>
     <div class="note-body" bind:this={noteBody}>
       {#if noteId}
         <div class="note-title-row">
@@ -722,3 +807,11 @@ Escaped pipes:
     noteOpen={noteId !== null}
   />
 </div>
+
+{#if settingsOpen}
+  <SettingsScreen onclose={() => { settingsOpen = false; }} onimported={handleImported} />
+{/if}
+
+{#if toastMessage}
+  <div class="toast">{toastMessage}</div>
+{/if}

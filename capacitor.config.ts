@@ -8,7 +8,7 @@ const config: CapacitorConfig = {
     androidScheme: 'https'
   },
   android: {
-    useSafeArea: true
+    useSafeArea: false
   },
   ios: {
     contentInset: 'never',

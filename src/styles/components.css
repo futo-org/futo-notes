@@ -138,6 +138,26 @@
   flex-direction: column;
 }
 
+/* Drawer overlay (replaces filter: brightness/contrast) */
+.drawer-overlay {
+  position: absolute;
+  inset: 0;
+  background: black;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 25;
+  will-change: opacity;
+  transition: opacity 0.25s ease;
+}
+
+.drawer-overlay.active {
+  pointer-events: auto;
+}
+
+.drawer-dragging .drawer-overlay {
+  transition: none;
+}
+
 /* Drawer dragging state */
 .notes-shell.drawer-dragging .note-main,
 .notes-shell.drawer-dragging .notes-drawer,
@@ -150,9 +170,16 @@
   pointer-events: none;
 }
 
-.notes-shell.drawer-dragging .note-body {
+.notes-shell.drawer-dragging .note-body,
+.notes-shell.drawer-dragging .notes-list-scroll {
   overflow: hidden !important;
   touch-action: none;
+}
+
+.notes-shell.drawer-dragging .notes-list-scroll,
+.notes-shell.drawer-dragging .fab,
+.notes-shell.drawer-dragging .settings-fab {
+  pointer-events: none;
 }
 
 /* Drawer open state */
@@ -182,6 +209,38 @@
 
 .fab:active {
   opacity: 0.8;
+}
+
+/* Settings button */
+.settings-fab {
+  position: fixed;
+  bottom: max(16px, calc(16px + env(safe-area-inset-bottom)));
+  left: max(16px, calc(16px + env(safe-area-inset-left)));
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: #3a3a3c;
+  color: #fff;
+  border: none;
+  font-size: 28px;
+  cursor: pointer;
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
+  z-index: 99;
+  -webkit-user-select: none;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.settings-fab:active {
+  opacity: 0.7;
+}
+
+.notes-drawer .settings-fab {
+  position: absolute;
+  left: max(16px, calc(16px + env(safe-area-inset-left)));
+  bottom: max(16px, calc(16px + env(safe-area-inset-bottom)));
 }
 
 /* Drawer-scoped overrides */
@@ -318,8 +377,42 @@
   .fab {
     width: 48px;
     height: 48px;
-    bottom: 12px;
-    right: 12px;
+    bottom: max(12px, calc(12px + env(safe-area-inset-bottom)));
+    right: max(12px, calc(12px + env(safe-area-inset-right)));
     font-size: 28px;
   }
+
+  .settings-fab {
+    width: 48px;
+    height: 48px;
+    bottom: max(12px, calc(12px + env(safe-area-inset-bottom)));
+    left: max(12px, calc(12px + env(safe-area-inset-left)));
+    font-size: 24px;
+  }
+
+  .notes-drawer .settings-fab {
+    bottom: max(12px, calc(12px + env(safe-area-inset-bottom)));
+    left: max(12px, calc(12px + env(safe-area-inset-left)));
+  }
+}
+
+/* Toast */
+.toast {
+  position: fixed;
+  bottom: max(80px, calc(80px + env(safe-area-inset-bottom)));
+  left: 50%;
+  transform: translateX(-50%);
+  background: #333;
+  color: white;
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-size: 14px;
+  z-index: 300;
+  pointer-events: none;
+  animation: toast-in 0.2s ease;
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(8px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
