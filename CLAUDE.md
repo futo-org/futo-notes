@@ -79,6 +79,8 @@ adb logcat | grep "futo\|JS\|error"  # Android logs
 # iOS: Xcode → Window → Devices and Simulators → View device logs
 ```
 
+**IMPORTANT**: For local development and testing, always use `npm run dev` (web) or ensure `import.meta.env.DEV` is true. Production builds (`npm run build`) point to production API endpoints (crash reporting, etc.), not localhost.
+
 ## Common Tasks
 
 **Add markdown element**: Edit `liveMarkdownTransform.ts` (add processing method) + `markdown.css` (add CSS class). Test with `gfm-test-note.md`.

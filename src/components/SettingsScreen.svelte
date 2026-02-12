@@ -2,6 +2,7 @@
   import { Capacitor, registerPlugin } from '@capacitor/core';
   import { createNote, getAllNotes, deleteNote } from '$lib/notes';
   import { sanitizeFilename } from '$lib/utils';
+  import { getCachedPreferences, savePreferences } from '$lib/preferences';
 
   interface ImportedFile {
     name: string;
@@ -29,6 +30,27 @@
   let importStatus = $state('');
   let nuking = $state(false);
   let nukeConfirm = $state(false);
+
+  // Crash reporting preferences
+  const prefs = getCachedPreferences();
+  let crashEnabled = $state(prefs.crashReporting.enabled);
+  let crashAlwaysSend = $state(prefs.crashReporting.alwaysSend);
+
+  async function toggleCrashEnabled(): Promise<void> {
+    crashEnabled = !crashEnabled;
+    if (!crashEnabled) crashAlwaysSend = false;
+    const p = getCachedPreferences();
+    p.crashReporting.enabled = crashEnabled;
+    p.crashReporting.alwaysSend = crashAlwaysSend;
+    await savePreferences(p);
+  }
+
+  async function toggleCrashAlwaysSend(): Promise<void> {
+    crashAlwaysSend = !crashAlwaysSend;
+    const p = getCachedPreferences();
+    p.crashReporting.alwaysSend = crashAlwaysSend;
+    await savePreferences(p);
+  }
 
   async function handleObsidianImport(): Promise<void> {
     if (!isNative || importing) return;
@@ -109,6 +131,10 @@
       nukeConfirm = false;
     }
   }
+
+  function testCrash(): void {
+    throw new Error('Test crash from Settings');
+  }
 </script>
 
 <div class="settings-overlay" role="button" tabindex="-1" onclick={onclose} onkeydown={(e) => e.key === 'Escape' && onclose()}>
@@ -139,6 +165,30 @@
       </section>
 
       <section class="settings-section">
+        <h3 class="settings-section-title">Crash Reporting</h3>
+        <div class="settings-toggle-row" onclick={toggleCrashEnabled} role="button" tabindex="0" onkeydown={(e) => e.key === 'Enter' && toggleCrashEnabled()}>
+          <span class="settings-toggle-text">
+            <span class="settings-btn-label">Share crash reports</span>
+            <span class="settings-btn-desc">Help improve FUTO Notes by sharing anonymous crash logs when they occur</span>
+          </span>
+          <div class="settings-switch" class:on={crashEnabled}>
+            <div class="settings-switch-thumb"></div>
+          </div>
+        </div>
+        {#if crashEnabled}
+          <div class="settings-toggle-row sub" onclick={toggleCrashAlwaysSend} role="button" tabindex="0" onkeydown={(e) => e.key === 'Enter' && toggleCrashAlwaysSend()}>
+            <span class="settings-toggle-text">
+              <span class="settings-btn-label">Always send automatically</span>
+              <span class="settings-btn-desc">Send reports without asking each time</span>
+            </span>
+            <div class="settings-switch" class:on={crashAlwaysSend}>
+              <div class="settings-switch-thumb"></div>
+            </div>
+          </div>
+        {/if}
+      </section>
+
+      <section class="settings-section">
         <h3 class="settings-section-title">Danger zone</h3>
         <button class="settings-btn settings-btn-danger" onclick={handleNukeTap} disabled={nuking}>
           <span class="settings-btn-text">
@@ -160,6 +210,14 @@
             </span>
           </span>
         </button>
+        {#if import.meta.env.DEV}
+          <button class="settings-btn settings-btn-danger" style="margin-top: 8px" onclick={testCrash}>
+            <span class="settings-btn-text">
+              <span class="settings-btn-label">Test crash</span>
+              <span class="settings-btn-desc">Throw an error to test crash reporting</span>
+            </span>
+          </button>
+        {/if}
       </section>
     </div>
   </div>
@@ -293,5 +351,66 @@
     color: var(--color-muted);
     flex-shrink: 0;
     margin-left: 12px;
+  }
+
+  .settings-toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px;
+    background: var(--color-surface);
+    border-radius: 12px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    margin-bottom: 2px;
+  }
+
+  .settings-toggle-row:active {
+    opacity: 0.7;
+  }
+
+  .settings-toggle-row.sub {
+    padding-left: 24px;
+    border-radius: 0 0 12px 12px;
+    margin-top: 0;
+  }
+
+  .settings-toggle-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .settings-switch {
+    width: 48px;
+    height: 28px;
+    border-radius: 14px;
+    background: #ccc;
+    position: relative;
+    transition: background 0.2s ease;
+    flex-shrink: 0;
+    margin-left: 12px;
+  }
+
+  .settings-switch.on {
+    background: var(--color-primary);
+  }
+
+  .settings-switch-thumb {
+    width: 24px;
+    height: 24px;
+    border-radius: 12px;
+    background: white;
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    transition: transform 0.2s ease;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  }
+
+  .settings-switch.on .settings-switch-thumb {
+    transform: translateX(20px);
   }
 </style>

@@ -22,7 +22,7 @@
       "$lib/*": ["src/lib/*"],
       "@/*": ["./*"]
     },
-    "types": ["svelte"]
+    "types": ["svelte", "vite/client"]
   },
   "include": ["src/**/*.ts", "src/**/*.svelte", "src/**/*.svelte.ts"],
   "references": [{ "path": "./tsconfig.node.json" }]
