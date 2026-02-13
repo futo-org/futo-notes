@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Capacitor } from '@capacitor/core';
   import { StatusBar, Style } from '@capacitor/status-bar';
+  import { Keyboard } from '@capacitor/keyboard';
   import NotesShell from './components/NotesShell.svelte';
   import CrashReportDialog from './components/CrashReportDialog.svelte';
   import { initNotes } from '$lib/notes';
@@ -105,9 +106,12 @@
         showToast(`Sent ${result.sent} crash report${result.sent > 1 ? 's' : ''}`);
       }
     } else {
-      // Show dialog
+      // Show dialog — dismiss keyboard so toolbar hides
       pendingCrashReports = reports;
       showCrashDialog = true;
+      if (Capacitor.isNativePlatform()) {
+        try { await Keyboard.hide(); } catch {}
+      }
     }
   }
 

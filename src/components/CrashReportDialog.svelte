@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { Capacitor } from '@capacitor/core';
+  import { Keyboard } from '@capacitor/keyboard';
   import type { CrashReport } from '$lib/crashHandler';
 
   interface Props {
@@ -12,6 +14,31 @@
   let showDetails = $state(false);
   let showContext = $state(false);
   let userDescription = $state('');
+  let keyboardHeight = $state(0);
+
+  $effect(() => {
+    if (Capacitor.isNativePlatform()) {
+      const showHandle = Keyboard.addListener('keyboardWillShow', (info) => {
+        keyboardHeight = info.keyboardHeight;
+      });
+      const hideHandle = Keyboard.addListener('keyboardWillHide', () => {
+        keyboardHeight = 0;
+      });
+      return () => {
+        showHandle.then(h => h.remove());
+        hideHandle.then(h => h.remove());
+      };
+    } else {
+      const vv = window.visualViewport;
+      if (!vv) return;
+      const onResize = () => {
+        const diff = window.innerHeight - vv.height;
+        keyboardHeight = diff > 100 ? diff : 0;
+      };
+      vv.addEventListener('resize', onResize);
+      return () => vv.removeEventListener('resize', onResize);
+    }
+  });
 
   function handleSend(): void {
     onresolved({
@@ -29,7 +56,7 @@
   const firstReport = $derived(reports[0]);
 </script>
 
-<div class="crash-overlay" role="button" tabindex="-1" onclick={handleDiscard} onkeydown={(e) => e.key === 'Escape' && handleDiscard()}>
+<div class="crash-overlay" role="button" tabindex="-1" onclick={handleDiscard} onkeydown={(e) => e.key === 'Escape' && handleDiscard()} style="padding-bottom: {keyboardHeight + 24}px">
   <div class="crash-panel" role="dialog" aria-modal="true" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
     <div class="crash-header">
       <h2 class="crash-title">Crash Report</h2>
@@ -94,7 +121,7 @@
     position: fixed;
     inset: 0;
     background: rgba(0, 0, 0, 0.5);
-    z-index: 250;
+    z-index: 10000;
     display: flex;
     align-items: center;
     justify-content: center;

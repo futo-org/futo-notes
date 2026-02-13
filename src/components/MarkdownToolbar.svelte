@@ -6,18 +6,18 @@
 
   interface Props {
     getView: () => EditorView | null;
-    noteOpen?: boolean;
+    editorFocused?: boolean;
   }
 
-  let { getView, noteOpen = false }: Props = $props();
+  let { getView, editorFocused = false }: Props = $props();
 
   let keyboardHeight = $state(0);
   let keyboardVisible = $state(false);
 
   const isNative = Capacitor.isNativePlatform();
 
-  // On web (no virtual keyboard): show at bottom when note is open
-  const show = $derived(keyboardVisible || (!isNative && noteOpen));
+  // Only show when editor is focused (native: keyboard visible + editor focused, web: editor focused)
+  const show = $derived(editorFocused && (keyboardVisible || !isNative));
 
   $effect(() => {
     if (isNative) {

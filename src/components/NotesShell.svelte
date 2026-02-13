@@ -258,6 +258,7 @@ Escaped pipes:
   let notes: NotePreview[] = $state([]);
 
   let editor: ReturnType<typeof MarkdownEditor> | null = $state(null);
+  let editorFocused = $state(false);
   let shell: HTMLElement | undefined = $state(undefined);
   let drawer: HTMLElement | undefined = $state(undefined);
   let noteBody: HTMLElement | undefined = $state(undefined);
@@ -407,6 +408,14 @@ Escaped pipes:
       const newTitle = title.trim() || 'Untitled';
       const newId = sanitizeFilename(newTitle);
       const newContent = editor.getContent();
+
+      // Don't save empty new notes — nothing worth persisting yet,
+      // and the save→navigate cycle can crash certain Android IME/WebView combos.
+      if (!originalId && !newContent.trim() && newTitle === 'Untitled') return;
+
+      // Block saving if another note already has this name
+      if (hasDuplicateTitle(newTitle)) return;
+
       const savedOriginalId = originalId;
 
       const result = await updateNote(newId, newTitle, newContent, originalId ?? undefined);
@@ -430,6 +439,11 @@ Escaped pipes:
     }
   }
 
+  function hasDuplicateTitle(checkTitle: string): boolean {
+    const checkId = sanitizeFilename(checkTitle.trim() || 'Untitled');
+    return notes.some(n => n.id === checkId && n.id !== originalId);
+  }
+
   function handleTitleInput(event: Event): void {
     const input = event.target as HTMLInputElement;
     // eslint-disable-next-line no-control-regex
@@ -443,6 +457,14 @@ Escaped pipes:
       if (titleWarningTimer !== null) clearTimeout(titleWarningTimer);
       titleWarning = 'That character can\'t be used in a note title';
       titleWarningTimer = window.setTimeout(() => { titleWarning = ''; }, 2000);
+    } else if (hasDuplicateTitle(cleaned)) {
+      if (titleWarningTimer !== null) clearTimeout(titleWarningTimer);
+      titleWarning = 'A note with this name already exists';
+      titleWarningTimer = null;
+    } else {
+      if (titleWarningTimer !== null) clearTimeout(titleWarningTimer);
+      titleWarning = '';
+      titleWarningTimer = null;
     }
     debouncedSave();
   }
@@ -785,7 +807,7 @@ Escaped pipes:
           {/if}
         </div>
         <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-        <div class="editor-container" onclick={handleEditorContainerClick}>
+        <div class="editor-container" onclick={handleEditorContainerClick} onfocusin={() => editorFocused = true} onfocusout={() => editorFocused = false}>
           <MarkdownEditor
             bind:this={editor}
             {content}
@@ -804,7 +826,7 @@ Escaped pipes:
 
   <MarkdownToolbar
     getView={() => editor?.getView() ?? null}
-    noteOpen={noteId !== null}
+    {editorFocused}
   />
 </div>
 
