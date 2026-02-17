@@ -5,7 +5,7 @@
   import SettingsScreen from './SettingsScreen.svelte';
   import VirtualList from './VirtualList.svelte';
   import type { NotePreview } from '../types';
-  import { getAllNotes, updateNote, readNote, createNote, getNoteById } from '$lib/notes';
+  import { getAllNotes, updateNote, readNote, createNote, getNoteById, deleteNote } from '$lib/notes';
   import { sanitizeFilename } from '$lib/utils';
   import { navigate } from '../router';
   import { SCROLL_TEST_NOTES } from '$lib/scrollTestNotes';
@@ -288,6 +288,10 @@ Escaped pipes:
   // Settings
   let settingsOpen = $state(false);
 
+  // Note menu
+  let noteMenuOpen = $state(false);
+  let deleteConfirmOpen = $state(false);
+
   // Toast
   let toastMessage = $state('');
   let toastTimer: number | null = null;
@@ -547,6 +551,23 @@ Escaped pipes:
     createNewNote();
   }
 
+  async function handleDeleteNote(): Promise<void> {
+    deleteConfirmOpen = false;
+    noteMenuOpen = false;
+    const idToDelete = originalId;
+    if (!idToDelete) return;
+    // Cancel any pending auto-save for this note
+    if (saveTimeout !== null) {
+      clearTimeout(saveTimeout);
+      saveTimeout = null;
+    }
+    originalId = null;
+    await deleteNote(idToDelete);
+    refreshNotesList();
+    navigate('/');
+    showToast('Note deleted');
+  }
+
   function isTableSwipeTarget(target: EventTarget | null): boolean {
     if (!(target instanceof HTMLElement)) return false;
     return Boolean(
@@ -624,6 +645,7 @@ Escaped pipes:
       if (noteMainEl) noteMainEl.style.transform = '';
       if (drawer) drawer.style.transform = '';
       if (menuButtonEl) menuButtonEl.style.transform = '';
+      if (noteMenuAnchorEl) noteMenuAnchorEl.style.transform = '';
       if (overlayEl) overlayEl.style.opacity = String(dragProgress * 0.5);
 
       // Re-enable CSS transitions
@@ -649,6 +671,8 @@ Escaped pipes:
 
   async function loadNote(id: string | null): Promise<void> {
     await flushSave();
+    noteMenuOpen = false;
+    deleteConfirmOpen = false;
 
     loading = true;
 
@@ -714,6 +738,7 @@ Escaped pipes:
   // Direct DOM refs for bypassing reactivity during drag
   let noteMainEl: HTMLElement | undefined = $state(undefined);
   let menuButtonEl: HTMLElement | undefined = $state(undefined);
+  let noteMenuAnchorEl: HTMLElement | undefined = $state(undefined);
   let overlayEl: HTMLElement | undefined = $state(undefined);
   let dragProgress = 0;
   let rafId = 0;
@@ -724,6 +749,7 @@ Escaped pipes:
     if (noteMainEl) noteMainEl.style.transform = `translateX(${offset}px)`;
     if (drawer) drawer.style.transform = `translateX(${offset - drawerWidth}px)`;
     if (menuButtonEl) menuButtonEl.style.transform = `translateX(${offset}px)`;
+    if (noteMenuAnchorEl) noteMenuAnchorEl.style.transform = `translateX(${offset}px)`;
     if (overlayEl) overlayEl.style.opacity = `${dragProgress * 0.5}`;
   }
 
@@ -776,6 +802,25 @@ Escaped pipes:
     aria-expanded={drawerOpen}
     onclick={() => setDrawerOpen(!drawerOpen)}
   >&#9776;</button>
+
+  <!-- Note menu button (three-dot) -->
+  {#if noteId}
+    <div bind:this={noteMenuAnchorEl} class="note-menu-anchor">
+      <button
+        class="note-menu-toggle"
+        aria-label="Note options"
+        aria-expanded={noteMenuOpen}
+        onclick={() => { noteMenuOpen = !noteMenuOpen; }}
+      >&#8942;</button>
+      {#if noteMenuOpen}
+        <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
+        <div class="note-menu-backdrop" onclick={() => { noteMenuOpen = false; }}></div>
+        <div class="note-menu-dropdown">
+          <button onclick={() => { noteMenuOpen = false; deleteConfirmOpen = true; }}>Delete note</button>
+        </div>
+      {/if}
+    </div>
+  {/if}
 
   <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
   <!-- Main content -->
@@ -832,6 +877,21 @@ Escaped pipes:
 
 {#if settingsOpen}
   <SettingsScreen onclose={() => { settingsOpen = false; }} onimported={handleImported} />
+{/if}
+
+{#if deleteConfirmOpen}
+  <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
+  <div class="delete-confirm-overlay" onclick={() => { deleteConfirmOpen = false; }}>
+    <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
+    <div class="delete-confirm-dialog" onclick={(e) => e.stopPropagation()}>
+      <h3>Delete this note?</h3>
+      <p>This action cannot be undone.</p>
+      <div class="delete-confirm-actions">
+        <button class="delete-confirm-cancel" onclick={() => { deleteConfirmOpen = false; }}>Cancel</button>
+        <button class="delete-confirm-delete" onclick={handleDeleteNote}>Delete</button>
+      </div>
+    </div>
+  </div>
 {/if}
 
 {#if toastMessage}

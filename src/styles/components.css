@@ -396,6 +396,140 @@
   }
 }
 
+/* Note menu (three-dot) */
+.note-menu-anchor {
+  position: absolute;
+  top: max(12px, calc(12px + env(safe-area-inset-top)));
+  right: max(12px, calc(12px + env(safe-area-inset-right)));
+  z-index: 36;
+  transform: translateX(var(--drawer-offset));
+  transition: transform 0.25s ease;
+  will-change: transform;
+}
+
+.notes-shell.drawer-dragging .note-menu-anchor {
+  transition: none;
+}
+
+.note-menu-toggle {
+  width: 44px;
+  height: 44px;
+  border-radius: 22px;
+  border: none;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
+  font-size: 22px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-tap-highlight-color: transparent;
+  color: #333;
+}
+
+.note-menu-toggle:active {
+  background: #e8e8e8;
+}
+
+.note-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 35;
+}
+
+.note-menu-dropdown {
+  position: absolute;
+  top: 50px;
+  right: 0;
+  min-width: 160px;
+  background: white;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  z-index: 36;
+  overflow: hidden;
+}
+
+.note-menu-dropdown button {
+  width: 100%;
+  padding: 12px 16px;
+  border: none;
+  background: transparent;
+  text-align: left;
+  font-size: 16px;
+  cursor: pointer;
+  color: #d32f2f;
+  font-family: inherit;
+}
+
+.note-menu-dropdown button:active {
+  background: #f5f5f5;
+}
+
+/* Delete confirmation dialog */
+.delete-confirm-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.delete-confirm-dialog {
+  background: white;
+  border-radius: 14px;
+  padding: 24px;
+  width: min(320px, calc(100vw - 48px));
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.25);
+}
+
+.delete-confirm-dialog h3 {
+  margin: 0 0 8px;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.delete-confirm-dialog p {
+  margin: 0 0 20px;
+  font-size: 14px;
+  color: #666;
+}
+
+.delete-confirm-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+}
+
+.delete-confirm-actions button {
+  padding: 8px 20px;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+  font-family: inherit;
+}
+
+.delete-confirm-cancel {
+  background: #e8e8e8;
+  color: #333;
+}
+
+.delete-confirm-cancel:active {
+  background: #d8d8d8;
+}
+
+.delete-confirm-delete {
+  background: #d32f2f;
+  color: white;
+}
+
+.delete-confirm-delete:active {
+  background: #b71c1c;
+}
+
 /* Toast */
 .toast {
   position: fixed;
