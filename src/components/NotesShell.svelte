@@ -260,6 +260,7 @@ Escaped pipes:
 
   let editor: ReturnType<typeof MarkdownEditor> | null = $state(null);
   let editorFocused = $state(false);
+  let toolbarTouching = $state(false);
   let shell: HTMLElement | undefined = $state(undefined);
   let drawer: HTMLElement | undefined = $state(undefined);
   let noteBody: HTMLElement | undefined = $state(undefined);
@@ -506,6 +507,22 @@ Escaped pipes:
       input.focus();
       selectAllTitleText(input);
     }
+  }
+
+  // TODO: Toolbar horizontal scroll still doesn't work well on Android.
+  // Touching the toolbar still scrolls the keyboard up, and left/right panning
+  // is likely blocked by the main sidebar swipe handler (handleTouchStart/Move/End).
+  // Need to exclude toolbar touches from the drawer swipe gesture.
+  function handleEditorFocusOut(): void {
+    if (toolbarTouching) {
+      // Don't drop editorFocused — user is interacting with the toolbar.
+      // Refocus the editor so the keyboard doesn't dismiss.
+      requestAnimationFrame(() => {
+        if (toolbarTouching) editor?.focus();
+      });
+      return;
+    }
+    editorFocused = false;
   }
 
   function handleEditorContainerClick(event: MouseEvent): void {
@@ -883,7 +900,7 @@ Escaped pipes:
           {/if}
         </div>
         <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-        <div class="editor-container" onclick={handleEditorContainerClick} onfocusin={() => editorFocused = true} onfocusout={() => editorFocused = false}>
+        <div class="editor-container" onclick={handleEditorContainerClick} onfocusin={() => editorFocused = true} onfocusout={handleEditorFocusOut}>
           <MarkdownEditor
             bind:this={editor}
             {content}
@@ -903,6 +920,7 @@ Escaped pipes:
   <MarkdownToolbar
     getView={() => editor?.getView() ?? null}
     {editorFocused}
+    ontoolbartouch={(touching) => toolbarTouching = touching}
   />
 </div>
 

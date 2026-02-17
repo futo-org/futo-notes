@@ -18,9 +18,10 @@
   interface Props {
     getView: () => EditorView | null;
     editorFocused?: boolean;
+    ontoolbartouch?: (touching: boolean) => void;
   }
 
-  let { getView, editorFocused = false }: Props = $props();
+  let { getView, editorFocused = false, ontoolbartouch }: Props = $props();
 
   const isNative = Capacitor.isNativePlatform();
 
@@ -46,7 +47,12 @@
 </script>
 
 {#if show}
-<div class="markdown-toolbar" style="bottom: {keyboard.height}px">
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div class="markdown-toolbar" style="bottom: {keyboard.height}px"
+  ontouchstart={() => ontoolbartouch?.(true)}
+  ontouchend={() => ontoolbartouch?.(false)}
+  ontouchcancel={() => ontoolbartouch?.(false)}
+>
   <div class="toolbar-scroll">
     <button
       class="toolbar-btn"
