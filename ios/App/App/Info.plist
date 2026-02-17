@@ -55,5 +55,9 @@
 	<true/>
 	<key>UIStatusBarStyle</key>
 	<string>UIStatusBarStyleDefault</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Take photos to add to your notes</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Choose photos to add to your notes</string>
 </dict>
 </plist>

@@ -1,4 +1,5 @@
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
+import { Capacitor } from '@capacitor/core';
 // Documents directory — on iOS visible in Files app → On My iPhone → FUTO Notes
 // On Android, stored in public Documents/futo-notes folder (scoped storage on Android 11+)
 const notesDirectory = Directory.Documents;
@@ -109,4 +110,31 @@ export async function getUniqueNoteId(baseId: string, excludeId?: string): Promi
 export async function renameNote(oldId: string, newId: string, content: string): Promise<number> {
   await deleteNoteFile(oldId);
   return writeNote(newId, content);
+}
+
+// Image file helpers
+
+/** Copy an image from a temp path into futo-notes/{timestamp}-{4char}.{ext}, return just the filename. */
+export async function saveImageFile(sourcePath: string): Promise<string> {
+  const ext = sourcePath.split('.').pop()?.toLowerCase() || 'jpg';
+  const timestamp = Date.now();
+  const rand = Math.random().toString(36).slice(2, 6);
+  const filename = `${timestamp}-${rand}.${ext}`;
+
+  await Filesystem.copy({
+    from: sourcePath,
+    to: `${NOTES_SUBFOLDER}/${filename}`,
+    toDirectory: notesDirectory
+  });
+
+  return filename;
+}
+
+/** Resolve a local image filename to a web-displayable URL. */
+export async function getImageWebPath(filename: string): Promise<string> {
+  const result = await Filesystem.getUri({
+    path: `${NOTES_SUBFOLDER}/${filename}`,
+    directory: notesDirectory
+  });
+  return Capacitor.convertFileSrc(result.uri);
 }

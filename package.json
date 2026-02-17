@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@capacitor/app": "^8.0.0",
+    "@capacitor/camera": "^8.0.1",
     "@capacitor/core": "8.0.2",
     "@capacitor/filesystem": "8.1.0",
     "@capacitor/haptics": "8.0.0",
