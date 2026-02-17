@@ -331,19 +331,32 @@
   left: 0;
   right: 0;
   height: 44px;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 0 8px;
-  padding-left: max(8px, env(safe-area-inset-left));
-  padding-right: max(8px, env(safe-area-inset-right));
   background: #f0f0f0;
   border-top: 1px solid #d4d4d4;
   z-index: 1000;
 }
 
+.toolbar-scroll {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 100%;
+  padding: 0 8px;
+  padding-left: max(8px, env(safe-area-inset-left));
+  padding-right: max(8px, env(safe-area-inset-right));
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.toolbar-scroll::-webkit-scrollbar {
+  display: none;
+}
+
 .toolbar-btn {
   width: 44px;
+  min-width: 44px;
   height: 36px;
   border: none;
   background: transparent;
@@ -358,6 +371,7 @@
   -webkit-tap-highlight-color: transparent;
   -webkit-user-select: none;
   user-select: none;
+  flex-shrink: 0;
 }
 
 .toolbar-btn:active {
@@ -366,6 +380,27 @@
 
 .toolbar-strikethrough {
   text-decoration: line-through;
+}
+
+.toolbar-separator {
+  width: 1px;
+  min-width: 1px;
+  height: 24px;
+  background: #c8c8c8;
+  margin: 0 4px;
+  flex-shrink: 0;
+}
+
+.toolbar-quote {
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.toolbar-icon {
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 /* Mobile adjustments for custom classes */
