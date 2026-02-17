@@ -1,7 +1,7 @@
-import { keymap } from '@codemirror/view';
-import { EditorSelection } from '@codemirror/state';
+import { keymap, EditorView } from '@codemirror/view';
+import { EditorSelection, Prec } from '@codemirror/state';
 
-function handleEnter(view: any): boolean {
+function handleEnter(view: EditorView): boolean {
   const { state } = view;
   const line = state.doc.lineAt(state.selection.main.from);
   const text = line.text;
@@ -51,9 +51,46 @@ function handleEnter(view: any): boolean {
     return true;
   }
 
+  // Blockquote continuation
+  const quoteMatch = text.match(/^((?:>\s*)+)(.*)/);
+  if (quoteMatch) {
+    const [, markers, content] = quoteMatch;
+    const level = (markers.match(/>/g) || []).length;
+
+    // If content after markers is a list item, let the built-in
+    // markdown handler deal with it (it handles nested list+quote)
+    if (content.match(/^\s*[-*+]\s/) || content.match(/^\s*\d+\.\s/)) {
+      return false;
+    }
+
+    if (!content.trim()) {
+      if (level > 1) {
+        // Nested quote — step down one level
+        const newMarkers = '> '.repeat(level - 1);
+        view.dispatch({
+          changes: { from: line.from, to: line.to, insert: newMarkers },
+          selection: EditorSelection.cursor(line.from + newMarkers.length)
+        });
+      } else {
+        // Level 1 — exit blockquote entirely
+        view.dispatch({
+          changes: { from: line.from, to: line.to, insert: '' },
+          selection: EditorSelection.cursor(line.from)
+        });
+      }
+      return true;
+    }
+    // Continue blockquote — normalize to `> ` per level for consistent spacing
+    const normalizedMarkers = '> '.repeat(level);
+    view.dispatch(state.replaceSelection(`\n${normalizedMarkers}`));
+    return true;
+  }
+
   return false;
 }
 
-export const listContinuationKeymap = keymap.of([
+// Prec.highest so this runs before @codemirror/lang-markdown's
+// built-in insertNewlineContinueMarkup (which is Prec.high)
+export const listContinuationKeymap = Prec.highest(keymap.of([
   { key: 'Enter', run: handleEnter }
-]);
+]));

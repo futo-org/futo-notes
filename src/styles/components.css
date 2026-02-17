@@ -110,13 +110,13 @@
 }
 
 .editor-container .cm-line.cm-md-quote {
-  padding-left: 12px !important;
+  padding-left: 15px !important;
 }
 .editor-container .cm-line.cm-md-quote-level-2 {
-  padding-left: 24px !important;
+  padding-left: 30px !important;
 }
 .editor-container .cm-line.cm-md-quote-level-3 {
-  padding-left: 36px !important;
+  padding-left: 45px !important;
 }
 .editor-container .cm-line.cm-md-code-block {
   padding: 4px 16px !important;

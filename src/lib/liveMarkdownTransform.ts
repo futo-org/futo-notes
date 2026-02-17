@@ -370,7 +370,7 @@ class LiveMarkdownPlugin implements PluginValue {
         }
 
         // Process element
-        this.processElement(nodeName, from, to, view, decorations);
+        this.processElement(nodeName, from, to, view, decorations, cursorLines);
       }
     });
 
@@ -427,7 +427,7 @@ class LiveMarkdownPlugin implements PluginValue {
   }
 
   private isBlockElement(nodeName: string): boolean {
-    return /^(ATXHeading|Blockquote|ListItem|FencedCode|CodeBlock|HorizontalRule)/.test(
+    return /^(ATXHeading|ListItem|FencedCode|CodeBlock|HorizontalRule)/.test(
       nodeName
     );
   }
@@ -449,7 +449,8 @@ class LiveMarkdownPlugin implements PluginValue {
     from: number,
     to: number,
     view: EditorView,
-    decorations: Array<{ from: number; to: number; value: any }>
+    decorations: Array<{ from: number; to: number; value: any }>,
+    cursorLines: Set<number>
   ): void {
     const doc = view.state.doc;
     const text = doc.sliceString(from, to);
@@ -467,7 +468,7 @@ class LiveMarkdownPlugin implements PluginValue {
     } else if (MarkdownParser.isImage(nodeName)) {
       this.processImage(from, to, text, decorations);
     } else if (MarkdownParser.isBlockQuote(nodeName)) {
-      this.processBlockQuote(from, to, view, decorations);
+      this.processBlockQuote(from, to, view, decorations, cursorLines);
     } else if (MarkdownParser.isListItem(nodeName)) {
       this.processListItem(from, to, text, view, decorations);
     } else if (MarkdownParser.isHorizontalRule(nodeName)) {
@@ -728,7 +729,8 @@ class LiveMarkdownPlugin implements PluginValue {
     from: number,
     to: number,
     view: EditorView,
-    decorations: Array<{ from: number; to: number; value: any }>
+    decorations: Array<{ from: number; to: number; value: any }>,
+    cursorLines: Set<number>
   ): void {
     const doc = view.state.doc;
     const startLine = doc.lineAt(from).number;
@@ -756,13 +758,22 @@ class LiveMarkdownPlugin implements PluginValue {
       }
 
       if (nestLevel > 0) {
-        // Hide all > markers and spaces
         if (pos > 0) {
-          decorations.push({
-            from: line.from,
-            to: line.from + pos,
-            value: { widget: new HiddenWidget() }
-          });
+          if (cursorLines.has(i)) {
+            // Cursor on this line — show markers dimmed
+            decorations.push({
+              from: line.from,
+              to: line.from + pos,
+              value: { class: 'cm-md-quote-marker' }
+            });
+          } else {
+            // Cursor not on this line — hide markers
+            decorations.push({
+              from: line.from,
+              to: line.from + pos,
+              value: { widget: new HiddenWidget() }
+            });
+          }
         }
 
         quoteLines.push({ lineNum: i, nestLevel });
