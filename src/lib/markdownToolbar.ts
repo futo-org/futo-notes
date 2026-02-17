@@ -144,3 +144,129 @@ export function toggleItalic(view: EditorView): void {
 export function toggleStrikethrough(view: EditorView): void {
   toggleSyntax(view, STRIKETHROUGH);
 }
+
+// --- Line-prefix toggles ---
+
+/** Regex patterns for line prefixes we manage */
+const BULLET_RE = /^- /;
+const ORDERED_RE = /^\d+\. /;
+const TASK_RE = /^- \[([ x])\] /;
+const HEADING_RE = /^(#{1,3}) /;
+const QUOTE_RE = /^> /;
+
+/**
+ * Toggle a line prefix. If the line already has the prefix, remove it.
+ * If it has a *different* managed prefix, replace it.
+ * Works on every line touched by the current selection.
+ */
+function toggleLinePrefix(
+  view: EditorView,
+  prefix: string,
+  isMatch: (lineText: string) => RegExpMatchArray | null,
+  allPrefixPatterns: RegExp[] = []
+): void {
+  const { state } = view;
+  const { from, to } = state.selection.main;
+
+  const startLine = state.doc.lineAt(from);
+  const endLine = state.doc.lineAt(to);
+
+  const changes: { from: number; to: number; insert: string }[] = [];
+  let selDelta = 0; // cumulative offset for cursor
+
+  for (let lineNum = startLine.number; lineNum <= endLine.number; lineNum++) {
+    const line = state.doc.line(lineNum);
+    const text = line.text;
+    const match = isMatch(text);
+
+    if (match) {
+      // Already has this prefix — remove it
+      changes.push({ from: line.from, to: line.from + match[0].length, insert: '' });
+      if (lineNum === startLine.number) selDelta = -match[0].length;
+    } else {
+      // Check if line has a different managed prefix to replace
+      let replaced = false;
+      for (const pat of allPrefixPatterns) {
+        const otherMatch = text.match(pat);
+        if (otherMatch) {
+          changes.push({ from: line.from, to: line.from + otherMatch[0].length, insert: prefix });
+          if (lineNum === startLine.number) selDelta = prefix.length - otherMatch[0].length;
+          replaced = true;
+          break;
+        }
+      }
+      if (!replaced) {
+        changes.push({ from: line.from, to: line.from, insert: prefix });
+        if (lineNum === startLine.number) selDelta = prefix.length;
+      }
+    }
+  }
+
+  const newAnchor = Math.max(0, from + selDelta);
+  view.dispatch({ changes, selection: { anchor: newAnchor } });
+  view.focus();
+}
+
+const ALL_LINE_PREFIXES = [BULLET_RE, ORDERED_RE, TASK_RE, HEADING_RE, QUOTE_RE];
+
+export function toggleBulletList(view: EditorView): void {
+  toggleLinePrefix(view, '- ', (t) => t.match(BULLET_RE), ALL_LINE_PREFIXES);
+}
+
+export function toggleOrderedList(view: EditorView): void {
+  toggleLinePrefix(view, '1. ', (t) => t.match(ORDERED_RE), ALL_LINE_PREFIXES);
+}
+
+export function toggleTaskList(view: EditorView): void {
+  toggleLinePrefix(view, '- [ ] ', (t) => t.match(TASK_RE), ALL_LINE_PREFIXES);
+}
+
+export function cycleHeading(view: EditorView): void {
+  const { state } = view;
+  const { from } = state.selection.main;
+  const line = state.doc.lineAt(from);
+  const text = line.text;
+  const headingMatch = text.match(HEADING_RE);
+
+  if (headingMatch) {
+    const level = headingMatch[1].length;
+    if (level < 3) {
+      // Upgrade: # -> ## -> ###
+      const newPrefix = '#'.repeat(level + 1) + ' ';
+      const oldLen = headingMatch[0].length;
+      view.dispatch({
+        changes: { from: line.from, to: line.from + oldLen, insert: newPrefix },
+        selection: { anchor: from + (newPrefix.length - oldLen) }
+      });
+    } else {
+      // At ###, remove heading
+      view.dispatch({
+        changes: { from: line.from, to: line.from + headingMatch[0].length, insert: '' },
+        selection: { anchor: from - headingMatch[0].length }
+      });
+    }
+  } else {
+    // No heading — check for other prefixes first
+    for (const pat of ALL_LINE_PREFIXES) {
+      const m = text.match(pat);
+      if (m) {
+        view.dispatch({
+          changes: { from: line.from, to: line.from + m[0].length, insert: '# ' },
+          selection: { anchor: from + (2 - m[0].length) }
+        });
+        view.focus();
+        return;
+      }
+    }
+    // Clean line, add H1
+    view.dispatch({
+      changes: { from: line.from, to: line.from, insert: '# ' },
+      selection: { anchor: from + 2 }
+    });
+  }
+  view.focus();
+}
+
+export function toggleBlockquote(view: EditorView): void {
+  toggleLinePrefix(view, '> ', (t) => t.match(QUOTE_RE), ALL_LINE_PREFIXES);
+}
