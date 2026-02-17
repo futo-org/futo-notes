@@ -95,34 +95,71 @@ class TaskCheckboxWidget extends WidgetType {
 // Cache image dimensions to avoid layout shift on widget recreation
 const imageSizeCache = new Map<string, { width: number; height: number }>();
 
+// Cache resolved web URLs for local image filenames
+const localImageUrlCache = new Map<string, string>();
+
 // Max display width for images (matches CSS max-width: 100% within editor)
 const MAX_IMAGE_HEIGHT = 300; // matches CSS max-height
+
+/** Check if a src is a remote URL or data URI (not a local file reference). */
+function isRemoteSrc(src: string): boolean {
+  return src.startsWith('http://') || src.startsWith('https://') || src.startsWith('data:');
+}
+
+/** Resolve an image src to a displayable URL. Local filenames use the cache. */
+export function resolveImageSrc(src: string): string {
+  if (isRemoteSrc(src)) return src;
+  return localImageUrlCache.get(src) ?? '';
+}
+
+/** Register a local image filename → web URL mapping so it renders immediately. */
+export function registerLocalImageUrl(filename: string, webUrl: string): void {
+  localImageUrlCache.set(filename, webUrl);
+}
 
 /**
  * Preload all images found in markdown text and cache their dimensions.
  * Call this when a note is opened so images are ready before the user scrolls.
+ * For local image references, resolves them via getImageWebPath().
  */
-export function preloadImages(markdownText: string): void {
+export function preloadImages(markdownText: string, getImageWebPath?: (filename: string) => Promise<string>): void {
   const imageRegex = /!\[[^\]]*\]\(([^\s)]+)(?:\s+"[^"]*")?\)/g;
   let match;
   while ((match = imageRegex.exec(markdownText)) !== null) {
-    const url = match[1];
-    if (imageSizeCache.has(url)) continue;
+    const src = match[1];
 
-    const img = new Image();
-    img.src = url;
-    img.onload = () => {
-      if (imageSizeCache.has(url)) return;
-      // Compute display size respecting max-height constraint
-      let w = img.naturalWidth;
-      let h = img.naturalHeight;
-      if (h > MAX_IMAGE_HEIGHT) {
-        w = Math.round(w * (MAX_IMAGE_HEIGHT / h));
-        h = MAX_IMAGE_HEIGHT;
+    // For local filenames, resolve to web URL first
+    if (!isRemoteSrc(src)) {
+      if (!localImageUrlCache.has(src) && getImageWebPath) {
+        getImageWebPath(src).then(webUrl => {
+          localImageUrlCache.set(src, webUrl);
+          // Now preload the resolved URL for dimension caching
+          preloadSingleImage(webUrl);
+        }).catch(() => { /* file missing — ignore */ });
+      } else if (localImageUrlCache.has(src)) {
+        preloadSingleImage(localImageUrlCache.get(src)!);
       }
-      imageSizeCache.set(url, { width: w, height: h });
-    };
+      continue;
+    }
+
+    preloadSingleImage(src);
   }
+}
+
+function preloadSingleImage(url: string): void {
+  if (imageSizeCache.has(url)) return;
+  const img = new Image();
+  img.src = url;
+  img.onload = () => {
+    if (imageSizeCache.has(url)) return;
+    let w = img.naturalWidth;
+    let h = img.naturalHeight;
+    if (h > MAX_IMAGE_HEIGHT) {
+      w = Math.round(w * (MAX_IMAGE_HEIGHT / h));
+      h = MAX_IMAGE_HEIGHT;
+    }
+    imageSizeCache.set(url, { width: w, height: h });
+  };
 }
 
 class ImageWidget extends WidgetType {
@@ -130,8 +167,14 @@ class ImageWidget extends WidgetType {
     super();
   }
 
+  /** Resolve src: remote URLs pass through, local filenames use the cache. */
+  private get resolvedSrc(): string {
+    return resolveImageSrc(this.src);
+  }
+
   get estimatedHeight(): number {
-    const cached = imageSizeCache.get(this.src);
+    const url = this.resolvedSrc || this.src;
+    const cached = imageSizeCache.get(url);
     return cached ? cached.height : 200;
   }
 
@@ -139,7 +182,8 @@ class ImageWidget extends WidgetType {
     const wrapper = document.createElement('div');
     wrapper.className = 'cm-md-image-wrapper';
 
-    const cached = imageSizeCache.get(this.src);
+    const displayUrl = this.resolvedSrc;
+    const cached = displayUrl ? imageSizeCache.get(displayUrl) : undefined;
     if (cached) {
       wrapper.style.cssText = `height: ${cached.height}px;`;
     } else {
@@ -148,8 +192,12 @@ class ImageWidget extends WidgetType {
 
     const img = document.createElement('img');
     img.alt = this.alt;
-    img.src = this.src;
     img.className = 'cm-md-image-widget';
+
+    if (displayUrl) {
+      img.src = displayUrl;
+    }
+    // If no resolved URL yet (local file still loading), leave src empty — it'll render on next rebuild
 
     if (cached) {
       img.width = cached.width;
@@ -157,10 +205,11 @@ class ImageWidget extends WidgetType {
     }
 
     img.onload = () => {
-      if (!imageSizeCache.has(this.src)) {
+      const cacheKey = displayUrl || this.src;
+      if (!imageSizeCache.has(cacheKey)) {
         const displayWidth = img.offsetWidth;
         const displayHeight = img.offsetHeight;
-        imageSizeCache.set(this.src, { width: displayWidth, height: displayHeight });
+        imageSizeCache.set(cacheKey, { width: displayWidth, height: displayHeight });
       }
       // Always sync wrapper height to actual rendered size
       wrapper.style.cssText = `height: ${img.offsetHeight}px;`;

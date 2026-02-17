@@ -1,4 +1,7 @@
 import { EditorView } from '@codemirror/view';
+import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
+import { saveImageFile, getImageWebPath } from '$lib/fileSystem';
+import { registerLocalImageUrl } from '$lib/liveMarkdownTransform';
 
 interface MarkdownSyntax {
   prefix: string;
@@ -143,4 +146,28 @@ export function toggleItalic(view: EditorView): void {
 
 export function toggleStrikethrough(view: EditorView): void {
   toggleSyntax(view, STRIKETHROUGH);
+}
+
+export async function insertImage(view: EditorView, source: CameraSource): Promise<void> {
+  const photo = await Camera.getPhoto({
+    resultType: CameraResultType.Uri,
+    source,
+    quality: 90
+  });
+
+  if (!photo.path) return;
+
+  const filename = await saveImageFile(photo.path);
+
+  // Pre-register the web URL so the image renders immediately
+  const webUrl = await getImageWebPath(filename);
+  registerLocalImageUrl(filename, webUrl);
+
+  const pos = view.state.selection.main.head;
+  const insert = `![](${filename})\n`;
+  view.dispatch({
+    changes: { from: pos, insert },
+    selection: { anchor: pos + insert.length }
+  });
+  view.focus();
 }
