@@ -7,6 +7,7 @@
   import type { NotePreview } from '../types';
   import { getAllNotes, updateNote, readNote, createNote, getNoteById, deleteNote } from '$lib/notes';
   import { sanitizeFilename } from '$lib/utils';
+  import { keyboard } from '$lib/keyboard.svelte';
   import { navigate } from '../router';
   import { SCROLL_TEST_NOTES } from '$lib/scrollTestNotes';
 
@@ -709,7 +710,37 @@ Escaped pipes:
     }
   }
 
+  // Toolbar height constant (matches .markdown-toolbar height in components.css)
+  const TOOLBAR_HEIGHT = 44;
+
+  // Total bottom inset when keyboard is visible: keyboard + toolbar
+  const keyboardInset = $derived(keyboard.visible ? keyboard.height + TOOLBAR_HEIGHT : 0);
+
+  // Scroll cursor into view when keyboard opens or resizes.
+  // CM's scrollIntoView is a no-op here because .cm-scroller has overflow:visible,
+  // so we manually scroll the external .note-body container.
   $effect(() => {
+    const inset = keyboardInset;
+    if (inset > 0) {
+      const v = editor?.getView();
+      const scrollEl = noteBody;
+      if (v && scrollEl) {
+        requestAnimationFrame(() => {
+          const cursor = v.coordsAtPos(v.state.selection.main.head);
+          if (!cursor) return;
+          const scrollRect = scrollEl.getBoundingClientRect();
+          // If cursor is below the visible area, scroll it into view
+          const visibleBottom = scrollRect.bottom;
+          if (cursor.bottom > visibleBottom) {
+            scrollEl.scrollTop += cursor.bottom - visibleBottom + 20;
+          }
+        });
+      }
+    }
+  });
+
+  $effect(() => {
+    keyboard.init();
     if (isNative && !notesLoaded) {
       refreshNotesList();
       notesLoaded = true;
@@ -824,7 +855,7 @@ Escaped pipes:
 
   <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
   <!-- Main content -->
-  <div bind:this={noteMainEl} class="note-main" onclick={() => { if (drawerOpen) setDrawerOpen(false); }}>
+  <div bind:this={noteMainEl} class="note-main" style:bottom={keyboardInset > 0 ? `${keyboardInset}px` : undefined} onclick={() => { if (drawerOpen) setDrawerOpen(false); }}>
     <!-- Overlay replaces filter: brightness/contrast for GPU-composited dimming -->
     <div
       bind:this={overlayEl}
