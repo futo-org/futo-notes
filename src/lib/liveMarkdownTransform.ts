@@ -7,7 +7,10 @@ import {
   WidgetType,
   ViewUpdate
 } from '@codemirror/view';
+import { StateEffect } from '@codemirror/state';
 import { syntaxTree, ensureSyntaxTree } from '@codemirror/language';
+
+export const imageCacheUpdated = StateEffect.define<null>();
 
 // Widget Classes
 class HorizontalRuleWidget extends WidgetType {
@@ -68,6 +71,20 @@ class TaskCheckboxWidget extends WidgetType {
       margin: 0;
     `;
 
+    checkbox.addEventListener('change', () => {
+      const editorEl = wrapper.closest('.cm-editor') as HTMLElement | null;
+      if (!editorEl) return;
+      const view = EditorView.findFromDOM(editorEl);
+      if (!view) return;
+      const pos = view.posAtDOM(wrapper);
+      const line = view.state.doc.lineAt(pos);
+      const match = line.text.match(/\[([ xX])\]/);
+      if (!match || match.index === undefined) return;
+      const charPos = line.from + match.index + 1;
+      const newChar = match[1] === ' ' ? 'x' : ' ';
+      view.dispatch({ changes: { from: charPos, to: charPos + 1, insert: newChar } });
+    });
+
     // Make wrapper clicks toggle the checkbox
     wrapper.addEventListener('click', (e) => {
       if (e.target !== checkbox) {
@@ -88,50 +105,99 @@ class TaskCheckboxWidget extends WidgetType {
   }
 
   ignoreEvent(): boolean {
-    return false;
+    return true;
   }
 }
 
 // Cache image dimensions to avoid layout shift on widget recreation
 const imageSizeCache = new Map<string, { width: number; height: number }>();
 
+// Cache resolved web URLs for local image filenames
+const localImageUrlCache = new Map<string, string>();
+
 // Max display width for images (matches CSS max-width: 100% within editor)
 const MAX_IMAGE_HEIGHT = 300; // matches CSS max-height
+
+/** Check if a src is a remote URL or data URI (not a local file reference). */
+function isRemoteSrc(src: string): boolean {
+  return src.startsWith('http://') || src.startsWith('https://') || src.startsWith('data:');
+}
+
+/** Resolve an image src to a displayable URL. Local filenames use the cache. */
+export function resolveImageSrc(src: string): string {
+  if (isRemoteSrc(src)) return src;
+  return localImageUrlCache.get(src) ?? '';
+}
+
+/** Register a local image filename → web URL mapping so it renders immediately. */
+export function registerLocalImageUrl(filename: string, webUrl: string): void {
+  localImageUrlCache.set(filename, webUrl);
+}
 
 /**
  * Preload all images found in markdown text and cache their dimensions.
  * Call this when a note is opened so images are ready before the user scrolls.
+ * For local image references, resolves them via getImageWebPath().
  */
-export function preloadImages(markdownText: string): void {
+export function preloadImages(
+  markdownText: string,
+  getImageWebPath?: (filename: string) => Promise<string>,
+  getView?: () => EditorView | null
+): void {
   const imageRegex = /!\[[^\]]*\]\(([^\s)]+)(?:\s+"[^"]*")?\)/g;
   let match;
   while ((match = imageRegex.exec(markdownText)) !== null) {
-    const url = match[1];
-    if (imageSizeCache.has(url)) continue;
+    const src = match[1];
 
-    const img = new Image();
-    img.src = url;
-    img.onload = () => {
-      if (imageSizeCache.has(url)) return;
-      // Compute display size respecting max-height constraint
-      let w = img.naturalWidth;
-      let h = img.naturalHeight;
-      if (h > MAX_IMAGE_HEIGHT) {
-        w = Math.round(w * (MAX_IMAGE_HEIGHT / h));
-        h = MAX_IMAGE_HEIGHT;
+    // For local filenames, resolve to web URL first
+    if (!isRemoteSrc(src)) {
+      if (!localImageUrlCache.has(src) && getImageWebPath) {
+        getImageWebPath(src).then(webUrl => {
+          localImageUrlCache.set(src, webUrl);
+          // Now preload the resolved URL for dimension caching
+          preloadSingleImage(webUrl);
+          const v = getView?.();
+          if (v) {
+            v.dispatch({ effects: imageCacheUpdated.of(null) });
+          }
+        }).catch(() => { /* file missing — ignore */ });
+      } else if (localImageUrlCache.has(src)) {
+        preloadSingleImage(localImageUrlCache.get(src)!);
       }
-      imageSizeCache.set(url, { width: w, height: h });
-    };
+      continue;
+    }
+
+    preloadSingleImage(src);
   }
 }
 
+function preloadSingleImage(url: string): void {
+  if (imageSizeCache.has(url)) return;
+  const img = new Image();
+  img.src = url;
+  img.onload = () => {
+    if (imageSizeCache.has(url)) return;
+    let w = img.naturalWidth;
+    let h = img.naturalHeight;
+    if (h > MAX_IMAGE_HEIGHT) {
+      w = Math.round(w * (MAX_IMAGE_HEIGHT / h));
+      h = MAX_IMAGE_HEIGHT;
+    }
+    imageSizeCache.set(url, { width: w, height: h });
+  };
+}
+
 class ImageWidget extends WidgetType {
+  private resolvedAtConstruction: string;
+
   constructor(private alt: string, private src: string) {
     super();
+    this.resolvedAtConstruction = resolveImageSrc(src);
   }
 
   get estimatedHeight(): number {
-    const cached = imageSizeCache.get(this.src);
+    const url = this.resolvedAtConstruction || this.src;
+    const cached = imageSizeCache.get(url);
     return cached ? cached.height : 200;
   }
 
@@ -139,7 +205,8 @@ class ImageWidget extends WidgetType {
     const wrapper = document.createElement('div');
     wrapper.className = 'cm-md-image-wrapper';
 
-    const cached = imageSizeCache.get(this.src);
+    const displayUrl = this.resolvedAtConstruction;
+    const cached = displayUrl ? imageSizeCache.get(displayUrl) : undefined;
     if (cached) {
       wrapper.style.cssText = `height: ${cached.height}px;`;
     } else {
@@ -148,8 +215,12 @@ class ImageWidget extends WidgetType {
 
     const img = document.createElement('img');
     img.alt = this.alt;
-    img.src = this.src;
     img.className = 'cm-md-image-widget';
+
+    if (displayUrl) {
+      img.src = displayUrl;
+    }
+    // If no resolved URL yet (local file still loading), leave src empty — it'll render on next rebuild
 
     if (cached) {
       img.width = cached.width;
@@ -157,10 +228,11 @@ class ImageWidget extends WidgetType {
     }
 
     img.onload = () => {
-      if (!imageSizeCache.has(this.src)) {
+      const cacheKey = displayUrl || this.src;
+      if (!imageSizeCache.has(cacheKey)) {
         const displayWidth = img.offsetWidth;
         const displayHeight = img.offsetHeight;
-        imageSizeCache.set(this.src, { width: displayWidth, height: displayHeight });
+        imageSizeCache.set(cacheKey, { width: displayWidth, height: displayHeight });
       }
       // Always sync wrapper height to actual rendered size
       wrapper.style.cssText = `height: ${img.offsetHeight}px;`;
@@ -171,7 +243,9 @@ class ImageWidget extends WidgetType {
   }
 
   eq(other: any): boolean {
-    return other instanceof ImageWidget && other.src === this.src;
+    return other instanceof ImageWidget &&
+      other.src === this.src &&
+      other.resolvedAtConstruction === this.resolvedAtConstruction;
   }
 
   ignoreEvent(): boolean {
@@ -322,12 +396,19 @@ class LiveMarkdownPlugin implements PluginValue {
 
     const tree = syntaxTree(update.state);
     const treeGrew = tree.length > this.lastTreeLength;
+    const imageCacheChanged = update.transactions.some(
+      (tr) => tr.effects.some((e) => e.is(imageCacheUpdated))
+    );
 
     if (treeGrew) {
       this.lastTreeLength = tree.length;
     }
 
-    const shouldRebuild = update.docChanged || update.selectionSet || update.focusChanged || treeGrew;
+    const shouldRebuild = update.docChanged ||
+      update.selectionSet ||
+      update.focusChanged ||
+      treeGrew ||
+      imageCacheChanged;
 
     if (shouldRebuild) {
       this.decorations = this.buildDecorations(update.view);
@@ -370,7 +451,7 @@ class LiveMarkdownPlugin implements PluginValue {
         }
 
         // Process element
-        this.processElement(nodeName, from, to, view, decorations);
+        this.processElement(nodeName, from, to, view, decorations, cursorLines);
       }
     });
 
@@ -427,7 +508,7 @@ class LiveMarkdownPlugin implements PluginValue {
   }
 
   private isBlockElement(nodeName: string): boolean {
-    return /^(ATXHeading|Blockquote|ListItem|FencedCode|CodeBlock|HorizontalRule)/.test(
+    return /^(ATXHeading|ListItem|FencedCode|CodeBlock|HorizontalRule)/.test(
       nodeName
     );
   }
@@ -449,7 +530,8 @@ class LiveMarkdownPlugin implements PluginValue {
     from: number,
     to: number,
     view: EditorView,
-    decorations: Array<{ from: number; to: number; value: any }>
+    decorations: Array<{ from: number; to: number; value: any }>,
+    cursorLines: Set<number>
   ): void {
     const doc = view.state.doc;
     const text = doc.sliceString(from, to);
@@ -467,7 +549,7 @@ class LiveMarkdownPlugin implements PluginValue {
     } else if (MarkdownParser.isImage(nodeName)) {
       this.processImage(from, to, text, decorations);
     } else if (MarkdownParser.isBlockQuote(nodeName)) {
-      this.processBlockQuote(from, to, view, decorations);
+      this.processBlockQuote(from, to, view, decorations, cursorLines);
     } else if (MarkdownParser.isListItem(nodeName)) {
       this.processListItem(from, to, text, view, decorations);
     } else if (MarkdownParser.isHorizontalRule(nodeName)) {
@@ -728,7 +810,8 @@ class LiveMarkdownPlugin implements PluginValue {
     from: number,
     to: number,
     view: EditorView,
-    decorations: Array<{ from: number; to: number; value: any }>
+    decorations: Array<{ from: number; to: number; value: any }>,
+    cursorLines: Set<number>
   ): void {
     const doc = view.state.doc;
     const startLine = doc.lineAt(from).number;
@@ -756,13 +839,22 @@ class LiveMarkdownPlugin implements PluginValue {
       }
 
       if (nestLevel > 0) {
-        // Hide all > markers and spaces
         if (pos > 0) {
-          decorations.push({
-            from: line.from,
-            to: line.from + pos,
-            value: { widget: new HiddenWidget() }
-          });
+          if (cursorLines.has(i)) {
+            // Cursor on this line — show markers dimmed
+            decorations.push({
+              from: line.from,
+              to: line.from + pos,
+              value: { class: 'cm-md-quote-marker' }
+            });
+          } else {
+            // Cursor not on this line — hide markers
+            decorations.push({
+              from: line.from,
+              to: line.from + pos,
+              value: { widget: new HiddenWidget() }
+            });
+          }
         }
 
         quoteLines.push({ lineNum: i, nestLevel });

@@ -114,17 +114,35 @@
   border-left: 3px solid #3b82f6;
 }
 
-/* Level 2: double blue line via box-shadow (no pseudo-elements) */
+/* Level 2: two separate vertical lines */
 .cm-line.cm-md-quote-level-2 {
-  padding-left: 27px !important;
-  box-shadow: inset 15px 0 0 0 transparent, inset 18px 0 0 0 #3b82f6;
+  padding-left: 30px !important;
+  border-left: none;
+  background-image:
+    linear-gradient(#3b82f6, #3b82f6),
+    linear-gradient(#3b82f6, #3b82f6);
+  background-size: 3px 100%, 3px 100%;
+  background-position: 0 0, 15px 0;
+  background-repeat: no-repeat;
 }
 
-/* Level 3: triple blue line */
+/* Level 3: three separate vertical lines */
 .cm-line.cm-md-quote-level-3 {
-  padding-left: 39px !important;
-  box-shadow: inset 15px 0 0 0 transparent, inset 18px 0 0 0 #3b82f6,
-              inset 27px 0 0 0 transparent, inset 30px 0 0 0 #3b82f6;
+  padding-left: 45px !important;
+  border-left: none;
+  background-image:
+    linear-gradient(#3b82f6, #3b82f6),
+    linear-gradient(#3b82f6, #3b82f6),
+    linear-gradient(#3b82f6, #3b82f6);
+  background-size: 3px 100%, 3px 100%, 3px 100%;
+  background-position: 0 0, 15px 0, 30px 0;
+  background-repeat: no-repeat;
+}
+
+/* Dimmed quote markers when cursor is on the line */
+.cm-md-quote-marker {
+  color: #ccc;
+  font-style: normal;
 }
 
 /* Unordered list items */

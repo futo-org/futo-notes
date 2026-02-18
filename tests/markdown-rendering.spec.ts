@@ -401,6 +401,36 @@ test.describe('Lists', () => {
     );
     expect(firstChecked).toBe(true);
   });
+
+  test('clicking checkbox toggles the markdown document text', async ({ page }) => {
+    await setupEditor(page, '- [ ] Unchecked\n- [x] Checked\n\nMore text');
+    await blurEditor(page);
+
+    // Click the first (unchecked) checkbox
+    const checkbox = page.locator('.cm-md-task-checkbox').first();
+    await checkbox.click();
+    await page.waitForTimeout(300);
+
+    // Read the doc via CM6's Tile API (cmTile on .cm-content)
+    const docText = await page.evaluate(() => {
+      const content = document.querySelector('.cm-content') as any;
+      const view = content?.cmTile?.root?.view;
+      return view?.state?.doc?.toString() ?? '';
+    });
+    expect(docText).toContain('- [x] Unchecked');
+
+    // Click the second (was checked) checkbox to uncheck it
+    const checkbox2 = page.locator('.cm-md-task-checkbox').nth(1);
+    await checkbox2.click();
+    await page.waitForTimeout(300);
+
+    const docText2 = await page.evaluate(() => {
+      const content = document.querySelector('.cm-content') as any;
+      const view = content?.cmTile?.root?.view;
+      return view?.state?.doc?.toString() ?? '';
+    });
+    expect(docText2).toContain('- [ ] Checked');
+  });
 });
 
 // ============================================================================

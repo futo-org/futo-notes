@@ -13,6 +13,8 @@
   import { listContinuationKeymap } from '$lib/listContinuation';
   import { tableRendering } from '$lib/tableRenderingField';
   import { liveMarkdownTransform, preloadImages } from '$lib/liveMarkdownTransform';
+  import { getImageWebPath } from '$lib/fileSystem';
+  import { Capacitor } from '@capacitor/core';
 
   interface Props {
     content?: string;
@@ -137,7 +139,7 @@
   }
 
   $effect(() => {
-    preloadImages(content);
+    preloadImages(content, Capacitor.isNativePlatform() ? getImageWebPath : undefined, () => view);
 
     // Reset anchor state for new editor
     anchorPos = -1;
@@ -226,7 +228,7 @@
 
   export function setContent(text: string): void {
     if (!view) return;
-    preloadImages(text);
+    preloadImages(text, Capacitor.isNativePlatform() ? getImageWebPath : undefined, () => view);
     view.dispatch({
       changes: { from: 0, to: view.state.doc.length, insert: text }
     });
