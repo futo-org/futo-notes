@@ -23,7 +23,8 @@
     "desktop:dev": "cd apps/desktop && npm run dev",
     "desktop:build": "npm run build && cd apps/desktop && npm run build",
     "desktop:package:linux": "npm run build && cd apps/desktop && npm run package:linux",
-    "server:dev": "cd apps/server && npm run dev"
+    "server:dev": "cd apps/server && npm run dev",
+    "server:test": "cd apps/server && npm test"
   },
   "dependencies": {
     "@capacitor/app": "^8.0.0",

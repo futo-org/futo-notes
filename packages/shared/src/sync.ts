@@ -1,0 +1,65 @@
+import type { NoteSyncMeta } from './note.js';
+
+// ── Sync ───────────────────────────────────────────────
+
+export interface SyncRequest {
+  notes: NoteSyncMeta[];
+  /** Every UUID the client currently has (superset of notes[].uuid). */
+  all_uuids: string[];
+  /** UUIDs the client has deleted since last sync. */
+  deleted_uuids: string[];
+}
+
+export interface SyncResponse {
+  /** Notes the client should create or update. */
+  update: NoteSyncMeta[];
+  /** UUIDs the client should delete locally. */
+  delete: string[];
+  /** Hash confirmations so client can update hash_at_last_sync. */
+  hash_updates: { uuid: string; hash_at_last_sync: string }[];
+  /** Conflict copies created on the server — client should download on next sync. */
+  conflicts: {
+    uuid: string;
+    server_filename: string;
+    client_filename: string;
+    client_content: string;
+  }[];
+}
+
+// ── Auth ───────────────────────────────────────────────
+
+export interface SetupRequest {
+  password: string;
+}
+
+export interface LoginRequest {
+  password: string;
+  device_info?: string;
+}
+
+export interface LoginResponse {
+  token: string;
+}
+
+export interface RevokeRequest {
+  mode: 'current' | 'all' | 'specific';
+  /** Required when mode === 'specific'. */
+  token_hashes?: string[];
+}
+
+export interface RevokeResponse {
+  revoked: number;
+}
+
+// ── Health ─────────────────────────────────────────────
+
+export interface HealthResponse {
+  status: 'ok';
+  setup_complete: boolean;
+}
+
+// ── Errors ─────────────────────────────────────────────
+
+export interface ErrorResponse {
+  error: string;
+}
