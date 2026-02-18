@@ -71,6 +71,20 @@ class TaskCheckboxWidget extends WidgetType {
       margin: 0;
     `;
 
+    checkbox.addEventListener('change', () => {
+      const editorEl = wrapper.closest('.cm-editor') as HTMLElement | null;
+      if (!editorEl) return;
+      const view = EditorView.findFromDOM(editorEl);
+      if (!view) return;
+      const pos = view.posAtDOM(wrapper);
+      const line = view.state.doc.lineAt(pos);
+      const match = line.text.match(/\[([ xX])\]/);
+      if (!match || match.index === undefined) return;
+      const charPos = line.from + match.index + 1;
+      const newChar = match[1] === ' ' ? 'x' : ' ';
+      view.dispatch({ changes: { from: charPos, to: charPos + 1, insert: newChar } });
+    });
+
     // Make wrapper clicks toggle the checkbox
     wrapper.addEventListener('click', (e) => {
       if (e.target !== checkbox) {
@@ -91,7 +105,7 @@ class TaskCheckboxWidget extends WidgetType {
   }
 
   ignoreEvent(): boolean {
-    return false;
+    return true;
   }
 }
 
