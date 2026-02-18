@@ -379,10 +379,6 @@
   background: #d8d8d8;
 }
 
-.toolbar-strikethrough {
-  text-decoration: line-through;
-}
-
 .toolbar-separator {
   width: 1px;
   min-width: 1px;
@@ -390,18 +386,6 @@
   background: #c8c8c8;
   margin: 0 4px;
   flex-shrink: 0;
-}
-
-.toolbar-quote {
-  font-size: 20px;
-  font-weight: 600;
-  line-height: 1;
-}
-
-.toolbar-icon {
-  font-size: 13px;
-  font-weight: 600;
-  white-space: nowrap;
 }
 
 /* Mobile adjustments for custom classes */

@@ -583,7 +583,7 @@ Escaped pipes:
   }
 
   function isSwipeExcludedTarget(target: EventTarget | null): boolean {
-    if (!(target instanceof HTMLElement)) return false;
+    if (!(target instanceof Element)) return false;
     return Boolean(
       target.closest('.cm-md-table-wrapper, .cm-md-table-rendered, .cm-md-table, .markdown-toolbar')
     );
@@ -848,6 +848,10 @@ Escaped pipes:
   >&#9776;</button>
 
   <!-- Note menu button (three-dot) -->
+  {#if noteId && noteMenuOpen}
+    <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
+    <div class="note-menu-backdrop" onclick={() => { noteMenuOpen = false; }}></div>
+  {/if}
   {#if noteId}
     <div bind:this={noteMenuAnchorEl} class="note-menu-anchor">
       <button
@@ -857,8 +861,6 @@ Escaped pipes:
         onclick={() => { noteMenuOpen = !noteMenuOpen; }}
       >&#8942;</button>
       {#if noteMenuOpen}
-        <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
-        <div class="note-menu-backdrop" onclick={() => { noteMenuOpen = false; }}></div>
         <div class="note-menu-dropdown">
           <button onclick={() => { noteMenuOpen = false; deleteConfirmOpen = true; }}>Delete note</button>
         </div>

@@ -1,8 +1,20 @@
 import { keymap, EditorView } from '@codemirror/view';
 import { EditorSelection, Prec } from '@codemirror/state';
+import { syntaxTree } from '@codemirror/language';
 
 function handleEnter(view: EditorView): boolean {
   const { state } = view;
+  const pos = state.selection.main.from;
+
+  // Let default enter behavior handle markdown inside code fences/blocks.
+  for (let node = syntaxTree(state).resolve(pos); ; ) {
+    if (node.name === 'FencedCode' || node.name === 'CodeBlock') {
+      return false;
+    }
+    if (!node.parent) break;
+    node = node.parent;
+  }
+
   const line = state.doc.lineAt(state.selection.main.from);
   const text = line.text;
 

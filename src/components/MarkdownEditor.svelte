@@ -139,7 +139,7 @@
   }
 
   $effect(() => {
-    preloadImages(content, Capacitor.isNativePlatform() ? getImageWebPath : undefined);
+    preloadImages(content, Capacitor.isNativePlatform() ? getImageWebPath : undefined, () => view);
 
     // Reset anchor state for new editor
     anchorPos = -1;
@@ -228,7 +228,7 @@
 
   export function setContent(text: string): void {
     if (!view) return;
-    preloadImages(text, Capacitor.isNativePlatform() ? getImageWebPath : undefined);
+    preloadImages(text, Capacitor.isNativePlatform() ? getImageWebPath : undefined, () => view);
     view.dispatch({
       changes: { from: 0, to: view.state.doc.length, insert: text }
     });

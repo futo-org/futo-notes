@@ -14,6 +14,10 @@
   import { CameraSource } from '@capacitor/camera';
   import { keyboard } from '$lib/keyboard.svelte';
   import type { EditorView } from '@codemirror/view';
+  import {
+    Bold, Italic, Strikethrough, Heading, TextQuote,
+    List, ListOrdered, ListChecks, Camera, ImageIcon
+  } from '@lucide/svelte';
 
   interface Props {
     getView: () => EditorView | null;
@@ -58,11 +62,12 @@
   // We use touch-action:none to fully prevent Android WebView's visual
   // viewport from scrolling when touching the toolbar. This means the
   // browser won't handle horizontal scroll natively, so we do it here.
-  let scrollEl: HTMLElement | null = null;
+  let scrollEl: HTMLElement | null = $state(null);
   let touchStartX = 0;
   let touchStartScrollLeft = 0;
 
   function handleToolbarTouchStart(e: TouchEvent) {
+    e.stopPropagation();
     ontoolbartouch?.(true);
     if (e.touches.length === 1) {
       touchStartX = e.touches[0].clientX;
@@ -71,6 +76,7 @@
   }
 
   function handleToolbarTouchMove(e: TouchEvent) {
+    e.stopPropagation();
     e.preventDefault();
     if (e.touches.length !== 1 || !scrollEl) return;
     const dx = e.touches[0].clientX - touchStartX;
@@ -98,21 +104,21 @@
       ontouchstart={preventFocus}
       onclick={handle(toggleBold)}
       aria-label="Bold"
-    ><strong>B</strong></button>
+    ><Bold size={18} strokeWidth={2.5} /></button>
     <button
       class="toolbar-btn"
       onmousedown={preventFocus}
       ontouchstart={preventFocus}
       onclick={handle(toggleItalic)}
       aria-label="Italic"
-    ><em>I</em></button>
+    ><Italic size={18} strokeWidth={2.5} /></button>
     <button
       class="toolbar-btn"
       onmousedown={preventFocus}
       ontouchstart={preventFocus}
       onclick={handle(toggleStrikethrough)}
       aria-label="Strikethrough"
-    ><span class="toolbar-strikethrough">S</span></button>
+    ><Strikethrough size={18} strokeWidth={2.5} /></button>
 
     <span class="toolbar-separator"></span>
 
@@ -122,14 +128,14 @@
       ontouchstart={preventFocus}
       onclick={handle(cycleHeading)}
       aria-label="Heading"
-    >H</button>
+    ><Heading size={18} strokeWidth={2.5} /></button>
     <button
       class="toolbar-btn"
       onmousedown={preventFocus}
       ontouchstart={preventFocus}
       onclick={handle(toggleBlockquote)}
       aria-label="Block quote"
-    ><span class="toolbar-quote">"</span></button>
+    ><TextQuote size={18} strokeWidth={2.5} /></button>
 
     <span class="toolbar-separator"></span>
 
@@ -139,21 +145,21 @@
       ontouchstart={preventFocus}
       onclick={handle(toggleBulletList)}
       aria-label="Bullet list"
-    ><span class="toolbar-icon">•&ensp;―</span></button>
+    ><List size={18} strokeWidth={2.5} /></button>
     <button
       class="toolbar-btn"
       onmousedown={preventFocus}
       ontouchstart={preventFocus}
       onclick={handle(toggleOrderedList)}
       aria-label="Ordered list"
-    ><span class="toolbar-icon">1.&ensp;―</span></button>
+    ><ListOrdered size={18} strokeWidth={2.5} /></button>
     <button
       class="toolbar-btn"
       onmousedown={preventFocus}
       ontouchstart={preventFocus}
       onclick={handle(toggleTaskList)}
       aria-label="Task list"
-    ><span class="toolbar-icon">☐</span></button>
+    ><ListChecks size={18} strokeWidth={2.5} /></button>
 
     {#if isNative}
     <span class="toolbar-separator"></span>
@@ -164,14 +170,14 @@
       ontouchstart={preventFocus}
       onclick={() => handleImage(CameraSource.Camera)}
       aria-label="Take photo"
-    ><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg></button>
+    ><Camera size={18} strokeWidth={2} /></button>
     <button
       class="toolbar-btn"
       onmousedown={preventFocus}
       ontouchstart={preventFocus}
       onclick={() => handleImage(CameraSource.Photos)}
       aria-label="Choose from library"
-    ><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg></button>
+    ><ImageIcon size={18} strokeWidth={2} /></button>
     {/if}
   </div>
 </div>

@@ -4,7 +4,7 @@ Eventually, this will be home base for advanced LLM/ML features. But let's start
 
 Let's think about the primary language/technologies here.
 
-For ML/LLM features, it seems like Python will work well, but I don't want to use Python for sync/orchestration. Immich uses Typescript. Let's use Typescript with Hono. Hono has a nice CLI and can run anywhere, including Deno/Bun if that ever becomes more viable. 
+For ML/LLM features, we'll use a sidecars approach — llama.cpp and friends handle inference as standalone servers, orchestrated by our TS code. No Python or Rust needed (see ML Architecture section below). For sync/orchestration, Immich uses Typescript. Let's use Typescript with Hono. Hono has a nice CLI and can run anywhere, including Deno/Bun if that ever becomes more viable.
 
 This is particularly helpful because my clients are written primarily in TS. We can extract and re-use types between client & server.
 

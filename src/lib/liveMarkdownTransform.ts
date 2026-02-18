@@ -7,7 +7,10 @@ import {
   WidgetType,
   ViewUpdate
 } from '@codemirror/view';
+import { StateEffect } from '@codemirror/state';
 import { syntaxTree, ensureSyntaxTree } from '@codemirror/language';
+
+export const imageCacheUpdated = StateEffect.define<null>();
 
 // Widget Classes
 class HorizontalRuleWidget extends WidgetType {
@@ -122,7 +125,11 @@ export function registerLocalImageUrl(filename: string, webUrl: string): void {
  * Call this when a note is opened so images are ready before the user scrolls.
  * For local image references, resolves them via getImageWebPath().
  */
-export function preloadImages(markdownText: string, getImageWebPath?: (filename: string) => Promise<string>): void {
+export function preloadImages(
+  markdownText: string,
+  getImageWebPath?: (filename: string) => Promise<string>,
+  getView?: () => EditorView | null
+): void {
   const imageRegex = /!\[[^\]]*\]\(([^\s)]+)(?:\s+"[^"]*")?\)/g;
   let match;
   while ((match = imageRegex.exec(markdownText)) !== null) {
@@ -135,6 +142,10 @@ export function preloadImages(markdownText: string, getImageWebPath?: (filename:
           localImageUrlCache.set(src, webUrl);
           // Now preload the resolved URL for dimension caching
           preloadSingleImage(webUrl);
+          const v = getView?.();
+          if (v) {
+            v.dispatch({ effects: imageCacheUpdated.of(null) });
+          }
         }).catch(() => { /* file missing — ignore */ });
       } else if (localImageUrlCache.has(src)) {
         preloadSingleImage(localImageUrlCache.get(src)!);
@@ -163,17 +174,15 @@ function preloadSingleImage(url: string): void {
 }
 
 class ImageWidget extends WidgetType {
+  private resolvedAtConstruction: string;
+
   constructor(private alt: string, private src: string) {
     super();
-  }
-
-  /** Resolve src: remote URLs pass through, local filenames use the cache. */
-  private get resolvedSrc(): string {
-    return resolveImageSrc(this.src);
+    this.resolvedAtConstruction = resolveImageSrc(src);
   }
 
   get estimatedHeight(): number {
-    const url = this.resolvedSrc || this.src;
+    const url = this.resolvedAtConstruction || this.src;
     const cached = imageSizeCache.get(url);
     return cached ? cached.height : 200;
   }
@@ -182,7 +191,7 @@ class ImageWidget extends WidgetType {
     const wrapper = document.createElement('div');
     wrapper.className = 'cm-md-image-wrapper';
 
-    const displayUrl = this.resolvedSrc;
+    const displayUrl = this.resolvedAtConstruction;
     const cached = displayUrl ? imageSizeCache.get(displayUrl) : undefined;
     if (cached) {
       wrapper.style.cssText = `height: ${cached.height}px;`;
@@ -220,7 +229,9 @@ class ImageWidget extends WidgetType {
   }
 
   eq(other: any): boolean {
-    return other instanceof ImageWidget && other.src === this.src;
+    return other instanceof ImageWidget &&
+      other.src === this.src &&
+      other.resolvedAtConstruction === this.resolvedAtConstruction;
   }
 
   ignoreEvent(): boolean {
@@ -371,12 +382,19 @@ class LiveMarkdownPlugin implements PluginValue {
 
     const tree = syntaxTree(update.state);
     const treeGrew = tree.length > this.lastTreeLength;
+    const imageCacheChanged = update.transactions.some(
+      (tr) => tr.effects.some((e) => e.is(imageCacheUpdated))
+    );
 
     if (treeGrew) {
       this.lastTreeLength = tree.length;
     }
 
-    const shouldRebuild = update.docChanged || update.selectionSet || update.focusChanged || treeGrew;
+    const shouldRebuild = update.docChanged ||
+      update.selectionSet ||
+      update.focusChanged ||
+      treeGrew ||
+      imageCacheChanged;
 
     if (shouldRebuild) {
       this.decorations = this.buildDecorations(update.view);
