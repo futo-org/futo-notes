@@ -1,0 +1,25 @@
+{
+  "name": "@futo-notes/desktop",
+  "version": "0.0.0",
+  "private": true,
+  "main": "dist-electron/main.cjs",
+  "scripts": {
+    "dev": "concurrently \"cd ../.. && vite\" \"tsup --watch\" \"wait-on http://localhost:5173 && electron .\"",
+    "build:electron": "tsup",
+    "build": "npm run build:electron",
+    "package:linux": "electron-builder --linux",
+    "package:mac": "electron-builder --mac",
+    "package:win": "electron-builder --win"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "chokidar": "^4.0.0",
+    "concurrently": "^9.0.0",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0",
+    "electron-updater": "^6.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "5.9.3",
+    "wait-on": "^8.0.0"
+  }
+}

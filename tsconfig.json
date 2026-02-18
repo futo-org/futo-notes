@@ -20,7 +20,8 @@
     "baseUrl": ".",
     "paths": {
       "$lib/*": ["src/lib/*"],
-      "@/*": ["./*"]
+      "@/*": ["./*"],
+      "@futo-notes/shared": ["packages/shared/src"]
     },
     "types": ["svelte", "vite/client"]
   },

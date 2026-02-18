@@ -5,7 +5,15 @@ export default tseslint.config(
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    ignores: ['dist/*', 'node_modules/*', 'android/*', 'ios/*'],
+    ignores: [
+      'dist/*',
+      'node_modules/*',
+      'apps/mobile/android/*',
+      'apps/mobile/ios/*',
+      'apps/desktop/dist-electron/*',
+      'apps/desktop/release/*',
+      'apps/server/dist/*',
+    ],
   },
   {
     rules: {

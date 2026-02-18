@@ -58,11 +58,11 @@ build-android:
   script:
     - npm ci
     - npm run build
-    - npx cap sync android
+    - cd apps/mobile && npx cap sync android && cd ../..
     - |
       if [ -n "$KEYSTORE_BASE64" ]; then
         echo "Using release keystore from CI variables"
-        echo "$KEYSTORE_BASE64" | base64 -d > android/app/release.keystore
+        echo "$KEYSTORE_BASE64" | base64 -d > apps/mobile/android/app/release.keystore
       else
         echo "No keystore configured - using debug signing"
       fi
@@ -74,12 +74,12 @@ build-android:
       VERSION_CODE=$((major * 10000 + minor * 100 + patch))
       echo "Building version $VERSION_NAME (code: $VERSION_CODE)"
       export PATH="$JAVA_HOME/bin:$PATH"
-      cd android && ./gradlew assembleRelease \
+      cd apps/mobile/android && ./gradlew assembleRelease \
         -PVERSION_NAME="$VERSION_NAME" \
         -PVERSION_CODE="$VERSION_CODE"
   artifacts:
     paths:
-      - android/app/build/outputs/apk/release/app-release.apk
+      - apps/mobile/android/app/build/outputs/apk/release/app-release.apk
     expire_in: 1 week
   rules:
     - if: $CI_COMMIT_TAG
@@ -122,7 +122,7 @@ upload-apk:
       artifacts: true
   script:
     - export APK_NAME="futo-notes-${CI_COMMIT_TAG}.apk"
-    - export APK_PATH="android/app/build/outputs/apk/release/app-release.apk"
+    - export APK_PATH="apps/mobile/android/app/build/outputs/apk/release/app-release.apk"
     - export PACKAGE_REGISTRY_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/futo-notes/${CI_COMMIT_TAG}"
     - export APK_ASSET_URL="${PACKAGE_REGISTRY_URL}/${APK_NAME}"
     - 'echo "Uploading ${APK_PATH} to ${APK_ASSET_URL}"'

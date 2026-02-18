@@ -1,0 +1,16 @@
+# TODO: When server is implemented, change build context to monorepo root:
+#   build:
+#     context: ../..
+#     dockerfile: apps/server/Dockerfile
+services:
+  server:
+    build: .
+    ports:
+      - "${PORT:-3000}:3000"
+    volumes:
+      - data:/app/data
+    env_file:
+      - .env
+
+volumes:
+  data:

@@ -9,12 +9,12 @@ dist/
 .sourcemaps
 
 # Capacitor generated assets (regenerated on cap sync)
-android/app/src/main/assets/public/*
-!android/app/src/main/assets/public/.gitkeep
-android/app/src/main/assets/capacitor.config.json
-android/app/src/main/assets/capacitor.plugins.json
-ios/App/App/public/*
-!ios/App/App/public/.gitkeep
+apps/mobile/android/app/src/main/assets/public/*
+!apps/mobile/android/app/src/main/assets/public/.gitkeep
+apps/mobile/android/app/src/main/assets/capacitor.config.json
+apps/mobile/android/app/src/main/assets/capacitor.plugins.json
+apps/mobile/ios/App/App/public/*
+!apps/mobile/ios/App/App/public/.gitkeep
 
 # Android
 .gradle/
@@ -27,9 +27,12 @@ local.properties
 # iOS
 xcuserdata/
 Podfile.lock
-Build/*
+Build/
+build/
 Index/
 DerivedData/
+*.xcconfig
+apps/mobile/ios/build/
 
 # Native signing
 *.orig.*
@@ -64,10 +67,12 @@ capacitor-build.log
 
 app-example
 
-# Capacitor platform folders (tracked for CI/CD)
-# /ios
-# /android
+# Desktop (Electron)
+apps/desktop/dist-electron/
+apps/desktop/release/
 
+# Server
+apps/server/dist/
 
 # Playwright
 .playwright-mcp

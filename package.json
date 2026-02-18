@@ -1,22 +1,29 @@
 {
   "name": "futo-notes",
   "version": "0.0.0",
+  "private": true,
   "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "lint": "eslint src --ext .ts",
-    "test": "npx playwright test",
-    "test:headed": "npx playwright test --headed",
-    "test:ui": "npx playwright test --ui",
-    "cap:add:ios": "npx cap add ios",
-    "cap:add:android": "npx cap add android",
-    "cap:build": "npm run build && npx cap sync",
-    "cap:run:ios": "npm run build && npx cap run ios",
-    "cap:run:android": "npm run build && npx cap run android",
-    "cap:open:ios": "npx cap open ios",
-    "cap:open:android": "npx cap open android"
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:ui": "playwright test --ui",
+    "mobile:sync": "npm run build && cd apps/mobile && npx cap sync",
+    "mobile:run:android": "npm run build && cd apps/mobile && npx cap sync android && npx cap run android",
+    "mobile:run:ios": "npm run build && cd apps/mobile && npx cap sync ios && npx cap run ios",
+    "mobile:open:android": "cd apps/mobile && npx cap open android",
+    "mobile:open:ios": "cd apps/mobile && npx cap open ios",
+    "desktop:dev": "cd apps/desktop && npm run dev",
+    "desktop:build": "npm run build && cd apps/desktop && npm run build",
+    "desktop:package:linux": "npm run build && cd apps/desktop && npm run package:linux",
+    "server:dev": "cd apps/server && npm run dev"
   },
   "dependencies": {
     "@capacitor/app": "^8.0.0",
@@ -37,9 +44,6 @@
     "tailwindcss": "^4.1.18"
   },
   "devDependencies": {
-    "@capacitor/android": "8.0.2",
-    "@capacitor/cli": "8.0.2",
-    "@capacitor/ios": "8.0.2",
     "@eslint/js": "^9.39.2",
     "@playwright/test": "^1.58.1",
     "typescript": "5.9.3",

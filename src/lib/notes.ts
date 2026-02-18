@@ -11,9 +11,9 @@ import {
   writeNote,
   deleteNoteFile,
   renameNote as renameNoteFile,
-  getUniqueNoteId,
-  ensureNotesFolder
+  getUniqueNoteId
 } from './fileSystem';
+import { ensureNotesFolder, getPlatformFS } from './platform';
 
 // In-memory cache of notes metadata
 let notesCache: NotePreview[] = [];
@@ -23,6 +23,7 @@ export async function initNotes(): Promise<void> {
   if (initialized) return;
 
   initSearchIndex();
+  await getPlatformFS(); // Initialize platform FS before any file operations
   await ensureNotesFolder();
   await rebuildFromFiles();
   initialized = true;
