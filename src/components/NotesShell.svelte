@@ -509,10 +509,6 @@ Escaped pipes:
     }
   }
 
-  // TODO: Toolbar horizontal scroll still doesn't work well on Android.
-  // Touching the toolbar still scrolls the keyboard up, and left/right panning
-  // is likely blocked by the main sidebar swipe handler (handleTouchStart/Move/End).
-  // Need to exclude toolbar touches from the drawer swipe gesture.
   function handleEditorFocusOut(): void {
     if (toolbarTouching) {
       // Don't drop editorFocused — user is interacting with the toolbar.
@@ -586,16 +582,16 @@ Escaped pipes:
     showToast('Note deleted');
   }
 
-  function isTableSwipeTarget(target: EventTarget | null): boolean {
+  function isSwipeExcludedTarget(target: EventTarget | null): boolean {
     if (!(target instanceof HTMLElement)) return false;
     return Boolean(
-      target.closest('.cm-md-table-wrapper, .cm-md-table-rendered, .cm-md-table')
+      target.closest('.cm-md-table-wrapper, .cm-md-table-rendered, .cm-md-table, .markdown-toolbar')
     );
   }
 
   function handleTouchStart(event: TouchEvent): void {
     if (event.touches.length !== 1) return;
-    if (isTableSwipeTarget(event.target)) {
+    if (isSwipeExcludedTarget(event.target)) {
       tracking = false;
       ignoreSwipe = true;
       return;
