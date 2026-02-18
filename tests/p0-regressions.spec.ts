@@ -24,8 +24,16 @@ test.describe('P0 Crash and IME Regressions', () => {
     await page.keyboard.press('Control+A');
     await page.keyboard.press('Backspace');
 
-    await page.locator('button[aria-label="Open notes list"]').click();
-    await expect(page.locator('aside.notes-drawer')).toHaveAttribute('aria-hidden', 'false');
+    // On web, drawer starts open — close it first so we can test opening it
+    const drawerToggle = page.locator('button[aria-label="Open notes list"]');
+    const aside = page.locator('aside.notes-drawer');
+    if (await aside.getAttribute('aria-hidden') === 'false') {
+      await drawerToggle.click();
+      await expect(aside).toHaveAttribute('aria-hidden', 'true');
+    }
+
+    await drawerToggle.click();
+    await expect(aside).toHaveAttribute('aria-hidden', 'false');
     expect(pageErrors).toEqual([]);
   });
 
@@ -47,6 +55,14 @@ test.describe('P0 Crash and IME Regressions', () => {
     await page.locator('.title-input').blur();
     await page.waitForTimeout(150);
 
+    // On web, drawer starts open — close it first so we can test opening it
+    const drawerToggle = page.locator('button[aria-label="Open notes list"]');
+    const aside = page.locator('aside.notes-drawer');
+    if (await aside.getAttribute('aria-hidden') === 'false') {
+      await drawerToggle.click();
+      await expect(aside).toHaveAttribute('aria-hidden', 'true');
+    }
+
     await editor.click();
     await editor.evaluate((el) => {
       const event = typeof CompositionEvent !== 'undefined'
@@ -55,8 +71,8 @@ test.describe('P0 Crash and IME Regressions', () => {
       el.dispatchEvent(event);
     });
     await page.waitForTimeout(100);
-    await page.locator('button[aria-label="Open notes list"]').click();
-    await expect(page.locator('aside.notes-drawer')).toHaveAttribute('aria-hidden', 'false');
+    await drawerToggle.click();
+    await expect(aside).toHaveAttribute('aria-hidden', 'false');
 
     await editor.evaluate((el) => {
       const event = typeof CompositionEvent !== 'undefined'
@@ -65,8 +81,8 @@ test.describe('P0 Crash and IME Regressions', () => {
       el.dispatchEvent(event);
     });
     await page.waitForTimeout(100);
-    await page.locator('button[aria-label="Open notes list"]').click();
-    await expect(page.locator('aside.notes-drawer')).toHaveAttribute('aria-hidden', 'true');
+    await drawerToggle.click();
+    await expect(aside).toHaveAttribute('aria-hidden', 'true');
 
     await editor.click();
     await page.keyboard.type('x');
