@@ -22,8 +22,9 @@
     "mobile:open:ios": "cd apps/mobile && npx cap open ios",
     "desktop:dev": "cd apps/desktop && npm run dev",
     "desktop:build": "npm run build && cd apps/desktop && npm run build",
-    "desktop:package:linux": "npm run build && cd apps/desktop && npm run build && npm run package:linux",
-    "server:dev": "cd apps/server && npm run dev"
+    "desktop:package:linux": "npm run build && cd apps/desktop && npm run package:linux",
+    "server:dev": "cd apps/server && npm run dev",
+    "server:test": "cd apps/server && npm test"
   },
   "dependencies": {
     "@codemirror/lang-markdown": "6.5.0",

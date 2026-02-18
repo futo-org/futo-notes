@@ -1,3 +1,12 @@
-// Shared types and utilities for FUTO Notes
-// Sync protocol types, shared interfaces, etc. will go here
-export {};
+export type { NoteSyncMeta } from './note.js';
+export type {
+  SyncRequest,
+  SyncResponse,
+  SetupRequest,
+  LoginRequest,
+  LoginResponse,
+  RevokeRequest,
+  RevokeResponse,
+  HealthResponse,
+  ErrorResponse,
+} from './sync.js';
