@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Capacitor, registerPlugin } from '@capacitor/core';
+  import { isMobile } from '$lib/platform';
   import { createNote, getAllNotes, deleteNote } from '$lib/notes';
   import { sanitizeFilename } from '$lib/utils';
   import { getCachedPreferences, savePreferences } from '$lib/preferences';
@@ -16,8 +16,12 @@
     setFileModificationTime(options: { filename: string; mtime: number }): Promise<void>;
   }
 
-  const FolderImport = registerPlugin<FolderImportPlugin>('FolderImport');
-  const isNative = Capacitor.isNativePlatform();
+  let FolderImport: FolderImportPlugin | null = null;
+  if (isMobile) {
+    import('@capacitor/core').then(({ registerPlugin }) => {
+      FolderImport = registerPlugin<FolderImportPlugin>('FolderImport');
+    });
+  }
 
   interface Props {
     onclose: () => void;
@@ -53,7 +57,7 @@
   }
 
   async function handleObsidianImport(): Promise<void> {
-    if (!isNative || importing) return;
+    if (!isMobile || importing || !FolderImport) return;
 
     importing = true;
     importStatus = 'Picking folder...';
@@ -145,6 +149,7 @@
     </div>
 
     <div class="settings-content">
+      {#if isMobile}
       <section class="settings-section">
         <h3 class="settings-section-title">Import</h3>
         <button class="settings-btn" onclick={handleObsidianImport} disabled={importing}>
@@ -163,6 +168,7 @@
           {/if}
         </button>
       </section>
+      {/if}
 
       <section class="settings-section">
         <h3 class="settings-section-title">Crash Reporting</h3>
@@ -266,10 +272,10 @@
     width: 36px;
     height: 36px;
     border: none;
-    background: #e8e8e8;
+    background: #292e42;
     border-radius: 50%;
     font-size: 22px;
-    color: #666;
+    color: #a9b1d6;
     cursor: pointer;
     display: flex;
     align-items: center;
@@ -278,7 +284,7 @@
   }
 
   .settings-close:active {
-    background: #d8d8d8;
+    background: #343b58;
   }
 
   .settings-content {
@@ -326,7 +332,7 @@
   }
 
   .settings-btn-danger .settings-btn-label {
-    color: #d32f2f;
+    color: #f7768e;
   }
 
   .settings-btn-text {
@@ -387,7 +393,7 @@
     width: 48px;
     height: 28px;
     border-radius: 14px;
-    background: #ccc;
+    background: #292e42;
     position: relative;
     transition: background 0.2s ease;
     flex-shrink: 0;
@@ -402,12 +408,12 @@
     width: 24px;
     height: 24px;
     border-radius: 12px;
-    background: white;
+    background: #565f89;
     position: absolute;
     top: 2px;
     left: 2px;
     transition: transform 0.2s ease;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
   }
 
   .settings-switch.on .settings-switch-thumb {

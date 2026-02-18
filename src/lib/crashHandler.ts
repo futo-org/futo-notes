@@ -1,7 +1,6 @@
-import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
-import { Capacitor } from '@capacitor/core';
+import { getFS, hasFileSystem } from './platform';
 
-const CRASHLOGS_DIR = 'futo-notes/.crashlogs';
+const CRASHLOGS_DIR = '.crashlogs';
 const LS_QUEUE_KEY = 'futo_crash_queue';
 
 export interface CrashReport {
@@ -37,11 +36,16 @@ function buildReport(
   stack: string | undefined,
   type: CrashReport['type'],
 ): CrashReport {
+  let platform = 'web';
+  try {
+    platform = getFS().getPlatformName();
+  } catch { /* FS not initialized yet */ }
+
   return {
     error,
     stack,
     app_version: appVersion,
-    platform: Capacitor.getPlatform(),
+    platform,
     device_info: `${navigator.userAgent} | ${screen.width}x${screen.height}`,
     timestamp: new Date().toISOString(),
     type,
@@ -84,18 +88,6 @@ export function installGlobalHandlers(): void {
   };
 }
 
-async function ensureCrashlogsDir(): Promise<void> {
-  try {
-    await Filesystem.mkdir({
-      path: CRASHLOGS_DIR,
-      directory: Directory.Documents,
-      recursive: true,
-    });
-  } catch {
-    // Already exists
-  }
-}
-
 export async function flushCrashQueue(): Promise<void> {
   const raw = localStorage.getItem(LS_QUEUE_KEY);
   if (!raw) return;
@@ -113,8 +105,7 @@ export async function flushCrashQueue(): Promise<void> {
     return;
   }
 
-  if (Capacitor.isNativePlatform()) {
-    await ensureCrashlogsDir();
+  if (hasFileSystem) {
     for (const report of queue) {
       await writeCrashReport(report);
     }
@@ -124,48 +115,27 @@ export async function flushCrashQueue(): Promise<void> {
 }
 
 export async function writeCrashReport(report: CrashReport): Promise<void> {
-  if (!Capacitor.isNativePlatform()) return;
-  await ensureCrashlogsDir();
+  if (!hasFileSystem) return;
   const filename = `crash-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.json`;
-  await Filesystem.writeFile({
-    path: `${CRASHLOGS_DIR}/${filename}`,
-    data: JSON.stringify(report),
-    directory: Directory.Documents,
-    encoding: Encoding.UTF8,
-  });
+  await getFS().writeAppData(`${CRASHLOGS_DIR}/${filename}`, JSON.stringify(report));
 }
 
 export async function listPendingCrashLogs(): Promise<string[]> {
-  if (!Capacitor.isNativePlatform()) return [];
+  if (!hasFileSystem) return [];
   try {
-    const result = await Filesystem.readdir({
-      path: CRASHLOGS_DIR,
-      directory: Directory.Documents,
-    });
-    return result.files
-      .filter(f => f.name.endsWith('.json'))
-      .map(f => f.name);
+    const files = await getFS().listAppData(CRASHLOGS_DIR);
+    return files.filter(f => f.endsWith('.json'));
   } catch {
     return [];
   }
 }
 
 export async function readCrashLog(filename: string): Promise<CrashReport> {
-  const result = await Filesystem.readFile({
-    path: `${CRASHLOGS_DIR}/${filename}`,
-    directory: Directory.Documents,
-    encoding: Encoding.UTF8,
-  });
-  return JSON.parse(result.data as string);
+  const data = await getFS().readAppData(`${CRASHLOGS_DIR}/${filename}`);
+  if (!data) throw new Error(`Crash log not found: ${filename}`);
+  return JSON.parse(data);
 }
 
 export async function deleteCrashLog(filename: string): Promise<void> {
-  try {
-    await Filesystem.deleteFile({
-      path: `${CRASHLOGS_DIR}/${filename}`,
-      directory: Directory.Documents,
-    });
-  } catch {
-    // Already deleted
-  }
+  await getFS().deleteAppData(`${CRASHLOGS_DIR}/${filename}`);
 }

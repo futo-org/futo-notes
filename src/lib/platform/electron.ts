@@ -15,6 +15,20 @@ interface ElectronAPI {
   onFileChange(callback: (event: { type: string; filename: string }) => void): () => void;
   onMenuAction(callback: (action: string) => void): () => void;
   onNotesDirChanged(callback: (newDir: string) => void): () => void;
+
+  // App data
+  readAppData(relPath: string): Promise<string | null>;
+  writeAppData(relPath: string, content: string): Promise<void>;
+  deleteAppData(relPath: string): Promise<void>;
+  listAppData(dir: string): Promise<string[]>;
+
+  // App info
+  getAppVersion(): Promise<string>;
+
+  // Images
+  saveImage(sourcePath: string): Promise<string>;
+  getImageUrl(filename: string): Promise<string>;
+  pickImage(): Promise<string | null>;
 }
 
 function getAPI(): ElectronAPI {
@@ -44,7 +58,44 @@ export const electronFS: PlatformFS = {
   async noteExists(id: string): Promise<boolean> {
     return getAPI().fileExists(`${id}.md`);
   },
+
+  async readAppData(relPath: string): Promise<string | null> {
+    return getAPI().readAppData(relPath);
+  },
+
+  async writeAppData(relPath: string, content: string): Promise<void> {
+    return getAPI().writeAppData(relPath, content);
+  },
+
+  async deleteAppData(relPath: string): Promise<void> {
+    return getAPI().deleteAppData(relPath);
+  },
+
+  async listAppData(dir: string): Promise<string[]> {
+    return getAPI().listAppData(dir);
+  },
+
+  async saveImage(sourcePath: string): Promise<string> {
+    return getAPI().saveImage(sourcePath);
+  },
+
+  async getImageUrl(filename: string): Promise<string> {
+    return getAPI().getImageUrl(filename);
+  },
+
+  async getAppVersion(): Promise<string> {
+    return getAPI().getAppVersion();
+  },
+
+  getPlatformName(): string {
+    return 'electron';
+  },
 };
+
+/** Pick an image file via native dialog. Electron-specific UI action. */
+export function pickImage(): Promise<string | null> {
+  return getAPI().pickImage();
+}
 
 export function onFileChange(callback: (event: { type: string; filename: string }) => void): () => void {
   return getAPI().onFileChange(callback);

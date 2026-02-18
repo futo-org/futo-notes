@@ -1,7 +1,4 @@
-import { Capacitor } from '@capacitor/core';
-import { Keyboard } from '@capacitor/keyboard';
-
-const isNative = Capacitor.isNativePlatform();
+import { isMobile } from './platform';
 
 let _height = $state(0);
 let _visible = $state(false);
@@ -12,14 +9,16 @@ function init(): void {
   if (initialized) return;
   initialized = true;
 
-  if (isNative) {
-    Keyboard.addListener('keyboardWillShow', (info) => {
-      _height = info.keyboardHeight;
-      _visible = true;
-    });
-    Keyboard.addListener('keyboardWillHide', () => {
-      _height = 0;
-      _visible = false;
+  if (isMobile) {
+    import('@capacitor/keyboard').then(({ Keyboard }) => {
+      Keyboard.addListener('keyboardWillShow', (info) => {
+        _height = info.keyboardHeight;
+        _visible = true;
+      });
+      Keyboard.addListener('keyboardWillHide', () => {
+        _height = 0;
+        _visible = false;
+      });
     });
   } else {
     const vv = window.visualViewport;

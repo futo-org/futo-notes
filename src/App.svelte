@@ -1,9 +1,7 @@
 <script lang="ts">
-  import { Capacitor } from '@capacitor/core';
-  import { StatusBar, Style } from '@capacitor/status-bar';
-  import { Keyboard } from '@capacitor/keyboard';
   import NotesShell from './components/NotesShell.svelte';
   import CrashReportDialog from './components/CrashReportDialog.svelte';
+  import { hasFileSystem, isMobile, getFS } from '$lib/platform';
   import { initNotes } from '$lib/notes';
   import { loadPreferences, getCachedPreferences, savePreferences } from '$lib/preferences';
   import { flushCrashQueue, setAppVersion, type CrashReport } from '$lib/crashHandler';
@@ -43,14 +41,17 @@
 
     async function init(): Promise<void> {
       try {
-        if (Capacitor.isNativePlatform()) {
+        if (hasFileSystem) {
           await initNotes();
-          try {
-            await StatusBar.setOverlaysWebView({ overlay: true });
-            await StatusBar.setStyle({ style: Style.Light });
-            await StatusBar.setBackgroundColor({ color: '#00000000' });
-          } catch {
-            // Some status bar APIs are unavailable on newer Android versions.
+          if (isMobile) {
+            try {
+              const { StatusBar, Style } = await import('@capacitor/status-bar');
+              await StatusBar.setOverlaysWebView({ overlay: true });
+              await StatusBar.setStyle({ style: Style.Light });
+              await StatusBar.setBackgroundColor({ color: '#00000000' });
+            } catch {
+              // Some status bar APIs are unavailable on newer Android versions.
+            }
           }
         }
         initialized = true;
@@ -75,11 +76,14 @@
   async function initCrashReporting(): Promise<void> {
     const prefs = await loadPreferences();
 
-    // Set app version from Capacitor App plugin
+    // Set app version from platform
     try {
-      const { App } = await import('@capacitor/app');
-      const info = await App.getInfo();
-      setAppVersion(info.version);
+      if (hasFileSystem) {
+        const version = await getFS().getAppVersion();
+        setAppVersion(version);
+      } else {
+        setAppVersion('0.0.0-web');
+      }
     } catch {
       setAppVersion('0.0.0-web');
     }
@@ -109,8 +113,11 @@
       // Show dialog — dismiss keyboard so toolbar hides
       pendingCrashReports = reports;
       showCrashDialog = true;
-      if (Capacitor.isNativePlatform()) {
-        try { await Keyboard.hide(); } catch {}
+      if (isMobile) {
+        try {
+          const { Keyboard } = await import('@capacitor/keyboard');
+          await Keyboard.hide();
+        } catch {}
       }
     }
   }

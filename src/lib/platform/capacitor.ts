@@ -53,6 +53,97 @@ export const capacitorFS: PlatformFS = {
       return false;
     }
   },
+
+  async readAppData(relPath: string): Promise<string | null> {
+    try {
+      const result = await Filesystem.readFile({
+        path: `${NOTES_SUBFOLDER}/${relPath}`,
+        directory: notesDirectory,
+        encoding: Encoding.UTF8,
+      });
+      return result.data as string;
+    } catch {
+      return null;
+    }
+  },
+
+  async writeAppData(relPath: string, content: string): Promise<void> {
+    // Ensure parent directory exists
+    const lastSlash = relPath.lastIndexOf('/');
+    if (lastSlash > 0) {
+      try {
+        await Filesystem.mkdir({
+          path: `${NOTES_SUBFOLDER}/${relPath.slice(0, lastSlash)}`,
+          directory: notesDirectory,
+          recursive: true,
+        });
+      } catch { /* already exists */ }
+    }
+    await Filesystem.writeFile({
+      path: `${NOTES_SUBFOLDER}/${relPath}`,
+      data: content,
+      directory: notesDirectory,
+      encoding: Encoding.UTF8,
+    });
+  },
+
+  async deleteAppData(relPath: string): Promise<void> {
+    try {
+      await Filesystem.deleteFile({
+        path: `${NOTES_SUBFOLDER}/${relPath}`,
+        directory: notesDirectory,
+      });
+    } catch { /* not found — fine */ }
+  },
+
+  async listAppData(dir: string): Promise<string[]> {
+    try {
+      const result = await Filesystem.readdir({
+        path: `${NOTES_SUBFOLDER}/${dir}`,
+        directory: notesDirectory,
+      });
+      return result.files.map(f => f.name);
+    } catch {
+      return [];
+    }
+  },
+
+  async saveImage(sourcePath: string): Promise<string> {
+    const ext = sourcePath.split('.').pop()?.toLowerCase() || 'jpg';
+    const timestamp = Date.now();
+    const rand = Math.random().toString(36).slice(2, 6);
+    const filename = `${timestamp}-${rand}.${ext}`;
+
+    await Filesystem.copy({
+      from: sourcePath,
+      to: `${NOTES_SUBFOLDER}/${filename}`,
+      toDirectory: notesDirectory,
+    });
+
+    return filename;
+  },
+
+  async getImageUrl(filename: string): Promise<string> {
+    const result = await Filesystem.getUri({
+      path: `${NOTES_SUBFOLDER}/${filename}`,
+      directory: notesDirectory,
+    });
+    return Capacitor.convertFileSrc(result.uri);
+  },
+
+  async getAppVersion(): Promise<string> {
+    try {
+      const { App } = await import('@capacitor/app');
+      const info = await App.getInfo();
+      return info.version;
+    } catch {
+      return '0.0.0';
+    }
+  },
+
+  getPlatformName(): string {
+    return Capacitor.getPlatform();
+  },
 };
 
 /** Ensure the subfolder exists, migrate any .md files from the Documents root. */
@@ -88,29 +179,4 @@ export async function ensureCapacitorNotesFolder(): Promise<void> {
   } catch {
     // Root listing failed — nothing to migrate
   }
-}
-
-/** Copy an image from a temp path into futo-notes/{timestamp}-{4char}.{ext}, return just the filename. */
-export async function saveImageFile(sourcePath: string): Promise<string> {
-  const ext = sourcePath.split('.').pop()?.toLowerCase() || 'jpg';
-  const timestamp = Date.now();
-  const rand = Math.random().toString(36).slice(2, 6);
-  const filename = `${timestamp}-${rand}.${ext}`;
-
-  await Filesystem.copy({
-    from: sourcePath,
-    to: `${NOTES_SUBFOLDER}/${filename}`,
-    toDirectory: notesDirectory
-  });
-
-  return filename;
-}
-
-/** Resolve a local image filename to a web-displayable URL. */
-export async function getImageWebPath(filename: string): Promise<string> {
-  const result = await Filesystem.getUri({
-    path: `${NOTES_SUBFOLDER}/${filename}`,
-    directory: notesDirectory
-  });
-  return Capacitor.convertFileSrc(result.uri);
 }

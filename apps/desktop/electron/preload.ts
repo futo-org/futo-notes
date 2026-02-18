@@ -13,9 +13,21 @@ export interface ElectronAPI {
   getPlatform(): Promise<string>;
   getConfig(): Promise<{ notesDir: string; sidebarWidth?: number }>;
   saveConfig(updates: Record<string, unknown>): Promise<void>;
+  getAppVersion(): Promise<string>;
 
   // Dialogs
   openDirectoryDialog(): Promise<string | null>;
+  pickImage(): Promise<string | null>;
+
+  // App data (dotfiles in notes directory)
+  readAppData(relPath: string): Promise<string | null>;
+  writeAppData(relPath: string, content: string): Promise<void>;
+  deleteAppData(relPath: string): Promise<void>;
+  listAppData(dir: string): Promise<string[]>;
+
+  // Images
+  saveImage(sourcePath: string): Promise<string>;
+  getImageUrl(filename: string): Promise<string>;
 
   // Events from main process
   onFileChange(callback: (event: { type: string; filename: string }) => void): () => void;
@@ -36,9 +48,21 @@ const api: ElectronAPI = {
   getPlatform: () => ipcRenderer.invoke('app:platform'),
   getConfig: () => ipcRenderer.invoke('app:getConfig'),
   saveConfig: (updates) => ipcRenderer.invoke('app:saveConfig', updates),
+  getAppVersion: () => ipcRenderer.invoke('app:getVersion'),
 
   // Dialogs
   openDirectoryDialog: () => ipcRenderer.invoke('dialog:openDirectory'),
+  pickImage: () => ipcRenderer.invoke('dialog:pickImage'),
+
+  // App data
+  readAppData: (relPath) => ipcRenderer.invoke('appdata:read', relPath),
+  writeAppData: (relPath, content) => ipcRenderer.invoke('appdata:write', relPath, content),
+  deleteAppData: (relPath) => ipcRenderer.invoke('appdata:delete', relPath),
+  listAppData: (dir) => ipcRenderer.invoke('appdata:list', dir),
+
+  // Images
+  saveImage: (sourcePath) => ipcRenderer.invoke('fs:saveImage', sourcePath),
+  getImageUrl: (filename) => ipcRenderer.invoke('fs:getImageUrl', filename),
 
   // Events
   onFileChange: (callback) => {

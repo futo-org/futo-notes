@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Capacitor } from '@capacitor/core';
+  import { isMobile, isDesktop } from '$lib/platform';
   import {
     toggleBold,
     toggleItalic,
@@ -9,9 +9,9 @@
     toggleTaskList,
     cycleHeading,
     toggleBlockquote,
-    insertImage
+    insertImageFromCamera,
+    insertImageFromFile,
   } from '$lib/markdownToolbar';
-  import { CameraSource } from '@capacitor/camera';
   import { keyboard } from '$lib/keyboard.svelte';
   import type { EditorView } from '@codemirror/view';
   import {
@@ -27,10 +27,8 @@
 
   let { getView, editorFocused = false, ontoolbartouch }: Props = $props();
 
-  const isNative = Capacitor.isNativePlatform();
-
-  // Only show when editor is focused (native: keyboard visible + editor focused, web: editor focused)
-  const show = $derived(editorFocused && (keyboard.visible || !isNative));
+  // Only show when editor is focused (native: keyboard visible + editor focused, web/desktop: editor focused)
+  const show = $derived(editorFocused && (keyboard.visible || !isMobile));
 
   // Compensate for Android WebView's visual viewport scrolling.
   // When the visual viewport scrolls (e.g. user drags from keyboard area upward),
@@ -83,9 +81,14 @@
     scrollEl.scrollLeft = touchStartScrollLeft - dx;
   }
 
-  async function handleImage(source: CameraSource) {
+  async function handleCameraImage(source: 'camera' | 'photos') {
     const view = getView();
-    if (view) await insertImage(view, source);
+    if (view) await insertImageFromCamera(view, source);
+  }
+
+  async function handleFileImage() {
+    const view = getView();
+    if (view) await insertImageFromFile(view);
   }
 </script>
 
@@ -161,22 +164,33 @@
       aria-label="Task list"
     ><ListChecks size={18} strokeWidth={2.5} /></button>
 
-    {#if isNative}
+    {#if isMobile}
     <span class="toolbar-separator"></span>
 
     <button
       class="toolbar-btn"
       onmousedown={preventFocus}
       ontouchstart={preventFocus}
-      onclick={() => handleImage(CameraSource.Camera)}
+      onclick={() => handleCameraImage('camera')}
       aria-label="Take photo"
     ><Camera size={18} strokeWidth={2} /></button>
     <button
       class="toolbar-btn"
       onmousedown={preventFocus}
       ontouchstart={preventFocus}
-      onclick={() => handleImage(CameraSource.Photos)}
+      onclick={() => handleCameraImage('photos')}
       aria-label="Choose from library"
+    ><ImageIcon size={18} strokeWidth={2} /></button>
+    {/if}
+
+    {#if isDesktop}
+    <span class="toolbar-separator"></span>
+
+    <button
+      class="toolbar-btn"
+      onmousedown={preventFocus}
+      onclick={handleFileImage}
+      aria-label="Insert image"
     ><ImageIcon size={18} strokeWidth={2} /></button>
     {/if}
   </div>

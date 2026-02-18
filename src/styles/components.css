@@ -41,8 +41,9 @@
   width: 44px;
   height: 44px;
   border-radius: 22px;
-  background: rgba(255, 255, 255, 0.96);
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
+  background: rgba(26, 27, 38, 0.96);
+  color: #a9b1d6;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
   z-index: 35;
   transform: translateX(var(--drawer-offset));
   transition: transform 0.25s ease;
@@ -77,7 +78,6 @@
   background: transparent;
   overflow-x: hidden;
   flex: 1 0 auto;
-  min-height: 50vh;
   padding-left: max(16px, calc(16px + env(safe-area-inset-left)));
   padding-right: max(16px, calc(16px + env(safe-area-inset-right)));
   padding-bottom: max(200px, calc(40vh + env(safe-area-inset-bottom, 0)));
@@ -182,12 +182,6 @@
   pointer-events: none;
 }
 
-/* Drawer open state */
-.notes-shell.drawer-open .editor-container,
-.notes-shell.drawer-open .title-input {
-  pointer-events: none;
-}
-
 /* FAB */
 .fab {
   position: fixed;
@@ -219,12 +213,12 @@
   width: 56px;
   height: 56px;
   border-radius: 50%;
-  background: #3a3a3c;
-  color: #fff;
+  background: #24283b;
+  color: #a9b1d6;
   border: none;
   font-size: 28px;
   cursor: pointer;
-  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.4);
   z-index: 99;
   -webkit-user-select: none;
   user-select: none;
@@ -272,7 +266,7 @@
 }
 
 .notes-drawer .note-item.pressed {
-  background: #e8e8e8;
+  background: #292e42;
 }
 
 .notes-drawer .note-title {
@@ -285,11 +279,11 @@
 }
 
 .notes-drawer .note-item.selected {
-  background: #e3edff;
+  background: #283457;
 }
 
 .notes-drawer .note-item.selected:active {
-  background: #d4e2ff;
+  background: #2a3a5e;
 }
 
 /* Note item base styles */
@@ -299,7 +293,7 @@
   align-items: center;
   padding: 12px 16px;
   border: none;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--color-border);
   background: transparent;
   cursor: pointer;
   user-select: none;
@@ -307,15 +301,16 @@
   font-family: inherit;
   font-size: inherit;
   height: 72px;
+  color: var(--color-text);
 }
 
 .note-item:active {
-  background: #f9f9f9;
+  background: #24283b;
 }
 
 /* Title input disabled state */
 .title-input:disabled {
-  color: #999;
+  color: var(--color-muted);
 }
 
 /* Notes list scroll base */
@@ -331,8 +326,8 @@
   left: 0;
   right: 0;
   height: 44px;
-  background: #f0f0f0;
-  border-top: 1px solid #d4d4d4;
+  background: #16161e;
+  border-top: 1px solid var(--color-border);
   z-index: 1000;
   touch-action: none;
 }
@@ -364,7 +359,7 @@
   border-radius: 6px;
   font-size: 17px;
   font-family: system-ui, -apple-system, sans-serif;
-  color: #333;
+  color: #a9b1d6;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -376,14 +371,14 @@
 }
 
 .toolbar-btn:active {
-  background: #d8d8d8;
+  background: #292e42;
 }
 
 .toolbar-separator {
   width: 1px;
   min-width: 1px;
   height: 24px;
-  background: #c8c8c8;
+  background: var(--color-border);
   margin: 0 4px;
   flex-shrink: 0;
 }
@@ -436,19 +431,19 @@
   height: 44px;
   border-radius: 22px;
   border: none;
-  background: rgba(255, 255, 255, 0.96);
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
+  background: rgba(26, 27, 38, 0.96);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
   font-size: 22px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   -webkit-tap-highlight-color: transparent;
-  color: #333;
+  color: #a9b1d6;
 }
 
 .note-menu-toggle:active {
-  background: #e8e8e8;
+  background: #292e42;
 }
 
 .note-menu-backdrop {
@@ -462,9 +457,10 @@
   top: 50px;
   right: 0;
   min-width: 160px;
-  background: white;
+  background: #24283b;
   border-radius: 10px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--color-border);
   z-index: 36;
   overflow: hidden;
 }
@@ -477,12 +473,12 @@
   text-align: left;
   font-size: 16px;
   cursor: pointer;
-  color: #d32f2f;
+  color: #f7768e;
   font-family: inherit;
 }
 
 .note-menu-dropdown button:active {
-  background: #f5f5f5;
+  background: #292e42;
 }
 
 /* Delete confirmation dialog */
@@ -497,23 +493,26 @@
 }
 
 .delete-confirm-dialog {
-  background: white;
+  background: #24283b;
   border-radius: 14px;
   padding: 24px;
   width: min(320px, calc(100vw - 48px));
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+  border: 1px solid var(--color-border);
+  color: #a9b1d6;
 }
 
 .delete-confirm-dialog h3 {
   margin: 0 0 8px;
   font-size: 18px;
   font-weight: 600;
+  color: #c0caf5;
 }
 
 .delete-confirm-dialog p {
   margin: 0 0 20px;
   font-size: 14px;
-  color: #666;
+  color: var(--color-muted);
 }
 
 .delete-confirm-actions {
@@ -533,21 +532,21 @@
 }
 
 .delete-confirm-cancel {
-  background: #e8e8e8;
-  color: #333;
+  background: #292e42;
+  color: #a9b1d6;
 }
 
 .delete-confirm-cancel:active {
-  background: #d8d8d8;
+  background: #343b58;
 }
 
 .delete-confirm-delete {
-  background: #d32f2f;
-  color: white;
+  background: #f7768e;
+  color: #1a1b26;
 }
 
 .delete-confirm-delete:active {
-  background: #b71c1c;
+  background: #e05a74;
 }
 
 /* Toast */
@@ -556,10 +555,11 @@
   bottom: max(80px, calc(80px + env(safe-area-inset-bottom)));
   left: 50%;
   transform: translateX(-50%);
-  background: #333;
-  color: white;
+  background: #24283b;
+  color: #a9b1d6;
   padding: 10px 20px;
   border-radius: 8px;
+  border: 1px solid var(--color-border);
   font-size: 14px;
   z-index: 300;
   pointer-events: none;

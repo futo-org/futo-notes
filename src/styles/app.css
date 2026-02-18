@@ -3,12 +3,12 @@
 @import "./markdown.css" layer(components);
 
 @theme {
-  --color-primary: #2196f3;
-  --color-text: #333;
-  --color-border: #e0e0e0;
-  --color-surface: #f5f5f5;
-  --color-muted: #888;
-  --color-bg: #fff;
+  --color-primary: #7aa2f7;
+  --color-text: #a9b1d6;
+  --color-border: #292e42;
+  --color-surface: #16161e;
+  --color-muted: #565f89;
+  --color-bg: #1a1b26;
 }
 
 @layer base {
@@ -16,6 +16,8 @@
     margin: 0;
     padding: 0;
     box-sizing: border-box;
+    scrollbar-color: #292e42 transparent;
+    scrollbar-width: thin;
   }
 
   html {
@@ -74,7 +76,7 @@
   }
 
   .cm-activeLineGutter {
-    background: #efefef !important;
+    background: #24283b !important;
   }
 
   .cm-cursor {
@@ -82,10 +84,10 @@
   }
 
   .cm-selectionMatch {
-    background: #e8f4ff !important;
+    background: #515c7e40 !important;
   }
 
   .cm-selection {
-    background: #e8f4ff !important;
+    background: #515c7e4d !important;
   }
 }

@@ -14,6 +14,20 @@ export interface PlatformFS {
   writeNote(id: string, content: string): Promise<number>;
   deleteNoteFile(id: string): Promise<void>;
   noteExists(id: string): Promise<boolean>;
+
+  // App data (prefs, crash logs, heartbeat — dotfiles in the notes directory)
+  readAppData(path: string): Promise<string | null>;
+  writeAppData(path: string, content: string): Promise<void>;
+  deleteAppData(path: string): Promise<void>;
+  listAppData(dir: string): Promise<string[]>;
+
+  // Images
+  saveImage(sourcePath: string): Promise<string>;
+  getImageUrl(filename: string): Promise<string>;
+
+  // App info
+  getAppVersion(): Promise<string>;
+  getPlatformName(): string;
 }
 
 export type PlatformName = 'electron' | 'capacitor' | 'web';

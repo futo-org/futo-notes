@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <!-- Head -->
+  <ellipse cx="128" cy="100" rx="72" ry="64" fill="#6C5CE7"/>
+  <!-- Eyes -->
+  <ellipse cx="104" cy="92" rx="16" ry="18" fill="white"/>
+  <ellipse cx="152" cy="92" rx="16" ry="18" fill="white"/>
+  <ellipse cx="107" cy="94" rx="8" ry="10" fill="#2d3436"/>
+  <ellipse cx="155" cy="94" rx="8" ry="10" fill="#2d3436"/>
+  <!-- Eye shine -->
+  <circle cx="110" cy="90" r="3" fill="white"/>
+  <circle cx="158" cy="90" r="3" fill="white"/>
+  <!-- Smile -->
+  <path d="M112 114 Q128 126 144 114" stroke="#2d3436" stroke-width="3" fill="none" stroke-linecap="round"/>
+  <!-- Tentacles -->
+  <path d="M72 140 Q48 170 36 210 Q32 224 44 220 Q54 216 58 200 Q64 178 80 158" fill="#6C5CE7"/>
+  <path d="M88 148 Q70 185 62 220 Q58 236 72 230 Q80 226 82 210 Q88 188 96 165" fill="#7C6CF7"/>
+  <path d="M108 152 Q100 190 98 228 Q96 244 112 238 Q118 234 116 218 Q114 196 114 168" fill="#6C5CE7"/>
+  <path d="M134 152 Q136 190 138 228 Q140 244 154 236 Q160 232 156 216 Q152 194 144 168" fill="#7C6CF7"/>
+  <path d="M160 148 Q178 185 186 220 Q190 236 176 230 Q168 226 166 210 Q160 188 154 165" fill="#6C5CE7"/>
+  <path d="M176 140 Q200 170 212 210 Q216 224 204 220 Q194 216 190 200 Q184 178 170 158" fill="#7C6CF7"/>
+  <!-- Forehead highlight -->
+  <ellipse cx="120" cy="68" rx="28" ry="12" fill="#8B7CF8" opacity="0.5"/>
+</svg>

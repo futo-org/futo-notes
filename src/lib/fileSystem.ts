@@ -42,16 +42,12 @@ export async function renameNote(oldId: string, newId: string, content: string):
   return writeNote(newId, content);
 }
 
-// Image file helpers — dynamically import Capacitor module to avoid eager loading on other platforms
-
 /** Copy an image from a temp path into the notes folder, return just the filename. */
 export async function saveImageFile(sourcePath: string): Promise<string> {
-  const { saveImageFile: capSaveImage } = await import('./platform/capacitor');
-  return capSaveImage(sourcePath);
+  return getFS().saveImage(sourcePath);
 }
 
 /** Resolve a local image filename to a web-displayable URL. */
 export async function getImageWebPath(filename: string): Promise<string> {
-  const { getImageWebPath: capGetImagePath } = await import('./platform/capacitor');
-  return capGetImagePath(filename);
+  return getFS().getImageUrl(filename);
 }

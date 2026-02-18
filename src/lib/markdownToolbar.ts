@@ -1,6 +1,5 @@
 import { EditorView } from '@codemirror/view';
-import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
-import { saveImageFile, getImageWebPath } from '$lib/fileSystem';
+import { getFS } from '$lib/platform';
 import { registerLocalImageUrl } from '$lib/liveMarkdownTransform';
 
 interface MarkdownSyntax {
@@ -274,26 +273,48 @@ export function toggleBlockquote(view: EditorView): void {
   toggleLinePrefix(view, '> ', (t) => t.match(QUOTE_RE), ALL_LINE_PREFIXES);
 }
 
-export async function insertImage(view: EditorView, source: CameraSource): Promise<void> {
+/** Insert an image from the camera (mobile only). */
+export async function insertImageFromCamera(
+  view: EditorView,
+  source: 'camera' | 'photos',
+): Promise<void> {
+  const { Camera, CameraResultType, CameraSource } = await import('@capacitor/camera');
   const photo = await Camera.getPhoto({
     resultType: CameraResultType.Uri,
-    source,
-    quality: 90
+    source: source === 'camera' ? CameraSource.Camera : CameraSource.Photos,
+    quality: 90,
   });
 
   if (!photo.path) return;
 
-  const filename = await saveImageFile(photo.path);
-
-  // Pre-register the web URL so the image renders immediately
-  const webUrl = await getImageWebPath(filename);
+  const fs = getFS();
+  const filename = await fs.saveImage(photo.path);
+  const webUrl = await fs.getImageUrl(filename);
   registerLocalImageUrl(filename, webUrl);
 
+  insertImageMarkdown(view, filename);
+}
+
+/** Insert an image from a file picker (desktop). */
+export async function insertImageFromFile(view: EditorView): Promise<void> {
+  const { pickImage } = await import('$lib/platform/electron');
+  const sourcePath = await pickImage();
+  if (!sourcePath) return;
+
+  const fs = getFS();
+  const filename = await fs.saveImage(sourcePath);
+  const webUrl = await fs.getImageUrl(filename);
+  registerLocalImageUrl(filename, webUrl);
+
+  insertImageMarkdown(view, filename);
+}
+
+function insertImageMarkdown(view: EditorView, filename: string): void {
   const pos = view.state.selection.main.head;
   const insert = `![](${filename})\n`;
   view.dispatch({
     changes: { from: pos, insert },
-    selection: { anchor: pos + insert.length }
+    selection: { anchor: pos + insert.length },
   });
   view.focus();
 }

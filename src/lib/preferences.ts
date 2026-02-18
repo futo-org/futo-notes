@@ -1,7 +1,6 @@
-import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
-import { Capacitor } from '@capacitor/core';
+import { getFS, hasFileSystem } from './platform';
 
-const PREFS_PATH = 'futo-notes/.preferences.json';
+const PREFS_PATH = '.preferences.json';
 
 export interface AppPreferences {
   crashReporting: {
@@ -29,19 +28,19 @@ function deepMerge(defaults: AppPreferences, saved: Partial<AppPreferences>): Ap
 }
 
 export async function loadPreferences(): Promise<AppPreferences> {
-  if (!Capacitor.isNativePlatform()) {
+  if (!hasFileSystem) {
     cached = { crashReporting: { ...DEFAULTS.crashReporting } };
     return cached;
   }
 
   try {
-    const result = await Filesystem.readFile({
-      path: PREFS_PATH,
-      directory: Directory.Documents,
-      encoding: Encoding.UTF8,
-    });
-    const saved = JSON.parse(result.data as string);
-    cached = deepMerge(DEFAULTS, saved);
+    const data = await getFS().readAppData(PREFS_PATH);
+    if (data) {
+      const saved = JSON.parse(data);
+      cached = deepMerge(DEFAULTS, saved);
+    } else {
+      cached = { crashReporting: { ...DEFAULTS.crashReporting } };
+    }
   } catch {
     cached = { crashReporting: { ...DEFAULTS.crashReporting } };
   }
@@ -55,12 +54,7 @@ export function getCachedPreferences(): AppPreferences {
 
 export async function savePreferences(prefs: AppPreferences): Promise<void> {
   cached = prefs;
-  if (!Capacitor.isNativePlatform()) return;
+  if (!hasFileSystem) return;
 
-  await Filesystem.writeFile({
-    path: PREFS_PATH,
-    data: JSON.stringify(prefs, null, 2),
-    directory: Directory.Documents,
-    encoding: Encoding.UTF8,
-  });
+  await getFS().writeAppData(PREFS_PATH, JSON.stringify(prefs, null, 2));
 }

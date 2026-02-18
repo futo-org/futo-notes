@@ -22,17 +22,10 @@
     "mobile:open:ios": "cd apps/mobile && npx cap open ios",
     "desktop:dev": "cd apps/desktop && npm run dev",
     "desktop:build": "npm run build && cd apps/desktop && npm run build",
-    "desktop:package:linux": "npm run build && cd apps/desktop && npm run package:linux",
+    "desktop:package:linux": "npm run build && cd apps/desktop && npm run build && npm run package:linux",
     "server:dev": "cd apps/server && npm run dev"
   },
   "dependencies": {
-    "@capacitor/app": "^8.0.0",
-    "@capacitor/camera": "^8.0.1",
-    "@capacitor/core": "8.0.2",
-    "@capacitor/filesystem": "8.1.0",
-    "@capacitor/haptics": "8.0.0",
-    "@capacitor/keyboard": "8.0.0",
-    "@capacitor/status-bar": "8.0.0",
     "@codemirror/lang-markdown": "6.5.0",
     "@codemirror/language-data": "6.5.2",
     "@lucide/svelte": "^0.574.0",

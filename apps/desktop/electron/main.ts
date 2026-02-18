@@ -190,6 +190,67 @@ function setupIPC(): void {
     }
     return null;
   });
+
+  // App data (dotfiles in notes directory)
+  ipcMain.handle('appdata:read', async (_event, relPath: string) => {
+    try {
+      return await fs.readFile(path.join(notesDir, relPath), 'utf-8');
+    } catch {
+      return null;
+    }
+  });
+
+  ipcMain.handle('appdata:write', async (_event, relPath: string, content: string) => {
+    const fullPath = path.join(notesDir, relPath);
+    await fs.mkdir(path.dirname(fullPath), { recursive: true });
+    await fs.writeFile(fullPath, content, 'utf-8');
+  });
+
+  ipcMain.handle('appdata:delete', async (_event, relPath: string) => {
+    try {
+      await fs.unlink(path.join(notesDir, relPath));
+    } catch { /* not found — fine */ }
+  });
+
+  ipcMain.handle('appdata:list', async (_event, relDir: string) => {
+    try {
+      const entries = await fs.readdir(path.join(notesDir, relDir));
+      return entries;
+    } catch {
+      return [];
+    }
+  });
+
+  ipcMain.handle('app:getVersion', () => app.getVersion());
+
+  ipcMain.handle('fs:saveImage', async (_event, sourcePath: string) => {
+    const ext = path.extname(sourcePath).slice(1).toLowerCase() || 'png';
+    const timestamp = Date.now();
+    const rand = Math.random().toString(36).slice(2, 6);
+    const filename = `${timestamp}-${rand}.${ext}`;
+    await fs.copyFile(sourcePath, path.join(notesDir, filename));
+    return filename;
+  });
+
+  ipcMain.handle('fs:getImageUrl', (_event, filename: string) => {
+    return `file://${path.join(notesDir, filename)}`;
+  });
+
+  ipcMain.handle('dialog:pickImage', async () => {
+    const win = BrowserWindow.getFocusedWindow();
+    if (!win) return null;
+    const result = await dialog.showOpenDialog(win, {
+      properties: ['openFile'],
+      title: 'Insert Image',
+      filters: [
+        { name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'] },
+      ],
+    });
+    if (!result.canceled && result.filePaths.length > 0) {
+      return result.filePaths[0];
+    }
+    return null;
+  });
 }
 
 // --- Auto-updater ---
@@ -367,8 +428,10 @@ function createWindow(): void {
     y: state.y,
     minWidth: 400,
     minHeight: 300,
+    autoHideMenuBar: true,
+    icon: path.join(__dirname, '../icon.png'),
     webPreferences: {
-      preload: path.join(__dirname, 'preload.cjs'),
+      preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false, // needed for preload to use Node APIs

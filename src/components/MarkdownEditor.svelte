@@ -14,7 +14,7 @@
   import { tableRendering } from '$lib/tableRenderingField';
   import { liveMarkdownTransform, preloadImages } from '$lib/liveMarkdownTransform';
   import { getImageWebPath } from '$lib/fileSystem';
-  import { Capacitor } from '@capacitor/core';
+  import { hasFileSystem } from '$lib/platform';
 
   interface Props {
     content?: string;
@@ -139,7 +139,7 @@
   }
 
   $effect(() => {
-    preloadImages(content, Capacitor.isNativePlatform() ? getImageWebPath : undefined, () => view);
+    preloadImages(content, hasFileSystem ? getImageWebPath : undefined, () => view);
 
     // Reset anchor state for new editor
     anchorPos = -1;
@@ -158,7 +158,7 @@
       EditorView.contentAttributes.of({
         autocorrect: 'on',
         autocapitalize: 'sentences',
-        spellcheck: 'true'
+        spellcheck: 'false'
       }),
       EditorView.lineWrapping,
       EditorView.theme({
@@ -228,7 +228,7 @@
 
   export function setContent(text: string): void {
     if (!view) return;
-    preloadImages(text, Capacitor.isNativePlatform() ? getImageWebPath : undefined, () => view);
+    preloadImages(text, hasFileSystem ? getImageWebPath : undefined, () => view);
     view.dispatch({
       changes: { from: 0, to: view.state.doc.length, insert: text }
     });

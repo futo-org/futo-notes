@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Capacitor, registerPlugin } from '@capacitor/core';
+  import { hasFileSystem, isMobile } from '$lib/platform';
   import MarkdownEditor from './MarkdownEditor.svelte';
   import MarkdownToolbar from './MarkdownToolbar.svelte';
   import SettingsScreen from './SettingsScreen.svelte';
@@ -242,8 +242,12 @@ Escaped pipes:
     setDrawerOpen(options: { open: boolean }): Promise<void>;
   }
 
-  const DrawerBack = registerPlugin<DrawerBackPlugin>('DrawerBack');
-  const isNative = Capacitor.isNativePlatform();
+  let DrawerBack: DrawerBackPlugin | null = null;
+  if (isMobile) {
+    import('@capacitor/core').then(({ registerPlugin }) => {
+      DrawerBack = registerPlugin<DrawerBackPlugin>('DrawerBack');
+    });
+  }
 
   interface Props {
     noteId: string | null;
@@ -251,8 +255,8 @@ Escaped pipes:
 
   let { noteId }: Props = $props();
 
-  let drawerOpen = $state(false);
-  let drawerProgress = $state(0);
+  let drawerOpen = $state(!isMobile);
+  let drawerProgress = $state(!isMobile ? 1 : 0);
   let title = $state('');
   let content = $state('');
   let originalId: string | null = $state(null);
@@ -344,7 +348,7 @@ Escaped pipes:
   }
 
   async function updateNativeDrawerState(open: boolean): Promise<void> {
-    if (!isNative) return;
+    if (!isMobile || !DrawerBack) return;
     try {
       await DrawerBack.setDrawerOpen({ open });
     } catch {
@@ -362,22 +366,22 @@ Escaped pipes:
   }
 
   function refreshNotesList(): void {
-    notes = isNative ? getAllNotes() : [];
+    notes = hasFileSystem ? getAllNotes() : [];
   }
 
   function handleNoteSelect(id: string): void {
-    setDrawerOpen(false);
+    if (isMobile) setDrawerOpen(false);
     navigate(`/note/${encodeURIComponent(id)}`);
   }
 
   async function createNewNote(): Promise<void> {
-    setDrawerOpen(false);
+    if (isMobile) setDrawerOpen(false);
     await flushSave();
     navigate('/note/new');
   }
 
   async function createTestNote(): Promise<void> {
-    if (!isNative) return;
+    if (!hasFileSystem) return;
     const noteTitle = 'Markdown test note';
     await createNote(sanitizeFilename(noteTitle), GFM_TEST_CONTENT);
     // Also create scroll test notes for performance testing
@@ -388,7 +392,7 @@ Escaped pipes:
   }
 
   function debouncedSave(): void {
-    if (loading || !isNative || !editor || noteId === null) return;
+    if (loading || !hasFileSystem || !editor || noteId === null) return;
     if (saveTimeout !== null) {
       clearTimeout(saveTimeout);
     }
@@ -409,7 +413,7 @@ Escaped pipes:
   }
 
   async function saveNote(): Promise<void> {
-    if (!isNative || !editor || noteId === null) return;
+    if (!hasFileSystem || !editor || noteId === null) return;
     try {
       const newTitle = title.trim() || 'Untitled';
       const newId = sanitizeFilename(newTitle);
@@ -521,12 +525,14 @@ Escaped pipes:
     editorFocused = false;
   }
 
-  function handleEditorContainerClick(event: MouseEvent): void {
-    if (!editor || drawerOpen) return;
+  function handleNoteBodyClick(event: MouseEvent): void {
+    if (!editor) return;
+    // On mobile, clicking the dimmed area behind the drawer closes it — don't focus
+    if (isMobile && drawerOpen) return;
     const target = event.target as HTMLElement;
-    if (target.classList.contains('editor-container') || target.classList.contains('cm-scroller')) {
-      editor.focus();
-    }
+    // Don't steal focus from title input or interactive elements
+    if (target.closest('.note-title-row, a, button')) return;
+    editor.focus();
   }
 
   function handleFabTouchStart(): void {
@@ -660,7 +666,7 @@ Escaped pipes:
       if (drawer) drawer.style.transform = '';
       if (menuButtonEl) menuButtonEl.style.transform = '';
       if (noteMenuAnchorEl) noteMenuAnchorEl.style.transform = '';
-      if (overlayEl) overlayEl.style.opacity = String(dragProgress * 0.5);
+      if (overlayEl) overlayEl.style.opacity = isMobile ? String(dragProgress * 0.5) : '0';
 
       // Re-enable CSS transitions
       isDragging = false;
@@ -708,7 +714,7 @@ Escaped pipes:
       requestAnimationFrame(() => {
         editor?.focus();
       });
-    } else if (isNative) {
+    } else if (hasFileSystem) {
       try {
         content = await readNote(id);
         const meta = getNoteById(id);
@@ -754,7 +760,7 @@ Escaped pipes:
 
   $effect(() => {
     keyboard.init();
-    if (isNative && !notesLoaded) {
+    if (hasFileSystem && !notesLoaded) {
       refreshNotesList();
       notesLoaded = true;
     }
@@ -777,7 +783,7 @@ Escaped pipes:
   });
 
   const drawerOffset = $derived(drawerProgress * drawerWidth);
-  const overlayOpacity = $derived(drawerProgress * 0.5);
+  const overlayOpacity = $derived(isMobile ? drawerProgress * 0.5 : 0);
 
   // Direct DOM refs for bypassing reactivity during drag
   let noteMainEl: HTMLElement | undefined = $state(undefined);
@@ -794,7 +800,7 @@ Escaped pipes:
     if (drawer) drawer.style.transform = `translateX(${offset - drawerWidth}px)`;
     if (menuButtonEl) menuButtonEl.style.transform = `translateX(${offset}px)`;
     if (noteMenuAnchorEl) noteMenuAnchorEl.style.transform = `translateX(${offset}px)`;
-    if (overlayEl) overlayEl.style.opacity = `${dragProgress * 0.5}`;
+    if (overlayEl) overlayEl.style.opacity = isMobile ? `${dragProgress * 0.5}` : '0';
   }
 
   function scheduleFrame(): void {
@@ -870,16 +876,17 @@ Escaped pipes:
 
   <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
   <!-- Main content -->
-  <div bind:this={noteMainEl} class="note-main" style:bottom={keyboardInset > 0 ? `${keyboardInset}px` : undefined} onclick={() => { if (drawerOpen) setDrawerOpen(false); }}>
+  <div bind:this={noteMainEl} class="note-main" style:bottom={keyboardInset > 0 ? `${keyboardInset}px` : undefined} onclick={() => { if (isMobile && drawerOpen) setDrawerOpen(false); }}>
     <!-- Overlay replaces filter: brightness/contrast for GPU-composited dimming -->
     <div
       bind:this={overlayEl}
       class="drawer-overlay"
-      class:active={drawerOpen}
+      class:active={isMobile && drawerOpen}
       style="opacity: {overlayOpacity}"
       onclick={() => setDrawerOpen(false)}
     ></div>
-    <div class="note-body" bind:this={noteBody}>
+    <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+    <div class="note-body" bind:this={noteBody} onclick={handleNoteBodyClick} onfocusin={() => editorFocused = true} onfocusout={handleEditorFocusOut}>
       {#if noteId}
         <div class="note-title-row">
           <input
@@ -894,11 +901,10 @@ Escaped pipes:
             maxlength={100}
           />
           {#if titleWarning}
-            <div class="text-xs text-red-700 pt-0.5">{titleWarning}</div>
+            <div class="text-xs pt-0.5" style="color: #f7768e">{titleWarning}</div>
           {/if}
         </div>
-        <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-        <div class="editor-container" onclick={handleEditorContainerClick} onfocusin={() => editorFocused = true} onfocusout={handleEditorFocusOut}>
+        <div class="editor-container">
           <MarkdownEditor
             bind:this={editor}
             {content}
@@ -909,7 +915,7 @@ Escaped pipes:
       {:else}
         <div class="flex-1 flex flex-col items-center justify-center gap-3 p-8 text-center text-muted">
           <div class="text-sm text-muted">Swipe from the left edge or tap the menu to browse notes.</div>
-          <button class="border-none bg-primary text-white rounded-full px-4 py-2.5 text-sm cursor-pointer active:opacity-80" onclick={(e) => { e.stopPropagation(); setDrawerOpen(true); }}>Browse notes</button>
+          <button class="border-none bg-primary rounded-full px-4 py-2.5 text-sm cursor-pointer active:opacity-80" style="color: #1a1b26" onclick={(e) => { e.stopPropagation(); setDrawerOpen(true); }}>Browse notes</button>
         </div>
       {/if}
     </div>

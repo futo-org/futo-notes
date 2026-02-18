@@ -1,46 +1,30 @@
-import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
-import { Capacitor } from '@capacitor/core';
+import { getFS, hasFileSystem, isMobile } from './platform';
 import { writeCrashReport, type CrashReport, getSessionId, getAppVersion } from './crashHandler';
 
-const HEARTBEAT_PATH = 'futo-notes/.heartbeat';
+const HEARTBEAT_PATH = '.heartbeat';
 
 export async function writeHeartbeat(): Promise<void> {
-  if (!Capacitor.isNativePlatform()) return;
-  await Filesystem.writeFile({
-    path: HEARTBEAT_PATH,
-    data: new Date().toISOString(),
-    directory: Directory.Documents,
-    encoding: Encoding.UTF8,
-  });
+  if (!hasFileSystem) return;
+  await getFS().writeAppData(HEARTBEAT_PATH, new Date().toISOString());
 }
 
 export async function clearHeartbeat(): Promise<void> {
-  if (!Capacitor.isNativePlatform()) return;
-  try {
-    await Filesystem.deleteFile({
-      path: HEARTBEAT_PATH,
-      directory: Directory.Documents,
-    });
-  } catch {
-    // File doesn't exist
-  }
+  if (!hasFileSystem) return;
+  await getFS().deleteAppData(HEARTBEAT_PATH);
 }
 
 export async function checkHeartbeat(): Promise<boolean> {
-  if (!Capacitor.isNativePlatform()) return false;
+  if (!hasFileSystem) return false;
   try {
-    const result = await Filesystem.readFile({
-      path: HEARTBEAT_PATH,
-      directory: Directory.Documents,
-      encoding: Encoding.UTF8,
-    });
+    const data = await getFS().readAppData(HEARTBEAT_PATH);
+    if (!data) return false;
     // Stale heartbeat found — previous session didn't shut down cleanly
     const report: CrashReport = {
       error: 'App did not shut down cleanly (possible native crash or OOM kill)',
       app_version: getAppVersion(),
-      platform: Capacitor.getPlatform(),
+      platform: getFS().getPlatformName(),
       device_info: `${navigator.userAgent} | ${screen.width}x${screen.height}`,
-      timestamp: result.data as string,
+      timestamp: data,
       type: 'native_crash',
       route: '/',
       session_id: getSessionId(),
@@ -56,7 +40,7 @@ export async function checkHeartbeat(): Promise<boolean> {
 let listeners: Array<() => void> = [];
 
 export function startHeartbeat(): void {
-  if (Capacitor.isNativePlatform()) {
+  if (isMobile) {
     import('@capacitor/app').then(({ App }) => {
       const resumeHandle = App.addListener('resume', () => {
         writeHeartbeat();
@@ -71,7 +55,8 @@ export function startHeartbeat(): void {
     });
     // Write initial heartbeat
     writeHeartbeat();
-  } else {
+  } else if (hasFileSystem) {
+    // Electron + web: use visibilitychange
     const handler = () => {
       if (document.visibilityState === 'visible') {
         writeHeartbeat();

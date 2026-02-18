@@ -23,4 +23,36 @@ export const webFS: PlatformFS = {
   async noteExists(_id: string): Promise<boolean> {
     return false;
   },
+
+  async readAppData(_path: string): Promise<string | null> {
+    return null;
+  },
+
+  async writeAppData(_path: string, _content: string): Promise<void> {
+    // no-op
+  },
+
+  async deleteAppData(_path: string): Promise<void> {
+    // no-op
+  },
+
+  async listAppData(_dir: string): Promise<string[]> {
+    return [];
+  },
+
+  async saveImage(_sourcePath: string): Promise<string> {
+    throw new Error('Image saving not available in web mode');
+  },
+
+  async getImageUrl(_filename: string): Promise<string> {
+    throw new Error('Image URLs not available in web mode');
+  },
+
+  async getAppVersion(): Promise<string> {
+    return '0.0.0-web';
+  },
+
+  getPlatformName(): string {
+    return 'web';
+  },
 };

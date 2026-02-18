@@ -74,13 +74,18 @@
     scrollTop = target.scrollTop;
   }
 
+  // Track whether a touch sequence is active so we can suppress the synthetic click
+  let touchHandled = false;
+
   function handleTouchStart(id: string, event: TouchEvent): void {
     if (isDragging) return;
     pressedId = id;
+    touchHandled = false;
   }
 
   function handleTouchEnd(id: string): void {
     if (isDragging) { pressedId = null; pendingSelect = null; return; }
+    touchHandled = true;
     if (pressedId === id) {
       pendingSelect = id;
       setTimeout(() => {
@@ -121,6 +126,7 @@
           class:selected={note.id === selectedId}
           class:pressed={note.id === pressedId}
           style="position: absolute; top: {index * ITEM_HEIGHT}px; width: 100%;"
+          onclick={() => { if (!touchHandled) onselect?.(note.id); touchHandled = false; }}
           ontouchstart={(e) => handleTouchStart(note.id, e)}
           ontouchend={() => handleTouchEnd(note.id)}
           ontouchcancel={handleTouchCancel}
