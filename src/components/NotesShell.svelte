@@ -8,6 +8,7 @@
   import { getAllNotes, updateNote, readNote, createNote, getNoteById, deleteNote } from '$lib/notes';
   import { sanitizeFilename } from '$lib/utils';
   import type { SyncSummary } from '$lib/sync';
+  import { startAutoSync, stopAutoSync, notifySaved } from '$lib/autoSync';
   import { keyboard } from '$lib/keyboard.svelte';
   import { navigate } from '../router';
   import { SCROLL_TEST_NOTES } from '$lib/scrollTestNotes';
@@ -350,7 +351,9 @@ Escaped pipes:
       try {
         const freshContent = await readNote(originalId);
         content = freshContent;
+        suppressSaveOnChange = true;
         editor?.setContent(freshContent);
+        suppressSaveOnChange = false;
         const meta = getNoteById(originalId);
         if (meta) title = meta.title;
       } catch {
@@ -436,13 +439,15 @@ Escaped pipes:
     refreshNotesList();
   }
 
+  let suppressSaveOnChange = false;
+
   function debouncedSave(): void {
-    if (loading || !hasFileSystem || !editor || noteId === null) return;
+    if (suppressSaveOnChange || loading || !hasFileSystem || !editor || noteId === null) return;
     if (saveTimeout !== null) {
       clearTimeout(saveTimeout);
     }
     saveTimeout = window.setTimeout(() => {
-      void saveNote();
+      void saveNote().then(() => notifySaved());
     }, 500);
   }
 
@@ -813,6 +818,13 @@ Escaped pipes:
     registerBackSwipeHandler();
     updateDrawerMetrics();
 
+    // Auto-sync
+    startAutoSync({
+      onSyncComplete: handleSyncComplete,
+      onSyncError: (err) => console.warn('Auto-sync error:', err),
+      flushPendingSave: flushSave,
+    });
+
     // Desktop sidebar: load persisted width
     if (!isMobile) {
       if (isElectron) {
@@ -838,6 +850,7 @@ Escaped pipes:
     }
 
     return () => {
+      stopAutoSync();
       flushSave();
     };
   });

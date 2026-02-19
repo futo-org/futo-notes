@@ -3,7 +3,8 @@
   import { createNote, getAllNotes, deleteNote, deleteAllNotes } from '$lib/notes';
   import { sanitizeFilename } from '$lib/utils';
   import { getCachedPreferences, savePreferences } from '$lib/preferences';
-  import { connectSyncServer, saveSyncServerUrl, syncNow, type SyncSummary } from '$lib/sync';
+  import { connectSyncServer, saveSyncServerUrl, type SyncSummary } from '$lib/sync';
+  import { requestSync } from '$lib/autoSync';
 
   interface ImportedFile {
     name: string;
@@ -98,12 +99,11 @@
     syncStatus = 'Syncing...';
     try {
       await persistSyncUrl();
-      const summary = await syncNow();
+      await requestSync();
       const updatedPrefs = getCachedPreferences();
       hasSyncToken = Boolean(updatedPrefs.sync.token);
       syncLastAt = updatedPrefs.sync.lastSyncedAt;
-      syncStatus = formatSyncSummary(summary);
-      onsynccomplete(summary);
+      syncStatus = 'Sync started';
     } catch (e) {
       syncStatus = `Sync failed: ${getErrorMessage(e)}`;
     } finally {
