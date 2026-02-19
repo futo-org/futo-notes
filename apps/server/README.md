@@ -8,7 +8,7 @@ From the **monorepo root**:
 
 ```bash
 npm install
-npm run server:dev       # http://localhost:3000
+npm run server:dev       # http://localhost:3005
 ```
 
 Or from `apps/server/`:
@@ -26,18 +26,18 @@ On first run, set a password and log in to get a session token:
 
 ```bash
 # 1. Set password (one-time)
-curl -X POST http://localhost:3000/setup \
+curl -X POST http://localhost:3005/setup \
   -H 'Content-Type: application/json' \
   -d '{"password": "your-password-here"}'
 
 # 2. Log in
-curl -X POST http://localhost:3000/login \
+curl -X POST http://localhost:3005/login \
   -H 'Content-Type: application/json' \
   -d '{"password": "your-password-here"}'
 # → {"token": "abc123..."}
 
 # 3. Sync (use the token from step 2)
-curl -X POST http://localhost:3000/sync \
+curl -X POST http://localhost:3005/sync \
   -H 'Content-Type: application/json' \
   -H 'Authorization: Bearer abc123...' \
   -d '{"notes": [], "all_uuids": [], "deleted_uuids": []}'
@@ -49,11 +49,29 @@ Copy `.env.example` to `.env` and edit as needed:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PORT` | `3000` | HTTP server port |
+| `PORT` | `3005` | HTTP server port |
 | `DATABASE_PATH` | `./data/futo-notes.db` | SQLite database file |
 | `NOTES_PATH` | `./data/notes` | Directory for `.md` files |
 
 ## Docker
+
+### Run with Docker (recommended)
+
+Pull the pre-built image from the GitLab Container Registry — no clone needed:
+
+```bash
+# Download the production compose file
+curl -O https://gitlab.futo.org/justin/futo-notes/-/raw/main/apps/server/docker-compose.production.yml
+
+# Start the server
+docker compose -f docker-compose.production.yml up -d
+```
+
+The server will be available at `http://localhost:3005`. Data is persisted in a Docker volume.
+
+### Build from source
+
+If you've cloned the monorepo and want to build locally:
 
 ```bash
 cd apps/server

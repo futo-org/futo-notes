@@ -32,7 +32,7 @@ docker-compose up
 ## Configuration
 
 See `.env.example` for available settings:
-- `PORT` — Server port (default: 3000)
+- `PORT` — Server port (default: 3005)
 - `DATABASE_PATH` — SQLite database location
 
 ## Status

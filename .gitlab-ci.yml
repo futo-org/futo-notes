@@ -61,6 +61,18 @@ docker:build:
     - exists:
         - apps/server/Dockerfile
 
+docker:publish:
+  stage: build
+  needs: [lint, test:unit, test:e2e, test:server, docker:build]
+  script:
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+    - export IMAGE="$CI_REGISTRY_IMAGE/server"
+    - docker build -f apps/server/Dockerfile -t "$IMAGE:latest" .
+    - docker push "$IMAGE:latest"
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: always
+
 # ─────────────────────────────────────────────────────────────
 # Android Build
 # ─────────────────────────────────────────────────────────────
