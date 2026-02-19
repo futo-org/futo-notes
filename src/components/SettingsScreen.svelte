@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { hasFileSystem, isMobile } from '$lib/platform';
-  import { createNote, getAllNotes, deleteNote } from '$lib/notes';
+  import { hasFileSystem, isMobile, isElectron } from '$lib/platform';
+  import { createNote, getAllNotes, deleteNote, deleteAllNotes } from '$lib/notes';
   import { sanitizeFilename } from '$lib/utils';
   import { getCachedPreferences, savePreferences } from '$lib/preferences';
   import { connectSyncServer, saveSyncServerUrl, syncNow, type SyncSummary } from '$lib/sync';
@@ -49,6 +49,15 @@
   let syncStatus = $state(prefs.sync.lastError ? `Last error: ${prefs.sync.lastError}` : '');
   let syncLastAt = $state<number | null>(prefs.sync.lastSyncedAt);
   let hasSyncToken = $state(Boolean(prefs.sync.token));
+  let tokenServerUrl = $state(prefs.sync.serverUrl);
+
+  // Electron: notes directory
+  let notesDir = $state('');
+  if (isElectron) {
+    import('$lib/platform/electron').then(({ getConfig }) =>
+      getConfig().then((cfg) => { notesDir = cfg.notesDir; })
+    );
+  }
 
   function getErrorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
@@ -73,6 +82,7 @@
     try {
       await connectSyncServer(syncUrl, syncPassword);
       hasSyncToken = true;
+      tokenServerUrl = syncUrl;
       syncPassword = '';
       syncStatus = 'Connected. You can sync now.';
     } catch (e) {
@@ -187,10 +197,7 @@
   async function doNuke(): Promise<void> {
     nuking = true;
     try {
-      const allNotes = getAllNotes();
-      for (const note of allNotes) {
-        await deleteNote(note.id);
-      }
+      await deleteAllNotes();
       onimported(0);
     } catch {
       nuking = false;
@@ -211,6 +218,15 @@
     </div>
 
     <div class="settings-content">
+      {#if isElectron && notesDir}
+      <section class="settings-section">
+        <h3 class="settings-section-title">Storage</h3>
+        <div class="settings-card">
+          <p class="settings-btn-desc">{notesDir}</p>
+        </div>
+      </section>
+      {/if}
+
       {#if hasFileSystem}
       <section class="settings-section">
         <h3 class="settings-section-title">Sync (MVP)</h3>
@@ -245,7 +261,7 @@
 
           <div class="settings-actions">
             <button class="settings-btn settings-btn-inline" onclick={handleConnectSync} disabled={syncBusy}>
-              {syncBusy ? 'Working...' : hasSyncToken ? 'Reconnect' : 'Connect'}
+              {syncBusy ? 'Working...' : hasSyncToken && syncUrl === tokenServerUrl ? 'Reconnect' : 'Connect'}
             </button>
             <button class="settings-btn settings-btn-inline" onclick={handleSyncNow} disabled={syncBusy}>
               Sync now

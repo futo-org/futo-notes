@@ -19,6 +19,10 @@ export async function deleteNoteFile(id: string): Promise<void> {
   return getFS().deleteNoteFile(id);
 }
 
+export async function deleteAllContent(): Promise<void> {
+  return getFS().deleteAllContent();
+}
+
 export async function noteExists(id: string): Promise<boolean> {
   return getFS().noteExists(id);
 }

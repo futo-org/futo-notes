@@ -10,6 +10,7 @@ import {
   readNote,
   writeNote,
   deleteNoteFile,
+  deleteAllContent,
   renameNote as renameNoteFile,
   getUniqueNoteId
 } from './fileSystem';
@@ -38,10 +39,7 @@ async function rebuildFromFiles(): Promise<void> {
     const id = file.name.replace(/\.md$/, '');
     try {
       const content = await readNote(id);
-      // Title is derived from filename: convert dashes/underscores to spaces, capitalize words
-      const title = id
-        .replace(/[-_]/g, ' ')
-        .replace(/\b\w/g, c => c.toUpperCase());
+      const title = id;
       const preview = content.slice(0, 100).replace(/\n/g, ' ');
 
       notesCache.push({
@@ -128,6 +126,12 @@ export async function deleteNote(id: string, options: { trackSyncDelete?: boolea
   if (options.trackSyncDelete !== false) {
     await markLocalDeleteForSync(id);
   }
+}
+
+export async function deleteAllNotes(): Promise<void> {
+  await deleteAllContent();
+  notesCache = [];
+  initSearchIndex();
 }
 
 export function search(query: string): NotePreview[] {

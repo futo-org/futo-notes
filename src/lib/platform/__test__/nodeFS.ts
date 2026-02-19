@@ -59,6 +59,15 @@ export function createNodeFS(): TestPlatformFS {
       return fs.existsSync(path.join(tmpDir, `${id}.md`));
     },
 
+    async deleteAllContent(): Promise<void> {
+      if (!fs.existsSync(tmpDir)) return;
+      for (const entry of fs.readdirSync(tmpDir, { withFileTypes: true })) {
+        if (entry.name.startsWith('.')) continue;
+        const fullPath = path.join(tmpDir, entry.name);
+        fs.rmSync(fullPath, { recursive: true, force: true });
+      }
+    },
+
     async readAppData(relPath: string): Promise<string | null> {
       const filePath = path.join(tmpDir, relPath);
       if (!fs.existsSync(filePath)) return null;

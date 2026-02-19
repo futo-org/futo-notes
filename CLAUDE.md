@@ -100,8 +100,9 @@ tests/gfm-test-note.md              # Feature test file
 - Cursor-aware: markers reappear when editing inside element
 - Full GFM support: headings, emphasis, strikethrough, code, quotes, lists, tables, links
 
-### Storage
+### Storage & Note Naming
 - File-first: `.md` files (in `futo-notes` subfolder on Capacitor, user-chosen dir on Electron)
+- **The filename IS the title.** `"grocery list.md"` → title is `"grocery list"`. No case changes, no dash-to-space replacement, no transformations. `sanitizeFilename()` only strips characters that would break the filesystem. Never add title-derivation logic that mutates the filename.
 - In-memory cache: rebuilt on startup from `.md` files
 - Auto-save: 500ms debounce
 - Search: MiniSearch, in-memory, rebuilt on startup

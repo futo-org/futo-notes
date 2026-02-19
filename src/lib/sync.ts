@@ -21,9 +21,7 @@ function noteIdFromFilename(filename: string): string {
 }
 
 function titleFromId(id: string): string {
-  return id
-    .replace(/[-_]/g, ' ')
-    .replace(/\b\w/g, (c) => c.toUpperCase());
+  return id;
 }
 
 async function sha256Hex(input: string): Promise<string> {

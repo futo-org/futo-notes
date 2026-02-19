@@ -309,13 +309,18 @@ Escaped pipes:
   }
 
   function handleImported(count: number): void {
+    if (count === 0) {
+      // Nuke: cancel any pending auto-save so it doesn't re-create the open note
+      if (saveTimeout !== null) {
+        clearTimeout(saveTimeout);
+        saveTimeout = null;
+      }
+      originalId = null;
+      navigate('/');
+    }
     refreshNotesList();
     settingsOpen = false;
-    if (count > 0) {
-      showToast(`Imported ${count} notes`);
-    } else {
-      showToast('All notes deleted');
-    }
+    showToast(count > 0 ? `Imported ${count} notes` : 'All notes deleted');
   }
 
   function handleSyncComplete(message: string): void {

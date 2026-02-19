@@ -6,6 +6,7 @@ interface ElectronAPI {
   readFile(filename: string): Promise<string>;
   writeFile(filename: string, content: string, modifiedAtMs?: number): Promise<number>;
   deleteFile(filename: string): Promise<void>;
+  deleteAllContent(): Promise<void>;
   fileExists(filename: string): Promise<boolean>;
   getNotesDir(): Promise<string>;
   getPlatform(): Promise<string>;
@@ -53,6 +54,10 @@ export const electronFS: PlatformFS = {
 
   async deleteNoteFile(id: string): Promise<void> {
     return getAPI().deleteFile(`${id}.md`);
+  },
+
+  async deleteAllContent(): Promise<void> {
+    return getAPI().deleteAllContent();
   },
 
   async noteExists(id: string): Promise<boolean> {

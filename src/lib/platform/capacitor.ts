@@ -54,6 +54,30 @@ export const capacitorFS: PlatformFS = {
     });
   },
 
+  async deleteAllContent(): Promise<void> {
+    const result = await Filesystem.readdir({
+      path: NOTES_SUBFOLDER,
+      directory: notesDirectory,
+    });
+    for (const entry of result.files) {
+      if (entry.name.startsWith('.')) continue; // preserve dotfiles (app data)
+      try {
+        if (entry.type === 'directory') {
+          await Filesystem.rmdir({
+            path: `${NOTES_SUBFOLDER}/${entry.name}`,
+            directory: notesDirectory,
+            recursive: true,
+          });
+        } else {
+          await Filesystem.deleteFile({
+            path: `${NOTES_SUBFOLDER}/${entry.name}`,
+            directory: notesDirectory,
+          });
+        }
+      } catch { /* best-effort */ }
+    }
+  },
+
   async noteExists(id: string): Promise<boolean> {
     try {
       await Filesystem.stat({

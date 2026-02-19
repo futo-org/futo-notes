@@ -162,6 +162,15 @@ function setupIPC(): void {
     await fs.unlink(path.join(notesDir, filename));
   });
 
+  ipcMain.handle('fs:deleteAllContent', async () => {
+    const entries = await fs.readdir(notesDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.name.startsWith('.')) continue; // preserve dotfiles (app data)
+      const fullPath = path.join(notesDir, entry.name);
+      await fs.rm(fullPath, { recursive: true, force: true });
+    }
+  });
+
   ipcMain.handle('fs:fileExists', async (_event, filename: string) => {
     try {
       await fs.access(path.join(notesDir, filename));

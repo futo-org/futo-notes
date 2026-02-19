@@ -29,6 +29,9 @@ export interface PlatformFS {
   getAppVersion(): Promise<string>;
   getPlatformName(): string;
 
+  // Bulk operations
+  deleteAllContent(): Promise<void>;
+
   // Optional platform-specific
   pickImage?(): Promise<string | null>;
 }

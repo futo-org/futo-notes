@@ -6,6 +6,7 @@ export interface ElectronAPI {
   readFile(filename: string): Promise<string>;
   writeFile(filename: string, content: string, modifiedAtMs?: number): Promise<number>;
   deleteFile(filename: string): Promise<void>;
+  deleteAllContent(): Promise<void>;
   fileExists(filename: string): Promise<boolean>;
 
   // App
@@ -41,6 +42,7 @@ const api: ElectronAPI = {
   readFile: (filename) => ipcRenderer.invoke('fs:readFile', filename),
   writeFile: (filename, content, modifiedAtMs) => ipcRenderer.invoke('fs:writeFile', filename, content, modifiedAtMs),
   deleteFile: (filename) => ipcRenderer.invoke('fs:deleteFile', filename),
+  deleteAllContent: () => ipcRenderer.invoke('fs:deleteAllContent'),
   fileExists: (filename) => ipcRenderer.invoke('fs:fileExists', filename),
 
   // App

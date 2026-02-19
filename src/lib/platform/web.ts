@@ -20,6 +20,10 @@ export const webFS: PlatformFS = {
     console.warn('deleteNoteFile called in web mode — no-op');
   },
 
+  async deleteAllContent(): Promise<void> {
+    // no-op
+  },
+
   async noteExists(_id: string): Promise<boolean> {
     return false;
   },
