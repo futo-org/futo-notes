@@ -1,0 +1,15 @@
+services:
+  server:
+    image: gitlab.futo.org:5050/justin/futo-notes/server:latest
+    ports:
+      - "3005:3005"
+    volumes:
+      - data:/app/apps/server/data
+    environment:
+      - PORT=3005
+      - DATABASE_PATH=./data/futo-notes.db
+      - NOTES_PATH=./data/notes
+    restart: unless-stopped
+
+volumes:
+  data:

@@ -8,7 +8,7 @@ From the **monorepo root**:
 
 ```bash
 npm install
-npm run server:dev       # http://localhost:3000
+npm run server:dev       # http://localhost:3005
 ```
 
 Or from `apps/server/`:
@@ -26,18 +26,18 @@ On first run, set a password and log in to get a session token:
 
 ```bash
 # 1. Set password (one-time)
-curl -X POST http://localhost:3000/setup \
+curl -X POST http://localhost:3005/setup \
   -H 'Content-Type: application/json' \
   -d '{"password": "your-password-here"}'
 
 # 2. Log in
-curl -X POST http://localhost:3000/login \
+curl -X POST http://localhost:3005/login \
   -H 'Content-Type: application/json' \
   -d '{"password": "your-password-here"}'
 # → {"token": "abc123..."}
 
 # 3. Sync (use the token from step 2)
-curl -X POST http://localhost:3000/sync \
+curl -X POST http://localhost:3005/sync \
   -H 'Content-Type: application/json' \
   -H 'Authorization: Bearer abc123...' \
   -d '{"notes": [], "all_uuids": [], "deleted_uuids": []}'
@@ -49,11 +49,29 @@ Copy `.env.example` to `.env` and edit as needed:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PORT` | `3000` | HTTP server port |
+| `PORT` | `3005` | HTTP server port |
 | `DATABASE_PATH` | `./data/futo-notes.db` | SQLite database file |
 | `NOTES_PATH` | `./data/notes` | Directory for `.md` files |
 
 ## Docker
+
+### Run with Docker (recommended)
+
+Pull the pre-built image from the GitLab Container Registry — no clone needed:
+
+```bash
+# Download the production compose file
+curl -O https://gitlab.futo.org/justin/futo-notes/-/raw/main/apps/server/docker-compose.production.yml
+
+# Start the server
+docker compose -f docker-compose.production.yml up -d
+```
+
+The server will be available at `http://localhost:3005`. Data is persisted in a Docker volume.
+
+### Build from source
+
+If you've cloned the monorepo and want to build locally:
 
 ```bash
 cd apps/server
@@ -64,6 +82,58 @@ docker compose up
 The Dockerfile uses the monorepo root as build context, so `docker compose build` must be run from `apps/server/` (the compose file sets `context: ../..` automatically).
 
 Data is persisted in a Docker volume mounted at `/app/apps/server/data`.
+
+## HTTPS / Remote Access
+
+The server runs plain HTTP. For HTTPS, use one of these options:
+
+### Tailscale (recommended for personal use)
+
+If you have [Tailscale](https://tailscale.com/) installed on your server and phone/laptop, one command gives you trusted HTTPS accessible from all your devices:
+
+```bash
+tailscale serve 3005
+```
+
+Your server is now available at `https://<hostname>.<tailnet>.ts.net` with automatic TLS certificates. Only devices on your Tailscale network can reach it.
+
+To expose it publicly (anyone on the internet can access it):
+
+```bash
+tailscale funnel 3005
+```
+
+### Cloudflare Tunnel (no open ports needed)
+
+[Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) gives you a public HTTPS URL without opening any ports on your router. Requires a free Cloudflare account and a domain on Cloudflare DNS.
+
+1. Create a tunnel in the [Cloudflare Zero Trust dashboard](https://one.dash.cloudflare.com/) and copy the tunnel token.
+
+2. Add `cloudflared` to your compose file:
+
+```yaml
+services:
+  server:
+    image: gitlab.futo.org:5050/justin/futo-notes/server:latest
+    volumes:
+      - data:/app/apps/server/data
+    environment:
+      - PORT=3005
+      - DATABASE_PATH=./data/futo-notes.db
+      - NOTES_PATH=./data/notes
+    restart: unless-stopped
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${TUNNEL_TOKEN}
+    network_mode: service:server
+
+volumes:
+  data:
+```
+
+3. Set `TUNNEL_TOKEN` in a `.env` file and configure the tunnel's public hostname in the Cloudflare dashboard to point to `http://localhost:3005`.
 
 ## API
 

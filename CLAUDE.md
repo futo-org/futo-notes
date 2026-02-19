@@ -132,6 +132,15 @@ npm run desktop:package:linux      # Package Linux release
 npm run server:dev                 # Dev server with hot reload
 ```
 
+## GitLab CI
+
+`$GITLAB_TOKEN` is available in the shell environment (from `~/.zshrc`). Use it with the GitLab API:
+
+```bash
+curl -s --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
+  "https://gitlab.futo.org/api/v4/projects/justin%2Ffuto-notes/pipelines?ref=main&per_page=1"
+```
+
 ## Debugging
 
 ```bash

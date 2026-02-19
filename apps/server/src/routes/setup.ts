@@ -3,10 +3,11 @@ import type { SetupRequest } from '@futo-notes/shared';
 import { getDb } from '../db/index.js';
 import { isSetupComplete, setPasswordHash } from '../db/auth.js';
 import { hashPassword } from '../auth/password.js';
+import { rateLimit } from '../middleware/rateLimit.js';
 
 const setup = new Hono();
 
-setup.post('/setup', async (c) => {
+setup.post('/setup', rateLimit(5), async (c) => {
   let body: SetupRequest;
   try {
     body = await c.req.json();

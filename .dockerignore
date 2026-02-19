@@ -1,0 +1,17 @@
+# Deny all by default
+*
+
+# Whitelist workspace manifests
+!package.json
+!package-lock.json
+
+# Whitelist server app
+!apps/server/
+apps/server/dist/
+apps/server/node_modules/
+apps/server/data/
+apps/server/.env
+
+# Whitelist shared package
+!packages/shared/
+packages/shared/node_modules/
