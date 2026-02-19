@@ -66,22 +66,32 @@ test.describe('P2 Header + Formatting Regressions', () => {
     expect(selection.start).toBe(selection.end);
   });
 
+  // Toggle formatting via CM6 view (toolbar is mobile-only, not available in Playwright)
+  async function toggleFormatting(page: Page, fn: string): Promise<void> {
+    await page.evaluate((fnName) => {
+      const w = window as any;
+      const view = w.__cmGetView?.();
+      if (!view) throw new Error('CM EditorView not found');
+      w.__cmToggle(view, fnName);
+    }, fn);
+  }
+
   const formattingCases = [
-    { label: 'Bold', cssClass: '.cm-md-strong', sample: 'boldword', marker: '**' },
-    { label: 'Italic', cssClass: '.cm-md-emphasis', sample: 'italicword', marker: '*' },
-    { label: 'Strikethrough', cssClass: '.cm-md-strikethrough', sample: 'strikeword', marker: '~~' }
+    { fn: 'bold', cssClass: '.cm-md-strong', sample: 'boldword', marker: '**' },
+    { fn: 'italic', cssClass: '.cm-md-emphasis', sample: 'italicword', marker: '*' },
+    { fn: 'strikethrough', cssClass: '.cm-md-strikethrough', sample: 'strikeword', marker: '~~' }
   ];
 
   for (const tc of formattingCases) {
-    test(`${tc.label} keeps trailing space outside closing marker`, async ({ page }) => {
+    test(`${tc.fn} keeps trailing space outside closing marker`, async ({ page }) => {
       await openNewNote(page);
 
       const editor = page.locator('.cm-content');
       await editor.click();
 
-      await page.getByLabel(tc.label).click();
+      await toggleFormatting(page, tc.fn);
       await page.keyboard.type(`${tc.sample} `);
-      await page.getByLabel(tc.label).click();
+      await toggleFormatting(page, tc.fn);
       await page.keyboard.type('tail');
 
       await blurEditor(page);

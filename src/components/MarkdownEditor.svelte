@@ -15,6 +15,7 @@
   import { liveMarkdownTransform, preloadImages } from '$lib/liveMarkdownTransform';
   import { getImageWebPath } from '$lib/fileSystem';
   import { hasFileSystem } from '$lib/platform';
+  import { toggleBold, toggleItalic, toggleStrikethrough } from '$lib/markdownToolbar';
 
   interface Props {
     content?: string;
@@ -206,6 +207,15 @@
     });
 
     view = v;
+
+    if (import.meta.env.DEV) {
+      const w = window as any;
+      w.__cmToggle = (v: EditorView, name: string) => {
+        const fns: Record<string, (v: EditorView) => void> = { bold: toggleBold, italic: toggleItalic, strikethrough: toggleStrikethrough };
+        fns[name]?.(v);
+      };
+      w.__cmGetView = () => view;
+    }
 
     return () => {
       view?.destroy();
