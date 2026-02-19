@@ -3,6 +3,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { initDb, closeDb } from '../../src/db/index.js';
 import { createApp } from '../../src/app.js';
+import { clearRateLimitStore } from '../../src/middleware/rateLimit.js';
 import type { Hono } from 'hono';
 
 export interface TestEnv {
@@ -24,6 +25,7 @@ export function createTestEnv(): TestEnv {
   const notesDir = path.join(tmpDir, 'notes');
 
   initDb(dbPath);
+  clearRateLimitStore();
 
   // Override config for test — set env vars before creating app
   process.env.DATABASE_PATH = dbPath;

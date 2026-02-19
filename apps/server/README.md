@@ -83,6 +83,58 @@ The Dockerfile uses the monorepo root as build context, so `docker compose build
 
 Data is persisted in a Docker volume mounted at `/app/apps/server/data`.
 
+## HTTPS / Remote Access
+
+The server runs plain HTTP. For HTTPS, use one of these options:
+
+### Tailscale (recommended for personal use)
+
+If you have [Tailscale](https://tailscale.com/) installed on your server and phone/laptop, one command gives you trusted HTTPS accessible from all your devices:
+
+```bash
+tailscale serve 3005
+```
+
+Your server is now available at `https://<hostname>.<tailnet>.ts.net` with automatic TLS certificates. Only devices on your Tailscale network can reach it.
+
+To expose it publicly (anyone on the internet can access it):
+
+```bash
+tailscale funnel 3005
+```
+
+### Cloudflare Tunnel (no open ports needed)
+
+[Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) gives you a public HTTPS URL without opening any ports on your router. Requires a free Cloudflare account and a domain on Cloudflare DNS.
+
+1. Create a tunnel in the [Cloudflare Zero Trust dashboard](https://one.dash.cloudflare.com/) and copy the tunnel token.
+
+2. Add `cloudflared` to your compose file:
+
+```yaml
+services:
+  server:
+    image: gitlab.futo.org:5050/justin/futo-notes/server:latest
+    volumes:
+      - data:/app/apps/server/data
+    environment:
+      - PORT=3005
+      - DATABASE_PATH=./data/futo-notes.db
+      - NOTES_PATH=./data/notes
+    restart: unless-stopped
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${TUNNEL_TOKEN}
+    network_mode: service:server
+
+volumes:
+  data:
+```
+
+3. Set `TUNNEL_TOKEN` in a `.env` file and configure the tunnel's public hostname in the Cloudflare dashboard to point to `http://localhost:3005`.
+
 ## API
 
 | Route | Auth | Description |

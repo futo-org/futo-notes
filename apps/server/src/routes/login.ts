@@ -5,10 +5,11 @@ import { getPasswordHash, isSetupComplete } from '../db/auth.js';
 import { createSession } from '../db/sessions.js';
 import { verifyPassword } from '../auth/password.js';
 import { generateToken, hashToken } from '../auth/token.js';
+import { rateLimit } from '../middleware/rateLimit.js';
 
 const login = new Hono();
 
-login.post('/login', async (c) => {
+login.post('/login', rateLimit(5), async (c) => {
   const db = getDb();
 
   if (!isSetupComplete(db)) {
