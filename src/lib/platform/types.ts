@@ -28,6 +28,9 @@ export interface PlatformFS {
   // App info
   getAppVersion(): Promise<string>;
   getPlatformName(): string;
+
+  // Optional platform-specific
+  pickImage?(): Promise<string | null>;
 }
 
 export type PlatformName = 'electron' | 'capacitor' | 'web';

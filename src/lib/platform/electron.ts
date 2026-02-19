@@ -90,6 +90,10 @@ export const electronFS: PlatformFS = {
   getPlatformName(): string {
     return 'electron';
   },
+
+  async pickImage(): Promise<string | null> {
+    return getAPI().pickImage();
+  },
 };
 
 /** Pick an image file via native dialog. Electron-specific UI action. */

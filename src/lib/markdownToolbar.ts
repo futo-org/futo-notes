@@ -297,8 +297,7 @@ export async function insertImageFromCamera(
 
 /** Insert an image from a file picker (desktop). */
 export async function insertImageFromFile(view: EditorView): Promise<void> {
-  const { pickImage } = await import('$lib/platform/electron');
-  const sourcePath = await pickImage();
+  const sourcePath = await getFS().pickImage?.();
   if (!sourcePath) return;
 
   const fs = getFS();

@@ -21,4 +21,10 @@ export default tseslint.config(
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
     },
   },
+  {
+    files: ['src/**/*.test.ts', 'src/**/__mocks__/**', 'src/**/__test__/**'],
+    rules: {
+      '@typescript-eslint/no-unused-vars': 'off',
+    },
+  },
 );
