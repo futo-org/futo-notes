@@ -147,9 +147,14 @@ function setupIPC(): void {
     return fs.readFile(path.join(notesDir, filename), 'utf-8');
   });
 
-  ipcMain.handle('fs:writeFile', async (_event, filename: string, content: string) => {
-    await fs.writeFile(path.join(notesDir, filename), content, 'utf-8');
-    const stat = await fs.stat(path.join(notesDir, filename));
+  ipcMain.handle('fs:writeFile', async (_event, filename: string, content: string, modifiedAtMs?: number) => {
+    const fullPath = path.join(notesDir, filename);
+    await fs.writeFile(fullPath, content, 'utf-8');
+    if (typeof modifiedAtMs === 'number' && Number.isFinite(modifiedAtMs) && modifiedAtMs >= 0) {
+      const ts = new Date(modifiedAtMs);
+      await fs.utimes(fullPath, ts, ts);
+    }
+    const stat = await fs.stat(fullPath);
     return stat.mtimeMs;
   });
 

@@ -11,7 +11,7 @@ export interface FileChangeEvent {
 export interface PlatformFS {
   listNoteFiles(): Promise<NoteFile[]>;
   readNote(id: string): Promise<string>;
-  writeNote(id: string, content: string): Promise<number>;
+  writeNote(id: string, content: string, modifiedAtMs?: number): Promise<number>;
   deleteNoteFile(id: string): Promise<void>;
   noteExists(id: string): Promise<boolean>;
 

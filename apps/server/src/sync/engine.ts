@@ -68,7 +68,7 @@ export function processSync(
         const content = clientNote.content ?? '';
         const hash = contentHash(content);
 
-        writeNoteFile(notesDir, finalName, content);
+        writeNoteFile(notesDir, finalName, content, clientNote.modified_at);
         upsertNote(db, clientNote.uuid, finalName, hash, clientNote.modified_at);
         response.hash_updates.push({ uuid: clientNote.uuid, hash_at_last_sync: hash });
         continue;
@@ -85,7 +85,7 @@ export function processSync(
         if (finalName !== serverNote.filename) {
           const content = readNoteFile(notesDir, serverNote.filename) ?? '';
           deleteNoteFile(notesDir, serverNote.filename);
-          writeNoteFile(notesDir, finalName, content);
+          writeNoteFile(notesDir, finalName, content, serverNote.modified_at);
           upsertNote(db, clientNote.uuid, finalName, serverHash, serverNote.modified_at);
         }
         continue;
@@ -102,7 +102,7 @@ export function processSync(
         if (finalName !== serverNote.filename) {
           deleteNoteFile(notesDir, serverNote.filename);
         }
-        writeNoteFile(notesDir, finalName, content);
+        writeNoteFile(notesDir, finalName, content, clientNote.modified_at);
         upsertNote(db, clientNote.uuid, finalName, hash, clientNote.modified_at);
         response.hash_updates.push({ uuid: clientNote.uuid, hash_at_last_sync: hash });
         continue;
@@ -128,12 +128,13 @@ export function processSync(
       // Server keeps its version. Save client's version as a conflict copy.
       const conflictName = conflictFilename(db, clientNote.filename, clientNote.uuid);
       const clientContent = clientNote.content ?? '';
-      writeNoteFile(notesDir, conflictName, clientContent);
+      const conflictModifiedAt = Date.now();
+      writeNoteFile(notesDir, conflictName, clientContent, conflictModifiedAt);
 
       // Create a new note entry for the conflict copy
       const conflictUuid = crypto.randomUUID();
       const conflictHash = contentHash(clientContent);
-      upsertNote(db, conflictUuid, conflictName, conflictHash, Date.now());
+      upsertNote(db, conflictUuid, conflictName, conflictHash, conflictModifiedAt);
 
       response.conflicts.push({
         uuid: clientNote.uuid,

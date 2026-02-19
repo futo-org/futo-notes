@@ -4,7 +4,7 @@ import type { PlatformFS, NoteFile } from './types';
 interface ElectronAPI {
   listFiles(): Promise<{ name: string; mtime: number }[]>;
   readFile(filename: string): Promise<string>;
-  writeFile(filename: string, content: string): Promise<number>;
+  writeFile(filename: string, content: string, modifiedAtMs?: number): Promise<number>;
   deleteFile(filename: string): Promise<void>;
   fileExists(filename: string): Promise<boolean>;
   getNotesDir(): Promise<string>;
@@ -47,8 +47,8 @@ export const electronFS: PlatformFS = {
     return getAPI().readFile(`${id}.md`);
   },
 
-  async writeNote(id: string, content: string): Promise<number> {
-    return getAPI().writeFile(`${id}.md`, content);
+  async writeNote(id: string, content: string, modifiedAtMs?: number): Promise<number> {
+    return getAPI().writeFile(`${id}.md`, content, modifiedAtMs);
   },
 
   async deleteNoteFile(id: string): Promise<void> {

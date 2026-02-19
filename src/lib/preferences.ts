@@ -7,12 +7,24 @@ export interface AppPreferences {
     enabled: boolean;
     alwaysSend: boolean;
   };
+  sync: {
+    serverUrl: string;
+    token: string;
+    lastSyncedAt: number | null;
+    lastError: string;
+  };
 }
 
 const DEFAULTS: AppPreferences = {
   crashReporting: {
     enabled: true,
     alwaysSend: false,
+  },
+  sync: {
+    serverUrl: '',
+    token: '',
+    lastSyncedAt: null,
+    lastError: '',
   },
 };
 
@@ -24,12 +36,19 @@ function deepMerge(defaults: AppPreferences, saved: Partial<AppPreferences>): Ap
       ...defaults.crashReporting,
       ...(saved.crashReporting ?? {}),
     },
+    sync: {
+      ...defaults.sync,
+      ...(saved.sync ?? {}),
+    },
   };
 }
 
 export async function loadPreferences(): Promise<AppPreferences> {
   if (!hasFileSystem) {
-    cached = { crashReporting: { ...DEFAULTS.crashReporting } };
+    cached = {
+      crashReporting: { ...DEFAULTS.crashReporting },
+      sync: { ...DEFAULTS.sync },
+    };
     return cached;
   }
 
@@ -39,17 +58,26 @@ export async function loadPreferences(): Promise<AppPreferences> {
       const saved = JSON.parse(data);
       cached = deepMerge(DEFAULTS, saved);
     } else {
-      cached = { crashReporting: { ...DEFAULTS.crashReporting } };
+      cached = {
+        crashReporting: { ...DEFAULTS.crashReporting },
+        sync: { ...DEFAULTS.sync },
+      };
     }
   } catch {
-    cached = { crashReporting: { ...DEFAULTS.crashReporting } };
+    cached = {
+      crashReporting: { ...DEFAULTS.crashReporting },
+      sync: { ...DEFAULTS.sync },
+    };
   }
   return cached;
 }
 
 export function getCachedPreferences(): AppPreferences {
   if (cached) return cached;
-  return { crashReporting: { ...DEFAULTS.crashReporting } };
+  return {
+    crashReporting: { ...DEFAULTS.crashReporting },
+    sync: { ...DEFAULTS.sync },
+  };
 }
 
 export async function savePreferences(prefs: AppPreferences): Promise<void> {

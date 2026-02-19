@@ -14,6 +14,7 @@ import {
   getUniqueNoteId
 } from './fileSystem';
 import { ensureNotesFolder, getPlatformFS } from './platform';
+import { markLocalDeleteForSync, trackLocalRenameForSync } from './syncState';
 
 // In-memory cache of notes metadata
 let notesCache: NotePreview[] = [];
@@ -84,8 +85,7 @@ function removeFromCache(id: string): void {
 
 export async function createNote(title: string, content: string, overrideMtime?: number): Promise<{ id: string; mtime: number }> {
   const id = await getUniqueNoteId(title);
-  const writeMtime = await writeNote(id, content);
-  const mtime = overrideMtime ?? writeMtime;
+  const mtime = await writeNote(id, content, overrideMtime);
   const preview = content.slice(0, 100).replace(/\n/g, ' ');
 
   updateCache({ id, title, preview, modificationTime: mtime });
@@ -98,18 +98,20 @@ export async function updateNote(
   id: string,
   title: string,
   content: string,
-  originalId?: string
+  originalId?: string,
+  overrideMtime?: number,
 ): Promise<{ id: string; mtime: number }> {
   const preview = content.slice(0, 100).replace(/\n/g, ' ');
   const finalId = await getUniqueNoteId(id, originalId);
   let mtime: number;
 
   if (originalId && originalId !== finalId) {
-    mtime = await renameNoteFile(originalId, finalId, content);
+    mtime = await renameNoteFile(originalId, finalId, content, overrideMtime);
     removeFromSearchIndex(originalId);
     removeFromCache(originalId);
+    await trackLocalRenameForSync(originalId, finalId);
   } else {
-    mtime = await writeNote(finalId, content);
+    mtime = await writeNote(finalId, content, overrideMtime);
   }
 
   updateCache({ id: finalId, title, preview, modificationTime: mtime });
@@ -118,10 +120,14 @@ export async function updateNote(
   return { id: finalId, mtime };
 }
 
-export async function deleteNote(id: string): Promise<void> {
+export async function deleteNote(id: string, options: { trackSyncDelete?: boolean } = {}): Promise<void> {
   await deleteNoteFile(id);
   removeFromCache(id);
   removeFromSearchIndex(id);
+
+  if (options.trackSyncDelete !== false) {
+    await markLocalDeleteForSync(id);
+  }
 }
 
 export function search(query: string): NotePreview[] {

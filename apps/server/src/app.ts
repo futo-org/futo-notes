@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { cors } from 'hono/cors';
 import health from './routes/health.js';
 import setup from './routes/setup.js';
 import login from './routes/login.js';
@@ -7,6 +8,7 @@ import revoke from './routes/revoke.js';
 
 export function createApp(): Hono {
   const app = new Hono();
+  app.use('*', cors());
 
   app.route('/', health);
   app.route('/', setup);

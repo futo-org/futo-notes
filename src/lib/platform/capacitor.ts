@@ -1,9 +1,13 @@
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
-import { Capacitor } from '@capacitor/core';
+import { Capacitor, registerPlugin } from '@capacitor/core';
 import type { PlatformFS, NoteFile } from './types';
 
 const notesDirectory = Directory.Documents;
 const NOTES_SUBFOLDER = 'futo-notes';
+interface FolderImportPlugin {
+  setFileModificationTime(options: { filename: string; mtime: number }): Promise<void>;
+}
+const FolderImport = registerPlugin<FolderImportPlugin>('FolderImport');
 
 export const capacitorFS: PlatformFS = {
   async listNoteFiles(): Promise<NoteFile[]> {
@@ -25,13 +29,21 @@ export const capacitorFS: PlatformFS = {
     return result.data as string;
   },
 
-  async writeNote(id: string, content: string): Promise<number> {
+  async writeNote(id: string, content: string, modifiedAtMs?: number): Promise<number> {
     await Filesystem.writeFile({
       path: `${NOTES_SUBFOLDER}/${id}.md`,
       data: content,
       directory: notesDirectory,
       encoding: Encoding.UTF8,
     });
+    if (typeof modifiedAtMs === 'number' && Number.isFinite(modifiedAtMs) && modifiedAtMs >= 0) {
+      try {
+        await FolderImport.setFileModificationTime({ filename: `${id}.md`, mtime: modifiedAtMs });
+      } catch {
+        // Best-effort; fallback mtime remains write time
+      }
+      return modifiedAtMs;
+    }
     return Date.now();
   },
 

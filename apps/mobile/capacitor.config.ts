@@ -5,7 +5,7 @@ const config: CapacitorConfig = {
   appName: 'FUTO Notes',
   webDir: '../../dist',
   server: {
-    androidScheme: 'https'
+    androidScheme: 'http'
   },
   android: {
     useSafeArea: false

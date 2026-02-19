@@ -318,6 +318,11 @@ Escaped pipes:
     }
   }
 
+  function handleSyncComplete(message: string): void {
+    refreshNotesList();
+    showToast(message);
+  }
+
   function updateDrawerMetrics(): void {
     if (drawer) {
       drawerWidth = drawer.getBoundingClientRect().width || 1;
@@ -596,6 +601,7 @@ Escaped pipes:
   }
 
   function handleTouchStart(event: TouchEvent): void {
+    if (!isMobile) return;
     if (event.touches.length !== 1) return;
     if (isSwipeExcludedTarget(event.target)) {
       tracking = false;
@@ -929,7 +935,11 @@ Escaped pipes:
 </div>
 
 {#if settingsOpen}
-  <SettingsScreen onclose={() => { settingsOpen = false; }} onimported={handleImported} />
+  <SettingsScreen
+    onclose={() => { settingsOpen = false; }}
+    onimported={handleImported}
+    onsynccomplete={handleSyncComplete}
+  />
 {/if}
 
 {#if deleteConfirmOpen}

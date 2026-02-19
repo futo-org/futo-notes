@@ -88,10 +88,21 @@ export function conflictFilename(
   return candidate;
 }
 
-/** Write a note's content to disk. */
-export function writeNoteFile(notesDir: string, filename: string, content: string): void {
+/** Write a note's content to disk and optionally set a specific mtime (ms since epoch). */
+export function writeNoteFile(
+  notesDir: string,
+  filename: string,
+  content: string,
+  modifiedAtMs?: number,
+): void {
   fs.mkdirSync(notesDir, { recursive: true });
-  fs.writeFileSync(path.join(notesDir, filename), content, 'utf8');
+  const fullPath = path.join(notesDir, filename);
+  fs.writeFileSync(fullPath, content, 'utf8');
+
+  if (typeof modifiedAtMs === 'number' && Number.isFinite(modifiedAtMs) && modifiedAtMs >= 0) {
+    const ts = new Date(modifiedAtMs);
+    fs.utimesSync(fullPath, ts, ts);
+  }
 }
 
 /** Read a note's content from disk. Returns null if file doesn't exist. */

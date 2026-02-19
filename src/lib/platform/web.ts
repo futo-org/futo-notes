@@ -11,7 +11,7 @@ export const webFS: PlatformFS = {
     throw new Error('File I/O not available in web mode');
   },
 
-  async writeNote(_id: string, _content: string): Promise<number> {
+  async writeNote(_id: string, _content: string, _modifiedAtMs?: number): Promise<number> {
     console.warn('writeNote called in web mode — not persisted');
     return Date.now();
   },

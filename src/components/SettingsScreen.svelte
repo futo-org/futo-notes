@@ -1,8 +1,9 @@
 <script lang="ts">
-  import { isMobile } from '$lib/platform';
+  import { hasFileSystem, isMobile } from '$lib/platform';
   import { createNote, getAllNotes, deleteNote } from '$lib/notes';
   import { sanitizeFilename } from '$lib/utils';
   import { getCachedPreferences, savePreferences } from '$lib/preferences';
+  import { connectSyncServer, saveSyncServerUrl, syncNow, type SyncSummary } from '$lib/sync';
 
   interface ImportedFile {
     name: string;
@@ -26,9 +27,10 @@
   interface Props {
     onclose: () => void;
     onimported: (count: number) => void;
+    onsynccomplete: (message: string) => void;
   }
 
-  let { onclose, onimported }: Props = $props();
+  let { onclose, onimported, onsynccomplete }: Props = $props();
 
   let importing = $state(false);
   let importStatus = $state('');
@@ -39,6 +41,66 @@
   const prefs = getCachedPreferences();
   let crashEnabled = $state(prefs.crashReporting.enabled);
   let crashAlwaysSend = $state(prefs.crashReporting.alwaysSend);
+
+  // Sync MVP preferences
+  let syncUrl = $state(prefs.sync.serverUrl);
+  let syncPassword = $state('');
+  let syncBusy = $state(false);
+  let syncStatus = $state(prefs.sync.lastError ? `Last error: ${prefs.sync.lastError}` : '');
+  let syncLastAt = $state<number | null>(prefs.sync.lastSyncedAt);
+  let hasSyncToken = $state(Boolean(prefs.sync.token));
+
+  function getErrorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
+  }
+
+  function formatSyncSummary(summary: SyncSummary): string {
+    return `Sync complete: uploaded ${summary.uploaded}, downloaded ${summary.downloaded}, deleted ${summary.deleted}, conflicts ${summary.conflicts}`;
+  }
+
+  function formatTimestamp(ts: number | null): string {
+    return ts ? new Date(ts).toLocaleString() : 'never';
+  }
+
+  async function persistSyncUrl(): Promise<void> {
+    await saveSyncServerUrl(syncUrl);
+  }
+
+  async function handleConnectSync(): Promise<void> {
+    if (syncBusy) return;
+    syncBusy = true;
+    syncStatus = 'Connecting...';
+    try {
+      await connectSyncServer(syncUrl, syncPassword);
+      hasSyncToken = true;
+      syncPassword = '';
+      syncStatus = 'Connected. You can sync now.';
+    } catch (e) {
+      syncStatus = `Connect failed: ${getErrorMessage(e)}`;
+    } finally {
+      syncBusy = false;
+    }
+  }
+
+  async function handleSyncNow(): Promise<void> {
+    if (syncBusy) return;
+    syncBusy = true;
+    syncStatus = 'Syncing...';
+    try {
+      await persistSyncUrl();
+      const summary = await syncNow();
+      const updatedPrefs = getCachedPreferences();
+      hasSyncToken = Boolean(updatedPrefs.sync.token);
+      syncLastAt = updatedPrefs.sync.lastSyncedAt;
+      const message = formatSyncSummary(summary);
+      syncStatus = message;
+      onsynccomplete(message);
+    } catch (e) {
+      syncStatus = `Sync failed: ${getErrorMessage(e)}`;
+    } finally {
+      syncBusy = false;
+    }
+  }
 
   async function toggleCrashEnabled(): Promise<void> {
     crashEnabled = !crashEnabled;
@@ -149,6 +211,55 @@
     </div>
 
     <div class="settings-content">
+      {#if hasFileSystem}
+      <section class="settings-section">
+        <h3 class="settings-section-title">Sync (MVP)</h3>
+        <div class="settings-card">
+          <label class="settings-input-label" for="sync-url">Server URL</label>
+          <input
+            id="sync-url"
+            class="settings-input"
+            type="text"
+            bind:value={syncUrl}
+            onblur={persistSyncUrl}
+            placeholder="http://localhost:3100"
+            autocapitalize="off"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <p class="settings-btn-desc settings-hint">
+            Desktop/iOS simulator: <code>http://localhost:3100</code>. Android emulator: <code>http://10.0.2.2:3100</code>.
+          </p>
+
+          <label class="settings-input-label" for="sync-password">Password (for Connect)</label>
+          <input
+            id="sync-password"
+            class="settings-input"
+            type="password"
+            bind:value={syncPassword}
+            placeholder="At least 8 characters"
+            autocapitalize="off"
+            autocomplete="current-password"
+            spellcheck="false"
+          />
+
+          <div class="settings-actions">
+            <button class="settings-btn settings-btn-inline" onclick={handleConnectSync} disabled={syncBusy}>
+              {syncBusy ? 'Working...' : hasSyncToken ? 'Reconnect' : 'Connect'}
+            </button>
+            <button class="settings-btn settings-btn-inline" onclick={handleSyncNow} disabled={syncBusy}>
+              Sync now
+            </button>
+          </div>
+
+          <p class="settings-btn-desc settings-hint">Last sync: {formatTimestamp(syncLastAt)}</p>
+          {#if syncStatus}
+            <p class="settings-btn-desc settings-hint">{syncStatus}</p>
+          {/if}
+        </div>
+      </section>
+      {/if}
+
       {#if isMobile}
       <section class="settings-section">
         <h3 class="settings-section-title">Import</h3>
@@ -304,6 +415,38 @@
     margin: 0 0 8px 4px;
   }
 
+  .settings-card {
+    background: var(--color-surface);
+    border-radius: 12px;
+    padding: 14px;
+  }
+
+  .settings-input-label {
+    display: block;
+    margin: 2px 2px 6px;
+    font-size: 13px;
+    color: var(--color-muted);
+  }
+
+  .settings-input {
+    width: 100%;
+    box-sizing: border-box;
+    border: 1px solid var(--color-border);
+    background: var(--color-bg);
+    color: var(--color-text);
+    border-radius: 10px;
+    padding: 10px 12px;
+    font-size: 14px;
+    margin-bottom: 10px;
+  }
+
+  .settings-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 4px;
+    margin-bottom: 6px;
+  }
+
   .settings-btn {
     width: 100%;
     display: flex;
@@ -317,6 +460,14 @@
     text-align: left;
     font-family: inherit;
     -webkit-tap-highlight-color: transparent;
+  }
+
+  .settings-btn-inline {
+    flex: 1;
+    background: #292e42;
+    color: #d8def8;
+    justify-content: center;
+    padding: 10px 12px;
   }
 
   .settings-btn:active {
@@ -350,6 +501,11 @@
   .settings-btn-desc {
     font-size: 13px;
     color: var(--color-muted);
+  }
+
+  .settings-hint {
+    margin: 6px 0;
+    line-height: 1.35;
   }
 
   .settings-btn-arrow {

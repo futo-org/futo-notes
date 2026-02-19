@@ -7,6 +7,8 @@ import { upsertNote } from '../../src/db/notes.js';
 import { writeNoteFile, readNoteFile } from '../../src/sync/files.js';
 import { createTombstone } from '../../src/db/tombstones.js';
 import type { SyncRequest } from '@futo-notes/shared';
+import { statSync } from 'node:fs';
+import path from 'node:path';
 
 describe('sync engine', () => {
   let env: TestEnv;
@@ -55,6 +57,31 @@ describe('sync engine', () => {
 
     expect(result.hash_updates).toEqual([{ uuid: 'u1', hash_at_last_sync: hash }]);
     expect(readNoteFile(env.notesDir, 'hello.md')).toBe(content);
+  });
+
+  it('preserves client modified_at as filesystem mtime', () => {
+    const db = getDb();
+    const modifiedAt = Date.parse('2020-01-02T03:04:05.000Z');
+    const content = 'preserve me';
+    const hash = contentHash(content);
+
+    processSync(db, env.notesDir, {
+      notes: [
+        {
+          uuid: 'u1',
+          filename: 'preserve.md',
+          modified_at: modifiedAt,
+          content_hash: hash,
+          hash_at_last_sync: '',
+          content,
+        },
+      ],
+      all_uuids: ['u1'],
+      deleted_uuids: [],
+    });
+
+    const stat = statSync(path.join(env.notesDir, 'preserve.md'));
+    expect(Math.abs(stat.mtimeMs - modifiedAt)).toBeLessThan(5);
   });
 
   it('sends server-only notes to the client', () => {
