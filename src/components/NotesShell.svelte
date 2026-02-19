@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { hasFileSystem, isMobile } from '$lib/platform';
+  import { hasFileSystem, isMobile, isElectron } from '$lib/platform';
   import MarkdownEditor from './MarkdownEditor.svelte';
   import MarkdownToolbar from './MarkdownToolbar.svelte';
   import SettingsScreen from './SettingsScreen.svelte';
@@ -7,6 +7,7 @@
   import type { NotePreview } from '../types';
   import { getAllNotes, updateNote, readNote, createNote, getNoteById, deleteNote } from '$lib/notes';
   import { sanitizeFilename } from '$lib/utils';
+  import type { SyncSummary } from '$lib/sync';
   import { keyboard } from '$lib/keyboard.svelte';
   import { navigate } from '../router';
   import { SCROLL_TEST_NOTES } from '$lib/scrollTestNotes';
@@ -291,6 +292,13 @@ Escaped pipes:
   let fabPressTimer: number | null = null;
   let ignoreFabClick = false;
 
+  // Desktop sidebar
+  let sidebarWidth = $state(280);
+  let sidebarCollapsed = $state(false);
+  let resizing = $state(false);
+  let resizeStartX = 0;
+  let resizeStartWidth = 0;
+
   // Settings
   let settingsOpen = $state(false);
 
@@ -323,9 +331,36 @@ Escaped pipes:
     showToast(count > 0 ? `Imported ${count} notes` : 'All notes deleted');
   }
 
-  function handleSyncComplete(message: string): void {
+  function formatSyncSummary(s: SyncSummary): string {
+    return `Sync complete: uploaded ${s.uploaded}, downloaded ${s.downloaded}, deleted ${s.deleted}, conflicts ${s.conflicts}`;
+  }
+
+  async function handleSyncComplete(summary: SyncSummary): Promise<void> {
     refreshNotesList();
-    showToast(message);
+
+    // If sync downloaded updates and a note is currently open, reload it from
+    // disk so the editor doesn't hold stale content that flushSave would push
+    // back to the server.
+    if ((summary.downloaded > 0 || summary.deleted > 0) && originalId) {
+      // Cancel any pending debounced save — the disk content is now authoritative
+      if (saveTimeout !== null) {
+        clearTimeout(saveTimeout);
+        saveTimeout = null;
+      }
+      try {
+        const freshContent = await readNote(originalId);
+        content = freshContent;
+        editor?.setContent(freshContent);
+        const meta = getNoteById(originalId);
+        if (meta) title = meta.title;
+      } catch {
+        // Note was deleted by sync — navigate away
+        originalId = null;
+        navigate('/');
+      }
+    }
+
+    showToast(formatSyncSummary(summary));
   }
 
   function updateDrawerMetrics(): void {
@@ -778,6 +813,30 @@ Escaped pipes:
     registerBackSwipeHandler();
     updateDrawerMetrics();
 
+    // Desktop sidebar: load persisted width
+    if (!isMobile) {
+      if (isElectron) {
+        import('$lib/platform/electron').then(({ getConfig }) => {
+          getConfig().then(cfg => {
+            if (cfg.sidebarWidth) sidebarWidth = cfg.sidebarWidth;
+          });
+        });
+      } else {
+        const stored = localStorage.getItem('futo-notes:sidebarWidth');
+        if (stored) sidebarWidth = parseInt(stored, 10) || 280;
+      }
+    }
+
+    // Electron menu actions
+    if (isElectron) {
+      import('$lib/platform/electron').then(({ onMenuAction }) => {
+        onMenuAction((action) => {
+          if (action === 'toggle-sidebar') sidebarCollapsed = !sidebarCollapsed;
+          else if (action === 'new-note') createNewNote();
+        });
+      });
+    }
+
     return () => {
       flushSave();
     };
@@ -818,15 +877,48 @@ Escaped pipes:
     if (rafId) return;
     rafId = requestAnimationFrame(applyDragFrame);
   }
+
+  // Desktop sidebar resize
+  function handleResizeStart(e: PointerEvent): void {
+    e.preventDefault();
+    resizing = true;
+    resizeStartX = e.clientX;
+    resizeStartWidth = sidebarWidth;
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+  }
+
+  function handleResizeMove(e: PointerEvent): void {
+    if (!resizing) return;
+    sidebarWidth = Math.max(180, Math.min(600, resizeStartWidth + (e.clientX - resizeStartX)));
+  }
+
+  function handleResizeEnd(): void {
+    if (!resizing) return;
+    resizing = false;
+    persistSidebarWidth(sidebarWidth);
+  }
+
+  function persistSidebarWidth(width: number): void {
+    if (isElectron) {
+      import('$lib/platform/electron').then(({ saveElectronConfig }) => {
+        saveElectronConfig({ sidebarWidth: width });
+      });
+    } else {
+      localStorage.setItem('futo-notes:sidebarWidth', String(width));
+    }
+  }
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   bind:this={shell}
   class="notes-shell"
+  class:desktop-layout={!isMobile}
+  class:sidebar-collapsed={!isMobile && sidebarCollapsed}
+  class:sidebar-resizing={resizing}
   class:drawer-open={drawerOpen}
   class:drawer-dragging={isDragging}
-  style="--drawer-offset: {drawerOffset}px"
+  style="--drawer-offset: {drawerOffset}px; --sidebar-width: {sidebarWidth}px"
   ontouchstart={handleTouchStart}
   ontouchmove={handleTouchMove}
   ontouchend={handleTouchEnd}
@@ -853,16 +945,28 @@ Escaped pipes:
       ontouchcancel={handleFabTouchCancel}
       onclick={handleFabClick}
     >+</button>
+    {#if !isMobile}
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div
+        class="sidebar-resize-handle"
+        onpointerdown={handleResizeStart}
+        onpointermove={handleResizeMove}
+        onpointerup={handleResizeEnd}
+        onpointercancel={handleResizeEnd}
+      ></div>
+    {/if}
   </aside>
 
-  <!-- Menu button -->
-  <button
-    bind:this={menuButtonEl}
-    class="drawer-toggle floating"
-    aria-label="Open notes list"
-    aria-expanded={drawerOpen}
-    onclick={() => setDrawerOpen(!drawerOpen)}
-  >&#9776;</button>
+  <!-- Menu button (mobile only) -->
+  {#if isMobile}
+    <button
+      bind:this={menuButtonEl}
+      class="drawer-toggle floating"
+      aria-label="Open notes list"
+      aria-expanded={drawerOpen}
+      onclick={() => setDrawerOpen(!drawerOpen)}
+    >&#9776;</button>
+  {/if}
 
   <!-- Note menu button (three-dot) -->
   {#if noteId && noteMenuOpen}
@@ -925,18 +1029,24 @@ Escaped pipes:
         </div>
       {:else}
         <div class="flex-1 flex flex-col items-center justify-center gap-3 p-8 text-center text-muted">
-          <div class="text-sm text-muted">Swipe from the left edge or tap the menu to browse notes.</div>
-          <button class="border-none bg-primary rounded-full px-4 py-2.5 text-sm cursor-pointer active:opacity-80" style="color: #1a1b26" onclick={(e) => { e.stopPropagation(); setDrawerOpen(true); }}>Browse notes</button>
+          {#if isMobile}
+            <div class="text-sm text-muted">Swipe from the left edge or tap the menu to browse notes.</div>
+            <button class="border-none bg-primary rounded-full px-4 py-2.5 text-sm cursor-pointer active:opacity-80" style="color: #1a1b26" onclick={(e) => { e.stopPropagation(); setDrawerOpen(true); }}>Browse notes</button>
+          {:else}
+            <div class="text-sm text-muted">Select a note from the sidebar, or press + to create one.</div>
+          {/if}
         </div>
       {/if}
     </div>
   </div>
 
-  <MarkdownToolbar
-    getView={() => editor?.getView() ?? null}
-    {editorFocused}
-    ontoolbartouch={(touching) => toolbarTouching = touching}
-  />
+  {#if isMobile}
+    <MarkdownToolbar
+      getView={() => editor?.getView() ?? null}
+      {editorFocused}
+      ontoolbartouch={(touching) => toolbarTouching = touching}
+    />
+  {/if}
 </div>
 
 {#if settingsOpen}

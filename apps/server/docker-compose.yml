@@ -9,6 +9,8 @@ services:
       - data:/app/apps/server/data
     env_file:
       - .env
+    environment:
+      - LOG_LEVEL=${LOG_LEVEL:-info}
 
 volumes:
   data:

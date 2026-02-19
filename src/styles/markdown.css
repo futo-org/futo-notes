@@ -23,22 +23,22 @@
 
 .cm-md-h3 {
   font-size: 20px;
-  color: #c0caf5;
+  color: #333;
 }
 
 .cm-md-h4 {
   font-size: 18px;
-  color: #a9b1d6;
+  color: #444;
 }
 
 .cm-md-h5 {
   font-size: 16px;
-  color: #787c99;
+  color: #555;
 }
 
 .cm-md-h6 {
   font-size: 14px;
-  color: #565f89;
+  color: #666;
 }
 
 /* Emphasis */
@@ -55,8 +55,8 @@
 
 /* Code */
 .cm-md-code {
-  background: #24283b;
-  color: #9ece6a;
+  background: #f5f5f5;
+  color: #d63384;
   padding: 2px 6px;
   border-radius: 3px;
   font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
@@ -65,14 +65,14 @@
 
 /* Code blocks - unified styling via line decorations */
 .cm-line.cm-md-code-block {
-  background: #16161e;
-  color: #a9b1d6;
+  background: #f8f8f8;
+  color: #333;
   font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
   font-size: 0.9em;
   padding: 4px 16px !important;
   margin-left: 0;
   margin-right: 0;
-  border-left: 3px solid #3d59a1;
+  border-left: 3px solid #ddd;
 }
 
 .cm-line.cm-md-code-block-single {
@@ -91,27 +91,27 @@
 /* Strikethrough */
 .cm-md-strikethrough {
   text-decoration: line-through;
-  color: #565f89;
+  color: #999;
 }
 
 /* Links */
 .cm-md-link {
-  color: #7aa2f7;
+  color: #0969da;
   text-decoration: underline;
   cursor: pointer;
 }
 
 .cm-md-link:hover {
-  color: #7dcfff;
+  color: #0860ca;
 }
 
 /* Block quotes - unified styling via line decorations */
 .cm-line.cm-md-quote {
   padding-left: 15px !important;
-  color: #565f89;
+  color: #666;
   font-style: italic;
   margin-left: 0;
-  border-left: 3px solid #3d59a1;
+  border-left: 3px solid #3b82f6;
 }
 
 /* Level 2: two separate vertical lines */
@@ -119,8 +119,8 @@
   padding-left: 30px !important;
   border-left: none;
   background-image:
-    linear-gradient(#3d59a1, #3d59a1),
-    linear-gradient(#3d59a1, #3d59a1);
+    linear-gradient(#3b82f6, #3b82f6),
+    linear-gradient(#3b82f6, #3b82f6);
   background-size: 3px 100%, 3px 100%;
   background-position: 0 0, 15px 0;
   background-repeat: no-repeat;
@@ -131,9 +131,9 @@
   padding-left: 45px !important;
   border-left: none;
   background-image:
-    linear-gradient(#3d59a1, #3d59a1),
-    linear-gradient(#3d59a1, #3d59a1),
-    linear-gradient(#3d59a1, #3d59a1);
+    linear-gradient(#3b82f6, #3b82f6),
+    linear-gradient(#3b82f6, #3b82f6),
+    linear-gradient(#3b82f6, #3b82f6);
   background-size: 3px 100%, 3px 100%, 3px 100%;
   background-position: 0 0, 15px 0, 30px 0;
   background-repeat: no-repeat;
@@ -141,7 +141,7 @@
 
 /* Dimmed quote markers when cursor is on the line */
 .cm-md-quote-marker {
-  color: #3d59a1;
+  color: #ccc;
   font-style: normal;
 }
 
@@ -176,8 +176,8 @@
 
 .cm-md-hr-widget > div {
   flex: 1;
-  border-top: 2px solid #292e42;
-  opacity: 0.8;
+  border-top: 2px solid #ccc;
+  opacity: 0.5;
 }
 
 /* Image widget */
@@ -212,40 +212,40 @@
   border-collapse: collapse;
   min-width: 100%;
   font-size: 0.95em;
-  border: 1px solid #292e42;
+  border: 1px solid #e0e0e0;
 }
 
 .cm-md-table-rendered th,
 .cm-md-table-rendered td {
   padding: 10px 14px;
-  border: 1px solid #292e42;
+  border: 1px solid #e0e0e0;
   white-space: nowrap;
 }
 
 .cm-md-table-rendered th {
-  background: #16161e;
+  background: #f5f5f5;
   font-weight: 600;
-  color: #c0caf5;
+  color: #333;
 }
 
 .cm-md-table-rendered tbody tr:nth-child(even) {
-  background: #1e2030;
+  background: #fafafa;
 }
 
 .cm-md-table-rendered tbody tr:hover {
-  background: #24283b;
+  background: #f0f7ff;
 }
 
 /* Click hint on hover - use outline instead of box-shadow to avoid repaint */
 .cm-md-table-wrapper:hover {
-  outline: 2px solid #3d59a1;
+  outline: 2px solid #3b82f6;
   outline-offset: 0;
 }
 
 /* Inline formatting within tables */
 .cm-md-table-rendered code.cm-md-table-code {
-  background: #24283b;
-  color: #9ece6a;
+  background: #f0f0f0;
+  color: #d63384;
   padding: 1px 4px;
   border-radius: 3px;
   font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
@@ -253,12 +253,12 @@
 }
 
 .cm-md-table-rendered a.cm-md-table-link {
-  color: #7aa2f7;
+  color: #0969da;
   text-decoration: underline;
 }
 
 .cm-md-table-rendered del {
-  color: #565f89;
+  color: #999;
 }
 
 /* Decorative markers (hidden by display: none) */
@@ -274,7 +274,7 @@
 .cm-editor:focus-within .cm-md-h5 .cm-md-h5-marker,
 .cm-editor:focus-within .cm-md-h6 .cm-md-h6-marker {
   display: inline;
-  color: #3d59a1;
+  color: #ccc;
 }
 
 /* Mobile adjustments */

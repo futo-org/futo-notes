@@ -41,9 +41,8 @@
   width: 44px;
   height: 44px;
   border-radius: 22px;
-  background: rgba(26, 27, 38, 0.96);
-  color: #a9b1d6;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
   z-index: 35;
   transform: translateX(var(--drawer-offset));
   transition: transform 0.25s ease;
@@ -213,12 +212,12 @@
   width: 56px;
   height: 56px;
   border-radius: 50%;
-  background: #24283b;
-  color: #a9b1d6;
+  background: #3a3a3c;
+  color: #fff;
   border: none;
   font-size: 28px;
   cursor: pointer;
-  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
   z-index: 99;
   -webkit-user-select: none;
   user-select: none;
@@ -266,7 +265,7 @@
 }
 
 .notes-drawer .note-item.pressed {
-  background: #292e42;
+  background: #e8e8e8;
 }
 
 .notes-drawer .note-title {
@@ -279,11 +278,11 @@
 }
 
 .notes-drawer .note-item.selected {
-  background: #283457;
+  background: #e3edff;
 }
 
 .notes-drawer .note-item.selected:active {
-  background: #2a3a5e;
+  background: #d4e2ff;
 }
 
 /* Note item base styles */
@@ -293,7 +292,7 @@
   align-items: center;
   padding: 12px 16px;
   border: none;
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid #f0f0f0;
   background: transparent;
   cursor: pointer;
   user-select: none;
@@ -301,16 +300,15 @@
   font-family: inherit;
   font-size: inherit;
   height: 72px;
-  color: var(--color-text);
 }
 
 .note-item:active {
-  background: #24283b;
+  background: #f9f9f9;
 }
 
 /* Title input disabled state */
 .title-input:disabled {
-  color: var(--color-muted);
+  color: #999;
 }
 
 /* Notes list scroll base */
@@ -326,8 +324,8 @@
   left: 0;
   right: 0;
   height: 44px;
-  background: #16161e;
-  border-top: 1px solid var(--color-border);
+  background: #f0f0f0;
+  border-top: 1px solid #d4d4d4;
   z-index: 1000;
   touch-action: none;
 }
@@ -359,7 +357,7 @@
   border-radius: 6px;
   font-size: 17px;
   font-family: system-ui, -apple-system, sans-serif;
-  color: #a9b1d6;
+  color: #333;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -371,14 +369,14 @@
 }
 
 .toolbar-btn:active {
-  background: #292e42;
+  background: #d8d8d8;
 }
 
 .toolbar-separator {
   width: 1px;
   min-width: 1px;
   height: 24px;
-  background: var(--color-border);
+  background: #c8c8c8;
   margin: 0 4px;
   flex-shrink: 0;
 }
@@ -431,19 +429,19 @@
   height: 44px;
   border-radius: 22px;
   border: none;
-  background: rgba(26, 27, 38, 0.96);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
   font-size: 22px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   -webkit-tap-highlight-color: transparent;
-  color: #a9b1d6;
+  color: #333;
 }
 
 .note-menu-toggle:active {
-  background: #292e42;
+  background: #e8e8e8;
 }
 
 .note-menu-backdrop {
@@ -457,10 +455,9 @@
   top: 50px;
   right: 0;
   min-width: 160px;
-  background: #24283b;
+  background: white;
   border-radius: 10px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-  border: 1px solid var(--color-border);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
   z-index: 36;
   overflow: hidden;
 }
@@ -473,12 +470,12 @@
   text-align: left;
   font-size: 16px;
   cursor: pointer;
-  color: #f7768e;
+  color: #d32f2f;
   font-family: inherit;
 }
 
 .note-menu-dropdown button:active {
-  background: #292e42;
+  background: #f5f5f5;
 }
 
 /* Delete confirmation dialog */
@@ -493,26 +490,23 @@
 }
 
 .delete-confirm-dialog {
-  background: #24283b;
+  background: white;
   border-radius: 14px;
   padding: 24px;
   width: min(320px, calc(100vw - 48px));
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
-  border: 1px solid var(--color-border);
-  color: #a9b1d6;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.25);
 }
 
 .delete-confirm-dialog h3 {
   margin: 0 0 8px;
   font-size: 18px;
   font-weight: 600;
-  color: #c0caf5;
 }
 
 .delete-confirm-dialog p {
   margin: 0 0 20px;
   font-size: 14px;
-  color: var(--color-muted);
+  color: #666;
 }
 
 .delete-confirm-actions {
@@ -532,21 +526,21 @@
 }
 
 .delete-confirm-cancel {
-  background: #292e42;
-  color: #a9b1d6;
+  background: #e8e8e8;
+  color: #333;
 }
 
 .delete-confirm-cancel:active {
-  background: #343b58;
+  background: #d8d8d8;
 }
 
 .delete-confirm-delete {
-  background: #f7768e;
-  color: #1a1b26;
+  background: #d32f2f;
+  color: white;
 }
 
 .delete-confirm-delete:active {
-  background: #e05a74;
+  background: #b71c1c;
 }
 
 /* Toast */
@@ -555,11 +549,10 @@
   bottom: max(80px, calc(80px + env(safe-area-inset-bottom)));
   left: 50%;
   transform: translateX(-50%);
-  background: #24283b;
-  color: #a9b1d6;
+  background: #333;
+  color: white;
   padding: 10px 20px;
   border-radius: 8px;
-  border: 1px solid var(--color-border);
   font-size: 14px;
   z-index: 300;
   pointer-events: none;
@@ -570,3 +563,74 @@
   from { opacity: 0; transform: translateX(-50%) translateY(8px); }
   to { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
+
+/* ===== Desktop sidebar layout ===== */
+
+.notes-shell.desktop-layout {
+  display: flex;
+}
+
+.notes-shell.desktop-layout .notes-drawer {
+  position: relative;
+  transform: none;
+  transition: flex-basis 0.15s ease, opacity 0.15s ease;
+  flex: 0 0 var(--sidebar-width, 280px);
+  width: var(--sidebar-width, 280px);
+  border-right: 1px solid var(--color-border);
+  z-index: auto;
+}
+
+.notes-shell.desktop-layout.sidebar-collapsed .notes-drawer {
+  flex-basis: 0;
+  width: 0;
+  opacity: 0;
+  overflow: hidden;
+  border-right: none;
+}
+
+.notes-shell.desktop-layout .note-main {
+  position: relative;
+  flex: 1;
+  transform: none;
+  transition: none;
+  will-change: auto;
+}
+
+.notes-shell.desktop-layout .drawer-overlay { display: none; }
+
+.notes-shell.desktop-layout .note-menu-anchor {
+  transform: none;
+  transition: none;
+}
+
+.notes-shell.desktop-layout .note-title-row {
+  padding-top: 24px;
+}
+
+/* Resize handle */
+.sidebar-resize-handle {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  z-index: 10;
+}
+
+.sidebar-resize-handle:hover,
+.notes-shell.sidebar-resizing .sidebar-resize-handle {
+  background: var(--color-primary);
+  opacity: 0.3;
+}
+
+.notes-shell.sidebar-resizing .notes-drawer { transition: none; }
+.notes-shell.sidebar-resizing .note-main { pointer-events: none; user-select: none; }
+
+/* Desktop sidebar list padding — no safe-area insets */
+.notes-shell.desktop-layout .notes-drawer .notes-list-scroll {
+  padding: 12px 12px 80px;
+}
+
+.notes-shell.desktop-layout .notes-drawer .fab { bottom: 16px; right: 16px; }
+.notes-shell.desktop-layout .notes-drawer .settings-fab { bottom: 16px; left: 16px; }

@@ -1,14 +1,30 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import { log } from './logger.js';
 import health from './routes/health.js';
 import setup from './routes/setup.js';
 import login from './routes/login.js';
 import sync from './routes/sync.js';
 import revoke from './routes/revoke.js';
+import dev from './routes/dev.js';
 
 export function createApp(): Hono {
   const app = new Hono();
   app.use('*', cors());
+
+  // Request logging middleware
+  app.use('*', async (c, next) => {
+    const start = Date.now();
+    await next();
+    const ms = Date.now() - start;
+    const status = c.res.status;
+    const line = `→ ${c.req.method} ${c.req.path} ${status} (${ms}ms)`;
+    if (status === 404) {
+      log.warn(line);
+    } else {
+      log.info(line);
+    }
+  });
 
   app.route('/', health);
   app.route('/', setup);
@@ -16,12 +32,17 @@ export function createApp(): Hono {
   app.route('/', sync);
   app.route('/', revoke);
 
+  // Dev-only routes (nuke, etc.)
+  if (process.env.NODE_ENV !== 'production') {
+    app.route('/', dev);
+  }
+
   // 404 fallback
   app.notFound((c) => c.json({ error: 'Not found' }, 404));
 
   // Global error handler
   app.onError((err, c) => {
-    console.error('Unhandled error:', err);
+    log.error(`${c.req.method} ${c.req.path} — ${err.message}`);
     return c.json({ error: 'Internal server error' }, 500);
   });
 

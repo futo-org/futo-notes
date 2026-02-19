@@ -27,7 +27,7 @@
   interface Props {
     onclose: () => void;
     onimported: (count: number) => void;
-    onsynccomplete: (message: string) => void;
+    onsynccomplete: (summary: SyncSummary) => void;
   }
 
   let { onclose, onimported, onsynccomplete }: Props = $props();
@@ -102,9 +102,8 @@
       const updatedPrefs = getCachedPreferences();
       hasSyncToken = Boolean(updatedPrefs.sync.token);
       syncLastAt = updatedPrefs.sync.lastSyncedAt;
-      const message = formatSyncSummary(summary);
-      syncStatus = message;
-      onsynccomplete(message);
+      syncStatus = formatSyncSummary(summary);
+      onsynccomplete(summary);
     } catch (e) {
       syncStatus = `Sync failed: ${getErrorMessage(e)}`;
     } finally {

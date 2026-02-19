@@ -6,6 +6,7 @@ import { createSession } from '../db/sessions.js';
 import { verifyPassword } from '../auth/password.js';
 import { generateToken, hashToken } from '../auth/token.js';
 import { rateLimit } from '../middleware/rateLimit.js';
+import { log } from '../logger.js';
 
 const login = new Hono();
 
@@ -30,12 +31,15 @@ login.post('/login', rateLimit(5), async (c) => {
   const storedHash = getPasswordHash(db)!;
   const valid = await verifyPassword(storedHash, body.password);
   if (!valid) {
+    log.warn(`login failed${body.device_info ? ` (device: ${body.device_info})` : ''}`);
     return c.json({ error: 'Invalid password' }, 401);
   }
 
   const token = generateToken();
   const tokenH = hashToken(token);
   createSession(db, tokenH, body.device_info);
+
+  log.info(`login success${body.device_info ? ` (device: ${body.device_info})` : ''}`);
 
   const resp: LoginResponse = { token };
   return c.json(resp);

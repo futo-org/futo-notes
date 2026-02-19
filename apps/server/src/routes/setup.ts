@@ -4,6 +4,7 @@ import { getDb } from '../db/index.js';
 import { isSetupComplete, setPasswordHash } from '../db/auth.js';
 import { hashPassword } from '../auth/password.js';
 import { rateLimit } from '../middleware/rateLimit.js';
+import { log } from '../logger.js';
 
 const setup = new Hono();
 
@@ -25,11 +26,13 @@ setup.post('/setup', rateLimit(5), async (c) => {
 
   const db = getDb();
   if (isSetupComplete(db)) {
+    log.warn('setup rejected — password already set');
     return c.json({ error: 'Password already set' }, 409);
   }
 
   const hash = await hashPassword(body.password);
   setPasswordHash(db, hash);
+  log.info('setup complete — password configured');
   return c.json({ success: true }, 201);
 });
 

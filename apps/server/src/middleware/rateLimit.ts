@@ -1,4 +1,5 @@
 import type { Context, Next } from 'hono';
+import { log } from '../logger.js';
 
 interface Entry {
   timestamps: number[];
@@ -40,6 +41,7 @@ export function rateLimit(maxAttempts: number) {
     entry.timestamps = entry.timestamps.filter((t) => now - t < 60_000);
 
     if (entry.timestamps.length >= maxAttempts) {
+      log.warn(`rate limit exceeded: ip=${ip} path=${c.req.path}`);
       return c.json({ error: 'Too many requests — try again later' }, 429);
     }
 

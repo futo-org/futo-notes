@@ -17,6 +17,10 @@ Single-endpoint hash-based sync (`/sync`):
 - One round trip: client sends all changes, server responds with everything the client needs
 - See `docs/plans/server-plan.md` for detailed sync logic and conflict handling
 
+## Tools
+
+- **Hono CLI** is installed on this system — run `hono` to see available commands (scaffolding, etc.).
+
 ## Running
 
 ```bash

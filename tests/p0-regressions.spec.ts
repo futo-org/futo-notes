@@ -24,20 +24,14 @@ test.describe('P0 Crash and IME Regressions', () => {
     await page.keyboard.press('Control+A');
     await page.keyboard.press('Backspace');
 
-    // On web, drawer starts open — close it first so we can test opening it
-    const drawerToggle = page.locator('button[aria-label="Open notes list"]');
+    // Desktop layout: sidebar is always visible, no toggle needed.
+    // Verify sidebar is present and page didn't crash.
     const aside = page.locator('aside.notes-drawer');
-    if (await aside.getAttribute('aria-hidden') === 'false') {
-      await drawerToggle.click();
-      await expect(aside).toHaveAttribute('aria-hidden', 'true');
-    }
-
-    await drawerToggle.click();
-    await expect(aside).toHaveAttribute('aria-hidden', 'false');
+    await expect(aside).toBeVisible();
     expect(pageErrors).toEqual([]);
   });
 
-  test('composition event flow plus drawer interaction does not crash', async ({ page }) => {
+  test('composition event flow plus sidebar interaction does not crash', async ({ page }) => {
     const pageErrors: string[] = [];
     page.on('pageerror', (error) => {
       pageErrors.push(error.message);
@@ -55,14 +49,8 @@ test.describe('P0 Crash and IME Regressions', () => {
     await page.locator('.title-input').blur();
     await page.waitForTimeout(150);
 
-    // On web, drawer starts open — close it first so we can test opening it
-    const drawerToggle = page.locator('button[aria-label="Open notes list"]');
-    const aside = page.locator('aside.notes-drawer');
-    if (await aside.getAttribute('aria-hidden') === 'false') {
-      await drawerToggle.click();
-      await expect(aside).toHaveAttribute('aria-hidden', 'true');
-    }
-
+    // Desktop layout: sidebar is always visible. Click a sidebar element
+    // to verify no crash during composition.
     await editor.click();
     await editor.evaluate((el) => {
       const event = typeof CompositionEvent !== 'undefined'
@@ -71,8 +59,11 @@ test.describe('P0 Crash and IME Regressions', () => {
       el.dispatchEvent(event);
     });
     await page.waitForTimeout(100);
-    await drawerToggle.click();
-    await expect(aside).toHaveAttribute('aria-hidden', 'false');
+
+    // Click into sidebar area while composition is active
+    const aside = page.locator('aside.notes-drawer');
+    await aside.click({ position: { x: 10, y: 10 } });
+    await page.waitForTimeout(100);
 
     await editor.evaluate((el) => {
       const event = typeof CompositionEvent !== 'undefined'
@@ -81,8 +72,6 @@ test.describe('P0 Crash and IME Regressions', () => {
       el.dispatchEvent(event);
     });
     await page.waitForTimeout(100);
-    await drawerToggle.click();
-    await expect(aside).toHaveAttribute('aria-hidden', 'true');
 
     await editor.click();
     await page.keyboard.type('x');

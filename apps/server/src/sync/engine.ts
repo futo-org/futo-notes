@@ -11,6 +11,7 @@ import {
   deleteNoteFile,
 } from './files.js';
 import { contentHash } from './hash.js';
+import { log } from '../logger.js';
 
 export function processSync(
   db: Database.Database,
@@ -181,5 +182,20 @@ export function processSync(
   });
 
   run();
+
+  log.info(
+    `SYNC ↑${response.update.length} downloaded, ↓${req.notes.filter((n) => !req.deleted_uuids.includes(n.uuid)).length} received, ✗${response.conflicts.length} conflicts, 🗑${response.delete.length} deleted`,
+  );
+
+  for (const u of response.update) {
+    log.debug(`  ↓ ${u.filename} (${u.uuid.slice(0, 8)})`);
+  }
+  for (const d of response.delete) {
+    log.debug(`  🗑 ${d.slice(0, 8)}`);
+  }
+  for (const conflict of response.conflicts) {
+    log.debug(`  ✗ conflict: ${conflict.server_filename} vs ${conflict.client_filename}`);
+  }
+
   return response;
 }
