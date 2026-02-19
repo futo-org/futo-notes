@@ -1,6 +1,6 @@
 # CLAUDE.md - FUTO Notes Mobile (Capacitor)
 
-This package contains the Capacitor shell for Android and iOS builds. The web app is built at the monorepo root (`dist/`), and Capacitor syncs it into the native projects here.
+Capacitor shell for Android and iOS. The web app is built at the monorepo root (`dist/`), and Capacitor syncs it into the native projects.
 
 ## How It Works
 
@@ -20,8 +20,6 @@ npm run mobile:open:ios            # Open in Xcode
 # Or from this directory:
 npx cap sync android               # Sync web assets into Android project
 npx cap run android --target "emulator-5554"
-npx cap sync ios
-npx cap run ios
 ```
 
 **IMPORTANT**: Always build the root project first (`npm run build` from root) before running `cap sync`. The orchestration scripts handle this automatically.
@@ -30,23 +28,6 @@ npx cap run ios
 
 - Android emulator runs at `emulator-5554`
 - Physical device serial: `4A121FDJH001XW`
-- Full deploy cycle: `npm run build && cd apps/mobile && npx cap sync android && npx cap run android --target "emulator-5554"`
-
-## Debugging
-
-```bash
-adb logcat | grep "futo\|JS\|error"  # Android logs
-# iOS: Xcode → Window → Devices and Simulators → View device logs
-```
-
-## Capacitor Plugins (in root package.json)
-
-- `@capacitor/filesystem` — file I/O (notes stored in Documents/futo-notes/)
-- `@capacitor/haptics` — haptic feedback
-- `@capacitor/keyboard` — keyboard events and control
-- `@capacitor/status-bar` — status bar styling
-- `@capacitor/camera` — image capture for note attachments
-- `@capacitor/app` — app lifecycle events
 
 ## Storage
 

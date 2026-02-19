@@ -248,7 +248,7 @@ describe('syncNow', () => {
 
     expect(mockUpdateNote).toHaveBeenCalledWith(
       'new-note',
-      'New Note',
+      'new-note',
       '# New Note\nBody here',
       undefined, // no originalId since findIdForUuid returns null
       1700000000000 // modified_at passed through

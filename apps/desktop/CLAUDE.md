@@ -1,6 +1,6 @@
 # CLAUDE.md - FUTO Notes Desktop (Electron)
 
-This package contains the Electron shell for the desktop app (Linux, macOS, Windows).
+Electron shell for the desktop app (Linux, macOS, Windows).
 
 ## How It Works
 
@@ -8,24 +8,7 @@ This package contains the Electron shell for the desktop app (Linux, macOS, Wind
 - Electron's main process (`electron/main.ts`) serves `dist/index.html` in production, or proxies to Vite dev server in dev mode
 - `electron/preload.ts` exposes a `window.electronAPI` bridge for IPC (filesystem, dialogs, config)
 - The platform abstraction layer (`src/lib/platform/electron.ts`) uses this API
-
-## Architecture
-
-```
-electron/
-├── main.ts          # Main process: window management, IPC handlers, file watching, menus
-├── preload.ts       # Context bridge: exposes electronAPI to renderer
-└── tsconfig.json    # TypeScript config for Electron files
-```
-
-**Key features in main.ts**:
-- First-run directory picker (default: `~/Documents/FUTO Notes`)
-- Config persistence in `userData/config.json`
-- Window state persistence (size, position, maximized)
-- Chokidar file watching → broadcasts changes to all windows
-- Multi-window support
-- Auto-updater (electron-updater)
-- Native menus with keyboard shortcuts
+- First-run default notes directory: `~/Documents/FUTO Notes`
 
 ## Dev Workflow
 
