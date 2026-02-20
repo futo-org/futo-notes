@@ -129,6 +129,10 @@ export async function deleteNote(id: string, options: { trackSyncDelete?: boolea
 }
 
 export async function deleteAllNotes(): Promise<void> {
+  // Mark every note for sync deletion so tombstones propagate to server
+  for (const note of notesCache) {
+    await markLocalDeleteForSync(note.id);
+  }
   await deleteAllContent();
   notesCache = [];
   initSearchIndex();

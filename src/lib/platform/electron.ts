@@ -1,36 +1,5 @@
 import type { PlatformFS, NoteFile } from './types';
-
-// Type for the API exposed by preload.ts via contextBridge
-interface ElectronAPI {
-  listFiles(): Promise<{ name: string; mtime: number }[]>;
-  readFile(filename: string): Promise<string>;
-  writeFile(filename: string, content: string, modifiedAtMs?: number): Promise<number>;
-  deleteFile(filename: string): Promise<void>;
-  deleteAllContent(): Promise<void>;
-  fileExists(filename: string): Promise<boolean>;
-  getNotesDir(): Promise<string>;
-  getPlatform(): Promise<string>;
-  getConfig(): Promise<{ notesDir: string; sidebarWidth?: number }>;
-  saveConfig(updates: Record<string, unknown>): Promise<void>;
-  openDirectoryDialog(): Promise<string | null>;
-  onFileChange(callback: (event: { type: string; filename: string }) => void): () => void;
-  onMenuAction(callback: (action: string) => void): () => void;
-  onNotesDirChanged(callback: (newDir: string) => void): () => void;
-
-  // App data
-  readAppData(relPath: string): Promise<string | null>;
-  writeAppData(relPath: string, content: string): Promise<void>;
-  deleteAppData(relPath: string): Promise<void>;
-  listAppData(dir: string): Promise<string[]>;
-
-  // App info
-  getAppVersion(): Promise<string>;
-
-  // Images
-  saveImage(sourcePath: string): Promise<string>;
-  getImageUrl(filename: string): Promise<string>;
-  pickImage(): Promise<string | null>;
-}
+import type { ElectronAPI } from '@desktop/electron/api';
 
 function getAPI(): ElectronAPI {
   return (window as any).electronAPI as ElectronAPI;
