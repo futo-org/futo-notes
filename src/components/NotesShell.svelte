@@ -3,6 +3,7 @@
   import MarkdownEditor from './MarkdownEditor.svelte';
   import MarkdownToolbar from './MarkdownToolbar.svelte';
   import SettingsScreen from './SettingsScreen.svelte';
+  import SearchPopup from './SearchPopup.svelte';
   import VirtualList from './VirtualList.svelte';
   import type { NotePreview } from '../types';
   import { getAllNotes, updateNote, readNote, createNote, getNoteById, deleteNote } from '$lib/notes';
@@ -303,6 +304,15 @@ Escaped pipes:
 
   // Settings
   let settingsOpen = $state(false);
+
+  // Search
+  let searchOpen = $state(false);
+
+  function handleSearchSelect(id: string): void {
+    searchOpen = false;
+    if (isMobile) setDrawerOpen(false);
+    navigate(`/note/${encodeURIComponent(id)}`);
+  }
 
   // Note menu
   let noteMenuOpen = $state(false);
@@ -957,6 +967,15 @@ Escaped pipes:
 >
   <!-- Drawer -->
   <aside bind:this={drawer} class="notes-drawer" aria-hidden={!drawerOpen}>
+    <div class="drawer-search-area">
+      <button class="search-button" onclick={() => { searchOpen = true; }}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="8"/>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+        Search
+      </button>
+    </div>
     <VirtualList
       items={notes}
       selectedId={noteId !== 'new' ? noteId : null}
@@ -1101,6 +1120,10 @@ Escaped pipes:
       </div>
     </div>
   </div>
+{/if}
+
+{#if searchOpen}
+  <SearchPopup onclose={() => { searchOpen = false; }} onselect={handleSearchSelect} />
 {/if}
 
 {#if toastMessage}

@@ -243,11 +243,42 @@
   bottom: max(16px, calc(16px + env(safe-area-inset-bottom)));
 }
 
+/* Search area above notes list */
+.drawer-search-area {
+  padding: max(16px, calc(16px + env(safe-area-inset-top))) 12px 0;
+  flex-shrink: 0;
+}
+
+.search-button {
+  width: 100%;
+  height: 40px;
+  border-radius: 999px;
+  border: none;
+  background: var(--color-surface);
+  color: var(--color-muted);
+  font-size: 14px;
+  font-family: inherit;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.search-button:active {
+  opacity: 0.7;
+}
+
+.notes-shell.drawer-dragging .drawer-search-area {
+  pointer-events: none;
+}
+
 .notes-drawer .notes-list-scroll {
   flex: 1;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  padding: max(16px, calc(16px + env(safe-area-inset-top))) 12px
+  padding: 8px 12px
     calc(80px + env(safe-area-inset-bottom, 0));
 }
 
@@ -627,9 +658,13 @@
 .notes-shell.sidebar-resizing .notes-drawer { transition: none; }
 .notes-shell.sidebar-resizing .note-main { pointer-events: none; user-select: none; }
 
-/* Desktop sidebar list padding — no safe-area insets */
+/* Desktop sidebar — no safe-area insets */
+.notes-shell.desktop-layout .drawer-search-area {
+  padding: 12px 12px 0;
+}
+
 .notes-shell.desktop-layout .notes-drawer .notes-list-scroll {
-  padding: 12px 12px 80px;
+  padding: 8px 12px 80px;
 }
 
 .notes-shell.desktop-layout .notes-drawer .fab { bottom: 16px; right: 16px; }
