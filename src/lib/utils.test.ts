@@ -18,9 +18,9 @@ describe('sanitizeFilename', () => {
     expect(sanitizeFilename('file..')).toBe('file');
   });
 
-  it('truncates to 100 characters', () => {
-    const long = 'a'.repeat(200);
-    expect(sanitizeFilename(long).length).toBe(100);
+  it('truncates to 200 characters', () => {
+    const long = 'a'.repeat(300);
+    expect(sanitizeFilename(long).length).toBe(200);
   });
 
   it('returns Untitled for empty input', () => {
@@ -33,5 +33,9 @@ describe('sanitizeFilename', () => {
 
   it('replaces control characters', () => {
     expect(sanitizeFilename('a\x00b\x1fc')).toBe('a-b-c');
+  });
+
+  it('replaces DEL character (0x7f)', () => {
+    expect(sanitizeFilename('a\x7fb')).toBe('a-b');
   });
 });

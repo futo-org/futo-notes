@@ -253,15 +253,16 @@ describe('sync engine', () => {
     const db = getDb();
     const content = 'grocery list';
     const hash = contentHash(content);
+    const T0 = Date.now() - 5000;
     writeNoteFile(env.notesDir, 'old name.md', content);
-    upsertNote(db, 'u1', 'old name.md', hash, Date.now());
+    upsertNote(db, 'u1', 'old name.md', hash, T0);
 
     const result = processSync(db, env.notesDir, {
       notes: [
         {
           uuid: 'u1',
           filename: 'new name.md',
-          modified_at: Date.now(),
+          modified_at: T0 + 3000, // client renamed → newer timestamp
           content_hash: hash,
           hash_at_last_sync: hash,
         },
@@ -270,18 +271,19 @@ describe('sync engine', () => {
       deleted_uuids: [],
     });
 
-    // No updates/conflicts — just a rename
+    // No updates/conflicts — rename acknowledged via hash_updates
     expect(result.update).toEqual([]);
     expect(result.conflicts).toEqual([]);
-    expect(result.hash_updates).toEqual([]);
+    expect(result.hash_updates).toEqual([{ uuid: 'u1', hash_at_last_sync: hash }]);
 
     // Old file gone, new file has same content
     expect(readNoteFile(env.notesDir, 'old name.md')).toBeNull();
     expect(readNoteFile(env.notesDir, 'new name.md')).toBe(content);
 
-    // DB updated to new filename
+    // DB updated to new filename and modified_at
     const note = getNote(db, 'u1');
     expect(note?.filename).toBe('new name.md');
+    expect(note?.modified_at).toBe(T0 + 3000);
   });
 
   it('renames file on disk when client changes content and filename', () => {
@@ -353,5 +355,160 @@ describe('sync engine', () => {
     expect(result.hash_updates).toHaveLength(2);
     expect(readNoteFile(env.notesDir, 'note1.md')).toBe(c1);
     expect(readNoteFile(env.notesDir, 'note2.md')).toBe(c2);
+  });
+
+  it('rename does not ping-pong: stale client gets server rename instead of reverting it', () => {
+    const db = getDb();
+    const content = '# Shared note';
+    const hash = contentHash(content);
+    const T0 = Date.now() - 10000;
+
+    // Initial state: note exists on server
+    writeNoteFile(env.notesDir, 'grocery list.md', content);
+    upsertNote(db, 'u1', 'grocery list.md', hash, T0);
+
+    // Client A syncs with renamed filename (newer timestamp from rename)
+    const resultA = processSync(db, env.notesDir, {
+      notes: [{
+        uuid: 'u1',
+        filename: 'shopping list.md',
+        modified_at: T0 + 5000,
+        content_hash: hash,
+        hash_at_last_sync: hash,
+      }],
+      all_uuids: ['u1'],
+      deleted_uuids: [],
+    });
+
+    // Client A's rename should be accepted
+    expect(resultA.hash_updates).toHaveLength(1);
+    expect(readNoteFile(env.notesDir, 'shopping list.md')).toBe(content);
+    expect(readNoteFile(env.notesDir, 'grocery list.md')).toBeNull();
+
+    // Client B syncs with OLD filename (older timestamp — hasn't been modified)
+    const resultB = processSync(db, env.notesDir, {
+      notes: [{
+        uuid: 'u1',
+        filename: 'grocery list.md',
+        modified_at: T0,
+        content_hash: hash,
+        hash_at_last_sync: hash,
+      }],
+      all_uuids: ['u1'],
+      deleted_uuids: [],
+    });
+
+    // Client B should get the server's renamed version, NOT revert it
+    expect(resultB.update).toHaveLength(1);
+    expect(resultB.update[0].filename).toBe('shopping list.md');
+    expect(resultB.update[0].content).toBe(content);
+    expect(resultB.hash_updates).toHaveLength(0);
+
+    // Server file should still be the renamed version
+    expect(readNoteFile(env.notesDir, 'shopping list.md')).toBe(content);
+    expect(readNoteFile(env.notesDir, 'grocery list.md')).toBeNull();
+  });
+
+  it('rename converges to steady state after two-client sync', () => {
+    const db = getDb();
+    const content = '# Note';
+    const hash = contentHash(content);
+    const T0 = Date.now() - 10000;
+
+    writeNoteFile(env.notesDir, 'old.md', content);
+    upsertNote(db, 'u1', 'old.md', hash, T0);
+
+    // Client A renames (newer timestamp)
+    processSync(db, env.notesDir, {
+      notes: [{
+        uuid: 'u1', filename: 'new.md', modified_at: T0 + 5000,
+        content_hash: hash, hash_at_last_sync: hash,
+      }],
+      all_uuids: ['u1'],
+      deleted_uuids: [],
+    });
+
+    // Client B syncs with old name (older timestamp) — gets update
+    const r2 = processSync(db, env.notesDir, {
+      notes: [{
+        uuid: 'u1', filename: 'old.md', modified_at: T0,
+        content_hash: hash, hash_at_last_sync: hash,
+      }],
+      all_uuids: ['u1'],
+      deleted_uuids: [],
+    });
+    expect(r2.update).toHaveLength(1);
+
+    // Client B syncs again after receiving the rename (now matches server)
+    const r3 = processSync(db, env.notesDir, {
+      notes: [{
+        uuid: 'u1', filename: 'new.md', modified_at: T0 + 5000,
+        content_hash: hash, hash_at_last_sync: hash,
+      }],
+      all_uuids: ['u1'],
+      deleted_uuids: [],
+    });
+    expect(r3.update).toHaveLength(0);
+    expect(r3.hash_updates).toHaveLength(0);
+
+    // Client A syncs again — also no changes
+    const r4 = processSync(db, env.notesDir, {
+      notes: [{
+        uuid: 'u1', filename: 'new.md', modified_at: T0 + 5000,
+        content_hash: hash, hash_at_last_sync: hash,
+      }],
+      all_uuids: ['u1'],
+      deleted_uuids: [],
+    });
+    expect(r4.update).toHaveLength(0);
+    expect(r4.hash_updates).toHaveLength(0);
+  });
+
+  it('both clients rename: last-write-wins based on modified_at', () => {
+    const db = getDb();
+    const content = '# Shared';
+    const hash = contentHash(content);
+    const T0 = Date.now() - 10000;
+
+    writeNoteFile(env.notesDir, 'original.md', content);
+    upsertNote(db, 'u1', 'original.md', hash, T0);
+
+    // Client A renames at T0+3s
+    processSync(db, env.notesDir, {
+      notes: [{
+        uuid: 'u1', filename: 'name-from-A.md', modified_at: T0 + 3000,
+        content_hash: hash, hash_at_last_sync: hash,
+      }],
+      all_uuids: ['u1'],
+      deleted_uuids: [],
+    });
+
+    // Client B renames at T0+5s (later) — should win
+    const resultB = processSync(db, env.notesDir, {
+      notes: [{
+        uuid: 'u1', filename: 'name-from-B.md', modified_at: T0 + 5000,
+        content_hash: hash, hash_at_last_sync: hash,
+      }],
+      all_uuids: ['u1'],
+      deleted_uuids: [],
+    });
+
+    expect(resultB.hash_updates).toHaveLength(1);
+    expect(readNoteFile(env.notesDir, 'name-from-B.md')).toBe(content);
+    expect(readNoteFile(env.notesDir, 'name-from-A.md')).toBeNull();
+
+    // Client A syncs again — should get B's name
+    const resultA2 = processSync(db, env.notesDir, {
+      notes: [{
+        uuid: 'u1', filename: 'name-from-A.md', modified_at: T0 + 3000,
+        content_hash: hash, hash_at_last_sync: hash,
+      }],
+      all_uuids: ['u1'],
+      deleted_uuids: [],
+    });
+
+    expect(resultA2.update).toHaveLength(1);
+    expect(resultA2.update[0].filename).toBe('name-from-B.md');
+    expect(resultA2.hash_updates).toHaveLength(0);
   });
 });

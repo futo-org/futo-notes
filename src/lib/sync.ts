@@ -2,7 +2,7 @@ import { sanitizeFilename } from './utils';
 import { getAllNotes, getNoteById, readNote, updateNote, deleteNote } from './notes';
 import { getCachedPreferences, savePreferences } from './preferences';
 import { findIdForUuid, loadSyncState, saveSyncState } from './syncState';
-import type { HealthResponse, LoginResponse, SyncRequest, SyncResponse } from '@futo-notes/shared';
+import { FALLBACK_TITLE, type HealthResponse, type LoginResponse, type SyncRequest, type SyncResponse } from '@futo-notes/shared';
 
 export interface SyncSummary {
   uploaded: number;
@@ -17,7 +17,7 @@ function normalizeBaseUrl(input: string): string {
 
 function noteIdFromFilename(filename: string): string {
   const withoutExt = filename.replace(/\.md$/i, '');
-  return sanitizeFilename(withoutExt) || 'untitled';
+  return sanitizeFilename(withoutExt) || FALLBACK_TITLE;
 }
 
 function titleFromId(id: string): string {

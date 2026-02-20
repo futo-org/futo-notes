@@ -3,7 +3,7 @@ import { getCachedPreferences } from './preferences';
 import { syncNow, type SyncSummary } from './sync';
 
 const SAVE_SYNC_DELAY = 5_000;
-const POLL_INTERVAL = 60_000;
+const POLL_INTERVAL = 15_000;
 const RESUME_COOLDOWN = 10_000;
 
 export interface AutoSyncCallbacks {

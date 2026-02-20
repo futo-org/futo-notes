@@ -2,46 +2,30 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type Database from 'better-sqlite3';
 import { getNoteByFilename } from '../db/notes.js';
+import { sanitizeTitle } from '@futo-notes/shared';
 
 /**
  * Sanitize a client-provided filename for safe filesystem storage.
- * - Strips path traversal sequences, leading slashes, path separators
- * - Strips control characters (< 0x20) and DEL (0x7F)
- * - Replaces Windows-reserved characters with `_`
- * - Truncates to 200 chars (before .md extension)
- * - Returns `untitled.md` if result is empty or dot-only
+ * Delegates core rules (forbidden chars, dots, length, fallback) to the
+ * shared sanitizeTitle(), then adds server-specific security:
+ * - Strips path traversal (..) and path separators
+ * - Normalizes .md extension
  */
 export function sanitizeFilename(raw: string): string {
   let name = raw;
 
-  // Strip path separators and traversal
+  // Server-specific: strip path traversal and separators
   name = name.replace(/\.\./g, '');
   name = name.replace(/[/\\]/g, '');
 
-  // Strip control characters and DEL
-  name = name.replace(/[\x00-\x1f\x7f]/g, '');
-
-  // Replace Windows-reserved characters
-  name = name.replace(/[<>:"|?*]/g, '_');
-
-  // Ensure .md extension
+  // Strip .md extension before passing to shared sanitizer
   const ext = '.md';
   if (name.toLowerCase().endsWith(ext)) {
     name = name.slice(0, -ext.length);
   }
 
-  // Trim whitespace and dots
-  name = name.replace(/^[\s.]+|[\s.]+$/g, '');
-
-  // Truncate to 200 chars
-  if (name.length > 200) {
-    name = name.slice(0, 200).trimEnd();
-  }
-
-  // Fallback
-  if (!name) {
-    name = 'untitled';
-  }
+  // Delegate to shared rules
+  name = sanitizeTitle(name);
 
   return name + ext;
 }

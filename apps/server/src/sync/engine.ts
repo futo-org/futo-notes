@@ -84,10 +84,27 @@ export function processSync(
         const safeName = sanitizeFilename(clientNote.filename);
         const finalName = resolveFilename(db, safeName, clientNote.uuid);
         if (finalName !== serverNote.filename) {
-          const content = readNoteFile(notesDir, serverNote.filename) ?? '';
-          deleteNoteFile(notesDir, serverNote.filename);
-          writeNoteFile(notesDir, finalName, content, serverNote.modified_at);
-          upsertNote(db, clientNote.uuid, finalName, serverHash, serverNote.modified_at);
+          if (clientNote.modified_at > serverNote.modified_at) {
+            // Client renamed more recently — accept client's filename
+            const content = readNoteFile(notesDir, serverNote.filename) ?? '';
+            deleteNoteFile(notesDir, serverNote.filename);
+            writeNoteFile(notesDir, finalName, content, clientNote.modified_at);
+            upsertNote(db, clientNote.uuid, finalName, serverHash, clientNote.modified_at);
+            response.hash_updates.push({ uuid: clientNote.uuid, hash_at_last_sync: serverHash });
+          } else {
+            // Server's filename is newer (from another client's rename) — send to this client
+            const content = readNoteFile(notesDir, serverNote.filename);
+            if (content !== null) {
+              response.update.push({
+                uuid: clientNote.uuid,
+                filename: serverNote.filename,
+                modified_at: serverNote.modified_at,
+                content_hash: serverHash,
+                hash_at_last_sync: serverHash,
+                content,
+              });
+            }
+          }
         }
         continue;
       }

@@ -2,6 +2,22 @@
 @import "./components.css" layer(components);
 @import "./markdown.css" layer(components);
 
+@font-face {
+  font-family: 'GeneralSans';
+  src: url('../fonts/GeneralSans-Variable.woff2') format('woff2-variations');
+  font-weight: 200 700;
+  font-display: swap;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'GeneralSans';
+  src: url('../fonts/GeneralSans-VariableItalic.woff2') format('woff2-variations');
+  font-weight: 200 700;
+  font-display: swap;
+  font-style: italic;
+}
+
 @theme {
   --color-primary: #2196f3;
   --color-text: #333;
@@ -31,7 +47,7 @@
     height: -webkit-fill-available;
     min-height: 100vh;
     min-height: -webkit-fill-available;
-    font-family: system-ui, -apple-system, sans-serif;
+    font-family: 'GeneralSans', system-ui, -apple-system, sans-serif;
     background: var(--color-bg);
     color: var(--color-text);
     -webkit-font-smoothing: antialiased;

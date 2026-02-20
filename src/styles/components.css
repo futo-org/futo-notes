@@ -356,7 +356,7 @@
   background: transparent;
   border-radius: 6px;
   font-size: 17px;
-  font-family: system-ui, -apple-system, sans-serif;
+  font-family: inherit;
   color: #333;
   cursor: pointer;
   display: flex;

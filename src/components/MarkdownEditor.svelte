@@ -166,7 +166,7 @@
         '&': { height: 'auto', fontSize: '16px' },
         '.cm-content': {
           padding: '0',
-          fontFamily: 'system-ui, sans-serif',
+          fontFamily: "'GeneralSans', system-ui, sans-serif",
         },
         '.cm-focused': { outline: 'none' }
       }),

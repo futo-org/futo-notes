@@ -7,6 +7,7 @@
   import type { NotePreview } from '../types';
   import { getAllNotes, updateNote, readNote, createNote, getNoteById, deleteNote } from '$lib/notes';
   import { sanitizeFilename } from '$lib/utils';
+  import { FORBIDDEN_CHARS_RE, validateTitle } from '@futo-notes/shared';
   import type { SyncSummary } from '$lib/sync';
   import { startAutoSync, stopAutoSync, notifySaved } from '$lib/autoSync';
   import { keyboard } from '$lib/keyboard.svelte';
@@ -447,6 +448,7 @@ Escaped pipes:
       clearTimeout(saveTimeout);
     }
     saveTimeout = window.setTimeout(() => {
+      saveTimeout = null;
       void saveNote().then(() => notifySaved());
     }, 500);
   }
@@ -506,27 +508,43 @@ Escaped pipes:
 
   function handleTitleInput(event: Event): void {
     const input = event.target as HTMLInputElement;
-    // eslint-disable-next-line no-control-regex
-    const cleaned = input.value.replace(/[<>:"/\\|?*\x00-\x1f]/g, '');
+    const cleaned = input.value.replace(FORBIDDEN_CHARS_RE, '');
     if (cleaned !== input.value) {
       const pos = input.selectionStart ?? cleaned.length;
       title = cleaned;
       requestAnimationFrame(() => {
         input.setSelectionRange(pos - 1, pos - 1);
       });
-      if (titleWarningTimer !== null) clearTimeout(titleWarningTimer);
-      titleWarning = 'That character can\'t be used in a note title';
-      titleWarningTimer = window.setTimeout(() => { titleWarning = ''; }, 2000);
-    } else if (hasDuplicateTitle(cleaned)) {
-      if (titleWarningTimer !== null) clearTimeout(titleWarningTimer);
-      titleWarning = 'A note with this name already exists';
-      titleWarningTimer = null;
+      showTitleWarning("That character can't be used in a note title", 2000);
     } else {
-      if (titleWarningTimer !== null) clearTimeout(titleWarningTimer);
-      titleWarning = '';
-      titleWarningTimer = null;
+      // Check for dot / length issues via shared validation
+      const issues = validateTitle(cleaned);
+      const dotOrLength = issues.find(
+        (i) => i.kind === 'leading_dots' || i.kind === 'trailing_dots' || i.kind === 'too_long',
+      );
+      if (dotOrLength) {
+        showTitleWarning(dotOrLength.message, null);
+      } else if (hasDuplicateTitle(cleaned)) {
+        showTitleWarning('A note with this name already exists', null);
+      } else {
+        clearTitleWarning();
+      }
     }
     debouncedSave();
+  }
+
+  function showTitleWarning(message: string, autoHideMs: number | null): void {
+    if (titleWarningTimer !== null) clearTimeout(titleWarningTimer);
+    titleWarning = message;
+    titleWarningTimer = autoHideMs !== null
+      ? window.setTimeout(() => { titleWarning = ''; titleWarningTimer = null; }, autoHideMs)
+      : null;
+  }
+
+  function clearTitleWarning(): void {
+    if (titleWarningTimer !== null) clearTimeout(titleWarningTimer);
+    titleWarning = '';
+    titleWarningTimer = null;
   }
 
   function handleTitleKeydown(event: KeyboardEvent): void {
@@ -1026,7 +1044,7 @@ Escaped pipes:
             onkeydown={handleTitleKeydown}
             onfocus={handleTitleFocus}
             onpointerdown={handleTitlePointerDown}
-            maxlength={100}
+            maxlength={200}
           />
           {#if titleWarning}
             <div class="text-xs pt-0.5" style="color: #f7768e">{titleWarning}</div>

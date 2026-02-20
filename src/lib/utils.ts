@@ -1,12 +1,4 @@
-export function sanitizeFilename(title: string): string {
-  return title
-    // eslint-disable-next-line no-control-regex
-    .replace(/[<>:"/\\|?*\x00-\x1f]/g, '-')
-    .replace(/^\.+/, '')
-    .replace(/\.+$/, '')
-    .slice(0, 100)
-    .trim() || 'Untitled';
-}
+export { sanitizeTitle as sanitizeFilename } from '@futo-notes/shared';
 
 export function escapeHtml(text: string): string {
   const div = document.createElement('div');

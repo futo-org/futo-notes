@@ -18,12 +18,12 @@ describe('sanitizeFilename', () => {
     expect(sanitizeFilename('path\\to\\file.md')).toBe('pathtofile.md');
   });
 
-  it('strips control characters', () => {
-    expect(sanitizeFilename('test\x00\x01\x1f.md')).toBe('test.md');
+  it('replaces control characters with dashes', () => {
+    expect(sanitizeFilename('test\x00\x01\x1f.md')).toBe('test---.md');
   });
 
   it('replaces Windows-reserved characters', () => {
-    expect(sanitizeFilename('a<b>c:d"e|f?g*h.md')).toBe('a_b_c_d_e_f_g_h.md');
+    expect(sanitizeFilename('a<b>c:d"e|f?g*h.md')).toBe('a-b-c-d-e-f-g-h.md');
   });
 
   it('truncates long names to 200 chars', () => {
@@ -40,10 +40,10 @@ describe('sanitizeFilename', () => {
     expect(sanitizeFilename('note.md')).toBe('note.md');
   });
 
-  it('falls back to untitled.md for empty input', () => {
-    expect(sanitizeFilename('')).toBe('untitled.md');
-    expect(sanitizeFilename('.md')).toBe('untitled.md');
-    expect(sanitizeFilename('...')).toBe('untitled.md');
+  it('falls back to Untitled.md for empty input', () => {
+    expect(sanitizeFilename('')).toBe('Untitled.md');
+    expect(sanitizeFilename('.md')).toBe('Untitled.md');
+    expect(sanitizeFilename('...')).toBe('Untitled.md');
   });
 });
 
