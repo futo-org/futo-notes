@@ -55,11 +55,41 @@ Save the MR number and URL from the output. If the user wants a specific title o
 
 ## Step 4: Generate Changelog
 
-### 4a. Gather commit history
+### 4a. Gather ALL changes since the last tag
+
+First, ensure you have the latest state:
 
 ```bash
-git log $(git describe --tags --abbrev=0 2>/dev/null || echo HEAD~20)..HEAD --oneline --no-merges
+git fetch origin --tags
 ```
+
+Get the last tag:
+
+```bash
+LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+```
+
+If there is a last tag, gather ALL commits between it and the current HEAD (including anything merged into main from other branches):
+
+```bash
+git log ${LAST_TAG}..HEAD --oneline --no-merges
+```
+
+Also read the full diff to understand what actually changed (commit messages alone may be incomplete or vague):
+
+```bash
+git diff ${LAST_TAG}..HEAD --stat
+git diff ${LAST_TAG}..HEAD
+```
+
+If there is no previous tag, use the last 30 commits as context:
+
+```bash
+git log -30 --oneline --no-merges
+git diff HEAD~30..HEAD --stat
+```
+
+**IMPORTANT**: Base the changelog on the actual code diff, not just commit messages. Commit messages may be misleading, incomplete, or overly granular. Read the diff, understand the user-facing changes, and group related commits into meaningful changelog entries.
 
 ### 4b. Check Zulip for related feature requests
 

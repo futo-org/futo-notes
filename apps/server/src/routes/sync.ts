@@ -4,6 +4,7 @@ import { authMiddleware } from '../middleware/auth.js';
 import { getDb } from '../db/index.js';
 import { processSync } from '../sync/engine.js';
 import { loadConfig } from '../config.js';
+import { broadcastSyncAvailable } from '../events.js';
 import { log } from '../logger.js';
 
 const sync = new Hono();
@@ -34,6 +35,14 @@ sync.post('/sync', authMiddleware, async (c) => {
   const db = getDb();
   const config = loadConfig();
   const result = processSync(db, config.notesPath, body);
+
+  const hasChanges = result.update.length > 0 || result.delete.length > 0
+    || result.conflicts.length > 0 || result.hash_updates.length > 0;
+  if (hasChanges) {
+    const clientId = c.req.header('X-Client-Id') || '';
+    broadcastSyncAvailable(clientId);
+  }
+
   return c.json(result);
 });
 

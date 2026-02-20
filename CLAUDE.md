@@ -18,7 +18,7 @@ npm workspaces monorepo. Shared Svelte app at root, platform shells in `apps/`, 
 
 - `apps/mobile/` — Capacitor (Android/iOS), see `apps/mobile/CLAUDE.md`
 - `apps/desktop/` — Electron, see `apps/desktop/CLAUDE.md`
-- `apps/server/` — Hono sync server (scaffolded, not implemented), see `apps/server/CLAUDE.md`
+- `apps/server/` — Hono sync server, see `apps/server/CLAUDE.md`
 - `packages/shared/` — @futo-notes/shared (sync types, filename sanitization), see `packages/shared/CLAUDE.md`
 
 **Stack**: Svelte 5 + Capacitor 8 + Electron + Vite + Tailwind v4 + CodeMirror 6
@@ -46,6 +46,7 @@ npm run server:dev                 # Dev server with hot reload
 - **The filename IS the title.** `"grocery list.md"` → title is `"grocery list"`. No case changes, no dash-to-space replacement, no transformations. `sanitizeFilename()` only strips characters that would break the filesystem. Never add title-derivation logic that mutates the filename.
 - **IMPORTANT**: Styles in `@layer(components)` lose to CM6's unlayered CSS. Use `!important` on CodeMirror overrides inside layered CSS.
 - **IMPORTANT**: For local development, always use `npm run dev` or ensure `import.meta.env.DEV` is true. Production builds (`npm run build`) point to production API endpoints, not localhost.
+- **IMPORTANT**: `npm run build` must be run from the monorepo root to build the Vite web app. If run from a workspace (e.g. `apps/server`), npm may resolve a different `build` script. Always verify the output includes `vite build` and the `dist/assets/` file list — if you only see `tsup`/`ESM` output, you built the server, not the web app.
 
 ## GitLab CI
 

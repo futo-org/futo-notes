@@ -6,6 +6,7 @@ import setup from './routes/setup.js';
 import login from './routes/login.js';
 import sync from './routes/sync.js';
 import revoke from './routes/revoke.js';
+import events from './routes/events.js';
 import dev from './routes/dev.js';
 
 export function createApp(): Hono {
@@ -31,6 +32,7 @@ export function createApp(): Hono {
   app.route('/', login);
   app.route('/', sync);
   app.route('/', revoke);
+  app.route('/', events);
 
   // Dev-only routes (nuke, etc.)
   if (process.env.NODE_ENV !== 'production') {
