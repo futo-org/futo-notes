@@ -2,6 +2,7 @@ import { sanitizeFilename } from './utils';
 import { getAllNotes, getNoteById, readNote, updateNote, deleteNote } from './notes';
 import { getCachedPreferences, savePreferences } from './preferences';
 import { findIdForUuid, loadSyncState, saveSyncState } from './syncState';
+import { getClientId } from './sseClient';
 import { FALLBACK_TITLE, type HealthResponse, type LoginResponse, type SyncRequest, type SyncResponse } from '@futo-notes/shared';
 
 export interface SyncSummary {
@@ -53,12 +54,13 @@ async function parseJsonOrThrow<T>(res: Response): Promise<T> {
   return data as T;
 }
 
-async function authPost<T>(baseUrl: string, token: string, path: string, body: unknown): Promise<T> {
+async function authPost<T>(baseUrl: string, token: string, path: string, body: unknown, extraHeaders?: Record<string, string>): Promise<T> {
   const res = await fetch(`${baseUrl}${path}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`,
+      ...extraHeaders,
     },
     body: JSON.stringify(body),
   });
@@ -159,7 +161,7 @@ export async function syncNow(): Promise<SyncSummary> {
       notes: syncNotes,
       all_uuids: Array.from(outgoingByUuid.keys()),
       deleted_uuids: state.deletedUuids,
-    });
+    }, { 'X-Client-Id': getClientId() });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     await setSyncError(message);

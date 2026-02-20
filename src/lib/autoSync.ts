@@ -1,9 +1,9 @@
 import { isMobile, hasFileSystem } from './platform';
 import { getCachedPreferences } from './preferences';
 import { syncNow, type SyncSummary } from './sync';
+import { startSSE, stopSSE, isSSEConnected } from './sseClient';
 
-const SAVE_SYNC_DELAY = 5_000;
-const POLL_INTERVAL = 15_000;
+const SSE_SYNC_DEBOUNCE = 100;
 const RESUME_COOLDOWN = 10_000;
 
 export interface AutoSyncCallbacks {
@@ -13,8 +13,7 @@ export interface AutoSyncCallbacks {
 }
 
 let callbacks: AutoSyncCallbacks | null = null;
-let saveDebounceTimer: number | null = null;
-let pollTimer: number | null = null;
+let sseDebounceTimer: number | null = null;
 let syncing = false;
 let lastSyncTime = 0;
 let cleanupFns: Array<() => void> = [];
@@ -31,6 +30,8 @@ async function performSync(): Promise<void> {
     await callbacks.flushPendingSave();
     const summary = await syncNow();
     lastSyncTime = Date.now();
+    // Ensure SSE is connected (handles case where prefs weren't loaded at startup)
+    if (!isSSEConnected()) connectSSE();
     callbacks.onSyncComplete(summary);
   } catch (e) {
     callbacks.onSyncError(e instanceof Error ? e : new Error(String(e)));
@@ -41,16 +42,13 @@ async function performSync(): Promise<void> {
 
 export function notifySaved(): void {
   if (!callbacks || !isSyncConfigured()) return;
-  if (saveDebounceTimer !== null) clearTimeout(saveDebounceTimer);
-  saveDebounceTimer = window.setTimeout(() => {
-    saveDebounceTimer = null;
-    performSync();
-  }, SAVE_SYNC_DELAY);
+  performSync();
 }
 
 export async function requestSync(): Promise<void> {
   if (!isSyncConfigured()) throw new Error('Sync not configured');
   if (syncing) throw new Error('Sync already in progress');
+  connectSSE();
   await performSync();
 }
 
@@ -60,20 +58,41 @@ function handleResume(): void {
   performSync();
 }
 
+function handleSSENotification(): void {
+  if (sseDebounceTimer !== null) clearTimeout(sseDebounceTimer);
+  sseDebounceTimer = window.setTimeout(() => {
+    sseDebounceTimer = null;
+    performSync();
+  }, SSE_SYNC_DEBOUNCE);
+}
+
+export function connectSSE(): void {
+  if (!isSyncConfigured()) return;
+  const prefs = getCachedPreferences();
+  startSSE(prefs.sync.serverUrl, prefs.sync.token, handleSSENotification);
+}
+
 export function startAutoSync(cb: AutoSyncCallbacks): void {
   callbacks = cb;
 
   if (!hasFileSystem) return;
 
-  // Periodic polling
-  pollTimer = window.setInterval(() => {
+  // SSE for near-instant notifications (may no-op if prefs aren't loaded yet)
+  connectSSE();
+
+  // Initial sync after a short delay to let preferences load from disk
+  window.setTimeout(() => {
+    connectSSE();
     performSync();
-  }, POLL_INTERVAL);
+  }, 2_000);
 
   // App resume / visibility
   if (isMobile) {
     import('@capacitor/app').then(({ App }) => {
-      const handle = App.addListener('resume', handleResume);
+      const handle = App.addListener('resume', () => {
+        connectSSE(); // Reconnect SSE after resume
+        handleResume();
+      });
       cleanupFns.push(() => handle.then(h => h.remove()));
     });
   } else {
@@ -86,13 +105,10 @@ export function startAutoSync(cb: AutoSyncCallbacks): void {
 }
 
 export function stopAutoSync(): void {
-  if (saveDebounceTimer !== null) {
-    clearTimeout(saveDebounceTimer);
-    saveDebounceTimer = null;
-  }
-  if (pollTimer !== null) {
-    clearInterval(pollTimer);
-    pollTimer = null;
+  stopSSE();
+  if (sseDebounceTimer !== null) {
+    clearTimeout(sseDebounceTimer);
+    sseDebounceTimer = null;
   }
   for (const fn of cleanupFns) fn();
   cleanupFns = [];

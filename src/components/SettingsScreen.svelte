@@ -64,10 +64,6 @@
     return error instanceof Error ? error.message : String(error);
   }
 
-  function formatSyncSummary(summary: SyncSummary): string {
-    return `Sync complete: uploaded ${summary.uploaded}, downloaded ${summary.downloaded}, deleted ${summary.deleted}, conflicts ${summary.conflicts}`;
-  }
-
   function formatTimestamp(ts: number | null): string {
     return ts ? new Date(ts).toLocaleString() : 'never';
   }

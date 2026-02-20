@@ -3,6 +3,7 @@ import type { RevokeRequest, RevokeResponse } from '@futo-notes/shared';
 import { authMiddleware, type AuthEnv } from '../middleware/auth.js';
 import { getDb } from '../db/index.js';
 import { deleteSession, deleteAllSessions, deleteSessions } from '../db/sessions.js';
+import { removeClientsByTokenHash, removeAllClients } from '../events.js';
 import { log } from '../logger.js';
 
 const revoke = new Hono<AuthEnv>();
@@ -26,10 +27,12 @@ revoke.post('/revoke', authMiddleware, async (c) => {
     case 'current': {
       const tokenHash = c.get('tokenHash');
       revoked = deleteSession(db, tokenHash);
+      removeClientsByTokenHash(tokenHash);
       break;
     }
     case 'all': {
       revoked = deleteAllSessions(db);
+      removeAllClients();
       break;
     }
     case 'specific': {
@@ -37,6 +40,9 @@ revoke.post('/revoke', authMiddleware, async (c) => {
         return c.json({ error: 'token_hashes required for mode "specific"' }, 400);
       }
       revoked = deleteSessions(db, body.token_hashes);
+      for (const hash of body.token_hashes) {
+        removeClientsByTokenHash(hash);
+      }
       break;
     }
   }

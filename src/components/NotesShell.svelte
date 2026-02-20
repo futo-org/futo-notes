@@ -343,10 +343,6 @@ Escaped pipes:
     showToast(count > 0 ? `Imported ${count} notes` : 'All notes deleted');
   }
 
-  function formatSyncSummary(s: SyncSummary): string {
-    return `Sync complete: uploaded ${s.uploaded}, downloaded ${s.downloaded}, deleted ${s.deleted}, conflicts ${s.conflicts}`;
-  }
-
   async function handleSyncComplete(summary: SyncSummary): Promise<void> {
     refreshNotesList();
 
@@ -374,7 +370,6 @@ Escaped pipes:
       }
     }
 
-    showToast(formatSyncSummary(summary));
   }
 
   function updateDrawerMetrics(): void {

@@ -1,0 +1,179 @@
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { createTestEnv, setupAndLogin, req, type TestEnv } from '../helpers/setup.js';
+import { contentHash } from '../../src/sync/hash.js';
+
+/** Helper to manage reading SSE chunks from a single reader. */
+function createSSEReader(res: Response) {
+  const reader = res.body!.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  return {
+    /** Read until predicate matches or timeout. */
+    async readUntil(predicate: (buf: string) => boolean, timeoutMs = 2000): Promise<string> {
+      if (predicate(buffer)) return buffer;
+
+      const timeout = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('SSE read timed out')), timeoutMs),
+      );
+
+      const read = async (): Promise<string> => {
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          if (predicate(buffer)) return buffer;
+        }
+        return buffer;
+      };
+
+      return Promise.race([read(), timeout]);
+    },
+
+    /** Try to read for a duration, returning whatever arrives. */
+    async readFor(ms: number): Promise<string> {
+      const startLen = buffer.length;
+      const readOne = async () => {
+        const { value } = await reader.read();
+        if (value) buffer += decoder.decode(value, { stream: true });
+      };
+
+      await Promise.race([readOne(), new Promise<void>((r) => setTimeout(r, ms))]);
+      return buffer.slice(startLen);
+    },
+
+    cancel() {
+      reader.cancel();
+    },
+
+    get contents() {
+      return buffer;
+    },
+  };
+}
+
+describe('GET /events (SSE)', () => {
+  let env: TestEnv;
+  let token: string;
+
+  beforeEach(async () => {
+    env = createTestEnv();
+    token = await setupAndLogin(env.app);
+  });
+
+  afterEach(() => {
+    env.cleanup();
+  });
+
+  it('rejects request without token (401)', async () => {
+    const res = await req(env.app, 'GET', '/events?clientId=c1');
+    expect(res.status).toBe(401);
+  });
+
+  it('rejects request with bad token (401)', async () => {
+    const res = await req(env.app, 'GET', '/events?token=badtoken&clientId=c1');
+    expect(res.status).toBe(401);
+  });
+
+  it('rejects request without clientId (401)', async () => {
+    const res = await req(env.app, 'GET', `/events?token=${token}`);
+    expect(res.status).toBe(401);
+  });
+
+  it('successful connection sends connected event', async () => {
+    const res = await env.app.request(`/events?token=${token}&clientId=c1`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('text/event-stream');
+
+    const sse = createSSEReader(res);
+    try {
+      await sse.readUntil((buf) => buf.includes('event: connected'));
+      expect(sse.contents).toContain('event: connected');
+    } finally {
+      sse.cancel();
+    }
+  });
+
+  it('broadcasts sync_available to other clients after sync', async () => {
+    // Client A connects SSE
+    const sseRes = await env.app.request(`/events?token=${token}&clientId=clientA`);
+    expect(sseRes.status).toBe(200);
+
+    const sse = createSSEReader(sseRes);
+    try {
+      // Wait for connected event first
+      await sse.readUntil((buf) => buf.includes('event: connected'));
+
+      // Client B syncs a new note
+      const content = '# New note from B';
+      const hash = contentHash(content);
+      const syncRes = await env.app.request('/sync', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+          'X-Client-Id': 'clientB',
+        },
+        body: JSON.stringify({
+          notes: [{
+            uuid: 'u1',
+            filename: 'test.md',
+            modified_at: Date.now(),
+            content_hash: hash,
+            hash_at_last_sync: '',
+            content,
+          }],
+          all_uuids: ['u1'],
+          deleted_uuids: [],
+        }),
+      });
+      expect(syncRes.status).toBe(200);
+
+      // Client A should receive sync_available
+      await sse.readUntil((buf) => buf.includes('event: sync_available'));
+      expect(sse.contents).toContain('event: sync_available');
+    } finally {
+      sse.cancel();
+    }
+  });
+
+  it('excludes the syncing client from broadcast', async () => {
+    // Client A connects SSE with clientId=clientA
+    const sseRes = await env.app.request(`/events?token=${token}&clientId=clientA`);
+    const sse = createSSEReader(sseRes);
+
+    try {
+      await sse.readUntil((buf) => buf.includes('event: connected'));
+
+      // Client A syncs with X-Client-Id: clientA — should NOT receive broadcast
+      const content = '# Self sync';
+      const hash = contentHash(content);
+      await env.app.request('/sync', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+          'X-Client-Id': 'clientA',
+        },
+        body: JSON.stringify({
+          notes: [{
+            uuid: 'u1',
+            filename: 'test.md',
+            modified_at: Date.now(),
+            content_hash: hash,
+            hash_at_last_sync: '',
+            content,
+          }],
+          all_uuids: ['u1'],
+          deleted_uuids: [],
+        }),
+      });
+
+      // Wait a bit and read whatever arrives
+      const newData = await sse.readFor(300);
+      expect(newData).not.toContain('event: sync_available');
+    } finally {
+      sse.cancel();
+    }
+  });
+});
