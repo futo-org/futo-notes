@@ -171,7 +171,9 @@
         }
       }
 
+      importStatus = `Imported ${imported} notes`;
       onimported(imported);
+      setTimeout(() => { importStatus = ''; importing = false; }, 2000);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       if (msg.includes('cancelled') || msg.includes('Cancelled')) {

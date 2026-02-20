@@ -18,6 +18,8 @@ import { SomeType } from '@futo-notes/shared';
 
 The root `tsconfig.json` has a path alias mapping `@futo-notes/shared` to `packages/shared/src`.
 
-## Status
+## Contents
 
-This package is scaffolded but empty. Types will be added as the sync server is implemented.
+- `filename.ts` — Filename sanitization rules (`sanitizeTitle`, `validateTitle`, constants)
+- `sync.ts` — Sync protocol types (`SyncRequest`, `SyncResponse`, auth types)
+- `note.ts` — `NoteSyncMeta` interface

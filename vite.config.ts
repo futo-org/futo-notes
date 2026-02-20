@@ -18,6 +18,7 @@ export default defineConfig({
     alias: {
       '$lib': path.resolve(__dirname, './src/lib'),
       '@': path.resolve(__dirname, './'),
+      '@desktop': path.resolve(__dirname, './apps/desktop'),
       '/src': path.resolve(__dirname, './src'),
     },
   },

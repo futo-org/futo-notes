@@ -19,7 +19,7 @@ npm workspaces monorepo. Shared Svelte app at root, platform shells in `apps/`, 
 - `apps/mobile/` — Capacitor (Android/iOS), see `apps/mobile/CLAUDE.md`
 - `apps/desktop/` — Electron, see `apps/desktop/CLAUDE.md`
 - `apps/server/` — Hono sync server (scaffolded, not implemented), see `apps/server/CLAUDE.md`
-- `packages/shared/` — @futo-notes/shared (empty), see `packages/shared/CLAUDE.md`
+- `packages/shared/` — @futo-notes/shared (sync types, filename sanitization), see `packages/shared/CLAUDE.md`
 
 **Stack**: Svelte 5 + Capacitor 8 + Electron + Vite + Tailwind v4 + CodeMirror 6
 

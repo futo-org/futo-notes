@@ -164,6 +164,31 @@ describe('client-server contract', () => {
     expect(client2.notes.getAllNotes()).toHaveLength(0);
   });
 
+  it('deleteAllNotes propagates tombstones so notes do not reappear', async () => {
+    const client = await freshClient();
+    await setupClient(client);
+
+    // Create several notes and sync
+    await client.notes.createNote('note-a', 'content a');
+    await client.notes.createNote('note-b', 'content b');
+    await client.notes.createNote('note-c', 'content c');
+    await client.sync.syncNow();
+    expect(client.notes.getAllNotes()).toHaveLength(3);
+
+    // Delete ALL notes and sync — tombstones must reach the server
+    await client.notes.deleteAllNotes();
+    expect(client.notes.getAllNotes()).toHaveLength(0);
+    const summary = await client.sync.syncNow();
+    // Server should not send any of the deleted notes back
+    expect(summary.downloaded).toBe(0);
+
+    // A fresh client should also see zero notes
+    const client2 = await freshClient2();
+    const summary2 = await client2.sync.syncNow();
+    expect(summary2.downloaded).toBe(0);
+    expect(client2.notes.getAllNotes()).toHaveLength(0);
+  });
+
   it('two-client simulation: A syncs up, B syncs down', async () => {
     // Client A creates and syncs
     const clientA = await freshClient();
