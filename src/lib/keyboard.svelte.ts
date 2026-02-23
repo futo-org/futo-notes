@@ -39,8 +39,20 @@ function init(): void {
   }
 }
 
+function hide(): void {
+  if (isMobile) {
+    import('@capacitor/keyboard').then(({ Keyboard }) => {
+      Keyboard.hide();
+    });
+  } else {
+    // Web fallback: blur active element to dismiss virtual keyboard
+    (document.activeElement as HTMLElement | null)?.blur();
+  }
+}
+
 export const keyboard = {
   get height() { return _height; },
   get visible() { return _visible; },
   init,
+  hide,
 };

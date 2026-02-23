@@ -145,19 +145,21 @@
   font-style: normal;
 }
 
+/* List item line — hanging indent is set via inline style on line decorations */
+.cm-line.cm-md-list-line {
+  /* padding-left and text-indent are set inline per item */
+}
+
 /* Unordered list items */
 .cm-md-ul-item {
-  margin-left: 0;
 }
 
 /* Ordered list items */
 .cm-md-ol-item {
-  margin-left: 0;
 }
 
 /* Task items */
 .cm-md-task {
-  margin-left: 0;
 }
 
 .cm-md-task-checkbox {

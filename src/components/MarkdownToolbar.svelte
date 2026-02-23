@@ -16,7 +16,7 @@
   import type { EditorView } from '@codemirror/view';
   import {
     Bold, Italic, Strikethrough, Heading, TextQuote,
-    List, ListOrdered, ListChecks, Camera, ImageIcon
+    List, ListOrdered, ListChecks, Camera, ImageIcon, ChevronDown
   } from '@lucide/svelte';
 
   interface Props {
@@ -194,5 +194,12 @@
     ><ImageIcon size={18} strokeWidth={2} /></button>
     {/if}
   </div>
+  <button
+    class="toolbar-dismiss"
+    onmousedown={preventFocus}
+    ontouchstart={preventFocus}
+    onclick={() => keyboard.hide()}
+    aria-label="Dismiss keyboard"
+  ><ChevronDown size={20} strokeWidth={2.5} /></button>
 </div>
 {/if}

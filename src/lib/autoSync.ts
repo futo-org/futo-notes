@@ -7,6 +7,7 @@ const SSE_SYNC_DEBOUNCE = 100;
 const RESUME_COOLDOWN = 10_000;
 
 export interface AutoSyncCallbacks {
+  onSyncStart: () => void;
   onSyncComplete: (summary: SyncSummary) => void;
   onSyncError: (error: Error) => void;
   flushPendingSave: () => Promise<void>;
@@ -26,6 +27,7 @@ function isSyncConfigured(): boolean {
 async function performSync(): Promise<void> {
   if (syncing || !callbacks || !isSyncConfigured()) return;
   syncing = true;
+  callbacks.onSyncStart();
   try {
     await callbacks.flushPendingSave();
     const summary = await syncNow();

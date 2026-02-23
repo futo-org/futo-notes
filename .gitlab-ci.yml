@@ -159,25 +159,66 @@ build-ios:
       when: always
 
 # ─────────────────────────────────────────────────────────────
-# Upload APK to Package Registry
+# Desktop Build (Electron)
 # ─────────────────────────────────────────────────────────────
 
-upload-apk:
+build-desktop:
+  stage: build
+  needs: [lint, test:unit, test:e2e, test:server]
+  script:
+    - npm ci
+    - npm run build
+    - cd apps/desktop
+    - npm run build:electron
+    - |
+      VERSION="${CI_COMMIT_TAG#v}"
+      echo "Building desktop version $VERSION"
+      npx electron-builder --linux AppImage -c.extraMetadata.version="$VERSION"
+  artifacts:
+    paths:
+      - apps/desktop/release/*.AppImage
+    expire_in: 1 week
+  rules:
+    - if: $CI_COMMIT_TAG
+      when: always
+
+# ─────────────────────────────────────────────────────────────
+# Upload Assets to Package Registry
+# ─────────────────────────────────────────────────────────────
+
+upload-assets:
   stage: upload_assets
   needs:
     - job: build-android
       artifacts: true
     - job: build-ios
       artifacts: true
+    - job: build-desktop
+      artifacts: true
   script:
+    - export PACKAGE_REGISTRY_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/futo-notes/${CI_COMMIT_TAG}"
+    # Upload APK
     - export APK_NAME="futo-notes-${CI_COMMIT_TAG}.apk"
     - export APK_PATH="apps/mobile/android/app/build/outputs/apk/release/app-release.apk"
-    - export PACKAGE_REGISTRY_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/futo-notes/${CI_COMMIT_TAG}"
     - export APK_ASSET_URL="${PACKAGE_REGISTRY_URL}/${APK_NAME}"
-    - 'echo "Uploading ${APK_PATH} to ${APK_ASSET_URL}"'
+    - 'echo "Uploading APK to ${APK_ASSET_URL}"'
     - 'curl --fail --header "JOB-TOKEN: ${CI_JOB_TOKEN}" --upload-file "${APK_PATH}" "${APK_ASSET_URL}"'
+    # Upload AppImage
+    - export APPIMAGE_NAME="futo-notes-${CI_COMMIT_TAG}.AppImage"
+    - export APPIMAGE_PATH=$(ls apps/desktop/release/*.AppImage)
+    - export APPIMAGE_ASSET_URL="${PACKAGE_REGISTRY_URL}/${APPIMAGE_NAME}"
+    - 'echo "Uploading AppImage to ${APPIMAGE_ASSET_URL}"'
+    - 'curl --fail --header "JOB-TOKEN: ${CI_JOB_TOKEN}" --upload-file "${APPIMAGE_PATH}" "${APPIMAGE_ASSET_URL}"'
+    # Upload auto-update files to stable "latest" path (electron-updater checks this)
+    - export UPDATE_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/futo-notes-desktop/latest"
+    - export APPIMAGE_FILENAME=$(basename "${APPIMAGE_PATH}")
+    - 'curl --fail --header "JOB-TOKEN: ${CI_JOB_TOKEN}" --upload-file "${APPIMAGE_PATH}" "${UPDATE_URL}/${APPIMAGE_FILENAME}"'
+    - 'curl --fail --header "JOB-TOKEN: ${CI_JOB_TOKEN}" --upload-file "apps/desktop/release/latest-linux.yml" "${UPDATE_URL}/latest-linux.yml"'
+    # Export vars for release
     - echo "APK_ASSET_NAME=${APK_NAME}" >> release_vars.env
     - echo "APK_ASSET_URL=${APK_ASSET_URL}" >> release_vars.env
+    - echo "APPIMAGE_ASSET_NAME=${APPIMAGE_NAME}" >> release_vars.env
+    - echo "APPIMAGE_ASSET_URL=${APPIMAGE_ASSET_URL}" >> release_vars.env
   artifacts:
     reports:
       dotenv: release_vars.env
@@ -193,18 +234,20 @@ create-release:
   stage: create_release
   image: registry.gitlab.com/gitlab-org/release-cli:latest
   needs:
-    - job: upload-apk
+    - job: upload-assets
       artifacts: true
   before_script: []
   script:
     - |
       echo "Creating release for tag ${CI_COMMIT_TAG}"
       echo "APK: ${APK_ASSET_NAME} at ${APK_ASSET_URL}"
+      echo "AppImage: ${APPIMAGE_ASSET_NAME} at ${APPIMAGE_ASSET_URL}"
 
       release-cli create --name "Futo Notes ${CI_COMMIT_TAG}" \
         --tag-name "${CI_COMMIT_TAG}" \
         --description "Futo Notes release ${CI_COMMIT_TAG}" \
-        --assets-link "{\"name\":\"${APK_ASSET_NAME}\",\"url\":\"${APK_ASSET_URL}\",\"link_type\":\"other\"}"
+        --assets-link "{\"name\":\"${APK_ASSET_NAME}\",\"url\":\"${APK_ASSET_URL}\",\"link_type\":\"other\"}" \
+        --assets-link "{\"name\":\"${APPIMAGE_ASSET_NAME}\",\"url\":\"${APPIMAGE_ASSET_URL}\",\"link_type\":\"other\"}"
   rules:
     - if: $CI_COMMIT_TAG
       when: always

@@ -71,25 +71,35 @@ class TaskCheckboxWidget extends WidgetType {
       margin: 0;
     `;
 
-    checkbox.addEventListener('change', () => {
+    // Prevent mousedown from focusing the contenteditable editor
+    wrapper.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+    });
+
+    function toggleCheckbox(): void {
       const editorEl = wrapper.closest('.cm-editor') as HTMLElement | null;
       if (!editorEl) return;
       const view = EditorView.findFromDOM(editorEl);
       if (!view) return;
+      const hadFocus = view.hasFocus;
       const pos = view.posAtDOM(wrapper);
       const line = view.state.doc.lineAt(pos);
       const match = line.text.match(/\[([ xX])\]/);
       if (!match || match.index === undefined) return;
       const charPos = line.from + match.index + 1;
       const newChar = match[1] === ' ' ? 'x' : ' ';
-      view.dispatch({ changes: { from: charPos, to: charPos + 1, insert: newChar } });
-    });
-
-    // Make wrapper clicks toggle the checkbox
-    wrapper.addEventListener('click', (e) => {
-      if (e.target !== checkbox) {
-        checkbox.click();
+      view.dispatch({ changes: { from: charPos, to: charPos + 1, insert: newChar }, selection: view.state.selection });
+      // If editor wasn't focused before, don't let the dispatch steal focus
+      if (!hadFocus) {
+        view.contentDOM.blur();
       }
+    }
+
+    // Handle toggle via click on either checkbox or wrapper
+    wrapper.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      toggleCheckbox();
     });
 
     wrapper.appendChild(checkbox);
@@ -278,7 +288,7 @@ class BulletWidget extends WidgetType {
     const span = document.createElement('span');
     span.className = 'cm-md-bullet';
     span.textContent = '•';
-    span.style.cssText = `margin-right: 8px; color: #666; margin-left: ${this.indent * 16}px;`;
+    span.style.cssText = `margin-right: 8px; color: #666;`;
     return span;
   }
 
@@ -300,7 +310,7 @@ class NumberWidget extends WidgetType {
     const span = document.createElement('span');
     span.className = 'cm-md-number';
     span.textContent = `${this.num}.`;
-    span.style.cssText = `margin-right: 8px; color: #666; font-weight: 500; margin-left: ${this.indent * 16}px;`;
+    span.style.cssText = `margin-right: 8px; color: #666; font-weight: 500;`;
     return span;
   }
 
@@ -312,6 +322,13 @@ class NumberWidget extends WidgetType {
     return other instanceof NumberWidget && other.num === this.num && other.indent === this.indent;
   }
 }
+
+// Hanging indent constants (pixels)
+const INDENT_STEP = 24;   // extra indent per nesting level
+const BULLET_MARKER_W = 20;  // bullet "•" + margin-right
+const NUMBER_MARKER_W = 24;  // "N." + margin-right
+const CHECKBOX_MARKER_W = 32; // checkbox wrapper + margin-right
+const ORDERED_TASK_MARKER_W = 56; // number widget + checkbox widget
 
 // Parser utilities
 class MarkdownParser {
@@ -903,6 +920,7 @@ class LiveMarkdownPlugin implements PluginValue {
       const indent = unorderedTaskMatch[1];
       const checked = unorderedTaskMatch[3];
       const indentLen = indent.length;
+      const indentLevel = Math.floor(indentLen / 2);
       const fullMarkerLen = unorderedTaskMatch[0].length;
       const contentStart = from + fullMarkerLen;
 
@@ -932,6 +950,14 @@ class LiveMarkdownPlugin implements PluginValue {
           value: { class: 'cm-md-task' }
         });
       }
+
+      // Hanging indent line decoration
+      const pl = indentLevel * INDENT_STEP + CHECKBOX_MARKER_W;
+      decorations.push({
+        from: line.from,
+        to: line.from,
+        value: { class: 'cm-md-list-line', attributes: { style: `padding-left: ${pl}px !important; text-indent: -${CHECKBOX_MARKER_W}px;` }, startSide: 0, endSide: 0 }
+      });
       return;
     }
 
@@ -981,6 +1007,14 @@ class LiveMarkdownPlugin implements PluginValue {
           value: { class: 'cm-md-task' }
         });
       }
+
+      // Hanging indent line decoration
+      const pl = indentLevel * INDENT_STEP + ORDERED_TASK_MARKER_W;
+      decorations.push({
+        from: line.from,
+        to: line.from,
+        value: { class: 'cm-md-list-line', attributes: { style: `padding-left: ${pl}px !important; text-indent: -${ORDERED_TASK_MARKER_W}px;` }, startSide: 0, endSide: 0 }
+      });
       return;
     }
 
@@ -1017,6 +1051,14 @@ class LiveMarkdownPlugin implements PluginValue {
           value: { class: 'cm-md-ul-item' }
         });
       }
+
+      // Hanging indent line decoration
+      const pl = indentLevel * INDENT_STEP + BULLET_MARKER_W;
+      decorations.push({
+        from: line.from,
+        to: line.from,
+        value: { class: 'cm-md-list-line', attributes: { style: `padding-left: ${pl}px !important; text-indent: -${BULLET_MARKER_W}px;` }, startSide: 0, endSide: 0 }
+      });
       return;
     }
 
@@ -1054,6 +1096,14 @@ class LiveMarkdownPlugin implements PluginValue {
           value: { class: 'cm-md-ol-item' }
         });
       }
+
+      // Hanging indent line decoration
+      const pl = indentLevel * INDENT_STEP + NUMBER_MARKER_W;
+      decorations.push({
+        from: line.from,
+        to: line.from,
+        value: { class: 'cm-md-list-line', attributes: { style: `padding-left: ${pl}px !important; text-indent: -${NUMBER_MARKER_W}px;` }, startSide: 0, endSide: 0 }
+      });
     }
   }
 

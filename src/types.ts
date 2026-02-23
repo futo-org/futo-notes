@@ -5,6 +5,16 @@ export interface NotePreview {
   modificationTime: number;
 }
 
+export interface SnippetSegment {
+  text: string;
+  highlight: boolean;
+}
+
+export interface SearchResultItem {
+  note: NotePreview;
+  snippet: SnippetSegment[] | null;
+}
+
 export interface AppState {
   notes: NotePreview[];
   searchQuery: string;

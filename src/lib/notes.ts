@@ -1,9 +1,14 @@
-import { NotePreview } from '../types';
+import { NotePreview, SearchResultItem } from '../types';
 import {
   initSearchIndex,
   addToSearchIndex,
   removeFromSearchIndex,
-  searchNotes
+  searchNotes,
+  extractSnippet,
+  getStoredBody,
+  loadPersistedIndex,
+  persistIndex,
+  getMtimeMap,
 } from './searchIndex';
 import {
   listNoteFiles,
@@ -15,20 +20,86 @@ import {
   getUniqueNoteId
 } from './fileSystem';
 import { ensureNotesFolder, getPlatformFS } from './platform';
-import { markLocalDeleteForSync, trackLocalRenameForSync } from './syncState';
+import { markLocalDeleteForSync, trackLocalRenameForSync, clearSyncState } from './syncState';
 
 // In-memory cache of notes metadata
 let notesCache: NotePreview[] = [];
 let initialized = false;
 
+// Debounced persist
+let persistTimer: ReturnType<typeof setTimeout> | null = null;
+const PERSIST_DELAY_MS = 5000;
+
+function schedulePersist(): void {
+  if (persistTimer) clearTimeout(persistTimer);
+  persistTimer = setTimeout(() => {
+    persistTimer = null;
+    persistIndex();
+  }, PERSIST_DELAY_MS);
+}
+
 export async function initNotes(): Promise<void> {
   if (initialized) return;
 
-  initSearchIndex();
   await getPlatformFS(); // Initialize platform FS before any file operations
   await ensureNotesFolder();
-  await rebuildFromFiles();
+
+  const loaded = await loadPersistedIndex();
+  if (loaded) {
+    await incrementalRebuild();
+  } else {
+    initSearchIndex();
+    await rebuildFromFiles();
+    persistIndex();
+  }
+
   initialized = true;
+}
+
+async function incrementalRebuild(): Promise<void> {
+  const files = await listNoteFiles();
+  const savedMtimes = getMtimeMap();
+  const fileMap = new Map(files.map((f) => [f.name.replace(/\.md$/, ''), f.mtime]));
+  const savedIds = new Set(Object.keys(savedMtimes));
+
+  notesCache = [];
+
+  for (const file of files) {
+    const id = file.name.replace(/\.md$/, '');
+    const savedMtime = savedMtimes[id];
+
+    // Check if note has changed (1s tolerance for FAT32)
+    const isUnchanged = savedMtime !== undefined && Math.abs(file.mtime - savedMtime) < 1000;
+
+    if (isUnchanged) {
+      // Use stored body from index to build preview (avoid disk read)
+      const storedBody = getStoredBody(id);
+      const preview = storedBody
+        ? storedBody.slice(0, 100).replace(/\n/g, ' ')
+        : '';
+      notesCache.push({ id, title: id, preview, modificationTime: file.mtime });
+    } else {
+      // Changed or new — read from disk and reindex
+      try {
+        const content = await readNote(id);
+        const preview = content.slice(0, 100).replace(/\n/g, ' ');
+        notesCache.push({ id, title: id, preview, modificationTime: file.mtime });
+        addToSearchIndex({ id, title: id, body: content, mtime: file.mtime });
+      } catch (e) {
+        console.warn(`Failed to load note ${id}:`, e);
+      }
+    }
+  }
+
+  // Remove deleted notes from index
+  for (const oldId of savedIds) {
+    if (!fileMap.has(oldId)) {
+      removeFromSearchIndex(oldId);
+    }
+  }
+
+  notesCache.sort((a, b) => b.modificationTime - a.modificationTime);
+  schedulePersist();
 }
 
 async function rebuildFromFiles(): Promise<void> {
@@ -49,7 +120,7 @@ async function rebuildFromFiles(): Promise<void> {
         modificationTime: file.mtime
       });
 
-      addToSearchIndex({ id, noteId: id, content });
+      addToSearchIndex({ id, title: id, body: content, mtime: file.mtime });
     } catch (e) {
       console.warn(`Failed to load note ${id}:`, e);
     }
@@ -87,7 +158,8 @@ export async function createNote(title: string, content: string, overrideMtime?:
   const preview = content.slice(0, 100).replace(/\n/g, ' ');
 
   updateCache({ id, title, preview, modificationTime: mtime });
-  addToSearchIndex({ id, noteId: id, content });
+  addToSearchIndex({ id, title: id, body: content, mtime });
+  schedulePersist();
 
   return { id, mtime };
 }
@@ -113,7 +185,8 @@ export async function updateNote(
   }
 
   updateCache({ id: finalId, title, preview, modificationTime: mtime });
-  addToSearchIndex({ id: finalId, noteId: finalId, content });
+  addToSearchIndex({ id: finalId, title: finalId, body: content, mtime });
+  schedulePersist();
 
   return { id: finalId, mtime };
 }
@@ -122,6 +195,7 @@ export async function deleteNote(id: string, options: { trackSyncDelete?: boolea
   await deleteNoteFile(id);
   removeFromCache(id);
   removeFromSearchIndex(id);
+  schedulePersist();
 
   if (options.trackSyncDelete !== false) {
     await markLocalDeleteForSync(id);
@@ -134,15 +208,61 @@ export async function deleteAllNotes(): Promise<void> {
     await markLocalDeleteForSync(note.id);
   }
   await deleteAllContent();
+  await clearSyncState();
   notesCache = [];
   initSearchIndex();
 }
 
-export function search(query: string): NotePreview[] {
-  if (!query.trim()) return getAllNotes();
+export function search(query: string): SearchResultItem[] {
+  if (!query.trim()) {
+    return getAllNotes().map((note) => ({ note, snippet: null }));
+  }
 
-  const matchingIds = new Set(searchNotes(query));
-  return notesCache.filter(note => matchingIds.has(note.id));
+  // Build a lookup map from cache
+  const cacheMap = new Map(notesCache.map((n) => [n.id, n]));
+
+  // Map search hits preserving MiniSearch relevance order
+  const hits = searchNotes(query);
+  const results: SearchResultItem[] = [];
+  for (const hit of hits) {
+    const note = cacheMap.get(hit.noteId);
+    if (note) {
+      results.push({ note, snippet: extractSnippet(hit) });
+    }
+  }
+  return results;
+}
+
+export async function handleExternalFileChange(
+  type: 'add' | 'change' | 'unlink',
+  filename: string,
+): Promise<NotePreview | null> {
+  const id = filename.replace(/\.md$/, '');
+
+  if (type === 'unlink') {
+    removeFromCache(id);
+    removeFromSearchIndex(id);
+    schedulePersist();
+    return null;
+  }
+
+  // add or change — read from disk
+  try {
+    const content = await readNote(id);
+    const files = await listNoteFiles();
+    const file = files.find(f => f.name === filename);
+    const mtime = file?.mtime ?? Date.now();
+    const preview = content.slice(0, 100).replace(/\n/g, ' ');
+
+    const entry: NotePreview = { id, title: id, preview, modificationTime: mtime };
+    updateCache(entry);
+    addToSearchIndex({ id, title: id, body: content, mtime });
+    schedulePersist();
+    return entry;
+  } catch (e) {
+    console.warn(`handleExternalFileChange: failed to read ${filename}:`, e);
+    return null;
+  }
 }
 
 export { readNote, noteExists, getUniqueNoteId } from './fileSystem';

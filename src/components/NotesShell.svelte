@@ -4,9 +4,10 @@
   import MarkdownToolbar from './MarkdownToolbar.svelte';
   import SettingsScreen from './SettingsScreen.svelte';
   import SearchPopup from './SearchPopup.svelte';
+  import SyncStatusBar from './SyncStatusBar.svelte';
   import VirtualList from './VirtualList.svelte';
   import type { NotePreview } from '../types';
-  import { getAllNotes, updateNote, readNote, createNote, getNoteById, deleteNote } from '$lib/notes';
+  import { getAllNotes, updateNote, readNote, createNote, getNoteById, deleteNote, handleExternalFileChange } from '$lib/notes';
   import { sanitizeFilename } from '$lib/utils';
   import { FORBIDDEN_CHARS_RE, validateTitle } from '@futo-notes/shared';
   import type { SyncSummary } from '$lib/sync';
@@ -318,6 +319,27 @@ Escaped pipes:
   let noteMenuOpen = $state(false);
   let deleteConfirmOpen = $state(false);
 
+  // File watcher self-write suppression (Electron only)
+  const recentWrites = new Map<string, number>();
+
+  function recordWrite(filename: string): void {
+    recentWrites.set(filename, Date.now());
+    // Clean old entries
+    for (const [key, ts] of recentWrites) {
+      if (Date.now() - ts > 2000) recentWrites.delete(key);
+    }
+  }
+
+  function isRecentWrite(filename: string): boolean {
+    const ts = recentWrites.get(filename);
+    return ts !== undefined && Date.now() - ts < 1000;
+  }
+
+  // Sync status
+  let syncActive = $state(false);
+  let syncStartedAt = $state(0);
+  let lastSyncSummary: SyncSummary | null = $state(null);
+
   // Toast
   let toastMessage = $state('');
   let toastTimer: number | null = null;
@@ -344,6 +366,8 @@ Escaped pipes:
   }
 
   async function handleSyncComplete(summary: SyncSummary): Promise<void> {
+    lastSyncSummary = summary;
+    syncActive = false;
     refreshNotesList();
 
     // If sync downloaded updates and a note is currently open, reload it from
@@ -486,6 +510,12 @@ Escaped pipes:
       const savedOriginalId = originalId;
 
       const result = await updateNote(newId, newTitle, newContent, originalId ?? undefined);
+
+      // Track write for file-watcher self-suppression
+      recordWrite(`${result.id}.md`);
+      if (savedOriginalId && savedOriginalId !== result.id) {
+        recordWrite(`${savedOriginalId}.md`); // unlink event from rename
+      }
 
       originalId = result.id;
 
@@ -664,7 +694,7 @@ Escaped pipes:
   function isSwipeExcludedTarget(target: EventTarget | null): boolean {
     if (!(target instanceof Element)) return false;
     return Boolean(
-      target.closest('.cm-md-table-wrapper, .cm-md-table-rendered, .cm-md-table, .markdown-toolbar')
+      target.closest('.cm-md-table-wrapper, .cm-md-table-rendered, .cm-md-table, .markdown-toolbar, .title-input')
     );
   }
 
@@ -795,6 +825,9 @@ Escaped pipes:
         title = meta?.title || id;
         editor?.setContent(content);
       } catch {
+        // File doesn't exist — remove stale cache entry so it disappears from sidebar
+        handleExternalFileChange('unlink', `${id}.md`);
+        refreshNotesList();
         loading = false;
         navigate('/');
         return;
@@ -843,6 +876,7 @@ Escaped pipes:
 
     // Auto-sync
     startAutoSync({
+      onSyncStart: () => { syncActive = true; syncStartedAt = Date.now(); },
       onSyncComplete: handleSyncComplete,
       onSyncError: (err) => console.warn('Auto-sync error:', err),
       flushPendingSave: flushSave,
@@ -862,12 +896,49 @@ Escaped pipes:
       }
     }
 
-    // Electron menu actions
+    // Electron menu actions + file watcher
+    let cleanupFileWatcher: (() => void) | null = null;
     if (isElectron) {
-      import('$lib/platform/electron').then(({ onMenuAction }) => {
+      import('$lib/platform/electron').then(({ onMenuAction, onFileChange }) => {
         onMenuAction((action) => {
           if (action === 'toggle-sidebar') sidebarCollapsed = !sidebarCollapsed;
           else if (action === 'new-note') createNewNote();
+        });
+
+        cleanupFileWatcher = onFileChange(async (event) => {
+          const { type, filename } = event;
+          if (!filename.endsWith('.md')) return;
+          if (isRecentWrite(filename)) return;
+
+          const id = filename.replace(/\.md$/, '');
+
+          if (type === 'unlink' && id === originalId) {
+            // Current note was deleted externally
+            if (saveTimeout !== null) { clearTimeout(saveTimeout); saveTimeout = null; }
+            originalId = null;
+            navigate('/');
+            showToast('Note was deleted externally');
+          } else if (type === 'change' && id === originalId) {
+            // Current note was changed externally — reload from disk
+            if (saveTimeout !== null) { clearTimeout(saveTimeout); saveTimeout = null; }
+            try {
+              const freshContent = await readNote(id);
+              content = freshContent;
+              suppressSaveOnChange = true;
+              editor?.setContent(freshContent);
+              suppressSaveOnChange = false;
+              const meta = getNoteById(id);
+              if (meta) title = meta.title;
+            } catch { /* ignore read errors */ }
+          }
+
+          await handleExternalFileChange(type as 'add' | 'change' | 'unlink', filename);
+          refreshNotesList();
+
+          // Trigger sync so externally-added files are uploaded to server
+          if (type === 'add' || type === 'change') {
+            notifySaved();
+          }
         });
       });
     }
@@ -875,6 +946,7 @@ Escaped pipes:
     return () => {
       stopAutoSync();
       flushSave();
+      cleanupFileWatcher?.();
     };
   });
 
@@ -1124,3 +1196,5 @@ Escaped pipes:
 {#if toastMessage}
   <div class="toast">{toastMessage}</div>
 {/if}
+
+<SyncStatusBar syncing={syncActive} {syncStartedAt} lastSummary={lastSyncSummary} />

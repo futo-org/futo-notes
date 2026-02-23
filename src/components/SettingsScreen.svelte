@@ -326,7 +326,7 @@
               {#if nukeConfirm}
                 Tap again to confirm
               {:else}
-                Delete all notes
+                Full reset
               {/if}
             </span>
             <span class="settings-btn-desc">
@@ -335,7 +335,7 @@
               {:else if nukeConfirm}
                 This cannot be undone!
               {:else}
-                Permanently remove every note
+                Permanently remove all notes and app data
               {/if}
             </span>
           </span>

@@ -32,6 +32,8 @@
   let anchorPos = -1;
   let anchorBlockTop = 0;
   let compensating = false;
+  let userScrolling = false;
+  let scrollTimer: number | null = null;
 
   const PLAIN_URL_REGEX = /\b(?:https?:\/\/|www\.)[^\s<>()]+[^\s<>().,!?;:]/g;
   const MARKDOWN_LINK_REGEX = /\[([^\]]+)\]\(((?:https?:\/\/|www\.)[^)\s]+)(?:\s+"[^"]*")?\)/g;
@@ -175,8 +177,8 @@
         const sp = scrollParent;
         if (!sp) return;
 
-        // Only compensate for rendering-induced height changes, not user edits
-        if (update.heightChanged && !update.docChanged && anchorPos >= 0 && anchorPos <= update.state.doc.length) {
+        // Only compensate for rendering-induced height changes, not user edits or active scrolling
+        if (update.heightChanged && !update.docChanged && !userScrolling && anchorPos >= 0 && anchorPos <= update.state.doc.length) {
           try {
             const block = update.view.lineBlockAt(anchorPos);
             const delta = block.top - anchorBlockTop;
@@ -228,11 +230,17 @@
     const sp = scrollParent;
     if (!v || !sp) return;
 
-    const onScroll = () => updateScrollAnchor(v);
+    const onScroll = () => {
+      userScrolling = true;
+      if (scrollTimer !== null) clearTimeout(scrollTimer);
+      scrollTimer = window.setTimeout(() => { userScrolling = false; scrollTimer = null; }, 150);
+      updateScrollAnchor(v);
+    };
     sp.addEventListener('scroll', onScroll, { passive: true });
 
     return () => {
       sp.removeEventListener('scroll', onScroll);
+      if (scrollTimer !== null) { clearTimeout(scrollTimer); scrollTimer = null; }
     };
   });
 

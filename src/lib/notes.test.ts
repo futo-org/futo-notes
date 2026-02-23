@@ -57,7 +57,7 @@ describe('initNotes', () => {
 
     const results = search('unique-keyword-xyz');
     expect(results).toHaveLength(1);
-    expect(results[0].id).toBe('searchable');
+    expect(results[0].note.id).toBe('searchable');
   });
 });
 
@@ -199,6 +199,9 @@ describe('search', () => {
 
     const results = search('');
     expect(results).toHaveLength(2);
+    // Each result should have note and snippet
+    expect(results[0].note).toBeDefined();
+    expect(results[0].snippet).toBeNull();
   });
 
   it('filters for non-empty query', async () => {
@@ -210,6 +213,40 @@ describe('search', () => {
 
     const results = search('uniqueword123');
     expect(results).toHaveLength(1);
-    expect(results[0].id).toBe('alpha');
+    expect(results[0].note.id).toBe('alpha');
+  });
+
+  it('returns results in relevance order, not mtime order', async () => {
+    const now = Date.now();
+    const sixtyDaysAgo = now - 60 * 24 * 60 * 60 * 1000;
+    const oneDayAgo = now - 1 * 24 * 60 * 60 * 1000;
+    // Create an older note with a strong title match
+    await testFS.writeNote('banana-recipe', 'This is about cooking bananas. Banana bread is great.', sixtyDaysAgo);
+    // Create a newer note that barely mentions banana
+    await testFS.writeNote('grocery-list', 'eggs, milk, banana, bread', oneDayAgo);
+
+    const { initNotes, search } = await freshNotes();
+    await initNotes();
+
+    const results = search('banana');
+    expect(results.length).toBeGreaterThanOrEqual(2);
+    // The note with banana in the title should rank higher despite being older
+    expect(results[0].note.id).toBe('banana-recipe');
+  });
+
+  it('returns snippets with highlight segments', async () => {
+    await testFS.writeNote('test-note', 'Some text before the keyword specialterm right here and more after');
+
+    const { initNotes, search } = await freshNotes();
+    await initNotes();
+
+    const results = search('specialterm');
+    expect(results).toHaveLength(1);
+    expect(results[0].snippet).not.toBeNull();
+
+    // The snippet should contain highlighted segments
+    const highlighted = results[0].snippet!.filter((s) => s.highlight);
+    expect(highlighted.length).toBeGreaterThan(0);
+    expect(highlighted[0].text.toLowerCase()).toContain('specialterm');
   });
 });
