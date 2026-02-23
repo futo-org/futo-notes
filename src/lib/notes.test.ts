@@ -213,3 +213,69 @@ describe('search', () => {
     expect(results[0].id).toBe('alpha');
   });
 });
+
+describe('handleExternalFileChange', () => {
+  it('add — adds new note to cache and search index', async () => {
+    const { initNotes, handleExternalFileChange, getNoteById, search } = await freshNotes();
+    await initNotes();
+
+    // Write a new file after init (simulating external file drop)
+    await testFS.writeNote('new-note', 'xyztestkeyword789');
+
+    const result = await handleExternalFileChange('add', 'new-note.md');
+    expect(result).toBeDefined();
+    expect(result!.id).toBe('new-note');
+    expect(getNoteById('new-note')).toBeDefined();
+    expect(search('xyztestkeyword789')).toHaveLength(1);
+  });
+
+  it('change — updates existing note in cache', async () => {
+    await testFS.writeNote('existing', 'original content');
+
+    const { initNotes, handleExternalFileChange, getNoteById } = await freshNotes();
+    await initNotes();
+    expect(getNoteById('existing')!.preview).toBe('original content');
+
+    // Overwrite file content externally
+    await testFS.writeNote('existing', 'updated external content');
+
+    await handleExternalFileChange('change', 'existing.md');
+    expect(getNoteById('existing')!.preview).toBe('updated external content');
+  });
+
+  it('unlink — removes note from cache and search', async () => {
+    await testFS.writeNote('doomed', 'searchable-keyword-abc');
+
+    const { initNotes, handleExternalFileChange, getNoteById, search } = await freshNotes();
+    await initNotes();
+    expect(getNoteById('doomed')).toBeDefined();
+    expect(search('searchable-keyword-abc')).toHaveLength(1);
+
+    await handleExternalFileChange('unlink', 'doomed.md');
+    expect(getNoteById('doomed')).toBeUndefined();
+    expect(search('searchable-keyword-abc')).toHaveLength(0);
+  });
+
+  it('add — handles read failure gracefully', async () => {
+    const { initNotes, handleExternalFileChange } = await freshNotes();
+    await initNotes();
+
+    // File doesn't exist on disk — should return null, not throw
+    const result = await handleExternalFileChange('add', 'nonexistent.md');
+    expect(result).toBeNull();
+  });
+
+  it('does not write to disk', async () => {
+    await testFS.writeNote('readonly-test', 'original disk content');
+
+    const { initNotes, handleExternalFileChange } = await freshNotes();
+    await initNotes();
+
+    // Trigger add for existing file
+    await handleExternalFileChange('add', 'readonly-test.md');
+
+    // Verify file content unchanged
+    const content = await testFS.readNote('readonly-test');
+    expect(content).toBe('original disk content');
+  });
+});

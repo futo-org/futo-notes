@@ -33,4 +33,4 @@ win:
 
 publish:
   provider: generic
-  url: ""
+  url: https://gitlab.futo.org/api/v4/projects/justin%2Ffuto-notes/packages/generic/futo-notes-desktop/latest

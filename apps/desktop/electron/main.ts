@@ -165,7 +165,6 @@ function setupIPC(): void {
   ipcMain.handle('fs:deleteAllContent', async () => {
     const entries = await fs.readdir(notesDir, { withFileTypes: true });
     for (const entry of entries) {
-      if (entry.name.startsWith('.')) continue; // preserve dotfiles (app data)
       const fullPath = path.join(notesDir, entry.name);
       await fs.rm(fullPath, { recursive: true, force: true });
     }
@@ -271,8 +270,35 @@ function setupIPC(): void {
 
 function setupAutoUpdater(): void {
   if (isDev) return;
+
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
+
+  autoUpdater.on('update-available', (info) => {
+    console.log(`Update available: ${info.version}`);
+  });
+
+  autoUpdater.on('update-downloaded', (info) => {
+    console.log(`Update downloaded: ${info.version}`);
+    const win = BrowserWindow.getFocusedWindow() || [...windows][0];
+    if (win) {
+      dialog.showMessageBox(win, {
+        type: 'info',
+        title: 'Update Ready',
+        message: `FUTO Notes ${info.version} has been downloaded.`,
+        detail: 'It will be installed when you quit the app.',
+        buttons: ['Restart Now', 'Later'],
+        defaultId: 0,
+      }).then(({ response }) => {
+        if (response === 0) autoUpdater.quitAndInstall();
+      });
+    }
+  });
+
+  autoUpdater.on('error', (err) => {
+    console.log('Auto-update error:', err.message);
+  });
+
   autoUpdater.checkForUpdatesAndNotify().catch(() => {
     // Silently fail — auto-update is best-effort
   });

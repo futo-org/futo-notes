@@ -76,3 +76,6 @@ apps/server/dist/
 # Playwright
 .playwright-mcp
 test-results/
+
+# Claude
+.claude/local-plugins/*

@@ -60,7 +60,7 @@ export const capacitorFS: PlatformFS = {
       directory: notesDirectory,
     });
     for (const entry of result.files) {
-      if (entry.name.startsWith('.')) continue; // preserve dotfiles (app data)
+      // Delete everything including hidden files/folders
       try {
         if (entry.type === 'directory') {
           await Filesystem.rmdir({

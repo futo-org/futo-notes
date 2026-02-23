@@ -129,10 +129,6 @@ export async function deleteNote(id: string, options: { trackSyncDelete?: boolea
 }
 
 export async function deleteAllNotes(): Promise<void> {
-  // Mark every note for sync deletion so tombstones propagate to server
-  for (const note of notesCache) {
-    await markLocalDeleteForSync(note.id);
-  }
   await deleteAllContent();
   notesCache = [];
   initSearchIndex();
@@ -143,6 +139,36 @@ export function search(query: string): NotePreview[] {
 
   const matchingIds = new Set(searchNotes(query));
   return notesCache.filter(note => matchingIds.has(note.id));
+}
+
+export async function handleExternalFileChange(
+  type: 'add' | 'change' | 'unlink',
+  filename: string,
+): Promise<NotePreview | null> {
+  const id = filename.replace(/\.md$/, '');
+
+  if (type === 'unlink') {
+    removeFromCache(id);
+    removeFromSearchIndex(id);
+    return null;
+  }
+
+  // add or change — read from disk
+  try {
+    const content = await readNote(id);
+    const files = await listNoteFiles();
+    const file = files.find(f => f.name === filename);
+    const mtime = file?.mtime ?? Date.now();
+    const preview = content.slice(0, 100).replace(/\n/g, ' ');
+
+    const entry: NotePreview = { id, title: id, preview, modificationTime: mtime };
+    updateCache(entry);
+    addToSearchIndex({ id, noteId: id, content });
+    return entry;
+  } catch (e) {
+    console.warn(`handleExternalFileChange: failed to read ${filename}:`, e);
+    return null;
+  }
 }
 
 export { readNote, noteExists, getUniqueNoteId } from './fileSystem';
