@@ -436,37 +436,107 @@ All local. All instant. The server did the hard work overnight.
 
 ## Part 3: Implementation Roadmap
 
-### Phase 1: CoreSearch Upgrade (1-2 weeks)
+### Phase 1: CoreSearch Upgrade — COMPLETE
 
-1. Fix relevance ordering bug (trivial but high-impact)
-2. Contextual snippets with term highlighting
-3. Structured field indexing (title/headings/body weights)
-4. Recency boost
-5. Keyboard navigation in search popup
-6. Persistent index with incremental startup updates
+Shipped and tested. MiniSearch on-device with:
+- Structured field indexing (title 5x, headings 3x, body 1x)
+- Fuzzy matching (0.2) + prefix search
+- Recency boost (30-day decay window)
+- Persistent index (`.search-index-v1.json`) with incremental rebuild on startup
+- Contextual snippets (120-char window centered on match) with term highlighting
+- Full keyboard navigation (arrow keys, enter, escape)
+- Unit tests for snippets, highlights, heading extraction, persistence round-trip
 
-Ship as default for all platforms. No server dependency.
+### Phase 2: FTS5 Server Search — SKIPPED
 
-### Phase 2: Server Foundations (1-2 weeks)
+MiniSearch handles lexical search well enough for a personal notes app. FTS5 adds stemming and BM25, but the real unlock is semantic search — finding notes by *meaning*, not keywords. Skipping FTS5 avoids building a second lexical search path and lets us focus on the qualitative leap that vectors provide.
 
-1. FTS5 table + Level 0 indexing triggered after sync
-2. Metadata extraction (Level 1)
-3. `/search/capabilities` + `/search/status` endpoints
-4. SQLite artifact packaging + `GET /search/index` download endpoint
-5. `supersearch_ready` SSE event
-6. Client: download SQLite artifact, open read-only, query alongside MiniSearch
-7. RRF fusion of MiniSearch + FTS5 results
+FTS5 can be revisited later if stemming/phrase queries prove necessary. The server plumbing built for Phase 3 (artifact pipeline, dirty tracking, SSE events) would support adding FTS5 with minimal extra work.
 
-### Phase 3: Semantic Search (2-4 weeks)
+### Phase 3: Semantic Search (current phase)
 
-1. Hardware benchmark + model auto-selection
-2. node-llama-cpp integration for embedding generation
-3. Chunking pipeline (heading/paragraph boundaries, ~900 tokens, 15% overlap)
-4. sqlite-vec for vector storage
-5. Overnight scheduling with job checkpointing
-6. Client: on-device query embedding + vector search against downloaded index
-7. RRF fusion of MiniSearch + FTS5 + vector results
-8. "Related notes" UI feature
+MiniSearch + vectors. Two complementary signals: lexical (exact keywords, real-time edits) and semantic (meaning, "find notes about cooking" when none say "cooking").
+
+#### 3.1 Server: Indexer Pipeline Skeleton
+
+Build the core infrastructure that all server-side indexing depends on. Hook into the existing sync flow — after `processSync()` completes in the `/sync` route, mark changed notes as dirty.
+
+- **Dirty tracking table**: `search_index_state (uuid, level, content_hash, indexed_at)` — knows which notes need reprocessing per level.
+- **Job management table**: `search_jobs (job_id, level, status, checkpoint, progress)` — tracks running/interrupted/completed jobs with checkpointing so interrupted runs resume.
+- **Sync hook**: After `/sync` processes changes, insert/update dirty entries for changed UUIDs.
+- **Indexer scheduler**: Rebuilds 1–3 times per day, not after every sync. Primary rebuild runs during configured idle hours (default 2am–6am). An additional rebuild triggers if the user has been idle for >3 hours and there are dirty notes since the last build. On-demand rebuild available via API. Respects memory cap. Jobs checkpoint after each batch so they can be interrupted and resumed.
+- **Config**: `SEARCH_ENABLED=true`, `INDEX_IDLE_START`, `INDEX_IDLE_END`, `INDEX_MAX_MEMORY_MB`, `INDEX_BATCH_SIZE`.
+
+#### 3.2 Server: Embedding Pipeline
+
+Generate dense vector embeddings for all notes using `node-llama-cpp` with GGUF models.
+
+- **Hardware benchmark**: On first enable, embed a single 256-token passage and measure wall time. Auto-select model:
+  - `< 50ms` → Qwen3-Embedding-8B (1024 dims, best quality)
+  - `< 200ms` → Qwen3-Embedding-0.6B (512 dims, great quality)
+  - `< 500ms` → bge-small-en-v1.5 (384 dims, good quality)
+  - `< 2s` → all-MiniLM-L6-v2 quantized (384 dims, still useful)
+  - `> 2s` → skip (user can force-enable)
+- **Chunking**: Notes > ~512 tokens split at heading/paragraph boundaries into ~900-token chunks with 15% overlap. Each chunk gets its own embedding.
+- **Storage**: `search_chunks` table (uuid, chunk_index, chunk_text, start_offset, end_offset, content_hash) + `search_vectors` via sqlite-vec extension (chunk_id → float[N]).
+- **Incremental**: Only re-embed chunks whose content_hash changed. Store per-chunk hash for fine-grained dirty tracking.
+
+#### 3.3 Server: Artifact Build & Serve
+
+Package the vector index into downloadable artifacts for clients. Two formats to support different platforms:
+
+- **Electron artifact**: SQLite `.db` file containing `search_chunks` + `search_vectors` (sqlite-vec) tables. Electron opens it directly via `better-sqlite3` + sqlite-vec extension — same stack as the server, zero format conversion.
+- **Mobile artifact**: Binary `.bin` file containing raw vectors as a `Float32Array` dump, plus a JSON manifest mapping chunk IDs to note UUIDs, chunk text, and offsets. Mobile clients load this into an in-memory vector search engine (see 3.5).
+- **Versioning**: Both artifacts include a version tag (`supersearch-v1`) so schema changes trigger clean rebuild on client.
+- **Endpoint**: `GET /search/index?level=2&format=sqlite|bin` → streams the appropriate file. Response headers include artifact version + content hash for cache validation.
+- **Capabilities endpoint**: `GET /search/capabilities` → `{ levels: [2], model, dims, chunk_count, last_indexed_at, note_count }`.
+- **Status endpoint**: `GET /search/status` → `{ current_job, last_run, progress }`.
+- **SSE event**: Emit `supersearch_ready` on the existing SSE infrastructure when a new artifact build completes. Clients listen alongside `sync_available`.
+
+#### 3.4 Client: Artifact Download & Storage
+
+Extend the platform abstraction to download and store the vector artifact.
+
+- **Download trigger**: On `supersearch_ready` SSE event (or on app launch if stale/missing). Not on every sync — server rebuilds 1–3x/day, so downloads are infrequent.
+- **Electron**: Downloads `supersearch-v1.db` (SQLite format). Opens via `better-sqlite3` + sqlite-vec in the main process.
+- **Capacitor**: Downloads `supersearch-v1.bin` (raw vectors) + `supersearch-v1-manifest.json` (chunk metadata). Stores in app data directory via Filesystem API.
+- **Web**: Skip — no sync, no supersearch.
+- **Version check**: Compare local artifact version/hash against server's `/search/capabilities`. Skip download if up to date.
+- **First-use model download**: On first search (or app startup), download the query embedding model (~23 MB int8 ONNX). Cached in IndexedDB (Capacitor/Web) or filesystem (Electron). One-time cost.
+
+#### 3.5 Client: On-Device Vector Search
+
+Query the downloaded vector artifact locally. No network round-trip at search time.
+
+- **Query embedding**: Embed the user's search query on-device using `transformers.js` with `all-MiniLM-L6-v2` (int8 quantized ONNX, ~23 MB). Runs via WASM SIMD in a Web Worker to avoid blocking UI. Single-threaded (Capacitor WebViews lack SharedArrayBuffer), but a single short query takes ~100–200ms on mobile, which is acceptable with debounced search. On Electron, optionally use `onnxruntime-node` or `node-llama-cpp` for faster native inference (~5–20ms). Model is cached after first download.
+- **Nearest neighbor (Electron)**: Open `supersearch-v1.db` read-only via `better-sqlite3` + sqlite-vec. Query `vec0` table for top-K nearest chunks. ~20–25ms for 30K vectors.
+- **Nearest neighbor (Capacitor)**: Brute-force cosine similarity over a `Float32Array`. Load raw vectors from `.bin` file, pre-normalize to unit length so cosine similarity = dot product. Int8 quantization reduces memory from ~46MB to ~11.5MB for 30K × 384 vectors. ~30–100ms on mobile, zero dependencies. Simple enough to implement in ~50 lines of code. Run in a Web Worker to keep UI responsive.
+- **Result mapping**: Map chunk hits back to note UUIDs. Deduplicate (multiple chunks from same note). Use chunk_text for snippet display.
+
+#### 3.6 Client: Hybrid Fusion (MiniSearch + Vectors)
+
+Combine lexical and semantic results using Reciprocal Rank Fusion (RRF):
+
+```
+score(doc) = Σ 1/(k + rank_i(doc))     where k = 60
+```
+
+Run in parallel:
+1. **MiniSearch** — lexical search (always available, covers real-time edits since last artifact download)
+2. **Vector search** — semantic similarity (covers meaning-based matches from downloaded artifact)
+
+Fuse the two ranked lists. MiniSearch handles the "freshness gap" (edits since last artifact build). Vectors handle the "vocabulary gap" (semantically related notes that don't share keywords).
+
+#### 3.7 Priority Order
+
+| Step | Effort | Dependency | What it unblocks |
+|------|--------|------------|-----------------|
+| 3.1 Indexer skeleton | Medium | None (server only) | Everything else |
+| 3.2 Embedding pipeline | Large | 3.1 | Artifact build |
+| 3.3 Artifact serve | Small | 3.2 | Client download |
+| 3.4 Client download | Medium | 3.3 + platform work | Vector search |
+| 3.5 On-device vector search | Medium | 3.4 | Hybrid fusion |
+| 3.6 Hybrid fusion (RRF) | Small | 3.5 | Ship it |
 
 ### Phase 4: LLM Augmentation (stretch)
 
@@ -475,17 +545,24 @@ Ship as default for all platforms. No server dependency.
 3. Cross-note connection discovery
 4. Client: display LLM summaries and connections from downloaded artifact
 
+### Phase 5: FTS5 (if needed)
+
+If stemming or phrase queries prove necessary after living with MiniSearch + vectors:
+1. Add FTS5 virtual table to the server indexer (Level 0 — trivial with existing pipeline)
+2. Include in artifact alongside vector tables
+3. Add third signal to RRF fusion: MiniSearch + FTS5 + vectors
+
 ---
 
 ## Technical Decisions
 
-**MiniSearch on-device, FTS5 from server**: MiniSearch is zero-dependency and handles real-time updates well. FTS5 is strictly superior for search quality (stemming, BM25, phrase search) but requires SQLite. By building FTS5 on the server and shipping a read-only `.db` file to clients, we get the best of both: instant local search via MiniSearch for fresh edits, plus high-quality FTS5 for the full corpus, with no client-side index management.
+**MiniSearch + vectors, skip FTS5 for now**: MiniSearch is zero-dependency, handles real-time updates well, and Phase 1 proved it's good enough for lexical search in a personal notes app. FTS5 adds stemming and BM25 but is a lateral improvement — same keyword-based paradigm. Vectors are a qualitative leap: finding notes by meaning, not vocabulary. Going straight to MiniSearch + vectors gives us two complementary signals (lexical + semantic) without building a redundant second lexical path. FTS5 can be added later to the same artifact pipeline if stemming proves necessary.
 
-**node-llama-cpp for everything**: One dependency handles embeddings (Level 2), LLM generation (Level 3), and potential future reranking. GGUF models auto-download, work on CPU (ARM + x86) with optional GPU. No Python, no ONNX, no second Docker container. Proven in production by [qmd](https://github.com/tobi/qmd).
+**node-llama-cpp for server embeddings**: One dependency handles embeddings (Phase 3), LLM generation (Phase 4), and potential future reranking. GGUF models auto-download, work on CPU (ARM + x86) with optional GPU. No Python, no ONNX, no second Docker container. Proven in production by [qmd](https://github.com/tobi/qmd).
 
-**SQLite FTS5 over Elasticsearch/Meilisearch**: Zero infrastructure. Already have SQLite on the server. FTS5 has stemming, BM25, phrase search, column weights. For a personal notes server, it's plenty.
+**transformers.js for client query embedding**: Runs ONNX models via WASM SIMD in the browser/WebView. Works in Capacitor WebViews (Android + iOS) despite lacking SharedArrayBuffer and WebGPU — single-threaded WASM is fast enough for one short query (~100–200ms). The int8 quantized all-MiniLM-L6-v2 is ~23MB, cached in IndexedDB after first download. On Electron, `onnxruntime-node` provides faster native inference with the same ONNX model. This keeps query embedding fully client-side on all platforms — no server round-trip, no privacy leak.
 
-**sqlite-vec over pgvector/Pinecone**: Same zero-infrastructure rationale. ~500KB SQLite extension. Exact + approximate nearest neighbor. Fast enough for personal note collections.
+**sqlite-vec for server + Electron, brute-force for mobile**: sqlite-vec is a SQLite extension — works perfectly on the server (better-sqlite3) and Electron (same stack), and the server's `.db` file can be opened directly on the Electron client with zero conversion. But Capacitor's SQLite plugins can't load native extensions without forking. For mobile, brute-force cosine similarity over a pre-normalized `Float32Array` is simple (~50 lines of code), has zero dependencies, and runs in ~30–100ms on mobile for 30K × 384 vectors. Int8 quantization cuts memory to ~11.5MB. This is fast enough with debounced search input, and avoids depending on immature WASM vector libraries. Can upgrade to a proper ANN library later if scale demands it.
 
 **Benchmark-based, not device categories**: A Raspberry Pi 5 with 8GB RAM is more capable than a 10-year-old NUC with 2GB. Device categories are misleading. Measure actual performance, select accordingly.
 
@@ -514,9 +591,12 @@ Ship as default for all platforms. No server dependency.
 |------|-----------|
 | Weak hardware struggles with embeddings | Benchmark-based model selection; quantized models; skip Level 2 if too slow; user can force-enable |
 | Index schema/model changes break artifacts | Version tag in artifact format; client validates version before loading; clean rebuild on mismatch |
-| Client index artifact grows too large | Incremental downloads (`since` parameter); compress vectors; prune old chunks |
+| Client index artifact grows too large | Binary quantization (46MB → 1.4MB for 30K vectors); int8 vectors; prune old chunks |
 | Interrupted nightly jobs waste work | Job checkpointing; resume from last processed note |
-| On-device query embedding too slow on phones | Fallback: pre-computed term→vector lookup table in artifact |
+| On-device query embedding too slow on phones | transformers.js WASM SIMD measured ~100–200ms single-threaded; run in Web Worker so UI stays responsive; debounce search input |
+| Brute-force vector search too slow at scale | 30K vectors is fine (~30–100ms); if note count grows to 100K+, upgrade to a WASM ANN library |
+| 23MB model download on first use | Cache in IndexedDB; download in background on first app launch with sync enabled; show progress indicator |
+| Capacitor WebView lacks SharedArrayBuffer | transformers.js falls back to single-threaded WASM; acceptable for single query embedding |
 | Operational complexity for self-hosters | Zero-config defaults; single env var to enable; clear status page; auto-detection |
 
 ---
