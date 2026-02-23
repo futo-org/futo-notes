@@ -682,6 +682,17 @@
 
 .notes-shell.desktop-layout .note-title-row {
   padding-top: 24px;
+  max-width: 740px;
+  margin-left: auto;
+  margin-right: auto;
+  width: 100%;
+}
+
+.notes-shell.desktop-layout .editor-container {
+  max-width: 740px;
+  margin-left: auto;
+  margin-right: auto;
+  width: 100%;
 }
 
 /* Resize handle */

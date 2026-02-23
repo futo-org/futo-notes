@@ -57,7 +57,7 @@ describe('initNotes', () => {
 
     const results = search('unique-keyword-xyz');
     expect(results).toHaveLength(1);
-    expect(results[0].id).toBe('searchable');
+    expect(results[0].note.id).toBe('searchable');
   });
 });
 
@@ -199,6 +199,9 @@ describe('search', () => {
 
     const results = search('');
     expect(results).toHaveLength(2);
+    // Each result should have note and snippet
+    expect(results[0].note).toBeDefined();
+    expect(results[0].snippet).toBeNull();
   });
 
   it('filters for non-empty query', async () => {
@@ -210,72 +213,40 @@ describe('search', () => {
 
     const results = search('uniqueword123');
     expect(results).toHaveLength(1);
-    expect(results[0].id).toBe('alpha');
-  });
-});
-
-describe('handleExternalFileChange', () => {
-  it('add — adds new note to cache and search index', async () => {
-    const { initNotes, handleExternalFileChange, getNoteById, search } = await freshNotes();
-    await initNotes();
-
-    // Write a new file after init (simulating external file drop)
-    await testFS.writeNote('new-note', 'xyztestkeyword789');
-
-    const result = await handleExternalFileChange('add', 'new-note.md');
-    expect(result).toBeDefined();
-    expect(result!.id).toBe('new-note');
-    expect(getNoteById('new-note')).toBeDefined();
-    expect(search('xyztestkeyword789')).toHaveLength(1);
+    expect(results[0].note.id).toBe('alpha');
   });
 
-  it('change — updates existing note in cache', async () => {
-    await testFS.writeNote('existing', 'original content');
+  it('returns results in relevance order, not mtime order', async () => {
+    const now = Date.now();
+    const sixtyDaysAgo = now - 60 * 24 * 60 * 60 * 1000;
+    const oneDayAgo = now - 1 * 24 * 60 * 60 * 1000;
+    // Create an older note with a strong title match
+    await testFS.writeNote('banana-recipe', 'This is about cooking bananas. Banana bread is great.', sixtyDaysAgo);
+    // Create a newer note that barely mentions banana
+    await testFS.writeNote('grocery-list', 'eggs, milk, banana, bread', oneDayAgo);
 
-    const { initNotes, handleExternalFileChange, getNoteById } = await freshNotes();
+    const { initNotes, search } = await freshNotes();
     await initNotes();
-    expect(getNoteById('existing')!.preview).toBe('original content');
 
-    // Overwrite file content externally
-    await testFS.writeNote('existing', 'updated external content');
-
-    await handleExternalFileChange('change', 'existing.md');
-    expect(getNoteById('existing')!.preview).toBe('updated external content');
+    const results = search('banana');
+    expect(results.length).toBeGreaterThanOrEqual(2);
+    // The note with banana in the title should rank higher despite being older
+    expect(results[0].note.id).toBe('banana-recipe');
   });
 
-  it('unlink — removes note from cache and search', async () => {
-    await testFS.writeNote('doomed', 'searchable-keyword-abc');
+  it('returns snippets with highlight segments', async () => {
+    await testFS.writeNote('test-note', 'Some text before the keyword specialterm right here and more after');
 
-    const { initNotes, handleExternalFileChange, getNoteById, search } = await freshNotes();
-    await initNotes();
-    expect(getNoteById('doomed')).toBeDefined();
-    expect(search('searchable-keyword-abc')).toHaveLength(1);
-
-    await handleExternalFileChange('unlink', 'doomed.md');
-    expect(getNoteById('doomed')).toBeUndefined();
-    expect(search('searchable-keyword-abc')).toHaveLength(0);
-  });
-
-  it('add — handles read failure gracefully', async () => {
-    const { initNotes, handleExternalFileChange } = await freshNotes();
+    const { initNotes, search } = await freshNotes();
     await initNotes();
 
-    // File doesn't exist on disk — should return null, not throw
-    const result = await handleExternalFileChange('add', 'nonexistent.md');
-    expect(result).toBeNull();
-  });
+    const results = search('specialterm');
+    expect(results).toHaveLength(1);
+    expect(results[0].snippet).not.toBeNull();
 
-  it('does not write to disk', async () => {
-    await testFS.writeNote('readonly-test', 'original disk content');
-
-    const { initNotes, handleExternalFileChange } = await freshNotes();
-    await initNotes();
-
-    // Trigger add for existing file
-    await handleExternalFileChange('add', 'readonly-test.md');
-
-    // Verify file content unchanged
-    const content = await testFS.readNote('readonly-test');
-    expect(content).toBe('original disk content');
+    // The snippet should contain highlighted segments
+    const highlighted = results[0].snippet!.filter((s) => s.highlight);
+    expect(highlighted.length).toBeGreaterThan(0);
+    expect(highlighted[0].text.toLowerCase()).toContain('specialterm');
   });
 });

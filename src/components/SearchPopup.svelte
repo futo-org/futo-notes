@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { NotePreview } from '../types';
+  import type { SearchResultItem } from '../types';
   import { search } from '$lib/notes';
 
   interface Props {
@@ -11,13 +11,44 @@
 
   let query = $state('');
   let inputEl: HTMLInputElement | undefined = $state(undefined);
+  let selectedIndex = $state(-1);
+  let resultEls: HTMLElement[] = $state([]);
 
-  let results: NotePreview[] = $derived(search(query));
+  let results: SearchResultItem[] = $derived(search(query));
+
+  // Reset selection when results change
+  $effect(() => {
+    results; // track
+    selectedIndex = -1;
+  });
+
+  // Scroll selected item into view
+  $effect(() => {
+    if (selectedIndex >= 0 && resultEls[selectedIndex]) {
+      resultEls[selectedIndex].scrollIntoView({ block: 'nearest' });
+    }
+  });
 
   function handleKeydown(event: KeyboardEvent): void {
     if (event.key === 'Escape') {
       event.preventDefault();
       onclose();
+      return;
+    }
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      selectedIndex = Math.min(selectedIndex + 1, results.length - 1);
+      return;
+    }
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      selectedIndex = Math.max(selectedIndex - 1, -1);
+      return;
+    }
+    if (event.key === 'Enter' && selectedIndex >= 0 && results[selectedIndex]) {
+      event.preventDefault();
+      onselect(results[selectedIndex].note.id);
+      return;
     }
   }
 
@@ -27,9 +58,9 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
-<div class="search-overlay" onclick={onclose} onkeydown={handleKeydown}>
+<div class="search-overlay" onclick={onclose}>
   <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
-  <div class="search-panel" onclick={(e) => e.stopPropagation()}>
+  <div class="search-panel" onclick={(e) => e.stopPropagation()} onkeydown={handleKeydown}>
     <div class="search-input-row">
       <svg class="search-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="11" cy="11" r="8"/>
@@ -52,11 +83,27 @@
       {/if}
     </div>
     <div class="search-results">
-      {#each results as note (note.id)}
-        <button class="search-result-item" onclick={() => onselect(note.id)}>
-          <div class="search-result-title">{note.title}</div>
-          {#if note.preview}
-            <div class="search-result-preview">{note.preview}</div>
+      {#each results as result, i (result.note.id)}
+        <button
+          class="search-result-item"
+          class:selected={i === selectedIndex}
+          bind:this={resultEls[i]}
+          onclick={() => onselect(result.note.id)}
+          onpointerenter={() => { selectedIndex = i; }}
+        >
+          <div class="search-result-title">{result.note.title}</div>
+          {#if result.snippet && result.snippet.length > 0}
+            <div class="search-result-preview">
+              {#each result.snippet as segment}
+                {#if segment.highlight}
+                  <mark class="search-highlight">{segment.text}</mark>
+                {:else}
+                  {segment.text}
+                {/if}
+              {/each}
+            </div>
+          {:else if result.note.preview}
+            <div class="search-result-preview">{result.note.preview}</div>
           {/if}
         </button>
       {:else}
@@ -159,6 +206,10 @@
     background: #f5f5f5;
   }
 
+  .search-result-item.selected {
+    background: #f0f4ff;
+  }
+
   .search-result-item:last-child {
     border-bottom: none;
   }
@@ -178,6 +229,13 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .search-highlight {
+    background: #fff3bf;
+    border-radius: 2px;
+    padding: 0 1px;
+    color: #666;
   }
 
   .search-empty {

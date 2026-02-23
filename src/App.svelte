@@ -2,7 +2,7 @@
   import NotesShell from './components/NotesShell.svelte';
   import CrashReportDialog from './components/CrashReportDialog.svelte';
   import { hasFileSystem, isMobile, getFS } from '$lib/platform';
-  import { initNotes } from '$lib/notes';
+  import { initNotes, createNote, getAllNotes } from '$lib/notes';
   import { loadPreferences, getCachedPreferences, savePreferences } from '$lib/preferences';
   import { flushCrashQueue, setAppVersion, type CrashReport } from '$lib/crashHandler';
   import { checkHeartbeat, startHeartbeat } from '$lib/heartbeat';
@@ -41,8 +41,11 @@
 
     async function init(): Promise<void> {
       try {
-        if (hasFileSystem) {
+        if (hasFileSystem || import.meta.env.DEV) {
           await initNotes();
+          if (import.meta.env.DEV) {
+            (window as any).__testNotes = { createNote, getAllNotes };
+          }
           if (isMobile) {
             try {
               const { StatusBar, Style } = await import('@capacitor/status-bar');
