@@ -5,5 +5,6 @@ export default defineConfig({
   format: ['esm'],
   outDir: 'dist',
   external: ['better-sqlite3', 'argon2'],
+  noExternal: ['@futo-notes/shared'],
   clean: true,
 });
