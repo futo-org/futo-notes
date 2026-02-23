@@ -359,6 +359,8 @@
   border-top: 1px solid #d4d4d4;
   z-index: 1000;
   touch-action: none;
+  display: flex;
+  align-items: center;
 }
 
 .toolbar-scroll {
@@ -368,11 +370,35 @@
   height: 100%;
   padding: 0 8px;
   padding-left: max(8px, env(safe-area-inset-left));
-  padding-right: max(8px, env(safe-area-inset-right));
   overflow-x: auto;
   overflow-y: hidden;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
+  flex: 1;
+  min-width: 0;
+}
+
+.toolbar-dismiss {
+  width: 44px;
+  min-width: 44px;
+  height: 100%;
+  border: none;
+  background: transparent;
+  border-left: 1px solid #c8c8c8;
+  color: #555;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+  flex-shrink: 0;
+  margin-right: env(safe-area-inset-right, 0);
+}
+
+.toolbar-dismiss:active {
+  background: #d8d8d8;
 }
 
 .toolbar-scroll::-webkit-scrollbar {

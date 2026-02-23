@@ -20,7 +20,7 @@ import {
   getUniqueNoteId
 } from './fileSystem';
 import { ensureNotesFolder, getPlatformFS } from './platform';
-import { markLocalDeleteForSync, trackLocalRenameForSync } from './syncState';
+import { markLocalDeleteForSync, trackLocalRenameForSync, clearSyncState } from './syncState';
 
 // In-memory cache of notes metadata
 let notesCache: NotePreview[] = [];
@@ -208,6 +208,7 @@ export async function deleteAllNotes(): Promise<void> {
     await markLocalDeleteForSync(note.id);
   }
   await deleteAllContent();
+  await clearSyncState();
   notesCache = [];
   initSearchIndex();
 }

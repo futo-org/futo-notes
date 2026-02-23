@@ -164,7 +164,7 @@ describe('client-server contract', () => {
     expect(client2.notes.getAllNotes()).toHaveLength(0);
   });
 
-  it('deleteAllNotes propagates tombstones so notes do not reappear', async () => {
+  it('deleteAllNotes is a full reset — next sync re-downloads from server', async () => {
     const client = await freshClient();
     await setupClient(client);
 
@@ -175,8 +175,31 @@ describe('client-server contract', () => {
     await client.sync.syncNow();
     expect(client.notes.getAllNotes()).toHaveLength(3);
 
-    // Delete ALL notes and sync — tombstones must reach the server
+    // Full reset clears everything including sync state
     await client.notes.deleteAllNotes();
+    expect(client.notes.getAllNotes()).toHaveLength(0);
+
+    // Next sync treats this as a fresh client — re-downloads from server
+    const summary = await client.sync.syncNow();
+    expect(summary.downloaded).toBe(3);
+    expect(client.notes.getAllNotes()).toHaveLength(3);
+  });
+
+  it('individual deleteNote propagates tombstones so notes do not reappear', async () => {
+    const client = await freshClient();
+    await setupClient(client);
+
+    // Create several notes and sync
+    await client.notes.createNote('note-a', 'content a');
+    await client.notes.createNote('note-b', 'content b');
+    await client.notes.createNote('note-c', 'content c');
+    await client.sync.syncNow();
+    expect(client.notes.getAllNotes()).toHaveLength(3);
+
+    // Delete each note individually (creates tombstones) and sync
+    await client.notes.deleteNote('note-a');
+    await client.notes.deleteNote('note-b');
+    await client.notes.deleteNote('note-c');
     expect(client.notes.getAllNotes()).toHaveLength(0);
     const summary = await client.sync.syncNow();
     // Server should not send any of the deleted notes back

@@ -76,6 +76,46 @@ test.describe('P2 Header + Formatting Regressions', () => {
     }, fn);
   }
 
+  test('checkbox toggle does not focus editor when it was unfocused', async ({ page }) => {
+    await openNewNote(page);
+
+    const editor = page.locator('.cm-content');
+    await editor.click();
+    await page.keyboard.type('- [ ] Buy milk');
+
+    // Blur the editor so nothing is focused inside it
+    await blurEditor(page);
+
+    // Verify editor is not focused
+    const focusedBefore = await page.evaluate(() =>
+      Boolean(document.activeElement?.closest('.cm-editor'))
+    );
+    expect(focusedBefore).toBe(false);
+
+    // Wait for the checkbox widget to render (editor unfocused → decorations apply)
+    const checkbox = page.locator('.cm-md-task-checkbox').first();
+    await expect(checkbox).toBeVisible({ timeout: 5000 });
+
+    // Click the checkbox
+    await checkbox.click();
+
+    // Wait a tick for any focus side-effects
+    await page.waitForTimeout(100);
+
+    // Editor should still NOT be focused
+    const focusedAfter = await page.evaluate(() =>
+      Boolean(document.activeElement?.closest('.cm-editor'))
+    );
+    expect(focusedAfter).toBe(false);
+
+    // But the checkbox should have toggled ([ ] → [x])
+    const raw = await page.evaluate(() => {
+      const w = window as any;
+      return w.__cmGetView?.()?.state.doc.toString() ?? '';
+    });
+    expect(raw).toContain('[x]');
+  });
+
   const formattingCases = [
     { fn: 'bold', cssClass: '.cm-md-strong', sample: 'boldword', marker: '**' },
     { fn: 'italic', cssClass: '.cm-md-emphasis', sample: 'italicword', marker: '*' },

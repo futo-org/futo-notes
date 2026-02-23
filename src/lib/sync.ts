@@ -221,6 +221,10 @@ export async function syncNow(): Promise<SyncSummary> {
     state.deletedUuids = state.deletedUuids.filter((u) => u !== update.uuid);
   }
 
+  // Clear all deletions that were sent — the server has tombstoned them.
+  // Without this, deletedUuids accumulates forever and gets re-sent every sync.
+  state.deletedUuids = [];
+
   await saveSyncState(state);
   await clearSyncErrorAndSetTime();
 
