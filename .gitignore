@@ -27,6 +27,7 @@ local.properties
 # iOS
 xcuserdata/
 Podfile.lock
+*.xcode.env.local
 Build/
 build/
 Index/

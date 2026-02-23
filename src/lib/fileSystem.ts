@@ -42,8 +42,9 @@ export async function getUniqueNoteId(baseId: string, excludeId?: string): Promi
 }
 
 export async function renameNote(oldId: string, newId: string, content: string, modifiedAtMs?: number): Promise<number> {
+  const mtime = await writeNote(newId, content, modifiedAtMs);
   await deleteNoteFile(oldId);
-  return writeNote(newId, content, modifiedAtMs);
+  return mtime;
 }
 
 /** Copy an image from a temp path into the notes folder, return just the filename. */

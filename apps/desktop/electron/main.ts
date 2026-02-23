@@ -128,6 +128,17 @@ function stopFileWatching(): void {
   }
 }
 
+// --- Path safety ---
+
+/** Resolve a user-provided path segment under notesDir and ensure it doesn't escape. */
+function safePath(base: string, userPath: string): string {
+  const resolved = path.resolve(base, userPath);
+  if (!resolved.startsWith(base + path.sep) && resolved !== base) {
+    throw new Error(`Path traversal blocked: ${userPath}`);
+  }
+  return resolved;
+}
+
 // --- IPC handlers ---
 
 function setupIPC(): void {
@@ -144,11 +155,11 @@ function setupIPC(): void {
   });
 
   ipcMain.handle('fs:readFile', async (_event, filename: string) => {
-    return fs.readFile(path.join(notesDir, filename), 'utf-8');
+    return fs.readFile(safePath(notesDir, filename), 'utf-8');
   });
 
   ipcMain.handle('fs:writeFile', async (_event, filename: string, content: string, modifiedAtMs?: number) => {
-    const fullPath = path.join(notesDir, filename);
+    const fullPath = safePath(notesDir, filename);
     await fs.writeFile(fullPath, content, 'utf-8');
     if (typeof modifiedAtMs === 'number' && Number.isFinite(modifiedAtMs) && modifiedAtMs >= 0) {
       const ts = new Date(modifiedAtMs);
@@ -159,7 +170,7 @@ function setupIPC(): void {
   });
 
   ipcMain.handle('fs:deleteFile', async (_event, filename: string) => {
-    await fs.unlink(path.join(notesDir, filename));
+    await fs.unlink(safePath(notesDir, filename));
   });
 
   ipcMain.handle('fs:deleteAllContent', async () => {
@@ -173,7 +184,7 @@ function setupIPC(): void {
 
   ipcMain.handle('fs:fileExists', async (_event, filename: string) => {
     try {
-      await fs.access(path.join(notesDir, filename));
+      await fs.access(safePath(notesDir, filename));
       return true;
     } catch {
       return false;
@@ -208,27 +219,27 @@ function setupIPC(): void {
   // App data (dotfiles in notes directory)
   ipcMain.handle('appdata:read', async (_event, relPath: string) => {
     try {
-      return await fs.readFile(path.join(notesDir, relPath), 'utf-8');
+      return await fs.readFile(safePath(notesDir, relPath), 'utf-8');
     } catch {
       return null;
     }
   });
 
   ipcMain.handle('appdata:write', async (_event, relPath: string, content: string) => {
-    const fullPath = path.join(notesDir, relPath);
+    const fullPath = safePath(notesDir, relPath);
     await fs.mkdir(path.dirname(fullPath), { recursive: true });
     await fs.writeFile(fullPath, content, 'utf-8');
   });
 
   ipcMain.handle('appdata:delete', async (_event, relPath: string) => {
     try {
-      await fs.unlink(path.join(notesDir, relPath));
+      await fs.unlink(safePath(notesDir, relPath));
     } catch { /* not found — fine */ }
   });
 
   ipcMain.handle('appdata:list', async (_event, relDir: string) => {
     try {
-      const entries = await fs.readdir(path.join(notesDir, relDir));
+      const entries = await fs.readdir(safePath(notesDir, relDir));
       return entries;
     } catch {
       return [];
@@ -242,12 +253,12 @@ function setupIPC(): void {
     const timestamp = Date.now();
     const rand = Math.random().toString(36).slice(2, 6);
     const filename = `${timestamp}-${rand}.${ext}`;
-    await fs.copyFile(sourcePath, path.join(notesDir, filename));
+    await fs.copyFile(sourcePath, safePath(notesDir, filename));
     return filename;
   });
 
   ipcMain.handle('fs:getImageUrl', (_event, filename: string) => {
-    return `file://${path.join(notesDir, filename)}`;
+    return `file://${safePath(notesDir, filename)}`;
   });
 
   ipcMain.handle('dialog:pickImage', async () => {

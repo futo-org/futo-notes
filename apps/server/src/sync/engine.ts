@@ -177,7 +177,6 @@ export function processSync(
 
     // ── 4. Server-only notes ─────────────────────────────
     const allServerNotes = getAllNotes(db);
-    const clientNoteUuids = new Set(req.notes.map((n) => n.uuid));
     const deletedUuids = new Set(req.deleted_uuids);
 
     for (const serverNote of allServerNotes) {
