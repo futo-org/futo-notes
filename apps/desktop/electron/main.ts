@@ -260,6 +260,60 @@ function setupIPC(): void {
     return `file://${safePath(notesDir, filename)}`;
   });
 
+  // --- Supersearch IPC ---
+
+  let supersearchDb: any = null;
+
+  ipcMain.handle('supersearch:download', async (_event, serverUrl: string, token: string) => {
+    const dbPath = path.join(app.getPath('userData'), 'supersearch-v1.db');
+    const response = await fetch(`${serverUrl}/search/index?format=sqlite`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) throw new Error(`Download failed: ${response.status}`);
+    const buffer = Buffer.from(await response.arrayBuffer());
+    await fs.writeFile(dbPath, buffer);
+    // Close existing connection if open so next query uses new file
+    if (supersearchDb) {
+      try { supersearchDb.close(); } catch { /* ignore */ }
+      supersearchDb = null;
+    }
+  });
+
+  ipcMain.handle('supersearch:query', async (_event, queryVector: number[], topK: number) => {
+    if (!supersearchDb) {
+      const dbPath = path.join(app.getPath('userData'), 'supersearch-v1.db');
+      try {
+        await fs.access(dbPath);
+      } catch {
+        return [];
+      }
+      const Database = (await import('better-sqlite3')).default;
+      supersearchDb = new Database(dbPath, { readonly: true });
+      // Load sqlite-vec extension
+      const sqliteVec = await import('sqlite-vec');
+      sqliteVec.load(supersearchDb);
+    }
+    const vecBlob = new Float32Array(queryVector);
+    const buf = Buffer.from(vecBlob.buffer);
+    const rows = supersearchDb
+      .prepare(
+        `SELECT v.rowid AS chunkId, c.uuid, c.chunk_text AS chunkText, v.distance
+         FROM search_vectors v
+         JOIN search_chunks c ON c.chunk_id = v.rowid
+         WHERE v.embedding MATCH ? AND k = ?
+         ORDER BY v.distance`
+      )
+      .all(buf, topK);
+    return rows;
+  });
+
+  ipcMain.handle('supersearch:close', async () => {
+    if (supersearchDb) {
+      try { supersearchDb.close(); } catch { /* ignore */ }
+      supersearchDb = null;
+    }
+  });
+
   ipcMain.handle('dialog:pickImage', async () => {
     const win = BrowserWindow.getFocusedWindow();
     if (!win) return null;

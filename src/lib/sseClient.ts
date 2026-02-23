@@ -15,6 +15,7 @@ export function startSSE(
   serverUrl: string,
   token: string,
   onSyncAvailable: () => void,
+  onSupersearchReady?: () => void,
 ): void {
   stopSSE();
   stopped = false;
@@ -27,6 +28,11 @@ export function startSSE(
   es.addEventListener('sync_available', () => {
     if (SSE_DEBUG) console.debug('[SSE] sync_available received');
     onSyncAvailable();
+  });
+
+  es.addEventListener('supersearch_ready', () => {
+    if (SSE_DEBUG) console.debug('[SSE] supersearch_ready received');
+    onSupersearchReady?.();
   });
 
   es.onerror = () => {

@@ -20,7 +20,11 @@ import {
   getUniqueNoteId
 } from './fileSystem';
 import { ensureNotesFolder, getPlatformFS } from './platform';
-import { markLocalDeleteForSync, trackLocalRenameForSync, clearSyncState } from './syncState';
+import { markLocalDeleteForSync, trackLocalRenameForSync, clearSyncState, loadSyncState, findIdForUuid } from './syncState';
+import { isSupersearchReady } from './supersearch/state';
+import { embed, isReady as isEmbedderReady } from './supersearch/queryEmbedder';
+import { vectorSearch, type VectorSearchResult } from './supersearch/vectorSearch';
+import { hybridSearch } from './supersearch/hybridSearch';
 
 // In-memory cache of notes metadata
 let notesCache: NotePreview[] = [];
@@ -231,6 +235,45 @@ export function search(query: string): SearchResultItem[] {
     }
   }
   return results;
+}
+
+export async function searchWithVectors(query: string): Promise<SearchResultItem[]> {
+  if (!query.trim()) {
+    return getAllNotes().map((note) => ({ note, snippet: null }));
+  }
+
+  // Get keyword results synchronously
+  const keywordResults = search(query);
+
+  // Check if supersearch is available
+  const ready = await isSupersearchReady();
+  if (!ready || !isEmbedderReady()) {
+    return keywordResults;
+  }
+
+  try {
+    // Run vector search
+    const queryVector = await embed(query);
+    const rawVectorResults = await vectorSearch(queryVector, 20);
+
+    // Map UUIDs to note IDs
+    const syncState = await loadSyncState();
+    const cacheMap = new Map(notesCache.map((n) => [n.id, n]));
+    const mappedResults: VectorSearchResult[] = [];
+
+    for (const vr of rawVectorResults) {
+      const noteId = findIdForUuid(syncState, vr.uuid);
+      if (noteId && cacheMap.has(noteId)) {
+        mappedResults.push({ ...vr, uuid: noteId });
+      }
+    }
+
+    // Fuse with RRF
+    return hybridSearch(keywordResults, mappedResults, cacheMap);
+  } catch (e) {
+    console.warn('[supersearch] vector search failed, falling back to keyword:', e);
+    return keywordResults;
+  }
 }
 
 export async function handleExternalFileChange(

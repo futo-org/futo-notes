@@ -32,6 +32,15 @@ export interface PlatformFS {
   // Bulk operations
   deleteAllContent(): Promise<void>;
 
+  // Binary app data (supersearch artifacts)
+  readBinaryAppData?(path: string): Promise<ArrayBuffer | null>;
+  writeBinaryAppData?(path: string, data: ArrayBuffer): Promise<void>;
+
+  // Supersearch (Electron only)
+  supersearchDownload?(serverUrl: string, token: string): Promise<void>;
+  supersearchQuery?(queryVector: number[], topK: number): Promise<Array<{ chunkId: number; uuid: string; chunkText: string; distance: number }>>;
+  supersearchClose?(): Promise<void>;
+
   // Optional platform-specific
   pickImage?(): Promise<string | null>;
 }

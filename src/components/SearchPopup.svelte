@@ -1,6 +1,8 @@
 <script lang="ts">
   import type { SearchResultItem } from '../types';
-  import { search } from '$lib/notes';
+  import { search, searchWithVectors } from '$lib/notes';
+  import { isSupersearchReady } from '$lib/supersearch/state';
+  import { isReady as isEmbedderReady } from '$lib/supersearch/queryEmbedder';
 
   interface Props {
     onclose: () => void;
@@ -13,8 +15,46 @@
   let inputEl: HTMLInputElement | undefined = $state(undefined);
   let selectedIndex = $state(-1);
   let resultEls: HTMLElement[] = $state([]);
+  let vectorResults: SearchResultItem[] | null = $state(null);
+  let vectorSearching = $state(false);
 
-  let results: SearchResultItem[] = $derived(search(query));
+  let keywordResults: SearchResultItem[] = $derived(search(query));
+  let results: SearchResultItem[] = $derived(vectorResults ?? keywordResults);
+
+  // Debounced vector search
+  let vectorDebounceTimer: ReturnType<typeof setTimeout> | undefined;
+
+  $effect(() => {
+    const q = query;
+    // Reset vector results when query changes
+    vectorResults = null;
+    vectorSearching = false;
+
+    if (vectorDebounceTimer) clearTimeout(vectorDebounceTimer);
+
+    if (!q.trim()) return;
+
+    vectorDebounceTimer = setTimeout(async () => {
+      // Only run if supersearch is available
+      const ready = await isSupersearchReady();
+      if (!ready || !isEmbedderReady()) return;
+      // Check query hasn't changed during the debounce
+      if (q !== query) return;
+
+      vectorSearching = true;
+      try {
+        const fusedResults = await searchWithVectors(q);
+        // Only apply if query still matches
+        if (q === query) {
+          vectorResults = fusedResults;
+        }
+      } catch {
+        // Silently fall back to keyword results
+      } finally {
+        if (q === query) vectorSearching = false;
+      }
+    }, 150);
+  });
 
   // Reset selection when results change
   $effect(() => {
@@ -73,6 +113,11 @@
         placeholder="Search notes..."
         bind:value={query}
       />
+      {#if vectorSearching}
+        <span class="search-vector-indicator" title="Searching with AI..."></span>
+      {:else if vectorResults && query}
+        <span class="search-vector-done" title="AI-enhanced results"></span>
+      {/if}
       {#if query}
         <button class="search-clear" aria-label="Clear search" onclick={() => { query = ''; inputEl?.focus(); }}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -236,6 +281,30 @@
     border-radius: 2px;
     padding: 0 1px;
     color: var(--color-primary-hover);
+  }
+
+  .search-vector-indicator {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--color-primary);
+    opacity: 0.6;
+    flex-shrink: 0;
+    animation: pulse 1s ease-in-out infinite;
+  }
+
+  .search-vector-done {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--color-primary);
+    opacity: 0.4;
+    flex-shrink: 0;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 0.3; }
+    50% { opacity: 0.8; }
   }
 
   .search-empty {

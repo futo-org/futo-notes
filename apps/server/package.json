@@ -14,7 +14,9 @@
     "@hono/node-server": "^1.19.9",
     "argon2": "^0.44.0",
     "better-sqlite3": "^11.0.0",
-    "hono": "^4.0.0"
+    "hono": "^4.0.0",
+    "node-llama-cpp": "^3.0.0",
+    "sqlite-vec": "^0.1.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.0.0",

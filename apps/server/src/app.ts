@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { log } from './logger.js';
+import { loadConfig } from './config.js';
 import health from './routes/health.js';
 import setup from './routes/setup.js';
 import login from './routes/login.js';
@@ -8,6 +9,7 @@ import sync from './routes/sync.js';
 import revoke from './routes/revoke.js';
 import events from './routes/events.js';
 import dev from './routes/dev.js';
+import search from './routes/search.js';
 
 export function createApp(): Hono {
   const app = new Hono();
@@ -33,6 +35,12 @@ export function createApp(): Hono {
   app.route('/', sync);
   app.route('/', revoke);
   app.route('/', events);
+
+  // Search routes (only when search is enabled)
+  const config = loadConfig();
+  if (config.searchEnabled) {
+    app.route('/', search);
+  }
 
   // Dev-only routes (nuke, etc.)
   if (process.env.NODE_ENV !== 'production') {

@@ -11,6 +11,7 @@ export interface AutoSyncCallbacks {
   onSyncComplete: (summary: SyncSummary) => void;
   onSyncError: (error: Error) => void;
   flushPendingSave: () => Promise<void>;
+  onSupersearchReady?: () => void;
 }
 
 let callbacks: AutoSyncCallbacks | null = null;
@@ -68,10 +69,14 @@ function handleSSENotification(): void {
   }, SSE_SYNC_DEBOUNCE);
 }
 
+function handleSupersearchReady(): void {
+  callbacks?.onSupersearchReady?.();
+}
+
 export function connectSSE(): void {
   if (!isSyncConfigured()) return;
   const prefs = getCachedPreferences();
-  startSSE(prefs.sync.serverUrl, prefs.sync.token, handleSSENotification);
+  startSSE(prefs.sync.serverUrl, prefs.sync.token, handleSSENotification, handleSupersearchReady);
 }
 
 export function startAutoSync(cb: AutoSyncCallbacks): void {

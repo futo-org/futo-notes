@@ -144,6 +144,51 @@ export const capacitorFS: PlatformFS = {
     }
   },
 
+  async readBinaryAppData(relPath: string): Promise<ArrayBuffer | null> {
+    try {
+      const result = await Filesystem.readFile({
+        path: `${NOTES_SUBFOLDER}/${relPath}`,
+        directory: notesDirectory,
+      });
+      // Capacitor returns base64 when no encoding is specified
+      const base64 = result.data as string;
+      const binary = atob(base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      return bytes.buffer;
+    } catch {
+      return null;
+    }
+  },
+
+  async writeBinaryAppData(relPath: string, data: ArrayBuffer): Promise<void> {
+    // Ensure parent directory exists
+    const lastSlash = relPath.lastIndexOf('/');
+    if (lastSlash > 0) {
+      try {
+        await Filesystem.mkdir({
+          path: `${NOTES_SUBFOLDER}/${relPath.slice(0, lastSlash)}`,
+          directory: notesDirectory,
+          recursive: true,
+        });
+      } catch { /* already exists */ }
+    }
+    // Encode ArrayBuffer to base64
+    const bytes = new Uint8Array(data);
+    let binary = '';
+    for (let i = 0; i < bytes.length; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    const base64 = btoa(binary);
+    await Filesystem.writeFile({
+      path: `${NOTES_SUBFOLDER}/${relPath}`,
+      data: base64,
+      directory: notesDirectory,
+    });
+  },
+
   async saveImage(sourcePath: string): Promise<string> {
     const ext = sourcePath.split('.').pop()?.toLowerCase() || 'jpg';
     const timestamp = Date.now();

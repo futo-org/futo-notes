@@ -53,6 +53,16 @@ export function removeAllClients(): void {
   clients.clear();
 }
 
+export function broadcastSupersearchReady(): void {
+  for (const [id, client] of clients) {
+    client.stream.writeSSE({ event: 'supersearch_ready', data: '' }).catch(() => {
+      try { client.stream.close(); } catch { /* ignore */ }
+      clients.delete(id);
+      log.info(`sse: removed dead client id=${id}`);
+    });
+  }
+}
+
 // 30s keepalive heartbeat
 const heartbeat = setInterval(() => {
   for (const [id, client] of clients) {

@@ -29,6 +29,11 @@ export interface ElectronAPI {
   saveImage(sourcePath: string): Promise<string>;
   getImageUrl(filename: string): Promise<string>;
 
+  // Supersearch
+  supersearchDownload(serverUrl: string, token: string): Promise<void>;
+  supersearchQuery(queryVector: number[], topK: number): Promise<Array<{ chunkId: number; uuid: string; chunkText: string; distance: number }>>;
+  supersearchClose(): Promise<void>;
+
   // Events from main process
   onFileChange(callback: (event: { type: string; filename: string }) => void): () => void;
   onMenuAction(callback: (action: string) => void): () => void;

@@ -31,6 +31,13 @@ const api: ElectronAPI = {
   saveImage: (sourcePath) => ipcRenderer.invoke('fs:saveImage', sourcePath),
   getImageUrl: (filename) => ipcRenderer.invoke('fs:getImageUrl', filename),
 
+  // Supersearch
+  supersearchDownload: (serverUrl: string, token: string) =>
+    ipcRenderer.invoke('supersearch:download', serverUrl, token),
+  supersearchQuery: (queryVector: number[], topK: number) =>
+    ipcRenderer.invoke('supersearch:query', queryVector, topK),
+  supersearchClose: () => ipcRenderer.invoke('supersearch:close'),
+
   // Events
   onFileChange: (callback) => {
     const handler = (_event: Electron.IpcRendererEvent, data: { type: string; filename: string }) => callback(data);

@@ -68,6 +68,18 @@ export const electronFS: PlatformFS = {
   async pickImage(): Promise<string | null> {
     return getAPI().pickImage();
   },
+
+  async supersearchDownload(serverUrl: string, token: string): Promise<void> {
+    return getAPI().supersearchDownload(serverUrl, token);
+  },
+
+  async supersearchQuery(queryVector: number[], topK: number): Promise<Array<{ chunkId: number; uuid: string; chunkText: string; distance: number }>> {
+    return getAPI().supersearchQuery(queryVector, topK);
+  },
+
+  async supersearchClose(): Promise<void> {
+    return getAPI().supersearchClose();
+  },
 };
 
 /** Pick an image file via native dialog. Electron-specific UI action. */

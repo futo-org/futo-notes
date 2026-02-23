@@ -5,6 +5,7 @@ import { getDb } from '../db/index.js';
 import { processSync } from '../sync/engine.js';
 import { loadConfig } from '../config.js';
 import { broadcastSyncAvailable } from '../events.js';
+import { markDirtyAfterSync, removeDirtyForDeleted } from '../search/dirtyTracker.js';
 import { log } from '../logger.js';
 
 const sync = new Hono();
@@ -41,6 +42,27 @@ sync.post('/sync', authMiddleware, async (c) => {
   if (hasChanges) {
     const clientId = c.req.header('X-Client-Id') || '';
     broadcastSyncAvailable(clientId);
+  }
+
+  // Search: mark changed notes dirty so they get re-indexed
+  if (config.searchEnabled) {
+    const changedUuids: string[] = [];
+    // Client-to-server changes (hash_updates = notes the server accepted from client)
+    for (const hu of result.hash_updates) {
+      changedUuids.push(hu.uuid);
+    }
+    // Server-to-client updates where content changed (another client's edits)
+    for (const u of result.update) {
+      if (!changedUuids.includes(u.uuid)) {
+        changedUuids.push(u.uuid);
+      }
+    }
+    if (changedUuids.length > 0) {
+      markDirtyAfterSync(db, changedUuids);
+    }
+    if (body.deleted_uuids.length > 0) {
+      removeDirtyForDeleted(db, body.deleted_uuids);
+    }
   }
 
   return c.json(result);
