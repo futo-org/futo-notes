@@ -1034,9 +1034,22 @@ Escaped pipes:
 >
   <!-- Drawer -->
   <aside bind:this={drawer} class="notes-drawer" aria-hidden={!drawerOpen}>
+    <div class="sidebar-header">
+      <span class="sidebar-brand">FUTO Notes</span>
+      <button
+        class="sidebar-settings-btn"
+        aria-label="Settings"
+        onclick={() => { settingsOpen = true; }}
+      >
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
+          <circle cx="12" cy="12" r="3"/>
+        </svg>
+      </button>
+    </div>
     <div class="drawer-search-area">
       <button class="search-button" onclick={() => { searchOpen = true; }}>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="11" cy="11" r="8"/>
           <line x1="21" y1="21" x2="16.65" y2="16.65"/>
         </svg>
@@ -1050,18 +1063,19 @@ Escaped pipes:
       {isDragging}
     />
     <button
-      class="settings-fab"
-      aria-label="Settings"
-      onclick={() => { settingsOpen = true; }}
-    >&#9881;</button>
-    <button
       class="fab"
       aria-label="New note"
       ontouchstart={handleFabTouchStart}
       ontouchend={handleFabTouchEnd}
       ontouchcancel={handleFabTouchCancel}
       onclick={handleFabClick}
-    >+</button>
+    >
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="12" y1="5" x2="12" y2="19"/>
+        <line x1="5" y1="12" x2="19" y2="12"/>
+      </svg>
+      New
+    </button>
     {#if !isMobile}
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div
@@ -1123,7 +1137,8 @@ Escaped pipes:
         <div class="note-title-row">
           <input
             type="text"
-            class="title-input w-full border-none bg-transparent text-[28px] font-bold leading-tight tracking-tight p-0 focus:outline-none"
+            class="title-input w-full border-none bg-transparent p-0 focus:outline-none"
+            style="font-family: var(--font-serif); font-size: 30px; font-weight: 400; line-height: 1.2; letter-spacing: -0.01em; color: var(--color-text);"
             placeholder="Untitled"
             bind:value={title}
             oninput={handleTitleInput}
@@ -1133,7 +1148,7 @@ Escaped pipes:
             maxlength={200}
           />
           {#if titleWarning}
-            <div class="text-xs pt-0.5" style="color: #f7768e">{titleWarning}</div>
+            <div class="text-xs pt-0.5" style="color: var(--color-danger)">{titleWarning}</div>
           {/if}
         </div>
         <div class="editor-container">
@@ -1145,12 +1160,13 @@ Escaped pipes:
           />
         </div>
       {:else}
-        <div class="flex-1 flex flex-col items-center justify-center gap-3 p-8 text-center text-muted">
+        <div class="flex-1 flex flex-col items-center justify-center gap-4 p-8 text-center">
+          <div style="font-family: var(--font-serif); font-size: 24px; color: var(--color-border); letter-spacing: -0.01em;">FUTO Notes</div>
           {#if isMobile}
-            <div class="text-sm text-muted">Swipe from the left edge or tap the menu to browse notes.</div>
-            <button class="border-none bg-primary rounded-full px-4 py-2.5 text-sm cursor-pointer active:opacity-80" style="color: #1a1b26" onclick={(e) => { e.stopPropagation(); setDrawerOpen(true); }}>Browse notes</button>
+            <div class="text-sm text-muted">Swipe from the left edge or tap the menu to browse your notes.</div>
+            <button class="border-none rounded-full px-5 py-2.5 text-sm font-medium cursor-pointer active:opacity-80" style="background: var(--color-primary); color: var(--color-bg);" onclick={(e) => { e.stopPropagation(); setDrawerOpen(true); }}>Browse notes</button>
           {:else}
-            <div class="text-sm text-muted">Select a note from the sidebar, or press + to create one.</div>
+            <div class="text-sm text-muted">Select a note from the sidebar, or create a new one.</div>
           {/if}
         </div>
       {/if}

@@ -1,12 +1,22 @@
 /* Live Markdown Transform Styles */
 
-/* Headings */
+/* Headings — Instrument Serif for H1-H3, Outfit for H4-H6 */
 .cm-md-h1,
 .cm-md-h2,
-.cm-md-h3,
+.cm-md-h3 {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  margin-top: 6px;
+  margin-bottom: 2px;
+  display: block;
+  letter-spacing: -0.01em;
+  color: var(--color-text);
+}
+
 .cm-md-h4,
 .cm-md-h5,
 .cm-md-h6 {
+  font-family: var(--font-sans);
   font-weight: 600;
   margin-top: 4px;
   margin-bottom: 2px;
@@ -14,31 +24,33 @@
 }
 
 .cm-md-h1 {
-  font-size: 28px;
+  font-size: 32px;
+  line-height: 1.2;
 }
 
 .cm-md-h2 {
-  font-size: 24px;
+  font-size: 26px;
+  line-height: 1.25;
 }
 
 .cm-md-h3 {
-  font-size: 20px;
-  color: #333;
+  font-size: 22px;
+  line-height: 1.3;
 }
 
 .cm-md-h4 {
   font-size: 18px;
-  color: #444;
+  color: var(--color-text);
 }
 
 .cm-md-h5 {
   font-size: 16px;
-  color: #555;
+  color: #57534E;
 }
 
 .cm-md-h6 {
   font-size: 14px;
-  color: #666;
+  color: var(--color-muted);
 }
 
 /* Emphasis */
@@ -55,24 +67,24 @@
 
 /* Code */
 .cm-md-code {
-  background: #f5f5f5;
-  color: #d63384;
+  background: rgba(28, 25, 23, 0.05);
+  color: var(--color-primary-hover);
   padding: 2px 6px;
-  border-radius: 3px;
+  border-radius: 4px;
   font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-  font-size: 0.9em;
+  font-size: 0.88em;
 }
 
-/* Code blocks - unified styling via line decorations */
+/* Code blocks */
 .cm-line.cm-md-code-block {
-  background: #f8f8f8;
-  color: #333;
+  background: rgba(28, 25, 23, 0.03);
+  color: var(--color-text);
   font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-  font-size: 0.9em;
+  font-size: 0.88em;
   padding: 4px 16px !important;
   margin-left: 0;
   margin-right: 0;
-  border-left: 3px solid #ddd;
+  border-left: 2px solid var(--color-border);
 }
 
 .cm-line.cm-md-code-block-single {
@@ -91,27 +103,30 @@
 /* Strikethrough */
 .cm-md-strikethrough {
   text-decoration: line-through;
-  color: #999;
+  color: var(--color-muted);
 }
 
 /* Links */
 .cm-md-link {
-  color: #0969da;
+  color: var(--color-primary);
   text-decoration: underline;
+  text-decoration-color: rgba(176, 125, 59, 0.35);
+  text-underline-offset: 2px;
   cursor: pointer;
 }
 
 .cm-md-link:hover {
-  color: #0860ca;
+  color: var(--color-primary-hover);
+  text-decoration-color: rgba(154, 108, 47, 0.5);
 }
 
-/* Block quotes - unified styling via line decorations */
+/* Block quotes */
 .cm-line.cm-md-quote {
   padding-left: 15px !important;
-  color: #666;
+  color: #78716C;
   font-style: italic;
   margin-left: 0;
-  border-left: 3px solid #3b82f6;
+  border-left: 2px solid var(--color-primary);
 }
 
 /* Level 2: two separate vertical lines */
@@ -119,9 +134,9 @@
   padding-left: 30px !important;
   border-left: none;
   background-image:
-    linear-gradient(#3b82f6, #3b82f6),
-    linear-gradient(#3b82f6, #3b82f6);
-  background-size: 3px 100%, 3px 100%;
+    linear-gradient(var(--color-primary), var(--color-primary)),
+    linear-gradient(var(--color-primary), var(--color-primary));
+  background-size: 2px 100%, 2px 100%;
   background-position: 0 0, 15px 0;
   background-repeat: no-repeat;
 }
@@ -131,21 +146,21 @@
   padding-left: 45px !important;
   border-left: none;
   background-image:
-    linear-gradient(#3b82f6, #3b82f6),
-    linear-gradient(#3b82f6, #3b82f6),
-    linear-gradient(#3b82f6, #3b82f6);
-  background-size: 3px 100%, 3px 100%, 3px 100%;
+    linear-gradient(var(--color-primary), var(--color-primary)),
+    linear-gradient(var(--color-primary), var(--color-primary)),
+    linear-gradient(var(--color-primary), var(--color-primary));
+  background-size: 2px 100%, 2px 100%, 2px 100%;
   background-position: 0 0, 15px 0, 30px 0;
   background-repeat: no-repeat;
 }
 
 /* Dimmed quote markers when cursor is on the line */
 .cm-md-quote-marker {
-  color: #ccc;
+  color: var(--color-border);
   font-style: normal;
 }
 
-/* List item line — hanging indent is set via inline style on line decorations */
+/* List item line */
 .cm-line.cm-md-list-line {
   /* padding-left and text-indent are set inline per item */
 }
@@ -167,19 +182,19 @@
   -webkit-appearance: checkbox;
   margin-right: 6px;
   cursor: pointer;
+  accent-color: var(--color-primary);
 }
 
 /* Horizontal rule widget */
 .cm-md-hr-widget {
-  margin: 12px 0;
+  margin: 16px 0;
   display: flex;
   align-items: center;
 }
 
 .cm-md-hr-widget > div {
   flex: 1;
-  border-top: 2px solid #ccc;
-  opacity: 0.5;
+  border-top: 1px solid var(--color-border);
 }
 
 /* Image widget */
@@ -191,11 +206,11 @@
 .cm-md-image-widget {
   max-width: 100%;
   max-height: 300px;
-  border-radius: 4px;
+  border-radius: 6px;
   display: block;
 }
 
-/* Table rendering - scrollable wrapper */
+/* Table rendering */
 .cm-md-table-wrapper {
   display: block;
   overflow-x: auto;
@@ -206,48 +221,46 @@
   max-width: calc(100vw - 32px);
   margin: 8px 0;
   cursor: pointer;
-  border-radius: 6px;
+  border-radius: 8px;
 }
 
-/* Rendered table styling */
 .cm-md-table-rendered {
   border-collapse: collapse;
   min-width: 100%;
-  font-size: 0.95em;
-  border: 1px solid #e0e0e0;
+  font-size: 0.93em;
+  border: 1px solid var(--color-border);
 }
 
 .cm-md-table-rendered th,
 .cm-md-table-rendered td {
   padding: 10px 14px;
-  border: 1px solid #e0e0e0;
+  border: 1px solid var(--color-border);
   white-space: nowrap;
 }
 
 .cm-md-table-rendered th {
-  background: #f5f5f5;
+  background: var(--color-surface);
   font-weight: 600;
-  color: #333;
+  color: var(--color-text);
 }
 
 .cm-md-table-rendered tbody tr:nth-child(even) {
-  background: #fafafa;
+  background: rgba(28, 25, 23, 0.02);
 }
 
 .cm-md-table-rendered tbody tr:hover {
-  background: #f0f7ff;
+  background: rgba(176, 125, 59, 0.06);
 }
 
-/* Click hint on hover - use outline instead of box-shadow to avoid repaint */
 .cm-md-table-wrapper:hover {
-  outline: 2px solid #3b82f6;
+  outline: 2px solid var(--color-primary);
   outline-offset: 0;
 }
 
 /* Inline formatting within tables */
 .cm-md-table-rendered code.cm-md-table-code {
-  background: #f0f0f0;
-  color: #d63384;
+  background: rgba(28, 25, 23, 0.05);
+  color: var(--color-primary-hover);
   padding: 1px 4px;
   border-radius: 3px;
   font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
@@ -255,12 +268,13 @@
 }
 
 .cm-md-table-rendered a.cm-md-table-link {
-  color: #0969da;
+  color: var(--color-primary);
   text-decoration: underline;
+  text-decoration-color: rgba(176, 125, 59, 0.35);
 }
 
 .cm-md-table-rendered del {
-  color: #999;
+  color: var(--color-muted);
 }
 
 /* Decorative markers (hidden by display: none) */
@@ -268,7 +282,7 @@
   display: none;
 }
 
-/* Focus state - show hidden elements when editing */
+/* Focus state — show hidden elements when editing */
 .cm-editor:focus-within .cm-md-h1 .cm-md-h1-marker,
 .cm-editor:focus-within .cm-md-h2 .cm-md-h2-marker,
 .cm-editor:focus-within .cm-md-h3 .cm-md-h3-marker,
@@ -276,24 +290,24 @@
 .cm-editor:focus-within .cm-md-h5 .cm-md-h5-marker,
 .cm-editor:focus-within .cm-md-h6 .cm-md-h6-marker {
   display: inline;
-  color: #ccc;
+  color: var(--color-border);
 }
 
 /* Mobile adjustments */
 @media (max-width: 480px) {
   .cm-md-h1 {
-    font-size: 24px;
+    font-size: 28px;
   }
 
   .cm-md-h2 {
-    font-size: 20px;
+    font-size: 22px;
   }
 
   .cm-md-h3 {
-    font-size: 18px;
+    font-size: 19px;
   }
 
-  .cm-md-code-block {
+  .cm-line.cm-md-code-block {
     font-size: 0.85em;
     padding: 6px;
   }

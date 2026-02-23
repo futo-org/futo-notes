@@ -111,7 +111,8 @@ test.describe('Headings', () => {
     const fontWeight = await h1.evaluate(el =>
       window.getComputedStyle(el).fontWeight
     );
-    expect(parseInt(fontWeight)).toBeGreaterThanOrEqual(600);
+    // H1-H3 use Instrument Serif at weight 400 (size creates hierarchy)
+    expect(parseInt(fontWeight)).toBeGreaterThanOrEqual(400);
   });
 
   test('h2 renders with correct class and font size', async ({ page }) => {

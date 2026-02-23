@@ -357,7 +357,7 @@
   .settings-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.4);
+    background: rgba(28, 25, 23, 0.35);
     z-index: 200;
     display: flex;
     align-items: flex-end;
@@ -387,7 +387,7 @@
 
   .settings-title {
     font-size: 20px;
-    font-weight: 700;
+    font-weight: 600;
     margin: 0;
     color: var(--color-text);
   }
@@ -396,19 +396,20 @@
     width: 36px;
     height: 36px;
     border: none;
-    background: #292e42;
-    border-radius: 50%;
+    background: var(--color-surface);
+    border-radius: 10px;
     font-size: 22px;
-    color: #a9b1d6;
+    color: var(--color-muted);
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
     -webkit-tap-highlight-color: transparent;
+    transition: background 0.15s ease;
   }
 
   .settings-close:active {
-    background: #343b58;
+    background: var(--color-border);
   }
 
   .settings-content {
@@ -420,10 +421,10 @@
   }
 
   .settings-section-title {
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.06em;
     color: var(--color-muted);
     margin: 0 0 8px 4px;
   }
@@ -450,7 +451,13 @@
     border-radius: 10px;
     padding: 10px 12px;
     font-size: 14px;
+    font-family: inherit;
     margin-bottom: 10px;
+  }
+
+  .settings-input:focus {
+    outline: none;
+    border-color: var(--color-primary);
   }
 
   .settings-actions {
@@ -473,30 +480,34 @@
     text-align: left;
     font-family: inherit;
     -webkit-tap-highlight-color: transparent;
+    transition: transform 0.1s ease;
   }
 
   .settings-btn-inline {
     flex: 1;
-    background: #292e42;
-    color: #d8def8;
+    background: var(--color-text);
+    color: var(--color-bg);
     justify-content: center;
     padding: 10px 12px;
+    font-weight: 500;
+    border-radius: 10px;
   }
 
   .settings-btn:active {
-    opacity: 0.7;
+    transform: scale(0.98);
   }
 
   .settings-btn:disabled {
     cursor: default;
+    opacity: 0.6;
   }
 
   .settings-btn:disabled:active {
-    opacity: 1;
+    transform: none;
   }
 
   .settings-btn-danger .settings-btn-label {
-    color: #f7768e;
+    color: var(--color-danger);
   }
 
   .settings-btn-text {
@@ -538,10 +549,11 @@
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
     margin-bottom: 2px;
+    transition: transform 0.1s ease;
   }
 
   .settings-toggle-row:active {
-    opacity: 0.7;
+    transform: scale(0.98);
   }
 
   .settings-toggle-row.sub {
@@ -562,7 +574,7 @@
     width: 48px;
     height: 28px;
     border-radius: 14px;
-    background: #292e42;
+    background: var(--color-border);
     position: relative;
     transition: background 0.2s ease;
     flex-shrink: 0;
@@ -577,12 +589,12 @@
     width: 24px;
     height: 24px;
     border-radius: 12px;
-    background: #565f89;
+    background: var(--color-bg);
     position: absolute;
     top: 2px;
     left: 2px;
     transition: transform 0.2s ease;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 1px 3px rgba(28, 25, 23, 0.15);
   }
 
   .settings-switch.on .settings-switch-thumb {

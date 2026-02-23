@@ -1,4 +1,6 @@
-/* Notes Shell */
+/* ===========================
+   Notes Shell
+   =========================== */
 .notes-shell {
   position: absolute;
   inset: 0;
@@ -20,6 +22,9 @@
   overflow: hidden;
 }
 
+/* ===========================
+   Drawer Toggle (mobile hamburger)
+   =========================== */
 .drawer-toggle {
   width: 40px;
   height: 40px;
@@ -32,6 +37,7 @@
   align-items: center;
   justify-content: center;
   -webkit-tap-highlight-color: transparent;
+  color: var(--color-text);
 }
 
 .drawer-toggle.floating {
@@ -40,15 +46,24 @@
   left: max(12px, calc(12px + env(safe-area-inset-left)));
   width: 44px;
   height: 44px;
-  border-radius: 22px;
-  background: rgba(255, 255, 255, 0.96);
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
+  border-radius: 12px;
+  background: rgba(250, 249, 246, 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 2px 8px rgba(28, 25, 23, 0.08), 0 0 0 1px rgba(28, 25, 23, 0.04);
   z-index: 35;
   transform: translateX(var(--drawer-offset));
   transition: transform 0.25s ease;
   will-change: transform;
 }
 
+.drawer-toggle.floating:active {
+  background: var(--color-surface);
+}
+
+/* ===========================
+   Note Body / Editor Area
+   =========================== */
 .note-body {
   position: relative;
   flex: 1;
@@ -64,10 +79,10 @@
 }
 
 .note-title-row {
-  padding: 16px;
+  padding: 16px 20px;
   padding-top: calc(64px + env(safe-area-inset-top, 0));
-  padding-left: max(16px, calc(16px + env(safe-area-inset-left)));
-  padding-right: max(16px, calc(16px + env(safe-area-inset-right)));
+  padding-left: max(20px, calc(20px + env(safe-area-inset-left)));
+  padding-right: max(20px, calc(20px + env(safe-area-inset-right)));
   padding-bottom: 4px;
   flex-shrink: 0;
 }
@@ -77,8 +92,8 @@
   background: transparent;
   overflow-x: hidden;
   flex: 1 0 auto;
-  padding-left: max(16px, calc(16px + env(safe-area-inset-left)));
-  padding-right: max(16px, calc(16px + env(safe-area-inset-right)));
+  padding-left: max(20px, calc(20px + env(safe-area-inset-left)));
+  padding-right: max(20px, calc(20px + env(safe-area-inset-right)));
   padding-bottom: max(200px, calc(40vh + env(safe-area-inset-bottom, 0)));
 }
 
@@ -103,7 +118,7 @@
 }
 
 .editor-container .cm-line {
-  line-height: 1.6;
+  line-height: 1.7;
   padding-left: 0 !important;
   padding-right: 0 !important;
 }
@@ -121,14 +136,16 @@
   padding: 4px 16px !important;
 }
 
-/* Drawer */
+/* ===========================
+   Drawer / Sidebar
+   =========================== */
 .notes-drawer {
   position: absolute;
   top: 0;
   left: 0;
   bottom: 0;
   width: var(--drawer-width);
-  background: var(--color-bg);
+  background: var(--color-sidebar);
   transform: translateX(calc(var(--drawer-offset) - var(--drawer-width)));
   transition: transform 0.25s ease;
   box-shadow: none;
@@ -137,11 +154,11 @@
   flex-direction: column;
 }
 
-/* Drawer overlay (replaces filter: brightness/contrast) */
+/* Drawer overlay */
 .drawer-overlay {
   position: absolute;
   inset: 0;
-  background: black;
+  background: rgba(28, 25, 23, 0.3);
   opacity: 0;
   pointer-events: none;
   z-index: 25;
@@ -181,53 +198,103 @@
   pointer-events: none;
 }
 
-/* FAB */
+/* ===========================
+   Sidebar Header / Branding
+   =========================== */
+.sidebar-header {
+  padding: max(20px, calc(20px + env(safe-area-inset-top))) 16px 0;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sidebar-brand {
+  font-family: var(--font-serif);
+  font-size: 22px;
+  font-weight: 400;
+  color: var(--color-text);
+  letter-spacing: -0.01em;
+  padding: 0 4px;
+}
+
+.sidebar-settings-btn {
+  width: 36px;
+  height: 36px;
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+  color: var(--color-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.15s ease;
+}
+
+.sidebar-settings-btn:active {
+  background: rgba(28, 25, 23, 0.06);
+}
+
+/* ===========================
+   FABs
+   =========================== */
 .fab {
   position: fixed;
   bottom: max(16px, calc(16px + env(safe-area-inset-bottom)));
   right: max(16px, calc(16px + env(safe-area-inset-right)));
-  width: 56px;
-  height: 56px;
-  border-radius: 50%;
+  height: 48px;
+  border-radius: 24px;
   background: var(--color-primary);
-  color: white;
+  color: #FAF9F6;
   border: none;
-  font-size: 32px;
+  font-size: 15px;
+  font-weight: 500;
+  font-family: var(--font-sans);
   cursor: pointer;
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 2px 8px rgba(176, 125, 59, 0.25), 0 0 0 1px rgba(176, 125, 59, 0.1);
   z-index: 100;
   -webkit-user-select: none;
   user-select: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 20px;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 
 .fab:active {
-  opacity: 0.8;
+  transform: scale(0.96);
+  box-shadow: 0 1px 4px rgba(176, 125, 59, 0.2);
 }
 
-/* Settings button */
+/* Settings button — now in sidebar header, but keep as fallback */
 .settings-fab {
   position: fixed;
   bottom: max(16px, calc(16px + env(safe-area-inset-bottom)));
   left: max(16px, calc(16px + env(safe-area-inset-left)));
-  width: 56px;
-  height: 56px;
-  border-radius: 50%;
-  background: #3a3a3c;
-  color: #fff;
+  width: 48px;
+  height: 48px;
+  border-radius: 24px;
+  background: var(--color-text);
+  color: var(--color-bg);
   border: none;
-  font-size: 28px;
+  font-size: 22px;
   cursor: pointer;
-  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 2px 8px rgba(28, 25, 23, 0.15);
   z-index: 99;
   -webkit-user-select: none;
   user-select: none;
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: transform 0.15s ease;
 }
 
 .settings-fab:active {
-  opacity: 0.7;
+  transform: scale(0.96);
 }
 
 .notes-drawer .settings-fab {
@@ -243,18 +310,20 @@
   bottom: max(16px, calc(16px + env(safe-area-inset-bottom)));
 }
 
-/* Search area above notes list */
+/* ===========================
+   Search Area
+   =========================== */
 .drawer-search-area {
-  padding: max(16px, calc(16px + env(safe-area-inset-top))) 12px 0;
+  padding: 12px 12px 0;
   flex-shrink: 0;
 }
 
 .search-button {
   width: 100%;
   height: 40px;
-  border-radius: 999px;
+  border-radius: 10px;
   border: none;
-  background: var(--color-surface);
+  background: rgba(28, 25, 23, 0.05);
   color: var(--color-muted);
   font-size: 14px;
   font-family: inherit;
@@ -264,44 +333,50 @@
   justify-content: center;
   gap: 8px;
   -webkit-tap-highlight-color: transparent;
+  transition: background 0.15s ease;
 }
 
 .search-button:active {
-  opacity: 0.7;
+  background: rgba(28, 25, 23, 0.1);
 }
 
 .notes-shell.drawer-dragging .drawer-search-area {
   pointer-events: none;
 }
 
+/* ===========================
+   Notes List
+   =========================== */
 .notes-drawer .notes-list-scroll {
   flex: 1;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  padding: 8px 12px
+  padding: 8px 8px
     calc(80px + env(safe-area-inset-bottom, 0));
 }
 
 .notes-drawer .note-item {
   border: none;
   border-bottom: none;
-  padding: 7px 12px;
-  border-radius: 999px;
-  margin: 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+  margin: 1px 0;
   height: 48px;
   box-sizing: border-box;
   background: transparent;
   width: 100%;
   text-align: left;
+  transition: background 0.1s ease;
 }
 
 .notes-drawer .note-item.pressed {
-  background: #e8e8e8;
+  background: rgba(28, 25, 23, 0.06);
 }
 
 .notes-drawer .note-title {
   margin-bottom: 0;
-  font-weight: 600;
+  font-weight: 500;
+  color: var(--color-text);
 }
 
 .notes-drawer .note-preview {
@@ -309,11 +384,16 @@
 }
 
 .notes-drawer .note-item.selected {
-  background: #e3edff;
+  background: rgba(176, 125, 59, 0.12);
+}
+
+.notes-drawer .note-item.selected .note-title {
+  color: var(--color-primary-hover);
+  font-weight: 600;
 }
 
 .notes-drawer .note-item.selected:active {
-  background: #d4e2ff;
+  background: rgba(176, 125, 59, 0.18);
 }
 
 /* Note item base styles */
@@ -323,7 +403,7 @@
   align-items: center;
   padding: 12px 16px;
   border: none;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--color-border);
   background: transparent;
   cursor: pointer;
   user-select: none;
@@ -334,12 +414,12 @@
 }
 
 .note-item:active {
-  background: #f9f9f9;
+  background: rgba(28, 25, 23, 0.03);
 }
 
 /* Title input disabled state */
 .title-input:disabled {
-  color: #999;
+  color: var(--color-muted);
 }
 
 /* Notes list scroll base */
@@ -349,14 +429,16 @@
   -webkit-overflow-scrolling: touch;
 }
 
-/* Markdown Toolbar */
+/* ===========================
+   Markdown Toolbar
+   =========================== */
 .markdown-toolbar {
   position: fixed;
   left: 0;
   right: 0;
   height: 44px;
-  background: #f0f0f0;
-  border-top: 1px solid #d4d4d4;
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-border);
   z-index: 1000;
   touch-action: none;
   display: flex;
@@ -384,8 +466,8 @@
   height: 100%;
   border: none;
   background: transparent;
-  border-left: 1px solid #c8c8c8;
-  color: #555;
+  border-left: 1px solid var(--color-border);
+  color: var(--color-muted);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -398,7 +480,7 @@
 }
 
 .toolbar-dismiss:active {
-  background: #d8d8d8;
+  background: rgba(28, 25, 23, 0.06);
 }
 
 .toolbar-scroll::-webkit-scrollbar {
@@ -411,10 +493,10 @@
   height: 36px;
   border: none;
   background: transparent;
-  border-radius: 6px;
+  border-radius: 8px;
   font-size: 17px;
   font-family: inherit;
-  color: #333;
+  color: var(--color-text);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -423,41 +505,44 @@
   -webkit-user-select: none;
   user-select: none;
   flex-shrink: 0;
+  transition: background 0.1s ease;
 }
 
 .toolbar-btn:active {
-  background: #d8d8d8;
+  background: rgba(28, 25, 23, 0.08);
 }
 
 .toolbar-separator {
   width: 1px;
   min-width: 1px;
-  height: 24px;
-  background: #c8c8c8;
+  height: 20px;
+  background: var(--color-border);
   margin: 0 4px;
   flex-shrink: 0;
 }
 
-/* Mobile adjustments for custom classes */
+/* ===========================
+   Mobile adjustments
+   =========================== */
 @media (max-width: 480px) {
   .note-item {
     padding: 10px 12px;
   }
 
   .fab {
-    width: 48px;
-    height: 48px;
+    height: 44px;
+    padding: 0 16px;
     bottom: max(12px, calc(12px + env(safe-area-inset-bottom)));
     right: max(12px, calc(12px + env(safe-area-inset-right)));
-    font-size: 28px;
+    font-size: 14px;
   }
 
   .settings-fab {
-    width: 48px;
-    height: 48px;
+    width: 44px;
+    height: 44px;
     bottom: max(12px, calc(12px + env(safe-area-inset-bottom)));
     left: max(12px, calc(12px + env(safe-area-inset-left)));
-    font-size: 24px;
+    font-size: 20px;
   }
 
   .notes-drawer .settings-fab {
@@ -466,7 +551,9 @@
   }
 }
 
-/* Note menu (three-dot) */
+/* ===========================
+   Note Menu (three-dot)
+   =========================== */
 .note-menu-anchor {
   position: absolute;
   top: max(12px, calc(12px + env(safe-area-inset-top)));
@@ -484,21 +571,24 @@
 .note-menu-toggle {
   width: 44px;
   height: 44px;
-  border-radius: 22px;
+  border-radius: 12px;
   border: none;
-  background: rgba(255, 255, 255, 0.96);
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
+  background: rgba(250, 249, 246, 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 2px 8px rgba(28, 25, 23, 0.08), 0 0 0 1px rgba(28, 25, 23, 0.04);
   font-size: 22px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   -webkit-tap-highlight-color: transparent;
-  color: #333;
+  color: var(--color-text);
+  transition: background 0.15s ease;
 }
 
 .note-menu-toggle:active {
-  background: #e8e8e8;
+  background: var(--color-surface);
 }
 
 .note-menu-backdrop {
@@ -511,10 +601,10 @@
   position: absolute;
   top: 50px;
   right: 0;
-  min-width: 160px;
-  background: white;
-  border-radius: 10px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  min-width: 180px;
+  background: var(--color-bg);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(28, 25, 23, 0.15), 0 0 0 1px rgba(28, 25, 23, 0.05);
   z-index: 36;
   overflow: hidden;
 }
@@ -525,21 +615,24 @@
   border: none;
   background: transparent;
   text-align: left;
-  font-size: 16px;
+  font-size: 15px;
   cursor: pointer;
-  color: #d32f2f;
+  color: var(--color-danger);
   font-family: inherit;
+  font-weight: 500;
 }
 
 .note-menu-dropdown button:active {
-  background: #f5f5f5;
+  background: rgba(28, 25, 23, 0.04);
 }
 
-/* Delete confirmation dialog */
+/* ===========================
+   Delete Confirmation Dialog
+   =========================== */
 .delete-confirm-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.4);
+  background: rgba(28, 25, 23, 0.35);
   z-index: 200;
   display: flex;
   align-items: center;
@@ -547,73 +640,74 @@
 }
 
 .delete-confirm-dialog {
-  background: white;
-  border-radius: 14px;
+  background: var(--color-bg);
+  border-radius: 16px;
   padding: 24px;
   width: min(320px, calc(100vw - 48px));
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 16px 48px rgba(28, 25, 23, 0.2);
 }
 
 .delete-confirm-dialog h3 {
   margin: 0 0 8px;
   font-size: 18px;
   font-weight: 600;
+  color: var(--color-text);
 }
 
 .delete-confirm-dialog p {
   margin: 0 0 20px;
   font-size: 14px;
-  color: #666;
+  color: var(--color-muted);
 }
 
 .delete-confirm-actions {
   display: flex;
-  gap: 12px;
+  gap: 10px;
   justify-content: flex-end;
 }
 
 .delete-confirm-actions button {
-  padding: 8px 20px;
-  border-radius: 8px;
+  padding: 9px 20px;
+  border-radius: 10px;
   font-size: 15px;
   font-weight: 500;
   cursor: pointer;
   border: none;
   font-family: inherit;
+  transition: transform 0.1s ease;
+}
+
+.delete-confirm-actions button:active {
+  transform: scale(0.97);
 }
 
 .delete-confirm-cancel {
-  background: #e8e8e8;
-  color: #333;
-}
-
-.delete-confirm-cancel:active {
-  background: #d8d8d8;
+  background: var(--color-surface);
+  color: var(--color-text);
 }
 
 .delete-confirm-delete {
-  background: #d32f2f;
-  color: white;
+  background: var(--color-danger);
+  color: #FAF9F6;
 }
 
-.delete-confirm-delete:active {
-  background: #b71c1c;
-}
-
-/* Toast */
+/* ===========================
+   Toast
+   =========================== */
 .toast {
   position: fixed;
   bottom: max(80px, calc(80px + env(safe-area-inset-bottom)));
   left: 50%;
   transform: translateX(-50%);
-  background: #333;
-  color: white;
+  background: var(--color-text);
+  color: var(--color-bg);
   padding: 10px 20px;
-  border-radius: 8px;
+  border-radius: 10px;
   font-size: 14px;
+  font-weight: 500;
   z-index: 300;
   pointer-events: none;
-  animation: toast-in 0.2s ease;
+  animation: toast-in 0.25s ease;
 }
 
 @keyframes toast-in {
@@ -621,7 +715,9 @@
   to { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
 
-/* Sync status bar */
+/* ===========================
+   Sync Status Bar
+   =========================== */
 .sync-status-bar {
   position: fixed;
   bottom: 0;
@@ -667,8 +763,9 @@
   to { transform: rotate(360deg); }
 }
 
-/* ===== Desktop sidebar layout ===== */
-
+/* ===========================
+   Desktop Sidebar Layout
+   =========================== */
 .notes-shell.desktop-layout {
   display: flex;
 }
@@ -707,7 +804,7 @@
 }
 
 .notes-shell.desktop-layout .note-title-row {
-  padding-top: 24px;
+  padding-top: 32px;
   max-width: 740px;
   margin-left: auto;
   margin-right: auto;
@@ -735,19 +832,24 @@
 .sidebar-resize-handle:hover,
 .notes-shell.sidebar-resizing .sidebar-resize-handle {
   background: var(--color-primary);
-  opacity: 0.3;
+  opacity: 0.25;
+  border-radius: 3px;
 }
 
 .notes-shell.sidebar-resizing .notes-drawer { transition: none; }
 .notes-shell.sidebar-resizing .note-main { pointer-events: none; user-select: none; }
 
 /* Desktop sidebar — no safe-area insets */
+.notes-shell.desktop-layout .sidebar-header {
+  padding: 16px 16px 0;
+}
+
 .notes-shell.desktop-layout .drawer-search-area {
   padding: 12px 12px 0;
 }
 
 .notes-shell.desktop-layout .notes-drawer .notes-list-scroll {
-  padding: 8px 12px 80px;
+  padding: 8px 8px 80px;
 }
 
 .notes-shell.desktop-layout .notes-drawer .fab { bottom: 16px; right: 16px; }
