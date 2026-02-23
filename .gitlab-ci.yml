@@ -53,7 +53,13 @@ test:server:
 docker:build:
   stage: test
   script:
-    - docker build -f apps/server/Dockerfile .
+    - docker build -f apps/server/Dockerfile -t futo-notes-server:ci .
+    - |
+      # Smoke test: start the container and verify it boots
+      docker run --rm -d --name fn-smoke -p 3099:3005 futo-notes-server:ci
+      sleep 3
+      curl --fail --max-time 5 http://localhost:3099/health || (docker logs fn-smoke && docker stop fn-smoke && exit 1)
+      docker stop fn-smoke
   rules:
     - if: $CI_COMMIT_TAG
     - if: $CI_MERGE_REQUEST_IID
