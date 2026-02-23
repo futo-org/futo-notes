@@ -57,7 +57,11 @@ docker:build:
     - |
       # Smoke test: start the container and verify it boots
       docker run --rm -d --name fn-smoke -p 3099:3005 futo-notes-server:ci
-      sleep 3
+      for i in $(seq 1 10); do
+        curl -sf --max-time 2 http://localhost:3099/health && break
+        echo "Waiting for server... ($i/10)"
+        sleep 2
+      done
       curl --fail --max-time 5 http://localhost:3099/health || (docker logs fn-smoke && docker stop fn-smoke && exit 1)
       docker stop fn-smoke
   rules:
