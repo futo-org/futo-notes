@@ -152,7 +152,13 @@
     const extensions = [
       listContinuationKeymap,
       history(),
-      keymap.of([...defaultKeymap, ...historyKeymap]),
+      keymap.of([
+        { key: 'Mod-b', run: (v) => { toggleBold(v); return true; } },
+        { key: 'Mod-i', run: (v) => { toggleItalic(v); return true; } },
+        { key: 'Mod-Shift-s', run: (v) => { toggleStrikethrough(v); return true; } },
+        ...defaultKeymap,
+        ...historyKeymap,
+      ]),
       markdown({ base: markdownLanguage }),
       liveMarkdownTransform,
       autoLinkHighlight,
@@ -165,7 +171,7 @@
       }),
       EditorView.lineWrapping,
       EditorView.theme({
-        '&': { height: 'auto', fontSize: '16px' },
+        '&': { height: 'auto', fontSize: '18px' },
         '.cm-content': {
           padding: '0',
           fontFamily: "'Outfit', 'GeneralSans', system-ui, sans-serif",

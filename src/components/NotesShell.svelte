@@ -943,10 +943,27 @@ Escaped pipes:
       });
     }
 
+    // Global keyboard shortcuts
+    const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
+    function handleGlobalShortcut(e: KeyboardEvent) {
+      const mod = isMac ? e.metaKey : e.ctrlKey;
+      if (!mod) return;
+
+      if (e.key === 'p') {
+        e.preventDefault();
+        searchOpen = true;
+      } else if (e.key === 'n') {
+        e.preventDefault();
+        createNewNote();
+      }
+    }
+    window.addEventListener('keydown', handleGlobalShortcut);
+
     return () => {
       stopAutoSync();
       flushSave();
       cleanupFileWatcher?.();
+      window.removeEventListener('keydown', handleGlobalShortcut);
     };
   });
 
