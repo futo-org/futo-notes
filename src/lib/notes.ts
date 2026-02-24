@@ -384,6 +384,7 @@ export async function handleExternalFileChange(
   if (type === 'unlink') {
     removeFromCache(id);
     removeFromSearchIndex(id);
+    await markLocalDeleteForSync(id);
     schedulePersist();
     return null;
   }
