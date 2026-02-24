@@ -1,25 +1,7 @@
 # CLAUDE.md - @futo-notes/shared
 
-Shared TypeScript types and utilities used by both the client app and the server.
+Shared TypeScript types and utilities for both client and server.
 
-## What Goes Here
-
-- Sync protocol types (request/response shapes, note metadata)
-- Shared interfaces (NoteFile, sync state)
-- Utility functions used by both client and server
-
-## Usage
-
-This package is consumed as TypeScript source (no build step). Other packages import directly:
-
-```typescript
-import { SomeType } from '@futo-notes/shared';
-```
-
-The root `tsconfig.json` has a path alias mapping `@futo-notes/shared` to `packages/shared/src`.
-
-## Contents
-
-- `filename.ts` — Filename sanitization rules (`sanitizeTitle`, `validateTitle`, constants)
-- `sync.ts` — Sync protocol types (`SyncRequest`, `SyncResponse`, auth types)
-- `note.ts` — `NoteSyncMeta` interface
+- Consumed as TypeScript source — no build step
+- Path alias: `@futo-notes/shared` → `packages/shared/src` (configured in root `tsconfig.json`)
+- Contains: sync protocol types, `NoteSyncMeta`, filename sanitization (`sanitizeTitle`, `validateTitle`)
