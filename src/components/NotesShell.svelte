@@ -1055,7 +1055,7 @@ Escaped pipes:
   <!-- Drawer -->
   <aside bind:this={drawer} class="notes-drawer" aria-hidden={!drawerOpen}>
     <div class="sidebar-header">
-      <span class="sidebar-brand">FUTO Notes</span>
+      <button class="sidebar-brand" onclick={() => navigate('/')}>FUTO Notes</button>
       <button
         class="sidebar-settings-btn"
         aria-label="Settings"

@@ -216,6 +216,9 @@
   color: var(--color-text);
   letter-spacing: -0.01em;
   padding: 0 4px;
+  background: none;
+  border: none;
+  cursor: pointer;
 }
 
 .sidebar-settings-btn {
