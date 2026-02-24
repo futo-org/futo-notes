@@ -1,16 +1,7 @@
 import type Database from 'better-sqlite3';
+import type { ModelDef } from './modelRegistry.js';
+import { BENCHMARK_MODEL_ID, getModelDef, MODEL_REGISTRY } from './modelRegistry.js';
 import { log } from '../logger.js';
-
-export interface BenchmarkResult {
-  modelName: string;
-  dims: number;
-  wallTimeMs: number;
-}
-
-export interface ModelTier {
-  name: string;
-  dims: number;
-}
 
 const SAMPLE_TEXT = `
 The quick brown fox jumps over the lazy dog. This is a benchmark passage
@@ -30,87 +21,108 @@ model that runs quickly may not produce useful embeddings for search.
 We use tiered selection to pick the best model for the available hardware.
 `.trim();
 
+const WARMUP_RUNS = 1;
+const BENCH_RUNS = 5;
+
 /**
- * Select model tier based on wall time:
- * <50ms -> large (1024d), <200ms -> medium (512d),
- * <500ms -> small (384d), <2s -> tiny (384d), >2s -> skip
+ * Select a model from the registry based on bge-small benchmark median time.
  */
-export function selectModelTier(wallTimeMs: number): ModelTier | null {
-  if (wallTimeMs < 50) return { name: 'large', dims: 1024 };
-  if (wallTimeMs < 200) return { name: 'medium', dims: 512 };
-  if (wallTimeMs < 500) return { name: 'small', dims: 384 };
-  if (wallTimeMs < 2000) return { name: 'tiny', dims: 384 };
-  return null; // Too slow, skip embedding
+export function selectModel(medianMs: number): ModelDef | null {
+  if (medianMs < 10) return getModelDef('qwen3-embedding-8b')!;
+  if (medianMs < 30) return getModelDef('qwen3-embedding-4b')!;
+  if (medianMs < 100) return getModelDef('qwen3-embedding-0.6b')!;
+  if (medianMs < 500) return getModelDef('bge-small-en-v1.5')!;
+  return null; // Too slow, skip embeddings
+}
+
+function median(values: number[]): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+export interface BenchmarkResult {
+  selectedModelId: string | null;
+  benchMedianMs: number;
 }
 
 /**
- * Run a hardware benchmark to determine the best embedding model tier.
- * Stores result in search_config table.
- * Returns the selected model tier, or null if hardware is too slow.
+ * Run a hardware benchmark to determine the best embedding model.
+ * Downloads bge-small (~37MB), embeds sample text 5 times, takes median,
+ * then selects a model from the registry based on speed thresholds.
+ *
+ * Caches result in search_config — returns cached result on subsequent calls.
  */
 export async function runBenchmark(
   db: Database.Database,
-  overrideModel?: string,
-): Promise<BenchmarkResult | null> {
-  // Check if benchmark already ran
+  modelsDir: string,
+): Promise<BenchmarkResult> {
+  // Check cache
   const existing = db.prepare('SELECT value FROM search_config WHERE key = ?')
     .get('benchmark_result') as { value: string } | undefined;
   if (existing) {
     const cached = JSON.parse(existing.value) as BenchmarkResult;
-    log.info(`search: using cached benchmark result: ${cached.modelName} (${cached.wallTimeMs}ms)`);
+    log.info(`search: using cached benchmark — selected ${cached.selectedModelId} (median=${cached.benchMedianMs}ms)`);
     return cached;
   }
 
   log.info('search: running hardware benchmark...');
 
+  const benchModelDef = getModelDef(BENCHMARK_MODEL_ID);
+  if (!benchModelDef) throw new Error(`Benchmark model ${BENCHMARK_MODEL_ID} not in registry`);
+
+  const { resolveModelFile } = await import('./modelManager.js');
+  const modelPath = await resolveModelFile(benchModelDef.hfUri, modelsDir);
+
+  const { getLlama } = await import('node-llama-cpp');
+  const llama = await getLlama();
+  const model = await llama.loadModel({ modelPath });
+  const context = await model.createEmbeddingContext();
+
   try {
-    // Dynamic import — only loaded when SEARCH_ENABLED=true
-    const { loadEmbeddingModel, embedTexts, unloadModel } = await import('./modelManager.js');
-
-    // Use override or try with default model
-    const modelName = overrideModel || 'default';
-    const model = await loadEmbeddingModel(modelName);
-
-    const start = performance.now();
-    await embedTexts(model, [SAMPLE_TEXT]);
-    const wallTimeMs = Math.round(performance.now() - start);
-
-    await unloadModel();
-
-    const tier = overrideModel
-      ? { name: overrideModel, dims: 384 } // User override uses specified model
-      : selectModelTier(wallTimeMs);
-
-    if (!tier) {
-      log.warn(`search: hardware too slow (${wallTimeMs}ms), skipping embeddings`);
-      return null;
+    // Warmup
+    for (let i = 0; i < WARMUP_RUNS; i++) {
+      await context.getEmbeddingFor(SAMPLE_TEXT);
     }
 
+    // Timed runs
+    const times: number[] = [];
+    for (let i = 0; i < BENCH_RUNS; i++) {
+      const start = performance.now();
+      await context.getEmbeddingFor(SAMPLE_TEXT);
+      times.push(performance.now() - start);
+    }
+
+    const medianMs = Math.round(median(times));
+    const selected = selectModel(medianMs);
+
     const result: BenchmarkResult = {
-      modelName: tier.name,
-      dims: tier.dims,
-      wallTimeMs,
+      selectedModelId: selected?.id ?? null,
+      benchMedianMs: medianMs,
     };
 
-    // Store result
+    // Store results
     const now = Date.now();
-    db.prepare(`
+    const upsert = db.prepare(`
       INSERT INTO search_config (key, value, updated_at) VALUES (?, ?, ?)
       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
-    `).run('benchmark_result', JSON.stringify(result), now);
-    db.prepare(`
-      INSERT INTO search_config (key, value, updated_at) VALUES (?, ?, ?)
-      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
-    `).run('embedding_model', result.modelName, now);
-    db.prepare(`
-      INSERT INTO search_config (key, value, updated_at) VALUES (?, ?, ?)
-      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
-    `).run('embedding_dims', String(result.dims), now);
+    `);
+    upsert.run('benchmark_result', JSON.stringify(result), now);
 
-    log.info(`search: benchmark complete: ${result.modelName} ${result.dims}d (${wallTimeMs}ms)`);
+    if (selected) {
+      upsert.run('embedding_model', selected.id, now);
+      upsert.run('embedding_dims', String(selected.dims), now);
+      if (selected.queryPrefix) {
+        upsert.run('query_prefix', selected.queryPrefix, now);
+      }
+      log.info(`search: benchmark complete — median=${medianMs}ms → ${selected.id} (${selected.dims}d)`);
+    } else {
+      log.warn(`search: hardware too slow (median=${medianMs}ms), skipping embeddings`);
+    }
+
     return result;
-  } catch (err) {
-    log.error(`search: benchmark failed: ${err instanceof Error ? err.message : String(err)}`);
-    return null;
+  } finally {
+    await context.dispose();
+    await model.dispose();
   }
 }

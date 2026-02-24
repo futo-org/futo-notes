@@ -4,6 +4,7 @@ export interface SearchCapabilities {
   levels: number[];
   model: string | null;
   dims: number | null;
+  query_prefix: string | null;
   chunk_count: number;
   last_indexed_at: number | null;
   artifact_version: string | null;
@@ -39,6 +40,7 @@ function getConfigValue(db: Database.Database, key: string): string | null {
 export function getCapabilities(db: Database.Database): SearchCapabilities {
   const model = getConfigValue(db, 'embedding_model');
   const dims = getConfigValue(db, 'embedding_dims');
+  const queryPrefix = getConfigValue(db, 'query_prefix');
   const artifactVersion = getConfigValue(db, 'artifact_version');
   const artifactHash = getConfigValue(db, 'artifact_hash');
 
@@ -52,6 +54,7 @@ export function getCapabilities(db: Database.Database): SearchCapabilities {
     levels: model ? [2] : [],
     model,
     dims: dims ? parseInt(dims, 10) : null,
+    query_prefix: queryPrefix,
     chunk_count: chunkRow.count,
     last_indexed_at: lastIndexed.last,
     artifact_version: artifactVersion,

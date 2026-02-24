@@ -1,8 +1,9 @@
 <script lang="ts">
   import type { SearchResultItem } from '../types';
-  import { search, searchWithVectors } from '$lib/notes';
+  import { search, searchWithVectors, type SearchTimingResult } from '$lib/notes';
   import { isSupersearchReady } from '$lib/supersearch/state';
   import { isReady as isEmbedderReady } from '$lib/supersearch/queryEmbedder';
+  import { getSearchMode, setSearchMode, type SearchMode } from '$lib/supersearch/searchMode';
 
   interface Props {
     onclose: () => void;
@@ -15,46 +16,81 @@
   let inputEl: HTMLInputElement | undefined = $state(undefined);
   let selectedIndex = $state(-1);
   let resultEls: HTMLElement[] = $state([]);
-  let vectorResults: SearchResultItem[] | null = $state(null);
+  let vectorResults: SearchTimingResult | null = $state(null);
   let vectorSearching = $state(false);
+  let activeMode: SearchMode = $state(getSearchMode());
+  let supersearchAvailable = $state(false);
+
+  // Check supersearch availability
+  $effect(() => {
+    isSupersearchReady().then(ready => {
+      supersearchAvailable = ready && isEmbedderReady();
+    });
+  });
 
   let keywordResults: SearchResultItem[] = $derived(search(query));
-  let results: SearchResultItem[] = $derived(vectorResults ?? keywordResults);
+  let results: SearchResultItem[] = $derived(
+    vectorResults ? vectorResults.results : keywordResults
+  );
+  let timing = $derived(vectorResults?.timing ?? null);
 
   // Debounced vector search
   let vectorDebounceTimer: ReturnType<typeof setTimeout> | undefined;
 
   $effect(() => {
     const q = query;
-    // Reset vector results when query changes
-    vectorResults = null;
+    const mode = activeMode;
+
+    // In keyword mode, clear vector results for instant feedback.
+    // In vector/hybrid, keep stale results visible until new ones arrive
+    // to avoid a flash of keyword results between keystrokes.
+    if (mode === 'keyword') {
+      vectorResults = null;
+    }
     vectorSearching = false;
 
     if (vectorDebounceTimer) clearTimeout(vectorDebounceTimer);
 
-    if (!q.trim()) return;
+    if (!q.trim()) {
+      vectorResults = null;
+      return;
+    }
 
     vectorDebounceTimer = setTimeout(async () => {
-      // Only run if supersearch is available
-      const ready = await isSupersearchReady();
-      if (!ready || !isEmbedderReady()) return;
       // Check query hasn't changed during the debounce
       if (q !== query) return;
 
       vectorSearching = true;
       try {
-        const fusedResults = await searchWithVectors(q);
+        const result = await searchWithVectors(q);
         // Only apply if query still matches
         if (q === query) {
-          vectorResults = fusedResults;
+          vectorResults = result;
         }
       } catch {
-        // Silently fall back to keyword results
+        // Fall back to keyword results
+        if (q === query) vectorResults = null;
       } finally {
         if (q === query) vectorSearching = false;
       }
-    }, 150);
+    }, mode === 'keyword' ? 0 : 150);
   });
+
+  function handleModeChange(mode: SearchMode): void {
+    activeMode = mode;
+    setSearchMode(mode);
+    // Re-trigger search with new mode
+    vectorResults = null;
+    if (query.trim()) {
+      vectorSearching = true;
+      searchWithVectors(query).then(result => {
+        vectorResults = result;
+        vectorSearching = false;
+      }).catch(() => {
+        vectorSearching = false;
+      });
+    }
+  }
 
   // Reset selection when results change
   $effect(() => {
@@ -92,6 +128,10 @@
     }
   }
 
+  function formatMs(ms: number): string {
+    return ms < 1 ? '<1ms' : `${Math.round(ms)}ms`;
+  }
+
   $effect(() => {
     inputEl?.focus();
   });
@@ -127,6 +167,34 @@
         </button>
       {/if}
     </div>
+
+    <div class="search-mode-row">
+      <button
+        class="mode-pill"
+        class:active={activeMode === 'keyword'}
+        onclick={() => handleModeChange('keyword')}
+      >Keyword</button>
+      <button
+        class="mode-pill"
+        class:active={activeMode === 'hybrid'}
+        onclick={() => handleModeChange('hybrid')}
+      >Hybrid</button>
+      <button
+        class="mode-pill"
+        class:active={activeMode === 'vector'}
+        onclick={() => handleModeChange('vector')}
+      >Vector</button>
+      {#if timing && query}
+        <span class="search-timing">
+          {#if timing.embed > 0}embed: {formatMs(timing.embed)} | {/if}search: {formatMs(timing.keyword + timing.vector)} | total: {formatMs(timing.total)}
+        </span>
+      {/if}
+    </div>
+
+    {#if activeMode !== 'keyword' && !supersearchAvailable && query}
+      <div class="search-unavailable">Vector search requires server connection</div>
+    {/if}
+
     <div class="search-results">
       {#each results as result, i (result.note.id)}
         <button
@@ -136,7 +204,16 @@
           onclick={() => onselect(result.note.id)}
           onpointerenter={() => { selectedIndex = i; }}
         >
-          <div class="search-result-title">{result.note.title}</div>
+          <div class="search-result-title">
+            {result.note.title}
+            {#if result.source === 'keyword'}
+              <span class="source-badge source-keyword" title="Keyword match">K</span>
+            {:else if result.source === 'vector'}
+              <span class="source-badge source-vector" title="Vector match">V</span>
+            {:else if result.source === 'both'}
+              <span class="source-badge source-both" title="Keyword + Vector match">K+V</span>
+            {/if}
+          </div>
           {#if result.snippet && result.snippet.length > 0}
             <div class="search-result-preview">
               {#each result.snippet as segment}
@@ -230,6 +307,55 @@
     background: rgba(28, 25, 23, 0.06);
   }
 
+  .search-mode-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--color-border);
+    flex-shrink: 0;
+  }
+
+  .mode-pill {
+    font-size: 12px;
+    font-family: inherit;
+    padding: 3px 10px;
+    border-radius: 12px;
+    border: 1px solid var(--color-border);
+    background: transparent;
+    color: var(--color-muted);
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+  }
+
+  .mode-pill:hover {
+    border-color: var(--color-primary);
+    color: var(--color-text);
+  }
+
+  .mode-pill.active {
+    background: var(--color-primary);
+    color: white;
+    border-color: var(--color-primary);
+  }
+
+  .search-timing {
+    margin-left: auto;
+    font-size: 11px;
+    color: var(--color-muted);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .search-unavailable {
+    padding: 8px 16px;
+    font-size: 12px;
+    color: var(--color-muted);
+    background: rgba(176, 125, 59, 0.06);
+    border-bottom: 1px solid var(--color-border);
+  }
+
   .search-results {
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
@@ -264,6 +390,33 @@
     font-weight: 600;
     color: var(--color-text);
     line-height: 1.3;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .source-badge {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 1px 4px;
+    border-radius: 3px;
+    line-height: 1.2;
+    flex-shrink: 0;
+  }
+
+  .source-keyword {
+    background: rgba(59, 130, 246, 0.12);
+    color: rgb(59, 130, 246);
+  }
+
+  .source-vector {
+    background: rgba(168, 85, 247, 0.12);
+    color: rgb(168, 85, 247);
+  }
+
+  .source-both {
+    background: rgba(34, 197, 94, 0.12);
+    color: rgb(34, 197, 94);
   }
 
   .search-result-preview {

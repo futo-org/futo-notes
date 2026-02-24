@@ -10,6 +10,7 @@ interface SearchCapabilities {
   last_indexed_at: number | null;
   artifact_version: string;
   artifact_hash: string;
+  query_prefix: string | null;
 }
 
 export async function checkForUpdate(

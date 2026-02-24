@@ -17,6 +17,7 @@ interface ArtifactManifest {
     vectors: string;
     manifest: string;
   };
+  chunks: { chunk_id: number; uuid: string; chunk_text: string; start_offset: number; end_offset: number }[];
 }
 
 /**
@@ -106,6 +107,14 @@ function buildSqliteArtifact(
     );
   `);
 
+  // Create model card table
+  artifactDb.exec(`
+    CREATE TABLE search_model_card (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+  `);
+
   // Copy chunks
   const insertChunk = artifactDb.prepare(`
     INSERT INTO search_chunks (chunk_id, uuid, chunk_index, chunk_text, start_offset, end_offset, content_hash)
@@ -115,6 +124,10 @@ function buildSqliteArtifact(
   const insertVector = artifactDb.prepare(`
     INSERT INTO search_vectors_raw (chunk_id, embedding)
     VALUES (?, ?)
+  `);
+
+  const insertCard = artifactDb.prepare(`
+    INSERT INTO search_model_card (key, value) VALUES (?, ?)
   `);
 
   const copyAll = artifactDb.transaction(() => {
@@ -128,6 +141,20 @@ function buildSqliteArtifact(
         insertVector.run(chunk.chunk_id, vec.embedding);
       }
     }
+
+    // Populate model card from search_config
+    const modelId = sourceDb.prepare('SELECT value FROM search_config WHERE key = ?')
+      .get('embedding_model') as { value: string } | undefined;
+    const queryPrefix = sourceDb.prepare('SELECT value FROM search_config WHERE key = ?')
+      .get('query_prefix') as { value: string } | undefined;
+    const docPrefix = sourceDb.prepare('SELECT value FROM search_config WHERE key = ?')
+      .get('doc_prefix') as { value: string } | undefined;
+
+    insertCard.run('model_id', modelId?.value ?? 'unknown');
+    insertCard.run('dims', String(dims));
+    insertCard.run('query_prefix', queryPrefix?.value ?? '');
+    insertCard.run('doc_prefix', docPrefix?.value ?? '');
+    insertCard.run('distance_metric', 'cosine');
   });
   copyAll();
 
@@ -173,6 +200,13 @@ function buildBinaryArtifact(
       vectors: path.basename(binPath),
       manifest: path.basename(manifestPath),
     },
+    chunks: chunks.map(c => ({
+      chunk_id: c.chunk_id,
+      uuid: c.uuid,
+      chunk_text: c.chunk_text,
+      start_offset: c.start_offset,
+      end_offset: c.end_offset,
+    })),
   };
   fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
 

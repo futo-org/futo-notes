@@ -42,7 +42,7 @@ export function createEmbeddingProcessor(
 
       // Extract texts for batch embedding
       const texts = chunks.map((c) => c.text);
-      const embeddings = await model.embed(texts);
+      const embeddings = await model.embedDocuments(texts);
 
       // Insert chunks and vectors
       const hash = contentHash(content);
@@ -55,8 +55,7 @@ export function createEmbeddingProcessor(
         for (let i = 0; i < chunks.length; i++) {
           const chunk = chunks[i];
           const result = insertChunk.run(uuid, i, chunk.text, chunk.startOffset, chunk.endOffset, hash);
-          const chunkId = Number(result.lastInsertRowid);
-          insertVector(db, chunkId, embeddings[i]);
+          insertVector(db, result.lastInsertRowid as bigint, embeddings[i]);
         }
 
         // Update index state

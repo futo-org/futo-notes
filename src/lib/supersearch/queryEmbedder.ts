@@ -1,64 +1,29 @@
-let worker: Worker | null = null;
-let ready = false;
-let initPromise: Promise<void> | null = null;
-let pendingResolve: ((v: Float32Array) => void) | null = null;
-let pendingReject: ((e: Error) => void) | null = null;
+import { getCachedPreferences } from '../preferences';
 
 export function isReady(): boolean {
-  return ready;
+  const prefs = getCachedPreferences();
+  return Boolean(prefs.sync.serverUrl && prefs.sync.token);
 }
 
-export function init(): Promise<void> {
-  if (initPromise) return initPromise;
-
-  initPromise = new Promise<void>((resolve, reject) => {
-    worker = new Worker(new URL('./embeddingWorker.ts', import.meta.url), { type: 'module' });
-
-    worker.onmessage = (event: MessageEvent) => {
-      const { type, data, error } = event.data;
-      if (type === 'ready') {
-        ready = true;
-        resolve();
-      } else if (type === 'embedding') {
-        pendingResolve?.(new Float32Array(data));
-        pendingResolve = null;
-        pendingReject = null;
-      } else if (type === 'error') {
-        const err = new Error(error);
-        if (!ready) {
-          reject(err);
-        }
-        pendingReject?.(err);
-        pendingReject = null;
-        pendingResolve = null;
-      }
-    };
-
-    worker.postMessage({ type: 'init' });
-  });
-
-  return initPromise;
-}
-
-export function embed(text: string): Promise<Float32Array> {
-  if (!worker || !ready) {
-    return Promise.reject(new Error('Embedding worker not ready'));
+export async function embed(query: string): Promise<Float32Array> {
+  const prefs = getCachedPreferences();
+  if (!prefs.sync.serverUrl || !prefs.sync.token) {
+    throw new Error('Server not configured');
   }
 
-  return new Promise<Float32Array>((resolve, reject) => {
-    pendingResolve = resolve;
-    pendingReject = reject;
-    worker!.postMessage({ type: 'embed', text });
+  const res = await fetch(`${prefs.sync.serverUrl}/search/embed-query`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${prefs.sync.token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ query }),
   });
-}
 
-export function terminate(): void {
-  if (worker) {
-    worker.terminate();
-    worker = null;
+  if (!res.ok) {
+    throw new Error(`Embed query failed: ${res.status}`);
   }
-  ready = false;
-  initPromise = null;
-  pendingResolve = null;
-  pendingReject = null;
+
+  const { vector } = await res.json();
+  return new Float32Array(vector);
 }

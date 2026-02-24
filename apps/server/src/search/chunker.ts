@@ -22,8 +22,12 @@ const SHORT_NOTE_THRESHOLD = 512;
  * - Short notes (<512 tokens) become a single chunk
  * - Returns chunks with their byte offsets
  */
+const MIN_WORDS = 10;
+
 export function chunkContent(content: string): Chunk[] {
   if (!content.trim()) return [];
+
+  if (content.split(/\s+/).filter(Boolean).length < MIN_WORDS) return [];
 
   // Short notes: single chunk
   if (estimateTokens(content) < SHORT_NOTE_THRESHOLD) {

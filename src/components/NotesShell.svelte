@@ -17,6 +17,7 @@
   import { keyboard } from '$lib/keyboard.svelte';
   import { navigate } from '../router';
   import { SCROLL_TEST_NOTES } from '$lib/scrollTestNotes';
+  import { getCachedPreferences } from '$lib/preferences';
 
   const GFM_TEST_CONTENT = `# GFM Syntax Test Note
 
@@ -367,10 +368,27 @@ Escaped pipes:
     showToast(count > 0 ? `Imported ${count} notes` : 'All notes deleted');
   }
 
+  async function checkSupersearchArtifacts(): Promise<void> {
+    const prefs = getCachedPreferences();
+    if (!prefs.sync.serverUrl || !prefs.sync.token) return;
+    try {
+      const { checkForUpdate, downloadArtifact } = await import('$lib/supersearch/artifactManager');
+      const { hasUpdate, capabilities } = await checkForUpdate(prefs.sync.serverUrl, prefs.sync.token);
+      if (hasUpdate && capabilities) {
+        await downloadArtifact(prefs.sync.serverUrl, prefs.sync.token, capabilities);
+      }
+    } catch (e) {
+      console.warn('[supersearch] artifact check failed:', e);
+    }
+  }
+
   async function handleSyncComplete(summary: SyncSummary): Promise<void> {
     lastSyncSummary = summary;
     syncActive = false;
     refreshNotesList();
+
+    // Check for supersearch artifacts after first successful sync
+    checkSupersearchArtifacts();
 
     // If sync downloaded updates and a note is currently open, reload it from
     // disk so the editor doesn't hold stale content that flushSave would push
@@ -883,6 +901,7 @@ Escaped pipes:
       onSyncComplete: handleSyncComplete,
       onSyncError: (err) => console.warn('Auto-sync error:', err),
       flushPendingSave: flushSave,
+      onSupersearchReady: checkSupersearchArtifacts,
     });
 
     // Desktop sidebar: load persisted width

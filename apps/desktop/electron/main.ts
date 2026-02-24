@@ -288,10 +288,23 @@ function setupIPC(): void {
         return [];
       }
       const Database = (await import('better-sqlite3')).default;
-      supersearchDb = new Database(dbPath, { readonly: true });
+      supersearchDb = new Database(dbPath);
       // Load sqlite-vec extension
       const sqliteVec = await import('sqlite-vec');
       sqliteVec.load(supersearchDb);
+
+      // Build vec0 virtual table from raw vectors if needed
+      const hasVecTable = supersearchDb.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='search_vectors'"
+      ).get();
+      if (!hasVecTable) {
+        const dimsRow = supersearchDb.prepare(
+          "SELECT value FROM search_model_card WHERE key = 'dims'"
+        ).get() as { value: string } | undefined;
+        const dims = dimsRow ? parseInt(dimsRow.value, 10) : 384;
+        supersearchDb.exec(`CREATE VIRTUAL TABLE search_vectors USING vec0(embedding float[${dims}])`);
+        supersearchDb.exec(`INSERT INTO search_vectors (rowid, embedding) SELECT chunk_id, embedding FROM search_vectors_raw`);
+      }
     }
     const vecBlob = new Float32Array(queryVector);
     const buf = Buffer.from(vecBlob.buffer);

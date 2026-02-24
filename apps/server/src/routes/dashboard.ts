@@ -9,7 +9,7 @@ const dashboard = new Hono();
 const startedAt = Date.now();
 
 // ── JSON status endpoint (unauthenticated) ──────────────────────────
-dashboard.get('/dashboard/status', (c) => {
+dashboard.get('/dashboard/status', async (c) => {
   const db = getDb();
   const config = loadConfig();
 
@@ -19,6 +19,9 @@ dashboard.get('/dashboard/status', (c) => {
   let search = null;
   if (config.searchEnabled) {
     try {
+      const { getSchedulerState } = await import('../search/scheduler.js');
+      const schedulerState = getSchedulerState();
+
       const model = (db.prepare("SELECT value FROM search_config WHERE key = 'embedding_model'").get() as { value: string } | undefined)?.value ?? null;
       const chunkCount = (db.prepare('SELECT COUNT(*) as count FROM search_chunks').get() as { count: number }).count;
       const lastIndexed = (db.prepare('SELECT MAX(indexed_at) as last FROM search_index_state').get() as { last: number | null }).last;
@@ -63,6 +66,7 @@ dashboard.get('/dashboard/status', (c) => {
           error_message: lastRun.error_message,
         } : null,
         dirty_count: dirtyCount,
+        scheduler: schedulerState,
       };
     } catch {
       search = { enabled: true, error: 'Search tables not initialized' };
@@ -305,6 +309,46 @@ function dashboardHtml(): string {
 
   .loading { color: var(--text-secondary); }
 
+  .btn {
+    display: inline-block;
+    padding: 0.4rem 1rem;
+    border-radius: 8px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    font-family: inherit;
+    border: none;
+    cursor: pointer;
+    transition: background 0.15s, opacity 0.15s;
+  }
+
+  .btn-primary {
+    background: var(--primary);
+    color: white;
+  }
+
+  .btn-primary:hover { background: var(--primary-hover); }
+  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .index-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-top: 0.75rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--surface);
+  }
+
+  .index-status {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+  }
+
+  .phase-label {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    font-style: italic;
+  }
+
   @media (max-width: 480px) {
     body { padding: 1rem 0.75rem; }
     .download-grid { grid-template-columns: 1fr; }
@@ -413,6 +457,16 @@ function dashboardHtml(): string {
     return '<span class="badge badge-' + type + '">' + text + '</span>';
   }
 
+  const phaseLabels = {
+    idle: null,
+    benchmarking: 'Running hardware benchmark...',
+    downloading_model: 'Downloading embedding model...',
+    loading_model: 'Loading embedding model...',
+    indexing: 'Indexing notes...',
+    building_artifacts: 'Building search artifacts...',
+    disabled: 'Disabled (hardware too slow)',
+  };
+
   function renderSearch(s) {
     if (!s || !s.enabled) {
       return '<div class="stat-row"><span class="stat-label">Status</span>' + badge('Disabled', 'muted') + '</div>';
@@ -423,6 +477,9 @@ function dashboardHtml(): string {
     }
 
     let html = '';
+    const sched = s.scheduler || {};
+    const phaseText = phaseLabels[sched.phase];
+    const isBusy = sched.phase && sched.phase !== 'idle' && sched.phase !== 'disabled';
 
     // Indexing status
     if (s.current_job) {
@@ -433,9 +490,21 @@ function dashboardHtml(): string {
       html += '<div class="stat-row"><span class="stat-label">Progress</span><span class="stat-value">' +
         s.current_job.notes_processed + ' / ' + (s.current_job.notes_total || '?') + ' notes</span></div>';
       html += '<div class="progress-track"><div class="progress-fill" style="width:' + pct + '%"></div></div>';
+    } else if (isBusy) {
+      html += '<div class="stat-row"><span class="stat-label">Status</span>' + badge('Working', 'warn') + '</div>';
+      if (phaseText) {
+        html += '<div class="stat-row"><span class="stat-label">Phase</span><span class="phase-label">' + phaseText + '</span></div>';
+      }
+    } else if (sched.phase === 'disabled') {
+      html += '<div class="stat-row"><span class="stat-label">Status</span>' + badge('Disabled', 'error') + '</div>';
+      html += '<div class="stat-row"><span class="stat-label">Reason</span><span class="stat-value">Hardware too slow for embeddings</span></div>';
     } else if (s.dirty_count > 0) {
       html += '<div class="stat-row"><span class="stat-label">Status</span>' + badge('Pending', 'warn') + '</div>';
       html += '<div class="stat-row"><span class="stat-label">Queued</span><span class="stat-value">' + s.dirty_count + ' notes</span></div>';
+      // Explain why it's waiting
+      if (sched.idleWindow && !sched.idleWindow.active) {
+        html += '<div class="stat-row"><span class="stat-label">Waiting for</span><span class="stat-value">Idle window (' + sched.idleWindow.start + ' – ' + sched.idleWindow.end + ')</span></div>';
+      }
     } else {
       html += '<div class="stat-row"><span class="stat-label">Status</span>' + badge('Up to date', 'ok') + '</div>';
     }
@@ -443,6 +512,8 @@ function dashboardHtml(): string {
     // Model
     if (s.model) {
       html += '<div class="stat-row"><span class="stat-label">Model</span><span class="stat-value">' + s.model + '</span></div>';
+    } else if (!sched.modelReady && sched.phase === 'idle') {
+      html += '<div class="stat-row"><span class="stat-label">Model</span><span class="stat-value" style="color:var(--text-secondary)">Not loaded yet</span></div>';
     }
 
     // Chunks indexed
@@ -455,6 +526,12 @@ function dashboardHtml(): string {
     if (s.last_run && s.last_run.status === 'failed' && s.last_run.error_message) {
       html += '<div class="stat-row"><span class="stat-label">Last error</span><span class="stat-value" style="color:var(--danger)">' + s.last_run.error_message + '</span></div>';
     }
+
+    // Index Now button
+    html += '<div class="index-row">';
+    html += '<button class="btn btn-primary" id="index-now-btn" onclick="indexNow()"' + (isBusy ? ' disabled' : '') + '>Index now</button>';
+    html += '<span class="index-status" id="index-status"></span>';
+    html += '</div>';
 
     return html;
   }
@@ -478,6 +555,70 @@ function dashboardHtml(): string {
       $('error-banner').style.display = 'block';
     }
   }
+
+  // Index Now — token management
+  let authToken = sessionStorage.getItem('dashboard_token');
+
+  async function getToken() {
+    if (authToken) return authToken;
+    const password = prompt('Enter server password to trigger indexing:');
+    if (!password) return null;
+    try {
+      const res = await fetch('/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password }),
+      });
+      if (!res.ok) {
+        alert('Invalid password');
+        return null;
+      }
+      const data = await res.json();
+      authToken = data.token;
+      sessionStorage.setItem('dashboard_token', authToken);
+      return authToken;
+    } catch (e) {
+      alert('Login failed: ' + e.message);
+      return null;
+    }
+  }
+
+  window.indexNow = async function() {
+    const btn = $('index-now-btn');
+    const status = $('index-status');
+    if (!btn) return;
+
+    const token = await getToken();
+    if (!token) return;
+
+    btn.disabled = true;
+    status.textContent = 'Starting...';
+
+    try {
+      const res = await fetch('/search/reindex', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + token },
+      });
+      if (res.status === 401) {
+        // Token expired — clear and retry
+        authToken = null;
+        sessionStorage.removeItem('dashboard_token');
+        status.textContent = 'Session expired, try again';
+        btn.disabled = false;
+        return;
+      }
+      const data = await res.json();
+      if (res.ok) {
+        status.textContent = 'Indexing started';
+      } else {
+        status.textContent = data.error || 'Failed';
+        btn.disabled = false;
+      }
+    } catch (e) {
+      status.textContent = 'Error: ' + e.message;
+      btn.disabled = false;
+    }
+  };
 
   refresh();
   setInterval(refresh, 5000);

@@ -26,6 +26,7 @@ import { isSupersearchReady } from './supersearch/state';
 import { embed, isReady as isEmbedderReady } from './supersearch/queryEmbedder';
 import { vectorSearch, type VectorSearchResult } from './supersearch/vectorSearch';
 import { hybridSearch } from './supersearch/hybridSearch';
+import { getSearchMode, type SearchMode } from './supersearch/searchMode';
 
 // In-memory cache of notes metadata
 let notesCache: NotePreview[] = [];
@@ -242,24 +243,79 @@ export function search(query: string): SearchResultItem[] {
   return results;
 }
 
-export async function searchWithVectors(query: string): Promise<SearchResultItem[]> {
+export interface SearchTimingResult {
+  results: SearchResultItem[];
+  mode: SearchMode;
+  timing: {
+    keyword: number;
+    embed: number;
+    vector: number;
+    total: number;
+  };
+}
+
+export async function searchWithVectors(query: string): Promise<SearchTimingResult> {
+  const totalStart = performance.now();
+
   if (!query.trim()) {
-    return getAllNotes().map((note) => ({ note, snippet: null }));
+    const all = getAllNotes().map((note) => ({ note, snippet: null }));
+    return {
+      results: all,
+      mode: getSearchMode(),
+      timing: { keyword: 0, embed: 0, vector: 0, total: 0 },
+    };
   }
 
-  // Get keyword results synchronously
-  const keywordResults = search(query);
+  const mode = getSearchMode();
 
-  // Check if supersearch is available
+  // Keyword search
+  let keywordResults: SearchResultItem[] = [];
+  let keywordTime = 0;
+  if (mode === 'keyword' || mode === 'hybrid') {
+    const kwStart = performance.now();
+    keywordResults = search(query);
+    keywordTime = performance.now() - kwStart;
+  }
+
+  // If keyword-only mode, return immediately
+  if (mode === 'keyword') {
+    keywordResults.forEach(r => r.source = 'keyword');
+    return {
+      results: keywordResults,
+      mode,
+      timing: { keyword: keywordTime, embed: 0, vector: 0, total: performance.now() - totalStart },
+    };
+  }
+
+  // Check if supersearch is available for vector/hybrid modes
   const ready = await isSupersearchReady();
   if (!ready || !isEmbedderReady()) {
-    return keywordResults;
+    // Fall back to keyword results
+    if (mode === 'vector') {
+      return {
+        results: [],
+        mode,
+        timing: { keyword: 0, embed: 0, vector: 0, total: performance.now() - totalStart },
+      };
+    }
+    keywordResults.forEach(r => r.source = 'keyword');
+    return {
+      results: keywordResults,
+      mode: 'keyword',
+      timing: { keyword: keywordTime, embed: 0, vector: 0, total: performance.now() - totalStart },
+    };
   }
 
   try {
-    // Run vector search
+    // Embed query via server
+    const embedStart = performance.now();
     const queryVector = await embed(query);
+    const embedTime = performance.now() - embedStart;
+
+    // Vector search locally
+    const vecStart = performance.now();
     const rawVectorResults = await vectorSearch(queryVector, 20);
+    const vectorTime = performance.now() - vecStart;
 
     // Map UUIDs to note IDs
     const syncState = await loadSyncState();
@@ -273,11 +329,49 @@ export async function searchWithVectors(query: string): Promise<SearchResultItem
       }
     }
 
-    // Fuse with RRF
-    return hybridSearch(keywordResults, mappedResults, cacheMap);
+    if (mode === 'vector') {
+      // Vector-only: build results from vector hits
+      const results: SearchResultItem[] = mappedResults.map(vr => {
+        const note = cacheMap.get(vr.uuid)!;
+        const text = vr.chunkText.slice(0, 120).replace(/\n/g, ' ');
+        return {
+          note,
+          snippet: [{ text, highlight: false }],
+          source: 'vector' as const,
+        };
+      });
+      return {
+        results,
+        mode,
+        timing: { keyword: 0, embed: embedTime, vector: vectorTime, total: performance.now() - totalStart },
+      };
+    }
+
+    // Hybrid: fuse with RRF
+    const keywordIds = new Set(keywordResults.map(r => r.note.id));
+    const vectorIds = new Set(mappedResults.map(r => r.uuid));
+    const fused = hybridSearch(keywordResults, mappedResults, cacheMap);
+
+    // Tag sources
+    for (const r of fused) {
+      const inKw = keywordIds.has(r.note.id);
+      const inVec = vectorIds.has(r.note.id);
+      r.source = inKw && inVec ? 'both' : inKw ? 'keyword' : 'vector';
+    }
+
+    return {
+      results: fused,
+      mode,
+      timing: { keyword: keywordTime, embed: embedTime, vector: vectorTime, total: performance.now() - totalStart },
+    };
   } catch (e) {
     console.warn('[supersearch] vector search failed, falling back to keyword:', e);
-    return keywordResults;
+    keywordResults.forEach(r => r.source = 'keyword');
+    return {
+      results: keywordResults,
+      mode: 'keyword',
+      timing: { keyword: keywordTime, embed: 0, vector: 0, total: performance.now() - totalStart },
+    };
   }
 }
 

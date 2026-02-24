@@ -4,6 +4,7 @@ export interface Config {
   port: number;
   databasePath: string;
   notesPath: string;
+  modelsPath: string;
   searchEnabled: boolean;
   indexIdleStart: string;
   indexIdleEnd: string;
@@ -17,6 +18,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     port: parseInt(env.PORT || '3005', 10),
     databasePath: env.DATABASE_PATH || path.join('data', 'futo-notes.db'),
     notesPath: env.NOTES_PATH || path.join('data', 'notes'),
+    modelsPath: env.MODELS_PATH || path.join('data', 'models'),
     searchEnabled: env.SEARCH_ENABLED === 'true',
     indexIdleStart: env.INDEX_IDLE_START || '02:00',
     indexIdleEnd: env.INDEX_IDLE_END || '06:00',

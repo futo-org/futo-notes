@@ -95,4 +95,26 @@ search.get('/search/index', authMiddleware, (c) => {
   });
 });
 
+search.post('/search/embed-query', authMiddleware, async (c) => {
+  try {
+    const body = await c.req.json<{ query: string }>();
+    if (!body.query || typeof body.query !== 'string') {
+      return c.json({ error: 'Missing or invalid query' }, 400);
+    }
+
+    const { getActiveModel } = await import('../search/modelManager.js');
+    const model = getActiveModel();
+    if (!model) {
+      return c.json({ error: 'Embedding model not loaded' }, 503);
+    }
+
+    const vector = await model.embedQuery(body.query);
+    return c.json({ vector, dims: model.dims, model: 'active' });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error(`search: embed-query failed: ${message}`);
+    return c.json({ error: message }, 500);
+  }
+});
+
 export default search;

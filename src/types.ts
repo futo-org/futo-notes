@@ -13,6 +13,7 @@ export interface SnippetSegment {
 export interface SearchResultItem {
   note: NotePreview;
   snippet: SnippetSegment[] | null;
+  source?: 'keyword' | 'vector' | 'both';
 }
 
 export interface AppState {

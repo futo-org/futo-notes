@@ -226,19 +226,22 @@ CREATE TABLE search_metadata (
 
 Generate dense vector embeddings for semantic similarity search.
 
-**Model selection**: Based on benchmark score, not device category. On first enable, the server times a single embedding inference and selects the best model it can run within a time budget:
+**Model selection**: Based on benchmark score, not device category. On first index trigger, the server downloads bge-small-en-v1.5 (~37MB), embeds a 256-token passage 5 times, takes the median, and selects the best model from the registry:
 
 ```
-Benchmark: embed one 256-token passage, measure wall time.
+Benchmark model: bge-small-en-v1.5 (Q8_0 GGUF, ~37MB download)
+Metric: median of 5 timed runs (after 1 warmup)
 
-< 50ms  → Qwen3-Embedding-8B (1024 dims via Matryoshka, best quality, 100+ languages)
-< 200ms → Qwen3-Embedding-0.6B (512 dims, great quality, 100+ languages)
-< 500ms → bge-small-en-v1.5 (384 dims, good quality)
-< 2s    → all-MiniLM-L6-v2 quantized (384 dims, still useful)
-> 2s    → skip Level 2 (or user can force-enable if they're patient)
+< 10ms  → Qwen3-Embedding-8B  (4096d native → 1024d MRL, best quality, 100+ languages)
+< 30ms  → Qwen3-Embedding-4B  (2560d native → 1024d MRL, great quality, 100+ languages)
+< 100ms → Qwen3-Embedding-0.6B (1024d native, great quality, 100+ languages)
+< 500ms → bge-small-en-v1.5    (384d, good quality)
+≥ 500ms → skip Level 2
 ```
 
-The benchmark runs once and stores the result. User can override model choice in config.
+All Qwen3 models use Matryoshka Representation Learning (MRL) to truncate to 1024 dims for uniform artifact size. bge-small stays at native 384d (no MRL support). Qwen3 models use an instruction prefix on queries: `Instruct: Given a user search query, retrieve the most relevant personal notes\nQuery: ` — documents are embedded as-is. bge-small uses its own query prefix. The prefix is stored in `search_config` and included in the artifact's `search_model_card` table so clients know how to prepare queries.
+
+The benchmark runs once (lazy — on first index trigger, not at startup) and caches the result in `search_config`. User can override model choice via `EMBEDDING_MODEL` env var (registry ID or direct GGUF file path).
 
 **Runtime**: `node-llama-cpp` with GGUF models. One dependency handles everything — embeddings (Level 2), LLM generation (Level 3), and potentially reranking (see `next-gen-search.md`). GGUF models auto-download. Runs on CPU (ARM and x86) with optional GPU backend. No Python, no second Docker container — it's native Node.js bindings to llama.cpp, running in the same server process.
 
@@ -255,10 +258,10 @@ CREATE TABLE search_chunks (
   content_hash TEXT NOT NULL
 );
 
--- sqlite-vec extension for vector storage
+-- sqlite-vec extension for vector storage (cosine distance)
 CREATE VIRTUAL TABLE search_vectors USING vec0(
   chunk_id INTEGER PRIMARY KEY,
-  embedding float[384]
+  embedding float[N] distance_metric=cosine
 );
 ```
 
@@ -266,13 +269,13 @@ CREATE VIRTUAL TABLE search_vectors USING vec0(
 
 If embedding the query on-device is too slow for some platforms, the artifact can also include a pre-computed "term → approximate vector" lookup table that enables lightweight semantic expansion without running a model at query time.
 
-**Index size estimates** (float32):
+**Index size estimates** (float32, 1024d Qwen3 / 384d bge-small):
 
-| Vault size | Chunks (~3/note) | Vector data | With metadata | int8 quantized |
-|------------|-------------------|-------------|---------------|----------------|
-| 1,000 notes | 3,000 | 4.6 MB | ~6 MB | ~3 MB |
-| 5,000 notes | 15,000 | 23 MB | ~30 MB | ~13 MB |
-| 10,000 notes | 30,000 | 46 MB | ~60 MB | ~25 MB |
+| Vault size | Chunks (~3/note) | 1024d vectors | 384d vectors | int8 quantized (1024d) |
+|------------|-------------------|---------------|--------------|------------------------|
+| 1,000 notes | 3,000 | 12 MB | 4.6 MB | ~3 MB |
+| 5,000 notes | 15,000 | 60 MB | 23 MB | ~15 MB |
+| 10,000 notes | 30,000 | 120 MB | 46 MB | ~30 MB |
 
 Easily downloadable over LAN. With int8 quantization, even large vaults stay reasonable.
 
@@ -395,13 +398,14 @@ CREATE TABLE search_jobs (
 ```env
 SEARCH_ENABLED=true
 
-# Levels to run (auto-detected if not set, based on benchmark)
-# SEARCH_LEVELS=0,1,2
+# Override embedding model (auto-selected via benchmark if not set)
+# Can be a registry ID (e.g. "qwen3-embedding-0.6b") or a direct GGUF file path
+# EMBEDDING_MODEL=qwen3-embedding-0.6b
 
-# Override embedding model (auto-selected if not set)
-# EMBEDDING_MODEL=Qwen3-Embedding-0.6B
+# Where to store downloaded GGUF model files (default: data/models)
+# MODELS_PATH=data/models
 
-# Level 3: LLM model (auto-selected if not set)
+# Level 3: LLM model (auto-selected if not set) — not yet implemented
 # LLM_MODEL=llama-3.2-3b
 
 # Scheduling
@@ -413,7 +417,7 @@ INDEX_MAX_MEMORY_MB=512
 INDEX_BATCH_SIZE=50
 ```
 
-**Auto-detection**: On first run, benchmark → select model → enable levels. User can override everything. The goal is zero-config for most users.
+**Auto-detection**: On first index trigger, benchmark → select model → enable levels. User can override everything. The goal is zero-config for most users. Server starts instantly — model download and benchmark happen lazily when there are dirty notes to index.
 
 ### 2.7 What "Black Magic" Feels Like
 
@@ -453,45 +457,50 @@ MiniSearch handles lexical search well enough for a personal notes app. FTS5 add
 
 FTS5 can be revisited later if stemming/phrase queries prove necessary. The server plumbing built for Phase 3 (artifact pipeline, dirty tracking, SSE events) would support adding FTS5 with minimal extra work.
 
-### Phase 3: Semantic Search (current phase)
+### Phase 3: Semantic Search (server complete, client next)
 
-MiniSearch + vectors. Two complementary signals: lexical (exact keywords, real-time edits) and semantic (meaning, "find notes about cooking" when none say "cooking").
+MiniSearch + vectors. Two complementary signals: lexical (exact keywords, real-time edits) and semantic (meaning, "find notes about cooking" when none say "cooking"). Server-side pipeline (3.1–3.3) is shipped. Next: client-side artifact download, on-device vector search, and hybrid fusion (3.4–3.6).
 
-#### 3.1 Server: Indexer Pipeline Skeleton
+#### 3.1 Server: Indexer Pipeline Skeleton — COMPLETE
 
-Build the core infrastructure that all server-side indexing depends on. Hook into the existing sync flow — after `processSync()` completes in the `/sync` route, mark changed notes as dirty.
+Shipped and tested. Core infrastructure for server-side indexing:
 
-- **Dirty tracking table**: `search_index_state (uuid, level, content_hash, indexed_at)` — knows which notes need reprocessing per level.
-- **Job management table**: `search_jobs (job_id, level, status, checkpoint, progress)` — tracks running/interrupted/completed jobs with checkpointing so interrupted runs resume.
-- **Sync hook**: After `/sync` processes changes, insert/update dirty entries for changed UUIDs.
-- **Indexer scheduler**: Rebuilds 1–3 times per day, not after every sync. Primary rebuild runs during configured idle hours (default 2am–6am). An additional rebuild triggers if the user has been idle for >3 hours and there are dirty notes since the last build. On-demand rebuild available via API. Respects memory cap. Jobs checkpoint after each batch so they can be interrupted and resumed.
-- **Config**: `SEARCH_ENABLED=true`, `INDEX_IDLE_START`, `INDEX_IDLE_END`, `INDEX_MAX_MEMORY_MB`, `INDEX_BATCH_SIZE`.
+- **Dirty tracking table**: `search_index_state (uuid, level, content_hash, indexed_at)` — knows which notes need reprocessing per level. `dirtyTracker.ts` marks notes dirty after sync, `getDirtyUuids()` finds notes needing re-index.
+- **Job management table**: `search_jobs (job_id, level, status, checkpoint, notes_total, notes_processed, error_message)` — tracks running/interrupted/completed jobs with JSON checkpoint for resume.
+- **Sync hook**: `markDirtyAfterSync()` called after `/sync` processes changes.
+- **Indexer scheduler**: `scheduler.ts` checks every 60s. Runs during idle window (default 2am–6am) or after 3 hours of inactivity with dirty notes. On-demand via `POST /search/reindex`. Jobs checkpoint after each batch.
+- **Config**: `SEARCH_ENABLED=true`, `INDEX_IDLE_START`, `INDEX_IDLE_END`, `INDEX_MAX_MEMORY_MB`, `INDEX_BATCH_SIZE`, `MODELS_PATH`.
 
-#### 3.2 Server: Embedding Pipeline
+#### 3.2 Server: Embedding Pipeline — COMPLETE
 
-Generate dense vector embeddings for all notes using `node-llama-cpp` with GGUF models.
+Shipped and tested. Dense vector embeddings via `node-llama-cpp` with GGUF models.
 
-- **Hardware benchmark**: On first enable, embed a single 256-token passage and measure wall time. Auto-select model:
-  - `< 50ms` → Qwen3-Embedding-8B (1024 dims, best quality)
-  - `< 200ms` → Qwen3-Embedding-0.6B (512 dims, great quality)
-  - `< 500ms` → bge-small-en-v1.5 (384 dims, good quality)
-  - `< 2s` → all-MiniLM-L6-v2 quantized (384 dims, still useful)
-  - `> 2s` → skip (user can force-enable)
-- **Chunking**: Notes > ~512 tokens split at heading/paragraph boundaries into ~900-token chunks with 15% overlap. Each chunk gets its own embedding.
-- **Storage**: `search_chunks` table (uuid, chunk_index, chunk_text, start_offset, end_offset, content_hash) + `search_vectors` via sqlite-vec extension (chunk_id → float[N]).
+- **Model registry** (`modelRegistry.ts`): Static registry of 4 supported models with HF URIs, native/output dims, download sizes, and query/document prefixes. Models auto-download from HuggingFace via `resolveModelFile()`.
+- **Hardware benchmark** (`benchmark.ts`): On first index trigger (lazy — not at startup), downloads bge-small-en-v1.5 (~37MB), embeds sample text 5 times, takes median. Selects model by threshold:
+  - `< 10ms` → qwen3-embedding-8b (4096d → 1024d MRL)
+  - `< 30ms` → qwen3-embedding-4b (2560d → 1024d MRL)
+  - `< 100ms` → qwen3-embedding-0.6b (1024d native)
+  - `< 500ms` → bge-small-en-v1.5 (384d native)
+  - `≥ 500ms` → skip (hardware too slow)
+- **Instruction prefixes**: Qwen3 models use `Instruct: Given a user search query, retrieve the most relevant personal notes\nQuery: ` for queries, documents embedded as-is. bge-small uses its own query prefix. Prefixes stored in `search_config` and artifact's `search_model_card` table.
+- **MRL truncation**: All Qwen3 models output 1024d vectors (truncated from native dims via `.slice(0, dims)`). Uniform artifact size regardless of model.
+- **Cosine distance**: sqlite-vec configured with `distance_metric=cosine` (significantly better retrieval than default L2 for normalized embeddings).
+- **Lazy startup**: Server starts instantly. Model download, benchmark, and loading all happen inside the scheduler's first indexing trigger via `ensureProcessor()`.
+- **Chunking**: Notes > ~512 tokens split at heading/paragraph boundaries into ~900-token chunks with 15% overlap. Notes with fewer than 10 words are filtered out to avoid polluting the vector space with near-empty content.
+- **Storage**: `search_chunks` table + `search_vectors` via sqlite-vec (cosine distance). Chunk IDs use `bigint` throughout to avoid precision loss from `Number()` cast on SQLite rowids.
 - **Incremental**: Only re-embed chunks whose content_hash changed. Store per-chunk hash for fine-grained dirty tracking.
 
-#### 3.3 Server: Artifact Build & Serve
+#### 3.3 Server: Artifact Build & Serve — COMPLETE
 
-Package the vector index into downloadable artifacts for clients. Two formats to support different platforms:
+Shipped and tested. Packages the vector index into downloadable artifacts.
 
-- **Electron artifact**: SQLite `.db` file containing `search_chunks` + `search_vectors` (sqlite-vec) tables. Electron opens it directly via `better-sqlite3` + sqlite-vec extension — same stack as the server, zero format conversion.
-- **Mobile artifact**: Binary `.bin` file containing raw vectors as a `Float32Array` dump, plus a JSON manifest mapping chunk IDs to note UUIDs, chunk text, and offsets. Mobile clients load this into an in-memory vector search engine (see 3.5).
+- **Electron artifact**: SQLite `.db` file containing `search_chunks` + `search_vectors_raw` (raw blobs) + `search_model_card` tables. `search_model_card` contains `model_id`, `dims`, `query_prefix`, `doc_prefix`, `distance_metric` — clients read this to know how to prefix queries and interpret vectors.
+- **Mobile artifact**: Binary `.bin` file containing raw vectors as a `Float32Array` dump, plus a JSON manifest mapping chunk IDs to note UUIDs, chunk text, and offsets.
 - **Versioning**: Both artifacts include a version tag (`supersearch-v1`) so schema changes trigger clean rebuild on client.
-- **Endpoint**: `GET /search/index?level=2&format=sqlite|bin` → streams the appropriate file. Response headers include artifact version + content hash for cache validation.
-- **Capabilities endpoint**: `GET /search/capabilities` → `{ levels: [2], model, dims, chunk_count, last_indexed_at, note_count }`.
-- **Status endpoint**: `GET /search/status` → `{ current_job, last_run, progress }`.
-- **SSE event**: Emit `supersearch_ready` on the existing SSE infrastructure when a new artifact build completes. Clients listen alongside `sync_available`.
+- **Endpoint**: `GET /search/index?format=sqlite|bin|manifest` → streams the appropriate file. Response headers include artifact version + ETag for cache validation.
+- **Capabilities endpoint**: `GET /search/capabilities` → `{ levels, model, dims, query_prefix, chunk_count, last_indexed_at, artifact_version, artifact_hash }`.
+- **Status endpoint**: `GET /search/status` → `{ current_job, last_run }`.
+- **SSE event**: TODO — emit `supersearch_ready` on the existing SSE infrastructure when a new artifact build completes.
 
 #### 3.4 Client: Artifact Download & Storage
 
@@ -529,14 +538,14 @@ Fuse the two ranked lists. MiniSearch handles the "freshness gap" (edits since l
 
 #### 3.7 Priority Order
 
-| Step | Effort | Dependency | What it unblocks |
-|------|--------|------------|-----------------|
-| 3.1 Indexer skeleton | Medium | None (server only) | Everything else |
-| 3.2 Embedding pipeline | Large | 3.1 | Artifact build |
-| 3.3 Artifact serve | Small | 3.2 | Client download |
-| 3.4 Client download | Medium | 3.3 + platform work | Vector search |
-| 3.5 On-device vector search | Medium | 3.4 | Hybrid fusion |
-| 3.6 Hybrid fusion (RRF) | Small | 3.5 | Ship it |
+| Step | Effort | Dependency | Status |
+|------|--------|------------|--------|
+| 3.1 Indexer skeleton | Medium | None (server only) | COMPLETE |
+| 3.2 Embedding pipeline | Large | 3.1 | COMPLETE |
+| 3.3 Artifact serve | Small | 3.2 | COMPLETE |
+| 3.4 Client download | Medium | 3.3 + platform work | Next |
+| 3.5 On-device vector search | Medium | 3.4 | — |
+| 3.6 Hybrid fusion (RRF) | Small | 3.5 | — |
 
 ### Phase 4: LLM Augmentation (stretch)
 
@@ -564,7 +573,13 @@ If stemming or phrase queries prove necessary after living with MiniSearch + vec
 
 **sqlite-vec for server + Electron, brute-force for mobile**: sqlite-vec is a SQLite extension — works perfectly on the server (better-sqlite3) and Electron (same stack), and the server's `.db` file can be opened directly on the Electron client with zero conversion. But Capacitor's SQLite plugins can't load native extensions without forking. For mobile, brute-force cosine similarity over a pre-normalized `Float32Array` is simple (~50 lines of code), has zero dependencies, and runs in ~30–100ms on mobile for 30K × 384 vectors. Int8 quantization cuts memory to ~11.5MB. This is fast enough with debounced search input, and avoids depending on immature WASM vector libraries. Can upgrade to a proper ANN library later if scale demands it.
 
-**Benchmark-based, not device categories**: A Raspberry Pi 5 with 8GB RAM is more capable than a 10-year-old NUC with 2GB. Device categories are misleading. Measure actual performance, select accordingly.
+**Benchmark-based, not device categories**: A Raspberry Pi 5 with 8GB RAM is more capable than a 10-year-old NUC with 2GB. Device categories are misleading. Measure actual performance, select accordingly. The benchmark uses a small proxy model (bge-small, 37MB) to avoid downloading a large model on slow hardware that won't use it.
+
+**Cosine distance over L2**: sqlite-vec defaults to L2, but cosine distance produces significantly better retrieval for embedding models trained with cosine similarity objectives. All our models (bge-small, Qwen3) are trained this way.
+
+**Instruction prefixes**: Qwen3 embedding models produce dramatically better retrieval when queries use an `Instruct:` prefix describing the task. Documents are embedded as-is. The prefix is stored in `search_config` and the artifact's `search_model_card` table so clients can apply it without hardcoding model-specific behavior.
+
+**MRL truncation to 1024d**: Qwen3 models support Matryoshka Representation Learning — the first N dimensions of the embedding capture the most information. Truncating 4B (2560d) and 8B (4096d) to 1024d keeps artifacts a uniform size while retaining most retrieval quality. bge-small stays at native 384d since it doesn't support MRL.
 
 **Index push over query proxy**: Keeps search fully local. No latency, no privacy leakage, no degraded experience when offline. The server is a build system for better indexes, not a runtime dependency.
 

@@ -22,8 +22,20 @@ describe('chunkContent', () => {
     expect(chunkContent('   ')).toEqual([]);
   });
 
+  it('returns empty array for notes with fewer than 10 words', () => {
+    expect(chunkContent('hello world')).toEqual([]);
+    expect(chunkContent('one two three four five six seven eight nine')).toEqual([]);
+  });
+
+  it('returns chunks for notes with exactly 10 words', () => {
+    const content = 'one two three four five six seven eight nine ten';
+    const chunks = chunkContent(content);
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0].text).toBe(content);
+  });
+
   it('returns single chunk for short notes', () => {
-    const content = 'This is a short note with just a few words.';
+    const content = 'This is a short note with just a few words in it.';
     const chunks = chunkContent(content);
     expect(chunks).toHaveLength(1);
     expect(chunks[0].text).toBe(content);

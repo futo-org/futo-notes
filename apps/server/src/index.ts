@@ -26,20 +26,7 @@ if (config.searchEnabled) {
   const { createSearchTables } = await import('./db/searchSchema.js');
   createSearchTables(getDb());
 
-  // Load embedding model and register processor
-  const { loadEmbeddingModel } = await import('./search/modelManager.js');
-  const { createEmbeddingProcessor } = await import('./search/embeddingIndexer.js');
-  const { setJobProcessor, startSearchScheduler } = await import('./search/scheduler.js');
-
-  if (config.embeddingModel) {
-    const model = await loadEmbeddingModel(config.embeddingModel);
-    const processor = createEmbeddingProcessor(model, config.notesPath);
-    setJobProcessor(processor);
-    log.info('search: embedding processor registered');
-  } else {
-    log.warn('search: no EMBEDDING_MODEL configured — indexing will be a no-op');
-  }
-
+  const { startSearchScheduler } = await import('./search/scheduler.js');
   startSearchScheduler(config);
 }
 
