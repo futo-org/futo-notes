@@ -1,5 +1,6 @@
 import { getFS, hasFileSystem, isMobile } from './platform';
 import { writeCrashReport, type CrashReport, getSessionId, getAppVersion } from './crashHandler';
+import { flushEngagement } from './engagement';
 
 const HEARTBEAT_PATH = '.heartbeat';
 
@@ -47,6 +48,7 @@ export function startHeartbeat(): void {
       });
       const pauseHandle = App.addListener('pause', () => {
         clearHeartbeat();
+        flushEngagement();
       });
       listeners.push(
         () => resumeHandle.then(h => h.remove()),
@@ -62,6 +64,7 @@ export function startHeartbeat(): void {
         writeHeartbeat();
       } else {
         clearHeartbeat();
+        flushEngagement();
       }
     };
     document.addEventListener('visibilitychange', handler);

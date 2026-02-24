@@ -21,6 +21,7 @@ import {
 } from './fileSystem';
 import { ensureNotesFolder, getPlatformFS } from './platform';
 import { markLocalDeleteForSync, trackLocalRenameForSync, clearSyncState, loadSyncState, findIdForUuid } from './syncState';
+import { loadEngagement, trackEdit, removeEngagement, renameEngagement } from './engagement';
 import { isSupersearchReady } from './supersearch/state';
 import { embed, isReady as isEmbedderReady } from './supersearch/queryEmbedder';
 import { vectorSearch, type VectorSearchResult } from './supersearch/vectorSearch';
@@ -57,6 +58,7 @@ export async function initNotes(): Promise<void> {
     persistIndex();
   }
 
+  await loadEngagement();
   initialized = true;
 }
 
@@ -183,6 +185,7 @@ export async function updateNote(
     mtime = await renameNoteFile(originalId, finalId, content, overrideMtime);
     removeFromSearchIndex(originalId);
     removeFromCache(originalId);
+    renameEngagement(originalId, finalId);
     await trackLocalRenameForSync(originalId, finalId);
   } else {
     mtime = await writeNote(finalId, content, overrideMtime);
@@ -190,6 +193,7 @@ export async function updateNote(
 
   updateCache({ id: finalId, title, preview, modificationTime: mtime });
   addToSearchIndex({ id: finalId, title: finalId, body: content, mtime });
+  trackEdit(finalId);
   schedulePersist();
 
   return { id: finalId, mtime };
@@ -198,6 +202,7 @@ export async function updateNote(
 export async function deleteNote(id: string, options: { trackSyncDelete?: boolean } = {}): Promise<void> {
   await deleteNoteFile(id);
   removeFromCache(id);
+  removeEngagement(id);
   removeFromSearchIndex(id);
   schedulePersist();
 

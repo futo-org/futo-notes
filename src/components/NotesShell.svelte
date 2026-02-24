@@ -11,6 +11,8 @@
   import { sanitizeFilename } from '$lib/utils';
   import { FORBIDDEN_CHARS_RE, validateTitle } from '@futo-notes/shared';
   import type { SyncSummary } from '$lib/sync';
+  import { trackOpen } from '$lib/engagement';
+  import ForYouPage from './ForYouPage.svelte';
   import { startAutoSync, stopAutoSync, notifySaved } from '$lib/autoSync';
   import { keyboard } from '$lib/keyboard.svelte';
   import { navigate } from '../router';
@@ -824,6 +826,7 @@ Escaped pipes:
         const meta = getNoteById(id);
         title = meta?.title || id;
         editor?.setContent(content);
+        trackOpen(id);
       } catch {
         // File doesn't exist — remove stale cache entry so it disappears from sidebar
         handleExternalFileChange('unlink', `${id}.md`);
@@ -1177,15 +1180,7 @@ Escaped pipes:
           />
         </div>
       {:else}
-        <div class="flex-1 flex flex-col items-center justify-center gap-4 p-8 text-center">
-          <div style="font-family: var(--font-serif); font-size: 24px; color: var(--color-border); letter-spacing: -0.01em;">FUTO Notes</div>
-          {#if isMobile}
-            <div class="text-sm text-muted">Swipe from the left edge or tap the menu to browse your notes.</div>
-            <button class="border-none rounded-full px-5 py-2.5 text-sm font-medium cursor-pointer active:opacity-80" style="background: var(--color-primary); color: var(--color-bg);" onclick={(e) => { e.stopPropagation(); setDrawerOpen(true); }}>Browse notes</button>
-          {:else}
-            <div class="text-sm text-muted">Select a note from the sidebar, or create a new one.</div>
-          {/if}
-        </div>
+        <ForYouPage onbrowse={() => setDrawerOpen(true)} />
       {/if}
     </div>
   </div>
