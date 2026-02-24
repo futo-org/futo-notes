@@ -10,6 +10,7 @@ import revoke from './routes/revoke.js';
 import events from './routes/events.js';
 import dev from './routes/dev.js';
 import search from './routes/search.js';
+import dashboard from './routes/dashboard.js';
 
 export function createApp(): Hono {
   const app = new Hono();
@@ -29,6 +30,7 @@ export function createApp(): Hono {
     }
   });
 
+  app.route('/', dashboard);
   app.route('/', health);
   app.route('/', setup);
   app.route('/', login);

@@ -18,7 +18,7 @@ export async function initVectorDb(db: Database.Database, dims: number): Promise
   db.exec(`
     CREATE VIRTUAL TABLE IF NOT EXISTS search_vectors USING vec0(
       chunk_id INTEGER PRIMARY KEY,
-      embedding float[${dims}]
+      embedding float[${dims}] distance_metric=cosine
     );
   `);
 
@@ -31,12 +31,13 @@ export async function initVectorDb(db: Database.Database, dims: number): Promise
  */
 export function insertVector(
   db: Database.Database,
-  chunkId: number,
+  chunkId: number | bigint,
   embedding: number[],
 ): void {
   const buf = new Float32Array(embedding);
+  // sqlite-vec requires INTEGER binding; JS number binds as REAL in better-sqlite3
   db.prepare('INSERT INTO search_vectors (chunk_id, embedding) VALUES (?, ?)')
-    .run(chunkId, Buffer.from(buf.buffer));
+    .run(BigInt(chunkId), Buffer.from(buf.buffer));
 }
 
 /**
@@ -51,7 +52,7 @@ export function deleteVectorsForUuid(db: Database.Database, uuid: string): void 
   const del = db.prepare('DELETE FROM search_vectors WHERE chunk_id = ?');
   const run = db.transaction(() => {
     for (const chunk of chunks) {
-      del.run(chunk.chunk_id);
+      del.run(BigInt(chunk.chunk_id));
     }
   });
   run();
@@ -65,14 +66,14 @@ export function searchVectors(
   db: Database.Database,
   queryVector: number[],
   topK: number,
-): { chunk_id: number; distance: number }[] {
+): { chunk_id: bigint; distance: number }[] {
   const buf = new Float32Array(queryVector);
   return db.prepare(`
     SELECT chunk_id, distance FROM search_vectors
     WHERE embedding MATCH ?
     ORDER BY distance
     LIMIT ?
-  `).all(Buffer.from(buf.buffer), topK) as { chunk_id: number; distance: number }[];
+  `).all(Buffer.from(buf.buffer), topK) as { chunk_id: bigint; distance: number }[];
 }
 
 /**
