@@ -23,10 +23,10 @@ search.get('/search/status', authMiddleware, (c) => {
   return c.json(status);
 });
 
-search.post('/search/reindex', authMiddleware, async (c) => {
+search.post('/search/reindex', authMiddleware, (c) => {
   try {
-    const jobId = await triggerIndexNow();
-    return c.json({ job_id: jobId }, 202);
+    triggerIndexNow();
+    return c.json({ started: true }, 202);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error(`search: reindex failed: ${message}`);
@@ -103,9 +103,15 @@ search.post('/search/embed-query', authMiddleware, async (c) => {
     }
 
     const { getActiveModel } = await import('../search/modelManager.js');
-    const model = getActiveModel();
+    let model = getActiveModel();
     if (!model) {
-      return c.json({ error: 'Embedding model not loaded' }, 503);
+      // Model not loaded yet — try to load it on-demand
+      const { ensureModelLoaded } = await import('../search/scheduler.js');
+      await ensureModelLoaded();
+      model = getActiveModel();
+      if (!model) {
+        return c.json({ error: 'Embedding model not available' }, 503);
+      }
     }
 
     const vector = await model.embedQuery(body.query);

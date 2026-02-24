@@ -28,11 +28,27 @@
     });
   });
 
-  let keywordResults: SearchResultItem[] = $derived(search(query));
+  let keywordResults: SearchResultItem[] = $state([]);
   let results: SearchResultItem[] = $derived(
     vectorResults ? vectorResults.results : keywordResults
   );
   let timing = $derived(vectorResults?.timing ?? null);
+
+  // Debounced keyword search — prevents blocking input on every keystroke
+  $effect(() => {
+    const q = query;
+
+    if (!q.trim()) {
+      keywordResults = [];
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      keywordResults = search(q);
+    }, 100);
+
+    return () => clearTimeout(timer);
+  });
 
   // Debounced vector search
   let vectorDebounceTimer: ReturnType<typeof setTimeout> | undefined;

@@ -83,6 +83,15 @@ export function recordActivity(): void {
 }
 
 /**
+ * Ensure the embedding model is loaded and ready for queries.
+ * Can be called from the embed-query endpoint to load on-demand.
+ */
+export async function ensureModelLoaded(): Promise<boolean> {
+  if (!currentConfig) return false;
+  return ensureProcessor(currentConfig);
+}
+
+/**
  * Lazily initialize the embedding pipeline.
  * Runs benchmark (if needed), downloads model, loads it, creates processor.
  * Returns true if the processor is ready, false if hardware is too slow.
@@ -107,16 +116,24 @@ async function ensureProcessor(config: Config): Promise<boolean> {
       modelFilePath = config.embeddingModel;
     }
   } else {
-    // Run benchmark to select a model
-    phase = 'benchmarking';
-    const { runBenchmark } = await import('./benchmark.js');
-    const result = await runBenchmark(db, config.modelsPath);
-    if (!result.selectedModelId) {
-      log.warn('search: hardware too slow for embeddings, disabling indexer');
-      disabled = true;
-      return false;
+    // Check if a model was already selected from a previous run
+    const existingModel = (db.prepare("SELECT value FROM search_config WHERE key = 'embedding_model'")
+      .get() as { value: string } | undefined)?.value;
+    if (existingModel && getModelDef(existingModel)) {
+      modelId = existingModel;
+      log.info(`search: using previously selected model ${modelId}`);
+    } else {
+      // First run — benchmark to select a model
+      phase = 'benchmarking';
+      const { runBenchmark } = await import('./benchmark.js');
+      const result = await runBenchmark(db, config.modelsPath);
+      if (!result.selectedModelId) {
+        log.warn('search: hardware too slow for embeddings, disabling indexer');
+        disabled = true;
+        return false;
+      }
+      modelId = result.selectedModelId;
     }
-    modelId = result.selectedModelId;
   }
 
   // Resolve model def and load
@@ -185,9 +202,9 @@ async function ensureProcessor(config: Config): Promise<boolean> {
 
 /**
  * Trigger an indexing job immediately, bypassing the idle window.
- * Returns the job_id.
+ * Validates synchronously, then runs the job in the background.
  */
-export async function triggerIndexNow(): Promise<string> {
+export function triggerIndexNow(): void {
   if (!currentConfig) {
     throw new Error('Search scheduler not initialized');
   }
@@ -196,28 +213,32 @@ export async function triggerIndexNow(): Promise<string> {
   }
 
   running = true;
-  try {
-    const ready = await ensureProcessor(currentConfig);
-    if (!ready || !jobProcessor) {
-      throw new Error('Embedding model not available (hardware too slow or model missing)');
-    }
-    const db = getDb();
-    phase = 'indexing';
-    const result = await runIndexJob(db, 2, currentConfig.indexBatchSize, jobProcessor);
+  const config = currentConfig;
 
-    // Build artifacts and notify clients
-    phase = 'building_artifacts';
-    const { buildArtifacts } = await import('./artifactBuilder.js');
-    const artifactDir = path.join(path.dirname(currentConfig.databasePath), 'search-artifacts');
-    await buildArtifacts(db, artifactDir);
-    const { broadcastSupersearchReady } = await import('../events.js');
-    broadcastSupersearchReady();
-
-    return result.jobId;
-  } finally {
+  runIndexInBackground(config).catch((err) => {
+    log.error(`search: manual reindex failed: ${err instanceof Error ? err.message : String(err)}`);
+  }).finally(() => {
     running = false;
     phase = 'idle';
+  });
+}
+
+async function runIndexInBackground(config: Config): Promise<void> {
+  const ready = await ensureProcessor(config);
+  if (!ready || !jobProcessor) {
+    throw new Error('Embedding model not available (hardware too slow or model missing)');
   }
+  const db = getDb();
+  phase = 'indexing';
+  await runIndexJob(db, 2, config.indexBatchSize, jobProcessor);
+
+  // Build artifacts and notify clients
+  phase = 'building_artifacts';
+  const { buildArtifacts } = await import('./artifactBuilder.js');
+  const artifactDir = path.join(path.dirname(config.databasePath), 'search-artifacts');
+  await buildArtifacts(db, artifactDir);
+  const { broadcastSupersearchReady } = await import('../events.js');
+  broadcastSupersearchReady();
 }
 
 async function tick(): Promise<void> {

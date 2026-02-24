@@ -34,9 +34,17 @@ export function createEmbeddingProcessor(
       db.prepare('DELETE FROM search_chunks WHERE uuid = ?').run(uuid);
 
       // Chunk the content
+      const hash = contentHash(content);
       const chunks = chunkContent(content);
       if (chunks.length === 0) {
-        log.debug(`search: no chunks for ${uuid.slice(0, 8)} (empty content)`);
+        // Too short to embed — still mark as indexed so it's not perpetually dirty
+        db.prepare(`
+          INSERT INTO search_index_state (uuid, level, content_hash, indexed_at)
+          VALUES (?, 2, ?, ?)
+          ON CONFLICT(uuid, level) DO UPDATE SET
+            content_hash = excluded.content_hash,
+            indexed_at = excluded.indexed_at
+        `).run(uuid, hash, Date.now());
         continue;
       }
 
@@ -45,7 +53,6 @@ export function createEmbeddingProcessor(
       const embeddings = await model.embedDocuments(texts);
 
       // Insert chunks and vectors
-      const hash = contentHash(content);
       const insertChunk = db.prepare(`
         INSERT INTO search_chunks (uuid, chunk_index, chunk_text, start_offset, end_offset, content_hash)
         VALUES (?, ?, ?, ?, ?, ?)

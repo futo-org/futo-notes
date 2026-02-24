@@ -19,7 +19,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     databasePath: env.DATABASE_PATH || path.join('data', 'futo-notes.db'),
     notesPath: env.NOTES_PATH || path.join('data', 'notes'),
     modelsPath: env.MODELS_PATH || path.join('data', 'models'),
-    searchEnabled: env.SEARCH_ENABLED === 'true',
+    searchEnabled: env.SEARCH_ENABLED !== 'false',
     indexIdleStart: env.INDEX_IDLE_START || '02:00',
     indexIdleEnd: env.INDEX_IDLE_END || '06:00',
     indexMaxMemoryMb: parseInt(env.INDEX_MAX_MEMORY_MB || '512', 10),

@@ -585,14 +585,12 @@ function dashboardHtml(): string {
 
   window.indexNow = async function() {
     const btn = $('index-now-btn');
-    const status = $('index-status');
     if (!btn) return;
 
     const token = await getToken();
     if (!token) return;
 
     btn.disabled = true;
-    status.textContent = 'Starting...';
 
     try {
       const res = await fetch('/search/reindex', {
@@ -600,22 +598,22 @@ function dashboardHtml(): string {
         headers: { 'Authorization': 'Bearer ' + token },
       });
       if (res.status === 401) {
-        // Token expired — clear and retry
         authToken = null;
         sessionStorage.removeItem('dashboard_token');
-        status.textContent = 'Session expired, try again';
+        alert('Session expired, please try again');
         btn.disabled = false;
         return;
       }
       const data = await res.json();
-      if (res.ok) {
-        status.textContent = 'Indexing started';
-      } else {
-        status.textContent = data.error || 'Failed';
+      if (!res.ok) {
+        alert(data.error || 'Failed to start indexing');
         btn.disabled = false;
+        return;
       }
+      // 202 Accepted — job is running in background, refresh will show progress
+      refresh();
     } catch (e) {
-      status.textContent = 'Error: ' + e.message;
+      alert('Error: ' + e.message);
       btn.disabled = false;
     }
   };

@@ -302,7 +302,11 @@ function setupIPC(): void {
           "SELECT value FROM search_model_card WHERE key = 'dims'"
         ).get() as { value: string } | undefined;
         const dims = dimsRow ? parseInt(dimsRow.value, 10) : 384;
-        supersearchDb.exec(`CREATE VIRTUAL TABLE search_vectors USING vec0(embedding float[${dims}])`);
+        const distMetricRow = supersearchDb.prepare(
+          "SELECT value FROM search_model_card WHERE key = 'distance_metric'"
+        ).get() as { value: string } | undefined;
+        const distMetric = distMetricRow?.value || 'cosine';
+        supersearchDb.exec(`CREATE VIRTUAL TABLE search_vectors USING vec0(embedding float[${dims}] distance_metric=${distMetric})`);
         supersearchDb.exec(`INSERT INTO search_vectors (rowid, embedding) SELECT chunk_id, embedding FROM search_vectors_raw`);
       }
     }
