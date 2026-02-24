@@ -82,23 +82,14 @@
 
   .for-you-cards {
     display: flex;
+    flex-wrap: wrap;
     gap: 1rem;
-    width: 100%;
-    max-width: 720px;
     justify-content: center;
-  }
-
-  @media (max-width: 640px) {
-    .for-you-cards {
-      flex-direction: column;
-      align-items: stretch;
-    }
   }
 
   .for-you-card {
     width: 180px;
     height: 180px;
-    flex-shrink: 0;
     display: flex;
     flex-direction: column;
     gap: 0.375rem;
