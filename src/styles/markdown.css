@@ -6,8 +6,6 @@
 .cm-md-h3 {
   font-family: var(--font-serif);
   font-weight: 400;
-  margin-top: 6px;
-  margin-bottom: 2px;
   display: block;
   letter-spacing: -0.01em;
   color: var(--color-text);
@@ -18,8 +16,6 @@
 .cm-md-h6 {
   font-family: var(--font-sans);
   font-weight: 600;
-  margin-top: 4px;
-  margin-bottom: 2px;
   display: block;
 }
 
@@ -218,10 +214,12 @@
   overscroll-behavior-x: contain;
   -webkit-overflow-scrolling: touch;
   touch-action: pan-x;
-  max-width: calc(100vw - 32px);
+  max-width: min(100%, calc(100vw - 32px));
   margin: 8px 0;
   cursor: pointer;
   border-radius: 8px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
 }
 
 .cm-md-table-rendered {
