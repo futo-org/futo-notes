@@ -157,7 +157,7 @@ describe('Search routes disabled', () => {
     tmpDir = mkdtempSync(path.join(os.tmpdir(), 'futo-nosearch-test-'));
     process.env.DATABASE_PATH = path.join(tmpDir, 'test.db');
     process.env.NOTES_PATH = path.join(tmpDir, 'notes');
-    delete process.env.SEARCH_ENABLED;
+    process.env.SEARCH_ENABLED = 'false';
 
     initDb(process.env.DATABASE_PATH);
     clearRateLimitStore();

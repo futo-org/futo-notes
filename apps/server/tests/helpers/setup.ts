@@ -1,7 +1,8 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { initDb, closeDb } from '../../src/db/index.js';
+import { initDb, closeDb, getDb } from '../../src/db/index.js';
+import { createSearchTables } from '../../src/db/searchSchema.js';
 import { createApp } from '../../src/app.js';
 import { clearRateLimitStore } from '../../src/middleware/rateLimit.js';
 import type { Hono } from 'hono';
@@ -25,6 +26,7 @@ export function createTestEnv(): TestEnv {
   const notesDir = path.join(tmpDir, 'notes');
 
   initDb(dbPath);
+  createSearchTables(getDb());
   clearRateLimitStore();
 
   // Override config for test — set env vars before creating app
