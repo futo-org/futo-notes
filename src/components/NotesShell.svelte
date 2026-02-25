@@ -653,6 +653,8 @@ Escaped pipes:
     // On mobile, clicking the dimmed area behind the drawer closes it — don't focus
     if (isMobile && drawerOpen) return;
     const target = event.target as HTMLElement;
+    // Let CodeMirror handle taps within the editor so the cursor lands at tap coordinates.
+    if (target.closest('.cm-editor')) return;
     // Don't steal focus from title input or interactive elements
     if (target.closest('.note-title-row, a, button')) return;
     editor.focus();

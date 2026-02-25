@@ -40,13 +40,12 @@ function init(): void {
 }
 
 function hide(): void {
+  // Dismiss caret/focus first so the editor cursor is removed with keyboard hide.
+  (document.activeElement as HTMLElement | null)?.blur();
   if (isMobile) {
     import('@capacitor/keyboard').then(({ Keyboard }) => {
       Keyboard.hide();
     });
-  } else {
-    // Web fallback: blur active element to dismiss virtual keyboard
-    (document.activeElement as HTMLElement | null)?.blur();
   }
 }
 
