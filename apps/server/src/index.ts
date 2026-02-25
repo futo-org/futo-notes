@@ -1,10 +1,19 @@
 import { serve } from '@hono/node-server';
+import fs from 'node:fs';
+import os from 'node:os';
 import { loadConfig } from './config.js';
 import { initDb, getDb } from './db/index.js';
 import { createApp } from './app.js';
 import { reconcile } from './sync/recovery.js';
 import { log } from './logger.js';
-import fs from 'node:fs';
+
+function getLanAddress(): string | undefined {
+  for (const addrs of Object.values(os.networkInterfaces())) {
+    for (const a of addrs ?? []) {
+      if (a.family === 'IPv4' && !a.internal) return a.address;
+    }
+  }
+}
 
 const config = loadConfig();
 
@@ -34,5 +43,7 @@ if (config.searchEnabled) {
 const app = createApp();
 
 serve({ fetch: app.fetch, port: config.port }, (info) => {
+  const lan = getLanAddress();
   log.info(`listening on http://localhost:${info.port}`);
+  if (lan) log.info(`           http://${lan}:${info.port}`);
 });
