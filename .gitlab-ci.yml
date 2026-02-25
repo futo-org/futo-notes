@@ -15,6 +15,7 @@ workflow:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
 stages:
+  - cleanup
   - test
   - build
   - upload_assets
@@ -25,7 +26,7 @@ stages:
 # ─────────────────────────────────────────────────────────────
 
 docker:prune:
-  stage: test
+  stage: cleanup
   script:
     - docker system prune -af --volumes
     - df -h /
