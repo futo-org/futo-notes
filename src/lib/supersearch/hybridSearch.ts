@@ -29,10 +29,8 @@ export function hybridSearch(
     const uuid = vectorResults[i].uuid;
     // Vector results arrive with UUID; find matching note in cache by UUID or id
     let noteId: string | null = null;
-    let note: NotePreview | undefined;
-
     // Try direct lookup (uuid might be the note id)
-    note = noteCache.get(uuid);
+    const note: NotePreview | undefined = noteCache.get(uuid);
     if (note) {
       noteId = note.id;
     } else {
