@@ -30,7 +30,11 @@
 
   let keywordResults: SearchResultItem[] = $state([]);
   let results: SearchResultItem[] = $derived(
-    vectorResults ? vectorResults.results : keywordResults
+    !query.trim()
+      ? keywordResults
+      : activeMode === 'vector'
+        ? (vectorResults?.results ?? [])
+        : (vectorResults ? vectorResults.results : keywordResults)
   );
   let timing = $derived(vectorResults?.timing ?? null);
 
@@ -39,7 +43,7 @@
     const q = query;
 
     if (!q.trim()) {
-      keywordResults = [];
+      keywordResults = search('');
       return;
     }
 
@@ -52,6 +56,7 @@
 
   // Debounced vector search
   let vectorDebounceTimer: ReturnType<typeof setTimeout> | undefined;
+  let vectorAbortController: AbortController | null = null;
 
   $effect(() => {
     const q = query;
@@ -66,6 +71,10 @@
     vectorSearching = false;
 
     if (vectorDebounceTimer) clearTimeout(vectorDebounceTimer);
+    if (vectorAbortController) {
+      vectorAbortController.abort();
+      vectorAbortController = null;
+    }
 
     if (!q.trim()) {
       vectorResults = null;
@@ -76,17 +85,22 @@
       // Check query hasn't changed during the debounce
       if (q !== query) return;
 
+      const controller = new AbortController();
+      vectorAbortController = controller;
       vectorSearching = true;
       try {
-        const result = await searchWithVectors(q);
+        const result = await searchWithVectors(q, controller.signal);
         // Only apply if query still matches
         if (q === query) {
           vectorResults = result;
         }
-      } catch {
-        // Fall back to keyword results
+      } catch (e) {
+        if (e instanceof DOMException && e.name === 'AbortError') return;
         if (q === query) vectorResults = null;
       } finally {
+        if (vectorAbortController === controller) {
+          vectorAbortController = null;
+        }
         if (q === query) vectorSearching = false;
       }
     }, mode === 'keyword' ? 0 : 150);
@@ -97,12 +111,24 @@
     setSearchMode(mode);
     // Re-trigger search with new mode
     vectorResults = null;
+    if (vectorAbortController) {
+      vectorAbortController.abort();
+      vectorAbortController = null;
+    }
     if (query.trim()) {
+      const controller = new AbortController();
+      vectorAbortController = controller;
       vectorSearching = true;
-      searchWithVectors(query).then(result => {
+      searchWithVectors(query, controller.signal).then(result => {
         vectorResults = result;
-        vectorSearching = false;
-      }).catch(() => {
+      }).catch((e) => {
+        if (!(e instanceof DOMException && e.name === 'AbortError')) {
+          vectorResults = null;
+        }
+      }).finally(() => {
+        if (vectorAbortController === controller) {
+          vectorAbortController = null;
+        }
         vectorSearching = false;
       });
     }
@@ -208,7 +234,7 @@
     </div>
 
     {#if activeMode !== 'keyword' && !supersearchAvailable && query}
-      <div class="search-unavailable">Vector search requires server connection</div>
+      <div class="search-unavailable">Vector search unavailable (missing local index or server auth)</div>
     {/if}
 
     <div class="search-results">
