@@ -108,11 +108,13 @@ test.describe('Bullet Glyphs by Nesting Level', () => {
       diffs.push(Math.abs(decLefts[i] - curLefts[i]));
     }
 
-    // The shift between decorated/undecorated should be consistent across levels.
-    // If indent handling is broken, deeper levels shift more. Assert the spread is small.
+    // The shift between decorated/undecorated should be roughly consistent across levels.
+    // Different bullet glyphs (•/◦/▪) have different widths vs raw "- ", so some spread
+    // is expected. If indent handling is broken, deeper levels shift proportionally more
+    // (20+ px spread). Allow 10px to cover glyph width variance across fonts.
     const maxDiff = Math.max(...diffs);
     const minDiff = Math.min(...diffs);
-    expect(maxDiff - minDiff).toBeLessThan(5);
+    expect(maxDiff - minDiff).toBeLessThan(10);
   });
 
   test('Tab indent changes glyph', async ({ page }) => {
