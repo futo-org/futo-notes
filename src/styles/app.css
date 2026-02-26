@@ -88,9 +88,35 @@
   --color-bg: #FAF9F6;
   --color-sidebar: #F0ECE6;
   --color-danger: #B8442A;
+  --color-text-inverse: #FAF9F6;
+  --color-active-line: #E8E3DC;
+  --color-selection: #EDE5D4;
+
+  --ink-rgb: 28, 25, 23;
+  --paper-rgb: 250, 249, 246;
+  --primary-rgb: 176, 125, 59;
 
   --font-sans: 'Outfit', 'GeneralSans', system-ui, -apple-system, sans-serif;
   --font-serif: 'Instrument Serif', Georgia, 'Times New Roman', serif;
+}
+
+[data-theme='dark'] {
+  --color-primary: #C99656;
+  --color-primary-hover: #DEB07C;
+  --color-text: #ECE6DE;
+  --color-border: #3A342F;
+  --color-surface: #231E1A;
+  --color-muted: #A79A8E;
+  --color-bg: #171310;
+  --color-sidebar: #1D1815;
+  --color-danger: #E06A4B;
+  --color-text-inverse: #1A1512;
+  --color-active-line: #2C2520;
+  --color-selection: #3C3228;
+
+  --ink-rgb: 236, 230, 222;
+  --paper-rgb: 23, 19, 16;
+  --primary-rgb: 201, 150, 86;
 }
 
 @layer base {
@@ -156,7 +182,7 @@
   }
 
   .cm-activeLineGutter {
-    background: #E8E3DC !important;
+    background: var(--color-active-line) !important;
   }
 
   .cm-cursor {
@@ -165,10 +191,10 @@
   }
 
   .cm-selectionMatch {
-    background: #EDE5D4 !important;
+    background: var(--color-selection) !important;
   }
 
   .cm-selection {
-    background: #EDE5D4 !important;
+    background: var(--color-selection) !important;
   }
 }

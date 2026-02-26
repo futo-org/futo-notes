@@ -28,6 +28,7 @@ const mockFindIdForUuid = vi.mocked(findIdForUuid);
 
 function makePrefs(overrides: Partial<AppPreferences['sync']> = {}): AppPreferences {
   return {
+    appearance: { theme: 'auto' },
     crashReporting: { enabled: false, alwaysSend: false },
     sync: {
       serverUrl: 'https://sync.example.com',

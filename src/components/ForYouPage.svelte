@@ -139,18 +139,18 @@
     cursor: pointer;
     text-align: left;
     overflow: hidden;
-    box-shadow: 0 1px 3px rgba(28, 25, 23, 0.04);
+    box-shadow: 0 1px 3px rgba(var(--ink-rgb), 0.04);
     transition: box-shadow 0.2s ease, transform 0.2s ease, background 0.15s ease;
   }
 
   .for-you-card:hover {
     background: var(--color-border);
-    box-shadow: 0 4px 16px rgba(28, 25, 23, 0.1);
+    box-shadow: 0 4px 16px rgba(var(--ink-rgb), 0.1);
     transform: translateY(-2px);
   }
 
   .for-you-card:active {
-    box-shadow: 0 1px 4px rgba(28, 25, 23, 0.08);
+    box-shadow: 0 1px 4px rgba(var(--ink-rgb), 0.08);
     transform: translateY(0);
   }
 
@@ -231,7 +231,7 @@
     cursor: pointer;
     background: var(--color-primary);
     color: var(--color-bg);
-    box-shadow: 0 4px 12px rgba(28, 25, 23, 0.15);
+    box-shadow: 0 4px 12px rgba(var(--ink-rgb), 0.15);
   }
 
   .quick-capture-btn:active {

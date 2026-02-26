@@ -41,7 +41,7 @@
 
 .cm-md-h5 {
   font-size: 16px;
-  color: #57534E;
+  color: var(--color-muted);
 }
 
 .cm-md-h6 {
@@ -63,7 +63,7 @@
 
 /* Code */
 .cm-md-code {
-  background: rgba(28, 25, 23, 0.05);
+  background: rgba(var(--ink-rgb), 0.05);
   color: var(--color-primary-hover);
   padding: 2px 6px;
   border-radius: 4px;
@@ -73,7 +73,7 @@
 
 /* Code blocks */
 .cm-line.cm-md-code-block {
-  background: rgba(28, 25, 23, 0.03);
+  background: rgba(var(--ink-rgb), 0.03);
   color: var(--color-text);
   font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
   font-size: 0.88em;
@@ -106,20 +106,20 @@
 .cm-md-link {
   color: var(--color-primary);
   text-decoration: underline;
-  text-decoration-color: rgba(176, 125, 59, 0.35);
+  text-decoration-color: rgba(var(--primary-rgb), 0.35);
   text-underline-offset: 2px;
   cursor: pointer;
 }
 
 .cm-md-link:hover {
   color: var(--color-primary-hover);
-  text-decoration-color: rgba(154, 108, 47, 0.5);
+  text-decoration-color: rgba(var(--primary-rgb), 0.5);
 }
 
 /* Block quotes */
 .cm-line.cm-md-quote {
   padding-left: 15px !important;
-  color: #78716C;
+  color: var(--color-muted);
   font-style: italic;
   margin-left: 0;
   border-left: 2px solid var(--color-primary);
@@ -243,11 +243,11 @@
 }
 
 .cm-md-table-rendered tbody tr:nth-child(even) {
-  background: rgba(28, 25, 23, 0.02);
+  background: rgba(var(--ink-rgb), 0.02);
 }
 
 .cm-md-table-rendered tbody tr:hover {
-  background: rgba(176, 125, 59, 0.06);
+  background: rgba(var(--primary-rgb), 0.06);
 }
 
 .cm-md-table-wrapper:hover {
@@ -257,7 +257,7 @@
 
 /* Inline formatting within tables */
 .cm-md-table-rendered code.cm-md-table-code {
-  background: rgba(28, 25, 23, 0.05);
+  background: rgba(var(--ink-rgb), 0.05);
   color: var(--color-primary-hover);
   padding: 1px 4px;
   border-radius: 3px;
@@ -268,7 +268,7 @@
 .cm-md-table-rendered a.cm-md-table-link {
   color: var(--color-primary);
   text-decoration: underline;
-  text-decoration-color: rgba(176, 125, 59, 0.35);
+  text-decoration-color: rgba(var(--primary-rgb), 0.35);
 }
 
 .cm-md-table-rendered del {

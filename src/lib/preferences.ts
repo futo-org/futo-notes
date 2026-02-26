@@ -3,6 +3,9 @@ import { getFS, hasFileSystem } from './platform';
 const PREFS_PATH = '.preferences.json';
 
 export interface AppPreferences {
+  appearance: {
+    theme: 'auto' | 'dark' | 'light';
+  };
   crashReporting: {
     enabled: boolean;
     alwaysSend: boolean;
@@ -16,6 +19,9 @@ export interface AppPreferences {
 }
 
 const DEFAULTS: AppPreferences = {
+  appearance: {
+    theme: 'auto',
+  },
   crashReporting: {
     enabled: true,
     alwaysSend: false,
@@ -32,6 +38,10 @@ let cached: AppPreferences | null = null;
 
 function deepMerge(defaults: AppPreferences, saved: Partial<AppPreferences>): AppPreferences {
   return {
+    appearance: {
+      ...defaults.appearance,
+      ...(saved.appearance ?? {}),
+    },
     crashReporting: {
       ...defaults.crashReporting,
       ...(saved.crashReporting ?? {}),
@@ -46,6 +56,7 @@ function deepMerge(defaults: AppPreferences, saved: Partial<AppPreferences>): Ap
 export async function loadPreferences(): Promise<AppPreferences> {
   if (!hasFileSystem) {
     cached = {
+      appearance: { ...DEFAULTS.appearance },
       crashReporting: { ...DEFAULTS.crashReporting },
       sync: { ...DEFAULTS.sync },
     };
@@ -59,12 +70,14 @@ export async function loadPreferences(): Promise<AppPreferences> {
       cached = deepMerge(DEFAULTS, saved);
     } else {
       cached = {
+        appearance: { ...DEFAULTS.appearance },
         crashReporting: { ...DEFAULTS.crashReporting },
         sync: { ...DEFAULTS.sync },
       };
     }
   } catch {
     cached = {
+      appearance: { ...DEFAULTS.appearance },
       crashReporting: { ...DEFAULTS.crashReporting },
       sync: { ...DEFAULTS.sync },
     };
@@ -75,6 +88,7 @@ export async function loadPreferences(): Promise<AppPreferences> {
 export function getCachedPreferences(): AppPreferences {
   if (cached) return cached;
   return {
+    appearance: { ...DEFAULTS.appearance },
     crashReporting: { ...DEFAULTS.crashReporting },
     sync: { ...DEFAULTS.sync },
   };

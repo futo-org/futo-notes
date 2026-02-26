@@ -3,6 +3,7 @@
   import { createNote, getAllNotes, deleteNote, deleteAllNotes } from '$lib/notes';
   import { sanitizeFilename } from '$lib/utils';
   import { getCachedPreferences, savePreferences } from '$lib/preferences';
+  import { applyThemePreference, type ThemePreference } from '$lib/theme';
   import { connectSyncServer, saveSyncServerUrl, type SyncSummary } from '$lib/sync';
   import { requestSync } from '$lib/autoSync';
 
@@ -42,6 +43,7 @@
   const prefs = getCachedPreferences();
   let crashEnabled = $state(prefs.crashReporting.enabled);
   let crashAlwaysSend = $state(prefs.crashReporting.alwaysSend);
+  let themePreference = $state<ThemePreference>(prefs.appearance.theme);
 
   // Sync MVP preferences
   let syncUrl = $state(prefs.sync.serverUrl);
@@ -121,6 +123,15 @@
     const p = getCachedPreferences();
     p.crashReporting.alwaysSend = crashAlwaysSend;
     await savePreferences(p);
+  }
+
+  async function setThemePreference(nextTheme: ThemePreference): Promise<void> {
+    if (themePreference === nextTheme) return;
+    themePreference = nextTheme;
+    const p = getCachedPreferences();
+    p.appearance.theme = nextTheme;
+    await savePreferences(p);
+    await applyThemePreference(nextTheme);
   }
 
   async function handleObsidianImport(): Promise<void> {
@@ -223,6 +234,33 @@
         </div>
       </section>
       {/if}
+
+      <section class="settings-section">
+        <h3 class="settings-section-title">Appearance</h3>
+        <div class="settings-card">
+          <div class="settings-segmented" role="tablist" aria-label="Theme">
+            <button
+              class="settings-segment"
+              class:active={themePreference === 'auto'}
+              onclick={() => void setThemePreference('auto')}
+              aria-pressed={themePreference === 'auto'}
+            >Auto</button>
+            <button
+              class="settings-segment"
+              class:active={themePreference === 'dark'}
+              onclick={() => void setThemePreference('dark')}
+              aria-pressed={themePreference === 'dark'}
+            >Dark</button>
+            <button
+              class="settings-segment"
+              class:active={themePreference === 'light'}
+              onclick={() => void setThemePreference('light')}
+              aria-pressed={themePreference === 'light'}
+            >Light</button>
+          </div>
+          <p class="settings-btn-desc settings-hint">Auto follows your system theme.</p>
+        </div>
+      </section>
 
       {#if hasFileSystem}
       <section class="settings-section">
@@ -357,7 +395,7 @@
   .settings-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(28, 25, 23, 0.35);
+    background: rgba(var(--ink-rgb), 0.35);
     z-index: 200;
     display: flex;
     align-items: flex-end;
@@ -433,6 +471,39 @@
     background: var(--color-surface);
     border-radius: 12px;
     padding: 14px;
+  }
+
+  .settings-segmented {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 4px;
+    padding: 4px;
+    border-radius: 12px;
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+  }
+
+  .settings-segment {
+    border: none;
+    border-radius: 9px;
+    background: transparent;
+    color: var(--color-muted);
+    font-size: 14px;
+    font-weight: 500;
+    font-family: inherit;
+    padding: 9px 8px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+
+  .settings-segment:active {
+    background: rgba(var(--primary-rgb), 0.12);
+  }
+
+  .settings-segment.active {
+    background: var(--color-primary);
+    color: var(--color-bg);
   }
 
   .settings-input-label {
@@ -594,7 +665,7 @@
     top: 2px;
     left: 2px;
     transition: transform 0.2s ease;
-    box-shadow: 0 1px 3px rgba(28, 25, 23, 0.15);
+    box-shadow: 0 1px 3px rgba(var(--ink-rgb), 0.15);
   }
 
   .settings-switch.on .settings-switch-thumb {

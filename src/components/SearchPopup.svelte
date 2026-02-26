@@ -283,7 +283,7 @@
   .search-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(28, 25, 23, 0.35);
+    background: rgba(var(--ink-rgb), 0.35);
     z-index: 200;
     display: flex;
     align-items: flex-start;
@@ -296,7 +296,7 @@
     border-radius: 16px;
     width: min(480px, calc(100vw - 32px));
     max-height: 80vh;
-    box-shadow: 0 16px 48px rgba(28, 25, 23, 0.2), 0 0 0 1px rgba(28, 25, 23, 0.05);
+    box-shadow: 0 16px 48px rgba(var(--ink-rgb), 0.2), 0 0 0 1px rgba(var(--ink-rgb), 0.05);
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -346,7 +346,7 @@
   }
 
   .search-clear:active {
-    background: rgba(28, 25, 23, 0.06);
+    background: rgba(var(--ink-rgb), 0.06);
   }
 
   .search-mode-row {
@@ -394,7 +394,7 @@
     padding: 8px 16px;
     font-size: 12px;
     color: var(--color-muted);
-    background: rgba(176, 125, 59, 0.06);
+    background: rgba(var(--primary-rgb), 0.06);
     border-bottom: 1px solid var(--color-border);
   }
 
@@ -416,12 +416,12 @@
   }
 
   .search-result-item:active {
-    background: rgba(28, 25, 23, 0.04);
-  }
+    background: rgba(var(--ink-rgb), 0.04);
+}
 
   .search-result-item.selected {
-    background: rgba(176, 125, 59, 0.08);
-  }
+    background: rgba(var(--primary-rgb), 0.08);
+}
 
   .search-result-item:last-child {
     border-bottom: none;
@@ -472,7 +472,7 @@
   }
 
   .search-highlight {
-    background: rgba(176, 125, 59, 0.15);
+    background: rgba(var(--primary-rgb), 0.15);
     border-radius: 2px;
     padding: 0 1px;
     color: var(--color-primary-hover);

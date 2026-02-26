@@ -4,6 +4,7 @@
   import { hasFileSystem, isMobile, getFS } from '$lib/platform';
   import { initNotes, createNote, getAllNotes } from '$lib/notes';
   import { loadPreferences, getCachedPreferences, savePreferences } from '$lib/preferences';
+  import { applyThemePreference, watchSystemTheme } from '$lib/theme';
   import { flushCrashQueue, setAppVersion, type CrashReport } from '$lib/crashHandler';
   import { checkHeartbeat, startHeartbeat } from '$lib/heartbeat';
   import { sendAllPendingReports, discardAllPendingReports, loadPendingReports } from '$lib/crashReporter';
@@ -16,6 +17,7 @@
   let showCrashDialog = $state(false);
   let toastMessage = $state('');
   let toastTimer: number | null = null;
+  let stopWatchingSystemTheme: (() => void) | null = null;
 
   function showToast(message: string): void {
     if (toastTimer !== null) clearTimeout(toastTimer);
@@ -48,15 +50,25 @@
           }
           if (isMobile) {
             try {
-              const { StatusBar, Style } = await import('@capacitor/status-bar');
+              const { StatusBar } = await import('@capacitor/status-bar');
               await StatusBar.setOverlaysWebView({ overlay: true });
-              await StatusBar.setStyle({ style: Style.Light });
               await StatusBar.setBackgroundColor({ color: '#00000000' });
             } catch {
               // Some status bar APIs are unavailable on newer Android versions.
             }
           }
         }
+
+        const prefs = await loadPreferences();
+        await applyThemePreference(prefs.appearance.theme);
+        stopWatchingSystemTheme?.();
+        stopWatchingSystemTheme = watchSystemTheme(() => {
+          const latestPrefs = getCachedPreferences();
+          if (latestPrefs.appearance.theme === 'auto') {
+            void applyThemePreference('auto');
+          }
+        });
+
         initialized = true;
 
         // Crash reporting init (runs after notes init so filesystem is ready)
@@ -73,11 +85,13 @@
 
     return () => {
       window.removeEventListener('hashchange', onHashChange);
+      stopWatchingSystemTheme?.();
+      stopWatchingSystemTheme = null;
     };
   });
 
   async function initCrashReporting(): Promise<void> {
-    const prefs = await loadPreferences();
+    const prefs = getCachedPreferences();
 
     // Set app version from platform
     try {
