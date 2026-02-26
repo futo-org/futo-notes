@@ -254,7 +254,7 @@ export interface SearchTimingResult {
   };
 }
 
-export async function searchWithVectors(query: string): Promise<SearchTimingResult> {
+export async function searchWithVectors(query: string, signal?: AbortSignal): Promise<SearchTimingResult> {
   const totalStart = performance.now();
 
   if (!query.trim()) {
@@ -309,7 +309,7 @@ export async function searchWithVectors(query: string): Promise<SearchTimingResu
   try {
     // Embed query via server
     const embedStart = performance.now();
-    const queryVector = await embed(query);
+    const queryVector = await embed(query, signal);
     const embedTime = performance.now() - embedStart;
 
     // Vector search locally
@@ -365,7 +365,18 @@ export async function searchWithVectors(query: string): Promise<SearchTimingResu
       timing: { keyword: keywordTime, embed: embedTime, vector: vectorTime, total: performance.now() - totalStart },
     };
   } catch (e) {
-    console.warn('[supersearch] vector search failed, falling back to keyword:', e);
+    if (e instanceof DOMException && e.name === 'AbortError') {
+      throw e;
+    }
+    console.warn('[supersearch] vector search failed:', e);
+    if (mode === 'vector') {
+      return {
+        results: [],
+        mode,
+        timing: { keyword: 0, embed: 0, vector: 0, total: performance.now() - totalStart },
+      };
+    }
+
     keywordResults.forEach(r => r.source = 'keyword');
     return {
       results: keywordResults,

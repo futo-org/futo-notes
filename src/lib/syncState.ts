@@ -6,6 +6,8 @@ export interface SyncState {
   hashByUuid: Record<string, string>;
   uuidById: Record<string, string>;
   deletedUuids: string[];
+  /** Cache of content hashes by noteId, keyed on modificationTime to avoid re-reading unchanged files */
+  hashCache?: Record<string, { modifiedAt: number; hash: string }>;
 }
 
 const DEFAULT_STATE: SyncState = {
@@ -50,7 +52,20 @@ function sanitizeState(raw: unknown): SyncState {
     ? obj.deletedUuids.filter((x): x is string => typeof x === 'string')
     : [];
 
-  return { hashByUuid, uuidById, deletedUuids };
+  let hashCache: Record<string, { modifiedAt: number; hash: string }> | undefined;
+  if (obj.hashCache && typeof obj.hashCache === 'object') {
+    hashCache = {};
+    for (const [k, v] of Object.entries(obj.hashCache as Record<string, unknown>)) {
+      if (v && typeof v === 'object' && 'modifiedAt' in v && 'hash' in v) {
+        const entry = v as Record<string, unknown>;
+        if (typeof entry.modifiedAt === 'number' && typeof entry.hash === 'string') {
+          hashCache[k] = { modifiedAt: entry.modifiedAt, hash: entry.hash };
+        }
+      }
+    }
+  }
+
+  return { hashByUuid, uuidById, deletedUuids, hashCache };
 }
 
 export async function loadSyncState(): Promise<SyncState> {

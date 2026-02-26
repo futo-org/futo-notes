@@ -4,14 +4,15 @@ import { syncNow, type SyncSummary } from './sync';
 import { startSSE, stopSSE, isSSEConnected } from './sseClient';
 
 const SSE_SYNC_DEBOUNCE = 100;
+const SSE_POST_SYNC_COOLDOWN = 5_000;
 const RESUME_COOLDOWN = 10_000;
 
 export interface AutoSyncCallbacks {
-  onSyncStart: () => void;
   onSyncComplete: (summary: SyncSummary) => void;
   onSyncError: (error: Error) => void;
   flushPendingSave: () => Promise<void>;
   onSupersearchReady?: () => void;
+  shouldDeferSync?: () => boolean;
 }
 
 let callbacks: AutoSyncCallbacks | null = null;
@@ -20,17 +21,22 @@ let syncing = false;
 let lastSyncTime = 0;
 let cleanupFns: Array<() => void> = [];
 
+type SyncTrigger = 'local-save' | 'manual' | 'sse' | 'resume' | 'initial';
+
 function isSyncConfigured(): boolean {
   const prefs = getCachedPreferences();
   return Boolean(prefs.sync.serverUrl && prefs.sync.token);
 }
 
-async function performSync(): Promise<void> {
+async function performSync(trigger: SyncTrigger): Promise<void> {
   if (syncing || !callbacks || !isSyncConfigured()) return;
+  const isBackgroundTrigger = trigger === 'sse' || trigger === 'resume' || trigger === 'initial';
+  if (isBackgroundTrigger && callbacks.shouldDeferSync?.()) return;
   syncing = true;
-  callbacks.onSyncStart();
   try {
-    await callbacks.flushPendingSave();
+    if (trigger === 'local-save' || trigger === 'manual') {
+      await callbacks.flushPendingSave();
+    }
     const summary = await syncNow();
     lastSyncTime = Date.now();
     // Ensure SSE is connected (handles case where prefs weren't loaded at startup)
@@ -45,28 +51,34 @@ async function performSync(): Promise<void> {
 
 export function notifySaved(): void {
   if (!callbacks || !isSyncConfigured()) return;
-  performSync();
+  performSync('local-save');
 }
 
 export async function requestSync(): Promise<void> {
   if (!isSyncConfigured()) throw new Error('Sync not configured');
   if (syncing) throw new Error('Sync already in progress');
-  connectSSE();
-  await performSync();
+  if (!isSSEConnected()) connectSSE();
+  await performSync('manual');
 }
 
 function handleResume(): void {
   if (!isSyncConfigured()) return;
   if (Date.now() - lastSyncTime < RESUME_COOLDOWN) return;
-  performSync();
+  performSync('resume');
 }
 
 function handleSSENotification(): void {
   if (sseDebounceTimer !== null) clearTimeout(sseDebounceTimer);
+  // If we just synced, wait longer before reacting to SSE notifications
+  // (our own sync broadcasts to others, who sync back, which broadcasts to us)
+  const timeSinceSync = Date.now() - lastSyncTime;
+  const delay = timeSinceSync < SSE_POST_SYNC_COOLDOWN
+    ? SSE_POST_SYNC_COOLDOWN - timeSinceSync
+    : SSE_SYNC_DEBOUNCE;
   sseDebounceTimer = window.setTimeout(() => {
     sseDebounceTimer = null;
-    performSync();
-  }, SSE_SYNC_DEBOUNCE);
+    performSync('sse');
+  }, delay);
 }
 
 function handleSupersearchReady(): void {
@@ -90,7 +102,7 @@ export function startAutoSync(cb: AutoSyncCallbacks): void {
   // Initial sync after a short delay to let preferences load from disk
   window.setTimeout(() => {
     connectSSE();
-    performSync();
+    performSync('initial');
   }, 2_000);
 
   // App resume / visibility

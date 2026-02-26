@@ -73,12 +73,15 @@ export const electronFS: PlatformFS = {
     return getAPI().supersearchDownload(serverUrl, token);
   },
 
-  async supersearchQuery(queryVector: number[], topK: number): Promise<Array<{ chunkId: number; uuid: string; chunkText: string; distance: number }>> {
-    return getAPI().supersearchQuery(queryVector, topK);
+  async supersearchHasArtifacts(): Promise<boolean> {
+    return getAPI().supersearchHasArtifacts();
   },
 
-  async supersearchClose(): Promise<void> {
-    return getAPI().supersearchClose();
+  async supersearchQuery(
+    queryVector: number[],
+    topK: number,
+  ): Promise<Array<{ chunkId: number; uuid: string; chunkText: string; startOffset: number; endOffset: number; score: number }>> {
+    return getAPI().supersearchQuery(queryVector, topK);
   },
 };
 

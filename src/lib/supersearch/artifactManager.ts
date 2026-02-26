@@ -1,5 +1,5 @@
 import { getFS, platformName } from '../platform';
-import { loadSupersearchState, saveSupersearchState } from './state';
+import { hasLocalArtifacts, loadSupersearchState, saveSupersearchState } from './state';
 import type { SupersearchState } from './state';
 
 interface SearchCapabilities {
@@ -27,7 +27,11 @@ export async function checkForUpdate(
     if (!capabilities.artifact_hash) return { hasUpdate: false, capabilities };
 
     const currentState = await loadSupersearchState();
-    const hasUpdate = !currentState || currentState.artifactHash !== capabilities.artifact_hash;
+    const hasArtifacts = await hasLocalArtifacts();
+
+    const hasUpdate = !currentState
+      || currentState.artifactHash !== capabilities.artifact_hash
+      || !hasArtifacts;
     return { hasUpdate, capabilities };
   } catch {
     return { hasUpdate: false, capabilities: null };
@@ -43,7 +47,7 @@ export async function downloadArtifact(
 
   try {
     if (platformName === 'electron') {
-      // Electron: delegate to IPC (downloads SQLite .db)
+      // Electron: delegate to IPC (downloads binary vectors + manifest to userData)
       await fs.supersearchDownload!(serverUrl, token);
     } else if (platformName === 'capacitor') {
       // Capacitor: fetch binary vectors + manifest

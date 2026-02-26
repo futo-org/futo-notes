@@ -48,9 +48,16 @@ dashboard.get('/dashboard/status', async (c) => {
         WHERE s.uuid IS NULL OR s.content_hash != n.content_hash
       `).get() as { count: number }).count;
 
+      const { MODEL_REGISTRY } = await import('../search/modelRegistry.js');
+
       search = {
         enabled: true,
         model,
+        available_models: MODEL_REGISTRY.map(m => ({
+          id: m.id,
+          dims: m.dims,
+          size_bytes: m.sizeBytes,
+        })),
         chunk_count: chunkCount,
         last_indexed_at: lastIndexed,
         current_job: running ? {
@@ -349,6 +356,22 @@ function dashboardHtml(): string {
     font-style: italic;
   }
 
+  .model-select {
+    font-family: inherit;
+    font-size: 0.8rem;
+    font-weight: 500;
+    padding: 0.2rem 0.4rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: white;
+    color: var(--text);
+    cursor: pointer;
+  }
+  .model-select:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
   @media (max-width: 480px) {
     body { padding: 1rem 0.75rem; }
     .download-grid { grid-template-columns: 1fr; }
@@ -457,11 +480,18 @@ function dashboardHtml(): string {
     return '<span class="badge badge-' + type + '">' + text + '</span>';
   }
 
+  function formatBytes(bytes) {
+    if (bytes >= 1e9) return (bytes / 1e9).toFixed(1) + ' GB';
+    if (bytes >= 1e6) return (bytes / 1e6).toFixed(0) + ' MB';
+    if (bytes >= 1e3) return (bytes / 1e3).toFixed(0) + ' KB';
+    return bytes + ' B';
+  }
+
   const phaseLabels = {
     idle: null,
-    benchmarking: 'Running hardware benchmark...',
-    downloading_model: 'Downloading embedding model...',
-    loading_model: 'Loading embedding model...',
+    benchmarking: 'Running hardware benchmark to choose a model...',
+    downloading_model: 'Downloading embedding model files...',
+    loading_model: 'Preparing embedding model in memory (first query after restart can do this)...',
     indexing: 'Indexing notes...',
     building_artifacts: 'Building search artifacts...',
     disabled: 'Disabled (hardware too slow)',
@@ -480,6 +510,7 @@ function dashboardHtml(): string {
     const sched = s.scheduler || {};
     const phaseText = phaseLabels[sched.phase];
     const isBusy = sched.phase && sched.phase !== 'idle' && sched.phase !== 'disabled';
+    const modelChangeBlocked = Boolean(isBusy);
 
     // Indexing status
     if (s.current_job) {
@@ -491,9 +522,22 @@ function dashboardHtml(): string {
         s.current_job.notes_processed + ' / ' + (s.current_job.notes_total || '?') + ' notes</span></div>';
       html += '<div class="progress-track"><div class="progress-fill" style="width:' + pct + '%"></div></div>';
     } else if (isBusy) {
-      html += '<div class="stat-row"><span class="stat-label">Status</span>' + badge('Working', 'warn') + '</div>';
+      let statusLabel = 'Working';
+      if (sched.phase === 'benchmarking') statusLabel = 'Benchmarking';
+      if (sched.phase === 'downloading_model') statusLabel = 'Downloading model';
+      if (sched.phase === 'loading_model') statusLabel = 'Preparing model';
+      if (sched.phase === 'building_artifacts') statusLabel = 'Building artifacts';
+      html += '<div class="stat-row"><span class="stat-label">Status</span>' + badge(statusLabel, 'warn') + '</div>';
       if (phaseText) {
         html += '<div class="stat-row"><span class="stat-label">Phase</span><span class="phase-label">' + phaseText + '</span></div>';
+      }
+      // Show download progress bar
+      if (sched.phase === 'downloading_model' && sched.downloadProgress) {
+        const dp = sched.downloadProgress;
+        const dlPct = dp.totalSize > 0 ? Math.round((dp.downloadedSize / dp.totalSize) * 100) : 0;
+        html += '<div class="stat-row"><span class="stat-label">Download</span><span class="stat-value">' +
+          formatBytes(dp.downloadedSize) + ' / ' + formatBytes(dp.totalSize) + ' (' + dlPct + '%)</span></div>';
+        html += '<div class="progress-track"><div class="progress-fill" style="width:' + dlPct + '%"></div></div>';
       }
     } else if (sched.phase === 'disabled') {
       html += '<div class="stat-row"><span class="stat-label">Status</span>' + badge('Disabled', 'error') + '</div>';
@@ -509,8 +553,22 @@ function dashboardHtml(): string {
       html += '<div class="stat-row"><span class="stat-label">Status</span>' + badge('Up to date', 'ok') + '</div>';
     }
 
-    // Model
-    if (s.model) {
+    // Model selector
+    if (s.available_models && s.available_models.length > 0) {
+      html += '<div class="stat-row"><span class="stat-label">Model</span>';
+      html += '<select class="model-select" id="model-select" onchange="changeModel(this.value)"' + (modelChangeBlocked ? ' disabled' : '') + '>';
+      for (let i = 0; i < s.available_models.length; i++) {
+        const m = s.available_models[i];
+        const selected = m.id === s.model ? ' selected' : '';
+        const label = m.id + ' (' + formatBytes(m.size_bytes) + ')';
+        html += '<option value="' + m.id + '"' + selected + '>' + label + '</option>';
+      }
+      html += '</select>';
+      html += '</div>';
+      if (modelChangeBlocked && phaseText) {
+        html += '<div class="stat-row"><span class="stat-label">Model change</span><span class="stat-value">Unavailable while: ' + phaseText + '</span></div>';
+      }
+    } else if (s.model) {
       html += '<div class="stat-row"><span class="stat-label">Model</span><span class="stat-value">' + s.model + '</span></div>';
     } else if (!sched.modelReady && sched.phase === 'idle') {
       html += '<div class="stat-row"><span class="stat-label">Model</span><span class="stat-value" style="color:var(--text-secondary)">Not loaded yet</span></div>';
@@ -536,6 +594,14 @@ function dashboardHtml(): string {
     return html;
   }
 
+  let currentModelId = null;
+
+  let pollTimer = null;
+  function schedulePoll(fast) {
+    clearInterval(pollTimer);
+    pollTimer = setInterval(refresh, fast ? 2000 : 5000);
+  }
+
   async function refresh() {
     try {
       const res = await fetch('/dashboard/status');
@@ -548,7 +614,13 @@ function dashboardHtml(): string {
       $('sessions-count').textContent = data.sessions_count;
       $('uptime').textContent = formatUptime(data.uptime_seconds);
       $('search-content').innerHTML = renderSearch(data.search);
+      currentModelId = data.search && data.search.model;
       $('error-banner').style.display = 'none';
+
+      // Poll faster during active work (download/indexing)
+      const sched = data.search && data.search.scheduler;
+      const busy = sched && sched.phase && sched.phase !== 'idle' && sched.phase !== 'disabled';
+      schedulePoll(busy);
     } catch (e) {
       $('status').innerHTML = badge('Unreachable', 'error');
       $('error-banner').textContent = 'Could not reach server: ' + e.message;
@@ -618,8 +690,57 @@ function dashboardHtml(): string {
     }
   };
 
+  window.changeModel = async function(newModelId) {
+    if (newModelId === currentModelId) return;
+    const sel = $('model-select');
+
+    const msg = 'Switching to "' + newModelId + '" will delete the current search index. All notes will need to be re-indexed.\\n\\nContinue?';
+    if (!confirm(msg)) {
+      if (sel && currentModelId) sel.value = currentModelId;
+      return;
+    }
+
+    const token = await getToken();
+    if (!token) {
+      if (sel && currentModelId) sel.value = currentModelId;
+      return;
+    }
+
+    if (sel) sel.disabled = true;
+
+    try {
+      const res = await fetch('/search/change-model', {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer ' + token,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ model_id: newModelId }),
+      });
+      if (res.status === 401) {
+        authToken = null;
+        sessionStorage.removeItem('dashboard_token');
+        alert('Session expired, please try again');
+        if (sel && currentModelId) sel.value = currentModelId;
+        return;
+      }
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || 'Failed to change model');
+        if (sel && currentModelId) sel.value = currentModelId;
+        return;
+      }
+      refresh();
+    } catch (e) {
+      alert('Error: ' + e.message);
+      if (sel && currentModelId) sel.value = currentModelId;
+    } finally {
+      if (sel) sel.disabled = false;
+    }
+  };
+
   refresh();
-  setInterval(refresh, 5000);
+  schedulePoll(false);
 })();
 </script>
 

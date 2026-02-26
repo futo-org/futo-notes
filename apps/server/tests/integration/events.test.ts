@@ -176,4 +176,73 @@ describe('GET /events (SSE)', () => {
       sse.cancel();
     }
   });
+
+  it('does not broadcast when a client only downloads server updates', async () => {
+    const observerRes = await env.app.request(`/events?token=${token}&clientId=observer`);
+    const observer = createSSEReader(observerRes);
+
+    try {
+      await observer.readUntil((buf) => buf.includes('event: connected'));
+
+      const content = '# Seed note';
+      const hash = contentHash(content);
+      const uploadRes = await env.app.request('/sync', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+          'X-Client-Id': 'uploader',
+        },
+        body: JSON.stringify({
+          notes: [{
+            uuid: 'u-seed',
+            filename: 'seed.md',
+            modified_at: Date.now(),
+            content_hash: hash,
+            hash_at_last_sync: '',
+            content,
+          }],
+          all_uuids: ['u-seed'],
+          deleted_uuids: [],
+        }),
+      });
+      expect(uploadRes.status).toBe(200);
+
+      // Drain the expected broadcast from uploader mutation.
+      await observer.readUntil((buf) => buf.includes('event: sync_available'));
+
+      const before = observer.contents.length;
+
+      // Downloader has no local notes, so server will return update-only.
+      const downloadRes = await env.app.request('/sync', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+          'X-Client-Id': 'downloader',
+        },
+        body: JSON.stringify({
+          notes: [],
+          all_uuids: [],
+          deleted_uuids: [],
+        }),
+      });
+      expect(downloadRes.status).toBe(200);
+
+      const payload = await downloadRes.json() as {
+        update: Array<{ uuid: string }>;
+        delete: string[];
+        hash_updates: Array<{ uuid: string }>;
+      };
+      expect(payload.update.length).toBeGreaterThan(0);
+      expect(payload.hash_updates).toHaveLength(0);
+      expect(payload.delete).toHaveLength(0);
+
+      const newData = await observer.readFor(300);
+      expect(observer.contents.length).toBe(before);
+      expect(newData).not.toContain('event: sync_available');
+    } finally {
+      observer.cancel();
+    }
+  });
 });

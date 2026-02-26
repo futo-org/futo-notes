@@ -34,9 +34,10 @@ const api: ElectronAPI = {
   // Supersearch
   supersearchDownload: (serverUrl: string, token: string) =>
     ipcRenderer.invoke('supersearch:download', serverUrl, token),
+  supersearchHasArtifacts: () =>
+    ipcRenderer.invoke('supersearch:hasArtifacts'),
   supersearchQuery: (queryVector: number[], topK: number) =>
     ipcRenderer.invoke('supersearch:query', queryVector, topK),
-  supersearchClose: () => ipcRenderer.invoke('supersearch:close'),
 
   // Events
   onFileChange: (callback) => {

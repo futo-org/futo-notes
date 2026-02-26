@@ -14,6 +14,20 @@ interface AppConfig {
   sidebarWidth?: number;
 }
 
+interface SupersearchManifestChunk {
+  chunk_id: number;
+  uuid: string;
+  chunk_text: string;
+  start_offset: number;
+  end_offset: number;
+}
+
+interface SupersearchManifest {
+  dims: number;
+  chunk_count: number;
+  chunks: SupersearchManifestChunk[];
+}
+
 function getConfigPath(): string {
   return path.join(app.getPath('userData'), 'config.json');
 }
@@ -40,6 +54,21 @@ function saveConfig(config: AppConfig): void {
 
 let notesDir = '';
 let appConfig: AppConfig = { notesDir: '' };
+let supersearchVectors: Float32Array | null = null;
+let supersearchManifest: SupersearchManifest | null = null;
+
+function invalidateSupersearchCache(): void {
+  supersearchVectors = null;
+  supersearchManifest = null;
+}
+
+function getSupersearchBinPath(): string {
+  return safePath(notesDir, '.supersearch-vectors.bin');
+}
+
+function getSupersearchManifestPath(): string {
+  return safePath(notesDir, '.supersearch-manifest.json');
+}
 
 function getDefaultNotesDir(): string {
   const xdgDocs = process.env.XDG_DOCUMENTS_DIR;
@@ -262,73 +291,122 @@ function setupIPC(): void {
 
   // --- Supersearch IPC ---
 
-  let supersearchDb: any = null;
+  const loadSupersearchArtifacts = async (): Promise<boolean> => {
+    if (supersearchVectors && supersearchManifest) return true;
+    try {
+      const manifestPath = getSupersearchManifestPath();
+      const binPath = getSupersearchBinPath();
+      const [manifestRaw, binData] = await Promise.all([
+        fs.readFile(manifestPath, 'utf-8'),
+        fs.readFile(binPath),
+      ]);
+
+      supersearchManifest = JSON.parse(manifestRaw) as SupersearchManifest;
+      if (binData.byteLength % Float32Array.BYTES_PER_ELEMENT !== 0) {
+        throw new Error('Invalid supersearch binary artifact');
+      }
+      const alignedBuffer = binData.buffer.slice(
+        binData.byteOffset,
+        binData.byteOffset + binData.byteLength,
+      );
+      supersearchVectors = new Float32Array(alignedBuffer);
+      return true;
+    } catch {
+      invalidateSupersearchCache();
+      return false;
+    }
+  };
+
+  const hasSupersearchArtifacts = async (): Promise<boolean> => {
+    if (supersearchManifest && supersearchVectors) return true;
+
+    try {
+      const manifestPath = getSupersearchManifestPath();
+      const binPath = getSupersearchBinPath();
+      const [manifestRaw, binStat] = await Promise.all([
+        fs.readFile(manifestPath, 'utf-8'),
+        fs.stat(binPath),
+      ]);
+      const manifest = JSON.parse(manifestRaw) as SupersearchManifest;
+      const chunkCount = Array.isArray(manifest.chunks) ? manifest.chunks.length : 0;
+      const dims = Number.isFinite(manifest.dims) ? manifest.dims : 0;
+      if (chunkCount <= 0 || dims <= 0) return false;
+      const expectedSize = chunkCount * dims * Float32Array.BYTES_PER_ELEMENT;
+      return binStat.size >= expectedSize;
+    } catch {
+      return false;
+    }
+  };
 
   ipcMain.handle('supersearch:download', async (_event, serverUrl: string, token: string) => {
-    const dbPath = path.join(app.getPath('userData'), 'supersearch-v1.db');
-    const response = await fetch(`${serverUrl}/search/index?format=sqlite`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!response.ok) throw new Error(`Download failed: ${response.status}`);
-    const buffer = Buffer.from(await response.arrayBuffer());
-    await fs.writeFile(dbPath, buffer);
-    // Close existing connection if open so next query uses new file
-    if (supersearchDb) {
-      try { supersearchDb.close(); } catch { /* ignore */ }
-      supersearchDb = null;
+    const manifestPath = getSupersearchManifestPath();
+    const binPath = getSupersearchBinPath();
+
+    const headers = { Authorization: `Bearer ${token}` };
+    const [manifestRes, binRes] = await Promise.all([
+      fetch(`${serverUrl}/search/index?format=manifest`, { headers }),
+      fetch(`${serverUrl}/search/index?format=bin`, { headers }),
+    ]);
+    if (!manifestRes.ok || !binRes.ok) {
+      throw new Error(`Download failed: manifest=${manifestRes.status}, bin=${binRes.status}`);
     }
+
+    const [manifestText, binBuffer] = await Promise.all([
+      manifestRes.text(),
+      binRes.arrayBuffer(),
+    ]);
+
+    await Promise.all([
+      fs.writeFile(manifestPath, manifestText, 'utf-8'),
+      fs.writeFile(binPath, Buffer.from(binBuffer)),
+    ]);
+
+    invalidateSupersearchCache();
   });
 
   ipcMain.handle('supersearch:query', async (_event, queryVector: number[], topK: number) => {
-    if (!supersearchDb) {
-      const dbPath = path.join(app.getPath('userData'), 'supersearch-v1.db');
-      try {
-        await fs.access(dbPath);
-      } catch {
-        return [];
-      }
-      const Database = (await import('better-sqlite3')).default;
-      supersearchDb = new Database(dbPath);
-      // Load sqlite-vec extension
-      const sqliteVec = await import('sqlite-vec');
-      sqliteVec.load(supersearchDb);
+    const hasArtifacts = await loadSupersearchArtifacts();
+    if (!hasArtifacts || !supersearchManifest || !supersearchVectors) return [];
 
-      // Build vec0 virtual table from raw vectors if needed
-      const hasVecTable = supersearchDb.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='search_vectors'"
-      ).get();
-      if (!hasVecTable) {
-        const dimsRow = supersearchDb.prepare(
-          "SELECT value FROM search_model_card WHERE key = 'dims'"
-        ).get() as { value: string } | undefined;
-        const dims = dimsRow ? parseInt(dimsRow.value, 10) : 384;
-        const distMetricRow = supersearchDb.prepare(
-          "SELECT value FROM search_model_card WHERE key = 'distance_metric'"
-        ).get() as { value: string } | undefined;
-        const distMetric = distMetricRow?.value || 'cosine';
-        supersearchDb.exec(`CREATE VIRTUAL TABLE search_vectors USING vec0(embedding float[${dims}] distance_metric=${distMetric})`);
-        supersearchDb.exec(`INSERT INTO search_vectors (rowid, embedding) SELECT chunk_id, embedding FROM search_vectors_raw`);
+    const safeTopK = Number.isFinite(topK) ? Math.max(0, Math.floor(topK)) : 0;
+    if (safeTopK === 0) return [];
+
+    const { dims, chunks } = supersearchManifest;
+    const chunkCount = chunks.length;
+    if (chunkCount === 0) return [];
+
+    const query = new Float32Array(queryVector);
+    if (query.length !== dims) return [];
+    if (supersearchVectors.length < chunkCount * dims) return [];
+
+    // Dot product = cosine similarity when vectors are L2-normalized,
+    // which the server embedding pipeline guarantees.
+    const scores: { index: number; score: number }[] = [];
+    for (let i = 0; i < chunkCount; i++) {
+      const offset = i * dims;
+      let dot = 0;
+      for (let d = 0; d < dims; d++) {
+        dot += query[d] * supersearchVectors[offset + d];
       }
+      scores.push({ index: i, score: dot });
     }
-    const vecBlob = new Float32Array(queryVector);
-    const buf = Buffer.from(vecBlob.buffer);
-    const rows = supersearchDb
-      .prepare(
-        `SELECT v.rowid AS chunkId, c.uuid, c.chunk_text AS chunkText, v.distance
-         FROM search_vectors v
-         JOIN search_chunks c ON c.chunk_id = v.rowid
-         WHERE v.embedding MATCH ? AND k = ?
-         ORDER BY v.distance`
-      )
-      .all(buf, topK);
-    return rows;
+
+    scores.sort((a, b) => b.score - a.score);
+    return scores.slice(0, safeTopK).map(({ index, score }) => {
+      const chunk = chunks[index];
+      return {
+        chunkId: chunk.chunk_id,
+        uuid: chunk.uuid,
+        chunkText: chunk.chunk_text,
+        startOffset: chunk.start_offset,
+        endOffset: chunk.end_offset,
+        score,
+      };
+    });
   });
 
-  ipcMain.handle('supersearch:close', async () => {
-    if (supersearchDb) {
-      try { supersearchDb.close(); } catch { /* ignore */ }
-      supersearchDb = null;
-    }
+  ipcMain.handle('supersearch:hasArtifacts', async () => {
+    return hasSupersearchArtifacts();
   });
 
   ipcMain.handle('dialog:pickImage', async () => {
@@ -463,6 +541,7 @@ function buildMenu(): Menu {
             });
             if (!result.canceled && result.filePaths.length > 0) {
               notesDir = result.filePaths[0];
+              invalidateSupersearchCache();
               appConfig.notesDir = notesDir;
               saveConfig(appConfig);
               ensureDir(notesDir);
@@ -589,6 +668,19 @@ function createWindow(): void {
 
   win.on('closed', () => {
     windows.delete(win);
+  });
+
+  // Open external links in the default browser
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    shell.openExternal(url);
+    return { action: 'deny' };
+  });
+  win.webContents.on('will-navigate', (event, url) => {
+    // Allow loading the app itself (dev server or file://)
+    if (isDev && url.startsWith(process.env.VITE_DEV_SERVER_URL!)) return;
+    if (url.startsWith('file://')) return;
+    event.preventDefault();
+    shell.openExternal(url);
   });
 
   if (isDev) {

@@ -263,22 +263,6 @@ class ImageWidget extends WidgetType {
   }
 }
 
-class HiddenWidget extends WidgetType {
-  toDOM(): HTMLElement {
-    const span = document.createElement('span');
-    span.style.display = 'none';
-    return span;
-  }
-
-  get estimatedHeight(): number {
-    return 0;
-  }
-
-  eq(): boolean {
-    return true;
-  }
-}
-
 class BulletWidget extends WidgetType {
   constructor(private indent: number = 0) {
     super();
@@ -589,11 +573,11 @@ class LiveMarkdownPlugin implements PluginValue {
       const hasSpace = text[markerLength] === ' ';
       const markerEnd = from + markerLength + (hasSpace ? 1 : 0);
 
-      // Hide markdown markers
+      // Hide markdown markers (mark decoration — no widget buffers)
       decorations.push({
         from,
         to: markerEnd,
-        value: { widget: new HiddenWidget() }
+        value: { class: 'cm-md-marker-hidden' }
       });
 
       // Add className to content (from marker end to end of line)
@@ -624,14 +608,14 @@ class LiveMarkdownPlugin implements PluginValue {
       decorations.push({
         from,
         to: from + markerLength,
-        value: { widget: new HiddenWidget() }
+        value: { class: 'cm-md-marker-hidden' }
       });
 
       // Hide end marker
       decorations.push({
         from: to - markerLength,
         to,
-        value: { widget: new HiddenWidget() }
+        value: { class: 'cm-md-marker-hidden' }
       });
 
       // Add className to content
@@ -658,14 +642,14 @@ class LiveMarkdownPlugin implements PluginValue {
       decorations.push({
         from,
         to: from + backticks,
-        value: { widget: new HiddenWidget() }
+        value: { class: 'cm-md-marker-hidden' }
       });
 
       // Hide end backticks
       decorations.push({
         from: to - backticks,
         to,
-        value: { widget: new HiddenWidget() }
+        value: { class: 'cm-md-marker-hidden' }
       });
 
       // Add className
@@ -694,7 +678,7 @@ class LiveMarkdownPlugin implements PluginValue {
             decorations.push({
               from: line.from,
               to: line.to,
-              value: { widget: new HiddenWidget() }
+              value: { class: 'cm-md-marker-hidden' }
             });
           }
         }
@@ -705,7 +689,7 @@ class LiveMarkdownPlugin implements PluginValue {
             decorations.push({
               from: line.from,
               to: line.to,
-              value: { widget: new HiddenWidget() }
+              value: { class: 'cm-md-marker-hidden' }
             });
           }
         }
@@ -750,14 +734,14 @@ class LiveMarkdownPlugin implements PluginValue {
     decorations.push({
       from,
       to: from + 2,
-      value: { widget: new HiddenWidget() }
+      value: { class: 'cm-md-marker-hidden' }
     });
 
     // Hide end ~~
     decorations.push({
       from: to - 2,
       to,
-      value: { widget: new HiddenWidget() }
+      value: { class: 'cm-md-marker-hidden' }
     });
 
     // Add className
@@ -784,14 +768,14 @@ class LiveMarkdownPlugin implements PluginValue {
       decorations.push({
         from,
         to: from + 1,
-        value: { widget: new HiddenWidget() }
+        value: { class: 'cm-md-marker-hidden' }
       });
 
       // Hide closing bracket and URL
       decorations.push({
         from: textEnd,
         to,
-        value: { widget: new HiddenWidget() }
+        value: { class: 'cm-md-marker-hidden' }
       });
 
       // Add className to link text
@@ -869,7 +853,7 @@ class LiveMarkdownPlugin implements PluginValue {
             decorations.push({
               from: line.from,
               to: line.from + pos,
-              value: { widget: new HiddenWidget() }
+              value: { class: 'cm-md-marker-hidden' }
             });
           }
         }
@@ -928,7 +912,7 @@ class LiveMarkdownPlugin implements PluginValue {
       decorations.push({
         from: from + indentLen,
         to: contentStart,
-        value: { widget: new HiddenWidget() }
+        value: { class: 'cm-md-marker-hidden' }
       });
 
       // Add checkbox widget
@@ -975,7 +959,7 @@ class LiveMarkdownPlugin implements PluginValue {
       decorations.push({
         from: from + indentLen,
         to: contentStart,
-        value: { widget: new HiddenWidget() }
+        value: { class: 'cm-md-marker-hidden' }
       });
 
       // Add number widget
@@ -1030,7 +1014,7 @@ class LiveMarkdownPlugin implements PluginValue {
       decorations.push({
         from: from + indentLen,
         to: contentStart,
-        value: { widget: new HiddenWidget() }
+        value: { class: 'cm-md-marker-hidden' }
       });
 
       // Add bullet widget
@@ -1075,7 +1059,7 @@ class LiveMarkdownPlugin implements PluginValue {
       decorations.push({
         from: from + indentLen,
         to: contentStart,
-        value: { widget: new HiddenWidget() }
+        value: { class: 'cm-md-marker-hidden' }
       });
 
       // Add number widget

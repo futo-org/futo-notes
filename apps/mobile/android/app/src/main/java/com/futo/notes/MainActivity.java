@@ -19,6 +19,7 @@ public class MainActivity extends BridgeActivity {
   protected void onCreate(Bundle savedInstanceState) {
     registerPlugin(DrawerBackPlugin.class);
     registerPlugin(FolderImportPlugin.class);
+    registerPlugin(StorageAccessPlugin.class);
     super.onCreate(savedInstanceState);
 
     // Edge-to-edge: draw behind status bar and navigation bar

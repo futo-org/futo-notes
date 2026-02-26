@@ -126,6 +126,20 @@ describe('Search API', () => {
     });
   });
 
+  describe('POST /search/change-model', () => {
+    it('requires authentication', async () => {
+      const res = await req(env.app, 'POST', '/search/change-model', { model_id: 'qwen3-embedding-0.6b-q8_0' });
+      expect(res.status).toBe(401);
+    });
+
+    it('returns 400 for unknown model id', async () => {
+      const res = await authReq(env.app, 'POST', '/search/change-model', token, { model_id: 'not-a-real-model' });
+      expect(res.status).toBe(400);
+      const data = await res.json() as { error: string };
+      expect(data.error).toContain('Unknown model');
+    });
+  });
+
   describe('GET /search/index', () => {
     it('requires authentication', async () => {
       const res = await req(env.app, 'GET', '/search/index');

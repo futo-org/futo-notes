@@ -37,9 +37,12 @@ sync.post('/sync', authMiddleware, async (c) => {
   const config = loadConfig();
   const result = processSync(db, config.notesPath, body);
 
-  const hasChanges = result.update.length > 0 || result.delete.length > 0
-    || result.conflicts.length > 0 || result.hash_updates.length > 0;
-  if (hasChanges) {
+  // Broadcast only when this request changed server state.
+  // Download-only syncs (result.update/result.delete only) should not fan out.
+  const mutatedServerState = body.deleted_uuids.length > 0
+    || result.hash_updates.length > 0
+    || result.conflicts.length > 0;
+  if (mutatedServerState) {
     const clientId = c.req.header('X-Client-Id') || '';
     broadcastSyncAvailable(clientId);
   }

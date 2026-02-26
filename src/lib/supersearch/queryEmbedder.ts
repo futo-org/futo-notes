@@ -5,7 +5,7 @@ export function isReady(): boolean {
   return Boolean(prefs.sync.serverUrl && prefs.sync.token);
 }
 
-export async function embed(query: string): Promise<Float32Array> {
+export async function embed(query: string, signal?: AbortSignal): Promise<Float32Array> {
   const prefs = getCachedPreferences();
   if (!prefs.sync.serverUrl || !prefs.sync.token) {
     throw new Error('Server not configured');
@@ -18,6 +18,7 @@ export async function embed(query: string): Promise<Float32Array> {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({ query }),
+    signal,
   });
 
   if (!res.ok) {

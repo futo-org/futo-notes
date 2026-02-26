@@ -22,6 +22,40 @@ export interface EmbeddingModel {
 }
 
 let currentModel: EmbeddingModel | null = null;
+let loadingModelPromise: Promise<EmbeddingModel> | null = null;
+const CONTEXT_SIZE_ERR_RE = /longer than the context size/i;
+
+function isContextSizeError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return CONTEXT_SIZE_ERR_RE.test(message);
+}
+
+async function getEmbeddingWithRetry(
+  context: LlamaContext,
+  text: string,
+  prefix: string | null,
+): Promise<Float64Array> {
+  let body = text;
+  const minChars = 256;
+
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const input = prefix ? prefix + body : body;
+    try {
+      const embedding = await context.getEmbeddingFor(input);
+      return embedding.vector;
+    } catch (err) {
+      if (!isContextSizeError(err) || body.length <= minChars) {
+        throw err;
+      }
+
+      const nextLen = Math.max(minChars, Math.floor(body.length * 0.75));
+      log.warn(`search: embedding input exceeds context (${body.length} chars), retrying with ${nextLen} chars`);
+      body = body.slice(0, nextLen);
+    }
+  }
+
+  throw new Error('Failed to embed input after context-size retries');
+}
 
 /**
  * Resolve a model file from an hf: URI or local path.
@@ -33,12 +67,18 @@ let currentModel: EmbeddingModel | null = null;
 export async function resolveModelFile(
   hfUri: string,
   modelsDir: string,
+  onProgress?: (status: { totalSize: number; downloadedSize: number }) => void,
 ): Promise<string> {
   // resolveModelFile exists at runtime but isn't in all type definitions
   const llamaCpp: Record<string, unknown> = await import('node-llama-cpp');
   const resolve = llamaCpp['resolveModelFile'] as
-    (uri: string, dir: string) => Promise<string>;
-  return resolve(hfUri, modelsDir);
+    (uri: string, opts: { directory: string; cli: boolean; onProgress?: (status: { totalSize: number; downloadedSize: number }) => void }) => Promise<string>;
+  return resolve(hfUri, { directory: modelsDir, cli: false, onProgress });
+}
+
+export interface LoadModelCallbacks {
+  onDownloadProgress?: (status: { totalSize: number; downloadedSize: number }) => void;
+  onDownloadComplete?: () => void;
 }
 
 /**
@@ -48,56 +88,69 @@ export async function resolveModelFile(
 export async function loadEmbeddingModel(
   modelDef: ModelDef,
   modelsDir: string,
+  callbacks?: LoadModelCallbacks,
 ): Promise<EmbeddingModel> {
   if (currentModel) {
     return currentModel;
   }
-
-  log.info(`search: loading model "${modelDef.id}" (${formatSize(modelDef.sizeBytes)})...`);
-
-  const modelPath = await resolveModelFile(modelDef.hfUri, modelsDir);
-
-  const llamaCpp = await import('node-llama-cpp');
-  const { getLlama } = llamaCpp;
-  const llama = await getLlama();
-
-  const model = await llama.loadModel({ modelPath });
-  const context = await model.createEmbeddingContext();
-
-  const { dims, queryPrefix, docPrefix } = modelDef;
-
-  function truncate(vector: number[]): number[] {
-    return vector.length > dims ? vector.slice(0, dims) : vector;
+  if (loadingModelPromise) {
+    return loadingModelPromise;
   }
 
-  const embedDocuments = async (texts: string[]): Promise<number[][]> => {
-    const results: number[][] = [];
-    for (const text of texts) {
-      const input = docPrefix ? docPrefix + text : text;
-      const embedding = await context.getEmbeddingFor(input);
-      results.push(truncate(Array.from(embedding.vector)));
+  loadingModelPromise = (async () => {
+    log.info(`search: downloading/loading model "${modelDef.id}" (${formatSize(modelDef.sizeBytes)})...`);
+
+    const modelPath = await resolveModelFile(modelDef.hfUri, modelsDir, callbacks?.onDownloadProgress);
+    callbacks?.onDownloadComplete?.();
+
+    log.info(`search: loading model "${modelDef.id}" into memory...`);
+
+    const llamaCpp = await import('node-llama-cpp');
+    const { getLlama } = llamaCpp;
+    const llama = await getLlama();
+
+    const model = await llama.loadModel({ modelPath });
+    const context = await model.createEmbeddingContext();
+
+    const { dims, queryPrefix, docPrefix } = modelDef;
+
+    function truncate(vector: number[]): number[] {
+      return vector.length > dims ? vector.slice(0, dims) : vector;
     }
-    return results;
-  };
 
-  const embedQuery = async (query: string): Promise<number[]> => {
-    const input = queryPrefix ? queryPrefix + query : query;
-    const embedding = await context.getEmbeddingFor(input);
-    return truncate(Array.from(embedding.vector));
-  };
+    const embedDocuments = async (texts: string[]): Promise<number[][]> => {
+      const results: number[][] = [];
+      for (const text of texts) {
+        const vector = await getEmbeddingWithRetry(context as LlamaContext, text, docPrefix);
+        results.push(truncate(Array.from(vector)));
+      }
+      return results;
+    };
 
-  currentModel = {
-    model: model as unknown as LlamaModel,
-    context: context as unknown as LlamaContext,
-    dims,
-    queryPrefix,
-    docPrefix,
-    embedDocuments,
-    embedQuery,
-  };
+    const embedQuery = async (query: string): Promise<number[]> => {
+      const vector = await getEmbeddingWithRetry(context as LlamaContext, query, queryPrefix);
+      return truncate(Array.from(vector));
+    };
 
-  log.info(`search: model "${modelDef.id}" loaded (dims=${dims})`);
-  return currentModel;
+    currentModel = {
+      model: model as unknown as LlamaModel,
+      context: context as unknown as LlamaContext,
+      dims,
+      queryPrefix,
+      docPrefix,
+      embedDocuments,
+      embedQuery,
+    };
+
+    log.info(`search: model "${modelDef.id}" loaded (dims=${dims})`);
+    return currentModel;
+  })();
+
+  try {
+    return await loadingModelPromise;
+  } finally {
+    loadingModelPromise = null;
+  }
 }
 
 /**
@@ -111,6 +164,14 @@ export function getActiveModel(): EmbeddingModel | null {
  * Unload the current model and free resources.
  */
 export async function unloadModel(): Promise<void> {
+  if (loadingModelPromise) {
+    try {
+      await loadingModelPromise;
+    } catch {
+      // Ignore load failures; nothing to unload.
+    }
+  }
+
   if (!currentModel) return;
   try {
     await currentModel.context.dispose();

@@ -38,8 +38,11 @@ export interface PlatformFS {
 
   // Supersearch (Electron only)
   supersearchDownload?(serverUrl: string, token: string): Promise<void>;
-  supersearchQuery?(queryVector: number[], topK: number): Promise<Array<{ chunkId: number; uuid: string; chunkText: string; distance: number }>>;
-  supersearchClose?(): Promise<void>;
+  supersearchHasArtifacts?(): Promise<boolean>;
+  supersearchQuery?(
+    queryVector: number[],
+    topK: number,
+  ): Promise<Array<{ chunkId: number; uuid: string; chunkText: string; startOffset: number; endOffset: number; score: number }>>;
 
   // Optional platform-specific
   pickImage?(): Promise<string | null>;

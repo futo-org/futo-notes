@@ -10,6 +10,8 @@ export interface SyncSummary {
   downloaded: number;
   deleted: number;
   conflicts: number;
+  updatedIds: string[];
+  deletedIds: string[];
 }
 
 function normalizeBaseUrl(input: string): string {
@@ -134,6 +136,7 @@ export async function syncNow(): Promise<SyncSummary> {
   const localNotes = getAllNotes();
   const outgoingByUuid = new Map<string, string>();
 
+  const hashCache = state.hashCache ?? {};
   const syncNotes: SyncRequest['notes'] = [];
   for (const note of localNotes) {
     const id = note.id;
@@ -141,19 +144,41 @@ export async function syncNow(): Promise<SyncSummary> {
     state.uuidById[id] = uuid;
     outgoingByUuid.set(uuid, id);
 
-    const content = await readNote(id);
-    const hash = await sha256Hex(content);
+    const modTime = note.modificationTime || Date.now();
+    const cached = hashCache[id];
+    let hash: string;
+    let content: string | undefined;
+
+    if (cached && cached.modifiedAt === note.modificationTime) {
+      hash = cached.hash;
+    } else {
+      content = await readNote(id);
+      hash = await sha256Hex(content);
+      hashCache[id] = { modifiedAt: modTime, hash };
+    }
+
     const lastSyncHash = state.hashByUuid[uuid] ?? '';
+    const needsContent = hash !== lastSyncHash;
+    if (needsContent && content === undefined) {
+      content = await readNote(id);
+    }
 
     syncNotes.push({
       uuid,
       filename: `${id}.md`,
-      modified_at: note.modificationTime || Date.now(),
+      modified_at: modTime,
       content_hash: hash,
       hash_at_last_sync: lastSyncHash,
-      ...(hash !== lastSyncHash ? { content } : {}),
+      ...(needsContent ? { content } : {}),
     });
   }
+
+  // Clean stale cache entries for deleted notes
+  const activeIds = new Set(localNotes.map(n => n.id));
+  for (const id of Object.keys(hashCache)) {
+    if (!activeIds.has(id)) delete hashCache[id];
+  }
+  state.hashCache = hashCache;
 
   let response: SyncResponse;
   try {
@@ -169,18 +194,21 @@ export async function syncNow(): Promise<SyncSummary> {
   }
 
   let deleted = 0;
+  const deletedIds = new Set<string>();
   for (const uuid of response.delete) {
     const id = outgoingByUuid.get(uuid) ?? findIdForUuid(state, uuid);
     if (id && getNoteById(id)) {
       await deleteNote(id, { trackSyncDelete: false });
       deleted++;
     }
+    if (id) deletedIds.add(id);
     if (id) delete state.uuidById[id];
     delete state.hashByUuid[uuid];
     state.deletedUuids = state.deletedUuids.filter((u) => u !== uuid);
   }
 
   let downloaded = 0;
+  const updatedIds = new Set<string>();
   for (const note of response.update) {
     if (typeof note.content !== 'string') continue;
 
@@ -206,6 +234,9 @@ export async function syncNow(): Promise<SyncSummary> {
     if (mappedId && mappedId !== result.id) {
       delete state.uuidById[mappedId];
     }
+
+    if (mappedId) updatedIds.add(mappedId);
+    updatedIds.add(result.id);
 
     state.uuidById[result.id] = note.uuid;
     state.hashByUuid[note.uuid] = note.content_hash;
@@ -233,5 +264,7 @@ export async function syncNow(): Promise<SyncSummary> {
     downloaded,
     deleted,
     conflicts: response.conflicts.length,
+    updatedIds: Array.from(updatedIds),
+    deletedIds: Array.from(deletedIds),
   };
 }

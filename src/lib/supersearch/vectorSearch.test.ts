@@ -53,8 +53,8 @@ describe('vectorSearch', () => {
     mockPlatformName.value = 'electron';
     const query = new Float32Array([0.1, 0.2, 0.3]);
     mockFS.supersearchQuery.mockResolvedValue([
-      { chunkId: 1, uuid: 'uuid1', chunkText: 'text1', distance: 0.1 },
-      { chunkId: 2, uuid: 'uuid2', chunkText: 'text2', distance: 0.5 },
+      { chunkId: 1, uuid: 'uuid1', chunkText: 'text1', startOffset: 0, endOffset: 10, score: 0.9 },
+      { chunkId: 2, uuid: 'uuid2', chunkText: 'text2', startOffset: 0, endOffset: 10, score: 0.5 },
     ]);
 
     const results = await vectorSearch(query, 5);
@@ -66,9 +66,9 @@ describe('vectorSearch', () => {
     mockPlatformName.value = 'electron';
     const query = new Float32Array([0.1, 0.2, 0.3]);
     mockFS.supersearchQuery.mockResolvedValue([
-      { chunkId: 1, uuid: 'uuid1', chunkText: 'chunk1', distance: 0.1 },
-      { chunkId: 2, uuid: 'uuid1', chunkText: 'chunk2', distance: 0.3 },
-      { chunkId: 3, uuid: 'uuid2', chunkText: 'chunk3', distance: 0.2 },
+      { chunkId: 1, uuid: 'uuid1', chunkText: 'chunk1', startOffset: 0, endOffset: 10, score: 0.9 },
+      { chunkId: 2, uuid: 'uuid1', chunkText: 'chunk2', startOffset: 11, endOffset: 20, score: 0.7 },
+      { chunkId: 3, uuid: 'uuid2', chunkText: 'chunk3', startOffset: 0, endOffset: 10, score: 0.8 },
     ]);
 
     const results = await vectorSearch(query, 5);
@@ -76,7 +76,6 @@ describe('vectorSearch', () => {
     expect(results.length).toBe(2);
     const uuid1Result = results.find(r => r.uuid === 'uuid1')!;
     expect(uuid1Result).toBeDefined();
-    // Best score for uuid1 is distance 0.1 → score 1/(1+0.1)
-    expect(uuid1Result.score).toBeCloseTo(1 / 1.1, 3);
+    expect(uuid1Result.score).toBeCloseTo(0.9, 3);
   });
 });

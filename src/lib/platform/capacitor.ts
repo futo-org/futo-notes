@@ -7,7 +7,60 @@ const NOTES_SUBFOLDER = 'futo-notes';
 interface FolderImportPlugin {
   setFileModificationTime(options: { filename: string; mtime: number }): Promise<void>;
 }
+interface StorageAccessPlugin {
+  checkAllFilesAccess(): Promise<{ granted: boolean }>;
+  requestAllFilesAccess(): Promise<{ granted: boolean }>;
+}
 const FolderImport = registerPlugin<FolderImportPlugin>('FolderImport');
+const StorageAccess = registerPlugin<StorageAccessPlugin>('StorageAccess');
+
+function toBase64(data: ArrayBuffer): string {
+  const bytes = new Uint8Array(data);
+  const chunks: string[] = [];
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    chunks.push(String.fromCharCode(...bytes.subarray(i, i + chunkSize)));
+  }
+  return btoa(chunks.join(''));
+}
+
+function fromBase64(base64: string): ArrayBuffer {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes.buffer;
+}
+
+async function ensureAppDataParent(relPath: string): Promise<void> {
+  const lastSlash = relPath.lastIndexOf('/');
+  if (lastSlash <= 0) return;
+
+  try {
+    await Filesystem.mkdir({
+      path: `${NOTES_SUBFOLDER}/${relPath.slice(0, lastSlash)}`,
+      directory: notesDirectory,
+      recursive: true,
+    });
+  } catch { /* already exists */ }
+}
+
+async function ensureAndroidDeviceStorageAccess(): Promise<void> {
+  if (Capacitor.getPlatform() !== 'android') return;
+
+  try {
+    const status = await StorageAccess.checkAllFilesAccess();
+    if (status.granted) return;
+
+    const result = await StorageAccess.requestAllFilesAccess();
+    if (result.granted) return;
+  } catch {
+    // Fall through and throw deterministic error below.
+  }
+
+  throw new Error('Device storage access required: enable "Allow access to manage all files" for FUTO Notes in Android settings.');
+}
 
 export const capacitorFS: PlatformFS = {
   async listNoteFiles(): Promise<NoteFile[]> {
@@ -104,17 +157,7 @@ export const capacitorFS: PlatformFS = {
   },
 
   async writeAppData(relPath: string, content: string): Promise<void> {
-    // Ensure parent directory exists
-    const lastSlash = relPath.lastIndexOf('/');
-    if (lastSlash > 0) {
-      try {
-        await Filesystem.mkdir({
-          path: `${NOTES_SUBFOLDER}/${relPath.slice(0, lastSlash)}`,
-          directory: notesDirectory,
-          recursive: true,
-        });
-      } catch { /* already exists */ }
-    }
+    await ensureAppDataParent(relPath);
     await Filesystem.writeFile({
       path: `${NOTES_SUBFOLDER}/${relPath}`,
       data: content,
@@ -150,41 +193,17 @@ export const capacitorFS: PlatformFS = {
         path: `${NOTES_SUBFOLDER}/${relPath}`,
         directory: notesDirectory,
       });
-      // Capacitor returns base64 when no encoding is specified
-      const base64 = result.data as string;
-      const binary = atob(base64);
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) {
-        bytes[i] = binary.charCodeAt(i);
-      }
-      return bytes.buffer;
+      return fromBase64(result.data as string);
     } catch {
       return null;
     }
   },
 
   async writeBinaryAppData(relPath: string, data: ArrayBuffer): Promise<void> {
-    // Ensure parent directory exists
-    const lastSlash = relPath.lastIndexOf('/');
-    if (lastSlash > 0) {
-      try {
-        await Filesystem.mkdir({
-          path: `${NOTES_SUBFOLDER}/${relPath.slice(0, lastSlash)}`,
-          directory: notesDirectory,
-          recursive: true,
-        });
-      } catch { /* already exists */ }
-    }
-    // Encode ArrayBuffer to base64
-    const bytes = new Uint8Array(data);
-    let binary = '';
-    for (let i = 0; i < bytes.length; i++) {
-      binary += String.fromCharCode(bytes[i]);
-    }
-    const base64 = btoa(binary);
+    await ensureAppDataParent(relPath);
     await Filesystem.writeFile({
       path: `${NOTES_SUBFOLDER}/${relPath}`,
-      data: base64,
+      data: toBase64(data),
       directory: notesDirectory,
     });
   },
@@ -229,6 +248,8 @@ export const capacitorFS: PlatformFS = {
 
 /** Ensure the subfolder exists, migrate any .md files from the Documents root. */
 export async function ensureCapacitorNotesFolder(): Promise<void> {
+  await ensureAndroidDeviceStorageAccess();
+
   // Create subfolder if it doesn't exist
   try {
     await Filesystem.mkdir({

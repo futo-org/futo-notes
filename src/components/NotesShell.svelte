@@ -1,10 +1,9 @@
 <script lang="ts">
-  import { hasFileSystem, isMobile, isElectron } from '$lib/platform';
+  import { hasFileSystem, isMobile, isElectron, isCapacitor } from '$lib/platform';
   import MarkdownEditor from './MarkdownEditor.svelte';
   import MarkdownToolbar from './MarkdownToolbar.svelte';
   import SettingsScreen from './SettingsScreen.svelte';
   import SearchPopup from './SearchPopup.svelte';
-  import SyncStatusBar from './SyncStatusBar.svelte';
   import VirtualList from './VirtualList.svelte';
   import type { NotePreview } from '../types';
   import { getAllNotes, updateNote, readNote, createNote, getNoteById, deleteNote, handleExternalFileChange } from '$lib/notes';
@@ -324,6 +323,7 @@ Escaped pipes:
 
   // File watcher self-write suppression (Electron only)
   const recentWrites = new Map<string, number>();
+  const recentSyncWrites = new Map<string, number>();
 
   function recordWrite(filename: string): void {
     recentWrites.set(filename, Date.now());
@@ -338,10 +338,18 @@ Escaped pipes:
     return ts !== undefined && Date.now() - ts < 1000;
   }
 
-  // Sync status
-  let syncActive = $state(false);
-  let syncStartedAt = $state(0);
-  let lastSyncSummary: SyncSummary | null = $state(null);
+  function recordSyncWrite(filename: string): void {
+    recentSyncWrites.set(filename, Date.now());
+    for (const [key, ts] of recentSyncWrites) {
+      if (Date.now() - ts > 5000) recentSyncWrites.delete(key);
+    }
+  }
+
+  function isRecentSyncWrite(filename: string): boolean {
+    const ts = recentSyncWrites.get(filename);
+    return ts !== undefined && Date.now() - ts < 5000;
+  }
+
 
   // Toast
   let toastMessage = $state('');
@@ -368,47 +376,74 @@ Escaped pipes:
     showToast(count > 0 ? `Imported ${count} notes` : 'All notes deleted');
   }
 
-  async function checkSupersearchArtifacts(): Promise<void> {
+  const ARTIFACT_CHECK_MIN_INTERVAL_MS = 5 * 60 * 1000;
+  let lastArtifactCheckAt = 0;
+  let artifactCheckInFlight = false;
+
+  async function checkSupersearchArtifacts(force = false): Promise<void> {
     const prefs = getCachedPreferences();
     if (!prefs.sync.serverUrl || !prefs.sync.token) return;
+    const now = Date.now();
+    if (artifactCheckInFlight) return;
+    if (!force && lastArtifactCheckAt > 0 && now - lastArtifactCheckAt < ARTIFACT_CHECK_MIN_INTERVAL_MS) return;
+    artifactCheckInFlight = true;
+    let completed = false;
     try {
       const { checkForUpdate, downloadArtifact } = await import('$lib/supersearch/artifactManager');
       const { hasUpdate, capabilities } = await checkForUpdate(prefs.sync.serverUrl, prefs.sync.token);
       if (hasUpdate && capabilities) {
-        await downloadArtifact(prefs.sync.serverUrl, prefs.sync.token, capabilities);
+        const downloaded = await downloadArtifact(prefs.sync.serverUrl, prefs.sync.token, capabilities);
+        if (!downloaded) return;
       }
+      completed = true;
     } catch (e) {
       console.warn('[supersearch] artifact check failed:', e);
+    } finally {
+      if (completed) {
+        lastArtifactCheckAt = Date.now();
+      }
+      artifactCheckInFlight = false;
     }
   }
 
   async function handleSyncComplete(summary: SyncSummary): Promise<void> {
-    lastSyncSummary = summary;
-    syncActive = false;
-    refreshNotesList();
 
-    // Check for supersearch artifacts after first successful sync
-    checkSupersearchArtifacts();
+    const hasRemoteNoteChanges = summary.updatedIds.length > 0 || summary.deletedIds.length > 0;
+    for (const id of summary.updatedIds) recordSyncWrite(`${id}.md`);
+    for (const id of summary.deletedIds) recordSyncWrite(`${id}.md`);
+    if (hasRemoteNoteChanges) {
+      refreshNotesList();
+    }
 
-    // If sync downloaded updates and a note is currently open, reload it from
-    // disk so the editor doesn't hold stale content that flushSave would push
-    // back to the server.
-    if ((summary.downloaded > 0 || summary.deleted > 0) && originalId) {
-      // Cancel any pending debounced save — the disk content is now authoritative
-      if (saveTimeout !== null) {
-        clearTimeout(saveTimeout);
-        saveTimeout = null;
-      }
+    // Check once after first sync, then on remote note changes (throttled).
+    if (lastArtifactCheckAt === 0 || hasRemoteNoteChanges) {
+      void checkSupersearchArtifacts();
+    }
+
+    // Reload only when sync actually touched the currently-open note.
+    // Download/delete activity for other notes should not disturb editor focus.
+    if (originalId && (summary.updatedIds.includes(originalId) || summary.deletedIds.includes(originalId))) {
       try {
         const freshContent = await readNote(originalId);
-        content = freshContent;
-        suppressSaveOnChange = true;
-        editor?.setContent(freshContent);
-        suppressSaveOnChange = false;
+        // Only replace editor content if the current note actually changed.
+        // Skipping avoids a full document dispatch that loses focus (and
+        // dismisses the keyboard on mobile).
+        if (freshContent !== editor?.getContent()) {
+          // If the user typed while sync was in flight, keep local editing state.
+          if (editor?.hasFocus() && saveTimeout !== null) return;
+          content = freshContent;
+          suppressSaveOnChange = true;
+          editor?.setContent(freshContent);
+          suppressSaveOnChange = false;
+        }
         const meta = getNoteById(originalId);
         if (meta) title = meta.title;
       } catch {
         // Note was deleted by sync — navigate away
+        if (saveTimeout !== null) {
+          clearTimeout(saveTimeout);
+          saveTimeout = null;
+        }
         originalId = null;
         navigate('/');
       }
@@ -473,6 +508,11 @@ Escaped pipes:
   }
 
   async function createNewNote(): Promise<void> {
+    if (isCapacitor) {
+      import('@capacitor/haptics').then(({ Haptics, ImpactStyle }) =>
+        Haptics.impact({ style: ImpactStyle.Light })
+      ).catch(() => {});
+    }
     if (isMobile) setDrawerOpen(false);
     await flushSave();
     navigate('/note/new');
@@ -899,11 +939,11 @@ Escaped pipes:
 
     // Auto-sync
     startAutoSync({
-      onSyncStart: () => { syncActive = true; syncStartedAt = Date.now(); },
       onSyncComplete: handleSyncComplete,
       onSyncError: (err) => console.warn('Auto-sync error:', err),
       flushPendingSave: flushSave,
-      onSupersearchReady: checkSupersearchArtifacts,
+      onSupersearchReady: () => { void checkSupersearchArtifacts(true); },
+      shouldDeferSync: () => saveTimeout !== null || Boolean(editor?.isComposing?.()),
     });
 
     // Desktop sidebar: load persisted width
@@ -932,6 +972,7 @@ Escaped pipes:
         cleanupFileWatcher = onFileChange(async (event) => {
           const { type, filename } = event;
           if (!filename.endsWith('.md')) return;
+          if (isRecentSyncWrite(filename)) return;
           if (isRecentWrite(filename)) return;
 
           const id = filename.replace(/\.md$/, '');
@@ -1245,5 +1286,3 @@ Escaped pipes:
 {#if toastMessage}
   <div class="toast">{toastMessage}</div>
 {/if}
-
-<SyncStatusBar syncing={syncActive} {syncStartedAt} lastSummary={lastSyncSummary} />

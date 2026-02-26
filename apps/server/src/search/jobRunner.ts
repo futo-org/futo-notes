@@ -23,6 +23,7 @@ export async function runIndexJob(
   level: number,
   batchSize: number,
   processBatch: ProcessBatchFn,
+  signal?: AbortSignal,
 ): Promise<JobResult> {
   const jobId = crypto.randomUUID();
   const dirtyUuids = getDirtyUuids(db, level);
@@ -72,6 +73,13 @@ export async function runIndexJob(
 
   try {
     for (let i = 0; i < uuidsToProcess.length; i += batchSize) {
+      if (signal?.aborted) {
+        db.prepare(`UPDATE search_jobs SET status = 'interrupted', finished_at = ? WHERE job_id = ?`)
+          .run(Date.now(), jobId);
+        log.info(`search: job ${jobId} cancelled after ${notesProcessed} notes`);
+        return { jobId, status: 'interrupted', notesProcessed, notesTotal };
+      }
+
       const batch = uuidsToProcess.slice(i, i + batchSize);
       await processBatch(db, batch);
       processedUuids.push(...batch);

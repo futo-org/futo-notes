@@ -20,6 +20,11 @@ let running = false;
 let currentConfig: Config | null = null;
 let disabled = false;
 let phase: SchedulerPhase = 'idle';
+let downloadProgress: { totalSize: number; downloadedSize: number } | null = null;
+let abortController: AbortController | null = null;
+let runningJobPromise: Promise<void> | null = null;
+let activeJobToken = 0;
+let modelChangeInProgress = false;
 
 /**
  * Get the current scheduler state for dashboard display.
@@ -28,9 +33,10 @@ export function getSchedulerState(): {
   phase: SchedulerPhase;
   modelReady: boolean;
   idleWindow: { start: string; end: string; active: boolean } | null;
+  downloadProgress: { totalSize: number; downloadedSize: number } | null;
 } {
   if (!currentConfig) {
-    return { phase: 'idle', modelReady: false, idleWindow: null };
+    return { phase: 'idle', modelReady: false, idleWindow: null, downloadProgress: null };
   }
   return {
     phase: disabled ? 'disabled' : phase,
@@ -40,11 +46,13 @@ export function getSchedulerState(): {
       end: currentConfig.indexIdleEnd,
       active: isWithinIdleWindow(currentConfig.indexIdleStart, currentConfig.indexIdleEnd),
     },
+    downloadProgress: phase === 'downloading_model' ? downloadProgress : null,
   };
 }
 
 // Track job processor — lazily initialized on first indexing trigger
 let jobProcessor: ((db: import('better-sqlite3').Database, uuids: string[]) => Promise<void>) | null = null;
+let ensureProcessorPromise: Promise<boolean> | null = null;
 
 /**
  * Parse "HH:MM" into { hours, minutes }.
@@ -99,6 +107,27 @@ export async function ensureModelLoaded(): Promise<boolean> {
 async function ensureProcessor(config: Config): Promise<boolean> {
   if (jobProcessor) return true;
   if (disabled) return false;
+  if (ensureProcessorPromise) return ensureProcessorPromise;
+
+  ensureProcessorPromise = ensureProcessorImpl(config).finally(() => {
+    // Query-triggered lazy loads (not background indexing jobs) should
+    // return the scheduler phase to idle once model init settles.
+    if (
+      !running
+      && !disabled
+      && (phase === 'benchmarking' || phase === 'downloading_model' || phase === 'loading_model')
+    ) {
+      phase = 'idle';
+    }
+    ensureProcessorPromise = null;
+  });
+
+  return ensureProcessorPromise;
+}
+
+async function ensureProcessorImpl(config: Config): Promise<boolean> {
+  if (jobProcessor) return true;
+  if (disabled) return false;
 
   const db = getDb();
   const { getModelDef } = await import('./modelRegistry.js');
@@ -149,11 +178,14 @@ async function ensureProcessor(config: Config): Promise<boolean> {
     const { initVectorDb } = await import('../db/vectorDb.js');
     await initVectorDb(db, modelDef.dims);
 
-    // Load model (downloads if needed)
+    // Download model (if needed), then load into memory
     phase = 'downloading_model';
+    downloadProgress = null;
     const { loadEmbeddingModel } = await import('./modelManager.js');
-    phase = 'loading_model';
-    const model = await loadEmbeddingModel(modelDef, config.modelsPath);
+    const model = await loadEmbeddingModel(modelDef, config.modelsPath, {
+      onDownloadProgress: (status) => { downloadProgress = status; },
+      onDownloadComplete: () => { phase = 'loading_model'; downloadProgress = null; },
+    });
 
     // Store model info in search_config for status/capabilities
     const now = Date.now();
@@ -200,6 +232,27 @@ async function ensureProcessor(config: Config): Promise<boolean> {
   return true;
 }
 
+function startTrackedIndexJob(config: Config, errorPrefix: string): Promise<void> {
+  const jobToken = ++activeJobToken;
+  running = true;
+  abortController = new AbortController();
+
+  const promise = runIndexInBackground(config, abortController.signal).catch((err) => {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error(`${errorPrefix}: ${message}`);
+  }).finally(() => {
+    // Ignore stale completions from jobs that were superseded by a newer run.
+    if (activeJobToken !== jobToken) return;
+    running = false;
+    phase = 'idle';
+    abortController = null;
+    runningJobPromise = null;
+  });
+
+  runningJobPromise = promise;
+  return promise;
+}
+
 /**
  * Trigger an indexing job immediately, bypassing the idle window.
  * Validates synchronously, then runs the job in the background.
@@ -208,29 +261,26 @@ export function triggerIndexNow(): void {
   if (!currentConfig) {
     throw new Error('Search scheduler not initialized');
   }
+  if (modelChangeInProgress) {
+    throw new Error('Model change in progress');
+  }
   if (running) {
     throw new Error('Index job already running');
   }
 
-  running = true;
   const config = currentConfig;
-
-  runIndexInBackground(config).catch((err) => {
-    log.error(`search: manual reindex failed: ${err instanceof Error ? err.message : String(err)}`);
-  }).finally(() => {
-    running = false;
-    phase = 'idle';
-  });
+  void startTrackedIndexJob(config, 'search: manual reindex failed');
 }
 
-async function runIndexInBackground(config: Config): Promise<void> {
+async function runIndexInBackground(config: Config, signal?: AbortSignal): Promise<void> {
   const ready = await ensureProcessor(config);
   if (!ready || !jobProcessor) {
     throw new Error('Embedding model not available (hardware too slow or model missing)');
   }
+  if (signal?.aborted) return;
   const db = getDb();
   phase = 'indexing';
-  await runIndexJob(db, 2, config.indexBatchSize, jobProcessor);
+  await runIndexJob(db, 2, config.indexBatchSize, jobProcessor, signal);
 
   // Build artifacts and notify clients
   phase = 'building_artifacts';
@@ -242,7 +292,7 @@ async function runIndexInBackground(config: Config): Promise<void> {
 }
 
 async function tick(): Promise<void> {
-  if (running || !currentConfig || disabled) return;
+  if (running || !currentConfig || disabled || modelChangeInProgress) return;
 
   const config = currentConfig;
   const inWindow = isWithinIdleWindow(config.indexIdleStart, config.indexIdleEnd);
@@ -257,27 +307,7 @@ async function tick(): Promise<void> {
 
   log.info(`search: scheduler triggered (inWindow=${inWindow} idle=${Math.round(idleMs / 60000)}min dirty=${dirtyCount})`);
 
-  running = true;
-  try {
-    const ready = await ensureProcessor(config);
-    if (!ready || !jobProcessor) return;
-
-    phase = 'indexing';
-    await runIndexJob(db, 2, config.indexBatchSize, jobProcessor);
-
-    // Build artifacts and notify clients
-    phase = 'building_artifacts';
-    const { buildArtifacts } = await import('./artifactBuilder.js');
-    const artifactDir = path.join(path.dirname(config.databasePath), 'search-artifacts');
-    await buildArtifacts(db, artifactDir);
-    const { broadcastSupersearchReady } = await import('../events.js');
-    broadcastSupersearchReady();
-  } catch (err) {
-    log.error(`search: scheduler tick failed: ${err instanceof Error ? err.message : String(err)}`);
-  } finally {
-    running = false;
-    phase = 'idle';
-  }
+  await startTrackedIndexJob(config, 'search: scheduler tick failed');
 }
 
 /**
@@ -295,6 +325,118 @@ export function startSearchScheduler(config: Config): void {
 }
 
 /**
+ * Change the embedding model. Cancels any running job, unloads the current model,
+ * wipes the search index, and reinitializes with the new model.
+ */
+export async function changeModel(newModelId: string): Promise<void> {
+  if (!currentConfig) {
+    throw new Error('Search scheduler not initialized');
+  }
+  if (modelChangeInProgress) {
+    throw new Error('Model change already in progress');
+  }
+  modelChangeInProgress = true;
+  downloadProgress = null;
+
+  try {
+    const { getModelDef } = await import('./modelRegistry.js');
+    const newModelDef = getModelDef(newModelId);
+    if (!newModelDef) {
+      throw new Error(`Unknown model: ${newModelId}`);
+    }
+
+    // Cancel any running job and wait for it to settle.
+    if (running && abortController) {
+      log.info('search: cancelling current job for model change...');
+      abortController.abort();
+    }
+    if (runningJobPromise) {
+      await runningJobPromise;
+    }
+
+    // Wait for any in-flight lazy model initialization to settle.
+    if (ensureProcessorPromise) {
+      try {
+        await ensureProcessorPromise;
+      } catch {
+        // Ignore here; we're replacing the model anyway.
+      }
+    }
+
+    const db = getDb();
+    const { initVectorDb, resetVectorDb } = await import('../db/vectorDb.js');
+
+    // Preflight: ensure vec0 extension is loaded in this process before any
+    // destructive schema changes. Without this, dropping an existing vec0 table
+    // can fail with "no such module: vec0" on a fresh server process.
+    await initVectorDb(db, newModelDef.dims);
+
+    // Unload current model from memory
+    const { unloadModel } = await import('./modelManager.js');
+    await unloadModel();
+    jobProcessor = null;
+
+    // Wipe and model-config update must be atomic to avoid partial state
+    // if the process exits mid-model switch.
+    const now = Date.now();
+    const applyModelSwitch = db.transaction(() => {
+      db.exec('DELETE FROM search_chunks');
+      db.exec('DELETE FROM search_index_state');
+      db.exec('DELETE FROM search_jobs');
+      db.exec('DROP TABLE IF EXISTS search_vectors');
+
+      const upsert = db.prepare(`
+        INSERT INTO search_config (key, value, updated_at) VALUES (?, ?, ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+      `);
+      upsert.run('embedding_model', newModelDef.id, now);
+      upsert.run('embedding_dims', String(newModelDef.dims), now);
+      if (newModelDef.queryPrefix) {
+        upsert.run('query_prefix', newModelDef.queryPrefix, now);
+      } else {
+        db.prepare("DELETE FROM search_config WHERE key = 'query_prefix'").run();
+      }
+      // Clear stale artifact references
+      db.prepare("DELETE FROM search_config WHERE key IN ('artifact_version', 'artifact_hash')").run();
+    });
+    applyModelSwitch();
+
+    // Reset vectorDb so it can be recreated with new dims.
+    // Done after DROP TABLE succeeds in the transaction above.
+    resetVectorDb();
+
+    // Delete old artifact files
+    const fs = await import('node:fs/promises');
+    const artifactDir = path.join(path.dirname(currentConfig.databasePath), 'search-artifacts');
+    try {
+      const files = await fs.readdir(artifactDir);
+      await Promise.all(files.map(async (file) => {
+        try {
+          await fs.unlink(path.join(artifactDir, file));
+        } catch {
+          // Best-effort cleanup
+        }
+      }));
+    } catch {
+      // Directory may not exist
+    }
+
+    // Clear env override so DB selection takes precedence
+    currentConfig.embeddingModel = undefined;
+
+    log.info(`search: model changed to "${newModelId}" — index wiped, triggering re-index`);
+
+    // Reset disabled flag — user is explicitly choosing a model
+    disabled = false;
+
+    // Trigger re-indexing in the background
+    void startTrackedIndexJob(currentConfig, 'search: post-model-change reindex failed');
+  } finally {
+    modelChangeInProgress = false;
+  }
+}
+
+/**
  * Stop the search scheduler.
  */
 export function stopSearchScheduler(): void {
@@ -302,7 +444,15 @@ export function stopSearchScheduler(): void {
     clearInterval(schedulerInterval);
     schedulerInterval = null;
   }
+  activeJobToken++;
+  abortController?.abort();
+  running = false;
+  runningJobPromise = null;
+  abortController = null;
   currentConfig = null;
   jobProcessor = null;
+  ensureProcessorPromise = null;
   disabled = false;
+  downloadProgress = null;
+  modelChangeInProgress = false;
 }

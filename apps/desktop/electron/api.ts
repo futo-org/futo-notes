@@ -31,8 +31,11 @@ export interface ElectronAPI {
 
   // Supersearch
   supersearchDownload(serverUrl: string, token: string): Promise<void>;
-  supersearchQuery(queryVector: number[], topK: number): Promise<Array<{ chunkId: number; uuid: string; chunkText: string; distance: number }>>;
-  supersearchClose(): Promise<void>;
+  supersearchHasArtifacts(): Promise<boolean>;
+  supersearchQuery(
+    queryVector: number[],
+    topK: number,
+  ): Promise<Array<{ chunkId: number; uuid: string; chunkText: string; startOffset: number; endOffset: number; score: number }>>;
 
   // Events from main process
   onFileChange(callback: (event: { type: string; filename: string }) => void): () => void;

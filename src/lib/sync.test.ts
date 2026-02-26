@@ -380,5 +380,7 @@ describe('syncNow', () => {
     expect(summary.downloaded).toBe(1);
     expect(summary.deleted).toBe(1);
     expect(summary.conflicts).toBe(1);
+    expect(summary.updatedIds).toEqual(['downloaded']);
+    expect(summary.deletedIds).toEqual(['del']);
   });
 });

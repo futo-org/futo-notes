@@ -4,21 +4,15 @@
   "private": true,
   "main": "dist-electron/main.js",
   "scripts": {
-    "rebuild-native": "node scripts/rebuild-native.mjs",
-    "dev": "npm run rebuild-native && concurrently \"cd ../.. && vite\" \"tsup --watch\" \"wait-on http://localhost:5173 dist-electron/main.js && VITE_DEV_SERVER_URL=http://localhost:5173 electron .\"",
+    "dev": "concurrently \"cd ../.. && vite\" \"tsup --watch\" \"wait-on http://localhost:5173 dist-electron/main.js && VITE_DEV_SERVER_URL=http://localhost:5173 electron .\"",
     "build:electron": "tsup",
     "build": "npm run build:electron",
     "package:linux": "electron-builder --linux",
     "package:mac": "electron-builder --mac",
     "package:win": "electron-builder --win"
   },
-  "dependencies": {
-    "better-sqlite3": "^11.0.0",
-    "sqlite-vec": "^0.1.0"
-  },
+  "dependencies": {},
   "devDependencies": {
-    "@electron/rebuild": "^4.0.3",
-    "@types/better-sqlite3": "^7.6.0",
     "@types/node": "^22.0.0",
     "chokidar": "^4.0.0",
     "concurrently": "^9.0.0",

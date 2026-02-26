@@ -8,8 +8,9 @@
   } from '@codemirror/view';
   import type { DecorationSet, ViewUpdate } from '@codemirror/view';
   import { EditorState } from '@codemirror/state';
-  import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
+  import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
   import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
+  import { onMount } from 'svelte';
   import { listContinuationKeymap } from '$lib/listContinuation';
   import { tableRendering } from '$lib/tableRenderingField';
   import { liveMarkdownTransform, preloadImages } from '$lib/liveMarkdownTransform';
@@ -141,7 +142,7 @@
     }
   }
 
-  $effect(() => {
+  onMount(() => {
     preloadImages(content, hasFileSystem ? getImageWebPath : undefined, () => view);
 
     // Reset anchor state for new editor
@@ -156,6 +157,7 @@
         { key: 'Mod-b', run: (v) => { toggleBold(v); return true; } },
         { key: 'Mod-i', run: (v) => { toggleItalic(v); return true; } },
         { key: 'Mod-Shift-s', run: (v) => { toggleStrikethrough(v); return true; } },
+        indentWithTab,
         ...defaultKeymap,
         ...historyKeymap,
       ]),
@@ -232,6 +234,12 @@
   });
 
   $effect(() => {
+    if (!view) return;
+    if (content === view.state.doc.toString()) return;
+    setContent(content);
+  });
+
+  $effect(() => {
     const v = view;
     const sp = scrollParent;
     if (!v || !sp) return;
@@ -252,6 +260,7 @@
 
   export function setContent(text: string): void {
     if (!view) return;
+    if (text === view.state.doc.toString()) return;
     preloadImages(text, hasFileSystem ? getImageWebPath : undefined, () => view);
     view.dispatch({
       changes: { from: 0, to: view.state.doc.length, insert: text }

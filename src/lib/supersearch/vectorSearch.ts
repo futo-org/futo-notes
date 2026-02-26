@@ -22,10 +22,9 @@ export async function vectorSearch(
     raw = rows.map((r) => ({
       uuid: r.uuid,
       chunkText: r.chunkText,
-      startOffset: 0,
-      endOffset: 0,
-      // sqlite-vec distance is L2 or cosine distance; convert to similarity score
-      score: 1 / (1 + r.distance),
+      startOffset: r.startOffset,
+      endOffset: r.endOffset,
+      score: r.score,
     }));
   } else if (platformName === 'capacitor') {
     await loadArtifacts();

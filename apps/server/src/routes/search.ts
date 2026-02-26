@@ -34,6 +34,29 @@ search.post('/search/reindex', authMiddleware, (c) => {
   }
 });
 
+search.post('/search/change-model', authMiddleware, async (c) => {
+  try {
+    const body = await c.req.json<{ model_id: string }>();
+    if (!body.model_id || typeof body.model_id !== 'string') {
+      return c.json({ error: 'Missing or invalid model_id' }, 400);
+    }
+
+    const { getModelDef } = await import('../search/modelRegistry.js');
+    if (!getModelDef(body.model_id)) {
+      return c.json({ error: `Unknown model: ${body.model_id}` }, 400);
+    }
+
+    const { changeModel } = await import('../search/scheduler.js');
+    await changeModel(body.model_id);
+
+    return c.json({ changed: true, model: body.model_id }, 200);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error(`search: change-model failed: ${message}`);
+    return c.json({ error: message }, 409);
+  }
+});
+
 search.get('/search/index', authMiddleware, (c) => {
   const format = c.req.query('format') || 'sqlite';
   const config = loadConfig();
@@ -107,7 +130,16 @@ search.post('/search/embed-query', authMiddleware, async (c) => {
     if (!model) {
       // Model not loaded yet — try to load it on-demand
       const { ensureModelLoaded } = await import('../search/scheduler.js');
-      await ensureModelLoaded();
+      try {
+        const loaded = await ensureModelLoaded();
+        if (!loaded) {
+          return c.json({ error: 'Embedding model not available' }, 503);
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.warn(`search: ensureModelLoaded failed: ${message}`);
+        return c.json({ error: 'Embedding model not available' }, 503);
+      }
       model = getActiveModel();
       if (!model) {
         return c.json({ error: 'Embedding model not available' }, 503);
