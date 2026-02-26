@@ -271,7 +271,8 @@ class BulletWidget extends WidgetType {
   toDOM(): HTMLElement {
     const span = document.createElement('span');
     span.className = 'cm-md-bullet';
-    span.textContent = '•';
+    const glyphs = ['•', '◦', '▪'];
+    span.textContent = glyphs[this.indent % 3];
     span.style.cssText = `margin-right: 8px; color: #666;`;
     return span;
   }
@@ -440,6 +441,11 @@ class LiveMarkdownPlugin implements PluginValue {
           this.isBlockElement(nodeName) &&
           cursorLines.has(line)
         ) {
+          // For ListItem on cursor lines, still apply indent padding
+          // so indentation doesn't visually jump when cursor enters/leaves
+          if (nodeName === 'ListItem') {
+            this.processListItemIndentOnly(from, view, decorations);
+          }
           return;
         }
 
@@ -887,6 +893,41 @@ class LiveMarkdownPlugin implements PluginValue {
     }
   }
 
+  /**
+   * On cursor lines, apply only the indent padding (no marker hiding/widgets)
+   * so indentation is visually consistent whether the cursor is on the line or not.
+   */
+  private processListItemIndentOnly(
+    from: number,
+    view: EditorView,
+    decorations: Array<{ from: number; to: number; value: any }>
+  ): void {
+    const doc = view.state.doc;
+    const line = doc.lineAt(from);
+    const text = doc.sliceString(from, line.to);
+    const realIndent = from - line.from;
+    const indentLevel = Math.floor(realIndent / 2);
+
+    // Determine marker width based on what kind of list item this is
+    let markerW = BULLET_MARKER_W;
+    if (text.match(/^([-*+])\s+\[([ xX])\]/)) {
+      markerW = CHECKBOX_MARKER_W;
+    } else if (text.match(/^\d+\.\s+\[([ xX])\]/)) {
+      markerW = ORDERED_TASK_MARKER_W;
+    } else if (text.match(/^\d+\.\s+/)) {
+      markerW = NUMBER_MARKER_W;
+    }
+
+    // Apply same padding as the decorated version.
+    // Leading whitespace stays visible (matching decorated mode where it's also visible).
+    const pl = indentLevel * INDENT_STEP + markerW;
+    decorations.push({
+      from: line.from,
+      to: line.from,
+      value: { class: 'cm-md-list-line', attributes: { style: `padding-left: ${pl}px !important; text-indent: -${markerW}px;` }, startSide: 0, endSide: 0 }
+    });
+  }
+
   private processListItem(
     from: number,
     _to: number,
@@ -898,19 +939,21 @@ class LiveMarkdownPlugin implements PluginValue {
     const line = doc.lineAt(from);
     const lineEnd = line.to;
 
+    // CM6's ListItem node `from` starts at the list marker (after indentation),
+    // so `text` never has leading whitespace. Compute real indent from position.
+    const realIndent = from - line.from;
+    const indentLevel = Math.floor(realIndent / 2);
+
     // Check for unordered task first (checkbox syntax with bullet)
-    const unorderedTaskMatch = text.match(/^(\s*)([-*+])\s+\[([ xX])\]\s*/);
+    const unorderedTaskMatch = text.match(/^([-*+])\s+\[([ xX])\]\s*/);
     if (unorderedTaskMatch) {
-      const indent = unorderedTaskMatch[1];
-      const checked = unorderedTaskMatch[3];
-      const indentLen = indent.length;
-      const indentLevel = Math.floor(indentLen / 2);
+      const checked = unorderedTaskMatch[2];
       const fullMarkerLen = unorderedTaskMatch[0].length;
       const contentStart = from + fullMarkerLen;
 
       // Hide bullet and checkbox syntax
       decorations.push({
-        from: from + indentLen,
+        from,
         to: contentStart,
         value: { class: 'cm-md-marker-hidden' }
       });
@@ -918,8 +961,8 @@ class LiveMarkdownPlugin implements PluginValue {
       // Add checkbox widget
       const checkbox = new TaskCheckboxWidget(checked === 'x' || checked === 'X');
       decorations.push({
-        from: from + indentLen,
-        to: from + indentLen,
+        from,
+        to: from,
         value: {
           widget: checkbox,
           side: -1
@@ -946,26 +989,24 @@ class LiveMarkdownPlugin implements PluginValue {
     }
 
     // Check for ordered task (checkbox syntax with number)
-    const orderedTaskMatch = text.match(/^(\s*)(\d+)\.\s+\[([ xX])\]\s*/);
+    const orderedTaskMatch = text.match(/^(\d+)\.\s+\[([ xX])\]\s*/);
     if (orderedTaskMatch) {
-      const indentLen = orderedTaskMatch[1].length;
-      const num = parseInt(orderedTaskMatch[2]);
-      const checked = orderedTaskMatch[3];
-      const indentLevel = Math.floor(indentLen / 2);
+      const num = parseInt(orderedTaskMatch[1]);
+      const checked = orderedTaskMatch[2];
       const fullMarkerLen = orderedTaskMatch[0].length;
       const contentStart = from + fullMarkerLen;
 
       // Hide number, dot, and checkbox syntax
       decorations.push({
-        from: from + indentLen,
+        from,
         to: contentStart,
         value: { class: 'cm-md-marker-hidden' }
       });
 
       // Add number widget
       decorations.push({
-        from: from + indentLen,
-        to: from + indentLen,
+        from,
+        to: from,
         value: {
           widget: new NumberWidget(num, indentLevel),
           side: -1
@@ -975,8 +1016,8 @@ class LiveMarkdownPlugin implements PluginValue {
       // Add checkbox widget after number
       const checkbox = new TaskCheckboxWidget(checked === 'x' || checked === 'X');
       decorations.push({
-        from: from + indentLen,
-        to: from + indentLen,
+        from,
+        to: from,
         value: {
           widget: checkbox,
           side: -1
@@ -1003,24 +1044,22 @@ class LiveMarkdownPlugin implements PluginValue {
     }
 
     // Regular unordered list
-    const bulletMatch = text.match(/^(\s*)([-*+])\s+/);
+    const bulletMatch = text.match(/^([-*+])\s+/);
     if (bulletMatch) {
-      const indentLen = bulletMatch[1].length;
-      const indentLevel = Math.floor(indentLen / 2);
       const fullMarkerLen = bulletMatch[0].length;
       const contentStart = from + fullMarkerLen;
 
       // Hide bullet and space
       decorations.push({
-        from: from + indentLen,
+        from,
         to: contentStart,
         value: { class: 'cm-md-marker-hidden' }
       });
 
       // Add bullet widget
       decorations.push({
-        from: from + indentLen,
-        to: from + indentLen,
+        from,
+        to: from,
         value: {
           widget: new BulletWidget(indentLevel),
           side: -1
@@ -1047,25 +1086,23 @@ class LiveMarkdownPlugin implements PluginValue {
     }
 
     // Ordered list
-    const orderedMatch = text.match(/^(\s*)(\d+)\.\s+/);
+    const orderedMatch = text.match(/^(\d+)\.\s+/);
     if (orderedMatch) {
-      const indentLen = orderedMatch[1].length;
-      const indentLevel = Math.floor(indentLen / 2);
-      const num = parseInt(orderedMatch[2]);
+      const num = parseInt(orderedMatch[1]);
       const fullMarkerLen = orderedMatch[0].length;
       const contentStart = from + fullMarkerLen;
 
       // Hide number, dot and space
       decorations.push({
-        from: from + indentLen,
+        from,
         to: contentStart,
         value: { class: 'cm-md-marker-hidden' }
       });
 
       // Add number widget
       decorations.push({
-        from: from + indentLen,
-        to: from + indentLen,
+        from,
+        to: from,
         value: {
           widget: new NumberWidget(num, indentLevel),
           side: -1

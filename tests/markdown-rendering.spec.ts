@@ -7,7 +7,7 @@ import { test, expect, Page } from '@playwright/test';
  * correctly renders all supported markdown elements by checking:
  * 1. CSS classes are applied to content
  * 2. Computed styles match expectations
- * 3. Syntax markers are hidden (replaced with HiddenWidget)
+ * 3. Syntax markers are hidden via markdown marker decorations/CSS
  * 4. Widgets are rendered (tables, checkboxes, hr)
  *
  * Run with: npx playwright test
@@ -91,6 +91,10 @@ async function blurEditor(page: Page): Promise<void> {
   await page.waitForTimeout(300);
 }
 
+async function getVisibleEditorText(page: Page): Promise<string> {
+  return page.locator('.cm-content').evaluate((el) => (el as HTMLElement).innerText);
+}
+
 // ============================================================================
 // HEADING TESTS
 // ============================================================================
@@ -143,7 +147,7 @@ test.describe('Headings', () => {
     await blurEditor(page);
 
     // The # should not be visible in the rendered output
-    // (it's replaced by HiddenWidget with display:none)
+    // (the marker span is hidden via cm-md-marker-hidden CSS)
     const content = await page.locator('.cm-line').first().textContent();
     // Content should not start with # when decorations applied
     // Note: This checks the visible text, not the raw content
@@ -185,7 +189,7 @@ test.describe('Emphasis (Bold/Italic)', () => {
     await setupEditor(page, 'This is **bold** text.\n\nMore');
     await blurEditor(page);
 
-    // The ** markers should be hidden via HiddenWidget
+    // The ** markers should be hidden via marker decoration CSS
     // Check that the bold element exists but markers aren't visible
     const bold = page.locator('.cm-md-strong');
     const text = await bold.textContent();
@@ -250,7 +254,8 @@ test.describe('Inline Code', () => {
 
     // Check that backticks aren't visible in rendered content
     const code = page.locator('.cm-md-code');
-    const text = await code.textContent();
+    const text = await code.evaluate((el) => (el as HTMLElement).innerText);
+    expect(text).toBe('code');
     expect(text).not.toContain('`');
   });
 });
@@ -300,7 +305,7 @@ test.describe('Links', () => {
     await setupEditor(page, 'Check [link](https://example.com) here.\n\nMore');
     await blurEditor(page);
 
-    const link = page.locator('.cm-md-link');
+    const link = page.locator('.cm-md-link:not(.cm-md-autolink)', { hasText: 'link' }).first();
     await expect(link).toBeVisible();
 
     const color = await link.evaluate(el =>
@@ -319,7 +324,7 @@ test.describe('Links', () => {
     await setupEditor(page, 'Check [link](https://example.com) here.\n\nMore');
     await blurEditor(page);
 
-    const link = page.locator('.cm-md-link');
+    const link = page.locator('.cm-md-link:not(.cm-md-autolink)', { hasText: 'link' }).first();
     const text = await link.textContent();
     expect(text).toBe('link');
     expect(text).not.toContain('[');
@@ -558,7 +563,7 @@ End.`;
     await blurEditor(page);
 
     // Get all visible text from the editor
-    const visibleText = await page.locator('.cm-content').textContent();
+    const visibleText = await getVisibleEditorText(page);
 
     // These markers should NOT be visible:
     expect(visibleText).not.toMatch(/(?<!\w)#(?=\s)/); // Heading markers

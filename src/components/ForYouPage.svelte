@@ -2,14 +2,16 @@
   import { getAllNotes } from '$lib/notes';
   import { getEngagementData } from '$lib/engagement';
   import { getForYouNotes } from '$lib/forYou';
-  import { isMobile } from '$lib/platform';
+  import { isCapacitor, isMobile } from '$lib/platform';
+  import { PenLine } from '@lucide/svelte';
   import { navigate } from '../router';
 
   interface Props {
     onbrowse?: () => void;
+    onquickcapture?: () => void;
   }
 
-  let { onbrowse }: Props = $props();
+  let { onbrowse, onquickcapture }: Props = $props();
 
   const notes = getAllNotes();
   const engagement = getEngagementData();
@@ -33,33 +35,56 @@
   function handleCardClick(id: string): void {
     navigate(`/note/${encodeURIComponent(id)}`);
   }
+
+  function triggerLightHaptic(): void {
+    if (!isCapacitor) return;
+    import('@capacitor/haptics').then(({ Haptics, ImpactStyle }) =>
+      Haptics.impact({ style: ImpactStyle.Light })
+    ).catch(() => {});
+  }
+
+  function handleQuickCapture(): void {
+    if (onquickcapture) {
+      onquickcapture();
+      return;
+    }
+    triggerLightHaptic();
+    navigate('/note/new');
+  }
 </script>
 
 <div class="for-you-page">
-  {#if forYouNotes.length > 0}
-    <div class="for-you-header">For You</div>
-    <div class="for-you-cards">
-      {#each forYouNotes as note (note.id)}
-        <button class="for-you-card" onclick={() => handleCardClick(note.id)}>
-          <div class="for-you-card-title">{note.title}</div>
-          {#if note.preview}
-            <div class="for-you-card-preview">{note.preview.slice(0, 60)}</div>
-          {/if}
-          <div class="for-you-card-time">{formatRelativeTime(note.modificationTime)}</div>
-        </button>
-      {/each}
-    </div>
-  {:else}
-    <div class="for-you-empty">
-      <div class="for-you-empty-title">FUTO Notes</div>
-      {#if isMobile}
-        <div class="for-you-empty-subtitle">Create your first note to get started.</div>
-        <button class="for-you-browse-btn" onclick={onbrowse}>Browse notes</button>
-      {:else}
-        <div class="for-you-empty-subtitle">Create your first note from the sidebar to get started.</div>
-      {/if}
-    </div>
-  {/if}
+  <div class="for-you-content">
+    {#if forYouNotes.length > 0}
+      <div class="for-you-header">For You</div>
+      <div class="for-you-cards">
+        {#each forYouNotes as note (note.id)}
+          <button class="for-you-card" onclick={() => handleCardClick(note.id)}>
+            <div class="for-you-card-title">{note.title}</div>
+            {#if note.preview}
+              <div class="for-you-card-preview">{note.preview.slice(0, 60)}</div>
+            {/if}
+            <div class="for-you-card-time">{formatRelativeTime(note.modificationTime)}</div>
+          </button>
+        {/each}
+      </div>
+    {:else}
+      <div class="for-you-empty">
+        <div class="for-you-empty-title">FUTO Notes</div>
+        {#if isMobile}
+          <div class="for-you-empty-subtitle">Create your first note to get started.</div>
+          <button class="for-you-browse-btn" onclick={onbrowse}>Browse notes</button>
+        {:else}
+          <div class="for-you-empty-subtitle">Create your first note from the sidebar to get started.</div>
+        {/if}
+      </div>
+    {/if}
+  </div>
+
+  <button class="quick-capture-btn" aria-label="Quick capture" onclick={handleQuickCapture}>
+    <PenLine size={16} strokeWidth={2.25} />
+    <span>Quick capture</span>
+  </button>
 </div>
 
 <style>
@@ -68,8 +93,22 @@
     display: flex;
     flex-direction: column;
     align-items: center;
+    width: 100%;
+    min-height: 100%;
+    padding: 2rem 1.25rem 1.25rem;
+    padding-bottom: max(1.25rem, calc(1.25rem + env(safe-area-inset-bottom, 0px)));
+    gap: 1rem;
+    box-sizing: border-box;
+  }
+
+  .for-you-content {
+    width: 100%;
+    max-width: 680px;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
     justify-content: center;
-    padding: 2rem;
     gap: 1.5rem;
   }
 
@@ -177,5 +216,25 @@
 
   .for-you-browse-btn:active {
     opacity: 0.8;
+  }
+
+  .quick-capture-btn {
+    border: none;
+    border-radius: 9999px;
+    padding: 0.7rem 1.25rem;
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    cursor: pointer;
+    background: var(--color-primary);
+    color: var(--color-bg);
+    box-shadow: 0 4px 12px rgba(28, 25, 23, 0.15);
+  }
+
+  .quick-capture-btn:active {
+    opacity: 0.85;
   }
 </style>

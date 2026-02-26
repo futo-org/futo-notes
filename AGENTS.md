@@ -25,6 +25,15 @@ npm workspaces. Shared Svelte app at root, platform shells in `apps/`, shared pa
 - **IMPORTANT**: `npm run dev` uses localhost APIs. `npm run build` points to production endpoints.
 - **IMPORTANT**: `npm run build` must run from monorepo root. Running from a workspace resolves a different build script — verify output includes `vite build` and `dist/assets/`.
 
+## Close The Loop (Required)
+
+- Do not report a fix or addition as complete until you verify it yourself.
+- For frontend or UI changes, run Playwright for affected behavior (`npm run test -- <spec>` minimum; broaden coverage when change risk is broad).
+- For non-frontend changes, run relevant automated tests and a runtime smoke test of the changed behavior.
+- If behavior depends on runtime environment (Docker, emulator or simulator, Electron), verify in that environment before closing.
+- If verification fails, iterate: fix, rerun verification, re-check.
+- In the final response, include verification evidence: commands run, pass or fail status, and key observed behavior.
+
 ## GitLab CI
 
 `$GITLAB_TOKEN` available in shell (from `~/.zshrc`):

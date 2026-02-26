@@ -16,6 +16,21 @@ async function blurEditor(page: Page): Promise<void> {
 }
 
 test.describe('P2 Header + Formatting Regressions', () => {
+  test('quick capture button opens a new note from home', async ({ page }) => {
+    await page.goto('/');
+    await page.waitForLoadState('domcontentloaded');
+
+    const quickCaptureButton = page.locator('.quick-capture-btn');
+    await expect(quickCaptureButton).toBeVisible();
+    await expect(quickCaptureButton).toContainText('Quick capture');
+
+    await quickCaptureButton.click();
+
+    await expect(page).toHaveURL(/#\/note\/new$/);
+    await expect(page.locator('.title-input')).toBeVisible();
+    await expect(page.locator('.cm-editor')).toBeVisible();
+  });
+
   test('pressing Enter in title moves focus to note body editor', async ({ page }) => {
     await openNewNote(page);
 

@@ -24,8 +24,8 @@ function handleEnter(view: EditorView): boolean {
     const [, indent, bullet, , content] = taskMatch;
     if (!content.trim()) {
       view.dispatch({
-        changes: { from: line.from, to: line.to, insert: indent },
-        selection: EditorSelection.cursor(line.from + indent.length)
+        changes: { from: line.from, to: line.to, insert: '' },
+        selection: EditorSelection.cursor(line.from)
       });
       return true;
     }
@@ -39,8 +39,8 @@ function handleEnter(view: EditorView): boolean {
     const [, indent, num, content] = orderedMatch;
     if (!content.trim()) {
       view.dispatch({
-        changes: { from: line.from, to: line.to, insert: indent },
-        selection: EditorSelection.cursor(line.from + indent.length)
+        changes: { from: line.from, to: line.to, insert: '' },
+        selection: EditorSelection.cursor(line.from)
       });
       return true;
     }
@@ -54,8 +54,8 @@ function handleEnter(view: EditorView): boolean {
     const [, indent, bullet, content] = bulletMatch;
     if (!content.trim()) {
       view.dispatch({
-        changes: { from: line.from, to: line.to, insert: indent },
-        selection: EditorSelection.cursor(line.from + indent.length)
+        changes: { from: line.from, to: line.to, insert: '' },
+        selection: EditorSelection.cursor(line.from)
       });
       return true;
     }

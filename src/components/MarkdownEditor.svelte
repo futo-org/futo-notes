@@ -16,15 +16,16 @@
   import { liveMarkdownTransform, preloadImages } from '$lib/liveMarkdownTransform';
   import { getImageWebPath } from '$lib/fileSystem';
   import { hasFileSystem } from '$lib/platform';
-  import { toggleBold, toggleItalic, toggleStrikethrough } from '$lib/markdownToolbar';
+  import { toggleBold, toggleItalic, toggleStrikethrough, isListLine } from '$lib/markdownToolbar';
 
   interface Props {
     content?: string;
     onchange?: (content: string) => void;
+    oncursorcontext?: (ctx: { onListLine: boolean }) => void;
     scrollParent?: HTMLElement | null;
   }
 
-  let { content = '', onchange, scrollParent = null }: Props = $props();
+  let { content = '', onchange, oncursorcontext, scrollParent = null }: Props = $props();
 
   let container: HTMLDivElement;
   let view: EditorView | null = $state(null);
@@ -205,7 +206,21 @@
         if (update.docChanged && onchange) {
           onchange(update.state.doc.toString());
         }
-      })
+      }),
+      // Cursor context detection for toolbar
+      EditorView.updateListener.of((() => {
+        let lastOnList = false;
+        return (update: ViewUpdate) => {
+          if (!update.selectionSet && !update.docChanged) return;
+          const line = update.state.doc.lineAt(update.state.selection.main.head);
+          const onList = isListLine(line.text);
+          if (onList !== lastOnList) {
+            lastOnList = onList;
+            // Read lazily — not tracked as $effect dependency
+            oncursorcontext?.({ onListLine: onList });
+          }
+        };
+      })())
     ];
 
     const v = new EditorView({

@@ -14,18 +14,21 @@
   } from '$lib/markdownToolbar';
   import { keyboard } from '$lib/keyboard.svelte';
   import type { EditorView } from '@codemirror/view';
+  import { indentMore, indentLess } from '@codemirror/commands';
   import {
     Bold, Italic, Strikethrough, Heading, TextQuote,
-    List, ListOrdered, ListChecks, Camera, ImageIcon, ChevronDown
+    List, ListOrdered, ListChecks, Camera, ImageIcon, ChevronDown,
+    ListIndentDecrease, ListIndentIncrease
   } from '@lucide/svelte';
 
   interface Props {
     getView: () => EditorView | null;
     editorFocused?: boolean;
+    cursorOnListLine?: boolean;
     ontoolbartouch?: (touching: boolean) => void;
   }
 
-  let { getView, editorFocused = false, ontoolbartouch }: Props = $props();
+  let { getView, editorFocused = false, cursorOnListLine = false, ontoolbartouch }: Props = $props();
 
   // Only show when editor is focused (native: keyboard visible + editor focused, web/desktop: editor focused)
   const show = $derived(editorFocused && (keyboard.visible || !isMobile));
@@ -163,6 +166,23 @@
       onclick={handle(toggleTaskList)}
       aria-label="Task list"
     ><ListChecks size={18} strokeWidth={2.5} /></button>
+
+    {#if cursorOnListLine}
+    <button
+      class="toolbar-btn"
+      onmousedown={preventFocus}
+      ontouchstart={preventFocus}
+      onclick={handle((v) => { indentLess(v); })}
+      aria-label="Outdent"
+    ><ListIndentDecrease size={18} strokeWidth={2.5} /></button>
+    <button
+      class="toolbar-btn"
+      onmousedown={preventFocus}
+      ontouchstart={preventFocus}
+      onclick={handle((v) => { indentMore(v); })}
+      aria-label="Indent"
+    ><ListIndentIncrease size={18} strokeWidth={2.5} /></button>
+    {/if}
 
     {#if isMobile}
     <span class="toolbar-separator"></span>

@@ -18,3 +18,11 @@ Single-endpoint hash-based sync (`POST /sync`):
 ## Configuration
 
 See `.env.example`: `PORT` (default 3005), `DATABASE_PATH`.
+
+## Verification (Required)
+
+- Run server tests for affected changes (`npm test` in `apps/server/` or `npm run server:test` from root).
+- For runtime-affecting changes, verify in Docker from `apps/server/` (`docker compose up --build`) and confirm `GET /health` works.
+- If auth or sync logic changes, run setup, login, and sync smoke requests (see `apps/server/README.md`).
+- Review container logs when troubleshooting (`docker compose logs`).
+- If verification fails, fix and rerun until passing before reporting completion.

@@ -156,6 +156,12 @@ const TASK_RE = /^- \[([ x])\] /;
 const HEADING_RE = /^(#{1,3}) /;
 const QUOTE_RE = /^> /;
 
+/** Returns true if the given line text (after stripping leading whitespace) is a list item. */
+export function isListLine(text: string): boolean {
+  const trimmed = text.trimStart();
+  return BULLET_RE.test(trimmed) || ORDERED_RE.test(trimmed) || TASK_RE.test(trimmed);
+}
+
 /**
  * Toggle a line prefix. If the line already has the prefix, remove it.
  * If it has a *different* managed prefix, replace it.

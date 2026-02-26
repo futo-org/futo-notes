@@ -272,6 +272,7 @@ Escaped pipes:
   let editor: ReturnType<typeof MarkdownEditor> | null = $state(null);
   let editorFocused = $state(false);
   let toolbarTouching = $state(false);
+  let cursorOnListLine = $state(false);
   let shell: HTMLElement | undefined = $state(undefined);
   let drawer: HTMLElement | undefined = $state(undefined);
   let noteBody: HTMLElement | undefined = $state(undefined);
@@ -505,6 +506,11 @@ Escaped pipes:
   function handleNoteSelect(id: string): void {
     if (isMobile) setDrawerOpen(false);
     navigate(`/note/${encodeURIComponent(id)}`);
+  }
+
+  function handleBrandClick(): void {
+    if (isMobile) setDrawerOpen(false);
+    navigate('/');
   }
 
   async function createNewNote(): Promise<void> {
@@ -1117,7 +1123,7 @@ Escaped pipes:
   <!-- Drawer -->
   <aside bind:this={drawer} class="notes-drawer" aria-hidden={!drawerOpen}>
     <div class="sidebar-header">
-      <button class="sidebar-brand" onclick={() => navigate('/')}>FUTO Notes</button>
+      <button class="sidebar-brand" onclick={handleBrandClick}>FUTO Notes</button>
       <button
         class="sidebar-settings-btn"
         aria-label="Settings"
@@ -1238,11 +1244,12 @@ Escaped pipes:
             bind:this={editor}
             {content}
             onchange={debouncedSave}
+            oncursorcontext={(ctx) => { cursorOnListLine = ctx.onListLine; }}
             scrollParent={noteBody ?? null}
           />
         </div>
       {:else}
-        <ForYouPage onbrowse={() => setDrawerOpen(true)} />
+        <ForYouPage onbrowse={() => setDrawerOpen(true)} onquickcapture={createNewNote} />
       {/if}
     </div>
   </div>
@@ -1251,6 +1258,7 @@ Escaped pipes:
     <MarkdownToolbar
       getView={() => editor?.getView() ?? null}
       {editorFocused}
+      {cursorOnListLine}
       ontoolbartouch={(touching) => toolbarTouching = touching}
     />
   {/if}
