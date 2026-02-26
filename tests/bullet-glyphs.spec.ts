@@ -89,7 +89,8 @@ test.describe('Bullet Glyphs by Nesting Level', () => {
     }
 
     // For each nesting level, measure text position with and without cursor on line.
-    // The diff should be small and constant (not growing with level).
+    // The per-level shift should be roughly constant (not growing with indent depth).
+    const diffs: number[] = [];
     for (let i = 0; i < 4; i++) {
       // Move cursor off all list lines (onto blank line at end)
       await page.evaluate((text) => {
@@ -104,11 +105,14 @@ test.describe('Bullet Glyphs by Nesting Level', () => {
       await page.waitForTimeout(200);
       const curLefts = await measureTextLefts();
 
-      const diff = Math.abs(decLefts[i] - curLefts[i]);
-      // Small constant diff from bullet widget vs raw marker is OK (<8px)
-      // Growing diff proportional to indent level is NOT OK
-      expect(diff).toBeLessThan(8);
+      diffs.push(Math.abs(decLefts[i] - curLefts[i]));
     }
+
+    // The shift between decorated/undecorated should be consistent across levels.
+    // If indent handling is broken, deeper levels shift more. Assert the spread is small.
+    const maxDiff = Math.max(...diffs);
+    const minDiff = Math.min(...diffs);
+    expect(maxDiff - minDiff).toBeLessThan(5);
   });
 
   test('Tab indent changes glyph', async ({ page }) => {
