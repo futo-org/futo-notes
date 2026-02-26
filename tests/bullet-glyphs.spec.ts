@@ -7,6 +7,8 @@ async function openNewNote(page: Page): Promise<void> {
   await page.waitForLoadState('domcontentloaded');
   await page.waitForSelector('.cm-editor', { timeout: 10000 });
   await page.waitForSelector('.cm-content', { timeout: 10000 });
+  // Wait for custom fonts to load so pixel measurements are stable
+  await page.evaluate(() => document.fonts.ready);
 }
 
 test.describe('Bullet Glyphs by Nesting Level', () => {
@@ -109,12 +111,11 @@ test.describe('Bullet Glyphs by Nesting Level', () => {
     }
 
     // The shift between decorated/undecorated should be roughly consistent across levels.
-    // Different bullet glyphs (•/◦/▪) have different widths vs raw "- ", so some spread
-    // is expected. If indent handling is broken, deeper levels shift proportionally more
-    // (20+ px spread). Allow 10px to cover glyph width variance across fonts.
+    // Different bullet glyphs (•/◦/▪) have slightly different widths vs raw "- ".
+    // If indent handling is broken, deeper levels shift proportionally more (20+ px spread).
     const maxDiff = Math.max(...diffs);
     const minDiff = Math.min(...diffs);
-    expect(maxDiff - minDiff).toBeLessThan(10);
+    expect(maxDiff - minDiff).toBeLessThan(5);
   });
 
   test('Tab indent changes glyph', async ({ page }) => {
