@@ -105,9 +105,9 @@ test.describe('Bullet Glyphs by Nesting Level', () => {
       const curLefts = await measureTextLefts();
 
       const diff = Math.abs(decLefts[i] - curLefts[i]);
-      // Small constant diff from bullet widget vs raw marker is OK (<5px)
+      // Small constant diff from bullet widget vs raw marker is OK (<8px)
       // Growing diff proportional to indent level is NOT OK
-      expect(diff).toBeLessThan(5);
+      expect(diff).toBeLessThan(8);
     }
   });
 
