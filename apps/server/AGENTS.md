@@ -3,6 +3,7 @@
 Self-hosted Hono sync server. See @docs/plans/server-plan.md for full architecture.
 
 **Stack**: Hono + better-sqlite3 + Docker. Uses `@futo-notes/shared` for shared types.
+Client shell/runtime is Tauri v2 in this monorepo.
 
 ## Sync Protocol
 

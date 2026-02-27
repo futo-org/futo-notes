@@ -26,7 +26,7 @@ npm run build                               # Build for production
 npm run lint                                # Run ESLint
 
 # Tauri v2
-npm run tauri:dev                           # Run Tauri app in dev mode
+npm run tauri:dev                           # Run Tauri app in dev mode (Wayland default, port 5180)
 npm run tauri:build                         # Build web + Tauri bundle
 npm run tauri:test:rust                     # Run Rust core tests
 

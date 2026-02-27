@@ -7,6 +7,7 @@
 ```bash
 npm install        # Install all workspace dependencies
 npm run dev        # Web dev server (http://localhost:5173)
+npm run tauri:dev  # Tauri desktop dev (Wayland-first, fixed port 5180)
 npm run build      # TypeScript check + Vite build → dist/
 npm run test:unit  # Vitest unit tests
 npm run lint       # ESLint
@@ -30,7 +31,7 @@ npm workspaces. Shared Svelte app at root, platform shells in `apps/`, shared pa
 - Do not report a fix or addition as complete until you verify it yourself.
 - For frontend or UI changes, run Playwright for affected behavior (`npm run test -- <spec>` minimum; broaden coverage when change risk is broad).
 - For non-frontend changes, run relevant automated tests and a runtime smoke test of the changed behavior.
-- If behavior depends on runtime environment (Docker, emulator or simulator, Electron), verify in that environment before closing.
+- If behavior depends on runtime environment (Docker, emulator or simulator, Tauri runtime), verify in that environment before closing.
 - If verification fails, iterate: fix, rerun verification, re-check.
 - In the final response, include verification evidence: commands run, pass or fail status, and key observed behavior.
 

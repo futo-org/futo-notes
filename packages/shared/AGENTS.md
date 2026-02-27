@@ -1,6 +1,7 @@
 # AGENTS.md - @futo-notes/shared
 
 Shared TypeScript types and utilities for both client and server.
+Primary client runtime is Tauri v2 (plus web test/dev flows).
 
 - Consumed as TypeScript source — no build step
 - Path alias: `@futo-notes/shared` → `packages/shared/src` (configured in root `tsconfig.json`)

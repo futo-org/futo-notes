@@ -332,6 +332,22 @@ fn hash_sha256(content: &str) -> String {
     digest.iter().map(|b| format!("{b:02x}")).collect::<String>()
 }
 
+fn floor_char_boundary(text: &str, idx: usize) -> usize {
+    let mut i = idx.min(text.len());
+    while i > 0 && !text.is_char_boundary(i) {
+        i -= 1;
+    }
+    i
+}
+
+fn ceil_char_boundary(text: &str, idx: usize) -> usize {
+    let mut i = idx.min(text.len());
+    while i < text.len() && !text.is_char_boundary(i) {
+        i += 1;
+    }
+    i
+}
+
 fn load_vector_artifacts_from_disk(base: &Path) -> Result<VectorArtifacts, String> {
     let manifest_path = base.join(".supersearch-manifest.json");
     let bin_path = base.join(".supersearch-vectors.bin");
@@ -772,6 +788,8 @@ fn build_highlighted_segments(text: &str, terms: &[String]) -> Vec<SnippetSegmen
     let mut segments = Vec::new();
     let mut cursor = 0;
     for (start, end) in merged {
+        let start = floor_char_boundary(text, start);
+        let end = ceil_char_boundary(text, end);
         if cursor < start {
             segments.push(SnippetSegmentPayload {
                 text: text[cursor..start].to_string(),
@@ -818,8 +836,8 @@ fn snippet_for_note(note: &IndexedNote, terms: &[String]) -> Vec<SnippetSegmentP
     let text = if let Some((pos, len)) = best_pos {
         let window = 120usize;
         let half = window.saturating_sub(len) / 2;
-        let start = pos.saturating_sub(half);
-        let end = (pos + len + half).min(body.len());
+        let start = floor_char_boundary(&body, pos.saturating_sub(half));
+        let end = ceil_char_boundary(&body, (pos + len + half).min(body.len()));
         let mut snippet = body[start..end].to_string();
         if start > 0 {
             snippet.insert_str(0, "...");
@@ -1511,6 +1529,17 @@ mod tests {
         let highlighted = segments.iter().filter(|s| s.highlight).collect::<Vec<_>>();
         assert_eq!(highlighted.len(), 1);
         assert_eq!(highlighted[0].text, "foob");
+    }
+
+    #[test]
+    fn snippet_generation_handles_unicode_boundaries() {
+        let note = build_indexed_note(
+            "unicode-note".to_string(),
+            "Pick a “Major” for your semester — don’t bounce around.".to_string(),
+            now_ms(),
+        );
+        let snippet = snippet_for_note(&note, &["major".to_string()]);
+        assert!(!snippet.is_empty());
     }
 
     #[test]
