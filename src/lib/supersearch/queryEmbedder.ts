@@ -1,9 +1,12 @@
 import { getCachedPreferences } from '../preferences';
+import { showGlobalToast } from '../toast';
 
 export function isReady(): boolean {
   const prefs = getCachedPreferences();
   return Boolean(prefs.sync.serverUrl && prefs.sync.token);
 }
+
+let lastAuthToast = 0;
 
 export async function embed(query: string, signal?: AbortSignal): Promise<Float32Array> {
   const prefs = getCachedPreferences();
@@ -22,6 +25,13 @@ export async function embed(query: string, signal?: AbortSignal): Promise<Float3
   });
 
   if (!res.ok) {
+    if (res.status === 401) {
+      const now = Date.now();
+      if (now - lastAuthToast > 30_000) {
+        lastAuthToast = now;
+        showGlobalToast('Session expired — sign in again to use AI search');
+      }
+    }
     throw new Error(`Embed query failed: ${res.status}`);
   }
 

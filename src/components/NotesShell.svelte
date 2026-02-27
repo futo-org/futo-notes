@@ -17,6 +17,7 @@
   import { navigate } from '../router';
   import { SCROLL_TEST_NOTES } from '$lib/scrollTestNotes';
   import { getCachedPreferences } from '$lib/preferences';
+  import { onToast } from '$lib/toast';
 
   const GFM_TEST_CONTENT = `# GFM Syntax Test Note
 
@@ -350,6 +351,10 @@ Escaped pipes:
     toastMessage = message;
     toastTimer = window.setTimeout(() => { toastMessage = ''; toastTimer = null; }, 3000);
   }
+
+  // Let non-component code (e.g. queryEmbedder) surface messages as toasts
+  const unsubToast = onToast(showToast);
+  $effect(() => () => unsubToast());
 
   function handleImported(count: number): void {
     if (count === 0) {
