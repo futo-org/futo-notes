@@ -1,5 +1,3 @@
-import { isMobile } from './platform';
-
 export type ThemePreference = 'auto' | 'dark' | 'light';
 export type ResolvedTheme = 'dark' | 'light';
 
@@ -40,11 +38,5 @@ export function watchSystemTheme(onChange: () => void): () => void {
 }
 
 async function syncStatusBarTheme(theme: ResolvedTheme): Promise<void> {
-  if (!isMobile) return;
-  try {
-    const { StatusBar, Style } = await import('@capacitor/status-bar');
-    await StatusBar.setStyle({ style: theme === 'dark' ? Style.Dark : Style.Light });
-  } catch {
-    // Ignore unavailable status bar APIs.
-  }
+  void theme;
 }

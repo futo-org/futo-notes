@@ -28,12 +28,11 @@ export async function saveSupersearchState(state: SupersearchState): Promise<voi
 export async function hasLocalArtifacts(): Promise<boolean> {
   const fs = getFS();
 
-  if (platformName === 'electron') {
-    if (!fs.supersearchHasArtifacts) return false;
-    return fs.supersearchHasArtifacts();
-  }
-
-  if (platformName === 'capacitor') {
+  if (platformName === 'tauri') {
+    if (fs.supersearchHasArtifacts) {
+      const nativeHasArtifacts = await fs.supersearchHasArtifacts();
+      if (nativeHasArtifacts) return true;
+    }
     const [manifest, binData] = await Promise.all([
       fs.readAppData('.supersearch-manifest.json'),
       fs.readBinaryAppData?.('.supersearch-vectors.bin'),

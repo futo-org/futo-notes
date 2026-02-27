@@ -27,10 +27,12 @@ import { embed, isReady as isEmbedderReady } from './supersearch/queryEmbedder';
 import { vectorSearch, type VectorSearchResult } from './supersearch/vectorSearch';
 import { hybridSearch } from './supersearch/hybridSearch';
 import { getSearchMode, type SearchMode } from './supersearch/searchMode';
+import { getRustNotePreviews, hasRustCore, keywordSearchRust, rebuildRustIndex } from './rustCore';
 
 // In-memory cache of notes metadata
 let notesCache: NotePreview[] = [];
 let initialized = false;
+const useRustCore = hasRustCore();
 
 // Debounced persist
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
@@ -50,6 +52,13 @@ export async function initNotes(): Promise<void> {
   await getPlatformFS(); // Initialize platform FS before any file operations
   await ensureNotesFolder();
 
+  if (useRustCore) {
+    notesCache = await rebuildRustIndex();
+    await loadEngagement();
+    initialized = true;
+    return;
+  }
+
   const loaded = await loadPersistedIndex();
   if (loaded) {
     await incrementalRebuild();
@@ -61,6 +70,53 @@ export async function initNotes(): Promise<void> {
 
   await loadEngagement();
   initialized = true;
+}
+
+export async function refreshNotesFromStorage(): Promise<void> {
+  if (useRustCore) {
+    notesCache = await getRustNotePreviews();
+    return;
+  }
+  await incrementalRebuild();
+}
+
+export async function refreshNotesAfterSync(updatedIds: string[], deletedIds: string[]): Promise<void> {
+  if (useRustCore) {
+    await refreshNotesFromStorage();
+    return;
+  }
+
+  const touched = new Set<string>([...updatedIds, ...deletedIds]);
+  if (touched.size === 0) return;
+
+  for (const id of deletedIds) {
+    removeFromCache(id);
+    removeFromSearchIndex(id);
+  }
+
+  const files = await listNoteFiles();
+  const mtimeById = new Map(files.map((file) => [file.name.replace(/\.md$/, ''), file.mtime]));
+
+  for (const id of updatedIds) {
+    const mtime = mtimeById.get(id);
+    if (mtime === undefined) {
+      removeFromCache(id);
+      removeFromSearchIndex(id);
+      continue;
+    }
+    try {
+      const body = await readNote(id);
+      const preview = body.slice(0, 100).replace(/\n/g, ' ');
+      updateCache({ id, title: id, preview, modificationTime: mtime });
+      addToSearchIndex({ id, title: id, body, mtime });
+    } catch {
+      removeFromCache(id);
+      removeFromSearchIndex(id);
+    }
+  }
+
+  notesCache.sort((a, b) => b.modificationTime - a.modificationTime);
+  schedulePersist();
 }
 
 async function incrementalRebuild(): Promise<void> {
@@ -162,11 +218,14 @@ function removeFromCache(id: string): void {
 export async function createNote(title: string, content: string, overrideMtime?: number): Promise<{ id: string; mtime: number }> {
   const id = await getUniqueNoteId(title);
   const mtime = await writeNote(id, content, overrideMtime);
-  const preview = content.slice(0, 100).replace(/\n/g, ' ');
-
-  updateCache({ id, title, preview, modificationTime: mtime });
-  addToSearchIndex({ id, title: id, body: content, mtime });
-  schedulePersist();
+  if (useRustCore) {
+    await refreshNotesFromStorage();
+  } else {
+    const preview = content.slice(0, 100).replace(/\n/g, ' ');
+    updateCache({ id, title, preview, modificationTime: mtime });
+    addToSearchIndex({ id, title: id, body: content, mtime });
+    schedulePersist();
+  }
 
   return { id, mtime };
 }
@@ -178,34 +237,44 @@ export async function updateNote(
   originalId?: string,
   overrideMtime?: number,
 ): Promise<{ id: string; mtime: number }> {
-  const preview = content.slice(0, 100).replace(/\n/g, ' ');
   const finalId = await getUniqueNoteId(id, originalId);
   let mtime: number;
 
   if (originalId && originalId !== finalId) {
     mtime = await renameNoteFile(originalId, finalId, content, overrideMtime);
-    removeFromSearchIndex(originalId);
-    removeFromCache(originalId);
     renameEngagement(originalId, finalId);
     await trackLocalRenameForSync(originalId, finalId);
+    if (!useRustCore) {
+      removeFromSearchIndex(originalId);
+      removeFromCache(originalId);
+    }
   } else {
     mtime = await writeNote(finalId, content, overrideMtime);
   }
 
-  updateCache({ id: finalId, title, preview, modificationTime: mtime });
-  addToSearchIndex({ id: finalId, title: finalId, body: content, mtime });
+  if (useRustCore) {
+    await refreshNotesFromStorage();
+  } else {
+    const preview = content.slice(0, 100).replace(/\n/g, ' ');
+    updateCache({ id: finalId, title, preview, modificationTime: mtime });
+    addToSearchIndex({ id: finalId, title: finalId, body: content, mtime });
+    schedulePersist();
+  }
   trackEdit(finalId);
-  schedulePersist();
 
   return { id: finalId, mtime };
 }
 
 export async function deleteNote(id: string, options: { trackSyncDelete?: boolean } = {}): Promise<void> {
   await deleteNoteFile(id);
-  removeFromCache(id);
   removeEngagement(id);
-  removeFromSearchIndex(id);
-  schedulePersist();
+  if (useRustCore) {
+    await refreshNotesFromStorage();
+  } else {
+    removeFromCache(id);
+    removeFromSearchIndex(id);
+    schedulePersist();
+  }
 
   if (options.trackSyncDelete !== false) {
     await markLocalDeleteForSync(id);
@@ -220,10 +289,22 @@ export async function deleteAllNotes(): Promise<void> {
   await deleteAllContent();
   await clearSyncState();
   notesCache = [];
-  initSearchIndex();
+  if (!useRustCore) {
+    initSearchIndex();
+  }
 }
 
 export function search(query: string): SearchResultItem[] {
+  if (useRustCore) {
+    if (!query.trim()) {
+      return getAllNotes().map((note) => ({ note, snippet: null }));
+    }
+    const lower = query.trim().toLowerCase();
+    return notesCache
+      .filter((note) => note.id.toLowerCase().includes(lower) || note.preview.toLowerCase().includes(lower))
+      .map((note) => ({ note, snippet: [{ text: note.preview, highlight: false }] }));
+  }
+
   if (!query.trim()) {
     return getAllNotes().map((note) => ({ note, snippet: null }));
   }
@@ -241,6 +322,13 @@ export function search(query: string): SearchResultItem[] {
     }
   }
   return results;
+}
+
+export async function searchKeyword(query: string): Promise<SearchResultItem[]> {
+  if (useRustCore) {
+    return keywordSearchRust(query);
+  }
+  return search(query);
 }
 
 export interface SearchTimingResult {
@@ -273,7 +361,7 @@ export async function searchWithVectors(query: string, signal?: AbortSignal): Pr
   let keywordTime = 0;
   if (mode === 'keyword' || mode === 'hybrid') {
     const kwStart = performance.now();
-    keywordResults = search(query);
+    keywordResults = await searchKeyword(query);
     keywordTime = performance.now() - kwStart;
   }
 
@@ -391,6 +479,14 @@ export async function handleExternalFileChange(
   filename: string,
 ): Promise<NotePreview | null> {
   const id = filename.replace(/\.md$/, '');
+
+  if (useRustCore) {
+    if (type === 'unlink') {
+      await markLocalDeleteForSync(id);
+    }
+    await refreshNotesFromStorage();
+    return getNoteById(id) ?? null;
+  }
 
   if (type === 'unlink') {
     removeFromCache(id);

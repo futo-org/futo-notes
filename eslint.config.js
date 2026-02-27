@@ -8,10 +8,6 @@ export default tseslint.config(
     ignores: [
       'dist/*',
       'node_modules/*',
-      'apps/mobile/android/*',
-      'apps/mobile/ios/*',
-      'apps/desktop/dist-electron/*',
-      'apps/desktop/release/*',
       'apps/server/dist/*',
     ],
   },

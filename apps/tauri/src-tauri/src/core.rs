@@ -1,0 +1,1595 @@
+use filetime::{set_file_mtime, FileTime};
+use notify::{Config as NotifyConfig, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use rayon::prelude::*;
+use reqwest::blocking::Client;
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use std::collections::{HashMap, HashSet};
+use std::fs;
+use std::io;
+use std::path::{Component, Path, PathBuf};
+use std::sync::{Arc, Mutex, RwLock};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use tauri::{AppHandle, Emitter, Manager, State};
+
+#[derive(Default)]
+pub struct CoreState {
+    index: Arc<RwLock<SearchIndexState>>,
+    watcher: Arc<Mutex<Option<RecommendedWatcher>>>,
+    vectors: Arc<RwLock<Option<VectorArtifacts>>>,
+}
+
+const APP_CONFIG_PATH: &str = ".app-config.json";
+
+#[derive(Default)]
+struct SearchIndexState {
+    loaded: bool,
+    notes: HashMap<String, IndexedNote>,
+}
+
+#[derive(Clone)]
+struct VectorArtifacts {
+    dims: usize,
+    chunks: Vec<ManifestChunk>,
+    vectors: Vec<f32>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+struct ManifestChunk {
+    chunk_id: i64,
+    uuid: String,
+    chunk_text: String,
+    start_offset: i64,
+    end_offset: i64,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ManifestPayload {
+    dims: usize,
+    chunk_count: usize,
+    chunks: Vec<ManifestChunk>,
+}
+
+#[derive(Clone)]
+struct IndexedNote {
+    id: String,
+    title: String,
+    body: String,
+    preview: String,
+    mtime: i64,
+    body_lower: String,
+    title_lower: String,
+    headings_lower: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotePreviewPayload {
+    pub id: String,
+    pub title: String,
+    pub preview: String,
+    pub modification_time: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct NoteFileEntry {
+    pub name: String,
+    pub mtime: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default, rename_all = "camelCase")]
+struct AppConfigFile {
+    pub sidebar_width: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppConfigPayload {
+    pub notes_dir: String,
+    pub sidebar_width: Option<u32>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(default, rename_all = "camelCase")]
+pub struct AppConfigUpdates {
+    pub sidebar_width: Option<Option<u32>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HashCacheEntry {
+    pub modified_at: i64,
+    pub hash: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default, rename_all = "camelCase")]
+pub struct SyncStatePayload {
+    pub hash_by_uuid: HashMap<String, String>,
+    pub uuid_by_id: HashMap<String, String>,
+    pub deleted_uuids: Vec<String>,
+    pub hash_cache: Option<HashMap<String, HashCacheEntry>>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SyncRequestNote {
+    pub uuid: String,
+    pub filename: String,
+    pub modified_at: i64,
+    pub content_hash: String,
+    pub hash_at_last_sync: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncPrepareInput {
+    pub state: SyncStatePayload,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncPrepareOutput {
+    pub state: SyncStatePayload,
+    pub notes: Vec<SyncRequestNote>,
+    pub all_uuids: Vec<String>,
+    pub elapsed_ms: u128,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct IncomingSyncUpdate {
+    pub uuid: String,
+    pub id: String,
+    pub content: String,
+    pub modified_at: i64,
+    pub content_hash: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncApplyInput {
+    pub state: SyncStatePayload,
+    pub update: Vec<IncomingSyncUpdate>,
+    pub delete: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncApplyOutput {
+    pub state: SyncStatePayload,
+    pub updated_ids: Vec<String>,
+    pub deleted_ids: Vec<String>,
+    pub elapsed_ms: u128,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KeywordSearchInput {
+    pub query: String,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SnippetSegmentPayload {
+    pub text: String,
+    pub highlight: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SearchResultPayload {
+    pub note: NotePreviewPayload,
+    pub snippet: Option<Vec<SnippetSegmentPayload>>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SupersearchResultPayload {
+    pub chunk_id: i64,
+    pub uuid: String,
+    pub chunk_text: String,
+    pub start_offset: i64,
+    pub end_offset: i64,
+    pub score: f32,
+}
+
+fn now_ms() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+fn io_err_to_string(err: io::Error) -> String {
+    err.to_string()
+}
+
+fn task_join_err<E: std::fmt::Display>(err: E) -> String {
+    format!("background task failed: {err}")
+}
+
+fn notes_root(app: &AppHandle) -> Result<PathBuf, String> {
+    let docs = app
+        .path()
+        .document_dir()
+        .or_else(|_| app.path().app_data_dir())
+        .map_err(|e| e.to_string())?;
+    let root = docs.join("FUTO Notes");
+    fs::create_dir_all(&root).map_err(io_err_to_string)?;
+    Ok(root)
+}
+
+fn ensure_safe_note_id(id: &str) -> Result<(), String> {
+    if id.is_empty() {
+        return Err("note id cannot be empty".to_string());
+    }
+    if id.contains('/') || id.contains('\\') {
+        return Err("invalid note id".to_string());
+    }
+    Ok(())
+}
+
+fn safe_note_path(base: &Path, id: &str) -> Result<PathBuf, String> {
+    ensure_safe_note_id(id)?;
+    Ok(base.join(format!("{id}.md")))
+}
+
+fn safe_appdata_path(base: &Path, rel_path: &str) -> Result<PathBuf, String> {
+    let rel = Path::new(rel_path);
+    for component in rel.components() {
+        match component {
+            Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
+                return Err("path traversal blocked".to_string())
+            }
+            _ => {}
+        }
+    }
+    Ok(base.join(rel))
+}
+
+fn file_mtime_ms(meta: &fs::Metadata) -> i64 {
+    meta.modified()
+        .ok()
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or_else(now_ms)
+}
+
+fn write_atomic_text(path: &Path, content: &str) -> Result<(), String> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| "invalid file path".to_string())?;
+    fs::create_dir_all(parent).map_err(io_err_to_string)?;
+
+    let filename = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| "invalid file name".to_string())?;
+
+    let tmp = parent.join(format!(".{filename}.tmp-{}", now_ms()));
+    fs::write(&tmp, content).map_err(io_err_to_string)?;
+    fs::rename(&tmp, path).map_err(io_err_to_string)
+}
+
+fn load_app_config(base: &Path) -> AppConfigFile {
+    let path = base.join(APP_CONFIG_PATH);
+    let Ok(raw) = fs::read_to_string(path) else {
+        return AppConfigFile::default();
+    };
+    serde_json::from_str::<AppConfigFile>(&raw).unwrap_or_default()
+}
+
+fn save_app_config(base: &Path, cfg: &AppConfigFile) -> Result<(), String> {
+    let path = base.join(APP_CONFIG_PATH);
+    let serialized = serde_json::to_string_pretty(cfg).map_err(|err| err.to_string())?;
+    write_atomic_text(&path, &serialized)
+}
+
+fn set_file_mtime_ms(path: &Path, modified_at_ms: i64) -> Result<(), String> {
+    let filetime = FileTime::from_unix_time(modified_at_ms / 1000, ((modified_at_ms % 1000) * 1_000_000) as u32);
+    set_file_mtime(path, filetime).map_err(io_err_to_string)
+}
+
+fn extract_headings(content: &str) -> String {
+    content
+        .lines()
+        .filter_map(|line| {
+            let trimmed = line.trim_start();
+            if !trimmed.starts_with('#') {
+                return None;
+            }
+            let mut chars = trimmed.chars();
+            let mut hash_count = 0;
+            while let Some('#') = chars.next() {
+                hash_count += 1;
+            }
+            if hash_count == 0 || hash_count > 6 {
+                return None;
+            }
+            if !trimmed.chars().nth(hash_count).map(|c| c.is_whitespace()).unwrap_or(false) {
+                return None;
+            }
+            Some(trimmed[hash_count..].trim().to_string())
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn make_preview(content: &str) -> String {
+    content.chars().take(100).collect::<String>().replace('\n', " ")
+}
+
+fn note_id_from_filename(name: &str) -> Option<String> {
+    if !name.ends_with(".md") {
+        return None;
+    }
+    Some(name.trim_end_matches(".md").to_string())
+}
+
+fn hash_sha256(content: &str) -> String {
+    let digest = Sha256::digest(content.as_bytes());
+    digest.iter().map(|b| format!("{b:02x}")).collect::<String>()
+}
+
+fn load_vector_artifacts_from_disk(base: &Path) -> Result<VectorArtifacts, String> {
+    let manifest_path = base.join(".supersearch-manifest.json");
+    let bin_path = base.join(".supersearch-vectors.bin");
+    let manifest_raw = fs::read_to_string(&manifest_path).map_err(io_err_to_string)?;
+    let manifest: ManifestPayload = serde_json::from_str(&manifest_raw).map_err(|err| err.to_string())?;
+
+    if manifest.dims == 0 {
+        return Err("invalid supersearch manifest: dims must be > 0".to_string());
+    }
+
+    let bytes = fs::read(&bin_path).map_err(io_err_to_string)?;
+    if bytes.len() % 4 != 0 {
+        return Err("invalid supersearch vectors: byte length must be a multiple of 4".to_string());
+    }
+
+    let expected_values = manifest
+        .chunks
+        .len()
+        .checked_mul(manifest.dims)
+        .ok_or_else(|| "invalid supersearch manifest size".to_string())?;
+
+    if bytes.len() / 4 != expected_values {
+        return Err("supersearch manifest/vector size mismatch".to_string());
+    }
+
+    let vectors = bytes
+        .chunks_exact(4)
+        .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+        .collect::<Vec<_>>();
+
+    Ok(VectorArtifacts {
+        dims: manifest.dims,
+        chunks: manifest.chunks,
+        vectors,
+    })
+}
+
+fn ensure_vectors_loaded(
+    base: &Path,
+    cache: &Arc<RwLock<Option<VectorArtifacts>>>,
+) -> Result<VectorArtifacts, String> {
+    {
+        let read = cache.read().map_err(|_| "vector cache lock poisoned".to_string())?;
+        if let Some(artifacts) = read.as_ref() {
+            return Ok(artifacts.clone());
+        }
+    }
+
+    let loaded = load_vector_artifacts_from_disk(base)?;
+    let mut write = cache.write().map_err(|_| "vector cache lock poisoned".to_string())?;
+    *write = Some(loaded.clone());
+    Ok(loaded)
+}
+
+fn build_indexed_note(id: String, body: String, mtime: i64) -> IndexedNote {
+    let headings = extract_headings(&body);
+    IndexedNote {
+        title: id.clone(),
+        title_lower: id.to_lowercase(),
+        preview: make_preview(&body),
+        body_lower: body.to_lowercase(),
+        headings_lower: headings.to_lowercase(),
+        body,
+        mtime,
+        id,
+    }
+}
+
+fn note_to_preview(note: &IndexedNote) -> NotePreviewPayload {
+    NotePreviewPayload {
+        id: note.id.clone(),
+        title: note.title.clone(),
+        preview: note.preview.clone(),
+        modification_time: note.mtime,
+    }
+}
+
+fn scan_notes(base: &Path) -> Result<HashMap<String, IndexedNote>, String> {
+    let entries: Vec<(String, PathBuf, i64)> = fs::read_dir(base)
+        .map_err(io_err_to_string)?
+        .filter_map(|entry| entry.ok())
+        .filter_map(|entry| {
+            let name = entry.file_name().to_string_lossy().to_string();
+            let id = note_id_from_filename(&name)?;
+            let path = entry.path();
+            let metadata = entry.metadata().ok()?;
+            if !metadata.is_file() {
+                return None;
+            }
+            Some((id, path, file_mtime_ms(&metadata)))
+        })
+        .collect();
+
+    let indexed = entries
+        .par_iter()
+        .filter_map(|(id, path, mtime)| {
+            let body = fs::read_to_string(path).ok()?;
+            Some(build_indexed_note(id.clone(), body, *mtime))
+        })
+        .collect::<Vec<_>>();
+
+    let mut map = HashMap::with_capacity(indexed.len());
+    for note in indexed {
+        map.insert(note.id.clone(), note);
+    }
+    Ok(map)
+}
+
+fn ensure_index_loaded(base: &Path, state: &Arc<RwLock<SearchIndexState>>) -> Result<(), String> {
+    {
+        let read = state.read().map_err(|_| "search index lock poisoned".to_string())?;
+        if read.loaded {
+            return Ok(());
+        }
+    }
+
+    let scanned = scan_notes(base)?;
+    let mut write = state.write().map_err(|_| "search index lock poisoned".to_string())?;
+    write.notes = scanned;
+    write.loaded = true;
+    Ok(())
+}
+
+fn get_unique_note_id(base: &Path, wanted: &str, exclude: Option<&str>) -> Result<String, String> {
+    if Some(wanted) == exclude {
+        return Ok(wanted.to_string());
+    }
+
+    let wanted_path = safe_note_path(base, wanted)?;
+    if !wanted_path.exists() {
+        return Ok(wanted.to_string());
+    }
+
+    let mut counter = 2;
+    loop {
+        let candidate = format!("{wanted}-{counter}");
+        if Some(candidate.as_str()) == exclude {
+            return Ok(candidate);
+        }
+        let candidate_path = safe_note_path(base, &candidate)?;
+        if !candidate_path.exists() {
+            return Ok(candidate);
+        }
+        counter += 1;
+    }
+}
+
+fn find_id_for_uuid(uuid_by_id: &HashMap<String, String>, uuid: &str) -> Option<String> {
+    uuid_by_id
+        .iter()
+        .find_map(|(id, mapped)| (mapped == uuid).then(|| id.clone()))
+}
+
+#[derive(Clone)]
+struct PreparedLocalNote {
+    id: String,
+    uuid: String,
+    modified_at: i64,
+    hash: String,
+    hash_at_last_sync: String,
+    content: Option<String>,
+}
+
+fn prepare_sync_payload_impl(base: &Path, input: SyncPrepareInput) -> Result<SyncPrepareOutput, String> {
+    let started = Instant::now();
+    let mut state = input.state;
+    let hash_cache = state.hash_cache.clone().unwrap_or_default();
+
+    let files: Vec<(String, PathBuf, i64)> = fs::read_dir(base)
+        .map_err(io_err_to_string)?
+        .filter_map(|entry| entry.ok())
+        .filter_map(|entry| {
+            let name = entry.file_name().to_string_lossy().to_string();
+            let id = note_id_from_filename(&name)?;
+            let meta = entry.metadata().ok()?;
+            if !meta.is_file() {
+                return None;
+            }
+            Some((id, entry.path(), file_mtime_ms(&meta)))
+        })
+        .collect();
+
+    let uuid_snapshot = state.uuid_by_id.clone();
+    let hash_snapshot = state.hash_by_uuid.clone();
+
+    let mut prepared = files
+        .par_iter()
+        .map(|(id, path, mtime)| {
+            let uuid = uuid_snapshot.get(id).cloned().unwrap_or_else(|| id.clone());
+            let cached = hash_cache.get(id);
+
+            let mut content: Option<String> = None;
+            let hash = if cached.map(|entry| entry.modified_at) == Some(*mtime) {
+                cached.map(|entry| entry.hash.clone()).unwrap_or_default()
+            } else {
+                let body = fs::read_to_string(path).map_err(io_err_to_string)?;
+                let computed = hash_sha256(&body);
+                content = Some(body);
+                computed
+            };
+
+            let hash_at_last_sync = hash_snapshot.get(&uuid).cloned().unwrap_or_default();
+            let needs_content = hash != hash_at_last_sync;
+            if needs_content && content.is_none() {
+                content = Some(fs::read_to_string(path).map_err(io_err_to_string)?);
+            }
+
+            Ok::<PreparedLocalNote, String>(PreparedLocalNote {
+                id: id.clone(),
+                uuid,
+                modified_at: *mtime,
+                hash,
+                hash_at_last_sync,
+                content: if needs_content { content } else { None },
+            })
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+
+    prepared.sort_by(|a, b| b.modified_at.cmp(&a.modified_at));
+
+    let active_ids: HashSet<String> = prepared.iter().map(|p| p.id.clone()).collect();
+    let mut new_hash_cache = HashMap::new();
+    let mut notes = Vec::with_capacity(prepared.len());
+    let mut all_uuids = Vec::with_capacity(prepared.len());
+
+    for item in prepared {
+        state
+            .uuid_by_id
+            .insert(item.id.clone(), item.uuid.clone());
+
+        new_hash_cache.insert(
+            item.id.clone(),
+            HashCacheEntry {
+                modified_at: item.modified_at,
+                hash: item.hash.clone(),
+            },
+        );
+
+        all_uuids.push(item.uuid.clone());
+        notes.push(SyncRequestNote {
+            uuid: item.uuid,
+            filename: format!("{}.md", item.id),
+            modified_at: item.modified_at,
+            content_hash: item.hash,
+            hash_at_last_sync: item.hash_at_last_sync,
+            content: item.content,
+        });
+    }
+
+    if let Some(existing) = state.hash_cache.take() {
+        for (id, entry) in existing {
+            if active_ids.contains(&id) {
+                new_hash_cache.entry(id).or_insert(entry);
+            }
+        }
+    }
+
+    state.hash_cache = Some(new_hash_cache);
+
+    Ok(SyncPrepareOutput {
+        state,
+        notes,
+        all_uuids,
+        elapsed_ms: started.elapsed().as_millis(),
+    })
+}
+
+fn apply_sync_delta_impl(
+    base: &Path,
+    index: &Arc<RwLock<SearchIndexState>>,
+    input: SyncApplyInput,
+) -> Result<SyncApplyOutput, String> {
+    let started = Instant::now();
+    let mut state = input.state;
+    let mut hash_cache = state.hash_cache.clone().unwrap_or_default();
+    let mut updated_ids = Vec::new();
+    let mut deleted_ids = Vec::new();
+
+    for uuid in &input.delete {
+        let maybe_id = find_id_for_uuid(&state.uuid_by_id, uuid);
+        if let Some(id) = maybe_id {
+            let path = safe_note_path(base, &id)?;
+            let _ = fs::remove_file(&path);
+            deleted_ids.push(id.clone());
+            state.uuid_by_id.remove(&id);
+            hash_cache.remove(&id);
+
+            if let Ok(mut idx) = index.write() {
+                if idx.loaded {
+                    idx.notes.remove(&id);
+                }
+            }
+        }
+        state.hash_by_uuid.remove(uuid);
+        state.deleted_uuids.retain(|x| x != uuid);
+    }
+
+    for update in &input.update {
+        let incoming_id = update.id.clone();
+        let mapped_id = find_id_for_uuid(&state.uuid_by_id, &update.uuid);
+        let incoming_exists = safe_note_path(base, &incoming_id)?.exists();
+
+        let original_id = if let Some(mapped) = mapped_id.clone() {
+            if mapped != incoming_id {
+                Some(mapped)
+            } else if incoming_exists {
+                Some(incoming_id.clone())
+            } else {
+                None
+            }
+        } else if incoming_exists {
+            Some(incoming_id.clone())
+        } else {
+            None
+        };
+
+        let final_id = get_unique_note_id(base, &incoming_id, original_id.as_deref())?;
+
+        let final_path = safe_note_path(base, &final_id)?;
+        write_atomic_text(&final_path, &update.content)?;
+        if update.modified_at >= 0 {
+            let _ = set_file_mtime_ms(&final_path, update.modified_at);
+        }
+
+        if let Some(old) = &original_id {
+            if old != &final_id {
+                let old_path = safe_note_path(base, old)?;
+                let _ = fs::remove_file(&old_path);
+                hash_cache.remove(old);
+                updated_ids.push(old.clone());
+
+                if let Ok(mut idx) = index.write() {
+                    if idx.loaded {
+                        idx.notes.remove(old);
+                    }
+                }
+            }
+        }
+
+        let actual_mtime = fs::metadata(&final_path)
+            .map(|meta| file_mtime_ms(&meta))
+            .unwrap_or(update.modified_at.max(0));
+
+        if let Some(mapped) = mapped_id {
+            if mapped != final_id {
+                state.uuid_by_id.remove(&mapped);
+            }
+        }
+
+        state
+            .uuid_by_id
+            .insert(final_id.clone(), update.uuid.clone());
+        state
+            .hash_by_uuid
+            .insert(update.uuid.clone(), update.content_hash.clone());
+        state.deleted_uuids.retain(|x| x != &update.uuid);
+
+        hash_cache.insert(
+            final_id.clone(),
+            HashCacheEntry {
+                modified_at: actual_mtime,
+                hash: update.content_hash.clone(),
+            },
+        );
+
+        if let Ok(mut idx) = index.write() {
+            if idx.loaded {
+                idx.notes.insert(
+                    final_id.clone(),
+                    build_indexed_note(final_id.clone(), update.content.clone(), actual_mtime),
+                );
+            }
+        }
+
+        updated_ids.push(final_id);
+    }
+
+    state.hash_cache = Some(hash_cache);
+
+    updated_ids.sort();
+    updated_ids.dedup();
+    deleted_ids.sort();
+    deleted_ids.dedup();
+
+    Ok(SyncApplyOutput {
+        state,
+        updated_ids,
+        deleted_ids,
+        elapsed_ms: started.elapsed().as_millis(),
+    })
+}
+
+fn build_highlighted_segments(text: &str, terms: &[String]) -> Vec<SnippetSegmentPayload> {
+    if terms.is_empty() {
+        return vec![SnippetSegmentPayload {
+            text: text.to_string(),
+            highlight: false,
+        }];
+    }
+
+    let lower = text.to_lowercase();
+    let mut ranges: Vec<(usize, usize)> = Vec::new();
+
+    for term in terms {
+        if term.is_empty() {
+            continue;
+        }
+        let mut start = 0;
+        while start < lower.len() {
+            if let Some(pos) = lower[start..].find(term) {
+                let real = start + pos;
+                ranges.push((real, real + term.len()));
+                start = real + 1;
+            } else {
+                break;
+            }
+        }
+    }
+
+    if ranges.is_empty() {
+        return vec![SnippetSegmentPayload {
+            text: text.to_string(),
+            highlight: false,
+        }];
+    }
+
+    ranges.sort_by(|a, b| a.0.cmp(&b.0));
+    let mut merged = vec![ranges[0]];
+    for (start, end) in ranges.into_iter().skip(1) {
+        let last = merged.last_mut().expect("merged has first element");
+        if start <= last.1 {
+            last.1 = last.1.max(end);
+        } else {
+            merged.push((start, end));
+        }
+    }
+
+    let mut segments = Vec::new();
+    let mut cursor = 0;
+    for (start, end) in merged {
+        if cursor < start {
+            segments.push(SnippetSegmentPayload {
+                text: text[cursor..start].to_string(),
+                highlight: false,
+            });
+        }
+        segments.push(SnippetSegmentPayload {
+            text: text[start..end].to_string(),
+            highlight: true,
+        });
+        cursor = end;
+    }
+    if cursor < text.len() {
+        segments.push(SnippetSegmentPayload {
+            text: text[cursor..].to_string(),
+            highlight: false,
+        });
+    }
+
+    segments
+}
+
+fn snippet_for_note(note: &IndexedNote, terms: &[String]) -> Vec<SnippetSegmentPayload> {
+    if terms.is_empty() {
+        return vec![SnippetSegmentPayload {
+            text: note.preview.clone(),
+            highlight: false,
+        }];
+    }
+
+    let body = note.body.replace('\n', " ");
+    let body_lower = body.to_lowercase();
+
+    let mut best_pos: Option<(usize, usize)> = None;
+    for term in terms {
+        if let Some(pos) = body_lower.find(term) {
+            let candidate = (pos, term.len());
+            if best_pos.map(|(p, _)| pos < p).unwrap_or(true) {
+                best_pos = Some(candidate);
+            }
+        }
+    }
+
+    let text = if let Some((pos, len)) = best_pos {
+        let window = 120usize;
+        let half = window.saturating_sub(len) / 2;
+        let start = pos.saturating_sub(half);
+        let end = (pos + len + half).min(body.len());
+        let mut snippet = body[start..end].to_string();
+        if start > 0 {
+            snippet.insert_str(0, "...");
+        }
+        if end < body.len() {
+            snippet.push_str("...");
+        }
+        snippet
+    } else {
+        let mut snippet = body.chars().take(120).collect::<String>();
+        if body.len() > 120 {
+            snippet.push_str("...");
+        }
+        snippet
+    };
+
+    build_highlighted_segments(&text, terms)
+}
+
+fn keyword_search_impl(
+    notes: &HashMap<String, IndexedNote>,
+    query: &str,
+    limit: usize,
+) -> Vec<SearchResultPayload> {
+    let trimmed = query.trim();
+    if trimmed.is_empty() {
+        let mut all: Vec<_> = notes.values().collect();
+        all.sort_by(|a, b| b.mtime.cmp(&a.mtime));
+        return all
+            .into_iter()
+            .take(limit)
+            .map(|note| SearchResultPayload {
+                note: note_to_preview(note),
+                snippet: None,
+            })
+            .collect();
+    }
+
+    let terms: Vec<String> = trimmed
+        .split_whitespace()
+        .map(|t| t.to_lowercase())
+        .filter(|t| !t.is_empty())
+        .collect();
+
+    let mut scored: Vec<(f32, &IndexedNote)> = Vec::new();
+
+    for note in notes.values() {
+        let mut score = 0.0f32;
+        for term in &terms {
+            if note.title_lower.contains(term) {
+                score += 8.0;
+            }
+            if note.headings_lower.contains(term) {
+                score += 4.0;
+            }
+            if note.body_lower.contains(term) {
+                score += 1.0;
+            }
+        }
+        if score > 0.0 {
+            // Recency boost over 30 days.
+            let age_days = ((now_ms() - note.mtime).max(0) as f32) / (1000.0 * 60.0 * 60.0 * 24.0);
+            let recency = (1.0 - (age_days / 30.0)).max(0.0);
+            scored.push((score + recency, note));
+        }
+    }
+
+    scored.sort_by(|(score_a, note_a), (score_b, note_b)| {
+        score_b
+            .partial_cmp(score_a)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(note_b.mtime.cmp(&note_a.mtime))
+    });
+
+    scored
+        .into_iter()
+        .take(limit)
+        .map(|(_, note)| SearchResultPayload {
+            note: note_to_preview(note),
+            snippet: Some(snippet_for_note(note, &terms)),
+        })
+        .collect()
+}
+
+fn vector_search_impl(
+    query_vector: &[f32],
+    artifacts: &VectorArtifacts,
+    top_k: usize,
+) -> Result<Vec<SupersearchResultPayload>, String> {
+    if query_vector.len() != artifacts.dims {
+        return Err(format!(
+            "query vector dims mismatch: expected {}, got {}",
+            artifacts.dims,
+            query_vector.len()
+        ));
+    }
+
+    if artifacts.chunks.is_empty() || top_k == 0 {
+        return Ok(Vec::new());
+    }
+
+    let mut scored = Vec::with_capacity(artifacts.chunks.len());
+    for (idx, chunk) in artifacts.chunks.iter().enumerate() {
+        let offset = idx * artifacts.dims;
+        let mut dot = 0.0f32;
+        for d in 0..artifacts.dims {
+            dot += query_vector[d] * artifacts.vectors[offset + d];
+        }
+        scored.push((chunk, dot));
+    }
+
+    scored.sort_by(|(_, a), (_, b)| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
+
+    Ok(scored
+        .into_iter()
+        .take(top_k)
+        .map(|(chunk, score)| SupersearchResultPayload {
+            chunk_id: chunk.chunk_id,
+            uuid: chunk.uuid.clone(),
+            chunk_text: chunk.chunk_text.clone(),
+            start_offset: chunk.start_offset,
+            end_offset: chunk.end_offset,
+            score,
+        })
+        .collect())
+}
+
+fn map_notify_event(event: &Event) -> Option<&'static str> {
+    match event.kind {
+        EventKind::Create(_) => Some("add"),
+        EventKind::Modify(_) => Some("change"),
+        EventKind::Remove(_) => Some("unlink"),
+        _ => None,
+    }
+}
+
+#[tauri::command]
+pub async fn fs_list_note_files(app: AppHandle) -> Result<Vec<NoteFileEntry>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = notes_root(&app)?;
+        let mut files = fs::read_dir(base)
+            .map_err(io_err_to_string)?
+            .filter_map(|entry| entry.ok())
+            .filter_map(|entry| {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if !name.ends_with(".md") {
+                    return None;
+                }
+                let meta = entry.metadata().ok()?;
+                if !meta.is_file() {
+                    return None;
+                }
+                Some(NoteFileEntry {
+                    name,
+                    mtime: file_mtime_ms(&meta),
+                })
+            })
+            .collect::<Vec<_>>();
+        files.sort_by(|a, b| b.mtime.cmp(&a.mtime));
+        Ok(files)
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
+#[tauri::command]
+pub async fn fs_read_note(app: AppHandle, id: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = notes_root(&app)?;
+        let path = safe_note_path(&base, &id)?;
+        fs::read_to_string(path).map_err(io_err_to_string)
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
+#[tauri::command]
+pub async fn fs_write_note(
+    app: AppHandle,
+    state: State<'_, CoreState>,
+    id: String,
+    content: String,
+    modified_at_ms: Option<i64>,
+) -> Result<i64, String> {
+    let index = state.index.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = notes_root(&app)?;
+        let path = safe_note_path(&base, &id)?;
+        write_atomic_text(&path, &content)?;
+
+        if let Some(ms) = modified_at_ms {
+            if ms >= 0 {
+                let _ = set_file_mtime_ms(&path, ms);
+            }
+        }
+
+        let mtime = fs::metadata(&path)
+            .map(|meta| file_mtime_ms(&meta))
+            .unwrap_or_else(|_| now_ms());
+
+        if let Ok(mut idx) = index.write() {
+            if idx.loaded {
+                idx.notes
+                    .insert(id.clone(), build_indexed_note(id, content, mtime));
+            }
+        }
+
+        Ok(mtime)
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
+#[tauri::command]
+pub async fn fs_delete_note_file(app: AppHandle, state: State<'_, CoreState>, id: String) -> Result<(), String> {
+    let index = state.index.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = notes_root(&app)?;
+        let path = safe_note_path(&base, &id)?;
+        let _ = fs::remove_file(path);
+
+        if let Ok(mut idx) = index.write() {
+            if idx.loaded {
+                idx.notes.remove(&id);
+            }
+        }
+        Ok(())
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
+#[tauri::command]
+pub async fn fs_note_exists(app: AppHandle, id: String) -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = notes_root(&app)?;
+        let path = safe_note_path(&base, &id)?;
+        Ok(path.exists())
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
+#[tauri::command]
+pub async fn fs_delete_all_content(app: AppHandle, state: State<'_, CoreState>) -> Result<(), String> {
+    let index = state.index.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = notes_root(&app)?;
+        for entry in fs::read_dir(&base).map_err(io_err_to_string)? {
+            let entry = entry.map_err(io_err_to_string)?;
+            let path = entry.path();
+            if path.is_dir() {
+                fs::remove_dir_all(path).map_err(io_err_to_string)?;
+            } else {
+                fs::remove_file(path).map_err(io_err_to_string)?;
+            }
+        }
+
+        if let Ok(mut idx) = index.write() {
+            idx.notes.clear();
+            idx.loaded = true;
+        }
+
+        Ok(())
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
+#[tauri::command]
+pub async fn appdata_read(app: AppHandle, rel_path: String) -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = notes_root(&app)?;
+        let path = safe_appdata_path(&base, &rel_path)?;
+        match fs::read_to_string(path) {
+            Ok(content) => Ok(Some(content)),
+            Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(None),
+            Err(err) => Err(io_err_to_string(err)),
+        }
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
+#[tauri::command]
+pub async fn appdata_write(app: AppHandle, rel_path: String, content: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = notes_root(&app)?;
+        let path = safe_appdata_path(&base, &rel_path)?;
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(io_err_to_string)?;
+        }
+        write_atomic_text(&path, &content)
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
+#[tauri::command]
+pub async fn appdata_delete(app: AppHandle, rel_path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = notes_root(&app)?;
+        let path = safe_appdata_path(&base, &rel_path)?;
+        let _ = fs::remove_file(path);
+        Ok(())
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
+#[tauri::command]
+pub async fn appdata_list(app: AppHandle, rel_dir: String) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = notes_root(&app)?;
+        let dir = safe_appdata_path(&base, &rel_dir)?;
+        if !dir.exists() {
+            return Ok(Vec::new());
+        }
+        let files = fs::read_dir(dir)
+            .map_err(io_err_to_string)?
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.file_name().to_string_lossy().to_string())
+            .collect::<Vec<_>>();
+        Ok(files)
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
+#[tauri::command]
+pub async fn appdata_read_binary(app: AppHandle, rel_path: String) -> Result<Option<Vec<u8>>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = notes_root(&app)?;
+        let path = safe_appdata_path(&base, &rel_path)?;
+        match fs::read(path) {
+            Ok(bytes) => Ok(Some(bytes)),
+            Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(None),
+            Err(err) => Err(io_err_to_string(err)),
+        }
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
+#[tauri::command]
+pub async fn appdata_write_binary(app: AppHandle, rel_path: String, data: Vec<u8>) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = notes_root(&app)?;
+        let path = safe_appdata_path(&base, &rel_path)?;
+        let parent = path
+            .parent()
+            .ok_or_else(|| "invalid file path".to_string())?;
+        fs::create_dir_all(parent).map_err(io_err_to_string)?;
+        fs::write(path, data).map_err(io_err_to_string)
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
+#[tauri::command]
+pub async fn supersearch_has_artifacts(app: AppHandle) -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = notes_root(&app)?;
+        let manifest = base.join(".supersearch-manifest.json");
+        let vectors = base.join(".supersearch-vectors.bin");
+        Ok(manifest.exists() && vectors.exists())
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
+#[tauri::command]
+pub async fn supersearch_download(
+    app: AppHandle,
+    state: State<'_, CoreState>,
+    server_url: String,
+    token: String,
+) -> Result<(), String> {
+    let vectors_state = state.vectors.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = notes_root(&app)?;
+        let normalized_base = server_url.trim_end_matches('/');
+        let client = Client::new();
+
+        let manifest_resp = client
+            .get(format!("{normalized_base}/search/index?format=manifest"))
+            .bearer_auth(&token)
+            .send()
+            .map_err(|err| err.to_string())?
+            .error_for_status()
+            .map_err(|err| err.to_string())?;
+        let manifest = manifest_resp.text().map_err(|err| err.to_string())?;
+
+        let vectors_resp = client
+            .get(format!("{normalized_base}/search/index?format=bin"))
+            .bearer_auth(&token)
+            .send()
+            .map_err(|err| err.to_string())?
+            .error_for_status()
+            .map_err(|err| err.to_string())?;
+        let vectors = vectors_resp.bytes().map_err(|err| err.to_string())?;
+
+        write_atomic_text(&base.join(".supersearch-manifest.json"), &manifest)?;
+        fs::write(base.join(".supersearch-vectors.bin"), &vectors).map_err(io_err_to_string)?;
+
+        let mut write = vectors_state
+            .write()
+            .map_err(|_| "vector cache lock poisoned".to_string())?;
+        *write = None;
+
+        Ok(())
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
+#[tauri::command]
+pub async fn supersearch_query(
+    app: AppHandle,
+    state: State<'_, CoreState>,
+    query_vector: Vec<f32>,
+    top_k: usize,
+) -> Result<Vec<SupersearchResultPayload>, String> {
+    let vectors_state = state.vectors.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = notes_root(&app)?;
+        let artifacts = ensure_vectors_loaded(&base, &vectors_state)?;
+        vector_search_impl(&query_vector, &artifacts, top_k)
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
+#[tauri::command]
+pub async fn fs_save_image(app: AppHandle, source_path: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = notes_root(&app)?;
+        let source = PathBuf::from(source_path);
+        let ext = source
+            .extension()
+            .and_then(|s| s.to_str())
+            .map(|s| s.to_lowercase())
+            .unwrap_or_else(|| "jpg".to_string());
+        let filename = format!("{}-{}.{}", now_ms(), rand_suffix(), ext);
+        let dest = base.join(&filename);
+        fs::copy(&source, dest).map_err(io_err_to_string)?;
+        Ok(filename)
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
+#[tauri::command]
+pub async fn fs_get_image_path(app: AppHandle, filename: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = notes_root(&app)?;
+        ensure_safe_note_id(&filename.replace('.', ""))?;
+        let path = base.join(filename);
+        Ok(path.to_string_lossy().to_string())
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
+#[tauri::command]
+pub async fn fs_start_watcher(app: AppHandle, state: State<'_, CoreState>) -> Result<(), String> {
+    let watcher_state = state.watcher.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut guard = watcher_state
+            .lock()
+            .map_err(|_| "watcher lock poisoned".to_string())?;
+        if guard.is_some() {
+            return Ok(());
+        }
+
+        let base = notes_root(&app)?;
+        let app_handle = app.clone();
+        let mut watcher = RecommendedWatcher::new(
+            move |res| {
+                let Ok(event) = res else {
+                    return;
+                };
+                let Some(change_type) = map_notify_event(&event) else {
+                    return;
+                };
+                for path in event.paths {
+                    let Some(filename) = path.file_name().and_then(|p| p.to_str()) else {
+                        continue;
+                    };
+                    if !filename.ends_with(".md") {
+                        continue;
+                    }
+                    let _ = app_handle.emit(
+                        "fs:change",
+                        serde_json::json!({
+                            "type": change_type,
+                            "filename": filename,
+                        }),
+                    );
+                }
+            },
+            NotifyConfig::default(),
+        )
+        .map_err(|err| err.to_string())?;
+
+        watcher
+            .watch(&base, RecursiveMode::NonRecursive)
+            .map_err(|err| err.to_string())?;
+
+        *guard = Some(watcher);
+        Ok(())
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
+#[tauri::command]
+pub async fn app_get_config(app: AppHandle) -> Result<AppConfigPayload, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = notes_root(&app)?;
+        let cfg = load_app_config(&base);
+        Ok(AppConfigPayload {
+            notes_dir: base.to_string_lossy().to_string(),
+            sidebar_width: cfg.sidebar_width,
+        })
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
+#[tauri::command]
+pub async fn app_save_config(app: AppHandle, updates: AppConfigUpdates) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = notes_root(&app)?;
+        let mut cfg = load_app_config(&base);
+        if let Some(sidebar_width) = updates.sidebar_width {
+            cfg.sidebar_width = sidebar_width;
+        }
+        save_app_config(&base, &cfg)
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
+#[tauri::command]
+pub fn app_get_version(app: AppHandle) -> String {
+    app.package_info().version.to_string()
+}
+
+#[tauri::command]
+pub fn app_get_platform() -> String {
+    std::env::consts::OS.to_string()
+}
+
+#[tauri::command]
+pub async fn core_rebuild_index(
+    app: AppHandle,
+    state: State<'_, CoreState>,
+) -> Result<Vec<NotePreviewPayload>, String> {
+    let index = state.index.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = notes_root(&app)?;
+        let scanned = scan_notes(&base)?;
+        let mut write = index.write().map_err(|_| "search index lock poisoned".to_string())?;
+        write.notes = scanned;
+        write.loaded = true;
+
+        let mut previews: Vec<_> = write.notes.values().map(note_to_preview).collect();
+        previews.sort_by(|a, b| b.modification_time.cmp(&a.modification_time));
+        Ok(previews)
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
+#[tauri::command]
+pub async fn core_get_note_previews(
+    app: AppHandle,
+    state: State<'_, CoreState>,
+) -> Result<Vec<NotePreviewPayload>, String> {
+    let index = state.index.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = notes_root(&app)?;
+        ensure_index_loaded(&base, &index)?;
+        let read = index.read().map_err(|_| "search index lock poisoned".to_string())?;
+        let mut previews: Vec<_> = read.notes.values().map(note_to_preview).collect();
+        previews.sort_by(|a, b| b.modification_time.cmp(&a.modification_time));
+        Ok(previews)
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
+#[tauri::command]
+pub async fn core_keyword_search(
+    app: AppHandle,
+    state: State<'_, CoreState>,
+    input: KeywordSearchInput,
+) -> Result<Vec<SearchResultPayload>, String> {
+    let index = state.index.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = notes_root(&app)?;
+        ensure_index_loaded(&base, &index)?;
+        let read = index.read().map_err(|_| "search index lock poisoned".to_string())?;
+        let limit = input.limit.unwrap_or(200).max(1);
+        Ok(keyword_search_impl(&read.notes, &input.query, limit))
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
+#[tauri::command]
+pub async fn core_prepare_sync_payload(
+    app: AppHandle,
+    input: SyncPrepareInput,
+) -> Result<SyncPrepareOutput, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = notes_root(&app)?;
+        prepare_sync_payload_impl(&base, input)
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
+#[tauri::command]
+pub async fn core_apply_sync_delta(
+    app: AppHandle,
+    state: State<'_, CoreState>,
+    input: SyncApplyInput,
+) -> Result<SyncApplyOutput, String> {
+    let index = state.index.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = notes_root(&app)?;
+        apply_sync_delta_impl(&base, &index, input)
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
+fn rand_suffix() -> String {
+    let n = now_ms().unsigned_abs() % 10_000;
+    format!("{n:04}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::path::{Path, PathBuf};
+
+    fn temp_notes_dir() -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("futo-tauri-test-{}", now_ms()));
+        fs::create_dir_all(&dir).expect("create temp test dir");
+        dir
+    }
+
+    fn cleanup_temp_dir(path: &Path) {
+        let _ = fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn keyword_search_ranks_title_higher() {
+        let mut notes = HashMap::new();
+        notes.insert(
+            "banana-recipe".to_string(),
+            build_indexed_note(
+                "banana-recipe".to_string(),
+                "Banana bread and banana muffins".to_string(),
+                1,
+            ),
+        );
+        notes.insert(
+            "grocery-list".to_string(),
+            build_indexed_note(
+                "grocery-list".to_string(),
+                "milk eggs banana".to_string(),
+                now_ms(),
+            ),
+        );
+
+        let results = keyword_search_impl(&notes, "banana", 10);
+        assert!(!results.is_empty());
+        assert_eq!(results[0].note.id, "banana-recipe");
+    }
+
+    #[test]
+    fn highlighted_segments_merge_overlaps() {
+        let segments = build_highlighted_segments("xfoobarx", &vec!["foo".to_string(), "foob".to_string()]);
+        let highlighted = segments.iter().filter(|s| s.highlight).collect::<Vec<_>>();
+        assert_eq!(highlighted.len(), 1);
+        assert_eq!(highlighted[0].text, "foob");
+    }
+
+    #[test]
+    fn sha256_matches_expected() {
+        assert_eq!(
+            hash_sha256("hello"),
+            "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+        );
+    }
+
+    #[test]
+    fn vector_search_returns_best_dot_products() {
+        let artifacts = VectorArtifacts {
+            dims: 3,
+            chunks: vec![
+                ManifestChunk {
+                    chunk_id: 1,
+                    uuid: "a".to_string(),
+                    chunk_text: "alpha".to_string(),
+                    start_offset: 0,
+                    end_offset: 5,
+                },
+                ManifestChunk {
+                    chunk_id: 2,
+                    uuid: "b".to_string(),
+                    chunk_text: "beta".to_string(),
+                    start_offset: 0,
+                    end_offset: 4,
+                },
+            ],
+            vectors: vec![
+                1.0, 0.0, 0.0, // chunk a
+                0.0, 1.0, 0.0, // chunk b
+            ],
+        };
+        let results = vector_search_impl(&[0.9, 0.1, 0.0], &artifacts, 2).expect("vector search");
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].chunk_id, 1);
+        assert!(results[0].score > results[1].score);
+    }
+
+    #[test]
+    fn apply_sync_delta_handles_rename_and_hash_state() {
+        let base = temp_notes_dir();
+        let old_path = safe_note_path(&base, "old-name").expect("safe path");
+        write_atomic_text(&old_path, "old body").expect("seed file");
+
+        let mut state = SyncStatePayload::default();
+        state
+            .uuid_by_id
+            .insert("old-name".to_string(), "uuid-1".to_string());
+        state
+            .hash_by_uuid
+            .insert("uuid-1".to_string(), "oldhash".to_string());
+
+        let index = Arc::new(RwLock::new(SearchIndexState::default()));
+        let output = apply_sync_delta_impl(
+            &base,
+            &index,
+            SyncApplyInput {
+                state,
+                update: vec![IncomingSyncUpdate {
+                    uuid: "uuid-1".to_string(),
+                    id: "new-name".to_string(),
+                    content: "new body".to_string(),
+                    modified_at: 1_700_000_000_000,
+                    content_hash: "newhash".to_string(),
+                }],
+                delete: vec!["uuid-missing".to_string()],
+            },
+        )
+        .expect("apply delta");
+
+        assert!(safe_note_path(&base, "new-name").expect("new path").exists());
+        assert!(!safe_note_path(&base, "old-name").expect("old path").exists());
+        assert_eq!(output.state.uuid_by_id.get("new-name"), Some(&"uuid-1".to_string()));
+        assert_eq!(output.state.hash_by_uuid.get("uuid-1"), Some(&"newhash".to_string()));
+        assert!(output.updated_ids.iter().any(|id| id == "new-name"));
+
+        cleanup_temp_dir(&base);
+    }
+}

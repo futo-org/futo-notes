@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { hasFileSystem, isMobile, isElectron, isCapacitor } from '$lib/platform';
+  import { hasFileSystem, isMobile, isDesktop, isTauri } from '$lib/platform';
   import MarkdownEditor from './MarkdownEditor.svelte';
   import MarkdownToolbar from './MarkdownToolbar.svelte';
   import SettingsScreen from './SettingsScreen.svelte';
@@ -245,17 +245,6 @@ Escaped pipes:
 | 1 | 2 | 3 | 4 | 5 | 6 | 7 |
 `;
 
-  interface DrawerBackPlugin {
-    setDrawerOpen(options: { open: boolean }): Promise<void>;
-  }
-
-  let DrawerBack: DrawerBackPlugin | null = null;
-  if (isMobile) {
-    import('@capacitor/core').then(({ registerPlugin }) => {
-      DrawerBack = registerPlugin<DrawerBackPlugin>('DrawerBack');
-    });
-  }
-
   interface Props {
     noteId: string | null;
   }
@@ -322,7 +311,7 @@ Escaped pipes:
   let noteMenuOpen = $state(false);
   let deleteConfirmOpen = $state(false);
 
-  // File watcher self-write suppression (Electron only)
+  // File watcher self-write suppression (desktop native)
   const recentWrites = new Map<string, number>();
   const recentSyncWrites = new Map<string, number>();
 
@@ -482,12 +471,7 @@ Escaped pipes:
   }
 
   async function updateNativeDrawerState(open: boolean): Promise<void> {
-    if (!isMobile || !DrawerBack) return;
-    try {
-      await DrawerBack.setDrawerOpen({ open });
-    } catch {
-      // Plugin not available in web/dev builds
-    }
+    void open;
   }
 
   function getNextUntitledTitle(): string {
@@ -514,11 +498,6 @@ Escaped pipes:
   }
 
   async function createNewNote(): Promise<void> {
-    if (isCapacitor) {
-      import('@capacitor/haptics').then(({ Haptics, ImpactStyle }) =>
-        Haptics.impact({ style: ImpactStyle.Light })
-      ).catch(() => {});
-    }
     if (isMobile) setDrawerOpen(false);
     await flushSave();
     navigate('/note/new');
@@ -953,29 +932,28 @@ Escaped pipes:
     });
 
     // Desktop sidebar: load persisted width
-    if (!isMobile) {
-      if (isElectron) {
-        import('$lib/platform/electron').then(({ getConfig }) => {
-          getConfig().then(cfg => {
-            if (cfg.sidebarWidth) sidebarWidth = cfg.sidebarWidth;
-          });
+    if (isDesktop) {
+      import('$lib/platform/tauri')
+        .then(({ getConfig }) => getConfig())
+        .then((cfg) => {
+          if (cfg.sidebarWidth) sidebarWidth = cfg.sidebarWidth;
+        })
+        .catch(() => {
+          const stored = localStorage.getItem('futo-notes:sidebarWidth');
+          if (stored) sidebarWidth = parseInt(stored, 10) || 280;
         });
-      } else {
-        const stored = localStorage.getItem('futo-notes:sidebarWidth');
-        if (stored) sidebarWidth = parseInt(stored, 10) || 280;
-      }
     }
 
-    // Electron menu actions + file watcher
-    let cleanupFileWatcher: (() => void) | null = null;
-    if (isElectron) {
-      import('$lib/platform/electron').then(({ onMenuAction, onFileChange }) => {
-        onMenuAction((action) => {
+    // Native menu actions + file watcher
+    const cleanupNativeListeners: Array<() => void> = [];
+    if (isTauri) {
+      import('$lib/platform/tauri').then(({ onMenuAction, onFileChange }) => {
+        cleanupNativeListeners.push(onMenuAction((action) => {
           if (action === 'toggle-sidebar') sidebarCollapsed = !sidebarCollapsed;
-          else if (action === 'new-note') createNewNote();
-        });
+          else if (action === 'new-note') void createNewNote();
+        }));
 
-        cleanupFileWatcher = onFileChange(async (event) => {
+        cleanupNativeListeners.push(onFileChange(async (event) => {
           const { type, filename } = event;
           if (!filename.endsWith('.md')) return;
           if (isRecentSyncWrite(filename)) return;
@@ -1000,7 +978,9 @@ Escaped pipes:
               suppressSaveOnChange = false;
               const meta = getNoteById(id);
               if (meta) title = meta.title;
-            } catch { /* ignore read errors */ }
+            } catch {
+              // Ignore read errors for transient file events.
+            }
           }
 
           await handleExternalFileChange(type as 'add' | 'change' | 'unlink', filename);
@@ -1010,7 +990,7 @@ Escaped pipes:
           if (type === 'add' || type === 'change') {
             notifySaved();
           }
-        });
+        }));
       });
     }
 
@@ -1033,7 +1013,7 @@ Escaped pipes:
     return () => {
       stopAutoSync();
       flushSave();
-      cleanupFileWatcher?.();
+      cleanupNativeListeners.forEach((cleanup) => cleanup());
       window.removeEventListener('keydown', handleGlobalShortcut);
     };
   });
@@ -1095,9 +1075,9 @@ Escaped pipes:
   }
 
   function persistSidebarWidth(width: number): void {
-    if (isElectron) {
-      import('$lib/platform/electron').then(({ saveElectronConfig }) => {
-        saveElectronConfig({ sidebarWidth: width });
+    if (isDesktop) {
+      import('$lib/platform/tauri').then(({ saveConfig }) => {
+        saveConfig({ sidebarWidth: width });
       });
     } else {
       localStorage.setItem('futo-notes:sidebarWidth', String(width));
@@ -1268,7 +1248,6 @@ Escaped pipes:
   <SettingsScreen
     onclose={() => { settingsOpen = false; }}
     onimported={handleImported}
-    onsynccomplete={handleSyncComplete}
   />
 {/if}
 

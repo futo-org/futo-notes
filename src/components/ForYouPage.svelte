@@ -2,7 +2,7 @@
   import { getAllNotes } from '$lib/notes';
   import { getEngagementData } from '$lib/engagement';
   import { getForYouNotes } from '$lib/forYou';
-  import { isCapacitor, isMobile } from '$lib/platform';
+  import { isMobile } from '$lib/platform';
   import { PenLine } from '@lucide/svelte';
   import { navigate } from '../router';
 
@@ -37,10 +37,7 @@
   }
 
   function triggerLightHaptic(): void {
-    if (!isCapacitor) return;
-    import('@capacitor/haptics').then(({ Haptics, ImpactStyle }) =>
-      Haptics.impact({ style: ImpactStyle.Light })
-    ).catch(() => {});
+    // No-op for now on Tauri builds.
   }
 
   function handleQuickCapture(): void {

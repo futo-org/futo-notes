@@ -1,8 +1,8 @@
 import { listPendingCrashLogs, readCrashLog, deleteCrashLog, type CrashReport } from './crashHandler';
-import { isMobile, platformName } from './platform';
+import { isMobile } from './platform';
 
 function getDevHost(): string {
-  if (platformName === 'capacitor') {
+  if (isMobile && typeof navigator !== 'undefined' && /android/i.test(navigator.userAgent)) {
     // Android emulator uses 10.0.2.2 to reach host machine
     return '10.0.2.2';
   }
@@ -18,16 +18,6 @@ const CRASH_BATCH_API_URL = import.meta.env.DEV
   : 'https://notes-crashlog.futo.org/api/crashes';
 
 async function post(url: string, data: unknown): Promise<{ ok: boolean; status: number }> {
-  if (isMobile) {
-    // Use native HTTP to avoid mixed-content blocking in the WebView
-    const { CapacitorHttp } = await import('@capacitor/core');
-    const res = await CapacitorHttp.post({
-      url,
-      headers: { 'Content-Type': 'application/json' },
-      data: data as Record<string, unknown>,
-    });
-    return { ok: res.status >= 200 && res.status < 300, status: res.status };
-  }
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

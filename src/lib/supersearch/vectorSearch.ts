@@ -15,20 +15,22 @@ export async function vectorSearch(
 ): Promise<VectorSearchResult[]> {
   let raw: VectorSearchResult[];
 
-  if (platformName === 'electron') {
+  if (platformName === 'tauri') {
     const fs = getFS();
-    if (!fs.supersearchQuery) return [];
-    const rows = await fs.supersearchQuery(Array.from(queryVector), topK * 2);
-    raw = rows.map((r) => ({
-      uuid: r.uuid,
-      chunkText: r.chunkText,
-      startOffset: r.startOffset,
-      endOffset: r.endOffset,
-      score: r.score,
-    }));
-  } else if (platformName === 'capacitor') {
-    await loadArtifacts();
-    raw = bruteForceSearch(queryVector, topK * 2);
+    if (fs.supersearchQuery) {
+      const rows = await fs.supersearchQuery(Array.from(queryVector), topK * 2);
+      raw = rows.map((r) => ({
+        uuid: r.uuid,
+        chunkText: r.chunkText,
+        startOffset: r.startOffset,
+        endOffset: r.endOffset,
+        score: r.score,
+      }));
+    } else {
+      // Fallback for Tauri builds where native vector IPC is not yet available.
+      await loadArtifacts();
+      raw = bruteForceSearch(queryVector, topK * 2);
+    }
   } else {
     // Web: no vector search
     return [];

@@ -1,41 +1,18 @@
 <script lang="ts">
-  import { hasFileSystem, isMobile, isElectron } from '$lib/platform';
-  import { createNote, getAllNotes, deleteNote, deleteAllNotes } from '$lib/notes';
-  import { sanitizeFilename } from '$lib/utils';
+  import { hasFileSystem, isDesktop } from '$lib/platform';
+  import { deleteAllNotes } from '$lib/notes';
   import { getCachedPreferences, savePreferences } from '$lib/preferences';
   import { applyThemePreference, type ThemePreference } from '$lib/theme';
-  import { connectSyncServer, saveSyncServerUrl, type SyncSummary } from '$lib/sync';
+  import { connectSyncServer, saveSyncServerUrl } from '$lib/sync';
   import { requestSync } from '$lib/autoSync';
-
-  interface ImportedFile {
-    name: string;
-    path: string;
-    content: string;
-    lastModified?: number;
-  }
-
-  interface FolderImportPlugin {
-    pickAndReadMarkdownFiles(): Promise<{ files: ImportedFile[] }>;
-    setFileModificationTime(options: { filename: string; mtime: number }): Promise<void>;
-  }
-
-  let FolderImport: FolderImportPlugin | null = null;
-  if (isMobile) {
-    import('@capacitor/core').then(({ registerPlugin }) => {
-      FolderImport = registerPlugin<FolderImportPlugin>('FolderImport');
-    });
-  }
 
   interface Props {
     onclose: () => void;
     onimported: (count: number) => void;
-    onsynccomplete: (summary: SyncSummary) => void;
   }
 
-  let { onclose, onimported, onsynccomplete }: Props = $props();
+  let { onclose, onimported }: Props = $props();
 
-  let importing = $state(false);
-  let importStatus = $state('');
   let nuking = $state(false);
   let nukeConfirm = $state(false);
 
@@ -54,10 +31,10 @@
   let hasSyncToken = $state(Boolean(prefs.sync.token));
   let tokenServerUrl = $state(prefs.sync.serverUrl);
 
-  // Electron: notes directory
+  // Desktop: notes directory
   let notesDir = $state('');
-  if (isElectron) {
-    import('$lib/platform/electron').then(({ getConfig }) =>
+  if (isDesktop) {
+    import('$lib/platform/tauri').then(({ getConfig }) =>
       getConfig().then((cfg) => { notesDir = cfg.notesDir; })
     );
   }
@@ -134,65 +111,6 @@
     await applyThemePreference(nextTheme);
   }
 
-  async function handleObsidianImport(): Promise<void> {
-    if (!isMobile || importing || !FolderImport) return;
-
-    importing = true;
-    importStatus = 'Picking folder...';
-
-    try {
-      const result = await FolderImport.pickAndReadMarkdownFiles();
-      const files = result.files;
-
-      if (!files || files.length === 0) {
-        importStatus = 'No markdown files found';
-        setTimeout(() => { importStatus = ''; importing = false; }, 2000);
-        return;
-      }
-
-      importStatus = `Importing ${files.length} notes...`;
-
-      // Detect duplicate names
-      const nameCount = new Map<string, number>();
-      for (const file of files) {
-        const id = sanitizeFilename(file.name);
-        nameCount.set(id, (nameCount.get(id) || 0) + 1);
-      }
-
-      let imported = 0;
-      for (const file of files) {
-        const baseName = sanitizeFilename(file.name);
-        let id = baseName;
-        // Disambiguate duplicates with folder path
-        if ((nameCount.get(baseName) || 0) > 1 && file.path) {
-          id = sanitizeFilename(`${file.name} (${file.path})`);
-        }
-        if (id) {
-          const created = await createNote(id, file.content, file.lastModified);
-          if (file.lastModified) {
-            try {
-              await FolderImport.setFileModificationTime({ filename: created.id + '.md', mtime: file.lastModified });
-            } catch (_) { /* best-effort */ }
-          }
-          imported++;
-        }
-      }
-
-      importStatus = `Imported ${imported} notes`;
-      onimported(imported);
-      setTimeout(() => { importStatus = ''; importing = false; }, 2000);
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      if (msg.includes('cancelled') || msg.includes('Cancelled')) {
-        importStatus = '';
-        importing = false;
-      } else {
-        importStatus = `Error: ${msg}`;
-        setTimeout(() => { importStatus = ''; importing = false; }, 3000);
-      }
-    }
-  }
-
   function handleNukeTap(): void {
     if (nuking) return;
     if (!nukeConfirm) {
@@ -226,7 +144,7 @@
     </div>
 
     <div class="settings-content">
-      {#if isElectron && notesDir}
+      {#if isDesktop && notesDir}
       <section class="settings-section">
         <h3 class="settings-section-title">Storage</h3>
         <div class="settings-card">
@@ -308,27 +226,6 @@
             <p class="settings-btn-desc settings-hint">{syncStatus}</p>
           {/if}
         </div>
-      </section>
-      {/if}
-
-      {#if isMobile}
-      <section class="settings-section">
-        <h3 class="settings-section-title">Import</h3>
-        <button class="settings-btn" onclick={handleObsidianImport} disabled={importing}>
-          <span class="settings-btn-text">
-            <span class="settings-btn-label">Import from Obsidian</span>
-            <span class="settings-btn-desc">
-              {#if importStatus}
-                {importStatus}
-              {:else}
-                Select your vault folder to import all notes
-              {/if}
-            </span>
-          </span>
-          {#if !importing}
-            <span class="settings-btn-arrow">&rsaquo;</span>
-          {/if}
-        </button>
       </section>
       {/if}
 

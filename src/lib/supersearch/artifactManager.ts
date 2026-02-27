@@ -46,11 +46,10 @@ export async function downloadArtifact(
   const fs = getFS();
 
   try {
-    if (platformName === 'electron') {
-      // Electron: delegate to IPC (downloads binary vectors + manifest to userData)
-      await fs.supersearchDownload!(serverUrl, token);
-    } else if (platformName === 'capacitor') {
-      // Capacitor: fetch binary vectors + manifest
+    if (platformName === 'tauri' && fs.supersearchDownload) {
+      await fs.supersearchDownload(serverUrl, token);
+    } else if (platformName === 'tauri') {
+      // Tauri fallback: fetch binary vectors + manifest via JS.
       const [manifestRes, binRes] = await Promise.all([
         fetch(`${serverUrl}/search/index?format=manifest`, {
           headers: { Authorization: `Bearer ${token}` },

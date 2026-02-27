@@ -16,7 +16,7 @@ npm run lint       # ESLint
 
 npm workspaces. Shared Svelte app at root, platform shells in `apps/`, shared packages in `packages/`.
 
-**Stack**: Svelte 5 + Capacitor 8 + Electron + Vite + Tailwind v4 + CodeMirror 6
+**Stack**: Svelte 5 + Tauri v2 + Vite + Tailwind v4 + CodeMirror 6
 
 ## Key Constraints
 

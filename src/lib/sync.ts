@@ -1,8 +1,9 @@
 import { sanitizeFilename } from './utils';
-import { getAllNotes, getNoteById, readNote, updateNote, deleteNote } from './notes';
+import { getAllNotes, getNoteById, readNote, updateNote, deleteNote, refreshNotesAfterSync } from './notes';
 import { getCachedPreferences, savePreferences } from './preferences';
 import { findIdForUuid, loadSyncState, saveSyncState } from './syncState';
 import { getClientId } from './sseClient';
+import { applySyncDeltaRust, hasRustCore, prepareSyncPayloadRust } from './rustCore';
 import { FALLBACK_TITLE, type HealthResponse, type LoginResponse, type SyncRequest, type SyncResponse } from '@futo-notes/shared';
 
 export interface SyncSummary {
@@ -132,59 +133,72 @@ export async function syncNow(): Promise<SyncSummary> {
   if (!serverUrl) throw new Error('Set a sync server URL first');
   if (!token) throw new Error('Connect to server first');
 
-  const state = await loadSyncState();
-  const localNotes = getAllNotes();
+  const useRustCore = hasRustCore();
+  let state = await loadSyncState();
   const outgoingByUuid = new Map<string, string>();
+  let syncNotes: SyncRequest['notes'] = [];
+  let allUuids: string[] = [];
 
-  const hashCache = state.hashCache ?? {};
-  const syncNotes: SyncRequest['notes'] = [];
-  for (const note of localNotes) {
-    const id = note.id;
-    const uuid = state.uuidById[id] ?? id;
-    state.uuidById[id] = uuid;
-    outgoingByUuid.set(uuid, id);
+  if (useRustCore) {
+    const prepared = await prepareSyncPayloadRust(state);
+    state = prepared.nextState;
+    syncNotes = prepared.notes;
+    allUuids = prepared.allUuids;
+    for (const note of syncNotes) {
+      outgoingByUuid.set(note.uuid, noteIdFromFilename(note.filename));
+    }
+  } else {
+    const localNotes = getAllNotes();
+    const hashCache = state.hashCache ?? {};
+    for (const note of localNotes) {
+      const id = note.id;
+      const uuid = state.uuidById[id] ?? id;
+      state.uuidById[id] = uuid;
+      outgoingByUuid.set(uuid, id);
 
-    const modTime = note.modificationTime || Date.now();
-    const cached = hashCache[id];
-    let hash: string;
-    let content: string | undefined;
+      const modTime = note.modificationTime || Date.now();
+      const cached = hashCache[id];
+      let hash: string;
+      let content: string | undefined;
 
-    if (cached && cached.modifiedAt === note.modificationTime) {
-      hash = cached.hash;
-    } else {
-      content = await readNote(id);
-      hash = await sha256Hex(content);
-      hashCache[id] = { modifiedAt: modTime, hash };
+      if (cached && cached.modifiedAt === note.modificationTime) {
+        hash = cached.hash;
+      } else {
+        content = await readNote(id);
+        hash = await sha256Hex(content);
+        hashCache[id] = { modifiedAt: modTime, hash };
+      }
+
+      const lastSyncHash = state.hashByUuid[uuid] ?? '';
+      const needsContent = hash !== lastSyncHash;
+      if (needsContent && content === undefined) {
+        content = await readNote(id);
+      }
+
+      syncNotes.push({
+        uuid,
+        filename: `${id}.md`,
+        modified_at: modTime,
+        content_hash: hash,
+        hash_at_last_sync: lastSyncHash,
+        ...(needsContent ? { content } : {}),
+      });
     }
 
-    const lastSyncHash = state.hashByUuid[uuid] ?? '';
-    const needsContent = hash !== lastSyncHash;
-    if (needsContent && content === undefined) {
-      content = await readNote(id);
+    // Clean stale cache entries for deleted notes
+    const activeIds = new Set(localNotes.map(n => n.id));
+    for (const id of Object.keys(hashCache)) {
+      if (!activeIds.has(id)) delete hashCache[id];
     }
-
-    syncNotes.push({
-      uuid,
-      filename: `${id}.md`,
-      modified_at: modTime,
-      content_hash: hash,
-      hash_at_last_sync: lastSyncHash,
-      ...(needsContent ? { content } : {}),
-    });
+    state.hashCache = hashCache;
+    allUuids = Array.from(outgoingByUuid.keys());
   }
-
-  // Clean stale cache entries for deleted notes
-  const activeIds = new Set(localNotes.map(n => n.id));
-  for (const id of Object.keys(hashCache)) {
-    if (!activeIds.has(id)) delete hashCache[id];
-  }
-  state.hashCache = hashCache;
 
   let response: SyncResponse;
   try {
     response = await authPost<SyncResponse>(serverUrl, token, '/sync', {
       notes: syncNotes,
-      all_uuids: Array.from(outgoingByUuid.keys()),
+      all_uuids: allUuids,
       deleted_uuids: state.deletedUuids,
     }, { 'X-Client-Id': getClientId() });
   } catch (e) {
@@ -194,55 +208,78 @@ export async function syncNow(): Promise<SyncSummary> {
   }
 
   let deleted = 0;
-  const deletedIds = new Set<string>();
-  for (const uuid of response.delete) {
-    const id = outgoingByUuid.get(uuid) ?? findIdForUuid(state, uuid);
-    if (id && getNoteById(id)) {
-      await deleteNote(id, { trackSyncDelete: false });
-      deleted++;
-    }
-    if (id) deletedIds.add(id);
-    if (id) delete state.uuidById[id];
-    delete state.hashByUuid[uuid];
-    state.deletedUuids = state.deletedUuids.filter((u) => u !== uuid);
-  }
-
   let downloaded = 0;
   const updatedIds = new Set<string>();
-  for (const note of response.update) {
-    if (typeof note.content !== 'string') continue;
+  const deletedIds = new Set<string>();
+  if (useRustCore) {
+    const updatesForRust = response.update
+      .filter((note): note is SyncResponse['update'][number] & { content: string } => typeof note.content === 'string')
+      .map((note) => ({
+        uuid: note.uuid,
+        id: noteIdFromFilename(note.filename),
+        content: note.content,
+        modified_at: note.modified_at,
+        content_hash: note.content_hash,
+      }));
 
-    const incomingId = noteIdFromFilename(note.filename);
-    const mappedId = findIdForUuid(state, note.uuid);
-    const existingIncoming = getNoteById(incomingId);
+    const applied = await applySyncDeltaRust(state, updatesForRust, response.delete);
+    state = applied.nextState;
+    downloaded = updatesForRust.length;
+    deleted = applied.deletedIds.length;
+    for (const id of applied.updatedIds) updatedIds.add(id);
+    for (const id of applied.deletedIds) deletedIds.add(id);
 
-    let originalId: string | undefined;
-    if (mappedId && mappedId !== incomingId) {
-      originalId = mappedId;
-    } else if (existingIncoming) {
-      originalId = incomingId;
+    for (const note of updatesForRust) {
+      outgoingByUuid.set(note.uuid, note.id);
+    }
+  } else {
+    for (const uuid of response.delete) {
+      const id = outgoingByUuid.get(uuid) ?? findIdForUuid(state, uuid);
+      if (id && getNoteById(id)) {
+        await deleteNote(id, { trackSyncDelete: false });
+        deleted++;
+      }
+      if (id) deletedIds.add(id);
+      if (id) delete state.uuidById[id];
+      delete state.hashByUuid[uuid];
+      state.deletedUuids = state.deletedUuids.filter((u) => u !== uuid);
     }
 
-    const result = await updateNote(
-      incomingId,
-      titleFromId(incomingId),
-      note.content,
-      originalId,
-      note.modified_at,
-    );
+    for (const note of response.update) {
+      if (typeof note.content !== 'string') continue;
 
-    if (mappedId && mappedId !== result.id) {
-      delete state.uuidById[mappedId];
+      const incomingId = noteIdFromFilename(note.filename);
+      const mappedId = findIdForUuid(state, note.uuid);
+      const existingIncoming = getNoteById(incomingId);
+
+      let originalId: string | undefined;
+      if (mappedId && mappedId !== incomingId) {
+        originalId = mappedId;
+      } else if (existingIncoming) {
+        originalId = incomingId;
+      }
+
+      const result = await updateNote(
+        incomingId,
+        titleFromId(incomingId),
+        note.content,
+        originalId,
+        note.modified_at,
+      );
+
+      if (mappedId && mappedId !== result.id) {
+        delete state.uuidById[mappedId];
+      }
+
+      if (mappedId) updatedIds.add(mappedId);
+      updatedIds.add(result.id);
+
+      state.uuidById[result.id] = note.uuid;
+      state.hashByUuid[note.uuid] = note.content_hash;
+      state.deletedUuids = state.deletedUuids.filter((u) => u !== note.uuid);
+      outgoingByUuid.set(note.uuid, result.id);
+      downloaded++;
     }
-
-    if (mappedId) updatedIds.add(mappedId);
-    updatedIds.add(result.id);
-
-    state.uuidById[result.id] = note.uuid;
-    state.hashByUuid[note.uuid] = note.content_hash;
-    state.deletedUuids = state.deletedUuids.filter((u) => u !== note.uuid);
-    outgoingByUuid.set(note.uuid, result.id);
-    downloaded++;
   }
 
   for (const update of response.hash_updates) {
@@ -257,6 +294,9 @@ export async function syncNow(): Promise<SyncSummary> {
   state.deletedUuids = [];
 
   await saveSyncState(state);
+  if (useRustCore && (updatedIds.size > 0 || deletedIds.size > 0)) {
+    await refreshNotesAfterSync(Array.from(updatedIds), Array.from(deletedIds));
+  }
   await clearSyncErrorAndSetTime();
 
   return {

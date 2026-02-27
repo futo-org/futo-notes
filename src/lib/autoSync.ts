@@ -1,4 +1,4 @@
-import { isMobile, hasFileSystem } from './platform';
+import { hasFileSystem } from './platform';
 import { getCachedPreferences } from './preferences';
 import { syncNow, type SyncSummary } from './sync';
 import { startSSE, stopSSE, isSSEConnected } from './sseClient';
@@ -22,16 +22,29 @@ let lastSyncTime = 0;
 let cleanupFns: Array<() => void> = [];
 
 type SyncTrigger = 'local-save' | 'manual' | 'sse' | 'resume' | 'initial';
+interface PerformSyncOptions {
+  propagateErrors?: boolean;
+  requireExecution?: boolean;
+}
 
 function isSyncConfigured(): boolean {
   const prefs = getCachedPreferences();
   return Boolean(prefs.sync.serverUrl && prefs.sync.token);
 }
 
-async function performSync(trigger: SyncTrigger): Promise<void> {
-  if (syncing || !callbacks || !isSyncConfigured()) return;
+async function performSync(trigger: SyncTrigger, options: PerformSyncOptions = {}): Promise<SyncSummary | null> {
+  if (syncing || !callbacks || !isSyncConfigured()) {
+    if (options.requireExecution) {
+      if (syncing) throw new Error('Sync already in progress');
+      if (!callbacks) throw new Error('Sync system not initialized');
+      throw new Error('Sync not configured');
+    }
+    return null;
+  }
   const isBackgroundTrigger = trigger === 'sse' || trigger === 'resume' || trigger === 'initial';
-  if (isBackgroundTrigger && callbacks.shouldDeferSync?.()) return;
+  if (isBackgroundTrigger && callbacks.shouldDeferSync?.()) {
+    return null;
+  }
   syncing = true;
   try {
     if (trigger === 'local-save' || trigger === 'manual') {
@@ -42,8 +55,14 @@ async function performSync(trigger: SyncTrigger): Promise<void> {
     // Ensure SSE is connected (handles case where prefs weren't loaded at startup)
     if (!isSSEConnected()) connectSSE();
     callbacks.onSyncComplete(summary);
+    return summary;
   } catch (e) {
-    callbacks.onSyncError(e instanceof Error ? e : new Error(String(e)));
+    const error = e instanceof Error ? e : new Error(String(e));
+    callbacks.onSyncError(error);
+    if (options.propagateErrors) {
+      throw error;
+    }
+    return null;
   } finally {
     syncing = false;
   }
@@ -56,9 +75,10 @@ export function notifySaved(): void {
 
 export async function requestSync(): Promise<void> {
   if (!isSyncConfigured()) throw new Error('Sync not configured');
+  if (!callbacks) throw new Error('Sync system not initialized');
   if (syncing) throw new Error('Sync already in progress');
   if (!isSSEConnected()) connectSSE();
-  await performSync('manual');
+  await performSync('manual', { propagateErrors: true, requireExecution: true });
 }
 
 function handleResume(): void {
@@ -106,21 +126,14 @@ export function startAutoSync(cb: AutoSyncCallbacks): void {
   }, 2_000);
 
   // App resume / visibility
-  if (isMobile) {
-    import('@capacitor/app').then(({ App }) => {
-      const handle = App.addListener('resume', () => {
-        connectSSE(); // Reconnect SSE after resume
-        handleResume();
-      });
-      cleanupFns.push(() => handle.then(h => h.remove()));
-    });
-  } else {
-    const handler = () => {
-      if (document.visibilityState === 'visible') handleResume();
-    };
-    document.addEventListener('visibilitychange', handler);
-    cleanupFns.push(() => document.removeEventListener('visibilitychange', handler));
-  }
+  const handler = () => {
+    if (document.visibilityState === 'visible') {
+      connectSSE(); // Reconnect SSE after resume
+      handleResume();
+    }
+  };
+  document.addEventListener('visibilitychange', handler);
+  cleanupFns.push(() => document.removeEventListener('visibilitychange', handler));
 }
 
 export function stopAutoSync(): void {

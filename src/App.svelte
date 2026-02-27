@@ -1,7 +1,7 @@
 <script lang="ts">
   import NotesShell from './components/NotesShell.svelte';
   import CrashReportDialog from './components/CrashReportDialog.svelte';
-  import { hasFileSystem, isMobile, getFS } from '$lib/platform';
+  import { hasFileSystem, getFS } from '$lib/platform';
   import { initNotes, createNote, getAllNotes } from '$lib/notes';
   import { loadPreferences, getCachedPreferences, savePreferences } from '$lib/preferences';
   import { applyThemePreference, watchSystemTheme } from '$lib/theme';
@@ -47,15 +47,6 @@
           await initNotes();
           if (import.meta.env.DEV) {
             (window as any).__testNotes = { createNote, getAllNotes };
-          }
-          if (isMobile) {
-            try {
-              const { StatusBar } = await import('@capacitor/status-bar');
-              await StatusBar.setOverlaysWebView({ overlay: true });
-              await StatusBar.setBackgroundColor({ color: '#00000000' });
-            } catch {
-              // Some status bar APIs are unavailable on newer Android versions.
-            }
           }
         }
 
@@ -130,12 +121,7 @@
       // Show dialog — dismiss keyboard so toolbar hides
       pendingCrashReports = reports;
       showCrashDialog = true;
-      if (isMobile) {
-        try {
-          const { Keyboard } = await import('@capacitor/keyboard');
-          await Keyboard.hide();
-        } catch {}
-      }
+      (document.activeElement as HTMLElement | null)?.blur();
     }
   }
 

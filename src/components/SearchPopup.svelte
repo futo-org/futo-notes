@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { SearchResultItem } from '../types';
-  import { search, searchWithVectors, type SearchTimingResult } from '$lib/notes';
+  import { searchKeyword, searchWithVectors, type SearchTimingResult } from '$lib/notes';
   import { isSupersearchReady } from '$lib/supersearch/state';
   import { isReady as isEmbedderReady } from '$lib/supersearch/queryEmbedder';
   import { getSearchMode, setSearchMode, type SearchMode } from '$lib/supersearch/searchMode';
@@ -38,17 +38,40 @@
   );
   let timing = $derived(vectorResults?.timing ?? null);
 
-  // Debounced keyword search — prevents blocking input on every keystroke
+  let keywordRequestId = 0;
+
+  // Debounced keyword search — async on Tauri, sync fallback elsewhere
   $effect(() => {
     const q = query;
+    const requestId = ++keywordRequestId;
 
     if (!q.trim()) {
-      keywordResults = search('');
+      searchKeyword('')
+        .then((results) => {
+          if (requestId === keywordRequestId) {
+            keywordResults = results;
+          }
+        })
+        .catch(() => {
+          if (requestId === keywordRequestId) {
+            keywordResults = [];
+          }
+        });
       return;
     }
 
     const timer = setTimeout(() => {
-      keywordResults = search(q);
+      searchKeyword(q)
+        .then((results) => {
+          if (requestId === keywordRequestId && q === query) {
+            keywordResults = results;
+          }
+        })
+        .catch(() => {
+          if (requestId === keywordRequestId && q === query) {
+            keywordResults = [];
+          }
+        });
     }, 100);
 
     return () => clearTimeout(timer);

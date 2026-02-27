@@ -36,7 +36,7 @@ export interface PlatformFS {
   readBinaryAppData?(path: string): Promise<ArrayBuffer | null>;
   writeBinaryAppData?(path: string, data: ArrayBuffer): Promise<void>;
 
-  // Supersearch (Electron only)
+  // Supersearch (native platforms)
   supersearchDownload?(serverUrl: string, token: string): Promise<void>;
   supersearchHasArtifacts?(): Promise<boolean>;
   supersearchQuery?(
@@ -48,4 +48,4 @@ export interface PlatformFS {
   pickImage?(): Promise<string | null>;
 }
 
-export type PlatformName = 'electron' | 'capacitor' | 'web';
+export type PlatformName = 'tauri' | 'web';

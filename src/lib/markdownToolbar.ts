@@ -284,21 +284,8 @@ export async function insertImageFromCamera(
   view: EditorView,
   source: 'camera' | 'photos',
 ): Promise<void> {
-  const { Camera, CameraResultType, CameraSource } = await import('@capacitor/camera');
-  const photo = await Camera.getPhoto({
-    resultType: CameraResultType.Uri,
-    source: source === 'camera' ? CameraSource.Camera : CameraSource.Photos,
-    quality: 90,
-  });
-
-  if (!photo.path) return;
-
-  const fs = getFS();
-  const filename = await fs.saveImage(photo.path);
-  const webUrl = await fs.getImageUrl(filename);
-  registerLocalImageUrl(filename, webUrl);
-
-  insertImageMarkdown(view, filename);
+  void source;
+  await insertImageFromFile(view);
 }
 
 /** Insert an image from a file picker (desktop). */

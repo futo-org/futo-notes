@@ -1,4 +1,4 @@
-import { getFS, hasFileSystem, isMobile } from './platform';
+import { getFS, hasFileSystem } from './platform';
 import { writeCrashReport, type CrashReport, getSessionId, getAppVersion } from './crashHandler';
 import { flushEngagement } from './engagement';
 
@@ -41,24 +41,7 @@ export async function checkHeartbeat(): Promise<boolean> {
 let listeners: Array<() => void> = [];
 
 export function startHeartbeat(): void {
-  if (isMobile) {
-    import('@capacitor/app').then(({ App }) => {
-      const resumeHandle = App.addListener('resume', () => {
-        writeHeartbeat();
-      });
-      const pauseHandle = App.addListener('pause', () => {
-        clearHeartbeat();
-        flushEngagement();
-      });
-      listeners.push(
-        () => resumeHandle.then(h => h.remove()),
-        () => pauseHandle.then(h => h.remove()),
-      );
-    });
-    // Write initial heartbeat
-    writeHeartbeat();
-  } else if (hasFileSystem) {
-    // Electron + web: use visibilitychange
+  if (hasFileSystem) {
     const handler = () => {
       if (document.visibilityState === 'visible') {
         writeHeartbeat();

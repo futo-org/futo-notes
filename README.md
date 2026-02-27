@@ -25,41 +25,33 @@ npm run dev                                 # Dev server (web preview only)
 npm run build                               # Build for production
 npm run lint                                # Run ESLint
 
-# Capacitor (Platform Management)
-npx cap sync                                # Sync web build to native platforms
-npx cap sync android                        # Sync to Android only
-npx cap sync ios                            # Sync to iOS only
+# Tauri v2
+npm run tauri:dev                           # Run Tauri app in dev mode
+npm run tauri:build                         # Build web + Tauri bundle
+npm run tauri:test:rust                     # Run Rust core tests
 
-# Running on Devices
-npx cap run android --target "DEVICE_ID"    # Android device (use serial number)
-npx cap run android                         # Android (interactive device selection)
-npx cap run ios                             # iOS device
-
-# Platform IDEs
-npx cap open android                        # Open Android Studio
-npx cap open ios                            # Open Xcode
+# Mobile targets (Tauri)
+npm run tauri:android:dev
+npm run tauri:ios:dev
 ```
 
 ### Development Workflow
 
 ```bash
 # 1. Make changes to Svelte/TypeScript/CSS
-# 2. Build
-npm run build
+# 2. Run in Tauri desktop shell
+npm run tauri:dev
 
-# 3. Sync to platform
-npx cap sync android
-
-# 4. Run on device
-npx cap run android
+# 3. Build distributable
+npm run tauri:build
 ```
 
 ### Architecture
 
-**Framework**: Svelte 5 + Capacitor 8
+**Framework**: Svelte 5 + Tauri v2
 **Build Tool**: Vite
 **Editor**: CodeMirror 6 with live markdown transformations
-**Storage**: Capacitor Filesystem for `.md` files
+**Storage**: Native filesystem via Tauri command bridge (`invoke`)
 **Search**: MiniSearch (in-memory full-text search)
 **State**: Svelte 5 runes (`$state`, `$derived`, `$effect`)
 
