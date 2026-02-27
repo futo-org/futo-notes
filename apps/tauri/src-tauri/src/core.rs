@@ -4,7 +4,8 @@ use rayon::prelude::*;
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::{HashMap, HashSet};
+use std::cmp::Reverse;
+use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::fs;
 use std::io;
 use std::path::{Component, Path, PathBuf};
@@ -13,10 +14,45 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 #[derive(Default)]
+struct EngagementState {
+    loaded: bool,
+    dirty: bool,
+    data: EngagementData,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+struct EngagementData {
+    version: u8,
+    notes: HashMap<String, EngagementRecord>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EngagementRecord {
+    last_opened_at: i64,
+    open_count: u32,
+    last_edited_at: i64,
+    edit_count: u32,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SupersearchMeta {
+    artifact_version: String,
+    artifact_hash: String,
+    downloaded_at: i64,
+    model: String,
+    dims: usize,
+    chunk_count: usize,
+}
+
+#[derive(Default)]
 pub struct CoreState {
     index: Arc<RwLock<SearchIndexState>>,
     watcher: Arc<Mutex<Option<RecommendedWatcher>>>,
-    vectors: Arc<RwLock<Option<VectorArtifacts>>>,
+    vectors: Arc<RwLock<Option<Arc<VectorArtifacts>>>>,
+    engagement: Arc<RwLock<EngagementState>>,
+    supersearch_meta: Arc<RwLock<Option<SupersearchMeta>>>,
 }
 
 const APP_CONFIG_PATH: &str = ".app-config.json";
@@ -387,18 +423,21 @@ fn load_vector_artifacts_from_disk(base: &Path) -> Result<VectorArtifacts, Strin
 
 fn ensure_vectors_loaded(
     base: &Path,
-    cache: &Arc<RwLock<Option<VectorArtifacts>>>,
-) -> Result<VectorArtifacts, String> {
+    cache: &Arc<RwLock<Option<Arc<VectorArtifacts>>>>,
+) -> Result<Arc<VectorArtifacts>, String> {
     {
         let read = cache.read().map_err(|_| "vector cache lock poisoned".to_string())?;
         if let Some(artifacts) = read.as_ref() {
-            return Ok(artifacts.clone());
+            return Ok(Arc::clone(artifacts));
         }
     }
 
-    let loaded = load_vector_artifacts_from_disk(base)?;
+    let loaded = Arc::new(load_vector_artifacts_from_disk(base)?);
     let mut write = cache.write().map_err(|_| "vector cache lock poisoned".to_string())?;
-    *write = Some(loaded.clone());
+    if let Some(existing) = write.as_ref() {
+        return Ok(Arc::clone(existing));
+    }
+    *write = Some(Arc::clone(&loaded));
     Ok(loaded)
 }
 
@@ -469,6 +508,49 @@ fn ensure_index_loaded(base: &Path, state: &Arc<RwLock<SearchIndexState>>) -> Re
     write.notes = scanned;
     write.loaded = true;
     Ok(())
+}
+
+fn ensure_engagement_loaded(
+    base: &Path,
+    state: &Arc<RwLock<EngagementState>>,
+) -> Result<(), String> {
+    {
+        let read = state
+            .read()
+            .map_err(|_| "engagement lock poisoned".to_string())?;
+        if read.loaded {
+            return Ok(());
+        }
+    }
+
+    let path = base.join(".engagement-v1.json");
+    let data = if path.exists() {
+        let raw = fs::read_to_string(&path).map_err(io_err_to_string)?;
+        serde_json::from_str::<EngagementData>(&raw).unwrap_or_else(|_| EngagementData {
+            version: 1,
+            notes: HashMap::new(),
+        })
+    } else {
+        EngagementData {
+            version: 1,
+            notes: HashMap::new(),
+        }
+    };
+
+    let mut write = state
+        .write()
+        .map_err(|_| "engagement lock poisoned".to_string())?;
+    if !write.loaded {
+        write.data = data;
+        write.loaded = true;
+    }
+    Ok(())
+}
+
+fn load_supersearch_meta(base: &Path) -> Option<SupersearchMeta> {
+    let path = base.join(".supersearch-state.json");
+    let raw = fs::read_to_string(path).ok()?;
+    serde_json::from_str::<SupersearchMeta>(&raw).ok()
 }
 
 fn get_unique_note_id(base: &Path, wanted: &str, exclude: Option<&str>) -> Result<String, String> {
@@ -922,6 +1004,89 @@ fn keyword_search_impl(
         .collect()
 }
 
+#[derive(Clone, Copy, Debug)]
+struct ScoredChunk {
+    idx: usize,
+    score: f32,
+}
+
+impl PartialEq for ScoredChunk {
+    fn eq(&self, other: &Self) -> bool {
+        self.idx == other.idx && self.score == other.score
+    }
+}
+
+impl Eq for ScoredChunk {}
+
+impl PartialOrd for ScoredChunk {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for ScoredChunk {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.score
+            .partial_cmp(&other.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| self.idx.cmp(&other.idx))
+    }
+}
+
+fn dot_product_unrolled(query: &[f32], candidate: &[f32]) -> f32 {
+    let len = query.len();
+    let unrolled_end = len - (len % 8);
+    let mut i = 0usize;
+    let mut sum0 = 0.0f32;
+    let mut sum1 = 0.0f32;
+    let mut sum2 = 0.0f32;
+    let mut sum3 = 0.0f32;
+    let mut sum4 = 0.0f32;
+    let mut sum5 = 0.0f32;
+    let mut sum6 = 0.0f32;
+    let mut sum7 = 0.0f32;
+
+    while i < unrolled_end {
+        sum0 += query[i] * candidate[i];
+        sum1 += query[i + 1] * candidate[i + 1];
+        sum2 += query[i + 2] * candidate[i + 2];
+        sum3 += query[i + 3] * candidate[i + 3];
+        sum4 += query[i + 4] * candidate[i + 4];
+        sum5 += query[i + 5] * candidate[i + 5];
+        sum6 += query[i + 6] * candidate[i + 6];
+        sum7 += query[i + 7] * candidate[i + 7];
+        i += 8;
+    }
+
+    let mut dot = sum0 + sum1 + sum2 + sum3 + sum4 + sum5 + sum6 + sum7;
+    while i < len {
+        dot += query[i] * candidate[i];
+        i += 1;
+    }
+    dot
+}
+
+fn should_replace_min_score(min_hit: ScoredChunk, candidate: ScoredChunk) -> bool {
+    candidate.score > min_hit.score || (candidate.score == min_hit.score && candidate.idx < min_hit.idx)
+}
+
+fn push_top_score(
+    heap: &mut BinaryHeap<Reverse<ScoredChunk>>,
+    hit: ScoredChunk,
+    limit: usize,
+) {
+    if heap.len() < limit {
+        heap.push(Reverse(hit));
+        return;
+    }
+    if let Some(min_hit) = heap.peek() {
+        if should_replace_min_score(min_hit.0, hit) {
+            heap.pop();
+            heap.push(Reverse(hit));
+        }
+    }
+}
+
 fn vector_search_impl(
     query_vector: &[f32],
     artifacts: &VectorArtifacts,
@@ -939,28 +1104,55 @@ fn vector_search_impl(
         return Ok(Vec::new());
     }
 
-    let mut scored = Vec::with_capacity(artifacts.chunks.len());
-    for (idx, chunk) in artifacts.chunks.iter().enumerate() {
-        let offset = idx * artifacts.dims;
-        let mut dot = 0.0f32;
-        for d in 0..artifacts.dims {
-            dot += query_vector[d] * artifacts.vectors[offset + d];
-        }
-        scored.push((chunk, dot));
-    }
+    let limit = top_k.min(artifacts.chunks.len());
+    let top_scores = artifacts
+        .vectors
+        .par_chunks_exact(artifacts.dims)
+        .enumerate()
+        .fold(
+            || BinaryHeap::with_capacity(limit),
+            |mut local_top, (idx, chunk_vector)| {
+                let hit = ScoredChunk {
+                    idx,
+                    score: dot_product_unrolled(query_vector, chunk_vector),
+                };
+                push_top_score(&mut local_top, hit, limit);
+                local_top
+            },
+        )
+        .reduce(
+            || BinaryHeap::with_capacity(limit),
+            |mut merged, local| {
+                for Reverse(hit) in local {
+                    push_top_score(&mut merged, hit, limit);
+                }
+                merged
+            },
+        );
 
-    scored.sort_by(|(_, a), (_, b)| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
-
-    Ok(scored
+    let mut ranked = top_scores
         .into_iter()
-        .take(top_k)
-        .map(|(chunk, score)| SupersearchResultPayload {
-            chunk_id: chunk.chunk_id,
-            uuid: chunk.uuid.clone(),
-            chunk_text: chunk.chunk_text.clone(),
-            start_offset: chunk.start_offset,
-            end_offset: chunk.end_offset,
-            score,
+        .map(|Reverse(hit)| hit)
+        .collect::<Vec<_>>();
+    ranked.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.idx.cmp(&b.idx))
+    });
+
+    Ok(ranked
+        .into_iter()
+        .map(|hit| {
+            let chunk = &artifacts.chunks[hit.idx];
+            SupersearchResultPayload {
+                chunk_id: chunk.chunk_id,
+                uuid: chunk.uuid.clone(),
+                chunk_text: chunk.chunk_text.clone(),
+                start_offset: chunk.start_offset,
+                end_offset: chunk.end_offset,
+                score: hit.score,
+            }
         })
         .collect())
 }
@@ -1215,8 +1407,10 @@ pub async fn supersearch_download(
     state: State<'_, CoreState>,
     server_url: String,
     token: String,
+    meta: Option<SupersearchMeta>,
 ) -> Result<(), String> {
     let vectors_state = state.vectors.clone();
+    let supersearch_meta_state = state.supersearch_meta.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let base = notes_root(&app)?;
         let normalized_base = server_url.trim_end_matches('/');
@@ -1248,6 +1442,16 @@ pub async fn supersearch_download(
             .map_err(|_| "vector cache lock poisoned".to_string())?;
         *write = None;
 
+        if let Some(meta) = meta {
+            let meta_json =
+                serde_json::to_string_pretty(&meta).map_err(|e| e.to_string())?;
+            write_atomic_text(&base.join(".supersearch-state.json"), &meta_json)?;
+            let mut ss_write = supersearch_meta_state
+                .write()
+                .map_err(|_| "supersearch meta lock poisoned".to_string())?;
+            *ss_write = Some(meta);
+        }
+
         Ok(())
     })
     .await
@@ -1265,7 +1469,7 @@ pub async fn supersearch_query(
     tauri::async_runtime::spawn_blocking(move || {
         let base = notes_root(&app)?;
         let artifacts = ensure_vectors_loaded(&base, &vectors_state)?;
-        vector_search_impl(&query_vector, &artifacts, top_k)
+        vector_search_impl(&query_vector, artifacts.as_ref(), top_k)
     })
     .await
     .map_err(task_join_err)?
@@ -1477,6 +1681,234 @@ pub async fn core_apply_sync_delta(
     .map_err(task_join_err)?
 }
 
+#[tauri::command]
+pub async fn engagement_load(
+    app: AppHandle,
+    state: State<'_, CoreState>,
+) -> Result<(), String> {
+    let engagement = state.engagement.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = notes_root(&app)?;
+        ensure_engagement_loaded(&base, &engagement)
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
+#[tauri::command]
+pub async fn engagement_track_open(
+    app: AppHandle,
+    state: State<'_, CoreState>,
+    id: String,
+) -> Result<(), String> {
+    let engagement = state.engagement.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = notes_root(&app)?;
+        ensure_engagement_loaded(&base, &engagement)?;
+        let mut write = engagement
+            .write()
+            .map_err(|_| "engagement lock poisoned".to_string())?;
+        let record = write.data.notes.entry(id).or_insert(EngagementRecord {
+            last_opened_at: 0,
+            open_count: 0,
+            last_edited_at: 0,
+            edit_count: 0,
+        });
+        record.open_count += 1;
+        record.last_opened_at = now_ms();
+        write.dirty = true;
+        Ok(())
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
+#[tauri::command]
+pub async fn engagement_track_edit(
+    app: AppHandle,
+    state: State<'_, CoreState>,
+    id: String,
+) -> Result<(), String> {
+    let engagement = state.engagement.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = notes_root(&app)?;
+        ensure_engagement_loaded(&base, &engagement)?;
+        let mut write = engagement
+            .write()
+            .map_err(|_| "engagement lock poisoned".to_string())?;
+        let record = write.data.notes.entry(id).or_insert(EngagementRecord {
+            last_opened_at: 0,
+            open_count: 0,
+            last_edited_at: 0,
+            edit_count: 0,
+        });
+        record.edit_count += 1;
+        record.last_edited_at = now_ms();
+        write.dirty = true;
+        Ok(())
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
+#[tauri::command]
+pub async fn engagement_remove(
+    app: AppHandle,
+    state: State<'_, CoreState>,
+    id: String,
+) -> Result<(), String> {
+    let engagement = state.engagement.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = notes_root(&app)?;
+        ensure_engagement_loaded(&base, &engagement)?;
+        let mut write = engagement
+            .write()
+            .map_err(|_| "engagement lock poisoned".to_string())?;
+        write.data.notes.remove(&id);
+        write.dirty = true;
+        Ok(())
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
+#[tauri::command]
+pub async fn engagement_rename(
+    app: AppHandle,
+    state: State<'_, CoreState>,
+    old_id: String,
+    new_id: String,
+) -> Result<(), String> {
+    let engagement = state.engagement.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = notes_root(&app)?;
+        ensure_engagement_loaded(&base, &engagement)?;
+        let mut write = engagement
+            .write()
+            .map_err(|_| "engagement lock poisoned".to_string())?;
+        if let Some(record) = write.data.notes.remove(&old_id) {
+            write.data.notes.insert(new_id, record);
+            write.dirty = true;
+        }
+        Ok(())
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
+#[tauri::command]
+pub async fn engagement_get_all(
+    app: AppHandle,
+    state: State<'_, CoreState>,
+) -> Result<HashMap<String, EngagementRecord>, String> {
+    let engagement = state.engagement.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = notes_root(&app)?;
+        ensure_engagement_loaded(&base, &engagement)?;
+        let read = engagement
+            .read()
+            .map_err(|_| "engagement lock poisoned".to_string())?;
+        Ok(read.data.notes.clone())
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
+#[tauri::command]
+pub async fn engagement_flush(
+    app: AppHandle,
+    state: State<'_, CoreState>,
+) -> Result<(), String> {
+    let engagement = state.engagement.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = notes_root(&app)?;
+        let mut write = engagement
+            .write()
+            .map_err(|_| "engagement lock poisoned".to_string())?;
+        if !write.dirty {
+            return Ok(());
+        }
+        let json = serde_json::to_string_pretty(&write.data).map_err(|e| e.to_string())?;
+        write_atomic_text(&base.join(".engagement-v1.json"), &json)?;
+        write.dirty = false;
+        Ok(())
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
+#[tauri::command]
+pub async fn supersearch_is_ready(
+    app: AppHandle,
+    state: State<'_, CoreState>,
+) -> Result<bool, String> {
+    let ss_meta = state.supersearch_meta.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = notes_root(&app)?;
+
+        // Ensure meta is cached
+        {
+            let read = ss_meta
+                .read()
+                .map_err(|_| "supersearch meta lock poisoned".to_string())?;
+            if read.is_none() {
+                drop(read);
+                let loaded = load_supersearch_meta(&base);
+                let mut write = ss_meta
+                    .write()
+                    .map_err(|_| "supersearch meta lock poisoned".to_string())?;
+                if write.is_none() {
+                    *write = loaded;
+                }
+            }
+        }
+
+        let read = ss_meta
+            .read()
+            .map_err(|_| "supersearch meta lock poisoned".to_string())?;
+        if read.is_none() {
+            return Ok(false);
+        }
+
+        let manifest = base.join(".supersearch-manifest.json");
+        let vectors = base.join(".supersearch-vectors.bin");
+        Ok(manifest.exists() && vectors.exists())
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
+#[tauri::command]
+pub async fn supersearch_get_state(
+    app: AppHandle,
+    state: State<'_, CoreState>,
+) -> Result<Option<SupersearchMeta>, String> {
+    let ss_meta = state.supersearch_meta.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = notes_root(&app)?;
+
+        {
+            let read = ss_meta
+                .read()
+                .map_err(|_| "supersearch meta lock poisoned".to_string())?;
+            if read.is_some() {
+                return Ok(read.clone());
+            }
+        }
+
+        let loaded = load_supersearch_meta(&base);
+        let mut write = ss_meta
+            .write()
+            .map_err(|_| "supersearch meta lock poisoned".to_string())?;
+        if write.is_none() {
+            *write = loaded;
+        }
+        Ok(write.clone())
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
 fn rand_suffix() -> String {
     let n = now_ms().unsigned_abs() % 10_000;
     format!("{n:04}")
@@ -1489,7 +1921,10 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     fn temp_notes_dir() -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("futo-tauri-test-{}", now_ms()));
+        use std::sync::atomic::{AtomicU32, Ordering};
+        static COUNTER: AtomicU32 = AtomicU32::new(0);
+        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("futo-tauri-test-{}-{n}", now_ms()));
         fs::create_dir_all(&dir).expect("create temp test dir");
         dir
     }
@@ -1619,6 +2054,137 @@ mod tests {
         assert_eq!(output.state.hash_by_uuid.get("uuid-1"), Some(&"newhash".to_string()));
         assert!(output.updated_ids.iter().any(|id| id == "new-name"));
 
+        cleanup_temp_dir(&base);
+    }
+
+    #[test]
+    fn engagement_load_track_flush_round_trip() {
+        let base = temp_notes_dir();
+        let state = Arc::new(RwLock::new(EngagementState::default()));
+
+        // Load from empty dir (no file on disk)
+        ensure_engagement_loaded(&base, &state).expect("initial load");
+        {
+            let read = state.read().unwrap();
+            assert!(read.loaded);
+            assert!(read.data.notes.is_empty());
+        }
+
+        // Track open
+        {
+            let mut write = state.write().unwrap();
+            let record = write.data.notes.entry("test-note".to_string()).or_insert(EngagementRecord {
+                last_opened_at: 0,
+                open_count: 0,
+                last_edited_at: 0,
+                edit_count: 0,
+            });
+            record.open_count += 1;
+            record.last_opened_at = now_ms();
+            write.dirty = true;
+        }
+
+        // Track edit
+        {
+            let mut write = state.write().unwrap();
+            let record = write.data.notes.get_mut("test-note").unwrap();
+            record.edit_count += 1;
+            record.last_edited_at = now_ms();
+            write.dirty = true;
+        }
+
+        // Flush to disk
+        {
+            let mut write = state.write().unwrap();
+            assert!(write.dirty);
+            let json = serde_json::to_string_pretty(&write.data).unwrap();
+            write_atomic_text(&base.join(".engagement-v1.json"), &json).unwrap();
+            write.dirty = false;
+        }
+
+        // Reload from disk into a fresh state
+        let state2 = Arc::new(RwLock::new(EngagementState::default()));
+        ensure_engagement_loaded(&base, &state2).expect("reload");
+        {
+            let read = state2.read().unwrap();
+            let record = read.data.notes.get("test-note").expect("record exists");
+            assert_eq!(record.open_count, 1);
+            assert_eq!(record.edit_count, 1);
+            assert!(record.last_opened_at > 0);
+            assert!(record.last_edited_at > 0);
+        }
+
+        cleanup_temp_dir(&base);
+    }
+
+    #[test]
+    fn engagement_rename_moves_record() {
+        let base = temp_notes_dir();
+        let state = Arc::new(RwLock::new(EngagementState::default()));
+        ensure_engagement_loaded(&base, &state).unwrap();
+
+        {
+            let mut write = state.write().unwrap();
+            write.data.notes.insert(
+                "old-note".to_string(),
+                EngagementRecord {
+                    last_opened_at: 100,
+                    open_count: 5,
+                    last_edited_at: 200,
+                    edit_count: 3,
+                },
+            );
+        }
+
+        {
+            let mut write = state.write().unwrap();
+            if let Some(record) = write.data.notes.remove("old-note") {
+                write.data.notes.insert("new-note".to_string(), record);
+            }
+        }
+
+        {
+            let read = state.read().unwrap();
+            assert!(read.data.notes.get("old-note").is_none());
+            let record = read.data.notes.get("new-note").expect("renamed record");
+            assert_eq!(record.open_count, 5);
+            assert_eq!(record.edit_count, 3);
+        }
+
+        cleanup_temp_dir(&base);
+    }
+
+    #[test]
+    fn supersearch_meta_save_load_round_trip() {
+        let base = temp_notes_dir();
+
+        let meta = SupersearchMeta {
+            artifact_version: "1.0".to_string(),
+            artifact_hash: "abc123".to_string(),
+            downloaded_at: 1_700_000_000_000,
+            model: "test-model".to_string(),
+            dims: 384,
+            chunk_count: 42,
+        };
+
+        let json = serde_json::to_string_pretty(&meta).unwrap();
+        write_atomic_text(&base.join(".supersearch-state.json"), &json).unwrap();
+
+        let loaded = load_supersearch_meta(&base).expect("meta should load");
+        assert_eq!(loaded.artifact_version, "1.0");
+        assert_eq!(loaded.artifact_hash, "abc123");
+        assert_eq!(loaded.downloaded_at, 1_700_000_000_000);
+        assert_eq!(loaded.model, "test-model");
+        assert_eq!(loaded.dims, 384);
+        assert_eq!(loaded.chunk_count, 42);
+
+        cleanup_temp_dir(&base);
+    }
+
+    #[test]
+    fn supersearch_meta_returns_none_when_missing() {
+        let base = temp_notes_dir();
+        assert!(load_supersearch_meta(&base).is_none());
         cleanup_temp_dir(&base);
     }
 }

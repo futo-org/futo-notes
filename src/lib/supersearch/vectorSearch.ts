@@ -1,5 +1,4 @@
 import { getFS, platformName } from '../platform';
-import { bruteForceSearch, loadArtifacts } from './bruteForceSearch';
 
 export interface VectorSearchResult {
   uuid: string;
@@ -17,26 +16,24 @@ export async function vectorSearch(
 
   if (platformName === 'tauri') {
     const fs = getFS();
-    if (fs.supersearchQuery) {
-      const rows = await fs.supersearchQuery(Array.from(queryVector), topK * 2);
-      raw = rows.map((r) => ({
-        uuid: r.uuid,
-        chunkText: r.chunkText,
-        startOffset: r.startOffset,
-        endOffset: r.endOffset,
-        score: r.score,
-      }));
-    } else {
-      // Fallback for Tauri builds where native vector IPC is not yet available.
-      await loadArtifacts();
-      raw = bruteForceSearch(queryVector, topK * 2);
+    if (!fs.supersearchQuery) {
+      throw new Error('Native supersearch_query is unavailable on tauri platform');
     }
+
+    const rows = await fs.supersearchQuery(Array.from(queryVector), topK * 2);
+    raw = rows.map((r) => ({
+      uuid: r.uuid,
+      chunkText: r.chunkText,
+      startOffset: r.startOffset,
+      endOffset: r.endOffset,
+      score: r.score,
+    }));
   } else {
     // Web: no vector search
     return [];
   }
 
-  // Deduplicate: multiple chunks from same note → keep best score
+  // Deduplicate: multiple chunks from same note -> keep best score
   const bestByUuid = new Map<string, VectorSearchResult>();
   for (const result of raw) {
     const existing = bestByUuid.get(result.uuid);

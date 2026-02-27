@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { getAllNotes } from '$lib/notes';
+  import type { NotePreview } from '../types';
   import { getEngagementData } from '$lib/engagement';
   import { getForYouNotes } from '$lib/forYou';
   import { isMobile } from '$lib/platform';
@@ -7,15 +7,14 @@
   import { navigate } from '../router';
 
   interface Props {
+    notes: NotePreview[];
     onbrowse?: () => void;
     onquickcapture?: () => void;
   }
 
-  let { onbrowse, onquickcapture }: Props = $props();
+  let { notes, onbrowse, onquickcapture }: Props = $props();
 
-  const notes = getAllNotes();
-  const engagement = getEngagementData();
-  const forYouNotes = getForYouNotes(notes, engagement);
+  const forYouNotes = $derived(getForYouNotes(notes, getEngagementData()));
 
   function formatRelativeTime(timestamp: number): string {
     const seconds = Math.floor((Date.now() - timestamp) / 1000);

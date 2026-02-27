@@ -1,4 +1,5 @@
 import { getFS, platformName } from '../platform';
+import { hasRustCore, supersearchIsReadyRust, supersearchGetStateRust } from '../rustCore';
 
 const STATE_PATH = '.supersearch-state.json';
 
@@ -12,6 +13,9 @@ export interface SupersearchState {
 }
 
 export async function loadSupersearchState(): Promise<SupersearchState | null> {
+  if (hasRustCore()) {
+    return supersearchGetStateRust();
+  }
   try {
     const raw = await getFS().readAppData(STATE_PATH);
     if (!raw) return null;
@@ -27,23 +31,16 @@ export async function saveSupersearchState(state: SupersearchState): Promise<voi
 
 export async function hasLocalArtifacts(): Promise<boolean> {
   const fs = getFS();
-
-  if (platformName === 'tauri') {
-    if (fs.supersearchHasArtifacts) {
-      const nativeHasArtifacts = await fs.supersearchHasArtifacts();
-      if (nativeHasArtifacts) return true;
-    }
-    const [manifest, binData] = await Promise.all([
-      fs.readAppData('.supersearch-manifest.json'),
-      fs.readBinaryAppData?.('.supersearch-vectors.bin'),
-    ]);
-    return Boolean(manifest && binData);
+  if (platformName === 'tauri' && fs.supersearchHasArtifacts) {
+    return fs.supersearchHasArtifacts();
   }
-
   return false;
 }
 
 export async function isSupersearchReady(): Promise<boolean> {
+  if (hasRustCore()) {
+    return supersearchIsReadyRust();
+  }
   const state = await loadSupersearchState();
   if (state === null || state.artifactHash === '') return false;
   return hasLocalArtifacts();

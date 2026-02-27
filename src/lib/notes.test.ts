@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterAll, vi } from 'vitest';
 
 vi.mock('$lib/platform');
 vi.mock('./syncState');
+vi.mock('./rustCore');
 
 import { testFS } from '$lib/platform';
 import { markLocalDeleteForSync, trackLocalRenameForSync } from './syncState';
@@ -47,17 +48,6 @@ describe('initNotes', () => {
     await initNotes(); // second call should be no-op
 
     expect(getAllNotes()).toHaveLength(1);
-  });
-
-  it('populates search index', async () => {
-    await testFS.writeNote('searchable', 'unique-keyword-xyz');
-
-    const { initNotes, search } = await freshNotes();
-    await initNotes();
-
-    const results = search('unique-keyword-xyz');
-    expect(results).toHaveLength(1);
-    expect(results[0].note.id).toBe('searchable');
   });
 });
 
@@ -130,10 +120,10 @@ describe('updateNote', () => {
 });
 
 describe('deleteNote', () => {
-  it('removes file, cache, and search index; tracks in syncState by default', async () => {
+  it('removes file and cache; tracks in syncState by default', async () => {
     await testFS.writeNote('doomed', 'goodbye');
 
-    const { initNotes, deleteNote, getNoteById, search } = await freshNotes();
+    const { initNotes, deleteNote, getNoteById } = await freshNotes();
     await initNotes();
     expect(getNoteById('doomed')).toBeDefined();
 
@@ -141,7 +131,6 @@ describe('deleteNote', () => {
 
     expect(getNoteById('doomed')).toBeUndefined();
     expect(await testFS.noteExists('doomed')).toBe(false);
-    expect(search('goodbye')).toHaveLength(0);
     expect(mockMarkLocalDeleteForSync).toHaveBeenCalledWith('doomed');
   });
 
@@ -197,7 +186,7 @@ describe('search', () => {
     const { initNotes, search } = await freshNotes();
     await initNotes();
 
-    const results = search('');
+    const results = await search('');
     expect(results).toHaveLength(2);
     // Each result should have note and snippet
     expect(results[0].note).toBeDefined();
@@ -211,42 +200,20 @@ describe('search', () => {
     const { initNotes, search } = await freshNotes();
     await initNotes();
 
-    const results = search('uniqueword123');
+    const results = await search('uniqueword123');
     expect(results).toHaveLength(1);
     expect(results[0].note.id).toBe('alpha');
   });
 
-  it('returns results in relevance order, not mtime order', async () => {
-    const now = Date.now();
-    const sixtyDaysAgo = now - 60 * 24 * 60 * 60 * 1000;
-    const oneDayAgo = now - 1 * 24 * 60 * 60 * 1000;
-    // Create an older note with a strong title match
-    await testFS.writeNote('banana-recipe', 'This is about cooking bananas. Banana bread is great.', sixtyDaysAgo);
-    // Create a newer note that barely mentions banana
-    await testFS.writeNote('grocery-list', 'eggs, milk, banana, bread', oneDayAgo);
+  it('matches against note id', async () => {
+    await testFS.writeNote('banana-recipe', 'This is about cooking');
+    await testFS.writeNote('grocery-list', 'eggs, milk, bread');
 
     const { initNotes, search } = await freshNotes();
     await initNotes();
 
-    const results = search('banana');
-    expect(results.length).toBeGreaterThanOrEqual(2);
-    // The note with banana in the title should rank higher despite being older
-    expect(results[0].note.id).toBe('banana-recipe');
-  });
-
-  it('returns snippets with highlight segments', async () => {
-    await testFS.writeNote('test-note', 'Some text before the keyword specialterm right here and more after');
-
-    const { initNotes, search } = await freshNotes();
-    await initNotes();
-
-    const results = search('specialterm');
+    const results = await search('banana');
     expect(results).toHaveLength(1);
-    expect(results[0].snippet).not.toBeNull();
-
-    // The snippet should contain highlighted segments
-    const highlighted = results[0].snippet!.filter((s) => s.highlight);
-    expect(highlighted.length).toBeGreaterThan(0);
-    expect(highlighted[0].text.toLowerCase()).toContain('specialterm');
+    expect(results[0].note.id).toBe('banana-recipe');
   });
 });

@@ -15,14 +15,8 @@ vi.mock('../platform', () => ({
   getFS: () => mockFS,
 }));
 
-vi.mock('./bruteForceSearch', () => ({
-  loadArtifacts: vi.fn().mockResolvedValue(true),
-  bruteForceSearch: vi.fn().mockReturnValue([]),
-}));
-
 // Import after mocks
 const { vectorSearch } = await import('./vectorSearch');
-const { bruteForceSearch } = await import('./bruteForceSearch');
 
 describe('vectorSearch', () => {
   beforeEach(() => {
@@ -36,18 +30,12 @@ describe('vectorSearch', () => {
     expect(results).toEqual([]);
   });
 
-  it('falls back to bruteForceSearch on tauri when native query is unavailable', async () => {
+  it('throws when native tauri query is unavailable', async () => {
     mockPlatformName.value = 'tauri';
     mockFS.supersearchQuery = undefined as unknown as typeof mockFS.supersearchQuery;
     const query = new Float32Array([0.1, 0.2, 0.3]);
-    vi.mocked(bruteForceSearch).mockReturnValue([
-      { uuid: 'uuid1', chunkText: 'text1', startOffset: 0, endOffset: 10, score: 0.9 },
-    ]);
 
-    const results = await vectorSearch(query, 5);
-    expect(bruteForceSearch).toHaveBeenCalledWith(query, 10); // topK * 2
-    expect(results.length).toBe(1);
-    expect(results[0].uuid).toBe('uuid1');
+    await expect(vectorSearch(query, 5)).rejects.toThrow('Native supersearch_query is unavailable on tauri platform');
   });
 
   it('calls IPC on tauri platform', async () => {

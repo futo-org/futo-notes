@@ -1,30 +1,32 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { SyncState } from './syncState';
 import type { AppPreferences } from './preferences';
-import type { NotePreview } from '../types';
-import type { HealthResponse, LoginResponse, SyncResponse } from '@futo-notes/shared';
+import type { HealthResponse, LoginResponse, SyncResponse, NoteSyncMeta } from '@futo-notes/shared';
 
 // Mock all dependencies
 vi.mock('$lib/platform');
 vi.mock('./notes');
 vi.mock('./preferences');
 vi.mock('./syncState');
+vi.mock('./rustCore', () => ({
+  prepareSyncPayloadRust: vi.fn(),
+  applySyncDeltaRust: vi.fn(),
+}));
 
-import { getAllNotes, getNoteById, readNote, updateNote, deleteNote } from './notes';
+import { refreshNotesAfterSync } from './notes';
 import { getCachedPreferences, savePreferences } from './preferences';
 import { loadSyncState, saveSyncState, findIdForUuid } from './syncState';
+import { prepareSyncPayloadRust, applySyncDeltaRust } from './rustCore';
 import { connectSyncServer, syncNow } from './sync';
 
-const mockGetAllNotes = vi.mocked(getAllNotes);
-const mockGetNoteById = vi.mocked(getNoteById);
-const mockReadNote = vi.mocked(readNote);
-const mockUpdateNote = vi.mocked(updateNote);
-const mockDeleteNote = vi.mocked(deleteNote);
+const mockRefreshNotesAfterSync = vi.mocked(refreshNotesAfterSync);
 const mockGetCachedPreferences = vi.mocked(getCachedPreferences);
 const mockSavePreferences = vi.mocked(savePreferences);
 const mockLoadSyncState = vi.mocked(loadSyncState);
 const mockSaveSyncState = vi.mocked(saveSyncState);
 const mockFindIdForUuid = vi.mocked(findIdForUuid);
+const mockPrepareSyncPayloadRust = vi.mocked(prepareSyncPayloadRust);
+const mockApplySyncDeltaRust = vi.mocked(applySyncDeltaRust);
 
 function makePrefs(overrides: Partial<AppPreferences['sync']> = {}): AppPreferences {
   return {
@@ -49,15 +51,6 @@ function makeState(overrides: Partial<SyncState> = {}): SyncState {
   };
 }
 
-function makeNote(id: string, mtime = Date.now()): NotePreview {
-  return {
-    id,
-    title: id.charAt(0).toUpperCase() + id.slice(1),
-    preview: `Content of ${id}`,
-    modificationTime: mtime,
-  };
-}
-
 // Mock fetch globally
 let mockFetch: ReturnType<typeof vi.fn>;
 
@@ -70,8 +63,8 @@ beforeEach(() => {
   mockSavePreferences.mockResolvedValue();
   mockLoadSyncState.mockResolvedValue(makeState());
   mockSaveSyncState.mockResolvedValue();
-  mockDeleteNote.mockResolvedValue();
   mockFindIdForUuid.mockReturnValue(null);
+  mockRefreshNotesAfterSync.mockResolvedValue();
 });
 
 // ── connectSyncServer ───────────────────────────────────
@@ -157,11 +150,29 @@ describe('syncNow', () => {
     await expect(syncNow()).rejects.toThrow('Connect to server first');
   });
 
-  it('builds correct SyncRequest from local notes', async () => {
-    const note = makeNote('hello', 1700000000000);
-    mockGetAllNotes.mockReturnValue([note]);
-    mockReadNote.mockResolvedValue('Hello content');
+  it('sends Rust-prepared payload to server', async () => {
+    const syncNotes: NoteSyncMeta[] = [{
+      uuid: 'uuid-hello',
+      filename: 'hello.md',
+      modified_at: 1700000000000,
+      content_hash: 'somehash',
+      hash_at_last_sync: '',
+      content: 'Hello content',
+    }];
+
     mockLoadSyncState.mockResolvedValue(makeState({ uuidById: { hello: 'uuid-hello' } }));
+    mockPrepareSyncPayloadRust.mockResolvedValue({
+      nextState: makeState({ uuidById: { hello: 'uuid-hello' } }),
+      notes: syncNotes,
+      allUuids: ['uuid-hello'],
+      elapsedMs: 1,
+    });
+    mockApplySyncDeltaRust.mockResolvedValue({
+      nextState: makeState({ uuidById: { hello: 'uuid-hello' } }),
+      updatedIds: [],
+      deletedIds: [],
+      elapsedMs: 1,
+    });
 
     const syncResponse: SyncResponse = {
       update: [],
@@ -181,52 +192,24 @@ describe('syncNow', () => {
     expect(body.notes[0].uuid).toBe('uuid-hello');
     expect(body.notes[0].filename).toBe('hello.md');
     expect(body.notes[0].modified_at).toBe(1700000000000);
-    // Content should be included since hash differs from empty hash_at_last_sync
     expect(body.notes[0].content).toBe('Hello content');
     expect(body.all_uuids).toEqual(['uuid-hello']);
     expect(body.deleted_uuids).toEqual([]);
   });
 
-  it('excludes content when hash matches hash_at_last_sync', async () => {
-    const note = makeNote('hello', 1700000000000);
-    mockGetAllNotes.mockReturnValue([note]);
-    mockReadNote.mockResolvedValue('Hello content');
-
-    // We need a hash that matches. Compute sha256 of 'Hello content'
-    const hashBytes = await crypto.subtle.digest(
-      'SHA-256',
-      new TextEncoder().encode('Hello content')
-    );
-    const hash = Array.from(new Uint8Array(hashBytes))
-      .map((b) => b.toString(16).padStart(2, '0'))
-      .join('');
-
-    mockLoadSyncState.mockResolvedValue(
-      makeState({
-        uuidById: { hello: 'uuid-hello' },
-        hashByUuid: { 'uuid-hello': hash },
-      })
-    );
-
-    const syncResponse: SyncResponse = {
-      update: [],
-      delete: [],
-      hash_updates: [],
-      conflicts: [],
-    };
-    mockFetch.mockResolvedValueOnce(Response.json(syncResponse));
-
-    await syncNow();
-
-    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
-    // content_hash === hash_at_last_sync, so content should NOT be included
-    expect(body.notes[0].content).toBeUndefined();
-  });
-
-  it('processes response.update — calls updateNote with modified_at', async () => {
-    mockGetAllNotes.mockReturnValue([]);
-    mockLoadSyncState.mockResolvedValue(makeState());
-    mockUpdateNote.mockResolvedValue({ id: 'new-note', mtime: 1700000000000 });
+  it('processes response.update via Rust delta apply', async () => {
+    mockPrepareSyncPayloadRust.mockResolvedValue({
+      nextState: makeState(),
+      notes: [],
+      allUuids: [],
+      elapsedMs: 1,
+    });
+    mockApplySyncDeltaRust.mockResolvedValue({
+      nextState: makeState(),
+      updatedIds: ['new-note'],
+      deletedIds: [],
+      elapsedMs: 1,
+    });
 
     const syncResponse: SyncResponse = {
       update: [
@@ -245,25 +228,36 @@ describe('syncNow', () => {
     };
     mockFetch.mockResolvedValueOnce(Response.json(syncResponse));
 
-    await syncNow();
+    const summary = await syncNow();
 
-    expect(mockUpdateNote).toHaveBeenCalledWith(
-      'new-note',
-      'new-note',
-      '# New Note\nBody here',
-      undefined, // no originalId since findIdForUuid returns null
-      1700000000000 // modified_at passed through
+    expect(mockApplySyncDeltaRust).toHaveBeenCalledWith(
+      expect.anything(),
+      [expect.objectContaining({
+        uuid: 'uuid-new',
+        id: 'new-note',
+        content: '# New Note\nBody here',
+        modified_at: 1700000000000,
+        content_hash: 'abc123',
+      })],
+      [],
     );
+    expect(summary.downloaded).toBe(1);
+    expect(summary.updatedIds).toEqual(['new-note']);
   });
 
-  it('processes response.delete — calls deleteNote with trackSyncDelete: false', async () => {
-    const note = makeNote('doomed');
-    mockGetAllNotes.mockReturnValue([note]);
-    mockReadNote.mockResolvedValue('content');
-    mockGetNoteById.mockReturnValue(note);
-    mockLoadSyncState.mockResolvedValue(
-      makeState({ uuidById: { doomed: 'uuid-doomed' } })
-    );
+  it('processes response.delete via Rust delta apply', async () => {
+    mockPrepareSyncPayloadRust.mockResolvedValue({
+      nextState: makeState({ uuidById: { doomed: 'uuid-doomed' } }),
+      notes: [{ uuid: 'uuid-doomed', filename: 'doomed.md', modified_at: 1700000000000, content_hash: 'h', hash_at_last_sync: '' }],
+      allUuids: ['uuid-doomed'],
+      elapsedMs: 1,
+    });
+    mockApplySyncDeltaRust.mockResolvedValue({
+      nextState: makeState(),
+      updatedIds: [],
+      deletedIds: ['doomed'],
+      elapsedMs: 1,
+    });
 
     const syncResponse: SyncResponse = {
       update: [],
@@ -273,18 +267,31 @@ describe('syncNow', () => {
     };
     mockFetch.mockResolvedValueOnce(Response.json(syncResponse));
 
-    await syncNow();
+    const summary = await syncNow();
 
-    expect(mockDeleteNote).toHaveBeenCalledWith('doomed', { trackSyncDelete: false });
+    expect(mockApplySyncDeltaRust).toHaveBeenCalledWith(
+      expect.anything(),
+      [],
+      ['uuid-doomed'],
+    );
+    expect(summary.deleted).toBe(1);
+    expect(summary.deletedIds).toEqual(['doomed']);
   });
 
   it('processes response.hash_updates — updates state hashes', async () => {
-    const note = makeNote('hello');
-    mockGetAllNotes.mockReturnValue([note]);
-    mockReadNote.mockResolvedValue('content');
-
-    const state = makeState({ uuidById: { hello: 'uuid-hello' } });
-    mockLoadSyncState.mockResolvedValue(state);
+    mockLoadSyncState.mockResolvedValue(makeState({ uuidById: { hello: 'uuid-hello' } }));
+    mockPrepareSyncPayloadRust.mockResolvedValue({
+      nextState: makeState({ uuidById: { hello: 'uuid-hello' } }),
+      notes: [{ uuid: 'uuid-hello', filename: 'hello.md', modified_at: 1700000000000, content_hash: 'h', hash_at_last_sync: '' }],
+      allUuids: ['uuid-hello'],
+      elapsedMs: 1,
+    });
+    mockApplySyncDeltaRust.mockResolvedValue({
+      nextState: makeState({ uuidById: { hello: 'uuid-hello' } }),
+      updatedIds: [],
+      deletedIds: [],
+      elapsedMs: 1,
+    });
 
     const syncResponse: SyncResponse = {
       update: [],
@@ -302,8 +309,13 @@ describe('syncNow', () => {
   });
 
   it('records sync error in prefs on fetch failure', async () => {
-    mockGetAllNotes.mockReturnValue([]);
-    mockLoadSyncState.mockResolvedValue(makeState());
+    mockPrepareSyncPayloadRust.mockResolvedValue({
+      nextState: makeState(),
+      notes: [],
+      allUuids: [],
+      elapsedMs: 1,
+    });
+
     mockFetch.mockRejectedValueOnce(new Error('Network down'));
 
     await expect(syncNow()).rejects.toThrow('Network down');
@@ -318,10 +330,20 @@ describe('syncNow', () => {
   });
 
   it('clears error and sets lastSyncedAt on success', async () => {
-    mockGetAllNotes.mockReturnValue([]);
-    mockLoadSyncState.mockResolvedValue(makeState());
     const prefs = makePrefs({ lastError: 'old error' });
     mockGetCachedPreferences.mockReturnValue(prefs);
+    mockPrepareSyncPayloadRust.mockResolvedValue({
+      nextState: makeState(),
+      notes: [],
+      allUuids: [],
+      elapsedMs: 1,
+    });
+    mockApplySyncDeltaRust.mockResolvedValue({
+      nextState: makeState(),
+      updatedIds: [],
+      deletedIds: [],
+      elapsedMs: 1,
+    });
 
     const syncResponse: SyncResponse = {
       update: [],
@@ -333,24 +355,27 @@ describe('syncNow', () => {
 
     await syncNow();
 
-    // savePreferences is called twice: once by setSyncError path (not called here) and once by clearSyncErrorAndSetTime
     const lastCall = mockSavePreferences.mock.calls[mockSavePreferences.mock.calls.length - 1][0];
     expect(lastCall.sync.lastError).toBe('');
     expect(lastCall.sync.lastSyncedAt).toBeGreaterThan(0);
   });
 
   it('returns correct SyncSummary counts', async () => {
-    const note = makeNote('existing');
-    const delNote = makeNote('del');
-    mockGetAllNotes.mockReturnValue([note, delNote]);
-    mockReadNote.mockResolvedValue('content');
-    mockGetNoteById.mockImplementation((id) => (id === 'del' ? delNote : undefined));
-    mockUpdateNote.mockResolvedValue({ id: 'downloaded', mtime: Date.now() });
-
-    const state = makeState({
-      uuidById: { existing: 'uuid-existing', del: 'uuid-del' },
+    mockPrepareSyncPayloadRust.mockResolvedValue({
+      nextState: makeState({ uuidById: { existing: 'uuid-existing', del: 'uuid-del' } }),
+      notes: [
+        { uuid: 'uuid-existing', filename: 'existing.md', modified_at: 1700000000000, content_hash: 'h1', hash_at_last_sync: '' },
+        { uuid: 'uuid-del', filename: 'del.md', modified_at: 1700000000000, content_hash: 'h2', hash_at_last_sync: '' },
+      ],
+      allUuids: ['uuid-existing', 'uuid-del'],
+      elapsedMs: 1,
     });
-    mockLoadSyncState.mockResolvedValue(state);
+    mockApplySyncDeltaRust.mockResolvedValue({
+      nextState: makeState(),
+      updatedIds: ['downloaded'],
+      deletedIds: ['del'],
+      elapsedMs: 1,
+    });
 
     const syncResponse: SyncResponse = {
       update: [
@@ -381,7 +406,7 @@ describe('syncNow', () => {
     expect(summary.downloaded).toBe(1);
     expect(summary.deleted).toBe(1);
     expect(summary.conflicts).toBe(1);
-    expect(summary.updatedIds).toEqual(['downloaded']);
+    expect(summary.updatedIds).toContain('downloaded');
     expect(summary.deletedIds).toEqual(['del']);
   });
 });

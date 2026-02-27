@@ -21,6 +21,7 @@
     "tauri:dev": "cd apps/tauri && WINIT_UNIX_BACKEND=wayland GDK_BACKEND=wayland WEBKIT_DISABLE_DMABUF_RENDERER=1 cargo tauri dev",
     "tauri:build": "npm run build && cd apps/tauri && cargo tauri build",
     "tauri:android:dev": "cd apps/tauri && cargo tauri android dev",
+    "tauri:android:dev:offline": "npm run build && cd apps/tauri && cargo tauri android build --debug --apk && cd src-tauri/gen/android && ./gradlew app:installUniversalDebug && adb shell monkey -p com.futo.notes.tauri -c android.intent.category.LAUNCHER 1",
     "tauri:android:build": "cd apps/tauri && cargo tauri android build",
     "tauri:ios:dev": "cd apps/tauri && cargo tauri ios dev",
     "tauri:ios:build": "cd apps/tauri && cargo tauri ios build",

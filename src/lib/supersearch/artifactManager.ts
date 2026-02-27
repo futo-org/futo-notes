@@ -1,6 +1,6 @@
-import { getFS, platformName } from '../platform';
-import { hasLocalArtifacts, loadSupersearchState, saveSupersearchState } from './state';
+import { hasLocalArtifacts, loadSupersearchState } from './state';
 import type { SupersearchState } from './state';
+import { hasRustCore, supersearchDownloadWithMetaRust } from '../rustCore';
 
 interface SearchCapabilities {
   levels: number[];
@@ -43,35 +43,10 @@ export async function downloadArtifact(
   token: string,
   capabilities: SearchCapabilities,
 ): Promise<boolean> {
-  const fs = getFS();
-
   try {
-    if (platformName === 'tauri' && fs.supersearchDownload) {
-      await fs.supersearchDownload(serverUrl, token);
-    } else if (platformName === 'tauri') {
-      // Tauri fallback: fetch binary vectors + manifest via JS.
-      const [manifestRes, binRes] = await Promise.all([
-        fetch(`${serverUrl}/search/index?format=manifest`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
-        fetch(`${serverUrl}/search/index?format=bin`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
-      ]);
+    if (!hasRustCore()) return false;
 
-      if (!manifestRes.ok || !binRes.ok) return false;
-
-      const manifest = await manifestRes.text();
-      const binData = await binRes.arrayBuffer();
-
-      await fs.writeBinaryAppData!('.supersearch-vectors.bin', binData);
-      await fs.writeAppData('.supersearch-manifest.json', manifest);
-    } else {
-      // Web: no-op
-      return false;
-    }
-
-    const newState: SupersearchState = {
+    const meta: SupersearchState = {
       artifactVersion: capabilities.artifact_version,
       artifactHash: capabilities.artifact_hash,
       downloadedAt: Date.now(),
@@ -79,7 +54,7 @@ export async function downloadArtifact(
       dims: capabilities.dims,
       chunkCount: capabilities.chunk_count,
     };
-    await saveSupersearchState(newState);
+    await supersearchDownloadWithMetaRust(serverUrl, token, meta);
     return true;
   } catch (e) {
     console.warn('[supersearch] artifact download failed:', e);

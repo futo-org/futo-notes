@@ -1,9 +1,9 @@
 import { sanitizeFilename } from './utils';
-import { getAllNotes, getNoteById, readNote, updateNote, deleteNote, refreshNotesAfterSync } from './notes';
+import { refreshNotesAfterSync } from './notes';
 import { getCachedPreferences, savePreferences } from './preferences';
 import { findIdForUuid, loadSyncState, saveSyncState } from './syncState';
 import { getClientId } from './sseClient';
-import { applySyncDeltaRust, hasRustCore, prepareSyncPayloadRust } from './rustCore';
+import { applySyncDeltaRust, prepareSyncPayloadRust } from './rustCore';
 import { FALLBACK_TITLE, type HealthResponse, type LoginResponse, type SyncRequest, type SyncResponse } from '@futo-notes/shared';
 
 export interface SyncSummary {
@@ -22,17 +22,6 @@ function normalizeBaseUrl(input: string): string {
 function noteIdFromFilename(filename: string): string {
   const withoutExt = filename.replace(/\.md$/i, '');
   return sanitizeFilename(withoutExt) || FALLBACK_TITLE;
-}
-
-function titleFromId(id: string): string {
-  return id;
-}
-
-async function sha256Hex(input: string): Promise<string> {
-  const bytes = new TextEncoder().encode(input);
-  const digest = await crypto.subtle.digest('SHA-256', bytes);
-  const arr = Array.from(new Uint8Array(digest));
-  return arr.map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 async function parseJsonOrThrow<T>(res: Response): Promise<T> {
@@ -133,65 +122,16 @@ export async function syncNow(): Promise<SyncSummary> {
   if (!serverUrl) throw new Error('Set a sync server URL first');
   if (!token) throw new Error('Connect to server first');
 
-  const useRustCore = hasRustCore();
   let state = await loadSyncState();
   const outgoingByUuid = new Map<string, string>();
-  let syncNotes: SyncRequest['notes'] = [];
-  let allUuids: string[] = [];
 
-  if (useRustCore) {
-    const prepared = await prepareSyncPayloadRust(state);
-    state = prepared.nextState;
-    syncNotes = prepared.notes;
-    allUuids = prepared.allUuids;
-    for (const note of syncNotes) {
-      outgoingByUuid.set(note.uuid, noteIdFromFilename(note.filename));
-    }
-  } else {
-    const localNotes = getAllNotes();
-    const hashCache = state.hashCache ?? {};
-    for (const note of localNotes) {
-      const id = note.id;
-      const uuid = state.uuidById[id] ?? id;
-      state.uuidById[id] = uuid;
-      outgoingByUuid.set(uuid, id);
-
-      const modTime = note.modificationTime || Date.now();
-      const cached = hashCache[id];
-      let hash: string;
-      let content: string | undefined;
-
-      if (cached && cached.modifiedAt === note.modificationTime) {
-        hash = cached.hash;
-      } else {
-        content = await readNote(id);
-        hash = await sha256Hex(content);
-        hashCache[id] = { modifiedAt: modTime, hash };
-      }
-
-      const lastSyncHash = state.hashByUuid[uuid] ?? '';
-      const needsContent = hash !== lastSyncHash;
-      if (needsContent && content === undefined) {
-        content = await readNote(id);
-      }
-
-      syncNotes.push({
-        uuid,
-        filename: `${id}.md`,
-        modified_at: modTime,
-        content_hash: hash,
-        hash_at_last_sync: lastSyncHash,
-        ...(needsContent ? { content } : {}),
-      });
-    }
-
-    // Clean stale cache entries for deleted notes
-    const activeIds = new Set(localNotes.map(n => n.id));
-    for (const id of Object.keys(hashCache)) {
-      if (!activeIds.has(id)) delete hashCache[id];
-    }
-    state.hashCache = hashCache;
-    allUuids = Array.from(outgoingByUuid.keys());
+  // Prepare payload via Rust (parallel file I/O + native SHA-256)
+  const prepared = await prepareSyncPayloadRust(state);
+  state = prepared.nextState;
+  const syncNotes: SyncRequest['notes'] = prepared.notes;
+  const allUuids = prepared.allUuids;
+  for (const note of syncNotes) {
+    outgoingByUuid.set(note.uuid, noteIdFromFilename(note.filename));
   }
 
   let response: SyncResponse;
@@ -207,79 +147,28 @@ export async function syncNow(): Promise<SyncSummary> {
     throw e;
   }
 
-  let deleted = 0;
-  let downloaded = 0;
+  // Apply incoming changes via Rust (parallel file writes + index update)
   const updatedIds = new Set<string>();
   const deletedIds = new Set<string>();
-  if (useRustCore) {
-    const updatesForRust = response.update
-      .filter((note): note is SyncResponse['update'][number] & { content: string } => typeof note.content === 'string')
-      .map((note) => ({
-        uuid: note.uuid,
-        id: noteIdFromFilename(note.filename),
-        content: note.content,
-        modified_at: note.modified_at,
-        content_hash: note.content_hash,
-      }));
+  const updatesForRust = response.update
+    .filter((note): note is SyncResponse['update'][number] & { content: string } => typeof note.content === 'string')
+    .map((note) => ({
+      uuid: note.uuid,
+      id: noteIdFromFilename(note.filename),
+      content: note.content,
+      modified_at: note.modified_at,
+      content_hash: note.content_hash,
+    }));
 
-    const applied = await applySyncDeltaRust(state, updatesForRust, response.delete);
-    state = applied.nextState;
-    downloaded = updatesForRust.length;
-    deleted = applied.deletedIds.length;
-    for (const id of applied.updatedIds) updatedIds.add(id);
-    for (const id of applied.deletedIds) deletedIds.add(id);
+  const applied = await applySyncDeltaRust(state, updatesForRust, response.delete);
+  state = applied.nextState;
+  const downloaded = updatesForRust.length;
+  const deleted = applied.deletedIds.length;
+  for (const id of applied.updatedIds) updatedIds.add(id);
+  for (const id of applied.deletedIds) deletedIds.add(id);
 
-    for (const note of updatesForRust) {
-      outgoingByUuid.set(note.uuid, note.id);
-    }
-  } else {
-    for (const uuid of response.delete) {
-      const id = outgoingByUuid.get(uuid) ?? findIdForUuid(state, uuid);
-      if (id && getNoteById(id)) {
-        await deleteNote(id, { trackSyncDelete: false });
-        deleted++;
-      }
-      if (id) deletedIds.add(id);
-      if (id) delete state.uuidById[id];
-      delete state.hashByUuid[uuid];
-      state.deletedUuids = state.deletedUuids.filter((u) => u !== uuid);
-    }
-
-    for (const note of response.update) {
-      if (typeof note.content !== 'string') continue;
-
-      const incomingId = noteIdFromFilename(note.filename);
-      const mappedId = findIdForUuid(state, note.uuid);
-      const existingIncoming = getNoteById(incomingId);
-
-      let originalId: string | undefined;
-      if (mappedId && mappedId !== incomingId) {
-        originalId = mappedId;
-      } else if (existingIncoming) {
-        originalId = incomingId;
-      }
-
-      const result = await updateNote(
-        incomingId,
-        titleFromId(incomingId),
-        note.content,
-        originalId,
-        note.modified_at,
-      );
-
-      if (mappedId && mappedId !== result.id) {
-        delete state.uuidById[mappedId];
-      }
-
-      if (mappedId) updatedIds.add(mappedId);
-      updatedIds.add(result.id);
-
-      state.uuidById[result.id] = note.uuid;
-      state.hashByUuid[note.uuid] = note.content_hash;
-      state.deletedUuids = state.deletedUuids.filter((u) => u !== note.uuid);
-      outgoingByUuid.set(note.uuid, result.id);
-      downloaded++;
-    }
+  for (const note of updatesForRust) {
+    outgoingByUuid.set(note.uuid, note.id);
   }
 
   for (const update of response.hash_updates) {
@@ -294,7 +183,7 @@ export async function syncNow(): Promise<SyncSummary> {
   state.deletedUuids = [];
 
   await saveSyncState(state);
-  if (useRustCore && (updatedIds.size > 0 || deletedIds.size > 0)) {
+  if (updatedIds.size > 0 || deletedIds.size > 0) {
     await refreshNotesAfterSync(Array.from(updatedIds), Array.from(deletedIds));
   }
   await clearSyncErrorAndSetTime();

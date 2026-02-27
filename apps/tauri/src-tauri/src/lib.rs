@@ -34,7 +34,16 @@ pub fn run() {
             core_get_note_previews,
             core_keyword_search,
             core_prepare_sync_payload,
-            core_apply_sync_delta
+            core_apply_sync_delta,
+            engagement_load,
+            engagement_track_open,
+            engagement_track_edit,
+            engagement_remove,
+            engagement_rename,
+            engagement_get_all,
+            engagement_flush,
+            supersearch_is_ready,
+            supersearch_get_state
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

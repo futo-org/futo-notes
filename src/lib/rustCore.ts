@@ -1,6 +1,8 @@
 import type { NotePreview, SearchResultItem } from '../types';
 import type { SyncState } from './syncState';
 import type { NoteSyncMeta } from '@futo-notes/shared';
+import type { EngagementRecord } from './engagement';
+import type { SupersearchState } from './supersearch/state';
 import { platformName } from './platform';
 
 interface RustHashCacheEntry {
@@ -167,4 +169,50 @@ export async function applySyncDeltaRust(
     deletedIds: payload.deletedIds,
     elapsedMs: payload.elapsedMs,
   };
+}
+
+// Engagement wrappers
+export async function engagementLoadRust(): Promise<void> {
+  await tauriInvoke<void>('engagement_load');
+}
+
+export async function engagementTrackOpenRust(id: string): Promise<void> {
+  await tauriInvoke<void>('engagement_track_open', { id });
+}
+
+export async function engagementTrackEditRust(id: string): Promise<void> {
+  await tauriInvoke<void>('engagement_track_edit', { id });
+}
+
+export async function engagementRemoveRust(id: string): Promise<void> {
+  await tauriInvoke<void>('engagement_remove', { id });
+}
+
+export async function engagementRenameRust(oldId: string, newId: string): Promise<void> {
+  await tauriInvoke<void>('engagement_rename', { oldId, newId });
+}
+
+export async function engagementGetAllRust(): Promise<Record<string, EngagementRecord>> {
+  return tauriInvoke<Record<string, EngagementRecord>>('engagement_get_all');
+}
+
+export async function engagementFlushRust(): Promise<void> {
+  await tauriInvoke<void>('engagement_flush');
+}
+
+// Supersearch state wrappers
+export async function supersearchIsReadyRust(): Promise<boolean> {
+  return tauriInvoke<boolean>('supersearch_is_ready');
+}
+
+export async function supersearchGetStateRust(): Promise<SupersearchState | null> {
+  return tauriInvoke<SupersearchState | null>('supersearch_get_state');
+}
+
+export async function supersearchDownloadWithMetaRust(
+  serverUrl: string,
+  token: string,
+  meta: SupersearchState,
+): Promise<void> {
+  await tauriInvoke<void>('supersearch_download', { serverUrl, token, meta });
 }

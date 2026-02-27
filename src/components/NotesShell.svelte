@@ -6,7 +6,16 @@
   import SearchPopup from './SearchPopup.svelte';
   import VirtualList from './VirtualList.svelte';
   import type { NotePreview } from '../types';
-  import { getAllNotes, updateNote, readNote, createNote, getNoteById, deleteNote, handleExternalFileChange } from '$lib/notes';
+  import {
+    getAllNotes,
+    updateNote,
+    readNote,
+    createNote,
+    getNoteById,
+    deleteNote,
+    handleExternalFileChange,
+    refreshNotesFromStorage
+  } from '$lib/notes';
   import { sanitizeFilename } from '$lib/utils';
   import { FORBIDDEN_CHARS_RE, validateTitle } from '@futo-notes/shared';
   import type { SyncSummary } from '$lib/sync';
@@ -269,6 +278,8 @@ Escaped pipes:
 
   let drawerWidth = $state(0);
   let saveTimeout: number | null = null;
+  let saveInFlight: Promise<void> | null = null;
+  let saveQueued = false;
   let notesLoaded = false;
   let loading = false;
   let titleWarning = $state('');
@@ -315,6 +326,9 @@ Escaped pipes:
   // File watcher self-write suppression (desktop native)
   const recentWrites = new Map<string, number>();
   const recentSyncWrites = new Map<string, number>();
+  let externalRescanTimer: number | null = null;
+  let externalRescanInFlight = false;
+  let externalRescanQueued = false;
 
   function recordWrite(filename: string): void {
     recentWrites.set(filename, Date.now());
@@ -425,7 +439,7 @@ Escaped pipes:
         // dismisses the keyboard on mobile).
         if (freshContent !== editor?.getContent()) {
           // If the user typed while sync was in flight, keep local editing state.
-          if (editor?.hasFocus() && saveTimeout !== null) return;
+          if (editor?.hasFocus() && (saveTimeout !== null || saveInFlight !== null || saveQueued)) return;
           content = freshContent;
           suppressSaveOnChange = true;
           editor?.setContent(freshContent);
@@ -492,6 +506,37 @@ Escaped pipes:
     notes = hasFileSystem ? getAllNotes() : [];
   }
 
+  async function runExternalRescan(): Promise<void> {
+    if (!hasFileSystem) return;
+    if (externalRescanInFlight) {
+      externalRescanQueued = true;
+      return;
+    }
+    externalRescanInFlight = true;
+    try {
+      await refreshNotesFromStorage();
+      refreshNotesList();
+    } catch (e) {
+      console.warn('External rescan failed:', e);
+    } finally {
+      externalRescanInFlight = false;
+      if (externalRescanQueued) {
+        externalRescanQueued = false;
+        scheduleExternalRescan(250);
+      }
+    }
+  }
+
+  function scheduleExternalRescan(delayMs = 800): void {
+    if (externalRescanTimer !== null) {
+      clearTimeout(externalRescanTimer);
+    }
+    externalRescanTimer = window.setTimeout(() => {
+      externalRescanTimer = null;
+      void runExternalRescan();
+    }, delayMs);
+  }
+
   function handleNoteSelect(id: string): void {
     if (isMobile) setDrawerOpen(false);
     navigate(`/note/${encodeURIComponent(id)}`);
@@ -528,23 +573,54 @@ Escaped pipes:
     }
     saveTimeout = window.setTimeout(() => {
       saveTimeout = null;
-      void saveNote().then(() => notifySaved());
+      void runQueuedSave();
     }, 500);
   }
 
   async function flushSave(): Promise<void> {
-    if (saveTimeout === null) return;
-    clearTimeout(saveTimeout);
-    saveTimeout = null;
+    const hadPendingTimer = saveTimeout !== null;
+    if (hadPendingTimer) {
+      clearTimeout(saveTimeout);
+      saveTimeout = null;
+    }
     try {
-      await saveNote();
+      if (hadPendingTimer) {
+        await runQueuedSave();
+      } else if (saveInFlight !== null) {
+        await saveInFlight;
+      }
     } catch (e) {
       console.warn('Failed to flush note save:', e);
     }
   }
 
-  async function saveNote(): Promise<void> {
-    if (!hasFileSystem || !editor || noteId === null) return;
+  async function runQueuedSave(): Promise<void> {
+    if (saveInFlight !== null) {
+      saveQueued = true;
+      await saveInFlight;
+      return;
+    }
+
+    const run = (async () => {
+      do {
+        saveQueued = false;
+        const wrote = await saveNote();
+        if (wrote) notifySaved();
+      } while (saveQueued);
+    })();
+
+    saveInFlight = run;
+    try {
+      await run;
+    } finally {
+      if (saveInFlight === run) {
+        saveInFlight = null;
+      }
+    }
+  }
+
+  async function saveNote(): Promise<boolean> {
+    if (!hasFileSystem || !editor || noteId === null) return false;
     try {
       const newTitle = title.trim() || 'Untitled';
       const newId = sanitizeFilename(newTitle);
@@ -552,14 +628,21 @@ Escaped pipes:
 
       // Don't save empty new notes — nothing worth persisting yet,
       // and the save→navigate cycle can crash certain Android IME/WebView combos.
-      if (!originalId && !newContent.trim() && newTitle === 'Untitled') return;
+      if (!originalId && !newContent.trim() && newTitle === 'Untitled') return false;
 
       // Block saving if another note already has this name
-      if (hasDuplicateTitle(newTitle)) return;
+      if (hasDuplicateTitle(newTitle)) return false;
 
       const savedOriginalId = originalId;
+      if (savedOriginalId) {
+        // Mark rename source/target before disk writes to suppress our own watcher events.
+        recordWrite(`${savedOriginalId}.md`);
+        if (savedOriginalId !== newId) {
+          recordWrite(`${newId}.md`);
+        }
+      }
 
-      const result = await updateNote(newId, newTitle, newContent, originalId ?? undefined);
+      const result = await updateNote(newId, newTitle, newContent, savedOriginalId ?? undefined);
 
       // Track write for file-watcher self-suppression
       recordWrite(`${result.id}.md`);
@@ -581,8 +664,10 @@ Escaped pipes:
         prevNoteId = result.id;
         navigate(`/note/${encodeURIComponent(result.id)}`);
       }
+      return true;
     } catch (e) {
       console.warn('Failed to save note:', e);
+      return false;
     }
   }
 
@@ -736,10 +821,12 @@ Escaped pipes:
       clearTimeout(saveTimeout);
       saveTimeout = null;
     }
+    recordWrite(`${idToDelete}.md`);
     originalId = null;
     await deleteNote(idToDelete);
     refreshNotesList();
     navigate('/');
+    notifySaved();
     showToast('Note deleted');
   }
 
@@ -933,7 +1020,7 @@ Escaped pipes:
       onSyncError: (err) => console.warn('Auto-sync error:', err),
       flushPendingSave: flushSave,
       onSupersearchReady: () => { void checkSupersearchArtifacts(true); },
-      shouldDeferSync: () => saveTimeout !== null || Boolean(editor?.isComposing?.()),
+      shouldDeferSync: () => saveTimeout !== null || saveInFlight !== null || saveQueued || Boolean(editor?.isComposing?.()),
     });
 
     // Desktop sidebar: load persisted width
@@ -990,6 +1077,11 @@ Escaped pipes:
 
           await handleExternalFileChange(type as 'add' | 'change' | 'unlink', filename);
           refreshNotesList();
+          // Bulk external copies can emit events before all files are readable.
+          // Reconcile from disk after burst activity so missed notes are recovered.
+          if (type === 'add' || type === 'change') {
+            scheduleExternalRescan();
+          }
 
           // Trigger sync so externally-added files are uploaded to server
           if (type === 'add' || type === 'change') {
@@ -1018,6 +1110,10 @@ Escaped pipes:
     return () => {
       stopAutoSync();
       flushSave();
+      if (externalRescanTimer !== null) {
+        clearTimeout(externalRescanTimer);
+        externalRescanTimer = null;
+      }
       cleanupNativeListeners.forEach((cleanup) => cleanup());
       window.removeEventListener('keydown', handleGlobalShortcut);
     };
@@ -1234,7 +1330,7 @@ Escaped pipes:
           />
         </div>
       {:else}
-        <ForYouPage onbrowse={() => setDrawerOpen(true)} onquickcapture={createNewNote} />
+        <ForYouPage {notes} onbrowse={() => setDrawerOpen(true)} onquickcapture={createNewNote} />
       {/if}
     </div>
   </div>

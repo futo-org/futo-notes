@@ -1,4 +1,5 @@
 import { getFS, hasFileSystem } from './platform';
+import { hasRustCore, engagementLoadRust, engagementTrackOpenRust, engagementTrackEditRust, engagementRemoveRust, engagementRenameRust, engagementGetAllRust, engagementFlushRust } from './rustCore';
 
 const ENGAGEMENT_PATH = '.engagement-v1.json';
 
@@ -23,6 +24,12 @@ function defaultData(): EngagementData {
 }
 
 export async function loadEngagement(): Promise<void> {
+  if (hasRustCore()) {
+    await engagementLoadRust();
+    cached = { version: 1, notes: await engagementGetAllRust() };
+    return;
+  }
+
   if (!hasFileSystem) {
     cached = defaultData();
     return;
@@ -54,7 +61,11 @@ function schedulePersist(): void {
   if (persistTimer) clearTimeout(persistTimer);
   persistTimer = setTimeout(() => {
     persistTimer = null;
-    void writeEngagement();
+    if (hasRustCore()) {
+      void engagementFlushRust();
+    } else {
+      void writeEngagement();
+    }
   }, PERSIST_DELAY_MS);
 }
 
@@ -64,6 +75,20 @@ async function writeEngagement(): Promise<void> {
 }
 
 export function trackOpen(noteId: string): void {
+  if (hasRustCore()) {
+    void engagementTrackOpenRust(noteId);
+    const data = ensureLoaded();
+    const now = Date.now();
+    const existing = data.notes[noteId];
+    if (existing) {
+      existing.lastOpenedAt = now;
+      existing.openCount += 1;
+    } else {
+      data.notes[noteId] = { lastOpenedAt: now, openCount: 1, lastEditedAt: 0, editCount: 0 };
+    }
+    schedulePersist();
+    return;
+  }
   const data = ensureLoaded();
   const existing = data.notes[noteId];
   const now = Date.now();
@@ -82,6 +107,20 @@ export function trackOpen(noteId: string): void {
 }
 
 export function trackEdit(noteId: string): void {
+  if (hasRustCore()) {
+    void engagementTrackEditRust(noteId);
+    const data = ensureLoaded();
+    const now = Date.now();
+    const existing = data.notes[noteId];
+    if (existing) {
+      existing.lastEditedAt = now;
+      existing.editCount += 1;
+    } else {
+      data.notes[noteId] = { lastOpenedAt: 0, openCount: 0, lastEditedAt: now, editCount: 1 };
+    }
+    schedulePersist();
+    return;
+  }
   const data = ensureLoaded();
   const existing = data.notes[noteId];
   const now = Date.now();
@@ -100,12 +139,30 @@ export function trackEdit(noteId: string): void {
 }
 
 export function removeEngagement(noteId: string): void {
+  if (hasRustCore()) {
+    void engagementRemoveRust(noteId);
+    const data = ensureLoaded();
+    delete data.notes[noteId];
+    schedulePersist();
+    return;
+  }
   const data = ensureLoaded();
   delete data.notes[noteId];
   schedulePersist();
 }
 
 export function renameEngagement(oldId: string, newId: string): void {
+  if (hasRustCore()) {
+    void engagementRenameRust(oldId, newId);
+    const data = ensureLoaded();
+    const record = data.notes[oldId];
+    if (record) {
+      data.notes[newId] = record;
+      delete data.notes[oldId];
+    }
+    schedulePersist();
+    return;
+  }
   const data = ensureLoaded();
   const record = data.notes[oldId];
   if (record) {
@@ -119,6 +176,10 @@ export async function flushEngagement(): Promise<void> {
   if (persistTimer) {
     clearTimeout(persistTimer);
     persistTimer = null;
+  }
+  if (hasRustCore()) {
+    await engagementFlushRust();
+    return;
   }
   await writeEngagement();
 }

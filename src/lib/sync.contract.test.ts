@@ -11,6 +11,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createTestEnv, setupAndLogin, type TestEnv } from '@futo-notes/server-test/setup';
 
 vi.mock('$lib/platform');
+vi.mock('./rustCore');
 
 import { testFS, setActiveFS, resetActiveFS, createNodeFS, type TestPlatformFS } from '$lib/platform';
 
