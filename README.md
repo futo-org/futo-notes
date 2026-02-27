@@ -35,6 +35,8 @@ npm run tauri:android:dev
 npm run tauri:ios:dev
 ```
 
+Tauri dev ports are split by target to avoid collisions: desktop `5180`, Android `5181`, iOS `5182`.
+
 ### Development Workflow
 
 ```bash

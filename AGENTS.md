@@ -25,6 +25,7 @@ npm workspaces. Shared Svelte app at root, platform shells in `apps/`, shared pa
 - **IMPORTANT**: Styles in `@layer(components)` lose to CM6's unlayered CSS. Use `!important` on CodeMirror overrides inside layered CSS.
 - **IMPORTANT**: `npm run dev` uses localhost APIs. `npm run build` points to production endpoints.
 - **IMPORTANT**: `npm run build` must run from monorepo root. Running from a workspace resolves a different build script — verify output includes `vite build` and `dist/assets/`.
+- **IMPORTANT**: Tauri dev ports are split by target to avoid collisions: desktop `5180`, Android `5181`, iOS `5182`.
 
 ## Close The Loop (Required)
 
