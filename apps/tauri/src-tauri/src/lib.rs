@@ -7,6 +7,33 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(CoreState::default())
+        .setup(|app| {
+            // On iOS, extend the webview edge-to-edge so CSS env(safe-area-inset-*)
+            // reports correct values and the app fills the full screen.
+            #[cfg(target_os = "ios")]
+            {
+                use tauri::Manager;
+                let webview = app.get_webview_window("main").unwrap();
+                webview.with_webview(move |wv| {
+                    use objc2::runtime::AnyObject;
+                    use objc2::msg_send;
+                    unsafe {
+                        let wk: *mut AnyObject = wv.inner().cast();
+                        // WKWebView.scrollView
+                        let scroll_view: *mut AnyObject = msg_send![wk, scrollView];
+                        // UIScrollView.contentInsetAdjustmentBehavior = .never (2)
+                        let _: () = msg_send![scroll_view, setContentInsetAdjustmentBehavior: 2_isize];
+                        // Get the WKWebView's superview (the view controller's view)
+                        let superview: *mut AnyObject = msg_send![wk, superview];
+                        if !superview.is_null() {
+                            // Set insetsLayoutMarginsFromSafeArea = NO
+                            let _: () = msg_send![superview, setInsetsLayoutMarginsFromSafeArea: false];
+                        }
+                    }
+                }).unwrap();
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             fs_list_note_files,
             fs_read_note,

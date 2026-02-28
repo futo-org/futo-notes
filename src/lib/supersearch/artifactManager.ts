@@ -1,17 +1,8 @@
 import { hasLocalArtifacts, loadSupersearchState } from './state';
 import type { SupersearchState } from './state';
 import { hasRustCore, supersearchDownloadWithMetaRust } from '../rustCore';
-
-interface SearchCapabilities {
-  levels: number[];
-  model: string;
-  dims: number;
-  chunk_count: number;
-  last_indexed_at: number | null;
-  artifact_version: string;
-  artifact_hash: string;
-  query_prefix: string | null;
-}
+import { setServerSearchCapabilities } from './capabilities';
+import type { SearchCapabilities } from './capabilitiesTypes';
 
 export async function checkForUpdate(
   serverUrl: string,
@@ -21,9 +12,13 @@ export async function checkForUpdate(
     const res = await fetch(`${serverUrl}/search/capabilities`, {
       headers: { Authorization: `Bearer ${token}` },
     });
-    if (!res.ok) return { hasUpdate: false, capabilities: null };
+    if (!res.ok) {
+      setServerSearchCapabilities(null);
+      return { hasUpdate: false, capabilities: null };
+    }
 
     const capabilities = (await res.json()) as SearchCapabilities;
+    setServerSearchCapabilities(capabilities);
     if (!capabilities.artifact_hash) return { hasUpdate: false, capabilities };
 
     const currentState = await loadSupersearchState();
@@ -34,6 +29,7 @@ export async function checkForUpdate(
       || !hasArtifacts;
     return { hasUpdate, capabilities };
   } catch {
+    setServerSearchCapabilities(null);
     return { hasUpdate: false, capabilities: null };
   }
 }
@@ -45,6 +41,9 @@ export async function downloadArtifact(
 ): Promise<boolean> {
   try {
     if (!hasRustCore()) return false;
+    if (!capabilities.model || !capabilities.dims || !capabilities.artifact_version || !capabilities.artifact_hash) {
+      return false;
+    }
 
     const meta: SupersearchState = {
       artifactVersion: capabilities.artifact_version,

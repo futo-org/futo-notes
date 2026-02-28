@@ -9,11 +9,11 @@ import {
 import { ensureNotesFolder, getPlatformFS } from './platform';
 import { markLocalDeleteForSync, trackLocalRenameForSync, clearSyncState, loadSyncState, findIdForUuid } from './syncState';
 import { loadEngagement, trackEdit, removeEngagement, renameEngagement } from './engagement';
-import { isSupersearchReady } from './supersearch/state';
 import { embed, isReady as isEmbedderReady } from './supersearch/queryEmbedder';
 import { vectorSearch, type VectorSearchResult } from './supersearch/vectorSearch';
 import { hybridSearch } from './supersearch/hybridSearch';
 import { getSearchMode, type SearchMode } from './supersearch/searchMode';
+import { isSupersearchReady } from './supersearch/state';
 import { getRustNotePreviews, hasRustCore, keywordSearchRust, rebuildRustIndex } from './rustCore';
 
 // In-memory cache of notes metadata

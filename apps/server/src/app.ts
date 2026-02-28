@@ -11,6 +11,7 @@ import events from './routes/events.js';
 import dev from './routes/dev.js';
 import search from './routes/search.js';
 import dashboard from './routes/dashboard.js';
+import reset from './routes/reset.js';
 
 export function createApp(): Hono {
   const app = new Hono();
@@ -37,6 +38,7 @@ export function createApp(): Hono {
   app.route('/', sync);
   app.route('/', revoke);
   app.route('/', events);
+  app.route('/', reset);
 
   // Search routes (only when search is enabled)
   const config = loadConfig();

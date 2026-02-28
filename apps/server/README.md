@@ -69,6 +69,30 @@ docker compose -f docker-compose.production.yml up -d
 
 The server will be available at `http://localhost:3005`. Data is persisted in a Docker volume.
 
+### Run hardware benchmark from Docker image (no repo required)
+
+If the server container is already running:
+
+```bash
+docker exec -it <container_name_or_id> node dist/benchmark.js
+```
+
+If you only have the image and want a one-shot benchmark:
+
+```bash
+docker run --rm -it \
+  -v futo-notes-data:/app/apps/server/data \
+  --entrypoint node \
+  gitlab.futo.org:5050/justin/futo-notes/server:latest \
+  dist/benchmark.js
+```
+
+With compose (`docker-compose.production.yml`):
+
+```bash
+docker compose -f docker-compose.production.yml exec server node dist/benchmark.js
+```
+
 ### Build from source
 
 If you've cloned the monorepo and want to build locally:

@@ -5,9 +5,10 @@
   "type": "module",
   "scripts": {
     "rebuild-native": "npm rebuild better-sqlite3 argon2",
-    "dev": "tsx watch src/index.ts",
-    "build": "tsup src/index.ts --format esm --outDir dist",
+    "dev": "NODE_ENV=development tsx watch src/index.ts",
+    "build": "tsup",
     "start": "node dist/index.js",
+    "benchmark": "node dist/benchmark.js",
     "test": "vitest run"
   },
   "dependencies": {

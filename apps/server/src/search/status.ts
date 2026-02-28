@@ -9,6 +9,11 @@ export interface SearchCapabilities {
   last_indexed_at: number | null;
   artifact_version: string | null;
   artifact_hash: string | null;
+  methods: {
+    keyword: { supported: true };
+    vector: { supported: boolean };
+    hybrid: { supported: boolean };
+  };
 }
 
 export interface SearchStatus {
@@ -50,6 +55,14 @@ export function getCapabilities(db: Database.Database): SearchCapabilities {
     SELECT MAX(indexed_at) as last FROM search_index_state
   `).get() as { last: number | null };
 
+  const vectorSupported = Boolean(
+    model
+      && dims
+      && artifactVersion
+      && artifactHash
+      && chunkRow.count > 0,
+  );
+
   return {
     levels: model ? [2] : [],
     model,
@@ -59,6 +72,11 @@ export function getCapabilities(db: Database.Database): SearchCapabilities {
     last_indexed_at: lastIndexed.last,
     artifact_version: artifactVersion,
     artifact_hash: artifactHash,
+    methods: {
+      keyword: { supported: true },
+      vector: { supported: vectorSupported },
+      hybrid: { supported: vectorSupported },
+    },
   };
 }
 

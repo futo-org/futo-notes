@@ -18,13 +18,35 @@ let schedulerInterval: ReturnType<typeof setInterval> | null = null;
 let lastActivity = Date.now();
 let running = false;
 let currentConfig: Config | null = null;
-let disabled = false;
+let disabledByUser = false;
+let disabledByHardware = false;
 let phase: SchedulerPhase = 'idle';
 let downloadProgress: { totalSize: number; downloadedSize: number } | null = null;
 let abortController: AbortController | null = null;
 let runningJobPromise: Promise<void> | null = null;
 let activeJobToken = 0;
 let modelChangeInProgress = false;
+
+function isDisabled(): boolean {
+  return disabledByUser || disabledByHardware;
+}
+
+function setEnhancedSearchEnabledConfig(enabled: boolean): void {
+  const db = getDb();
+  const now = Date.now();
+  db.prepare(`
+    INSERT INTO search_config (key, value, updated_at) VALUES ('enhanced_search_enabled', ?, ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+  `).run(enabled ? '1' : '0', now);
+}
+
+function getEnhancedSearchEnabledConfig(): boolean {
+  const db = getDb();
+  const row = db.prepare("SELECT value FROM search_config WHERE key = 'enhanced_search_enabled'")
+    .get() as { value: string } | undefined;
+  if (!row) return true;
+  return row.value !== '0';
+}
 
 /**
  * Get the current scheduler state for dashboard display.
@@ -34,12 +56,21 @@ export function getSchedulerState(): {
   modelReady: boolean;
   idleWindow: { start: string; end: string; active: boolean } | null;
   downloadProgress: { totalSize: number; downloadedSize: number } | null;
+  userEnabled: boolean;
+  disabledReason: 'user' | 'hardware' | null;
 } {
   if (!currentConfig) {
-    return { phase: 'idle', modelReady: false, idleWindow: null, downloadProgress: null };
+    return {
+      phase: 'idle',
+      modelReady: false,
+      idleWindow: null,
+      downloadProgress: null,
+      userEnabled: true,
+      disabledReason: null,
+    };
   }
   return {
-    phase: disabled ? 'disabled' : phase,
+    phase: isDisabled() ? 'disabled' : phase,
     modelReady: jobProcessor !== null,
     idleWindow: {
       start: currentConfig.indexIdleStart,
@@ -47,6 +78,8 @@ export function getSchedulerState(): {
       active: isWithinIdleWindow(currentConfig.indexIdleStart, currentConfig.indexIdleEnd),
     },
     downloadProgress: phase === 'downloading_model' ? downloadProgress : null,
+    userEnabled: !disabledByUser,
+    disabledReason: disabledByUser ? 'user' : disabledByHardware ? 'hardware' : null,
   };
 }
 
@@ -106,7 +139,7 @@ export async function ensureModelLoaded(): Promise<boolean> {
  */
 async function ensureProcessor(config: Config): Promise<boolean> {
   if (jobProcessor) return true;
-  if (disabled) return false;
+  if (isDisabled()) return false;
   if (ensureProcessorPromise) return ensureProcessorPromise;
 
   ensureProcessorPromise = ensureProcessorImpl(config).finally(() => {
@@ -114,7 +147,7 @@ async function ensureProcessor(config: Config): Promise<boolean> {
     // return the scheduler phase to idle once model init settles.
     if (
       !running
-      && !disabled
+      && !isDisabled()
       && (phase === 'benchmarking' || phase === 'downloading_model' || phase === 'loading_model')
     ) {
       phase = 'idle';
@@ -127,7 +160,7 @@ async function ensureProcessor(config: Config): Promise<boolean> {
 
 async function ensureProcessorImpl(config: Config): Promise<boolean> {
   if (jobProcessor) return true;
-  if (disabled) return false;
+  if (isDisabled()) return false;
 
   const db = getDb();
   const { getModelDef } = await import('./modelRegistry.js');
@@ -158,7 +191,7 @@ async function ensureProcessorImpl(config: Config): Promise<boolean> {
       const result = await runBenchmark(db, config.modelsPath);
       if (!result.selectedModelId) {
         log.warn('search: hardware too slow for embeddings, disabling indexer');
-        disabled = true;
+        disabledByHardware = true;
         return false;
       }
       modelId = result.selectedModelId;
@@ -170,7 +203,7 @@ async function ensureProcessorImpl(config: Config): Promise<boolean> {
     const modelDef = getModelDef(modelId);
     if (!modelDef) {
       log.error(`search: model "${modelId}" not found in registry`);
-      disabled = true;
+      disabledByHardware = true;
       return false;
     }
 
@@ -292,7 +325,7 @@ async function runIndexInBackground(config: Config, signal?: AbortSignal): Promi
 }
 
 async function tick(): Promise<void> {
-  if (running || !currentConfig || disabled || modelChangeInProgress) return;
+  if (running || !currentConfig || isDisabled() || modelChangeInProgress) return;
 
   const config = currentConfig;
   const inWindow = isWithinIdleWindow(config.indexIdleStart, config.indexIdleEnd);
@@ -315,6 +348,8 @@ async function tick(): Promise<void> {
  */
 export function startSearchScheduler(config: Config): void {
   currentConfig = config;
+  disabledByUser = !getEnhancedSearchEnabledConfig();
+  disabledByHardware = false;
   schedulerInterval = setInterval(() => {
     tick().catch((err) => {
       log.error(`search: scheduler error: ${err instanceof Error ? err.message : String(err)}`);
@@ -426,8 +461,10 @@ export async function changeModel(newModelId: string): Promise<void> {
 
     log.info(`search: model changed to "${newModelId}" — index wiped, triggering re-index`);
 
-    // Reset disabled flag — user is explicitly choosing a model
-    disabled = false;
+    // Reset disabled flags — user is explicitly choosing a model
+    disabledByUser = false;
+    disabledByHardware = false;
+    setEnhancedSearchEnabledConfig(true);
 
     // Trigger re-indexing in the background
     void startTrackedIndexJob(currentConfig, 'search: post-model-change reindex failed');
@@ -452,7 +489,47 @@ export function stopSearchScheduler(): void {
   currentConfig = null;
   jobProcessor = null;
   ensureProcessorPromise = null;
-  disabled = false;
+  disabledByUser = false;
+  disabledByHardware = false;
   downloadProgress = null;
   modelChangeInProgress = false;
+}
+
+export async function setEnhancedSearchEnabled(enabled: boolean): Promise<void> {
+  if (!currentConfig) {
+    throw new Error('Search scheduler not initialized');
+  }
+  if (modelChangeInProgress) {
+    throw new Error('Model change in progress');
+  }
+
+  disabledByUser = !enabled;
+  setEnhancedSearchEnabledConfig(enabled);
+  downloadProgress = null;
+
+  if (!enabled) {
+    if (running && abortController) {
+      abortController.abort();
+    }
+    if (runningJobPromise) {
+      await runningJobPromise;
+    }
+    if (ensureProcessorPromise) {
+      try {
+        await ensureProcessorPromise;
+      } catch {
+        // Ignore lazy init failures while disabling.
+      }
+    }
+
+    const { unloadModel } = await import('./modelManager.js');
+    await unloadModel();
+    jobProcessor = null;
+    phase = 'idle';
+    return;
+  }
+
+  if (disabledByHardware) {
+    disabledByHardware = false;
+  }
 }

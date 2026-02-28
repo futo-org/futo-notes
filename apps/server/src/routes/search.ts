@@ -57,6 +57,24 @@ search.post('/search/change-model', authMiddleware, async (c) => {
   }
 });
 
+search.post('/search/set-enhanced-search', authMiddleware, async (c) => {
+  try {
+    const body = await c.req.json<{ enabled: boolean }>();
+    if (typeof body.enabled !== 'boolean') {
+      return c.json({ error: 'Missing or invalid enabled flag' }, 400);
+    }
+
+    const { setEnhancedSearchEnabled } = await import('../search/scheduler.js');
+    await setEnhancedSearchEnabled(body.enabled);
+
+    return c.json({ enabled: body.enabled }, 200);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error(`search: set-enhanced-search failed: ${message}`);
+    return c.json({ error: message }, 409);
+  }
+});
+
 search.get('/search/index', authMiddleware, (c) => {
   const format = c.req.query('format') || 'sqlite';
   const config = loadConfig();

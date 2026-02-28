@@ -80,3 +80,11 @@ test-results/
 
 # Claude
 .claude/local-plugins/*
+
+# Entity lab generated artifacts
+experiments/entity-lab/cache/*
+!experiments/entity-lab/cache/.gitkeep
+experiments/entity-lab/runs/*
+!experiments/entity-lab/runs/.gitkeep
+experiments/entity-lab/reports/*
+!experiments/entity-lab/reports/.gitkeep

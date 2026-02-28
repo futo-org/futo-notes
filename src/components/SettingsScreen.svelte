@@ -5,6 +5,7 @@
   import { applyThemePreference, type ThemePreference } from '$lib/theme';
   import { connectSyncServer, saveSyncServerUrl } from '$lib/sync';
   import { requestSync } from '$lib/autoSync';
+  import { ask } from '@tauri-apps/plugin-dialog';
 
   interface Props {
     onclose: () => void;
@@ -65,6 +66,24 @@
       syncStatus = `Connect failed: ${getErrorMessage(e)}`;
     } finally {
       syncBusy = false;
+    }
+  }
+
+  async function confirmResetConnection(): Promise<void> {
+    const confirmed = await ask('Are you sure you want to reset the connection?', { title: 'Reset connection', kind: 'warning' });
+    if (!confirmed) return;
+    hasSyncToken = false;
+    tokenServerUrl = '';
+    syncPassword = '';
+    syncStatus = '';
+    const p = getCachedPreferences();
+    p.sync.token = '';
+    await savePreferences(p);
+  }
+
+  function handleUrlClick(): void {
+    if (hasSyncToken) {
+      void confirmResetConnection();
     }
   }
 
@@ -182,44 +201,51 @@
 
       {#if hasFileSystem}
       <section class="settings-section">
-        <h3 class="settings-section-title">Sync (MVP)</h3>
+        <h3 class="settings-section-title">Sync</h3>
         <div class="settings-card">
           <label class="settings-input-label" for="sync-url">Server URL</label>
           <input
             id="sync-url"
             class="settings-input"
+            class:settings-input-readonly={hasSyncToken}
             type="text"
             bind:value={syncUrl}
             onblur={persistSyncUrl}
-            placeholder="http://localhost:3100"
+            onclick={handleUrlClick}
+            readonly={hasSyncToken}
+            placeholder="notes.example.com"
             autocapitalize="off"
             autocomplete="off"
             spellcheck="false"
           />
-          <p class="settings-btn-desc settings-hint">
-            Desktop/iOS simulator: <code>http://localhost:3100</code>. Android emulator: <code>http://10.0.2.2:3100</code>.
-          </p>
 
-          <label class="settings-input-label" for="sync-password">Password (for Connect)</label>
-          <input
-            id="sync-password"
-            class="settings-input"
-            type="password"
-            bind:value={syncPassword}
-            placeholder="At least 8 characters"
-            autocapitalize="off"
-            autocomplete="current-password"
-            spellcheck="false"
-          />
+          {#if !hasSyncToken}
+            <label class="settings-input-label" for="sync-password">Password</label>
+            <input
+              id="sync-password"
+              class="settings-input"
+              type="password"
+              bind:value={syncPassword}
+              placeholder="At least 8 characters"
+              autocapitalize="off"
+              autocomplete="current-password"
+              spellcheck="false"
+            />
 
-          <div class="settings-actions">
-            <button class="settings-btn settings-btn-inline" onclick={handleConnectSync} disabled={syncBusy}>
-              {syncBusy ? 'Working...' : hasSyncToken && syncUrl === tokenServerUrl ? 'Reconnect' : 'Connect'}
-            </button>
-            <button class="settings-btn settings-btn-inline" onclick={handleSyncNow} disabled={syncBusy}>
-              Sync now
-            </button>
-          </div>
+            <div class="settings-actions">
+              <button class="settings-btn settings-btn-inline" onclick={handleConnectSync} disabled={syncBusy}>
+                {syncBusy ? 'Working...' : 'Connect'}
+              </button>
+            </div>
+          {:else}
+            <div class="settings-actions">
+              <button class="settings-btn settings-btn-inline" onclick={handleSyncNow} disabled={syncBusy}>
+                {syncBusy ? 'Working...' : 'Sync now'}
+              </button>
+            </div>
+
+            <button class="settings-link-btn" onclick={() => void confirmResetConnection()}>Reset connection</button>
+          {/if}
 
           <p class="settings-btn-desc settings-hint">Last sync: {formatTimestamp(syncLastAt)}</p>
           {#if syncStatus}
@@ -428,6 +454,11 @@
     border-color: var(--color-primary);
   }
 
+  .settings-input-readonly {
+    opacity: 0.7;
+    cursor: pointer;
+  }
+
   .settings-actions {
     display: flex;
     gap: 8px;
@@ -499,6 +530,25 @@
     margin: 6px 0;
     line-height: 1.35;
   }
+
+  .settings-link-btn {
+    display: block;
+    margin: 6px 0 2px;
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--color-muted);
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+    text-decoration: underline;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .settings-link-btn:active {
+    opacity: 0.6;
+  }
+
 
   .settings-btn-arrow {
     font-size: 22px;

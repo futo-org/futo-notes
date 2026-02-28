@@ -3,6 +3,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import { loadConfig } from './config.js';
 import { initDb, getDb } from './db/index.js';
+import { isSetupComplete, setPasswordHash } from './db/auth.js';
+import { hashPassword } from './auth/password.js';
 import { createApp } from './app.js';
 import { reconcile } from './sync/recovery.js';
 import { log } from './logger.js';
@@ -24,6 +26,33 @@ fs.mkdirSync(config.notesPath, { recursive: true });
 
 // Initialize database
 initDb(config.databasePath);
+
+if (process.env.NODE_ENV === 'development') {
+  const db = getDb();
+  if (!isSetupComplete(db)) {
+    const hash = await hashPassword('testing123');
+    setPasswordHash(db, hash);
+    log.info('dev: default password configured');
+  }
+
+  const devSeedNotes = [
+    {
+      filename: 'Welcome test note.md',
+      body: '# Welcome test note\n\nThis development seed note is intentionally longer than ten words so it is always eligible for indexing during local server testing.\n',
+    },
+    {
+      filename: 'Second test note.md',
+      body: '# Second test note\n\nUse this note to verify indexing and search behavior with enough content words to satisfy the minimum chunking requirement every time.\n',
+    },
+  ];
+
+  for (const note of devSeedNotes) {
+    const fullPath = `${config.notesPath}/${note.filename}`;
+    if (!fs.existsSync(fullPath)) {
+      fs.writeFileSync(fullPath, note.body, 'utf8');
+    }
+  }
+}
 
 // Reconcile DB with disk (recover from any crash-induced divergence)
 log.info('reconciling DB with disk...');

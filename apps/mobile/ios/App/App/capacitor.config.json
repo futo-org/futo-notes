@@ -1,0 +1,29 @@
+{
+	"appId": "com.futo.notes",
+	"appName": "FUTO Notes",
+	"webDir": "../../dist",
+	"server": {
+		"androidScheme": "http"
+	},
+	"android": {
+		"useSafeArea": false
+	},
+	"ios": {
+		"contentInset": "never",
+		"scrollEnabled": false
+	},
+	"plugins": {
+		"Keyboard": {
+			"resize": "none",
+			"resizeOnFullScreen": false
+		}
+	},
+	"packageClassList": [
+		"AppPlugin",
+		"CAPCameraPlugin",
+		"FilesystemPlugin",
+		"HapticsPlugin",
+		"KeyboardPlugin",
+		"StatusBarPlugin"
+	]
+}

@@ -16,7 +16,11 @@ export interface SyncSummary {
 }
 
 function normalizeBaseUrl(input: string): string {
-  return input.trim().replace(/\/+$/, '');
+  let url = input.trim().replace(/\/+$/, '');
+  if (url && !/^https?:\/\//i.test(url)) {
+    url = `https://${url}`;
+  }
+  return url;
 }
 
 function noteIdFromFilename(filename: string): string {

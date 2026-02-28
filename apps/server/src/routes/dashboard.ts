@@ -52,6 +52,7 @@ dashboard.get('/dashboard/status', async (c) => {
 
       search = {
         enabled: true,
+        enhanced_search_enabled: schedulerState.userEnabled,
         model,
         available_models: MODEL_REGISTRY.map(m => ({
           id: m.id,
@@ -335,6 +336,164 @@ function dashboardHtml(): string {
 
   .btn-primary:hover { background: var(--primary-hover); }
   .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-muted {
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+  .btn-muted:hover { background: var(--border); }
+  .btn-muted:disabled { opacity: 0.5; cursor: not-allowed; }
+  .action-link {
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    color: var(--primary);
+    font-family: inherit;
+    font-size: 0.85rem;
+    font-weight: 600;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    cursor: pointer;
+  }
+  .action-link:hover {
+    color: var(--primary-hover);
+  }
+  .action-link:disabled {
+    color: var(--text-secondary);
+    text-decoration: none;
+    cursor: not-allowed;
+    opacity: 0.7;
+  }
+  .btn-danger {
+    background: linear-gradient(180deg, #B61D12 0%, #7D120C 100%);
+    color: white;
+    border: 1px solid #5F0D08;
+    box-shadow: 0 6px 16px rgba(125, 18, 12, 0.35);
+  }
+  .btn-danger:hover {
+    background: linear-gradient(180deg, #C62518 0%, #8A150D 100%);
+  }
+  .btn-danger:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    box-shadow: none;
+  }
+
+  .danger-card {
+    border: 1px solid #D26A5E;
+    background: linear-gradient(180deg, #FFF6F4 0%, #FFEDEA 100%);
+  }
+
+  .danger-card h2 {
+    color: #8A150D;
+  }
+
+  .danger-copy {
+    font-size: 0.9rem;
+    color: #6A1610;
+    margin-bottom: 0.25rem;
+    font-weight: 600;
+  }
+
+  .danger-callout {
+    font-size: 0.85rem;
+    color: #8A150D;
+  }
+
+  .danger-list {
+    margin: 0.65rem 0 1rem 1.1rem;
+    color: #6A1610;
+    font-size: 0.85rem;
+  }
+
+  .danger-list li + li {
+    margin-top: 0.3rem;
+  }
+
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+    background: rgba(29, 25, 23, 0.72);
+    z-index: 1000;
+  }
+
+  .modal-backdrop.open {
+    display: flex;
+  }
+
+  .danger-modal {
+    width: min(540px, 100%);
+    border: 2px solid #B61D12;
+    border-radius: 14px;
+    background: #FFF5F2;
+    padding: 1rem 1.1rem;
+    box-shadow: 0 14px 36px rgba(28, 25, 23, 0.45);
+  }
+
+  .danger-modal h3 {
+    color: #8A150D;
+    font-size: 1.05rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .danger-modal p {
+    font-size: 0.875rem;
+    color: #5B1812;
+  }
+
+  .danger-modal ul {
+    margin: 0.65rem 0 0.75rem 1.2rem;
+    font-size: 0.84rem;
+    color: #5B1812;
+  }
+
+  .danger-modal ul li + li {
+    margin-top: 0.25rem;
+  }
+
+  .danger-modal label {
+    display: block;
+    font-size: 0.8rem;
+    color: #7D120C;
+    font-weight: 600;
+    margin-bottom: 0.35rem;
+  }
+
+  .danger-input {
+    width: 100%;
+    border: 1px solid #D26A5E;
+    border-radius: 8px;
+    padding: 0.45rem 0.6rem;
+    font-family: inherit;
+    font-size: 0.9rem;
+    color: #1C1917;
+    background: white;
+  }
+
+  .danger-input:focus {
+    outline: none;
+    border-color: #B61D12;
+    box-shadow: 0 0 0 2px rgba(182, 29, 18, 0.18);
+  }
+
+  .danger-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    margin-top: 0.9rem;
+  }
+
+  .danger-final {
+    margin-top: 0.65rem;
+    font-size: 0.8rem;
+    color: #7D120C;
+    font-weight: 600;
+  }
 
   .index-row {
     display: flex;
@@ -356,6 +515,11 @@ function dashboardHtml(): string {
     font-style: italic;
   }
 
+  .search-dimmed {
+    opacity: 0.55;
+    pointer-events: none;
+  }
+
   .model-select {
     font-family: inherit;
     font-size: 0.8rem;
@@ -375,6 +539,8 @@ function dashboardHtml(): string {
   @media (max-width: 480px) {
     body { padding: 1rem 0.75rem; }
     .download-grid { grid-template-columns: 1fr; }
+    .danger-actions { flex-direction: column-reverse; }
+    .danger-actions .btn { width: 100%; }
   }
 </style>
 </head>
@@ -440,8 +606,40 @@ function dashboardHtml(): string {
     </ol>
   </div>
 
+  <!-- Danger Zone -->
+  <div class="card danger-card">
+    <h2>Danger Zone</h2>
+    <p class="danger-copy">Erase and Reset is permanent.</p>
+    <p class="danger-callout">This will return the server to a fresh-install state.</p>
+    <ul class="danger-list">
+      <li>Delete every note from disk and from the notes database</li>
+      <li>Clear setup, including the current server password</li>
+      <li>Immediately log out all connected devices and sessions</li>
+    </ul>
+    <button class="btn btn-danger" id="erase-reset-btn" onclick="openResetDialog()">Erase and Reset</button>
+  </div>
+
   <div class="footer">
     <a href="https://notes.futo.org">FUTO Notes</a> · <a href="https://futo.org">FUTO</a>
+  </div>
+</div>
+
+<div id="reset-modal" class="modal-backdrop" aria-hidden="true">
+  <div class="danger-modal" role="dialog" aria-modal="true" aria-labelledby="reset-title">
+    <h3 id="reset-title">Erase and Reset Server</h3>
+    <p>This action cannot be undone. If you continue, this server will be reset to a fresh install:</p>
+    <ul>
+      <li>All notes are permanently erased from disk and database</li>
+      <li>Setup is removed, so you must run setup again</li>
+      <li>Every logged-in device is revoked right away</li>
+    </ul>
+    <label for="reset-confirm-input">Type DELETE (all caps) to enable the final delete button</label>
+    <input id="reset-confirm-input" class="danger-input" type="text" autocomplete="off" spellcheck="false" placeholder="DELETE">
+    <div class="danger-actions">
+      <button class="btn btn-muted" id="reset-cancel-btn" onclick="closeResetDialog()">Cancel</button>
+      <button class="btn btn-danger" id="reset-confirm-btn" onclick="eraseAndReset()" disabled>Delete everything</button>
+    </div>
+    <p class="danger-final">Your current dashboard login will also be invalidated immediately.</p>
   </div>
 </div>
 
@@ -510,84 +708,120 @@ function dashboardHtml(): string {
     const sched = s.scheduler || {};
     const phaseText = phaseLabels[sched.phase];
     const isBusy = sched.phase && sched.phase !== 'idle' && sched.phase !== 'disabled';
-    const modelChangeBlocked = Boolean(isBusy);
+    const hasIndexedBefore = Boolean(s.last_indexed_at);
+    const modelChangeBlocked = Boolean(isBusy || !hasIndexedBefore);
+    const enhancedSearchEnabled = s.enhanced_search_enabled !== false;
+    const disabledReason = sched.disabledReason || null;
+    const userDisabled = !enhancedSearchEnabled && disabledReason === 'user';
+    const preIndexSummary = !hasIndexedBefore && !isBusy && !s.current_job;
 
-    // Indexing status
-    if (s.current_job) {
-      const pct = s.current_job.notes_total
-        ? Math.round((s.current_job.notes_processed / s.current_job.notes_total) * 100)
-        : 0;
-      html += '<div class="stat-row"><span class="stat-label">Status</span>' + badge('Indexing', 'warn') + '</div>';
-      html += '<div class="stat-row"><span class="stat-label">Progress</span><span class="stat-value">' +
-        s.current_job.notes_processed + ' / ' + (s.current_job.notes_total || '?') + ' notes</span></div>';
-      html += '<div class="progress-track"><div class="progress-fill" style="width:' + pct + '%"></div></div>';
-    } else if (isBusy) {
-      let statusLabel = 'Working';
-      if (sched.phase === 'benchmarking') statusLabel = 'Benchmarking';
-      if (sched.phase === 'downloading_model') statusLabel = 'Downloading model';
-      if (sched.phase === 'loading_model') statusLabel = 'Preparing model';
-      if (sched.phase === 'building_artifacts') statusLabel = 'Building artifacts';
-      html += '<div class="stat-row"><span class="stat-label">Status</span>' + badge(statusLabel, 'warn') + '</div>';
-      if (phaseText) {
-        html += '<div class="stat-row"><span class="stat-label">Phase</span><span class="phase-label">' + phaseText + '</span></div>';
-      }
-      // Show download progress bar
-      if (sched.phase === 'downloading_model' && sched.downloadProgress) {
-        const dp = sched.downloadProgress;
-        const dlPct = dp.totalSize > 0 ? Math.round((dp.downloadedSize / dp.totalSize) * 100) : 0;
-        html += '<div class="stat-row"><span class="stat-label">Download</span><span class="stat-value">' +
-          formatBytes(dp.downloadedSize) + ' / ' + formatBytes(dp.totalSize) + ' (' + dlPct + '%)</span></div>';
-        html += '<div class="progress-track"><div class="progress-fill" style="width:' + dlPct + '%"></div></div>';
-      }
-    } else if (sched.phase === 'disabled') {
-      html += '<div class="stat-row"><span class="stat-label">Status</span>' + badge('Disabled', 'error') + '</div>';
-      html += '<div class="stat-row"><span class="stat-label">Reason</span><span class="stat-value">Hardware too slow for embeddings</span></div>';
-    } else if (s.dirty_count > 0) {
-      html += '<div class="stat-row"><span class="stat-label">Status</span>' + badge('Pending', 'warn') + '</div>';
-      html += '<div class="stat-row"><span class="stat-label">Queued</span><span class="stat-value">' + s.dirty_count + ' notes</span></div>';
-      // Explain why it's waiting
-      if (sched.idleWindow && !sched.idleWindow.active) {
-        html += '<div class="stat-row"><span class="stat-label">Waiting for</span><span class="stat-value">Idle window (' + sched.idleWindow.start + ' – ' + sched.idleWindow.end + ')</span></div>';
+    if (userDisabled) {
+      html += '<div class="stat-row"><span class="stat-label">Status</span>' + badge('Disabled', 'muted') + '</div>';
+      html += '<div class="stat-row"><span class="stat-label">Reason</span><span class="stat-value">Enhanced search is turned off</span></div>';
+      if (hasIndexedBefore) {
+        html += '<div class="search-dimmed">';
+        html += '<div class="stat-row"><span class="stat-label">Chunks indexed</span><span class="stat-value">' + (s.chunk_count || 0).toLocaleString() + '</span></div>';
+        html += '<div class="stat-row"><span class="stat-label">Last indexed</span><span class="stat-value">' + formatTime(s.last_indexed_at) + '</span></div>';
+        html += '</div>';
       }
     } else {
-      html += '<div class="stat-row"><span class="stat-label">Status</span>' + badge('Up to date', 'ok') + '</div>';
-    }
-
-    // Model selector
-    if (s.available_models && s.available_models.length > 0) {
-      html += '<div class="stat-row"><span class="stat-label">Model</span>';
-      html += '<select class="model-select" id="model-select" onchange="changeModel(this.value)"' + (modelChangeBlocked ? ' disabled' : '') + '>';
-      for (let i = 0; i < s.available_models.length; i++) {
-        const m = s.available_models[i];
-        const selected = m.id === s.model ? ' selected' : '';
-        const label = m.id + ' (' + formatBytes(m.size_bytes) + ')';
-        html += '<option value="' + m.id + '"' + selected + '>' + label + '</option>';
+      // Progressive disclosure before first successful index.
+      if (preIndexSummary) {
+        if (s.dirty_count > 0) {
+          html += '<div class="stat-row"><span class="stat-label">Status</span>' + badge('Pending', 'warn') + '</div>';
+          html += '<div class="stat-row"><span class="stat-label">Queued</span><span class="stat-value">' + s.dirty_count + ' notes</span></div>';
+        } else {
+          html += '<div class="stat-row"><span class="stat-label">Status</span>' + badge('Ready', 'ok') + '</div>';
+        }
+        html += '<div class="stat-row"><span class="stat-label">First index</span><span class="stat-value">Model is auto-selected during benchmark</span></div>';
+      } else if (s.current_job) {
+        const pct = s.current_job.notes_total
+          ? Math.round((s.current_job.notes_processed / s.current_job.notes_total) * 100)
+          : 0;
+        html += '<div class="stat-row"><span class="stat-label">Status</span>' + badge('Indexing', 'warn') + '</div>';
+        html += '<div class="stat-row"><span class="stat-label">Progress</span><span class="stat-value">' +
+          s.current_job.notes_processed + ' / ' + (s.current_job.notes_total || '?') + ' notes</span></div>';
+        html += '<div class="progress-track"><div class="progress-fill" style="width:' + pct + '%"></div></div>';
+      } else if (isBusy) {
+        let statusLabel = 'Working';
+        if (sched.phase === 'benchmarking') statusLabel = 'Benchmarking';
+        if (sched.phase === 'downloading_model') statusLabel = 'Downloading model';
+        if (sched.phase === 'loading_model') statusLabel = 'Preparing model';
+        if (sched.phase === 'building_artifacts') statusLabel = 'Building artifacts';
+        html += '<div class="stat-row"><span class="stat-label">Status</span>' + badge(statusLabel, 'warn') + '</div>';
+        if (phaseText) {
+          html += '<div class="stat-row"><span class="stat-label">Phase</span><span class="phase-label">' + phaseText + '</span></div>';
+        }
+        // Show download progress bar
+        if (sched.phase === 'downloading_model' && sched.downloadProgress) {
+          const dp = sched.downloadProgress;
+          const dlPct = dp.totalSize > 0 ? Math.round((dp.downloadedSize / dp.totalSize) * 100) : 0;
+          html += '<div class="stat-row"><span class="stat-label">Download</span><span class="stat-value">' +
+            formatBytes(dp.downloadedSize) + ' / ' + formatBytes(dp.totalSize) + ' (' + dlPct + '%)</span></div>';
+          html += '<div class="progress-track"><div class="progress-fill" style="width:' + dlPct + '%"></div></div>';
+        }
+      } else if (sched.phase === 'disabled') {
+        html += '<div class="stat-row"><span class="stat-label">Status</span>' + badge('Disabled', 'error') + '</div>';
+        const reasonText = disabledReason === 'user'
+          ? 'Enhanced search is turned off'
+          : 'Hardware too slow for embeddings';
+        html += '<div class="stat-row"><span class="stat-label">Reason</span><span class="stat-value">' + reasonText + '</span></div>';
+      } else if (s.dirty_count > 0) {
+        html += '<div class="stat-row"><span class="stat-label">Status</span>' + badge('Pending', 'warn') + '</div>';
+        html += '<div class="stat-row"><span class="stat-label">Queued</span><span class="stat-value">' + s.dirty_count + ' notes</span></div>';
+        // Explain why it's waiting
+        if (sched.idleWindow && !sched.idleWindow.active) {
+          html += '<div class="stat-row"><span class="stat-label">Waiting for</span><span class="stat-value">Idle window (' + sched.idleWindow.start + ' – ' + sched.idleWindow.end + ')</span></div>';
+        }
+      } else {
+        html += '<div class="stat-row"><span class="stat-label">Status</span>' + badge('Up to date', 'ok') + '</div>';
       }
-      html += '</select>';
-      html += '</div>';
-      if (modelChangeBlocked && phaseText) {
-        html += '<div class="stat-row"><span class="stat-label">Model change</span><span class="stat-value">Unavailable while: ' + phaseText + '</span></div>';
+
+      // Model selector
+      if (preIndexSummary) {
+        // Keep first-run UI simple; reveal model controls after first index.
+      } else if (!hasIndexedBefore) {
+        const pendingModelText = s.model || 'Auto (selected after benchmark)';
+        html += '<div class="stat-row"><span class="stat-label">Model</span><span class="stat-value">' + pendingModelText + '</span></div>';
+        html += '<div class="stat-row"><span class="stat-label">Model change</span><span class="stat-value">Available after first successful index</span></div>';
+      } else if (s.available_models && s.available_models.length > 0) {
+        html += '<div class="stat-row"><span class="stat-label">Model</span>';
+        html += '<select class="model-select" id="model-select" onchange="changeModel(this.value)"' + (modelChangeBlocked ? ' disabled' : '') + '>';
+        for (let i = 0; i < s.available_models.length; i++) {
+          const m = s.available_models[i];
+          const selected = m.id === s.model ? ' selected' : '';
+          const label = m.id + ' (' + formatBytes(m.size_bytes) + ')';
+          html += '<option value="' + m.id + '"' + selected + '>' + label + '</option>';
+        }
+        html += '</select>';
+        html += '</div>';
+        if (modelChangeBlocked && phaseText) {
+          html += '<div class="stat-row"><span class="stat-label">Model change</span><span class="stat-value">Unavailable while: ' + phaseText + '</span></div>';
+        }
+      } else if (s.model) {
+        html += '<div class="stat-row"><span class="stat-label">Model</span><span class="stat-value">' + s.model + '</span></div>';
+      } else if (!sched.modelReady && sched.phase === 'idle') {
+        html += '<div class="stat-row"><span class="stat-label">Model</span><span class="stat-value" style="color:var(--text-secondary)">Not loaded yet</span></div>';
       }
-    } else if (s.model) {
-      html += '<div class="stat-row"><span class="stat-label">Model</span><span class="stat-value">' + s.model + '</span></div>';
-    } else if (!sched.modelReady && sched.phase === 'idle') {
-      html += '<div class="stat-row"><span class="stat-label">Model</span><span class="stat-value" style="color:var(--text-secondary)">Not loaded yet</span></div>';
+
+      if (!preIndexSummary) {
+        // Chunks indexed
+        html += '<div class="stat-row"><span class="stat-label">Chunks indexed</span><span class="stat-value">' + (s.chunk_count || 0).toLocaleString() + '</span></div>';
+
+        // Last indexed
+        html += '<div class="stat-row"><span class="stat-label">Last indexed</span><span class="stat-value">' + formatTime(s.last_indexed_at) + '</span></div>';
+
+        // Last run error
+        if (s.last_run && s.last_run.status === 'failed' && s.last_run.error_message) {
+          html += '<div class="stat-row"><span class="stat-label">Last error</span><span class="stat-value" style="color:var(--danger)">' + s.last_run.error_message + '</span></div>';
+        }
+      }
     }
 
-    // Chunks indexed
-    html += '<div class="stat-row"><span class="stat-label">Chunks indexed</span><span class="stat-value">' + (s.chunk_count || 0).toLocaleString() + '</span></div>';
-
-    // Last indexed
-    html += '<div class="stat-row"><span class="stat-label">Last indexed</span><span class="stat-value">' + formatTime(s.last_indexed_at) + '</span></div>';
-
-    // Last run error
-    if (s.last_run && s.last_run.status === 'failed' && s.last_run.error_message) {
-      html += '<div class="stat-row"><span class="stat-label">Last error</span><span class="stat-value" style="color:var(--danger)">' + s.last_run.error_message + '</span></div>';
-    }
-
-    // Index Now button
+    // Actions
     html += '<div class="index-row">';
-    html += '<button class="btn btn-primary" id="index-now-btn" onclick="indexNow()"' + (isBusy ? ' disabled' : '') + '>Index now</button>';
+    html += '<button class="btn btn-primary" id="index-now-btn" onclick="indexNow()"' + (isBusy || userDisabled ? ' disabled' : '') + '>Index now</button>';
+    html += '<button class="action-link" id="enhanced-search-toggle" onclick="setEnhancedSearchEnabled(' + (enhancedSearchEnabled ? 'false' : 'true') + ')"' + (isBusy ? ' disabled' : '') + '>' + (enhancedSearchEnabled ? 'Disable enhanced search' : 'Enable enhanced search') + '</button>';
     html += '<span class="index-status" id="index-status"></span>';
     html += '</div>';
 
@@ -628,12 +862,17 @@ function dashboardHtml(): string {
     }
   }
 
-  // Index Now — token management
+  // Token management
   let authToken = sessionStorage.getItem('dashboard_token');
 
-  async function getToken() {
+  function clearAuthToken() {
+    authToken = null;
+    sessionStorage.removeItem('dashboard_token');
+  }
+
+  async function getToken(actionLabel) {
     if (authToken) return authToken;
-    const password = prompt('Enter server password to trigger indexing:');
+    const password = prompt('Enter server password to ' + actionLabel + ':');
     if (!password) return null;
     try {
       const res = await fetch('/login', {
@@ -659,7 +898,7 @@ function dashboardHtml(): string {
     const btn = $('index-now-btn');
     if (!btn) return;
 
-    const token = await getToken();
+    const token = await getToken('trigger indexing');
     if (!token) return;
 
     btn.disabled = true;
@@ -670,8 +909,7 @@ function dashboardHtml(): string {
         headers: { 'Authorization': 'Bearer ' + token },
       });
       if (res.status === 401) {
-        authToken = null;
-        sessionStorage.removeItem('dashboard_token');
+        clearAuthToken();
         alert('Session expired, please try again');
         btn.disabled = false;
         return;
@@ -700,7 +938,7 @@ function dashboardHtml(): string {
       return;
     }
 
-    const token = await getToken();
+    const token = await getToken('change the model');
     if (!token) {
       if (sel && currentModelId) sel.value = currentModelId;
       return;
@@ -718,8 +956,7 @@ function dashboardHtml(): string {
         body: JSON.stringify({ model_id: newModelId }),
       });
       if (res.status === 401) {
-        authToken = null;
-        sessionStorage.removeItem('dashboard_token');
+        clearAuthToken();
         alert('Session expired, please try again');
         if (sel && currentModelId) sel.value = currentModelId;
         return;
@@ -736,6 +973,144 @@ function dashboardHtml(): string {
       if (sel && currentModelId) sel.value = currentModelId;
     } finally {
       if (sel) sel.disabled = false;
+    }
+  };
+
+  window.setEnhancedSearchEnabled = async function(enabled) {
+    const token = await getToken(enabled ? 'enable enhanced search' : 'disable enhanced search');
+    if (!token) return;
+
+    const btn = $('enhanced-search-toggle');
+    if (btn) btn.disabled = true;
+
+    try {
+      const res = await fetch('/search/set-enhanced-search', {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer ' + token,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ enabled }),
+      });
+      if (res.status === 401) {
+        clearAuthToken();
+        alert('Session expired, please try again');
+        return;
+      }
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || 'Failed to update enhanced search');
+        return;
+      }
+      refresh();
+    } catch (e) {
+      alert('Error: ' + e.message);
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  };
+
+  const resetModal = $('reset-modal');
+  const resetInput = $('reset-confirm-input');
+  const resetConfirmBtn = $('reset-confirm-btn');
+  const resetCancelBtn = $('reset-cancel-btn');
+  const eraseResetBtn = $('erase-reset-btn');
+
+  function updateResetConfirmState() {
+    if (!resetInput || !resetConfirmBtn) return;
+    resetConfirmBtn.disabled = resetInput.value !== 'DELETE';
+  }
+
+  window.openResetDialog = function() {
+    if (!resetModal || !resetInput) return;
+    resetModal.classList.add('open');
+    resetModal.setAttribute('aria-hidden', 'false');
+    resetInput.value = '';
+    updateResetConfirmState();
+    resetInput.focus();
+  };
+
+  window.closeResetDialog = function() {
+    if (!resetModal || !resetInput || !resetConfirmBtn || !resetCancelBtn) return;
+    resetModal.classList.remove('open');
+    resetModal.setAttribute('aria-hidden', 'true');
+    resetInput.value = '';
+    resetConfirmBtn.disabled = true;
+    resetConfirmBtn.textContent = 'Delete everything';
+    resetCancelBtn.disabled = false;
+    if (eraseResetBtn) eraseResetBtn.disabled = false;
+  };
+
+  if (resetInput) {
+    resetInput.addEventListener('input', updateResetConfirmState);
+  }
+
+  if (resetModal) {
+    resetModal.addEventListener('click', (event) => {
+      if (event.target === resetModal) {
+        window.closeResetDialog();
+      }
+    });
+  }
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && resetModal && resetModal.classList.contains('open')) {
+      window.closeResetDialog();
+    }
+  });
+
+  window.eraseAndReset = async function() {
+    if (!resetInput || !resetConfirmBtn || !resetCancelBtn) return;
+    if (resetInput.value !== 'DELETE') {
+      alert('Type DELETE in all caps to continue.');
+      return;
+    }
+
+    const token = await getToken('erase and reset the server');
+    if (!token) return;
+
+    resetConfirmBtn.disabled = true;
+    resetCancelBtn.disabled = true;
+    resetConfirmBtn.textContent = 'Deleting...';
+    if (eraseResetBtn) eraseResetBtn.disabled = true;
+
+    try {
+      const res = await fetch('/reset', {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer ' + token,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ confirmation: 'DELETE' }),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (res.status === 401) {
+        clearAuthToken();
+        alert('Session expired, please try again');
+        window.closeResetDialog();
+        return;
+      }
+
+      if (!res.ok) {
+        alert(data.error || 'Server reset failed');
+        resetCancelBtn.disabled = false;
+        updateResetConfirmState();
+        resetConfirmBtn.textContent = 'Delete everything';
+        if (eraseResetBtn) eraseResetBtn.disabled = false;
+        return;
+      }
+
+      clearAuthToken();
+      window.closeResetDialog();
+      alert('Server reset complete. All notes were erased, setup was cleared, and every device was logged out.');
+      refresh();
+    } catch (e) {
+      alert('Error: ' + e.message);
+      resetCancelBtn.disabled = false;
+      updateResetConfirmState();
+      resetConfirmBtn.textContent = 'Delete everything';
+      if (eraseResetBtn) eraseResetBtn.disabled = false;
     }
   };
 

@@ -1,9 +1,12 @@
 <script lang="ts">
   import type { SearchResultItem } from '../types';
   import { searchKeyword, searchWithVectors, type SearchTimingResult } from '$lib/notes';
-  import { isSupersearchReady } from '$lib/supersearch/state';
-  import { isReady as isEmbedderReady } from '$lib/supersearch/queryEmbedder';
   import { getSearchMode, setSearchMode, type SearchMode } from '$lib/supersearch/searchMode';
+  import {
+    getEffectiveSearchCapabilities,
+    getServerSearchCapabilities,
+    type EffectiveSearchCapabilities,
+  } from '$lib/supersearch/capabilities';
 
   interface Props {
     onclose: () => void;
@@ -19,13 +22,23 @@
   let vectorResults: SearchTimingResult | null = $state(null);
   let vectorSearching = $state(false);
   let activeMode: SearchMode = $state(getSearchMode());
-  let supersearchAvailable = $state(false);
+  let modeAvailability = $state<EffectiveSearchCapabilities>({ keyword: true, vector: false, hybrid: false });
+  let supersearchAvailable = $derived(modeAvailability.vector);
 
-  // Check supersearch availability
+  // Resolve effective capabilities from cached server capabilities + local readiness.
   $effect(() => {
-    isSupersearchReady().then(ready => {
-      supersearchAvailable = ready && isEmbedderReady();
+    let cancelled = false;
+    getEffectiveSearchCapabilities(getServerSearchCapabilities()).then((caps) => {
+      if (cancelled) return;
+      modeAvailability = caps;
+      if (!caps[activeMode]) {
+        activeMode = 'keyword';
+        setSearchMode('keyword');
+      }
     });
+    return () => {
+      cancelled = true;
+    };
   });
 
   let keywordResults: SearchResultItem[] = $state([]);
@@ -130,6 +143,7 @@
   });
 
   function handleModeChange(mode: SearchMode): void {
+    if (!modeAvailability[mode]) return;
     activeMode = mode;
     setSearchMode(mode);
     // Re-trigger search with new mode
@@ -237,16 +251,22 @@
       <button
         class="mode-pill"
         class:active={activeMode === 'keyword'}
+        class:disabled={!modeAvailability.keyword}
+        disabled={!modeAvailability.keyword}
         onclick={() => handleModeChange('keyword')}
       >Keyword</button>
       <button
         class="mode-pill"
         class:active={activeMode === 'hybrid'}
+        class:disabled={!modeAvailability.hybrid}
+        disabled={!modeAvailability.hybrid}
         onclick={() => handleModeChange('hybrid')}
       >Hybrid</button>
       <button
         class="mode-pill"
         class:active={activeMode === 'vector'}
+        class:disabled={!modeAvailability.vector}
+        disabled={!modeAvailability.vector}
         onclick={() => handleModeChange('vector')}
       >Vector</button>
       {#if timing && query}
@@ -403,6 +423,14 @@
     background: var(--color-primary);
     color: white;
     border-color: var(--color-primary);
+  }
+
+  .mode-pill.disabled,
+  .mode-pill:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+    border-color: var(--color-border);
+    color: var(--color-muted);
   }
 
   .search-timing {

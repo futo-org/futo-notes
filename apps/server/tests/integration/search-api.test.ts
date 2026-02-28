@@ -100,6 +100,13 @@ describe('Search API', () => {
       expect(data).toHaveProperty('levels');
       expect(data).toHaveProperty('chunk_count');
       expect(data).toHaveProperty('last_indexed_at');
+      expect(data).toHaveProperty('methods');
+      expect(data.methods).toHaveProperty('keyword');
+      expect(data.methods).toHaveProperty('vector');
+      expect(data.methods).toHaveProperty('hybrid');
+      expect(data.methods.keyword.supported).toBe(true);
+      expect(data.methods.vector.supported).toBe(false);
+      expect(data.methods.hybrid.supported).toBe(false);
       expect(data.chunk_count).toBe(0);
     });
   });
@@ -137,6 +144,20 @@ describe('Search API', () => {
       expect(res.status).toBe(400);
       const data = await res.json() as { error: string };
       expect(data.error).toContain('Unknown model');
+    });
+  });
+
+  describe('POST /search/set-enhanced-search', () => {
+    it('requires authentication', async () => {
+      const res = await req(env.app, 'POST', '/search/set-enhanced-search', { enabled: false });
+      expect(res.status).toBe(401);
+    });
+
+    it('returns 400 for invalid enabled flag', async () => {
+      const res = await authReq(env.app, 'POST', '/search/set-enhanced-search', token, { enabled: 'nope' });
+      expect(res.status).toBe(400);
+      const data = await res.json() as { error: string };
+      expect(data.error).toContain('enabled');
     });
   });
 
