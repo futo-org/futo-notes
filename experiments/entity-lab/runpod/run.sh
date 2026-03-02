@@ -11,6 +11,9 @@ GPU_MEM_UTIL="${GPU_MEM_UTIL:-0.90}"
 MAX_MODEL_LEN="${MAX_MODEL_LEN:-16384}"
 VLLM_PORT=8000
 
+# RunPod images set this but don't ship hf_transfer — disable it
+unset HF_HUB_ENABLE_HF_TRANSFER
+
 cd "$REPO_DIR"
 
 echo "=== Starting vLLM server ==="
