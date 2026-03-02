@@ -13,6 +13,7 @@ export const REPORTS_DIR = path.join(LAB_ROOT, 'reports');
 
 export const DEFAULT_MODEL = 'qwen3:8b';
 export const DEFAULT_OLLAMA_HOST = 'http://127.0.0.1:11434';
+export const DEFAULT_VLLM_HOST = 'http://127.0.0.1:8000';
 
 export const CACHE_VERSION = 1;
 export const PROMPT_VERSION = 'entity-v1-2026-02-28';

@@ -23,17 +23,16 @@ const notesDir = notesDirIdx >= 0 ? passthrough[notesDirIdx + 1] : '';
 const globalFlags = [];
 for (let i = 0; i < passthrough.length; i++) {
   const arg = passthrough[i];
-  if (['--model', '--ollama-host', '--max-notes', '--max-note-chars'].includes(arg)) {
+  if (['--model', '--ollama-host', '--vllm-host', '--max-notes', '--max-note-chars', '--concurrency'].includes(arg)) {
     globalFlags.push(arg, passthrough[i + 1] ?? '');
     i++;
   }
-  if (['--force', '--mock', '--think'].includes(arg)) {
+  if (['--force', '--mock', '--think', '--vllm'].includes(arg)) {
     globalFlags.push(arg);
   }
 }
 
 // Split --think out of globalFlags — only discovery gets it
-const thinkFlag = globalFlags.includes('--think');
 const flagsWithoutThink = globalFlags.filter(f => f !== '--think');
 
 const steps = [

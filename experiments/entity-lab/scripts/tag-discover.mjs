@@ -14,12 +14,16 @@ import {
   CACHE_DIR,
   DEFAULT_MODEL,
   DEFAULT_OLLAMA_HOST,
+  DEFAULT_VLLM_HOST,
   PROMPTS_DIR,
   SCHEMAS_DIR,
 } from './lib/constants.mjs';
-import { ensureDir, listMarkdownFiles, readJsonFile, writeJsonFile } from './lib/fs-utils.mjs';
+import { ensureDir, listMarkdownFiles, readJsonFile } from './lib/fs-utils.mjs';
 import { sha256 } from './lib/hash.mjs';
 import { buildUserPrompt, parseModelJson } from './lib/extraction-schema.mjs';
+import { createLlmClient, verifyConnection } from './lib/llm.mjs';
+import { runConcurrent } from './lib/concurrency.mjs';
+import { createCacheFlusher } from './lib/cache-flusher.mjs';
 
 const args = parseArgs(process.argv.slice(2));
 
@@ -29,9 +33,12 @@ if (!args.notesDir) {
 }
 
 const notesDir = path.resolve(args.notesDir);
-const ollamaHost = (args.ollamaHost || process.env.OLLAMA_HOST || DEFAULT_OLLAMA_HOST).replace(/\/+$/, '');
+const backend = args.vllm ? 'vllm' : 'ollama';
+const defaultHost = backend === 'vllm' ? DEFAULT_VLLM_HOST : DEFAULT_OLLAMA_HOST;
+const host = (args.vllmHost || args.ollamaHost || process.env.OLLAMA_HOST || defaultHost).replace(/\/+$/, '');
 const model = args.model || process.env.OLLAMA_MODEL || DEFAULT_MODEL;
 const maxNoteChars = args.maxNoteChars > 0 ? args.maxNoteChars : 12000;
+const concurrency = args.concurrency > 0 ? args.concurrency : 1;
 const cacheFilePath = path.resolve(args.cacheFile || path.join(CACHE_DIR, 'tag-discover.json'));
 
 const promptPath = path.join(PROMPTS_DIR, 'tag-discover.md');
@@ -45,8 +52,10 @@ const [promptTemplate, schema] = await Promise.all([
 ]);
 
 if (!args.mock) {
-  await verifyOllamaConnection({ ollamaHost, model });
+  await verifyConnection({ backend, host, model });
 }
+
+const callLlm = createLlmClient({ backend, host, model });
 
 const files = await listMarkdownFiles(notesDir);
 if (files.length === 0) {
@@ -75,18 +84,28 @@ for (const note of noteRecords) {
 console.log(`[tag-discover] notes found: ${noteRecords.length}`);
 console.log(`[tag-discover] notes to process: ${toProcess.length}`);
 console.log(`[tag-discover] skipped unchanged: ${skipped.length}`);
-console.log(`[tag-discover] mode: ${args.mock ? 'mock' : 'ollama'} | model: ${model}`);
+console.log(`[tag-discover] mode: ${args.mock ? 'mock' : backend}${args.mock && args.vllm ? ' (vllm)' : ''} | model: ${model} | concurrency: ${concurrency}`);
 
 let failed = 0;
-for (let i = 0; i < toProcess.length; i++) {
-  const note = toProcess[i];
+let completed = 0;
+const flusher = createCacheFlusher(cache, cacheFilePath);
+
+await runConcurrent(toProcess, async (note) => {
   const started = performance.now();
 
   try {
     const prompt = buildUserPrompt(promptTemplate, note.title, note.content);
     const rawPayload = args.mock
       ? mockDiscover(note)
-      : await callOllama({ ollamaHost, model, schema, prompt, think: args.think });
+      : await callLlm({
+          messages: [
+            { role: 'system', content: 'Tag personal notes with broad topic categories. Respond with valid JSON only (after any thinking).' },
+            { role: 'user', content: prompt },
+          ],
+          schema,
+          think: args.think,
+          temperature: 0.3,
+        });
 
     const parsed = parseModelJson(rawPayload);
     const tags = sanitizeTags(parsed);
@@ -100,18 +119,20 @@ for (let i = 0; i < toProcess.length; i++) {
       discoveredAt: new Date().toISOString(),
     };
 
-    console.log(`[tag-discover] ${i + 1}/${toProcess.length}: ${note.noteId} (${durationMs}ms) -> [${tags.join(', ')}]`);
+    completed++;
+    console.log(`[tag-discover] ${completed + failed}/${toProcess.length}: ${note.noteId} (${durationMs}ms) -> [${tags.join(', ')}]`);
+    flusher.tick();
   } catch (error) {
     failed++;
     const durationMs = Math.round(performance.now() - started);
-    console.error(`[tag-discover] FAIL ${i + 1}/${toProcess.length}: ${note.noteId} (${durationMs}ms) ${error.message}`);
+    console.error(`[tag-discover] FAIL ${completed + failed}/${toProcess.length}: ${note.noteId} (${durationMs}ms) ${error.message}`);
+    flusher.tick();
   }
-}
+}, concurrency);
 
-cache.updatedAt = new Date().toISOString();
-await writeJsonFile(cacheFilePath, cache);
+await flusher.flush();
 
-console.log(`[tag-discover] done. ${toProcess.length - failed} succeeded, ${failed} failed.`);
+console.log(`[tag-discover] done. ${completed} succeeded, ${failed} failed.`);
 if (failed > 0) process.exitCode = 2;
 
 // --- helpers ---
@@ -135,57 +156,6 @@ function mockDiscover(note) {
   return { tags: tags.slice(0, 3) };
 }
 
-async function callOllama({ ollamaHost, model, schema, prompt, think }) {
-  const body = {
-    model,
-    stream: false,
-    options: { temperature: 0.3 },
-    messages: [
-      { role: 'system', content: 'Tag personal notes with broad topic categories. Respond with valid JSON only (after any thinking).' },
-      { role: 'user', content: prompt },
-    ],
-  };
-
-  // When thinking is enabled, don't constrain format so <think> tags can flow.
-  // When disabled, use strict JSON schema.
-  if (!think) {
-    body.format = schema;
-  }
-
-  const response = await fetch(`${ollamaHost}/api/chat`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Ollama request failed (${response.status}): ${text.slice(0, 500)}`);
-  }
-
-  const payload = await response.json();
-  if (!payload?.message) throw new Error('Ollama response missing message payload');
-
-  let content = payload.message.content;
-  if (think) {
-    content = stripThinkTags(content);
-  }
-  return content;
-}
-
-function stripThinkTags(text) {
-  return text.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
-}
-
-async function verifyOllamaConnection({ ollamaHost, model }) {
-  const response = await fetch(`${ollamaHost}/api/tags`);
-  if (!response.ok) throw new Error(`Ollama /api/tags failed (${response.status})`);
-  const payload = await response.json();
-  const models = Array.isArray(payload.models) ? payload.models : [];
-  const hasModel = models.some(m => m?.name === model || m?.model === model);
-  if (!hasModel) throw new Error(`Model not found: ${model}. Run: ollama pull ${model}`);
-}
-
 async function loadNoteRecords(files, notesDir, maxChars) {
   const records = [];
   for (const sourcePath of files) {
@@ -202,18 +172,25 @@ async function loadNoteRecords(files, notesDir, maxChars) {
 }
 
 function parseArgs(argv) {
-  const out = { notesDir: '', cacheFile: '', model: '', ollamaHost: '', force: false, maxNotes: 0, maxNoteChars: 0, mock: false, think: false };
+  const out = {
+    notesDir: '', cacheFile: '', model: '', ollamaHost: '', vllmHost: '',
+    force: false, maxNotes: 0, maxNoteChars: 0, mock: false, think: false,
+    vllm: false, concurrency: 0,
+  };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--notes-dir') { out.notesDir = argv[++i] ?? ''; continue; }
     if (arg === '--cache-file') { out.cacheFile = argv[++i] ?? ''; continue; }
     if (arg === '--model') { out.model = argv[++i] ?? ''; continue; }
     if (arg === '--ollama-host') { out.ollamaHost = argv[++i] ?? ''; continue; }
+    if (arg === '--vllm-host') { out.vllmHost = argv[++i] ?? ''; continue; }
     if (arg === '--max-notes') { out.maxNotes = Number(argv[++i] ?? '0'); continue; }
     if (arg === '--max-note-chars') { out.maxNoteChars = Number(argv[++i] ?? '0'); continue; }
+    if (arg === '--concurrency') { out.concurrency = Number(argv[++i] ?? '0'); continue; }
     if (arg === '--force') { out.force = true; continue; }
     if (arg === '--mock') { out.mock = true; continue; }
     if (arg === '--think') { out.think = true; continue; }
+    if (arg === '--vllm') { out.vllm = true; continue; }
     throw new Error(`Unknown argument: ${arg}`);
   }
   return out;

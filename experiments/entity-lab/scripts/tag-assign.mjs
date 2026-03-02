@@ -14,6 +14,7 @@ import {
   CACHE_DIR,
   DEFAULT_MODEL,
   DEFAULT_OLLAMA_HOST,
+  DEFAULT_VLLM_HOST,
   PROMPTS_DIR,
   REPORTS_DIR,
   SCHEMAS_DIR,
@@ -21,6 +22,9 @@ import {
 import { ensureDir, listMarkdownFiles, readJsonFile, writeJsonFile } from './lib/fs-utils.mjs';
 import { sha256 } from './lib/hash.mjs';
 import { buildUserPrompt, parseModelJson } from './lib/extraction-schema.mjs';
+import { createLlmClient, verifyConnection } from './lib/llm.mjs';
+import { runConcurrent } from './lib/concurrency.mjs';
+import { createCacheFlusher } from './lib/cache-flusher.mjs';
 
 const args = parseArgs(process.argv.slice(2));
 
@@ -30,9 +34,12 @@ if (!args.notesDir) {
 }
 
 const notesDir = path.resolve(args.notesDir);
-const ollamaHost = (args.ollamaHost || process.env.OLLAMA_HOST || DEFAULT_OLLAMA_HOST).replace(/\/+$/, '');
+const backend = args.vllm ? 'vllm' : 'ollama';
+const defaultHost = backend === 'vllm' ? DEFAULT_VLLM_HOST : DEFAULT_OLLAMA_HOST;
+const host = (args.vllmHost || args.ollamaHost || process.env.OLLAMA_HOST || defaultHost).replace(/\/+$/, '');
 const model = args.model || process.env.OLLAMA_MODEL || DEFAULT_MODEL;
 const maxNoteChars = args.maxNoteChars > 0 ? args.maxNoteChars : 12000;
+const concurrency = args.concurrency > 0 ? args.concurrency : 1;
 
 const taxonomyPath = path.resolve(args.taxonomyFile || path.join(CACHE_DIR, 'tag-taxonomy.json'));
 const assignCachePath = path.resolve(args.cacheFile || path.join(CACHE_DIR, 'tag-assign.json'));
@@ -58,8 +65,10 @@ const allowedTags = new Set(taxonomy.tags.map(t => t.tag));
 const tagListStr = taxonomy.tags.map(t => `- ${t.tag}`).join('\n');
 
 if (!args.mock) {
-  await verifyOllamaConnection({ ollamaHost, model });
+  await verifyConnection({ backend, host, model });
 }
+
+const callLlm = createLlmClient({ backend, host, model });
 
 const files = await listMarkdownFiles(notesDir);
 if (files.length === 0) throw new Error(`No markdown files found in ${notesDir}`);
@@ -82,21 +91,30 @@ console.log(`[tag-assign] taxonomy: ${allowedTags.size} tags`);
 console.log(`[tag-assign] notes found: ${noteRecords.length}`);
 console.log(`[tag-assign] notes to process: ${toProcess.length}`);
 console.log(`[tag-assign] skipped unchanged: ${skipped.length}`);
-console.log(`[tag-assign] mode: ${args.mock ? 'mock' : 'ollama'} | model: ${model}`);
+console.log(`[tag-assign] mode: ${args.mock ? 'mock' : backend}${args.mock && args.vllm ? ' (vllm)' : ''} | model: ${model} | concurrency: ${concurrency}`);
 
 let failed = 0;
-for (let i = 0; i < toProcess.length; i++) {
-  const note = toProcess[i];
+let completed = 0;
+const flusher = createCacheFlusher(cache, assignCachePath);
+
+await runConcurrent(toProcess, async (note) => {
   const started = performance.now();
 
   try {
-    // Inject the tag list into the prompt template
     const promptWithTags = promptTemplate.replace('{{TAG_LIST}}', tagListStr);
     const prompt = buildUserPrompt(promptWithTags, note.title, note.content);
 
     const rawPayload = args.mock
       ? mockAssign(note, allowedTags)
-      : await callOllama({ ollamaHost, model, schema, prompt, think: args.think });
+      : await callLlm({
+          messages: [
+            { role: 'system', content: 'Assign tags to notes from a fixed list. Respond with valid JSON only (after any thinking).' },
+            { role: 'user', content: prompt },
+          ],
+          schema,
+          think: args.think,
+          temperature: 0.1,
+        });
 
     const parsed = parseModelJson(rawPayload);
     const tags = sanitizeTags(parsed, allowedTags);
@@ -110,16 +128,18 @@ for (let i = 0; i < toProcess.length; i++) {
       assignedAt: new Date().toISOString(),
     };
 
-    console.log(`[tag-assign] ${i + 1}/${toProcess.length}: ${note.noteId} (${durationMs}ms) -> [${tags.join(', ')}]`);
+    completed++;
+    console.log(`[tag-assign] ${completed + failed}/${toProcess.length}: ${note.noteId} (${durationMs}ms) -> [${tags.join(', ')}]`);
+    flusher.tick();
   } catch (error) {
     failed++;
     const durationMs = Math.round(performance.now() - started);
-    console.error(`[tag-assign] FAIL ${i + 1}/${toProcess.length}: ${note.noteId} (${durationMs}ms) ${error.message}`);
+    console.error(`[tag-assign] FAIL ${completed + failed}/${toProcess.length}: ${note.noteId} (${durationMs}ms) ${error.message}`);
+    flusher.tick();
   }
-}
+}, concurrency);
 
-cache.updatedAt = new Date().toISOString();
-await writeJsonFile(assignCachePath, cache);
+await flusher.flush();
 
 // Build report
 const tagGroups = new Map();
@@ -185,7 +205,7 @@ if (untaggedCount > 0) {
 
 await fs.writeFile(path.join(REPORTS_DIR, 'tags-report.md'), lines.join('\n'), 'utf8');
 
-console.log(`[tag-assign] done. ${toProcess.length - failed} succeeded, ${failed} failed.`);
+console.log(`[tag-assign] done. ${completed} succeeded, ${failed} failed.`);
 console.log(`[tag-assign] report: ${path.join(REPORTS_DIR, 'tags-report.md')}`);
 if (failed > 0) process.exitCode = 2;
 
@@ -209,55 +229,6 @@ function mockAssign(note, allowed) {
   return { tags };
 }
 
-async function callOllama({ ollamaHost, model, schema, prompt, think }) {
-  const body = {
-    model,
-    stream: false,
-    options: { temperature: 0.1 },
-    messages: [
-      { role: 'system', content: 'Assign tags to notes from a fixed list. Respond with valid JSON only (after any thinking).' },
-      { role: 'user', content: prompt },
-    ],
-  };
-
-  if (!think) {
-    body.format = schema;
-  }
-
-  const response = await fetch(`${ollamaHost}/api/chat`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Ollama request failed (${response.status}): ${text.slice(0, 500)}`);
-  }
-
-  const payload = await response.json();
-  if (!payload?.message) throw new Error('Ollama response missing message payload');
-
-  let content = payload.message.content;
-  if (think) {
-    content = stripThinkTags(content);
-  }
-  return content;
-}
-
-function stripThinkTags(text) {
-  return text.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
-}
-
-async function verifyOllamaConnection({ ollamaHost, model }) {
-  const response = await fetch(`${ollamaHost}/api/tags`);
-  if (!response.ok) throw new Error(`Ollama /api/tags failed (${response.status})`);
-  const payload = await response.json();
-  const models = Array.isArray(payload.models) ? payload.models : [];
-  if (!models.some(m => m?.name === model || m?.model === model))
-    throw new Error(`Model not found: ${model}. Run: ollama pull ${model}`);
-}
-
 async function loadNoteRecords(files, notesDir, maxChars) {
   const records = [];
   for (const sourcePath of files) {
@@ -274,7 +245,11 @@ async function loadNoteRecords(files, notesDir, maxChars) {
 }
 
 function parseArgs(argv) {
-  const out = { notesDir: '', cacheFile: '', taxonomyFile: '', model: '', ollamaHost: '', force: false, maxNotes: 0, maxNoteChars: 0, mock: false, think: false };
+  const out = {
+    notesDir: '', cacheFile: '', taxonomyFile: '', model: '', ollamaHost: '', vllmHost: '',
+    force: false, maxNotes: 0, maxNoteChars: 0, mock: false, think: false,
+    vllm: false, concurrency: 0,
+  };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--notes-dir') { out.notesDir = argv[++i] ?? ''; continue; }
@@ -282,11 +257,14 @@ function parseArgs(argv) {
     if (arg === '--taxonomy-file') { out.taxonomyFile = argv[++i] ?? ''; continue; }
     if (arg === '--model') { out.model = argv[++i] ?? ''; continue; }
     if (arg === '--ollama-host') { out.ollamaHost = argv[++i] ?? ''; continue; }
+    if (arg === '--vllm-host') { out.vllmHost = argv[++i] ?? ''; continue; }
     if (arg === '--max-notes') { out.maxNotes = Number(argv[++i] ?? '0'); continue; }
     if (arg === '--max-note-chars') { out.maxNoteChars = Number(argv[++i] ?? '0'); continue; }
+    if (arg === '--concurrency') { out.concurrency = Number(argv[++i] ?? '0'); continue; }
     if (arg === '--force') { out.force = true; continue; }
     if (arg === '--mock') { out.mock = true; continue; }
     if (arg === '--think') { out.think = true; continue; }
+    if (arg === '--vllm') { out.vllm = true; continue; }
     throw new Error(`Unknown argument: ${arg}`);
   }
   return out;
