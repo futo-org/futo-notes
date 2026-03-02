@@ -5,7 +5,7 @@ set -euo pipefail
 
 REPO_DIR="${REPO_DIR:-/workspace/futo-notes}"
 NOTES_DIR="${NOTES_DIR:-/workspace/notes}"
-MODEL="${MODEL:-Qwen/Qwen3-8B}"
+MODEL="${MODEL:-Qwen/Qwen3.5-4B}"
 CONCURRENCY="${CONCURRENCY:-12}"
 GPU_MEM_UTIL="${GPU_MEM_UTIL:-0.90}"
 MAX_MODEL_LEN="${MAX_MODEL_LEN:-16384}"
@@ -49,7 +49,6 @@ node experiments/entity-lab/scripts/tag-run-all.mjs \
   --notes-dir "$NOTES_DIR" \
   --vllm \
   --model "$MODEL" \
-  --think \
   --concurrency "$CONCURRENCY"
 
 echo "=== Pipeline complete. Shutting down vLLM ==="

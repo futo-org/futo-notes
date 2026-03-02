@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 
 /**
- * Phase 2: Consolidate raw tags into a canonical taxonomy.
- * - Counts tag frequency across all notes
- * - Merges near-duplicates (fuzzy match)
+ * Phase 2: Consolidate discovered tags into a hierarchical taxonomy.
+ * - Groups specific tags under their broad categories
+ * - Merges near-duplicate categories and tags (fuzzy match)
  * - Prunes tags that appear on fewer than --min-count notes (default: 2)
- * - Writes canonical tag list to cache/tag-taxonomy.json
+ * - Writes hierarchical taxonomy to cache/tag-taxonomy.json
  */
 
 import path from 'node:path';
@@ -25,85 +25,130 @@ if (!discover?.notes || typeof discover.notes !== 'object') {
   process.exit(1);
 }
 
-// Count raw tag frequencies
-const tagCounts = new Map();
-const tagNotes = new Map();
+// Collect categories and tags
+const catCounts = new Map();       // category -> count
+const catMergeMap = new Map();     // raw category -> canonical category
+const tagData = new Map();         // "category::tag" -> { count, notes[] }
 
 for (const [noteId, entry] of Object.entries(discover.notes)) {
+  const rawCat = typeof entry.category === 'string' ? entry.category.trim().toLowerCase() : '';
+  if (!rawCat) continue;
+
+  catCounts.set(rawCat, (catCounts.get(rawCat) || 0) + 1);
+
   const tags = Array.isArray(entry.tags) ? entry.tags : [];
   for (const tag of tags) {
-    const key = tag.toLowerCase().trim();
-    if (!key) continue;
-    tagCounts.set(key, (tagCounts.get(key) || 0) + 1);
-    if (!tagNotes.has(key)) tagNotes.set(key, []);
-    tagNotes.get(key).push(noteId);
+    const key = `${rawCat}::${tag}`;
+    if (!tagData.has(key)) tagData.set(key, { count: 0, notes: [] });
+    const td = tagData.get(key);
+    td.count++;
+    td.notes.push(noteId);
   }
 }
 
-console.log(`[tag-consolidate] raw unique tags: ${tagCounts.size}`);
+console.log(`[tag-consolidate] raw categories: ${catCounts.size}`);
+console.log(`[tag-consolidate] raw unique tags: ${tagData.size}`);
 
-// Merge near-duplicates using normalized Levenshtein
-const sortedTags = [...tagCounts.entries()].sort((a, b) => b[1] - a[1]);
-const mergeMap = new Map(); // from -> to (canonical)
-const canonical = new Map(); // canonical tag -> count
+// Merge near-duplicate categories
+const sortedCats = [...catCounts.entries()].sort((a, b) => b[1] - a[1]);
+const canonicalCats = new Map(); // canonical cat -> total count
 
-for (const [tag, count] of sortedTags) {
-  if (mergeMap.has(tag)) continue;
+for (const [cat, count] of sortedCats) {
+  if (catMergeMap.has(cat)) continue;
 
-  // Check if this tag is similar to an existing canonical tag
   let merged = false;
-  for (const [canonTag] of canonical) {
-    if (similarity(tag, canonTag) >= fuzzyThreshold) {
-      // Merge into the higher-count canonical
-      mergeMap.set(tag, canonTag);
-      canonical.set(canonTag, canonical.get(canonTag) + count);
-      // Merge note lists
-      const notes = tagNotes.get(tag) || [];
-      const canonNotes = tagNotes.get(canonTag) || [];
-      tagNotes.set(canonTag, [...new Set([...canonNotes, ...notes])]);
+  for (const [canonCat] of canonicalCats) {
+    if (similarity(cat, canonCat) >= fuzzyThreshold) {
+      catMergeMap.set(cat, canonCat);
+      canonicalCats.set(canonCat, canonicalCats.get(canonCat) + count);
       merged = true;
       break;
     }
   }
 
   if (!merged) {
-    canonical.set(tag, count);
-    mergeMap.set(tag, tag);
+    canonicalCats.set(cat, count);
+    catMergeMap.set(cat, cat);
   }
 }
 
-console.log(`[tag-consolidate] after merge: ${canonical.size} canonical tags`);
+console.log(`[tag-consolidate] after category merge: ${canonicalCats.size} categories`);
 
-// Prune tags below min count
-const pruned = [];
-const kept = [];
-for (const [tag, count] of canonical) {
-  if (count < minCount) {
-    pruned.push({ tag, count });
+// Rebuild tag data under canonical categories, merging near-duplicate tags within each category
+const categoryTags = new Map(); // canonical cat -> Map<canonical tag, { count, notes[] }>
+
+for (const [key, data] of tagData) {
+  const [rawCat, tag] = key.split('::');
+  const canonCat = catMergeMap.get(rawCat) || rawCat;
+
+  if (!categoryTags.has(canonCat)) categoryTags.set(canonCat, new Map());
+  const tagMap = categoryTags.get(canonCat);
+
+  // Find existing similar tag in this category
+  let mergedInto = null;
+  for (const [existingTag] of tagMap) {
+    if (similarity(tag, existingTag) >= fuzzyThreshold) {
+      mergedInto = existingTag;
+      break;
+    }
+  }
+
+  if (mergedInto) {
+    const existing = tagMap.get(mergedInto);
+    existing.count += data.count;
+    existing.notes = [...new Set([...existing.notes, ...data.notes])];
   } else {
-    kept.push({ tag, count, notes: tagNotes.get(tag) || [] });
+    tagMap.set(tag, { count: data.count, notes: [...data.notes] });
   }
 }
 
-kept.sort((a, b) => b.count - a.count);
-
-console.log(`[tag-consolidate] pruned ${pruned.length} tags with count < ${minCount}`);
-console.log(`[tag-consolidate] final taxonomy: ${kept.length} tags`);
-console.log('');
-
-for (const { tag, count } of kept) {
-  console.log(`  ${tag} (${count} notes)`);
-}
-
+// Build final taxonomy: prune low-count tags, sort
 const taxonomy = {
-  version: 1,
+  version: 2,
   createdAt: new Date().toISOString(),
   minCount,
   fuzzyThreshold,
-  tags: kept.map(({ tag, count, notes }) => ({ tag, count, notes })),
-  pruned: pruned.map(({ tag, count }) => ({ tag, count })),
-  mergeMap: Object.fromEntries(mergeMap),
+  categories: [],
+  catMergeMap: Object.fromEntries(catMergeMap),
 };
+
+let totalKept = 0;
+let totalPruned = 0;
+
+const sortedCanonCats = [...canonicalCats.entries()].sort((a, b) => b[1] - a[1]);
+
+for (const [cat, catCount] of sortedCanonCats) {
+  const tagMap = categoryTags.get(cat) || new Map();
+  const kept = [];
+  const pruned = [];
+
+  for (const [tag, data] of tagMap) {
+    if (data.count < minCount) {
+      pruned.push({ tag, count: data.count });
+      totalPruned++;
+    } else {
+      kept.push({ tag, count: data.count, notes: data.notes });
+      totalKept++;
+    }
+  }
+
+  kept.sort((a, b) => b.count - a.count);
+
+  taxonomy.categories.push({
+    category: cat,
+    noteCount: catCount,
+    tags: kept,
+    pruned,
+  });
+}
+
+console.log(`[tag-consolidate] kept ${totalKept} tags, pruned ${totalPruned} with count < ${minCount}`);
+console.log('');
+
+for (const cat of taxonomy.categories) {
+  const tagList = cat.tags.map(t => `${t.tag}(${t.count})`).join(', ');
+  console.log(`  ${cat.category} (${cat.noteCount} notes): ${tagList}`);
+}
 
 await writeJsonFile(taxonomyPath, taxonomy);
 console.log(`\n[tag-consolidate] wrote ${taxonomyPath}`);

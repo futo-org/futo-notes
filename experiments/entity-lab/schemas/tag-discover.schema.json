@@ -3,8 +3,12 @@
   "title": "TagDiscover",
   "type": "object",
   "additionalProperties": false,
-  "required": ["tags"],
+  "required": ["category", "tags"],
   "properties": {
+    "category": {
+      "type": "string",
+      "maxLength": 30
+    },
     "tags": {
       "type": "array",
       "maxItems": 3,

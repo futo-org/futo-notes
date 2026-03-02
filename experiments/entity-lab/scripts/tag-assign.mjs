@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
 /**
- * Phase 3: Assign tags from the canonical taxonomy to each note.
- * Uses the fixed tag list — the LLM cannot invent new tags.
+ * Phase 3: Assign tags from the hierarchical taxonomy to each note.
+ * Uses the fixed category/tag list — the LLM cannot invent new ones.
  * Writes final assignments to reports/tag-assignments.json and reports/tags-report.md
  */
 
@@ -39,7 +39,7 @@ const backend = args.vllm ? 'vllm' : 'ollama';
 const defaultHost = backend === 'vllm' ? DEFAULT_VLLM_HOST : DEFAULT_OLLAMA_HOST;
 const host = (args.vllmHost || args.ollamaHost || process.env.OLLAMA_HOST || defaultHost).replace(/\/+$/, '');
 const model = args.model || process.env.OLLAMA_MODEL || DEFAULT_MODEL;
-const maxNoteChars = args.maxNoteChars > 0 ? args.maxNoteChars : 12000;
+const maxNoteChars = args.maxNoteChars > 0 ? args.maxNoteChars : 4000;
 const concurrency = args.concurrency > 0 ? args.concurrency : 1;
 
 const taxonomyPath = path.resolve(args.taxonomyFile || path.join(CACHE_DIR, 'tag-taxonomy.json'));
@@ -57,13 +57,23 @@ const [promptTemplate, schema, taxonomy] = await Promise.all([
   readJsonFile(taxonomyPath),
 ]);
 
-if (!taxonomy?.tags?.length) {
+if (!taxonomy?.categories?.length) {
   console.error('[tag-assign] No taxonomy found. Run tag-consolidate first.');
   process.exit(1);
 }
 
-const allowedTags = new Set(taxonomy.tags.map(t => t.tag));
-const tagListStr = taxonomy.tags.map(t => `- ${t.tag}`).join('\n');
+// Build allowed sets and taxonomy string for prompt
+const allowedCategories = new Set(taxonomy.categories.map(c => c.category));
+const allowedTagsByCategory = new Map();
+for (const cat of taxonomy.categories) {
+  const tagSet = new Set(cat.tags.map(t => t.tag));
+  allowedTagsByCategory.set(cat.category, tagSet);
+}
+
+const taxonomyStr = taxonomy.categories.map(cat => {
+  const tags = cat.tags.map(t => t.tag).join(', ');
+  return `${cat.category}: ${tags}`;
+}).join('\n');
 
 if (!args.mock) {
   await verifyConnection({ backend, host, model });
@@ -74,7 +84,7 @@ const callLlm = createLlmClient({ backend, host, model });
 const files = await listMarkdownFiles(notesDir);
 if (files.length === 0) throw new Error(`No markdown files found in ${notesDir}`);
 
-const cache = (await readJsonFile(assignCachePath)) ?? { version: 1, notes: {} };
+const cache = (await readJsonFile(assignCachePath)) ?? { version: 2, notes: {} };
 
 const noteRecords = await loadNoteRecords(files, notesDir, maxNoteChars);
 if (args.maxNotes && args.maxNotes > 0) noteRecords.splice(args.maxNotes);
@@ -88,7 +98,8 @@ for (const note of noteRecords) {
   toProcess.push(note);
 }
 
-console.log(`[tag-assign] taxonomy: ${allowedTags.size} tags`);
+const totalTaxonomyTags = taxonomy.categories.reduce((sum, c) => sum + c.tags.length, 0);
+console.log(`[tag-assign] taxonomy: ${taxonomy.categories.length} categories, ${totalTaxonomyTags} tags`);
 console.log(`[tag-assign] notes found: ${noteRecords.length}`);
 console.log(`[tag-assign] notes to process: ${toProcess.length}`);
 console.log(`[tag-assign] skipped unchanged: ${skipped.length}`);
@@ -103,14 +114,14 @@ await runConcurrent(toProcess, async (note) => {
   const started = performance.now();
 
   try {
-    const promptWithTags = promptTemplate.replace('{{TAG_LIST}}', tagListStr);
-    const prompt = buildUserPrompt(promptWithTags, note.title, note.content);
+    const promptWithTaxonomy = promptTemplate.replace('{{TAXONOMY}}', taxonomyStr);
+    const prompt = buildUserPrompt(promptWithTaxonomy, note.title, note.content);
 
     const rawPayload = args.mock
-      ? mockAssign(note, allowedTags)
+      ? mockAssign(note)
       : await callLlm({
           messages: [
-            { role: 'system', content: 'Assign tags to notes from a fixed list. Respond with valid JSON only (after any thinking).' },
+            { role: 'system', content: 'Assign a category and tags to notes from a fixed taxonomy. Respond with valid JSON only.' },
             { role: 'user', content: prompt },
           ],
           schema,
@@ -119,19 +130,21 @@ await runConcurrent(toProcess, async (note) => {
         });
 
     const parsed = parseModelJson(rawPayload);
-    const tags = sanitizeTags(parsed, allowedTags);
+    const { category, tags } = sanitizeResult(parsed, allowedCategories, allowedTagsByCategory);
     const durationMs = Math.round(performance.now() - started);
 
     cache.notes[note.noteId] = {
       title: note.title,
       hash: note.hash,
       model,
+      category,
       tags,
       assignedAt: new Date().toISOString(),
     };
 
     completed++;
-    console.log(`[tag-assign] ${completed + failed}/${toProcess.length}: ${note.noteId} (${durationMs}ms) -> [${tags.join(', ')}]`);
+    const label = category ? `${category}/${tags.join(', ')}` : tags.join(', ');
+    console.log(`[tag-assign] ${completed + failed}/${toProcess.length}: ${note.noteId} (${durationMs}ms) -> [${label}]`);
     flusher.tick();
     progress.tick();
   } catch (error) {
@@ -145,19 +158,27 @@ await runConcurrent(toProcess, async (note) => {
 
 await flusher.flush();
 
-// Build report
-const tagGroups = new Map();
-for (const tagEntry of taxonomy.tags) {
-  tagGroups.set(tagEntry.tag, []);
+// Build report — grouped by category
+const catGroups = new Map();
+for (const cat of taxonomy.categories) {
+  catGroups.set(cat.category, { tags: new Map(), uncategorized: [] });
+  for (const t of cat.tags) {
+    catGroups.get(cat.category).tags.set(t.tag, []);
+  }
 }
 
 let untaggedCount = 0;
 for (const [noteId, entry] of Object.entries(cache.notes)) {
+  const cat = entry.category || '';
   const tags = Array.isArray(entry.tags) ? entry.tags : [];
-  if (tags.length === 0) { untaggedCount++; continue; }
-  for (const tag of tags) {
-    if (tagGroups.has(tag)) {
-      tagGroups.get(tag).push({ noteId, title: entry.title });
+  if (!cat && tags.length === 0) { untaggedCount++; continue; }
+
+  if (catGroups.has(cat)) {
+    const group = catGroups.get(cat);
+    for (const tag of tags) {
+      if (group.tags.has(tag)) {
+        group.tags.get(tag).push({ noteId, title: entry.title });
+      }
     }
   }
 }
@@ -168,9 +189,13 @@ const assignments = {
   notesDir,
   totalNotes: Object.keys(cache.notes).length,
   untagged: untaggedCount,
-  tags: [...tagGroups.entries()]
-    .map(([tag, notes]) => ({ tag, count: notes.length, notes: notes.map(n => n.noteId) }))
-    .sort((a, b) => b.count - a.count),
+  categories: taxonomy.categories.map(cat => {
+    const group = catGroups.get(cat.category);
+    const tags = [...group.tags.entries()]
+      .map(([tag, notes]) => ({ tag, count: notes.length, notes: notes.map(n => n.noteId) }))
+      .sort((a, b) => b.count - a.count);
+    return { category: cat.category, tags };
+  }),
 };
 await writeJsonFile(path.join(REPORTS_DIR, 'tag-assignments.json'), assignments);
 
@@ -180,27 +205,33 @@ const lines = [
   '',
   `Generated: ${new Date().toISOString()}`,
   `Notes: ${assignments.totalNotes} | Untagged: ${untaggedCount}`,
-  `Tags: ${assignments.tags.filter(t => t.count > 0).length}`,
+  `Categories: ${assignments.categories.length}`,
   '',
 ];
 
-for (const { tag, count, notes } of assignments.tags) {
-  if (count === 0) continue;
-  lines.push(`## ${tag} (${count} notes)`);
+for (const cat of assignments.categories) {
+  const catNoteCount = cat.tags.reduce((sum, t) => sum + t.count, 0);
+  if (catNoteCount === 0) continue;
+  lines.push(`# ${cat.category} (${catNoteCount} notes)`);
   lines.push('');
-  for (const noteId of notes) {
-    const entry = cache.notes[noteId];
-    const title = entry?.title || noteId;
-    lines.push(`- ${title}`);
+
+  for (const { tag, count, notes } of cat.tags) {
+    if (count === 0) continue;
+    lines.push(`## ${cat.category}/${tag} (${count} notes)`);
+    lines.push('');
+    for (const noteId of notes) {
+      const entry = cache.notes[noteId];
+      lines.push(`- ${entry?.title || noteId}`);
+    }
+    lines.push('');
   }
-  lines.push('');
 }
 
 if (untaggedCount > 0) {
-  lines.push(`## Untagged (${untaggedCount} notes)`);
+  lines.push(`# Untagged (${untaggedCount} notes)`);
   lines.push('');
   for (const [noteId, entry] of Object.entries(cache.notes)) {
-    if (!entry.tags || entry.tags.length === 0) {
+    if ((!entry.category) && (!entry.tags || entry.tags.length === 0)) {
       lines.push(`- ${entry.title || noteId}`);
     }
   }
@@ -215,22 +246,32 @@ if (failed > 0) process.exitCode = 2;
 
 // --- helpers ---
 
-function sanitizeTags(parsed, allowed) {
-  const raw = Array.isArray(parsed?.tags) ? parsed.tags : [];
-  return raw
-    .map(t => (typeof t === 'string' ? t.trim().toLowerCase() : ''))
-    .filter(t => allowed.has(t))
+function sanitizeResult(parsed, allowedCats, allowedTagsByCat) {
+  let category = typeof parsed?.category === 'string'
+    ? parsed.category.trim().toLowerCase().replace(/\s+/g, '-')
+    : '';
+
+  // Snap to allowed category
+  if (category && !allowedCats.has(category)) {
+    category = '';
+  }
+
+  const rawTags = Array.isArray(parsed?.tags) ? parsed.tags : [];
+  const allowedTags = category ? (allowedTagsByCat.get(category) || new Set()) : new Set();
+
+  const tags = rawTags
+    .map(t => (typeof t === 'string' ? t.trim().toLowerCase().replace(/\s+/g, '-') : ''))
+    .filter(t => allowedTags.has(t))
     .slice(0, 3);
+
+  return { category, tags };
 }
 
-function mockAssign(note, allowed) {
-  const tags = [];
+function mockAssign(note) {
   const lower = note.content.toLowerCase();
-  for (const tag of allowed) {
-    if (lower.includes(tag)) tags.push(tag);
-    if (tags.length >= 2) break;
-  }
-  return { tags };
+  if (/software|code|api/.test(lower)) return { category: 'technology', tags: ['software-dev'] };
+  if (/journal|morning|evening/.test(lower)) return { category: 'personal', tags: ['journal'] };
+  return { category: '', tags: [] };
 }
 
 async function loadNoteRecords(files, notesDir, maxChars) {

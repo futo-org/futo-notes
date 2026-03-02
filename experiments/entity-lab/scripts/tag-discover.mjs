@@ -38,7 +38,7 @@ const backend = args.vllm ? 'vllm' : 'ollama';
 const defaultHost = backend === 'vllm' ? DEFAULT_VLLM_HOST : DEFAULT_OLLAMA_HOST;
 const host = (args.vllmHost || args.ollamaHost || process.env.OLLAMA_HOST || defaultHost).replace(/\/+$/, '');
 const model = args.model || process.env.OLLAMA_MODEL || DEFAULT_MODEL;
-const maxNoteChars = args.maxNoteChars > 0 ? args.maxNoteChars : 12000;
+const maxNoteChars = args.maxNoteChars > 0 ? args.maxNoteChars : 4000;
 const concurrency = args.concurrency > 0 ? args.concurrency : 1;
 const cacheFilePath = path.resolve(args.cacheFile || path.join(CACHE_DIR, 'tag-discover.json'));
 
@@ -101,7 +101,7 @@ await runConcurrent(toProcess, async (note) => {
       ? mockDiscover(note)
       : await callLlm({
           messages: [
-            { role: 'system', content: 'Tag personal notes with broad topic categories. Respond with valid JSON only (after any thinking).' },
+            { role: 'system', content: 'You tag personal notes with broad topic categories. Respond with valid JSON only.' },
             { role: 'user', content: prompt },
           ],
           schema,
@@ -110,19 +110,21 @@ await runConcurrent(toProcess, async (note) => {
         });
 
     const parsed = parseModelJson(rawPayload);
-    const tags = sanitizeTags(parsed);
+    const { category, tags } = sanitizeResult(parsed);
     const durationMs = Math.round(performance.now() - started);
 
     cache.notes[note.noteId] = {
       title: note.title,
       hash: note.hash,
       model,
+      category,
       tags,
       discoveredAt: new Date().toISOString(),
     };
 
     completed++;
-    console.log(`[tag-discover] ${completed + failed}/${toProcess.length}: ${note.noteId} (${durationMs}ms) -> [${tags.join(', ')}]`);
+    const label = category ? `${category}/${tags.join(', ')}` : tags.join(', ');
+    console.log(`[tag-discover] ${completed + failed}/${toProcess.length}: ${note.noteId} (${durationMs}ms) -> [${label}]`);
     flusher.tick();
     progress.tick();
   } catch (error) {
@@ -141,23 +143,29 @@ if (failed > 0) process.exitCode = 2;
 
 // --- helpers ---
 
-function sanitizeTags(parsed) {
-  const raw = Array.isArray(parsed?.tags) ? parsed.tags : [];
-  return raw
-    .map(t => (typeof t === 'string' ? t.trim().toLowerCase() : ''))
-    .filter(t => t.length > 0 && t.length <= 60)
+function sanitizeResult(parsed) {
+  const category = typeof parsed?.category === 'string'
+    ? parsed.category.trim().toLowerCase().replace(/\s+/g, '-')
+    : '';
+  const rawTags = Array.isArray(parsed?.tags) ? parsed.tags : [];
+  const tags = rawTags
+    .map(t => (typeof t === 'string' ? t.trim().toLowerCase().replace(/\s+/g, '-') : ''))
+    .filter(t => t.length > 0 && t.length <= 60 && t !== category)
     .slice(0, 3);
+  return { category, tags };
 }
 
 function mockDiscover(note) {
-  const tags = [];
   const lower = note.content.toLowerCase();
-  if (/software|code|program|app|api|function/.test(lower)) tags.push('software');
-  if (/journal|diary|today|morning|evening|day/.test(lower)) tags.push('journaling');
-  if (/idea|brainstorm|concept/.test(lower)) tags.push('ideas');
-  if (/workout|exercise|gym|fitness|run|lift/.test(lower)) tags.push('fitness');
-  if (tags.length === 0) tags.push('misc');
-  return { tags: tags.slice(0, 3) };
+  if (/software|code|program|app|api|function/.test(lower))
+    return { category: 'technology', tags: ['software-dev'] };
+  if (/journal|diary|today|morning|evening|day/.test(lower))
+    return { category: 'personal', tags: ['journal'] };
+  if (/idea|brainstorm|concept/.test(lower))
+    return { category: 'creative', tags: ['brainstorming'] };
+  if (/workout|exercise|gym|fitness|run|lift/.test(lower))
+    return { category: 'health', tags: ['fitness'] };
+  return { category: '', tags: [] };
 }
 
 async function loadNoteRecords(files, notesDir, maxChars) {

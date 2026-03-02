@@ -1,13 +1,13 @@
-You are assigning tags to a personal note from a fixed list of allowed tags.
+Assign a category and tags to a personal note from the allowed taxonomy below.
 
-Allowed tags:
-{{TAG_LIST}}
+Allowed categories and their tags:
+{{TAXONOMY}}
 
 Rules:
-- Assign 0 to 3 tags from the allowed list above.
-- Only use tags from the list. Do NOT invent new tags.
-- Pick the tags that best describe what this note is about.
-- If none of the tags fit well, return an empty tags array.
+- Pick exactly one category from the list above.
+- Assign 1-3 tags from that category's tag list.
+- Only use categories and tags from the taxonomy. Do NOT invent new ones.
+- If the note doesn't fit any category well, pick the closest match.
 - Respond with JSON only, no markdown fences.
 
 Note title: {{TITLE}}

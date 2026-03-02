@@ -23,7 +23,7 @@ cd "$REPO_DIR"
 npm install --ignore-scripts
 
 echo "=== Pre-downloading model ==="
-MODEL="${MODEL:-Qwen/Qwen3-8B}"
+MODEL="${MODEL:-Qwen/Qwen3.5-4B}"
 python3 -c "from huggingface_hub import snapshot_download; snapshot_download('${MODEL}')"
 
 echo "=== Setup complete ==="
