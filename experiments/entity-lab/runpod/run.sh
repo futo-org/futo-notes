@@ -11,6 +11,8 @@ CONCURRENCY="${CONCURRENCY:-12}"
 cd "$REPO_DIR"
 
 echo "=== Starting Ollama server ==="
+export OLLAMA_NUM_PARALLEL="${CONCURRENCY}"
+export OLLAMA_FLASH_ATTENTION=1
 ollama serve &
 OLLAMA_PID=$!
 

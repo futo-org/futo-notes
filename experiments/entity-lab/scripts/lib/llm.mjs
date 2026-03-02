@@ -46,7 +46,7 @@ export function createLlmClient({ backend, host, model }) {
     const body = {
       model,
       stream: false,
-      options: { temperature },
+      options: { temperature, num_ctx: 8192 },
       messages,
     };
 
