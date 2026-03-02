@@ -18,10 +18,8 @@ export function createLlmClient({ backend, host, model }) {
         max_tokens: 4096,
       };
 
-      const extraBody = {};
-      if (schema) extraBody.guided_json = schema;
-      if (think) extraBody.chat_template_kwargs = { enable_thinking: true };
-      if (Object.keys(extraBody).length > 0) body.extra_body = extraBody;
+      if (schema) body.guided_json = schema;
+      if (think) body.chat_template_kwargs = { enable_thinking: true };
 
       const response = await fetch(`${baseUrl}/v1/chat/completions`, {
         method: 'POST',

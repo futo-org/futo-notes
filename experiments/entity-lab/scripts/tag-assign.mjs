@@ -25,6 +25,7 @@ import { buildUserPrompt, parseModelJson } from './lib/extraction-schema.mjs';
 import { createLlmClient, verifyConnection } from './lib/llm.mjs';
 import { runConcurrent } from './lib/concurrency.mjs';
 import { createCacheFlusher } from './lib/cache-flusher.mjs';
+import { createProgressLogger } from './lib/progress.mjs';
 
 const args = parseArgs(process.argv.slice(2));
 
@@ -96,6 +97,7 @@ console.log(`[tag-assign] mode: ${args.mock ? 'mock' : backend}${args.mock && ar
 let failed = 0;
 let completed = 0;
 const flusher = createCacheFlusher(cache, assignCachePath);
+const progress = createProgressLogger('tag-assign', toProcess.length);
 
 await runConcurrent(toProcess, async (note) => {
   const started = performance.now();
@@ -131,11 +133,13 @@ await runConcurrent(toProcess, async (note) => {
     completed++;
     console.log(`[tag-assign] ${completed + failed}/${toProcess.length}: ${note.noteId} (${durationMs}ms) -> [${tags.join(', ')}]`);
     flusher.tick();
+    progress.tick();
   } catch (error) {
     failed++;
     const durationMs = Math.round(performance.now() - started);
     console.error(`[tag-assign] FAIL ${completed + failed}/${toProcess.length}: ${note.noteId} (${durationMs}ms) ${error.message}`);
     flusher.tick();
+    progress.tick();
   }
 }, concurrency);
 

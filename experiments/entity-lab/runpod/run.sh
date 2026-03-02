@@ -6,7 +6,7 @@ set -euo pipefail
 REPO_DIR="${REPO_DIR:-/workspace/futo-notes}"
 NOTES_DIR="${NOTES_DIR:-/workspace/notes}"
 MODEL="${MODEL:-Qwen/Qwen3-8B}"
-CONCURRENCY="${CONCURRENCY:-4}"
+CONCURRENCY="${CONCURRENCY:-12}"
 GPU_MEM_UTIL="${GPU_MEM_UTIL:-0.90}"
 MAX_MODEL_LEN="${MAX_MODEL_LEN:-16384}"
 VLLM_PORT=8000
