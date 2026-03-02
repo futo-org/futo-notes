@@ -50,6 +50,11 @@ export function createLlmClient({ backend, host, model }) {
       messages,
     };
 
+    // Explicitly disable thinking unless requested (Qwen3.5 thinks by default)
+    if (!think) {
+      body.think = false;
+    }
+
     // When thinking is enabled, don't constrain format so <think> tags can flow.
     if (schema && !think) {
       body.format = schema;
