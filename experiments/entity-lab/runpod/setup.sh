@@ -9,8 +9,8 @@ echo "=== Installing Node.js 22 ==="
 curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
 apt-get install -y nodejs
 
-echo "=== Installing vLLM ==="
-pip install vllm
+echo "=== Installing Ollama ==="
+curl -fsSL https://ollama.com/install.sh | sh
 
 echo "=== Cloning repo ==="
 REPO_URL="${REPO_URL:-https://gitlab.futo.org/justin/futo-notes.git}"
@@ -22,9 +22,13 @@ fi
 cd "$REPO_DIR"
 npm install --ignore-scripts
 
-echo "=== Pre-downloading model ==="
-MODEL="${MODEL:-Qwen/Qwen3.5-4B}"
-python3 -c "from huggingface_hub import snapshot_download; snapshot_download('${MODEL}')"
+echo "=== Pre-pulling model ==="
+MODEL="${MODEL:-qwen3.5:4b}"
+ollama serve &
+OLLAMA_PID=$!
+sleep 3
+ollama pull "$MODEL"
+kill "$OLLAMA_PID" 2>/dev/null || true
 
 echo "=== Setup complete ==="
 echo "Run: bash experiments/entity-lab/runpod/run.sh"
