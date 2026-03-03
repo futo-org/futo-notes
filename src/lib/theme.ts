@@ -37,6 +37,37 @@ export function watchSystemTheme(onChange: () => void): () => void {
   return () => media.removeEventListener('change', handler);
 }
 
+/**
+ * Watch system theme using Tauri's onThemeChanged event, which fires reliably
+ * on Linux (webkit2gtk doesn't fire matchMedia change events).
+ * Falls back to matchMedia if the Tauri API isn't available.
+ */
+export function watchSystemThemeTauri(onChange: () => void): () => void {
+  let tauriUnlisten: (() => void) | null = null;
+  let fallbackUnlisten: (() => void) | null = null;
+  let disposed = false;
+
+  import('@tauri-apps/api/window').then(({ getCurrentWindow }) => {
+    if (disposed) return;
+    getCurrentWindow().onThemeChanged(() => {
+      onChange();
+    }).then(unlisten => {
+      if (disposed) { unlisten(); return; }
+      tauriUnlisten = unlisten;
+    });
+  }).catch(() => {
+    // Tauri API not available (web mode) — fall back to matchMedia
+    if (disposed) return;
+    fallbackUnlisten = watchSystemTheme(onChange);
+  });
+
+  return () => {
+    disposed = true;
+    tauriUnlisten?.();
+    fallbackUnlisten?.();
+  };
+}
+
 async function syncStatusBarTheme(theme: ResolvedTheme): Promise<void> {
   void theme;
 }

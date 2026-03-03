@@ -164,6 +164,7 @@
   .cm-editor {
     background: transparent !important;
     color: var(--color-text) !important;
+    caret-color: var(--color-text) !important;
     outline: none !important;
     box-shadow: none !important;
   }

@@ -20,6 +20,9 @@ let sseDebounceTimer: number | null = null;
 let syncing = false;
 let lastSyncTime = 0;
 let cleanupFns: Array<() => void> = [];
+let initialRetryTimer: number | null = null;
+let initialRetryCount = 0;
+const INITIAL_RETRY_DELAYS = [4_000, 8_000, 16_000, 30_000, 30_000];
 
 type SyncTrigger = 'local-save' | 'manual' | 'sse' | 'resume' | 'initial';
 interface PerformSyncOptions {
@@ -52,6 +55,8 @@ async function performSync(trigger: SyncTrigger, options: PerformSyncOptions = {
     }
     const summary = await syncNow();
     lastSyncTime = Date.now();
+    // Successful sync from any trigger cancels initial retries
+    cancelInitialRetry();
     // Ensure SSE is connected (handles case where prefs weren't loaded at startup)
     if (!isSSEConnected()) connectSSE();
     callbacks.onSyncComplete(summary);
@@ -105,6 +110,27 @@ function handleSupersearchReady(): void {
   callbacks?.onSupersearchReady?.();
 }
 
+function cancelInitialRetry(): void {
+  if (initialRetryTimer !== null) {
+    clearTimeout(initialRetryTimer);
+    initialRetryTimer = null;
+  }
+  initialRetryCount = 0;
+}
+
+function scheduleInitialRetry(): void {
+  if (initialRetryCount >= INITIAL_RETRY_DELAYS.length) return;
+  const delay = INITIAL_RETRY_DELAYS[initialRetryCount];
+  initialRetryCount++;
+  console.log(`[autoSync] initial sync retry #${initialRetryCount} in ${delay / 1000}s`);
+  initialRetryTimer = window.setTimeout(() => {
+    initialRetryTimer = null;
+    performSync('initial').then(summary => {
+      if (!summary) scheduleInitialRetry();
+    });
+  }, delay);
+}
+
 export function connectSSE(): void {
   if (!isSyncConfigured()) return;
   const prefs = getCachedPreferences();
@@ -122,7 +148,9 @@ export function startAutoSync(cb: AutoSyncCallbacks): void {
   // Initial sync after a short delay to let preferences load from disk
   window.setTimeout(() => {
     connectSSE();
-    performSync('initial');
+    performSync('initial').then(summary => {
+      if (!summary) scheduleInitialRetry();
+    });
   }, 2_000);
 
   // App resume / visibility
@@ -138,6 +166,7 @@ export function startAutoSync(cb: AutoSyncCallbacks): void {
 
 export function stopAutoSync(): void {
   stopSSE();
+  cancelInitialRetry();
   if (sseDebounceTimer !== null) {
     clearTimeout(sseDebounceTimer);
     sseDebounceTimer = null;

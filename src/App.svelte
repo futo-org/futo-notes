@@ -4,7 +4,7 @@
   import { hasFileSystem, getFS } from '$lib/platform';
   import { initNotes, createNote, getAllNotes } from '$lib/notes';
   import { loadPreferences, getCachedPreferences, savePreferences } from '$lib/preferences';
-  import { applyThemePreference, watchSystemTheme } from '$lib/theme';
+  import { applyThemePreference, watchSystemThemeTauri } from '$lib/theme';
   import { flushCrashQueue, setAppVersion, type CrashReport } from '$lib/crashHandler';
   import { checkHeartbeat, startHeartbeat } from '$lib/heartbeat';
   import { sendAllPendingReports, discardAllPendingReports, loadPendingReports } from '$lib/crashReporter';
@@ -53,7 +53,7 @@
         const prefs = await loadPreferences();
         await applyThemePreference(prefs.appearance.theme);
         stopWatchingSystemTheme?.();
-        stopWatchingSystemTheme = watchSystemTheme(() => {
+        stopWatchingSystemTheme = watchSystemThemeTauri(() => {
           const latestPrefs = getCachedPreferences();
           if (latestPrefs.appearance.theme === 'auto') {
             void applyThemePreference('auto');
