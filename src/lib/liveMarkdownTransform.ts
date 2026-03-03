@@ -367,6 +367,7 @@ class MarkdownParser {
 class LiveMarkdownPlugin implements PluginValue {
   decorations: DecorationSet = Decoration.none;
   lastTreeLength: number = 0;
+  lastCursorLine: number = -1;
   compositionSuspended = false;
 
   constructor(view: EditorView) {
@@ -375,6 +376,7 @@ class LiveMarkdownPlugin implements PluginValue {
     ensureSyntaxTree(view.state, view.state.doc.length, 5000);
     this.lastTreeLength = syntaxTree(view.state).length;
     this.decorations = this.buildDecorations(view);
+    this.lastCursorLine = view.state.doc.lineAt(view.state.selection.main.head).number;
   }
 
   update(update: ViewUpdate): void {
@@ -393,6 +395,7 @@ class LiveMarkdownPlugin implements PluginValue {
       this.compositionSuspended = false;
       this.decorations = this.buildDecorations(update.view);
       this.lastTreeLength = syntaxTree(update.state).length;
+      this.lastCursorLine = update.state.doc.lineAt(update.state.selection.main.head).number;
       return;
     }
 
@@ -406,8 +409,19 @@ class LiveMarkdownPlugin implements PluginValue {
       this.lastTreeLength = tree.length;
     }
 
+    // Only treat selectionSet as needing rebuild when the cursor's line changed,
+    // not on every keystroke (cursor moves within same line during typing)
+    let cursorLineChanged = false;
+    if (update.selectionSet) {
+      const curLine = update.state.doc.lineAt(update.state.selection.main.head).number;
+      if (curLine !== this.lastCursorLine) {
+        this.lastCursorLine = curLine;
+        cursorLineChanged = true;
+      }
+    }
+
     const shouldRebuild = update.docChanged ||
-      update.selectionSet ||
+      cursorLineChanged ||
       update.focusChanged ||
       treeGrew ||
       imageCacheChanged;

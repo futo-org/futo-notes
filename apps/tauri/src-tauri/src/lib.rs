@@ -6,14 +6,15 @@ use core::*;
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_process::init())
         .manage(CoreState::default())
-        .setup(|app| {
+        .setup(|_app| {
             // On iOS, extend the webview edge-to-edge so CSS env(safe-area-inset-*)
             // reports correct values and the app fills the full screen.
             #[cfg(target_os = "ios")]
             {
                 use tauri::Manager;
-                let webview = app.get_webview_window("main").unwrap();
+                let webview = _app.get_webview_window("main").unwrap();
                 webview.with_webview(move |wv| {
                     use objc2::runtime::AnyObject;
                     use objc2::msg_send;
@@ -50,11 +51,13 @@ pub fn run() {
             supersearch_has_artifacts,
             supersearch_download,
             supersearch_query,
+            supersearch_note_vector,
             fs_save_image,
             fs_get_image_path,
             fs_start_watcher,
             app_get_config,
             app_save_config,
+            app_set_notes_dir,
             app_get_version,
             app_get_platform,
             core_rebuild_index,
@@ -70,7 +73,7 @@ pub fn run() {
             engagement_get_all,
             engagement_flush,
             supersearch_is_ready,
-            supersearch_get_state
+            supersearch_get_state,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

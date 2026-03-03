@@ -43,6 +43,7 @@ export interface PlatformFS {
     queryVector: number[],
     topK: number,
   ): Promise<Array<{ chunkId: number; uuid: string; chunkText: string; startOffset: number; endOffset: number; score: number }>>;
+  supersearchNoteVector?(uuid: string): Promise<number[]>;
 
   // Optional platform-specific
   pickImage?(): Promise<string | null>;

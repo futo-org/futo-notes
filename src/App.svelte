@@ -162,7 +162,9 @@
 {:else if initialized}
   <NotesShell {noteId} />
 {:else}
-  <!-- Loading -->
+  <div class="loading-screen">
+    <div class="loading-spinner"></div>
+  </div>
 {/if}
 
 {#if showCrashDialog}
@@ -172,3 +174,27 @@
 {#if toastMessage}
   <div class="toast">{toastMessage}</div>
 {/if}
+
+<style>
+  .loading-screen {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--color-bg);
+  }
+
+  .loading-spinner {
+    width: 24px;
+    height: 24px;
+    border: 2.5px solid var(--color-border);
+    border-top-color: var(--color-primary);
+    border-radius: 50%;
+    animation: loading-spin 0.8s linear infinite;
+  }
+
+  @keyframes loading-spin {
+    to { transform: rotate(360deg); }
+  }
+</style>

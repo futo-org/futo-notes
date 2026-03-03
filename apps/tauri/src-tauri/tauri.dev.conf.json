@@ -1,0 +1,11 @@
+{
+  "identifier": "com.futo.notes.tauri.dev",
+  "productName": "FUTO Notes Dev",
+  "app": {
+    "windows": [
+      {
+        "title": "FUTO Notes (Dev)"
+      }
+    ]
+  }
+}

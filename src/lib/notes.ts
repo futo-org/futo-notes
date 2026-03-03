@@ -12,7 +12,6 @@ import { loadEngagement, trackEdit, removeEngagement, renameEngagement } from '.
 import { embed, isReady as isEmbedderReady } from './supersearch/queryEmbedder';
 import { vectorSearch, type VectorSearchResult } from './supersearch/vectorSearch';
 import { hybridSearch } from './supersearch/hybridSearch';
-import { getSearchMode, type SearchMode } from './supersearch/searchMode';
 import { isSupersearchReady } from './supersearch/state';
 import { getRustNotePreviews, hasRustCore, keywordSearchRust, rebuildRustIndex } from './rustCore';
 
@@ -138,7 +137,6 @@ export async function searchKeyword(query: string): Promise<SearchResultItem[]> 
 
 export interface SearchTimingResult {
   results: SearchResultItem[];
-  mode: SearchMode;
   timing: {
     keyword: number;
     embed: number;
@@ -147,6 +145,8 @@ export interface SearchTimingResult {
   };
 }
 
+const VECTOR_DEADLINE_MS = 300;
+
 export async function searchWithVectors(query: string, signal?: AbortSignal): Promise<SearchTimingResult> {
   const totalStart = performance.now();
 
@@ -154,58 +154,44 @@ export async function searchWithVectors(query: string, signal?: AbortSignal): Pr
     const all = getAllNotes().map((note) => ({ note, snippet: null }));
     return {
       results: all,
-      mode: getSearchMode(),
       timing: { keyword: 0, embed: 0, vector: 0, total: 0 },
     };
   }
 
-  const mode = getSearchMode();
+  // 1. Always run keyword search
+  const kwStart = performance.now();
+  const keywordResults = await searchKeyword(query);
+  const keywordTime = performance.now() - kwStart;
 
-  // Keyword search
-  let keywordResults: SearchResultItem[] = [];
-  let keywordTime = 0;
-  if (mode === 'keyword' || mode === 'hybrid') {
-    const kwStart = performance.now();
-    keywordResults = await searchKeyword(query);
-    keywordTime = performance.now() - kwStart;
-  }
-
-  // If keyword-only mode, return immediately
-  if (mode === 'keyword') {
-    keywordResults.forEach(r => r.source = 'keyword');
-    return {
-      results: keywordResults,
-      mode,
-      timing: { keyword: keywordTime, embed: 0, vector: 0, total: performance.now() - totalStart },
-    };
-  }
-
-  // Check if supersearch is available for vector/hybrid modes
+  // 2. Check if vector search is possible (server available + local artifacts)
   const ready = await isSupersearchReady();
   if (!ready || !isEmbedderReady()) {
-    // Fall back to keyword results
-    if (mode === 'vector') {
-      return {
-        results: [],
-        mode,
-        timing: { keyword: 0, embed: 0, vector: 0, total: performance.now() - totalStart },
-      };
-    }
     keywordResults.forEach(r => r.source = 'keyword');
     return {
       results: keywordResults,
-      mode: 'keyword',
       timing: { keyword: keywordTime, embed: 0, vector: 0, total: performance.now() - totalStart },
     };
   }
 
+  // 3. Race server embed against 300ms deadline
   try {
-    // Embed query via server
     const embedStart = performance.now();
-    const queryVector = await embed(query, signal);
+    const queryVector = await Promise.race([
+      embed(query, signal),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), VECTOR_DEADLINE_MS)),
+    ]);
     const embedTime = performance.now() - embedStart;
 
-    // Vector search locally
+    if (!queryVector) {
+      // Timeout — return keyword only
+      keywordResults.forEach(r => r.source = 'keyword');
+      return {
+        results: keywordResults,
+        timing: { keyword: keywordTime, embed: embedTime, vector: 0, total: performance.now() - totalStart },
+      };
+    }
+
+    // 4. Local vector search (sub-ms)
     const vecStart = performance.now();
     const rawVectorResults = await vectorSearch(queryVector, 20);
     const vectorTime = performance.now() - vecStart;
@@ -222,30 +208,11 @@ export async function searchWithVectors(query: string, signal?: AbortSignal): Pr
       }
     }
 
-    if (mode === 'vector') {
-      // Vector-only: build results from vector hits
-      const results: SearchResultItem[] = mappedResults.map(vr => {
-        const note = cacheMap.get(vr.uuid)!;
-        const text = vr.chunkText.slice(0, 120).replace(/\n/g, ' ');
-        return {
-          note,
-          snippet: [{ text, highlight: false }],
-          source: 'vector' as const,
-        };
-      });
-      return {
-        results,
-        mode,
-        timing: { keyword: 0, embed: embedTime, vector: vectorTime, total: performance.now() - totalStart },
-      };
-    }
-
-    // Hybrid: fuse with RRF
+    // 5. Hybrid: fuse with RRF
     const keywordIds = new Set(keywordResults.map(r => r.note.id));
     const vectorIds = new Set(mappedResults.map(r => r.uuid));
     const fused = hybridSearch(keywordResults, mappedResults, cacheMap);
 
-    // Tag sources
     for (const r of fused) {
       const inKw = keywordIds.has(r.note.id);
       const inVec = vectorIds.has(r.note.id);
@@ -254,7 +221,6 @@ export async function searchWithVectors(query: string, signal?: AbortSignal): Pr
 
     return {
       results: fused,
-      mode,
       timing: { keyword: keywordTime, embed: embedTime, vector: vectorTime, total: performance.now() - totalStart },
     };
   } catch (e) {
@@ -262,18 +228,9 @@ export async function searchWithVectors(query: string, signal?: AbortSignal): Pr
       throw e;
     }
     console.warn('[supersearch] vector search failed:', e);
-    if (mode === 'vector') {
-      return {
-        results: [],
-        mode,
-        timing: { keyword: 0, embed: 0, vector: 0, total: performance.now() - totalStart },
-      };
-    }
-
     keywordResults.forEach(r => r.source = 'keyword');
     return {
       results: keywordResults,
-      mode: 'keyword',
       timing: { keyword: keywordTime, embed: 0, vector: 0, total: performance.now() - totalStart },
     };
   }

@@ -56,6 +56,34 @@ pub struct CoreState {
 }
 
 const APP_CONFIG_PATH: &str = ".app-config.json";
+const NOTES_DIR_OVERRIDE_FILE: &str = "notes-dir-override.json";
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct NotesDirOverride {
+    notes_dir: Option<String>,
+}
+
+fn override_file_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    Ok(data_dir.join(NOTES_DIR_OVERRIDE_FILE))
+}
+
+fn load_notes_dir_override(app: &AppHandle) -> Option<PathBuf> {
+    let path = override_file_path(app).ok()?;
+    let raw = fs::read_to_string(path).ok()?;
+    let over: NotesDirOverride = serde_json::from_str(&raw).ok()?;
+    over.notes_dir.map(PathBuf::from)
+}
+
+fn save_notes_dir_override(app: &AppHandle, dir: Option<&str>) -> Result<(), String> {
+    let path = override_file_path(app)?;
+    let over = NotesDirOverride {
+        notes_dir: dir.map(String::from),
+    };
+    let serialized = serde_json::to_string_pretty(&over).map_err(|e| e.to_string())?;
+    write_atomic_text(&path, &serialized)
+}
 
 #[derive(Default)]
 struct SearchIndexState {
@@ -64,26 +92,26 @@ struct SearchIndexState {
 }
 
 #[derive(Clone)]
-struct VectorArtifacts {
-    dims: usize,
-    chunks: Vec<ManifestChunk>,
-    vectors: Vec<f32>,
+pub(crate) struct VectorArtifacts {
+    pub(crate) dims: usize,
+    pub(crate) chunks: Vec<ManifestChunk>,
+    pub(crate) vectors: Vec<f32>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-struct ManifestChunk {
-    chunk_id: i64,
-    uuid: String,
-    chunk_text: String,
-    start_offset: i64,
-    end_offset: i64,
+pub(crate) struct ManifestChunk {
+    pub(crate) chunk_id: i64,
+    pub(crate) uuid: String,
+    pub(crate) chunk_text: String,
+    pub(crate) start_offset: i64,
+    pub(crate) end_offset: i64,
 }
 
 #[derive(Serialize, Deserialize)]
-struct ManifestPayload {
-    dims: usize,
-    chunk_count: usize,
-    chunks: Vec<ManifestChunk>,
+pub(crate) struct ManifestPayload {
+    pub(crate) dims: usize,
+    pub(crate) chunk_count: usize,
+    pub(crate) chunks: Vec<ManifestChunk>,
 }
 
 #[derive(Clone)]
@@ -124,6 +152,8 @@ struct AppConfigFile {
 pub struct AppConfigPayload {
     pub notes_dir: String,
     pub sidebar_width: Option<u32>,
+    pub is_custom_dir: bool,
+    pub default_notes_dir: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -230,28 +260,36 @@ pub struct SupersearchResultPayload {
     pub score: f32,
 }
 
-fn now_ms() -> i64 {
+pub(crate) fn now_ms() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0)
 }
 
-fn io_err_to_string(err: io::Error) -> String {
+pub(crate) fn io_err_to_string(err: io::Error) -> String {
     err.to_string()
 }
 
-fn task_join_err<E: std::fmt::Display>(err: E) -> String {
+pub(crate) fn task_join_err<E: std::fmt::Display>(err: E) -> String {
     format!("background task failed: {err}")
 }
 
-fn notes_root(app: &AppHandle) -> Result<PathBuf, String> {
+fn default_notes_root(app: &AppHandle) -> Result<PathBuf, String> {
     let docs = app
         .path()
         .document_dir()
         .or_else(|_| app.path().app_data_dir())
         .map_err(|e| e.to_string())?;
-    let root = docs.join("FUTO Notes");
+    Ok(docs.join("FUTO Notes"))
+}
+
+pub(crate) fn notes_root(app: &AppHandle) -> Result<PathBuf, String> {
+    let root = if let Some(custom) = load_notes_dir_override(app) {
+        custom
+    } else {
+        default_notes_root(app)?
+    };
     fs::create_dir_all(&root).map_err(io_err_to_string)?;
     Ok(root)
 }
@@ -260,7 +298,7 @@ fn ensure_safe_note_id(id: &str) -> Result<(), String> {
     if id.is_empty() {
         return Err("note id cannot be empty".to_string());
     }
-    if id.contains('/') || id.contains('\\') {
+    if id.contains('/') || id.contains('\\') || id == ".." || id == "." {
         return Err("invalid note id".to_string());
     }
     Ok(())
@@ -292,7 +330,7 @@ fn file_mtime_ms(meta: &fs::Metadata) -> i64 {
         .unwrap_or_else(now_ms)
 }
 
-fn write_atomic_text(path: &Path, content: &str) -> Result<(), String> {
+pub(crate) fn write_atomic_text(path: &Path, content: &str) -> Result<(), String> {
     let parent = path
         .parent()
         .ok_or_else(|| "invalid file path".to_string())?;
@@ -356,7 +394,7 @@ fn make_preview(content: &str) -> String {
     content.chars().take(100).collect::<String>().replace('\n', " ")
 }
 
-fn note_id_from_filename(name: &str) -> Option<String> {
+pub(crate) fn note_id_from_filename(name: &str) -> Option<String> {
     if !name.ends_with(".md") {
         return None;
     }
@@ -1087,7 +1125,7 @@ fn push_top_score(
     }
 }
 
-fn vector_search_impl(
+pub(crate) fn vector_search_impl(
     query_vector: &[f32],
     artifacts: &VectorArtifacts,
     top_k: usize,
@@ -1459,6 +1497,57 @@ pub async fn supersearch_download(
 }
 
 #[tauri::command]
+pub async fn supersearch_note_vector(
+    app: AppHandle,
+    state: State<'_, CoreState>,
+    uuid: String,
+) -> Result<Vec<f32>, String> {
+    let vectors_state = state.vectors.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = notes_root(&app)?;
+        let artifacts = ensure_vectors_loaded(&base, &vectors_state)?;
+        let dims = artifacts.dims;
+
+        // Collect indices of chunks belonging to this UUID
+        let indices: Vec<usize> = artifacts
+            .chunks
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| c.uuid == uuid)
+            .map(|(i, _)| i)
+            .collect();
+
+        if indices.is_empty() {
+            return Err(format!("no chunks found for uuid {}", uuid));
+        }
+
+        // Average the vectors element-wise
+        let mut avg = vec![0.0f32; dims];
+        for &idx in &indices {
+            let offset = idx * dims;
+            for (j, val) in avg.iter_mut().enumerate() {
+                *val += artifacts.vectors[offset + j];
+            }
+        }
+        let count = indices.len() as f32;
+        for val in avg.iter_mut() {
+            *val /= count;
+        }
+        // Re-normalize so dot-product == cosine similarity
+        let norm: f32 = avg.iter().map(|v| v * v).sum::<f32>().sqrt();
+        if norm > 0.0 {
+            for val in avg.iter_mut() {
+                *val /= norm;
+            }
+        }
+
+        Ok(avg)
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
+#[tauri::command]
 pub async fn supersearch_query(
     app: AppHandle,
     state: State<'_, CoreState>,
@@ -1563,9 +1652,13 @@ pub async fn app_get_config(app: AppHandle) -> Result<AppConfigPayload, String> 
     tauri::async_runtime::spawn_blocking(move || {
         let base = notes_root(&app)?;
         let cfg = load_app_config(&base);
+        let is_custom = load_notes_dir_override(&app).is_some();
+        let default_dir = default_notes_root(&app)?;
         Ok(AppConfigPayload {
             notes_dir: base.to_string_lossy().to_string(),
             sidebar_width: cfg.sidebar_width,
+            is_custom_dir: is_custom,
+            default_notes_dir: default_dir.to_string_lossy().to_string(),
         })
     })
     .await
@@ -1581,6 +1674,22 @@ pub async fn app_save_config(app: AppHandle, updates: AppConfigUpdates) -> Resul
             cfg.sidebar_width = sidebar_width;
         }
         save_app_config(&base, &cfg)
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
+#[tauri::command]
+pub async fn app_set_notes_dir(app: AppHandle, dir: Option<String>) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        if let Some(ref d) = dir {
+            let path = PathBuf::from(d);
+            if !path.is_absolute() {
+                return Err("path must be absolute".to_string());
+            }
+            fs::create_dir_all(&path).map_err(io_err_to_string)?;
+        }
+        save_notes_dir_override(&app, dir.as_deref())
     })
     .await
     .map_err(task_join_err)?

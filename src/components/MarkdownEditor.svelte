@@ -170,7 +170,8 @@
       EditorView.contentAttributes.of({
         autocorrect: 'on',
         autocapitalize: 'sentences',
-        spellcheck: 'false'
+        spellcheck: 'false',
+        enterkeyhint: 'return'
       }),
       EditorView.lineWrapping,
       EditorView.theme({

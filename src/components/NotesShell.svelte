@@ -27,6 +27,7 @@
   import { SCROLL_TEST_NOTES } from '$lib/scrollTestNotes';
   import { getCachedPreferences } from '$lib/preferences';
   import { onToast } from '$lib/toast';
+  import { getSimilarNotes, type SimilarNote } from '$lib/supersearch/similarNotes';
 
   const GFM_TEST_CONTENT = `# GFM Syntax Test Note
 
@@ -275,6 +276,7 @@ Escaped pipes:
   let shell: HTMLElement | undefined = $state(undefined);
   let drawer: HTMLElement | undefined = $state(undefined);
   let noteBody: HTMLElement | undefined = $state(undefined);
+  let titleTextarea: HTMLTextAreaElement | undefined = $state(undefined);
 
   let drawerWidth = $state(0);
   let saveTimeout: number | null = null;
@@ -322,6 +324,10 @@ Escaped pipes:
   // Note menu
   let noteMenuOpen = $state(false);
   let deleteConfirmOpen = $state(false);
+
+  // Similar notes
+  let similarNotes: SimilarNote[] = $state([]);
+  let similarNotesLoading = $state(false);
 
   // File watcher self-write suppression (desktop native)
   const recentWrites = new Map<string, number>();
@@ -626,9 +632,9 @@ Escaped pipes:
       const newId = sanitizeFilename(newTitle);
       const newContent = editor.getContent();
 
-      // Don't save empty new notes — nothing worth persisting yet,
-      // and the save→navigate cycle can crash certain Android IME/WebView combos.
-      if (!originalId && !newContent.trim() && newTitle === 'Untitled') return false;
+      // Don't save new notes until the body has content — title-only notes are ephemeral.
+      // This prevents duplicate note creation from debounced saves firing with partial titles.
+      if (!originalId && !newContent.trim()) return false;
 
       // Block saving if another note already has this name
       if (hasDuplicateTitle(newTitle)) return false;
@@ -676,16 +682,33 @@ Escaped pipes:
     return notes.some(n => n.id === checkId && n.id !== originalId);
   }
 
+  function autoResizeTitleTextarea(): void {
+    const el = titleTextarea;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+  }
+
   function handleTitleInput(event: Event): void {
-    const input = event.target as HTMLInputElement;
-    const cleaned = input.value.replace(FORBIDDEN_CHARS_RE, '');
-    if (cleaned !== input.value) {
+    const input = event.target as HTMLTextAreaElement;
+    // Strip newlines (pasted text may include them)
+    let cleaned = input.value.replace(/[\r\n]/g, '');
+    const hadForbidden = cleaned !== cleaned.replace(FORBIDDEN_CHARS_RE, '');
+    cleaned = cleaned.replace(FORBIDDEN_CHARS_RE, '');
+    if (hadForbidden) {
       const pos = input.selectionStart ?? cleaned.length;
       title = cleaned;
       requestAnimationFrame(() => {
         input.setSelectionRange(pos - 1, pos - 1);
       });
       showTitleWarning("That character can't be used in a note title", 2000);
+    } else if (input.value !== cleaned) {
+      // Newlines were stripped
+      const pos = input.selectionStart ?? cleaned.length;
+      title = cleaned;
+      requestAnimationFrame(() => {
+        input.setSelectionRange(pos, pos);
+      });
     } else {
       // Check for dot / length issues via shared validation
       const issues = validateTitle(cleaned);
@@ -700,6 +723,7 @@ Escaped pipes:
         clearTitleWarning();
       }
     }
+    autoResizeTitleTextarea();
     debouncedSave();
   }
 
@@ -728,7 +752,7 @@ Escaped pipes:
     return value.startsWith('Untitled');
   }
 
-  function selectAllTitleText(input: HTMLInputElement): void {
+  function selectAllTitleText(input: HTMLTextAreaElement): void {
     input.setSelectionRange(0, input.value.length);
     requestAnimationFrame(() => {
       input.setSelectionRange(0, input.value.length);
@@ -736,14 +760,14 @@ Escaped pipes:
   }
 
   function handleTitleFocus(event: FocusEvent): void {
-    const input = event.currentTarget as HTMLInputElement;
+    const input = event.currentTarget as HTMLTextAreaElement;
     if (shouldAutoSelectUntitledTitle(input.value)) {
       selectAllTitleText(input);
     }
   }
 
   function handleTitlePointerDown(event: PointerEvent): void {
-    const input = event.currentTarget as HTMLInputElement;
+    const input = event.currentTarget as HTMLTextAreaElement;
     if (shouldAutoSelectUntitledTitle(input.value)) {
       event.preventDefault();
       input.focus();
@@ -811,6 +835,29 @@ Escaped pipes:
     createNewNote();
   }
 
+  async function showSimilarNotes(): Promise<void> {
+    if (!noteId || similarNotesLoading) return;
+    similarNotesLoading = true;
+    similarNotes = [];
+    try {
+      similarNotes = await getSimilarNotes(noteId, notes, 3);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('no chunks found')) {
+        showToast('Note not yet indexed');
+      } else {
+        showToast('Sync required for similar notes');
+      }
+      similarNotesLoading = false;
+      return;
+    }
+    similarNotesLoading = false;
+    // Scroll to bottom to reveal cards
+    requestAnimationFrame(() => {
+      noteBody?.scrollTo({ top: noteBody.scrollHeight, behavior: 'smooth' });
+    });
+  }
+
   async function handleDeleteNote(): Promise<void> {
     deleteConfirmOpen = false;
     noteMenuOpen = false;
@@ -837,6 +884,8 @@ Escaped pipes:
     );
   }
 
+  let edgeSwipe = false;
+
   function handleTouchStart(event: TouchEvent): void {
     if (!isMobile) return;
     if (event.touches.length !== 1) return;
@@ -854,6 +903,7 @@ Escaped pipes:
     lastTime = Date.now();
     velocity = 0;
     ignoreSwipe = false;
+    edgeSwipe = touch.clientX < 30;
     updateDrawerMetrics();
     startProgress = drawerOpen ? 1 : 0;
     dragProgress = startProgress;
@@ -865,14 +915,20 @@ Escaped pipes:
     const touch = event.touches[0];
     const deltaX = touch.clientX - startX;
     const deltaY = touch.clientY - startY;
-    if (!isDragging && Math.abs(deltaX) < Math.abs(deltaY)) return;
+    // For edge swipes, bias toward horizontal: only treat as vertical if deltaY > 2x deltaX
+    const isVertical = edgeSwipe
+      ? Math.abs(deltaY) > 2 * Math.abs(deltaX)
+      : Math.abs(deltaX) < Math.abs(deltaY);
+    if (!isDragging && isVertical) return;
 
     // When closing (drawer open), prevent list scroll as soon as horizontal intent is clear
     if (startProgress > 0 && Math.abs(deltaX) > Math.abs(deltaY)) {
       event.preventDefault();
     }
 
-    if (!isDragging && Math.abs(deltaX) < 5) return;
+    // Lower threshold for edge swipes (3px vs 5px)
+    const minDragThreshold = edgeSwipe ? 3 : 5;
+    if (!isDragging && Math.abs(deltaX) < minDragThreshold) return;
 
     if (!isDragging) {
       isDragging = true;
@@ -914,8 +970,8 @@ Escaped pipes:
       // Re-enable CSS transitions
       isDragging = false;
 
-      // Snap to open or closed on next frame
-      const velocityThreshold = 0.5; // px/ms
+      // Snap to open or closed on next frame — lower velocity threshold for edge swipes
+      const velocityThreshold = edgeSwipe ? 0.3 : 0.5; // px/ms
       const shouldOpen = Math.abs(velocity) > velocityThreshold ? velocity > 0 : drawerProgress >= 0.3;
       requestAnimationFrame(() => {
         setDrawerOpen(shouldOpen);
@@ -924,6 +980,7 @@ Escaped pipes:
     tracking = false;
     isDragging = false;
     ignoreSwipe = false;
+    edgeSwipe = false;
     velocity = 0;
   }
 
@@ -936,6 +993,8 @@ Escaped pipes:
     await flushSave();
     noteMenuOpen = false;
     deleteConfirmOpen = false;
+    similarNotes = [];
+    similarNotesLoading = false;
 
     loading = true;
 
@@ -955,6 +1014,7 @@ Escaped pipes:
       editor?.setContent('');
       loading = false;
       requestAnimationFrame(() => {
+        autoResizeTitleTextarea();
         editor?.focus();
       });
     } else if (hasFileSystem) {
@@ -964,6 +1024,7 @@ Escaped pipes:
         title = meta?.title || id;
         editor?.setContent(content);
         trackOpen(id);
+        requestAnimationFrame(() => autoResizeTitleTextarea());
       } catch {
         // File doesn't exist — remove stale cache entry so it disappears from sidebar
         handleExternalFileChange('unlink', `${id}.md`);
@@ -1204,7 +1265,7 @@ Escaped pipes:
   <!-- Drawer -->
   <aside bind:this={drawer} class="notes-drawer" aria-hidden={!drawerOpen}>
     <div class="sidebar-header">
-      <button class="sidebar-brand" onclick={handleBrandClick}>FUTO Notes</button>
+      <button class="sidebar-brand" onclick={handleBrandClick}>FUTO Notes{#if import.meta.env.DEV}<span class="dev-badge">DEV</span>{/if}</button>
       <button
         class="sidebar-settings-btn"
         aria-label="Settings"
@@ -1283,7 +1344,8 @@ Escaped pipes:
       >&#8942;</button>
       {#if noteMenuOpen}
         <div class="note-menu-dropdown">
-          <button onclick={() => { noteMenuOpen = false; deleteConfirmOpen = true; }}>Delete note</button>
+          <button onclick={() => { noteMenuOpen = false; void showSimilarNotes(); }}>Show similar notes</button>
+          <button class="danger" onclick={() => { noteMenuOpen = false; deleteConfirmOpen = true; }}>Delete note</button>
         </div>
       {/if}
     </div>
@@ -1304,10 +1366,10 @@ Escaped pipes:
     <div class="note-body" bind:this={noteBody} onclick={handleNoteBodyClick} onfocusin={() => editorFocused = true} onfocusout={handleEditorFocusOut}>
       {#if noteId}
         <div class="note-title-row">
-          <input
-            type="text"
+          <textarea
+            rows="1"
             class="title-input w-full border-none bg-transparent p-0 focus:outline-none"
-            style="font-family: var(--font-serif); font-size: 30px; font-weight: 400; line-height: 1.2; letter-spacing: -0.01em; color: var(--color-text);"
+            style="font-family: var(--font-serif); font-size: 30px; font-weight: 400; line-height: 1.2; letter-spacing: -0.01em; color: var(--color-text); resize: none; overflow: hidden; min-height: 36px;"
             placeholder="Untitled"
             bind:value={title}
             oninput={handleTitleInput}
@@ -1315,7 +1377,9 @@ Escaped pipes:
             onfocus={handleTitleFocus}
             onpointerdown={handleTitlePointerDown}
             maxlength={200}
-          />
+            enterkeyhint="done"
+            bind:this={titleTextarea}
+          ></textarea>
           {#if titleWarning}
             <div class="text-xs pt-0.5" style="color: var(--color-danger)">{titleWarning}</div>
           {/if}
@@ -1329,6 +1393,23 @@ Escaped pipes:
             scrollParent={noteBody ?? null}
           />
         </div>
+        {#if similarNotesLoading || similarNotes.length > 0}
+          <div class="similar-notes-section">
+            <div class="similar-notes-label">Similar notes</div>
+            {#if similarNotesLoading}
+              <div class="similar-notes-loading">Finding similar notes...</div>
+            {:else}
+              <div class="similar-notes-cards">
+                {#each similarNotes as note}
+                  <button class="similar-note-card" onclick={() => navigate(`/note/${encodeURIComponent(note.noteId)}`)}>
+                    <div class="similar-note-title">{note.title}</div>
+                    <div class="similar-note-preview">{note.preview}</div>
+                  </button>
+                {/each}
+              </div>
+            {/if}
+          </div>
+        {/if}
       {:else}
         <ForYouPage {notes} onbrowse={() => setDrawerOpen(true)} onquickcapture={createNewNote} />
       {/if}

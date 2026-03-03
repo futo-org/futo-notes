@@ -9,6 +9,7 @@
     "dialog:allow-confirm",
     "dialog:allow-message",
     "dialog:allow-save",
-    "dialog:allow-open"
+    "dialog:allow-open",
+    "process:allow-restart"
   ]
 }

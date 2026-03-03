@@ -6,6 +6,7 @@
   import { connectSyncServer, saveSyncServerUrl } from '$lib/sync';
   import { requestSync } from '$lib/autoSync';
   import { ask } from '@tauri-apps/plugin-dialog';
+  import { formatRelativeTime } from '$lib/utils';
 
   interface Props {
     onclose: () => void;
@@ -34,18 +35,47 @@
 
   // Desktop: notes directory
   let notesDir = $state('');
+  let isCustomDir = $state(false);
+  let defaultNotesDir = $state('');
   if (isDesktop) {
     import('$lib/platform/tauri').then(({ getConfig }) =>
-      getConfig().then((cfg) => { notesDir = cfg.notesDir; })
+      getConfig().then((cfg) => {
+        notesDir = cfg.notesDir;
+        isCustomDir = cfg.isCustomDir;
+        defaultNotesDir = cfg.defaultNotesDir;
+      })
     );
+  }
+
+  async function handleChangeDir(): Promise<void> {
+    const { open } = await import('@tauri-apps/plugin-dialog');
+    const picked = await open({ directory: true, multiple: false });
+    if (typeof picked !== 'string') return;
+    const confirmed = await ask(
+      `Move your notes directory to:\n${picked}\n\nExisting notes in the current directory will NOT be moved. The app will restart.`,
+      { title: 'Change notes directory', kind: 'warning' }
+    );
+    if (!confirmed) return;
+    const { setNotesDir } = await import('$lib/platform/tauri');
+    await setNotesDir(picked);
+    const { relaunch } = await import('@tauri-apps/plugin-process');
+    await relaunch();
+  }
+
+  async function handleResetDir(): Promise<void> {
+    const confirmed = await ask(
+      `Reset notes directory to the default location?\n${defaultNotesDir}\n\nThe app will restart.`,
+      { title: 'Reset notes directory', kind: 'warning' }
+    );
+    if (!confirmed) return;
+    const { setNotesDir } = await import('$lib/platform/tauri');
+    await setNotesDir(null);
+    const { relaunch } = await import('@tauri-apps/plugin-process');
+    await relaunch();
   }
 
   function getErrorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
-  }
-
-  function formatTimestamp(ts: number | null): string {
-    return ts ? new Date(ts).toLocaleString() : 'never';
   }
 
   async function persistSyncUrl(): Promise<void> {
@@ -168,6 +198,12 @@
         <h3 class="settings-section-title">Storage</h3>
         <div class="settings-card">
           <p class="settings-btn-desc">{notesDir}</p>
+          <div class="settings-actions" style="margin-top: 10px">
+            <button class="settings-btn settings-btn-inline" onclick={() => void handleChangeDir()}>Change directory</button>
+          </div>
+          {#if isCustomDir}
+            <button class="settings-link-btn" onclick={() => void handleResetDir()}>Reset to default</button>
+          {/if}
         </div>
       </section>
       {/if}
@@ -247,7 +283,7 @@
             <button class="settings-link-btn" onclick={() => void confirmResetConnection()}>Reset connection</button>
           {/if}
 
-          <p class="settings-btn-desc settings-hint">Last sync: {formatTimestamp(syncLastAt)}</p>
+          <p class="settings-btn-desc settings-hint">Last sync: {syncLastAt ? formatRelativeTime(syncLastAt) : 'never'}</p>
           {#if syncStatus}
             <p class="settings-btn-desc settings-hint">{syncStatus}</p>
           {/if}
@@ -547,14 +583,6 @@
 
   .settings-link-btn:active {
     opacity: 0.6;
-  }
-
-
-  .settings-btn-arrow {
-    font-size: 22px;
-    color: var(--color-muted);
-    flex-shrink: 0;
-    margin-left: 12px;
   }
 
   .settings-toggle-row {

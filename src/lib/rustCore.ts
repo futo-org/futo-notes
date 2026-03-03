@@ -216,3 +216,4 @@ export async function supersearchDownloadWithMetaRust(
 ): Promise<void> {
   await tauriInvoke<void>('supersearch_download', { serverUrl, token, meta });
 }
+

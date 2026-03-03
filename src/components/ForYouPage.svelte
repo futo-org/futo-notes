@@ -5,6 +5,7 @@
   import { isMobile } from '$lib/platform';
   import { PenLine } from '@lucide/svelte';
   import { navigate } from '../router';
+  import { formatRelativeTime } from '$lib/utils';
 
   interface Props {
     notes: NotePreview[];
@@ -15,21 +16,6 @@
   let { notes, onbrowse, onquickcapture }: Props = $props();
 
   const forYouNotes = $derived(getForYouNotes(notes, getEngagementData()));
-
-  function formatRelativeTime(timestamp: number): string {
-    const seconds = Math.floor((Date.now() - timestamp) / 1000);
-    if (seconds < 60) return 'just now';
-    const minutes = Math.floor(seconds / 60);
-    if (minutes < 60) return `${minutes}m ago`;
-    const hours = Math.floor(minutes / 60);
-    if (hours < 24) return `${hours}h ago`;
-    const days = Math.floor(hours / 24);
-    if (days === 1) return 'yesterday';
-    if (days < 30) return `${days}d ago`;
-    const months = Math.floor(days / 30);
-    if (months < 12) return `${months}mo ago`;
-    return `${Math.floor(months / 12)}y ago`;
-  }
 
   function handleCardClick(id: string): void {
     navigate(`/note/${encodeURIComponent(id)}`);
@@ -139,10 +125,12 @@
     transition: box-shadow 0.2s ease, transform 0.2s ease, background 0.15s ease;
   }
 
-  .for-you-card:hover {
-    background: var(--color-border);
-    box-shadow: 0 4px 16px rgba(var(--ink-rgb), 0.1);
-    transform: translateY(-2px);
+  @media (hover: hover) {
+    .for-you-card:hover {
+      background: var(--color-border);
+      box-shadow: 0 4px 16px rgba(var(--ink-rgb), 0.1);
+      transform: translateY(-2px);
+    }
   }
 
   .for-you-card:active {

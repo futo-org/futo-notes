@@ -10,6 +10,8 @@ interface NoteFileRow {
 interface AppConfig {
   notesDir: string;
   sidebarWidth?: number;
+  isCustomDir: boolean;
+  defaultNotesDir: string;
 }
 
 interface AppConfigUpdates {
@@ -140,6 +142,10 @@ export const tauriFS: PlatformFS = {
   async supersearchQuery(queryVector: number[], topK: number): Promise<SupersearchRow[]> {
     return invoke<SupersearchRow[]>('supersearch_query', { queryVector, topK });
   },
+
+  async supersearchNoteVector(uuid: string): Promise<number[]> {
+    return invoke<number[]>('supersearch_note_vector', { uuid });
+  },
 };
 
 export function onFileChange(callback: (event: FileChangeEvent) => void): () => void {
@@ -187,4 +193,8 @@ export async function getConfig(): Promise<AppConfig> {
 
 export async function saveConfig(updates: AppConfigUpdates): Promise<void> {
   await invoke('app_save_config', { updates });
+}
+
+export async function setNotesDir(dir: string | null): Promise<void> {
+  await invoke('app_set_notes_dir', { dir });
 }
