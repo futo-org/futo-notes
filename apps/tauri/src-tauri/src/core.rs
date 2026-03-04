@@ -4,6 +4,7 @@ use rayon::prelude::*;
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use uuid::Uuid;
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::fs;
@@ -145,6 +146,7 @@ pub struct NoteFileEntry {
 #[serde(default, rename_all = "camelCase")]
 struct AppConfigFile {
     pub sidebar_width: Option<u32>,
+    pub graph_sidebar_width: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -152,6 +154,7 @@ struct AppConfigFile {
 pub struct AppConfigPayload {
     pub notes_dir: String,
     pub sidebar_width: Option<u32>,
+    pub graph_sidebar_width: Option<u32>,
     pub is_custom_dir: bool,
     pub default_notes_dir: String,
 }
@@ -160,6 +163,7 @@ pub struct AppConfigPayload {
 #[serde(default, rename_all = "camelCase")]
 pub struct AppConfigUpdates {
     pub sidebar_width: Option<Option<u32>>,
+    pub graph_sidebar_width: Option<Option<u32>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -281,7 +285,7 @@ fn default_notes_root(app: &AppHandle) -> Result<PathBuf, String> {
         .document_dir()
         .or_else(|_| app.path().app_data_dir())
         .map_err(|e| e.to_string())?;
-    Ok(docs.join("FUTO Notes"))
+    Ok(docs.join("stonefruit"))
 }
 
 pub(crate) fn notes_root(app: &AppHandle) -> Result<PathBuf, String> {
@@ -656,7 +660,7 @@ fn prepare_sync_payload_impl(base: &Path, input: SyncPrepareInput) -> Result<Syn
     let mut prepared = files
         .par_iter()
         .map(|(id, path, mtime)| {
-            let uuid = uuid_snapshot.get(id).cloned().unwrap_or_else(|| id.clone());
+            let uuid = uuid_snapshot.get(id).cloned().unwrap_or_else(|| Uuid::new_v4().to_string());
             let cached = hash_cache.get(id);
 
             let mut content: Option<String> = None;
@@ -1496,6 +1500,61 @@ pub async fn supersearch_download(
     .map_err(task_join_err)?
 }
 
+#[derive(Clone, Serialize)]
+pub struct NoteVectorEntry {
+    pub uuid: String,
+    pub vector: Vec<f32>,
+}
+
+#[tauri::command]
+pub async fn supersearch_all_note_vectors(
+    app: AppHandle,
+    state: State<'_, CoreState>,
+) -> Result<Vec<NoteVectorEntry>, String> {
+    let vectors_state = state.vectors.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = notes_root(&app)?;
+        let artifacts = ensure_vectors_loaded(&base, &vectors_state)?;
+        let dims = artifacts.dims;
+
+        // Group chunk indices by UUID
+        let mut by_uuid: HashMap<&str, Vec<usize>> = HashMap::new();
+        for (i, chunk) in artifacts.chunks.iter().enumerate() {
+            by_uuid.entry(&chunk.uuid).or_default().push(i);
+        }
+
+        // Average + normalize per note (same logic as supersearch_note_vector)
+        let mut result = Vec::with_capacity(by_uuid.len());
+        for (uuid, indices) in &by_uuid {
+            let mut avg = vec![0.0f32; dims];
+            for &idx in indices {
+                let offset = idx * dims;
+                for (j, val) in avg.iter_mut().enumerate() {
+                    *val += artifacts.vectors[offset + j];
+                }
+            }
+            let count = indices.len() as f32;
+            for val in avg.iter_mut() {
+                *val /= count;
+            }
+            let norm: f32 = avg.iter().map(|v| v * v).sum::<f32>().sqrt();
+            if norm > 0.0 {
+                for val in avg.iter_mut() {
+                    *val /= norm;
+                }
+            }
+            result.push(NoteVectorEntry {
+                uuid: uuid.to_string(),
+                vector: avg,
+            });
+        }
+
+        Ok(result)
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
 #[tauri::command]
 pub async fn supersearch_note_vector(
     app: AppHandle,
@@ -1657,6 +1716,7 @@ pub async fn app_get_config(app: AppHandle) -> Result<AppConfigPayload, String> 
         Ok(AppConfigPayload {
             notes_dir: base.to_string_lossy().to_string(),
             sidebar_width: cfg.sidebar_width,
+            graph_sidebar_width: cfg.graph_sidebar_width,
             is_custom_dir: is_custom,
             default_notes_dir: default_dir.to_string_lossy().to_string(),
         })
@@ -1672,6 +1732,9 @@ pub async fn app_save_config(app: AppHandle, updates: AppConfigUpdates) -> Resul
         let mut cfg = load_app_config(&base);
         if let Some(sidebar_width) = updates.sidebar_width {
             cfg.sidebar_width = sidebar_width;
+        }
+        if let Some(graph_sidebar_width) = updates.graph_sidebar_width {
+            cfg.graph_sidebar_width = graph_sidebar_width;
         }
         save_app_config(&base, &cfg)
     })

@@ -1,13 +1,17 @@
 import { describe, it, expect } from 'vitest';
-import { MODEL_REGISTRY, getModelDef, BENCHMARK_MODEL_ID } from '../../src/search/modelRegistry.js';
+import { MODEL_REGISTRY, getModelDef, DEFAULT_MODEL_ID } from '../../src/search/modelRegistry.js';
 
 describe('MODEL_REGISTRY', () => {
-  it('contains expected models', () => {
+  it('contains only qwen3-embedding-0.6b', () => {
     const ids = MODEL_REGISTRY.map((m) => m.id);
-    expect(ids).toContain('bge-small-en-v1.5');
-    expect(ids).toContain('qwen3-embedding-0.6b');
-    expect(ids).toContain('qwen3-embedding-4b');
-    expect(ids).toContain('qwen3-embedding-8b');
+    expect(ids).toEqual(['qwen3-embedding-0.6b']);
+  });
+
+  it('qwen3-embedding-0.6b uses 1024d output', () => {
+    const model = getModelDef('qwen3-embedding-0.6b');
+    expect(model).toBeDefined();
+    expect(model!.dims).toBe(1024);
+    expect(model!.nativeDims).toBe(1024);
   });
 
   it('all models have valid dims <= nativeDims', () => {
@@ -15,21 +19,6 @@ describe('MODEL_REGISTRY', () => {
       expect(model.dims).toBeLessThanOrEqual(model.nativeDims);
       expect(model.dims).toBeGreaterThan(0);
     }
-  });
-
-  it('all Qwen3 models use 1024d output', () => {
-    const qwenModels = MODEL_REGISTRY.filter((m) => m.id.startsWith('qwen3'));
-    expect(qwenModels.length).toBe(3);
-    for (const m of qwenModels) {
-      expect(m.dims).toBe(1024);
-    }
-  });
-
-  it('bge-small uses native 384d', () => {
-    const bge = getModelDef('bge-small-en-v1.5');
-    expect(bge).toBeDefined();
-    expect(bge!.dims).toBe(384);
-    expect(bge!.nativeDims).toBe(384);
   });
 });
 
@@ -45,16 +34,9 @@ describe('getModelDef', () => {
   });
 });
 
-describe('BENCHMARK_MODEL_ID', () => {
+describe('DEFAULT_MODEL_ID', () => {
   it('points to a valid registry entry', () => {
-    const model = getModelDef(BENCHMARK_MODEL_ID);
+    const model = getModelDef(DEFAULT_MODEL_ID);
     expect(model).toBeDefined();
-  });
-
-  it('is the smallest model', () => {
-    const model = getModelDef(BENCHMARK_MODEL_ID)!;
-    for (const m of MODEL_REGISTRY) {
-      expect(model.sizeBytes).toBeLessThanOrEqual(m.sizeBytes);
-    }
   });
 });

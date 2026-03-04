@@ -82,7 +82,7 @@ export async function prepareSyncPayloadRust(state: SyncState): Promise<{
 
   for (const file of files) {
     const id = file.name.replace(/\.md$/, '');
-    const uuid = nextUuidById[id] ?? id;
+    const uuid = nextUuidById[id] ?? crypto.randomUUID();
     nextUuidById[id] = uuid;
 
     const modTime = file.mtime || Date.now();

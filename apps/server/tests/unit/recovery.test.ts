@@ -44,17 +44,16 @@ describe('recovery / reconcile', () => {
     expect(note!.content_hash).toBe(contentHash('new content'));
   });
 
-  it('adds DB entry for file on disk with no DB record', () => {
+  it('does not auto-adopt orphaned files (avoids UUID conflicts with client sync)', () => {
     const db = getDb();
     fs.mkdirSync(env.notesDir, { recursive: true });
     fs.writeFileSync(path.join(env.notesDir, 'orphan.md'), 'orphan content', 'utf8');
 
     reconcile(db, env.notesDir);
 
+    // Orphaned files should NOT be added — they'll be adopted via sync with real client UUIDs
     const allNotes = getAllNotes(db);
-    expect(allNotes).toHaveLength(1);
-    expect(allNotes[0].filename).toBe('orphan.md');
-    expect(allNotes[0].content_hash).toBe(contentHash('orphan content'));
+    expect(allNotes).toHaveLength(0);
   });
 
   it('handles empty notes directory', () => {

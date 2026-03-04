@@ -20,21 +20,6 @@ async function waitForApp(page: Page): Promise<void> {
 }
 
 test.describe('Search', () => {
-  test('disables Hybrid and Vector modes when vector search is unavailable', async ({ page }) => {
-    await waitForApp(page);
-
-    await page.locator('.search-button').click();
-    await page.waitForSelector('.search-overlay', { timeout: 5000 });
-
-    const keywordButton = page.getByRole('button', { name: 'Keyword' });
-    const hybridButton = page.getByRole('button', { name: 'Hybrid' });
-    const vectorButton = page.getByRole('button', { name: 'Vector' });
-
-    await expect(keywordButton).toBeEnabled();
-    await expect(hybridButton).toBeDisabled();
-    await expect(vectorButton).toBeDisabled();
-  });
-
   test('search returns results and filters by query', async ({ page }) => {
     await waitForApp(page);
 

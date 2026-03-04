@@ -81,5 +81,8 @@ test-results/
 # Claude
 .claude/local-plugins/*
 
+# Local data (SQLite DB + notes)
+data/
+
 # Experiments live in ../notes-experiments
 experiments/

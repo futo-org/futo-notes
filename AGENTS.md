@@ -1,4 +1,4 @@
-# AGENTS.md - FUTO Notes
+# AGENTS.md - Stonefruit
 
 @README.md for project overview. @package.json for all scripts (`npm run` to list).
 

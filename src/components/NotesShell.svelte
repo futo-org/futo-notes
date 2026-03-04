@@ -27,7 +27,11 @@
   import { SCROLL_TEST_NOTES } from '$lib/scrollTestNotes';
   import { getCachedPreferences } from '$lib/preferences';
   import { onToast } from '$lib/toast';
-  import { getSimilarNotes, type SimilarNote } from '$lib/supersearch/similarNotes';
+
+  import { clearGraphCache, type GraphData } from '$lib/supersearch/graphData';
+  // Lazy-loaded: GraphCanvas component + graphData pipeline
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let GraphCanvas: any = $state(null);
 
   const GFM_TEST_CONTENT = `# GFM Syntax Test Note
 
@@ -309,6 +313,12 @@ Escaped pipes:
   let resizeStartX = 0;
   let resizeStartWidth = 0;
 
+  // Desktop graph sidebar resize
+  let graphSidebarWidth = $state(320);
+  let graphResizing = $state(false);
+  let graphResizeStartX = 0;
+  let graphResizeStartWidth = 0;
+
   // Settings
   let settingsOpen = $state(false);
 
@@ -325,9 +335,17 @@ Escaped pipes:
   let noteMenuOpen = $state(false);
   let deleteConfirmOpen = $state(false);
 
-  // Similar notes
-  let similarNotes: SimilarNote[] = $state([]);
-  let similarNotesLoading = $state(false);
+
+  // Graph sidebar
+  let graphSidebarOpen = $state(false);
+  let graphData: GraphData | null = $state(null);
+  let graphLoading = $state(false);
+
+  // Right-edge swipe tracking (plain JS, not reactive — same pattern as left drawer)
+  let rightSwipe = false;
+  let rightDragProgress = 0;
+  let graphSidebarEl: HTMLElement | undefined = $state(undefined);
+  let graphOverlayEl: HTMLElement | undefined = $state(undefined);
 
   // File watcher self-write suppression (desktop native)
   const recentWrites = new Map<string, number>();
@@ -510,6 +528,10 @@ Escaped pipes:
 
   function refreshNotesList(): void {
     notes = hasFileSystem ? getAllNotes() : [];
+    clearGraphCache();
+    if (!graphSidebarOpen) {
+      graphData = null;
+    }
   }
 
   async function runExternalRescan(): Promise<void> {
@@ -657,6 +679,17 @@ Escaped pipes:
       }
 
       originalId = result.id;
+
+      // Patch graph data in-place so the graph view survives renames
+      if (graphData && savedOriginalId && savedOriginalId !== result.id) {
+        const idx = graphData.nodeIndex.get(savedOriginalId);
+        if (idx !== undefined) {
+          graphData.nodes[idx].noteId = result.id;
+          graphData.nodes[idx].title = newTitle;
+          graphData.nodeIndex.delete(savedOriginalId);
+          graphData.nodeIndex.set(result.id, idx);
+        }
+      }
 
       refreshNotesList();
 
@@ -835,28 +868,6 @@ Escaped pipes:
     createNewNote();
   }
 
-  async function showSimilarNotes(): Promise<void> {
-    if (!noteId || similarNotesLoading) return;
-    similarNotesLoading = true;
-    similarNotes = [];
-    try {
-      similarNotes = await getSimilarNotes(noteId, notes, 3);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes('no chunks found')) {
-        showToast('Note not yet indexed');
-      } else {
-        showToast('Sync required for similar notes');
-      }
-      similarNotesLoading = false;
-      return;
-    }
-    similarNotesLoading = false;
-    // Scroll to bottom to reveal cards
-    requestAnimationFrame(() => {
-      noteBody?.scrollTo({ top: noteBody.scrollHeight, behavior: 'smooth' });
-    });
-  }
 
   async function handleDeleteNote(): Promise<void> {
     deleteConfirmOpen = false;
@@ -880,8 +891,40 @@ Escaped pipes:
   function isSwipeExcludedTarget(target: EventTarget | null): boolean {
     if (!(target instanceof Element)) return false;
     return Boolean(
-      target.closest('.cm-md-table-wrapper, .cm-md-table-rendered, .cm-md-table, .markdown-toolbar, .title-input')
+      target.closest('.cm-md-table-wrapper, .cm-md-table-rendered, .cm-md-table, .markdown-toolbar, .title-input, .graph-sidebar')
     );
+  }
+
+  async function openGraphSidebar(): Promise<void> {
+    graphSidebarOpen = true;
+    if (graphData || graphLoading) return;
+    graphLoading = true;
+    try {
+      const [{ computeGraphData }, canvasMod] = await Promise.all([
+        import('$lib/supersearch/graphData'),
+        import('./GraphCanvas.svelte'),
+      ]);
+      GraphCanvas = canvasMod.default;
+      graphData = await computeGraphData(notes);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('no chunks') || msg.includes('Need at least')) {
+        showToast('Not enough notes indexed for graph');
+      } else {
+        showToast('Sync required for graph view');
+      }
+      graphSidebarOpen = false;
+    } finally {
+      graphLoading = false;
+    }
+  }
+
+  function closeGraphSidebar(): void {
+    graphSidebarOpen = false;
+  }
+
+  function handleGraphNavigate(targetNoteId: string): void {
+    navigate(`/note/${encodeURIComponent(targetNoteId)}`);
   }
 
   let edgeSwipe = false;
@@ -904,10 +947,16 @@ Escaped pipes:
     velocity = 0;
     ignoreSwipe = false;
     edgeSwipe = touch.clientX < 30;
+    rightSwipe = touch.clientX > window.innerWidth - 30;
     updateDrawerMetrics();
-    startProgress = drawerOpen ? 1 : 0;
-    dragProgress = startProgress;
-    setDrawerProgress(startProgress);
+    if (rightSwipe) {
+      startProgress = graphSidebarOpen ? 1 : 0;
+      rightDragProgress = startProgress;
+    } else {
+      startProgress = drawerOpen ? 1 : 0;
+      dragProgress = startProgress;
+      setDrawerProgress(startProgress);
+    }
   }
 
   function handleTouchMove(event: TouchEvent): void {
@@ -915,12 +964,36 @@ Escaped pipes:
     const touch = event.touches[0];
     const deltaX = touch.clientX - startX;
     const deltaY = touch.clientY - startY;
+    const isEdge = edgeSwipe || rightSwipe;
     // For edge swipes, bias toward horizontal: only treat as vertical if deltaY > 2x deltaX
-    const isVertical = edgeSwipe
+    const isVertical = isEdge
       ? Math.abs(deltaY) > 2 * Math.abs(deltaX)
       : Math.abs(deltaX) < Math.abs(deltaY);
     if (!isDragging && isVertical) return;
 
+    if (rightSwipe) {
+      // Right sidebar: swipe left to open, right to close
+      if (!isDragging && Math.abs(deltaX) < 3) return;
+      if (!isDragging) {
+        isDragging = true;
+        editor?.blur();
+      }
+
+      const now = Date.now();
+      const dt = now - lastTime;
+      if (dt > 0) velocity = (touch.clientX - lastX) / dt;
+      lastX = touch.clientX;
+      lastTime = now;
+
+      // Progress: 0 = closed, 1 = open. Swiping left (negative deltaX) opens.
+      const graphWidth = graphSidebarEl?.getBoundingClientRect().width || 320;
+      rightDragProgress = Math.min(1, Math.max(0, startProgress - deltaX / graphWidth));
+      applyRightDragFrame();
+      event.preventDefault();
+      return;
+    }
+
+    // Left drawer logic (existing)
     // When closing (drawer open), prevent list scroll as soon as horizontal intent is clear
     if (startProgress > 0 && Math.abs(deltaX) > Math.abs(deltaY)) {
       event.preventDefault();
@@ -949,7 +1022,37 @@ Escaped pipes:
     event.preventDefault();
   }
 
+  function applyRightDragFrame(): void {
+    const graphWidth = graphSidebarEl?.getBoundingClientRect().width || 320;
+    const offset = (1 - rightDragProgress) * graphWidth;
+    if (graphSidebarEl) graphSidebarEl.style.transform = `translateX(${offset}px)`;
+    if (graphOverlayEl) graphOverlayEl.style.opacity = `${rightDragProgress * 0.3}`;
+  }
+
   function handleTouchEnd(): void {
+    if (isDragging && rightSwipe) {
+      // Right sidebar snap
+      if (graphSidebarEl) graphSidebarEl.style.transform = '';
+      if (graphOverlayEl) graphOverlayEl.style.opacity = '';
+      isDragging = false;
+
+      const shouldOpen = Math.abs(velocity) > 0.3 ? velocity < 0 : rightDragProgress >= 0.3;
+      requestAnimationFrame(() => {
+        if (shouldOpen && !graphSidebarOpen) {
+          void openGraphSidebar();
+        } else if (!shouldOpen && graphSidebarOpen) {
+          closeGraphSidebar();
+        }
+      });
+
+      tracking = false;
+      ignoreSwipe = false;
+      edgeSwipe = false;
+      rightSwipe = false;
+      velocity = 0;
+      return;
+    }
+
     if (isDragging) {
       // Cancel any pending rAF
       if (rafId) {
@@ -981,6 +1084,7 @@ Escaped pipes:
     isDragging = false;
     ignoreSwipe = false;
     edgeSwipe = false;
+    rightSwipe = false;
     velocity = 0;
   }
 
@@ -993,8 +1097,6 @@ Escaped pipes:
     await flushSave();
     noteMenuOpen = false;
     deleteConfirmOpen = false;
-    similarNotes = [];
-    similarNotesLoading = false;
 
     loading = true;
 
@@ -1090,10 +1192,13 @@ Escaped pipes:
         .then(({ getConfig }) => getConfig())
         .then((cfg) => {
           if (cfg.sidebarWidth) sidebarWidth = cfg.sidebarWidth;
+          if (cfg.graphSidebarWidth) graphSidebarWidth = cfg.graphSidebarWidth;
         })
         .catch(() => {
           const stored = localStorage.getItem('futo-notes:sidebarWidth');
           if (stored) sidebarWidth = parseInt(stored, 10) || 280;
+          const graphStored = localStorage.getItem('futo-notes:graphSidebarWidth');
+          if (graphStored) graphSidebarWidth = parseInt(graphStored, 10) || 320;
         });
     }
 
@@ -1245,6 +1350,36 @@ Escaped pipes:
       localStorage.setItem('futo-notes:sidebarWidth', String(width));
     }
   }
+
+  // Desktop graph sidebar resize
+  function handleGraphResizeStart(e: PointerEvent): void {
+    e.preventDefault();
+    graphResizing = true;
+    graphResizeStartX = e.clientX;
+    graphResizeStartWidth = graphSidebarWidth;
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+  }
+
+  function handleGraphResizeMove(e: PointerEvent): void {
+    if (!graphResizing) return;
+    graphSidebarWidth = Math.max(200, Math.min(600, graphResizeStartWidth - (e.clientX - graphResizeStartX)));
+  }
+
+  function handleGraphResizeEnd(): void {
+    if (!graphResizing) return;
+    graphResizing = false;
+    persistGraphSidebarWidth(graphSidebarWidth);
+  }
+
+  function persistGraphSidebarWidth(width: number): void {
+    if (isDesktop) {
+      import('$lib/platform/tauri').then(({ saveConfig }) => {
+        saveConfig({ graphSidebarWidth: width });
+      });
+    } else {
+      localStorage.setItem('futo-notes:graphSidebarWidth', String(width));
+    }
+  }
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -1254,9 +1389,11 @@ Escaped pipes:
   class:desktop-layout={!isMobile}
   class:sidebar-collapsed={!isMobile && sidebarCollapsed}
   class:sidebar-resizing={resizing}
+  class:graph-resizing={graphResizing}
   class:drawer-open={drawerOpen}
   class:drawer-dragging={isDragging}
-  style="--drawer-offset: {drawerOffset}px; --sidebar-width: {sidebarWidth}px"
+  class:graph-sidebar-open={!isMobile && graphSidebarOpen}
+  style="--drawer-offset: {drawerOffset}px; --sidebar-width: {sidebarWidth}px; --graph-sidebar-width: {graphSidebarWidth}px"
   ontouchstart={handleTouchStart}
   ontouchmove={handleTouchMove}
   ontouchend={handleTouchEnd}
@@ -1265,7 +1402,7 @@ Escaped pipes:
   <!-- Drawer -->
   <aside bind:this={drawer} class="notes-drawer" aria-hidden={!drawerOpen}>
     <div class="sidebar-header">
-      <button class="sidebar-brand" onclick={handleBrandClick}>FUTO Notes{#if import.meta.env.DEV}<span class="dev-badge">DEV</span>{/if}</button>
+      <button class="sidebar-brand" onclick={handleBrandClick}>🥑 Stonefruit{#if import.meta.env.DEV}<span class="dev-badge">DEV</span>{/if}</button>
       <button
         class="sidebar-settings-btn"
         aria-label="Settings"
@@ -1329,31 +1466,32 @@ Escaped pipes:
     >&#9776;</button>
   {/if}
 
-  <!-- Note menu button (three-dot) -->
-  {#if noteId && noteMenuOpen}
-    <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
-    <div class="note-menu-backdrop" onclick={() => { noteMenuOpen = false; }}></div>
-  {/if}
-  {#if noteId}
-    <div bind:this={noteMenuAnchorEl} class="note-menu-anchor">
-      <button
-        class="note-menu-toggle"
-        aria-label="Note options"
-        aria-expanded={noteMenuOpen}
-        onclick={() => { noteMenuOpen = !noteMenuOpen; }}
-      >&#8942;</button>
-      {#if noteMenuOpen}
-        <div class="note-menu-dropdown">
-          <button onclick={() => { noteMenuOpen = false; void showSimilarNotes(); }}>Show similar notes</button>
-          <button class="danger" onclick={() => { noteMenuOpen = false; deleteConfirmOpen = true; }}>Delete note</button>
-        </div>
-      {/if}
-    </div>
-  {/if}
-
   <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
   <!-- Main content -->
   <div bind:this={noteMainEl} class="note-main" style:bottom={keyboardInset > 0 ? `${keyboardInset}px` : undefined} onclick={() => { if (isMobile && drawerOpen) setDrawerOpen(false); }}>
+    <!-- Note menu button (three-dot) -->
+    {#if noteId && noteMenuOpen}
+      <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
+      <div class="note-menu-backdrop" onclick={() => { noteMenuOpen = false; }}></div>
+    {/if}
+    {#if noteId}
+      <div bind:this={noteMenuAnchorEl} class="note-menu-anchor">
+        <button
+          class="note-menu-toggle"
+          aria-label="Note options"
+          aria-expanded={noteMenuOpen}
+          onclick={() => { noteMenuOpen = !noteMenuOpen; }}
+        >&#8942;</button>
+        {#if noteMenuOpen}
+          <div class="note-menu-dropdown">
+            {#if isTauri}
+              <button onclick={() => { noteMenuOpen = false; void openGraphSidebar(); }}>Graph view</button>
+            {/if}
+            <button class="danger" onclick={() => { noteMenuOpen = false; deleteConfirmOpen = true; }}>Delete note</button>
+          </div>
+        {/if}
+      </div>
+    {/if}
     <!-- Overlay replaces filter: brightness/contrast for GPU-composited dimming -->
     <div
       bind:this={overlayEl}
@@ -1393,23 +1531,6 @@ Escaped pipes:
             scrollParent={noteBody ?? null}
           />
         </div>
-        {#if similarNotesLoading || similarNotes.length > 0}
-          <div class="similar-notes-section">
-            <div class="similar-notes-label">Similar notes</div>
-            {#if similarNotesLoading}
-              <div class="similar-notes-loading">Finding similar notes...</div>
-            {:else}
-              <div class="similar-notes-cards">
-                {#each similarNotes as note}
-                  <button class="similar-note-card" onclick={() => navigate(`/note/${encodeURIComponent(note.noteId)}`)}>
-                    <div class="similar-note-title">{note.title}</div>
-                    <div class="similar-note-preview">{note.preview}</div>
-                  </button>
-                {/each}
-              </div>
-            {/if}
-          </div>
-        {/if}
       {:else}
         <ForYouPage {notes} onbrowse={() => setDrawerOpen(true)} onquickcapture={createNewNote} />
       {/if}
@@ -1423,6 +1544,47 @@ Escaped pipes:
       {cursorOnListLine}
       ontoolbartouch={(touching) => toolbarTouching = touching}
     />
+  {/if}
+
+  <!-- Graph sidebar -->
+  {#if graphSidebarOpen || graphLoading}
+    {#if isMobile}
+      <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
+      <div
+        bind:this={graphOverlayEl}
+        class="graph-overlay"
+        class:active={graphSidebarOpen}
+        onclick={closeGraphSidebar}
+      ></div>
+    {/if}
+    <aside bind:this={graphSidebarEl} class="graph-sidebar" class:open={graphSidebarOpen}>
+      {#if !isMobile}
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div
+          class="graph-resize-handle"
+          onpointerdown={handleGraphResizeStart}
+          onpointermove={handleGraphResizeMove}
+          onpointerup={handleGraphResizeEnd}
+          onpointercancel={handleGraphResizeEnd}
+        ></div>
+      {/if}
+      <div class="graph-sidebar-header">
+        <span class="graph-sidebar-title">Graph</span>
+        <button class="graph-sidebar-close" aria-label="Close graph" onclick={closeGraphSidebar}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+      <div class="graph-sidebar-body">
+        {#if graphLoading}
+          <div class="graph-loading">Computing graph layout...</div>
+        {:else if graphData}
+          <GraphCanvas data={graphData} currentNoteId={noteId} onNavigate={handleGraphNavigate} />
+        {/if}
+      </div>
+    </aside>
   {/if}
 </div>
 

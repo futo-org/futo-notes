@@ -10,13 +10,13 @@ export interface Config {
   indexIdleEnd: string;
   indexMaxMemoryMb: number;
   indexBatchSize: number;
-  embeddingModel?: string;
+  transformsEnabled: boolean;
 }
 
 export function loadConfig(env: Record<string, string | undefined> = process.env): Config {
   return {
     port: parseInt(env.PORT || '3005', 10),
-    databasePath: env.DATABASE_PATH || path.join('data', 'futo-notes.db'),
+    databasePath: env.DATABASE_PATH || path.join('data', 'stonefruit.db'),
     notesPath: env.NOTES_PATH || path.join('data', 'notes'),
     modelsPath: env.MODELS_PATH || path.join('data', 'models'),
     searchEnabled: env.SEARCH_ENABLED !== 'false',
@@ -24,6 +24,6 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     indexIdleEnd: env.INDEX_IDLE_END || '06:00',
     indexMaxMemoryMb: parseInt(env.INDEX_MAX_MEMORY_MB || '512', 10),
     indexBatchSize: parseInt(env.INDEX_BATCH_SIZE || '50', 10),
-    embeddingModel: env.EMBEDDING_MODEL || undefined,
+    transformsEnabled: env.TRANSFORMS_ENABLED !== 'false',
   };
 }

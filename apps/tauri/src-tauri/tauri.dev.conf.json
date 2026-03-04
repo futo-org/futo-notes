@@ -1,10 +1,10 @@
 {
   "identifier": "com.futo.notes.tauri.dev",
-  "productName": "FUTO Notes Dev",
+  "productName": "Stonefruit Dev",
   "app": {
     "windows": [
       {
-        "title": "FUTO Notes (Dev)"
+        "title": "Stonefruit (Dev)"
       }
     ]
   }

@@ -34,29 +34,6 @@ search.post('/search/reindex', authMiddleware, (c) => {
   }
 });
 
-search.post('/search/change-model', authMiddleware, async (c) => {
-  try {
-    const body = await c.req.json<{ model_id: string }>();
-    if (!body.model_id || typeof body.model_id !== 'string') {
-      return c.json({ error: 'Missing or invalid model_id' }, 400);
-    }
-
-    const { getModelDef } = await import('../search/modelRegistry.js');
-    if (!getModelDef(body.model_id)) {
-      return c.json({ error: `Unknown model: ${body.model_id}` }, 400);
-    }
-
-    const { changeModel } = await import('../search/scheduler.js');
-    await changeModel(body.model_id);
-
-    return c.json({ changed: true, model: body.model_id }, 200);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    log.error(`search: change-model failed: ${message}`);
-    return c.json({ error: message }, 409);
-  }
-});
-
 search.post('/search/set-enhanced-search', authMiddleware, async (c) => {
   try {
     const body = await c.req.json<{ enabled: boolean }>();

@@ -1,4 +1,4 @@
-# AGENTS.md - @futo-notes/shared
+# AGENTS.md - @futo-notes/shared (Stonefruit)
 
 Shared TypeScript types and utilities for both client and server.
 Primary client runtime is Tauri v2 (plus web test/dev flows).

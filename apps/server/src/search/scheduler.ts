@@ -4,10 +4,10 @@ import { getDb } from '../db/index.js';
 import { getDirtyUuids } from './dirtyTracker.js';
 import { runIndexJob } from './jobRunner.js';
 import { log } from '../logger.js';
+import { tryAcquire, release, holder } from '../schedulerLock.js';
 
 export type SchedulerPhase =
   | 'idle'
-  | 'benchmarking'
   | 'downloading_model'
   | 'loading_model'
   | 'indexing'
@@ -19,16 +19,14 @@ let lastActivity = Date.now();
 let running = false;
 let currentConfig: Config | null = null;
 let disabledByUser = false;
-let disabledByHardware = false;
 let phase: SchedulerPhase = 'idle';
 let downloadProgress: { totalSize: number; downloadedSize: number } | null = null;
 let abortController: AbortController | null = null;
 let runningJobPromise: Promise<void> | null = null;
 let activeJobToken = 0;
-let modelChangeInProgress = false;
 
 function isDisabled(): boolean {
-  return disabledByUser || disabledByHardware;
+  return disabledByUser;
 }
 
 function setEnhancedSearchEnabledConfig(enabled: boolean): void {
@@ -57,7 +55,7 @@ export function getSchedulerState(): {
   idleWindow: { start: string; end: string; active: boolean } | null;
   downloadProgress: { totalSize: number; downloadedSize: number } | null;
   userEnabled: boolean;
-  disabledReason: 'user' | 'hardware' | null;
+  disabledReason: 'user' | null;
 } {
   if (!currentConfig) {
     return {
@@ -79,7 +77,7 @@ export function getSchedulerState(): {
     },
     downloadProgress: phase === 'downloading_model' ? downloadProgress : null,
     userEnabled: !disabledByUser,
-    disabledReason: disabledByUser ? 'user' : disabledByHardware ? 'hardware' : null,
+    disabledReason: disabledByUser ? 'user' : null,
   };
 }
 
@@ -134,8 +132,8 @@ export async function ensureModelLoaded(): Promise<boolean> {
 
 /**
  * Lazily initialize the embedding pipeline.
- * Runs benchmark (if needed), downloads model, loads it, creates processor.
- * Returns true if the processor is ready, false if hardware is too slow.
+ * Downloads model (if needed), loads it, creates processor.
+ * Returns true if the processor is ready.
  */
 async function ensureProcessor(config: Config): Promise<boolean> {
   if (jobProcessor) return true;
@@ -148,7 +146,7 @@ async function ensureProcessor(config: Config): Promise<boolean> {
     if (
       !running
       && !isDisabled()
-      && (phase === 'benchmarking' || phase === 'downloading_model' || phase === 'loading_model')
+      && (phase === 'downloading_model' || phase === 'loading_model')
     ) {
       phase = 'idle';
     }
@@ -163,103 +161,54 @@ async function ensureProcessorImpl(config: Config): Promise<boolean> {
   if (isDisabled()) return false;
 
   const db = getDb();
-  const { getModelDef } = await import('./modelRegistry.js');
+  const { getModelDef, DEFAULT_MODEL_ID } = await import('./modelRegistry.js');
 
-  let modelId: string | null = null;
-  let modelFilePath: string | null = null;
+  // Check if a model was already selected from a previous run
+  const existingModel = (db.prepare("SELECT value FROM search_config WHERE key = 'embedding_model'")
+    .get() as { value: string } | undefined)?.value;
 
-  if (config.embeddingModel) {
-    // User override — check if it's a registry ID or a file path
-    const registryModel = getModelDef(config.embeddingModel);
-    if (registryModel) {
-      modelId = registryModel.id;
-    } else {
-      // Treat as a direct file path — can't use registry metadata
-      modelFilePath = config.embeddingModel;
-    }
-  } else {
-    // Check if a model was already selected from a previous run
-    const existingModel = (db.prepare("SELECT value FROM search_config WHERE key = 'embedding_model'")
-      .get() as { value: string } | undefined)?.value;
-    if (existingModel && getModelDef(existingModel)) {
-      modelId = existingModel;
-      log.info(`search: using previously selected model ${modelId}`);
-    } else {
-      // First run — benchmark to select a model
-      phase = 'benchmarking';
-      const { runBenchmark } = await import('./benchmark.js');
-      const result = await runBenchmark(db, config.modelsPath);
-      if (!result.selectedModelId) {
-        log.warn('search: hardware too slow for embeddings, disabling indexer');
-        disabledByHardware = true;
-        return false;
-      }
-      modelId = result.selectedModelId;
-    }
+  const modelId = (existingModel && getModelDef(existingModel))
+    ? existingModel
+    : DEFAULT_MODEL_ID;
+
+  if (existingModel && existingModel !== modelId) {
+    log.info(`search: migrating from ${existingModel} to ${modelId}`);
   }
 
-  // Resolve model def and load
-  if (modelId) {
-    const modelDef = getModelDef(modelId);
-    if (!modelDef) {
-      log.error(`search: model "${modelId}" not found in registry`);
-      disabledByHardware = true;
-      return false;
-    }
-
-    // Init vector DB with the model's dims
-    const { initVectorDb } = await import('../db/vectorDb.js');
-    await initVectorDb(db, modelDef.dims);
-
-    // Download model (if needed), then load into memory
-    phase = 'downloading_model';
-    downloadProgress = null;
-    const { loadEmbeddingModel } = await import('./modelManager.js');
-    const model = await loadEmbeddingModel(modelDef, config.modelsPath, {
-      onDownloadProgress: (status) => { downloadProgress = status; },
-      onDownloadComplete: () => { phase = 'loading_model'; downloadProgress = null; },
-    });
-
-    // Store model info in search_config for status/capabilities
-    const now = Date.now();
-    const upsert = db.prepare(`
-      INSERT INTO search_config (key, value, updated_at) VALUES (?, ?, ?)
-      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
-    `);
-    upsert.run('embedding_model', modelDef.id, now);
-    upsert.run('embedding_dims', String(modelDef.dims), now);
-    if (modelDef.queryPrefix) {
-      upsert.run('query_prefix', modelDef.queryPrefix, now);
-    }
-
-    // Create processor
-    const { createEmbeddingProcessor } = await import('./embeddingIndexer.js');
-    jobProcessor = createEmbeddingProcessor(model, config.notesPath);
-  } else if (modelFilePath) {
-    // Direct file path — user must know what they're doing
-    // Use a fallback ModelDef with 384 dims (user can also set EMBEDDING_DIMS env later)
-    log.warn(`search: using custom model path "${modelFilePath}" — assuming 384 dims`);
-
-    const { initVectorDb } = await import('../db/vectorDb.js');
-    const dims = 384;
-    await initVectorDb(db, dims);
-
-    // Build a synthetic ModelDef for the custom path
-    const { loadEmbeddingModel } = await import('./modelManager.js');
-    const customDef = {
-      id: 'custom',
-      hfUri: modelFilePath,
-      nativeDims: dims,
-      dims,
-      sizeBytes: 0,
-      queryPrefix: null,
-      docPrefix: null,
-    };
-    const model = await loadEmbeddingModel(customDef, config.modelsPath);
-
-    const { createEmbeddingProcessor } = await import('./embeddingIndexer.js');
-    jobProcessor = createEmbeddingProcessor(model, config.notesPath);
+  const modelDef = getModelDef(modelId);
+  if (!modelDef) {
+    log.error(`search: model "${modelId}" not found in registry`);
+    return false;
   }
+
+  // Init vector DB with the model's dims
+  const { initVectorDb } = await import('../db/vectorDb.js');
+  await initVectorDb(db, modelDef.dims);
+
+  // Download model (if needed), then load into memory
+  phase = 'loading_model';
+  downloadProgress = null;
+  const { loadEmbeddingModel } = await import('./modelManager.js');
+  const model = await loadEmbeddingModel(modelDef, config.modelsPath, {
+    onDownloadProgress: (status) => { phase = 'downloading_model'; downloadProgress = status; },
+    onDownloadComplete: () => { phase = 'loading_model'; downloadProgress = null; },
+  });
+
+  // Store model info in search_config for status/capabilities
+  const now = Date.now();
+  const upsert = db.prepare(`
+    INSERT INTO search_config (key, value, updated_at) VALUES (?, ?, ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+  `);
+  upsert.run('embedding_model', modelDef.id, now);
+  upsert.run('embedding_dims', String(modelDef.dims), now);
+  if (modelDef.queryPrefix) {
+    upsert.run('query_prefix', modelDef.queryPrefix, now);
+  }
+
+  // Create processor
+  const { createEmbeddingProcessor } = await import('./embeddingIndexer.js');
+  jobProcessor = createEmbeddingProcessor(model, config.notesPath);
 
   log.info('search: embedding processor initialized');
   return true;
@@ -280,6 +229,7 @@ function startTrackedIndexJob(config: Config, errorPrefix: string): Promise<void
     phase = 'idle';
     abortController = null;
     runningJobPromise = null;
+    release('search');
   });
 
   runningJobPromise = promise;
@@ -294,11 +244,11 @@ export function triggerIndexNow(): void {
   if (!currentConfig) {
     throw new Error('Search scheduler not initialized');
   }
-  if (modelChangeInProgress) {
-    throw new Error('Model change in progress');
-  }
   if (running) {
     throw new Error('Index job already running');
+  }
+  if (!tryAcquire('search')) {
+    throw new Error(`Cannot reindex: ${holder()} job is in progress`);
   }
 
   const config = currentConfig;
@@ -308,7 +258,7 @@ export function triggerIndexNow(): void {
 async function runIndexInBackground(config: Config, signal?: AbortSignal): Promise<void> {
   const ready = await ensureProcessor(config);
   if (!ready || !jobProcessor) {
-    throw new Error('Embedding model not available (hardware too slow or model missing)');
+    throw new Error('Embedding model not available');
   }
   if (signal?.aborted) return;
   const db = getDb();
@@ -325,7 +275,7 @@ async function runIndexInBackground(config: Config, signal?: AbortSignal): Promi
 }
 
 async function tick(): Promise<void> {
-  if (running || !currentConfig || isDisabled() || modelChangeInProgress) return;
+  if (running || !currentConfig || isDisabled()) return;
 
   const config = currentConfig;
   const inWindow = isWithinIdleWindow(config.indexIdleStart, config.indexIdleEnd);
@@ -338,6 +288,11 @@ async function tick(): Promise<void> {
   const dirtyCount = getDirtyUuids(db, 2).length;
   if (dirtyCount === 0) return;
 
+  if (!tryAcquire('search')) {
+    log.info(`search: skipping tick, scheduler lock held by ${holder()}`);
+    return;
+  }
+
   log.info(`search: scheduler triggered (inWindow=${inWindow} idle=${Math.round(idleMs / 60000)}min dirty=${dirtyCount})`);
 
   await startTrackedIndexJob(config, 'search: scheduler tick failed');
@@ -349,7 +304,6 @@ async function tick(): Promise<void> {
 export function startSearchScheduler(config: Config): void {
   currentConfig = config;
   disabledByUser = !getEnhancedSearchEnabledConfig();
-  disabledByHardware = false;
   schedulerInterval = setInterval(() => {
     tick().catch((err) => {
       log.error(`search: scheduler error: ${err instanceof Error ? err.message : String(err)}`);
@@ -359,119 +313,6 @@ export function startSearchScheduler(config: Config): void {
   log.info(`search: scheduler started (idle window ${config.indexIdleStart}-${config.indexIdleEnd})`);
 }
 
-/**
- * Change the embedding model. Cancels any running job, unloads the current model,
- * wipes the search index, and reinitializes with the new model.
- */
-export async function changeModel(newModelId: string): Promise<void> {
-  if (!currentConfig) {
-    throw new Error('Search scheduler not initialized');
-  }
-  if (modelChangeInProgress) {
-    throw new Error('Model change already in progress');
-  }
-  modelChangeInProgress = true;
-  downloadProgress = null;
-
-  try {
-    const { getModelDef } = await import('./modelRegistry.js');
-    const newModelDef = getModelDef(newModelId);
-    if (!newModelDef) {
-      throw new Error(`Unknown model: ${newModelId}`);
-    }
-
-    // Cancel any running job and wait for it to settle.
-    if (running && abortController) {
-      log.info('search: cancelling current job for model change...');
-      abortController.abort();
-    }
-    if (runningJobPromise) {
-      await runningJobPromise;
-    }
-
-    // Wait for any in-flight lazy model initialization to settle.
-    if (ensureProcessorPromise) {
-      try {
-        await ensureProcessorPromise;
-      } catch {
-        // Ignore here; we're replacing the model anyway.
-      }
-    }
-
-    const db = getDb();
-    const { initVectorDb, resetVectorDb } = await import('../db/vectorDb.js');
-
-    // Preflight: ensure vec0 extension is loaded in this process before any
-    // destructive schema changes. Without this, dropping an existing vec0 table
-    // can fail with "no such module: vec0" on a fresh server process.
-    await initVectorDb(db, newModelDef.dims);
-
-    // Unload current model from memory
-    const { unloadModel } = await import('./modelManager.js');
-    await unloadModel();
-    jobProcessor = null;
-
-    // Wipe and model-config update must be atomic to avoid partial state
-    // if the process exits mid-model switch.
-    const now = Date.now();
-    const applyModelSwitch = db.transaction(() => {
-      db.exec('DELETE FROM search_chunks');
-      db.exec('DELETE FROM search_index_state');
-      db.exec('DELETE FROM search_jobs');
-      db.exec('DROP TABLE IF EXISTS search_vectors');
-
-      const upsert = db.prepare(`
-        INSERT INTO search_config (key, value, updated_at) VALUES (?, ?, ?)
-        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
-      `);
-      upsert.run('embedding_model', newModelDef.id, now);
-      upsert.run('embedding_dims', String(newModelDef.dims), now);
-      if (newModelDef.queryPrefix) {
-        upsert.run('query_prefix', newModelDef.queryPrefix, now);
-      } else {
-        db.prepare("DELETE FROM search_config WHERE key = 'query_prefix'").run();
-      }
-      // Clear stale artifact references
-      db.prepare("DELETE FROM search_config WHERE key IN ('artifact_version', 'artifact_hash')").run();
-    });
-    applyModelSwitch();
-
-    // Reset vectorDb so it can be recreated with new dims.
-    // Done after DROP TABLE succeeds in the transaction above.
-    resetVectorDb();
-
-    // Delete old artifact files
-    const fs = await import('node:fs/promises');
-    const artifactDir = path.join(path.dirname(currentConfig.databasePath), 'search-artifacts');
-    try {
-      const files = await fs.readdir(artifactDir);
-      await Promise.all(files.map(async (file) => {
-        try {
-          await fs.unlink(path.join(artifactDir, file));
-        } catch {
-          // Best-effort cleanup
-        }
-      }));
-    } catch {
-      // Directory may not exist
-    }
-
-    // Clear env override so DB selection takes precedence
-    currentConfig.embeddingModel = undefined;
-
-    log.info(`search: model changed to "${newModelId}" — index wiped, triggering re-index`);
-
-    // Reset disabled flags — user is explicitly choosing a model
-    disabledByUser = false;
-    disabledByHardware = false;
-    setEnhancedSearchEnabledConfig(true);
-
-    // Trigger re-indexing in the background
-    void startTrackedIndexJob(currentConfig, 'search: post-model-change reindex failed');
-  } finally {
-    modelChangeInProgress = false;
-  }
-}
 
 /**
  * Stop the search scheduler.
@@ -484,23 +325,19 @@ export function stopSearchScheduler(): void {
   activeJobToken++;
   abortController?.abort();
   running = false;
+  release('search');
   runningJobPromise = null;
   abortController = null;
   currentConfig = null;
   jobProcessor = null;
   ensureProcessorPromise = null;
   disabledByUser = false;
-  disabledByHardware = false;
   downloadProgress = null;
-  modelChangeInProgress = false;
 }
 
 export async function setEnhancedSearchEnabled(enabled: boolean): Promise<void> {
   if (!currentConfig) {
     throw new Error('Search scheduler not initialized');
-  }
-  if (modelChangeInProgress) {
-    throw new Error('Model change in progress');
   }
 
   disabledByUser = !enabled;
@@ -529,7 +366,4 @@ export async function setEnhancedSearchEnabled(enabled: boolean): Promise<void> 
     return;
   }
 
-  if (disabledByHardware) {
-    disabledByHardware = false;
-  }
 }

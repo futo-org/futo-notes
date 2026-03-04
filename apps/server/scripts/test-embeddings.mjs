@@ -16,7 +16,7 @@ import { createInterface } from 'readline';
 
 // ─── Config ─────────────────────────────────────────────────────────────────
 
-const NOTES_DIR = path.join(process.env.HOME, 'Documents', 'FUTO Notes');
+const NOTES_DIR = path.join(process.env.HOME, 'Documents', 'stonefruit');
 const MODELS_DIR = path.join(process.env.HOME, '.cache', 'futo-notes-models');
 const DB_PATH = '/tmp/futo-notes-embedding-test.db';
 

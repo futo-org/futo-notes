@@ -23,9 +23,9 @@ RUN cd apps/server && npm run build
 FROM node:22-slim
 WORKDIR /app
 
-LABEL org.opencontainers.image.title="FUTO Notes Server"
-LABEL org.opencontainers.image.description="Self-hosted sync server for FUTO Notes"
-LABEL org.opencontainers.image.source="https://gitlab.futo.org/justin/futo-notes"
+LABEL org.opencontainers.image.title="Stonefruit Server"
+LABEL org.opencontainers.image.description="Self-hosted sync server for Stonefruit"
+LABEL org.opencontainers.image.source="https://gitlab.futo.org/stonefruit/stonefruit"
 
 COPY --from=builder /app/package.json ./
 COPY --from=builder /app/node_modules/ node_modules/

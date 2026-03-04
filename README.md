@@ -1,4 +1,4 @@
-FUTO Notes is a simple, beautiful notes app that gets out of your way. It relies on markdown, but doesn't require knowledge of the syntax. FUTO Notes works entirely offline, but you have the option to sync to your other devices.
+Stonefruit is a simple, beautiful notes app that gets out of your way. It relies on markdown, but doesn't require knowledge of the syntax. Stonefruit works entirely offline, but you have the option to sync to your other devices.
 
 The goal is to build a tool that truly enhances your thinking and recall. By using advanced machine learning techniques, it is able to help you connect the dots, reference ideas from your past, and generate new ideas.
 

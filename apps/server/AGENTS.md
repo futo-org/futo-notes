@@ -1,4 +1,4 @@
-# AGENTS.md - FUTO Notes Server
+# AGENTS.md - Stonefruit Server
 
 Self-hosted Hono sync server. See @docs/plans/server-plan.md for full architecture.
 

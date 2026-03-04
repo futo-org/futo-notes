@@ -68,6 +68,16 @@ if (config.searchEnabled) {
   startSearchScheduler(config);
 }
 
+// Conditional transforms init
+if (config.transformsEnabled) {
+  log.info('transforms: enabled — initializing tables and scheduler');
+  const { createTransformTables } = await import('./db/transformSchema.js');
+  createTransformTables(getDb());
+
+  const { startTransformScheduler } = await import('./transforms/scheduler.js');
+  startTransformScheduler(config);
+}
+
 // Create and start server
 const app = createApp();
 

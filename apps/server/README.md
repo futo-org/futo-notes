@@ -1,6 +1,6 @@
-# FUTO Notes Sync Server
+# Stonefruit Sync Server
 
-Self-hosted sync server for FUTO Notes. Hash-based sync protocol over a single `/sync` endpoint, with argon2id auth and SQLite storage.
+Self-hosted sync server for Stonefruit. Hash-based sync protocol over a single `/sync` endpoint, with argon2id auth and SQLite storage.
 
 ## Quick Start
 
@@ -50,7 +50,7 @@ Copy `.env.example` to `.env` and edit as needed:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PORT` | `3005` | HTTP server port |
-| `DATABASE_PATH` | `./data/futo-notes.db` | SQLite database file |
+| `DATABASE_PATH` | `./data/stonefruit.db` | SQLite database file |
 | `NOTES_PATH` | `./data/notes` | Directory for `.md` files |
 
 ## Docker
@@ -61,7 +61,7 @@ Pull the pre-built image from the GitLab Container Registry — no clone needed:
 
 ```bash
 # Download the production compose file
-curl -O https://gitlab.futo.org/justin/futo-notes/-/raw/main/apps/server/docker-compose.production.yml
+curl -O https://gitlab.futo.org/stonefruit/stonefruit/-/raw/main/apps/server/docker-compose.production.yml
 
 # Start the server
 docker compose -f docker-compose.production.yml up -d
@@ -81,9 +81,9 @@ If you only have the image and want a one-shot benchmark:
 
 ```bash
 docker run --rm -it \
-  -v futo-notes-data:/app/apps/server/data \
+  -v stonefruit-data:/app/apps/server/data \
   --entrypoint node \
-  gitlab.futo.org:5050/justin/futo-notes/server:latest \
+  gitlab.futo.org:5050/stonefruit/stonefruit/server:latest \
   dist/benchmark.js
 ```
 
@@ -138,12 +138,12 @@ tailscale funnel 3005
 ```yaml
 services:
   server:
-    image: gitlab.futo.org:5050/justin/futo-notes/server:latest
+    image: gitlab.futo.org:5050/stonefruit/stonefruit/server:latest
     volumes:
       - data:/app/apps/server/data
     environment:
       - PORT=3005
-      - DATABASE_PATH=./data/futo-notes.db
+      - DATABASE_PATH=./data/stonefruit.db
       - NOTES_PATH=./data/notes
     restart: unless-stopped
 

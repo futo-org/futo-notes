@@ -1,6 +1,6 @@
 {
 	"appId": "com.futo.notes",
-	"appName": "FUTO Notes",
+	"appName": "Stonefruit",
 	"webDir": "../../dist",
 	"server": {
 		"androidScheme": "http"

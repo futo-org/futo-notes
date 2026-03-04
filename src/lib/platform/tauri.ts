@@ -10,12 +10,14 @@ interface NoteFileRow {
 interface AppConfig {
   notesDir: string;
   sidebarWidth?: number;
+  graphSidebarWidth?: number;
   isCustomDir: boolean;
   defaultNotesDir: string;
 }
 
 interface AppConfigUpdates {
   sidebarWidth?: number | null;
+  graphSidebarWidth?: number | null;
 }
 
 interface SupersearchRow {
@@ -145,6 +147,10 @@ export const tauriFS: PlatformFS = {
 
   async supersearchNoteVector(uuid: string): Promise<number[]> {
     return invoke<number[]>('supersearch_note_vector', { uuid });
+  },
+
+  async supersearchAllNoteVectors(): Promise<Array<{ uuid: string; vector: number[] }>> {
+    return invoke<Array<{ uuid: string; vector: number[] }>>('supersearch_all_note_vectors');
   },
 };
 

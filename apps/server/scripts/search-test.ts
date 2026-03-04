@@ -14,7 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 
-const NOTES_DIR = '/home/justin/Documents/FUTO Notes';
+const NOTES_DIR = '/home/justin/Documents/stonefruit';
 const MODELS_DIR = '/home/justin/Developer/futo-notes/apps/server/data/models';
 
 // Qwen3-Embedding-8B config

@@ -48,17 +48,10 @@ dashboard.get('/dashboard/status', async (c) => {
         WHERE s.uuid IS NULL OR s.content_hash != n.content_hash
       `).get() as { count: number }).count;
 
-      const { MODEL_REGISTRY } = await import('../search/modelRegistry.js');
-
       search = {
         enabled: true,
         enhanced_search_enabled: schedulerState.userEnabled,
         model,
-        available_models: MODEL_REGISTRY.map(m => ({
-          id: m.id,
-          dims: m.dims,
-          size_bytes: m.sizeBytes,
-        })),
         chunk_count: chunkCount,
         last_indexed_at: lastIndexed,
         current_job: running ? {
@@ -83,11 +76,22 @@ dashboard.get('/dashboard/status', async (c) => {
     search = { enabled: false };
   }
 
+  let transformsStatus = null;
+  if (config.transformsEnabled) {
+    try {
+      const { getTransformsStatus } = await import('../transforms/scheduler.js');
+      transformsStatus = getTransformsStatus();
+    } catch {
+      transformsStatus = { error: 'Transform tables not initialized' };
+    }
+  }
+
   return c.json({
     notes_count: notesCount,
     sessions_count: sessionsCount,
     setup_complete: isSetupComplete(db),
     search,
+    transforms: transformsStatus,
     uptime_seconds: Math.floor((Date.now() - startedAt) / 1000),
   });
 });
@@ -103,7 +107,7 @@ function dashboardHtml(): string {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>FUTO Notes — Server Dashboard</title>
+<title>Stonefruit — Server Dashboard</title>
 <style>
   *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -520,21 +524,6 @@ function dashboardHtml(): string {
     pointer-events: none;
   }
 
-  .model-select {
-    font-family: inherit;
-    font-size: 0.8rem;
-    font-weight: 500;
-    padding: 0.2rem 0.4rem;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    background: white;
-    color: var(--text);
-    cursor: pointer;
-  }
-  .model-select:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
 
   @media (max-width: 480px) {
     body { padding: 1rem 0.75rem; }
@@ -585,6 +574,12 @@ function dashboardHtml(): string {
     <div id="search-content"><span class="loading">Loading...</span></div>
   </div>
 
+  <!-- Smart Transforms -->
+  <div class="card" id="transforms-card" style="display:none">
+    <h2>Smart Transforms</h2>
+    <div id="transforms-content"><span class="loading">Loading...</span></div>
+  </div>
+
   <!-- Download -->
   <div class="card">
     <h2>Download Apps</h2>
@@ -600,7 +595,7 @@ function dashboardHtml(): string {
   <div class="card">
     <h2>Setup Guide</h2>
     <ol class="setup-steps">
-      <li>Download FUTO Notes on your device using a link above</li>
+      <li>Download Stonefruit on your device using a link above</li>
       <li>Open the app, go to <strong>Settings → Sync</strong>, and enter this server's URL: <code id="server-url">...</code></li>
       <li>Enter the password you set during server setup and tap <strong>Connect</strong></li>
     </ol>
@@ -620,7 +615,7 @@ function dashboardHtml(): string {
   </div>
 
   <div class="footer">
-    <a href="https://notes.futo.org">FUTO Notes</a> · <a href="https://futo.org">FUTO</a>
+    <a href="https://notes.futo.org">Stonefruit</a> · <a href="https://futo.org">FUTO</a>
   </div>
 </div>
 
@@ -687,12 +682,11 @@ function dashboardHtml(): string {
 
   const phaseLabels = {
     idle: null,
-    benchmarking: 'Running hardware benchmark to choose a model...',
     downloading_model: 'Downloading embedding model files...',
     loading_model: 'Preparing embedding model in memory (first query after restart can do this)...',
     indexing: 'Indexing notes...',
     building_artifacts: 'Building search artifacts...',
-    disabled: 'Disabled (hardware too slow)',
+    disabled: null,
   };
 
   function renderSearch(s) {
@@ -709,7 +703,6 @@ function dashboardHtml(): string {
     const phaseText = phaseLabels[sched.phase];
     const isBusy = sched.phase && sched.phase !== 'idle' && sched.phase !== 'disabled';
     const hasIndexedBefore = Boolean(s.last_indexed_at);
-    const modelChangeBlocked = Boolean(isBusy || !hasIndexedBefore);
     const enhancedSearchEnabled = s.enhanced_search_enabled !== false;
     const disabledReason = sched.disabledReason || null;
     const userDisabled = !enhancedSearchEnabled && disabledReason === 'user';
@@ -733,7 +726,7 @@ function dashboardHtml(): string {
         } else {
           html += '<div class="stat-row"><span class="stat-label">Status</span>' + badge('Ready', 'ok') + '</div>';
         }
-        html += '<div class="stat-row"><span class="stat-label">First index</span><span class="stat-value">Model is auto-selected during benchmark</span></div>';
+        html += '<div class="stat-row"><span class="stat-label">First index</span><span class="stat-value">Will start during next idle window</span></div>';
       } else if (s.current_job) {
         const pct = s.current_job.notes_total
           ? Math.round((s.current_job.notes_processed / s.current_job.notes_total) * 100)
@@ -744,7 +737,6 @@ function dashboardHtml(): string {
         html += '<div class="progress-track"><div class="progress-fill" style="width:' + pct + '%"></div></div>';
       } else if (isBusy) {
         let statusLabel = 'Working';
-        if (sched.phase === 'benchmarking') statusLabel = 'Benchmarking';
         if (sched.phase === 'downloading_model') statusLabel = 'Downloading model';
         if (sched.phase === 'loading_model') statusLabel = 'Preparing model';
         if (sched.phase === 'building_artifacts') statusLabel = 'Building artifacts';
@@ -762,9 +754,7 @@ function dashboardHtml(): string {
         }
       } else if (sched.phase === 'disabled') {
         html += '<div class="stat-row"><span class="stat-label">Status</span>' + badge('Disabled', 'error') + '</div>';
-        const reasonText = disabledReason === 'user'
-          ? 'Enhanced search is turned off'
-          : 'Hardware too slow for embeddings';
+        const reasonText = 'Enhanced search is turned off';
         html += '<div class="stat-row"><span class="stat-label">Reason</span><span class="stat-value">' + reasonText + '</span></div>';
       } else if (s.dirty_count > 0) {
         html += '<div class="stat-row"><span class="stat-label">Status</span>' + badge('Pending', 'warn') + '</div>';
@@ -777,31 +767,10 @@ function dashboardHtml(): string {
         html += '<div class="stat-row"><span class="stat-label">Status</span>' + badge('Up to date', 'ok') + '</div>';
       }
 
-      // Model selector
-      if (preIndexSummary) {
-        // Keep first-run UI simple; reveal model controls after first index.
-      } else if (!hasIndexedBefore) {
-        const pendingModelText = s.model || 'Auto (selected after benchmark)';
-        html += '<div class="stat-row"><span class="stat-label">Model</span><span class="stat-value">' + pendingModelText + '</span></div>';
-        html += '<div class="stat-row"><span class="stat-label">Model change</span><span class="stat-value">Available after first successful index</span></div>';
-      } else if (s.available_models && s.available_models.length > 0) {
-        html += '<div class="stat-row"><span class="stat-label">Model</span>';
-        html += '<select class="model-select" id="model-select" onchange="changeModel(this.value)"' + (modelChangeBlocked ? ' disabled' : '') + '>';
-        for (let i = 0; i < s.available_models.length; i++) {
-          const m = s.available_models[i];
-          const selected = m.id === s.model ? ' selected' : '';
-          const label = m.id + ' (' + formatBytes(m.size_bytes) + ')';
-          html += '<option value="' + m.id + '"' + selected + '>' + label + '</option>';
-        }
-        html += '</select>';
-        html += '</div>';
-        if (modelChangeBlocked && phaseText) {
-          html += '<div class="stat-row"><span class="stat-label">Model change</span><span class="stat-value">Unavailable while: ' + phaseText + '</span></div>';
-        }
-      } else if (s.model) {
-        html += '<div class="stat-row"><span class="stat-label">Model</span><span class="stat-value">' + s.model + '</span></div>';
-      } else if (!sched.modelReady && sched.phase === 'idle') {
-        html += '<div class="stat-row"><span class="stat-label">Model</span><span class="stat-value" style="color:var(--text-secondary)">Not loaded yet</span></div>';
+      // Model display (fixed to qwen3-embedding-0.6b)
+      if (!preIndexSummary) {
+        const modelText = s.model || 'qwen3-embedding-0.6b';
+        html += '<div class="stat-row"><span class="stat-label">Model</span><span class="stat-value">' + modelText + '</span></div>';
       }
 
       if (!preIndexSummary) {
@@ -828,7 +797,60 @@ function dashboardHtml(): string {
     return html;
   }
 
-  let currentModelId = null;
+  function renderTransforms(t) {
+    if (!t || t.error) return '';
+    var html = '';
+    var sched = t.scheduler || {};
+    var isBusy = sched.running;
+
+    for (var i = 0; i < t.transforms.length; i++) {
+      var tr = t.transforms[i];
+      if (i > 0) html += '<div style="border-top:1px solid var(--surface);margin:0.5rem 0"></div>';
+      html += '<div class="stat-row"><span class="stat-label" style="font-weight:600">' + tr.name + '</span>';
+      html += '<span class="stat-value">' + (tr.enabled ? badge('Enabled', 'ok') : badge('Disabled', 'muted')) + '</span></div>';
+      html += '<div class="stat-row"><span class="stat-label" style="font-size:0.8rem;color:var(--text-secondary)">' + tr.description + '</span></div>';
+      if (tr.enabled) {
+        html += '<div class="stat-row"><span class="stat-label">Pending</span><span class="stat-value">' + tr.pending_count + ' notes</span></div>';
+        if (tr.last_run) {
+          html += '<div class="stat-row"><span class="stat-label">Last run</span><span class="stat-value">' +
+            badge(tr.last_run.status, tr.last_run.status === 'completed' ? 'ok' : 'error') +
+            ' (' + tr.last_run.notes_processed + ' notes)</span></div>';
+          if (tr.last_run.status === 'failed' && tr.last_run.error_message) {
+            html += '<div class="stat-row"><span class="stat-label">Error</span><span class="stat-value" style="color:var(--danger);font-size:0.8rem">' + tr.last_run.error_message + '</span></div>';
+          }
+        }
+      }
+      html += '<div class="index-row">';
+      html += '<button class="btn btn-primary" onclick="triggerTransform(\\'' + tr.id + '\\')"' + (isBusy || !tr.enabled ? ' disabled' : '') + '>Run now</button>';
+      html += '<button class="action-link" onclick="toggleTransform(\\'' + tr.id + '\\',' + !tr.enabled + ')"' + (isBusy ? ' disabled' : '') + '>' + (tr.enabled ? 'Disable' : 'Enable') + '</button>';
+      html += '</div>';
+    }
+
+    // Scheduler-level error (e.g. model load failure)
+    if (sched.last_error) {
+      html += '<div style="border-top:1px solid var(--surface);margin:0.5rem 0"></div>';
+      html += '<div class="stat-row"><span class="stat-label">Error</span><span class="stat-value" style="color:var(--danger);font-size:0.8rem">' + sched.last_error + '</span></div>';
+    }
+
+    // Model & scheduler status
+    if (sched.phase && sched.phase !== 'idle') {
+      var phaseLabel = sched.phase === 'downloading_model' ? 'Downloading model...'
+        : sched.phase === 'loading_model' ? 'Loading model...'
+        : sched.phase === 'running' ? 'Running transforms...'
+        : sched.phase;
+      html += '<div style="border-top:1px solid var(--surface);margin:0.5rem 0"></div>';
+      html += '<div class="stat-row"><span class="stat-label">Status</span><span class="phase-label">' + phaseLabel + '</span></div>';
+      if (t.model && t.model.download_progress) {
+        var dp = t.model.download_progress;
+        var dlPct = dp.totalSize > 0 ? Math.round((dp.downloadedSize / dp.totalSize) * 100) : 0;
+        html += '<div class="stat-row"><span class="stat-label">Download</span><span class="stat-value">' +
+          formatBytes(dp.downloadedSize) + ' / ' + formatBytes(dp.totalSize) + ' (' + dlPct + '%)</span></div>';
+        html += '<div class="progress-track"><div class="progress-fill" style="width:' + dlPct + '%"></div></div>';
+      }
+    }
+
+    return html;
+  }
 
   let pollTimer = null;
   function schedulePoll(fast) {
@@ -848,12 +870,25 @@ function dashboardHtml(): string {
       $('sessions-count').textContent = data.sessions_count;
       $('uptime').textContent = formatUptime(data.uptime_seconds);
       $('search-content').innerHTML = renderSearch(data.search);
-      currentModelId = data.search && data.search.model;
+
+      // Render transforms section
+      var tCard = $('transforms-card');
+      if (tCard) {
+        if (data.transforms && !data.transforms.error) {
+          tCard.style.display = '';
+          $('transforms-content').innerHTML = renderTransforms(data.transforms);
+        } else {
+          tCard.style.display = 'none';
+        }
+      }
+
       $('error-banner').style.display = 'none';
 
-      // Poll faster during active work (download/indexing)
+      // Poll faster during active work (download/indexing/transforms)
       const sched = data.search && data.search.scheduler;
-      const busy = sched && sched.phase && sched.phase !== 'idle' && sched.phase !== 'disabled';
+      const tSched = data.transforms && data.transforms.scheduler;
+      const busy = (sched && sched.phase && sched.phase !== 'idle' && sched.phase !== 'disabled')
+        || (tSched && tSched.running);
       schedulePoll(busy);
     } catch (e) {
       $('status').innerHTML = badge('Unreachable', 'error');
@@ -928,53 +963,6 @@ function dashboardHtml(): string {
     }
   };
 
-  window.changeModel = async function(newModelId) {
-    if (newModelId === currentModelId) return;
-    const sel = $('model-select');
-
-    const msg = 'Switching to "' + newModelId + '" will delete the current search index. All notes will need to be re-indexed.\\n\\nContinue?';
-    if (!confirm(msg)) {
-      if (sel && currentModelId) sel.value = currentModelId;
-      return;
-    }
-
-    const token = await getToken('change the model');
-    if (!token) {
-      if (sel && currentModelId) sel.value = currentModelId;
-      return;
-    }
-
-    if (sel) sel.disabled = true;
-
-    try {
-      const res = await fetch('/search/change-model', {
-        method: 'POST',
-        headers: {
-          'Authorization': 'Bearer ' + token,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ model_id: newModelId }),
-      });
-      if (res.status === 401) {
-        clearAuthToken();
-        alert('Session expired, please try again');
-        if (sel && currentModelId) sel.value = currentModelId;
-        return;
-      }
-      const data = await res.json();
-      if (!res.ok) {
-        alert(data.error || 'Failed to change model');
-        if (sel && currentModelId) sel.value = currentModelId;
-        return;
-      }
-      refresh();
-    } catch (e) {
-      alert('Error: ' + e.message);
-      if (sel && currentModelId) sel.value = currentModelId;
-    } finally {
-      if (sel) sel.disabled = false;
-    }
-  };
 
   window.setEnhancedSearchEnabled = async function(enabled) {
     const token = await getToken(enabled ? 'enable enhanced search' : 'disable enhanced search');
@@ -1007,6 +995,54 @@ function dashboardHtml(): string {
       alert('Error: ' + e.message);
     } finally {
       if (btn) btn.disabled = false;
+    }
+  };
+
+  window.triggerTransform = async function(id) {
+    const token = await getToken('trigger transform');
+    if (!token) return;
+    try {
+      const res = await fetch('/transforms/' + id + '/trigger', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + token },
+      });
+      if (res.status === 401) {
+        clearAuthToken();
+        alert('Session expired, please try again');
+        return;
+      }
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || 'Failed to trigger transform');
+        return;
+      }
+      refresh();
+    } catch (e) {
+      alert('Error: ' + e.message);
+    }
+  };
+
+  window.toggleTransform = async function(id, enabled) {
+    const token = await getToken(enabled ? 'enable transform' : 'disable transform');
+    if (!token) return;
+    try {
+      const res = await fetch('/transforms/' + id + '/' + (enabled ? 'enable' : 'disable'), {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + token },
+      });
+      if (res.status === 401) {
+        clearAuthToken();
+        alert('Session expired, please try again');
+        return;
+      }
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || 'Failed to update transform');
+        return;
+      }
+      refresh();
+    } catch (e) {
+      alert('Error: ' + e.message);
     }
   };
 

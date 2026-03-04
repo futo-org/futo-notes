@@ -52,6 +52,7 @@ pub fn run() {
             supersearch_download,
             supersearch_query,
             supersearch_note_vector,
+            supersearch_all_note_vectors,
             fs_save_image,
             fs_get_image_path,
             fs_start_watcher,

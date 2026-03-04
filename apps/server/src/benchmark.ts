@@ -1,8 +1,7 @@
 import fs from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { selectModel } from './search/benchmark.js';
 import { resolveModelFile } from './search/modelManager.js';
-import { BENCHMARK_MODEL_ID, getModelDef } from './search/modelRegistry.js';
+import { DEFAULT_MODEL_ID, getModelDef } from './search/modelRegistry.js';
 
 const SAMPLE_TEXT = `
 The quick brown fox jumps over the lazy dog. This is a benchmark passage
@@ -33,15 +32,15 @@ function median(values: number[]): number {
 }
 
 export async function runBenchmarkCli(): Promise<void> {
-  const benchmarkModel = getModelDef(BENCHMARK_MODEL_ID);
-  if (!benchmarkModel) {
-    throw new Error(`Benchmark model "${BENCHMARK_MODEL_ID}" not found in registry`);
+  const modelDef = getModelDef(DEFAULT_MODEL_ID);
+  if (!modelDef) {
+    throw new Error(`Default model "${DEFAULT_MODEL_ID}" not found in registry`);
   }
 
   fs.mkdirSync(MODELS_DIR, { recursive: true });
 
-  console.log(`Resolving benchmark model (${benchmarkModel.id})...`);
-  const modelPath = await resolveModelFile(benchmarkModel.hfUri, MODELS_DIR);
+  console.log(`Resolving model (${modelDef.id})...`);
+  const modelPath = await resolveModelFile(modelDef.hfUri, MODELS_DIR);
   console.log(`Model path: ${modelPath}\n`);
 
   const { getLlama } = await import('node-llama-cpp');
@@ -70,13 +69,11 @@ export async function runBenchmarkCli(): Promise<void> {
     }
 
     const medianMs = Math.round(median(times));
-    const selected = selectModel(medianMs);
 
     console.log('\n-- Results --');
     console.log(`  Min:    ${Math.min(...times).toFixed(2)}ms`);
     console.log(`  Median: ${medianMs.toFixed(2)}ms`);
     console.log(`  Max:    ${Math.max(...times).toFixed(2)}ms`);
-    console.log(`  -> Selected model: ${selected?.id ?? 'SKIP (hardware too slow)'}`);
   } finally {
     await context.dispose();
     await model.dispose();

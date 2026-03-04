@@ -8,7 +8,7 @@ import { log } from '../logger.js';
  * Reconcile the database with actual files on disk.
  * - Updates hashes for files that changed since last DB write
  * - Removes DB entries for files that no longer exist on disk
- * - Adds DB entries for files on disk that aren't in the DB
+ * - Logs orphaned files on disk (adopted on next sync with real client UUIDs)
  */
 export function reconcile(db: Database.Database, notesDir: string): void {
   const dbNotes = getAllNotes(db);
@@ -16,7 +16,6 @@ export function reconcile(db: Database.Database, notesDir: string): void {
 
   let removed = 0;
   let hashUpdated = 0;
-  let added = 0;
 
   // Check DB entries against disk
   for (const note of dbNotes) {
@@ -42,17 +41,15 @@ export function reconcile(db: Database.Database, notesDir: string): void {
     diskFiles.delete(note.filename);
   }
 
-  // Remaining disk files have no DB entry — add them
-  for (const filename of diskFiles) {
-    const content = readNoteFile(notesDir, filename);
-    if (content !== null) {
-      const uuid = crypto.randomUUID();
-      const hash = contentHash(content);
-      log.debug(`  reconcile: adding new file ${filename}`);
-      upsertNote(db, uuid, filename, hash, Date.now());
-      added++;
+  // Remaining disk files have no DB entry — log them but don't auto-adopt.
+  // Files should enter the DB only through sync (which carries the client's real UUID).
+  // Auto-adopting with random UUIDs causes duplicate entries when clients sync later.
+  if (diskFiles.size > 0) {
+    log.info(`reconcile: ${diskFiles.size} orphaned file(s) on disk (will be adopted on next sync)`);
+    for (const filename of diskFiles) {
+      log.debug(`  reconcile: orphaned file: ${filename}`);
     }
   }
 
-  log.info(`reconcile done: removed=${removed} hash_updated=${hashUpdated} added=${added}`);
+  log.info(`reconcile done: removed=${removed} hash_updated=${hashUpdated}`);
 }
