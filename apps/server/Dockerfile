@@ -19,6 +19,11 @@ COPY apps/server/ apps/server/
 
 RUN cd apps/server && npm run build
 
+# Test stage — run server tests inside the build environment
+FROM builder AS test
+WORKDIR /app/apps/server
+CMD ["node_modules/.bin/vitest", "run"]
+
 # Production stage
 FROM node:22-slim
 WORKDIR /app

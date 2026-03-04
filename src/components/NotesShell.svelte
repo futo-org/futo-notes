@@ -570,6 +570,15 @@ Escaped pipes:
     navigate(`/note/${encodeURIComponent(id)}`);
   }
 
+  const stoneFruits = ['🥑', '🍑', '🍒', '🥥', '🥭', '🫒'];
+  let brandFruit = $state(localStorage.getItem('stonefruit-emoji') ?? stoneFruits[0]);
+
+  function cycleFruit(): void {
+    const idx = stoneFruits.indexOf(brandFruit);
+    brandFruit = stoneFruits[(idx + 1) % stoneFruits.length];
+    localStorage.setItem('stonefruit-emoji', brandFruit);
+  }
+
   function handleBrandClick(): void {
     if (isMobile) setDrawerOpen(false);
     navigate('/');
@@ -1402,7 +1411,10 @@ Escaped pipes:
   <!-- Drawer -->
   <aside bind:this={drawer} class="notes-drawer" aria-hidden={!drawerOpen}>
     <div class="sidebar-header">
-      <button class="sidebar-brand" onclick={handleBrandClick}>🥑 Stonefruit{#if import.meta.env.DEV}<span class="dev-badge">DEV</span>{/if}</button>
+      <div class="sidebar-brand">
+        <button class="brand-emoji" onclick={cycleFruit}>{brandFruit}</button>
+        <button class="brand-text" onclick={handleBrandClick}>Stonefruit{#if import.meta.env.DEV}<span class="dev-badge">DEV</span>{/if}</button>
+      </div>
       <button
         class="sidebar-settings-btn"
         aria-label="Settings"

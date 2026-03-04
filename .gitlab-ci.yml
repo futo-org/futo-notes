@@ -46,8 +46,22 @@ test:e2e:
 test:server:
   stage: test
   script:
-    - npm ci
-    - npm run server:test
+    - docker build -f apps/server/Dockerfile --target test -t stonefruit-server-test .
+    - docker run --rm stonefruit-server-test
+
+test:server:docker:
+  stage: test
+  script:
+    - docker build -f apps/server/Dockerfile -t stonefruit-server-smoke .
+    - docker run --rm -d --name sf-smoke -p 3005:3005 stonefruit-server-smoke
+    - |
+      cleanup() { docker stop sf-smoke 2>/dev/null || true; }
+      trap cleanup EXIT
+      for i in 1 2 3 4 5; do
+        curl -sf http://localhost:3005/health && break
+        sleep 2
+      done
+      curl -sf http://localhost:3005/health
 
 test:rust:
   stage: test
@@ -63,7 +77,7 @@ test:rust:
 
 build:tauri:
   stage: build
-  needs: [lint, test:unit, test:e2e, test:server, test:rust]
+  needs: [lint, test:unit, test:e2e, test:server, test:server:docker, test:rust]
   script:
     - npm ci
     - |
