@@ -1623,6 +1623,14 @@ pub async fn supersearch_query(
     .map_err(task_join_err)?
 }
 
+fn write_image_to_notes(base: &Path, data: &[u8], ext: &str) -> Result<String, String> {
+    let ext = ext.to_lowercase();
+    let filename = format!("{}-{}.{}", now_ms(), rand_suffix(), ext);
+    let dest = base.join(&filename);
+    fs::write(dest, data).map_err(io_err_to_string)?;
+    Ok(filename)
+}
+
 #[tauri::command]
 pub async fn fs_save_image(app: AppHandle, source_path: String) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -1631,12 +1639,19 @@ pub async fn fs_save_image(app: AppHandle, source_path: String) -> Result<String
         let ext = source
             .extension()
             .and_then(|s| s.to_str())
-            .map(|s| s.to_lowercase())
-            .unwrap_or_else(|| "jpg".to_string());
-        let filename = format!("{}-{}.{}", now_ms(), rand_suffix(), ext);
-        let dest = base.join(&filename);
-        fs::copy(&source, dest).map_err(io_err_to_string)?;
-        Ok(filename)
+            .unwrap_or("jpg");
+        let data = fs::read(&source).map_err(io_err_to_string)?;
+        write_image_to_notes(&base, &data, ext)
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
+#[tauri::command]
+pub async fn fs_save_image_bytes(app: AppHandle, data: Vec<u8>, ext: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = notes_root(&app)?;
+        write_image_to_notes(&base, &data, &ext)
     })
     .await
     .map_err(task_join_err)?

@@ -279,12 +279,69 @@ export function toggleBlockquote(view: EditorView): void {
   toggleLinePrefix(view, '> ', (t) => t.match(QUOTE_RE), ALL_LINE_PREFIXES);
 }
 
-/** Insert an image from the camera (mobile only). */
+/**
+ * Pick an image using a hidden <input type="file">.
+ * On iOS, `capture="environment"` opens the camera; omitting it shows the photo library.
+ */
+function pickImageFromInput(source: 'camera' | 'photos'): Promise<File | null> {
+  return new Promise((resolve) => {
+    let resolved = false;
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    if (source === 'camera') {
+      input.capture = 'environment';
+    }
+    input.style.display = 'none';
+    document.body.appendChild(input);
+
+    const cleanup = () => {
+      window.removeEventListener('focus', onFocus);
+      if (input.parentElement) document.body.removeChild(input);
+    };
+
+    const done = (file: File | null) => {
+      if (resolved) return;
+      resolved = true;
+      cleanup();
+      resolve(file);
+    };
+
+    input.addEventListener('change', () => done(input.files?.[0] ?? null));
+    input.addEventListener('cancel', () => done(null));
+
+    // Fallback: browsers/platforms without cancel event — focus returns to window
+    const onFocus = () => {
+      setTimeout(() => done(null), 300);
+    };
+    window.addEventListener('focus', onFocus);
+
+    input.click();
+  });
+}
+
+/** Insert an image from camera or photo library (mobile). Uses native iOS pickers. */
 export async function insertImageFromCamera(
   view: EditorView,
   source: 'camera' | 'photos',
 ): Promise<void> {
-  void source;
+  const fs = getFS();
+
+  // If saveImageBytes is available (Tauri/mobile), use HTML input for native iOS pickers
+  if (fs.saveImageBytes) {
+    const file = await pickImageFromInput(source);
+    if (!file) return;
+
+    const buffer = await file.arrayBuffer();
+    const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg';
+    const filename = await fs.saveImageBytes(buffer, ext);
+    const webUrl = await fs.getImageUrl(filename);
+    registerLocalImageUrl(filename, webUrl);
+    insertImageMarkdown(view, filename);
+    return;
+  }
+
+  // Fallback: desktop file picker
   await insertImageFromFile(view);
 }
 

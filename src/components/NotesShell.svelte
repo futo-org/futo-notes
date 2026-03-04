@@ -1151,8 +1151,11 @@ Escaped pipes:
   // Toolbar height constant (matches .markdown-toolbar height in components.css)
   const TOOLBAR_HEIGHT = 44;
 
-  // Total bottom inset when keyboard is visible: keyboard + toolbar
-  const keyboardInset = $derived(keyboard.visible ? keyboard.height + TOOLBAR_HEIGHT : 0);
+  // Total bottom inset: keyboard + toolbar when keyboard visible, just toolbar when editor focused on mobile
+  const keyboardInset = $derived(
+    keyboard.visible ? keyboard.height + TOOLBAR_HEIGHT :
+    isMobile && editorFocused ? TOOLBAR_HEIGHT : 0
+  );
 
   // Scroll cursor into view when keyboard opens or resizes.
   // CM's scrollIntoView is a no-op here because .cm-scroller has overflow:visible,

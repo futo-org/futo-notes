@@ -200,7 +200,7 @@ function preloadSingleImage(url: string): void {
 class ImageWidget extends WidgetType {
   private resolvedAtConstruction: string;
 
-  constructor(private alt: string, private src: string) {
+  constructor(private alt: string, private src: string, private endPos: number) {
     super();
     this.resolvedAtConstruction = resolveImageSrc(src);
   }
@@ -211,7 +211,7 @@ class ImageWidget extends WidgetType {
     return cached ? cached.height : 200;
   }
 
-  toDOM(): HTMLElement {
+  toDOM(view: EditorView): HTMLElement {
     const wrapper = document.createElement('div');
     wrapper.className = 'cm-md-image-wrapper';
 
@@ -248,6 +248,15 @@ class ImageWidget extends WidgetType {
       wrapper.style.cssText = `height: ${img.offsetHeight}px;`;
     };
 
+    // Tap on image → place cursor at end of the image line
+    wrapper.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      const endPos = Math.min(this.endPos, view.state.doc.length);
+      const line = view.state.doc.lineAt(endPos);
+      view.dispatch({ selection: { anchor: line.to } });
+      view.focus();
+    });
+
     wrapper.appendChild(img);
     return wrapper;
   }
@@ -259,7 +268,7 @@ class ImageWidget extends WidgetType {
   }
 
   ignoreEvent(): boolean {
-    return false;
+    return true;
   }
 }
 
@@ -539,6 +548,7 @@ class LiveMarkdownPlugin implements PluginValue {
   }
 
   private isCursorInside(view: EditorView, from: number, to: number): boolean {
+    if (!view.hasFocus) return false;
     for (const range of view.state.selection.ranges) {
       if (range.from >= from && range.from <= to) return true;
       if (range.to >= from && range.to <= to) return true;
@@ -822,7 +832,7 @@ class LiveMarkdownPlugin implements PluginValue {
       decorations.push({
         from,
         to,
-        value: { widget: new ImageWidget(alt, url) }
+        value: { widget: new ImageWidget(alt, url, to) }
       });
     }
   }

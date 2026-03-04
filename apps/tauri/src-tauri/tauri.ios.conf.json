@@ -4,6 +4,13 @@
     "beforeDevCommand": "sh -c 'HOST=${TAURI_DEV_HOST:-127.0.0.1}; npm run dev --prefix ../.. -- --host \"$HOST\" --port 5182 --strictPort'",
     "devUrl": "http://127.0.0.1:5182"
   },
+  "app": {
+    "windows": [
+      {
+        "disableInputAccessoryView": true
+      }
+    ]
+  },
   "bundle": {
     "iOS": {
       "developmentTeam": "2W7AC6T8T5"

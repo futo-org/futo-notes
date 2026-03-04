@@ -23,6 +23,7 @@ export interface PlatformFS {
 
   // Images
   saveImage(sourcePath: string): Promise<string>;
+  saveImageBytes?(data: ArrayBuffer, ext: string): Promise<string>;
   getImageUrl(filename: string): Promise<string>;
 
   // App info

@@ -111,6 +111,10 @@ export const tauriFS: PlatformFS = {
     return invoke<string>('fs_save_image', { sourcePath });
   },
 
+  async saveImageBytes(data: ArrayBuffer, ext: string): Promise<string> {
+    return invoke<string>('fs_save_image_bytes', { data: toBytes(data), ext });
+  },
+
   async getImageUrl(filename: string): Promise<string> {
     const path = await invoke<string>('fs_get_image_path', { filename });
     return convertFileSrc(path);
