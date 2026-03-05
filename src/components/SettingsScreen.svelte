@@ -3,8 +3,9 @@
   import { deleteAllNotes } from '$lib/notes';
   import { getCachedPreferences, savePreferences } from '$lib/preferences';
   import { applyThemePreference, type ThemePreference } from '$lib/theme';
-  import { connectSyncServer, saveSyncServerUrl } from '$lib/sync';
-  import { requestSync } from '$lib/autoSync';
+  import { connectSyncServer, saveSyncServerUrl, syncNow } from '$lib/sync';
+  import { requestSync, connectSSE } from '$lib/autoSync';
+  import { showGlobalToast } from '$lib/toast';
   import { ask } from '@tauri-apps/plugin-dialog';
   import { formatRelativeTime } from '$lib/utils';
 
@@ -17,6 +18,7 @@
 
   let nuking = $state(false);
   let nukeConfirm = $state(false);
+  let nukeError = $state('');
 
   // Crash reporting preferences
   const prefs = getCachedPreferences();
@@ -25,13 +27,18 @@
   let themePreference = $state<ThemePreference>(prefs.appearance.theme);
 
   // Sync MVP preferences
-  let syncUrl = $state(prefs.sync.serverUrl);
+  let syncUrl = $state(prefs.sync.serverUrl || (import.meta.env.DEV && !prefs.sync.token ? '10.10.51.157:3005' : ''));
   let syncPassword = $state('');
   let syncBusy = $state(false);
   let syncStatus = $state(prefs.sync.lastError ? `Last error: ${prefs.sync.lastError}` : '');
   let syncLastAt = $state<number | null>(prefs.sync.lastSyncedAt);
   let hasSyncToken = $state(Boolean(prefs.sync.token));
   let tokenServerUrl = $state(prefs.sync.serverUrl);
+
+  // Connect + sync blocking modal
+  let connectSyncing = $state(false);
+  let connectSyncPhase = $state('');
+  let connectSyncError = $state('');
 
   // Desktop: notes directory
   let notesDir = $state('');
@@ -85,18 +92,43 @@
   async function handleConnectSync(): Promise<void> {
     if (syncBusy) return;
     syncBusy = true;
-    syncStatus = 'Connecting...';
+    connectSyncing = true;
+    connectSyncPhase = 'Connecting to server...';
+    connectSyncError = '';
     try {
       await connectSyncServer(syncUrl, syncPassword);
       hasSyncToken = true;
       tokenServerUrl = syncUrl;
       syncPassword = '';
-      syncStatus = 'Connected. You can sync now.';
+
+      connectSyncPhase = 'Syncing notes...';
+      const summary = await syncNow();
+      connectSSE();
+
+      const updatedPrefs = getCachedPreferences();
+      syncLastAt = updatedPrefs.sync.lastSyncedAt;
+      syncStatus = '';
+
+      connectSyncing = false;
+      const parts: string[] = [];
+      if (summary.downloaded) parts.push(`${summary.downloaded} downloaded`);
+      if (summary.uploaded) parts.push(`${summary.uploaded} uploaded`);
+      showGlobalToast(parts.length ? `Synced: ${parts.join(', ')}` : 'Sync complete — everything up to date');
     } catch (e) {
-      syncStatus = `Connect failed: ${getErrorMessage(e)}`;
+      connectSyncError = getErrorMessage(e);
+      if (!hasSyncToken) {
+        syncStatus = `Connect failed: ${connectSyncError}`;
+      } else {
+        syncStatus = `Sync failed: ${connectSyncError}`;
+      }
     } finally {
       syncBusy = false;
     }
+  }
+
+  function cancelConnectSync(): void {
+    connectSyncing = false;
+    connectSyncError = '';
   }
 
   async function confirmResetConnection(): Promise<void> {
@@ -171,13 +203,19 @@
 
   async function doNuke(): Promise<void> {
     nuking = true;
+    nukeError = '';
     try {
       await deleteAllNotes();
       onimported(0);
-    } catch {
-      nuking = false;
-      nukeConfirm = false;
+    } catch (e) {
+      nukeError = getErrorMessage(e);
     }
+  }
+
+  function cancelNuke(): void {
+    nuking = false;
+    nukeConfirm = false;
+    nukeError = '';
   }
 
   function testCrash(): void {
@@ -185,11 +223,13 @@
   }
 </script>
 
-<div class="settings-overlay" role="button" tabindex="-1" onclick={onclose} onkeydown={(e) => e.key === 'Escape' && onclose()}>
+<div class="settings-overlay" role="button" tabindex="-1" onclick={() => !connectSyncing && !nuking && onclose()} onkeydown={(e) => e.key === 'Escape' && !connectSyncing && !nuking && onclose()}>
   <div class="settings-panel" role="dialog" aria-modal="true" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
     <div class="settings-header">
       <h2 class="settings-title">Settings</h2>
-      <button class="settings-close" aria-label="Close settings" onclick={onclose}>&times;</button>
+      {#if !connectSyncing && !nuking}
+        <button class="settings-close" aria-label="Close settings" onclick={onclose}>&times;</button>
+      {/if}
     </div>
 
     <div class="settings-content">
@@ -347,6 +387,30 @@
         {/if}
       </section>
     </div>
+
+    {#if connectSyncing}
+      <div class="connect-sync-overlay">
+        {#if connectSyncError}
+          <div class="connect-sync-error">{connectSyncError}</div>
+          <button class="connect-sync-cancel" onclick={cancelConnectSync}>Close</button>
+        {:else}
+          <div class="connect-sync-spinner"></div>
+          <div class="connect-sync-phase">{connectSyncPhase}</div>
+        {/if}
+      </div>
+    {/if}
+
+    {#if nuking}
+      <div class="connect-sync-overlay">
+        {#if nukeError}
+          <div class="connect-sync-error">{nukeError}</div>
+          <button class="connect-sync-cancel" onclick={cancelNuke}>Close</button>
+        {:else}
+          <div class="connect-sync-spinner"></div>
+          <div class="connect-sync-phase">Deleting all notes...</div>
+        {/if}
+      </div>
+    {/if}
   </div>
 </div>
 
@@ -362,6 +426,7 @@
   }
 
   .settings-panel {
+    position: relative;
     width: 100%;
     max-width: 600px;
     max-height: 85vh;
@@ -645,5 +710,62 @@
 
   .settings-switch.on .settings-switch-thumb {
     transform: translateX(20px);
+  }
+
+  /* Connect + sync blocking overlay */
+  .connect-sync-overlay {
+    position: absolute;
+    inset: 0;
+    background: var(--color-bg);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    border-radius: 16px 16px 0 0;
+    z-index: 10;
+  }
+
+  .connect-sync-spinner {
+    width: 32px;
+    height: 32px;
+    border: 3px solid var(--color-border);
+    border-top-color: var(--color-primary);
+    border-radius: 50%;
+    animation: connect-spin 0.8s linear infinite;
+  }
+
+  @keyframes connect-spin {
+    to { transform: rotate(360deg); }
+  }
+
+  .connect-sync-phase {
+    font-size: 15px;
+    color: var(--color-muted);
+  }
+
+  .connect-sync-error {
+    font-size: 14px;
+    color: var(--color-danger);
+    text-align: center;
+    padding: 0 24px;
+    line-height: 1.4;
+  }
+
+  .connect-sync-cancel {
+    border: none;
+    background: var(--color-surface);
+    color: var(--color-text);
+    font-size: 14px;
+    font-weight: 500;
+    font-family: inherit;
+    padding: 10px 24px;
+    border-radius: 10px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .connect-sync-cancel:active {
+    opacity: 0.7;
   }
 </style>
