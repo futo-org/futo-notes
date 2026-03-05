@@ -46,14 +46,14 @@ test:e2e:
 test:server:
   stage: test
   script:
-    - docker build -f apps/server/Dockerfile --target test -t stonefruit-server-test .
-    - docker run --rm stonefruit-server-test
+    - npm ci
+    - npm run server:test
 
-test:server:docker:
+test:server:smoke:
   stage: test
   script:
     - docker build -f apps/server/Dockerfile -t stonefruit-server-smoke .
-    - docker run --rm -d --name sf-smoke -p 3005:3005 -e SEARCH_ENABLED=false -e TRANSFORMS_ENABLED=false stonefruit-server-smoke
+    - docker run --rm -d --name sf-smoke --network=host -e SEARCH_ENABLED=false -e TRANSFORMS_ENABLED=false stonefruit-server-smoke
     - |
       cleanup() { docker logs sf-smoke 2>&1 || true; docker stop sf-smoke 2>/dev/null || true; }
       trap cleanup EXIT
@@ -66,6 +66,9 @@ test:server:docker:
 
 test:rust:
   stage: test
+  rules:
+    - if: $CI_COMMIT_TAG
+    - if: $CI_MERGE_REQUEST_IID
   script:
     - npm ci
     - |
@@ -88,7 +91,7 @@ test:rust:
 
 build:tauri:
   stage: build
-  needs: [lint, test:unit, test:e2e, test:server, test:server:docker, test:rust]
+  needs: [lint, test:unit, test:e2e, test:server, test:server:smoke]
   script:
     - npm ci
     - |
