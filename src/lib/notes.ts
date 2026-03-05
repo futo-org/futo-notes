@@ -105,13 +105,19 @@ export async function deleteNote(id: string, options: { trackSyncDelete?: boolea
 }
 
 export async function deleteAllNotes(): Promise<void> {
-  // Mark every note for sync deletion so tombstones propagate to server
-  for (const note of notesCache) {
-    await markLocalDeleteForSync(note.id);
+  // Pause auto-sync for the duration of the reset. Without this, an SSE-triggered
+  // sync can race between steps and see files on disk with no UUID mappings,
+  // generating new UUIDs that create duplicate notes on the server.
+  const { pauseSync, resumeSync, waitForSyncIdle } = await import('./autoSync');
+  pauseSync();
+  try {
+    await waitForSyncIdle();
+    await deleteAllContent();
+    await clearSyncState();
+    notesCache = [];
+  } finally {
+    resumeSync();
   }
-  await deleteAllContent();
-  await clearSyncState();
-  notesCache = [];
 }
 
 export async function search(query: string): Promise<SearchResultItem[]> {

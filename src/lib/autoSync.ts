@@ -18,6 +18,7 @@ export interface AutoSyncCallbacks {
 let callbacks: AutoSyncCallbacks | null = null;
 let sseDebounceTimer: number | null = null;
 let syncing = false;
+let paused = false;
 let lastSyncTime = 0;
 let cleanupFns: Array<() => void> = [];
 let initialRetryTimer: number | null = null;
@@ -36,7 +37,7 @@ function isSyncConfigured(): boolean {
 }
 
 async function performSync(trigger: SyncTrigger, options: PerformSyncOptions = {}): Promise<SyncSummary | null> {
-  if (syncing || !callbacks || !isSyncConfigured()) {
+  if (syncing || paused || !callbacks || !isSyncConfigured()) {
     if (options.requireExecution) {
       if (syncing) throw new Error('Sync already in progress');
       if (!callbacks) throw new Error('Sync system not initialized');
@@ -76,6 +77,19 @@ async function performSync(trigger: SyncTrigger, options: PerformSyncOptions = {
 export function notifySaved(): void {
   if (!callbacks || !isSyncConfigured()) return;
   performSync('local-save');
+}
+
+/** Block all auto-sync and manual sync from starting. */
+export function pauseSync(): void { paused = true; }
+
+/** Re-allow sync after a pause. */
+export function resumeSync(): void { paused = false; }
+
+/** Wait for any in-flight sync to finish (polls every 50ms). */
+export async function waitForSyncIdle(): Promise<void> {
+  while (syncing) {
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
 }
 
 export async function requestSync(): Promise<void> {
