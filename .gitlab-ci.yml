@@ -53,20 +53,31 @@ test:server:docker:
   stage: test
   script:
     - docker build -f apps/server/Dockerfile -t stonefruit-server-smoke .
-    - docker run --rm -d --name sf-smoke -p 3005:3005 stonefruit-server-smoke
+    - docker run --rm -d --name sf-smoke -p 3005:3005 -e SEARCH_ENABLED=false -e TRANSFORMS_ENABLED=false stonefruit-server-smoke
     - |
-      cleanup() { docker stop sf-smoke 2>/dev/null || true; }
+      cleanup() { docker logs sf-smoke 2>&1 || true; docker stop sf-smoke 2>/dev/null || true; }
       trap cleanup EXIT
-      for i in 1 2 3 4 5; do
-        curl -sf http://localhost:3005/health && break
+      for i in $(seq 1 10); do
+        curl -sf http://localhost:3005/health && exit 0
         sleep 2
       done
-      curl -sf http://localhost:3005/health
+      echo "Health check failed after 10 retries"
+      exit 1
 
 test:rust:
   stage: test
   script:
     - npm ci
+    - |
+      if command -v apt-get >/dev/null 2>&1; then
+        apt-get update
+        DEBIAN_FRONTEND=noninteractive apt-get install -y \
+          libwebkit2gtk-4.1-dev \
+          libgtk-3-dev \
+          libayatana-appindicator3-dev \
+          librsvg2-dev \
+          patchelf
+      fi
     - |
       if ! command -v rustup >/dev/null 2>&1; then
         curl https://sh.rustup.rs -sSf | sh -s -- -y

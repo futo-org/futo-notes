@@ -84,7 +84,7 @@ export function processSync(
         const safeName = sanitizeFilename(clientNote.filename);
         const finalName = resolveFilename(db, safeName, clientNote.uuid);
         if (finalName !== serverNote.filename) {
-          if (clientNote.modified_at > serverNote.modified_at) {
+          if (clientNote.modified_at >= serverNote.modified_at) {
             // Client renamed more recently — accept client's filename
             const content = readNoteFile(notesDir, serverNote.filename) ?? '';
             deleteNoteFile(notesDir, serverNote.filename);
