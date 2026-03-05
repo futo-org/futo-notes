@@ -89,6 +89,21 @@ test:rust:
     - rustup default stable
     - npm run tauri:test:rust
 
+docker:publish:
+  stage: build
+  needs: [test:server, test:server:smoke]
+  script:
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+    - docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+    - docker buildx create --use --name multiarch
+    - |
+      export IMAGE="$CI_REGISTRY_IMAGE/server"
+      docker buildx build -f apps/server/Dockerfile \
+        --platform linux/amd64,linux/arm64 \
+        -t "$IMAGE:latest" --push .
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
 build:tauri:
   stage: build
   needs: [lint, test:unit, test:e2e, test:server, test:server:smoke]
