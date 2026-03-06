@@ -48,6 +48,7 @@ build_ios_task:
     # Initialize and build iOS
     - cd apps/tauri
     - cargo tauri ios init --config src-tauri/tauri.ios.conf.json
+    - cargo tauri icon src-tauri/icons/icon-1024-rgba8.png --ios-color '#f0f0f0'
 
     # Patch Xcode project for manual signing, deployment target, and Swift compat shims
     - |

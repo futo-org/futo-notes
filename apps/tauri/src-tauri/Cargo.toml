@@ -21,6 +21,7 @@ tauri = { version = "2.9.1", features = ["protocol-asset"] }
 tauri-plugin-dialog = "2.4.2"
 tauri-plugin-process = "2"
 tauri-plugin-clipboard-manager = "2"
+tauri-plugin-single-instance = "2"
 rayon = "1.11.0"
 sha2 = "0.10.9"
 filetime = "0.2.26"

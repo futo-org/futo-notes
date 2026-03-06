@@ -260,6 +260,7 @@ build:android:
     - !reference [.set-version, script]
     # Initialize Tauri Android project
     - cd apps/tauri && cargo tauri android init
+    - cd apps/tauri && cargo tauri icon src-tauri/icons/icon-1024-rgba8.png
     # Configure release signing
     - |
       if [ -n "$KEYSTORE_BASE64" ]; then

@@ -17,7 +17,22 @@ npm run lint       # ESLint
 
 npm workspaces. Shared Svelte app at root, platform shells in `apps/`, shared packages in `packages/`.
 
-**Stack**: Svelte 5 + Tauri v2 + Vite + Tailwind v4 + CodeMirror 6
+```
+src/                  ← Shared Svelte 5 app (editor, UI, sync client)
+apps/
+  tauri/              ← Tauri v2 desktop + mobile shell (Rust backend)
+  server/             ← Self-hosted Hono sync server (TypeScript, Docker)
+  cli/                ← Server setup/management CLI (Go, Bubble Tea TUI)
+packages/
+  shared/             ← Shared types & utils (sync protocol, filename rules)
+```
+
+- **Client stack**: Svelte 5 + Tauri v2 + Vite + Tailwind v4 + CodeMirror 6
+- **Server stack**: Hono + better-sqlite3 + Docker. Hash-based sync via `POST /sync`. SSE push notifications. Semantic search with embeddings.
+- **CLI stack**: Go + Bubble Tea/Lip Gloss. Deploys and manages the server via Docker Compose.
+- **Shared package** (`@futo-notes/shared`): `SyncRequest`/`SyncResponse` types, `NoteSyncMeta`, filename sanitization (`sanitizeTitle`, `validateTitle`). Consumed as TypeScript source (no build step).
+
+Each app has its own `AGENTS.md` with app-specific details.
 
 ## Key Constraints
 
