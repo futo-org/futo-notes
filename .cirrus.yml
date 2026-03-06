@@ -58,7 +58,36 @@ build_ios_task:
       node ../../scripts/patch-ios-pbxproj.mjs "$PBXPROJ"
 
     - export IPHONEOS_DEPLOYMENT_TARGET=16.0
-    - cargo tauri ios build --export-method app-store-connect --config src-tauri/tauri.ios.conf.json
+    # Build archive only (no --export-method — Tauri's auto-export can't
+    # resolve the provisioning profile with manual signing)
+    - cargo tauri ios build --config src-tauri/tauri.ios.conf.json
+    # Export IPA manually with explicit provisioning profile mapping
+    - |
+      ARCHIVE=$(find src-tauri/gen/apple/build -name "*.xcarchive" -type d | head -1)
+      echo "Exporting archive: $ARCHIVE"
+      cat > /tmp/ExportOptions.plist << 'PLISTEOF'
+      <?xml version="1.0" encoding="UTF-8"?>
+      <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+      <plist version="1.0">
+      <dict>
+          <key>method</key>
+          <string>app-store</string>
+          <key>teamID</key>
+          <string>2W7AC6T8T5</string>
+          <key>signingStyle</key>
+          <string>manual</string>
+          <key>provisioningProfiles</key>
+          <dict>
+              <key>com.futo.notes</key>
+              <string>FUTO Notes App Store</string>
+          </dict>
+      </dict>
+      </plist>
+      PLISTEOF
+      xcodebuild -exportArchive \
+        -archivePath "$ARCHIVE" \
+        -exportOptionsPlist /tmp/ExportOptions.plist \
+        -exportPath src-tauri/gen/apple/build/export
     - cd ../..
 
     # Upload to TestFlight
