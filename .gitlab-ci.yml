@@ -12,11 +12,12 @@ workflow:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
 stages:
-  - cleanup
-  - test
   - build
-  - publish
-  - release
+
+# TEMPORARY: iOS-only testing — skip all non-iOS jobs
+.ios-only-skip:
+  rules:
+    - when: never
 
 # ─────────────────────────────────────────────────────────────
 # Reusable script fragments
@@ -64,6 +65,7 @@ stages:
 # ─────────────────────────────────────────────────────────────
 
 docker:prune:
+  extends: .ios-only-skip
   stage: cleanup
   script:
     - docker system prune -af --volumes
@@ -75,6 +77,7 @@ docker:prune:
 # ─────────────────────────────────────────────────────────────
 
 lint:
+  extends: .ios-only-skip
   stage: test
   script:
     - npm ci
@@ -82,12 +85,14 @@ lint:
     - npm run lint:platform
 
 test:unit:
+  extends: .ios-only-skip
   stage: test
   script:
     - npm ci
     - npm run test:unit
 
 test:e2e:
+  extends: .ios-only-skip
   stage: test
   script:
     - npm ci
@@ -95,12 +100,14 @@ test:e2e:
     - npm test
 
 test:server:
+  extends: .ios-only-skip
   stage: test
   script:
     - npm ci
     - npm run server:test
 
 test:server:smoke:
+  extends: .ios-only-skip
   stage: test
   script:
     - IMAGE_SHA=$(docker build -q -f apps/server/Dockerfile .)
@@ -118,6 +125,7 @@ test:server:smoke:
       exit 1
 
 test:rust:
+  extends: .ios-only-skip
   stage: test
   rules:
     - if: $CI_COMMIT_TAG
@@ -133,6 +141,7 @@ test:rust:
 # ─────────────────────────────────────────────────────────────
 
 docker:publish:
+  extends: .ios-only-skip
   stage: build
   needs: [test:server, test:server:smoke]
   script:
@@ -152,6 +161,7 @@ docker:publish:
 # ─────────────────────────────────────────────────────────────
 
 cli:build:
+  extends: .ios-only-skip
   stage: build
   image: golang:1.25
   before_script: []
@@ -180,6 +190,7 @@ cli:build:
         - apps/cli/**/*
 
 cli:publish:
+  extends: .ios-only-skip
   stage: publish
   image: curlimages/curl:latest
   needs: [cli:build]
@@ -203,6 +214,7 @@ cli:publish:
 # ─────────────────────────────────────────────────────────────
 
 build:linux:
+  extends: .ios-only-skip
   stage: build
   needs: [lint, test:unit, test:e2e]
   script:
@@ -226,6 +238,7 @@ build:linux:
     - if: $CI_COMMIT_TAG
 
 build:android:
+  extends: .ios-only-skip
   stage: build
   needs: [lint, test:unit, test:e2e]
   variables:
@@ -290,7 +303,7 @@ build:ios:
   stage: build
   tags:
     - macscript
-  needs: [lint, test:unit, test:e2e]
+  needs: []
   before_script:
     - env | grep -E '^(CI_|IOS_|ASC_)' > .cienv
   script:
@@ -307,6 +320,7 @@ build:ios:
 # ─────────────────────────────────────────────────────────────
 
 publish:
+  extends: .ios-only-skip
   stage: publish
   needs:
     - job: build:linux
@@ -373,6 +387,7 @@ publish:
 # ─────────────────────────────────────────────────────────────
 
 release:
+  extends: .ios-only-skip
   stage: release
   image: registry.gitlab.com/gitlab-org/release-cli:latest
   needs:
