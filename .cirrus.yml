@@ -68,6 +68,7 @@ build_ios_task:
       echo "Verifying patch:"
       grep -E "CODE_SIGN_STYLE|DEVELOPMENT_TEAM|CODE_SIGN_IDENTITY|PROVISIONING_PROFILE|DEPLOYMENT_TARGET" "$PBXPROJ" | head -30
 
+    - export IPHONEOS_DEPLOYMENT_TARGET=16.0
     - cargo tauri ios build --export-method app-store-connect --config src-tauri/tauri.ios.conf.json
     - cd ../..
 
