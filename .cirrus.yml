@@ -57,15 +57,16 @@ build_ios_task:
     # signing overrides, so we must patch the generated project directly.
     - |
       PBXPROJ=$(find src-tauri/gen/apple -name "project.pbxproj" | head -1)
-      echo "Patching $PBXPROJ for manual signing"
+      echo "Patching $PBXPROJ for manual signing + deployment target"
       sed -i '' \
         -e 's/DEVELOPMENT_TEAM = "";/DEVELOPMENT_TEAM = "2W7AC6T8T5";/g' \
         -e 's/CODE_SIGN_IDENTITY = "iPhone Developer"/CODE_SIGN_IDENTITY = "Apple Distribution"/g' \
+        -e 's/IPHONEOS_DEPLOYMENT_TARGET = 14.0/IPHONEOS_DEPLOYMENT_TARGET = 16.0/g' \
         -e '/DEVELOPMENT_TEAM/a\'$'\n''				CODE_SIGN_STYLE = Manual;' \
         -e '/DEVELOPMENT_TEAM/a\'$'\n''				PROVISIONING_PROFILE_SPECIFIER = "FUTO Notes App Store";' \
         "$PBXPROJ"
       echo "Verifying patch:"
-      grep -E "CODE_SIGN_STYLE|DEVELOPMENT_TEAM|CODE_SIGN_IDENTITY|PROVISIONING_PROFILE" "$PBXPROJ" | head -20
+      grep -E "CODE_SIGN_STYLE|DEVELOPMENT_TEAM|CODE_SIGN_IDENTITY|PROVISIONING_PROFILE|DEPLOYMENT_TARGET" "$PBXPROJ" | head -30
 
     - cargo tauri ios build --export-method app-store-connect --config src-tauri/tauri.ios.conf.json
     - cd ../..
