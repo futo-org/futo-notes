@@ -121,12 +121,21 @@ export function recordActivity(): void {
   lastActivity = Date.now();
 }
 
+async function canUseEmbeddingModelNow(): Promise<boolean> {
+  if (holder() === 'transforms') {
+    return false;
+  }
+  const { isGenerationModelLoaded } = await import('../transforms/generationModel.js');
+  return !isGenerationModelLoaded();
+}
+
 /**
  * Ensure the embedding model is loaded and ready for queries.
  * Can be called from the embed-query endpoint to load on-demand.
  */
 export async function ensureModelLoaded(): Promise<boolean> {
   if (!currentConfig) return false;
+  if (!(await canUseEmbeddingModelNow())) return false;
   return ensureProcessor(currentConfig);
 }
 

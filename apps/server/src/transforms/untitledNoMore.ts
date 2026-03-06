@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import { validateTitle } from '@futo-notes/shared';
 import type { SmartTransform, TransformResult, GenerateFn } from './types.js';
 import { readNoteFile, deleteNoteFile, writeNoteFile, sanitizeFilename, resolveFilename } from '../sync/files.js';
 import { upsertNote } from '../db/notes.js';
@@ -138,10 +139,17 @@ export const untitledNoMore: SmartTransform = {
 
         // Clean generated title: take first non-empty line, strip quotes and extension
         const lines = raw.split('\n').map((l) => l.trim()).filter((l) => l.length > 0);
-        let title = (lines[0] ?? '').replace(/^["']|["']$/g, '').replace(/\.md$/i, '').trim();
+        const title = (lines[0] ?? '').replace(/^["']|["']$/g, '').replace(/\.md$/i, '').trim();
 
         if (!title || title.length < 2) {
           log.warn(`transforms: untitled-no-more: empty title generated for ${note.filename} (raw=${JSON.stringify(raw.slice(0, 100))}), skipping`);
+          continue;
+        }
+
+        const titleIssues = validateTitle(title);
+        if (titleIssues.length > 0) {
+          const details = titleIssues.map((issue) => issue.kind).join(', ');
+          log.warn(`transforms: untitled-no-more: invalid title generated for ${note.filename} [${details}], skipping`);
           continue;
         }
 

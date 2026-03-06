@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { SSEStreamingApi } from 'hono/streaming';
 import { log } from './logger.js';
 
@@ -7,7 +8,38 @@ interface SSEClient {
   stream: SSEStreamingApi;
 }
 
+interface SSETicket {
+  tokenHash: string;
+  expiresAt: number;
+}
+
 const clients = new Map<string, SSEClient>();
+const tickets = new Map<string, SSETicket>();
+const SSE_TICKET_TTL_MS = 5 * 60 * 1000;
+
+export function issueSseTicket(tokenHash: string): string {
+  const ticket = randomUUID();
+  tickets.set(ticket, { tokenHash, expiresAt: Date.now() + SSE_TICKET_TTL_MS });
+  return ticket;
+}
+
+export function resolveSseTicket(ticket: string): string | null {
+  const entry = tickets.get(ticket);
+  if (!entry) return null;
+  if (entry.expiresAt <= Date.now()) {
+    tickets.delete(ticket);
+    return null;
+  }
+  return entry.tokenHash;
+}
+
+function clearTicketsForTokenHash(tokenHash: string): void {
+  for (const [ticket, entry] of tickets) {
+    if (entry.tokenHash === tokenHash) {
+      tickets.delete(ticket);
+    }
+  }
+}
 
 export function addClient(id: string, tokenHash: string, stream: SSEStreamingApi): void {
   // Close existing connection for same client ID (reconnect)
@@ -37,6 +69,7 @@ export function broadcastSyncAvailable(excludeClientId?: string): void {
 }
 
 export function removeClientsByTokenHash(tokenHash: string): void {
+  clearTicketsForTokenHash(tokenHash);
   for (const [id, client] of clients) {
     if (client.tokenHash === tokenHash) {
       try { client.stream.close(); } catch { /* ignore */ }
@@ -47,6 +80,7 @@ export function removeClientsByTokenHash(tokenHash: string): void {
 }
 
 export function removeAllClients(): void {
+  tickets.clear();
   for (const [, client] of clients) {
     try { client.stream.close(); } catch { /* ignore */ }
   }
@@ -84,3 +118,13 @@ const heartbeat = setInterval(() => {
   }
 }, 30_000);
 heartbeat.unref();
+
+const ticketCleanup = setInterval(() => {
+  const now = Date.now();
+  for (const [ticket, entry] of tickets) {
+    if (entry.expiresAt <= now) {
+      tickets.delete(ticket);
+    }
+  }
+}, 60_000);
+ticketCleanup.unref();

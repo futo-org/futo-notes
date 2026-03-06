@@ -13,6 +13,8 @@ import search from './routes/search.js';
 import dashboard from './routes/dashboard.js';
 import reset from './routes/reset.js';
 import transforms from './routes/transforms.js';
+import { recordActivity } from './search/scheduler.js';
+import { recordTransformActivity } from './transforms/scheduler.js';
 
 export function createApp(): Hono {
   const app = new Hono();
@@ -20,6 +22,10 @@ export function createApp(): Hono {
 
   // Request logging middleware
   app.use('*', async (c, next) => {
+    if (c.req.path !== '/health') {
+      recordActivity();
+      recordTransformActivity();
+    }
     const start = Date.now();
     await next();
     const ms = Date.now() - start;

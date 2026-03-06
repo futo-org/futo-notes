@@ -6,8 +6,8 @@ import { sanitizeTitle } from '@futo-notes/shared';
 
 /**
  * Sanitize a client-provided filename for safe filesystem storage.
- * Delegates core rules (forbidden chars, dots, length, fallback) to the
- * shared sanitizeTitle(), then adds server-specific security:
+ * Delegates core filename rules to shared sanitizeTitle(), then adds
+ * server-specific security:
  * - Strips path traversal (..) and path separators
  * - Normalizes .md extension
  */

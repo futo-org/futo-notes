@@ -6,7 +6,6 @@ import {
   FORBIDDEN_CHARS_RE,
   MAX_TITLE_LENGTH,
   FALLBACK_TITLE,
-  REPLACEMENT_CHAR,
 } from './filename';
 
 describe('sanitizeTitle', () => {
@@ -14,20 +13,20 @@ describe('sanitizeTitle', () => {
     expect(sanitizeTitle('hello-world')).toBe('hello-world');
   });
 
-  it('replaces forbidden characters with REPLACEMENT_CHAR', () => {
-    expect(sanitizeTitle('a<b>c:d')).toBe(`a${REPLACEMENT_CHAR}b${REPLACEMENT_CHAR}c${REPLACEMENT_CHAR}d`);
+  it('strips forbidden characters', () => {
+    expect(sanitizeTitle('a<b>c:d')).toBe('abcd');
   });
 
-  it('replaces all Windows-reserved characters', () => {
-    expect(sanitizeTitle('a<b>c:d"e|f?g*h')).toBe('a-b-c-d-e-f-g-h');
+  it('strips all Windows-reserved characters', () => {
+    expect(sanitizeTitle('a<b>c:d"e|f?g*h')).toBe('abcdefgh');
   });
 
-  it('strips leading dots', () => {
-    expect(sanitizeTitle('..hidden')).toBe('hidden');
+  it('preserves leading dots', () => {
+    expect(sanitizeTitle('..hidden')).toBe('..hidden');
   });
 
-  it('strips trailing dots', () => {
-    expect(sanitizeTitle('file..')).toBe('file');
+  it('preserves trailing dots', () => {
+    expect(sanitizeTitle('file..')).toBe('file..');
   });
 
   it('preserves interior dots', () => {
@@ -35,13 +34,13 @@ describe('sanitizeTitle', () => {
     expect(sanitizeTitle('Dr. Smith')).toBe('Dr. Smith');
   });
 
-  it('handles string that is all dots', () => {
-    expect(sanitizeTitle('...')).toBe(FALLBACK_TITLE);
+  it('preserves titles that are only dots', () => {
+    expect(sanitizeTitle('...')).toBe('...');
   });
 
-  it('truncates to MAX_TITLE_LENGTH', () => {
+  it('does not truncate long titles', () => {
     const long = 'a'.repeat(300);
-    expect(sanitizeTitle(long).length).toBe(MAX_TITLE_LENGTH);
+    expect(sanitizeTitle(long).length).toBe(300);
   });
 
   it('returns FALLBACK_TITLE for empty input', () => {
@@ -52,12 +51,12 @@ describe('sanitizeTitle', () => {
     expect(sanitizeTitle('   ')).toBe(FALLBACK_TITLE);
   });
 
-  it('replaces control characters', () => {
-    expect(sanitizeTitle('a\x00b\x1fc')).toBe('a-b-c');
+  it('strips control characters', () => {
+    expect(sanitizeTitle('a\x00b\x1fc')).toBe('abc');
   });
 
-  it('replaces DEL character (0x7f)', () => {
-    expect(sanitizeTitle('a\x7fb')).toBe('a-b');
+  it('strips DEL character (0x7f)', () => {
+    expect(sanitizeTitle('a\x7fb')).toBe('ab');
   });
 
   it('trims whitespace after sanitization', () => {
@@ -89,7 +88,7 @@ describe('validateTitle', () => {
   });
 
   it('detects too-long titles', () => {
-    const issues = validateTitle('a'.repeat(201));
+    const issues = validateTitle('a'.repeat(MAX_TITLE_LENGTH + 1));
     expect(issues).toHaveLength(1);
     expect(issues[0].kind).toBe('too_long');
   });

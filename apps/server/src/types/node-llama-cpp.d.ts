@@ -19,7 +19,7 @@ declare module 'node-llama-cpp' {
     dispose(): Promise<void>;
   }
 
-  interface LlamaContextSequence {}
+  type LlamaContextSequence = object;
 
   class LlamaChatSession {
     constructor(options: { contextSequence: LlamaContextSequence; systemPrompt?: string });

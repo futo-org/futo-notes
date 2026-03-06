@@ -50,6 +50,22 @@ test.describe('Search', () => {
     await expect(results).toHaveCount(2, { timeout: 5000 });
   });
 
+  test('search preserves titles with interior dots', async ({ page }) => {
+    await waitForApp(page);
+
+    await createTestNote(page, 'v2.0 notes', 'Versioned note body');
+
+    await page.locator('.search-button').click();
+    await page.waitForSelector('.search-overlay', { timeout: 5000 });
+
+    const input = page.locator('.search-input');
+    await input.fill('v2.0');
+
+    const results = page.locator('.search-result-item');
+    await expect(results).toHaveCount(1, { timeout: 5000 });
+    await expect(results.first().locator('.search-result-title')).toHaveText(/v2\.0 notes/);
+  });
+
   test('Escape closes search popup', async ({ page }) => {
     await waitForApp(page);
 

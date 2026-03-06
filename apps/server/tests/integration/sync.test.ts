@@ -144,4 +144,26 @@ describe('POST /sync', () => {
     });
     expect(res.status).toBe(422);
   });
+
+  it('rejects note filenames that do not map to valid titles (422)', async () => {
+    const content = 'bad title';
+    const hash = contentHash(content);
+
+    const res = await authReq(env.app, 'POST', '/sync', token, {
+      notes: [
+        {
+          uuid: 'u1',
+          filename: '.hidden.md',
+          modified_at: Date.now(),
+          content_hash: hash,
+          hash_at_last_sync: '',
+          content,
+        },
+      ],
+      all_uuids: ['u1'],
+      deleted_uuids: [],
+    });
+
+    expect(res.status).toBe(422);
+  });
 });

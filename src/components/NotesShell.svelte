@@ -271,6 +271,7 @@ Escaped pipes:
   let title = $state('');
   let content = $state('');
   let originalId: string | null = $state(null);
+  let savedTitle = $state('');
   let notes: NotePreview[] = $state([]);
 
   let editor: ReturnType<typeof MarkdownEditor> | null = $state(null);
@@ -346,6 +347,7 @@ Escaped pipes:
   let rightDragProgress = 0;
   let graphSidebarEl: HTMLElement | undefined = $state(undefined);
   let graphOverlayEl: HTMLElement | undefined = $state(undefined);
+  let noteLoadVersion = 0;
 
   // File watcher self-write suppression (desktop native)
   const recentWrites = new Map<string, number>();
@@ -470,7 +472,10 @@ Escaped pipes:
           suppressSaveOnChange = false;
         }
         const meta = getNoteById(originalId);
-        if (meta) title = meta.title;
+        if (meta) {
+          title = meta.title;
+          savedTitle = meta.title;
+        }
       } catch {
         // Note was deleted by sync — navigate away
         if (saveTimeout !== null) {
@@ -532,6 +537,13 @@ Escaped pipes:
     if (!graphSidebarOpen) {
       graphData = null;
     }
+  }
+
+  function hasOpenDraftChanges(): boolean {
+    if (!originalId && noteId !== 'new') return false;
+    if (saveTimeout !== null || saveInFlight !== null || saveQueued) return true;
+    const currentContent = editor?.getContent() ?? content;
+    return currentContent !== content || title !== savedTitle;
   }
 
   async function runExternalRescan(): Promise<void> {
@@ -660,6 +672,12 @@ Escaped pipes:
     if (!hasFileSystem || !editor || noteId === null) return false;
     try {
       const newTitle = title.trim() || 'Untitled';
+      const titleIssues = validateTitle(newTitle);
+      const blockingTitleIssue = titleIssues.find((issue) => issue.kind !== 'empty');
+      if (blockingTitleIssue) {
+        showTitleWarning(blockingTitleIssue.message, null);
+        return false;
+      }
       const newId = sanitizeFilename(newTitle);
       const newContent = editor.getContent();
 
@@ -688,6 +706,8 @@ Escaped pipes:
       }
 
       originalId = result.id;
+      content = newContent;
+      savedTitle = newTitle;
 
       // Patch graph data in-place so the graph view survives renames
       if (graphData && savedOriginalId && savedOriginalId !== result.id) {
@@ -904,6 +924,22 @@ Escaped pipes:
     );
   }
 
+  async function copyNotePath(): Promise<void> {
+    if (!noteId || noteId === 'new') return;
+    try {
+      const [{ getConfig }, { writeText }] = await Promise.all([
+        import('$lib/platform/tauri'),
+        import('@tauri-apps/plugin-clipboard-manager'),
+      ]);
+      const cfg = await getConfig();
+      const fullPath = `${cfg.notesDir}/${noteId}.md`;
+      await writeText(fullPath);
+      showToast('Path copied');
+    } catch {
+      showToast('Failed to copy path');
+    }
+  }
+
   async function openGraphSidebar(): Promise<void> {
     graphSidebarOpen = true;
     if (graphData || graphLoading) return;
@@ -935,6 +971,31 @@ Escaped pipes:
   function handleGraphNavigate(targetNoteId: string): void {
     navigate(`/note/${encodeURIComponent(targetNoteId)}`);
   }
+
+  function handleDismissWindowKeydown(event: KeyboardEvent, dismiss: () => void): void {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      dismiss();
+    }
+  }
+
+  $effect(() => {
+    if (!(deleteConfirmOpen || (isMobile && (graphSidebarOpen || graphLoading)))) return;
+
+    const handleWindowKeydown = (event: KeyboardEvent) => {
+      if (deleteConfirmOpen) {
+        handleDismissWindowKeydown(event, () => {
+          deleteConfirmOpen = false;
+        });
+        return;
+      }
+
+      handleDismissWindowKeydown(event, closeGraphSidebar);
+    };
+
+    window.addEventListener('keydown', handleWindowKeydown);
+    return () => window.removeEventListener('keydown', handleWindowKeydown);
+  });
 
   let edgeSwipe = false;
 
@@ -1103,7 +1164,9 @@ Escaped pipes:
   }
 
   async function loadNote(id: string | null): Promise<void> {
+    const loadVersion = ++noteLoadVersion;
     await flushSave();
+    if (loadVersion !== noteLoadVersion) return;
     noteMenuOpen = false;
     deleteConfirmOpen = false;
 
@@ -1112,6 +1175,7 @@ Escaped pipes:
     if (!id) {
       title = '';
       content = '';
+      savedTitle = '';
       originalId = null;
       loading = false;
       return;
@@ -1122,21 +1186,30 @@ Escaped pipes:
     if (id === 'new') {
       title = getNextUntitledTitle();
       content = '';
+      savedTitle = title;
       editor?.setContent('');
       loading = false;
       requestAnimationFrame(() => {
+        if (loadVersion !== noteLoadVersion) return;
         autoResizeTitleTextarea();
         editor?.focus();
       });
     } else if (hasFileSystem) {
       try {
-        content = await readNote(id);
+        const loadedContent = await readNote(id);
+        if (loadVersion !== noteLoadVersion) return;
+        content = loadedContent;
         const meta = getNoteById(id);
         title = meta?.title || id;
-        editor?.setContent(content);
+        savedTitle = title;
+        editor?.setContent(loadedContent);
         trackOpen(id);
-        requestAnimationFrame(() => autoResizeTitleTextarea());
+        requestAnimationFrame(() => {
+          if (loadVersion !== noteLoadVersion) return;
+          autoResizeTitleTextarea();
+        });
       } catch {
+        if (loadVersion !== noteLoadVersion) return;
         // File doesn't exist — remove stale cache entry so it disappears from sidebar
         handleExternalFileChange('unlink', `${id}.md`);
         refreshNotesList();
@@ -1230,6 +1303,19 @@ Escaped pipes:
           if (isRecentWrite(filename)) return;
 
           const id = filename.replace(/\.md$/, '');
+          if (id === originalId && hasOpenDraftChanges() && (type === 'change' || type === 'unlink')) {
+            showToast(
+              type === 'unlink'
+                ? 'Open note was deleted externally; keeping local draft'
+                : 'Open note changed externally; keeping local draft',
+            );
+            await refreshNotesFromStorage();
+            refreshNotesList();
+            if (type === 'change') {
+              scheduleExternalRescan(250);
+            }
+            return;
+          }
 
           if (type === 'unlink' && id === originalId) {
             // Current note was deleted externally
@@ -1247,7 +1333,10 @@ Escaped pipes:
               editor?.setContent(freshContent);
               suppressSaveOnChange = false;
               const meta = getNoteById(id);
-              if (meta) title = meta.title;
+              if (meta) {
+                title = meta.title;
+                savedTitle = meta.title;
+              }
             } catch {
               // Ignore read errors for transient file events.
             }
@@ -1303,7 +1392,7 @@ Escaped pipes:
     const currentNoteId = noteId;
     if (prevNoteId !== currentNoteId) {
       prevNoteId = currentNoteId;
-      loadNote(currentNoteId);
+      void loadNote(currentNoteId);
     }
   });
 
@@ -1501,6 +1590,7 @@ Escaped pipes:
           <div class="note-menu-dropdown">
             {#if isTauri}
               <button onclick={() => { noteMenuOpen = false; void openGraphSidebar(); }}>Graph view</button>
+              <button onclick={() => { noteMenuOpen = false; void copyNotePath(); }}>Copy file path</button>
             {/if}
             <button class="danger" onclick={() => { noteMenuOpen = false; deleteConfirmOpen = true; }}>Delete note</button>
           </div>
@@ -1564,12 +1654,13 @@ Escaped pipes:
   <!-- Graph sidebar -->
   {#if graphSidebarOpen || graphLoading}
     {#if isMobile}
-      <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div
         bind:this={graphOverlayEl}
         class="graph-overlay"
         class:active={graphSidebarOpen}
         onclick={closeGraphSidebar}
+        onkeydown={(event) => handleDismissWindowKeydown(event, closeGraphSidebar)}
       ></div>
     {/if}
     <aside bind:this={graphSidebarEl} class="graph-sidebar" class:open={graphSidebarOpen}>
@@ -1611,10 +1702,14 @@ Escaped pipes:
 {/if}
 
 {#if deleteConfirmOpen}
-  <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
-  <div class="delete-confirm-overlay" onclick={() => { deleteConfirmOpen = false; }}>
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div
+    class="delete-confirm-overlay"
+    onclick={() => { deleteConfirmOpen = false; }}
+    onkeydown={(event) => handleDismissWindowKeydown(event, () => { deleteConfirmOpen = false; })}
+  >
     <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
-    <div class="delete-confirm-dialog" onclick={(e) => e.stopPropagation()}>
+    <div class="delete-confirm-dialog" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={(event) => event.stopPropagation()}>
       <h3>Delete this note?</h3>
       <p>This action cannot be undone.</p>
       <div class="delete-confirm-actions">

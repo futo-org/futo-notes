@@ -1,8 +1,13 @@
 const SSE_DEBUG = false;
+const SSE_RECONNECT_DELAY_MS = 2_000;
 
 let clientId: string | null = null;
 let eventSource: EventSource | null = null;
 let stopped = false;
+let reconnectTimer: number | null = null;
+let connectGeneration = 0;
+
+class SseAuthError extends Error {}
 
 export function getClientId(): string {
   if (!clientId) {
@@ -19,35 +24,84 @@ export function startSSE(
 ): void {
   stopSSE();
   stopped = false;
+  const generation = ++connectGeneration;
 
-  const url = `${serverUrl}/events?token=${encodeURIComponent(token)}&clientId=${encodeURIComponent(getClientId())}`;
-  if (SSE_DEBUG) console.debug('[SSE] connecting to', url.replace(/token=[^&]+/, 'token=***'));
+  const scheduleReconnect = (): void => {
+    if (stopped || generation !== connectGeneration || reconnectTimer !== null) return;
+    reconnectTimer = window.setTimeout(() => {
+      reconnectTimer = null;
+      void connect();
+    }, SSE_RECONNECT_DELAY_MS);
+  };
 
-  const es = new EventSource(url);
+  const connect = async (): Promise<void> => {
+    try {
+      const res = await fetch(`${serverUrl}/events/session`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      if (res.status === 401 || res.status === 403) {
+        throw new SseAuthError('SSE auth rejected');
+      }
+      if (!res.ok) {
+        throw new Error(`SSE ticket request failed: HTTP ${res.status}`);
+      }
+      const data = await res.json() as { ticket?: string };
+      if (!data.ticket) {
+        throw new Error('SSE ticket response missing ticket');
+      }
+      if (stopped || generation !== connectGeneration) return;
 
-  es.addEventListener('sync_available', () => {
-    if (SSE_DEBUG) console.debug('[SSE] sync_available received');
-    onSyncAvailable();
-  });
+      const url = `${serverUrl}/events?ticket=${encodeURIComponent(data.ticket)}&clientId=${encodeURIComponent(getClientId())}`;
+      if (SSE_DEBUG) console.debug('[SSE] connecting to', url.replace(/ticket=[^&]+/, 'ticket=***'));
 
-  es.addEventListener('supersearch_ready', () => {
-    if (SSE_DEBUG) console.debug('[SSE] supersearch_ready received');
-    onSupersearchReady?.();
-  });
+      const es = new EventSource(url);
+      eventSource = es;
 
-  es.onerror = () => {
-    // EventSource auto-reconnects on transient errors.
-    // If readyState is CLOSED, the server killed it (e.g. token revoked) — stop retrying.
-    if (es.readyState === EventSource.CLOSED) {
-      if (SSE_DEBUG) console.warn('[SSE] connection permanently closed, stopping');
-      stopSSE();
+      es.addEventListener('sync_available', () => {
+        if (SSE_DEBUG) console.debug('[SSE] sync_available received');
+        onSyncAvailable();
+      });
+
+      es.addEventListener('supersearch_ready', () => {
+        if (SSE_DEBUG) console.debug('[SSE] supersearch_ready received');
+        onSupersearchReady?.();
+      });
+
+      es.onerror = () => {
+        if (stopped || generation !== connectGeneration) return;
+        // EventSource auto-reconnects on transient errors.
+        // If readyState is CLOSED, fetch a fresh ticket and reconnect manually.
+        if (es.readyState === EventSource.CLOSED) {
+          if (SSE_DEBUG) console.warn('[SSE] connection closed, reconnecting');
+          if (eventSource === es) {
+            eventSource = null;
+          }
+          scheduleReconnect();
+        }
+      };
+    } catch (e) {
+      if (e instanceof SseAuthError) {
+        if (SSE_DEBUG) console.warn('[SSE] auth rejected, stopping');
+        stopSSE();
+        return;
+      }
+      if (SSE_DEBUG) console.warn('[SSE] connect failed, retrying', e);
+      scheduleReconnect();
     }
   };
 
-  eventSource = es;
+  void connect();
 }
 
 export function stopSSE(): void {
+  connectGeneration++;
+  if (reconnectTimer !== null) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
   if (eventSource) {
     eventSource.close();
     eventSource = null;

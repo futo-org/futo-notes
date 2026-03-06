@@ -146,13 +146,20 @@
     return ms < 1 ? '<1ms' : `${Math.round(ms)}ms`;
   }
 
+  function handleOverlayKeydown(event: KeyboardEvent): void {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      onclose();
+    }
+  }
+
   $effect(() => {
     inputEl?.focus();
   });
 </script>
 
-<!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
-<div class="search-overlay" onclick={onclose}>
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div class="search-overlay" onclick={onclose} onkeydown={handleOverlayKeydown}>
   <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
   <div class="search-panel" onclick={(e) => e.stopPropagation()} onkeydown={handleKeydown}>
     <div class="search-input-row">

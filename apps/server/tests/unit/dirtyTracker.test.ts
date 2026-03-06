@@ -6,6 +6,7 @@ import { initDb, closeDb, getDb } from '../../src/db/index.js';
 import { createSearchTables } from '../../src/db/searchSchema.js';
 import { upsertNote } from '../../src/db/notes.js';
 import { markDirtyAfterSync, getDirtyUuids, removeDirtyForDeleted } from '../../src/search/dirtyTracker.js';
+import { initVectorDb, insertVector, resetVectorDb } from '../../src/db/vectorDb.js';
 
 describe('dirtyTracker', () => {
   let tmpDir: string;
@@ -17,6 +18,7 @@ describe('dirtyTracker', () => {
   });
 
   afterEach(() => {
+    resetVectorDb();
     closeDb();
     rmSync(tmpDir, { recursive: true, force: true });
   });
@@ -87,8 +89,9 @@ describe('dirtyTracker', () => {
     expect(dirty).toEqual([]);
   });
 
-  it('removeDirtyForDeleted cleans up state and chunks', () => {
+  it('removeDirtyForDeleted cleans up state, chunks, and vectors', async () => {
     const db = getDb();
+    await initVectorDb(db, 3);
     upsertNote(db, 'u1', 'note1.md', 'hash1', Date.now());
     db.prepare(
       'INSERT INTO search_index_state (uuid, level, content_hash, indexed_at) VALUES (?, ?, ?, ?)'
@@ -96,6 +99,7 @@ describe('dirtyTracker', () => {
     db.prepare(
       'INSERT INTO search_chunks (uuid, chunk_index, chunk_text, start_offset, end_offset, content_hash) VALUES (?, ?, ?, ?, ?, ?)'
     ).run('u1', 0, 'some text', 0, 9, 'hash1');
+    insertVector(db, 1, [0.1, 0.2, 0.3]);
 
     removeDirtyForDeleted(db, ['u1']);
 
@@ -106,6 +110,10 @@ describe('dirtyTracker', () => {
     // Chunks should be gone
     const chunks = db.prepare('SELECT * FROM search_chunks WHERE uuid = ?').all('u1');
     expect(chunks).toHaveLength(0);
+
+    // Vectors should be gone
+    const vectors = db.prepare('SELECT chunk_id FROM search_vectors').all() as Array<{ chunk_id: bigint }>;
+    expect(vectors).toHaveLength(0);
   });
 
   it('removeDirtyForDeleted is a no-op for empty array', () => {

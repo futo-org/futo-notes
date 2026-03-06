@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import type { SyncRequest } from '@futo-notes/shared';
+import { validateTitle, type SyncRequest } from '@futo-notes/shared';
 import { authMiddleware } from '../middleware/auth.js';
 import { getDb } from '../db/index.js';
 import { processSync } from '../sync/engine.js';
@@ -28,6 +28,19 @@ sync.post('/sync', authMiddleware, async (c) => {
     if (!note.uuid || !note.filename || typeof note.content_hash !== 'string' || typeof note.hash_at_last_sync !== 'string') {
       log.warn('invalid sync payload: malformed note entry');
       return c.json({ error: 'Invalid sync payload: each note must have uuid, filename, content_hash, and hash_at_last_sync' }, 422);
+    }
+
+    if (!note.filename.toLowerCase().endsWith('.md')) {
+      log.warn(`invalid sync payload: filename missing .md extension (${note.filename})`);
+      return c.json({ error: 'Invalid sync payload: note filenames must end with .md' }, 422);
+    }
+
+    const title = note.filename.slice(0, -3);
+    const titleIssues = validateTitle(title);
+    if (titleIssues.length > 0) {
+      const details = titleIssues.map((issue) => issue.kind).join(', ');
+      log.warn(`invalid sync payload: invalid note filename (${note.filename}) [${details}]`);
+      return c.json({ error: 'Invalid sync payload: note filenames must map directly to valid note titles' }, 422);
     }
   }
 

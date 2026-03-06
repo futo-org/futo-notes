@@ -52,6 +52,18 @@ function createSSEReader(res: Response) {
   };
 }
 
+async function createSseTicket(app: TestEnv['app'], token: string): Promise<string> {
+  const res = await app.request('/events/session', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+  expect(res.status).toBe(200);
+  const data = await res.json() as { ticket: string };
+  return data.ticket;
+}
+
 describe('GET /events (SSE)', () => {
   let env: TestEnv;
   let token: string;
@@ -65,23 +77,25 @@ describe('GET /events (SSE)', () => {
     env.cleanup();
   });
 
-  it('rejects request without token (401)', async () => {
+  it('rejects request without ticket (401)', async () => {
     const res = await req(env.app, 'GET', '/events?clientId=c1');
     expect(res.status).toBe(401);
   });
 
-  it('rejects request with bad token (401)', async () => {
-    const res = await req(env.app, 'GET', '/events?token=badtoken&clientId=c1');
+  it('rejects request with bad ticket (401)', async () => {
+    const res = await req(env.app, 'GET', '/events?ticket=badticket&clientId=c1');
     expect(res.status).toBe(401);
   });
 
   it('rejects request without clientId (401)', async () => {
-    const res = await req(env.app, 'GET', `/events?token=${token}`);
+    const ticket = await createSseTicket(env.app, token);
+    const res = await req(env.app, 'GET', `/events?ticket=${ticket}`);
     expect(res.status).toBe(401);
   });
 
   it('successful connection sends connected event', async () => {
-    const res = await env.app.request(`/events?token=${token}&clientId=c1`);
+    const ticket = await createSseTicket(env.app, token);
+    const res = await env.app.request(`/events?ticket=${ticket}&clientId=c1`);
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toContain('text/event-stream');
 
@@ -96,7 +110,8 @@ describe('GET /events (SSE)', () => {
 
   it('broadcasts sync_available to other clients after sync', async () => {
     // Client A connects SSE
-    const sseRes = await env.app.request(`/events?token=${token}&clientId=clientA`);
+    const ticket = await createSseTicket(env.app, token);
+    const sseRes = await env.app.request(`/events?ticket=${ticket}&clientId=clientA`);
     expect(sseRes.status).toBe(200);
 
     const sse = createSSEReader(sseRes);
@@ -139,7 +154,8 @@ describe('GET /events (SSE)', () => {
 
   it('excludes the syncing client from broadcast', async () => {
     // Client A connects SSE with clientId=clientA
-    const sseRes = await env.app.request(`/events?token=${token}&clientId=clientA`);
+    const ticket = await createSseTicket(env.app, token);
+    const sseRes = await env.app.request(`/events?ticket=${ticket}&clientId=clientA`);
     const sse = createSSEReader(sseRes);
 
     try {
@@ -178,7 +194,8 @@ describe('GET /events (SSE)', () => {
   });
 
   it('does not broadcast when a client only downloads server updates', async () => {
-    const observerRes = await env.app.request(`/events?token=${token}&clientId=observer`);
+    const ticket = await createSseTicket(env.app, token);
+    const observerRes = await env.app.request(`/events?ticket=${ticket}&clientId=observer`);
     const observer = createSSEReader(observerRes);
 
     try {

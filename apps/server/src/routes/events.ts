@@ -1,22 +1,31 @@
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
-import { hashToken } from '../auth/token.js';
 import { sessionExists } from '../db/sessions.js';
 import { getDb } from '../db/index.js';
-import { addClient, removeClient } from '../events.js';
+import { addClient, issueSseTicket, removeClient, resolveSseTicket } from '../events.js';
+import { authMiddleware, type AuthEnv } from '../middleware/auth.js';
 import { log } from '../logger.js';
 
-const events = new Hono();
+const events = new Hono<AuthEnv>();
+
+events.post('/events/session', authMiddleware, (c) => {
+  const tokenHash = c.get('tokenHash');
+  return c.json({ ticket: issueSseTicket(tokenHash) });
+});
 
 events.get('/events', (c) => {
-  const token = c.req.query('token');
+  const ticket = c.req.query('ticket');
   const clientId = c.req.query('clientId');
 
-  if (!token || !clientId) {
-    return c.json({ error: 'Missing token or clientId query parameter' }, 401);
+  if (!ticket || !clientId) {
+    return c.json({ error: 'Missing ticket or clientId query parameter' }, 401);
   }
 
-  const tokenH = hashToken(token);
+  const tokenH = resolveSseTicket(ticket);
+  if (!tokenH) {
+    return c.json({ error: 'Invalid or expired SSE ticket' }, 401);
+  }
+
   const db = getDb();
   if (!sessionExists(db, tokenH)) {
     log.warn(`sse: rejected — invalid/revoked session for clientId=${clientId}`);

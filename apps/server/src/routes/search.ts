@@ -120,6 +120,14 @@ search.post('/search/embed-query', authMiddleware, async (c) => {
       return c.json({ error: 'Missing or invalid query' }, 400);
     }
 
+    const [{ holder }, { isGenerationModelLoaded }] = await Promise.all([
+      import('../schedulerLock.js'),
+      import('../transforms/generationModel.js'),
+    ]);
+    if (holder() === 'transforms' || isGenerationModelLoaded()) {
+      return c.json({ error: 'Embedding model temporarily unavailable while transforms are running' }, 503);
+    }
+
     const { getActiveModel } = await import('../search/modelManager.js');
     let model = getActiveModel();
     if (!model) {

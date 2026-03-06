@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3';
 import { log } from '../logger.js';
+import { deleteVectorsForUuid } from '../db/vectorDb.js';
 
 /**
  * Reset search_index_state rows for changed UUIDs so content_hash
@@ -42,6 +43,7 @@ export function removeDirtyForDeleted(db: Database.Database, deletedUuids: strin
   const delChunks = db.prepare('DELETE FROM search_chunks WHERE uuid = ?');
   const run = db.transaction(() => {
     for (const uuid of deletedUuids) {
+      deleteVectorsForUuid(db, uuid);
       delState.run(uuid);
       delChunks.run(uuid);
     }

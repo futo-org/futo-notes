@@ -7,6 +7,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .manage(CoreState::default())
         .setup(|_app| {
             // On iOS, extend the webview edge-to-edge so CSS env(safe-area-inset-*)

@@ -10,6 +10,7 @@
     "dialog:allow-message",
     "dialog:allow-save",
     "dialog:allow-open",
-    "process:allow-restart"
+    "process:allow-restart",
+    "clipboard-manager:allow-write-text"
   ]
 }

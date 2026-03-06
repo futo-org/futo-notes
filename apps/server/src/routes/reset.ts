@@ -6,6 +6,7 @@ import { authMiddleware, type AuthEnv } from '../middleware/auth.js';
 import { getDb } from '../db/index.js';
 import { createTables } from '../db/schema.js';
 import { createSearchTables } from '../db/searchSchema.js';
+import { createTransformTables } from '../db/transformSchema.js';
 import { loadConfig } from '../config.js';
 import { removeAllClients } from '../events.js';
 import { log } from '../logger.js';
@@ -68,6 +69,15 @@ reset.post('/reset', authMiddleware, async (c) => {
       log.warn(`RESET: failed to stop search scheduler cleanly: ${message}`);
     }
   }
+  if (config.transformsEnabled) {
+    try {
+      const { stopTransformScheduler } = await import('../transforms/scheduler.js');
+      stopTransformScheduler();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      log.warn(`RESET: failed to stop transform scheduler cleanly: ${message}`);
+    }
+  }
 
   // Immediately close SSE streams so connected devices are kicked out now.
   removeAllClients();
@@ -96,6 +106,15 @@ reset.post('/reset', authMiddleware, async (c) => {
   if (config.searchEnabled) {
     createSearchTables(db);
   }
+  db.exec(`
+    DROP TABLE IF EXISTS transform_history;
+    DROP TABLE IF EXISTS transform_jobs;
+    DROP TABLE IF EXISTS transform_state;
+    DROP TABLE IF EXISTS transform_config;
+  `);
+  if (config.transformsEnabled) {
+    createTransformTables(db);
+  }
 
   wipeNotesDirectory(config.notesPath);
   wipeSearchArtifacts(config.databasePath);
@@ -107,6 +126,15 @@ reset.post('/reset', authMiddleware, async (c) => {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       log.warn(`RESET: failed to restart search scheduler: ${message}`);
+    }
+  }
+  if (config.transformsEnabled) {
+    try {
+      const { startTransformScheduler } = await import('../transforms/scheduler.js');
+      startTransformScheduler(config);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      log.warn(`RESET: failed to restart transform scheduler: ${message}`);
     }
   }
 

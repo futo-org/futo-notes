@@ -3,7 +3,7 @@ build_ios_task:
   macos_instance:
     image: ghcr.io/cirruslabs/macos-sequoia-xcode:26.2
   buildFutoNotesIOS_script:
-    # Fetch secure files
+    # Fetch secure files (certificates, provisioning profiles, API keys)
     - curl --silent "https://gitlab.com/gitlab-org/incubation-engineering/mobile-devops/download-secure-files/-/raw/main/installer" | bash
 
     # Install signing certificate
@@ -17,7 +17,7 @@ build_ios_task:
     - PROFILE_UUID=$(/usr/libexec/PlistBuddy -c "Print UUID" /dev/stdin <<< $(/usr/bin/security cms -D -i "$PROFILE_PATH"))
     - cp "$PROFILE_PATH" ~/Library/MobileDevice/Provisioning\ Profiles/${PROFILE_UUID}.mobileprovision
 
-    # Update Node to required version
+    # Install Node
     - brew install nvm
     - export NVM_DIR="$HOME/.nvm"
     - source $(brew --prefix nvm)/nvm.sh
@@ -25,53 +25,42 @@ build_ios_task:
     - nvm use 22
     - node --version
 
+    # Install Rust with iOS target
+    - curl https://sh.rustup.rs -sSf | sh -s -- -y
+    - export PATH="$HOME/.cargo/bin:$PATH"
+    - rustup target add aarch64-apple-ios
+
     # Derive version from git tag
-    - VERSION_NAME="${CI_COMMIT_TAG#v}"
-    - IFS='.' read -r major minor patch <<< "$VERSION_NAME"
-    - VERSION_CODE=$((major * 10000 + minor * 100 + patch))
-    - echo "Building iOS version $VERSION_NAME (build $VERSION_CODE)"
+    - VERSION="${CI_COMMIT_TAG#v}"
+    - echo "Building iOS version $VERSION"
 
-    # Install dependencies and build web assets
+    # Install dependencies
     - npm ci
-    - npm run build
-    - npx cap sync ios
 
-    # Build archive
-    - cd ios
+    # Set version in tauri.conf.json from git tag
     - |
-      xcodebuild -project App/App.xcodeproj \
-        -scheme App \
-        -configuration Release \
-        -archivePath build/App.xcarchive \
-        archive \
-        MARKETING_VERSION="$VERSION_NAME" \
-        CURRENT_PROJECT_VERSION="$VERSION_CODE" \
-        CODE_SIGN_STYLE=Manual \
-        DEVELOPMENT_TEAM=2W7AC6T8T5 \
-        CODE_SIGN_IDENTITY="Apple Distribution" \
-        PROVISIONING_PROFILE_SPECIFIER="FUTO Notes App Store" \
-        -quiet 2>&1 | tee ../xcodebuild-archive.log || (tail -100 ../xcodebuild-archive.log && exit 1)
+      node -e "
+        const fs = require('fs');
+        const f = 'apps/tauri/src-tauri/tauri.conf.json';
+        const c = JSON.parse(fs.readFileSync(f, 'utf8'));
+        c.version = process.argv[1];
+        fs.writeFileSync(f, JSON.stringify(c, null, 2) + '\n');
+      " "$VERSION"
 
-    # Export IPA
-    - |
-      xcodebuild -exportArchive \
-        -archivePath build/App.xcarchive \
-        -exportPath build/ipa \
-        -exportOptionsPlist ../ExportOptions.plist \
-        -quiet 2>&1 | tee ../xcodebuild-export.log || (tail -100 ../xcodebuild-export.log && exit 1)
+    # Initialize and build iOS
+    - cd apps/tauri
+    - cargo tauri ios init
+    - cargo tauri ios build --export-method app-store-connect --config src-tauri/tauri.ios.conf.json
+    - cd ../..
 
     # Upload to TestFlight
     - mkdir -p ~/.private_keys
-    - cp ../.secure_files/AuthKey*.p8 ~/.private_keys/
-    - xcrun altool --upload-app
-        --type ios
-        --file build/ipa/App.ipa
-        --apiKey "$ASC_KEY_ID"
-        --apiIssuer "$ASC_ISSUER_ID"
+    - cp .secure_files/AuthKey*.p8 ~/.private_keys/
+    - IPA_PATH=$(find apps/tauri/src-tauri/gen/apple/build -name "*.ipa" -type f | head -1)
+    - echo "Uploading $IPA_PATH to TestFlight"
+    - xcrun altool --upload-app --type ios --file "$IPA_PATH" --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
 
     # Copy IPA to artifacts location
-    - cp build/ipa/*.ipa ../
+    - cp "$IPA_PATH" ./
   binary_artifacts:
     path: "*.ipa"
-  logs_artifacts:
-    path: "xcodebuild-*.log"

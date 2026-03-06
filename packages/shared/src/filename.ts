@@ -3,11 +3,15 @@
  * Used by both client and server.
  */
 
+const CONTROL_CHARS = Array.from({ length: 32 }, (_, index) => String.fromCharCode(index)).join('')
+  + String.fromCharCode(127);
+const FORBIDDEN_PATTERN = `[<>:"/\\\\|?*${CONTROL_CHARS}]`;
+
 /** Global regex for replacing forbidden characters (use with `.replace()`). */
-export const FORBIDDEN_CHARS_RE = /[<>:"/\\|?*\x00-\x1f\x7f]/g;
+export const FORBIDDEN_CHARS_RE = new RegExp(FORBIDDEN_PATTERN, 'g');
 
 /** Non-global regex for testing if a string contains forbidden characters. */
-const FORBIDDEN_CHARS_TEST = /[<>:"/\\|?*\x00-\x1f\x7f]/;
+const FORBIDDEN_CHARS_TEST = new RegExp(FORBIDDEN_PATTERN);
 
 /** Human-readable list of forbidden characters for UI messages. */
 export const FORBIDDEN_CHARS_DISPLAY = '< > : " / \\ | ? *';
@@ -18,7 +22,7 @@ export const MAX_TITLE_LENGTH = 200;
 /** Fallback title when input is empty or all-invalid. */
 export const FALLBACK_TITLE = 'Untitled';
 
-/** Character used to replace forbidden characters. */
+/** Legacy replacement char retained for compatibility with existing imports. */
 export const REPLACEMENT_CHAR = '-';
 
 export type FilenameIssueKind =
@@ -34,23 +38,12 @@ export interface FilenameIssue {
 }
 
 /**
- * Canonical title sanitization. Applies all rules:
- * 1. Replace forbidden characters with REPLACEMENT_CHAR
- * 2. Strip leading dots (hidden files on Unix)
- * 3. Strip trailing dots (stripped by Windows NTFS)
- * 4. Truncate to MAX_TITLE_LENGTH
- * 5. Trim whitespace
- * 6. Fall back to FALLBACK_TITLE if empty
+ * Canonical title sanitization.
+ * Only strips filesystem-breaking characters and surrounding whitespace.
+ * It does not rewrite dots or silently truncate long titles.
  */
 export function sanitizeTitle(title: string): string {
-  return (
-    title
-      .replace(FORBIDDEN_CHARS_RE, REPLACEMENT_CHAR)
-      .replace(/^\.+/, '')
-      .replace(/\.+$/, '')
-      .slice(0, MAX_TITLE_LENGTH)
-      .trim() || FALLBACK_TITLE
-  );
+  return title.replace(FORBIDDEN_CHARS_RE, '').trim() || FALLBACK_TITLE;
 }
 
 /**

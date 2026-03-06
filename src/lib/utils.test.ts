@@ -6,21 +6,21 @@ describe('sanitizeFilename', () => {
     expect(sanitizeFilename('hello-world')).toBe('hello-world');
   });
 
-  it('replaces illegal characters with dashes', () => {
-    expect(sanitizeFilename('a<b>c:d')).toBe('a-b-c-d');
+  it('strips illegal characters', () => {
+    expect(sanitizeFilename('a<b>c:d')).toBe('abcd');
   });
 
-  it('strips leading dots', () => {
-    expect(sanitizeFilename('..hidden')).toBe('hidden');
+  it('preserves leading dots', () => {
+    expect(sanitizeFilename('..hidden')).toBe('..hidden');
   });
 
-  it('strips trailing dots', () => {
-    expect(sanitizeFilename('file..')).toBe('file');
+  it('preserves trailing dots', () => {
+    expect(sanitizeFilename('file..')).toBe('file..');
   });
 
-  it('truncates to 200 characters', () => {
+  it('does not truncate long names', () => {
     const long = 'a'.repeat(300);
-    expect(sanitizeFilename(long).length).toBe(200);
+    expect(sanitizeFilename(long).length).toBe(300);
   });
 
   it('returns Untitled for empty input', () => {
@@ -31,11 +31,11 @@ describe('sanitizeFilename', () => {
     expect(sanitizeFilename('   ')).toBe('Untitled');
   });
 
-  it('replaces control characters', () => {
-    expect(sanitizeFilename('a\x00b\x1fc')).toBe('a-b-c');
+  it('strips control characters', () => {
+    expect(sanitizeFilename('a\x00b\x1fc')).toBe('abc');
   });
 
-  it('replaces DEL character (0x7f)', () => {
-    expect(sanitizeFilename('a\x7fb')).toBe('a-b');
+  it('strips DEL character (0x7f)', () => {
+    expect(sanitizeFilename('a\x7fb')).toBe('ab');
   });
 });

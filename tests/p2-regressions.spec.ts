@@ -81,6 +81,20 @@ test.describe('P2 Header + Formatting Regressions', () => {
     expect(selection.start).toBe(selection.end);
   });
 
+  test('titles ending with a dot show an inline warning', async ({ page }) => {
+    await openNewNote(page);
+
+    const titleInput = page.locator('.title-input');
+    await titleInput.click();
+    await titleInput.fill('bad.');
+
+    const editor = page.locator('.cm-content');
+    await editor.click();
+    await page.keyboard.type('Body content');
+
+    await expect(page.locator('text=Title cannot end with a dot')).toBeVisible();
+  });
+
   // Toggle formatting via CM6 view (toolbar is mobile-only, not available in Playwright)
   async function toggleFormatting(page: Page, fn: string): Promise<void> {
     await page.evaluate((fnName) => {

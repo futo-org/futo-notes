@@ -1,5 +1,5 @@
 import type Database from 'better-sqlite3';
-import type { NoteSyncMeta, SyncRequest, SyncResponse } from '@futo-notes/shared';
+import type { SyncRequest, SyncResponse } from '@futo-notes/shared';
 import { getNote, getAllNotes, upsertNote, deleteNote } from '../db/notes.js';
 import { getTombstone, createTombstone, getAllTombstones } from '../db/tombstones.js';
 import {
