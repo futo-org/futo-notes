@@ -12,7 +12,11 @@ workflow:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
 stages:
+  - cleanup
+  - test
   - build
+  - publish
+  - release
 
 # TEMPORARY: iOS-only testing — skip all non-iOS jobs
 .ios-only-skip:
