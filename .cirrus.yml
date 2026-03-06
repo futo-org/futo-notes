@@ -58,13 +58,19 @@ build_ios_task:
       node ../../scripts/patch-ios-pbxproj.mjs "$PBXPROJ"
 
     - export IPHONEOS_DEPLOYMENT_TARGET=16.0
-    # Build archive only (no --export-method — Tauri's auto-export can't
-    # resolve the provisioning profile with manual signing)
-    - cargo tauri ios build --config src-tauri/tauri.ios.conf.json
-    # Export IPA manually with explicit provisioning profile mapping
+    # Build + archive. Tauri's export step will fail (it can't resolve the
+    # provisioning profile with manual signing), so we allow failure here
+    # and do the export manually below.
+    - cargo tauri ios build --export-method app-store-connect --config src-tauri/tauri.ios.conf.json || echo "Tauri export failed (expected) — will export manually"
+    # Verify the xcarchive was created
     - |
       ARCHIVE=$(find src-tauri/gen/apple/build -name "*.xcarchive" -type d | head -1)
-      echo "Exporting archive: $ARCHIVE"
+      if [ -z "$ARCHIVE" ]; then
+        echo "ERROR: No xcarchive found — build itself failed"
+        exit 1
+      fi
+      echo "Found archive: $ARCHIVE"
+      # Export IPA with explicit provisioning profile mapping
       cat > /tmp/ExportOptions.plist << 'PLISTEOF'
       <?xml version="1.0" encoding="UTF-8"?>
       <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
