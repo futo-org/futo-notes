@@ -146,6 +146,57 @@ docker:publish:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
 # ─────────────────────────────────────────────────────────────
+# CLI
+# ─────────────────────────────────────────────────────────────
+
+cli:build:
+  stage: build
+  image: golang:1.23
+  before_script: []
+  script:
+    - cd apps/cli
+    - go test ./...
+    - |
+      VERSION="${CI_COMMIT_TAG#v}"
+      [ -z "$VERSION" ] && VERSION="dev"
+      for PAIR in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
+        OS="${PAIR%/*}" ARCH="${PAIR#*/}"
+        GOOS=$OS GOARCH=$ARCH go build -ldflags="-s -w -X main.version=${VERSION}" \
+          -o "dist/stonefruit-${OS}-${ARCH}" .
+      done
+  artifacts:
+    paths:
+      - apps/cli/dist/
+    expire_in: 4 weeks
+  rules:
+    - if: $CI_COMMIT_TAG
+    - if: $CI_MERGE_REQUEST_IID
+      changes:
+        - apps/cli/**/*
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes:
+        - apps/cli/**/*
+
+cli:publish:
+  stage: publish
+  image: curlimages/curl:latest
+  needs: [cli:build]
+  before_script: []
+  script:
+    - |
+      VERSION="${CI_COMMIT_TAG#v}"
+      for f in apps/cli/dist/stonefruit-*; do
+        [ -f "$f" ] || continue
+        NAME=$(basename "$f")
+        echo "Uploading $NAME"
+        curl --fail --header "JOB-TOKEN: $CI_JOB_TOKEN" \
+          --upload-file "$f" \
+          "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/stonefruit-cli/${VERSION}/${NAME}"
+      done
+  rules:
+    - if: $CI_COMMIT_TAG
+
+# ─────────────────────────────────────────────────────────────
 # Builds (tags only)
 # ─────────────────────────────────────────────────────────────
 
