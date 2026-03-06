@@ -29,6 +29,7 @@ build_ios_task:
     - curl https://sh.rustup.rs -sSf | sh -s -- -y
     - export PATH="$HOME/.cargo/bin:$PATH"
     - rustup target add aarch64-apple-ios
+    - cargo install tauri-cli --locked
 
     # Derive version from git tag
     - VERSION="${CI_COMMIT_TAG#v}"
