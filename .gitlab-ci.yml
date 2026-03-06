@@ -151,7 +151,7 @@ docker:publish:
 
 cli:build:
   stage: build
-  image: golang:1.23
+  image: golang:1.25
   before_script: []
   script:
     - cd apps/cli
@@ -263,7 +263,7 @@ build:android:
       if [ -n "$KEYSTORE_BASE64" ]; then
         echo "$KEYSTORE_BASE64" | base64 -d > /tmp/release.keystore
         cat > src-tauri/gen/android/keystore.properties <<EOF
-      keyAlias=${ANDROID_KEY_ALIAS:-upload}
+      keyAlias=${KEY_ALIAS:-upload}
       password=${KEYSTORE_PASSWORD}
       storeFile=/tmp/release.keystore
       EOF

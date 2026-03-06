@@ -59,10 +59,10 @@ build_ios_task:
       PBXPROJ=$(find src-tauri/gen/apple -name "project.pbxproj" | head -1)
       echo "Patching $PBXPROJ for manual signing"
       sed -i '' \
-        -e 's/CODE_SIGN_STYLE = Automatic/CODE_SIGN_STYLE = Manual/g' \
         -e 's/DEVELOPMENT_TEAM = "";/DEVELOPMENT_TEAM = "2W7AC6T8T5";/g' \
-        -e '/CODE_SIGN_STYLE = Manual/a\'$'\n''				CODE_SIGN_IDENTITY = "Apple Distribution";' \
-        -e '/CODE_SIGN_STYLE = Manual/a\'$'\n''				PROVISIONING_PROFILE_SPECIFIER = "FUTO Notes App Store";' \
+        -e 's/CODE_SIGN_IDENTITY = "iPhone Developer"/CODE_SIGN_IDENTITY = "Apple Distribution"/g' \
+        -e '/DEVELOPMENT_TEAM/a\'$'\n''				CODE_SIGN_STYLE = Manual;' \
+        -e '/DEVELOPMENT_TEAM/a\'$'\n''				PROVISIONING_PROFILE_SPECIFIER = "FUTO Notes App Store";' \
         "$PBXPROJ"
       echo "Verifying patch:"
       grep -E "CODE_SIGN_STYLE|DEVELOPMENT_TEAM|CODE_SIGN_IDENTITY|PROVISIONING_PROFILE" "$PBXPROJ" | head -20
