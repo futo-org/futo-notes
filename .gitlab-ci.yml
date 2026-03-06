@@ -104,12 +104,14 @@ test:server:smoke:
   stage: test
   script:
     - IMAGE_SHA=$(docker build -q -f apps/server/Dockerfile .)
-    - docker run --rm -d --name sf-smoke -e SEARCH_ENABLED=false -e TRANSFORMS_ENABLED=false "$IMAGE_SHA"
+    - CONTAINER="sf-smoke-${CI_JOB_ID}"
+    - docker rm -f "$CONTAINER" 2>/dev/null || true
+    - docker run --rm -d --name "$CONTAINER" -e SEARCH_ENABLED=false -e TRANSFORMS_ENABLED=false "$IMAGE_SHA"
     - |
-      cleanup() { docker logs sf-smoke 2>&1 || true; docker stop sf-smoke 2>/dev/null || true; }
+      cleanup() { docker logs "$CONTAINER" 2>&1 || true; docker stop "$CONTAINER" 2>/dev/null || true; }
       trap cleanup EXIT
       for i in $(seq 1 10); do
-        docker exec sf-smoke node -e "fetch('http://localhost:3005/health').then(r=>{if(!r.ok)throw r;process.exit(0)}).catch(()=>process.exit(1))" && exit 0
+        docker exec "$CONTAINER" node -e "fetch('http://localhost:3005/health').then(r=>{if(!r.ok)throw r;process.exit(0)}).catch(()=>process.exit(1))" && exit 0
         sleep 2
       done
       echo "Health check failed after 10 retries"
