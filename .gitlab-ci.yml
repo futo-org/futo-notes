@@ -153,19 +153,20 @@ docker:publish:
 
 cli:build:
   stage: build
-  image: golang:1.25
-  before_script: []
   script:
+    - !reference [.setup-rust, script]
     - cd apps/cli
-    - go test ./...
+    - cargo test
     - |
       VERSION="${CI_COMMIT_TAG#v}"
       [ -z "$VERSION" ] && VERSION="dev"
-      for PAIR in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
-        OS="${PAIR%/*}" ARCH="${PAIR#*/}"
-        GOOS=$OS GOARCH=$ARCH go build -ldflags="-s -w -X main.version=${VERSION}" \
-          -o "dist/stonefruit-${OS}-${ARCH}" .
-      done
+      mkdir -p dist
+      STONEFRUIT_VERSION="$VERSION" cargo build --release
+      cp target/release/stonefruit "dist/stonefruit-linux-amd64"
+      cargo install cross --locked
+      rustup target add aarch64-unknown-linux-gnu
+      STONEFRUIT_VERSION="$VERSION" cross build --release --target aarch64-unknown-linux-gnu
+      cp target/aarch64-unknown-linux-gnu/release/stonefruit "dist/stonefruit-linux-arm64"
   artifacts:
     paths:
       - apps/cli/dist/

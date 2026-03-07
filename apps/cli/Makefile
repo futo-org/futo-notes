@@ -3,17 +3,22 @@ VERSION ?= dev
 .PHONY: build build-all clean test
 
 build:
-	go build -ldflags="-s -w" -o stonefruit .
+	cargo build --release
+	cp target/release/stonefruit stonefruit
 
 build-all:
-	GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X main.version=$(VERSION)" -o dist/stonefruit-linux-amd64 .
-	GOOS=linux GOARCH=arm64 go build -ldflags="-s -w -X main.version=$(VERSION)" -o dist/stonefruit-linux-arm64 .
-	GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w -X main.version=$(VERSION)" -o dist/stonefruit-darwin-amd64 .
-	GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w -X main.version=$(VERSION)" -o dist/stonefruit-darwin-arm64 .
+	mkdir -p dist
+	STONEFRUIT_VERSION=$(VERSION) cargo build --release
+	cp target/release/stonefruit dist/stonefruit-linux-amd64
+	rustup target add aarch64-unknown-linux-gnu
+	cross --version >/dev/null
+	STONEFRUIT_VERSION=$(VERSION) cross build --release --target aarch64-unknown-linux-gnu
+	cp target/aarch64-unknown-linux-gnu/release/stonefruit dist/stonefruit-linux-arm64
 
 test:
-	go test ./...
+	cargo test
 
 clean:
 	rm -f stonefruit
 	rm -rf dist/
+	rm -rf target/
