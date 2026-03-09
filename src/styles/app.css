@@ -60,6 +60,55 @@
   unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
 }
 
+/* Inria Sans — humanist sans for body text */
+@font-face {
+  font-family: 'Inria Sans';
+  src: url('../fonts/InriaSans-Light.ttf') format('truetype');
+  font-weight: 300;
+  font-display: swap;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Inria Sans';
+  src: url('../fonts/InriaSans-LightItalic.ttf') format('truetype');
+  font-weight: 300;
+  font-display: swap;
+  font-style: italic;
+}
+
+@font-face {
+  font-family: 'Inria Sans';
+  src: url('../fonts/InriaSans-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-display: swap;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Inria Sans';
+  src: url('../fonts/InriaSans-Italic.ttf') format('truetype');
+  font-weight: 400;
+  font-display: swap;
+  font-style: italic;
+}
+
+@font-face {
+  font-family: 'Inria Sans';
+  src: url('../fonts/InriaSans-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-display: swap;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Inria Sans';
+  src: url('../fonts/InriaSans-BoldItalic.ttf') format('truetype');
+  font-weight: 700;
+  font-display: swap;
+  font-style: italic;
+}
+
 /* Keep GeneralSans as fallback */
 @font-face {
   font-family: 'GeneralSans';
@@ -96,8 +145,8 @@
   --paper-rgb: 250, 249, 246;
   --primary-rgb: 176, 125, 59;
 
-  --font-sans: 'Outfit', 'GeneralSans', system-ui, -apple-system, sans-serif;
-  --font-serif: 'Instrument Serif', Georgia, 'Times New Roman', serif;
+  --font-sans: 'Inria Sans', 'Outfit', 'GeneralSans', system-ui, -apple-system, sans-serif;
+  --font-serif: 'Inria Sans', Georgia, 'Times New Roman', serif;
 }
 
 [data-theme='dark'] {

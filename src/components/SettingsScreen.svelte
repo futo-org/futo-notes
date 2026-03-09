@@ -82,7 +82,12 @@
   }
 
   function getErrorMessage(error: unknown): string {
-    return error instanceof Error ? error.message : String(error);
+    const msg = error instanceof Error ? error.message : String(error);
+    // fetch throws opaque TypeErrors when the server is unreachable
+    if (error instanceof TypeError && /failed to fetch|load failed|networkerror/i.test(msg)) {
+      return 'Could not reach server — check the URL and make sure it\'s running';
+    }
+    return msg;
   }
 
   async function persistSyncUrl(): Promise<void> {

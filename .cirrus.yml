@@ -105,3 +105,64 @@ build_ios_task:
     - cp "$IPA_PATH" ./
   binary_artifacts:
     path: "*.ipa"
+
+build_macos_task:
+  name: buildFutoNotesMacOS
+  macos_instance:
+    image: ghcr.io/cirruslabs/macos-sequoia-xcode:26.2
+  buildFutoNotesMacOS_script:
+    # Fetch secure files (certificates, API keys)
+    - curl --silent "https://gitlab.com/gitlab-org/incubation-engineering/mobile-devops/download-secure-files/-/raw/main/installer" | bash
+
+    # Install signing certificate
+    - security unlock-keychain -p "admin" ~/Library/Keychains/login.keychain
+    - security import ./.secure_files/MacCertificates.p12 -k ~/Library/Keychains/login.keychain -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
+    - "security set-key-partition-list -S apple-tool:,apple: -s -k admin ~/Library/Keychains/login.keychain"
+
+    # Set Tauri signing env vars
+    - export APPLE_CERTIFICATE=$(base64 < .secure_files/MacCertificates.p12)
+    - export APPLE_CERTIFICATE_PASSWORD="$MACOS_CERT_PASSWORD"
+    - export APPLE_SIGNING_IDENTITY="Developer ID Application: FUTO Holdings, Inc. (2W7AC6T8T5)"
+
+    # Set Tauri notarization env vars
+    - export APPLE_API_KEY=$(ls .secure_files/AuthKey*.p8 | head -1)
+    - export APPLE_API_KEY_ID="$ASC_KEY_ID"
+    - export APPLE_API_ISSUER="$ASC_ISSUER_ID"
+
+    # Install Node
+    - brew install node@22
+    - export PATH="$(brew --prefix node@22)/bin:$PATH"
+    - node --version
+
+    # Install Rust with universal macOS targets
+    - curl https://sh.rustup.rs -sSf | sh -s -- -y
+    - export PATH="$HOME/.cargo/bin:$PATH"
+    - rustup target add x86_64-apple-darwin aarch64-apple-darwin
+    - cargo install tauri-cli --locked
+
+    # Derive version from git tag
+    - VERSION="${CI_COMMIT_TAG#v}"
+    - echo "Building macOS version $VERSION"
+
+    # Install dependencies
+    - npm ci
+
+    # Set version in tauri.conf.json from git tag
+    - |
+      node -e "
+        const fs = require('fs');
+        const f = 'apps/tauri/src-tauri/tauri.conf.json';
+        const c = JSON.parse(fs.readFileSync(f, 'utf8'));
+        c.version = process.argv[1];
+        fs.writeFileSync(f, JSON.stringify(c, null, 2) + '\n');
+      " "$VERSION"
+
+    # Build universal macOS DMG (Tauri handles signing + notarization)
+    - cd apps/tauri
+    - cargo tauri build --target universal-apple-darwin
+    - cd ../..
+
+    # Copy DMG to artifacts location
+    - cp apps/tauri/src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg ./
+  binary_artifacts:
+    path: "*.dmg"

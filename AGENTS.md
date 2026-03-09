@@ -45,12 +45,23 @@ Each app has its own `AGENTS.md` with app-specific details.
 
 ## Close The Loop (Required)
 
-- Do not report a fix or addition as complete until you verify it yourself.
-- For frontend or UI changes, run Playwright for affected behavior (`npm run test -- <spec>` minimum; broaden coverage when change risk is broad).
-- For non-frontend changes, run relevant automated tests and a runtime smoke test of the changed behavior.
-- If behavior depends on runtime environment (Docker, emulator or simulator, Tauri runtime), verify in that environment before closing.
-- If verification fails, iterate: fix, rerun verification, re-check.
-- In the final response, include verification evidence: commands run, pass or fail status, and key observed behavior.
+Do not report a fix or addition as complete until you verify it. If verification fails, iterate until it passes.
+
+**Pick the right verification chain for the change:**
+
+| What changed | Verification |
+|---|---|
+| Frontend / UI / Svelte | `npm run build` → `npm run test -- <spec>` (broaden Playwright coverage if risk is broad) |
+| Unit-testable logic | `npm run build` → `npm run test:unit` |
+| Server (sync, auth, API) | `npm run server:test` from root, or `npm test` in `apps/server/` |
+| Server + Docker | Above, then `docker compose up --build` in `apps/server/` → `curl -s http://localhost:3005/health` |
+| Shared package | `npm run test:shared` |
+| CSS / Tailwind only | `npm run build` (catches missing classes) → visual spot-check via Playwright screenshot or `npm run dev` |
+| CI / pipeline config | Push branch → check pipeline via GitLab API (see GitLab CI section) |
+
+Always pipe build output through `| tail -20` for readability. Run `npx tsc --noEmit | head -30` before a full build to catch type errors early.
+
+In your final response, include: commands run, pass/fail, and key observed behavior.
 
 ## GitLab CI
 
@@ -78,6 +89,18 @@ curl -s --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
 adb logcat | grep "futo\|JS\|error"  # Android logs
 # iOS: Xcode → Window → Devices and Simulators → View device logs
 ```
+
+## Error Handling
+
+When the user pastes an error, stack trace, or log output — act immediately:
+
+1. Grep the codebase for the error message or failing symbol
+2. Read the source file at the relevant line
+3. Check `git log --oneline -5 -- <file>` for recent changes that may have caused it
+4. Propose and apply a fix
+5. Run the appropriate verification chain (see table above)
+
+Do not ask clarifying questions unless the error is genuinely ambiguous (e.g., it could originate from multiple unrelated systems). Bias toward action.
 
 ## Resources
 

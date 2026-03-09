@@ -447,7 +447,10 @@ Escaped pipes:
     for (const id of summary.updatedIds) recordSyncWrite(`${id}.md`);
     for (const id of summary.deletedIds) recordSyncWrite(`${id}.md`);
     if (hasRemoteNoteChanges) {
-      refreshNotesList();
+      // Defer note list refresh so it doesn't block active typing.
+      // requestIdleCallback yields to pending input events first.
+      const schedule = window.requestIdleCallback ?? ((cb: IdleRequestCallback) => setTimeout(cb, 50));
+      schedule(() => refreshNotesList());
     }
 
     // Check once after first sync, then on remote note changes (throttled).
@@ -1268,7 +1271,7 @@ Escaped pipes:
       onSyncError: (err) => console.warn('Auto-sync error:', err),
       flushPendingSave: flushSave,
       onSupersearchReady: () => { void checkSupersearchArtifacts(true); },
-      shouldDeferSync: () => saveTimeout !== null || saveInFlight !== null || saveQueued || Boolean(editor?.isComposing?.()),
+      shouldDeferSync: () => saveTimeout !== null || saveInFlight !== null || saveQueued || Boolean(editor?.isComposing?.()) || Boolean(editor?.hasFocus()),
     });
 
     // Desktop sidebar: load persisted width

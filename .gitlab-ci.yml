@@ -305,6 +305,22 @@ build:ios:
   rules:
     - if: $CI_COMMIT_TAG
 
+build:macos:
+  stage: build
+  tags:
+    - macscript
+  needs: [lint, test:unit, test:e2e]
+  before_script:
+    - env | grep -E '^(CI_|MACOS_|ASC_)' > .cienv
+  script:
+    - cirrus run buildFutoNotesMacOS --artifacts-dir . --env-file .cienv
+  artifacts:
+    paths:
+      - buildFutoNotesMacOS/binary/*.dmg
+    expire_in: 4 weeks
+  rules:
+    - if: $CI_COMMIT_TAG
+
 # ─────────────────────────────────────────────────────────────
 # Publish to GitLab Package Registry
 # ─────────────────────────────────────────────────────────────
@@ -317,6 +333,9 @@ publish:
     - job: build:android
       artifacts: true
     - job: build:ios
+      artifacts: true
+      optional: true
+    - job: build:macos
       artifacts: true
       optional: true
   script:
@@ -365,6 +384,15 @@ publish:
         curl --fail -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$IPA" "${REGISTRY_URL}/${NAME}"
         echo "IPA_URL=${REGISTRY_URL}/${NAME}" >> publish.env
       fi
+    # macOS DMG
+    - |
+      DMG=$(find buildFutoNotesMacOS -name "*.dmg" -type f 2>/dev/null | head -1)
+      if [ -n "$DMG" ]; then
+        NAME="Stonefruit-${VERSION}-universal.dmg"
+        echo "Uploading $NAME"
+        curl --fail -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$DMG" "${REGISTRY_URL}/${NAME}"
+        echo "DMG_URL=${REGISTRY_URL}/${NAME}" >> publish.env
+      fi
   artifacts:
     reports:
       dotenv: publish.env
@@ -394,6 +422,7 @@ release:
         --assets-link "{\"name\":\"stonefruit-${VERSION}-1.x86_64.rpm\",\"url\":\"${REGISTRY_URL}/stonefruit-${VERSION}-1.x86_64.rpm\",\"link_type\":\"package\"}" \
         --assets-link "{\"name\":\"Stonefruit-${VERSION}-x86_64.AppImage\",\"url\":\"${REGISTRY_URL}/Stonefruit-${VERSION}-x86_64.AppImage\",\"link_type\":\"package\"}" \
         --assets-link "{\"name\":\"stonefruit-${VERSION}.apk\",\"url\":\"${REGISTRY_URL}/stonefruit-${VERSION}.apk\",\"link_type\":\"package\"}" \
-        --assets-link "{\"name\":\"Stonefruit-${VERSION}.ipa\",\"url\":\"${REGISTRY_URL}/Stonefruit-${VERSION}.ipa\",\"link_type\":\"package\"}"
+        --assets-link "{\"name\":\"Stonefruit-${VERSION}.ipa\",\"url\":\"${REGISTRY_URL}/Stonefruit-${VERSION}.ipa\",\"link_type\":\"package\"}" \
+        --assets-link "{\"name\":\"Stonefruit-${VERSION}-universal.dmg\",\"url\":\"${REGISTRY_URL}/Stonefruit-${VERSION}-universal.dmg\",\"link_type\":\"package\"}"
   rules:
     - if: $CI_COMMIT_TAG
