@@ -9,7 +9,7 @@
 
   let { reports, onresolved }: Props = $props();
 
-  let alwaysSend = $state(true);
+  let alwaysSend = $state(false);
   let showDetails = $state(false);
   let showContext = $state(false);
   let userDescription = $state('');

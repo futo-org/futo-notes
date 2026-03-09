@@ -15,7 +15,7 @@ export interface PlatformFS {
   deleteNoteFile(id: string): Promise<void>;
   noteExists(id: string): Promise<boolean>;
 
-  // App data (prefs, crash logs, heartbeat — dotfiles in the notes directory)
+  // App data (prefs, crash logs — dotfiles in the notes directory)
   readAppData(path: string): Promise<string | null>;
   writeAppData(path: string, content: string): Promise<void>;
   deleteAppData(path: string): Promise<void>;

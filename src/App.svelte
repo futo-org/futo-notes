@@ -6,7 +6,6 @@
   import { loadPreferences, getCachedPreferences, savePreferences } from '$lib/preferences';
   import { applyThemePreference, watchSystemThemeTauri } from '$lib/theme';
   import { flushCrashQueue, setAppVersion, type CrashReport } from '$lib/crashHandler';
-  import { checkHeartbeat, startHeartbeat } from '$lib/heartbeat';
   import { sendAllPendingReports, discardAllPendingReports, loadPendingReports } from '$lib/crashReporter';
 
   let hash = $state(window.location.hash.slice(1) || '/');
@@ -99,12 +98,6 @@
     // Flush any crashes queued in localStorage to files
     await flushCrashQueue();
 
-    // Check for unclean shutdown (native crash detection)
-    await checkHeartbeat();
-
-    // Start heartbeat for this session
-    startHeartbeat();
-
     if (!prefs.crashReporting.enabled) return;
 
     // Load pending crash reports
@@ -142,12 +135,8 @@
         showToast('Failed to send crash reports');
       }
     } else {
-      // User chose "Don't Send" - disable crash reporting entirely
+      // User chose "Don't Send" - just discard these reports
       await discardAllPendingReports();
-      const prefs = getCachedPreferences();
-      prefs.crashReporting.enabled = false;
-      prefs.crashReporting.alwaysSend = false;
-      await savePreferences(prefs);
     }
 
     pendingCrashReports = [];
