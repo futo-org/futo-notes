@@ -163,9 +163,10 @@ cli:build:
       mkdir -p dist
       STONEFRUIT_VERSION="$VERSION" cargo build --release
       cp target/release/stonefruit "dist/stonefruit-linux-amd64"
-      cargo install cross --locked
       rustup target add aarch64-unknown-linux-gnu
-      STONEFRUIT_VERSION="$VERSION" cross build --release --target aarch64-unknown-linux-gnu
+      apt-get update -qq && apt-get install -y -qq gcc-aarch64-linux-gnu >/dev/null 2>&1 || true
+      export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
+      STONEFRUIT_VERSION="$VERSION" cargo build --release --target aarch64-unknown-linux-gnu
       cp target/aarch64-unknown-linux-gnu/release/stonefruit "dist/stonefruit-linux-arm64"
   artifacts:
     paths:
