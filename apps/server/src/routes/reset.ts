@@ -6,7 +6,7 @@ import { authMiddleware, type AuthEnv } from '../middleware/auth.js';
 import { getDb } from '../db/index.js';
 import { createTables } from '../db/schema.js';
 import { createSearchTables } from '../db/searchSchema.js';
-import { createTransformTables } from '../db/transformSchema.js';
+import { createPluginTables } from '../db/pluginSchema.js';
 import { loadConfig } from '../config.js';
 import { removeAllClients } from '../events.js';
 import { log } from '../logger.js';
@@ -39,6 +39,11 @@ function wipeSearchArtifacts(databasePath: string): void {
   fs.rmSync(artifactDir, { recursive: true, force: true });
 }
 
+function wipePluginsDirectory(pluginsPath: string): void {
+  fs.rmSync(path.resolve(pluginsPath), { recursive: true, force: true });
+  fs.mkdirSync(path.resolve(pluginsPath), { recursive: true });
+}
+
 const reset = new Hono<AuthEnv>();
 
 reset.post('/reset', authMiddleware, async (c) => {
@@ -69,13 +74,13 @@ reset.post('/reset', authMiddleware, async (c) => {
       log.warn(`RESET: failed to stop search scheduler cleanly: ${message}`);
     }
   }
-  if (config.transformsEnabled) {
+  if (config.pluginsEnabled) {
     try {
-      const { stopTransformScheduler } = await import('../transforms/scheduler.js');
-      stopTransformScheduler();
+      const { stopPluginScheduler } = await import('../plugins/scheduler.js');
+      stopPluginScheduler();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      log.warn(`RESET: failed to stop transform scheduler cleanly: ${message}`);
+      log.warn(`RESET: failed to stop plugin scheduler cleanly: ${message}`);
     }
   }
 
@@ -111,13 +116,15 @@ reset.post('/reset', authMiddleware, async (c) => {
     DROP TABLE IF EXISTS transform_jobs;
     DROP TABLE IF EXISTS transform_state;
     DROP TABLE IF EXISTS transform_config;
+    DROP TABLE IF EXISTS plugin_installs;
   `);
-  if (config.transformsEnabled) {
-    createTransformTables(db);
+  if (config.pluginsEnabled) {
+    createPluginTables(db);
   }
 
   wipeNotesDirectory(config.notesPath);
   wipeSearchArtifacts(config.databasePath);
+  wipePluginsDirectory(config.pluginsPath);
 
   if (config.searchEnabled) {
     try {
@@ -128,13 +135,15 @@ reset.post('/reset', authMiddleware, async (c) => {
       log.warn(`RESET: failed to restart search scheduler: ${message}`);
     }
   }
-  if (config.transformsEnabled) {
+  if (config.pluginsEnabled) {
     try {
-      const { startTransformScheduler } = await import('../transforms/scheduler.js');
-      startTransformScheduler(config);
+      const { syncBuiltinPlugins } = await import('../plugins/loader.js');
+      syncBuiltinPlugins(db, config);
+      const { startPluginScheduler } = await import('../plugins/scheduler.js');
+      startPluginScheduler(config);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      log.warn(`RESET: failed to restart transform scheduler: ${message}`);
+      log.warn(`RESET: failed to restart plugin scheduler: ${message}`);
     }
   }
 

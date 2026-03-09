@@ -1,0 +1,14 @@
+id: untitled-no-more
+name: Untitled No More
+version: 1.0.0
+publisher: Stonefruit
+description: Auto-renames notes that still use the default Untitled filename.
+kind: note_automation
+entrypoint: untitledNoMore.cjs
+frequency: daily
+enabled_by_default: true
+runtime:
+  max_content_chars: 2000
+  few_shot_count: 10
+  temperature: 0.3
+  max_tokens: 64

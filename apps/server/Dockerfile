@@ -3,8 +3,8 @@
 FROM node:22-slim AS builder
 WORKDIR /app
 
-# Install build tools for native modules (argon2, better-sqlite3)
-RUN apt-get update && apt-get install -y python3 make g++ && rm -rf /var/lib/apt/lists/*
+# Install build tools plus git for plugin repo installs/tests
+RUN apt-get update && apt-get install -y python3 make g++ git && rm -rf /var/lib/apt/lists/*
 
 # Copy workspace root files
 COPY package.json package-lock.json ./
@@ -28,6 +28,8 @@ CMD ["npx", "vitest", "run"]
 FROM node:22-slim
 WORKDIR /app
 
+RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
+
 LABEL org.opencontainers.image.title="Stonefruit Server"
 LABEL org.opencontainers.image.description="Self-hosted sync server for Stonefruit"
 LABEL org.opencontainers.image.source="https://gitlab.futo.org/stonefruit/stonefruit"
@@ -37,6 +39,7 @@ COPY --from=builder /app/node_modules/ node_modules/
 COPY --from=builder /app/packages/shared/ packages/shared/
 COPY --from=builder /app/apps/server/package.json apps/server/
 COPY --from=builder /app/apps/server/dist/ apps/server/dist/
+COPY --from=builder /app/apps/server/builtin-plugins/ apps/server/builtin-plugins/
 
 EXPOSE 3005
 WORKDIR /app/apps/server

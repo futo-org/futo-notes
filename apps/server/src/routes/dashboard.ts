@@ -76,13 +76,13 @@ dashboard.get('/dashboard/status', async (c) => {
     search = { enabled: false };
   }
 
-  let transformsStatus = null;
-  if (config.transformsEnabled) {
+  let pluginsStatus = null;
+  if (config.pluginsEnabled) {
     try {
-      const { getTransformsStatus } = await import('../transforms/scheduler.js');
-      transformsStatus = getTransformsStatus();
+      const { getPluginsStatus } = await import('../plugins/scheduler.js');
+      pluginsStatus = await getPluginsStatus();
     } catch {
-      transformsStatus = { error: 'Transform tables not initialized' };
+      pluginsStatus = { error: 'Plugin tables not initialized' };
     }
   }
 
@@ -91,7 +91,8 @@ dashboard.get('/dashboard/status', async (c) => {
     sessions_count: sessionsCount,
     setup_complete: isSetupComplete(db),
     search,
-    transforms: transformsStatus,
+    plugins: pluginsStatus,
+    transforms: pluginsStatus,
     uptime_seconds: Math.floor((Date.now() - startedAt) / 1000),
   });
 });
@@ -134,7 +135,7 @@ function dashboardHtml(): string {
   }
 
   .container {
-    max-width: 720px;
+    max-width: 1080px;
     margin: 0 auto;
   }
 
@@ -248,6 +249,23 @@ function dashboardHtml(): string {
 
   .download-link:hover {
     background: var(--border);
+  }
+
+  .text-input {
+    flex: 1;
+    min-width: 0;
+    padding: 0.55rem 0.7rem;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: white;
+    color: var(--text);
+    font: inherit;
+  }
+
+  .text-input:focus {
+    outline: 2px solid rgba(176, 125, 59, 0.2);
+    outline-offset: 1px;
+    border-color: var(--primary);
   }
 
   .setup-steps {
@@ -524,12 +542,225 @@ function dashboardHtml(): string {
     pointer-events: none;
   }
 
+  .plugin-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.2rem 0 0.9rem;
+    border-bottom: 1px solid var(--surface);
+    margin-bottom: 0.9rem;
+    flex-wrap: wrap;
+  }
+
+  .plugin-toolbar-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+
+  .plugin-toolbar-label {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-secondary);
+    font-weight: 600;
+  }
+
+  .plugin-toolbar-value {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .plugin-toolbar-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+  }
+
+  .plugin-auth-note {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+  }
+
+  .plugin-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.9rem;
+  }
+
+  .plugin-card-grid-empty {
+    border: 1px dashed var(--border);
+    border-radius: 12px;
+    padding: 1rem;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    background: linear-gradient(180deg, #FFFEFC 0%, #F6F2EC 100%);
+  }
+
+  .plugin-card {
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 1rem;
+    background: linear-gradient(180deg, #FFFEFC 0%, #F6F2EC 100%);
+    display: flex;
+    flex-direction: column;
+    gap: 0.8rem;
+    min-height: 270px;
+  }
+
+  .plugin-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+
+  .plugin-card-title {
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--text);
+  }
+
+  .plugin-card-subtitle {
+    margin-top: 0.25rem;
+    font-size: 0.86rem;
+    color: var(--text-secondary);
+  }
+
+  .plugin-switch-wrap {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    flex-shrink: 0;
+  }
+
+  .plugin-switch {
+    appearance: none;
+    width: 2.6rem;
+    height: 1.5rem;
+    border-radius: 999px;
+    border: 1px solid rgba(28, 25, 23, 0.12);
+    background: #D7D0C7;
+    position: relative;
+    cursor: pointer;
+    transition: background 0.2s ease, opacity 0.2s ease;
+  }
+
+  .plugin-switch::before {
+    content: '';
+    position: absolute;
+    top: 1px;
+    left: 1px;
+    width: 1.2rem;
+    height: 1.2rem;
+    border-radius: 50%;
+    background: white;
+    box-shadow: 0 1px 3px rgba(28, 25, 23, 0.18);
+    transition: transform 0.2s ease;
+  }
+
+  .plugin-switch:checked {
+    background: var(--success);
+  }
+
+  .plugin-switch:checked::before {
+    transform: translateX(1.08rem);
+  }
+
+  .plugin-switch:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
+
+  .plugin-switch-state {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .plugin-meta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+
+  .plugin-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.25rem 0.55rem;
+    border-radius: 999px;
+    background: white;
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    font-size: 0.76rem;
+    font-weight: 600;
+  }
+
+  .plugin-card-section {
+    border-top: 1px solid rgba(28, 25, 23, 0.08);
+    padding-top: 0.75rem;
+    display: grid;
+    gap: 0.45rem;
+  }
+
+  .plugin-card-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 0.75rem;
+    font-size: 0.84rem;
+  }
+
+  .plugin-card-row .stat-label {
+    font-size: 0.8rem;
+  }
+
+  .plugin-card-row .stat-value {
+    font-size: 0.82rem;
+    text-align: right;
+  }
+
+  .plugin-card-row .stat-value.plugin-source {
+    max-width: 60%;
+    word-break: break-word;
+  }
+
+  .plugin-card-note {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+  }
+
+  .plugin-card-note.plugin-card-warning {
+    color: #A04B00;
+    font-weight: 600;
+  }
+
+  .plugin-card-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.55rem;
+    margin-top: auto;
+    padding-top: 0.25rem;
+  }
+
+
+  @media (max-width: 760px) {
+    .plugin-grid { grid-template-columns: 1fr; }
+  }
 
   @media (max-width: 480px) {
     body { padding: 1rem 0.75rem; }
     .download-grid { grid-template-columns: 1fr; }
     .danger-actions { flex-direction: column-reverse; }
     .danger-actions .btn { width: 100%; }
+    .plugin-card-header { flex-direction: column; }
+    .plugin-switch-wrap { width: 100%; justify-content: space-between; }
   }
 </style>
 </head>
@@ -574,10 +805,14 @@ function dashboardHtml(): string {
     <div id="search-content"><span class="loading">Loading...</span></div>
   </div>
 
-  <!-- Smart Transforms -->
-  <div class="card" id="transforms-card" style="display:none">
-    <h2>Smart Transforms</h2>
-    <div id="transforms-content"><span class="loading">Loading...</span></div>
+  <!-- Plugins -->
+  <div class="card" id="plugins-card" style="display:none">
+    <h2>Plugins</h2>
+    <div class="index-row" style="margin-bottom:0.75rem">
+      <input id="plugin-install-url" class="text-input" type="url" placeholder="https://github.com/example/my-plugin" spellcheck="false">
+      <button class="btn btn-primary" id="plugin-install-btn" onclick="installPlugin()">Install</button>
+    </div>
+    <div id="plugins-content"><span class="loading">Loading...</span></div>
   </div>
 
   <!-- Download -->
@@ -660,13 +895,23 @@ function dashboardHtml(): string {
 
   function formatTime(unix) {
     if (!unix) return 'Never';
-    const d = new Date(unix * 1000);
+    const timestamp = unix > 1e12 ? unix : unix * 1000;
+    const d = new Date(timestamp);
     const now = Date.now();
     const diff = Math.floor((now - d.getTime()) / 1000);
     if (diff < 60) return 'Just now';
     if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
     if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
     return d.toLocaleDateString();
+  }
+
+  function escapeHtml(value) {
+    return String(value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
 
   function badge(text, type) {
@@ -797,32 +1042,92 @@ function dashboardHtml(): string {
     return html;
   }
 
-  function renderTransforms(t) {
+  function renderPlugins(t) {
     if (!t || t.error) return '';
     var html = '';
     var sched = t.scheduler || {};
     var isBusy = sched.running;
+    var restrictedMode = t.security && t.security.restricted_mode !== false;
+    var canManagePlugins = Boolean(authToken);
 
-    for (var i = 0; i < t.transforms.length; i++) {
-      var tr = t.transforms[i];
-      if (i > 0) html += '<div style="border-top:1px solid var(--surface);margin:0.5rem 0"></div>';
-      html += '<div class="stat-row"><span class="stat-label" style="font-weight:600">' + tr.name + '</span>';
-      html += '<span class="stat-value">' + (tr.enabled ? badge('Enabled', 'ok') : badge('Disabled', 'muted')) + '</span></div>';
-      html += '<div class="stat-row"><span class="stat-label" style="font-size:0.8rem;color:var(--text-secondary)">' + tr.description + '</span></div>';
-      if (tr.enabled) {
-        html += '<div class="stat-row"><span class="stat-label">Pending</span><span class="stat-value">' + tr.pending_count + ' notes</span></div>';
+    html += '<div class="plugin-toolbar">';
+    html += '<div class="plugin-toolbar-copy">';
+    html += '<span class="plugin-toolbar-label">Restricted mode</span>';
+    html += '<span class="plugin-toolbar-value">' + (restrictedMode ? 'On' : 'Off') + '</span>';
+    html += '</div>';
+    html += '<div class="plugin-toolbar-actions">';
+    html += '<span class="plugin-auth-note">' + (canManagePlugins ? 'Signed in for plugin controls' : 'Log in to use plugin switches') + '</span>';
+    if (canManagePlugins) {
+      html += '<span>' + badge('Signed in', 'ok') + '</span>';
+      html += '<button class="action-link" onclick="logoutDashboard()">Sign out</button>';
+    } else {
+      html += '<button class="btn btn-muted" onclick="loginDashboard()">Log in</button>';
+    }
+    html += '<button class="action-link" onclick="toggleRestrictedMode(' + (!restrictedMode ? 'true' : 'false') + ')"' + (isBusy ? ' disabled' : '') + '>' +
+      (restrictedMode ? 'Turn off restricted mode' : 'Turn on restricted mode') + '</button>';
+    html += '</div>';
+    html += '</div>';
+
+    if (!t.plugins || t.plugins.length === 0) {
+      html += '<div class="plugin-card-grid-empty">No plugins installed.</div>';
+    }
+
+    if (t.plugins && t.plugins.length > 0) {
+      html += '<div class="plugin-grid" id="plugin-grid">';
+      for (var i = 0; i < t.plugins.length; i++) {
+        var tr = t.plugins[i];
+        html += '<article class="plugin-card" data-plugin-card="' + escapeHtml(tr.id) + '">';
+        html += '<div class="plugin-card-header">';
+        html += '<div>';
+        html += '<div class="plugin-card-title">' + escapeHtml(tr.name) + '</div>';
+        html += '<div class="plugin-card-subtitle">' + escapeHtml(tr.description) + '</div>';
+        html += '</div>';
+        html += '<div class="plugin-switch-wrap">';
+        html += '<input class="plugin-switch" data-plugin-switch="' + escapeHtml(tr.id) + '" type="checkbox"' + (tr.enabled ? ' checked' : '') + (!canManagePlugins || isBusy ? ' disabled' : '') + ' onchange="togglePlugin(\\'' + tr.id + '\\', this.checked)">';
+        html += '<span class="plugin-switch-state">' + (tr.enabled ? 'On' : 'Off') + '</span>';
+        html += '</div>';
+        html += '</div>';
+
+        html += '<div class="plugin-meta-row">';
+        html += '<span class="plugin-pill">' + escapeHtml(tr.origin) + (tr.trusted ? ' · trusted' : '') + '</span>';
+        html += '<span class="plugin-pill">' + escapeHtml(tr.execution) + '</span>';
+        html += '<span class="plugin-pill">' + escapeHtml(tr.frequency) + '</span>';
+        html += '<span class="plugin-pill">v' + escapeHtml(tr.version) + '</span>';
+        html += '</div>';
+
+        html += '<div class="plugin-card-section">';
+        html += '<div class="plugin-card-row"><span class="stat-label">Publisher</span><span class="stat-value">' + escapeHtml(tr.publisher) + '</span></div>';
+        html += '<div class="plugin-card-row"><span class="stat-label">Permissions</span><span class="stat-value">' + escapeHtml((tr.permissions || []).join(', ')) + '</span></div>';
+        if (tr.installed_from) {
+          html += '<div class="plugin-card-row"><span class="stat-label">Source</span><span class="stat-value plugin-source">' + escapeHtml(tr.installed_from) + '</span></div>';
+        }
+        if (tr.blocked_by_restricted_mode) {
+          html += '<div class="plugin-card-note plugin-card-warning">Blocked while restricted mode is on.</div>';
+        }
+        if (!canManagePlugins) {
+          html += '<div class="plugin-card-note">Log in to turn this plugin on or off.</div>';
+        }
+        if (tr.enabled) {
+          html += '<div class="plugin-card-row"><span class="stat-label">Pending</span><span class="stat-value">' + tr.pending_count + ' notes</span></div>';
+        }
         if (tr.last_run) {
-          html += '<div class="stat-row"><span class="stat-label">Last run</span><span class="stat-value">' +
-            badge(tr.last_run.status, tr.last_run.status === 'completed' ? 'ok' : 'error') +
-            ' (' + tr.last_run.notes_processed + ' notes)</span></div>';
+          html += '<div class="plugin-card-row"><span class="stat-label">Last run</span><span class="stat-value">' + formatTime(tr.last_run.finished_at) + '</span></div>';
+          html += '<div class="plugin-card-row"><span class="stat-label">Result</span><span class="stat-value">' + badge(tr.last_run.status, tr.last_run.status === 'completed' ? 'ok' : 'error') + '</span></div>';
           if (tr.last_run.status === 'failed' && tr.last_run.error_message) {
-            html += '<div class="stat-row"><span class="stat-label">Error</span><span class="stat-value" style="color:var(--danger);font-size:0.8rem">' + tr.last_run.error_message + '</span></div>';
+            html += '<div class="plugin-card-note" style="color:var(--danger)">' + escapeHtml(tr.last_run.error_message) + '</div>';
           }
         }
+        html += '</div>';
+
+        html += '<div class="plugin-card-actions">';
+        html += '<button class="btn btn-primary" onclick="triggerPlugin(\\'' + tr.id + '\\')"' + (isBusy || !tr.enabled || tr.blocked_by_restricted_mode ? ' disabled' : '') + '>Run now</button>';
+        if (tr.updatable) {
+          html += '<button class="action-link" onclick="updatePlugin(\\'' + tr.id + '\\')"' + (isBusy ? ' disabled' : '') + '>Update</button>';
+          html += '<button class="action-link" onclick="uninstallPlugin(\\'' + tr.id + '\\')"' + (isBusy ? ' disabled' : '') + '>Uninstall</button>';
+        }
+        html += '</div>';
+        html += '</article>';
       }
-      html += '<div class="index-row">';
-      html += '<button class="btn btn-primary" onclick="triggerTransform(\\'' + tr.id + '\\')"' + (isBusy || !tr.enabled ? ' disabled' : '') + '>Run now</button>';
-      html += '<button class="action-link" onclick="toggleTransform(\\'' + tr.id + '\\',' + !tr.enabled + ')"' + (isBusy ? ' disabled' : '') + '>' + (tr.enabled ? 'Disable' : 'Enable') + '</button>';
       html += '</div>';
     }
 
@@ -836,7 +1141,7 @@ function dashboardHtml(): string {
     if (sched.phase && sched.phase !== 'idle') {
       var phaseLabel = sched.phase === 'downloading_model' ? 'Downloading model...'
         : sched.phase === 'loading_model' ? 'Loading model...'
-        : sched.phase === 'running' ? 'Running transforms...'
+        : sched.phase === 'running' ? 'Running plugins...'
         : sched.phase;
       html += '<div style="border-top:1px solid var(--surface);margin:0.5rem 0"></div>';
       html += '<div class="stat-row"><span class="stat-label">Status</span><span class="phase-label">' + phaseLabel + '</span></div>';
@@ -871,12 +1176,12 @@ function dashboardHtml(): string {
       $('uptime').textContent = formatUptime(data.uptime_seconds);
       $('search-content').innerHTML = renderSearch(data.search);
 
-      // Render transforms section
-      var tCard = $('transforms-card');
+      // Render plugins section
+      var tCard = $('plugins-card');
       if (tCard) {
-        if (data.transforms && !data.transforms.error) {
+        if (data.plugins && !data.plugins.error) {
           tCard.style.display = '';
-          $('transforms-content').innerHTML = renderTransforms(data.transforms);
+          $('plugins-content').innerHTML = renderPlugins(data.plugins);
         } else {
           tCard.style.display = 'none';
         }
@@ -884,9 +1189,9 @@ function dashboardHtml(): string {
 
       $('error-banner').style.display = 'none';
 
-      // Poll faster during active work (download/indexing/transforms)
+      // Poll faster during active work (download/indexing/plugins)
       const sched = data.search && data.search.scheduler;
-      const tSched = data.transforms && data.transforms.scheduler;
+      const tSched = data.plugins && data.plugins.scheduler;
       const busy = (sched && sched.phase && sched.phase !== 'idle' && sched.phase !== 'disabled')
         || (tSched && tSched.running);
       schedulePoll(busy);
@@ -904,6 +1209,16 @@ function dashboardHtml(): string {
     authToken = null;
     sessionStorage.removeItem('dashboard_token');
   }
+
+  window.loginDashboard = async function() {
+    const token = await getToken('manage plugins');
+    if (token) refresh();
+  };
+
+  window.logoutDashboard = function() {
+    clearAuthToken();
+    refresh();
+  };
 
   async function getToken(actionLabel) {
     if (authToken) return authToken;
@@ -946,6 +1261,7 @@ function dashboardHtml(): string {
       if (res.status === 401) {
         clearAuthToken();
         alert('Session expired, please try again');
+        refresh();
         btn.disabled = false;
         return;
       }
@@ -983,6 +1299,7 @@ function dashboardHtml(): string {
       if (res.status === 401) {
         clearAuthToken();
         alert('Session expired, please try again');
+        refresh();
         return;
       }
       const data = await res.json();
@@ -998,22 +1315,71 @@ function dashboardHtml(): string {
     }
   };
 
-  window.triggerTransform = async function(id) {
-    const token = await getToken('trigger transform');
+  window.installPlugin = async function() {
+    const input = $('plugin-install-url');
+    const button = $('plugin-install-btn');
+    if (!input) return;
+
+    const sourceUrl = input.value.trim();
+    if (!sourceUrl) {
+      alert('Enter a plugin repository URL');
+      return;
+    }
+
+    const token = await getToken('install plugin');
     if (!token) return;
+    if (button) button.disabled = true;
+
     try {
-      const res = await fetch('/transforms/' + id + '/trigger', {
+      const res = await fetch('/plugins/install', {
         method: 'POST',
-        headers: { 'Authorization': 'Bearer ' + token },
+        headers: {
+          'Authorization': 'Bearer ' + token,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ source_url: sourceUrl, trust: true }),
       });
       if (res.status === 401) {
         clearAuthToken();
         alert('Session expired, please try again');
+        refresh();
         return;
       }
       const data = await res.json();
       if (!res.ok) {
-        alert(data.error || 'Failed to trigger transform');
+        alert(data.error || 'Failed to install plugin');
+        return;
+      }
+      input.value = '';
+      refresh();
+    } catch (e) {
+      alert('Error: ' + e.message);
+    } finally {
+      if (button) button.disabled = false;
+    }
+  };
+
+  window.toggleRestrictedMode = async function(enabled) {
+    const token = await getToken(enabled ? 'enable restricted mode' : 'disable restricted mode');
+    if (!token) return;
+    try {
+      const res = await fetch('/plugins/restricted-mode', {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer ' + token,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ enabled }),
+      });
+      if (res.status === 401) {
+        clearAuthToken();
+        alert('Session expired, please try again');
+        refresh();
+        return;
+      }
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || 'Failed to update restricted mode');
         return;
       }
       refresh();
@@ -1022,22 +1388,115 @@ function dashboardHtml(): string {
     }
   };
 
-  window.toggleTransform = async function(id, enabled) {
-    const token = await getToken(enabled ? 'enable transform' : 'disable transform');
+  window.triggerPlugin = async function(id) {
+    const token = await getToken('run plugin');
     if (!token) return;
     try {
-      const res = await fetch('/transforms/' + id + '/' + (enabled ? 'enable' : 'disable'), {
+      const res = await fetch('/plugins/' + id + '/run', {
         method: 'POST',
         headers: { 'Authorization': 'Bearer ' + token },
       });
       if (res.status === 401) {
         clearAuthToken();
         alert('Session expired, please try again');
+        refresh();
         return;
       }
       const data = await res.json();
       if (!res.ok) {
-        alert(data.error || 'Failed to update transform');
+        alert(data.error || 'Failed to run plugin');
+        return;
+      }
+      refresh();
+    } catch (e) {
+      alert('Error: ' + e.message);
+    }
+  };
+
+  window.togglePlugin = async function(id, enabled) {
+    const token = await getToken(enabled ? 'enable plugin' : 'disable plugin');
+    if (!token) return;
+    try {
+      const res = await fetch('/plugins/' + id + '/' + (enabled ? 'enable' : 'disable'), {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + token },
+      });
+      if (res.status === 401) {
+        clearAuthToken();
+        alert('Session expired, please try again');
+        refresh();
+        return;
+      }
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || 'Failed to update plugin');
+        return;
+      }
+      refresh();
+    } catch (e) {
+      alert('Error: ' + e.message);
+    }
+  };
+
+  window.updatePlugin = async function(id) {
+    const token = await getToken('update plugin');
+    if (!token) return;
+    try {
+      let res = await fetch('/plugins/' + id + '/update', {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer ' + token,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({}),
+      });
+      let data = await res.json();
+      if (res.status === 401) {
+        clearAuthToken();
+        alert('Session expired, please try again');
+        refresh();
+        return;
+      }
+      if (res.status === 409 && /approval required/i.test(data.error || '')) {
+        if (!confirm('This plugin update asks for additional permissions. Continue?')) return;
+        res = await fetch('/plugins/' + id + '/update', {
+          method: 'POST',
+          headers: {
+            'Authorization': 'Bearer ' + token,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ approve_permission_changes: true }),
+        });
+        data = await res.json();
+      }
+      if (!res.ok) {
+        alert(data.error || 'Failed to update plugin');
+        return;
+      }
+      refresh();
+    } catch (e) {
+      alert('Error: ' + e.message);
+    }
+  };
+
+  window.uninstallPlugin = async function(id) {
+    if (!confirm('Uninstall this plugin?')) return;
+    const token = await getToken('uninstall plugin');
+    if (!token) return;
+    try {
+      const res = await fetch('/plugins/' + id, {
+        method: 'DELETE',
+        headers: { 'Authorization': 'Bearer ' + token },
+      });
+      if (res.status === 401) {
+        clearAuthToken();
+        alert('Session expired, please try again');
+        refresh();
+        return;
+      }
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || 'Failed to uninstall plugin');
         return;
       }
       refresh();

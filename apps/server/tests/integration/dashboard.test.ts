@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createTestEnv, req, type TestEnv } from '../helpers/setup.js';
-import { createTransformTables } from '../../src/db/transformSchema.js';
+import { createPluginTables } from '../../src/db/pluginSchema.js';
 import { getDb } from '../../src/db/index.js';
+import { loadConfig } from '../../src/config.js';
+import { syncBuiltinPlugins } from '../../src/plugins/loader.js';
 
 describe('Dashboard', () => {
   let env: TestEnv;
@@ -31,11 +33,8 @@ describe('Dashboard', () => {
     expect(scriptMatch).toBeTruthy();
 
     // Check that escaped quotes in onclick handlers are correct
-    // In the rendered HTML, onclick handlers should use \' not bare '
-    // The renderTransforms function builds onclick="triggerTransform('...')"
-    // which requires escaped single quotes inside the JS string literals
-    expect(html).not.toContain("triggerTransform('' +");
-    expect(html).not.toContain("toggleTransform('' +");
+    expect(html).not.toContain("triggerPlugin('' +");
+    expect(html).not.toContain("togglePlugin('' +");
   });
 
   it('GET /dashboard/status returns valid JSON with search section', async () => {
@@ -50,29 +49,28 @@ describe('Dashboard', () => {
     expect(data).toHaveProperty('uptime_seconds');
   });
 
-  it('GET /dashboard/status includes transforms when enabled', async () => {
-    // Enable transforms via env
-    process.env.TRANSFORMS_ENABLED = 'true';
-    // Need a fresh app to pick up config change
+  it('GET /dashboard/status includes plugins when enabled', async () => {
+    process.env.PLUGINS_ENABLED = 'true';
     env.cleanup();
     env = createTestEnv();
-    createTransformTables(getDb());
+    createPluginTables(getDb());
+    syncBuiltinPlugins(getDb(), loadConfig());
 
     const res = await req(env.app, 'GET', '/dashboard/status');
     expect(res.status).toBe(200);
     const data = await res.json() as Record<string, unknown>;
 
-    expect(data).toHaveProperty('transforms');
-    const transforms = data.transforms as Record<string, unknown>;
-    expect(transforms).toHaveProperty('transforms');
-    expect(transforms).toHaveProperty('model');
-    expect(transforms).toHaveProperty('scheduler');
+    expect(data).toHaveProperty('plugins');
+    const plugins = data.plugins as Record<string, unknown>;
+    expect(plugins).toHaveProperty('plugins');
+    expect(plugins).toHaveProperty('model');
+    expect(plugins).toHaveProperty('scheduler');
 
-    delete process.env.TRANSFORMS_ENABLED;
+    delete process.env.PLUGINS_ENABLED;
   });
 
-  it('GET /dashboard/status returns transforms: null when disabled', async () => {
-    process.env.TRANSFORMS_ENABLED = 'false';
+  it('GET /dashboard/status returns plugins: null when disabled', async () => {
+    process.env.PLUGINS_ENABLED = 'false';
     env.cleanup();
     env = createTestEnv();
 
@@ -80,6 +78,7 @@ describe('Dashboard', () => {
     expect(res.status).toBe(200);
     const data = await res.json() as Record<string, unknown>;
 
+    expect(data.plugins).toBeNull();
     expect(data.transforms).toBeNull();
   });
 });

@@ -24,6 +24,7 @@ export function createTestEnv(): TestEnv {
   const tmpDir = mkdtempSync(path.join(os.tmpdir(), 'futo-test-'));
   const dbPath = path.join(tmpDir, 'test.db');
   const notesDir = path.join(tmpDir, 'notes');
+  const pluginsDir = path.join(tmpDir, 'plugins');
 
   initDb(dbPath);
   createSearchTables(getDb());
@@ -32,6 +33,7 @@ export function createTestEnv(): TestEnv {
   // Override config for test — set env vars before creating app
   process.env.DATABASE_PATH = dbPath;
   process.env.NOTES_PATH = notesDir;
+  process.env.PLUGINS_PATH = pluginsDir;
 
   const app = createApp();
 
@@ -45,6 +47,7 @@ export function createTestEnv(): TestEnv {
       rmSync(tmpDir, { recursive: true, force: true });
       delete process.env.DATABASE_PATH;
       delete process.env.NOTES_PATH;
+      delete process.env.PLUGINS_PATH;
     },
   };
 }

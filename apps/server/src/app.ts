@@ -12,9 +12,9 @@ import dev from './routes/dev.js';
 import search from './routes/search.js';
 import dashboard from './routes/dashboard.js';
 import reset from './routes/reset.js';
-import transforms from './routes/transforms.js';
+import plugins from './routes/plugins.js';
 import { recordActivity } from './search/scheduler.js';
-import { recordTransformActivity } from './transforms/scheduler.js';
+import { recordPluginActivity } from './plugins/scheduler.js';
 
 export function createApp(): Hono {
   const app = new Hono();
@@ -24,7 +24,7 @@ export function createApp(): Hono {
   app.use('*', async (c, next) => {
     if (c.req.path !== '/health') {
       recordActivity();
-      recordTransformActivity();
+      recordPluginActivity();
     }
     const start = Date.now();
     await next();
@@ -53,9 +53,9 @@ export function createApp(): Hono {
     app.route('/', search);
   }
 
-  // Transform routes (only when transforms are enabled)
-  if (config.transformsEnabled) {
-    app.route('/', transforms);
+  // Plugin routes (only when plugins are enabled)
+  if (config.pluginsEnabled) {
+    app.route('/', plugins);
   }
 
   // Dev-only routes (nuke, etc.)

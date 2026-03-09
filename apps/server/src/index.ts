@@ -8,6 +8,7 @@ import { hashPassword } from './auth/password.js';
 import { createApp } from './app.js';
 import { reconcile } from './sync/recovery.js';
 import { log } from './logger.js';
+import { ensurePluginDirectories } from './plugins/loader.js';
 
 function getLanAddress(): string | undefined {
   for (const addrs of Object.values(os.networkInterfaces())) {
@@ -23,6 +24,7 @@ log.info(`config: port=${config.port} db=${config.databasePath} notes=${config.n
 
 // Ensure notes directory exists
 fs.mkdirSync(config.notesPath, { recursive: true });
+ensurePluginDirectories(config);
 
 // Initialize database
 initDb(config.databasePath);
@@ -68,14 +70,17 @@ if (config.searchEnabled) {
   startSearchScheduler(config);
 }
 
-// Conditional transforms init
-if (config.transformsEnabled) {
-  log.info('transforms: enabled — initializing tables and scheduler');
-  const { createTransformTables } = await import('./db/transformSchema.js');
-  createTransformTables(getDb());
+// Conditional plugins init
+if (config.pluginsEnabled) {
+  log.info('plugins: enabled — initializing tables and scheduler');
+  const { createPluginTables } = await import('./db/pluginSchema.js');
+  createPluginTables(getDb());
 
-  const { startTransformScheduler } = await import('./transforms/scheduler.js');
-  startTransformScheduler(config);
+  const { syncBuiltinPlugins } = await import('./plugins/loader.js');
+  syncBuiltinPlugins(getDb(), config);
+
+  const { startPluginScheduler } = await import('./plugins/scheduler.js');
+  startPluginScheduler(config);
 }
 
 // Create and start server

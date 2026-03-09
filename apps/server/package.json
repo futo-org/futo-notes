@@ -18,7 +18,8 @@
     "better-sqlite3": "^11.0.0",
     "hono": "^4.0.0",
     "node-llama-cpp": "^3.0.0",
-    "sqlite-vec": "^0.1.0"
+    "sqlite-vec": "^0.1.0",
+    "yaml": "^2.8.2"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.0.0",
