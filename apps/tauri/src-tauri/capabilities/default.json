@@ -11,6 +11,7 @@
     "dialog:allow-save",
     "dialog:allow-open",
     "process:allow-restart",
-    "clipboard-manager:allow-write-text"
+    "clipboard-manager:allow-write-text",
+    "opener:default"
   ]
 }

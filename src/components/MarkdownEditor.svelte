@@ -15,8 +15,9 @@
   import { tableRendering } from '$lib/tableRenderingField';
   import { liveMarkdownTransform, preloadImages } from '$lib/liveMarkdownTransform';
   import { getImageWebPath } from '$lib/fileSystem';
-  import { hasFileSystem } from '$lib/platform';
+  import { hasFileSystem, isTauri } from '$lib/platform';
   import { toggleBold, toggleItalic, toggleStrikethrough, isListLine } from '$lib/markdownToolbar';
+  import { openUrl } from '$lib/openUrl';
 
   interface Props {
     content?: string;
@@ -94,10 +95,7 @@
   }
 
   function openExternalUrl(url: string): void {
-    const opened = window.open(url, '_blank', 'noopener,noreferrer');
-    if (!opened) {
-      window.location.href = url;
-    }
+    openUrl(url);
   }
 
   const linkClickHandler = EditorView.domEventHandlers({

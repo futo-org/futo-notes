@@ -1,4 +1,5 @@
 import { WidgetType, EditorView } from '@codemirror/view';
+import { openUrl } from '$lib/openUrl';
 
 export interface TableCell {
   content: string;
@@ -243,7 +244,10 @@ export class TableWidget extends WidgetType {
       if (e.detail === 0) return;
 
       const target = e.target as HTMLElement | null;
-      if (target?.closest('a.cm-md-table-link')) {
+      const link = target?.closest('a.cm-md-table-link') as HTMLAnchorElement | null;
+      if (link) {
+        e.preventDefault();
+        openUrl(link.href);
         return;
       }
 
