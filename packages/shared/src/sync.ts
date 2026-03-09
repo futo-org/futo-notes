@@ -10,6 +10,25 @@ export interface SyncRequest {
   deleted_uuids: string[];
 }
 
+export interface InventoryItem {
+  uuid: string;
+  content_hash: string;
+  filename: string;
+  modified_at: number;
+}
+
+/** V2 sync request — sends compact inventory instead of all_uuids. */
+export interface SyncRequestV2 {
+  /** Only notes that changed client-side (content_hash !== hash_at_last_sync). */
+  notes: NoteSyncMeta[];
+  /** All UUIDs with their current hashes — server uses to detect its own changes. */
+  inventory: InventoryItem[];
+  /** UUIDs the client has deleted since last sync. */
+  deleted_uuids: string[];
+  /** Last-seen sync version from server. */
+  version?: number;
+}
+
 export interface SyncResponse {
   /** Notes the client should create or update. */
   update: NoteSyncMeta[];
@@ -24,6 +43,19 @@ export interface SyncResponse {
     client_filename: string;
     client_content: string;
   }[];
+  /** Monotonic version — client stores this and uses /sync/check to skip no-op syncs. */
+  version?: number;
+}
+
+// ── Sync Check ────────────────────────────────────────
+
+export interface SyncCheckRequest {
+  version: number;
+}
+
+export interface SyncCheckResponse {
+  status: 'up_to_date' | 'changes_available';
+  version: number;
 }
 
 // ── Auth ───────────────────────────────────────────────

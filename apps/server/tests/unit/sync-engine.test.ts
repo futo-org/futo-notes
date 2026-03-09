@@ -6,7 +6,7 @@ import { contentHash } from '../../src/sync/hash.js';
 import { upsertNote, getNote } from '../../src/db/notes.js';
 import { writeNoteFile, readNoteFile } from '../../src/sync/files.js';
 import { createTombstone } from '../../src/db/tombstones.js';
-import type { SyncRequest } from '@futo-notes/shared';
+
 import { statSync } from 'node:fs';
 import path from 'node:path';
 
@@ -23,7 +23,7 @@ describe('sync engine', () => {
 
   it('handles empty sync (no notes on either side)', () => {
     const db = getDb();
-    const result = processSync(db, env.notesDir, {
+    const { response: result } = processSync(db, env.notesDir, {
       notes: [],
       all_uuids: [],
       deleted_uuids: [],
@@ -40,7 +40,7 @@ describe('sync engine', () => {
     const content = '# Hello\nWorld';
     const hash = contentHash(content);
 
-    const result = processSync(db, env.notesDir, {
+    const { response: result } = processSync(db, env.notesDir, {
       notes: [
         {
           uuid: 'u1',
@@ -91,7 +91,7 @@ describe('sync engine', () => {
     writeNoteFile(env.notesDir, 'server.md', content);
     upsertNote(db, 's1', 'server.md', hash, Date.now());
 
-    const result = processSync(db, env.notesDir, {
+    const { response: result } = processSync(db, env.notesDir, {
       notes: [],
       all_uuids: [],
       deleted_uuids: [],
@@ -112,7 +112,7 @@ describe('sync engine', () => {
     const newContent = 'new content';
     const newHash = contentHash(newContent);
 
-    const result = processSync(db, env.notesDir, {
+    const { response: result } = processSync(db, env.notesDir, {
       notes: [
         {
           uuid: 'u1',
@@ -139,7 +139,7 @@ describe('sync engine', () => {
     writeNoteFile(env.notesDir, 'note.md', serverContent);
     upsertNote(db, 'u1', 'note.md', serverHash, Date.now());
 
-    const result = processSync(db, env.notesDir, {
+    const { response: result } = processSync(db, env.notesDir, {
       notes: [
         {
           uuid: 'u1',
@@ -169,7 +169,7 @@ describe('sync engine', () => {
     const clientContent = 'client version';
     const clientHash = contentHash(clientContent);
 
-    const result = processSync(db, env.notesDir, {
+    const { response: result } = processSync(db, env.notesDir, {
       notes: [
         {
           uuid: 'u1',
@@ -203,7 +203,7 @@ describe('sync engine', () => {
     writeNoteFile(env.notesDir, 'bye.md', 'content');
     upsertNote(db, 'd1', 'bye.md', contentHash('content'), Date.now());
 
-    const result = processSync(db, env.notesDir, {
+    const { response: result } = processSync(db, env.notesDir, {
       notes: [],
       all_uuids: [],
       deleted_uuids: ['d1'],
@@ -217,7 +217,7 @@ describe('sync engine', () => {
     const db = getDb();
     createTombstone(db, 'dead');
 
-    const result = processSync(db, env.notesDir, {
+    const { response: result } = processSync(db, env.notesDir, {
       notes: [],
       all_uuids: ['dead'],
       deleted_uuids: [],
@@ -230,7 +230,7 @@ describe('sync engine', () => {
     const db = getDb();
     createTombstone(db, 'dead');
 
-    const result = processSync(db, env.notesDir, {
+    const { response: result } = processSync(db, env.notesDir, {
       notes: [
         {
           uuid: 'dead',
@@ -257,7 +257,7 @@ describe('sync engine', () => {
     writeNoteFile(env.notesDir, 'old name.md', content);
     upsertNote(db, 'u1', 'old name.md', hash, T0);
 
-    const result = processSync(db, env.notesDir, {
+    const { response: result } = processSync(db, env.notesDir, {
       notes: [
         {
           uuid: 'u1',
@@ -296,7 +296,7 @@ describe('sync engine', () => {
     const newContent = 'new stuff';
     const newHash = contentHash(newContent);
 
-    const result = processSync(db, env.notesDir, {
+    const { response: result } = processSync(db, env.notesDir, {
       notes: [
         {
           uuid: 'u1',
@@ -329,7 +329,7 @@ describe('sync engine', () => {
     const c1 = '# Note 1';
     const c2 = '# Note 2';
 
-    const result = processSync(db, env.notesDir, {
+    const { response: result } = processSync(db, env.notesDir, {
       notes: [
         {
           uuid: 'u1',
@@ -368,7 +368,7 @@ describe('sync engine', () => {
     upsertNote(db, 'u1', 'grocery list.md', hash, T0);
 
     // Client A syncs with renamed filename (newer timestamp from rename)
-    const resultA = processSync(db, env.notesDir, {
+    const { response: resultA } = processSync(db, env.notesDir, {
       notes: [{
         uuid: 'u1',
         filename: 'shopping list.md',
@@ -386,7 +386,7 @@ describe('sync engine', () => {
     expect(readNoteFile(env.notesDir, 'grocery list.md')).toBeNull();
 
     // Client B syncs with OLD filename (older timestamp — hasn't been modified)
-    const resultB = processSync(db, env.notesDir, {
+    const { response: resultB } = processSync(db, env.notesDir, {
       notes: [{
         uuid: 'u1',
         filename: 'grocery list.md',
@@ -429,7 +429,7 @@ describe('sync engine', () => {
     });
 
     // Client B syncs with old name (older timestamp) — gets update
-    const r2 = processSync(db, env.notesDir, {
+    const { response: r2 } = processSync(db, env.notesDir, {
       notes: [{
         uuid: 'u1', filename: 'old.md', modified_at: T0,
         content_hash: hash, hash_at_last_sync: hash,
@@ -440,7 +440,7 @@ describe('sync engine', () => {
     expect(r2.update).toHaveLength(1);
 
     // Client B syncs again after receiving the rename (now matches server)
-    const r3 = processSync(db, env.notesDir, {
+    const { response: r3 } = processSync(db, env.notesDir, {
       notes: [{
         uuid: 'u1', filename: 'new.md', modified_at: T0 + 5000,
         content_hash: hash, hash_at_last_sync: hash,
@@ -452,7 +452,7 @@ describe('sync engine', () => {
     expect(r3.hash_updates).toHaveLength(0);
 
     // Client A syncs again — also no changes
-    const r4 = processSync(db, env.notesDir, {
+    const { response: r4 } = processSync(db, env.notesDir, {
       notes: [{
         uuid: 'u1', filename: 'new.md', modified_at: T0 + 5000,
         content_hash: hash, hash_at_last_sync: hash,
@@ -484,7 +484,7 @@ describe('sync engine', () => {
     });
 
     // Client B renames at T0+5s (later) — should win
-    const resultB = processSync(db, env.notesDir, {
+    const { response: resultB } = processSync(db, env.notesDir, {
       notes: [{
         uuid: 'u1', filename: 'name-from-B.md', modified_at: T0 + 5000,
         content_hash: hash, hash_at_last_sync: hash,
@@ -498,7 +498,7 @@ describe('sync engine', () => {
     expect(readNoteFile(env.notesDir, 'name-from-A.md')).toBeNull();
 
     // Client A syncs again — should get B's name
-    const resultA2 = processSync(db, env.notesDir, {
+    const { response: resultA2 } = processSync(db, env.notesDir, {
       notes: [{
         uuid: 'u1', filename: 'name-from-A.md', modified_at: T0 + 3000,
         content_hash: hash, hash_at_last_sync: hash,

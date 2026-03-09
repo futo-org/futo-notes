@@ -95,7 +95,7 @@ export async function waitForSyncIdle(): Promise<void> {
 export async function requestSync(): Promise<void> {
   if (!isSyncConfigured()) throw new Error('Sync not configured');
   if (!callbacks) throw new Error('Sync system not initialized');
-  if (syncing) throw new Error('Sync already in progress');
+  if (syncing) await waitForSyncIdle();
   if (!isSSEConnected()) connectSSE();
   await performSync('manual', { propagateErrors: true, requireExecution: true });
 }

@@ -1,23 +1,74 @@
 import type Database from 'better-sqlite3';
-import type { SyncRequest, SyncResponse } from '@futo-notes/shared';
-import { getNote, getAllNotes, upsertNote, deleteNote } from '../db/notes.js';
-import { getTombstone, createTombstone, getAllTombstones } from '../db/tombstones.js';
+import type { SyncRequest, SyncResponse, InventoryItem } from '@futo-notes/shared';
+import type { NoteRow } from '../db/notes.js';
+import { getAllNotes, upsertNote, deleteNote } from '../db/notes.js';
+import { getAllTombstones, createTombstone } from '../db/tombstones.js';
 import {
   sanitizeFilename,
-  resolveFilename,
-  conflictFilename,
   writeNoteFile,
   readNoteFile,
   deleteNoteFile,
 } from './files.js';
 import { contentHash } from './hash.js';
+import { getSyncVersion, incrementSyncVersion } from '../db/syncVersion.js';
 import { log } from '../logger.js';
 
+// ── In-memory filename resolution (Phase 2) ─────────────
+
+function resolveFilenameInMemory(
+  filenameIndex: Map<string, string>,
+  sanitized: string,
+  uuid: string,
+): string {
+  const ext = '.md';
+  const base = sanitized.slice(0, -ext.length);
+  let candidate = sanitized;
+  let counter = 1;
+  while (true) {
+    const existing = filenameIndex.get(candidate);
+    if (!existing || existing === uuid) break;
+    counter++;
+    candidate = `${base} (${counter})${ext}`;
+  }
+  return candidate;
+}
+
+function conflictFilenameInMemory(
+  filenameIndex: Map<string, string>,
+  originalFilename: string,
+  uuid: string,
+): string {
+  const ext = '.md';
+  const base = originalFilename.endsWith(ext)
+    ? originalFilename.slice(0, -ext.length)
+    : originalFilename;
+  const date = new Date().toISOString().split('T')[0];
+  let candidate = `${base} (conflict ${date})${ext}`;
+  let counter = 1;
+  while (filenameIndex.has(candidate) && filenameIndex.get(candidate) !== uuid) {
+    counter++;
+    candidate = `${base} (conflict ${date} ${counter})${ext}`;
+  }
+  return candidate;
+}
+
+// ── Sync engine ──────────────────────────────────────────
+
+export interface ProcessSyncResult {
+  response: SyncResponse;
+  version: number;
+}
+
+/**
+ * Process a sync request. Supports both V1 (all_uuids) and V2 (inventory) formats.
+ * Pass `inventory` for V2 requests; omit for V1.
+ */
 export function processSync(
   db: Database.Database,
   notesDir: string,
   req: SyncRequest,
-): SyncResponse {
+  inventory?: InventoryItem[],
+): ProcessSyncResult {
   const response: SyncResponse = {
     update: [],
     delete: [],
@@ -25,52 +76,104 @@ export function processSync(
     conflicts: [],
   };
 
-  const clientUuidSet = new Set(req.all_uuids);
+  let mutated = false;
 
-  // Everything runs in a transaction
+  // Build client UUID set from inventory (V2) or all_uuids (V1)
+  const clientUuidSet = inventory
+    ? new Set(inventory.map((i) => i.uuid))
+    : new Set(req.all_uuids);
+
+  // Also include UUIDs from notes[] that might not be in all_uuids/inventory
+  for (const note of req.notes) {
+    clientUuidSet.add(note.uuid);
+  }
+
+  let version = 0;
+
   const run = db.transaction(() => {
+    // Phase 2: Bulk load everything into memory (2 queries instead of ~6000)
+    const allNotes = new Map<string, NoteRow>(
+      getAllNotes(db).map((n) => [n.uuid, n]),
+    );
+    const tombstoneSet = new Set(
+      getAllTombstones(db).map((t) => t.uuid),
+    );
+
+    // Build filename→uuid index for in-memory collision detection
+    const filenameIndex = new Map<string, string>();
+    for (const [uuid, note] of allNotes) {
+      filenameIndex.set(note.filename, uuid);
+    }
+
+    // Helpers that keep DB + in-memory state in sync
+    function trackUpsert(uuid: string, filename: string, hash: string, modifiedAt: number): void {
+      const oldNote = allNotes.get(uuid);
+      if (oldNote && oldNote.filename !== filename) {
+        filenameIndex.delete(oldNote.filename);
+      }
+      upsertNote(db, uuid, filename, hash, modifiedAt);
+      allNotes.set(uuid, { uuid, filename, content_hash: hash, modified_at: modifiedAt, created_at: '' });
+      filenameIndex.set(filename, uuid);
+      mutated = true;
+    }
+
+    function trackDelete(uuid: string): void {
+      const note = allNotes.get(uuid);
+      if (note) {
+        filenameIndex.delete(note.filename);
+        allNotes.delete(uuid);
+      }
+      deleteNote(db, uuid);
+      mutated = true;
+    }
+
     // ── 1. Process client deletions ───────────────────────
     for (const uuid of req.deleted_uuids) {
-      const existing = getNote(db, uuid);
+      const existing = allNotes.get(uuid);
       if (existing) {
         deleteNoteFile(notesDir, existing.filename);
-        deleteNote(db, uuid);
+        trackDelete(uuid);
       }
-      createTombstone(db, uuid);
+      if (!tombstoneSet.has(uuid)) {
+        createTombstone(db, uuid);
+        tombstoneSet.add(uuid);
+        mutated = true;
+      }
     }
 
     // ── 2. Propagate server deletions ────────────────────
-    const tombstones = getAllTombstones(db);
-    for (const ts of tombstones) {
-      if (clientUuidSet.has(ts.uuid)) {
-        response.delete.push(ts.uuid);
+    for (const uuid of tombstoneSet) {
+      if (clientUuidSet.has(uuid)) {
+        response.delete.push(uuid);
       }
     }
 
-    // ── 3. Process each client note ──────────────────────
+    // ── 3. Process client notes (with full metadata) ─────
+    const notesUuidSet = new Set(req.notes.map((n) => n.uuid));
+
     for (const clientNote of req.notes) {
       // Skip if we just tombstoned it
       if (req.deleted_uuids.includes(clientNote.uuid)) continue;
 
       // If tombstoned on server, tell client to delete
-      if (getTombstone(db, clientNote.uuid)) {
+      if (tombstoneSet.has(clientNote.uuid)) {
         if (!response.delete.includes(clientNote.uuid)) {
           response.delete.push(clientNote.uuid);
         }
         continue;
       }
 
-      const serverNote = getNote(db, clientNote.uuid);
+      const serverNote = allNotes.get(clientNote.uuid);
 
       if (!serverNote) {
         // New note from client — store it
         const safeName = sanitizeFilename(clientNote.filename);
-        const finalName = resolveFilename(db, safeName, clientNote.uuid);
+        const finalName = resolveFilenameInMemory(filenameIndex, safeName, clientNote.uuid);
         const content = clientNote.content ?? '';
         const hash = contentHash(content);
 
         writeNoteFile(notesDir, finalName, content, clientNote.modified_at);
-        upsertNote(db, clientNote.uuid, finalName, hash, clientNote.modified_at);
+        trackUpsert(clientNote.uuid, finalName, hash, clientNote.modified_at);
         response.hash_updates.push({ uuid: clientNote.uuid, hash_at_last_sync: hash });
         continue;
       }
@@ -82,17 +185,17 @@ export function processSync(
       if (clientHash === lastSync && serverHash === lastSync) {
         // No changes on either side — but check for filename changes
         const safeName = sanitizeFilename(clientNote.filename);
-        const finalName = resolveFilename(db, safeName, clientNote.uuid);
+        const finalName = resolveFilenameInMemory(filenameIndex, safeName, clientNote.uuid);
         if (finalName !== serverNote.filename) {
           if (clientNote.modified_at >= serverNote.modified_at) {
             // Client renamed more recently — accept client's filename
             const content = readNoteFile(notesDir, serverNote.filename) ?? '';
             deleteNoteFile(notesDir, serverNote.filename);
             writeNoteFile(notesDir, finalName, content, clientNote.modified_at);
-            upsertNote(db, clientNote.uuid, finalName, serverHash, clientNote.modified_at);
+            trackUpsert(clientNote.uuid, finalName, serverHash, clientNote.modified_at);
             response.hash_updates.push({ uuid: clientNote.uuid, hash_at_last_sync: serverHash });
           } else {
-            // Server's filename is newer (from another client's rename) — send to this client
+            // Server's filename is newer — send to this client
             const content = readNoteFile(notesDir, serverNote.filename);
             if (content !== null) {
               response.update.push({
@@ -112,7 +215,7 @@ export function processSync(
       if (clientHash !== lastSync && serverHash === lastSync) {
         // Client changed, server unchanged — accept client version
         const safeName = sanitizeFilename(clientNote.filename);
-        const finalName = resolveFilename(db, safeName, clientNote.uuid);
+        const finalName = resolveFilenameInMemory(filenameIndex, safeName, clientNote.uuid);
         const content = clientNote.content ?? '';
         const hash = contentHash(content);
 
@@ -121,7 +224,7 @@ export function processSync(
           deleteNoteFile(notesDir, serverNote.filename);
         }
         writeNoteFile(notesDir, finalName, content, clientNote.modified_at);
-        upsertNote(db, clientNote.uuid, finalName, hash, clientNote.modified_at);
+        trackUpsert(clientNote.uuid, finalName, hash, clientNote.modified_at);
         response.hash_updates.push({ uuid: clientNote.uuid, hash_at_last_sync: hash });
         continue;
       }
@@ -144,7 +247,7 @@ export function processSync(
 
       // Both changed — conflict
       // Server keeps its version. Save client's version as a conflict copy.
-      const conflictName = conflictFilename(db, clientNote.filename, clientNote.uuid);
+      const conflictName = conflictFilenameInMemory(filenameIndex, clientNote.filename, clientNote.uuid);
       const clientContent = clientNote.content ?? '';
       const conflictModifiedAt = Date.now();
       writeNoteFile(notesDir, conflictName, clientContent, conflictModifiedAt);
@@ -152,7 +255,7 @@ export function processSync(
       // Create a new note entry for the conflict copy
       const conflictUuid = crypto.randomUUID();
       const conflictHash = contentHash(clientContent);
-      upsertNote(db, conflictUuid, conflictName, conflictHash, conflictModifiedAt);
+      trackUpsert(conflictUuid, conflictName, conflictHash, conflictModifiedAt);
 
       response.conflicts.push({
         uuid: clientNote.uuid,
@@ -175,13 +278,69 @@ export function processSync(
       }
     }
 
+    // ── 3b. Process inventory-only entries (V2) ──────────
+    if (inventory) {
+      for (const item of inventory) {
+        // Skip if already processed as a note with content
+        if (notesUuidSet.has(item.uuid)) continue;
+        // Skip if in deleted_uuids
+        if (req.deleted_uuids.includes(item.uuid)) continue;
+        // Skip if tombstoned (already handled in section 2)
+        if (tombstoneSet.has(item.uuid)) continue;
+
+        const serverNote = allNotes.get(item.uuid);
+        if (!serverNote) continue; // Client has it, server doesn't — skip
+
+        if (serverNote.content_hash !== item.content_hash) {
+          // Server changed, client unchanged → send server version
+          const content = readNoteFile(notesDir, serverNote.filename);
+          if (content !== null) {
+            response.update.push({
+              uuid: serverNote.uuid,
+              filename: serverNote.filename,
+              modified_at: serverNote.modified_at,
+              content_hash: serverNote.content_hash,
+              hash_at_last_sync: serverNote.content_hash,
+              content,
+            });
+          }
+        } else {
+          // Hashes match — check for filename rename
+          const safeName = sanitizeFilename(item.filename);
+          const finalName = resolveFilenameInMemory(filenameIndex, safeName, item.uuid);
+          if (finalName !== serverNote.filename) {
+            if (item.modified_at >= serverNote.modified_at) {
+              // Client renamed more recently — accept client's filename
+              const content = readNoteFile(notesDir, serverNote.filename) ?? '';
+              deleteNoteFile(notesDir, serverNote.filename);
+              writeNoteFile(notesDir, finalName, content, item.modified_at);
+              trackUpsert(item.uuid, finalName, serverNote.content_hash, item.modified_at);
+              response.hash_updates.push({ uuid: item.uuid, hash_at_last_sync: serverNote.content_hash });
+            } else {
+              // Server's filename is newer — send to client
+              const content = readNoteFile(notesDir, serverNote.filename);
+              if (content !== null) {
+                response.update.push({
+                  uuid: serverNote.uuid,
+                  filename: serverNote.filename,
+                  modified_at: serverNote.modified_at,
+                  content_hash: serverNote.content_hash,
+                  hash_at_last_sync: serverNote.content_hash,
+                  content,
+                });
+              }
+            }
+          }
+        }
+      }
+    }
+
     // ── 4. Server-only notes ─────────────────────────────
-    const allServerNotes = getAllNotes(db);
     const deletedUuids = new Set(req.deleted_uuids);
 
-    for (const serverNote of allServerNotes) {
-      if (clientUuidSet.has(serverNote.uuid)) continue;
-      if (deletedUuids.has(serverNote.uuid)) continue;
+    for (const [uuid, serverNote] of allNotes) {
+      if (clientUuidSet.has(uuid)) continue;
+      if (deletedUuids.has(uuid)) continue;
 
       const content = readNoteFile(notesDir, serverNote.filename);
       if (content !== null) {
@@ -195,12 +354,19 @@ export function processSync(
         });
       }
     }
+
+    // Phase 1: Version tracking
+    if (mutated) {
+      version = incrementSyncVersion(db);
+    } else {
+      version = getSyncVersion(db);
+    }
   });
 
   run();
 
   log.info(
-    `SYNC ↑${response.update.length} downloaded, ↓${req.notes.filter((n) => !req.deleted_uuids.includes(n.uuid)).length} received, ✗${response.conflicts.length} conflicts, 🗑${response.delete.length} deleted`,
+    `SYNC v${version} ↑${response.update.length} downloaded, ↓${req.notes.filter((n) => !req.deleted_uuids.includes(n.uuid)).length} received, ✗${response.conflicts.length} conflicts, 🗑${response.delete.length} deleted`,
   );
 
   for (const u of response.update) {
@@ -213,5 +379,5 @@ export function processSync(
     log.debug(`  ✗ conflict: ${conflict.server_filename} vs ${conflict.client_filename}`);
   }
 
-  return response;
+  return { response, version };
 }

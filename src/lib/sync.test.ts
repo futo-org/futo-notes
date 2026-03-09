@@ -188,12 +188,16 @@ describe('syncNow', () => {
     const [url, init] = mockFetch.mock.calls[0];
     expect(url).toBe('https://sync.example.com/sync');
     const body = JSON.parse(init.body);
+    // V2 format: notes[] has only changed notes, inventory[] has all notes
     expect(body.notes).toHaveLength(1);
     expect(body.notes[0].uuid).toBe('uuid-hello');
     expect(body.notes[0].filename).toBe('hello.md');
     expect(body.notes[0].modified_at).toBe(1700000000000);
     expect(body.notes[0].content).toBe('Hello content');
-    expect(body.all_uuids).toEqual(['uuid-hello']);
+    expect(body.inventory).toHaveLength(1);
+    expect(body.inventory[0].uuid).toBe('uuid-hello');
+    expect(body.inventory[0].content_hash).toBe('somehash');
+    expect(body.inventory[0].filename).toBe('hello.md');
     expect(body.deleted_uuids).toEqual([]);
   });
 

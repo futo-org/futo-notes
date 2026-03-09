@@ -8,6 +8,10 @@ export interface SyncState {
   deletedUuids: string[];
   /** Cache of content hashes by noteId, keyed on modificationTime to avoid re-reading unchanged files */
   hashCache?: Record<string, { modifiedAt: number; hash: string }>;
+  /** Monotonic server version — used to skip no-op syncs via /sync/check. */
+  serverVersion?: number;
+  /** Set when a local rename hasn't been synced yet (quick-check must not skip). */
+  hasPendingRenames?: boolean;
 }
 
 const DEFAULT_STATE: SyncState = {
@@ -65,7 +69,14 @@ function sanitizeState(raw: unknown): SyncState {
     }
   }
 
-  return { hashByUuid, uuidById, deletedUuids, hashCache };
+  const serverVersion = typeof obj.serverVersion === 'number' ? obj.serverVersion : undefined;
+  const hasPendingRenames = obj.hasPendingRenames === true ? true : undefined;
+
+  return {
+    hashByUuid, uuidById, deletedUuids, hashCache,
+    ...(serverVersion !== undefined ? { serverVersion } : {}),
+    ...(hasPendingRenames ? { hasPendingRenames } : {}),
+  };
 }
 
 export async function loadSyncState(): Promise<SyncState> {
@@ -119,6 +130,7 @@ export async function trackLocalRenameForSync(oldId: string, newId: string): Pro
   if (!uuid) return;
   state.uuidById[newId] = uuid;
   delete state.uuidById[oldId];
+  state.hasPendingRenames = true;
   await saveSyncState(state);
 }
 

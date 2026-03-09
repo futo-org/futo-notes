@@ -26,5 +26,11 @@ export function createTables(db: Database.Database): void {
       uuid TEXT PRIMARY KEY,
       deleted_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS sync_meta (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+    INSERT OR IGNORE INTO sync_meta (key, value) VALUES ('sync_version', '0');
   `);
 }

@@ -4,7 +4,7 @@ import { getCachedPreferences, savePreferences } from './preferences';
 import { findIdForUuid, loadSyncState, saveSyncState } from './syncState';
 import { getClientId } from './sseClient';
 import { applySyncDeltaRust, prepareSyncPayloadRust } from './rustCore';
-import { FALLBACK_TITLE, type HealthResponse, type LoginResponse, type SyncRequest, type SyncResponse } from '@futo-notes/shared';
+import { FALLBACK_TITLE, type HealthResponse, type LoginResponse, type SyncCheckResponse, type SyncResponse } from '@futo-notes/shared';
 
 export interface SyncSummary {
   uploaded: number;
@@ -126,23 +126,65 @@ export async function syncNow(): Promise<SyncSummary> {
   if (!serverUrl) throw new Error('Set a sync server URL first');
   if (!token) throw new Error('Connect to server first');
 
+  // Phase 1: Quick-check — skip full sync if nothing changed
   let state = await loadSyncState();
-  const outgoingByUuid = new Map<string, string>();
+  const serverVersion = state.serverVersion ?? 0;
 
-  // Prepare payload via Rust (parallel file I/O + native SHA-256)
+  // Only check if we've synced before (version > 0), have no local deletions or renames pending
+  if (serverVersion > 0 && state.deletedUuids.length === 0 && !state.hasPendingRenames) {
+    try {
+      const check = await authPost<SyncCheckResponse>(serverUrl, token, '/sync/check', { version: serverVersion });
+      if (check.status === 'up_to_date') {
+        // Still need to check if we have local changes
+        const prepared = await prepareSyncPayloadRust(state);
+        state = prepared.nextState;
+        const hasLocalChanges = prepared.notes.some((n) => n.content !== undefined);
+        if (!hasLocalChanges) {
+          await saveSyncState(state);
+          await clearSyncErrorAndSetTime();
+          return { uploaded: 0, downloaded: 0, deleted: 0, conflicts: 0, updatedIds: [], deletedIds: [] };
+        }
+        // Local changes exist — fall through to full sync with already-prepared payload
+        return await doFullSync(serverUrl, token, state, prepared);
+      }
+      // changes_available — fall through to full sync
+    } catch {
+      // /sync/check failed (old server?) — fall through to full sync
+    }
+  }
+
+  // Full sync
   const prepared = await prepareSyncPayloadRust(state);
   state = prepared.nextState;
-  const syncNotes: SyncRequest['notes'] = prepared.notes;
-  const allUuids = prepared.allUuids;
-  for (const note of syncNotes) {
+  return await doFullSync(serverUrl, token, state, prepared);
+}
+
+async function doFullSync(
+  serverUrl: string,
+  token: string,
+  state: import('./syncState').SyncState,
+  prepared: Awaited<ReturnType<typeof prepareSyncPayloadRust>>,
+): Promise<SyncSummary> {
+  const outgoingByUuid = new Map<string, string>();
+
+  // Build V2 payload: only send changed notes with content, compact inventory for the rest
+  const changedNotes = prepared.notes.filter((n) => n.content !== undefined);
+  const inventory = prepared.notes.map((n) => ({
+    uuid: n.uuid,
+    content_hash: n.content_hash,
+    filename: n.filename,
+    modified_at: n.modified_at,
+  }));
+
+  for (const note of prepared.notes) {
     outgoingByUuid.set(note.uuid, noteIdFromFilename(note.filename));
   }
 
   let response: SyncResponse;
   try {
     response = await authPost<SyncResponse>(serverUrl, token, '/sync', {
-      notes: syncNotes,
-      all_uuids: allUuids,
+      notes: changedNotes,
+      inventory,
       deleted_uuids: state.deletedUuids,
     }, { 'X-Client-Id': getClientId() });
   } catch (e) {
@@ -183,8 +225,14 @@ export async function syncNow(): Promise<SyncSummary> {
   }
 
   // Clear all deletions that were sent — the server has tombstoned them.
-  // Without this, deletedUuids accumulates forever and gets re-sent every sync.
   state.deletedUuids = [];
+
+  // Save server version for quick-check on next sync
+  if (typeof response.version === 'number') {
+    state.serverVersion = response.version;
+  }
+  // Clear rename flag — renames have been synced
+  delete state.hasPendingRenames;
 
   await saveSyncState(state);
   if (updatedIds.size > 0 || deletedIds.size > 0) {
