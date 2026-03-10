@@ -92,7 +92,6 @@ dashboard.get('/dashboard/status', async (c) => {
     setup_complete: isSetupComplete(db),
     search,
     plugins: pluginsStatus,
-    transforms: pluginsStatus,
     uptime_seconds: Math.floor((Date.now() - startedAt) / 1000),
   });
 });
@@ -749,9 +748,127 @@ function dashboardHtml(): string {
     padding-top: 0.25rem;
   }
 
+  .plugin-config-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.65rem;
+  }
+
+  .plugin-config-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+  }
+
+  .plugin-config-field label {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    font-weight: 600;
+  }
+
+  .plugin-config-field input,
+  .plugin-config-field select {
+    width: 100%;
+    padding: 0.45rem 0.55rem;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: white;
+    color: var(--text);
+    font: inherit;
+  }
+
+  .plugin-config-field input[type="checkbox"] {
+    width: auto;
+    padding: 0;
+  }
+
+  .plugin-run-list {
+    display: grid;
+    gap: 0.45rem;
+  }
+
+  .plugin-run-entry {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.55rem 0.65rem;
+    border-radius: 10px;
+    border: 1px solid rgba(28, 25, 23, 0.08);
+    background: white;
+  }
+
+  .plugin-run-entry-copy {
+    display: grid;
+    gap: 0.15rem;
+    font-size: 0.8rem;
+  }
+
+  .plugin-run-entry-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    flex-wrap: wrap;
+  }
+
+  .plugin-detail {
+    margin-top: 1rem;
+    border-top: 1px solid var(--surface);
+    padding-top: 1rem;
+    display: grid;
+    gap: 0.9rem;
+  }
+
+  .plugin-detail-section {
+    border: 1px solid rgba(28, 25, 23, 0.08);
+    border-radius: 12px;
+    background: white;
+    padding: 0.9rem;
+  }
+
+  .plugin-detail-section h3 {
+    font-size: 0.92rem;
+    margin-bottom: 0.65rem;
+  }
+
+  .plugin-run-items {
+    display: grid;
+    gap: 0.6rem;
+  }
+
+  .plugin-run-item {
+    border: 1px solid rgba(28, 25, 23, 0.08);
+    border-radius: 10px;
+    padding: 0.75rem;
+    display: grid;
+    gap: 0.45rem;
+    background: #FFFEFC;
+  }
+
+  .plugin-run-item-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+  }
+
+  .plugin-log-list {
+    display: grid;
+    gap: 0.4rem;
+    font-size: 0.8rem;
+  }
+
+  .plugin-log-entry {
+    display: grid;
+    gap: 0.2rem;
+    padding: 0.5rem 0.6rem;
+    border-radius: 8px;
+    background: #F8F4EE;
+  }
+
 
   @media (max-width: 760px) {
     .plugin-grid { grid-template-columns: 1fr; }
+    .plugin-config-grid { grid-template-columns: 1fr; }
   }
 
   @media (max-width: 480px) {
@@ -807,11 +924,7 @@ function dashboardHtml(): string {
 
   <!-- Plugins -->
   <div class="card" id="plugins-card" style="display:none">
-    <h2>Plugins</h2>
-    <div class="index-row" style="margin-bottom:0.75rem">
-      <input id="plugin-install-url" class="text-input" type="url" placeholder="https://github.com/example/my-plugin" spellcheck="false">
-      <button class="btn btn-primary" id="plugin-install-btn" onclick="installPlugin()">Install</button>
-    </div>
+    <h2>Automations</h2>
     <div id="plugins-content"><span class="loading">Loading...</span></div>
   </div>
 
@@ -1042,34 +1155,141 @@ function dashboardHtml(): string {
     return html;
   }
 
+  let activePluginRunId = null;
+  let activePluginRunDetail = null;
+
+  function dayLabel(day) {
+    return ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][day] || 'Day ' + day;
+  }
+
+  function scheduleSummary(schedule) {
+    if (!schedule || schedule.kind === 'manual') return 'Manual only';
+    if (schedule.kind === 'daily') return 'Daily at ' + (schedule.time || '03:00');
+    return 'Weekly on ' + dayLabel(schedule.day || 1) + ' at ' + (schedule.time || '03:00');
+  }
+
+  function renderPluginConfigField(pluginId, field, value, disabled) {
+    var html = '<div class="plugin-config-field">';
+    html += '<label>' + escapeHtml(field.label) + '</label>';
+    if (field.type === 'boolean') {
+      html += '<input type="checkbox" data-plugin-config-field="' + escapeHtml(field.key) + '"' + (value ? ' checked' : '') + (disabled ? ' disabled' : '') + '>';
+    } else if (field.type === 'number') {
+      html += '<input type="number" data-plugin-config-field="' + escapeHtml(field.key) + '" value="' + escapeHtml(value) + '"' +
+        (field.min !== undefined ? ' min="' + field.min + '"' : '') +
+        (field.max !== undefined ? ' max="' + field.max + '"' : '') +
+        (disabled ? ' disabled' : '') + '>';
+    } else {
+      html += '<input type="text" data-plugin-config-field="' + escapeHtml(field.key) + '" value="' + escapeHtml(value) + '"' + (disabled ? ' disabled' : '') + '>';
+    }
+    html += '</div>';
+    return html;
+  }
+
+  function renderRunDetail(detail, canManagePlugins, isBusy) {
+    if (!detail || !detail.run) return '';
+    var run = detail.run;
+    var html = '<div class="plugin-detail">';
+    html += '<div class="plugin-detail-section">';
+    html += '<h3>Run Detail</h3>';
+    html += '<div class="plugin-card-row"><span class="stat-label">Run</span><span class="stat-value">' + escapeHtml(run.run_id) + '</span></div>';
+    html += '<div class="plugin-card-row"><span class="stat-label">Status</span><span class="stat-value">' + badge(run.status, run.status === 'failed' ? 'error' : run.status === 'awaiting_approval' ? 'warn' : 'ok') + '</span></div>';
+    html += '<div class="plugin-card-row"><span class="stat-label">Started</span><span class="stat-value">' + formatTime(run.started_at) + '</span></div>';
+    if (run.finished_at) {
+      html += '<div class="plugin-card-row"><span class="stat-label">Finished</span><span class="stat-value">' + formatTime(run.finished_at) + '</span></div>';
+    }
+    if (run.summary) {
+      html += '<div class="plugin-card-row"><span class="stat-label">Scanned</span><span class="stat-value">' + (run.summary.notesScanned || 0) + '</span></div>';
+      html += '<div class="plugin-card-row"><span class="stat-label">Proposals</span><span class="stat-value">' + (run.summary.proposalsCreated || 0) + '</span></div>';
+      if (run.summary.appliedCount !== undefined) {
+        html += '<div class="plugin-card-row"><span class="stat-label">Applied</span><span class="stat-value">' + run.summary.appliedCount + '</span></div>';
+      }
+    }
+    if (run.error_message) {
+      html += '<div class="plugin-card-note" style="color:var(--danger)">' + escapeHtml(run.error_message) + '</div>';
+    }
+    var hasPending = detail.items.some(function(item) { return item.status === 'suggested' || item.status === 'approved'; });
+    if (hasPending) {
+      html += '<div class="plugin-card-actions">';
+      html += '<button class="btn btn-muted" onclick="approveAllRunItems(\\'' + run.run_id + '\\')"' + (!canManagePlugins || isBusy ? ' disabled' : '') + '>Approve all</button>';
+      html += '<button class="btn btn-muted" onclick="rejectAllRunItems(\\'' + run.run_id + '\\')"' + (!canManagePlugins || isBusy ? ' disabled' : '') + '>Reject all</button>';
+      html += '<button class="btn btn-primary" onclick="applyApprovedRunItems(\\'' + run.run_id + '\\')"' + (!canManagePlugins || isBusy ? ' disabled' : '') + '>Apply approved</button>';
+      html += '</div>';
+    }
+    html += '</div>';
+
+    html += '<div class="plugin-detail-section">';
+    html += '<h3>Proposed Changes</h3>';
+    if (!detail.items || detail.items.length === 0) {
+      html += '<div class="plugin-card-note">No proposed changes.</div>';
+    } else {
+      html += '<div class="plugin-run-items">';
+      for (var i = 0; i < detail.items.length; i++) {
+        var item = detail.items[i];
+        html += '<div class="plugin-run-item">';
+        html += '<div class="plugin-card-row"><span class="stat-label">Status</span><span class="stat-value">' + badge(item.status, item.status === 'failed' ? 'error' : item.status === 'applied' ? 'ok' : item.status === 'rejected' ? 'muted' : 'warn') + '</span></div>';
+        html += '<div class="plugin-card-row"><span class="stat-label">Old title</span><span class="stat-value">' + escapeHtml((item.preview && item.preview.oldTitle) || (item.before && item.before.title) || 'Unknown') + '</span></div>';
+        html += '<div class="plugin-card-row"><span class="stat-label">Proposed title</span><span class="stat-value">' + escapeHtml((item.preview && item.preview.proposedTitle) || (item.after && item.after.newTitle) || 'Unknown') + '</span></div>';
+        html += '<div class="plugin-card-note">' + escapeHtml(item.reason || '') + '</div>';
+        if (item.failure_message) {
+          html += '<div class="plugin-card-note" style="color:var(--danger)">' + escapeHtml(item.failure_message) + '</div>';
+        }
+        if (item.status === 'suggested' || item.status === 'approved') {
+          html += '<div class="plugin-run-item-actions">';
+          html += '<button class="btn btn-muted" onclick="approveRunItem(\\'' + run.run_id + '\\',' + item.id + ')"' + (!canManagePlugins || isBusy ? ' disabled' : '') + '>Approve</button>';
+          html += '<button class="btn btn-muted" onclick="rejectRunItem(\\'' + run.run_id + '\\',' + item.id + ')"' + (!canManagePlugins || isBusy ? ' disabled' : '') + '>Reject</button>';
+          html += '</div>';
+        }
+        html += '</div>';
+      }
+      html += '</div>';
+    }
+    html += '</div>';
+
+    html += '<div class="plugin-detail-section">';
+    html += '<h3>Run Logs</h3>';
+    if (!detail.logs || detail.logs.length === 0) {
+      html += '<div class="plugin-card-note">No log entries.</div>';
+    } else {
+      html += '<div class="plugin-log-list">';
+      for (var j = 0; j < detail.logs.length; j++) {
+        var entry = detail.logs[j];
+        html += '<div class="plugin-log-entry">';
+        html += '<div><strong>' + escapeHtml(entry.level.toUpperCase()) + '</strong> · ' + escapeHtml(formatTime(entry.timestamp)) + '</div>';
+        html += '<div>' + escapeHtml(entry.message) + '</div>';
+        html += '</div>';
+      }
+      html += '</div>';
+    }
+    html += '</div>';
+    html += '</div>';
+    return html;
+  }
+
   function renderPlugins(t) {
     if (!t || t.error) return '';
     var html = '';
     var sched = t.scheduler || {};
     var isBusy = sched.running;
-    var restrictedMode = t.security && t.security.restricted_mode !== false;
     var canManagePlugins = Boolean(authToken);
 
     html += '<div class="plugin-toolbar">';
     html += '<div class="plugin-toolbar-copy">';
-    html += '<span class="plugin-toolbar-label">Restricted mode</span>';
-    html += '<span class="plugin-toolbar-value">' + (restrictedMode ? 'On' : 'Off') + '</span>';
+    html += '<span class="plugin-toolbar-label">Automation Runtime</span>';
+    html += '<span class="plugin-toolbar-value">' + (sched.phase === 'running' ? 'Running plugin jobs' : 'Built-in plugins only') + '</span>';
     html += '</div>';
     html += '<div class="plugin-toolbar-actions">';
-    html += '<span class="plugin-auth-note">' + (canManagePlugins ? 'Signed in for plugin controls' : 'Log in to use plugin switches') + '</span>';
+    html += '<span class="plugin-auth-note">' + (canManagePlugins ? 'Signed in for automation controls' : 'Log in to run, configure, and approve changes') + '</span>';
     if (canManagePlugins) {
       html += '<span>' + badge('Signed in', 'ok') + '</span>';
       html += '<button class="action-link" onclick="logoutDashboard()">Sign out</button>';
     } else {
       html += '<button class="btn btn-muted" onclick="loginDashboard()">Log in</button>';
     }
-    html += '<button class="action-link" onclick="toggleRestrictedMode(' + (!restrictedMode ? 'true' : 'false') + ')"' + (isBusy ? ' disabled' : '') + '>' +
-      (restrictedMode ? 'Turn off restricted mode' : 'Turn on restricted mode') + '</button>';
     html += '</div>';
     html += '</div>';
 
     if (!t.plugins || t.plugins.length === 0) {
-      html += '<div class="plugin-card-grid-empty">No plugins installed.</div>';
+      html += '<div class="plugin-card-grid-empty">No built-in automations registered.</div>';
     }
 
     if (t.plugins && t.plugins.length > 0) {
@@ -1089,41 +1309,64 @@ function dashboardHtml(): string {
         html += '</div>';
 
         html += '<div class="plugin-meta-row">';
-        html += '<span class="plugin-pill">' + escapeHtml(tr.origin) + (tr.trusted ? ' · trusted' : '') + '</span>';
-        html += '<span class="plugin-pill">' + escapeHtml(tr.execution) + '</span>';
-        html += '<span class="plugin-pill">' + escapeHtml(tr.frequency) + '</span>';
-        html += '<span class="plugin-pill">v' + escapeHtml(tr.version) + '</span>';
+        html += '<span class="plugin-pill">' + escapeHtml(scheduleSummary(tr.schedule)) + '</span>';
+        html += '<span class="plugin-pill">' + (tr.auto_apply ? 'Auto-apply on' : 'Preview first') + '</span>';
+        html += '<span class="plugin-pill">' + tr.pending_approval_count + ' pending approvals</span>';
         html += '</div>';
 
         html += '<div class="plugin-card-section">';
-        html += '<div class="plugin-card-row"><span class="stat-label">Publisher</span><span class="stat-value">' + escapeHtml(tr.publisher) + '</span></div>';
-        html += '<div class="plugin-card-row"><span class="stat-label">Permissions</span><span class="stat-value">' + escapeHtml((tr.permissions || []).join(', ')) + '</span></div>';
-        if (tr.installed_from) {
-          html += '<div class="plugin-card-row"><span class="stat-label">Source</span><span class="stat-value plugin-source">' + escapeHtml(tr.installed_from) + '</span></div>';
+        html += '<div class="plugin-card-row"><span class="stat-label">Next run</span><span class="stat-value">' + formatTime(tr.next_run_at) + '</span></div>';
+        html += '<div class="plugin-card-row"><span class="stat-label">Last run</span><span class="stat-value">' + (tr.last_run ? formatTime(tr.last_run.finished_at || tr.last_run.started_at) : 'Never') + '</span></div>';
+        html += '<div class="plugin-card-row"><span class="stat-label">Last result</span><span class="stat-value">' + (tr.last_run ? badge(tr.last_run.status, tr.last_run.status === 'failed' ? 'error' : tr.last_run.status === 'awaiting_approval' ? 'warn' : 'ok') : badge('Never', 'muted')) + '</span></div>';
+        html += '</div>';
+
+        html += '<div class="plugin-card-section">';
+        html += '<div class="plugin-config-grid">';
+        html += '<div class="plugin-config-field"><label>Schedule</label><select data-schedule-kind' + (!canManagePlugins || isBusy ? ' disabled' : '') + '>';
+        html += '<option value="manual"' + (tr.schedule.kind === 'manual' ? ' selected' : '') + '>Manual</option>';
+        html += '<option value="daily"' + (tr.schedule.kind === 'daily' ? ' selected' : '') + '>Daily</option>';
+        html += '<option value="weekly"' + (tr.schedule.kind === 'weekly' ? ' selected' : '') + '>Weekly</option>';
+        html += '</select></div>';
+        html += '<div class="plugin-config-field"><label>Time</label><input type="time" data-schedule-time value="' + escapeHtml(tr.schedule.time || '03:00') + '"' + (!canManagePlugins || isBusy ? ' disabled' : '') + '></div>';
+        html += '<div class="plugin-config-field"><label>Weekly day</label><select data-schedule-day' + (!canManagePlugins || isBusy ? ' disabled' : '') + '>';
+        for (var day = 0; day < 7; day++) {
+          html += '<option value="' + day + '"' + (tr.schedule.day === day ? ' selected' : '') + '>' + dayLabel(day) + '</option>';
         }
-        if (tr.blocked_by_restricted_mode) {
-          html += '<div class="plugin-card-note plugin-card-warning">Blocked while restricted mode is on.</div>';
+        html += '</select></div>';
+        html += '<div class="plugin-config-field"><label>Auto-apply</label><input type="checkbox" data-auto-apply' + (tr.auto_apply ? ' checked' : '') + (!canManagePlugins || isBusy ? ' disabled' : '') + '></div>';
+        for (var f = 0; f < (tr.config_schema || []).length; f++) {
+          var field = tr.config_schema[f];
+          var value = tr.config && tr.config[field.key] !== undefined ? tr.config[field.key] : field.default;
+          html += renderPluginConfigField(tr.id, field, value, !canManagePlugins || isBusy);
         }
-        if (!canManagePlugins) {
-          html += '<div class="plugin-card-note">Log in to turn this plugin on or off.</div>';
-        }
-        if (tr.enabled) {
-          html += '<div class="plugin-card-row"><span class="stat-label">Pending</span><span class="stat-value">' + tr.pending_count + ' notes</span></div>';
-        }
-        if (tr.last_run) {
-          html += '<div class="plugin-card-row"><span class="stat-label">Last run</span><span class="stat-value">' + formatTime(tr.last_run.finished_at) + '</span></div>';
-          html += '<div class="plugin-card-row"><span class="stat-label">Result</span><span class="stat-value">' + badge(tr.last_run.status, tr.last_run.status === 'completed' ? 'ok' : 'error') + '</span></div>';
-          if (tr.last_run.status === 'failed' && tr.last_run.error_message) {
-            html += '<div class="plugin-card-note" style="color:var(--danger)">' + escapeHtml(tr.last_run.error_message) + '</div>';
+        html += '</div>';
+        html += '</div>';
+
+        html += '<div class="plugin-card-section">';
+        html += '<div class="plugin-card-row"><span class="stat-label">Recent runs</span><span class="stat-value">' + ((tr.recent_runs && tr.recent_runs.length) || 0) + '</span></div>';
+        if (tr.recent_runs && tr.recent_runs.length > 0) {
+          html += '<div class="plugin-run-list">';
+          for (var r = 0; r < tr.recent_runs.length; r++) {
+            var run = tr.recent_runs[r];
+            html += '<div class="plugin-run-entry">';
+            html += '<div class="plugin-run-entry-copy">';
+            html += '<span>' + badge(run.status, run.status === 'failed' ? 'error' : run.status === 'awaiting_approval' ? 'warn' : 'ok') + '</span>';
+            html += '<span>' + escapeHtml(run.trigger_type) + ' · ' + escapeHtml(formatTime(run.started_at)) + '</span>';
+            html += '</div>';
+            html += '<div class="plugin-run-entry-actions">';
+            html += '<button class="btn btn-muted" onclick="viewPluginRun(\\'' + run.run_id + '\\')"' + (!canManagePlugins ? ' disabled' : '') + '>View</button>';
+            html += '</div>';
+            html += '</div>';
           }
+          html += '</div>';
         }
         html += '</div>';
 
         html += '<div class="plugin-card-actions">';
-        html += '<button class="btn btn-primary" onclick="triggerPlugin(\\'' + tr.id + '\\')"' + (isBusy || !tr.enabled || tr.blocked_by_restricted_mode ? ' disabled' : '') + '>Run now</button>';
-        if (tr.updatable) {
-          html += '<button class="action-link" onclick="updatePlugin(\\'' + tr.id + '\\')"' + (isBusy ? ' disabled' : '') + '>Update</button>';
-          html += '<button class="action-link" onclick="uninstallPlugin(\\'' + tr.id + '\\')"' + (isBusy ? ' disabled' : '') + '>Uninstall</button>';
+        html += '<button class="btn btn-primary" onclick="triggerPlugin(\\'' + tr.id + '\\')"' + (!canManagePlugins || isBusy ? ' disabled' : '') + '>Run now</button>';
+        html += '<button class="btn btn-muted" onclick="savePluginConfig(\\'' + tr.id + '\\')"' + (!canManagePlugins || isBusy ? ' disabled' : '') + '>Save settings</button>';
+        if (tr.last_run && tr.last_run.run_id) {
+          html += '<button class="action-link" onclick="viewPluginRun(\\'' + tr.last_run.run_id + '\\')"' + (!canManagePlugins ? ' disabled' : '') + '>Open latest run</button>';
         }
         html += '</div>';
         html += '</article>';
@@ -1131,17 +1374,19 @@ function dashboardHtml(): string {
       html += '</div>';
     }
 
-    // Scheduler-level error (e.g. model load failure)
-    if (sched.last_error) {
-      html += '<div style="border-top:1px solid var(--surface);margin:0.5rem 0"></div>';
-      html += '<div class="stat-row"><span class="stat-label">Error</span><span class="stat-value" style="color:var(--danger);font-size:0.8rem">' + sched.last_error + '</span></div>';
+    if (activePluginRunDetail) {
+      html += renderRunDetail(activePluginRunDetail, canManagePlugins, isBusy);
     }
 
-    // Model & scheduler status
+    if (sched.last_error) {
+      html += '<div style="border-top:1px solid var(--surface);margin:0.5rem 0"></div>';
+      html += '<div class="stat-row"><span class="stat-label">Runtime error</span><span class="stat-value" style="color:var(--danger);font-size:0.8rem">' + escapeHtml(sched.last_error) + '</span></div>';
+    }
+
     if (sched.phase && sched.phase !== 'idle') {
       var phaseLabel = sched.phase === 'downloading_model' ? 'Downloading model...'
         : sched.phase === 'loading_model' ? 'Loading model...'
-        : sched.phase === 'running' ? 'Running plugins...'
+        : sched.phase === 'running' ? 'Running automation...'
         : sched.phase;
       html += '<div style="border-top:1px solid var(--surface);margin:0.5rem 0"></div>';
       html += '<div class="stat-row"><span class="stat-label">Status</span><span class="phase-label">' + phaseLabel + '</span></div>';
@@ -1175,6 +1420,28 @@ function dashboardHtml(): string {
       $('sessions-count').textContent = data.sessions_count;
       $('uptime').textContent = formatUptime(data.uptime_seconds);
       $('search-content').innerHTML = renderSearch(data.search);
+
+      if (activePluginRunId && authToken) {
+        try {
+          const detailRes = await fetch('/plugins/runs/' + activePluginRunId, {
+            headers: { 'Authorization': 'Bearer ' + authToken },
+          });
+          if (detailRes.ok) {
+            activePluginRunDetail = await detailRes.json();
+          } else if (detailRes.status === 401) {
+            clearAuthToken();
+            activePluginRunId = null;
+            activePluginRunDetail = null;
+          } else {
+            activePluginRunDetail = null;
+          }
+        } catch {
+          activePluginRunDetail = null;
+        }
+      } else if (!authToken) {
+        activePluginRunId = null;
+        activePluginRunDetail = null;
+      }
 
       // Render plugins section
       var tCard = $('plugins-card');
@@ -1315,79 +1582,6 @@ function dashboardHtml(): string {
     }
   };
 
-  window.installPlugin = async function() {
-    const input = $('plugin-install-url');
-    const button = $('plugin-install-btn');
-    if (!input) return;
-
-    const sourceUrl = input.value.trim();
-    if (!sourceUrl) {
-      alert('Enter a plugin repository URL');
-      return;
-    }
-
-    const token = await getToken('install plugin');
-    if (!token) return;
-    if (button) button.disabled = true;
-
-    try {
-      const res = await fetch('/plugins/install', {
-        method: 'POST',
-        headers: {
-          'Authorization': 'Bearer ' + token,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ source_url: sourceUrl, trust: true }),
-      });
-      if (res.status === 401) {
-        clearAuthToken();
-        alert('Session expired, please try again');
-        refresh();
-        return;
-      }
-      const data = await res.json();
-      if (!res.ok) {
-        alert(data.error || 'Failed to install plugin');
-        return;
-      }
-      input.value = '';
-      refresh();
-    } catch (e) {
-      alert('Error: ' + e.message);
-    } finally {
-      if (button) button.disabled = false;
-    }
-  };
-
-  window.toggleRestrictedMode = async function(enabled) {
-    const token = await getToken(enabled ? 'enable restricted mode' : 'disable restricted mode');
-    if (!token) return;
-    try {
-      const res = await fetch('/plugins/restricted-mode', {
-        method: 'POST',
-        headers: {
-          'Authorization': 'Bearer ' + token,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ enabled }),
-      });
-      if (res.status === 401) {
-        clearAuthToken();
-        alert('Session expired, please try again');
-        refresh();
-        return;
-      }
-      const data = await res.json();
-      if (!res.ok) {
-        alert(data.error || 'Failed to update restricted mode');
-        return;
-      }
-      refresh();
-    } catch (e) {
-      alert('Error: ' + e.message);
-    }
-  };
-
   window.triggerPlugin = async function(id) {
     const token = await getToken('run plugin');
     if (!token) return;
@@ -1405,6 +1599,60 @@ function dashboardHtml(): string {
       const data = await res.json();
       if (!res.ok) {
         alert(data.error || 'Failed to run plugin');
+        return;
+      }
+      refresh();
+    } catch (e) {
+      alert('Error: ' + e.message);
+    }
+  };
+
+  window.savePluginConfig = async function(id) {
+    const token = await getToken('save automation settings');
+    if (!token) return;
+    var card = document.querySelector('[data-plugin-card="' + id + '"]');
+    if (!card) return;
+
+    var body = {
+      schedule_kind: card.querySelector('[data-schedule-kind]').value,
+      schedule_time: card.querySelector('[data-schedule-time]').value,
+      schedule_day: Number(card.querySelector('[data-schedule-day]').value),
+      auto_apply: card.querySelector('[data-auto-apply]').checked,
+      config: {}
+    };
+
+    var configFields = card.querySelectorAll('[data-plugin-config-field]');
+    for (var i = 0; i < configFields.length; i++) {
+      var input = configFields[i];
+      var key = input.getAttribute('data-plugin-config-field');
+      if (!key) continue;
+      if (input.type === 'checkbox') {
+        body.config[key] = input.checked;
+      } else if (input.type === 'number') {
+        body.config[key] = Number(input.value);
+      } else {
+        body.config[key] = input.value;
+      }
+    }
+
+    try {
+      const res = await fetch('/plugins/' + id + '/config', {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer ' + token,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      });
+      if (res.status === 401) {
+        clearAuthToken();
+        alert('Session expired, please try again');
+        refresh();
+        return;
+      }
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || 'Failed to save settings');
         return;
       }
       refresh();
@@ -1438,54 +1686,11 @@ function dashboardHtml(): string {
     }
   };
 
-  window.updatePlugin = async function(id) {
-    const token = await getToken('update plugin');
+  window.viewPluginRun = async function(runId) {
+    const token = await getToken('view plugin run');
     if (!token) return;
     try {
-      let res = await fetch('/plugins/' + id + '/update', {
-        method: 'POST',
-        headers: {
-          'Authorization': 'Bearer ' + token,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({}),
-      });
-      let data = await res.json();
-      if (res.status === 401) {
-        clearAuthToken();
-        alert('Session expired, please try again');
-        refresh();
-        return;
-      }
-      if (res.status === 409 && /approval required/i.test(data.error || '')) {
-        if (!confirm('This plugin update asks for additional permissions. Continue?')) return;
-        res = await fetch('/plugins/' + id + '/update', {
-          method: 'POST',
-          headers: {
-            'Authorization': 'Bearer ' + token,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ approve_permission_changes: true }),
-        });
-        data = await res.json();
-      }
-      if (!res.ok) {
-        alert(data.error || 'Failed to update plugin');
-        return;
-      }
-      refresh();
-    } catch (e) {
-      alert('Error: ' + e.message);
-    }
-  };
-
-  window.uninstallPlugin = async function(id) {
-    if (!confirm('Uninstall this plugin?')) return;
-    const token = await getToken('uninstall plugin');
-    if (!token) return;
-    try {
-      const res = await fetch('/plugins/' + id, {
-        method: 'DELETE',
+      const res = await fetch('/plugins/runs/' + runId, {
         headers: { 'Authorization': 'Bearer ' + token },
       });
       if (res.status === 401) {
@@ -1496,9 +1701,141 @@ function dashboardHtml(): string {
       }
       const data = await res.json();
       if (!res.ok) {
-        alert(data.error || 'Failed to uninstall plugin');
+        alert(data.error || 'Failed to load run detail');
         return;
       }
+      activePluginRunId = runId;
+      activePluginRunDetail = data;
+      refresh();
+    } catch (e) {
+      alert('Error: ' + e.message);
+    }
+  };
+
+  window.approveRunItem = async function(runId, itemId) {
+    const token = await getToken('approve plugin change');
+    if (!token) return;
+    try {
+      const res = await fetch('/plugins/runs/' + runId + '/items/' + itemId + '/approve', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + token },
+      });
+      if (res.status === 401) {
+        clearAuthToken();
+        alert('Session expired, please try again');
+        refresh();
+        return;
+      }
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || 'Failed to approve change');
+        return;
+      }
+      activePluginRunId = runId;
+      refresh();
+    } catch (e) {
+      alert('Error: ' + e.message);
+    }
+  };
+
+  window.rejectRunItem = async function(runId, itemId) {
+    const token = await getToken('reject plugin change');
+    if (!token) return;
+    try {
+      const res = await fetch('/plugins/runs/' + runId + '/items/' + itemId + '/reject', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + token },
+      });
+      if (res.status === 401) {
+        clearAuthToken();
+        alert('Session expired, please try again');
+        refresh();
+        return;
+      }
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || 'Failed to reject change');
+        return;
+      }
+      activePluginRunId = runId;
+      refresh();
+    } catch (e) {
+      alert('Error: ' + e.message);
+    }
+  };
+
+  window.approveAllRunItems = async function(runId) {
+    const token = await getToken('approve all plugin changes');
+    if (!token) return;
+    try {
+      const res = await fetch('/plugins/runs/' + runId + '/approve-all', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + token },
+      });
+      if (res.status === 401) {
+        clearAuthToken();
+        alert('Session expired, please try again');
+        refresh();
+        return;
+      }
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || 'Failed to approve all changes');
+        return;
+      }
+      activePluginRunId = runId;
+      refresh();
+    } catch (e) {
+      alert('Error: ' + e.message);
+    }
+  };
+
+  window.rejectAllRunItems = async function(runId) {
+    const token = await getToken('reject all plugin changes');
+    if (!token) return;
+    try {
+      const res = await fetch('/plugins/runs/' + runId + '/reject-all', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + token },
+      });
+      if (res.status === 401) {
+        clearAuthToken();
+        alert('Session expired, please try again');
+        refresh();
+        return;
+      }
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || 'Failed to reject all changes');
+        return;
+      }
+      activePluginRunId = runId;
+      refresh();
+    } catch (e) {
+      alert('Error: ' + e.message);
+    }
+  };
+
+  window.applyApprovedRunItems = async function(runId) {
+    const token = await getToken('apply approved plugin changes');
+    if (!token) return;
+    try {
+      const res = await fetch('/plugins/runs/' + runId + '/apply-approved', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + token },
+      });
+      if (res.status === 401) {
+        clearAuthToken();
+        alert('Session expired, please try again');
+        refresh();
+        return;
+      }
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || 'Failed to apply approved changes');
+        return;
+      }
+      activePluginRunId = runId;
       refresh();
     } catch (e) {
       alert('Error: ' + e.message);

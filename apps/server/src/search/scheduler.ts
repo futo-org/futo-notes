@@ -122,11 +122,11 @@ export function recordActivity(): void {
 }
 
 async function canUseEmbeddingModelNow(): Promise<boolean> {
-  if (holder() === 'transforms') {
+  if (holder() === 'plugins') {
     return false;
   }
-  const { isGenerationModelLoaded } = await import('../transforms/generationModel.js');
-  return !isGenerationModelLoaded();
+  const { isBuiltinLlmLoaded } = await import('../plugins/llm.js');
+  return !isBuiltinLlmLoaded();
 }
 
 /**

@@ -1,9 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createTestEnv, req, type TestEnv } from '../helpers/setup.js';
-import { createPluginTables } from '../../src/db/pluginSchema.js';
-import { getDb } from '../../src/db/index.js';
-import { loadConfig } from '../../src/config.js';
-import { syncBuiltinPlugins } from '../../src/plugins/loader.js';
 
 describe('Dashboard', () => {
   let env: TestEnv;
@@ -27,6 +23,8 @@ describe('Dashboard', () => {
     expect(html).toContain('Server Dashboard');
     expect(html).toContain('id="search-card"');
     expect(html).toContain('id="search-content"');
+    expect(html).toContain('Automations');
+    expect(html).not.toContain('plugin-install-url');
 
     // Verify the script tag is present and parseable
     const scriptMatch = html.match(/<script>([\s\S]*?)<\/script>/);
@@ -35,6 +33,7 @@ describe('Dashboard', () => {
     // Check that escaped quotes in onclick handlers are correct
     expect(html).not.toContain("triggerPlugin('' +");
     expect(html).not.toContain("togglePlugin('' +");
+    expect(html).not.toContain('installPlugin()');
   });
 
   it('GET /dashboard/status returns valid JSON with search section', async () => {
@@ -49,13 +48,7 @@ describe('Dashboard', () => {
     expect(data).toHaveProperty('uptime_seconds');
   });
 
-  it('GET /dashboard/status includes plugins when enabled', async () => {
-    process.env.PLUGINS_ENABLED = 'true';
-    env.cleanup();
-    env = createTestEnv();
-    createPluginTables(getDb());
-    syncBuiltinPlugins(getDb(), loadConfig());
-
+  it('GET /dashboard/status includes built-in plugin status when enabled', async () => {
     const res = await req(env.app, 'GET', '/dashboard/status');
     expect(res.status).toBe(200);
     const data = await res.json() as Record<string, unknown>;
@@ -65,8 +58,9 @@ describe('Dashboard', () => {
     expect(plugins).toHaveProperty('plugins');
     expect(plugins).toHaveProperty('model');
     expect(plugins).toHaveProperty('scheduler');
-
-    delete process.env.PLUGINS_ENABLED;
+    const items = plugins.plugins as Array<Record<string, unknown>>;
+    expect(items).toHaveLength(1);
+    expect(items[0].id).toBe('untitled-no-more');
   });
 
   it('GET /dashboard/status returns plugins: null when disabled', async () => {
@@ -79,6 +73,6 @@ describe('Dashboard', () => {
     const data = await res.json() as Record<string, unknown>;
 
     expect(data.plugins).toBeNull();
-    expect(data.transforms).toBeNull();
+    delete process.env.PLUGINS_ENABLED;
   });
 });

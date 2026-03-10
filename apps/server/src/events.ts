@@ -87,9 +87,9 @@ export function removeAllClients(): void {
   clients.clear();
 }
 
-export function broadcastTransformStatus(): void {
+export function broadcastPluginStatus(): void {
   for (const [id, client] of clients) {
-    client.stream.writeSSE({ event: 'transform_status', data: '' }).catch(() => {
+    client.stream.writeSSE({ event: 'plugin_status', data: '' }).catch(() => {
       try { client.stream.close(); } catch { /* ignore */ }
       clients.delete(id);
       log.info(`sse: removed dead client id=${id}`);

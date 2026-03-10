@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { initDb, closeDb, getDb } from '../../src/db/index.js';
+import { createPluginTables } from '../../src/db/pluginSchema.js';
 import { createSearchTables } from '../../src/db/searchSchema.js';
 import { createApp } from '../../src/app.js';
 import { clearRateLimitStore } from '../../src/middleware/rateLimit.js';
@@ -28,6 +29,7 @@ export function createTestEnv(): TestEnv {
 
   initDb(dbPath);
   createSearchTables(getDb());
+  createPluginTables(getDb());
   clearRateLimitStore();
 
   // Override config for test — set env vars before creating app

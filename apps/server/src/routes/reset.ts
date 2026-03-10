@@ -112,6 +112,11 @@ reset.post('/reset', authMiddleware, async (c) => {
     createSearchTables(db);
   }
   db.exec(`
+    DROP TABLE IF EXISTS plugin_run_logs;
+    DROP TABLE IF EXISTS plugin_run_items;
+    DROP TABLE IF EXISTS plugin_runs;
+    DROP TABLE IF EXISTS plugin_state;
+    DROP TABLE IF EXISTS plugins;
     DROP TABLE IF EXISTS transform_history;
     DROP TABLE IF EXISTS transform_jobs;
     DROP TABLE IF EXISTS transform_state;
@@ -137,8 +142,6 @@ reset.post('/reset', authMiddleware, async (c) => {
   }
   if (config.pluginsEnabled) {
     try {
-      const { syncBuiltinPlugins } = await import('../plugins/loader.js');
-      syncBuiltinPlugins(db, config);
       const { startPluginScheduler } = await import('../plugins/scheduler.js');
       startPluginScheduler(config);
     } catch (err) {

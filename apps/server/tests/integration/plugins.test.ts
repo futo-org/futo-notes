@@ -1,204 +1,131 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
-import { pathToFileURL } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createPluginTables } from '../../src/db/pluginSchema.js';
 import { getDb } from '../../src/db/index.js';
-import { loadConfig } from '../../src/config.js';
-import { syncBuiltinPlugins } from '../../src/plugins/loader.js';
+import { upsertNote, getNote } from '../../src/db/notes.js';
+import { contentHash } from '../../src/sync/hash.js';
+import { __setTestLlmResponder } from '../../src/plugins/llm.js';
 import { authReq, createTestEnv, setupAndLogin, type TestEnv } from '../helpers/setup.js';
 
-function runGit(dir: string, args: string[]): void {
-  execFileSync('git', args, {
-    cwd: dir,
-    stdio: 'pipe',
-  });
+async function waitForRunDetail(
+  app: TestEnv['app'],
+  token: string,
+  runId: string,
+): Promise<{ run: { status: string }; items: Array<Record<string, unknown>> }> {
+  for (let i = 0; i < 40; i++) {
+    const res = await authReq(app, 'GET', `/plugins/runs/${runId}`, token);
+    if (res.status === 200) {
+      const data = await res.json() as { run: { status: string }; items: Array<Record<string, unknown>> };
+      if (data.run.status !== 'running') {
+        return data;
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`Timed out waiting for run ${runId}`);
 }
 
-function initRepo(dir: string): void {
-  fs.mkdirSync(dir, { recursive: true });
-  runGit(dir, ['init']);
-  runGit(dir, ['config', 'user.name', 'Stonefruit Tests']);
-  runGit(dir, ['config', 'user.email', 'tests@example.com']);
-}
-
-function commitRepo(dir: string, message: string): void {
-  runGit(dir, ['add', '.']);
-  runGit(dir, ['commit', '-m', message, '--no-gpg-sign']);
+function seedNote(env: TestEnv, uuid: string, filename: string, content: string, modifiedAt = Date.now()): void {
+  fs.mkdirSync(env.notesDir, { recursive: true });
+  fs.writeFileSync(path.join(env.notesDir, filename), content, 'utf8');
+  upsertNote(getDb(), uuid, filename, contentHash(content), modifiedAt);
 }
 
 describe('Plugins', () => {
   let env: TestEnv;
-  let reposRoot = '';
-  let exampleRepoDir = '';
-  let codeRepoDir = '';
-  let exampleVersion = '1.0.0';
-  let examplePermissions = ['read_note_metadata', 'read_note_content', 'rename_note'];
 
-  function writeExamplePluginRepo(): void {
-    fs.writeFileSync(path.join(exampleRepoDir, 'plugin.yaml'), [
-      'id: example-plugin',
-      'name: Example Plugin',
-      `version: ${exampleVersion}`,
-      'publisher: Example Labs',
-      'description: Example plugin for tests.',
-      'kind: note_automation',
-      'execution: declarative',
-      'entrypoint: prompt.md',
-      'frequency: weekly',
-      'permissions:',
-      ...examplePermissions.map((permission) => `  - ${permission}`),
-      'selector:',
-      '  filename_glob: "*.md"',
-    ].join('\n'));
-    fs.writeFileSync(path.join(exampleRepoDir, 'prompt.md'), 'Return no actions for every note.');
-  }
-
-  function writeCodePluginRepo(): void {
-    fs.mkdirSync(path.join(codeRepoDir, 'lib'), { recursive: true });
-    fs.writeFileSync(path.join(codeRepoDir, 'plugin.yaml'), [
-      'id: code-plugin',
-      'name: Code Plugin',
-      'version: 1.0.0',
-      'publisher: Example Labs',
-      'description: Full-trust code plugin for tests.',
-      'kind: note_automation',
-      'entrypoint: main.cjs',
-      'frequency: weekly',
-    ].join('\n'));
-    fs.writeFileSync(path.join(codeRepoDir, 'lib', 'pending.cjs'), [
-      'module.exports = function getPendingNotes() {',
-      '  return [];',
-      '};',
-    ].join('\n'));
-    fs.writeFileSync(path.join(codeRepoDir, 'main.cjs'), [
-      'const getPendingNotes = require(\'./lib/pending.cjs\');',
-      '',
-      'module.exports = {',
-      '  getPendingNotes,',
-      '  async execute() { return []; },',
-      '};',
-    ].join('\n'));
-  }
-
-  beforeEach(async () => {
+  beforeEach(() => {
     env = createTestEnv();
-    createPluginTables(getDb());
-    syncBuiltinPlugins(getDb(), loadConfig());
-
-    reposRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'stonefruit-plugin-repos-'));
-
-    exampleRepoDir = path.join(reposRoot, 'example-plugin');
-    initRepo(exampleRepoDir);
-    writeExamplePluginRepo();
-    commitRepo(exampleRepoDir, 'Initial example plugin');
-
-    codeRepoDir = path.join(reposRoot, 'code-plugin');
-    initRepo(codeRepoDir);
-    writeCodePluginRepo();
-    commitRepo(codeRepoDir, 'Initial code plugin');
+    __setTestLlmResponder(null);
   });
 
   afterEach(() => {
-    if (reposRoot) {
-      fs.rmSync(reposRoot, { recursive: true, force: true });
-    }
+    __setTestLlmResponder(null);
     env.cleanup();
   });
 
-  it('lists built-in plugins after bootstrap', async () => {
+  it('lists built-in automation status', async () => {
     const token = await setupAndLogin(env.app);
     const res = await authReq(env.app, 'GET', '/plugins/status', token);
     expect(res.status).toBe(200);
+
     const data = await res.json() as {
-      security: { restricted_mode: boolean };
-      plugins: Array<{ id: string; origin: string; execution: string }>;
+      plugins: Array<{ id: string; auto_apply: boolean; config_schema: Array<{ key: string }> }>;
+      scheduler: { phase: string };
     };
-    expect(data.security.restricted_mode).toBe(true);
-    expect(data.plugins.some((plugin) => plugin.id === 'untitled-no-more' && plugin.origin === 'builtin' && plugin.execution === 'full-trust')).toBe(true);
+
+    expect(data.scheduler.phase).toBe('idle');
+    expect(data.plugins).toHaveLength(1);
+    expect(data.plugins[0].id).toBe('untitled-no-more');
+    expect(data.plugins[0].auto_apply).toBe(false);
+    expect(data.plugins[0].config_schema.some((field) => field.key === 'maxContentChars')).toBe(true);
   });
 
-  it('installs, updates, and uninstalls a plugin repo from source_url', async () => {
+  it('creates preview suggestions and applies approved rename with wikilink rewrite', async () => {
     const token = await setupAndLogin(env.app);
-    const sourceUrl = pathToFileURL(exampleRepoDir).toString();
+    __setTestLlmResponder(() => 'meeting notes');
 
-    const installRes = await authReq(env.app, 'POST', '/plugins/install', token, {
-      source_url: sourceUrl,
-      trust: true,
+    const oldMtime = Date.now() - (10 * 60 * 1000);
+    seedNote(env, 'note-1', 'Untitled.md', 'Agenda for the team sync and follow-up action items.', oldMtime);
+    seedNote(env, 'note-2', 'Reference.md', 'See [[Untitled]] before next week.', oldMtime);
+
+    const runRes = await authReq(env.app, 'POST', '/plugins/untitled-no-more/run', token);
+    expect(runRes.status).toBe(202);
+    const { run_id } = await runRes.json() as { run_id: string };
+
+    const preview = await waitForRunDetail(env.app, token, run_id);
+    expect(preview.run.status).toBe('awaiting_approval');
+    expect(preview.items).toHaveLength(1);
+    expect(preview.items[0].status).toBe('suggested');
+    expect(preview.items[0].preview).toMatchObject({
+      oldTitle: 'Untitled',
+      proposedTitle: 'meeting notes',
+      rewriteExactWikiLinks: true,
     });
-    expect(installRes.status).toBe(201);
 
-    const statusAfterInstall = await authReq(env.app, 'GET', '/plugins/status', token);
-    const installedData = await statusAfterInstall.json() as {
-      plugins: Array<{ id: string; version: string; origin: string; installed_from: string | null }>;
-    };
-    expect(installedData.plugins.some((plugin) => (
-      plugin.id === 'example-plugin'
-      && plugin.version === '1.0.0'
-      && plugin.origin === 'installed'
-      && plugin.installed_from === sourceUrl
-    ))).toBe(true);
+    const itemId = Number(preview.items[0].id);
+    const approveRes = await authReq(env.app, 'POST', `/plugins/runs/${run_id}/items/${itemId}/approve`, token);
+    expect(approveRes.status).toBe(200);
 
-    const enableRes = await authReq(env.app, 'POST', '/plugins/example-plugin/enable', token);
-    expect(enableRes.status).toBe(200);
+    const applyRes = await authReq(env.app, 'POST', `/plugins/runs/${run_id}/apply-approved`, token);
+    expect(applyRes.status).toBe(200);
 
-    exampleVersion = '1.1.0';
-    writeExamplePluginRepo();
-    commitRepo(exampleRepoDir, 'Bump example plugin version');
+    const applied = await waitForRunDetail(env.app, token, run_id);
+    expect(applied.run.status).toBe('succeeded');
+    expect(applied.items[0].status).toBe('applied');
 
-    const updateRes = await authReq(env.app, 'POST', '/plugins/example-plugin/update', token, {});
-    expect(updateRes.status).toBe(200);
-    const updated = await updateRes.json() as { plugin: { version: string } };
-    expect(updated.plugin.version).toBe('1.1.0');
-
-    examplePermissions = ['read_note_metadata', 'read_note_content', 'rename_note', 'edit_note_content'];
-    writeExamplePluginRepo();
-    commitRepo(exampleRepoDir, 'Expand example plugin permissions');
-
-    const blockedRes = await authReq(env.app, 'POST', '/plugins/example-plugin/update', token, {});
-    expect(blockedRes.status).toBe(409);
-
-    const approvedRes = await authReq(env.app, 'POST', '/plugins/example-plugin/update', token, {
-      approve_permission_changes: true,
-    });
-    expect(approvedRes.status).toBe(200);
-
-    const deleteRes = await authReq(env.app, 'DELETE', '/plugins/example-plugin', token);
-    expect(deleteRes.status).toBe(200);
-
-    const finalStatus = await authReq(env.app, 'GET', '/plugins/status', token);
-    const finalData = await finalStatus.json() as { plugins: Array<{ id: string }> };
-    expect(finalData.plugins.some((plugin) => plugin.id === 'example-plugin')).toBe(false);
+    const renamed = getNote(getDb(), 'note-1');
+    expect(renamed?.filename).toBe('meeting notes.md');
+    const referenceContent = fs.readFileSync(path.join(env.notesDir, 'Reference.md'), 'utf8');
+    expect(referenceContent).toContain('[[meeting notes]]');
+    expect(referenceContent).not.toContain('[[Untitled]]');
   });
 
-  it('blocks installed full-trust repo plugins until restricted mode is disabled', async () => {
+  it('supports auto-apply runs via plugin config', async () => {
     const token = await setupAndLogin(env.app);
+    __setTestLlmResponder(() => 'trip planning');
 
-    const installRes = await authReq(env.app, 'POST', '/plugins/install', token, {
-      source_url: pathToFileURL(codeRepoDir).toString(),
-      trust: true,
+    const configRes = await authReq(env.app, 'POST', '/plugins/untitled-no-more/config', token, {
+      auto_apply: true,
+      schedule_kind: 'manual',
+      config: {
+        maxContentChars: 1500,
+      },
     });
-    expect(installRes.status).toBe(201);
+    expect(configRes.status).toBe(200);
 
-    const blockedStatus = await authReq(env.app, 'GET', '/plugins/status', token);
-    const blockedData = await blockedStatus.json() as {
-      plugins: Array<{ id: string; blocked_by_restricted_mode: boolean; execution: string }>;
-      security: { restricted_mode: boolean };
-    };
-    expect(blockedData.security.restricted_mode).toBe(true);
-    expect(blockedData.plugins.some((plugin) => plugin.id === 'code-plugin' && plugin.execution === 'full-trust' && plugin.blocked_by_restricted_mode)).toBe(true);
+    const oldMtime = Date.now() - (10 * 60 * 1000);
+    seedNote(env, 'note-3', 'Untitled (2).md', 'Reservations, packing list, and places to visit.', oldMtime);
 
-    const toggleRes = await authReq(env.app, 'POST', '/plugins/restricted-mode', token, { enabled: false });
-    expect(toggleRes.status).toBe(200);
+    const runRes = await authReq(env.app, 'POST', '/plugins/untitled-no-more/run', token);
+    expect(runRes.status).toBe(202);
+    const { run_id } = await runRes.json() as { run_id: string };
 
-    const unblockedStatus = await authReq(env.app, 'GET', '/plugins/status', token);
-    const unblockedData = await unblockedStatus.json() as {
-      plugins: Array<{ id: string; blocked_by_restricted_mode: boolean }>;
-      security: { restricted_mode: boolean };
-    };
-    expect(unblockedData.security.restricted_mode).toBe(false);
-    expect(unblockedData.plugins.some((plugin) => plugin.id === 'code-plugin' && plugin.blocked_by_restricted_mode === false)).toBe(true);
+    const detail = await waitForRunDetail(env.app, token, run_id);
+    expect(detail.run.status).toBe('succeeded');
+    expect(detail.items[0].status).toBe('applied');
+
+    const renamed = getNote(getDb(), 'note-3');
+    expect(renamed?.filename).toBe('trip planning.md');
   });
 });

@@ -1,4 +1,4 @@
-type LockHolder = 'search' | 'transforms';
+type LockHolder = 'search' | 'plugins';
 let current: LockHolder | null = null;
 
 export function tryAcquire(who: LockHolder): boolean {

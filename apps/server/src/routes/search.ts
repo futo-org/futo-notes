@@ -120,12 +120,12 @@ search.post('/search/embed-query', authMiddleware, async (c) => {
       return c.json({ error: 'Missing or invalid query' }, 400);
     }
 
-    const [{ holder }, { isGenerationModelLoaded }] = await Promise.all([
+    const [{ holder }, { isBuiltinLlmLoaded }] = await Promise.all([
       import('../schedulerLock.js'),
-      import('../transforms/generationModel.js'),
+      import('../plugins/llm.js'),
     ]);
-    if (holder() === 'transforms' || isGenerationModelLoaded()) {
-      return c.json({ error: 'Embedding model temporarily unavailable while transforms are running' }, 503);
+    if (holder() === 'plugins' || isBuiltinLlmLoaded()) {
+      return c.json({ error: 'Embedding model temporarily unavailable while plugins are running' }, 503);
     }
 
     const { getActiveModel } = await import('../search/modelManager.js');
