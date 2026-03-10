@@ -485,6 +485,9 @@ class LiveMarkdownPlugin implements PluginValue {
       }
     });
 
+    // Process wikilinks (not part of markdown syntax tree)
+    this.processWikilinks(view, decorations, cursorLines);
+
     // Sort decorations by from position, then by whether they are widgets at point (side)
     // Widgets with side:-1 come before widgets at same position
     const sorted = decorations.sort((a, b) => {
@@ -1148,6 +1151,65 @@ class LiveMarkdownPlugin implements PluginValue {
         from: line.from,
         to: line.from,
         value: { class: 'cm-md-list-line', attributes: { style: `padding-left: ${pl}px !important; text-indent: -${NUMBER_MARKER_W}px;` }, startSide: 0, endSide: 0 }
+      });
+    }
+  }
+
+  private processWikilinks(
+    view: EditorView,
+    decorations: Array<{ from: number; to: number; value: any }>,
+    cursorLines: Set<number>
+  ): void {
+    const doc = view.state.doc;
+    const text = doc.toString();
+    const regex = /\[\[([^\]\n]+)\]\]/g;
+    let match;
+
+    while ((match = regex.exec(text)) !== null) {
+      const from = match.index;
+      const to = from + match[0].length;
+      const title = match[1];
+      const line = doc.lineAt(from).number;
+
+      // Skip if cursor is on this line
+      if (cursorLines.has(line)) continue;
+
+      // Skip if cursor is inside the match range
+      if (this.isCursorInside(view, from, to)) continue;
+
+      // Skip if inside code block or inline code
+      const tree = syntaxTree(view.state);
+      let inCode = false;
+      tree.iterate({
+        from, to: from + 1,
+        enter: (node) => {
+          if (MarkdownParser.isCode(node.name)) inCode = true;
+        }
+      });
+      if (inCode) continue;
+
+      // Hide [[
+      decorations.push({
+        from,
+        to: from + 2,
+        value: { class: 'cm-md-marker-hidden' }
+      });
+
+      // Hide ]]
+      decorations.push({
+        from: to - 2,
+        to,
+        value: { class: 'cm-md-marker-hidden' }
+      });
+
+      // Style title as wikilink
+      decorations.push({
+        from: from + 2,
+        to: to - 2,
+        value: {
+          class: 'cm-md-link cm-md-wikilink',
+          attributes: { 'data-wikilink': title }
+        }
       });
     }
   }

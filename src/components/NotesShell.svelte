@@ -1213,12 +1213,29 @@ Escaped pipes:
         });
       } catch {
         if (loadVersion !== noteLoadVersion) return;
-        // File doesn't exist — remove stale cache entry so it disappears from sidebar
-        handleExternalFileChange('unlink', `${id}.md`);
-        refreshNotesList();
-        loading = false;
-        navigate('/');
-        return;
+        // Note doesn't exist — create it (e.g. wikilink to new note)
+        try {
+          const result = await createNote(id, '');
+          if (loadVersion !== noteLoadVersion) return;
+          title = id;
+          content = '';
+          savedTitle = id;
+          originalId = result.id;
+          editor?.setContent('');
+          refreshNotesList();
+          loading = false;
+          requestAnimationFrame(() => {
+            if (loadVersion !== noteLoadVersion) return;
+            autoResizeTitleTextarea();
+            editor?.focus();
+          });
+          return;
+        } catch {
+          // Creation also failed — navigate home
+          loading = false;
+          navigate('/');
+          return;
+        }
       }
       loading = false;
     }

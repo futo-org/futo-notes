@@ -18,6 +18,8 @@
   import { hasFileSystem, isTauri } from '$lib/platform';
   import { toggleBold, toggleItalic, toggleStrikethrough, isListLine } from '$lib/markdownToolbar';
   import { openUrl } from '$lib/openUrl';
+  import { wikilinkAutocomplete } from '$lib/wikilinkAutocomplete';
+  import { navigate } from '../router';
 
   interface Props {
     content?: string;
@@ -98,6 +100,31 @@
     openUrl(url);
   }
 
+  const wikilinkClickHandler = EditorView.domEventHandlers({
+    mousedown: (event) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('.cm-md-wikilink')) {
+        event.preventDefault();
+        return true;
+      }
+      return false;
+    },
+    click: (event) => {
+      const target = event.target as HTMLElement | null;
+      const wikilink = target?.closest('.cm-md-wikilink') as HTMLElement | null;
+      if (wikilink) {
+        const title = wikilink.getAttribute('data-wikilink');
+        if (title) {
+          event.preventDefault();
+          event.stopPropagation();
+          navigate('/note/' + encodeURIComponent(title));
+          return true;
+        }
+      }
+      return false;
+    }
+  });
+
   const linkClickHandler = EditorView.domEventHandlers({
     mousedown: (event, v) => {
       const target = event.target as HTMLElement | null;
@@ -164,6 +191,8 @@
       liveMarkdownTransform,
       autoLinkHighlight,
       tableRendering,
+      wikilinkAutocomplete(),
+      wikilinkClickHandler,
       linkClickHandler,
       EditorView.contentAttributes.of({
         autocorrect: 'on',

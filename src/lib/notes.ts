@@ -19,6 +19,11 @@ import { getRustNotePreviews, hasRustCore, keywordSearchRust, rebuildRustIndex }
 let notesCache: NotePreview[] = [];
 let initialized = false;
 
+/** Test-only: inject a note into the cache without filesystem access. */
+export function _injectTestNote(id: string, title: string): void {
+  notesCache.push({ id, title, preview: '', modificationTime: Date.now() });
+}
+
 export async function initNotes(): Promise<void> {
   if (initialized) return;
 

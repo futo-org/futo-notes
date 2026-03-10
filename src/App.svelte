@@ -2,7 +2,7 @@
   import NotesShell from './components/NotesShell.svelte';
   import CrashReportDialog from './components/CrashReportDialog.svelte';
   import { hasFileSystem, getFS } from '$lib/platform';
-  import { initNotes, createNote, getAllNotes } from '$lib/notes';
+  import { initNotes, createNote, getAllNotes, _injectTestNote } from '$lib/notes';
   import { loadPreferences, getCachedPreferences, savePreferences } from '$lib/preferences';
   import { applyThemePreference, watchSystemThemeTauri } from '$lib/theme';
   import { flushCrashQueue, setAppVersion, type CrashReport } from '$lib/crashHandler';
@@ -45,7 +45,7 @@
         if (hasFileSystem || import.meta.env.DEV) {
           await initNotes();
           if (import.meta.env.DEV) {
-            (window as any).__testNotes = { createNote, getAllNotes };
+            (window as any).__testNotes = { createNote, getAllNotes, _injectTestNote };
           }
         }
 
