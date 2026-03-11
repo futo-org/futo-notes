@@ -1,6 +1,14 @@
 import { Hono } from 'hono';
+import { loadConfig } from '../config.js';
+import { getDb } from '../db/index.js';
 import { authMiddleware } from '../middleware/auth.js';
-import { getBuiltinPlugin } from '../plugins/registry.js';
+import {
+  createOrUpdateLocalPlugin,
+  deleteLocalPlugin,
+  ensureLocalPluginsLoaded,
+  getLocalPluginSource,
+} from '../plugins/local.js';
+import { getPlugin, getPluginRegistration } from '../plugins/registry.js';
 import {
   applyApprovedRunItems,
   approveAllRunItems,
@@ -25,7 +33,7 @@ function normalizeConfig(
   pluginId: string,
   rawConfig: Record<string, unknown> | undefined,
 ): Record<string, unknown> {
-  const plugin = getBuiltinPlugin(pluginId);
+  const plugin = getPlugin(pluginId);
   if (!plugin) {
     throw new Error(`Unknown plugin: ${pluginId}`);
   }
@@ -69,31 +77,37 @@ function normalizeConfig(
   return next;
 }
 
+async function resolvePlugin(pluginId: string) {
+  const config = loadConfig();
+  await ensureLocalPluginsLoaded(getDb(), config);
+  return getPlugin(pluginId);
+}
+
 plugins.get('/plugins/status', authMiddleware, async (c) => {
   return c.json(await getPluginsStatus());
 });
 
-plugins.post('/plugins/:id/enable', authMiddleware, (c) => {
+plugins.post('/plugins/:id/enable', authMiddleware, async (c) => {
   const pluginId = c.req.param('id');
-  if (!getBuiltinPlugin(pluginId)) {
+  if (!await resolvePlugin(pluginId)) {
     return c.json({ error: `Unknown plugin: ${pluginId}` }, 404);
   }
-  setPluginEnabled(pluginId, true);
+  await setPluginEnabled(pluginId, true);
   return c.json({ enabled: true });
 });
 
-plugins.post('/plugins/:id/disable', authMiddleware, (c) => {
+plugins.post('/plugins/:id/disable', authMiddleware, async (c) => {
   const pluginId = c.req.param('id');
-  if (!getBuiltinPlugin(pluginId)) {
+  if (!await resolvePlugin(pluginId)) {
     return c.json({ error: `Unknown plugin: ${pluginId}` }, 404);
   }
-  setPluginEnabled(pluginId, false);
+  await setPluginEnabled(pluginId, false);
   return c.json({ enabled: false });
 });
 
 plugins.post('/plugins/:id/config', authMiddleware, async (c) => {
   const pluginId = c.req.param('id');
-  const plugin = getBuiltinPlugin(pluginId);
+  const plugin = await resolvePlugin(pluginId);
   if (!plugin) {
     return c.json({ error: `Unknown plugin: ${pluginId}` }, 404);
   }
@@ -121,7 +135,7 @@ plugins.post('/plugins/:id/config', authMiddleware, async (c) => {
     }
 
     const nextConfig = normalizeConfig(pluginId, body.config);
-    updatePluginConfig(pluginId, {
+    await updatePluginConfig(pluginId, {
       scheduleKind: body.schedule_kind,
       scheduleTime: body.schedule_time,
       scheduleDay: body.schedule_day,
@@ -136,7 +150,7 @@ plugins.post('/plugins/:id/config', authMiddleware, async (c) => {
 
 plugins.post('/plugins/:id/run', authMiddleware, async (c) => {
   const pluginId = c.req.param('id');
-  if (!getBuiltinPlugin(pluginId)) {
+  if (!await resolvePlugin(pluginId)) {
     return c.json({ error: `Unknown plugin: ${pluginId}` }, 404);
   }
 
@@ -148,14 +162,82 @@ plugins.post('/plugins/:id/run', authMiddleware, async (c) => {
   }
 });
 
-plugins.get('/plugins/:id/runs', authMiddleware, (c) => {
+plugins.get('/plugins/:id/runs', authMiddleware, async (c) => {
   const pluginId = c.req.param('id');
-  if (!getBuiltinPlugin(pluginId)) {
+  await ensureLocalPluginsLoaded(getDb(), loadConfig());
+  if (!getPluginRegistration(pluginId)) {
     return c.json({ error: `Unknown plugin: ${pluginId}` }, 404);
   }
   const limitRaw = Number(c.req.query('limit') ?? '10');
   const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 50) : 10;
   return c.json({ runs: listPluginRuns(pluginId, limit) });
+});
+
+plugins.get('/plugins/local/:id/source', authMiddleware, async (c) => {
+  try {
+    const data = await getLocalPluginSource(getDb(), loadConfig(), c.req.param('id'));
+    return c.json(data);
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : String(err) }, 404);
+  }
+});
+
+plugins.post('/plugins/local', authMiddleware, async (c) => {
+  try {
+    const body = await c.req.json<{ plugin_id?: string; source?: string }>();
+    if (typeof body.plugin_id !== 'string' || body.plugin_id.trim().length === 0) {
+      return c.json({ error: 'plugin_id is required' }, 400);
+    }
+    if (typeof body.source !== 'string' || body.source.trim().length === 0) {
+      return c.json({ error: 'source is required' }, 400);
+    }
+
+    const registration = await createOrUpdateLocalPlugin(getDb(), loadConfig(), body.plugin_id.trim(), body.source);
+    return c.json({
+      saved: true,
+      plugin: {
+        id: registration.plugin.id,
+        name: registration.plugin.name,
+        description: registration.plugin.description,
+        source_kind: registration.sourceKind,
+        source_label: registration.sourceLabel,
+      },
+    }, 201);
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
+  }
+});
+
+plugins.put('/plugins/local/:id/source', authMiddleware, async (c) => {
+  try {
+    const pluginId = c.req.param('id');
+    const body = await c.req.json<{ source?: string }>();
+    if (typeof body.source !== 'string' || body.source.trim().length === 0) {
+      return c.json({ error: 'source is required' }, 400);
+    }
+    const registration = await createOrUpdateLocalPlugin(getDb(), loadConfig(), pluginId, body.source);
+    return c.json({
+      saved: true,
+      plugin: {
+        id: registration.plugin.id,
+        name: registration.plugin.name,
+        description: registration.plugin.description,
+        source_kind: registration.sourceKind,
+        source_label: registration.sourceLabel,
+      },
+    });
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
+  }
+});
+
+plugins.delete('/plugins/local/:id', authMiddleware, async (c) => {
+  try {
+    await deleteLocalPlugin(getDb(), loadConfig(), c.req.param('id'));
+    return c.json({ deleted: true });
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : String(err) }, 404);
+  }
 });
 
 plugins.get('/plugins/runs/:runId', authMiddleware, (c) => {

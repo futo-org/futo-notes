@@ -10,7 +10,8 @@ import { isWithinIdleWindow } from '../search/scheduler.js';
 import { applyNoteMutationEffects } from '../sync/noteMutationEffects.js';
 import { createPluginSdk } from './sdk.js';
 import { getBuiltinLlmInfo, getBuiltinLlmRunner, loadBuiltinLlm, unloadBuiltinLlm } from './llm.js';
-import { getBuiltinPlugin, listBuiltinPlugins } from './registry.js';
+import { ensureLocalPluginsLoaded } from './local.js';
+import { getPlugin, listPluginRegistrations, listPlugins } from './registry.js';
 import type {
   BuiltinPlugin,
   PluginApplyMode,
@@ -87,7 +88,8 @@ function nextScheduledAt(schedule: PluginScheduleConfig, now = new Date()): numb
 
 function ensurePluginRows(db: Database.Database): void {
   const now = Date.now();
-  for (const plugin of listBuiltinPlugins()) {
+  for (const entry of listPluginRegistrations()) {
+    const plugin = entry.plugin;
     db.prepare(`
       INSERT INTO plugins (
         plugin_id, enabled, schedule_kind, schedule_time, schedule_day,
@@ -388,32 +390,43 @@ async function executePluginRun(
   const runId = opts?.existingRunId ?? createRunRow(db, plugin.id, triggerType, applyMode);
 
   try {
-    phase = 'loading_model';
+    phase = 'running';
     downloadProgress = null;
     broadcastPluginStatus();
 
-    await loadBuiltinLlm(config.modelsPath, {
-      onDownloadProgress: (status) => {
-        phase = 'downloading_model';
-        downloadProgress = status;
-        broadcastPluginStatus();
-      },
-      onDownloadComplete: () => {
+    let llmRunner = getBuiltinLlmRunner();
+    const lazyLlmRunner = async (input: Parameters<NonNullable<typeof llmRunner>>[0]) => {
+      if (!llmRunner) {
         phase = 'loading_model';
         downloadProgress = null;
         broadcastPluginStatus();
-      },
-    });
 
-    const llmRunner = getBuiltinLlmRunner();
-    if (!llmRunner) {
-      throw new Error('Built-in LLM is unavailable');
-    }
+        await loadBuiltinLlm(config.modelsPath, {
+          onDownloadProgress: (status) => {
+            phase = 'downloading_model';
+            downloadProgress = status;
+            broadcastPluginStatus();
+          },
+          onDownloadComplete: () => {
+            phase = 'loading_model';
+            downloadProgress = null;
+            broadcastPluginStatus();
+          },
+        });
 
-    phase = 'running';
-    broadcastPluginStatus();
+        llmRunner = getBuiltinLlmRunner();
+        if (!llmRunner) {
+          throw new Error('Built-in LLM is unavailable');
+        }
+        phase = 'running';
+        downloadProgress = null;
+        broadcastPluginStatus();
+      }
 
-    const sdk = createPluginSdk(db, config.notesPath, plugin.id, runId, llmRunner);
+      return llmRunner(input);
+    };
+
+    const sdk = createPluginSdk(db, config.notesPath, plugin.id, runId, lazyLlmRunner);
     const summary = await plugin.run({
       runId,
       triggerType,
@@ -497,7 +510,8 @@ async function executePluginRun(
 async function runPluginInBackground(pluginId: string, triggerType: PluginTriggerType): Promise<string> {
   const config = currentConfig ?? loadConfig();
   const db = getDb();
-  const plugin = getBuiltinPlugin(pluginId);
+  await ensureLocalPluginsLoaded(db, config);
+  const plugin = getPlugin(pluginId);
   if (!plugin) {
     throw new Error(`Unknown plugin: ${pluginId}`);
   }
@@ -539,9 +553,10 @@ async function tick(): Promise<void> {
   if (!inWindow && idleMs < idleThresholdMs) return;
 
   const db = getDb();
+  await ensureLocalPluginsLoaded(db, config);
   ensurePluginRows(db);
 
-  const due = listBuiltinPlugins().find((plugin) => {
+  const due = listPlugins().find((plugin) => {
     const stored = getPluginStoredConfig(db, plugin);
     return stored.enabled && stored.nextRunAt !== null && stored.nextRunAt <= Date.now();
   });
@@ -568,22 +583,26 @@ export function getPluginSchedulerState(): {
   };
 }
 
-export function setPluginEnabled(pluginId: string, enabled: boolean): void {
+export async function setPluginEnabled(pluginId: string, enabled: boolean): Promise<void> {
   const db = getDb();
+  const config = currentConfig ?? loadConfig();
+  await ensureLocalPluginsLoaded(db, config);
   ensurePluginRows(db);
   updatePluginRow(db, pluginId, { enabled });
 }
 
-export function updatePluginConfig(pluginId: string, patch: {
+export async function updatePluginConfig(pluginId: string, patch: {
   scheduleKind?: PluginScheduleConfig['kind'];
   scheduleTime?: string | null;
   scheduleDay?: number | null;
   autoApply?: boolean;
   config?: Record<string, unknown>;
-}): void {
+}): Promise<void> {
   const db = getDb();
+  const config = currentConfig ?? loadConfig();
+  await ensureLocalPluginsLoaded(db, config);
   ensurePluginRows(db);
-  const plugin = getBuiltinPlugin(pluginId);
+  const plugin = getPlugin(pluginId);
   if (!plugin) {
     throw new Error(`Unknown plugin: ${pluginId}`);
   }
@@ -753,8 +772,9 @@ export function rejectAllRunItems(runId: string): void {
 export async function applyApprovedRunItems(runId: string): Promise<void> {
   const config = currentConfig ?? loadConfig();
   const db = getDb();
+  await ensureLocalPluginsLoaded(db, config);
   const run = getRunRow(db, runId);
-  const plugin = getBuiltinPlugin(run.plugin_id);
+  const plugin = getPlugin(run.plugin_id);
   if (!plugin) {
     throw new Error(`Unknown plugin: ${run.plugin_id}`);
   }
@@ -802,10 +822,13 @@ export async function getPluginsStatus(): Promise<{
   model: { id: string; loaded: boolean; download_progress: { totalSize: number; downloadedSize: number } | null };
   scheduler: { phase: PluginSchedulerPhase; running: boolean; last_error: string | null };
 }> {
+  const config = currentConfig ?? loadConfig();
   const db = getDb();
+  await ensureLocalPluginsLoaded(db, config);
   ensurePluginRows(db);
 
-  const plugins = listBuiltinPlugins().map((plugin) => {
+  const plugins = listPluginRegistrations().map((entry) => {
+    const plugin = entry.plugin;
     const stored = getPluginStoredConfig(db, plugin);
     const lastRun = db.prepare(`
       SELECT *
@@ -827,6 +850,13 @@ export async function getPluginsStatus(): Promise<{
       id: plugin.id,
       name: plugin.name,
       description: plugin.description,
+      source_kind: entry.sourceKind,
+      source_label: entry.sourceLabel,
+      source_path: entry.sourcePath,
+      load_status: entry.loadStatus,
+      load_error: entry.loadError,
+      can_edit: entry.canEdit,
+      can_delete: entry.canDelete,
       enabled: stored.enabled,
       auto_apply: stored.autoApply,
       schedule: {
@@ -871,7 +901,15 @@ export async function getPluginsStatus(): Promise<{
 
 export function startPluginScheduler(config: Config): void {
   currentConfig = config;
-  ensurePluginRows(getDb());
+  void ensureLocalPluginsLoaded(getDb(), config)
+    .catch((err) => {
+      lastError = err instanceof Error ? err.message : String(err);
+      log.error(`plugins: failed to load local plugins: ${lastError}`);
+    })
+    .finally(() => {
+      ensurePluginRows(getDb());
+      broadcastPluginStatus();
+    });
   schedulerInterval = setInterval(() => {
     tick().catch((err) => {
       lastError = err instanceof Error ? err.message : String(err);

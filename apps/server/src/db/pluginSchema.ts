@@ -1,6 +1,58 @@
 import type Database from 'better-sqlite3';
 
+function tableExists(db: Database.Database, tableName: string): boolean {
+  const row = db.prepare(`
+    SELECT name
+    FROM sqlite_master
+    WHERE type = 'table' AND name = ?
+  `).get(tableName) as { name: string } | undefined;
+  return Boolean(row);
+}
+
+function tableColumns(db: Database.Database, tableName: string): string[] {
+  const rows = db.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{ name: string }>;
+  return rows.map((row) => row.name);
+}
+
+function ensurePluginInstallsSchema(db: Database.Database): void {
+  if (tableExists(db, 'plugin_installs')) {
+    const columns = new Set(tableColumns(db, 'plugin_installs'));
+    const isLegacyInstallTable = !columns.has('source_kind');
+
+    if (isLegacyInstallTable) {
+      db.exec(`
+        DROP TABLE IF EXISTS plugin_installs_legacy;
+        ALTER TABLE plugin_installs RENAME TO plugin_installs_legacy;
+      `);
+    }
+  }
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS plugin_installs (
+      plugin_id TEXT PRIMARY KEY,
+      source_kind TEXT NOT NULL CHECK(source_kind IN ('local')),
+      source_path TEXT NOT NULL,
+      compiled_path TEXT NOT NULL,
+      load_status TEXT NOT NULL CHECK(load_status IN ('ready', 'error')),
+      load_error TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      deleted_at INTEGER
+    );
+  `);
+
+  const columns = new Set(tableColumns(db, 'plugin_installs'));
+  if (!columns.has('deleted_at')) {
+    db.exec('ALTER TABLE plugin_installs ADD COLUMN deleted_at INTEGER;');
+  }
+  if (!columns.has('load_error')) {
+    db.exec('ALTER TABLE plugin_installs ADD COLUMN load_error TEXT;');
+  }
+}
+
 export function createPluginTables(db: Database.Database): void {
+  ensurePluginInstallsSchema(db);
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS plugins (
       plugin_id TEXT PRIMARY KEY,
@@ -67,5 +119,6 @@ export function createPluginTables(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_plugin_run_logs_run ON plugin_run_logs(run_id, timestamp ASC);
     CREATE INDEX IF NOT EXISTS idx_plugin_run_items_run ON plugin_run_items(run_id, id ASC);
     CREATE INDEX IF NOT EXISTS idx_plugin_run_items_status ON plugin_run_items(run_id, status);
+    CREATE INDEX IF NOT EXISTS idx_plugin_installs_active ON plugin_installs(deleted_at, updated_at DESC);
   `);
 }

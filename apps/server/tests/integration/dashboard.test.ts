@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { createTestEnv, req, type TestEnv } from '../helpers/setup.js';
+import { authReq, createTestEnv, req, setupAndLogin, type TestEnv } from '../helpers/setup.js';
 
 describe('Dashboard', () => {
   let env: TestEnv;
@@ -24,6 +24,8 @@ describe('Dashboard', () => {
     expect(html).toContain('id="search-card"');
     expect(html).toContain('id="search-content"');
     expect(html).toContain('Automations');
+    expect(html).toContain('id="plugin-editor-modal"');
+    expect(html).toContain('openCreatePluginDialog()');
     expect(html).not.toContain('plugin-install-url');
 
     // Verify the script tag is present and parseable
@@ -61,6 +63,44 @@ describe('Dashboard', () => {
     const items = plugins.plugins as Array<Record<string, unknown>>;
     expect(items).toHaveLength(1);
     expect(items[0].id).toBe('untitled-no-more');
+  });
+
+  it('GET /dashboard/status includes local plugins with source metadata', async () => {
+    const token = await setupAndLogin(env.app);
+    const source = `export default {
+  id: 'dashboard-local',
+  name: 'Dashboard Local',
+  description: 'Local dashboard automation.',
+  defaultEnabled: false,
+  defaultSchedule: { kind: 'manual', time: null, day: null },
+  defaultAutoApply: false,
+  configSchema: [],
+  async run() {
+    return { notesScanned: 0, proposalsCreated: 0, notesSkipped: 0 };
+  },
+};
+`;
+
+    const createRes = await authReq(env.app, 'POST', '/plugins/local', token, {
+      plugin_id: 'dashboard-local',
+      source,
+    });
+    expect(createRes.status).toBe(201);
+
+    const res = await req(env.app, 'GET', '/dashboard/status');
+    expect(res.status).toBe(200);
+    const data = await res.json() as {
+      plugins: { plugins: Array<Record<string, unknown>> };
+    };
+
+    const local = data.plugins.plugins.find((plugin) => plugin.id === 'dashboard-local');
+    expect(local).toMatchObject({
+      id: 'dashboard-local',
+      source_kind: 'local',
+      source_label: 'Local',
+      can_edit: true,
+      can_delete: true,
+    });
   });
 
   it('GET /dashboard/status returns plugins: null when disabled', async () => {

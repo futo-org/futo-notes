@@ -5,6 +5,8 @@ export const PLUGIN_TRIGGER_TYPES = ['manual', 'scheduled'] as const;
 export const PLUGIN_APPLY_MODES = ['preview', 'auto_apply'] as const;
 export const PLUGIN_CHANGE_TYPES = ['rename_note'] as const;
 export const PLUGIN_LOG_LEVELS = ['debug', 'info', 'warn', 'error'] as const;
+export const PLUGIN_SOURCE_KINDS = ['builtin', 'local'] as const;
+export const PLUGIN_LOAD_STATUSES = ['ready', 'error'] as const;
 
 export type PluginScheduleKind = typeof PLUGIN_SCHEDULE_KINDS[number];
 export type PluginRunStatus = typeof PLUGIN_RUN_STATUSES[number];
@@ -13,6 +15,8 @@ export type PluginTriggerType = typeof PLUGIN_TRIGGER_TYPES[number];
 export type PluginApplyMode = typeof PLUGIN_APPLY_MODES[number];
 export type PluginChangeType = typeof PLUGIN_CHANGE_TYPES[number];
 export type PluginLogLevel = typeof PLUGIN_LOG_LEVELS[number];
+export type PluginSourceKind = typeof PLUGIN_SOURCE_KINDS[number];
+export type PluginLoadStatus = typeof PLUGIN_LOAD_STATUSES[number];
 
 export interface PluginConfigField {
   key: string;
@@ -131,6 +135,31 @@ export interface BuiltinPlugin {
   defaultAutoApply: boolean;
   configSchema: PluginConfigField[];
   run(context: PluginRunContext): Promise<PluginRunSummary>;
+}
+
+export interface PluginRegistration {
+  plugin: BuiltinPlugin;
+  sourceKind: PluginSourceKind;
+  sourceLabel: string;
+  sourcePath: string | null;
+  compiledPath: string | null;
+  loadStatus: PluginLoadStatus;
+  loadError: string | null;
+  canEdit: boolean;
+  canDelete: boolean;
+  updatedAt: number | null;
+}
+
+export interface PluginInstallRow {
+  plugin_id: string;
+  source_kind: 'local';
+  source_path: string;
+  compiled_path: string;
+  load_status: PluginLoadStatus;
+  load_error: string | null;
+  created_at: number;
+  updated_at: number;
+  deleted_at: number | null;
 }
 
 export interface PluginRunRow {

@@ -516,6 +516,112 @@ function dashboardHtml(): string {
     font-weight: 600;
   }
 
+  .plugin-editor-modal {
+    width: min(900px, 100%);
+    max-height: min(90vh, 860px);
+    overflow: auto;
+    border: 1px solid #CBBEAA;
+    border-radius: 16px;
+    background: linear-gradient(180deg, #FFFDF9 0%, #F4EFE7 100%);
+    padding: 1rem 1.1rem;
+    box-shadow: 0 16px 40px rgba(28, 25, 23, 0.4);
+    display: grid;
+    gap: 0.9rem;
+  }
+
+  .plugin-editor-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    align-items: flex-start;
+  }
+
+  .plugin-editor-title {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--text);
+  }
+
+  .plugin-editor-copy {
+    font-size: 0.84rem;
+    color: var(--text-secondary);
+    margin-top: 0.2rem;
+  }
+
+  .plugin-editor-grid {
+    display: grid;
+    gap: 0.8rem;
+  }
+
+  .plugin-editor-field {
+    display: grid;
+    gap: 0.35rem;
+  }
+
+  .plugin-editor-field label {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+  }
+
+  .plugin-editor-input,
+  .plugin-editor-textarea {
+    width: 100%;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: white;
+    color: var(--text);
+    font: inherit;
+  }
+
+  .plugin-editor-input {
+    padding: 0.55rem 0.65rem;
+  }
+
+  .plugin-editor-textarea {
+    min-height: 360px;
+    padding: 0.75rem 0.85rem;
+    font-family: 'SFMono-Regular', 'Consolas', 'Liberation Mono', monospace;
+    font-size: 0.82rem;
+    line-height: 1.55;
+    resize: vertical;
+    white-space: pre;
+  }
+
+  .plugin-editor-note {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+  }
+
+  .plugin-editor-error {
+    display: none;
+    border: 1px solid #D26A5E;
+    border-radius: 10px;
+    padding: 0.7rem 0.8rem;
+    background: #FFF1EE;
+    color: #8A150D;
+    font-size: 0.82rem;
+    white-space: pre-wrap;
+  }
+
+  .plugin-editor-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.55rem;
+    flex-wrap: wrap;
+  }
+
+  .plugin-card-local {
+    border-color: #D8C39A;
+    background: linear-gradient(180deg, #FFFDF8 0%, #F7F0E0 100%);
+  }
+
+  .plugin-pill.plugin-pill-local {
+    background: #FFF7E2;
+    border-color: #E1C98E;
+    color: #8A6322;
+  }
+
   .index-row {
     display: flex;
     align-items: center;
@@ -1007,6 +1113,34 @@ function dashboardHtml(): string {
   </div>
 </div>
 
+<div id="plugin-editor-modal" class="modal-backdrop" aria-hidden="true">
+  <div class="plugin-editor-modal" role="dialog" aria-modal="true" aria-labelledby="plugin-editor-title">
+    <div class="plugin-editor-header">
+      <div>
+        <div class="plugin-editor-title" id="plugin-editor-title">New Local Automation</div>
+        <div class="plugin-editor-copy" id="plugin-editor-copy">Paste a TypeScript plugin module. It will be transpiled, validated, persisted on disk, and loaded immediately.</div>
+      </div>
+      <button class="btn btn-muted" id="plugin-editor-close-btn" onclick="closePluginEditor()">Close</button>
+    </div>
+    <div class="plugin-editor-grid">
+      <div class="plugin-editor-field">
+        <label for="plugin-editor-id">Plugin ID</label>
+        <input id="plugin-editor-id" class="plugin-editor-input" type="text" autocomplete="off" spellcheck="false" placeholder="example-local-plugin">
+        <div class="plugin-editor-note">Use lowercase letters, numbers, hyphens, or underscores. The exported plugin object's <code>id</code> must match.</div>
+      </div>
+      <div class="plugin-editor-field">
+        <label for="plugin-editor-source">Plugin Source</label>
+        <textarea id="plugin-editor-source" class="plugin-editor-textarea" spellcheck="false"></textarea>
+      </div>
+      <div id="plugin-editor-error" class="plugin-editor-error"></div>
+    </div>
+    <div class="plugin-editor-actions">
+      <button class="btn btn-muted" id="plugin-editor-cancel-btn" onclick="closePluginEditor()">Cancel</button>
+      <button class="btn btn-primary" id="plugin-editor-save-btn" onclick="saveLocalPlugin()">Save automation</button>
+    </div>
+  </div>
+</div>
+
 <script>
 (function() {
   const $ = (id) => document.getElementById(id);
@@ -1178,6 +1312,31 @@ function dashboardHtml(): string {
 
   let activePluginRunId = null;
   let activePluginRunDetail = null;
+  let pluginEditorMode = 'create';
+  let pluginEditorPluginId = null;
+
+  function defaultLocalPluginSource() {
+    return [
+      'export default {',
+      "  id: '__PLUGIN_ID__',",
+      "  name: '__PLUGIN_NAME__',",
+      "  description: 'Describe this automation.',",
+      '  defaultEnabled: false,',
+      "  defaultSchedule: { kind: 'manual', time: null, day: null },",
+      '  defaultAutoApply: false,',
+      '  configSchema: [],',
+      '  async run(context) {',
+      "    const notes = await context.sdk.findNotes({ limit: 5, sort: 'modified_desc' });",
+      "    await context.sdk.log('info', 'Scanned recent notes', { count: notes.length });",
+      '    return {',
+      '      notesScanned: notes.length,',
+      '      proposalsCreated: 0,',
+      '      notesSkipped: 0,',
+      '    };',
+      '  },',
+      '};',
+    ].join('\\n');
+  }
 
   function dayLabel(day) {
     return ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][day] || 'Day ' + day;
@@ -1288,15 +1447,19 @@ function dashboardHtml(): string {
     var sched = t.scheduler || {};
     var isBusy = sched.running;
     var canManagePlugins = Boolean(authToken);
+    var hasLocalPlugins = Boolean(t.plugins && t.plugins.some(function(item) { return item.source_kind === 'local'; }));
 
     html += '<div class="plugin-toolbar">';
     html += '<div class="plugin-toolbar-copy">';
     html += '<span class="plugin-toolbar-label">Automation Runtime</span>';
-    html += '<span class="plugin-toolbar-value">' + (sched.phase === 'running' ? 'Running plugin jobs' : 'Built-in plugins only') + '</span>';
+    html += '<span class="plugin-toolbar-value">' + (sched.phase === 'running'
+      ? 'Running automation jobs'
+      : hasLocalPlugins ? 'Built-in + local automations' : 'Built-in automations') + '</span>';
     html += '</div>';
     html += '<div class="plugin-toolbar-actions">';
-    html += '<span class="plugin-auth-note">' + (canManagePlugins ? 'Signed in for automation controls' : 'Log in to run, configure, and approve changes') + '</span>';
+    html += '<span class="plugin-auth-note">' + (canManagePlugins ? 'Signed in for automation controls' : 'Log in to run, configure, approve changes, and manage local automations') + '</span>';
     if (canManagePlugins) {
+      html += '<button class="btn btn-primary" onclick="openCreatePluginDialog()"' + (isBusy ? ' disabled' : '') + '>New local automation</button>';
       html += '<span>' + badge('Signed in', 'ok') + '</span>';
       html += '<button class="action-link" onclick="logoutDashboard()">Sign out</button>';
     } else {
@@ -1306,14 +1469,14 @@ function dashboardHtml(): string {
     html += '</div>';
 
     if (!t.plugins || t.plugins.length === 0) {
-      html += '<div class="plugin-card-grid-empty">No built-in automations registered.</div>';
+      html += '<div class="plugin-card-grid-empty">No automations registered.</div>';
     }
 
     if (t.plugins && t.plugins.length > 0) {
       html += '<div class="plugin-grid" id="plugin-grid">';
       for (var i = 0; i < t.plugins.length; i++) {
         var tr = t.plugins[i];
-        html += '<article class="plugin-card" data-plugin-card="' + escapeHtml(tr.id) + '">';
+        html += '<article class="plugin-card' + (tr.source_kind === 'local' ? ' plugin-card-local' : '') + '" data-plugin-card="' + escapeHtml(tr.id) + '">';
         html += '<div class="plugin-card-header">';
         html += '<div>';
         html += '<div class="plugin-card-title">' + escapeHtml(tr.name) + '</div>';
@@ -1326,15 +1489,23 @@ function dashboardHtml(): string {
         html += '</div>';
 
         html += '<div class="plugin-meta-row">';
+        html += '<span class="plugin-pill' + (tr.source_kind === 'local' ? ' plugin-pill-local' : '') + '">' + escapeHtml(tr.source_label || 'Built-in') + '</span>';
         html += '<span class="plugin-pill">' + escapeHtml(scheduleSummary(tr.schedule)) + '</span>';
         html += '<span class="plugin-pill">' + (tr.auto_apply ? 'Auto-apply on' : 'Preview first') + '</span>';
         html += '<span class="plugin-pill">' + tr.pending_approval_count + ' pending approvals</span>';
+        if (tr.load_status && tr.load_status !== 'ready') {
+          html += '<span class="plugin-pill">' + escapeHtml(tr.load_status) + '</span>';
+        }
         html += '</div>';
 
         html += '<div class="plugin-card-section">';
+        html += '<div class="plugin-card-row"><span class="stat-label">Source</span><span class="stat-value plugin-source">' + escapeHtml(tr.source_label || 'Built-in') + '</span></div>';
         html += '<div class="plugin-card-row"><span class="stat-label">Next run</span><span class="stat-value">' + formatTime(tr.next_run_at) + '</span></div>';
         html += '<div class="plugin-card-row"><span class="stat-label">Last run</span><span class="stat-value">' + (tr.last_run ? formatTime(tr.last_run.finished_at || tr.last_run.started_at) : 'Never') + '</span></div>';
         html += '<div class="plugin-card-row"><span class="stat-label">Last result</span><span class="stat-value">' + (tr.last_run ? badge(tr.last_run.status, tr.last_run.status === 'failed' ? 'error' : tr.last_run.status === 'awaiting_approval' ? 'warn' : 'ok') : badge('Never', 'muted')) + '</span></div>';
+        if (tr.load_error) {
+          html += '<div class="plugin-card-note plugin-card-warning">' + escapeHtml(tr.load_error) + '</div>';
+        }
         html += '</div>';
 
         html += '<div class="plugin-card-section">';
@@ -1382,6 +1553,10 @@ function dashboardHtml(): string {
         html += '<div class="plugin-card-actions">';
         html += '<button class="btn btn-primary" onclick="triggerPlugin(\\'' + tr.id + '\\')"' + (!canManagePlugins || isBusy ? ' disabled' : '') + '>Run now</button>';
         html += '<button class="btn btn-muted" onclick="savePluginConfig(\\'' + tr.id + '\\')"' + (!canManagePlugins || isBusy ? ' disabled' : '') + '>Save settings</button>';
+        if (tr.source_kind === 'local') {
+          html += '<button class="btn btn-muted" onclick="editLocalPlugin(\\'' + tr.id + '\\')"' + (!canManagePlugins || isBusy ? ' disabled' : '') + '>Edit code</button>';
+          html += '<button class="action-link" onclick="deleteLocalPlugin(\\'' + tr.id + '\\')"' + (!canManagePlugins || isBusy ? ' disabled' : '') + '>Delete</button>';
+        }
         if (tr.last_run && tr.last_run.run_id) {
           html += '<button class="action-link" onclick="viewPluginRun(\\'' + tr.last_run.run_id + '\\')"' + (!canManagePlugins ? ' disabled' : '') + '>Open latest run</button>';
         }
@@ -1869,11 +2044,185 @@ function dashboardHtml(): string {
     }
   };
 
+  const pluginEditorModal = $('plugin-editor-modal');
+  const pluginEditorTitle = $('plugin-editor-title');
+  const pluginEditorCopy = $('plugin-editor-copy');
+  const pluginEditorIdInput = $('plugin-editor-id');
+  const pluginEditorSource = $('plugin-editor-source');
+  const pluginEditorError = $('plugin-editor-error');
+  const pluginEditorSaveBtn = $('plugin-editor-save-btn');
+  const pluginEditorCancelBtn = $('plugin-editor-cancel-btn');
+  const pluginEditorCloseBtn = $('plugin-editor-close-btn');
   const resetModal = $('reset-modal');
   const resetInput = $('reset-confirm-input');
   const resetConfirmBtn = $('reset-confirm-btn');
   const resetCancelBtn = $('reset-cancel-btn');
   const eraseResetBtn = $('erase-reset-btn');
+
+  function setPluginEditorError(message) {
+    if (!pluginEditorError) return;
+    if (!message) {
+      pluginEditorError.style.display = 'none';
+      pluginEditorError.textContent = '';
+      return;
+    }
+    pluginEditorError.style.display = 'block';
+    pluginEditorError.textContent = message;
+  }
+
+  function openPluginEditor(mode, pluginId, source, loadError) {
+    pluginEditorMode = mode;
+    pluginEditorPluginId = pluginId || null;
+    if (!pluginEditorModal || !pluginEditorTitle || !pluginEditorCopy || !pluginEditorIdInput || !pluginEditorSource) return;
+    pluginEditorModal.classList.add('open');
+    pluginEditorModal.setAttribute('aria-hidden', 'false');
+    pluginEditorTitle.textContent = mode === 'edit' ? 'Edit Local Automation' : 'New Local Automation';
+    pluginEditorCopy.textContent = mode === 'edit'
+      ? 'Update the local plugin source. Saving recompiles and hot-reloads it immediately.'
+      : 'Paste a TypeScript plugin module. It will be transpiled, validated, persisted on disk, and loaded immediately.';
+    pluginEditorIdInput.value = pluginId || '';
+    pluginEditorIdInput.disabled = mode === 'edit';
+    pluginEditorSource.value = source || defaultLocalPluginSource();
+    setPluginEditorError(loadError || '');
+    if (pluginEditorSaveBtn) {
+      pluginEditorSaveBtn.disabled = false;
+      pluginEditorSaveBtn.textContent = mode === 'edit' ? 'Save changes' : 'Save automation';
+    }
+    if (pluginEditorCancelBtn) pluginEditorCancelBtn.disabled = false;
+    if (pluginEditorCloseBtn) pluginEditorCloseBtn.disabled = false;
+    pluginEditorSource.focus();
+  }
+
+  window.openCreatePluginDialog = function() {
+    openPluginEditor('create', '', defaultLocalPluginSource(), '');
+  };
+
+  window.closePluginEditor = function() {
+    pluginEditorMode = 'create';
+    pluginEditorPluginId = null;
+    if (!pluginEditorModal || !pluginEditorIdInput || !pluginEditorSource) return;
+    pluginEditorModal.classList.remove('open');
+    pluginEditorModal.setAttribute('aria-hidden', 'true');
+    pluginEditorIdInput.value = '';
+    pluginEditorIdInput.disabled = false;
+    pluginEditorSource.value = '';
+    setPluginEditorError('');
+    if (pluginEditorSaveBtn) pluginEditorSaveBtn.textContent = 'Save automation';
+  };
+
+  window.editLocalPlugin = async function(pluginId) {
+    const token = await getToken('edit local automation');
+    if (!token) return;
+    try {
+      const res = await fetch('/plugins/local/' + pluginId + '/source', {
+        headers: { 'Authorization': 'Bearer ' + token },
+      });
+      if (res.status === 401) {
+        clearAuthToken();
+        alert('Session expired, please try again');
+        refresh();
+        return;
+      }
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || 'Failed to load plugin source');
+        return;
+      }
+      openPluginEditor('edit', pluginId, data.source || '', data.loadError || '');
+    } catch (e) {
+      alert('Error: ' + e.message);
+    }
+  };
+
+  window.saveLocalPlugin = async function() {
+    const token = await getToken(pluginEditorMode === 'edit' ? 'save local automation' : 'create local automation');
+    if (!token) return;
+    if (!pluginEditorIdInput || !pluginEditorSource || !pluginEditorSaveBtn || !pluginEditorCancelBtn || !pluginEditorCloseBtn) return;
+
+    var pluginId = pluginEditorIdInput.value.trim();
+    if (!pluginId) {
+      setPluginEditorError('Plugin ID is required.');
+      return;
+    }
+
+    var source = pluginEditorSource.value;
+    if (source.indexOf('__PLUGIN_ID__') !== -1) {
+      source = source.replace(/__PLUGIN_ID__/g, pluginId);
+    }
+    if (source.indexOf('__PLUGIN_NAME__') !== -1) {
+      source = source.replace(/__PLUGIN_NAME__/g, pluginId.replace(/[-_]+/g, ' '));
+    }
+
+    setPluginEditorError('');
+    pluginEditorSaveBtn.disabled = true;
+    pluginEditorCancelBtn.disabled = true;
+    pluginEditorCloseBtn.disabled = true;
+    pluginEditorSaveBtn.textContent = pluginEditorMode === 'edit' ? 'Saving...' : 'Creating...';
+
+    try {
+      const isEdit = pluginEditorMode === 'edit';
+      const res = await fetch(isEdit ? '/plugins/local/' + pluginId + '/source' : '/plugins/local', {
+        method: isEdit ? 'PUT' : 'POST',
+        headers: {
+          'Authorization': 'Bearer ' + token,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(isEdit ? { source: source } : { plugin_id: pluginId, source: source }),
+      });
+      if (res.status === 401) {
+        clearAuthToken();
+        alert('Session expired, please try again');
+        window.closePluginEditor();
+        refresh();
+        return;
+      }
+      const data = await res.json();
+      if (!res.ok) {
+        setPluginEditorError(data.error || 'Failed to save automation');
+        return;
+      }
+      window.closePluginEditor();
+      refresh();
+    } catch (e) {
+      setPluginEditorError('Error: ' + e.message);
+    } finally {
+      if (pluginEditorSaveBtn) {
+        pluginEditorSaveBtn.disabled = false;
+        pluginEditorSaveBtn.textContent = pluginEditorMode === 'edit' ? 'Save changes' : 'Save automation';
+      }
+      if (pluginEditorCancelBtn) pluginEditorCancelBtn.disabled = false;
+      if (pluginEditorCloseBtn) pluginEditorCloseBtn.disabled = false;
+    }
+  };
+
+  window.deleteLocalPlugin = async function(pluginId) {
+    const token = await getToken('delete local automation');
+    if (!token) return;
+    if (!window.confirm('Delete local automation "' + pluginId + '"? Past run history will be kept.')) {
+      return;
+    }
+
+    try {
+      const res = await fetch('/plugins/local/' + pluginId, {
+        method: 'DELETE',
+        headers: { 'Authorization': 'Bearer ' + token },
+      });
+      if (res.status === 401) {
+        clearAuthToken();
+        alert('Session expired, please try again');
+        refresh();
+        return;
+      }
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || 'Failed to delete local automation');
+        return;
+      }
+      refresh();
+    } catch (e) {
+      alert('Error: ' + e.message);
+    }
+  };
 
   function updateResetConfirmState() {
     if (!resetInput || !resetConfirmBtn) return;
@@ -1912,9 +2261,21 @@ function dashboardHtml(): string {
     });
   }
 
+  if (pluginEditorModal) {
+    pluginEditorModal.addEventListener('click', (event) => {
+      if (event.target === pluginEditorModal) {
+        window.closePluginEditor();
+      }
+    });
+  }
+
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && resetModal && resetModal.classList.contains('open')) {
       window.closeResetDialog();
+      return;
+    }
+    if (event.key === 'Escape' && pluginEditorModal && pluginEditorModal.classList.contains('open')) {
+      window.closePluginEditor();
     }
   });
 

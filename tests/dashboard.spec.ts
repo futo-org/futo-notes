@@ -25,6 +25,37 @@ interface SeedNoteInput {
   modifiedAt?: number;
 }
 
+function buildLocalPluginSource(pluginId: string, name: string, description: string, targetTitle: string): string {
+  return `export default {
+  id: '${pluginId}',
+  name: '${name}',
+  description: '${description}',
+  defaultEnabled: false,
+  defaultSchedule: { kind: 'manual', time: null, day: null },
+  defaultAutoApply: false,
+  configSchema: [],
+  async run(context) {
+    const notes = await context.sdk.findNotes({ filenameGlob: 'Untitled*.md', limit: 1, sort: 'modified_desc' });
+    if (notes.length === 0) {
+      return { notesScanned: 0, proposalsCreated: 0, notesSkipped: 0 };
+    }
+
+    const note = notes[0];
+    await context.sdk.proposeChange({
+      entityType: 'note',
+      entityId: note.uuid,
+      changeType: 'rename_note',
+      before: { title: note.title, filename: note.filename },
+      after: { newTitle: '${targetTitle}', rewriteExactWikiLinks: true },
+      preview: { oldTitle: note.title, proposedTitle: '${targetTitle}', noteUuid: note.uuid },
+      reason: 'Local dashboard automation test',
+    });
+    return { notesScanned: 1, proposalsCreated: 1, notesSkipped: 0 };
+  },
+};
+`;
+}
+
 async function startDashboardHarness(): Promise<DashboardHarness> {
   const env = createTestEnv();
   const server = createAdaptorServer({ fetch: env.app.fetch });
@@ -277,5 +308,60 @@ test.describe('Server Dashboard', () => {
 
     expect(fs.existsSync(path.join(harness!.env.notesDir, 'trip planning.md'))).toBe(true);
     expect(fs.existsSync(path.join(harness!.env.notesDir, 'Untitled (2).md'))).toBe(false);
+  });
+
+  test('local automation can be created, edited, and deleted from the dashboard', async ({ page }) => {
+    await seedNotes(harness!.baseUrl, harness!.token, [
+      {
+        uuid: 'note-local-1',
+        filename: 'Untitled.md',
+        content: 'A local automation should rename this note.',
+      },
+    ]);
+
+    await loginDashboard(page, harness!.baseUrl);
+
+    await page.getByRole('button', { name: 'New local automation' }).click();
+    await expect(page.locator('#plugin-editor-modal')).toBeVisible({ timeout: 10_000 });
+    await page.locator('#plugin-editor-id').fill('local-dashboard-e2e');
+    await page.locator('#plugin-editor-source').fill(
+      buildLocalPluginSource('local-dashboard-e2e', 'Local Dashboard E2E', 'Created from the dashboard.', 'local dashboard title'),
+    );
+    await page.getByRole('button', { name: 'Save automation' }).click();
+
+    const pluginCard = page.locator('[data-plugin-card="local-dashboard-e2e"]');
+    await expect(pluginCard).toBeVisible({ timeout: 10_000 });
+    await expect(pluginCard).toContainText('Local Dashboard E2E');
+    await expect(pluginCard).toContainText('Local');
+
+    await pluginCard.getByRole('button', { name: 'Run now' }).click();
+    await expect(pluginCard).toContainText('awaiting_approval', { timeout: 10_000 });
+
+    await openLatestRun(page, pluginCard);
+    const detail = page.locator('.plugin-detail');
+    const runItem = detail.locator('.plugin-run-item').first();
+    await expect(detail).toContainText('local dashboard title');
+    await runItem.getByRole('button', { name: 'Approve', exact: true }).click();
+    await page.getByRole('button', { name: 'Apply approved' }).click();
+    await expect(runItem.locator('.badge').first()).toContainText('applied', { timeout: 10_000 });
+    expect(fs.existsSync(path.join(harness!.env.notesDir, 'local dashboard title.md'))).toBe(true);
+
+    await pluginCard.getByRole('button', { name: 'Edit code' }).click();
+    await expect(page.locator('#plugin-editor-modal')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#plugin-editor-id')).toHaveValue('local-dashboard-e2e');
+    await expect(page.locator('#plugin-editor-id')).toBeDisabled();
+    await page.locator('#plugin-editor-source').fill(
+      buildLocalPluginSource('local-dashboard-e2e', 'Local Dashboard E2E Updated', 'Updated from the dashboard.', 'local dashboard title'),
+    );
+    await page.getByRole('button', { name: 'Save changes' }).click();
+    await pluginCard.getByRole('button', { name: 'Edit code' }).click();
+    await expect(page.locator('#plugin-editor-modal')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('#plugin-editor-source')).toHaveValue(/Local Dashboard E2E Updated/);
+    await expect(page.locator('#plugin-editor-source')).toHaveValue(/Updated from the dashboard\./);
+    await page.getByRole('button', { name: 'Close' }).click();
+
+    page.once('dialog', (dialog) => dialog.accept());
+    await pluginCard.getByRole('button', { name: 'Delete' }).click();
+    await expect(pluginCard).toHaveCount(0, { timeout: 10_000 });
   });
 });
