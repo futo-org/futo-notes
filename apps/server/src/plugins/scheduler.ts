@@ -3,10 +3,11 @@ import type Database from 'better-sqlite3';
 import type { Config } from '../config.js';
 import { loadConfig } from '../config.js';
 import { getDb } from '../db/index.js';
-import { broadcastPluginStatus, broadcastSyncAvailable } from '../events.js';
+import { broadcastPluginStatus } from '../events.js';
 import { log } from '../logger.js';
 import { tryAcquire, release, holder } from '../schedulerLock.js';
 import { isWithinIdleWindow } from '../search/scheduler.js';
+import { applyNoteMutationEffects } from '../sync/noteMutationEffects.js';
 import { createPluginSdk } from './sdk.js';
 import { getBuiltinLlmInfo, getBuiltinLlmRunner, loadBuiltinLlm, unloadBuiltinLlm } from './llm.js';
 import { getBuiltinPlugin, listBuiltinPlugins } from './registry.js';
@@ -285,7 +286,7 @@ async function applyApprovedItemsInternal(
   config: Config,
   plugin: BuiltinPlugin,
   runId: string,
-): Promise<{ appliedCount: number; failedCount: number; hadMutations: boolean }> {
+): Promise<{ appliedCount: number; failedCount: number; changedUuids: string[] }> {
   const runner = async () => {
     throw new Error('LLM access is not available during apply-only execution');
   };
@@ -299,7 +300,7 @@ async function applyApprovedItemsInternal(
 
   let appliedCount = 0;
   let failedCount = 0;
-  let hadMutations = false;
+  const changedUuids = new Set<string>();
 
   for (const item of approvedItems) {
     const after = parseJsonObject(item.after_json);
@@ -313,6 +314,9 @@ async function applyApprovedItemsInternal(
         newTitle: String(after.newTitle ?? ''),
         rewriteExactWikiLinks: after.rewriteExactWikiLinks !== false,
       });
+      for (const uuid of renameResult.changedUuids) {
+        changedUuids.add(uuid);
+      }
 
       const nextAfter = {
         ...after,
@@ -330,7 +334,6 @@ async function applyApprovedItemsInternal(
         WHERE id = ?
       `).run(JSON.stringify(nextAfter), Date.now(), Date.now(), item.id);
       appliedCount += 1;
-      hadMutations = true;
     } catch (err) {
       failedCount += 1;
       db.prepare(`
@@ -343,7 +346,7 @@ async function applyApprovedItemsInternal(
     }
   }
 
-  return { appliedCount, failedCount, hadMutations };
+  return { appliedCount, failedCount, changedUuids: Array.from(changedUuids) };
 }
 
 function refreshRunTerminalStatus(db: Database.Database, runId: string): PluginRunStatus {
@@ -453,9 +456,12 @@ async function executePluginRun(
         }),
         errorMessage: applyResult.failedCount > 0 ? 'One or more plugin changes failed to apply' : null,
       });
-      if (applyResult.hadMutations) {
-        broadcastSyncAvailable();
-      }
+      applyNoteMutationEffects(db, {
+        changedUuids: applyResult.changedUuids,
+        notifyClients: true,
+        incrementVersion: true,
+        searchEnabled: config.searchEnabled,
+      });
     } else {
       updateRun(db, runId, {
         status: 'awaiting_approval',
@@ -776,9 +782,12 @@ export async function applyApprovedRunItems(runId: string): Promise<void> {
         }),
       });
     }
-    if (result.hadMutations) {
-      broadcastSyncAvailable();
-    }
+    applyNoteMutationEffects(db, {
+      changedUuids: result.changedUuids,
+      notifyClients: true,
+      incrementVersion: true,
+      searchEnabled: config.searchEnabled,
+    });
   } finally {
     running = false;
     abortController = null;

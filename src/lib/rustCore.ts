@@ -32,10 +32,16 @@ interface RustIncomingSyncUpdate {
   content_hash: string;
 }
 
+interface RustSyncRename {
+  fromId: string;
+  toId: string;
+}
+
 interface RustSyncApplyOutput {
   state: RustSyncState;
   updatedIds: string[];
   deletedIds: string[];
+  renamed: RustSyncRename[];
   elapsedMs: number;
 }
 
@@ -150,6 +156,7 @@ export async function applySyncDeltaRust(
   nextState: SyncState;
   updatedIds: string[];
   deletedIds: string[];
+  renamed: RustSyncRename[];
   elapsedMs: number;
 }> {
   const payload = await tauriInvoke<RustSyncApplyOutput>('core_apply_sync_delta', {
@@ -167,6 +174,7 @@ export async function applySyncDeltaRust(
     nextState: fromRustState(payload.state),
     updatedIds: payload.updatedIds,
     deletedIds: payload.deletedIds,
+    renamed: payload.renamed,
     elapsedMs: payload.elapsedMs,
   };
 }
@@ -216,4 +224,3 @@ export async function supersearchDownloadWithMetaRust(
 ): Promise<void> {
   await tauriInvoke<void>('supersearch_download', { serverUrl, token, meta });
 }
-

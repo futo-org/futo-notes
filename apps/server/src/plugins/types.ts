@@ -68,6 +68,7 @@ export interface RunBuiltinLlmInput {
   userPrompt: string;
   maxTokens?: number;
   temperature?: number;
+  disableThinking?: boolean;
   jsonSchema?: Record<string, unknown>;
   timeoutMs?: number;
 }
@@ -96,7 +97,12 @@ export interface PluginSdk {
   listRecentNotes(limit: number, opts?: { excludeUuid?: string; excludeUntitled?: boolean }): Promise<PluginNoteMeta[]>;
   runBuiltinLlm(input: RunBuiltinLlmInput): Promise<string>;
   proposeChange(input: ProposeChangeInput): Promise<number>;
-  renameNote(input: RenameNoteInput): Promise<{ finalTitle: string; finalFilename: string; rewrittenNotes: number }>;
+  renameNote(input: RenameNoteInput): Promise<{
+    finalTitle: string;
+    finalFilename: string;
+    rewrittenNotes: number;
+    changedUuids: string[];
+  }>;
   log(level: PluginLogLevel, message: string, context?: Record<string, unknown>): Promise<void>;
   getPluginState<T = unknown>(key: string): Promise<T | null>;
   setPluginState(key: string, value: unknown): Promise<void>;

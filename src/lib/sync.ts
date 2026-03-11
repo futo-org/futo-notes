@@ -13,6 +13,12 @@ export interface SyncSummary {
   conflicts: number;
   updatedIds: string[];
   deletedIds: string[];
+  renamed: SyncRename[];
+}
+
+export interface SyncRename {
+  fromId: string;
+  toId: string;
 }
 
 function normalizeBaseUrl(input: string): string {
@@ -142,7 +148,7 @@ export async function syncNow(): Promise<SyncSummary> {
         if (!hasLocalChanges) {
           await saveSyncState(state);
           await clearSyncErrorAndSetTime();
-          return { uploaded: 0, downloaded: 0, deleted: 0, conflicts: 0, updatedIds: [], deletedIds: [] };
+          return { uploaded: 0, downloaded: 0, deleted: 0, conflicts: 0, updatedIds: [], deletedIds: [], renamed: [] };
         }
         // Local changes exist — fall through to full sync with already-prepared payload
         return await doFullSync(serverUrl, token, state, prepared);
@@ -247,5 +253,6 @@ async function doFullSync(
     conflicts: response.conflicts.length,
     updatedIds: Array.from(updatedIds),
     deletedIds: Array.from(deletedIds),
+    renamed: applied.renamed,
   };
 }

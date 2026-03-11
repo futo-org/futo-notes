@@ -171,6 +171,7 @@ describe('syncNow', () => {
       nextState: makeState({ uuidById: { hello: 'uuid-hello' } }),
       updatedIds: [],
       deletedIds: [],
+      renamed: [],
       elapsedMs: 1,
     });
 
@@ -212,6 +213,7 @@ describe('syncNow', () => {
       nextState: makeState(),
       updatedIds: ['new-note'],
       deletedIds: [],
+      renamed: [],
       elapsedMs: 1,
     });
 
@@ -260,6 +262,7 @@ describe('syncNow', () => {
       nextState: makeState(),
       updatedIds: [],
       deletedIds: ['doomed'],
+      renamed: [],
       elapsedMs: 1,
     });
 
@@ -294,6 +297,7 @@ describe('syncNow', () => {
       nextState: makeState({ uuidById: { hello: 'uuid-hello' } }),
       updatedIds: [],
       deletedIds: [],
+      renamed: [],
       elapsedMs: 1,
     });
 
@@ -346,6 +350,7 @@ describe('syncNow', () => {
       nextState: makeState(),
       updatedIds: [],
       deletedIds: [],
+      renamed: [],
       elapsedMs: 1,
     });
 
@@ -378,6 +383,7 @@ describe('syncNow', () => {
       nextState: makeState(),
       updatedIds: ['downloaded'],
       deletedIds: ['del'],
+      renamed: [],
       elapsedMs: 1,
     });
 
@@ -412,5 +418,44 @@ describe('syncNow', () => {
     expect(summary.conflicts).toBe(1);
     expect(summary.updatedIds).toContain('downloaded');
     expect(summary.deletedIds).toEqual(['del']);
+    expect(summary.renamed).toEqual([]);
+  });
+
+  it('surfaces remote rename metadata in SyncSummary', async () => {
+    mockPrepareSyncPayloadRust.mockResolvedValue({
+      nextState: makeState({ uuidById: { old: 'uuid-note' } }),
+      notes: [{ uuid: 'uuid-note', filename: 'old.md', modified_at: 1700000000000, content_hash: 'oldhash', hash_at_last_sync: 'oldhash' }],
+      allUuids: ['uuid-note'],
+      elapsedMs: 1,
+    });
+    mockApplySyncDeltaRust.mockResolvedValue({
+      nextState: makeState({ uuidById: { renamed: 'uuid-note' } }),
+      updatedIds: ['renamed'],
+      deletedIds: [],
+      renamed: [{ fromId: 'old', toId: 'renamed' }],
+      elapsedMs: 1,
+    });
+
+    const syncResponse: SyncResponse = {
+      update: [
+        {
+          uuid: 'uuid-note',
+          filename: 'renamed.md',
+          modified_at: 1700000000000,
+          content_hash: 'oldhash',
+          hash_at_last_sync: 'oldhash',
+          content: 'body',
+        },
+      ],
+      delete: [],
+      hash_updates: [],
+      conflicts: [],
+    };
+    mockFetch.mockResolvedValueOnce(Response.json(syncResponse));
+
+    const summary = await syncNow();
+
+    expect(summary.updatedIds).toEqual(['renamed']);
+    expect(summary.renamed).toEqual([{ fromId: 'old', toId: 'renamed' }]);
   });
 });

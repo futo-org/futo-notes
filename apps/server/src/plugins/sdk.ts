@@ -163,7 +163,12 @@ export function createPluginSdk(
       return Number(result.lastInsertRowid);
     },
 
-    async renameNote(input: RenameNoteInput): Promise<{ finalTitle: string; finalFilename: string; rewrittenNotes: number }> {
+    async renameNote(input: RenameNoteInput): Promise<{
+      finalTitle: string;
+      finalFilename: string;
+      rewrittenNotes: number;
+      changedUuids: string[];
+    }> {
       const note = getNote(db, input.noteUuid);
       if (!note) {
         throw new Error(`Unknown note: ${input.noteUuid}`);
@@ -189,6 +194,7 @@ export function createPluginSdk(
       `).all() as NoteRow[];
 
       let rewrittenNotes = 0;
+      const changedUuids: string[] = [];
       for (const row of rows) {
         const originalContent = readNoteFile(notesPath, row.filename);
         if (originalContent === null) continue;
@@ -216,13 +222,14 @@ export function createPluginSdk(
         if (contentChanged) {
           rewrittenNotes += 1;
         }
+        changedUuids.push(row.uuid);
       }
 
       if (finalFilename === note.filename && rewrittenNotes === 0) {
-        return { finalTitle, finalFilename, rewrittenNotes };
+        return { finalTitle, finalFilename, rewrittenNotes, changedUuids: [] };
       }
 
-      return { finalTitle, finalFilename, rewrittenNotes };
+      return { finalTitle, finalFilename, rewrittenNotes, changedUuids };
     },
 
     async log(level: PluginLogLevel, message: string, context?: Record<string, unknown>): Promise<void> {

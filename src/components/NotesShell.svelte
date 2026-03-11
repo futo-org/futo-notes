@@ -352,6 +352,7 @@ Escaped pipes:
   // File watcher self-write suppression (desktop native)
   const recentWrites = new Map<string, number>();
   const recentSyncWrites = new Map<string, number>();
+  const recentRemoteRenames = new Map<string, { toId: string; ts: number }>();
   let externalRescanTimer: number | null = null;
   let externalRescanInFlight = false;
   let externalRescanQueued = false;
@@ -379,6 +380,23 @@ Escaped pipes:
   function isRecentSyncWrite(filename: string): boolean {
     const ts = recentSyncWrites.get(filename);
     return ts !== undefined && Date.now() - ts < 5000;
+  }
+
+  function recordRemoteRename(fromId: string, toId: string): void {
+    recentRemoteRenames.set(fromId, { toId, ts: Date.now() });
+    for (const [key, value] of recentRemoteRenames) {
+      if (Date.now() - value.ts > 5000) recentRemoteRenames.delete(key);
+    }
+  }
+
+  function getRecentRemoteRename(id: string): { toId: string; ts: number } | null {
+    const entry = recentRemoteRenames.get(id);
+    if (!entry) return null;
+    if (Date.now() - entry.ts > 5000) {
+      recentRemoteRenames.delete(id);
+      return null;
+    }
+    return entry;
   }
 
 
@@ -443,9 +461,14 @@ Escaped pipes:
 
   async function handleSyncComplete(summary: SyncSummary): Promise<void> {
 
-    const hasRemoteNoteChanges = summary.updatedIds.length > 0 || summary.deletedIds.length > 0;
+    const hasRemoteNoteChanges = summary.updatedIds.length > 0 || summary.deletedIds.length > 0 || summary.renamed.length > 0;
     for (const id of summary.updatedIds) recordSyncWrite(`${id}.md`);
     for (const id of summary.deletedIds) recordSyncWrite(`${id}.md`);
+    for (const rename of summary.renamed) {
+      recordSyncWrite(`${rename.fromId}.md`);
+      recordSyncWrite(`${rename.toId}.md`);
+      recordRemoteRename(rename.fromId, rename.toId);
+    }
     if (hasRemoteNoteChanges) {
       // Defer note list refresh so it doesn't block active typing.
       // requestIdleCallback yields to pending input events first.
@@ -456,6 +479,33 @@ Escaped pipes:
     // Check once after first sync, then on remote note changes (throttled).
     if (lastArtifactCheckAt === 0 || hasRemoteNoteChanges) {
       void checkSupersearchArtifacts();
+    }
+
+    const activeRename = originalId
+      ? summary.renamed.find((rename) => rename.fromId === originalId)
+      : undefined;
+    if (activeRename) {
+      const previousId = activeRename.fromId;
+      originalId = activeRename.toId;
+      const meta = getNoteById(activeRename.toId);
+      title = meta?.title ?? activeRename.toId;
+      savedTitle = title;
+
+      if (graphData) {
+        const idx = graphData.nodeIndex.get(previousId);
+        if (idx !== undefined) {
+          graphData.nodes[idx].noteId = activeRename.toId;
+          graphData.nodes[idx].title = title;
+          graphData.nodeIndex.delete(previousId);
+          graphData.nodeIndex.set(activeRename.toId, idx);
+        }
+      }
+
+      const currentPath = window.location.hash.slice(1) || '/';
+      if (currentPath === `/note/${encodeURIComponent(previousId)}`) {
+        prevNoteId = activeRename.toId;
+        navigate(`/note/${encodeURIComponent(activeRename.toId)}`);
+      }
     }
 
     // Reload only when sync actually touched the currently-open note.
@@ -471,7 +521,7 @@ Escaped pipes:
           if (editor?.hasFocus() && (saveTimeout !== null || saveInFlight !== null || saveQueued)) return;
           content = freshContent;
           suppressSaveOnChange = true;
-          editor?.setContent(freshContent);
+          editor?.setContent(freshContent, { preserveSelection: true });
           suppressSaveOnChange = false;
         }
         const meta = getNoteById(originalId);
@@ -490,6 +540,61 @@ Escaped pipes:
       }
     }
 
+  }
+
+  async function handleNativeFileChangeEvent(event: { type: 'add' | 'change' | 'unlink'; filename: string }): Promise<void> {
+    const { type, filename } = event;
+    if (!filename.endsWith('.md')) return;
+    if (isRecentSyncWrite(filename)) return;
+    if (isRecentWrite(filename)) return;
+
+    const id = filename.replace(/\.md$/, '');
+    if (type === 'unlink' && getRecentRemoteRename(id)) return;
+    if (id === originalId && hasOpenDraftChanges() && (type === 'change' || type === 'unlink')) {
+      showToast(
+        type === 'unlink'
+          ? 'Open note was deleted externally; keeping local draft'
+          : 'Open note changed externally; keeping local draft',
+      );
+      await refreshNotesFromStorage();
+      refreshNotesList();
+      if (type === 'change') {
+        scheduleExternalRescan(250);
+      }
+      return;
+    }
+
+    if (type === 'unlink' && id === originalId) {
+      if (saveTimeout !== null) { clearTimeout(saveTimeout); saveTimeout = null; }
+      originalId = null;
+      navigate('/');
+      showToast('Note was deleted externally');
+    } else if (type === 'change' && id === originalId) {
+      if (saveTimeout !== null) { clearTimeout(saveTimeout); saveTimeout = null; }
+      try {
+        const freshContent = await readNote(id);
+        content = freshContent;
+        suppressSaveOnChange = true;
+        editor?.setContent(freshContent, { preserveSelection: true });
+        suppressSaveOnChange = false;
+        const meta = getNoteById(id);
+        if (meta) {
+          title = meta.title;
+          savedTitle = meta.title;
+        }
+      } catch {
+        // Ignore read errors for transient file events.
+      }
+    }
+
+    await handleExternalFileChange(type, filename);
+    refreshNotesList();
+    if (type === 'add' || type === 'change') {
+      scheduleExternalRescan();
+    }
+    if (type === 'add' || type === 'change') {
+      notifySaved();
+    }
   }
 
   function updateDrawerMetrics(): void {
@@ -1316,64 +1421,8 @@ Escaped pipes:
           else if (action === 'new-note') void createNewNote();
         }));
 
-        cleanupNativeListeners.push(onFileChange(async (event) => {
-          const { type, filename } = event;
-          if (!filename.endsWith('.md')) return;
-          if (isRecentSyncWrite(filename)) return;
-          if (isRecentWrite(filename)) return;
-
-          const id = filename.replace(/\.md$/, '');
-          if (id === originalId && hasOpenDraftChanges() && (type === 'change' || type === 'unlink')) {
-            showToast(
-              type === 'unlink'
-                ? 'Open note was deleted externally; keeping local draft'
-                : 'Open note changed externally; keeping local draft',
-            );
-            await refreshNotesFromStorage();
-            refreshNotesList();
-            if (type === 'change') {
-              scheduleExternalRescan(250);
-            }
-            return;
-          }
-
-          if (type === 'unlink' && id === originalId) {
-            // Current note was deleted externally
-            if (saveTimeout !== null) { clearTimeout(saveTimeout); saveTimeout = null; }
-            originalId = null;
-            navigate('/');
-            showToast('Note was deleted externally');
-          } else if (type === 'change' && id === originalId) {
-            // Current note was changed externally — reload from disk
-            if (saveTimeout !== null) { clearTimeout(saveTimeout); saveTimeout = null; }
-            try {
-              const freshContent = await readNote(id);
-              content = freshContent;
-              suppressSaveOnChange = true;
-              editor?.setContent(freshContent);
-              suppressSaveOnChange = false;
-              const meta = getNoteById(id);
-              if (meta) {
-                title = meta.title;
-                savedTitle = meta.title;
-              }
-            } catch {
-              // Ignore read errors for transient file events.
-            }
-          }
-
-          await handleExternalFileChange(type as 'add' | 'change' | 'unlink', filename);
-          refreshNotesList();
-          // Bulk external copies can emit events before all files are readable.
-          // Reconcile from disk after burst activity so missed notes are recovered.
-          if (type === 'add' || type === 'change') {
-            scheduleExternalRescan();
-          }
-
-          // Trigger sync so externally-added files are uploaded to server
-          if (type === 'add' || type === 'change') {
-            notifySaved();
-          }
+        cleanupNativeListeners.push(onFileChange((event) => {
+          void handleNativeFileChangeEvent(event);
         }));
       });
     }
@@ -1417,6 +1466,40 @@ Escaped pipes:
   });
 
   const drawerOffset = $derived(drawerProgress * drawerWidth);
+
+  $effect(() => {
+    if (!import.meta.env.DEV) return;
+    const win = window as typeof window & {
+      __notesShellTest?: {
+        handleSyncComplete: (summary: SyncSummary) => Promise<void>;
+        handleFileChange: (event: { type: 'add' | 'change' | 'unlink'; filename: string }) => Promise<void>;
+        seedOpenNote: (id: string, body: string) => void;
+        getState: () => { originalId: string | null; title: string; toastMessage: string; hash: string };
+      };
+    };
+    win.__notesShellTest = {
+      handleSyncComplete,
+      handleFileChange: handleNativeFileChangeEvent,
+      seedOpenNote: (id: string, body: string) => {
+        originalId = id;
+        title = id;
+        savedTitle = id;
+        content = body;
+        editor?.setContent(body);
+        prevNoteId = id;
+        navigate(`/note/${encodeURIComponent(id)}`);
+      },
+      getState: () => ({
+        originalId,
+        title,
+        toastMessage,
+        hash: window.location.hash,
+      }),
+    };
+    return () => {
+      delete win.__notesShellTest;
+    };
+  });
   const overlayOpacity = $derived(isMobile ? drawerProgress * 0.5 : 0);
 
   // Direct DOM refs for bypassing reactivity during drag

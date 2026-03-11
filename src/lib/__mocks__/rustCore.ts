@@ -141,6 +141,7 @@ export async function applySyncDeltaRust(
   nextState: SyncState;
   updatedIds: string[];
   deletedIds: string[];
+  renamed: Array<{ fromId: string; toId: string }>;
   elapsedMs: number;
 }> {
   const fs = g.__futoActiveFS!;
@@ -149,6 +150,7 @@ export async function applySyncDeltaRust(
   let nextDeletedUuids = [...state.deletedUuids];
   const updatedIds: string[] = [];
   const deletedIds: string[] = [];
+  const renamed: Array<{ fromId: string; toId: string }> = [];
 
   for (const update of updates) {
     // If this UUID was previously mapped to a different ID, delete the old file (rename)
@@ -156,6 +158,7 @@ export async function applySyncDeltaRust(
     if (oldId && oldId !== update.id) {
       try { await fs.deleteNoteFile(oldId); } catch { /* may already be gone */ }
       delete nextUuidById[oldId];
+      renamed.push({ fromId: oldId, toId: update.id });
     }
     await fs.writeNote(update.id, update.content, update.modified_at);
     nextUuidById[update.id] = update.uuid;
@@ -183,6 +186,7 @@ export async function applySyncDeltaRust(
     },
     updatedIds,
     deletedIds,
+    renamed,
     elapsedMs: 0,
   };
 }

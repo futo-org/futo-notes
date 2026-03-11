@@ -5,9 +5,8 @@ import { getDb } from '../db/index.js';
 import { processSync } from '../sync/engine.js';
 import { getSyncVersion } from '../db/syncVersion.js';
 import { loadConfig } from '../config.js';
-import { broadcastSyncAvailable } from '../events.js';
-import { markDirtyAfterSync, removeDirtyForDeleted } from '../search/dirtyTracker.js';
 import { log } from '../logger.js';
+import { applyNoteMutationEffects } from '../sync/noteMutationEffects.js';
 
 const sync = new Hono();
 
@@ -151,29 +150,18 @@ function handlePostSync(
   const mutatedServerState = body.deleted_uuids.length > 0
     || result.hash_updates.length > 0
     || result.conflicts.length > 0;
-  if (mutatedServerState) {
-    const clientId = c.req.header('X-Client-Id') || '';
-    broadcastSyncAvailable(clientId);
-  }
-
-  // Search: mark changed notes dirty so they get re-indexed
-  if (config.searchEnabled) {
-    const changedUuids: string[] = [];
-    for (const hu of result.hash_updates) {
-      changedUuids.push(hu.uuid);
-    }
-    for (const u of result.update) {
-      if (!changedUuids.includes(u.uuid)) {
-        changedUuids.push(u.uuid);
-      }
-    }
-    if (changedUuids.length > 0) {
-      markDirtyAfterSync(getDb(), changedUuids);
-    }
-    if (body.deleted_uuids.length > 0) {
-      removeDirtyForDeleted(getDb(), body.deleted_uuids);
-    }
-  }
+  const changedUuids = [
+    ...result.hash_updates.map((update) => update.uuid),
+    ...result.update.map((update) => update.uuid),
+  ];
+  applyNoteMutationEffects(getDb(), {
+    changedUuids,
+    deletedUuids: body.deleted_uuids,
+    notifyClients: mutatedServerState,
+    excludeClientId: c.req.header('X-Client-Id'),
+    incrementVersion: false,
+    searchEnabled: config.searchEnabled,
+  });
 }
 
 export default sync;

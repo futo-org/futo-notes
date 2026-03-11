@@ -51,10 +51,13 @@ pub struct SupersearchMeta {
 pub struct CoreState {
     index: Arc<RwLock<SearchIndexState>>,
     watcher: Arc<Mutex<Option<RecommendedWatcher>>>,
+    suppressed_watcher_events: Arc<Mutex<HashMap<String, i64>>>,
     vectors: Arc<RwLock<Option<Arc<VectorArtifacts>>>>,
     engagement: Arc<RwLock<EngagementState>>,
     supersearch_meta: Arc<RwLock<Option<SupersearchMeta>>>,
 }
+
+const WATCHER_SUPPRESSION_MS: i64 = 5_000;
 
 const APP_CONFIG_PATH: &str = ".app-config.json";
 const NOTES_DIR_OVERRIDE_FILE: &str = "notes-dir-override.json";
@@ -227,10 +230,18 @@ pub struct SyncApplyInput {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct SyncRenameOutput {
+    pub from_id: String,
+    pub to_id: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SyncApplyOutput {
     pub state: SyncStatePayload,
     pub updated_ids: Vec<String>,
     pub deleted_ids: Vec<String>,
+    pub renamed: Vec<SyncRenameOutput>,
     pub elapsed_ms: u128,
 }
 
@@ -742,6 +753,7 @@ fn prepare_sync_payload_impl(base: &Path, input: SyncPrepareInput) -> Result<Syn
 fn apply_sync_delta_impl(
     base: &Path,
     index: &Arc<RwLock<SearchIndexState>>,
+    suppressed_watcher_events: &Arc<Mutex<HashMap<String, i64>>>,
     input: SyncApplyInput,
 ) -> Result<SyncApplyOutput, String> {
     let started = Instant::now();
@@ -749,10 +761,20 @@ fn apply_sync_delta_impl(
     let mut hash_cache = state.hash_cache.clone().unwrap_or_default();
     let mut updated_ids = Vec::new();
     let mut deleted_ids = Vec::new();
+    let mut renamed = Vec::new();
+
+    let suppress_filename = |filename: &str| {
+        if let Ok(mut map) = suppressed_watcher_events.lock() {
+            let expires_at = now_ms() + WATCHER_SUPPRESSION_MS;
+            map.insert(filename.to_string(), expires_at);
+            map.retain(|_, expiry| *expiry > now_ms());
+        }
+    };
 
     for uuid in &input.delete {
         let maybe_id = find_id_for_uuid(&state.uuid_by_id, uuid);
         if let Some(id) = maybe_id {
+            suppress_filename(&format!("{id}.md"));
             let path = safe_note_path(base, &id)?;
             let _ = fs::remove_file(&path);
             deleted_ids.push(id.clone());
@@ -789,6 +811,7 @@ fn apply_sync_delta_impl(
         };
 
         let final_id = get_unique_note_id(base, &incoming_id, original_id.as_deref())?;
+        suppress_filename(&format!("{final_id}.md"));
 
         let final_path = safe_note_path(base, &final_id)?;
         write_atomic_text(&final_path, &update.content)?;
@@ -798,10 +821,14 @@ fn apply_sync_delta_impl(
 
         if let Some(old) = &original_id {
             if old != &final_id {
+                suppress_filename(&format!("{old}.md"));
                 let old_path = safe_note_path(base, old)?;
                 let _ = fs::remove_file(&old_path);
                 hash_cache.remove(old);
-                updated_ids.push(old.clone());
+                renamed.push(SyncRenameOutput {
+                    from_id: old.clone(),
+                    to_id: final_id.clone(),
+                });
 
                 if let Ok(mut idx) = index.write() {
                     if idx.loaded {
@@ -855,11 +882,18 @@ fn apply_sync_delta_impl(
     updated_ids.dedup();
     deleted_ids.sort();
     deleted_ids.dedup();
+    renamed.sort_by(|a, b| {
+        a.from_id
+            .cmp(&b.from_id)
+            .then_with(|| a.to_id.cmp(&b.to_id))
+    });
+    renamed.dedup_by(|a, b| a.from_id == b.from_id && a.to_id == b.to_id);
 
     Ok(SyncApplyOutput {
         state,
         updated_ids,
         deleted_ids,
+        renamed,
         elapsed_ms: started.elapsed().as_millis(),
     })
 }
@@ -1672,6 +1706,7 @@ pub async fn fs_get_image_path(app: AppHandle, filename: String) -> Result<Strin
 #[tauri::command]
 pub async fn fs_start_watcher(app: AppHandle, state: State<'_, CoreState>) -> Result<(), String> {
     let watcher_state = state.watcher.clone();
+    let suppressed_watcher_events = state.suppressed_watcher_events.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let mut guard = watcher_state
             .lock()
@@ -1695,6 +1730,16 @@ pub async fn fs_start_watcher(app: AppHandle, state: State<'_, CoreState>) -> Re
                         continue;
                     };
                     if !filename.ends_with(".md") {
+                        continue;
+                    }
+                    let should_suppress = if let Ok(mut map) = suppressed_watcher_events.lock() {
+                        let now = now_ms();
+                        map.retain(|_, expiry| *expiry > now);
+                        map.remove(filename).is_some()
+                    } else {
+                        false
+                    };
+                    if should_suppress {
                         continue;
                     }
                     let _ = app_handle.emit(
@@ -1860,9 +1905,10 @@ pub async fn core_apply_sync_delta(
     input: SyncApplyInput,
 ) -> Result<SyncApplyOutput, String> {
     let index = state.index.clone();
+    let suppressed_watcher_events = state.suppressed_watcher_events.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let base = notes_root(&app)?;
-        apply_sync_delta_impl(&base, &index, input)
+        apply_sync_delta_impl(&base, &index, &suppressed_watcher_events, input)
     })
     .await
     .map_err(task_join_err)?
@@ -2218,9 +2264,11 @@ mod tests {
             .insert("uuid-1".to_string(), "oldhash".to_string());
 
         let index = Arc::new(RwLock::new(SearchIndexState::default()));
+        let suppressed_watcher_events = Arc::new(Mutex::new(HashMap::new()));
         let output = apply_sync_delta_impl(
             &base,
             &index,
+            &suppressed_watcher_events,
             SyncApplyInput {
                 state,
                 update: vec![IncomingSyncUpdate {
@@ -2240,6 +2288,9 @@ mod tests {
         assert_eq!(output.state.uuid_by_id.get("new-name"), Some(&"uuid-1".to_string()));
         assert_eq!(output.state.hash_by_uuid.get("uuid-1"), Some(&"newhash".to_string()));
         assert!(output.updated_ids.iter().any(|id| id == "new-name"));
+        assert_eq!(output.renamed.len(), 1);
+        assert_eq!(output.renamed[0].from_id, "old-name");
+        assert_eq!(output.renamed[0].to_id, "new-name");
 
         cleanup_temp_dir(&base);
     }
