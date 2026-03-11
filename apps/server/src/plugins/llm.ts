@@ -43,6 +43,20 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs?: number): Promise<T> {
   });
 }
 
+export function preparePromptForModel(input: RunBuiltinLlmInput): { systemPrompt?: string; userPrompt: string } {
+  let userPrompt = input.userPrompt;
+
+  // Qwen3 supports /no_think as a soft switch for direct answers.
+  if (input.disableThinking && !userPrompt.startsWith('/no_think')) {
+    userPrompt = `/no_think\n${userPrompt}`;
+  }
+
+  return {
+    systemPrompt: input.systemPrompt,
+    userPrompt,
+  };
+}
+
 export async function loadBuiltinLlm(
   modelsDir: string,
   callbacks?: LoadModelCallbacks,
@@ -111,13 +125,13 @@ export function getBuiltinLlmRunner(): ((input: RunBuiltinLlmInput) => Promise<s
   const { context, LlamaChatSession } = currentModel;
 
   return async (input: RunBuiltinLlmInput): Promise<string> => {
+    const prompt = preparePromptForModel(input);
     const session = new LlamaChatSession({
       contextSequence: context.getSequence(),
-      systemPrompt: input.systemPrompt,
+      systemPrompt: prompt.systemPrompt,
     });
 
-    const prompt = input.userPrompt;
-    const result = await withTimeout(session.prompt(prompt, {
+    const result = await withTimeout(session.prompt(prompt.userPrompt, {
       maxTokens: input.maxTokens ?? 64,
       temperature: input.temperature ?? 0.3,
     }), input.timeoutMs);

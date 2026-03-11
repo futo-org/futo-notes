@@ -2,12 +2,27 @@ import { validateTitle } from '@futo-notes/shared';
 import type { BuiltinPlugin, PluginRunContext } from './types.js';
 
 const UNTITLED_RE = /^Untitled(?: \(\d+\))?\.md$/;
+const DEFAULT_TITLE_EXAMPLES = [
+  'Carnitas recipe',
+  "Books I've read",
+  'Learning DynamoDB',
+  'weird but true facts',
+];
+
+type PromptMode = 'default' | 'retry';
 
 interface UntitledNoMoreState {
   sourceHash: string;
   lastSuggestedTitle: string | null;
   lastResult: string;
   lastRunAt: number;
+}
+
+interface TitleAttempt {
+  promptMode: PromptMode;
+  raw: string;
+  title: string;
+  issues: ReturnType<typeof validateTitle>;
 }
 
 function getNumber(config: Record<string, unknown>, key: string, fallback: number): number {
@@ -23,17 +38,70 @@ function getFirstContentLine(raw: string): string {
   return (lines[0] ?? '').replace(/^["']|["']$/g, '').replace(/\.md$/i, '').trim();
 }
 
-function buildPrompt(content: string, recentTitles: string[], maxContentChars: number): { systemPrompt: string; userPrompt: string } {
+function buildPrompt(
+  content: string,
+  recentTitles: string[],
+  maxContentChars: number,
+  promptMode: PromptMode,
+): { systemPrompt: string; userPrompt: string } {
   const snippet = content.slice(0, maxContentChars);
-  let systemPrompt = 'You suggest short, natural note titles (2-6 words). Reply with only the title, no quotes and no explanation.';
+  let systemPrompt = 'You suggest short, natural note titles (2-6 words, lowercase).';
   if (recentTitles.length > 0) {
-    systemPrompt += `\n\nRecent titles from this vault:\n${recentTitles.map((title) => `- ${title}`).join('\n')}`;
+    systemPrompt += `\nExamples from this user:\n${recentTitles.map((title) => `- ${title}`).join('\n')}`;
+  } else {
+    systemPrompt += `\nExamples: ${DEFAULT_TITLE_EXAMPLES.map((title) => `"${title}"`).join(', ')}.`;
+  }
+  systemPrompt += '\nReply with ONLY the title, no quotes and no explanation.';
+  if (promptMode === 'retry') {
+    systemPrompt += '\nDo not return an empty response. If you are unsure, make your best guess.';
   }
 
   return {
     systemPrompt,
-    userPrompt: `Suggest a clear title for this note:\n\n${snippet}`,
+    userPrompt: promptMode === 'retry'
+      ? `Suggest a title for this note. Return exactly one short title.\n\n${snippet}`
+      : `Suggest a clear title for this note:\n\n${snippet}`,
   };
+}
+
+async function generateTitleAttempts(
+  context: PluginRunContext,
+  noteTitle: string,
+  content: string,
+  recentTitles: string[],
+  maxContentChars: number,
+  maxTokens: number,
+  temperature: number,
+): Promise<TitleAttempt[]> {
+  const attempts: TitleAttempt[] = [];
+
+  for (const promptMode of ['default', 'retry'] as const) {
+    const prompt = buildPrompt(content, recentTitles, maxContentChars, promptMode);
+    const raw = await context.sdk.runBuiltinLlm({
+      purpose: 'untitled-no-more-title',
+      systemPrompt: prompt.systemPrompt,
+      userPrompt: prompt.userPrompt,
+      maxTokens,
+      temperature,
+      timeoutMs: 30_000,
+      disableThinking: true,
+    });
+    const title = getFirstContentLine(raw);
+    const issues = title.length > 0 ? validateTitle(title) : [];
+
+    attempts.push({
+      promptMode,
+      raw,
+      title,
+      issues,
+    });
+
+    if (title.length >= 2 && issues.length === 0 && title !== noteTitle) {
+      break;
+    }
+  }
+
+  return attempts;
 }
 
 async function processCandidate(
@@ -82,19 +150,54 @@ async function processCandidate(
     return 'skipped';
   }
 
-  const prompt = buildPrompt(content, recentTitles, maxContentChars);
-  const raw = await context.sdk.runBuiltinLlm({
-    purpose: 'untitled-no-more-title',
-    systemPrompt: prompt.systemPrompt,
-    userPrompt: prompt.userPrompt,
+  const attempts = await generateTitleAttempts(
+    context,
+    note.title,
+    content,
+    recentTitles,
+    maxContentChars,
     maxTokens,
     temperature,
-    timeoutMs: 30_000,
-  });
+  );
+  const accepted = attempts.find((attempt) => attempt.title.length >= 2 && attempt.issues.length === 0 && attempt.title !== note.title);
+  const invalid = attempts.find((attempt) => attempt.title.length >= 2 && attempt.issues.length > 0);
+  const unchanged = attempts.find((attempt) => attempt.title.length >= 2 && attempt.title === note.title);
+  const lastAttempt = attempts[attempts.length - 1];
 
-  const title = getFirstContentLine(raw);
-  if (!title || title.length < 2) {
-    await context.sdk.log('warn', 'Skipping empty title suggestion', { noteUuid: note.uuid, raw: raw.slice(0, 120) });
+  if (!accepted && invalid) {
+    await context.sdk.log('warn', 'Skipping invalid title suggestion', {
+      noteUuid: note.uuid,
+      title: invalid.title,
+      issues: invalid.issues.map((issue) => issue.kind),
+    });
+    await context.sdk.setPluginState(stateKey, {
+      sourceHash: note.contentHash,
+      lastSuggestedTitle: invalid.title,
+      lastResult: 'skipped: invalid_title',
+      lastRunAt: Date.now(),
+    } satisfies UntitledNoMoreState);
+    return 'skipped';
+  }
+
+  if (!accepted && unchanged) {
+    await context.sdk.setPluginState(stateKey, {
+      sourceHash: note.contentHash,
+      lastSuggestedTitle: unchanged.title,
+      lastResult: 'skipped: unchanged',
+      lastRunAt: Date.now(),
+    } satisfies UntitledNoMoreState);
+    return 'skipped';
+  }
+
+  if (!accepted) {
+    await context.sdk.log('warn', 'Skipping empty title suggestion', {
+      noteUuid: note.uuid,
+      raw: lastAttempt?.raw.slice(0, 120) ?? '',
+      attempts: attempts.map((attempt) => ({
+        promptMode: attempt.promptMode,
+        rawLength: attempt.raw.length,
+      })),
+    });
     await context.sdk.setPluginState(stateKey, {
       sourceHash: note.contentHash,
       lastSuggestedTitle: null,
@@ -104,31 +207,7 @@ async function processCandidate(
     return 'skipped';
   }
 
-  const issues = validateTitle(title);
-  if (issues.length > 0) {
-    await context.sdk.log('warn', 'Skipping invalid title suggestion', {
-      noteUuid: note.uuid,
-      title,
-      issues: issues.map((issue) => issue.kind),
-    });
-    await context.sdk.setPluginState(stateKey, {
-      sourceHash: note.contentHash,
-      lastSuggestedTitle: title,
-      lastResult: 'skipped: invalid_title',
-      lastRunAt: Date.now(),
-    } satisfies UntitledNoMoreState);
-    return 'skipped';
-  }
-
-  if (title === note.title) {
-    await context.sdk.setPluginState(stateKey, {
-      sourceHash: note.contentHash,
-      lastSuggestedTitle: title,
-      lastResult: 'skipped: unchanged',
-      lastRunAt: Date.now(),
-    } satisfies UntitledNoMoreState);
-    return 'skipped';
-  }
+  const title = accepted.title;
 
   const itemId = await context.sdk.proposeChange({
     entityType: 'note',

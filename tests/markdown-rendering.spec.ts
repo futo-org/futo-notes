@@ -115,7 +115,7 @@ test.describe('Headings', () => {
     const fontWeight = await h1.evaluate(el =>
       window.getComputedStyle(el).fontWeight
     );
-    // H1-H3 use Instrument Serif at weight 400 (size creates hierarchy)
+    // H1-H3 use Inria at weight 400 (size creates hierarchy)
     expect(parseInt(fontWeight)).toBeGreaterThanOrEqual(400);
   });
 

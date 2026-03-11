@@ -15,6 +15,7 @@
   import { tableRendering } from '$lib/tableRenderingField';
   import { liveMarkdownTransform, preloadImages } from '$lib/liveMarkdownTransform';
   import { getImageWebPath } from '$lib/fileSystem';
+  import { buildSetContentTransaction, type SetEditorContentOptions } from '$lib/editorContentSync';
   import { hasFileSystem, isTauri } from '$lib/platform';
   import { toggleBold, toggleItalic, toggleStrikethrough, isListLine } from '$lib/markdownToolbar';
   import { openUrl } from '$lib/openUrl';
@@ -301,13 +302,12 @@
     };
   });
 
-  export function setContent(text: string): void {
+  export function setContent(text: string, options: SetEditorContentOptions = {}): void {
     if (!view) return;
-    if (text === view.state.doc.toString()) return;
+    const spec = buildSetContentTransaction(view.state, text, options);
+    if (!spec) return;
     preloadImages(text, hasFileSystem ? getImageWebPath : undefined, () => view);
-    view.dispatch({
-      changes: { from: 0, to: view.state.doc.length, insert: text }
-    });
+    view.dispatch(spec);
   }
 
   export function focus(): void {
