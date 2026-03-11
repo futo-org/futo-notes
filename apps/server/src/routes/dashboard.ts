@@ -831,6 +831,27 @@ function dashboardHtml(): string {
     margin-bottom: 0.65rem;
   }
 
+  .plugin-detail-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 0.6rem;
+    margin-bottom: 0.65rem;
+  }
+
+  .plugin-detail-header h3 {
+    margin-bottom: 0;
+  }
+
+  .plugin-detail-group-label {
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0.25rem 0 0.2rem;
+  }
+
   .plugin-run-items {
     display: grid;
     gap: 0.6rem;
@@ -1188,10 +1209,14 @@ function dashboardHtml(): string {
   function renderRunDetail(detail, canManagePlugins, isBusy) {
     if (!detail || !detail.run) return '';
     var run = detail.run;
+    var items = detail.items || [];
+    var logs = detail.logs || [];
     var html = '<div class="plugin-detail">';
     html += '<div class="plugin-detail-section">';
-    html += '<h3>Run Detail</h3>';
-    html += '<div class="plugin-card-row"><span class="stat-label">Run</span><span class="stat-value">' + escapeHtml(run.run_id) + '</span></div>';
+    html += '<div class="plugin-detail-header">';
+    html += '<h3>Latest Run</h3>';
+    html += '<span class="plugin-card-note">' + escapeHtml(run.run_id) + '</span>';
+    html += '</div>';
     html += '<div class="plugin-card-row"><span class="stat-label">Status</span><span class="stat-value">' + badge(run.status, run.status === 'failed' ? 'error' : run.status === 'awaiting_approval' ? 'warn' : 'ok') + '</span></div>';
     html += '<div class="plugin-card-row"><span class="stat-label">Started</span><span class="stat-value">' + formatTime(run.started_at) + '</span></div>';
     if (run.finished_at) {
@@ -1207,7 +1232,7 @@ function dashboardHtml(): string {
     if (run.error_message) {
       html += '<div class="plugin-card-note" style="color:var(--danger)">' + escapeHtml(run.error_message) + '</div>';
     }
-    var hasPending = detail.items.some(function(item) { return item.status === 'suggested' || item.status === 'approved'; });
+    var hasPending = items.some(function(item) { return item.status === 'suggested' || item.status === 'approved'; });
     if (hasPending) {
       html += '<div class="plugin-card-actions">';
       html += '<button class="btn btn-muted" onclick="approveAllRunItems(\\'' + run.run_id + '\\')"' + (!canManagePlugins || isBusy ? ' disabled' : '') + '>Approve all</button>';
@@ -1215,16 +1240,13 @@ function dashboardHtml(): string {
       html += '<button class="btn btn-primary" onclick="applyApprovedRunItems(\\'' + run.run_id + '\\')"' + (!canManagePlugins || isBusy ? ' disabled' : '') + '>Apply approved</button>';
       html += '</div>';
     }
-    html += '</div>';
-
-    html += '<div class="plugin-detail-section">';
-    html += '<h3>Proposed Changes</h3>';
-    if (!detail.items || detail.items.length === 0) {
+    html += '<div class="plugin-detail-group-label">Changes</div>';
+    if (items.length === 0) {
       html += '<div class="plugin-card-note">No proposed changes.</div>';
     } else {
       html += '<div class="plugin-run-items">';
-      for (var i = 0; i < detail.items.length; i++) {
-        var item = detail.items[i];
+      for (var i = 0; i < items.length; i++) {
+        var item = items[i];
         html += '<div class="plugin-run-item">';
         html += '<div class="plugin-card-row"><span class="stat-label">Status</span><span class="stat-value">' + badge(item.status, item.status === 'failed' ? 'error' : item.status === 'applied' ? 'ok' : item.status === 'rejected' ? 'muted' : 'warn') + '</span></div>';
         html += '<div class="plugin-card-row"><span class="stat-label">Old title</span><span class="stat-value">' + escapeHtml((item.preview && item.preview.oldTitle) || (item.before && item.before.title) || 'Unknown') + '</span></div>';
@@ -1243,16 +1265,11 @@ function dashboardHtml(): string {
       }
       html += '</div>';
     }
-    html += '</div>';
-
-    html += '<div class="plugin-detail-section">';
-    html += '<h3>Run Logs</h3>';
-    if (!detail.logs || detail.logs.length === 0) {
-      html += '<div class="plugin-card-note">No log entries.</div>';
-    } else {
+    if (logs.length > 0) {
+      html += '<div class="plugin-detail-group-label">Activity</div>';
       html += '<div class="plugin-log-list">';
-      for (var j = 0; j < detail.logs.length; j++) {
-        var entry = detail.logs[j];
+      for (var j = 0; j < logs.length; j++) {
+        var entry = logs[j];
         html += '<div class="plugin-log-entry">';
         html += '<div><strong>' + escapeHtml(entry.level.toUpperCase()) + '</strong> · ' + escapeHtml(formatTime(entry.timestamp)) + '</div>';
         html += '<div>' + escapeHtml(entry.message) + '</div>';
@@ -1322,13 +1339,13 @@ function dashboardHtml(): string {
 
         html += '<div class="plugin-card-section">';
         html += '<div class="plugin-config-grid">';
-        html += '<div class="plugin-config-field"><label>Schedule</label><select data-schedule-kind' + (!canManagePlugins || isBusy ? ' disabled' : '') + '>';
+        html += '<div class="plugin-config-field"><label>Schedule</label><select data-schedule-kind onchange="syncScheduleFields(this)"' + (!canManagePlugins || isBusy ? ' disabled' : '') + '>';
         html += '<option value="manual"' + (tr.schedule.kind === 'manual' ? ' selected' : '') + '>Manual</option>';
         html += '<option value="daily"' + (tr.schedule.kind === 'daily' ? ' selected' : '') + '>Daily</option>';
         html += '<option value="weekly"' + (tr.schedule.kind === 'weekly' ? ' selected' : '') + '>Weekly</option>';
         html += '</select></div>';
         html += '<div class="plugin-config-field"><label>Time</label><input type="time" data-schedule-time value="' + escapeHtml(tr.schedule.time || '03:00') + '"' + (!canManagePlugins || isBusy ? ' disabled' : '') + '></div>';
-        html += '<div class="plugin-config-field"><label>Weekly day</label><select data-schedule-day' + (!canManagePlugins || isBusy ? ' disabled' : '') + '>';
+        html += '<div class="plugin-config-field" data-schedule-day-field' + (tr.schedule.kind === 'weekly' ? '' : ' style="display:none"') + '><label>Weekly day</label><select data-schedule-day' + (!canManagePlugins || isBusy ? ' disabled' : '') + '>';
         for (var day = 0; day < 7; day++) {
           html += '<option value="' + day + '"' + (tr.schedule.day === day ? ' selected' : '') + '>' + dayLabel(day) + '</option>';
         }
@@ -1616,7 +1633,9 @@ function dashboardHtml(): string {
     var body = {
       schedule_kind: card.querySelector('[data-schedule-kind]').value,
       schedule_time: card.querySelector('[data-schedule-time]').value,
-      schedule_day: Number(card.querySelector('[data-schedule-day]').value),
+      schedule_day: card.querySelector('[data-schedule-kind]').value === 'weekly'
+        ? Number(card.querySelector('[data-schedule-day]').value)
+        : null,
       auto_apply: card.querySelector('[data-auto-apply]').checked,
       config: {}
     };
@@ -1659,6 +1678,14 @@ function dashboardHtml(): string {
     } catch (e) {
       alert('Error: ' + e.message);
     }
+  };
+
+  window.syncScheduleFields = function(selectEl) {
+    var card = selectEl && selectEl.closest ? selectEl.closest('[data-plugin-card]') : null;
+    if (!card) return;
+    var weeklyDayField = card.querySelector('[data-schedule-day-field]');
+    if (!weeklyDayField) return;
+    weeklyDayField.style.display = selectEl.value === 'weekly' ? '' : 'none';
   };
 
   window.togglePlugin = async function(id, enabled) {

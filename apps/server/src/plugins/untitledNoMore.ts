@@ -172,56 +172,7 @@ export const untitledNoMorePlugin: BuiltinPlugin = {
     day: null,
   },
   defaultAutoApply: false,
-  configSchema: [
-    {
-      key: 'staleMinutes',
-      label: 'Minimum note age (minutes)',
-      type: 'number',
-      default: 5,
-      min: 1,
-      max: 1_440,
-    },
-    {
-      key: 'minContentChars',
-      label: 'Minimum content length',
-      type: 'number',
-      default: 10,
-      min: 1,
-      max: 500,
-    },
-    {
-      key: 'maxContentChars',
-      label: 'Max content to analyze',
-      type: 'number',
-      default: 2_000,
-      min: 200,
-      max: 8_000,
-    },
-    {
-      key: 'fewShotCount',
-      label: 'Recent title examples',
-      type: 'number',
-      default: 10,
-      min: 0,
-      max: 30,
-    },
-    {
-      key: 'temperature',
-      label: 'Model temperature',
-      type: 'number',
-      default: 0.3,
-      min: 0,
-      max: 1,
-    },
-    {
-      key: 'maxTokens',
-      label: 'Max output tokens',
-      type: 'number',
-      default: 64,
-      min: 16,
-      max: 256,
-    },
-  ],
+  configSchema: [],
 
   async run(context: PluginRunContext) {
     const staleMinutes = getNumber(context.config, 'staleMinutes', 5);
