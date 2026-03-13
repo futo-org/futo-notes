@@ -8,6 +8,10 @@ import { log } from '../logger.js';
 import { tryAcquire, release, holder } from '../schedulerLock.js';
 import { isWithinIdleWindow } from '../search/scheduler.js';
 import { applyNoteMutationEffects } from '../sync/noteMutationEffects.js';
+import { readNoteFile, writeNoteFile } from '../sync/files.js';
+import { contentHash } from '../sync/hash.js';
+import { getNote, upsertNote } from '../db/notes.js';
+import { extractTags, extractHeaderTagBlock } from '@futo-notes/shared';
 import { createPluginSdk } from './sdk.js';
 import { getBuiltinLlmInfo, getBuiltinLlmRunner, loadBuiltinLlm, unloadBuiltinLlm } from './llm.js';
 import { ensureLocalPluginsLoaded } from './local.js';
@@ -307,35 +311,85 @@ async function applyApprovedItemsInternal(
   for (const item of approvedItems) {
     const after = parseJsonObject(item.after_json);
     try {
-      if (item.change_type !== 'rename_note') {
+      if (item.change_type === 'rename_note') {
+        const renameResult = await sdk.renameNote({
+          noteUuid: item.entity_id,
+          newTitle: String(after.newTitle ?? ''),
+          rewriteExactWikiLinks: after.rewriteExactWikiLinks !== false,
+        });
+        for (const uuid of renameResult.changedUuids) {
+          changedUuids.add(uuid);
+        }
+
+        const nextAfter = {
+          ...after,
+          finalTitle: renameResult.finalTitle,
+          finalFilename: renameResult.finalFilename,
+          rewrittenNotes: renameResult.rewrittenNotes,
+        };
+        db.prepare(`
+          UPDATE plugin_run_items
+          SET status = 'applied',
+              after_json = ?,
+              failure_message = NULL,
+              applied_at = ?,
+              updated_at = ?
+          WHERE id = ?
+        `).run(JSON.stringify(nextAfter), Date.now(), Date.now(), item.id);
+        appliedCount += 1;
+      } else if (item.change_type === 'tag_note') {
+        const tagsToAdd = (after.tagsToAdd as string[]) ?? [];
+        if (tagsToAdd.length === 0) throw new Error('No tags to add');
+
+        const note = getNote(db, item.entity_id);
+        if (!note) throw new Error(`Note not found: ${item.entity_id}`);
+
+        const content = readNoteFile(config.notesPath, note.filename);
+        if (content === null) throw new Error(`Note file not found: ${note.filename}`);
+
+        // Build tag line to prepend
+        const tagLine = tagsToAdd.map((t: string) => `#${t}`).join(' ');
+        const { endOffset } = extractHeaderTagBlock(content);
+
+        let newContent: string;
+        if (endOffset > 0) {
+          // Append to existing header tag block
+          // Find end of last tag line (before trailing blank line)
+          const beforeBlock = content.slice(0, endOffset).trimEnd();
+          const afterBlock = content.slice(endOffset);
+          newContent = beforeBlock + ' ' + tagLine + '\n\n' + afterBlock;
+        } else {
+          // Prepend new tag block
+          newContent = tagLine + '\n\n' + content;
+        }
+
+        const newHash = contentHash(newContent);
+        const now = Date.now();
+        writeNoteFile(config.notesPath, note.filename, newContent, now);
+        upsertNote(db, note.uuid, note.filename, newHash, now);
+
+        // Re-index tags
+        db.prepare('DELETE FROM note_tags WHERE uuid = ?').run(note.uuid);
+        const allTags = extractTags(newContent);
+        const insertTag = db.prepare('INSERT OR IGNORE INTO note_tags (uuid, tag) VALUES (?, ?)');
+        for (const tag of allTags) {
+          insertTag.run(note.uuid, tag.toLowerCase().replace(/^#/, ''));
+        }
+
+        changedUuids.add(note.uuid);
+
+        db.prepare(`
+          UPDATE plugin_run_items
+          SET status = 'applied',
+              failure_message = NULL,
+              applied_at = ?,
+              updated_at = ?
+          WHERE id = ?
+        `).run(now, now, item.id);
+        appliedCount += 1;
+      } else {
         throw new Error(`Unsupported change type: ${item.change_type}`);
       }
-
-      const renameResult = await sdk.renameNote({
-        noteUuid: item.entity_id,
-        newTitle: String(after.newTitle ?? ''),
-        rewriteExactWikiLinks: after.rewriteExactWikiLinks !== false,
-      });
-      for (const uuid of renameResult.changedUuids) {
-        changedUuids.add(uuid);
-      }
-
-      const nextAfter = {
-        ...after,
-        finalTitle: renameResult.finalTitle,
-        finalFilename: renameResult.finalFilename,
-        rewrittenNotes: renameResult.rewrittenNotes,
-      };
-      db.prepare(`
-        UPDATE plugin_run_items
-        SET status = 'applied',
-            after_json = ?,
-            failure_message = NULL,
-            applied_at = ?,
-            updated_at = ?
-        WHERE id = ?
-      `).run(JSON.stringify(nextAfter), Date.now(), Date.now(), item.id);
-      appliedCount += 1;
     } catch (err) {
       failedCount += 1;
       db.prepare(`

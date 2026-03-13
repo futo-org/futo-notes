@@ -1,31 +1,40 @@
 import type { PlatformFS, NoteFile } from './types';
 
-// Web platform: no real filesystem, notes are not persisted.
-// This allows the UI to render without errors in a plain browser.
+// In-memory note store for web platform (persists within a page session)
+const noteStore = new Map<string, { content: string; mtime: number }>();
+
+// Web platform: notes stored in memory only (cleared on page reload).
+// This allows the UI to render in a plain browser and supports dev/test workflows.
 export const webFS: PlatformFS = {
   async listNoteFiles(): Promise<NoteFile[]> {
-    return [];
+    return Array.from(noteStore.entries()).map(([id, { mtime }]) => ({
+      name: id,
+      mtime,
+    }));
   },
 
-  async readNote(_id: string): Promise<string> {
-    throw new Error('File I/O not available in web mode');
+  async readNote(id: string): Promise<string> {
+    const note = noteStore.get(id);
+    if (!note) throw new Error(`Note not found: ${id}`);
+    return note.content;
   },
 
-  async writeNote(_id: string, _content: string, _modifiedAtMs?: number): Promise<number> {
-    console.warn('writeNote called in web mode — not persisted');
-    return Date.now();
+  async writeNote(id: string, content: string, modifiedAtMs?: number): Promise<number> {
+    const mtime = modifiedAtMs ?? Date.now();
+    noteStore.set(id, { content, mtime });
+    return mtime;
   },
 
-  async deleteNoteFile(_id: string): Promise<void> {
-    console.warn('deleteNoteFile called in web mode — no-op');
+  async deleteNoteFile(id: string): Promise<void> {
+    noteStore.delete(id);
   },
 
   async deleteAllContent(): Promise<void> {
-    // no-op
+    noteStore.clear();
   },
 
-  async noteExists(_id: string): Promise<boolean> {
-    return false;
+  async noteExists(id: string): Promise<boolean> {
+    return noteStore.has(id);
   },
 
   async readAppData(_path: string): Promise<string | null> {

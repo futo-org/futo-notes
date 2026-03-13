@@ -139,10 +139,11 @@ describe('Plugins', () => {
     };
 
     expect(data.scheduler.phase).toBe('idle');
-    expect(data.plugins).toHaveLength(1);
+    expect(data.plugins).toHaveLength(2);
     expect(data.plugins[0].id).toBe('untitled-no-more');
     expect(data.plugins[0].auto_apply).toBe(false);
     expect(data.plugins[0].config_schema).toEqual([]);
+    expect(data.plugins[1].id).toBe('auto-tagger');
   });
 
   it('creates preview suggestions and applies approved rename with wikilink rewrite', async () => {

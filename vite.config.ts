@@ -19,6 +19,7 @@ export default defineConfig({
       '$lib': path.resolve(__dirname, './src/lib'),
       '@': path.resolve(__dirname, './'),
       '/src': path.resolve(__dirname, './src'),
+      '@futo-notes/shared': path.resolve(__dirname, './packages/shared/src'),
     },
   },
   server: {

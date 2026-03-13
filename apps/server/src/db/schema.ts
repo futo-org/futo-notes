@@ -32,5 +32,15 @@ export function createTables(db: Database.Database): void {
       value TEXT NOT NULL
     );
     INSERT OR IGNORE INTO sync_meta (key, value) VALUES ('sync_version', '0');
+
+    CREATE TABLE IF NOT EXISTS note_tags (
+      uuid TEXT NOT NULL,
+      tag TEXT NOT NULL,
+      source TEXT NOT NULL DEFAULT 'user',
+      added_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+      PRIMARY KEY (uuid, tag),
+      FOREIGN KEY (uuid) REFERENCES notes(uuid) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_note_tags_tag ON note_tags(tag);
   `);
 }

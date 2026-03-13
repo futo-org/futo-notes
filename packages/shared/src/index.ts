@@ -25,3 +25,10 @@ export {
   isValidTitle,
 } from './filename.js';
 export type { FilenameIssue, FilenameIssueKind } from './filename.js';
+export {
+  TAG_REGEX,
+  MAX_TAG_LENGTH,
+  isValidTagName,
+  extractTags,
+  extractHeaderTagBlock,
+} from './tags.js';

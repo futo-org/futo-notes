@@ -21,6 +21,8 @@
   import type { SyncSummary } from '$lib/sync';
   import { trackOpen } from '$lib/engagement';
   import ForYouPage from './ForYouPage.svelte';
+  import NoteTagBar from './NoteTagBar.svelte';
+  import SidebarTagView from './SidebarTagView.svelte';
   import { startAutoSync, stopAutoSync, notifySaved } from '$lib/autoSync';
   import { keyboard } from '$lib/keyboard.svelte';
   import { navigate } from '../router';
@@ -283,6 +285,7 @@ Escaped pipes:
   let noteBody: HTMLElement | undefined = $state(undefined);
   let titleTextarea: HTMLTextAreaElement | undefined = $state(undefined);
 
+  let sidebarView: 'notes' | 'tags' = $state((typeof localStorage !== 'undefined' && localStorage.getItem('futo-notes:sidebarView') as 'notes' | 'tags') || 'notes');
   let drawerWidth = $state(0);
   let saveTimeout: number | null = null;
   let saveInFlight: Promise<void> | null = null;
@@ -1489,6 +1492,7 @@ Escaped pipes:
         prevNoteId = id;
         navigate(`/note/${encodeURIComponent(id)}`);
       },
+      refreshNotes: refreshNotesList,
       getState: () => ({
         originalId,
         title,
@@ -1630,12 +1634,32 @@ Escaped pipes:
         Search
       </button>
     </div>
-    <VirtualList
-      items={notes}
-      selectedId={noteId !== 'new' ? noteId : null}
-      onselect={handleNoteSelect}
-      {isDragging}
-    />
+    <div class="sidebar-view-toggle">
+      <button class:active={sidebarView === 'notes'} aria-label="Notes view" onclick={() => { sidebarView = 'notes'; localStorage.setItem('futo-notes:sidebarView', 'notes'); }}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/>
+        </svg>
+      </button>
+      <button class:active={sidebarView === 'tags'} aria-label="Tags view" onclick={() => { sidebarView = 'tags'; localStorage.setItem('futo-notes:sidebarView', 'tags'); }}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 2H2v10l9.29 9.29c.94.94 2.48.94 3.42 0l6.58-6.58c.94-.94.94-2.48 0-3.42L12 2Z"/><path d="M7 7h.01"/>
+        </svg>
+      </button>
+    </div>
+    {#if sidebarView === 'tags'}
+      <SidebarTagView
+        {notes}
+        selectedId={noteId !== 'new' ? noteId : null}
+        onselect={handleNoteSelect}
+      />
+    {:else}
+      <VirtualList
+        items={notes}
+        selectedId={noteId !== 'new' ? noteId : null}
+        onselect={handleNoteSelect}
+        {isDragging}
+      />
+    {/if}
     <button
       class="fab"
       aria-label="New note"
@@ -1730,6 +1754,11 @@ Escaped pipes:
             <div class="text-xs pt-0.5" style="color: var(--color-danger)">{titleWarning}</div>
           {/if}
         </div>
+        <NoteTagBar
+          {content}
+          getEditorView={() => editor?.getView() ?? null}
+          {notes}
+        />
         <div class="editor-container">
           <MarkdownEditor
             bind:this={editor}

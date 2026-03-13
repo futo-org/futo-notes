@@ -9,6 +9,7 @@ import {
 } from '@codemirror/view';
 import { StateEffect } from '@codemirror/state';
 import { syntaxTree, ensureSyntaxTree } from '@codemirror/language';
+import { extractHeaderTagBlock, TAG_REGEX } from '@futo-notes/shared';
 
 export const imageCacheUpdated = StateEffect.define<null>();
 
@@ -448,6 +449,9 @@ class LiveMarkdownPlugin implements PluginValue {
     const decorations: Array<{ from: number; to: number; value: any }> = [];
     const cursorLines = this.getCursorLines(view);
 
+    // Compute header tag block offset for skipping overlapping decorations
+    const headerEndOffset = extractHeaderTagBlock(view.state.doc.toString()).endOffset;
+
     // Get syntax tree
     const tree = syntaxTree(view.state);
 
@@ -457,6 +461,10 @@ class LiveMarkdownPlugin implements PluginValue {
         const nodeName = node.name;
         const from = node.from;
         const to = node.to;
+
+        // Skip syntax nodes within the header tag block to avoid overlapping decorations
+        if (headerEndOffset > 0 && from < headerEndOffset) return;
+
         const line = view.state.doc.lineAt(from).number;
 
         // Skip if cursor is in this line for block elements
@@ -487,6 +495,9 @@ class LiveMarkdownPlugin implements PluginValue {
 
     // Process wikilinks (not part of markdown syntax tree)
     this.processWikilinks(view, decorations, cursorLines);
+
+    // Process inline tag styling
+    this.processInlineTags(view, decorations, cursorLines);
 
     // Sort decorations by from position, then by whether they are widgets at point (side)
     // Widgets with side:-1 come before widgets at same position
@@ -525,7 +536,23 @@ class LiveMarkdownPlugin implements PluginValue {
       }
     }
 
-    return Decoration.set(ranges, true);
+    // Add header tag block line decorations to hide tag lines
+    if (headerEndOffset > 0) {
+      const doc = view.state.doc;
+      const blockLastLine = doc.lineAt(Math.max(0, Math.min(headerEndOffset - 1, doc.length))).number;
+      let cursorInBlock = false;
+      for (let l = 1; l <= blockLastLine; l++) {
+        if (cursorLines.has(l)) { cursorInBlock = true; break; }
+      }
+      if (!cursorInBlock) {
+        for (let l = 1; l <= blockLastLine; l++) {
+          const line = doc.line(l);
+          ranges.push(Decoration.line({ class: 'cm-header-tag-hidden' }).range(line.from));
+        }
+      }
+    }
+
+    return Decoration.set(ranges, false);
   }
 
   private getCursorLines(view: EditorView): Set<number> {
@@ -1210,6 +1237,50 @@ class LiveMarkdownPlugin implements PluginValue {
           class: 'cm-md-link cm-md-wikilink',
           attributes: { 'data-wikilink': title }
         }
+      });
+    }
+  }
+
+  private processInlineTags(
+    view: EditorView,
+    decorations: Array<{ from: number; to: number; value: any }>,
+    cursorLines: Set<number>
+  ): void {
+    const doc = view.state.doc;
+    const text = doc.toString();
+    const { endOffset } = extractHeaderTagBlock(text);
+    const tree = syntaxTree(view.state);
+
+    const regex = new RegExp(TAG_REGEX.source, TAG_REGEX.flags);
+    let match;
+
+    while ((match = regex.exec(text)) !== null) {
+      const from = match.index;
+      const to = from + match[0].length;
+
+      // Skip tags within the header tag block region
+      if (from < endOffset) continue;
+
+      const line = doc.lineAt(from).number;
+
+      // Skip if cursor is on this line
+      if (cursorLines.has(line)) continue;
+
+      // Skip if inside code block or inline code
+      let inCode = false;
+      tree.iterate({
+        from, to: from + 1,
+        enter: (node) => {
+          if (MarkdownParser.isCode(node.name)) inCode = true;
+        }
+      });
+      if (inCode) continue;
+
+      // Style the tag
+      decorations.push({
+        from,
+        to,
+        value: { class: 'cm-md-tag' }
       });
     }
   }

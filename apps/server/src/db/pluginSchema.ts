@@ -102,7 +102,7 @@ export function createPluginTables(db: Database.Database): void {
       run_id TEXT NOT NULL,
       entity_type TEXT NOT NULL CHECK(entity_type IN ('note')),
       entity_id TEXT NOT NULL,
-      change_type TEXT NOT NULL CHECK(change_type IN ('rename_note')),
+      change_type TEXT NOT NULL CHECK(change_type IN ('rename_note', 'tag_note')),
       before_json TEXT NOT NULL,
       after_json TEXT NOT NULL,
       preview_json TEXT NOT NULL,

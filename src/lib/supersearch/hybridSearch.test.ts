@@ -4,7 +4,7 @@ import type { SearchResultItem, NotePreview } from '../../types';
 import type { VectorSearchResult } from './vectorSearch';
 
 function makeNote(id: string): NotePreview {
-  return { id, title: id, preview: `preview of ${id}`, modificationTime: Date.now() };
+  return { id, title: id, preview: `preview of ${id}`, modificationTime: Date.now(), tags: [] };
 }
 
 function makeKeywordResult(id: string, snippet?: string): SearchResultItem {
