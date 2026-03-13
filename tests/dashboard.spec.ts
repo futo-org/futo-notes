@@ -310,7 +310,7 @@ test.describe('Server Dashboard', () => {
     expect(fs.existsSync(path.join(harness!.env.notesDir, 'Untitled (2).md'))).toBe(false);
   });
 
-  test('local automation can be created, edited, and deleted from the dashboard', async ({ page }) => {
+  test('local automation can be edited and deleted from the dashboard', async ({ page }) => {
     await seedNotes(harness!.baseUrl, harness!.token, [
       {
         uuid: 'note-local-1',
@@ -318,16 +318,19 @@ test.describe('Server Dashboard', () => {
         content: 'A local automation should rename this note.',
       },
     ]);
+    const createPluginRes = await authPostJson(harness!.baseUrl, harness!.token, '/plugins/local', {
+      plugin_id: 'local-dashboard-e2e',
+      source: buildLocalPluginSource(
+        'local-dashboard-e2e',
+        'Local Dashboard E2E',
+        'Created for the dashboard test.',
+        'local dashboard title',
+      ),
+    });
+    expect(createPluginRes.status).toBe(201);
 
     await loginDashboard(page, harness!.baseUrl);
-
-    await page.getByRole('button', { name: 'New local automation' }).click();
-    await expect(page.locator('#plugin-editor-modal')).toBeVisible({ timeout: 10_000 });
-    await page.locator('#plugin-editor-id').fill('local-dashboard-e2e');
-    await page.locator('#plugin-editor-source').fill(
-      buildLocalPluginSource('local-dashboard-e2e', 'Local Dashboard E2E', 'Created from the dashboard.', 'local dashboard title'),
-    );
-    await page.getByRole('button', { name: 'Save automation' }).click();
+    await expect(page.getByRole('button', { name: 'New local automation' })).toHaveCount(0);
 
     const pluginCard = page.locator('[data-plugin-card="local-dashboard-e2e"]');
     await expect(pluginCard).toBeVisible({ timeout: 10_000 });
@@ -351,7 +354,12 @@ test.describe('Server Dashboard', () => {
     await expect(page.locator('#plugin-editor-id')).toHaveValue('local-dashboard-e2e');
     await expect(page.locator('#plugin-editor-id')).toBeDisabled();
     await page.locator('#plugin-editor-source').fill(
-      buildLocalPluginSource('local-dashboard-e2e', 'Local Dashboard E2E Updated', 'Updated from the dashboard.', 'local dashboard title'),
+      buildLocalPluginSource(
+        'local-dashboard-e2e',
+        'Local Dashboard E2E Updated',
+        'Updated from the dashboard.',
+        'local dashboard title',
+      ),
     );
     await page.getByRole('button', { name: 'Save changes' }).click();
     await pluginCard.getByRole('button', { name: 'Edit code' }).click();

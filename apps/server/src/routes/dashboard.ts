@@ -1685,7 +1685,6 @@ function dashboardHtml(): string {
     html += '<div class="plugin-toolbar-actions">';
     html += '<span class="plugin-auth-note">' + (canManagePlugins ? 'Signed in for automation controls' : 'Log in to run, configure, approve changes, and manage local automations') + '</span>';
     if (canManagePlugins) {
-      html += '<button class="btn btn-primary" onclick="openCreatePluginDialog()"' + (isBusy ? ' disabled' : '') + '>New local automation</button>';
       html += '<span>' + badge('Signed in', 'ok') + '</span>';
       html += '<button class="action-link" onclick="logoutDashboard()">Sign out</button>';
     } else {

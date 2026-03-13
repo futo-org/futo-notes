@@ -25,7 +25,7 @@ describe('Dashboard', () => {
     expect(html).toContain('id="search-content"');
     expect(html).toContain('Automations');
     expect(html).toContain('id="plugin-editor-modal"');
-    expect(html).toContain('openCreatePluginDialog()');
+    expect(html).not.toContain('New local automation');
     expect(html).not.toContain('plugin-install-url');
 
     // Verify the script tag is present and parseable
