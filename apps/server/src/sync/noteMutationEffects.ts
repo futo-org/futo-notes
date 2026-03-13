@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3';
 import { incrementSyncVersion } from '../db/syncVersion.js';
+import { createTombstone } from '../db/tombstones.js';
 import { broadcastSyncAvailable } from '../events.js';
 import { markDirtyAfterSync, removeDirtyForDeleted } from '../search/dirtyTracker.js';
 
@@ -42,6 +43,12 @@ export function applyNoteMutationEffects(
     }
     if (uniqueDeletedUuids.length > 0) {
       removeDirtyForDeleted(db, uniqueDeletedUuids);
+    }
+  }
+
+  if (uniqueDeletedUuids.length > 0) {
+    for (const uuid of uniqueDeletedUuids) {
+      createTombstone(db, uuid);
     }
   }
 

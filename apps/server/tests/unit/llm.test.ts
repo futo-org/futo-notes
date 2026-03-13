@@ -4,7 +4,7 @@ import { preparePromptForModel } from '../../src/plugins/llm.js';
 describe('preparePromptForModel', () => {
   it('prefixes /no_think when disableThinking is requested', () => {
     const prompt = preparePromptForModel({
-      purpose: 'untitled-no-more-title',
+      purpose: 'auto-tagger',
       userPrompt: 'Suggest a title for this note',
       disableThinking: true,
     });
@@ -14,7 +14,7 @@ describe('preparePromptForModel', () => {
 
   it('does not duplicate /no_think when already present', () => {
     const prompt = preparePromptForModel({
-      purpose: 'untitled-no-more-title',
+      purpose: 'auto-tagger',
       userPrompt: '/no_think\nSuggest a title for this note',
       disableThinking: true,
     });

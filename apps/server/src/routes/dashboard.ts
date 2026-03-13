@@ -1211,6 +1211,67 @@ function dashboardHtml(): string {
     padding: 0;
   }
 
+  /* Tag pills */
+  .plugin-tag-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    min-height: 1.8rem;
+  }
+
+  .tag-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-family: inherit;
+    font-weight: 600;
+    border: 1px solid var(--border-light);
+    background: transparent;
+    color: var(--gray);
+    cursor: pointer;
+    transition: all 0.12s;
+    user-select: none;
+  }
+
+  .tag-pill:hover {
+    border-color: var(--accent);
+    color: var(--gray-light);
+  }
+
+  .tag-pill.active {
+    background: var(--accent);
+    color: var(--black);
+    border-color: var(--accent);
+  }
+
+  .tag-pill.active:hover {
+    background: var(--accent-hover);
+    border-color: var(--accent-hover);
+  }
+
+  .tag-pill:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  [data-tag-list-root] {
+    grid-column: 1 / -1;
+  }
+
+  .tag-pill-actions {
+    display: flex;
+    gap: 0.45rem;
+    align-items: center;
+  }
+
+  .plugin-tag-empty {
+    font-size: 0.75rem;
+    color: var(--muted);
+    font-style: italic;
+  }
+
   /* Plugin run list */
   .plugin-run-list {
     display: grid;
@@ -1684,6 +1745,186 @@ function dashboardHtml(): string {
   let activeRunAllBatch = null;
   let pluginEditorMode = 'create';
   let pluginEditorPluginId = null;
+  let pluginDrafts = Object.create(null);
+
+  function hasOwn(obj, key) {
+    return Object.prototype.hasOwnProperty.call(obj, key);
+  }
+
+  function getPluginDraft(pluginId) {
+    return pluginDrafts[pluginId] || null;
+  }
+
+  function ensurePluginDraft(pluginId) {
+    if (!pluginDrafts[pluginId]) {
+      pluginDrafts[pluginId] = { config: {} };
+    } else if (!pluginDrafts[pluginId].config) {
+      pluginDrafts[pluginId].config = {};
+    }
+    return pluginDrafts[pluginId];
+  }
+
+  function clearPluginDraft(pluginId) {
+    delete pluginDrafts[pluginId];
+  }
+
+  function getPluginScheduleKind(plugin) {
+    var draft = getPluginDraft(plugin.id);
+    return draft && hasOwn(draft, 'schedule_kind') ? draft.schedule_kind : plugin.schedule.kind;
+  }
+
+  function getPluginScheduleTime(plugin) {
+    var draft = getPluginDraft(plugin.id);
+    return draft && hasOwn(draft, 'schedule_time') ? draft.schedule_time : (plugin.schedule.time || '03:00');
+  }
+
+  function getPluginScheduleDay(plugin) {
+    var draft = getPluginDraft(plugin.id);
+    return draft && hasOwn(draft, 'schedule_day') ? draft.schedule_day : plugin.schedule.day;
+  }
+
+  function getPluginAutoApply(plugin) {
+    var draft = getPluginDraft(plugin.id);
+    return draft && hasOwn(draft, 'auto_apply') ? draft.auto_apply : plugin.auto_apply;
+  }
+
+  function parseLegacyTagList(value) {
+    if (typeof value !== 'string' || !value.trim()) return [];
+    return value.split(',').map(function(entry) {
+      var trimmed = entry.trim();
+      var colonIdx = trimmed.indexOf(':');
+      return {
+        name: (colonIdx >= 0 ? trimmed.slice(0, colonIdx) : trimmed).trim(),
+        description: (colonIdx >= 0 ? trimmed.slice(colonIdx + 1) : '').trim(),
+      };
+    }).filter(function(item) {
+      return item.name.length > 0;
+    });
+  }
+
+  function normalizeTagListValue(value) {
+    if (Array.isArray(value)) {
+      return value.map(function(item) {
+        return {
+          name: item && typeof item.name === 'string' ? item.name : '',
+          description: item && typeof item.description === 'string' ? item.description : '',
+        };
+      }).filter(function(item) {
+        return item.name.trim().length > 0 || item.description.trim().length > 0;
+      });
+    }
+    return parseLegacyTagList(value);
+  }
+
+  function getPluginConfigValue(plugin, field) {
+    var draft = getPluginDraft(plugin.id);
+    if (draft && draft.config && hasOwn(draft.config, field.key)) {
+      return field.type === 'tag_list' ? normalizeTagListValue(draft.config[field.key]) : draft.config[field.key];
+    }
+    var value = plugin.config && plugin.config[field.key] !== undefined ? plugin.config[field.key] : field.default;
+    return field.type === 'tag_list' ? normalizeTagListValue(value) : value;
+  }
+
+  function readTagListValue(card, key) {
+    var root = card.querySelector('[data-tag-list="' + key + '"]');
+    if (!root) return [];
+    var pills = root.querySelectorAll('.tag-pill.active');
+    var value = [];
+    for (var i = 0; i < pills.length; i++) {
+      var name = pills[i].getAttribute('data-tag-pill');
+      if (name && name.trim().length > 0) {
+        value.push({ name: name.trim(), description: '' });
+      }
+    }
+    return value;
+  }
+
+  function isPluginConfigControl(target) {
+    return Boolean(
+      target &&
+      target.closest &&
+      target.closest('[data-plugin-card]') &&
+      (
+        target.hasAttribute('data-plugin-config-field') ||
+        target.hasAttribute('data-tag-pill') ||
+        target.hasAttribute('data-tag-check') ||
+        target.closest('[data-tag-list-root]') ||
+        target.hasAttribute('data-schedule-kind') ||
+        target.hasAttribute('data-schedule-time') ||
+        target.hasAttribute('data-schedule-day') ||
+        target.hasAttribute('data-auto-apply')
+      )
+    );
+  }
+
+  function capturePluginDraft(target) {
+    if (!isPluginConfigControl(target)) return;
+    var card = target.closest('[data-plugin-card]');
+    if (!card) return;
+    var pluginId = card.getAttribute('data-plugin-card');
+    if (!pluginId) return;
+    var draft = ensurePluginDraft(pluginId);
+
+    if (target.hasAttribute('data-tag-pill')) {
+      target.classList.toggle('active');
+      var tagListRoot = target.closest('[data-tag-list-root]');
+      if (tagListRoot) {
+        var tagListKey = tagListRoot.getAttribute('data-tag-list-root');
+        if (tagListKey) {
+          draft.config[tagListKey] = readTagListValue(card, tagListKey);
+        }
+      }
+      return;
+    }
+
+    var tagListRoot = target.closest('[data-tag-list-root]');
+    if (tagListRoot) {
+      var tagListKey = tagListRoot.getAttribute('data-tag-list-root');
+      if (!tagListKey) return;
+      draft.config[tagListKey] = readTagListValue(card, tagListKey);
+      return;
+    }
+
+    if (target.hasAttribute('data-plugin-config-field')) {
+      var key = target.getAttribute('data-plugin-config-field');
+      if (!key) return;
+      draft.config[key] = target.type === 'checkbox'
+        ? target.checked
+        : target.type === 'number'
+          ? Number(target.value)
+          : target.value;
+      return;
+    }
+
+    if (target.hasAttribute('data-schedule-kind')) {
+      draft.schedule_kind = target.value;
+      if (target.value !== 'weekly') {
+        draft.schedule_day = null;
+      } else if (!hasOwn(draft, 'schedule_day')) {
+        var weeklyDayInput = card.querySelector('[data-schedule-day]');
+        draft.schedule_day = weeklyDayInput ? Number(weeklyDayInput.value) : 1;
+      }
+      return;
+    }
+
+    if (target.hasAttribute('data-schedule-time')) {
+      draft.schedule_time = target.value;
+      return;
+    }
+
+    if (target.hasAttribute('data-schedule-day')) {
+      draft.schedule_day = Number(target.value);
+      return;
+    }
+
+    if (target.hasAttribute('data-auto-apply')) {
+      draft.auto_apply = target.checked;
+    }
+  }
+
+  function isPluginConfigEditing() {
+    return isPluginConfigControl(document.activeElement);
+  }
 
   function defaultLocalPluginSource() {
     return [
@@ -1693,7 +1934,7 @@ function dashboardHtml(): string {
       "  description: 'Describe this automation.',",
       '  defaultEnabled: false,',
       "  defaultSchedule: { kind: 'manual', time: null, day: null },",
-      '  defaultAutoApply: false,',
+      '  defaultAutoApply: true,',
       '  configSchema: [],',
       '  async run(context) {',
       "    const notes = await context.sdk.findNotes({ limit: 5, sort: 'modified_desc' });",
@@ -1806,9 +2047,49 @@ function dashboardHtml(): string {
     return 'Weekly on ' + dayLabel(schedule.day || 1) + ' at ' + (schedule.time || '03:00');
   }
 
+  function renderTagPill(name, active, disabled) {
+    return '<button type="button" class="tag-pill' + (active ? ' active' : '') + '" data-tag-pill="' + escapeHtml(name) + '"' + (disabled ? ' disabled' : '') + '>#' + escapeHtml(name) + '</button>';
+  }
+
   function renderPluginConfigField(pluginId, field, value, disabled) {
     var html = '<div class="plugin-config-field">';
     html += '<label>' + escapeHtml(field.label) + '</label>';
+    if (field.type === 'tag_list') {
+      var activeTags = normalizeTagListValue(value);
+      var activeNames = {};
+      for (var a = 0; a < activeTags.length; a++) {
+        activeNames[activeTags[a].name] = true;
+      }
+
+      // Merge with discovered tags from localStorage
+      var discovered = [];
+      try { discovered = JSON.parse(localStorage.getItem('discovered-tags-' + pluginId) || '[]'); } catch(e) {}
+      var allPills = [];
+      for (var a2 = 0; a2 < activeTags.length; a2++) {
+        allPills.push({ name: activeTags[a2].name, active: true });
+      }
+      for (var d = 0; d < discovered.length; d++) {
+        if (!activeNames[discovered[d]]) {
+          allPills.push({ name: discovered[d], active: false });
+        }
+      }
+
+      html = '<div class="plugin-config-field" data-tag-list-root="' + escapeHtml(field.key) + '">';
+      html += '<label>' + escapeHtml(field.label) + '</label>';
+      html += '<div class="plugin-tag-pills" data-tag-list="' + escapeHtml(field.key) + '">';
+      if (allPills.length === 0) {
+        html += '<span class="plugin-tag-empty">No tags yet \u2014 click Check for tags</span>';
+      }
+      for (var t = 0; t < allPills.length; t++) {
+        html += renderTagPill(allPills[t].name, allPills[t].active, disabled);
+      }
+      html += '</div>';
+      html += '<div class="tag-pill-actions">';
+      html += '<button type="button" class="btn btn-muted" onclick="checkForTags(this)" data-tag-check' + (disabled ? ' disabled' : '') + '>Check for tags</button>';
+      html += '</div>';
+      html += '</div>';
+      return html;
+    }
     if (field.type === 'boolean') {
       html += '<input type="checkbox" data-plugin-config-field="' + escapeHtml(field.key) + '"' + (value ? ' checked' : '') + (disabled ? ' disabled' : '') + '>';
     } else if (field.type === 'number') {
@@ -1959,6 +2240,10 @@ function dashboardHtml(): string {
       html += '<div class="plugin-grid" id="plugin-grid">';
       for (var i = 0; i < t.plugins.length; i++) {
         var tr = t.plugins[i];
+        var scheduleKind = getPluginScheduleKind(tr);
+        var scheduleTime = getPluginScheduleTime(tr);
+        var scheduleDay = getPluginScheduleDay(tr);
+        var autoApply = getPluginAutoApply(tr);
         html += '<article class="plugin-card' + (tr.source_kind === 'local' ? ' plugin-card-local' : '') + '" data-plugin-card="' + escapeHtml(tr.id) + '">';
         html += '<div class="plugin-card-header">';
         html += '<div>';
@@ -1973,8 +2258,8 @@ function dashboardHtml(): string {
 
         html += '<div class="plugin-meta-row">';
         html += '<span class="plugin-pill' + (tr.source_kind === 'local' ? ' plugin-pill-local' : '') + '">' + escapeHtml(tr.source_label || 'Built-in') + '</span>';
-        html += '<span class="plugin-pill">' + escapeHtml(scheduleSummary(tr.schedule)) + '</span>';
-        html += '<span class="plugin-pill">' + (tr.auto_apply ? 'Auto-apply on' : 'Preview first') + '</span>';
+        html += '<span class="plugin-pill">' + escapeHtml(scheduleSummary({ kind: scheduleKind, time: scheduleTime, day: scheduleDay })) + '</span>';
+        html += '<span class="plugin-pill">' + (autoApply ? 'Auto-apply on' : 'Preview first') + '</span>';
         html += '<span class="plugin-pill">' + tr.pending_approval_count + ' pending approvals</span>';
         if (tr.load_status && tr.load_status !== 'ready') {
           html += '<span class="plugin-pill">' + escapeHtml(tr.load_status) + '</span>';
@@ -1994,20 +2279,20 @@ function dashboardHtml(): string {
         html += '<div class="plugin-card-section">';
         html += '<div class="plugin-config-grid">';
         html += '<div class="plugin-config-field"><label>Schedule</label><select data-schedule-kind onchange="syncScheduleFields(this)"' + (!canManagePlugins || isBusy ? ' disabled' : '') + '>';
-        html += '<option value="manual"' + (tr.schedule.kind === 'manual' ? ' selected' : '') + '>Manual</option>';
-        html += '<option value="daily"' + (tr.schedule.kind === 'daily' ? ' selected' : '') + '>Daily</option>';
-        html += '<option value="weekly"' + (tr.schedule.kind === 'weekly' ? ' selected' : '') + '>Weekly</option>';
+        html += '<option value="manual"' + (scheduleKind === 'manual' ? ' selected' : '') + '>Manual</option>';
+        html += '<option value="daily"' + (scheduleKind === 'daily' ? ' selected' : '') + '>Daily</option>';
+        html += '<option value="weekly"' + (scheduleKind === 'weekly' ? ' selected' : '') + '>Weekly</option>';
         html += '</select></div>';
-        html += '<div class="plugin-config-field"><label>Time</label><input type="time" data-schedule-time value="' + escapeHtml(tr.schedule.time || '03:00') + '"' + (!canManagePlugins || isBusy ? ' disabled' : '') + '></div>';
-        html += '<div class="plugin-config-field" data-schedule-day-field' + (tr.schedule.kind === 'weekly' ? '' : ' style="display:none"') + '><label>Weekly day</label><select data-schedule-day' + (!canManagePlugins || isBusy ? ' disabled' : '') + '>';
+        html += '<div class="plugin-config-field"><label>Time</label><input type="time" data-schedule-time value="' + escapeHtml(scheduleTime) + '"' + (!canManagePlugins || isBusy ? ' disabled' : '') + '></div>';
+        html += '<div class="plugin-config-field" data-schedule-day-field' + (scheduleKind === 'weekly' ? '' : ' style="display:none"') + '><label>Weekly day</label><select data-schedule-day' + (!canManagePlugins || isBusy ? ' disabled' : '') + '>';
         for (var day = 0; day < 7; day++) {
-          html += '<option value="' + day + '"' + (tr.schedule.day === day ? ' selected' : '') + '>' + dayLabel(day) + '</option>';
+          html += '<option value="' + day + '"' + (scheduleDay === day ? ' selected' : '') + '>' + dayLabel(day) + '</option>';
         }
         html += '</select></div>';
-        html += '<div class="plugin-config-field"><label>Auto-apply</label><input type="checkbox" data-auto-apply' + (tr.auto_apply ? ' checked' : '') + (!canManagePlugins || isBusy ? ' disabled' : '') + '></div>';
+        html += '<div class="plugin-config-field"><label>Auto-apply</label><input type="checkbox" data-auto-apply' + (autoApply ? ' checked' : '') + (!canManagePlugins || isBusy ? ' disabled' : '') + '></div>';
         for (var f = 0; f < (tr.config_schema || []).length; f++) {
           var field = tr.config_schema[f];
-          var value = tr.config && tr.config[field.key] !== undefined ? tr.config[field.key] : field.default;
+          var value = getPluginConfigValue(tr, field);
           html += renderPluginConfigField(tr.id, field, value, !canManagePlugins || isBusy);
         }
         html += '</div>';
@@ -2088,6 +2373,7 @@ function dashboardHtml(): string {
       const res = await fetch('/dashboard/status');
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const data = await res.json();
+      const pluginEditing = isPluginConfigEditing();
 
       $('status').innerHTML = badge('Online', 'ok');
       $('setup').innerHTML = data.setup_complete ? badge('Complete', 'ok') : badge('Not configured', 'warn');
@@ -2123,7 +2409,9 @@ function dashboardHtml(): string {
       if (tCard) {
         if (data.plugins && !data.plugins.error) {
           tCard.style.display = '';
-          $('plugins-content').innerHTML = renderPlugins(data.plugins);
+          if (!pluginEditing) {
+            $('plugins-content').innerHTML = renderPlugins(data.plugins);
+          }
           syncRunAllBatchButton(data.plugins);
           syncRunAllBatch(data.plugins);
         } else {
@@ -2312,6 +2600,70 @@ function dashboardHtml(): string {
     }
   };
 
+  window.checkForTags = async function(button) {
+    var root = button && button.closest ? button.closest('[data-tag-list-root]') : null;
+    if (!root) return;
+    var list = root.querySelector('[data-tag-list]');
+    if (!list) return;
+    var card = root.closest('[data-plugin-card]');
+    if (!card) return;
+    var pluginId = card.getAttribute('data-plugin-card');
+    if (!pluginId) return;
+
+    var token = await getToken('scan notes for tags');
+    if (!token) return;
+
+    button.disabled = true;
+    button.textContent = 'Scanning\u2026';
+    try {
+      var res = await fetch('/plugins/tags', {
+        headers: { 'Authorization': 'Bearer ' + token },
+      });
+      if (res.status === 401) {
+        clearAuthToken();
+        alert('Session expired, please try again');
+        refresh();
+        return;
+      }
+      var data = await res.json();
+      if (!res.ok || !Array.isArray(data.tags)) {
+        alert(data.error || 'Failed to scan tags');
+        return;
+      }
+
+      // Persist discovered tags to localStorage
+      localStorage.setItem('discovered-tags-' + pluginId, JSON.stringify(data.tags));
+
+      // Collect currently active tag names
+      var activeTags = {};
+      var oldPills = list.querySelectorAll('.tag-pill.active');
+      for (var i = 0; i < oldPills.length; i++) {
+        activeTags[oldPills[i].getAttribute('data-tag-pill')] = true;
+      }
+
+      // Replace all pills with the discovered set
+      list.innerHTML = '';
+      for (var j = 0; j < data.tags.length; j++) {
+        var tagName = data.tags[j];
+        var isActive = activeTags[tagName] || false;
+        list.insertAdjacentHTML('beforeend', renderTagPill(tagName, isActive, false));
+      }
+
+      if (data.tags.length === 0) {
+        list.innerHTML = '<span class="plugin-tag-empty">No tags found in your notes</span>';
+      }
+
+      button.textContent = data.tags.length > 0
+        ? 'Found ' + data.tags.length + ' tag' + (data.tags.length === 1 ? '' : 's')
+        : 'No tags in your notes';
+      setTimeout(function() { button.textContent = 'Check for tags'; button.disabled = false; }, 2000);
+    } catch (e) {
+      alert('Error: ' + e.message);
+      button.textContent = 'Check for tags';
+      button.disabled = false;
+    }
+  };
+
   window.savePluginConfig = async function(id) {
     const token = await getToken('save automation settings');
     if (!token) return;
@@ -2342,6 +2694,14 @@ function dashboardHtml(): string {
       }
     }
 
+    var tagLists = card.querySelectorAll('[data-tag-list]');
+    for (var j = 0; j < tagLists.length; j++) {
+      var list = tagLists[j];
+      var tagKey = list.getAttribute('data-tag-list');
+      if (!tagKey) continue;
+      body.config[tagKey] = readTagListValue(card, tagKey);
+    }
+
     try {
       const res = await fetch('/plugins/' + id + '/config', {
         method: 'POST',
@@ -2362,6 +2722,7 @@ function dashboardHtml(): string {
         alert(data.error || 'Failed to save settings');
         return;
       }
+      clearPluginDraft(id);
       refresh();
     } catch (e) {
       alert('Error: ' + e.message);
@@ -2806,6 +3167,21 @@ function dashboardHtml(): string {
       }
     });
   }
+
+  document.addEventListener('input', function(event) {
+    capturePluginDraft(event.target);
+  }, true);
+
+  document.addEventListener('change', function(event) {
+    capturePluginDraft(event.target);
+  }, true);
+
+  document.addEventListener('click', function(event) {
+    var target = event.target;
+    if (target && target.hasAttribute && target.hasAttribute('data-tag-pill')) {
+      capturePluginDraft(target);
+    }
+  }, true);
 
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && resetModal && resetModal.classList.contains('open')) {

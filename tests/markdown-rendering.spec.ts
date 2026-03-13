@@ -5,9 +5,9 @@ import { test, expect, Page } from '@playwright/test';
  *
  * This test suite verifies that the live markdown transformation plugin
  * correctly renders all supported markdown elements by checking:
- * 1. CSS classes are applied to content
- * 2. Computed styles match expectations
- * 3. Syntax markers are hidden via markdown marker decorations/CSS
+ * 1. Raw markdown remains in the CM6 document
+ * 2. Visible editor text hides markdown syntax markers
+ * 3. Computed styles match expectations
  * 4. Widgets are rendered (tables, checkboxes, hr)
  *
  * Run with: npx playwright test
@@ -71,16 +71,35 @@ async function setupEditor(page: Page, content: string): Promise<void> {
   await page.waitForSelector('.cm-editor', { timeout: 10000 });
   await page.waitForSelector('.cm-content', { timeout: 10000 });
 
-  // Focus and type content
-  const editor = page.locator('.cm-content');
-  await editor.click();
-  await editor.fill(content);
-
-  // Move cursor to the end (last line) so first lines get decorated
-  await page.keyboard.press('Control+End');
+  await page.waitForFunction(() => typeof (window as any).__cmGetView === 'function');
+  await page.evaluate((text) => {
+    const view = (window as any).__cmGetView?.();
+    if (!view) throw new Error('CM EditorView not found');
+    view.dispatch({
+      changes: { from: 0, to: view.state.doc.length, insert: text },
+      selection: { anchor: text.length },
+    });
+  }, content);
 
   // Wait for decorations to rebuild
   await page.waitForTimeout(200);
+}
+
+async function openSavedNote(page: Page, title: string, content: string): Promise<void> {
+  await page.goto('/');
+  await page.waitForLoadState('domcontentloaded');
+  await page.waitForFunction(() => !!(window as any).__testNotes, null, { timeout: 10000 });
+  await page.evaluate(async ({ noteTitle, body }) => {
+    await (window as any).__testNotes.createNote(noteTitle, body);
+  }, { noteTitle: title, body: content });
+  await page.goto(`/#/note/${encodeURIComponent(title)}`);
+  await page.waitForLoadState('domcontentloaded');
+  await page.waitForSelector('.cm-editor', { timeout: 10000 });
+  await page.waitForSelector('.cm-content', { timeout: 10000 });
+  await page.waitForFunction((expected) => {
+    const view = (window as any).__cmGetView?.();
+    return view?.state.doc.toString() === expected;
+  }, content, { timeout: 10000 });
 }
 
 async function blurEditor(page: Page): Promise<void> {
@@ -95,6 +114,14 @@ async function getVisibleEditorText(page: Page): Promise<string> {
   return page.locator('.cm-content').evaluate((el) => (el as HTMLElement).innerText);
 }
 
+async function getDocText(page: Page): Promise<string> {
+  return page.evaluate(() => (window as any).__cmGetView?.()?.state.doc.toString() ?? '');
+}
+
+async function getVisibleLineText(page: Page, lineIndex: number): Promise<string> {
+  return page.locator('.cm-line').nth(lineIndex).evaluate((el) => (el as HTMLElement).innerText.trim());
+}
+
 // ============================================================================
 // HEADING TESTS
 // ============================================================================
@@ -106,6 +133,8 @@ test.describe('Headings', () => {
 
     const h1 = page.locator('.cm-md-h1');
     await expect(h1).toBeVisible();
+    expect(await getVisibleLineText(page, 0)).toBe('Heading 1');
+    expect(await getDocText(page)).toContain('# Heading 1');
 
     const fontSize = await h1.evaluate(el =>
       window.getComputedStyle(el).fontSize
@@ -125,6 +154,8 @@ test.describe('Headings', () => {
 
     const h2 = page.locator('.cm-md-h2');
     await expect(h2).toBeVisible();
+    expect(await getVisibleLineText(page, 0)).toBe('Heading 2');
+    expect(await getDocText(page)).toContain('## Heading 2');
 
     const fontSize = await h2.evaluate(el =>
       window.getComputedStyle(el).fontSize
@@ -146,11 +177,9 @@ test.describe('Headings', () => {
     await setupEditor(page, '# Heading 1\n\nMore text');
     await blurEditor(page);
 
-    // The # should not be visible in the rendered output
-    // (the marker span is hidden via cm-md-marker-hidden CSS)
-    const content = await page.locator('.cm-line').first().textContent();
-    // Content should not start with # when decorations applied
-    // Note: This checks the visible text, not the raw content
+    expect(await getDocText(page)).toContain('# Heading 1');
+    expect(await getVisibleLineText(page, 0)).toBe('Heading 1');
+    expect(await getVisibleLineText(page, 0)).not.toContain('#');
   });
 });
 
@@ -165,6 +194,8 @@ test.describe('Emphasis (Bold/Italic)', () => {
 
     const italic = page.locator('.cm-md-emphasis');
     await expect(italic).toBeVisible();
+    expect(await getVisibleLineText(page, 0)).toBe('This is italic text.');
+    expect(await getDocText(page)).toContain('*italic*');
 
     const fontStyle = await italic.evaluate(el =>
       window.getComputedStyle(el).fontStyle
@@ -178,6 +209,8 @@ test.describe('Emphasis (Bold/Italic)', () => {
 
     const bold = page.locator('.cm-md-strong');
     await expect(bold).toBeVisible();
+    expect(await getVisibleLineText(page, 0)).toBe('This is bold text.');
+    expect(await getDocText(page)).toContain('**bold**');
 
     const fontWeight = await bold.evaluate(el =>
       window.getComputedStyle(el).fontWeight
@@ -189,11 +222,9 @@ test.describe('Emphasis (Bold/Italic)', () => {
     await setupEditor(page, 'This is **bold** text.\n\nMore');
     await blurEditor(page);
 
-    // The ** markers should be hidden via marker decoration CSS
-    // Check that the bold element exists but markers aren't visible
-    const bold = page.locator('.cm-md-strong');
-    const text = await bold.textContent();
-    expect(text).not.toContain('**');
+    expect(await getDocText(page)).toContain('**bold**');
+    expect(await getVisibleLineText(page, 0)).toBe('This is bold text.');
+    expect(await getVisibleLineText(page, 0)).not.toContain('**');
   });
 });
 
@@ -534,6 +565,25 @@ More text here.`;
     // Both classes should be present
     await expect(page.locator('.cm-md-strong')).toBeVisible();
     // Note: nested italic inside bold may or may not render depending on parser
+  });
+
+  test('saved note load renders markdown instead of raw syntax', async ({ page }) => {
+    const body = `# Heading
+
+This has **bold** and *italic* text.
+
+- Bullet item`;
+
+    await openSavedNote(page, 'markdown render regression', body);
+    await blurEditor(page);
+
+    expect(await getDocText(page)).toBe(body);
+    expect(await getVisibleLineText(page, 0)).toBe('Heading');
+    expect(await getVisibleLineText(page, 2)).toBe('This has bold and italic text.');
+    expect(await getVisibleLineText(page, 4)).not.toContain('- ');
+    await expect(page.locator('.cm-md-h1')).toBeVisible();
+    await expect(page.locator('.cm-md-strong')).toBeVisible();
+    await expect(page.locator('.cm-md-emphasis')).toBeVisible();
   });
 });
 

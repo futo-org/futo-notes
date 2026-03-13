@@ -1,8 +1,8 @@
-import type { BuiltinPlugin, PluginNoteMeta, PluginRunContext } from './types.js';
-import { findManagedBlock, renderManagedBlock } from './managedBlocks.js';
+import type { BuiltinPlugin, PluginNoteMeta, PluginRunContext } from '../types.js';
+import { findHeadingSection } from '../managedBlocks.js';
 
 const DEFAULT_WEEKLY_REGEX = '^(This week \\(|[Ww]eek of ).*\\.md$';
-const DEFAULT_HEADING = '## Related notes surfaced overnight';
+const DEFAULT_HEADING = '## Related Notes';
 const DEFAULT_BLOCK_ID = 'weekly-related-notes';
 const PHRASE_BOOSTS = [
   'semantic search',
@@ -43,9 +43,18 @@ interface RankedLink {
 }
 
 function resolveAnchorTimestamp(note: PluginNoteMeta): number {
-  const rangeMatch = note.title.match(/\((\d{1,2})-(\d{1,2})-(\d{4})\b/);
+  // Range format: (M-D-YYYY to M-D) or (M-D-YYYY to M-D-YYYY) — use the END date
+  const rangeMatch = note.title.match(/\((\d{1,2})-(\d{1,2})-(\d{4})\s+to\s+(\d{1,2})-(\d{1,2})(?:-(\d{4}))?\)/);
   if (rangeMatch) {
-    const [, monthRaw, dayRaw, yearRaw] = rangeMatch;
+    const [, , , startYear, endMonth, endDay, endYear] = rangeMatch;
+    const year = endYear ? Number(endYear) : Number(startYear);
+    return Date.UTC(year, Number(endMonth) - 1, Number(endDay), 23, 59, 59, 999);
+  }
+
+  // Single date: (M-D-YYYY)
+  const singleMatch = note.title.match(/\((\d{1,2})-(\d{1,2})-(\d{4})\b/);
+  if (singleMatch) {
+    const [, monthRaw, dayRaw, yearRaw] = singleMatch;
     return Date.UTC(Number(yearRaw), Number(monthRaw) - 1, Number(dayRaw), 12, 0, 0, 0);
   }
 
@@ -188,18 +197,21 @@ async function rankCandidates(
   }
 
   const userPrompt = [
-    'Select the most relevant prior notes for this weekly note.',
-    'Choose at most the requested number of candidates.',
-    'Use only candidate IDs that are present below.',
-    'Keep each reason short and concrete.',
-    '',
-    `Weekly note title: ${weeklyNote.title}`,
-    'Weekly note content:',
+    `WEEKLY NOTE "${weeklyNote.title}":`,
     weeklyContent.trim().slice(0, 1200),
     '',
-    `Return JSON like {"links":[{"candidateId":"c1","reason":"why it matters"}]}.`,
+    `Pick exactly ${maxLinks} candidates most relevant to this weekly note.`,
     '',
-    'Candidates:',
+    'For each reason, briefly describe what the candidate note contains. Be specific. Under 80 chars.',
+    'Start each reason with a topic or action word like these examples:',
+    '"Architecture plan for overnight skill files and editable prompts"',
+    '"To-dos for the week: name the feature, prep demo environment"',
+    '"Brainstorm on semantic search as the flagship demo moment"',
+    '"Ideas for LLM-powered overnight note processing pipeline"',
+    '',
+    'Return JSON: {"links":[{"candidateId":"c1","reason":"..."}]}',
+    '',
+    'CANDIDATES:',
     ...candidates.map((candidate, index) => (
       `[c${index + 1}] ${candidate.note.title}\n${candidate.excerpt}`
     )),
@@ -207,9 +219,9 @@ async function rankCandidates(
 
   const raw = await context.sdk.runBuiltinLlm({
     purpose: 'weekly-related-notes-selection',
-    systemPrompt: 'You surface genuinely related prior notes for a weekly planning note.',
+    systemPrompt: 'You pick relevant past notes and briefly summarize what each one contains. Be specific and concise.',
     userPrompt,
-    maxTokens: 300,
+    maxTokens: 500,
     temperature: 0.1,
     timeoutMs: 30_000,
     disableThinking: true,
@@ -250,12 +262,11 @@ async function processWeeklyNote(
   context: PluginRunContext,
   weeklyNote: PluginNoteMeta,
 ): Promise<'proposed' | 'skipped'> {
-  const lookbackDays = Math.max(1, getNumber(context.config, 'lookbackDays', 14));
-  const maxLinks = Math.max(1, getNumber(context.config, 'maxLinks', 4));
+  const lookbackDays = Math.max(1, getNumber(context.config, 'lookbackDays', 30));
+  const maxLinks = Math.max(1, getNumber(context.config, 'maxLinks', 2));
   const includeReasons = getBoolean(context.config, 'includeReasons', true);
-  const maxCandidateNotes = Math.max(maxLinks, getNumber(context.config, 'maxCandidateNotes', 20));
+  const maxCandidateNotes = Math.max(maxLinks, getNumber(context.config, 'maxCandidateNotes', 40));
   const headingText = getString(context.config, 'headingText', DEFAULT_HEADING);
-  const blockId = getString(context.config, 'blockId', DEFAULT_BLOCK_ID);
   const stateKey = `note:${weeklyNote.uuid}`;
   const anchorTimestamp = resolveAnchorTimestamp(weeklyNote);
 
@@ -318,8 +329,8 @@ async function processWeeklyNote(
   }
 
   const content = buildManagedContent(headingText, links, includeReasons);
-  const renderedBlock = renderManagedBlock(blockId, content);
-  const existingBlock = findManagedBlock(weeklyContent, blockId);
+  const renderedBlock = content;
+  const existingBlock = findHeadingSection(weeklyContent, headingText);
   const previous = await context.sdk.getPluginState<WeeklyRelatedNotesState>(stateKey);
   if (existingBlock === renderedBlock || (previous?.sourceHash === weeklyNote.contentHash && previous.renderedBlock === renderedBlock)) {
     await context.sdk.setPluginState(stateKey, {
@@ -338,11 +349,13 @@ async function processWeeklyNote(
     before: {
       title: weeklyNote.title,
       filename: weeklyNote.filename,
-      blockId,
+      blockId: DEFAULT_BLOCK_ID,
     },
     after: {
-      blockId,
+      blockId: DEFAULT_BLOCK_ID,
       content,
+      replaceStrategy: 'heading_section',
+      headingText,
     },
     preview: {
       title: weeklyNote.title,
@@ -371,20 +384,19 @@ export const weeklyRelatedNotesPlugin: BuiltinPlugin = {
   id: 'weekly-related-notes',
   name: 'Weekly related notes',
   description: 'Surface prior notes from the last two weeks into a weekly note block.',
-  defaultEnabled: false,
+  defaultEnabled: true,
   defaultSchedule: {
     kind: 'weekly',
     time: '03:00',
     day: 1,
   },
-  defaultAutoApply: false,
+  defaultAutoApply: true,
   configSchema: [
-    { key: 'lookbackDays', label: 'Lookback days', type: 'number', default: 14, min: 1, max: 60 },
-    { key: 'maxLinks', label: 'Max links', type: 'number', default: 4, min: 1, max: 8 },
-    { key: 'maxCandidateNotes', label: 'Max candidates', type: 'number', default: 20, min: 4, max: 50 },
+    { key: 'lookbackDays', label: 'Lookback days', type: 'number', default: 30, min: 1, max: 90 },
+    { key: 'maxLinks', label: 'Max links', type: 'number', default: 2, min: 1, max: 12 },
+    { key: 'maxCandidateNotes', label: 'Max candidates', type: 'number', default: 40, min: 4, max: 80 },
     { key: 'targetFilenameRegex', label: 'Weekly filename regex', type: 'string', default: DEFAULT_WEEKLY_REGEX },
     { key: 'headingText', label: 'Heading text', type: 'string', default: DEFAULT_HEADING },
-    { key: 'blockId', label: 'Managed block id', type: 'string', default: DEFAULT_BLOCK_ID },
     { key: 'includeReasons', label: 'Include reasons', type: 'boolean', default: true },
   ],
 

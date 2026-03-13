@@ -75,6 +75,19 @@ test.describe('Tag System', () => {
     await expect(addBtn).toBeVisible();
   });
 
+  test('NoteTagBar aligns with the title column', async ({ page }) => {
+    await openNewNote(page);
+    await seedNote(page, 'aligned tags', '#recipes #cooking\n\nThis is a recipe note.');
+
+    const titleBox = await page.locator('.title-input').boundingBox();
+    const firstTagBox = await page.locator('.tag-pill').first().boundingBox();
+
+    expect(titleBox).not.toBeNull();
+    expect(firstTagBox).not.toBeNull();
+
+    expect(Math.abs((titleBox?.x ?? 0) - (firstTagBox?.x ?? 0))).toBeLessThanOrEqual(1);
+  });
+
   test('NoteTagBar shows ghost button for notes without tags', async ({ page }) => {
     await openNewNote(page);
     await seedNote(page, 'untagged note', 'Just some plain text.');

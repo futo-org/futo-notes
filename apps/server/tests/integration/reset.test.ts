@@ -110,4 +110,78 @@ describe('POST /reset', () => {
     const setupAgain = await req(env.app, 'POST', '/setup', { password: 'newpassword123' });
     expect(setupAgain.status).toBe(201);
   });
+
+  it('dev nuke uses the same full reset behavior without auth', async () => {
+    const content = '# Reset me too';
+    const hash = contentHash(content);
+
+    const upload = await authReq(env.app, 'POST', '/sync', token, {
+      notes: [
+        {
+          uuid: 'u-dev-reset',
+          filename: 'dev-reset-me.md',
+          modified_at: Date.now(),
+          content_hash: hash,
+          hash_at_last_sync: '',
+          content,
+        },
+      ],
+      all_uuids: ['u-dev-reset'],
+      deleted_uuids: [],
+    });
+    expect(upload.status).toBe(200);
+    expect(readNoteFile(env.notesDir, 'dev-reset-me.md')).toBe(content);
+
+    const loginRes = await req(env.app, 'POST', '/login', { password: 'testpassword123' });
+    expect(loginRes.status).toBe(200);
+    const loginData = await loginRes.json() as { token: string };
+    const secondToken = loginData.token;
+
+    const nukeRes = await req(env.app, 'POST', '/dev/nuke', { confirmation: 'DELETE' });
+    expect(nukeRes.status).toBe(200);
+    const nukeData = await nukeRes.json() as {
+      success: boolean;
+      notes_deleted: number;
+      sessions_revoked: number;
+      setup_cleared: boolean;
+      message: string;
+    };
+    expect(nukeData.success).toBe(true);
+    expect(nukeData.notes_deleted).toBe(1);
+    expect(nukeData.sessions_revoked).toBe(2);
+    expect(nukeData.setup_cleared).toBe(true);
+    expect(nukeData.message).toContain('Server wiped clean');
+
+    const statusRes = await req(env.app, 'GET', '/dashboard/status');
+    expect(statusRes.status).toBe(200);
+    const status = await statusRes.json() as {
+      notes_count: number;
+      sessions_count: number;
+      setup_complete: boolean;
+    };
+    expect(status.notes_count).toBe(0);
+    expect(status.sessions_count).toBe(0);
+    expect(status.setup_complete).toBe(false);
+
+    const syncWithFirst = await authReq(env.app, 'POST', '/sync', token, {
+      notes: [],
+      all_uuids: [],
+      deleted_uuids: [],
+    });
+    expect(syncWithFirst.status).toBe(401);
+
+    const syncWithSecond = await authReq(env.app, 'POST', '/sync', secondToken, {
+      notes: [],
+      all_uuids: [],
+      deleted_uuids: [],
+    });
+    expect(syncWithSecond.status).toBe(401);
+
+    expect(readNoteFile(env.notesDir, 'dev-reset-me.md')).toBeNull();
+    const diskEntries = fs.readdirSync(env.notesDir);
+    expect(diskEntries).toEqual([]);
+
+    const postResetLogin = await req(env.app, 'POST', '/login', { password: 'testpassword123' });
+    expect(postResetLogin.status).toBe(403);
+  });
 });

@@ -5,8 +5,9 @@ import type { RunBuiltinLlmInput } from './types.js';
 interface LoadedState {
   model: { dispose(): Promise<void> };
   context: { getSequence(): unknown; dispose(): Promise<void> };
-  LlamaChatSession: new (opts: { contextSequence: unknown; systemPrompt?: string }) => {
+  LlamaChatSession: new (opts: { contextSequence: unknown; systemPrompt?: string; autoDisposeSequence?: boolean }) => {
     prompt(text: string, opts?: { maxTokens?: number; temperature?: number; signal?: AbortSignal }): Promise<string>;
+    dispose(opts?: { disposeSequence?: boolean }): void;
   };
 }
 
@@ -129,15 +130,20 @@ export function getBuiltinLlmRunner(): ((input: RunBuiltinLlmInput) => Promise<s
     const session = new LlamaChatSession({
       contextSequence: context.getSequence(),
       systemPrompt: prompt.systemPrompt,
+      autoDisposeSequence: true,
     });
 
-    const result = await withTimeout(session.prompt(prompt.userPrompt, {
-      maxTokens: input.maxTokens ?? 64,
-      temperature: input.temperature ?? 0.3,
-    }), input.timeoutMs);
+    try {
+      const result = await withTimeout(session.prompt(prompt.userPrompt, {
+        maxTokens: input.maxTokens ?? 64,
+        temperature: input.temperature ?? 0.3,
+      }), input.timeoutMs);
 
-    log.info(`plugins: raw LLM output (${result.length} chars) for purpose="${input.purpose}": "${result.slice(0, 200)}"`);
-    return result.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+      log.info(`plugins: raw LLM output (${result.length} chars) for purpose="${input.purpose}": "${result.slice(0, 200)}"`);
+      return result.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+    } finally {
+      session.dispose({ disposeSequence: true });
+    }
   };
 }
 

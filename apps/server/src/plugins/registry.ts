@@ -1,11 +1,9 @@
 import type { BuiltinPlugin, PluginRegistration } from './types.js';
-import { untitledNoMorePlugin } from './untitledNoMore.js';
-import { autoTaggerPlugin } from './autoTagger.js';
-import { quickCaptureToListPlugin } from './quickCaptureToList.js';
-import { weeklyRelatedNotesPlugin } from './weeklyRelatedNotes.js';
+import { autoTaggerPlugin } from './autoTagger/index.js';
+import { quickCaptureToListPlugin } from './quickCaptureToList/index.js';
+import { weeklyRelatedNotesPlugin } from './weeklyRelatedNotes/index.js';
 
 const BUILTIN_PLUGINS: BuiltinPlugin[] = [
-  untitledNoMorePlugin,
   autoTaggerPlugin,
   quickCaptureToListPlugin,
   weeklyRelatedNotesPlugin,

@@ -26,7 +26,7 @@ sync.post('/sync/check', authMiddleware, async (c) => {
 
   const db = getDb();
   const currentVersion = getSyncVersion(db);
-  const status = body.version >= currentVersion ? 'up_to_date' : 'changes_available';
+  const status = body.version === currentVersion ? 'up_to_date' : 'changes_available';
 
   return c.json({ status, version: currentVersion });
 });

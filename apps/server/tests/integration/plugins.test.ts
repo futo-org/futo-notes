@@ -114,7 +114,7 @@ function buildLocalPluginSource(pluginId: string, title: string, description = '
   description: '${description}',
   defaultEnabled: false,
   defaultSchedule: { kind: 'manual', time: null, day: null },
-  defaultAutoApply: false,
+  defaultAutoApply: true,
   configSchema: [
     { key: 'targetTitle', label: 'Target title', type: 'string', default: 'local title' },
   ],
@@ -156,7 +156,7 @@ function buildRunAllPluginSource(
   description: 'Run-all automation test.',
   defaultEnabled: false,
   defaultSchedule: { kind: 'manual', time: null, day: null },
-  defaultAutoApply: false,
+  defaultAutoApply: true,
   configSchema: [],
   async run(context) {
     await context.sdk.log('info', 'Starting ${pluginId}');
@@ -188,33 +188,41 @@ describe('Plugins', () => {
     expect(res.status).toBe(200);
 
     const data = await res.json() as {
-      plugins: Array<{ id: string; auto_apply: boolean; config_schema: Array<{ key: string }> }>;
+      plugins: Array<{
+        id: string;
+        auto_apply: boolean;
+        config_schema: Array<{ key: string; type?: string }>;
+        config: Record<string, unknown>;
+      }>;
       scheduler: { phase: string };
     };
 
     expect(data.scheduler.phase).toBe('idle');
-    expect(data.plugins).toHaveLength(4);
-    const untitledNoMore = data.plugins.find((plugin) => plugin.id === 'untitled-no-more');
+    expect(data.plugins).toHaveLength(3);
     const autoTagger = data.plugins.find((plugin) => plugin.id === 'auto-tagger');
     const quickCapture = data.plugins.find((plugin) => plugin.id === 'quick-capture-to-list');
     const weeklyRelated = data.plugins.find((plugin) => plugin.id === 'weekly-related-notes');
-    expect(untitledNoMore).toMatchObject({
-      id: 'untitled-no-more',
-      auto_apply: false,
-      config_schema: [],
-    });
     expect(autoTagger).toMatchObject({
       id: 'auto-tagger',
-      auto_apply: false,
+      auto_apply: true,
     });
+    expect(autoTagger?.config_schema.map((field) => field.key)).toEqual([
+      'tags',
+      'confidenceThreshold',
+      'maxContentChars',
+      'staleMinutes',
+      'maxNotesToScan',
+    ]);
+    expect(autoTagger?.config_schema[0]?.type).toBe('tag_list');
+    expect(autoTagger?.config.maxNotesToScan).toBe(5);
     expect(quickCapture).toMatchObject({
       id: 'quick-capture-to-list',
-      auto_apply: false,
+      auto_apply: true,
       config_schema: [],
     });
     expect(weeklyRelated).toMatchObject({
       id: 'weekly-related-notes',
-      auto_apply: false,
+      auto_apply: true,
     });
     expect(weeklyRelated?.config_schema.map((field) => field.key)).toEqual([
       'lookbackDays',
@@ -222,185 +230,261 @@ describe('Plugins', () => {
       'maxCandidateNotes',
       'targetFilenameRegex',
       'headingText',
-      'blockId',
       'includeReasons',
     ]);
+    expect(weeklyRelated?.config.headingText).toBe('## Related Notes');
   });
 
-  it('creates preview suggestions and applies approved rename with wikilink rewrite', async () => {
+  it('limits auto-tagger to the configured recent-note window and uses tagged examples', async () => {
     const token = await setupAndLogin(env.app);
-    __setTestLlmResponder(() => 'meeting notes');
-
-    const oldMtime = Date.now() - (10 * 60 * 1000);
-    seedNote(env, 'note-1', 'Untitled.md', 'Agenda for the team sync and follow-up action items.', oldMtime);
-    seedNote(env, 'note-2', 'Reference.md', 'See [[Untitled]] before next week.', oldMtime);
-
-    const runRes = await authReq(env.app, 'POST', '/plugins/untitled-no-more/run', token);
-    expect(runRes.status).toBe(202);
-    const { run_id } = await runRes.json() as { run_id: string };
-
-    const preview = await waitForRunDetail(env.app, token, run_id);
-    expect(preview.run.status).toBe('awaiting_approval');
-    expect(preview.items).toHaveLength(1);
-    expect(preview.items[0].status).toBe('suggested');
-    expect(preview.items[0].preview).toMatchObject({
-      oldTitle: 'Untitled',
-      proposedTitle: 'meeting notes',
-      rewriteExactWikiLinks: true,
+    __setTestLlmResponder((input) => {
+      // Example snippet (tag header stripped) should appear in prompt
+      expect(input.userPrompt).toContain('FUTO Chat bug report from QA team');
+      expect(input.userPrompt).toContain('Examples of #work:');
+      expect(input.userPrompt).toContain('Note title:\nRecent');
+      // Description should NOT appear when examples exist
+      expect(input.userPrompt).not.toContain('no examples yet');
+      return JSON.stringify({
+        tags: [{ tag: 'work', confidence: 0.92 }],
+      });
     });
 
-    const itemId = Number(preview.items[0].id);
-    const approveRes = await authReq(env.app, 'POST', `/plugins/runs/${run_id}/items/${itemId}/approve`, token);
-    expect(approveRes.status).toBe(200);
-
-    const applyRes = await authReq(env.app, 'POST', `/plugins/runs/${run_id}/apply-approved`, token);
-    expect(applyRes.status).toBe(200);
-
-    const applied = await waitForRunDetail(env.app, token, run_id);
-    expect(applied.run.status).toBe('succeeded');
-    expect(applied.items[0].status).toBe('applied');
-
-    const renamed = getNote(getDb(), 'note-1');
-    expect(renamed?.filename).toBe('meeting notes.md');
-    const referenceContent = fs.readFileSync(path.join(env.notesDir, 'Reference.md'), 'utf8');
-    expect(referenceContent).toContain('[[meeting notes]]');
-    expect(referenceContent).not.toContain('[[Untitled]]');
-  });
-
-  it('supports auto-apply runs via plugin config', async () => {
-    const token = await setupAndLogin(env.app);
-    __setTestLlmResponder(() => 'trip planning');
-
-    const configRes = await authReq(env.app, 'POST', '/plugins/untitled-no-more/config', token, {
-      auto_apply: true,
+    const configRes = await authReq(env.app, 'POST', '/plugins/auto-tagger/config', token, {
+      auto_apply: false,
       schedule_kind: 'manual',
       config: {
-        maxContentChars: 1500,
+        tags: [
+          { name: 'work', description: 'work-related planning and roadmap notes' },
+        ],
+        confidenceThreshold: 0.7,
+        maxNotesToScan: 1,
       },
     });
     expect(configRes.status).toBe(200);
 
-    const oldMtime = Date.now() - (10 * 60 * 1000);
-    seedNote(env, 'note-3', 'Untitled (2).md', 'Reservations, packing list, and places to visit.', oldMtime);
+    // Tagged example note — will be discovered as a few-shot example for #work
+    seedNote(env, 'example-note', 'Bug Report.md', '#work\n\nFUTO Chat bug report from QA team about crash on startup and related issues.', Date.now() - (10 * 60 * 1000));
+    // Untagged classification targets
+    seedNote(env, 'recent-note', 'Recent.md', 'Sprint planning and roadmap discussion for the mobile client.', Date.now() - (20 * 60 * 1000));
+    seedNote(env, 'older-note', 'Older.md', 'Quarterly planning and budget notes that should not be scanned.', Date.now() - (40 * 60 * 1000));
 
-    const runRes = await authReq(env.app, 'POST', '/plugins/untitled-no-more/run', token);
+    const runRes = await authReq(env.app, 'POST', '/plugins/auto-tagger/run', token);
     expect(runRes.status).toBe(202);
     const { run_id } = await runRes.json() as { run_id: string };
 
-    const detail = await waitForRunDetail(env.app, token, run_id);
-    expect(detail.run.status).toBe('succeeded');
-    expect(detail.items[0].status).toBe('applied');
+    const detail = await waitForRunDetail(env.app, token, run_id) as {
+      run: { status: string; summary: { notesScanned: number } | null };
+      items: Array<{ entity_id: string; preview: { proposedTags?: string[] } }>;
+    };
 
-    const renamed = getNote(getDb(), 'note-3');
-    expect(renamed?.filename).toBe('trip planning.md');
+    expect(detail.run.status).toBe('awaiting_approval');
+    expect(detail.run.summary?.notesScanned).toBe(1);
+    expect(detail.items).toHaveLength(1);
+    expect(detail.items[0].entity_id).toBe('recent-note');
+    expect(detail.items[0].preview.proposedTags).toEqual(['work']);
   });
 
-  it('broadcasts sync_available after an auto-applied rename', async () => {
+  it('round-trips structured auto-tagger tag definitions through plugin config', async () => {
     const token = await setupAndLogin(env.app);
-    __setTestLlmResponder(() => 'trip planning');
 
-    const configRes = await authReq(env.app, 'POST', '/plugins/untitled-no-more/config', token, {
-      auto_apply: true,
+    const configRes = await authReq(env.app, 'POST', '/plugins/auto-tagger/config', token, {
+      auto_apply: false,
       schedule_kind: 'manual',
-      config: {},
+      config: {
+        tags: [
+          { name: 'work', description: 'roadmaps, projects, planning' },
+          { name: 'research', description: 'experiments and investigation notes' },
+        ],
+      },
     });
     expect(configRes.status).toBe(200);
 
-    const ticket = await createSseTicket(env.app, token);
-    const sseRes = await env.app.request(`/events?ticket=${ticket}&clientId=observer`);
-    expect(sseRes.status).toBe(200);
-    const sse = createSSEReader(sseRes);
+    const statusRes = await authReq(env.app, 'GET', '/plugins/status', token);
+    expect(statusRes.status).toBe(200);
+    const status = await statusRes.json() as {
+      plugins: Array<{ id: string; config: { tags?: Array<{ name: string; description: string }> } }>;
+    };
 
-    try {
-      await sse.readUntil((buf) => buf.includes('event: connected'));
+    const autoTagger = status.plugins.find((plugin) => plugin.id === 'auto-tagger');
+    expect(autoTagger?.config.tags).toEqual([
+      { name: 'work', description: 'roadmaps, projects, planning' },
+      { name: 'research', description: 'experiments and investigation notes' },
+    ]);
+  });
 
-      const oldMtime = Date.now() - (10 * 60 * 1000);
-      seedNote(env, 'note-5', 'Untitled.md', 'Reservations, packing list, and places to visit.', oldMtime);
+  it('stops auto-tagger after a fatal llm failure instead of warning for every note', async () => {
+    const token = await setupAndLogin(env.app);
+    __setTestLlmResponder(() => {
+      throw new Error('Built-in LLM is unavailable');
+    });
 
-      const runRes = await authReq(env.app, 'POST', '/plugins/untitled-no-more/run', token);
-      expect(runRes.status).toBe(202);
-      const { run_id } = await runRes.json() as { run_id: string };
+    const configRes = await authReq(env.app, 'POST', '/plugins/auto-tagger/config', token, {
+      auto_apply: false,
+      schedule_kind: 'manual',
+      config: {
+        tags: [
+          { name: 'work', description: 'work-related notes' },
+        ],
+        maxNotesToScan: 5,
+      },
+    });
+    expect(configRes.status).toBe(200);
 
-      await sse.readUntil((buf) => buf.includes('event: sync_available'));
-      const detail = await waitForRunDetail(env.app, token, run_id);
-      expect(detail.run.status).toBe('succeeded');
-      expect(sse.contents).toContain('event: sync_available');
-    } finally {
-      sse.cancel();
+    for (let index = 0; index < 4; index += 1) {
+      seedNote(
+        env,
+        `note-${index}`,
+        `Note ${index}.md`,
+        `Work planning note ${index} with enough content to trigger auto tagging.`,
+        Date.now() - ((index + 1) * 20 * 60 * 1000),
+      );
     }
+
+    const runRes = await authReq(env.app, 'POST', '/plugins/auto-tagger/run', token);
+    expect(runRes.status).toBe(202);
+    const { run_id } = await runRes.json() as { run_id: string };
+
+    const detail = await waitForRunDetail(env.app, token, run_id) as {
+      run: { status: string; error_message: string | null };
+      logs: Array<{ level: string; message: string }>;
+    };
+
+    expect(detail.run.status).toBe('failed');
+    expect(detail.run.error_message).toContain('Auto Tagger stopped after repeated LLM failures');
+    const noteFailureWarnings = detail.logs.filter((entry) => entry.message.startsWith('LLM call failed for note'));
+    expect(noteFailureWarnings).toHaveLength(1);
   });
 
-  it('bumps sync version after an auto-applied rename', async () => {
+  it('skips Untitled and Untitled (N) notes in auto-tagger runs', async () => {
     const token = await setupAndLogin(env.app);
-    __setTestLlmResponder(() => 'trip planning');
+    let llmCalls = 0;
+    __setTestLlmResponder(() => {
+      llmCalls += 1;
+      return JSON.stringify({
+        tags: [{ tag: 'work', confidence: 0.92 }],
+      });
+    });
 
-    const beforeRes = await authReq(env.app, 'POST', '/sync/check', token, { version: 0 });
-    expect(beforeRes.status).toBe(200);
-    const before = await beforeRes.json() as { status: string; version: number };
-    expect(before.status).toBe('up_to_date');
-    expect(before.version).toBe(0);
-
-    const configRes = await authReq(env.app, 'POST', '/plugins/untitled-no-more/config', token, {
-      auto_apply: true,
+    const configRes = await authReq(env.app, 'POST', '/plugins/auto-tagger/config', token, {
+      auto_apply: false,
       schedule_kind: 'manual',
-      config: {},
+      config: {
+        tags: [
+          { name: 'work', description: 'work-related notes' },
+        ],
+      },
     });
     expect(configRes.status).toBe(200);
 
-    const oldMtime = Date.now() - (10 * 60 * 1000);
-    seedNote(env, 'note-6', 'Untitled.md', 'Reservations, packing list, and places to visit.', oldMtime);
+    seedNote(env, 'untitled-note', 'Untitled.md', 'This note should not be tagged even though it has enough content.', Date.now() - (30 * 60 * 1000));
+    seedNote(env, 'untitled-note-2', 'Untitled (2).md', 'This numbered untitled note should also be skipped by the tagger.', Date.now() - (35 * 60 * 1000));
+    seedNote(env, 'regular-note', 'Regular.md', 'This planning note should still be tagged by the auto tagger.', Date.now() - (40 * 60 * 1000));
 
-    const runRes = await authReq(env.app, 'POST', '/plugins/untitled-no-more/run', token);
+    const runRes = await authReq(env.app, 'POST', '/plugins/auto-tagger/run', token);
     expect(runRes.status).toBe(202);
     const { run_id } = await runRes.json() as { run_id: string };
 
-    const detail = await waitForRunDetail(env.app, token, run_id);
-    expect(detail.run.status).toBe('succeeded');
+    const detail = await waitForRunDetail(env.app, token, run_id) as {
+      run: { status: string };
+      items: Array<{ entity_id: string }>;
+    };
 
-    const afterRes = await authReq(env.app, 'POST', '/sync/check', token, { version: 0 });
-    expect(afterRes.status).toBe(200);
-    const after = await afterRes.json() as { status: string; version: number };
-    expect(after.status).toBe('changes_available');
-    expect(after.version).toBeGreaterThan(0);
+    expect(detail.run.status).toBe('awaiting_approval');
+    expect(detail.items).toHaveLength(1);
+    expect(detail.items[0].entity_id).toBe('regular-note');
+    expect(llmCalls).toBe(1);
   });
 
-  it('retries once when the title model returns an empty response', async () => {
+  it('cold start falls back to tag descriptions when no tagged notes exist', async () => {
     const token = await setupAndLogin(env.app);
-    let calls = 0;
     __setTestLlmResponder((input) => {
-      calls += 1;
-      expect(input.disableThinking).toBe(true);
-      return calls === 1 ? '' : 'gettysburg address';
+      expect(input.userPrompt).toContain('(no examples yet — work-related notes)');
+      expect(input.userPrompt).toContain('(no examples yet — personal journals and life)');
+      expect(input.userPrompt).toContain('Tags: work, personal');
+      return JSON.stringify({ tags: ['work'] });
     });
 
-    const oldMtime = Date.now() - (10 * 60 * 1000);
-    seedNote(
-      env,
-      'note-4',
-      'Untitled.md',
-      'the gettysburg address was an important speech. abrham lincoln really cooked with that one. but it was an important speech because of the message.',
-      oldMtime,
-    );
+    const configRes = await authReq(env.app, 'POST', '/plugins/auto-tagger/config', token, {
+      auto_apply: false,
+      schedule_kind: 'manual',
+      config: {
+        tags: [
+          { name: 'work', description: 'work-related notes' },
+          { name: 'personal', description: 'personal journals and life' },
+        ],
+      },
+    });
+    expect(configRes.status).toBe(200);
 
-    const runRes = await authReq(env.app, 'POST', '/plugins/untitled-no-more/run', token);
+    seedNote(env, 'untagged-note', 'Planning.md', 'Sprint planning and roadmap discussion for the mobile client.', Date.now() - (20 * 60 * 1000));
+
+    const runRes = await authReq(env.app, 'POST', '/plugins/auto-tagger/run', token);
     expect(runRes.status).toBe(202);
     const { run_id } = await runRes.json() as { run_id: string };
 
-    const preview = await waitForRunDetail(env.app, token, run_id);
-    expect(calls).toBe(2);
-    expect(preview.run.status).toBe('awaiting_approval');
-    expect(preview.items[0].preview).toMatchObject({
-      oldTitle: 'Untitled',
-      proposedTitle: 'gettysburg address',
+    const detail = await waitForRunDetail(env.app, token, run_id) as {
+      run: { status: string };
+      items: Array<{ entity_id: string }>;
+    };
+
+    expect(detail.run.status).toBe('awaiting_approval');
+    expect(detail.items).toHaveLength(1);
+    expect(detail.items[0].entity_id).toBe('untagged-note');
+  });
+
+  it('strips tag header from example snippets in auto-tagger prompt', async () => {
+    const token = await setupAndLogin(env.app);
+    __setTestLlmResponder((input) => {
+      // The snippet should contain content AFTER the tag header, not the tag itself
+      expect(input.userPrompt).toContain('Actual meeting notes about the product roadmap');
+      expect(input.userPrompt).not.toMatch(/"Tagged Note": #work/);
+      return JSON.stringify({ tags: ['work'] });
     });
+
+    const configRes = await authReq(env.app, 'POST', '/plugins/auto-tagger/config', token, {
+      auto_apply: false,
+      schedule_kind: 'manual',
+      config: {
+        tags: [
+          { name: 'work', description: 'work-related notes' },
+        ],
+      },
+    });
+    expect(configRes.status).toBe(200);
+
+    // Example note with tag header that should be stripped
+    seedNote(env, 'tagged-note', 'Tagged Note.md', '#work\n\nActual meeting notes about the product roadmap and deliverables.', Date.now() - (10 * 60 * 1000));
+    // Classification target
+    seedNote(env, 'target-note', 'Target.md', 'Budget review and financial planning for next quarter deliverables.', Date.now() - (20 * 60 * 1000));
+
+    const runRes = await authReq(env.app, 'POST', '/plugins/auto-tagger/run', token);
+    expect(runRes.status).toBe(202);
+    const { run_id } = await runRes.json() as { run_id: string };
+
+    const detail = await waitForRunDetail(env.app, token, run_id) as {
+      run: { status: string };
+      items: Array<{ entity_id: string }>;
+    };
+
+    expect(detail.run.status).toBe('awaiting_approval');
+    expect(detail.items).toHaveLength(1);
+    expect(detail.items[0].entity_id).toBe('target-note');
   });
 
   it('creates preview suggestions and applies approved quick-capture merge into the chosen list', async () => {
     const token = await setupAndLogin(env.app);
     __setTestLlmResponder((input) => {
-      expect(input.disableThinking).toBe(true);
+      expect(input.disableThinking).not.toBe(true);
+      expect(input.systemPrompt).toContain('Inbox is a fallback bucket only when no listed note makes sense.');
       return 'Packing';
     });
+
+    const configRes = await authReq(env.app, 'POST', '/plugins/quick-capture-to-list/config', token, {
+      auto_apply: false,
+      schedule_kind: 'manual',
+      config: {},
+    });
+    expect(configRes.status).toBe(200);
 
     const oldMtime = Date.now() - (10 * 60 * 1000);
     seedNote(env, 'note-1', 'Untitled.md', 'olive oil\nlemons', oldMtime);
@@ -442,7 +526,7 @@ describe('Plugins', () => {
 
   it('supports auto-apply runs and creates the fallback inbox when no list note matches', async () => {
     const token = await setupAndLogin(env.app);
-    __setTestLlmResponder(() => 'null');
+    __setTestLlmResponder(() => 'Inbox');
 
     const configRes = await authReq(env.app, 'POST', '/plugins/quick-capture-to-list/config', token, {
       auto_apply: true,
@@ -454,6 +538,7 @@ describe('Plugins', () => {
     const oldMtime = Date.now() - (10 * 60 * 1000);
     seedNote(env, 'note-3', 'Untitled (2).md', 'call plumber', oldMtime);
     seedNote(env, 'note-4', 'Tasks.md', '- [ ] call mom\n- [ ] pay rent\n- [x] book flights', oldMtime);
+    seedNote(env, 'note-4b', 'Gift ideas.md', '- dad socks\n- family router\n- birthday flowers', oldMtime);
 
     const runRes = await authReq(env.app, 'POST', '/plugins/quick-capture-to-list/run', token);
     expect(runRes.status).toBe(202);
@@ -463,15 +548,112 @@ describe('Plugins', () => {
     expect(detail.run.status).toBe('succeeded');
     expect(detail.items[0].status).toBe('applied');
     expect(detail.items[0].preview).toMatchObject({
-      destinationTitle: 'Quick capture inbox',
+      destinationTitle: 'Inbox',
       fallbackUsed: true,
     });
 
     const inbox = getNote(getDb(), detail.items[0].after.destinationUuid as string);
-    expect(inbox?.filename).toBe('Quick capture inbox.md');
-    const inboxContent = fs.readFileSync(path.join(env.notesDir, 'Quick capture inbox.md'), 'utf8');
+    expect(inbox?.filename).toBe('Inbox.md');
+    const inboxContent = fs.readFileSync(path.join(env.notesDir, 'Inbox.md'), 'utf8');
     expect(inboxContent).toBe('- call plumber');
     expect(getNote(getDb(), 'note-3')).toBeNull();
+  });
+
+  it('prefers Gift ideas over Inbox for a recipient-style gift capture even when the model punts', async () => {
+    const token = await setupAndLogin(env.app);
+    let seenPrompt = '';
+    __setTestLlmResponder((input) => {
+      seenPrompt = input.userPrompt;
+      expect(input.disableThinking).not.toBe(true);
+      expect(input.systemPrompt).toContain('Recipient-plus-item captures usually belong in gift, wishlist, or ideas lists if one exists.');
+      return 'Inbox';
+    });
+
+    const configRes = await authReq(env.app, 'POST', '/plugins/quick-capture-to-list/config', token, {
+      auto_apply: false,
+      schedule_kind: 'manual',
+      config: {},
+    });
+    expect(configRes.status).toBe(200);
+
+    const oldMtime = Date.now() - (10 * 60 * 1000);
+    seedNote(env, 'gift-capture', 'Untitled.md', 'new computer for mom', oldMtime);
+    seedNote(env, 'gift-inbox', 'Inbox.md', '- random thought\n- someday maybe\n- parking receipt', oldMtime);
+    seedNote(env, 'gift-ideas', 'Gift ideas.md', [
+      '#personal',
+      '',
+      "- **dad** Papadeux's gift card, japanese knife",
+      '- 50OFF100',
+      '- Darn tough socks',
+      '- CarPlay',
+      '- **Family** wifi router',
+    ].join('\n'), oldMtime);
+    seedNote(env, 'errands', 'Errands.md', '- call plumber\n- return package\n- buy batteries', oldMtime);
+
+    const runRes = await authReq(env.app, 'POST', '/plugins/quick-capture-to-list/run', token);
+    expect(runRes.status).toBe(202);
+    const { run_id } = await runRes.json() as { run_id: string };
+
+    const preview = await waitForRunDetail(env.app, token, run_id);
+    expect(preview.run.status).toBe('awaiting_approval');
+    expect(preview.items).toHaveLength(1);
+    if (seenPrompt) {
+      expect(seenPrompt).toContain('Existing list candidates:');
+      expect(seenPrompt).toContain('- Gift ideas');
+      expect(seenPrompt).not.toContain('- Inbox');
+    }
+    expect(preview.items[0].preview).toMatchObject({
+      sourceTitle: 'Untitled',
+      destinationTitle: 'Gift ideas',
+      destinationMode: 'existing',
+      insertedListText: '- new computer for mom',
+      fallbackUsed: false,
+    });
+  });
+
+  it('deletes every processed Untitled note after approved list and Inbox moves are applied', async () => {
+    const token = await setupAndLogin(env.app);
+    __setTestLlmResponder((input) => input.userPrompt.includes('Quick capture:\nbananas') ? 'Groceries' : 'null');
+
+    const configRes = await authReq(env.app, 'POST', '/plugins/quick-capture-to-list/config', token, {
+      auto_apply: false,
+      schedule_kind: 'manual',
+      config: {},
+    });
+    expect(configRes.status).toBe(200);
+
+    const oldMtime = Date.now() - (10 * 60 * 1000);
+    seedNote(env, 'note-move-1', 'Untitled.md', 'bananas', oldMtime);
+    seedNote(env, 'note-move-2', 'Untitled (2).md', 'call plumber', oldMtime + 1);
+    seedNote(env, 'note-move-3', 'Groceries.md', 'Groceries\n- apples\n- bread\n- cereal', oldMtime);
+
+    const runRes = await authReq(env.app, 'POST', '/plugins/quick-capture-to-list/run', token);
+    expect(runRes.status).toBe(202);
+    const { run_id } = await runRes.json() as { run_id: string };
+
+    const preview = await waitForRunDetail(env.app, token, run_id);
+    expect(preview.run.status).toBe('awaiting_approval');
+    expect(preview.items).toHaveLength(2);
+
+    const approveRes = await authReq(env.app, 'POST', `/plugins/runs/${run_id}/approve-all`, token);
+    expect(approveRes.status).toBe(200);
+
+    const applyRes = await authReq(env.app, 'POST', `/plugins/runs/${run_id}/apply-approved`, token);
+    expect(applyRes.status).toBe(200);
+
+    const applied = await waitForRunDetail(env.app, token, run_id);
+    expect(applied.run.status).toBe('succeeded');
+    expect(applied.items.map((item) => item.status)).toEqual(['applied', 'applied']);
+
+    const groceriesContent = fs.readFileSync(path.join(env.notesDir, 'Groceries.md'), 'utf8');
+    expect(groceriesContent).toContain('- bananas');
+    const inboxContent = fs.readFileSync(path.join(env.notesDir, 'Inbox.md'), 'utf8');
+    expect(inboxContent).toBe('- call plumber');
+
+    expect(getNote(getDb(), 'note-move-1')).toBeNull();
+    expect(getNote(getDb(), 'note-move-2')).toBeNull();
+    expect(fs.existsSync(path.join(env.notesDir, 'Untitled.md'))).toBe(false);
+    expect(fs.existsSync(path.join(env.notesDir, 'Untitled (2).md'))).toBe(false);
   });
 
   it('broadcasts sync_available after an auto-applied quick-capture merge', async () => {
@@ -550,9 +732,17 @@ describe('Plugins', () => {
   it('formats multiline captures as nested items and ignores task-list-only candidates', async () => {
     const token = await setupAndLogin(env.app);
     __setTestLlmResponder((input) => {
-      expect(input.disableThinking).toBe(true);
+      expect(input.disableThinking).not.toBe(true);
+      expect(input.userPrompt).toContain('Existing list candidates:');
       return 'Recipes';
     });
+
+    const configRes = await authReq(env.app, 'POST', '/plugins/quick-capture-to-list/config', token, {
+      auto_apply: false,
+      schedule_kind: 'manual',
+      config: {},
+    });
+    expect(configRes.status).toBe(200);
 
     const oldMtime = Date.now() - (10 * 60 * 1000);
     seedNote(env, 'note-9', 'Untitled.md', 'curry paste\ncoconut milk\nlime leaves', oldMtime);
@@ -572,7 +762,7 @@ describe('Plugins', () => {
     });
   });
 
-  it('creates preview suggestions and applies a managed related-notes block to weekly notes', async () => {
+  it('creates preview suggestions and applies a related-notes section to weekly notes', async () => {
     const token = await setupAndLogin(env.app);
     __setTestLlmResponder((input) => {
       expect(input.purpose).toBe('weekly-related-notes-selection');
@@ -584,6 +774,13 @@ describe('Plugins', () => {
         ],
       });
     });
+
+    const configRes = await authReq(env.app, 'POST', '/plugins/weekly-related-notes/config', token, {
+      auto_apply: false,
+      schedule_kind: 'manual',
+      config: {},
+    });
+    expect(configRes.status).toBe(200);
 
     const weeklyMtime = new Date('2026-03-09T12:00:00Z').getTime();
     seedNote(env, 'weekly-1', 'This week (3-9-2026 to 3-14).md', [
@@ -606,7 +803,8 @@ describe('Plugins', () => {
       '- Auto backlink',
       '- graph view',
     ].join('\n'), new Date('2026-03-05T12:00:00Z').getTime());
-    seedNote(env, 'cand-3', 'FUTO Notes Presentation Thoughts.md', 'This note is after the weekly note and should not be included.', new Date('2026-03-12T12:00:00Z').getTime());
+    seedNote(env, 'cand-3', 'FUTO Notes Presentation Thoughts.md', 'Some notes about the presentation and demo this week.', new Date('2026-03-12T12:00:00Z').getTime());
+    seedNote(env, 'cand-post-week', 'Next Sprint Planning.md', 'This note is after the weekly range and should not be included.', new Date('2026-03-16T12:00:00Z').getTime());
 
     const runRes = await authReq(env.app, 'POST', '/plugins/weekly-related-notes/run', token);
     expect(runRes.status).toBe(202);
@@ -617,7 +815,7 @@ describe('Plugins', () => {
     expect(preview.items).toHaveLength(1);
     expect(preview.items[0].preview).toMatchObject({
       title: 'This week (3-9-2026 to 3-14)',
-      candidateCount: 2,
+      candidateCount: 3,
     });
     expect((preview.items[0].preview.selectedTitles as string[]).slice().sort()).toEqual([
       'FUTO Notes LLM Ideas',
@@ -625,7 +823,7 @@ describe('Plugins', () => {
     ]);
     expect(String(preview.items[0].preview.renderedBlock)).toContain('[[Immediate Todos for FUTO Notes]]');
     expect(String(preview.items[0].preview.renderedBlock)).toContain('[[FUTO Notes LLM Ideas]]');
-    expect(String(preview.items[0].preview.renderedBlock)).not.toContain('[[FUTO Notes Presentation Thoughts]]');
+    expect(String(preview.items[0].preview.renderedBlock)).not.toContain('[[Next Sprint Planning]]');
 
     const itemId = Number(preview.items[0].id);
     const approveRes = await authReq(env.app, 'POST', `/plugins/runs/${run_id}/items/${itemId}/approve`, token);
@@ -639,13 +837,13 @@ describe('Plugins', () => {
     expect(applied.items[0].status).toBe('applied');
 
     const weeklyContent = fs.readFileSync(path.join(env.notesDir, 'This week (3-9-2026 to 3-14).md'), 'utf8');
-    expect(weeklyContent).toContain('<!-- stonefruit:weekly-related-notes:start -->');
-    expect(weeklyContent).toContain('## Related notes surfaced overnight');
+    expect(weeklyContent).toContain('## Related Notes');
     expect(weeklyContent).toContain('[[Immediate Todos for FUTO Notes]]');
     expect(weeklyContent).toContain('[[FUTO Notes LLM Ideas]]');
     expect(weeklyContent).toContain('Covers the same wow-demo framing.');
     expect(weeklyContent).toContain('Earlier note on auto-backlinking and overnight jobs.');
-    expect(weeklyContent).not.toContain('[[FUTO Notes Presentation Thoughts]]');
+    expect(weeklyContent).not.toContain('[[Next Sprint Planning]]');
+    expect(weeklyContent).not.toContain('stonefruit:weekly-related-notes:start');
   });
 
   it('does not duplicate the managed related-notes block across reruns', async () => {
@@ -683,7 +881,7 @@ describe('Plugins', () => {
     expect(secondDetail.items).toHaveLength(0);
 
     const weeklyContent = fs.readFileSync(path.join(env.notesDir, 'This week (3-9-2026 to 3-14).md'), 'utf8');
-    expect(weeklyContent.match(/stonefruit:weekly-related-notes:start/g)).toHaveLength(1);
+    expect(weeklyContent.match(/^## Related Notes$/gm)).toHaveLength(1);
   });
 
   it('creates, edits, runs, and deletes a local plugin while keeping run history', async () => {
@@ -713,6 +911,15 @@ describe('Plugins', () => {
     expect(sourceRes.status).toBe(200);
     const sourceData = await sourceRes.json() as { source: string };
     expect(sourceData.source).toContain("name: 'Local Renamer'");
+
+    const configRes = await authReq(env.app, 'POST', '/plugins/local-renamer/config', token, {
+      auto_apply: false,
+      schedule_kind: 'manual',
+      config: {
+        targetTitle: 'local title',
+      },
+    });
+    expect(configRes.status).toBe(200);
 
     const runRes = await authReq(env.app, 'POST', '/plugins/local-renamer/run', token);
     expect(runRes.status).toBe(202);
@@ -784,6 +991,11 @@ describe('Plugins', () => {
       source: buildRunAllPluginSource('batch-disabled', 'Batch Disabled'),
     });
     expect(createDisabled.status).toBe(201);
+
+    // Disable builtins so the batch only contains the local test plugins
+    expect((await authReq(env.app, 'POST', '/plugins/auto-tagger/disable', token)).status).toBe(200);
+    expect((await authReq(env.app, 'POST', '/plugins/quick-capture-to-list/disable', token)).status).toBe(200);
+    expect((await authReq(env.app, 'POST', '/plugins/weekly-related-notes/disable', token)).status).toBe(200);
 
     expect((await authReq(env.app, 'POST', '/plugins/batch-alpha/enable', token)).status).toBe(200);
     expect((await authReq(env.app, 'POST', '/plugins/batch-beta/enable', token)).status).toBe(200);

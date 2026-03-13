@@ -63,9 +63,8 @@ describe('Dashboard', () => {
     expect(plugins).toHaveProperty('model');
     expect(plugins).toHaveProperty('scheduler');
     const items = plugins.plugins as Array<Record<string, unknown>>;
-    expect(items).toHaveLength(4);
+    expect(items).toHaveLength(3);
     expect(items.map((item) => item.id)).toEqual([
-      'untitled-no-more',
       'auto-tagger',
       'quick-capture-to-list',
       'weekly-related-notes',
@@ -80,7 +79,7 @@ describe('Dashboard', () => {
   description: 'Local dashboard automation.',
   defaultEnabled: false,
   defaultSchedule: { kind: 'manual', time: null, day: null },
-  defaultAutoApply: false,
+  defaultAutoApply: true,
   configSchema: [],
   async run() {
     return { notesScanned: 0, proposalsCreated: 0, notesSkipped: 0 };

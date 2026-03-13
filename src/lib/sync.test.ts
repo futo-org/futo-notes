@@ -15,13 +15,14 @@ vi.mock('./rustCore', () => ({
 
 import { refreshNotesAfterSync } from './notes';
 import { getCachedPreferences, savePreferences } from './preferences';
-import { loadSyncState, saveSyncState, findIdForUuid } from './syncState';
+import { clearSyncState, loadSyncState, saveSyncState, findIdForUuid } from './syncState';
 import { prepareSyncPayloadRust, applySyncDeltaRust } from './rustCore';
 import { connectSyncServer, syncNow } from './sync';
 
 const mockRefreshNotesAfterSync = vi.mocked(refreshNotesAfterSync);
 const mockGetCachedPreferences = vi.mocked(getCachedPreferences);
 const mockSavePreferences = vi.mocked(savePreferences);
+const mockClearSyncState = vi.mocked(clearSyncState);
 const mockLoadSyncState = vi.mocked(loadSyncState);
 const mockSaveSyncState = vi.mocked(saveSyncState);
 const mockFindIdForUuid = vi.mocked(findIdForUuid);
@@ -61,6 +62,7 @@ beforeEach(() => {
   // Default: preferences with server configured
   mockGetCachedPreferences.mockReturnValue(makePrefs());
   mockSavePreferences.mockResolvedValue();
+  mockClearSyncState.mockResolvedValue();
   mockLoadSyncState.mockResolvedValue(makeState());
   mockSaveSyncState.mockResolvedValue();
   mockFindIdForUuid.mockReturnValue(null);
@@ -150,6 +152,163 @@ describe('syncNow', () => {
     await expect(syncNow()).rejects.toThrow('Connect to server first');
   });
 
+  it('clears stale sync state and reuploads when the server version goes backwards', async () => {
+    const staleState = makeState({
+      serverVersion: 10,
+      hashByUuid: { 'uuid-hello': 'samehash' },
+      uuidById: { hello: 'uuid-hello' },
+    });
+    const resetState = makeState();
+    const syncNotes: NoteSyncMeta[] = [{
+      uuid: 'uuid-hello',
+      filename: 'hello.md',
+      modified_at: 1700000000000,
+      content_hash: 'samehash',
+      hash_at_last_sync: '',
+      content: 'Hello content',
+    }];
+
+    mockLoadSyncState
+      .mockResolvedValueOnce(staleState)
+      .mockResolvedValueOnce(resetState);
+    mockFetch
+      .mockResolvedValueOnce(Response.json({ status: 'changes_available', version: 0 } satisfies SyncCheckResponse))
+      .mockResolvedValueOnce(Response.json({
+        update: [],
+        delete: [],
+        hash_updates: [{ uuid: 'uuid-hello', hash_at_last_sync: 'samehash' }],
+        conflicts: [],
+        version: 1,
+      } satisfies SyncResponse));
+    mockPrepareSyncPayloadRust.mockResolvedValue({
+      nextState: resetState,
+      notes: syncNotes,
+      allUuids: ['uuid-hello'],
+      elapsedMs: 1,
+    });
+    mockApplySyncDeltaRust.mockResolvedValue({
+      nextState: makeState({ serverVersion: 1 }),
+      updatedIds: [],
+      deletedIds: [],
+      renamed: [],
+      elapsedMs: 1,
+    });
+
+    await syncNow();
+
+    expect(mockClearSyncState).toHaveBeenCalledTimes(1);
+    expect(mockPrepareSyncPayloadRust).toHaveBeenCalledWith(resetState);
+    const [, init] = mockFetch.mock.calls[1];
+    const body = JSON.parse(init.body);
+    expect(body.notes).toHaveLength(1);
+    expect(body.notes[0].content).toBe('Hello content');
+  });
+
+  it('clears legacy sync state with UUID mappings when the server reports version 0', async () => {
+    const staleState = makeState({
+      hashByUuid: { 'uuid-hello': 'samehash' },
+      uuidById: { hello: 'uuid-hello' },
+    });
+    const resetState = makeState();
+    const syncNotes: NoteSyncMeta[] = [{
+      uuid: 'uuid-hello',
+      filename: 'hello.md',
+      modified_at: 1700000000000,
+      content_hash: 'samehash',
+      hash_at_last_sync: '',
+      content: 'Hello content',
+    }];
+
+    mockLoadSyncState
+      .mockResolvedValueOnce(staleState)
+      .mockResolvedValueOnce(resetState);
+    mockFetch
+      .mockResolvedValueOnce(Response.json({ status: 'up_to_date', version: 0 } satisfies SyncCheckResponse))
+      .mockResolvedValueOnce(Response.json({
+        update: [],
+        delete: [],
+        hash_updates: [{ uuid: 'uuid-hello', hash_at_last_sync: 'samehash' }],
+        conflicts: [],
+        version: 1,
+      } satisfies SyncResponse));
+    mockPrepareSyncPayloadRust.mockResolvedValue({
+      nextState: resetState,
+      notes: syncNotes,
+      allUuids: ['uuid-hello'],
+      elapsedMs: 1,
+    });
+    mockApplySyncDeltaRust.mockResolvedValue({
+      nextState: makeState({ serverVersion: 1 }),
+      updatedIds: [],
+      deletedIds: [],
+      renamed: [],
+      elapsedMs: 1,
+    });
+
+    await syncNow();
+
+    expect(mockClearSyncState).toHaveBeenCalledTimes(1);
+    expect(mockPrepareSyncPayloadRust).toHaveBeenCalledWith(resetState);
+    const [, init] = mockFetch.mock.calls[1];
+    const body = JSON.parse(init.body);
+    expect(body.notes).toHaveLength(1);
+    expect(body.notes[0].content).toBe('Hello content');
+  });
+
+  it('detects a reset before syncing when stale state still has pending deletions', async () => {
+    const staleState = makeState({
+      serverVersion: 7,
+      hashByUuid: { 'uuid-hello': 'samehash' },
+      uuidById: { hello: 'uuid-hello' },
+      deletedUuids: ['uuid-old-delete'],
+    });
+    const resetState = makeState();
+    const syncNotes: NoteSyncMeta[] = [{
+      uuid: 'uuid-hello',
+      filename: 'hello.md',
+      modified_at: 1700000000000,
+      content_hash: 'samehash',
+      hash_at_last_sync: '',
+      content: 'Hello content',
+    }];
+
+    mockLoadSyncState
+      .mockResolvedValueOnce(staleState)
+      .mockResolvedValueOnce(resetState);
+    mockFetch
+      .mockResolvedValueOnce(Response.json({ status: 'changes_available', version: 0 } satisfies SyncCheckResponse))
+      .mockResolvedValueOnce(Response.json({
+        update: [],
+        delete: [],
+        hash_updates: [{ uuid: 'uuid-hello', hash_at_last_sync: 'samehash' }],
+        conflicts: [],
+        version: 1,
+      } satisfies SyncResponse));
+    mockPrepareSyncPayloadRust.mockResolvedValue({
+      nextState: resetState,
+      notes: syncNotes,
+      allUuids: ['uuid-hello'],
+      elapsedMs: 1,
+    });
+    mockApplySyncDeltaRust.mockResolvedValue({
+      nextState: makeState({ serverVersion: 1 }),
+      updatedIds: [],
+      deletedIds: [],
+      renamed: [],
+      elapsedMs: 1,
+    });
+
+    await syncNow();
+
+    expect(mockClearSyncState).toHaveBeenCalledTimes(1);
+    expect(mockPrepareSyncPayloadRust).toHaveBeenCalledWith(resetState);
+    const [, init] = mockFetch.mock.calls[1];
+    const body = JSON.parse(init.body);
+    expect(body.deleted_uuids).toEqual([]);
+    expect(body.notes).toHaveLength(1);
+    expect(body.notes[0].content).toBe('Hello content');
+  });
+
   it('sends Rust-prepared payload to server', async () => {
     const syncNotes: NoteSyncMeta[] = [{
       uuid: 'uuid-hello',
@@ -180,13 +339,17 @@ describe('syncNow', () => {
       delete: [],
       hash_updates: [{ uuid: 'uuid-hello', hash_at_last_sync: 'somehash' }],
       conflicts: [],
+      version: 1,
     };
-    mockFetch.mockResolvedValueOnce(Response.json(syncResponse));
+    mockFetch
+      .mockResolvedValueOnce(Response.json({ status: 'changes_available', version: 1 } satisfies SyncCheckResponse))
+      .mockResolvedValueOnce(Response.json(syncResponse));
 
     await syncNow();
 
-    expect(mockFetch).toHaveBeenCalledTimes(1);
-    const [url, init] = mockFetch.mock.calls[0];
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(mockFetch.mock.calls[0][0]).toBe('https://sync.example.com/sync/check');
+    const [url, init] = mockFetch.mock.calls[1];
     expect(url).toBe('https://sync.example.com/sync');
     const body = JSON.parse(init.body);
     // V2 format: notes[] has only changed notes, inventory[] has all notes
@@ -306,8 +469,11 @@ describe('syncNow', () => {
       delete: [],
       hash_updates: [{ uuid: 'uuid-hello', hash_at_last_sync: 'newhash' }],
       conflicts: [],
+      version: 1,
     };
-    mockFetch.mockResolvedValueOnce(Response.json(syncResponse));
+    mockFetch
+      .mockResolvedValueOnce(Response.json({ status: 'changes_available', version: 1 } satisfies SyncCheckResponse))
+      .mockResolvedValueOnce(Response.json(syncResponse));
 
     await syncNow();
 

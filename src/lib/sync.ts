@@ -1,7 +1,7 @@
 import { sanitizeFilename } from './utils';
 import { refreshNotesAfterSync } from './notes';
 import { getCachedPreferences, savePreferences } from './preferences';
-import { findIdForUuid, loadSyncState, saveSyncState } from './syncState';
+import { clearSyncState, findIdForUuid, loadSyncState, saveSyncState } from './syncState';
 import { getClientId } from './sseClient';
 import { applySyncDeltaRust, prepareSyncPayloadRust } from './rustCore';
 import { FALLBACK_TITLE, type HealthResponse, type LoginResponse, type SyncCheckResponse, type SyncResponse } from '@futo-notes/shared';
@@ -19,6 +19,10 @@ export interface SyncSummary {
 export interface SyncRename {
   fromId: string;
   toId: string;
+}
+
+function hasPersistedRemoteKnowledge(state: import('./syncState').SyncState): boolean {
+  return Object.keys(state.uuidById).length > 0 || Object.keys(state.hashByUuid).length > 0;
 }
 
 function normalizeBaseUrl(input: string): string {
@@ -135,12 +139,25 @@ export async function syncNow(): Promise<SyncSummary> {
   // Phase 1: Quick-check — skip full sync if nothing changed
   let state = await loadSyncState();
   const serverVersion = state.serverVersion ?? 0;
+  const hasRemoteKnowledge = hasPersistedRemoteKnowledge(state);
 
-  // Only check if we've synced before (version > 0), have no local deletions or renames pending
-  if (serverVersion > 0 && state.deletedUuids.length === 0 && !state.hasPendingRenames) {
+  // Always probe when we have evidence of prior sync state. Reset detection needs to
+  // run even if local deletions or renames are pending; otherwise a reset can fall
+  // through to a full sync with stale UUID/hash metadata and suppress uploads.
+  if (serverVersion > 0 || hasRemoteKnowledge) {
     try {
       const check = await authPost<SyncCheckResponse>(serverUrl, token, '/sync/check', { version: serverVersion });
-      if (check.status === 'up_to_date') {
+      if (typeof check.version === 'number' && check.version < serverVersion) {
+        // The server version moved backwards, which means the server was reset or replaced.
+        // Our cached UUID/hash mapping is no longer authoritative, so force a fresh upload.
+        await clearSyncState();
+        state = await loadSyncState();
+      } else if (serverVersion === 0 && hasRemoteKnowledge && check.version === 0) {
+        // We have evidence this client synced before, but the server reports a pristine
+        // version counter. Treat that as a reset/replacement and rebuild from local files.
+        await clearSyncState();
+        state = await loadSyncState();
+      } else if (check.status === 'up_to_date' && state.deletedUuids.length === 0 && !state.hasPendingRenames) {
         // Still need to check if we have local changes
         const prepared = await prepareSyncPayloadRust(state);
         state = prepared.nextState;

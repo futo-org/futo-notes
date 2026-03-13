@@ -12,6 +12,7 @@ import {
   removeLocalPluginRegistration,
   upsertLocalPluginRegistration,
 } from './registry.js';
+import type { PluginTagDefinition } from './types.js';
 
 const SOURCE_FILENAME = 'source.ts';
 const COMPILED_FILENAME = 'index.mjs';
@@ -34,7 +35,7 @@ function placeholderPlugin(pluginId: string, message: string): BuiltinPlugin {
     description: message,
     defaultEnabled: false,
     defaultSchedule: { kind: 'manual', time: null, day: null },
-    defaultAutoApply: false,
+    defaultAutoApply: true,
     configSchema: [],
     async run() {
       throw new Error(message);
@@ -61,6 +62,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+function isTagDefinitionList(value: unknown): value is PluginTagDefinition[] {
+  return Array.isArray(value) && value.every((item) => (
+    isRecord(item)
+    && typeof item.name === 'string'
+    && typeof item.description === 'string'
+  ));
+}
+
 function normalizeConfigSchema(pluginId: string, value: unknown): PluginConfigField[] {
   if (!Array.isArray(value)) {
     throw new Error(`Local plugin "${pluginId}" must export configSchema as an array`);
@@ -81,8 +90,8 @@ function normalizeConfigSchema(pluginId: string, value: unknown): PluginConfigFi
     if (typeof label !== 'string' || label.length === 0) {
       throw new Error(`Local plugin "${pluginId}" configSchema[${index}].label must be a non-empty string`);
     }
-    if (type !== 'boolean' && type !== 'number' && type !== 'string') {
-      throw new Error(`Local plugin "${pluginId}" configSchema[${index}].type must be boolean, number, or string`);
+    if (type !== 'boolean' && type !== 'number' && type !== 'string' && type !== 'tag_list') {
+      throw new Error(`Local plugin "${pluginId}" configSchema[${index}].type must be boolean, number, string, or tag_list`);
     }
     if (type === 'boolean' && typeof defaultValue !== 'boolean') {
       throw new Error(`Local plugin "${pluginId}" configSchema[${index}].default must be a boolean`);
@@ -93,12 +102,15 @@ function normalizeConfigSchema(pluginId: string, value: unknown): PluginConfigFi
     if (type === 'string' && typeof defaultValue !== 'string') {
       throw new Error(`Local plugin "${pluginId}" configSchema[${index}].default must be a string`);
     }
+    if (type === 'tag_list' && !isTagDefinitionList(defaultValue)) {
+      throw new Error(`Local plugin "${pluginId}" configSchema[${index}].default must be an array of { name, description } objects`);
+    }
 
     return {
       key,
       label,
       type,
-      default: defaultValue as boolean | number | string,
+      default: defaultValue,
       description: typeof item.description === 'string' ? item.description : undefined,
       min: typeof item.min === 'number' ? item.min : undefined,
       max: typeof item.max === 'number' ? item.max : undefined,

@@ -1283,6 +1283,9 @@ Escaped pipes:
 
     loading = true;
 
+    // Reset scroll position so the new note starts at the top
+    if (noteBody) noteBody.scrollTop = 0;
+
     if (!id) {
       title = '';
       content = '';

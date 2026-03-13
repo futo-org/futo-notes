@@ -3,7 +3,13 @@ import type Database from 'better-sqlite3';
 import { validateTitle } from '@futo-notes/shared';
 import { deleteNote, getNote, getNoteByFilename, type NoteRow, upsertNote } from '../db/notes.js';
 import { appendToFirstRegularListBlock } from './listNotes.js';
-import { findManagedBlock, renderManagedBlock, replaceManagedBlock as replaceManagedBlockContent } from './managedBlocks.js';
+import {
+  findHeadingSection,
+  findManagedBlock,
+  renderManagedBlock,
+  replaceHeadingSection,
+  replaceManagedBlock as replaceManagedBlockContent,
+} from './managedBlocks.js';
 import { contentHash } from '../sync/hash.js';
 import { deleteNoteFile, readNoteFile, resolveFilename, sanitizeFilename, writeNoteFile } from '../sync/files.js';
 import type {
@@ -314,9 +320,16 @@ export function createPluginSdk(
         throw new Error(`Note content is unavailable for ${note.filename}`);
       }
 
-      const renderedBlock = renderManagedBlock(input.blockId, input.content);
-      const existingBlock = findManagedBlock(originalContent, input.blockId);
-      const nextContent = replaceManagedBlockContent(originalContent, input.blockId, input.content);
+      const useHeadingSection = input.replaceStrategy === 'heading_section' && typeof input.headingText === 'string';
+      const renderedBlock = useHeadingSection
+        ? input.content.trim()
+        : renderManagedBlock(input.blockId, input.content);
+      const existingBlock = useHeadingSection
+        ? findHeadingSection(originalContent, input.headingText)
+        : findManagedBlock(originalContent, input.blockId);
+      const nextContent = useHeadingSection
+        ? replaceHeadingSection(originalContent, input.headingText, input.content)
+        : replaceManagedBlockContent(originalContent, input.blockId, input.content);
       const changed = nextContent !== originalContent;
 
       if (changed) {

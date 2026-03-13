@@ -466,6 +466,8 @@ async function applyApprovedItemsInternal(
           noteUuid: item.entity_id,
           blockId: String(after.blockId ?? ''),
           content: String(after.content ?? ''),
+          replaceStrategy: after.replaceStrategy === 'heading_section' ? 'heading_section' : 'markers',
+          headingText: typeof after.headingText === 'string' ? after.headingText : undefined,
         });
         for (const uuid of replaceResult.changedUuids) {
           changedUuids.add(uuid);
@@ -1130,7 +1132,8 @@ export async function getPluginsStatus(): Promise<{
   await ensureLocalPluginsLoaded(db, config);
   ensurePluginRows(db);
 
-  const plugins = listPluginRegistrations().map((entry) => {
+  const plugins = listPluginRegistrations()
+    .map((entry) => {
     const plugin = entry.plugin;
     const stored = getPluginStoredConfig(db, plugin);
     const lastRun = db.prepare(`
@@ -1149,42 +1152,42 @@ export async function getPluginsStatus(): Promise<{
         AND r.status = 'awaiting_approval'
     `).get(plugin.id) as { count: number };
 
-    return {
-      id: plugin.id,
-      name: plugin.name,
-      description: plugin.description,
-      source_kind: entry.sourceKind,
-      source_label: entry.sourceLabel,
-      source_path: entry.sourcePath,
-      load_status: entry.loadStatus,
-      load_error: entry.loadError,
-      can_edit: entry.canEdit,
-      can_delete: entry.canDelete,
-      enabled: stored.enabled,
-      auto_apply: stored.autoApply,
-      schedule: {
-        kind: stored.scheduleKind,
-        time: stored.scheduleTime,
-        day: stored.scheduleDay,
-      },
-      config_schema: plugin.configSchema,
-      config: stored.config,
-      next_run_at: stored.nextRunAt,
-      last_run_at: stored.lastRunAt,
-      pending_approval_count: pendingApproval.count,
-      last_run: lastRun ? {
-        run_id: lastRun.run_id,
-        status: lastRun.status,
-        trigger_type: lastRun.trigger_type,
-        apply_mode: lastRun.apply_mode,
-        started_at: lastRun.started_at,
-        finished_at: lastRun.finished_at,
-        error_message: lastRun.error_message,
-        summary: parseRunSummary(lastRun.summary_json),
-      } : null,
-      recent_runs: listPluginRuns(plugin.id, 5),
-    };
-  });
+      return {
+        id: plugin.id,
+        name: plugin.name,
+        description: plugin.description,
+        source_kind: entry.sourceKind,
+        source_label: entry.sourceLabel,
+        source_path: entry.sourcePath,
+        load_status: entry.loadStatus,
+        load_error: entry.loadError,
+        can_edit: entry.canEdit,
+        can_delete: entry.canDelete,
+        enabled: stored.enabled,
+        auto_apply: stored.autoApply,
+        schedule: {
+          kind: stored.scheduleKind,
+          time: stored.scheduleTime,
+          day: stored.scheduleDay,
+        },
+        config_schema: plugin.configSchema,
+        config: stored.config,
+        next_run_at: stored.nextRunAt,
+        last_run_at: stored.lastRunAt,
+        pending_approval_count: pendingApproval.count,
+        last_run: lastRun ? {
+          run_id: lastRun.run_id,
+          status: lastRun.status,
+          trigger_type: lastRun.trigger_type,
+          apply_mode: lastRun.apply_mode,
+          started_at: lastRun.started_at,
+          finished_at: lastRun.finished_at,
+          error_message: lastRun.error_message,
+          summary: parseRunSummary(lastRun.summary_json),
+        } : null,
+        recent_runs: listPluginRuns(plugin.id, 5),
+      };
+    });
 
   const modelInfo = getBuiltinLlmInfo();
   return {

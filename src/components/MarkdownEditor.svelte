@@ -306,6 +306,11 @@
     if (!view) return;
     const spec = buildSetContentTransaction(view.state, text, options);
     if (!spec) return;
+    // Reset scroll compensation anchor so stale positions from the previous note
+    // don't cause bad scroll adjustments when the new content renders
+    anchorPos = -1;
+    anchorBlockTop = 0;
+    compensating = false;
     preloadImages(text, hasFileSystem ? getImageWebPath : undefined, () => view);
     view.dispatch(spec);
   }

@@ -9,6 +9,7 @@
   ],
   "scripts": {
     "dev": "vite",
+    "reset": "node scripts/reset-demo.mjs",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "lint": "eslint src apps/server/src packages/shared/src --ext .ts",
@@ -56,6 +57,7 @@
   "devDependencies": {
     "@eslint/js": "^9.39.2",
     "@playwright/test": "^1.58.1",
+    "jsdom": "^28.1.0",
     "typescript": "5.9.3",
     "typescript-eslint": "^8.54.0",
     "vite": "7.3.1",

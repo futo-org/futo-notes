@@ -12,6 +12,7 @@ import { syntaxTree, ensureSyntaxTree } from '@codemirror/language';
 import { extractHeaderTagBlock, TAG_REGEX } from '@futo-notes/shared';
 
 export const imageCacheUpdated = StateEffect.define<null>();
+export const liveMarkdownRefresh = StateEffect.define<null>();
 
 // Widget Classes
 class HorizontalRuleWidget extends WidgetType {
@@ -379,14 +380,17 @@ class LiveMarkdownPlugin implements PluginValue {
   lastTreeLength: number = 0;
   lastCursorLine: number = -1;
   compositionSuspended = false;
+  pendingRefresh: ReturnType<typeof setTimeout> | null = null;
+  destroyed = false;
 
   constructor(view: EditorView) {
     // Force full parse so all decorations are present from the start,
     // preventing scroll jumps from height estimation mismatches
-    ensureSyntaxTree(view.state, view.state.doc.length, 5000);
+    ensureSyntaxTree(view.state, view.state.doc.length, 200);
     this.lastTreeLength = syntaxTree(view.state).length;
     this.decorations = this.buildDecorations(view);
     this.lastCursorLine = view.state.doc.lineAt(view.state.selection.main.head).number;
+    this.scheduleParseRefresh(view);
   }
 
   update(update: ViewUpdate): void {
@@ -409,10 +413,14 @@ class LiveMarkdownPlugin implements PluginValue {
       return;
     }
 
+    ensureSyntaxTree(update.state, update.state.doc.length, 200);
     const tree = syntaxTree(update.state);
     const treeGrew = tree.length > this.lastTreeLength;
     const imageCacheChanged = update.transactions.some(
       (tr) => tr.effects.some((e) => e.is(imageCacheUpdated))
+    );
+    const refreshRequested = update.transactions.some(
+      (tr) => tr.effects.some((e) => e.is(liveMarkdownRefresh))
     );
 
     if (treeGrew) {
@@ -434,10 +442,20 @@ class LiveMarkdownPlugin implements PluginValue {
       cursorLineChanged ||
       update.focusChanged ||
       treeGrew ||
-      imageCacheChanged;
+      imageCacheChanged ||
+      refreshRequested;
 
     if (shouldRebuild) {
       this.decorations = this.buildDecorations(update.view);
+      this.scheduleParseRefresh(update.view);
+    }
+  }
+
+  destroy(): void {
+    this.destroyed = true;
+    if (this.pendingRefresh !== null) {
+      clearTimeout(this.pendingRefresh);
+      this.pendingRefresh = null;
     }
   }
 
@@ -445,6 +463,8 @@ class LiveMarkdownPlugin implements PluginValue {
     if (view.composing || view.compositionStarted) {
       return Decoration.none;
     }
+
+    ensureSyntaxTree(view.state, view.state.doc.length, 200);
 
     const decorations: Array<{ from: number; to: number; value: any }> = [];
     const cursorLines = this.getCursorLines(view);
@@ -499,19 +519,9 @@ class LiveMarkdownPlugin implements PluginValue {
     // Process inline tag styling
     this.processInlineTags(view, decorations, cursorLines);
 
-    // Sort decorations by from position, then by whether they are widgets at point (side)
-    // Widgets with side:-1 come before widgets at same position
-    const sorted = decorations.sort((a, b) => {
-      if (a.from !== b.from) return a.from - b.from;
-      // Point widgets with side:-1 should come first
-      const aSide = a.value.side ?? 0;
-      const bSide = b.value.side ?? 0;
-      return aSide - bSide;
-    });
-
     // Build decoration ranges
     const ranges: any[] = [];
-    for (const d of sorted) {
+    for (const d of decorations) {
       try {
         if (d.value.startSide !== undefined || d.value.endSide !== undefined) {
           // Line decoration
@@ -552,7 +562,28 @@ class LiveMarkdownPlugin implements PluginValue {
       }
     }
 
-    return Decoration.set(ranges, false);
+    return Decoration.set(ranges, true);
+  }
+
+  private scheduleParseRefresh(view: EditorView): void {
+    if (this.pendingRefresh !== null) {
+      clearTimeout(this.pendingRefresh);
+      this.pendingRefresh = null;
+    }
+
+    if (view.composing || view.compositionStarted) return;
+    const docLength = view.state.doc.length;
+    if (docLength === 0) return;
+
+    const tree = syntaxTree(view.state);
+    if (tree.length >= docLength) return;
+
+    this.pendingRefresh = setTimeout(() => {
+      this.pendingRefresh = null;
+      if (this.destroyed) return;
+      ensureSyntaxTree(view.state, view.state.doc.length, 200);
+      view.dispatch({ effects: liveMarkdownRefresh.of(null) });
+    }, 16);
   }
 
   private getCursorLines(view: EditorView): Set<number> {

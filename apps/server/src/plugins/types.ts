@@ -17,12 +17,20 @@ export type PluginChangeType = typeof PLUGIN_CHANGE_TYPES[number];
 export type PluginLogLevel = typeof PLUGIN_LOG_LEVELS[number];
 export type PluginSourceKind = typeof PLUGIN_SOURCE_KINDS[number];
 export type PluginLoadStatus = typeof PLUGIN_LOAD_STATUSES[number];
+export type PluginConfigFieldType = 'boolean' | 'number' | 'string' | 'tag_list';
+
+export interface PluginTagDefinition {
+  name: string;
+  description: string;
+}
+
+export type PluginConfigFieldDefault = boolean | number | string | PluginTagDefinition[];
 
 export interface PluginConfigField {
   key: string;
   label: string;
-  type: 'boolean' | 'number' | 'string';
-  default: boolean | number | string;
+  type: PluginConfigFieldType;
+  default: PluginConfigFieldDefault;
   description?: string;
   min?: number;
   max?: number;
@@ -106,6 +114,8 @@ export interface ReplaceManagedBlockInput {
   noteUuid: string;
   blockId: string;
   content: string;
+  replaceStrategy?: 'markers' | 'heading_section';
+  headingText?: string;
 }
 
 export interface RenameNoteResult {

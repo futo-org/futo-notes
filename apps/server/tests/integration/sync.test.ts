@@ -242,6 +242,14 @@ describe('POST /sync/check', () => {
     expect(data.version).toBeGreaterThan(0);
   });
 
+  it('returns changes_available when the client version is ahead of the server', async () => {
+    const res = await authReq(env.app, 'POST', '/sync/check', token, { version: 54 });
+    expect(res.status).toBe(200);
+    const data = await res.json() as { status: string; version: number };
+    expect(data.status).toBe('changes_available');
+    expect(data.version).toBe(0);
+  });
+
   it('returns up_to_date when client has current version', async () => {
     const content = 'hello';
     const hash = contentHash(content);

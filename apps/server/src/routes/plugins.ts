@@ -1,7 +1,10 @@
 import { Hono } from 'hono';
+import { extractTags } from '@futo-notes/shared';
 import { loadConfig } from '../config.js';
 import { getDb } from '../db/index.js';
+import type { NoteRow } from '../db/notes.js';
 import { authMiddleware } from '../middleware/auth.js';
+import { readNoteFile } from '../sync/files.js';
 import {
   createOrUpdateLocalPlugin,
   deleteLocalPlugin,
@@ -23,11 +26,21 @@ import {
   triggerPluginNow,
   updatePluginConfig,
 } from '../plugins/scheduler.js';
+import type { PluginTagDefinition } from '../plugins/types.js';
 
 const plugins = new Hono();
 
 function isValidScheduleTime(value: unknown): value is string {
   return typeof value === 'string' && /^\d{2}:\d{2}$/.test(value);
+}
+
+function isTagDefinitionList(value: unknown): value is PluginTagDefinition[] {
+  return Array.isArray(value) && value.every((item) => (
+    typeof item === 'object'
+    && item !== null
+    && typeof (item as { name?: unknown }).name === 'string'
+    && typeof (item as { description?: unknown }).description === 'string'
+  ));
 }
 
 function normalizeConfig(
@@ -69,6 +82,19 @@ function normalizeConfig(
       continue;
     }
 
+    if (field.type === 'tag_list') {
+      if (!isTagDefinitionList(value)) {
+        throw new Error(`${key} must be an array of { name, description } objects`);
+      }
+      next[key] = value
+        .map((item) => ({
+          name: item.name.trim(),
+          description: item.description.trim(),
+        }))
+        .filter((item) => item.name.length > 0);
+      continue;
+    }
+
     if (typeof value !== 'string') {
       throw new Error(`${key} must be a string`);
     }
@@ -86,6 +112,21 @@ async function resolvePlugin(pluginId: string) {
 
 plugins.get('/plugins/status', authMiddleware, async (c) => {
   return c.json(await getPluginsStatus());
+});
+
+plugins.get('/plugins/tags', authMiddleware, (c) => {
+  const db = getDb();
+  const config = loadConfig();
+  const rows = db.prepare('SELECT filename FROM notes').all() as Pick<NoteRow, 'filename'>[];
+  const allTags = new Set<string>();
+  for (const row of rows) {
+    const content = readNoteFile(config.notesPath, row.filename);
+    if (!content) continue;
+    for (const tag of extractTags(content)) {
+      allTags.add(tag.replace(/^#/, '').toLowerCase());
+    }
+  }
+  return c.json({ tags: Array.from(allTags).sort() });
 });
 
 plugins.post('/plugins/:id/enable', authMiddleware, async (c) => {

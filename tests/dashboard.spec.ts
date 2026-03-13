@@ -32,7 +32,7 @@ function buildLocalPluginSource(pluginId: string, name: string, description: str
   description: '${description}',
   defaultEnabled: false,
   defaultSchedule: { kind: 'manual', time: null, day: null },
-  defaultAutoApply: false,
+  defaultAutoApply: true,
   configSchema: [],
   async run(context) {
     const notes = await context.sdk.findNotes({ filenameGlob: 'Untitled*.md', limit: 1, sort: 'modified_desc' });
@@ -184,7 +184,7 @@ test.describe('Server Dashboard', () => {
     await expect(page.locator('#status')).not.toHaveText('...', { timeout: 10_000 });
     await expect(page.locator('#status')).toContainText('Online');
     await expect(page.locator('#plugin-grid')).toBeVisible({ timeout: 10_000 });
-    await expect(page.locator('[data-plugin-card]')).toHaveCount(4);
+    await expect(page.locator('[data-plugin-card]')).toHaveCount(3);
     await expect(page.locator('[data-plugin-switch]').first()).toBeDisabled();
 
     const statusRes = await page.request.get(`${harness!.baseUrl}/dashboard/status`);
@@ -192,7 +192,6 @@ test.describe('Server Dashboard', () => {
     const statusData = await statusRes.json();
     expect(statusData).toHaveProperty('plugins');
     expect(statusData.plugins.plugins.map((plugin: { id: string }) => plugin.id)).toEqual([
-      'untitled-no-more',
       'auto-tagger',
       'quick-capture-to-list',
       'weekly-related-notes',
@@ -217,6 +216,22 @@ test.describe('Server Dashboard', () => {
     await expect(pluginCard).not.toContainText('Recent title examples');
     await expect(pluginCard).not.toContainText('Model temperature');
     await expect(pluginCard).not.toContainText('Max output tokens');
+    await expect(pluginCard).toContainText('Auto-apply on');
+    const autoTaggerCard = page.locator('[data-plugin-card="auto-tagger"]');
+    await expect(autoTaggerCard.getByRole('button', { name: 'Add tag' })).toBeVisible();
+    await expect(autoTaggerCard.locator('[data-tag-list-field="name"]').first()).toBeVisible();
+    await expect(autoTaggerCard.locator('[data-tag-list-field="description"]').first()).toBeVisible();
+    await autoTaggerCard.locator('[data-tag-list-field="name"]').first().fill('work');
+    await autoTaggerCard.locator('[data-tag-list-field="description"]').first().fill('roadmaps and planning notes');
+    await autoTaggerCard.getByRole('button', { name: 'Save settings' }).click();
+    await expect.poll(async () => {
+      const updatedRes = await page.request.get(`${harness!.baseUrl}/dashboard/status`);
+      const updatedData = await updatedRes.json();
+      const autoTagger = updatedData.plugins.plugins.find((plugin: { id: string }) => plugin.id === 'auto-tagger');
+      return autoTagger.config.tags;
+    }).toEqual([
+      { name: 'work', description: 'roadmaps and planning notes' },
+    ]);
     expect(pageErrors).toEqual([]);
   });
 
@@ -245,6 +260,9 @@ test.describe('Server Dashboard', () => {
     await loginDashboard(page, harness!.baseUrl);
 
     const pluginCard = page.locator('[data-plugin-card="quick-capture-to-list"]');
+    await expect(pluginCard).toContainText('Auto-apply on');
+    await pluginCard.locator('[data-auto-apply]').uncheck();
+    await pluginCard.getByRole('button', { name: 'Save settings' }).click();
     await expect(pluginCard).toContainText('Preview first');
 
     await pluginCard.getByRole('button', { name: 'Run now' }).click();
@@ -278,7 +296,7 @@ test.describe('Server Dashboard', () => {
   });
 
   test('auto-apply setting accepts and applies untitled list merge without manual approval', async ({ page }) => {
-    __setTestLlmResponder(() => 'Quick capture inbox');
+    __setTestLlmResponder(() => 'Inbox');
 
     await seedNotes(harness!.baseUrl, harness!.token, [
       {
@@ -306,12 +324,12 @@ test.describe('Server Dashboard', () => {
 
     const detail = page.locator('.plugin-detail');
     const runItem = detail.locator('.plugin-run-item').first();
-    await expect(detail).toContainText('Quick capture inbox');
+    await expect(detail).toContainText('Inbox');
     await expect(runItem.locator('.badge').first()).toContainText('applied', { timeout: 10_000 });
     await expect(page.getByRole('button', { name: 'Approve' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Apply approved' })).toHaveCount(0);
 
-    expect(fs.existsSync(path.join(harness!.env.notesDir, 'Quick capture inbox.md'))).toBe(true);
+    expect(fs.existsSync(path.join(harness!.env.notesDir, 'Inbox.md'))).toBe(true);
     expect(fs.existsSync(path.join(harness!.env.notesDir, 'Untitled (2).md'))).toBe(false);
   });
 
@@ -341,6 +359,9 @@ test.describe('Server Dashboard', () => {
     await expect(pluginCard).toBeVisible({ timeout: 10_000 });
     await expect(pluginCard).toContainText('Local Dashboard E2E');
     await expect(pluginCard).toContainText('Local');
+    await expect(pluginCard).toContainText('Auto-apply on');
+    await pluginCard.locator('[data-auto-apply]').uncheck();
+    await pluginCard.getByRole('button', { name: 'Save settings' }).click();
 
     await pluginCard.getByRole('button', { name: 'Run now' }).click();
     await expect(pluginCard).toContainText('awaiting_approval', { timeout: 10_000 });
