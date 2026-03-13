@@ -61,6 +61,34 @@ async function waitForRunDetail(
   throw new Error(`Timed out waiting for run ${runId}`);
 }
 
+async function waitForRunAllBatch(
+  app: TestEnv['app'],
+  token: string,
+  batchId: string,
+): Promise<{
+  batch_id: string;
+  status: string;
+  items: Array<{ plugin_id: string; status: string; error_message: string | null }>;
+}> {
+  for (let i = 0; i < 80; i++) {
+    const res = await authReq(app, 'GET', '/plugins/status', token);
+    if (res.status === 200) {
+      const data = await res.json() as {
+        run_all_batch?: {
+          batch_id: string;
+          status: string;
+          items: Array<{ plugin_id: string; status: string; error_message: string | null }>;
+        } | null;
+      };
+      if (data.run_all_batch && data.run_all_batch.batch_id === batchId && data.run_all_batch.status === 'completed') {
+        return data.run_all_batch;
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`Timed out waiting for batch ${batchId}`);
+}
+
 function seedNote(env: TestEnv, uuid: string, filename: string, content: string, modifiedAt = Date.now()): void {
   fs.mkdirSync(env.notesDir, { recursive: true });
   fs.writeFileSync(path.join(env.notesDir, filename), content, 'utf8');
@@ -115,6 +143,32 @@ function buildLocalPluginSource(pluginId: string, title: string, description = '
 `;
 }
 
+function buildRunAllPluginSource(
+  pluginId: string,
+  title: string,
+  opts?: { fail?: boolean; delayMs?: number },
+): string {
+  const delayMs = opts?.delayMs ?? 0;
+  const fail = opts?.fail === true;
+  return `export default {
+  id: '${pluginId}',
+  name: '${title}',
+  description: 'Run-all automation test.',
+  defaultEnabled: false,
+  defaultSchedule: { kind: 'manual', time: null, day: null },
+  defaultAutoApply: false,
+  configSchema: [],
+  async run(context) {
+    await context.sdk.log('info', 'Starting ${pluginId}');
+    ${delayMs > 0 ? `await new Promise((resolve) => setTimeout(resolve, ${delayMs}));` : ''}
+    ${fail ? `throw new Error('Batch failure for ${pluginId}');` : ''}
+    await context.sdk.log('info', 'Finished ${pluginId}');
+    return { notesScanned: 0, proposalsCreated: 0, notesSkipped: 0 };
+  },
+};
+`;
+}
+
 describe('Plugins', () => {
   let env: TestEnv;
 
@@ -139,21 +193,42 @@ describe('Plugins', () => {
     };
 
     expect(data.scheduler.phase).toBe('idle');
-    expect(data.plugins).toHaveLength(1);
-    expect(data.plugins[0].id).toBe('untitled-no-more');
-    expect(data.plugins[0].auto_apply).toBe(false);
-    expect(data.plugins[0].config_schema).toEqual([]);
+    expect(data.plugins).toHaveLength(2);
+    const quickCapture = data.plugins.find((plugin) => plugin.id === 'quick-capture-to-list');
+    const weeklyRelated = data.plugins.find((plugin) => plugin.id === 'weekly-related-notes');
+    expect(quickCapture).toMatchObject({
+      id: 'quick-capture-to-list',
+      auto_apply: false,
+      config_schema: [],
+    });
+    expect(weeklyRelated).toMatchObject({
+      id: 'weekly-related-notes',
+      auto_apply: false,
+    });
+    expect(weeklyRelated?.config_schema.map((field) => field.key)).toEqual([
+      'lookbackDays',
+      'maxLinks',
+      'maxCandidateNotes',
+      'targetFilenameRegex',
+      'headingText',
+      'blockId',
+      'includeReasons',
+    ]);
   });
 
-  it('creates preview suggestions and applies approved rename with wikilink rewrite', async () => {
+  it('creates preview suggestions and applies approved quick-capture merge into the chosen list', async () => {
     const token = await setupAndLogin(env.app);
-    __setTestLlmResponder(() => 'meeting notes');
+    __setTestLlmResponder((input) => {
+      expect(input.disableThinking).toBe(true);
+      return 'Packing';
+    });
 
     const oldMtime = Date.now() - (10 * 60 * 1000);
-    seedNote(env, 'note-1', 'Untitled.md', 'Agenda for the team sync and follow-up action items.', oldMtime);
-    seedNote(env, 'note-2', 'Reference.md', 'See [[Untitled]] before next week.', oldMtime);
+    seedNote(env, 'note-1', 'Untitled.md', 'olive oil\nlemons', oldMtime);
+    seedNote(env, 'note-2', 'Packing.md', 'Trip prep\n- socks\n- charger\n- passport\n\nLater\n- souvenirs', oldMtime);
+    seedNote(env, 'note-3', 'Tasks.md', '- [ ] call mom\n- [x] pay rent\n- [ ] pack', oldMtime);
 
-    const runRes = await authReq(env.app, 'POST', '/plugins/untitled-no-more/run', token);
+    const runRes = await authReq(env.app, 'POST', '/plugins/quick-capture-to-list/run', token);
     expect(runRes.status).toBe(202);
     const { run_id } = await runRes.json() as { run_id: string };
 
@@ -162,9 +237,11 @@ describe('Plugins', () => {
     expect(preview.items).toHaveLength(1);
     expect(preview.items[0].status).toBe('suggested');
     expect(preview.items[0].preview).toMatchObject({
-      oldTitle: 'Untitled',
-      proposedTitle: 'meeting notes',
-      rewriteExactWikiLinks: true,
+      sourceTitle: 'Untitled',
+      destinationTitle: 'Packing',
+      destinationMode: 'existing',
+      insertedListText: '- olive oil\n  - lemons',
+      fallbackUsed: false,
     });
 
     const itemId = Number(preview.items[0].id);
@@ -178,46 +255,51 @@ describe('Plugins', () => {
     expect(applied.run.status).toBe('succeeded');
     expect(applied.items[0].status).toBe('applied');
 
-    const renamed = getNote(getDb(), 'note-1');
-    expect(renamed?.filename).toBe('meeting notes.md');
-    const referenceContent = fs.readFileSync(path.join(env.notesDir, 'Reference.md'), 'utf8');
-    expect(referenceContent).toContain('[[meeting notes]]');
-    expect(referenceContent).not.toContain('[[Untitled]]');
+    expect(getNote(getDb(), 'note-1')).toBeNull();
+    const packingContent = fs.readFileSync(path.join(env.notesDir, 'Packing.md'), 'utf8');
+    expect(packingContent).toBe('Trip prep\n- socks\n- charger\n- passport\n- olive oil\n  - lemons\n\nLater\n- souvenirs');
+    expect(fs.existsSync(path.join(env.notesDir, 'Untitled.md'))).toBe(false);
   });
 
-  it('supports auto-apply runs via plugin config', async () => {
+  it('supports auto-apply runs and creates the fallback inbox when no list note matches', async () => {
     const token = await setupAndLogin(env.app);
-    __setTestLlmResponder(() => 'trip planning');
+    __setTestLlmResponder(() => 'null');
 
-    const configRes = await authReq(env.app, 'POST', '/plugins/untitled-no-more/config', token, {
+    const configRes = await authReq(env.app, 'POST', '/plugins/quick-capture-to-list/config', token, {
       auto_apply: true,
       schedule_kind: 'manual',
-      config: {
-        maxContentChars: 1500,
-      },
+      config: {},
     });
     expect(configRes.status).toBe(200);
 
     const oldMtime = Date.now() - (10 * 60 * 1000);
-    seedNote(env, 'note-3', 'Untitled (2).md', 'Reservations, packing list, and places to visit.', oldMtime);
+    seedNote(env, 'note-3', 'Untitled (2).md', 'call plumber', oldMtime);
+    seedNote(env, 'note-4', 'Tasks.md', '- [ ] call mom\n- [ ] pay rent\n- [x] book flights', oldMtime);
 
-    const runRes = await authReq(env.app, 'POST', '/plugins/untitled-no-more/run', token);
+    const runRes = await authReq(env.app, 'POST', '/plugins/quick-capture-to-list/run', token);
     expect(runRes.status).toBe(202);
     const { run_id } = await runRes.json() as { run_id: string };
 
     const detail = await waitForRunDetail(env.app, token, run_id);
     expect(detail.run.status).toBe('succeeded');
     expect(detail.items[0].status).toBe('applied');
+    expect(detail.items[0].preview).toMatchObject({
+      destinationTitle: 'Quick capture inbox',
+      fallbackUsed: true,
+    });
 
-    const renamed = getNote(getDb(), 'note-3');
-    expect(renamed?.filename).toBe('trip planning.md');
+    const inbox = getNote(getDb(), detail.items[0].after.destinationUuid as string);
+    expect(inbox?.filename).toBe('Quick capture inbox.md');
+    const inboxContent = fs.readFileSync(path.join(env.notesDir, 'Quick capture inbox.md'), 'utf8');
+    expect(inboxContent).toBe('- call plumber');
+    expect(getNote(getDb(), 'note-3')).toBeNull();
   });
 
-  it('broadcasts sync_available after an auto-applied rename', async () => {
+  it('broadcasts sync_available after an auto-applied quick-capture merge', async () => {
     const token = await setupAndLogin(env.app);
-    __setTestLlmResponder(() => 'trip planning');
+    __setTestLlmResponder(() => 'Errands');
 
-    const configRes = await authReq(env.app, 'POST', '/plugins/untitled-no-more/config', token, {
+    const configRes = await authReq(env.app, 'POST', '/plugins/quick-capture-to-list/config', token, {
       auto_apply: true,
       schedule_kind: 'manual',
       config: {},
@@ -233,9 +315,10 @@ describe('Plugins', () => {
       await sse.readUntil((buf) => buf.includes('event: connected'));
 
       const oldMtime = Date.now() - (10 * 60 * 1000);
-      seedNote(env, 'note-5', 'Untitled.md', 'Reservations, packing list, and places to visit.', oldMtime);
+      seedNote(env, 'note-5', 'Untitled.md', 'dish soap', oldMtime);
+      seedNote(env, 'note-6', 'Errands.md', 'Errands\n1. stamps\n2. milk\n3. detergent', oldMtime);
 
-      const runRes = await authReq(env.app, 'POST', '/plugins/untitled-no-more/run', token);
+      const runRes = await authReq(env.app, 'POST', '/plugins/quick-capture-to-list/run', token);
       expect(runRes.status).toBe(202);
       const { run_id } = await runRes.json() as { run_id: string };
 
@@ -243,14 +326,16 @@ describe('Plugins', () => {
       const detail = await waitForRunDetail(env.app, token, run_id);
       expect(detail.run.status).toBe('succeeded');
       expect(sse.contents).toContain('event: sync_available');
+      const errandsContent = fs.readFileSync(path.join(env.notesDir, 'Errands.md'), 'utf8');
+      expect(errandsContent).toContain('4. dish soap');
     } finally {
       sse.cancel();
     }
   });
 
-  it('bumps sync version after an auto-applied rename', async () => {
+  it('bumps sync version after an auto-applied quick-capture merge', async () => {
     const token = await setupAndLogin(env.app);
-    __setTestLlmResponder(() => 'trip planning');
+    __setTestLlmResponder(() => 'Groceries');
 
     const beforeRes = await authReq(env.app, 'POST', '/sync/check', token, { version: 0 });
     expect(beforeRes.status).toBe(200);
@@ -258,7 +343,7 @@ describe('Plugins', () => {
     expect(before.status).toBe('up_to_date');
     expect(before.version).toBe(0);
 
-    const configRes = await authReq(env.app, 'POST', '/plugins/untitled-no-more/config', token, {
+    const configRes = await authReq(env.app, 'POST', '/plugins/quick-capture-to-list/config', token, {
       auto_apply: true,
       schedule_kind: 'manual',
       config: {},
@@ -266,9 +351,10 @@ describe('Plugins', () => {
     expect(configRes.status).toBe(200);
 
     const oldMtime = Date.now() - (10 * 60 * 1000);
-    seedNote(env, 'note-6', 'Untitled.md', 'Reservations, packing list, and places to visit.', oldMtime);
+    seedNote(env, 'note-7', 'Untitled.md', 'bananas', oldMtime);
+    seedNote(env, 'note-8', 'Groceries.md', 'Groceries\n- apples\n- bread\n- cereal', oldMtime);
 
-    const runRes = await authReq(env.app, 'POST', '/plugins/untitled-no-more/run', token);
+    const runRes = await authReq(env.app, 'POST', '/plugins/quick-capture-to-list/run', token);
     expect(runRes.status).toBe(202);
     const { run_id } = await runRes.json() as { run_id: string };
 
@@ -282,35 +368,143 @@ describe('Plugins', () => {
     expect(after.version).toBeGreaterThan(0);
   });
 
-  it('retries once when the title model returns an empty response', async () => {
+  it('formats multiline captures as nested items and ignores task-list-only candidates', async () => {
     const token = await setupAndLogin(env.app);
-    let calls = 0;
     __setTestLlmResponder((input) => {
-      calls += 1;
       expect(input.disableThinking).toBe(true);
-      return calls === 1 ? '' : 'gettysburg address';
+      return 'Recipes';
     });
 
     const oldMtime = Date.now() - (10 * 60 * 1000);
-    seedNote(
-      env,
-      'note-4',
-      'Untitled.md',
-      'the gettysburg address was an important speech. abrham lincoln really cooked with that one. but it was an important speech because of the message.',
-      oldMtime,
-    );
+    seedNote(env, 'note-9', 'Untitled.md', 'curry paste\ncoconut milk\nlime leaves', oldMtime);
+    seedNote(env, 'note-10', 'Recipes.md', 'Shopping\n1. onions\n2. garlic\n3. ginger', oldMtime);
+    seedNote(env, 'note-11', 'Checklist.md', '- [ ] mop\n- [ ] dust\n- [ ] vacuum', oldMtime);
 
-    const runRes = await authReq(env.app, 'POST', '/plugins/untitled-no-more/run', token);
+    const runRes = await authReq(env.app, 'POST', '/plugins/quick-capture-to-list/run', token);
     expect(runRes.status).toBe(202);
     const { run_id } = await runRes.json() as { run_id: string };
 
     const preview = await waitForRunDetail(env.app, token, run_id);
-    expect(calls).toBe(2);
     expect(preview.run.status).toBe('awaiting_approval');
     expect(preview.items[0].preview).toMatchObject({
-      oldTitle: 'Untitled',
-      proposedTitle: 'gettysburg address',
+      destinationTitle: 'Recipes',
+      insertedListText: '4. curry paste\n  1. coconut milk\n  2. lime leaves',
+      fallbackUsed: false,
     });
+  });
+
+  it('creates preview suggestions and applies a managed related-notes block to weekly notes', async () => {
+    const token = await setupAndLogin(env.app);
+    __setTestLlmResponder((input) => {
+      expect(input.purpose).toBe('weekly-related-notes-selection');
+      expect(input.disableThinking).toBe(true);
+      return JSON.stringify({
+        links: [
+          { candidateId: 'c1', reason: 'Covers the same wow-demo framing.' },
+          { candidateId: 'c2', reason: 'Earlier note on auto-backlinking and overnight jobs.' },
+        ],
+      });
+    });
+
+    const weeklyMtime = new Date('2026-03-09T12:00:00Z').getTime();
+    seedNote(env, 'weekly-1', 'This week (3-9-2026 to 3-14).md', [
+      '- [ ] Fix bugs',
+      '',
+      'Still trying to think of what my "one more thing" moment is going to be.',
+      '',
+      'Semantic search is cool.',
+      'Graph view could also be cool.',
+      'What would be useful if an actual assistant did it?',
+      'I think it\'s Smart Transforms.',
+    ].join('\n'), weeklyMtime);
+    seedNote(env, 'cand-1', 'Immediate Todos for FUTO Notes.md', [
+      'the thing I want to actually demo are the cool advanced LLM/AI features.',
+      'a cool demo: search for a document semantically.',
+      'What if you could wake up to a message about your recent notes?',
+    ].join('\n'), new Date('2026-02-26T12:00:00Z').getTime());
+    seedNote(env, 'cand-2', 'FUTO Notes LLM Ideas.md', [
+      '- Cron job support. What if you gave it a command to run nightly.',
+      '- Auto backlink',
+      '- graph view',
+    ].join('\n'), new Date('2026-03-05T12:00:00Z').getTime());
+    seedNote(env, 'cand-3', 'FUTO Notes Presentation Thoughts.md', 'This note is after the weekly note and should not be included.', new Date('2026-03-12T12:00:00Z').getTime());
+
+    const runRes = await authReq(env.app, 'POST', '/plugins/weekly-related-notes/run', token);
+    expect(runRes.status).toBe(202);
+    const { run_id } = await runRes.json() as { run_id: string };
+
+    const preview = await waitForRunDetail(env.app, token, run_id);
+    expect(preview.run.status).toBe('awaiting_approval');
+    expect(preview.items).toHaveLength(1);
+    expect(preview.items[0].preview).toMatchObject({
+      title: 'This week (3-9-2026 to 3-14)',
+      candidateCount: 2,
+    });
+    expect((preview.items[0].preview.selectedTitles as string[]).slice().sort()).toEqual([
+      'FUTO Notes LLM Ideas',
+      'Immediate Todos for FUTO Notes',
+    ]);
+    expect(String(preview.items[0].preview.renderedBlock)).toContain('[[Immediate Todos for FUTO Notes]]');
+    expect(String(preview.items[0].preview.renderedBlock)).toContain('[[FUTO Notes LLM Ideas]]');
+    expect(String(preview.items[0].preview.renderedBlock)).not.toContain('[[FUTO Notes Presentation Thoughts]]');
+
+    const itemId = Number(preview.items[0].id);
+    const approveRes = await authReq(env.app, 'POST', `/plugins/runs/${run_id}/items/${itemId}/approve`, token);
+    expect(approveRes.status).toBe(200);
+
+    const applyRes = await authReq(env.app, 'POST', `/plugins/runs/${run_id}/apply-approved`, token);
+    expect(applyRes.status).toBe(200);
+
+    const applied = await waitForRunDetail(env.app, token, run_id);
+    expect(applied.run.status).toBe('succeeded');
+    expect(applied.items[0].status).toBe('applied');
+
+    const weeklyContent = fs.readFileSync(path.join(env.notesDir, 'This week (3-9-2026 to 3-14).md'), 'utf8');
+    expect(weeklyContent).toContain('<!-- stonefruit:weekly-related-notes:start -->');
+    expect(weeklyContent).toContain('## Related notes surfaced overnight');
+    expect(weeklyContent).toContain('[[Immediate Todos for FUTO Notes]]');
+    expect(weeklyContent).toContain('[[FUTO Notes LLM Ideas]]');
+    expect(weeklyContent).toContain('Covers the same wow-demo framing.');
+    expect(weeklyContent).toContain('Earlier note on auto-backlinking and overnight jobs.');
+    expect(weeklyContent).not.toContain('[[FUTO Notes Presentation Thoughts]]');
+  });
+
+  it('does not duplicate the managed related-notes block across reruns', async () => {
+    const token = await setupAndLogin(env.app);
+    __setTestLlmResponder(() => JSON.stringify({
+      links: [
+        { candidateId: 'c1', reason: 'Matches the same demo thread.' },
+      ],
+    }));
+
+    const weeklyMtime = new Date('2026-03-09T12:00:00Z').getTime();
+    seedNote(env, 'weekly-2', 'This week (3-9-2026 to 3-14).md', 'Semantic search.\nSmart Transforms.', weeklyMtime);
+    seedNote(env, 'cand-4', 'Immediate Todos for FUTO Notes.md', 'semantic search\nwow demo', new Date('2026-03-01T12:00:00Z').getTime());
+
+    const configRes = await authReq(env.app, 'POST', '/plugins/weekly-related-notes/config', token, {
+      auto_apply: true,
+      schedule_kind: 'manual',
+      config: {
+        maxLinks: 1,
+      },
+    });
+    expect(configRes.status).toBe(200);
+
+    const firstRunRes = await authReq(env.app, 'POST', '/plugins/weekly-related-notes/run', token);
+    expect(firstRunRes.status).toBe(202);
+    const firstRun = await firstRunRes.json() as { run_id: string };
+    const firstDetail = await waitForRunDetail(env.app, token, firstRun.run_id);
+    expect(firstDetail.run.status).toBe('succeeded');
+
+    const secondRunRes = await authReq(env.app, 'POST', '/plugins/weekly-related-notes/run', token);
+    expect(secondRunRes.status).toBe(202);
+    const secondRun = await secondRunRes.json() as { run_id: string };
+    const secondDetail = await waitForRunDetail(env.app, token, secondRun.run_id);
+    expect(secondDetail.run.status).toBe('succeeded');
+    expect(secondDetail.items).toHaveLength(0);
+
+    const weeklyContent = fs.readFileSync(path.join(env.notesDir, 'This week (3-9-2026 to 3-14).md'), 'utf8');
+    expect(weeklyContent.match(/stonefruit:weekly-related-notes:start/g)).toHaveLength(1);
   });
 
   it('creates, edits, runs, and deletes a local plugin while keeping run history', async () => {
@@ -383,5 +577,72 @@ describe('Plugins', () => {
     expect(runDetailAfterDeleteRes.status).toBe(200);
     const runDetailAfterDelete = await runDetailAfterDeleteRes.json() as { run: { plugin_id: string } };
     expect(runDetailAfterDelete.run.plugin_id).toBe('local-renamer');
+  });
+
+  it('runs enabled automations sequentially in a run-all batch and keeps going after failures', async () => {
+    const token = await setupAndLogin(env.app);
+
+    const createAlpha = await authReq(env.app, 'POST', '/plugins/local', token, {
+      plugin_id: 'batch-alpha',
+      source: buildRunAllPluginSource('batch-alpha', 'Batch Alpha', { delayMs: 20 }),
+    });
+    expect(createAlpha.status).toBe(201);
+
+    const createBeta = await authReq(env.app, 'POST', '/plugins/local', token, {
+      plugin_id: 'batch-beta',
+      source: buildRunAllPluginSource('batch-beta', 'Batch Beta', { fail: true, delayMs: 20 }),
+    });
+    expect(createBeta.status).toBe(201);
+
+    const createGamma = await authReq(env.app, 'POST', '/plugins/local', token, {
+      plugin_id: 'batch-gamma',
+      source: buildRunAllPluginSource('batch-gamma', 'Batch Gamma', { delayMs: 20 }),
+    });
+    expect(createGamma.status).toBe(201);
+
+    const createDisabled = await authReq(env.app, 'POST', '/plugins/local', token, {
+      plugin_id: 'batch-disabled',
+      source: buildRunAllPluginSource('batch-disabled', 'Batch Disabled'),
+    });
+    expect(createDisabled.status).toBe(201);
+
+    expect((await authReq(env.app, 'POST', '/plugins/batch-alpha/enable', token)).status).toBe(200);
+    expect((await authReq(env.app, 'POST', '/plugins/batch-beta/enable', token)).status).toBe(200);
+    expect((await authReq(env.app, 'POST', '/plugins/batch-gamma/enable', token)).status).toBe(200);
+
+    const runAllRes = await authReq(env.app, 'POST', '/plugins/run-all', token);
+    expect(runAllRes.status).toBe(202);
+    const runAllData = await runAllRes.json() as {
+      batch_id: string;
+      queued_count: number;
+      batch: { items: Array<{ plugin_id: string; status: string }> };
+    };
+
+    expect(runAllData.queued_count).toBe(3);
+    expect(runAllData.batch.items.map((item) => item.plugin_id)).toEqual([
+      'batch-alpha',
+      'batch-beta',
+      'batch-gamma',
+    ]);
+    expect(runAllData.batch.items.every((item) => item.plugin_id !== 'batch-disabled')).toBe(true);
+
+    const completedBatch = await waitForRunAllBatch(env.app, token, runAllData.batch_id);
+    expect(completedBatch.items).toMatchObject([
+      { plugin_id: 'batch-alpha', status: 'succeeded', error_message: null },
+      { plugin_id: 'batch-beta', status: 'failed', error_message: 'Batch failure for batch-beta' },
+      { plugin_id: 'batch-gamma', status: 'succeeded', error_message: null },
+    ]);
+
+    const runRows = getDb().prepare(`
+      SELECT plugin_id, status, started_at, finished_at
+      FROM plugin_runs
+      WHERE plugin_id IN ('batch-alpha', 'batch-beta', 'batch-gamma')
+      ORDER BY started_at ASC
+    `).all() as Array<{ plugin_id: string; status: string; started_at: number; finished_at: number }>;
+
+    expect(runRows.map((row) => row.plugin_id)).toEqual(['batch-alpha', 'batch-beta', 'batch-gamma']);
+    expect(runRows.map((row) => row.status)).toEqual(['succeeded', 'failed', 'succeeded']);
+    expect(runRows[1].started_at).toBeGreaterThanOrEqual(runRows[0].finished_at);
+    expect(runRows[2].started_at).toBeGreaterThanOrEqual(runRows[1].finished_at);
   });
 });

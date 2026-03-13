@@ -19,6 +19,7 @@ import {
   rejectAllRunItems,
   rejectRunItem,
   setPluginEnabled,
+  triggerAllPluginsNow,
   triggerPluginNow,
   updatePluginConfig,
 } from '../plugins/scheduler.js';
@@ -157,6 +158,20 @@ plugins.post('/plugins/:id/run', authMiddleware, async (c) => {
   try {
     const { runId } = await triggerPluginNow(pluginId);
     return c.json({ started: true, run_id: runId }, 202);
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : String(err) }, 409);
+  }
+});
+
+plugins.post('/plugins/run-all', authMiddleware, async (c) => {
+  try {
+    const { batchId, queuedCount, batch } = await triggerAllPluginsNow();
+    return c.json({
+      started: true,
+      batch_id: batchId,
+      queued_count: queuedCount,
+      batch,
+    }, 202);
   } catch (err) {
     return c.json({ error: err instanceof Error ? err.message : String(err) }, 409);
   }

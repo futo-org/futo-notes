@@ -184,21 +184,24 @@ test.describe('Server Dashboard', () => {
     await expect(page.locator('#status')).not.toHaveText('...', { timeout: 10_000 });
     await expect(page.locator('#status')).toContainText('Online');
     await expect(page.locator('#plugin-grid')).toBeVisible({ timeout: 10_000 });
-    await expect(page.locator('[data-plugin-card]')).toHaveCount(1);
+    await expect(page.locator('[data-plugin-card]')).toHaveCount(2);
     await expect(page.locator('[data-plugin-switch]').first()).toBeDisabled();
 
     const statusRes = await page.request.get(`${harness!.baseUrl}/dashboard/status`);
     expect(statusRes.ok()).toBeTruthy();
     const statusData = await statusRes.json();
     expect(statusData).toHaveProperty('plugins');
-    expect(statusData.plugins.plugins[0].id).toBe('untitled-no-more');
+    expect(statusData.plugins.plugins.map((plugin: { id: string }) => plugin.id)).toEqual([
+      'quick-capture-to-list',
+      'weekly-related-notes',
+    ]);
 
     page.once('dialog', (dialog) => dialog.accept(DASHBOARD_PASSWORD));
     await page.getByRole('button', { name: 'Log in' }).click();
 
     await expect(page.locator('.plugin-auth-note')).toContainText('Signed in for automation controls');
     await expect(page.locator('[data-plugin-switch]').first()).toBeEnabled();
-    const pluginCard = page.locator('[data-plugin-card="untitled-no-more"]');
+    const pluginCard = page.locator('[data-plugin-card="quick-capture-to-list"]');
     const scheduleSelect = pluginCard.locator('[data-schedule-kind]');
     const weeklyDayField = pluginCard.locator('[data-schedule-day-field]');
     await expect(weeklyDayField).toBeHidden();
@@ -215,19 +218,19 @@ test.describe('Server Dashboard', () => {
     expect(pageErrors).toEqual([]);
   });
 
-  test('untitled note preview flow shows proposed changes and applies approved rename', async ({ page }) => {
-    __setTestLlmResponder(() => 'meeting notes');
+  test('untitled note preview flow shows proposed changes and applies approved list merge', async ({ page }) => {
+    __setTestLlmResponder(() => 'Packing');
 
     await seedNotes(harness!.baseUrl, harness!.token, [
       {
         uuid: 'note-1',
         filename: 'Untitled.md',
-        content: 'Agenda for the team sync and follow-up action items.',
+        content: 'olive oil\nlemons',
       },
       {
         uuid: 'note-2',
-        filename: 'Reference.md',
-        content: 'See [[Untitled]] before next week.',
+        filename: 'Packing.md',
+        content: 'Trip prep\n- socks\n- charger\n- passport\n\nLater\n- souvenirs',
       },
     ]);
 
@@ -239,7 +242,7 @@ test.describe('Server Dashboard', () => {
 
     await loginDashboard(page, harness!.baseUrl);
 
-    const pluginCard = page.locator('[data-plugin-card="untitled-no-more"]');
+    const pluginCard = page.locator('[data-plugin-card="quick-capture-to-list"]');
     await expect(pluginCard).toContainText('Preview first');
 
     await pluginCard.getByRole('button', { name: 'Run now' }).click();
@@ -252,11 +255,11 @@ test.describe('Server Dashboard', () => {
     const runItem = detail.locator('.plugin-run-item').first();
     await expect(detail).toContainText('Changes');
     await expect(detail).toContainText('Activity');
-    await expect(detail).toContainText('Old title');
+    await expect(detail).toContainText('Source title');
     await expect(detail).toContainText('Untitled');
-    await expect(detail).toContainText('Proposed title');
-    await expect(detail).toContainText('meeting notes');
-    await expect(detail).toContainText('LLM-generated replacement for placeholder untitled note');
+    await expect(detail).toContainText('Destination title');
+    await expect(detail).toContainText('Packing');
+    await expect(detail).toContainText('Move quick capture into the best matching list note');
 
     await runItem.getByRole('button', { name: 'Approve', exact: true }).click();
     await expect(runItem.locator('.badge').first()).toContainText('approved', { timeout: 10_000 });
@@ -265,27 +268,27 @@ test.describe('Server Dashboard', () => {
     await expect(runItem.locator('.badge').first()).toContainText('applied', { timeout: 10_000 });
     await expect(detail.locator('.plugin-detail-section').first().locator('.badge').first()).toContainText('succeeded', { timeout: 10_000 });
 
-    expect(fs.existsSync(path.join(harness!.env.notesDir, 'meeting notes.md'))).toBe(true);
+    expect(fs.existsSync(path.join(harness!.env.notesDir, 'Packing.md'))).toBe(true);
     expect(fs.existsSync(path.join(harness!.env.notesDir, 'Untitled.md'))).toBe(false);
-    const referenceContent = fs.readFileSync(path.join(harness!.env.notesDir, 'Reference.md'), 'utf8');
-    expect(referenceContent).toContain('[[meeting notes]]');
-    expect(referenceContent).not.toContain('[[Untitled]]');
+    const packingContent = fs.readFileSync(path.join(harness!.env.notesDir, 'Packing.md'), 'utf8');
+    expect(packingContent).toContain('- olive oil');
+    expect(packingContent).toContain('  - lemons');
   });
 
-  test('auto-apply setting accepts and applies untitled rename without manual approval', async ({ page }) => {
-    __setTestLlmResponder(() => 'trip planning');
+  test('auto-apply setting accepts and applies untitled list merge without manual approval', async ({ page }) => {
+    __setTestLlmResponder(() => 'Quick capture inbox');
 
     await seedNotes(harness!.baseUrl, harness!.token, [
       {
         uuid: 'note-3',
         filename: 'Untitled (2).md',
-        content: 'Reservations, packing list, and places to visit.',
+        content: 'call plumber',
       },
     ]);
 
     await loginDashboard(page, harness!.baseUrl);
 
-    const pluginCard = page.locator('[data-plugin-card="untitled-no-more"]');
+    const pluginCard = page.locator('[data-plugin-card="quick-capture-to-list"]');
     const autoApplyToggle = pluginCard.locator('[data-auto-apply]');
     await autoApplyToggle.check();
     await pluginCard.getByRole('button', { name: 'Save settings' }).click();
@@ -301,12 +304,12 @@ test.describe('Server Dashboard', () => {
 
     const detail = page.locator('.plugin-detail');
     const runItem = detail.locator('.plugin-run-item').first();
-    await expect(detail).toContainText('trip planning');
+    await expect(detail).toContainText('Quick capture inbox');
     await expect(runItem.locator('.badge').first()).toContainText('applied', { timeout: 10_000 });
     await expect(page.getByRole('button', { name: 'Approve' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Apply approved' })).toHaveCount(0);
 
-    expect(fs.existsSync(path.join(harness!.env.notesDir, 'trip planning.md'))).toBe(true);
+    expect(fs.existsSync(path.join(harness!.env.notesDir, 'Quick capture inbox.md'))).toBe(true);
     expect(fs.existsSync(path.join(harness!.env.notesDir, 'Untitled (2).md'))).toBe(false);
   });
 

@@ -3,7 +3,7 @@ export const PLUGIN_RUN_STATUSES = ['queued', 'running', 'awaiting_approval', 's
 export const PLUGIN_ITEM_STATUSES = ['suggested', 'approved', 'rejected', 'applied', 'failed'] as const;
 export const PLUGIN_TRIGGER_TYPES = ['manual', 'scheduled'] as const;
 export const PLUGIN_APPLY_MODES = ['preview', 'auto_apply'] as const;
-export const PLUGIN_CHANGE_TYPES = ['rename_note'] as const;
+export const PLUGIN_CHANGE_TYPES = ['rename_note', 'merge_note_into_list', 'replace_managed_block'] as const;
 export const PLUGIN_LOG_LEVELS = ['debug', 'info', 'warn', 'error'] as const;
 export const PLUGIN_SOURCE_KINDS = ['builtin', 'local'] as const;
 export const PLUGIN_LOAD_STATUSES = ['ready', 'error'] as const;
@@ -94,6 +94,47 @@ export interface RenameNoteInput {
   rewriteExactWikiLinks: boolean;
 }
 
+export interface MergeNoteIntoListInput {
+  sourceNoteUuid: string;
+  destinationNoteUuid?: string | null;
+  destinationTitle: string;
+  insertedListText: string;
+  fallbackUsed: boolean;
+}
+
+export interface ReplaceManagedBlockInput {
+  noteUuid: string;
+  blockId: string;
+  content: string;
+}
+
+export interface RenameNoteResult {
+  finalTitle: string;
+  finalFilename: string;
+  rewrittenNotes: number;
+  changedUuids: string[];
+  deletedUuids: string[];
+}
+
+export interface MergeNoteIntoListResult {
+  destinationUuid: string;
+  destinationTitle: string;
+  destinationFilename: string;
+  destinationCreated: boolean;
+  sourceDeleted: boolean;
+  changedUuids: string[];
+  deletedUuids: string[];
+}
+
+export interface ReplaceManagedBlockResult {
+  noteUuid: string;
+  filename: string;
+  renderedBlock: string;
+  changed: boolean;
+  changedUuids: string[];
+  deletedUuids: string[];
+}
+
 export interface PluginSdk {
   findNotes(filter?: PluginFindNotesFilter): Promise<PluginNoteMeta[]>;
   getNote(uuid: string): Promise<PluginNoteMeta | null>;
@@ -101,12 +142,9 @@ export interface PluginSdk {
   listRecentNotes(limit: number, opts?: { excludeUuid?: string; excludeUntitled?: boolean }): Promise<PluginNoteMeta[]>;
   runBuiltinLlm(input: RunBuiltinLlmInput): Promise<string>;
   proposeChange(input: ProposeChangeInput): Promise<number>;
-  renameNote(input: RenameNoteInput): Promise<{
-    finalTitle: string;
-    finalFilename: string;
-    rewrittenNotes: number;
-    changedUuids: string[];
-  }>;
+  renameNote(input: RenameNoteInput): Promise<RenameNoteResult>;
+  mergeNoteIntoList(input: MergeNoteIntoListInput): Promise<MergeNoteIntoListResult>;
+  replaceManagedBlock(input: ReplaceManagedBlockInput): Promise<ReplaceManagedBlockResult>;
   log(level: PluginLogLevel, message: string, context?: Record<string, unknown>): Promise<void>;
   getPluginState<T = unknown>(key: string): Promise<T | null>;
   setPluginState(key: string, value: unknown): Promise<void>;

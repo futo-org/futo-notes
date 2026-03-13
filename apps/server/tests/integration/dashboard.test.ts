@@ -24,7 +24,9 @@ describe('Dashboard', () => {
     expect(html).toContain('id="search-card"');
     expect(html).toContain('id="search-content"');
     expect(html).toContain('Automations');
+    expect(html).toContain('id="run-all-plugins-btn"');
     expect(html).toContain('id="plugin-editor-modal"');
+    expect(html).toContain('id="run-all-modal"');
     expect(html).not.toContain('New local automation');
     expect(html).not.toContain('plugin-install-url');
 
@@ -61,8 +63,8 @@ describe('Dashboard', () => {
     expect(plugins).toHaveProperty('model');
     expect(plugins).toHaveProperty('scheduler');
     const items = plugins.plugins as Array<Record<string, unknown>>;
-    expect(items).toHaveLength(1);
-    expect(items[0].id).toBe('untitled-no-more');
+    expect(items).toHaveLength(2);
+    expect(items.map((item) => item.id)).toEqual(['quick-capture-to-list', 'weekly-related-notes']);
   });
 
   it('GET /dashboard/status includes local plugins with source metadata', async () => {

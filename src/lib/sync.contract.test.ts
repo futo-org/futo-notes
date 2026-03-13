@@ -516,4 +516,40 @@ describe('multi-client rename convergence', () => {
     expect(s6.uploaded).toBe(0);
     expect(s6.downloaded).toBe(0);
   });
+
+  it('losing sync state while keeping local files creates a duplicate note on the server', async () => {
+    // Client A: create note and sync
+    setActiveFS(fsA);
+    const clientA = await clientOnFS(fsA);
+    await clientA.notes.createNote('shared-note', '# Shared');
+    const s1 = await clientA.sync.syncNow();
+    expect(s1.uploaded).toBe(1);
+
+    // Client B: sync to get the same note
+    setActiveFS(fsB);
+    const clientB = await clientOnFS(fsB);
+    const s2 = await clientB.sync.syncNow();
+    expect(s2.downloaded).toBe(1);
+    expect(await clientB.notes.readNote('shared-note')).toBe('# Shared');
+
+    // Simulate a partial reset/reconnect: file remains, UUID mapping is lost.
+    await clientB.syncState.clearSyncState();
+    await clientB.sync.connectSyncServer('http://localhost', 'testpassword123');
+
+    // First sync re-uploads the same markdown file under a fresh UUID.
+    const s3 = await clientB.sync.syncNow();
+    expect(s3.uploaded).toBe(1);
+    expect(s3.downloaded).toBe(1);
+    expect(clientB.notes.getAllNotes().map((note) => note.id)).toEqual(['shared-note']);
+
+    // Other devices converge to the same duplicate set on their next sync.
+    setActiveFS(fsA);
+    const s4 = await clientA.sync.syncNow();
+    expect(s4.downloaded).toBe(1);
+    expect(clientA.notes.getAllNotes().map((note) => note.id).sort()).toEqual([
+      'shared-note',
+      'shared-note (2)',
+    ]);
+
+  });
 });

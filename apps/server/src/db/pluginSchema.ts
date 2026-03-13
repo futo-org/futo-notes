@@ -14,6 +14,15 @@ function tableColumns(db: Database.Database, tableName: string): string[] {
   return rows.map((row) => row.name);
 }
 
+function tableSql(db: Database.Database, tableName: string): string | null {
+  const row = db.prepare(`
+    SELECT sql
+    FROM sqlite_master
+    WHERE type = 'table' AND name = ?
+  `).get(tableName) as { sql: string | null } | undefined;
+  return row?.sql ?? null;
+}
+
 function ensurePluginInstallsSchema(db: Database.Database): void {
   if (tableExists(db, 'plugin_installs')) {
     const columns = new Set(tableColumns(db, 'plugin_installs'));
@@ -48,6 +57,54 @@ function ensurePluginInstallsSchema(db: Database.Database): void {
   if (!columns.has('load_error')) {
     db.exec('ALTER TABLE plugin_installs ADD COLUMN load_error TEXT;');
   }
+}
+
+function ensurePluginRunItemsSchema(db: Database.Database): void {
+  if (!tableExists(db, 'plugin_run_items')) {
+    return;
+  }
+
+  const sql = tableSql(db, 'plugin_run_items') ?? '';
+  if (sql.includes('merge_note_into_list') && sql.includes('replace_managed_block')) {
+    return;
+  }
+
+  db.exec(`
+    DROP TABLE IF EXISTS plugin_run_items_legacy;
+    ALTER TABLE plugin_run_items RENAME TO plugin_run_items_legacy;
+
+    CREATE TABLE plugin_run_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      run_id TEXT NOT NULL,
+      entity_type TEXT NOT NULL CHECK(entity_type IN ('note')),
+      entity_id TEXT NOT NULL,
+      change_type TEXT NOT NULL CHECK(change_type IN ('rename_note', 'merge_note_into_list', 'replace_managed_block')),
+      before_json TEXT NOT NULL,
+      after_json TEXT NOT NULL,
+      preview_json TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      confidence REAL,
+      status TEXT NOT NULL CHECK(status IN ('suggested', 'approved', 'rejected', 'applied', 'failed')),
+      failure_message TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      applied_at INTEGER
+    );
+
+    INSERT INTO plugin_run_items (
+      id, run_id, entity_type, entity_id, change_type, before_json, after_json, preview_json,
+      reason, confidence, status, failure_message, created_at, updated_at, applied_at
+    )
+    SELECT
+      id, run_id, entity_type, entity_id, change_type, before_json, after_json, preview_json,
+      reason, confidence, status, failure_message, created_at, updated_at, applied_at
+    FROM plugin_run_items_legacy;
+
+    DROP TABLE plugin_run_items_legacy;
+
+    CREATE INDEX IF NOT EXISTS idx_plugin_run_items_run ON plugin_run_items(run_id, id ASC);
+    CREATE INDEX IF NOT EXISTS idx_plugin_run_items_status ON plugin_run_items(run_id, status);
+  `);
 }
 
 export function createPluginTables(db: Database.Database): void {
@@ -102,7 +159,7 @@ export function createPluginTables(db: Database.Database): void {
       run_id TEXT NOT NULL,
       entity_type TEXT NOT NULL CHECK(entity_type IN ('note')),
       entity_id TEXT NOT NULL,
-      change_type TEXT NOT NULL CHECK(change_type IN ('rename_note')),
+      change_type TEXT NOT NULL CHECK(change_type IN ('rename_note', 'merge_note_into_list', 'replace_managed_block')),
       before_json TEXT NOT NULL,
       after_json TEXT NOT NULL,
       preview_json TEXT NOT NULL,
@@ -121,4 +178,6 @@ export function createPluginTables(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_plugin_run_items_status ON plugin_run_items(run_id, status);
     CREATE INDEX IF NOT EXISTS idx_plugin_installs_active ON plugin_installs(deleted_at, updated_at DESC);
   `);
+
+  ensurePluginRunItemsSchema(db);
 }

@@ -1,15 +1,20 @@
+import crypto from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { validateTitle } from '@futo-notes/shared';
+import { deleteNote, getNote, getNoteByFilename, type NoteRow, upsertNote } from '../db/notes.js';
+import { appendToFirstRegularListBlock } from './listNotes.js';
+import { findManagedBlock, renderManagedBlock, replaceManagedBlock as replaceManagedBlockContent } from './managedBlocks.js';
 import { contentHash } from '../sync/hash.js';
 import { deleteNoteFile, readNoteFile, resolveFilename, sanitizeFilename, writeNoteFile } from '../sync/files.js';
-import { getNote, type NoteRow, upsertNote } from '../db/notes.js';
 import type {
+  MergeNoteIntoListInput,
   PluginFindNotesFilter,
   PluginLogLevel,
   PluginNoteMeta,
   PluginSdk,
   ProposeChangeInput,
   RenameNoteInput,
+  ReplaceManagedBlockInput,
   RunBuiltinLlmInput,
 } from './types.js';
 
@@ -163,12 +168,7 @@ export function createPluginSdk(
       return Number(result.lastInsertRowid);
     },
 
-    async renameNote(input: RenameNoteInput): Promise<{
-      finalTitle: string;
-      finalFilename: string;
-      rewrittenNotes: number;
-      changedUuids: string[];
-    }> {
+    async renameNote(input: RenameNoteInput) {
       const note = getNote(db, input.noteUuid);
       if (!note) {
         throw new Error(`Unknown note: ${input.noteUuid}`);
@@ -226,10 +226,113 @@ export function createPluginSdk(
       }
 
       if (finalFilename === note.filename && rewrittenNotes === 0) {
-        return { finalTitle, finalFilename, rewrittenNotes, changedUuids: [] };
+        return { finalTitle, finalFilename, rewrittenNotes, changedUuids: [], deletedUuids: [] };
       }
 
-      return { finalTitle, finalFilename, rewrittenNotes, changedUuids };
+      return { finalTitle, finalFilename, rewrittenNotes, changedUuids, deletedUuids: [] };
+    },
+
+    async mergeNoteIntoList(input: MergeNoteIntoListInput) {
+      const source = getNote(db, input.sourceNoteUuid);
+      if (!source) {
+        throw new Error(`Unknown note: ${input.sourceNoteUuid}`);
+      }
+
+      const insertedListText = input.insertedListText.trim();
+      if (insertedListText.length === 0) {
+        throw new Error('Cannot merge empty list text');
+      }
+
+      const desiredTitle = input.destinationTitle.trim().replace(/\.md$/i, '');
+      const titleIssues = validateTitle(desiredTitle);
+      if (titleIssues.length > 0) {
+        throw new Error(`Invalid title: ${titleIssues.map((issue) => issue.kind).join(', ')}`);
+      }
+
+      const now = Date.now();
+      let destination = input.destinationNoteUuid ? getNote(db, input.destinationNoteUuid) : null;
+      let destinationCreated = false;
+
+      if (!destination) {
+        const fallbackFilename = sanitizeFilename(`${desiredTitle}.md`);
+        const existingByFilename = getNoteByFilename(db, fallbackFilename);
+        if (existingByFilename) {
+          destination = existingByFilename;
+        } else {
+          const destinationUuid = input.destinationNoteUuid ?? crypto.randomUUID();
+          const destinationFilename = resolveFilename(db, fallbackFilename, destinationUuid);
+          writeNoteFile(notesPath, destinationFilename, insertedListText, now);
+          upsertNote(db, destinationUuid, destinationFilename, contentHash(insertedListText), now);
+          deleteNoteFile(notesPath, source.filename);
+          deleteNote(db, source.uuid);
+          return {
+            destinationUuid,
+            destinationTitle: stripMd(destinationFilename),
+            destinationFilename,
+            destinationCreated: true,
+            sourceDeleted: true,
+            changedUuids: [destinationUuid],
+            deletedUuids: [source.uuid],
+          };
+        }
+      }
+
+      const destinationContent = readNoteFile(notesPath, destination.filename);
+      if (destinationContent === null) {
+        throw new Error(`Destination content is unavailable for ${destination.filename}`);
+      }
+
+      const nextContent = appendToFirstRegularListBlock(destinationContent, insertedListText, {
+        allowCreateBlock: input.fallbackUsed,
+      });
+
+      writeNoteFile(notesPath, destination.filename, nextContent, now);
+      upsertNote(db, destination.uuid, destination.filename, contentHash(nextContent), now);
+      deleteNoteFile(notesPath, source.filename);
+      deleteNote(db, source.uuid);
+      destinationCreated = false;
+
+      return {
+        destinationUuid: destination.uuid,
+        destinationTitle: stripMd(destination.filename),
+        destinationFilename: destination.filename,
+        destinationCreated,
+        sourceDeleted: true,
+        changedUuids: [destination.uuid],
+        deletedUuids: [source.uuid],
+      };
+    },
+
+    async replaceManagedBlock(input: ReplaceManagedBlockInput) {
+      const note = getNote(db, input.noteUuid);
+      if (!note) {
+        throw new Error(`Unknown note: ${input.noteUuid}`);
+      }
+
+      const originalContent = readNoteFile(notesPath, note.filename);
+      if (originalContent === null) {
+        throw new Error(`Note content is unavailable for ${note.filename}`);
+      }
+
+      const renderedBlock = renderManagedBlock(input.blockId, input.content);
+      const existingBlock = findManagedBlock(originalContent, input.blockId);
+      const nextContent = replaceManagedBlockContent(originalContent, input.blockId, input.content);
+      const changed = nextContent !== originalContent;
+
+      if (changed) {
+        const now = Date.now();
+        writeNoteFile(notesPath, note.filename, nextContent, now);
+        upsertNote(db, note.uuid, note.filename, contentHash(nextContent), now);
+      }
+
+      return {
+        noteUuid: note.uuid,
+        filename: note.filename,
+        renderedBlock: existingBlock === renderedBlock ? existingBlock : renderedBlock,
+        changed,
+        changedUuids: changed ? [note.uuid] : [],
+        deletedUuids: [],
+      };
     },
 
     async log(level: PluginLogLevel, message: string, context?: Record<string, unknown>): Promise<void> {

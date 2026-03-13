@@ -261,9 +261,19 @@ function dashboardHtml(): string {
   }
 
   .section-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
     padding: 1rem 1.5rem;
     border-bottom: 1px solid var(--border);
     background: var(--surface);
+  }
+
+  .section-head-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
   }
 
   .section-head h2 {
@@ -793,6 +803,122 @@ function dashboardHtml(): string {
     flex-wrap: wrap;
   }
 
+  .run-all-modal {
+    width: min(640px, 100%);
+    max-height: min(85vh, 760px);
+    overflow: auto;
+    border: 2px solid var(--border-light);
+    border-radius: 0;
+    background: var(--black);
+    padding: 1.5rem;
+    box-shadow: 0 0 60px rgba(0, 0, 0, 0.6);
+    display: grid;
+    gap: 1rem;
+  }
+
+  .run-all-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+
+  .run-all-modal-title {
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--white);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .run-all-modal-copy {
+    margin-top: 0.3rem;
+    font-size: 0.8rem;
+    color: var(--gray);
+  }
+
+  .run-all-batch-list {
+    display: grid;
+    gap: 0.6rem;
+  }
+
+  .run-all-batch-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.8rem 0.9rem;
+    border: 1px solid var(--border);
+    background: var(--surface);
+  }
+
+  .run-all-batch-indicator {
+    width: 1.1rem;
+    height: 1.1rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border);
+    color: var(--gray);
+    font-size: 0.75rem;
+    font-weight: 700;
+  }
+
+  .run-all-batch-indicator-running {
+    border-color: var(--accent);
+  }
+
+  .run-all-batch-spinner {
+    width: 0.8rem;
+    height: 0.8rem;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  .run-all-batch-indicator-success {
+    border-color: var(--success);
+    color: var(--success);
+  }
+
+  .run-all-batch-indicator-error {
+    border-color: var(--danger);
+    color: var(--danger);
+  }
+
+  .run-all-batch-name {
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--white);
+  }
+
+  .run-all-batch-note {
+    margin-top: 0.2rem;
+    font-size: 0.75rem;
+    color: var(--gray);
+  }
+
+  .run-all-batch-status {
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--gray-light);
+  }
+
+  .run-all-batch-footer {
+    border-top: 1px solid var(--border);
+    padding-top: 0.85rem;
+    font-size: 0.78rem;
+    color: var(--gray);
+  }
+
+  @keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+
   /* Plugin card local variant */
   .plugin-card-local {
     border-color: var(--accent);
@@ -1274,6 +1400,9 @@ function dashboardHtml(): string {
     <section class="section" id="plugins-card" style="display:none" role="region" aria-label="Automations">
       <div class="section-head">
         <h2>Automations</h2>
+        <div class="section-head-actions">
+          <button class="btn btn-primary" id="run-all-plugins-btn" onclick="triggerAllPlugins()" disabled>Run All</button>
+        </div>
       </div>
       <div class="section-body">
         <div id="plugins-content"><span class="loading">Loading...</span></div>
@@ -1364,6 +1493,19 @@ function dashboardHtml(): string {
       <button class="btn btn-muted" id="plugin-editor-cancel-btn" onclick="closePluginEditor()">Cancel</button>
       <button class="btn btn-primary" id="plugin-editor-save-btn" onclick="saveLocalPlugin()">Save automation</button>
     </div>
+  </div>
+</div>
+
+<div id="run-all-modal" class="modal-backdrop" aria-hidden="true">
+  <div class="run-all-modal" role="dialog" aria-modal="true" aria-labelledby="run-all-modal-title">
+    <div class="run-all-modal-header">
+      <div>
+        <div class="run-all-modal-title" id="run-all-modal-title">Run All Automations</div>
+        <div class="run-all-modal-copy" id="run-all-modal-copy">Queued automations will start one at a time. The list updates as each run finishes.</div>
+      </div>
+      <button class="btn btn-muted" id="run-all-modal-close-btn" onclick="closeRunAllModal()">Close</button>
+    </div>
+    <div id="run-all-batch-content"><span class="loading">Preparing batch...</span></div>
   </div>
 </div>
 
@@ -1538,6 +1680,8 @@ function dashboardHtml(): string {
 
   let activePluginRunId = null;
   let activePluginRunDetail = null;
+  let activeRunAllBatchId = null;
+  let activeRunAllBatch = null;
   let pluginEditorMode = 'create';
   let pluginEditorPluginId = null;
 
@@ -1564,6 +1708,94 @@ function dashboardHtml(): string {
     ].join('\\n');
   }
 
+  function runAllBatchStatusLabel(status) {
+    if (status === 'running') return 'Running';
+    if (status === 'succeeded') return 'Done';
+    if (status === 'failed') return 'Failed';
+    return 'Queued';
+  }
+
+  function renderRunAllBatchIndicator(item) {
+    if (item.status === 'running') {
+      return '<span class="run-all-batch-indicator run-all-batch-indicator-running"><span class="run-all-batch-spinner" aria-hidden="true"></span></span>';
+    }
+    if (item.status === 'succeeded') {
+      return '<span class="run-all-batch-indicator run-all-batch-indicator-success" aria-label="Completed">&#10003;</span>';
+    }
+    if (item.status === 'failed') {
+      return '<span class="run-all-batch-indicator run-all-batch-indicator-error" aria-label="Failed">!</span>';
+    }
+    return '<span class="run-all-batch-indicator" aria-label="Queued">...</span>';
+  }
+
+  function renderRunAllBatch(batch) {
+    if (!batch || !batch.items || batch.items.length === 0) {
+      return '<div class="stat-row"><span class="stat-label">Status</span><span class="stat-value">No automations queued.</span></div>';
+    }
+
+    var html = '<div class="run-all-batch-list">';
+    for (var i = 0; i < batch.items.length; i++) {
+      var item = batch.items[i];
+      var note = '';
+      if (item.status === 'running') {
+        note = 'Running now';
+      } else if (item.status === 'failed' && item.error_message) {
+        note = item.error_message;
+      } else if (item.status === 'succeeded' && item.run_status === 'awaiting_approval') {
+        note = 'Finished and waiting for approval';
+      } else if (item.status === 'succeeded') {
+        note = 'Finished';
+      } else {
+        note = 'Queued';
+      }
+
+      html += '<div class="run-all-batch-row">';
+      html += renderRunAllBatchIndicator(item);
+      html += '<div>';
+      html += '<div class="run-all-batch-name">' + escapeHtml(item.plugin_name || item.plugin_id) + '</div>';
+      html += '<div class="run-all-batch-note">' + escapeHtml(note) + '</div>';
+      html += '</div>';
+      html += '<div class="run-all-batch-status">' + escapeHtml(runAllBatchStatusLabel(item.status)) + '</div>';
+      html += '</div>';
+    }
+    html += '</div>';
+
+    html += '<div class="run-all-batch-footer">';
+    html += batch.status === 'running'
+      ? 'Batch in progress.'
+      : 'Batch complete. This view will stay open until you close it.';
+    html += '</div>';
+    return html;
+  }
+
+  function syncRunAllBatchButton(pluginsStatus) {
+    var runAllBtn = $('run-all-plugins-btn');
+    if (!runAllBtn || !pluginsStatus || pluginsStatus.error) return;
+    var enabledCount = Array.isArray(pluginsStatus.plugins)
+      ? pluginsStatus.plugins.filter(function(item) { return item && item.enabled; }).length
+      : 0;
+    var isBusy = Boolean(pluginsStatus.scheduler && pluginsStatus.scheduler.running);
+    runAllBtn.disabled = !authToken || isBusy || enabledCount === 0;
+    runAllBtn.textContent = isBusy && activeRunAllBatch && activeRunAllBatch.status === 'running' ? 'Running...' : 'Run All';
+  }
+
+  function syncRunAllBatch(pluginsStatus) {
+    if (!pluginsStatus || pluginsStatus.error) return;
+    var batch = pluginsStatus.run_all_batch || null;
+    if (batch && activeRunAllBatchId && batch.batch_id === activeRunAllBatchId) {
+      activeRunAllBatch = batch;
+    }
+    if (!activeRunAllBatch && batch && !activeRunAllBatchId) {
+      activeRunAllBatch = batch;
+    }
+    if (!runAllBatchModal || runAllBatchModal.getAttribute('aria-hidden') === 'true' || !runAllBatchContent) {
+      return;
+    }
+    if (activeRunAllBatch) {
+      runAllBatchContent.innerHTML = renderRunAllBatch(activeRunAllBatch);
+    }
+  }
+
   function dayLabel(day) {
     return ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][day] || 'Day ' + day;
   }
@@ -1588,6 +1820,33 @@ function dashboardHtml(): string {
       html += '<input type="text" data-plugin-config-field="' + escapeHtml(field.key) + '" value="' + escapeHtml(value) + '"' + (disabled ? ' disabled' : '') + '>';
     }
     html += '</div>';
+    return html;
+  }
+
+  function renderRunItemDetails(item) {
+    var changeType = item.change_type || 'rename_note';
+    var html = '';
+    if (changeType === 'merge_note_into_list') {
+      html += '<div class="plugin-card-row"><span class="stat-label">Source title</span><span class="stat-value">' + escapeHtml((item.preview && item.preview.sourceTitle) || (item.before && item.before.sourceTitle) || (item.before && item.before.title) || 'Unknown') + '</span></div>';
+      html += '<div class="plugin-card-row"><span class="stat-label">Destination title</span><span class="stat-value">' + escapeHtml((item.preview && item.preview.destinationTitle) || (item.after && item.after.destinationTitle) || 'Unknown') + '</span></div>';
+      if (item.preview && item.preview.insertedListText) {
+        html += '<div class="plugin-card-note"><strong>Inserted content</strong></div>';
+        html += '<pre class="plugin-card-note" style="white-space:pre-wrap">' + escapeHtml(String(item.preview.insertedListText)) + '</pre>';
+      }
+      return html;
+    }
+    if (changeType === 'replace_managed_block') {
+      html += '<div class="plugin-card-row"><span class="stat-label">Note title</span><span class="stat-value">' + escapeHtml((item.preview && item.preview.title) || (item.before && item.before.title) || 'Unknown') + '</span></div>';
+      html += '<div class="plugin-card-row"><span class="stat-label">Block id</span><span class="stat-value">' + escapeHtml((item.after && item.after.blockId) || (item.before && item.before.blockId) || 'Unknown') + '</span></div>';
+      if (item.preview && item.preview.renderedBlock) {
+        html += '<div class="plugin-card-note"><strong>Rendered block</strong></div>';
+        html += '<pre class="plugin-card-note" style="white-space:pre-wrap">' + escapeHtml(String(item.preview.renderedBlock)) + '</pre>';
+      }
+      return html;
+    }
+
+    html += '<div class="plugin-card-row"><span class="stat-label">Old title</span><span class="stat-value">' + escapeHtml((item.preview && item.preview.oldTitle) || (item.before && item.before.title) || 'Unknown') + '</span></div>';
+    html += '<div class="plugin-card-row"><span class="stat-label">Proposed title</span><span class="stat-value">' + escapeHtml((item.preview && item.preview.proposedTitle) || (item.after && item.after.newTitle) || 'Unknown') + '</span></div>';
     return html;
   }
 
@@ -1634,8 +1893,7 @@ function dashboardHtml(): string {
         var item = items[i];
         html += '<div class="plugin-run-item">';
         html += '<div class="plugin-card-row"><span class="stat-label">Status</span><span class="stat-value">' + badge(item.status, item.status === 'failed' ? 'error' : item.status === 'applied' ? 'ok' : item.status === 'rejected' ? 'muted' : 'warn') + '</span></div>';
-        html += '<div class="plugin-card-row"><span class="stat-label">Old title</span><span class="stat-value">' + escapeHtml((item.preview && item.preview.oldTitle) || (item.before && item.before.title) || 'Unknown') + '</span></div>';
-        html += '<div class="plugin-card-row"><span class="stat-label">Proposed title</span><span class="stat-value">' + escapeHtml((item.preview && item.preview.proposedTitle) || (item.after && item.after.newTitle) || 'Unknown') + '</span></div>';
+        html += renderRunItemDetails(item);
         html += '<div class="plugin-card-note">' + escapeHtml(item.reason || '') + '</div>';
         if (item.failure_message) {
           html += '<div class="plugin-card-note" style="color:var(--danger)">' + escapeHtml(item.failure_message) + '</div>';
@@ -1866,6 +2124,8 @@ function dashboardHtml(): string {
         if (data.plugins && !data.plugins.error) {
           tCard.style.display = '';
           $('plugins-content').innerHTML = renderPlugins(data.plugins);
+          syncRunAllBatchButton(data.plugins);
+          syncRunAllBatch(data.plugins);
         } else {
           tCard.style.display = 'none';
         }
@@ -2018,6 +2278,34 @@ function dashboardHtml(): string {
         alert(data.error || 'Failed to run plugin');
         return;
       }
+      refresh();
+    } catch (e) {
+      alert('Error: ' + e.message);
+    }
+  };
+
+  window.triggerAllPlugins = async function() {
+    const token = await getToken('run all automations');
+    if (!token) return;
+    try {
+      const res = await fetch('/plugins/run-all', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + token },
+      });
+      if (res.status === 401) {
+        clearAuthToken();
+        alert('Session expired, please try again');
+        refresh();
+        return;
+      }
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || 'Failed to run automations');
+        return;
+      }
+      activeRunAllBatchId = data.batch_id || (data.batch && data.batch.batch_id) || null;
+      activeRunAllBatch = data.batch || null;
+      window.openRunAllModal();
       refresh();
     } catch (e) {
       alert('Error: ' + e.message);
@@ -2283,6 +2571,9 @@ function dashboardHtml(): string {
   const resetConfirmBtn = $('reset-confirm-btn');
   const resetCancelBtn = $('reset-cancel-btn');
   const eraseResetBtn = $('erase-reset-btn');
+  const runAllBatchModal = $('run-all-modal');
+  const runAllBatchContent = $('run-all-batch-content');
+  const runAllBatchCloseBtn = $('run-all-modal-close-btn');
 
   function setPluginEditorError(message) {
     if (!pluginEditorError) return;
@@ -2317,6 +2608,20 @@ function dashboardHtml(): string {
     if (pluginEditorCloseBtn) pluginEditorCloseBtn.disabled = false;
     pluginEditorSource.focus();
   }
+
+  window.openRunAllModal = function() {
+    if (!runAllBatchModal || !runAllBatchContent) return;
+    runAllBatchModal.classList.add('open');
+    runAllBatchModal.setAttribute('aria-hidden', 'false');
+    runAllBatchContent.innerHTML = renderRunAllBatch(activeRunAllBatch);
+    if (runAllBatchCloseBtn) runAllBatchCloseBtn.disabled = false;
+  };
+
+  window.closeRunAllModal = function() {
+    if (!runAllBatchModal) return;
+    runAllBatchModal.classList.remove('open');
+    runAllBatchModal.setAttribute('aria-hidden', 'true');
+  };
 
   window.openCreatePluginDialog = function() {
     openPluginEditor('create', '', defaultLocalPluginSource(), '');
@@ -2494,9 +2799,21 @@ function dashboardHtml(): string {
     });
   }
 
+  if (runAllBatchModal) {
+    runAllBatchModal.addEventListener('click', (event) => {
+      if (event.target === runAllBatchModal) {
+        window.closeRunAllModal();
+      }
+    });
+  }
+
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && resetModal && resetModal.classList.contains('open')) {
       window.closeResetDialog();
+      return;
+    }
+    if (event.key === 'Escape' && runAllBatchModal && runAllBatchModal.classList.contains('open')) {
+      window.closeRunAllModal();
       return;
     }
     if (event.key === 'Escape' && pluginEditorModal && pluginEditorModal.classList.contains('open')) {

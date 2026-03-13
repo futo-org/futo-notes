@@ -51,6 +51,112 @@ let downloadProgress: { totalSize: number; downloadedSize: number } | null = nul
 let abortController: AbortController | null = null;
 let lastActivity = Date.now();
 let lastError: string | null = null;
+type RunAllBatchItemStatus = 'queued' | 'running' | 'succeeded' | 'failed';
+type RunAllBatchStatus = 'running' | 'completed';
+
+interface RunAllBatchItem {
+  pluginId: string;
+  pluginName: string;
+  status: RunAllBatchItemStatus;
+  runId: string | null;
+  runStatus: PluginRunStatus | null;
+  errorMessage: string | null;
+  startedAt: number | null;
+  finishedAt: number | null;
+}
+
+interface RunAllBatchState {
+  batchId: string;
+  status: RunAllBatchStatus;
+  startedAt: number;
+  finishedAt: number | null;
+  currentPluginId: string | null;
+  items: RunAllBatchItem[];
+}
+
+let runAllBatch: RunAllBatchState | null = null;
+
+function cloneRunAllBatch(batch: RunAllBatchState | null): RunAllBatchState | null {
+  if (!batch) return null;
+  return {
+    batchId: batch.batchId,
+    status: batch.status,
+    startedAt: batch.startedAt,
+    finishedAt: batch.finishedAt,
+    currentPluginId: batch.currentPluginId,
+    items: batch.items.map((item) => ({
+      pluginId: item.pluginId,
+      pluginName: item.pluginName,
+      status: item.status,
+      runId: item.runId,
+      runStatus: item.runStatus,
+      errorMessage: item.errorMessage,
+      startedAt: item.startedAt,
+      finishedAt: item.finishedAt,
+    })),
+  };
+}
+
+function serializeRunAllBatch(batch: RunAllBatchState | null): Record<string, unknown> | null {
+  const copy = cloneRunAllBatch(batch);
+  if (!copy) return null;
+  return {
+    batch_id: copy.batchId,
+    status: copy.status,
+    started_at: copy.startedAt,
+    finished_at: copy.finishedAt,
+    current_plugin_id: copy.currentPluginId,
+    items: copy.items.map((item) => ({
+      plugin_id: item.pluginId,
+      plugin_name: item.pluginName,
+      status: item.status,
+      run_id: item.runId,
+      run_status: item.runStatus,
+      error_message: item.errorMessage,
+      started_at: item.startedAt,
+      finished_at: item.finishedAt,
+    })),
+  };
+}
+
+function createRunAllBatch(plugins: BuiltinPlugin[]): RunAllBatchState {
+  return {
+    batchId: crypto.randomUUID(),
+    status: 'running',
+    startedAt: Date.now(),
+    finishedAt: null,
+    currentPluginId: null,
+    items: plugins.map((plugin) => ({
+      pluginId: plugin.id,
+      pluginName: plugin.name,
+      status: 'queued',
+      runId: null,
+      runStatus: null,
+      errorMessage: null,
+      startedAt: null,
+      finishedAt: null,
+    })),
+  };
+}
+
+async function getEnabledPlugins(
+  db: Database.Database,
+  config: Config,
+): Promise<BuiltinPlugin[]> {
+  await ensureLocalPluginsLoaded(db, config);
+  ensurePluginRows(db);
+  return listPlugins().filter((plugin) => getPluginStoredConfig(db, plugin).enabled);
+}
+
+function finalizeBatchItemFromRun(
+  batchItem: RunAllBatchItem,
+  run: PluginRunRow,
+): void {
+  batchItem.runStatus = run.status;
+  batchItem.errorMessage = run.error_message;
+  batchItem.finishedAt = run.finished_at ?? Date.now();
+  batchItem.status = run.status === 'failed' ? 'failed' : 'succeeded';
+}
 
 function defaultConfigFor(plugin: BuiltinPlugin): Record<string, unknown> {
   return Object.fromEntries(plugin.configSchema.map((field) => [field.key, field.default]));
@@ -288,7 +394,7 @@ async function applyApprovedItemsInternal(
   config: Config,
   plugin: BuiltinPlugin,
   runId: string,
-): Promise<{ appliedCount: number; failedCount: number; changedUuids: string[] }> {
+): Promise<{ appliedCount: number; failedCount: number; changedUuids: string[]; deletedUuids: string[] }> {
   const runner = async () => {
     throw new Error('LLM access is not available during apply-only execution');
   };
@@ -303,29 +409,77 @@ async function applyApprovedItemsInternal(
   let appliedCount = 0;
   let failedCount = 0;
   const changedUuids = new Set<string>();
+  const deletedUuids = new Set<string>();
 
   for (const item of approvedItems) {
     const after = parseJsonObject(item.after_json);
     try {
-      if (item.change_type !== 'rename_note') {
+      let nextAfter = { ...after };
+      if (item.change_type === 'rename_note') {
+        const renameResult = await sdk.renameNote({
+          noteUuid: item.entity_id,
+          newTitle: String(after.newTitle ?? ''),
+          rewriteExactWikiLinks: after.rewriteExactWikiLinks !== false,
+        });
+        for (const uuid of renameResult.changedUuids) {
+          changedUuids.add(uuid);
+        }
+        for (const uuid of renameResult.deletedUuids) {
+          deletedUuids.add(uuid);
+        }
+
+        nextAfter = {
+          ...after,
+          finalTitle: renameResult.finalTitle,
+          finalFilename: renameResult.finalFilename,
+          rewrittenNotes: renameResult.rewrittenNotes,
+        };
+      } else if (item.change_type === 'merge_note_into_list') {
+        const mergeResult = await sdk.mergeNoteIntoList({
+          sourceNoteUuid: item.entity_id,
+          destinationNoteUuid: typeof after.destinationNoteUuid === 'string' ? after.destinationNoteUuid : null,
+          destinationTitle: String(after.destinationTitle ?? ''),
+          insertedListText: String(after.insertedListText ?? ''),
+          fallbackUsed: after.fallbackUsed === true,
+        });
+        for (const uuid of mergeResult.changedUuids) {
+          changedUuids.add(uuid);
+        }
+        for (const uuid of mergeResult.deletedUuids) {
+          deletedUuids.add(uuid);
+        }
+
+        nextAfter = {
+          ...after,
+          destinationUuid: mergeResult.destinationUuid,
+          destinationTitle: mergeResult.destinationTitle,
+          destinationFilename: mergeResult.destinationFilename,
+          destinationCreated: mergeResult.destinationCreated,
+          sourceDeleted: mergeResult.sourceDeleted,
+        };
+      } else if (item.change_type === 'replace_managed_block') {
+        const replaceResult = await sdk.replaceManagedBlock({
+          noteUuid: item.entity_id,
+          blockId: String(after.blockId ?? ''),
+          content: String(after.content ?? ''),
+        });
+        for (const uuid of replaceResult.changedUuids) {
+          changedUuids.add(uuid);
+        }
+        for (const uuid of replaceResult.deletedUuids) {
+          deletedUuids.add(uuid);
+        }
+
+        nextAfter = {
+          ...after,
+          renderedBlock: replaceResult.renderedBlock,
+          changed: replaceResult.changed,
+          filename: replaceResult.filename,
+        };
+      } else {
         throw new Error(`Unsupported change type: ${item.change_type}`);
       }
 
-      const renameResult = await sdk.renameNote({
-        noteUuid: item.entity_id,
-        newTitle: String(after.newTitle ?? ''),
-        rewriteExactWikiLinks: after.rewriteExactWikiLinks !== false,
-      });
-      for (const uuid of renameResult.changedUuids) {
-        changedUuids.add(uuid);
-      }
-
-      const nextAfter = {
-        ...after,
-        finalTitle: renameResult.finalTitle,
-        finalFilename: renameResult.finalFilename,
-        rewrittenNotes: renameResult.rewrittenNotes,
-      };
       db.prepare(`
         UPDATE plugin_run_items
         SET status = 'applied',
@@ -348,7 +502,12 @@ async function applyApprovedItemsInternal(
     }
   }
 
-  return { appliedCount, failedCount, changedUuids: Array.from(changedUuids) };
+  return {
+    appliedCount,
+    failedCount,
+    changedUuids: Array.from(changedUuids),
+    deletedUuids: Array.from(deletedUuids),
+  };
 }
 
 function refreshRunTerminalStatus(db: Database.Database, runId: string): PluginRunStatus {
@@ -471,6 +630,7 @@ async function executePluginRun(
       });
       applyNoteMutationEffects(db, {
         changedUuids: applyResult.changedUuids,
+        deletedUuids: applyResult.deletedUuids,
         notifyClients: true,
         incrementVersion: true,
         searchEnabled: config.searchEnabled,
@@ -541,6 +701,76 @@ async function runPluginInBackground(pluginId: string, triggerType: PluginTrigge
     });
 
   return runId;
+}
+
+async function runAllPluginsInBackground(plugins: BuiltinPlugin[]): Promise<RunAllBatchState> {
+  const config = currentConfig ?? loadConfig();
+  const db = getDb();
+  if (running) {
+    throw new Error('Plugin job already running');
+  }
+  if (!tryAcquire('plugins')) {
+    throw new Error(`Cannot run plugin: ${holder()} job is in progress`);
+  }
+
+  abortController = new AbortController();
+  running = true;
+  phase = 'running';
+  downloadProgress = null;
+  runAllBatch = createRunAllBatch(plugins);
+  broadcastPluginStatus();
+
+  const batch = runAllBatch;
+  void (async () => {
+    try {
+      for (const item of batch.items) {
+        const plugin = getPlugin(item.pluginId);
+        if (!plugin) {
+          item.status = 'failed';
+          item.errorMessage = `Unknown plugin: ${item.pluginId}`;
+          item.finishedAt = Date.now();
+          continue;
+        }
+
+        item.status = 'running';
+        item.startedAt = Date.now();
+        item.errorMessage = null;
+        batch.currentPluginId = plugin.id;
+        broadcastPluginStatus();
+
+        const applyMode = getPluginStoredConfig(db, plugin).autoApply ? 'auto_apply' : 'preview';
+        const runId = createRunRow(db, plugin.id, 'manual', applyMode);
+        item.runId = runId;
+
+        try {
+          await executePluginRun(db, config, plugin, 'manual', { existingRunId: runId });
+          finalizeBatchItemFromRun(item, getRunRow(db, runId));
+        } catch (err) {
+          const latestRun = getRunRow(db, runId);
+          finalizeBatchItemFromRun(item, latestRun);
+          if (!item.errorMessage) {
+            item.errorMessage = err instanceof Error ? err.message : String(err);
+          }
+          log.error(`plugins: run-all item failed for "${plugin.id}": ${item.errorMessage}`);
+        } finally {
+          batch.currentPluginId = null;
+          broadcastPluginStatus();
+        }
+      }
+    } finally {
+      batch.status = 'completed';
+      batch.finishedAt = Date.now();
+      batch.currentPluginId = null;
+      running = false;
+      phase = 'idle';
+      downloadProgress = null;
+      abortController = null;
+      release('plugins');
+      broadcastPluginStatus();
+    }
+  })();
+
+  return cloneRunAllBatch(batch) as RunAllBatchState;
 }
 
 async function tick(): Promise<void> {
@@ -620,6 +850,26 @@ export async function updatePluginConfig(pluginId: string, patch: {
 export async function triggerPluginNow(pluginId: string): Promise<{ runId: string }> {
   const runId = await runPluginInBackground(pluginId, 'manual');
   return { runId };
+}
+
+export async function triggerAllPluginsNow(): Promise<{
+  batchId: string;
+  queuedCount: number;
+  batch: Record<string, unknown>;
+}> {
+  const config = currentConfig ?? loadConfig();
+  const db = getDb();
+  const enabledPlugins = await getEnabledPlugins(db, config);
+  if (enabledPlugins.length === 0) {
+    throw new Error('No enabled automations to run');
+  }
+
+  const batch = await runAllPluginsInBackground(enabledPlugins);
+  return {
+    batchId: batch.batchId,
+    queuedCount: batch.items.length,
+    batch: serializeRunAllBatch(batch),
+  };
 }
 
 export function listPluginRuns(pluginId: string, limit = 10): Array<Record<string, unknown>> {
@@ -804,6 +1054,7 @@ export async function applyApprovedRunItems(runId: string): Promise<void> {
     }
     applyNoteMutationEffects(db, {
       changedUuids: result.changedUuids,
+      deletedUuids: result.deletedUuids,
       notifyClients: true,
       incrementVersion: true,
       searchEnabled: config.searchEnabled,
@@ -821,6 +1072,7 @@ export async function getPluginsStatus(): Promise<{
   plugins: Array<Record<string, unknown>>;
   model: { id: string; loaded: boolean; download_progress: { totalSize: number; downloadedSize: number } | null };
   scheduler: { phase: PluginSchedulerPhase; running: boolean; last_error: string | null };
+  run_all_batch: Record<string, unknown> | null;
 }> {
   const config = currentConfig ?? loadConfig();
   const db = getDb();
@@ -896,6 +1148,7 @@ export async function getPluginsStatus(): Promise<{
       running,
       last_error: lastError,
     },
+    run_all_batch: serializeRunAllBatch(runAllBatch),
   };
 }
 
