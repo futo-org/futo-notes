@@ -47,8 +47,8 @@ export function getFS(): PlatformFS {
   return _fs;
 }
 
-// Whether this platform has real file I/O
-export const hasFileSystem = platformName !== 'web';
+// Whether this platform has real file I/O (web dev mode uses in-memory store)
+export const hasFileSystem = platformName !== 'web' || import.meta.env.DEV;
 
 export async function ensureNotesFolder(): Promise<void> {
   // Tauri and web do not need explicit folder setup.

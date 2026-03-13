@@ -65,7 +65,11 @@ function ensurePluginRunItemsSchema(db: Database.Database): void {
   }
 
   const sql = tableSql(db, 'plugin_run_items') ?? '';
-  if (sql.includes('merge_note_into_list') && sql.includes('replace_managed_block')) {
+  if (
+    sql.includes('merge_note_into_list')
+    && sql.includes('replace_managed_block')
+    && sql.includes('tag_note')
+  ) {
     return;
   }
 
@@ -78,7 +82,7 @@ function ensurePluginRunItemsSchema(db: Database.Database): void {
       run_id TEXT NOT NULL,
       entity_type TEXT NOT NULL CHECK(entity_type IN ('note')),
       entity_id TEXT NOT NULL,
-      change_type TEXT NOT NULL CHECK(change_type IN ('rename_note', 'merge_note_into_list', 'replace_managed_block')),
+      change_type TEXT NOT NULL CHECK(change_type IN ('rename_note', 'merge_note_into_list', 'replace_managed_block', 'tag_note')),
       before_json TEXT NOT NULL,
       after_json TEXT NOT NULL,
       preview_json TEXT NOT NULL,
@@ -159,7 +163,7 @@ export function createPluginTables(db: Database.Database): void {
       run_id TEXT NOT NULL,
       entity_type TEXT NOT NULL CHECK(entity_type IN ('note')),
       entity_id TEXT NOT NULL,
-      change_type TEXT NOT NULL CHECK(change_type IN ('rename_note', 'merge_note_into_list', 'replace_managed_block')),
+      change_type TEXT NOT NULL CHECK(change_type IN ('rename_note', 'merge_note_into_list', 'replace_managed_block', 'tag_note')),
       before_json TEXT NOT NULL,
       after_json TEXT NOT NULL,
       preview_json TEXT NOT NULL,

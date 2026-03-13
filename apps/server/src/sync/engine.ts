@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3';
 import type { SyncRequest, SyncResponse, InventoryItem } from '@futo-notes/shared';
+import { extractTags } from '@futo-notes/shared';
 import type { NoteRow } from '../db/notes.js';
 import { getAllNotes, upsertNote, deleteNote } from '../db/notes.js';
 import { getAllTombstones, createTombstone } from '../db/tombstones.js';
@@ -106,7 +107,7 @@ export function processSync(
     }
 
     // Helpers that keep DB + in-memory state in sync
-    function trackUpsert(uuid: string, filename: string, hash: string, modifiedAt: number): void {
+    function trackUpsert(uuid: string, filename: string, hash: string, modifiedAt: number, content?: string): void {
       const oldNote = allNotes.get(uuid);
       if (oldNote && oldNote.filename !== filename) {
         filenameIndex.delete(oldNote.filename);
@@ -115,6 +116,21 @@ export function processSync(
       allNotes.set(uuid, { uuid, filename, content_hash: hash, modified_at: modifiedAt, created_at: '' });
       filenameIndex.set(filename, uuid);
       mutated = true;
+      // Index tags when content is available
+      if (content !== undefined) {
+        indexNoteTags(uuid, content);
+      }
+    }
+
+    function indexNoteTags(uuid: string, content: string): void {
+      const tags = extractTags(content);
+      db.prepare('DELETE FROM note_tags WHERE uuid = ?').run(uuid);
+      if (tags.length > 0) {
+        const insert = db.prepare('INSERT OR IGNORE INTO note_tags (uuid, tag) VALUES (?, ?)');
+        for (const tag of tags) {
+          insert.run(uuid, tag.toLowerCase().replace(/^#/, ''));
+        }
+      }
     }
 
     function trackDelete(uuid: string): void {
@@ -173,7 +189,7 @@ export function processSync(
         const hash = contentHash(content);
 
         writeNoteFile(notesDir, finalName, content, clientNote.modified_at);
-        trackUpsert(clientNote.uuid, finalName, hash, clientNote.modified_at);
+        trackUpsert(clientNote.uuid, finalName, hash, clientNote.modified_at, content);
         response.hash_updates.push({ uuid: clientNote.uuid, hash_at_last_sync: hash });
         continue;
       }
@@ -192,7 +208,7 @@ export function processSync(
             const content = readNoteFile(notesDir, serverNote.filename) ?? '';
             deleteNoteFile(notesDir, serverNote.filename);
             writeNoteFile(notesDir, finalName, content, clientNote.modified_at);
-            trackUpsert(clientNote.uuid, finalName, serverHash, clientNote.modified_at);
+            trackUpsert(clientNote.uuid, finalName, serverHash, clientNote.modified_at, content);
             response.hash_updates.push({ uuid: clientNote.uuid, hash_at_last_sync: serverHash });
           } else {
             // Server's filename is newer — send to this client
@@ -224,7 +240,7 @@ export function processSync(
           deleteNoteFile(notesDir, serverNote.filename);
         }
         writeNoteFile(notesDir, finalName, content, clientNote.modified_at);
-        trackUpsert(clientNote.uuid, finalName, hash, clientNote.modified_at);
+        trackUpsert(clientNote.uuid, finalName, hash, clientNote.modified_at, content);
         response.hash_updates.push({ uuid: clientNote.uuid, hash_at_last_sync: hash });
         continue;
       }
@@ -255,7 +271,7 @@ export function processSync(
       // Create a new note entry for the conflict copy
       const conflictUuid = crypto.randomUUID();
       const conflictHash = contentHash(clientContent);
-      trackUpsert(conflictUuid, conflictName, conflictHash, conflictModifiedAt);
+      trackUpsert(conflictUuid, conflictName, conflictHash, conflictModifiedAt, clientContent);
 
       response.conflicts.push({
         uuid: clientNote.uuid,
@@ -314,7 +330,7 @@ export function processSync(
               const content = readNoteFile(notesDir, serverNote.filename) ?? '';
               deleteNoteFile(notesDir, serverNote.filename);
               writeNoteFile(notesDir, finalName, content, item.modified_at);
-              trackUpsert(item.uuid, finalName, serverNote.content_hash, item.modified_at);
+              trackUpsert(item.uuid, finalName, serverNote.content_hash, item.modified_at, content);
               response.hash_updates.push({ uuid: item.uuid, hash_at_last_sync: serverNote.content_hash });
             } else {
               // Server's filename is newer — send to client

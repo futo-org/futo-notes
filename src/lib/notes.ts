@@ -14,6 +14,7 @@ import { vectorSearch, type VectorSearchResult } from './supersearch/vectorSearc
 import { hybridSearch } from './supersearch/hybridSearch';
 import { isSupersearchReady } from './supersearch/state';
 import { getRustNotePreviews, hasRustCore, keywordSearchRust, rebuildRustIndex } from './rustCore';
+import { extractTags } from '@futo-notes/shared';
 
 // In-memory cache of notes metadata
 let notesCache: NotePreview[] = [];
@@ -21,7 +22,7 @@ let initialized = false;
 
 /** Test-only: inject a note into the cache without filesystem access. */
 export function _injectTestNote(id: string, title: string): void {
-  notesCache.push({ id, title, preview: '', modificationTime: Date.now() });
+  notesCache.push({ id, title, preview: '', modificationTime: Date.now(), tags: [] });
 }
 
 export async function initNotes(): Promise<void> {
@@ -59,7 +60,7 @@ export async function createNote(id: string, content: string, overrideMtime?: nu
     await refreshNotesFromStorage();
   } else {
     const lines = content.split('\n');
-    notesCache.push({ id, title: id, preview: lines.slice(0, 3).join(' ').slice(0, 200), modificationTime: mtime });
+    notesCache.push({ id, title: id, preview: lines.slice(0, 3).join(' ').slice(0, 200), modificationTime: mtime, tags: extractTags(content) });
   }
   return { id, mtime };
 }
@@ -87,7 +88,7 @@ export async function updateNote(
   } else {
     const lines = content.split('\n');
     const idx = notesCache.findIndex(n => n.id === (originalId ?? finalId));
-    const preview = { id: finalId, title: finalId, preview: lines.slice(0, 3).join(' ').slice(0, 200), modificationTime: mtime };
+    const preview = { id: finalId, title: finalId, preview: lines.slice(0, 3).join(' ').slice(0, 200), modificationTime: mtime, tags: extractTags(content) };
     if (idx >= 0) notesCache[idx] = preview; else notesCache.push(preview);
   }
   trackEdit(finalId);

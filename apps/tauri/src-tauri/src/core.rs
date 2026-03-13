@@ -128,6 +128,7 @@ struct IndexedNote {
     body_lower: String,
     title_lower: String,
     headings_lower: String,
+    tags: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -137,6 +138,7 @@ pub struct NotePreviewPayload {
     pub title: String,
     pub preview: String,
     pub modification_time: i64,
+    pub tags: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -405,6 +407,144 @@ fn extract_headings(content: &str) -> String {
         .join(" ")
 }
 
+/// Extract unique hashtags from note content, excluding tags inside code fences/inline code.
+/// Returns tags with the `#` prefix, deduplicated case-insensitively (first occurrence wins).
+fn extract_tags(content: &str) -> Vec<String> {
+    let mut tags = Vec::new();
+    let mut seen = HashSet::new();
+    let mut in_fence = false;
+    let mut fence_char: char = '`';
+    let mut fence_len: usize = 0;
+
+    for line in content.lines() {
+        let trimmed = line.trim_start();
+        // Check for fenced code block boundaries
+        if !in_fence {
+            let fc = trimmed.chars().next().unwrap_or('\0');
+            if (fc == '`' || fc == '~') && trimmed.starts_with(&fc.to_string().repeat(3)) {
+                let count = trimmed.chars().take_while(|&c| c == fc).count();
+                in_fence = true;
+                fence_char = fc;
+                fence_len = count;
+                continue;
+            }
+        } else {
+            let fc = trimmed.chars().next().unwrap_or('\0');
+            if fc == fence_char {
+                let count = trimmed.chars().take_while(|&c| c == fc).count();
+                if count >= fence_len && trimmed[count..].trim().is_empty() {
+                    in_fence = false;
+                }
+            }
+            continue;
+        }
+
+        // Strip inline code spans from this line before scanning for tags
+        let cleaned = strip_inline_code(line);
+        extract_tags_from_line(&cleaned, &mut tags, &mut seen);
+    }
+
+    tags
+}
+
+/// Remove inline code spans (backtick-delimited) from a line, replacing with spaces.
+fn strip_inline_code(line: &str) -> String {
+    let mut result = String::with_capacity(line.len());
+    let chars: Vec<char> = line.chars().collect();
+    let len = chars.len();
+    let mut i = 0;
+
+    while i < len {
+        if chars[i] == '`' {
+            // Count opening backticks
+            let start = i;
+            let mut tick_count = 0;
+            while i < len && chars[i] == '`' {
+                tick_count += 1;
+                i += 1;
+            }
+            // Find matching closing backticks
+            let mut found = false;
+            while i <= len.saturating_sub(tick_count) {
+                if chars[i] == '`' {
+                    let mut close_count = 0;
+                    while i < len && chars[i] == '`' {
+                        close_count += 1;
+                        i += 1;
+                    }
+                    if close_count == tick_count {
+                        // Replace entire span with spaces
+                        for _ in start..i {
+                            result.push(' ');
+                        }
+                        found = true;
+                        break;
+                    }
+                } else {
+                    i += 1;
+                }
+            }
+            if !found {
+                // No closing found, output the backticks literally
+                for c in &chars[start..] {
+                    result.push(*c);
+                }
+                break;
+            }
+        } else {
+            result.push(chars[i]);
+            i += 1;
+        }
+    }
+
+    result
+}
+
+/// Extract tags from a single line of text (already cleaned of inline code).
+fn extract_tags_from_line(line: &str, tags: &mut Vec<String>, seen: &mut HashSet<String>) {
+    let chars: Vec<char> = line.chars().collect();
+    let len = chars.len();
+    let mut i = 0;
+
+    while i < len {
+        if chars[i] == '#' {
+            // Check preceded by whitespace or start-of-line
+            let at_start = i == 0 || chars[i - 1].is_whitespace();
+            if !at_start {
+                i += 1;
+                continue;
+            }
+            // Must be followed by a letter
+            let tag_start = i;
+            i += 1; // skip #
+            if i >= len || !chars[i].is_ascii_alphabetic() {
+                continue;
+            }
+            // Consume tag body: letters, digits, hyphens, underscores
+            let body_start = i;
+            while i < len && (chars[i].is_ascii_alphanumeric() || chars[i] == '-' || chars[i] == '_') {
+                i += 1;
+            }
+            let body_len = i - body_start;
+            if body_len > 50 {
+                continue;
+            }
+            // Must be followed by whitespace, end-of-line, or punctuation
+            if i < len && !chars[i].is_whitespace() && !matches!(chars[i], '.' | ',' | ';' | ':' | '!' | '?' | ')' | '}' | ']') {
+                continue;
+            }
+            let tag: String = chars[tag_start..i].iter().collect();
+            let lower = tag.to_lowercase();
+            if !seen.contains(&lower) {
+                seen.insert(lower);
+                tags.push(tag);
+            }
+        } else {
+            i += 1;
+        }
+    }
+}
+
 fn make_preview(content: &str) -> String {
     content.chars().take(100).collect::<String>().replace('\n', " ")
 }
@@ -496,6 +636,7 @@ fn ensure_vectors_loaded(
 
 fn build_indexed_note(id: String, body: String, mtime: i64) -> IndexedNote {
     let headings = extract_headings(&body);
+    let tags = extract_tags(&body);
     IndexedNote {
         title: id.clone(),
         title_lower: id.to_lowercase(),
@@ -505,6 +646,7 @@ fn build_indexed_note(id: String, body: String, mtime: i64) -> IndexedNote {
         body,
         mtime,
         id,
+        tags,
     }
 }
 
@@ -514,6 +656,7 @@ fn note_to_preview(note: &IndexedNote) -> NotePreviewPayload {
         title: note.title.clone(),
         preview: note.preview.clone(),
         modification_time: note.mtime,
+        tags: note.tags.clone(),
     }
 }
 

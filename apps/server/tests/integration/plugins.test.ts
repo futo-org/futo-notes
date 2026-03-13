@@ -193,9 +193,20 @@ describe('Plugins', () => {
     };
 
     expect(data.scheduler.phase).toBe('idle');
-    expect(data.plugins).toHaveLength(2);
+    expect(data.plugins).toHaveLength(4);
+    const untitledNoMore = data.plugins.find((plugin) => plugin.id === 'untitled-no-more');
+    const autoTagger = data.plugins.find((plugin) => plugin.id === 'auto-tagger');
     const quickCapture = data.plugins.find((plugin) => plugin.id === 'quick-capture-to-list');
     const weeklyRelated = data.plugins.find((plugin) => plugin.id === 'weekly-related-notes');
+    expect(untitledNoMore).toMatchObject({
+      id: 'untitled-no-more',
+      auto_apply: false,
+      config_schema: [],
+    });
+    expect(autoTagger).toMatchObject({
+      id: 'auto-tagger',
+      auto_apply: false,
+    });
     expect(quickCapture).toMatchObject({
       id: 'quick-capture-to-list',
       auto_apply: false,
@@ -214,6 +225,174 @@ describe('Plugins', () => {
       'blockId',
       'includeReasons',
     ]);
+  });
+
+  it('creates preview suggestions and applies approved rename with wikilink rewrite', async () => {
+    const token = await setupAndLogin(env.app);
+    __setTestLlmResponder(() => 'meeting notes');
+
+    const oldMtime = Date.now() - (10 * 60 * 1000);
+    seedNote(env, 'note-1', 'Untitled.md', 'Agenda for the team sync and follow-up action items.', oldMtime);
+    seedNote(env, 'note-2', 'Reference.md', 'See [[Untitled]] before next week.', oldMtime);
+
+    const runRes = await authReq(env.app, 'POST', '/plugins/untitled-no-more/run', token);
+    expect(runRes.status).toBe(202);
+    const { run_id } = await runRes.json() as { run_id: string };
+
+    const preview = await waitForRunDetail(env.app, token, run_id);
+    expect(preview.run.status).toBe('awaiting_approval');
+    expect(preview.items).toHaveLength(1);
+    expect(preview.items[0].status).toBe('suggested');
+    expect(preview.items[0].preview).toMatchObject({
+      oldTitle: 'Untitled',
+      proposedTitle: 'meeting notes',
+      rewriteExactWikiLinks: true,
+    });
+
+    const itemId = Number(preview.items[0].id);
+    const approveRes = await authReq(env.app, 'POST', `/plugins/runs/${run_id}/items/${itemId}/approve`, token);
+    expect(approveRes.status).toBe(200);
+
+    const applyRes = await authReq(env.app, 'POST', `/plugins/runs/${run_id}/apply-approved`, token);
+    expect(applyRes.status).toBe(200);
+
+    const applied = await waitForRunDetail(env.app, token, run_id);
+    expect(applied.run.status).toBe('succeeded');
+    expect(applied.items[0].status).toBe('applied');
+
+    const renamed = getNote(getDb(), 'note-1');
+    expect(renamed?.filename).toBe('meeting notes.md');
+    const referenceContent = fs.readFileSync(path.join(env.notesDir, 'Reference.md'), 'utf8');
+    expect(referenceContent).toContain('[[meeting notes]]');
+    expect(referenceContent).not.toContain('[[Untitled]]');
+  });
+
+  it('supports auto-apply runs via plugin config', async () => {
+    const token = await setupAndLogin(env.app);
+    __setTestLlmResponder(() => 'trip planning');
+
+    const configRes = await authReq(env.app, 'POST', '/plugins/untitled-no-more/config', token, {
+      auto_apply: true,
+      schedule_kind: 'manual',
+      config: {
+        maxContentChars: 1500,
+      },
+    });
+    expect(configRes.status).toBe(200);
+
+    const oldMtime = Date.now() - (10 * 60 * 1000);
+    seedNote(env, 'note-3', 'Untitled (2).md', 'Reservations, packing list, and places to visit.', oldMtime);
+
+    const runRes = await authReq(env.app, 'POST', '/plugins/untitled-no-more/run', token);
+    expect(runRes.status).toBe(202);
+    const { run_id } = await runRes.json() as { run_id: string };
+
+    const detail = await waitForRunDetail(env.app, token, run_id);
+    expect(detail.run.status).toBe('succeeded');
+    expect(detail.items[0].status).toBe('applied');
+
+    const renamed = getNote(getDb(), 'note-3');
+    expect(renamed?.filename).toBe('trip planning.md');
+  });
+
+  it('broadcasts sync_available after an auto-applied rename', async () => {
+    const token = await setupAndLogin(env.app);
+    __setTestLlmResponder(() => 'trip planning');
+
+    const configRes = await authReq(env.app, 'POST', '/plugins/untitled-no-more/config', token, {
+      auto_apply: true,
+      schedule_kind: 'manual',
+      config: {},
+    });
+    expect(configRes.status).toBe(200);
+
+    const ticket = await createSseTicket(env.app, token);
+    const sseRes = await env.app.request(`/events?ticket=${ticket}&clientId=observer`);
+    expect(sseRes.status).toBe(200);
+    const sse = createSSEReader(sseRes);
+
+    try {
+      await sse.readUntil((buf) => buf.includes('event: connected'));
+
+      const oldMtime = Date.now() - (10 * 60 * 1000);
+      seedNote(env, 'note-5', 'Untitled.md', 'Reservations, packing list, and places to visit.', oldMtime);
+
+      const runRes = await authReq(env.app, 'POST', '/plugins/untitled-no-more/run', token);
+      expect(runRes.status).toBe(202);
+      const { run_id } = await runRes.json() as { run_id: string };
+
+      await sse.readUntil((buf) => buf.includes('event: sync_available'));
+      const detail = await waitForRunDetail(env.app, token, run_id);
+      expect(detail.run.status).toBe('succeeded');
+      expect(sse.contents).toContain('event: sync_available');
+    } finally {
+      sse.cancel();
+    }
+  });
+
+  it('bumps sync version after an auto-applied rename', async () => {
+    const token = await setupAndLogin(env.app);
+    __setTestLlmResponder(() => 'trip planning');
+
+    const beforeRes = await authReq(env.app, 'POST', '/sync/check', token, { version: 0 });
+    expect(beforeRes.status).toBe(200);
+    const before = await beforeRes.json() as { status: string; version: number };
+    expect(before.status).toBe('up_to_date');
+    expect(before.version).toBe(0);
+
+    const configRes = await authReq(env.app, 'POST', '/plugins/untitled-no-more/config', token, {
+      auto_apply: true,
+      schedule_kind: 'manual',
+      config: {},
+    });
+    expect(configRes.status).toBe(200);
+
+    const oldMtime = Date.now() - (10 * 60 * 1000);
+    seedNote(env, 'note-6', 'Untitled.md', 'Reservations, packing list, and places to visit.', oldMtime);
+
+    const runRes = await authReq(env.app, 'POST', '/plugins/untitled-no-more/run', token);
+    expect(runRes.status).toBe(202);
+    const { run_id } = await runRes.json() as { run_id: string };
+
+    const detail = await waitForRunDetail(env.app, token, run_id);
+    expect(detail.run.status).toBe('succeeded');
+
+    const afterRes = await authReq(env.app, 'POST', '/sync/check', token, { version: 0 });
+    expect(afterRes.status).toBe(200);
+    const after = await afterRes.json() as { status: string; version: number };
+    expect(after.status).toBe('changes_available');
+    expect(after.version).toBeGreaterThan(0);
+  });
+
+  it('retries once when the title model returns an empty response', async () => {
+    const token = await setupAndLogin(env.app);
+    let calls = 0;
+    __setTestLlmResponder((input) => {
+      calls += 1;
+      expect(input.disableThinking).toBe(true);
+      return calls === 1 ? '' : 'gettysburg address';
+    });
+
+    const oldMtime = Date.now() - (10 * 60 * 1000);
+    seedNote(
+      env,
+      'note-4',
+      'Untitled.md',
+      'the gettysburg address was an important speech. abrham lincoln really cooked with that one. but it was an important speech because of the message.',
+      oldMtime,
+    );
+
+    const runRes = await authReq(env.app, 'POST', '/plugins/untitled-no-more/run', token);
+    expect(runRes.status).toBe(202);
+    const { run_id } = await runRes.json() as { run_id: string };
+
+    const preview = await waitForRunDetail(env.app, token, run_id);
+    expect(calls).toBe(2);
+    expect(preview.run.status).toBe('awaiting_approval');
+    expect(preview.items[0].preview).toMatchObject({
+      oldTitle: 'Untitled',
+      proposedTitle: 'gettysburg address',
+    });
   });
 
   it('creates preview suggestions and applies approved quick-capture merge into the chosen list', async () => {

@@ -4,7 +4,7 @@ import type { EngagementRecord } from './engagement';
 import { getForYouNotes } from './forYou';
 
 function makeNote(id: string, modificationTime = Date.now()): NotePreview {
-  return { id, title: id, preview: `preview of ${id}`, modificationTime };
+  return { id, title: id, preview: `preview of ${id}`, modificationTime, tags: [] };
 }
 
 function makeRecord(overrides: Partial<EngagementRecord> = {}): EngagementRecord {

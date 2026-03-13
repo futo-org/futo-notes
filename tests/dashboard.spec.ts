@@ -184,7 +184,7 @@ test.describe('Server Dashboard', () => {
     await expect(page.locator('#status')).not.toHaveText('...', { timeout: 10_000 });
     await expect(page.locator('#status')).toContainText('Online');
     await expect(page.locator('#plugin-grid')).toBeVisible({ timeout: 10_000 });
-    await expect(page.locator('[data-plugin-card]')).toHaveCount(2);
+    await expect(page.locator('[data-plugin-card]')).toHaveCount(4);
     await expect(page.locator('[data-plugin-switch]').first()).toBeDisabled();
 
     const statusRes = await page.request.get(`${harness!.baseUrl}/dashboard/status`);
@@ -192,6 +192,8 @@ test.describe('Server Dashboard', () => {
     const statusData = await statusRes.json();
     expect(statusData).toHaveProperty('plugins');
     expect(statusData.plugins.plugins.map((plugin: { id: string }) => plugin.id)).toEqual([
+      'untitled-no-more',
+      'auto-tagger',
       'quick-capture-to-list',
       'weekly-related-notes',
     ]);

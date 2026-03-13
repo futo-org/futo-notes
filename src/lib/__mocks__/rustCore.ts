@@ -1,6 +1,7 @@
 import type { NotePreview, SearchResultItem } from '../../types';
 import type { SyncState } from '../syncState';
 import type { NoteSyncMeta } from '@futo-notes/shared';
+import { extractTags } from '@futo-notes/shared';
 import type { EngagementRecord } from '../engagement';
 import type { SupersearchState } from '../supersearch/state';
 
@@ -35,6 +36,7 @@ async function scanNotes(): Promise<NotePreview[]> {
         title: id,
         preview: content.slice(0, 100).replace(/\n/g, ' '),
         modificationTime: file.mtime,
+        tags: extractTags(content),
       });
     } catch { /* skip unreadable */ }
   }

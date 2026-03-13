@@ -121,6 +121,16 @@
   text-decoration-style: dashed;
 }
 
+/* Hidden header tag block lines */
+.cm-header-tag-hidden {
+  display: none !important;
+}
+
+/* Inline hashtags */
+.cm-md-tag {
+  color: var(--color-primary);
+}
+
 /* Wikilink autocomplete tooltip */
 .cm-wikilink-tooltip {
   background: var(--color-bg) !important;

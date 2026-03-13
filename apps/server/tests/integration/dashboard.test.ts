@@ -63,8 +63,13 @@ describe('Dashboard', () => {
     expect(plugins).toHaveProperty('model');
     expect(plugins).toHaveProperty('scheduler');
     const items = plugins.plugins as Array<Record<string, unknown>>;
-    expect(items).toHaveLength(2);
-    expect(items.map((item) => item.id)).toEqual(['quick-capture-to-list', 'weekly-related-notes']);
+    expect(items).toHaveLength(4);
+    expect(items.map((item) => item.id)).toEqual([
+      'untitled-no-more',
+      'auto-tagger',
+      'quick-capture-to-list',
+      'weekly-related-notes',
+    ]);
   });
 
   it('GET /dashboard/status includes local plugins with source metadata', async () => {

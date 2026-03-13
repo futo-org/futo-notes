@@ -1,9 +1,15 @@
 import type { BuiltinPlugin, PluginRegistration } from './types.js';
-// import { untitledNoMorePlugin } from './untitledNoMore.js';
+import { untitledNoMorePlugin } from './untitledNoMore.js';
+import { autoTaggerPlugin } from './autoTagger.js';
 import { quickCaptureToListPlugin } from './quickCaptureToList.js';
 import { weeklyRelatedNotesPlugin } from './weeklyRelatedNotes.js';
 
-const BUILTIN_PLUGINS: BuiltinPlugin[] = [quickCaptureToListPlugin, weeklyRelatedNotesPlugin];
+const BUILTIN_PLUGINS: BuiltinPlugin[] = [
+  untitledNoMorePlugin,
+  autoTaggerPlugin,
+  quickCaptureToListPlugin,
+  weeklyRelatedNotesPlugin,
+];
 const LOCAL_PLUGIN_REGISTRATIONS = new Map<string, PluginRegistration>();
 
 export function listBuiltinPlugins(): BuiltinPlugin[] {

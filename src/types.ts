@@ -3,6 +3,7 @@ export interface NotePreview {
   title: string;
   preview: string;
   modificationTime: number;
+  tags: string[];
 }
 
 export interface SnippetSegment {
