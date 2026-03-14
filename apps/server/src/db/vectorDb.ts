@@ -35,9 +35,14 @@ export function insertVector(
   embedding: number[],
 ): void {
   const buf = new Float32Array(embedding);
+  const id = BigInt(chunkId);
   // sqlite-vec requires INTEGER binding; JS number binds as REAL in better-sqlite3
+  // Delete first so manual reindexing can recover from a stale vector row that
+  // survived for the same chunk_id instead of failing on the primary key.
+  db.prepare('DELETE FROM search_vectors WHERE chunk_id = ?')
+    .run(id);
   db.prepare('INSERT INTO search_vectors (chunk_id, embedding) VALUES (?, ?)')
-    .run(BigInt(chunkId), Buffer.from(buf.buffer));
+    .run(id, Buffer.from(buf.buffer));
 }
 
 /**

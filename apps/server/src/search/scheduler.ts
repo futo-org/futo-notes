@@ -226,6 +226,7 @@ async function ensureProcessorImpl(config: Config): Promise<boolean> {
 function startTrackedIndexJob(config: Config, errorPrefix: string): Promise<void> {
   const jobToken = ++activeJobToken;
   running = true;
+  phase = 'indexing';
   abortController = new AbortController();
 
   const promise = runIndexInBackground(config, abortController.signal).catch((err) => {

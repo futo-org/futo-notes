@@ -7,6 +7,14 @@ import type { EmbeddingModel } from './modelManager.js';
 import { contentHash } from '../sync/hash.js';
 import { log } from '../logger.js';
 
+export function titleFromFilename(filename: string): string {
+  return filename.replace(/\.md$/i, '');
+}
+
+export function buildEmbeddingText(filename: string, chunkText: string): string {
+  return `Title: ${titleFromFilename(filename)}\n\n${chunkText}`;
+}
+
 /**
  * Create a level-2 batch processor for the job runner.
  * Reads note content, chunks it, embeds it, and stores vectors.
@@ -49,7 +57,7 @@ export function createEmbeddingProcessor(
       }
 
       // Extract texts for batch embedding
-      const texts = chunks.map((c) => c.text);
+      const texts = chunks.map((c) => buildEmbeddingText(note.filename, c.text));
       const embeddings = await model.embedDocuments(texts);
 
       // Insert chunks and vectors

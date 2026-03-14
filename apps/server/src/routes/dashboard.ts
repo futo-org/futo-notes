@@ -380,6 +380,16 @@ function dashboardHtml(): string {
     transition: width 0.4s ease;
   }
 
+  .progress-fill-indeterminate {
+    width: 35%;
+    animation: progress-slide 1.1s ease-in-out infinite;
+  }
+
+  @keyframes progress-slide {
+    0% { transform: translateX(-120%); }
+    100% { transform: translateX(320%); }
+  }
+
   /* Buttons */
   .btn {
     display: inline-block;
@@ -1681,6 +1691,7 @@ function dashboardHtml(): string {
         let statusLabel = 'Working';
         if (sched.phase === 'downloading_model') statusLabel = 'Downloading model';
         if (sched.phase === 'loading_model') statusLabel = 'Preparing model';
+        if (sched.phase === 'indexing') statusLabel = 'Indexing';
         if (sched.phase === 'building_artifacts') statusLabel = 'Building artifacts';
         html += '<div class="stat-row"><span class="stat-label">Status</span>' + badge(statusLabel, 'warn') + '</div>';
         if (phaseText) {
@@ -1693,6 +1704,8 @@ function dashboardHtml(): string {
           html += '<div class="stat-row"><span class="stat-label">Download</span><span class="stat-value">' +
             formatBytes(dp.downloadedSize) + ' / ' + formatBytes(dp.totalSize) + ' (' + dlPct + '%)</span></div>';
           html += '<div class="progress-track"><div class="progress-fill" style="width:' + dlPct + '%"></div></div>';
+        } else {
+          html += '<div class="progress-track"><div class="progress-fill progress-fill-indeterminate"></div></div>';
         }
       } else if (sched.phase === 'disabled') {
         html += '<div class="stat-row"><span class="stat-label">Status</span>' + badge('Disabled', 'error') + '</div>';
@@ -2478,12 +2491,15 @@ function dashboardHtml(): string {
 
   window.indexNow = async function() {
     const btn = $('index-now-btn');
+    const status = $('index-status');
     if (!btn) return;
 
     const token = await getToken('trigger indexing');
     if (!token) return;
 
     btn.disabled = true;
+    if (status) status.textContent = 'Starting...';
+    schedulePoll(true);
 
     try {
       const res = await fetch('/search/reindex', {
@@ -2495,12 +2511,14 @@ function dashboardHtml(): string {
         alert('Session expired, please try again');
         refresh();
         btn.disabled = false;
+        if (status) status.textContent = '';
         return;
       }
       const data = await res.json();
       if (!res.ok) {
         alert(data.error || 'Failed to start indexing');
         btn.disabled = false;
+        if (status) status.textContent = '';
         return;
       }
       // 202 Accepted — job is running in background, refresh will show progress
@@ -2508,6 +2526,7 @@ function dashboardHtml(): string {
     } catch (e) {
       alert('Error: ' + e.message);
       btn.disabled = false;
+      if (status) status.textContent = '';
     }
   };
 

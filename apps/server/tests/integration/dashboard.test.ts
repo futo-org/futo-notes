@@ -29,6 +29,8 @@ describe('Dashboard', () => {
     expect(html).toContain('id="run-all-modal"');
     expect(html).not.toContain('New local automation');
     expect(html).not.toContain('plugin-install-url');
+    expect(html).toContain('progress-fill-indeterminate');
+    expect(html).toContain("status.textContent = 'Starting...'");
 
     // Verify the script tag is present and parseable
     const scriptMatch = html.match(/<script>([\s\S]*?)<\/script>/);

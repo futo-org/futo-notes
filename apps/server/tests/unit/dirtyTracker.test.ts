@@ -116,6 +116,29 @@ describe('dirtyTracker', () => {
     expect(vectors).toHaveLength(0);
   });
 
+  it('insertVector replaces a stale vector row for the same chunk id', async () => {
+    const db = getDb();
+    await initVectorDb(db, 3);
+
+    insertVector(db, 1, [0.1, 0.2, 0.3]);
+    insertVector(db, 1, [0.4, 0.5, 0.6]);
+
+    const rows = db.prepare('SELECT chunk_id, embedding FROM search_vectors WHERE chunk_id = ?')
+      .all(1n) as Array<{ chunk_id: bigint; embedding: Buffer }>;
+
+    expect(rows).toHaveLength(1);
+    expect(BigInt(rows[0]?.chunk_id ?? -1)).toBe(1n);
+    expect(Array.from(new Float32Array(
+      rows[0].embedding.buffer,
+      rows[0].embedding.byteOffset,
+      3,
+    ))).toSatisfy((values: number[]) => (
+      Math.abs(values[0] - 0.4) < 1e-6
+      && Math.abs(values[1] - 0.5) < 1e-6
+      && Math.abs(values[2] - 0.6) < 1e-6
+    ));
+  });
+
   it('removeDirtyForDeleted is a no-op for empty array', () => {
     const db = getDb();
     db.prepare(
