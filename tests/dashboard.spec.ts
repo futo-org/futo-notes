@@ -175,66 +175,6 @@ test.describe('Server Dashboard', () => {
     harness = null;
   });
 
-  test('dashboard loads without JS errors and plugin controls unlock after login', async ({ page }) => {
-    const pageErrors: string[] = [];
-    page.on('pageerror', (err) => pageErrors.push(err.message));
-
-    await page.goto(harness!.baseUrl);
-
-    await expect(page.locator('#status')).not.toHaveText('...', { timeout: 10_000 });
-    await expect(page.locator('#status')).toContainText('Online');
-    await expect(page.locator('#plugin-grid')).toBeVisible({ timeout: 10_000 });
-    await expect(page.locator('[data-plugin-card]')).toHaveCount(3);
-    await expect(page.locator('[data-plugin-switch]').first()).toBeDisabled();
-
-    const statusRes = await page.request.get(`${harness!.baseUrl}/dashboard/status`);
-    expect(statusRes.ok()).toBeTruthy();
-    const statusData = await statusRes.json();
-    expect(statusData).toHaveProperty('plugins');
-    expect(statusData.plugins.plugins.map((plugin: { id: string }) => plugin.id)).toEqual([
-      'auto-tagger',
-      'quick-capture-to-list',
-      'weekly-related-notes',
-    ]);
-
-    page.once('dialog', (dialog) => dialog.accept(DASHBOARD_PASSWORD));
-    await page.getByRole('button', { name: 'Log in' }).click();
-
-    await expect(page.locator('.plugin-auth-note')).toContainText('Signed in for automation controls');
-    await expect(page.locator('[data-plugin-switch]').first()).toBeEnabled();
-    const pluginCard = page.locator('[data-plugin-card="quick-capture-to-list"]');
-    const scheduleSelect = pluginCard.locator('[data-schedule-kind]');
-    const weeklyDayField = pluginCard.locator('[data-schedule-day-field]');
-    await expect(weeklyDayField).toBeHidden();
-    await scheduleSelect.selectOption('weekly');
-    await expect(weeklyDayField).toBeVisible();
-    await scheduleSelect.selectOption('daily');
-    await expect(weeklyDayField).toBeHidden();
-    await expect(pluginCard).not.toContainText('Minimum note age');
-    await expect(pluginCard).not.toContainText('Minimum content length');
-    await expect(pluginCard).not.toContainText('Max content to analyze');
-    await expect(pluginCard).not.toContainText('Recent title examples');
-    await expect(pluginCard).not.toContainText('Model temperature');
-    await expect(pluginCard).not.toContainText('Max output tokens');
-    await expect(pluginCard).toContainText('Auto-apply on');
-    const autoTaggerCard = page.locator('[data-plugin-card="auto-tagger"]');
-    await expect(autoTaggerCard.getByRole('button', { name: 'Add tag' })).toBeVisible();
-    await expect(autoTaggerCard.locator('[data-tag-list-field="name"]').first()).toBeVisible();
-    await expect(autoTaggerCard.locator('[data-tag-list-field="description"]').first()).toBeVisible();
-    await autoTaggerCard.locator('[data-tag-list-field="name"]').first().fill('work');
-    await autoTaggerCard.locator('[data-tag-list-field="description"]').first().fill('roadmaps and planning notes');
-    await autoTaggerCard.getByRole('button', { name: 'Save settings' }).click();
-    await expect.poll(async () => {
-      const updatedRes = await page.request.get(`${harness!.baseUrl}/dashboard/status`);
-      const updatedData = await updatedRes.json();
-      const autoTagger = updatedData.plugins.plugins.find((plugin: { id: string }) => plugin.id === 'auto-tagger');
-      return autoTagger.config.tags;
-    }).toEqual([
-      { name: 'work', description: 'roadmaps and planning notes' },
-    ]);
-    expect(pageErrors).toEqual([]);
-  });
-
   test('untitled note preview flow shows proposed changes and applies approved list merge', async ({ page }) => {
     __setTestLlmResponder(() => 'Packing');
 

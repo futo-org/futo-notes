@@ -9,6 +9,7 @@
   ],
   "scripts": {
     "dev": "vite",
+    "automation:loop": "npm --workspace @futo-notes/server run automation:loop --",
     "reset": "node scripts/reset-demo.mjs",
     "build": "tsc && vite build",
     "preview": "vite preview",

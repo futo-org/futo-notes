@@ -80,6 +80,13 @@ curl -s --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
 
 ## Testing
 
+- **Automation harness**: before building one-off note-moving setups for smart automations, run `npm run automation:loop -- --source ~/Documents/demo-vault-backup`
+- The harness copies the source vault into a temp run directory, bootstraps it into an isolated temp server DB, runs the built-in automations through the real server plugin routes, and leaves the source vault untouched
+- Default artifacts live under `.tmp/automation-loop/` and include `vault/`, `diff.patch`, `summary.txt`, `report.json`, and `runs/<plugin-id>.json`
+- Read `summary.txt` first, then `diff.patch`, then the per-plugin JSON in `runs/` when a transform looks wrong
+- Use `--plugin <id>` to narrow the loop to one built-in automation during iteration
+- Full docs: `docs/automation-loop.md`
+
 - Regression tests: `tests/p0-regressions.spec.ts` (crash/IME), `tests/p1-regressions.spec.ts` (links), `tests/p2-regressions.spec.ts` (title/formatting)
 - Some Android-native issues (IME, status bar) require device QA even when Playwright passes
 

@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "automation:loop": "tsx scripts/run-automation-loop.ts",
     "rebuild-native": "npm rebuild better-sqlite3 argon2",
     "dev": "NODE_ENV=development tsx watch src/index.ts",
     "build": "tsup",
