@@ -1,60 +1,43 @@
-Stonefruit is a simple, beautiful notes app that gets out of your way. It relies on markdown, but doesn't require knowledge of the syntax. Stonefruit works entirely offline, but you have the option to sync to your other devices.
+# Stonefruit
 
-The goal is to build a tool that truly enhances your thinking and recall. By using advanced machine learning techniques, it is able to help you connect the dots, reference ideas from your past, and generate new ideas.
+Stonefruit is an offline-first markdown notes app with optional self-hosted sync.
 
-But at its foundation, it is a simple, rock-solid notes app.
+## Install
 
-To maximize interoperability, notes live in a folder as a series of .md files with no frontmatter. Sidecars are used to maintain information about these notes. Sync will be determined later, but will eventually be supported. In order to have robust offline support, Yjs/CRDT will be used for conflict resolution.
+Download the latest build for your platform from the releases page:
 
-The title of the note is the name of the file minus `.md`. So `my grocery list.md` would be the file name and `my grocery list` would be the official title.
+https://gitlab.futo.org/stonefruit/stonefruit/-/releases
 
-## Build & Run
+## Run the sync server
 
-### First-Time Setup
+### Recommended: Stonefruit CLI
 
-```bash
-# Install dependencies
-npm install
-```
-
-### Development Commands
+The CLI installs and starts the Dockerized sync server for you.
 
 ```bash
-# Development & Building
-npm run dev                                 # Dev server (web preview only)
-npm run build                               # Build for production
-npm run lint                                # Run ESLint
-
-# Tauri v2
-npm run tauri:dev                           # Run Tauri app in dev mode (Wayland default, port 5180)
-npm run tauri:build                         # Build web + Tauri bundle
-npm run tauri:test:rust                     # Run Rust core tests
-
-# Mobile targets (Tauri)
-npm run tauri:android:dev
-npm run tauri:ios:dev
+curl -fsSL https://gitlab.futo.org/stonefruit/stonefruit/-/raw/main/apps/cli/install.sh | sh
+stonefruit setup
 ```
 
-Tauri dev ports are split by target to avoid collisions: desktop `5180`, Android `5181`, iOS `5182`.
-
-### Development Workflow
+You can check the server later with:
 
 ```bash
-# 1. Make changes to Svelte/TypeScript/CSS
-# 2. Run in Tauri desktop shell
-npm run tauri:dev
-
-# 3. Build distributable
-npm run tauri:build
+stonefruit status
 ```
 
-### Architecture
+### Run Docker directly
 
-**Framework**: Svelte 5 + Tauri v2
-**Build Tool**: Vite
-**Editor**: CodeMirror 6 with live markdown transformations
-**Storage**: Native filesystem via Tauri command bridge (`invoke`)
-**Search**: MiniSearch (in-memory full-text search)
-**State**: Svelte 5 runes (`$state`, `$derived`, `$effect`)
+If you do not want to use the CLI, run the published Docker Compose file:
 
-For detailed architecture and development information, see [CLAUDE.md](./CLAUDE.md).
+```bash
+curl -O https://gitlab.futo.org/stonefruit/stonefruit/-/raw/main/apps/server/docker-compose.production.yml
+docker compose -f docker-compose.production.yml up -d
+```
+
+The sync server listens on `http://localhost:3005` and stores its data in a Docker volume.
+
+In Stonefruit, set the sync server URL to `http://localhost:3005` and enter a password. On a fresh server, the app will complete first-time setup automatically.
+
+## Development
+
+If you are working from source, see [AGENTS.md](./AGENTS.md) and [apps/server/README.md](./apps/server/README.md).

@@ -19,6 +19,17 @@
   let graph: InstanceType<typeof ForceGraph<GraphNodeObj>> | null = null;
   let prevNoteId: string | null = null;
 
+  function hexToRgba(hex: string, alpha: number): string {
+    const normalized = hex.replace('#', '');
+    const full = normalized.length === 3
+      ? normalized.split('').map((part) => `${part}${part}`).join('')
+      : normalized;
+    const r = parseInt(full.slice(0, 2), 16);
+    const g = parseInt(full.slice(2, 4), 16);
+    const b = parseInt(full.slice(4, 6), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+
   function getColors() {
     if (!container) return { primary: '#6366f1', muted: '#9ca3af', bg: '#ffffff' };
     const s = getComputedStyle(container);
@@ -47,6 +58,32 @@
     graph.centerAt(n.x, n.y, 600);
   }
 
+  function clusterColor(node: GraphNodeObj, currentId: string | null): string {
+    const colors = getColors();
+    if (node.noteId === currentId) return colors.primary;
+    const cluster = node.clusterIndex >= 0 ? data.clusters[node.clusterIndex] : null;
+    return cluster ? cluster.color : colors.muted;
+  }
+
+  function drawClusterHalos(ctx: CanvasRenderingContext2D, globalScale: number): void {
+    for (const cluster of data.clusters) {
+      const gradient = ctx.createRadialGradient(
+        cluster.x,
+        cluster.y,
+        Math.max(8, cluster.radius * 0.1),
+        cluster.x,
+        cluster.y,
+        cluster.radius,
+      );
+      gradient.addColorStop(0, hexToRgba(cluster.color, globalScale > 2 ? 0.08 : 0.12));
+      gradient.addColorStop(1, hexToRgba(cluster.color, 0));
+      ctx.beginPath();
+      ctx.arc(cluster.x, cluster.y, cluster.radius, 0, Math.PI * 2);
+      ctx.fillStyle = gradient;
+      ctx.fill();
+    }
+  }
+
   // Create ForceGraph instance — depends only on container
   $effect(() => {
     if (!container) return;
@@ -58,20 +95,19 @@
       .backgroundColor(colors.bg)
       .nodeId('noteId')
       .nodeLabel('title')
-      .nodeVal((n) => (n.noteId === currentNoteId ? 3 : 1))
-      .nodeColor((n) => (n.noteId === currentNoteId ? colors.primary : colors.muted))
+      .nodeVal((n) => (n.noteId === currentNoteId ? 4.8 : 2.2))
+      .nodeColor((n) => clusterColor(n, currentNoteId))
       .nodeCanvasObject((node, ctx) => {
-        const c = getColors();
         const isCurrent = node.noteId === currentNoteId;
         const x = node.x!;
         const y = node.y!;
-        const r = isCurrent ? 5 : 3;
+        const r = isCurrent ? 5.5 : 2.8;
+        const fill = clusterColor(node, currentNoteId);
 
         if (isCurrent) {
-          // Glow
           ctx.beginPath();
           ctx.arc(x, y, 10, 0, Math.PI * 2);
-          ctx.fillStyle = c.primary;
+          ctx.fillStyle = hexToRgba(fill, 0.18);
           ctx.globalAlpha = 0.15;
           ctx.fill();
           ctx.globalAlpha = 1;
@@ -79,11 +115,17 @@
 
         ctx.beginPath();
         ctx.arc(x, y, r, 0, Math.PI * 2);
-        ctx.fillStyle = isCurrent ? c.primary : c.muted;
-        ctx.globalAlpha = isCurrent ? 1 : 0.6;
+        ctx.fillStyle = fill;
+        ctx.globalAlpha = isCurrent ? 1 : 0.82;
         ctx.fill();
+        if (!isCurrent) {
+          ctx.strokeStyle = hexToRgba(fill, 0.4);
+          ctx.lineWidth = 0.8;
+          ctx.stroke();
+        }
         ctx.globalAlpha = 1;
       })
+      .nodeCanvasObjectMode(() => 'after')
       .nodePointerAreaPaint((node, color, ctx) => {
         ctx.beginPath();
         ctx.arc(node.x!, node.y!, 8, 0, Math.PI * 2);
@@ -93,9 +135,12 @@
       .onNodeClick((node) => {
         onNavigate(node.noteId);
       })
+      .onRenderFramePre((ctx, globalScale) => {
+        drawClusterHalos(ctx, globalScale);
+      })
       .enableNodeDrag(false)
       .cooldownTicks(0)
-      .minZoom(0.5)
+      .minZoom(0.22)
       .maxZoom(12)
       .graphData(initialData);
 
@@ -136,11 +181,8 @@
   $effect(() => {
     if (currentNoteId && currentNoteId !== prevNoteId && graph) {
       // Refresh node colors/sizes to reflect new current
-      graph.nodeVal((n: GraphNodeObj) => (n.noteId === currentNoteId ? 3 : 1));
-      graph.nodeColor((n: GraphNodeObj) => {
-        const colors = getColors();
-        return n.noteId === currentNoteId ? colors.primary : colors.muted;
-      });
+      graph.nodeVal((n: GraphNodeObj) => (n.noteId === currentNoteId ? 4.8 : 2.2));
+      graph.nodeColor((n: GraphNodeObj) => clusterColor(n, currentNoteId));
       centerOnNode(currentNoteId);
     }
     prevNoteId = currentNoteId;
@@ -153,8 +195,7 @@
       if (!graph) return;
       const c = getColors();
       graph.backgroundColor(c.bg);
-      // Re-set nodeColor to trigger a repaint (nodeCanvasObject reads colors live)
-      graph.nodeColor(() => c.muted);
+      graph.nodeColor((n: GraphNodeObj) => clusterColor(n, currentNoteId));
     });
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
     return () => observer.disconnect();

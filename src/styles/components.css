@@ -957,6 +957,13 @@
   color: var(--color-text);
 }
 
+.graph-sidebar-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.graph-sidebar-expand,
 .graph-sidebar-close {
   width: 36px;
   height: 36px;
@@ -969,6 +976,15 @@
   align-items: center;
   justify-content: center;
   -webkit-tap-highlight-color: transparent;
+}
+
+.graph-sidebar-expand {
+  border: 1px solid rgba(var(--ink-rgb), 0.08);
+}
+
+.graph-sidebar-expand:hover,
+.graph-sidebar-close:hover {
+  background: rgba(var(--ink-rgb), 0.04);
 }
 
 .graph-sidebar-close:active {
@@ -1037,6 +1053,93 @@
 
 .notes-shell.desktop-layout .graph-sidebar-header {
   padding: 16px 12px 12px;
+}
+
+.graph-fullscreen-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  background:
+    radial-gradient(circle at top left, rgba(var(--ink-rgb), 0.08), transparent 34%),
+    linear-gradient(160deg, rgba(var(--paper-rgb), 0.97), rgba(var(--paper-rgb), 0.92));
+  backdrop-filter: blur(10px);
+}
+
+.graph-fullscreen {
+  position: absolute;
+  inset: 18px;
+  border: 1px solid rgba(var(--ink-rgb), 0.08);
+  border-radius: 24px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background:
+    linear-gradient(180deg, rgba(var(--paper-rgb), 0.98), rgba(var(--paper-rgb), 0.95));
+  box-shadow:
+    0 28px 60px rgba(var(--ink-rgb), 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+
+.graph-fullscreen-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid rgba(var(--ink-rgb), 0.08);
+  background:
+    linear-gradient(180deg, rgba(var(--paper-rgb), 0.96), rgba(var(--paper-rgb), 0.88));
+}
+
+.graph-fullscreen-eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+
+.graph-fullscreen-title {
+  margin: 4px 0 0;
+  font-family: var(--font-serif);
+  font-size: 26px;
+  line-height: 1.1;
+  font-weight: 400;
+  color: var(--color-text);
+}
+
+.graph-fullscreen-close {
+  width: 40px;
+  height: 40px;
+  border: 1px solid rgba(var(--ink-rgb), 0.08);
+  border-radius: 12px;
+  background: rgba(var(--paper-rgb), 0.86);
+  color: var(--color-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.graph-fullscreen-close:hover {
+  background: rgba(var(--paper-rgb), 0.98);
+}
+
+.graph-fullscreen-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+@media (max-width: 720px) {
+  .graph-fullscreen {
+    inset: 0;
+    border-radius: 0;
+  }
+
+  .graph-fullscreen-header {
+    padding-top: calc(18px + env(safe-area-inset-top));
+  }
 }
 
 /* Desktop: position note menu relative to note-main, not viewport */

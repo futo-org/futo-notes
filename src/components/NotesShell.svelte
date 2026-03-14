@@ -344,6 +344,7 @@ Escaped pipes:
   let graphSidebarOpen = $state(false);
   let graphData: GraphData | null = $state(null);
   let graphLoading = $state(false);
+  let graphFullscreenOpen = $state(false);
 
   // Right-edge swipe tracking (plain JS, not reactive — same pattern as left drawer)
   let rightSwipe = false;
@@ -1031,7 +1032,7 @@ Escaped pipes:
   function isSwipeExcludedTarget(target: EventTarget | null): boolean {
     if (!(target instanceof Element)) return false;
     return Boolean(
-      target.closest('.cm-md-table-wrapper, .cm-md-table-rendered, .cm-md-table, .markdown-toolbar, .title-input, .graph-sidebar')
+      target.closest('.cm-md-table-wrapper, .cm-md-table-rendered, .cm-md-table, .markdown-toolbar, .title-input, .graph-sidebar, .graph-fullscreen')
     );
   }
 
@@ -1076,7 +1077,17 @@ Escaped pipes:
   }
 
   function closeGraphSidebar(): void {
+    graphFullscreenOpen = false;
     graphSidebarOpen = false;
+  }
+
+  function openGraphFullscreen(): void {
+    if (!graphData) return;
+    graphFullscreenOpen = true;
+  }
+
+  function closeGraphFullscreen(): void {
+    graphFullscreenOpen = false;
   }
 
   function handleGraphNavigate(targetNoteId: string): void {
@@ -1091,13 +1102,18 @@ Escaped pipes:
   }
 
   $effect(() => {
-    if (!(deleteConfirmOpen || (isMobile && (graphSidebarOpen || graphLoading)))) return;
+    if (!(deleteConfirmOpen || graphFullscreenOpen || (isMobile && (graphSidebarOpen || graphLoading)))) return;
 
     const handleWindowKeydown = (event: KeyboardEvent) => {
       if (deleteConfirmOpen) {
         handleDismissWindowKeydown(event, () => {
           deleteConfirmOpen = false;
         });
+        return;
+      }
+
+      if (graphFullscreenOpen) {
+        handleDismissWindowKeydown(event, closeGraphFullscreen);
         return;
       }
 
@@ -1604,6 +1620,7 @@ Escaped pipes:
   class:drawer-open={drawerOpen}
   class:drawer-dragging={isDragging}
   class:graph-sidebar-open={!isMobile && graphSidebarOpen}
+  class:graph-fullscreen-open={graphFullscreenOpen}
   style="--drawer-offset: {drawerOffset}px; --sidebar-width: {sidebarWidth}px; --graph-sidebar-width: {graphSidebarWidth}px"
   ontouchstart={handleTouchStart}
   ontouchmove={handleTouchMove}
@@ -1811,12 +1828,24 @@ Escaped pipes:
       {/if}
       <div class="graph-sidebar-header">
         <span class="graph-sidebar-title">Graph</span>
-        <button class="graph-sidebar-close" aria-label="Close graph" onclick={closeGraphSidebar}>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="18" y1="6" x2="6" y2="18"/>
-            <line x1="6" y1="6" x2="18" y2="18"/>
-          </svg>
-        </button>
+        <div class="graph-sidebar-actions">
+          {#if graphData}
+            <button class="graph-sidebar-expand" aria-label="Expand graph" onclick={openGraphFullscreen}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="15 3 21 3 21 9"/>
+                <polyline points="9 21 3 21 3 15"/>
+                <line x1="21" y1="3" x2="14" y2="10"/>
+                <line x1="3" y1="21" x2="10" y2="14"/>
+              </svg>
+            </button>
+          {/if}
+          <button class="graph-sidebar-close" aria-label="Close graph" onclick={closeGraphSidebar}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
       </div>
       <div class="graph-sidebar-body">
         {#if graphLoading}
@@ -1826,6 +1855,36 @@ Escaped pipes:
         {/if}
       </div>
     </aside>
+  {/if}
+
+  {#if graphFullscreenOpen && graphData}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div
+      class="graph-fullscreen-backdrop"
+      onclick={closeGraphFullscreen}
+      onkeydown={(event) => handleDismissWindowKeydown(event, closeGraphFullscreen)}
+    >
+      <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
+      <section class="graph-fullscreen" onclick={(event) => event.stopPropagation()} onkeydown={(event) => event.stopPropagation()}>
+        <div class="graph-fullscreen-header">
+          <div>
+            <div class="graph-fullscreen-eyebrow">Semantic Map</div>
+            <h2 class="graph-fullscreen-title">All Notes</h2>
+          </div>
+          <button class="graph-fullscreen-close" aria-label="Collapse graph" onclick={closeGraphFullscreen}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="9 3 3 3 3 9"/>
+              <polyline points="15 21 21 21 21 15"/>
+              <line x1="3" y1="3" x2="10" y2="10"/>
+              <line x1="21" y1="21" x2="14" y2="14"/>
+            </svg>
+          </button>
+        </div>
+        <div class="graph-fullscreen-body">
+          <GraphCanvas data={graphData} currentNoteId={noteId} onNavigate={handleGraphNavigate} />
+        </div>
+      </section>
+    </div>
   {/if}
 </div>
 
