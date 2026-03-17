@@ -1,7 +1,14 @@
 import type Database from 'better-sqlite3';
 import { log } from '../logger.js';
 
-let initialized = false;
+let initializedDbs = new WeakSet<Database.Database>();
+
+function hasSearchVectorsTable(db: Database.Database): boolean {
+  const row = db.prepare(
+    `SELECT 1 as found FROM sqlite_master WHERE type = 'table' AND name = 'search_vectors' LIMIT 1`,
+  ).get() as { found: number } | undefined;
+  return row !== undefined;
+}
 
 /**
  * Initialize the vector DB by loading the sqlite-vec extension
@@ -9,21 +16,22 @@ let initialized = false;
  * Uses dynamic import so sqlite-vec is only loaded when SEARCH_ENABLED=true.
  */
 export async function initVectorDb(db: Database.Database, dims: number): Promise<void> {
-  if (initialized) return;
+  if (!initializedDbs.has(db)) {
+    const sqliteVec = await import('sqlite-vec');
+    sqliteVec.load(db);
+    initializedDbs.add(db);
+  }
 
-  // Dynamic import
-  const sqliteVec = await import('sqlite-vec');
-  sqliteVec.load(db);
+  if (!hasSearchVectorsTable(db)) {
+    db.exec(`
+      CREATE VIRTUAL TABLE IF NOT EXISTS search_vectors USING vec0(
+        chunk_id INTEGER PRIMARY KEY,
+        embedding float[${dims}] distance_metric=cosine
+      );
+    `);
 
-  db.exec(`
-    CREATE VIRTUAL TABLE IF NOT EXISTS search_vectors USING vec0(
-      chunk_id INTEGER PRIMARY KEY,
-      embedding float[${dims}] distance_metric=cosine
-    );
-  `);
-
-  initialized = true;
-  log.info(`search: vector DB initialized (dims=${dims})`);
+    log.info(`search: vector DB initialized (dims=${dims})`);
+  }
 }
 
 /**
@@ -85,5 +93,5 @@ export function searchVectors(
  * Reset initialized state (for testing).
  */
 export function resetVectorDb(): void {
-  initialized = false;
+  initializedDbs = new WeakSet<Database.Database>();
 }

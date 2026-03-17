@@ -1058,7 +1058,7 @@
 .graph-fullscreen-backdrop {
   position: absolute;
   inset: 0;
-  z-index: 40;
+  z-index: 120;
   background:
     radial-gradient(circle at top left, rgba(var(--ink-rgb), 0.08), transparent 34%),
     linear-gradient(160deg, rgba(var(--paper-rgb), 0.97), rgba(var(--paper-rgb), 0.92));
