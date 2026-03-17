@@ -14,6 +14,7 @@ export interface AutoSyncCallbacks {
   flushPendingSave: () => Promise<void>;
   onSupersearchReady?: () => void;
   shouldDeferSync?: () => boolean;
+  onSyncStateChange?: (syncing: boolean) => void;
 }
 
 let callbacks: AutoSyncCallbacks | null = null;
@@ -62,6 +63,7 @@ async function performSync(trigger: SyncTrigger, options: PerformSyncOptions = {
     return null;
   }
   syncing = true;
+  callbacks.onSyncStateChange?.(true);
   try {
     if (trigger === 'local-save' || trigger === 'manual') {
       await callbacks.flushPendingSave();
@@ -84,6 +86,7 @@ async function performSync(trigger: SyncTrigger, options: PerformSyncOptions = {
     return null;
   } finally {
     syncing = false;
+    callbacks.onSyncStateChange?.(false);
   }
 }
 

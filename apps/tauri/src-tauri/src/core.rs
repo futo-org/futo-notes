@@ -11,6 +11,7 @@ use std::fs;
 use std::io;
 use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -52,6 +53,7 @@ pub struct CoreState {
     index: Arc<RwLock<SearchIndexState>>,
     watcher: Arc<Mutex<Option<RecommendedWatcher>>>,
     suppressed_watcher_events: Arc<Mutex<HashMap<String, i64>>>,
+    sync_writes_until: Arc<AtomicI64>,
     vectors: Arc<RwLock<Option<Arc<VectorArtifacts>>>>,
     engagement: Arc<RwLock<EngagementState>>,
     supersearch_meta: Arc<RwLock<Option<SupersearchMeta>>>,
@@ -897,9 +899,11 @@ fn apply_sync_delta_impl(
     base: &Path,
     index: &Arc<RwLock<SearchIndexState>>,
     suppressed_watcher_events: &Arc<Mutex<HashMap<String, i64>>>,
+    sync_writes_until: &Arc<AtomicI64>,
     input: SyncApplyInput,
 ) -> Result<SyncApplyOutput, String> {
     let started = Instant::now();
+    sync_writes_until.store(now_ms() + WATCHER_SUPPRESSION_MS, Ordering::Release);
     let mut state = input.state;
     let mut hash_cache = state.hash_cache.clone().unwrap_or_default();
     let mut updated_ids = Vec::new();
@@ -1031,6 +1035,8 @@ fn apply_sync_delta_impl(
             .then_with(|| a.to_id.cmp(&b.to_id))
     });
     renamed.dedup_by(|a, b| a.from_id == b.from_id && a.to_id == b.to_id);
+
+    sync_writes_until.store(now_ms() + WATCHER_SUPPRESSION_MS, Ordering::Release);
 
     Ok(SyncApplyOutput {
         state,
@@ -1850,6 +1856,7 @@ pub async fn fs_get_image_path(app: AppHandle, filename: String) -> Result<Strin
 pub async fn fs_start_watcher(app: AppHandle, state: State<'_, CoreState>) -> Result<(), String> {
     let watcher_state = state.watcher.clone();
     let suppressed_watcher_events = state.suppressed_watcher_events.clone();
+    let sync_writes_until = state.sync_writes_until.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let mut guard = watcher_state
             .lock()
@@ -1875,10 +1882,13 @@ pub async fn fs_start_watcher(app: AppHandle, state: State<'_, CoreState>) -> Re
                     if !filename.ends_with(".md") {
                         continue;
                     }
+                    if sync_writes_until.load(Ordering::Acquire) > now_ms() {
+                        continue;
+                    }
                     let should_suppress = if let Ok(mut map) = suppressed_watcher_events.lock() {
                         let now = now_ms();
                         map.retain(|_, expiry| *expiry > now);
-                        map.remove(filename).is_some()
+                        map.contains_key(filename)
                     } else {
                         false
                     };
@@ -2049,9 +2059,10 @@ pub async fn core_apply_sync_delta(
 ) -> Result<SyncApplyOutput, String> {
     let index = state.index.clone();
     let suppressed_watcher_events = state.suppressed_watcher_events.clone();
+    let sync_writes_until = state.sync_writes_until.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let base = notes_root(&app)?;
-        apply_sync_delta_impl(&base, &index, &suppressed_watcher_events, input)
+        apply_sync_delta_impl(&base, &index, &suppressed_watcher_events, &sync_writes_until, input)
     })
     .await
     .map_err(task_join_err)?
@@ -2408,10 +2419,12 @@ mod tests {
 
         let index = Arc::new(RwLock::new(SearchIndexState::default()));
         let suppressed_watcher_events = Arc::new(Mutex::new(HashMap::new()));
+        let sync_writes_until = Arc::new(AtomicI64::new(0));
         let output = apply_sync_delta_impl(
             &base,
             &index,
             &suppressed_watcher_events,
+            &sync_writes_until,
             SyncApplyInput {
                 state,
                 update: vec![IncomingSyncUpdate {

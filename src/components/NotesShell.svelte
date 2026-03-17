@@ -361,6 +361,16 @@ Escaped pipes:
   let externalRescanInFlight = false;
   let externalRescanQueued = false;
 
+  let syncWriteActive = false;
+  let pendingWatcherEvents: Array<{ type: 'add' | 'change' | 'unlink'; filename: string }> = [];
+  let postSyncBatchTimer: number | null = null;
+  let watcherBatchTimer: number | null = null;
+  let watcherHandlerInFlight = false;
+  let watcherHandlerQueue: Array<{ type: 'add' | 'change' | 'unlink'; filename: string }> = [];
+
+  let syncStatusMessage = $state('');
+  let syncStatusClearTimer: number | null = null;
+
   function recordWrite(filename: string): void {
     recentWrites.set(filename, Date.now());
     // Clean old entries
@@ -544,9 +554,89 @@ Escaped pipes:
       }
     }
 
+    // Sync status banner
+    const totalChanges = summary.updatedIds.length + summary.deletedIds.length + summary.renamed.length;
+    if (totalChanges > 20) {
+      syncStatusMessage = `Synced ${totalChanges} notes`;
+      syncStatusClearTimer = window.setTimeout(() => { syncStatusMessage = ''; syncStatusClearTimer = null; }, 3000);
+    } else {
+      syncStatusMessage = '';
+    }
+
   }
 
-  async function handleNativeFileChangeEvent(event: { type: 'add' | 'change' | 'unlink'; filename: string }): Promise<void> {
+  function enqueueWatcherEvent(event: { type: 'add' | 'change' | 'unlink'; filename: string }): void {
+    if (syncWriteActive) {
+      pendingWatcherEvents.push(event);
+      return;
+    }
+    watcherHandlerQueue.push(event);
+    if (watcherBatchTimer === null) {
+      watcherBatchTimer = window.setTimeout(() => {
+        watcherBatchTimer = null;
+        void processWatcherBatch();
+      }, 50);
+    }
+  }
+
+  async function processWatcherBatch(): Promise<void> {
+    if (watcherHandlerInFlight) return;
+    watcherHandlerInFlight = true;
+    try {
+      while (watcherHandlerQueue.length > 0) {
+        const batch = watcherHandlerQueue.splice(0);
+        // Deduplicate: keep last event per filename
+        const deduped = new Map<string, { type: 'add' | 'change' | 'unlink'; filename: string }>();
+        for (const ev of batch) {
+          deduped.set(ev.filename, ev);
+        }
+        const events = [...deduped.values()];
+
+        if (events.length > 10) {
+          // Bulk: single refresh instead of per-file processing
+          await refreshNotesFromStorage();
+          refreshNotesList();
+          // Handle active note if affected
+          const activeFilename = originalId ? `${originalId}.md` : null;
+          if (activeFilename) {
+            const activeEvent = deduped.get(activeFilename);
+            if (activeEvent) {
+              await handleSingleWatcherEvent(activeEvent);
+            }
+          }
+        } else {
+          for (const ev of events) {
+            await handleSingleWatcherEvent(ev);
+          }
+        }
+      }
+    } finally {
+      watcherHandlerInFlight = false;
+    }
+  }
+
+  function drainPostSyncWatcherBatch(): void {
+    postSyncBatchTimer = window.setTimeout(() => {
+      postSyncBatchTimer = null;
+      // Filter out events that were caused by our own sync writes
+      const unhandled = pendingWatcherEvents.filter(ev => !isRecentSyncWrite(ev.filename));
+      pendingWatcherEvents = [];
+      if (unhandled.length > 0) {
+        // Queue a single refresh rather than per-file handling
+        refreshNotesFromStorage().then(() => refreshNotesList());
+        // Handle active note if affected
+        const activeFilename = originalId ? `${originalId}.md` : null;
+        if (activeFilename) {
+          const activeEvent = unhandled.find(ev => ev.filename === activeFilename);
+          if (activeEvent) {
+            void handleSingleWatcherEvent(activeEvent);
+          }
+        }
+      }
+    }, 500);
+  }
+
+  async function handleSingleWatcherEvent(event: { type: 'add' | 'change' | 'unlink'; filename: string }): Promise<void> {
     const { type, filename } = event;
     if (!filename.endsWith('.md')) return;
     if (isRecentSyncWrite(filename)) return;
@@ -1416,6 +1506,14 @@ Escaped pipes:
       flushPendingSave: flushSave,
       onSupersearchReady: () => { void checkSupersearchArtifacts(true); },
       shouldDeferSync: () => saveTimeout !== null || saveInFlight !== null || saveQueued || Boolean(editor?.isComposing?.()) || Boolean(editor?.hasFocus()),
+      onSyncStateChange: (active) => {
+        syncWriteActive = active;
+        if (active) {
+          if (syncStatusClearTimer !== null) { clearTimeout(syncStatusClearTimer); syncStatusClearTimer = null; }
+          syncStatusMessage = 'Syncing...';
+        }
+        if (!active) drainPostSyncWatcherBatch();
+      },
     });
 
     // Desktop sidebar: load persisted width
@@ -1444,7 +1542,7 @@ Escaped pipes:
         }));
 
         cleanupNativeListeners.push(onFileChange((event) => {
-          void handleNativeFileChangeEvent(event);
+          enqueueWatcherEvent(event);
         }));
       });
     }
@@ -1471,6 +1569,18 @@ Escaped pipes:
       if (externalRescanTimer !== null) {
         clearTimeout(externalRescanTimer);
         externalRescanTimer = null;
+      }
+      if (watcherBatchTimer !== null) {
+        clearTimeout(watcherBatchTimer);
+        watcherBatchTimer = null;
+      }
+      if (postSyncBatchTimer !== null) {
+        clearTimeout(postSyncBatchTimer);
+        postSyncBatchTimer = null;
+      }
+      if (syncStatusClearTimer !== null) {
+        clearTimeout(syncStatusClearTimer);
+        syncStatusClearTimer = null;
       }
       cleanupNativeListeners.forEach((cleanup) => cleanup());
       window.removeEventListener('keydown', handleGlobalShortcut);
@@ -1501,7 +1611,7 @@ Escaped pipes:
     };
     win.__notesShellTest = {
       handleSyncComplete,
-      handleFileChange: handleNativeFileChangeEvent,
+      handleFileChange: handleSingleWatcherEvent,
       seedOpenNote: (id: string, body: string) => {
         originalId = id;
         title = id;
@@ -1666,6 +1776,16 @@ Escaped pipes:
         </svg>
       </button>
     </div>
+    {#if syncStatusMessage}
+      <div class="sync-status-banner">
+        {#if syncStatusMessage === 'Syncing...'}
+          <svg class="sync-spinner" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+          </svg>
+        {/if}
+        {syncStatusMessage}
+      </div>
+    {/if}
     {#if sidebarView === 'tags'}
       <SidebarTagView
         {notes}
