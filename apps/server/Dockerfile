@@ -39,7 +39,6 @@ COPY --from=builder /app/node_modules/ node_modules/
 COPY --from=builder /app/packages/shared/ packages/shared/
 COPY --from=builder /app/apps/server/package.json apps/server/
 COPY --from=builder /app/apps/server/dist/ apps/server/dist/
-COPY --from=builder /app/apps/server/builtin-plugins/ apps/server/builtin-plugins/
 
 EXPOSE 3005
 WORKDIR /app/apps/server
