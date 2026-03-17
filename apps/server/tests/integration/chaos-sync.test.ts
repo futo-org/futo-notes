@@ -4,6 +4,19 @@ import { contentHash } from '../../src/sync/hash.js';
 import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 
+/**
+ * Build an inventory array from a list of note descriptors.
+ * Each descriptor must include uuid, filename, content_hash, and modified_at.
+ */
+function inv(notes: Array<{ uuid: string; filename: string; content_hash: string; modified_at: number }>) {
+  return notes.map(({ uuid, filename, content_hash, modified_at }) => ({
+    uuid,
+    content_hash,
+    filename,
+    modified_at,
+  }));
+}
+
 describe('Chaos sync tests', () => {
   let env: TestEnv;
   let token: string;
@@ -25,6 +38,7 @@ describe('Chaos sync tests', () => {
     // stale hash but new content.
     const original = 'original content';
     const originalHash = contentHash(original);
+    const now = Date.now();
 
     // First sync: upload the note
     await authReq(env.app, 'POST', '/sync', token, {
@@ -32,13 +46,13 @@ describe('Chaos sync tests', () => {
         {
           uuid: 'uuid-1',
           filename: 'test8.md',
-          modified_at: Date.now(),
+          modified_at: now,
           content_hash: originalHash,
           hash_at_last_sync: '',
           content: original,
         },
       ],
-      all_uuids: ['uuid-1'],
+      inventory: inv([{ uuid: 'uuid-1', filename: 'test8.md', content_hash: originalHash, modified_at: now }]),
       deleted_uuids: [],
     });
 
@@ -52,13 +66,13 @@ describe('Chaos sync tests', () => {
         {
           uuid: 'uuid-1',
           filename: 'test8.md',
-          modified_at: Date.now(),
+          modified_at: now + 1,
           content_hash: originalHash, // claiming unchanged
           hash_at_last_sync: originalHash, // matching — no-change path
           content: 'sneaky new content', // but including different content!
         },
       ],
-      all_uuids: ['uuid-1'],
+      inventory: inv([{ uuid: 'uuid-1', filename: 'test8.md', content_hash: originalHash, modified_at: now + 1 }]),
       deleted_uuids: [],
     });
 
@@ -73,19 +87,20 @@ describe('Chaos sync tests', () => {
   it('Test 9: client sends wrong content_hash for NEW note — server recomputes', async () => {
     const realContent = 'hello world';
     const realHash = contentHash(realContent);
+    const now = Date.now();
 
     const res = await authReq(env.app, 'POST', '/sync', token, {
       notes: [
         {
           uuid: 'uuid-9',
           filename: 'test9.md',
-          modified_at: Date.now(),
+          modified_at: now,
           content_hash: 'wrong_hash_value', // deliberate lie
           hash_at_last_sync: '',
           content: realContent,
         },
       ],
-      all_uuids: ['uuid-9'],
+      inventory: inv([{ uuid: 'uuid-9', filename: 'test9.md', content_hash: 'wrong_hash_value', modified_at: now }]),
       deleted_uuids: [],
     });
 
@@ -103,6 +118,7 @@ describe('Chaos sync tests', () => {
   it('Test 10: client claims changed but content matches server — idempotent write', async () => {
     const content = 'stable content';
     const realHash = contentHash(content);
+    const now = Date.now();
 
     // First sync: upload the note
     await authReq(env.app, 'POST', '/sync', token, {
@@ -110,13 +126,13 @@ describe('Chaos sync tests', () => {
         {
           uuid: 'uuid-10',
           filename: 'test10.md',
-          modified_at: Date.now(),
+          modified_at: now,
           content_hash: realHash,
           hash_at_last_sync: '',
           content,
         },
       ],
-      all_uuids: ['uuid-10'],
+      inventory: inv([{ uuid: 'uuid-10', filename: 'test10.md', content_hash: realHash, modified_at: now }]),
       deleted_uuids: [],
     });
 
@@ -126,13 +142,13 @@ describe('Chaos sync tests', () => {
         {
           uuid: 'uuid-10',
           filename: 'test10.md',
-          modified_at: Date.now(),
+          modified_at: now + 1,
           content_hash: realHash,
           hash_at_last_sync: 'fake_old_hash', // lies about last sync hash
           content, // but content is actually the same
         },
       ],
-      all_uuids: ['uuid-10'],
+      inventory: inv([{ uuid: 'uuid-10', filename: 'test10.md', content_hash: realHash, modified_at: now + 1 }]),
       deleted_uuids: [],
     });
 
@@ -151,6 +167,7 @@ describe('Chaos sync tests', () => {
     const hash1 = contentHash(content1);
     const content2 = 'second version';
     const hash2 = contentHash(content2);
+    const now = Date.now();
 
     let res: Response;
     try {
@@ -159,7 +176,7 @@ describe('Chaos sync tests', () => {
           {
             uuid: 'uuid-dup',
             filename: 'duplicate.md',
-            modified_at: Date.now(),
+            modified_at: now,
             content_hash: hash1,
             hash_at_last_sync: '',
             content: content1,
@@ -167,13 +184,13 @@ describe('Chaos sync tests', () => {
           {
             uuid: 'uuid-dup',
             filename: 'duplicate.md',
-            modified_at: Date.now() + 1,
+            modified_at: now + 1,
             content_hash: hash2,
             hash_at_last_sync: '',
             content: content2,
           },
         ],
-        all_uuids: ['uuid-dup'],
+        inventory: inv([{ uuid: 'uuid-dup', filename: 'duplicate.md', content_hash: hash2, modified_at: now + 1 }]),
         deleted_uuids: [],
       });
     } catch (e) {
@@ -198,19 +215,20 @@ describe('Chaos sync tests', () => {
   it('Test 12: UUID in both notes[] and deleted_uuids — deletion should win', async () => {
     const content = 'will be deleted';
     const hash = contentHash(content);
+    const now = Date.now();
 
     const res = await authReq(env.app, 'POST', '/sync', token, {
       notes: [
         {
           uuid: 'uuid-conflict',
           filename: 'conflicted.md',
-          modified_at: Date.now(),
+          modified_at: now,
           content_hash: hash,
           hash_at_last_sync: '',
           content,
         },
       ],
-      all_uuids: ['uuid-conflict'],
+      inventory: inv([{ uuid: 'uuid-conflict', filename: 'conflicted.md', content_hash: hash, modified_at: now }]),
       deleted_uuids: ['uuid-conflict'], // also requesting deletion
     });
 
@@ -231,6 +249,7 @@ describe('Chaos sync tests', () => {
   it('Test 13: tombstone resurrection — server should reject re-created note', async () => {
     const content = 'ephemeral note';
     const hash = contentHash(content);
+    const now = Date.now();
 
     // Step 1: Create the note
     await authReq(env.app, 'POST', '/sync', token, {
@@ -238,20 +257,20 @@ describe('Chaos sync tests', () => {
         {
           uuid: 'uuid-tomb',
           filename: 'tomb.md',
-          modified_at: Date.now(),
+          modified_at: now,
           content_hash: hash,
           hash_at_last_sync: '',
           content,
         },
       ],
-      all_uuids: ['uuid-tomb'],
+      inventory: inv([{ uuid: 'uuid-tomb', filename: 'tomb.md', content_hash: hash, modified_at: now }]),
       deleted_uuids: [],
     });
 
     // Step 2: Delete the note (creates tombstone)
     await authReq(env.app, 'POST', '/sync', token, {
       notes: [],
-      all_uuids: [],
+      inventory: [],
       deleted_uuids: ['uuid-tomb'],
     });
 
@@ -263,13 +282,13 @@ describe('Chaos sync tests', () => {
         {
           uuid: 'uuid-tomb',
           filename: 'tomb.md',
-          modified_at: Date.now(),
+          modified_at: now + 1,
           content_hash: newHash,
           hash_at_last_sync: '',
           content: newContent,
         },
       ],
-      all_uuids: ['uuid-tomb'],
+      inventory: inv([{ uuid: 'uuid-tomb', filename: 'tomb.md', content_hash: newHash, modified_at: now + 1 }]),
       deleted_uuids: [],
     });
 
@@ -302,7 +321,7 @@ describe('Chaos sync tests', () => {
           content,
         },
       ],
-      all_uuids: ['uuid-future'],
+      inventory: inv([{ uuid: 'uuid-future', filename: 'future.md', content_hash: hash, modified_at: Number.MAX_SAFE_INTEGER }]),
       deleted_uuids: [],
     });
 
@@ -311,17 +330,18 @@ describe('Chaos sync tests', () => {
     // Now simulate another client trying to rename with a normal timestamp
     // Since hashes match and the far-future note has an astronomically high
     // modified_at, the "other client" rename with a normal timestamp should lose.
+    const now = Date.now();
     const res2 = await authReq(env.app, 'POST', '/sync', token, {
       notes: [
         {
           uuid: 'uuid-future',
           filename: 'renamed-by-normal-client.md',
-          modified_at: Date.now(), // normal timestamp, far less than MAX_SAFE_INTEGER
+          modified_at: now, // normal timestamp, far less than MAX_SAFE_INTEGER
           content_hash: hash,
           hash_at_last_sync: hash,
         },
       ],
-      all_uuids: ['uuid-future'],
+      inventory: inv([{ uuid: 'uuid-future', filename: 'renamed-by-normal-client.md', content_hash: hash, modified_at: now }]),
       deleted_uuids: [],
     });
 
@@ -349,7 +369,7 @@ describe('Chaos sync tests', () => {
           content,
         },
       ],
-      all_uuids: ['uuid-neg'],
+      inventory: inv([{ uuid: 'uuid-neg', filename: 'negative.md', content_hash: hash, modified_at: -1 }]),
       deleted_uuids: [],
     });
 
@@ -362,7 +382,7 @@ describe('Chaos sync tests', () => {
     // Verify it can be synced back by another client
     const res2 = await authReq(env.app, 'POST', '/sync', token, {
       notes: [],
-      all_uuids: [],
+      inventory: [],
       deleted_uuids: [],
     });
 
@@ -379,19 +399,20 @@ describe('Chaos sync tests', () => {
     const chunk = 'x'.repeat(1024); // 1KB
     const bigContent = chunk.repeat(10 * 1024); // ~10MB
     const hash = contentHash(bigContent);
+    const now = Date.now();
 
     const res = await authReq(env.app, 'POST', '/sync', token, {
       notes: [
         {
           uuid: 'uuid-big',
           filename: 'big note.md',
-          modified_at: Date.now(),
+          modified_at: now,
           content_hash: hash,
           hash_at_last_sync: '',
           content: bigContent,
         },
       ],
-      all_uuids: ['uuid-big'],
+      inventory: inv([{ uuid: 'uuid-big', filename: 'big note.md', content_hash: hash, modified_at: now }]),
       deleted_uuids: [],
     });
 
@@ -405,7 +426,7 @@ describe('Chaos sync tests', () => {
     // Verify it can be retrieved
     const res2 = await authReq(env.app, 'POST', '/sync', token, {
       notes: [],
-      all_uuids: [],
+      inventory: [],
       deleted_uuids: [],
     });
 
@@ -417,25 +438,27 @@ describe('Chaos sync tests', () => {
 
   it('Test 17: 1000 notes with empty content — all stored', async () => {
     const notes = [];
-    const allUuids = [];
+    const inventoryItems = [];
+    const now = Date.now();
+    const emptyHash = contentHash('');
 
     for (let i = 0; i < 1000; i++) {
       const uuid = `uuid-mass-${i}`;
       const filename = `mass note ${i}.md`;
-      allUuids.push(uuid);
       notes.push({
         uuid,
         filename,
-        modified_at: Date.now(),
-        content_hash: contentHash(''),
+        modified_at: now,
+        content_hash: emptyHash,
         hash_at_last_sync: '',
         content: '',
       });
+      inventoryItems.push({ uuid, filename, content_hash: emptyHash, modified_at: now });
     }
 
     const res = await authReq(env.app, 'POST', '/sync', token, {
       notes,
-      all_uuids: allUuids,
+      inventory: inv(inventoryItems),
       deleted_uuids: [],
     });
 
@@ -456,18 +479,19 @@ describe('Chaos sync tests', () => {
     // First, upload a legitimate note so the server has something
     const content = 'legit note';
     const hash = contentHash(content);
+    const now = Date.now();
     await authReq(env.app, 'POST', '/sync', token, {
       notes: [
         {
           uuid: 'uuid-legit',
           filename: 'legit.md',
-          modified_at: Date.now(),
+          modified_at: now,
           content_hash: hash,
           hash_at_last_sync: '',
           content,
         },
       ],
-      all_uuids: ['uuid-legit'],
+      inventory: inv([{ uuid: 'uuid-legit', filename: 'legit.md', content_hash: hash, modified_at: now }]),
       deleted_uuids: [],
     });
 
@@ -481,7 +505,7 @@ describe('Chaos sync tests', () => {
           uuid: 'uuid-traversal',
           content_hash: 'somehash',
           filename: '../../../etc/passwd.md',
-          modified_at: Date.now(),
+          modified_at: now,
         },
       ],
       deleted_uuids: [],
@@ -501,6 +525,7 @@ describe('Chaos sync tests', () => {
   it('Test 19: filename that is just spaces — sanitized to Untitled', async () => {
     const content1 = 'space note 1';
     const hash1 = contentHash(content1);
+    const now = Date.now();
 
     // Send a note with filename that is just spaces + .md
     // validateTitle("   ") would flag as 'empty', so the route should reject.
@@ -511,13 +536,13 @@ describe('Chaos sync tests', () => {
         {
           uuid: 'uuid-space1',
           filename: '   .md',
-          modified_at: Date.now(),
+          modified_at: now,
           content_hash: hash1,
           hash_at_last_sync: '',
           content: content1,
         },
       ],
-      all_uuids: ['uuid-space1'],
+      inventory: inv([{ uuid: 'uuid-space1', filename: '   .md', content_hash: hash1, modified_at: now }]),
       deleted_uuids: [],
     });
 
@@ -544,13 +569,16 @@ describe('Chaos sync tests', () => {
         {
           uuid: 'uuid-space2',
           filename: '   .md',
-          modified_at: Date.now(),
+          modified_at: now + 1,
           content_hash: hash2,
           hash_at_last_sync: '',
           content: content2,
         },
       ],
-      all_uuids: ['uuid-space1', 'uuid-space2'],
+      inventory: inv([
+        { uuid: 'uuid-space1', filename: '   .md', content_hash: hash1, modified_at: now },
+        { uuid: 'uuid-space2', filename: '   .md', content_hash: hash2, modified_at: now + 1 },
+      ]),
       deleted_uuids: [],
     });
 

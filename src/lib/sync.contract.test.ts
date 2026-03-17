@@ -536,20 +536,20 @@ describe('multi-client rename convergence', () => {
     await clientB.syncState.clearSyncState();
     await clientB.sync.connectSyncServer('http://localhost', 'testpassword123');
 
-    // First sync re-uploads the same markdown file under a fresh UUID.
+    // Client B re-uploads the same markdown file under a fresh UUID.
+    // The server's content-aware dedup detects matching filename + content hash,
+    // tombstones the new UUID, and sends back the original note so the client
+    // re-adopts the original UUID. No duplicate is created.
     const s3 = await clientB.sync.syncNow();
-    expect(s3.uploaded).toBe(1);
+    expect(s3.uploaded).toBe(0);
     expect(s3.downloaded).toBe(1);
     expect(clientB.notes.getAllNotes().map((note) => note.id)).toEqual(['shared-note']);
 
-    // Other devices converge to the same duplicate set on their next sync.
+    // Client A sees no new notes — dedup prevented the duplicate.
     setActiveFS(fsA);
     const s4 = await clientA.sync.syncNow();
-    expect(s4.downloaded).toBe(1);
-    expect(clientA.notes.getAllNotes().map((note) => note.id).sort()).toEqual([
-      'shared-note',
-      'shared-note (2)',
-    ]);
+    expect(s4.downloaded).toBe(0);
+    expect(clientA.notes.getAllNotes().map((note) => note.id)).toEqual(['shared-note']);
 
   });
 });
