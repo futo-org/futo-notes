@@ -1,5 +1,5 @@
-import type { PluginNoteMeta } from '../types.js';
-import type { BuiltinPlugin, PluginRunContext } from '../types.js';
+import type { BuiltinPlugin, PluginNoteMeta, PluginRunContext } from '../types.js';
+import { UNTITLED_FILENAME_RE } from '../configHelpers.js';
 import {
   appendToFirstRegularListBlock,
   buildInsertedListText,
@@ -7,7 +7,6 @@ import {
   qualifiesAsListNote,
 } from '../listNotes.js';
 
-const UNTITLED_RE = /^Untitled(?: \(\d+\))?\.md$/;
 const FALLBACK_LIST_TITLE = 'Inbox';
 
 interface ListNoteCandidate {
@@ -423,7 +422,7 @@ export const quickCaptureToListPlugin: BuiltinPlugin = {
     const untitledNotes = (await context.sdk.findNotes({
       filenameGlob: 'Untitled*.md',
       sort: 'modified_asc',
-    })).filter((note) => UNTITLED_RE.test(note.filename));
+    })).filter((note) => UNTITLED_FILENAME_RE.test(note.filename));
 
     let proposalsCreated = 0;
     let notesSkipped = 0;

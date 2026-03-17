@@ -6,13 +6,13 @@ import * as esbuild from 'esbuild';
 import type Database from 'better-sqlite3';
 import type { Config } from '../config.js';
 import type { BuiltinPlugin, PluginConfigField, PluginInstallRow, PluginRegistration } from './types.js';
+import { isTagDefinitionList } from './configHelpers.js';
 import {
   listBuiltinPlugins,
   resetLocalPluginRegistrations,
   removeLocalPluginRegistration,
   upsertLocalPluginRegistration,
 } from './registry.js';
-import type { PluginTagDefinition } from './types.js';
 
 const SOURCE_FILENAME = 'source.ts';
 const COMPILED_FILENAME = 'index.mjs';
@@ -60,14 +60,6 @@ function toRegistration(install: PluginInstallRow, plugin: BuiltinPlugin, loadEr
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function isTagDefinitionList(value: unknown): value is PluginTagDefinition[] {
-  return Array.isArray(value) && value.every((item) => (
-    isRecord(item)
-    && typeof item.name === 'string'
-    && typeof item.description === 'string'
-  ));
 }
 
 function normalizeConfigSchema(pluginId: string, value: unknown): PluginConfigField[] {

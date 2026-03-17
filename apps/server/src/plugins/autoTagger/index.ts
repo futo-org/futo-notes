@@ -1,5 +1,6 @@
 import { extractTags, extractHeaderTagBlock } from '@futo-notes/shared';
 import type { BuiltinPlugin, PluginRunContext, PluginNoteMeta, PluginTagDefinition } from '../types.js';
+import { getNumber, isTagDefinitionList, parseLenientJson, UNTITLED_TITLE_RE } from '../configHelpers.js';
 
 interface AutoTaggerState {
   contentHash: string;
@@ -22,20 +23,6 @@ const MAX_CONSECUTIVE_LLM_FAILURES = 3;
 const DEFAULT_MAX_EXAMPLES_PER_TAG = 3;
 const MIN_SNIPPET_LENGTH = 20;
 const MAX_SNIPPET_CHARS = 200;
-
-function getNumber(config: Record<string, unknown>, key: string, fallback: number): number {
-  const value = config[key];
-  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
-}
-
-function isTagDefinitionList(value: unknown): value is PluginTagDefinition[] {
-  return Array.isArray(value) && value.every((item) => (
-    typeof item === 'object'
-    && item !== null
-    && typeof (item as { name?: unknown }).name === 'string'
-    && typeof (item as { description?: unknown }).description === 'string'
-  ));
-}
 
 function parseLegacyTagDefinitions(raw: string): PluginTagDefinition[] {
   if (!raw.trim()) return [];
@@ -145,21 +132,7 @@ function parseLlmTagResult(raw: string, tagDefinitions: PluginTagDefinition[]): 
     return Array.from(match[1].matchAll(/"([^"]+)"/g)).map((entry) => entry[1]);
   };
 
-  const parseJson = (text: string): unknown => {
-    try {
-      return JSON.parse(text);
-    } catch {
-      const match = text.match(/\{[\s\S]*\}/);
-      if (!match) return null;
-      try {
-        return JSON.parse(match[0]);
-      } catch {
-        return null;
-      }
-    }
-  };
-
-  const parsed = parseJson(raw);
+  const parsed = parseLenientJson(raw);
   if (!parsed || typeof parsed !== 'object') return null;
 
   const validTagNames = new Set(tagDefinitions.map((definition) => definition.name.toLowerCase()));
@@ -334,7 +307,7 @@ export const autoTaggerPlugin: BuiltinPlugin = {
     const noteData: Array<{ note: PluginNoteMeta; content: string; existingTags: string[] }> = [];
 
     for (const note of allNotes) {
-      if (/^Untitled(?: \(\d+\))?$/.test(note.title)) continue;
+      if (UNTITLED_TITLE_RE.test(note.title)) continue;
 
       const content = await context.sdk.readNoteContent(note.uuid);
       if (!content || content.trim().length < 20) continue;

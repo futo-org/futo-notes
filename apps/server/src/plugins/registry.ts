@@ -10,6 +10,21 @@ const BUILTIN_PLUGINS: BuiltinPlugin[] = [
 ];
 const LOCAL_PLUGIN_REGISTRATIONS = new Map<string, PluginRegistration>();
 
+function toBuiltinRegistration(plugin: BuiltinPlugin): PluginRegistration {
+  return {
+    plugin,
+    sourceKind: 'builtin',
+    sourceLabel: 'Built-in',
+    sourcePath: null,
+    compiledPath: null,
+    loadStatus: 'ready',
+    loadError: null,
+    canEdit: false,
+    canDelete: false,
+    updatedAt: null,
+  };
+}
+
 export function listBuiltinPlugins(): BuiltinPlugin[] {
   return BUILTIN_PLUGINS;
 }
@@ -19,19 +34,7 @@ export function getBuiltinPlugin(pluginId: string): BuiltinPlugin | undefined {
 }
 
 export function listPluginRegistrations(): PluginRegistration[] {
-  const builtins = BUILTIN_PLUGINS.map((plugin) => ({
-    plugin,
-    sourceKind: 'builtin' as const,
-    sourceLabel: 'Built-in',
-    sourcePath: null,
-    compiledPath: null,
-    loadStatus: 'ready' as const,
-    loadError: null,
-    canEdit: false,
-    canDelete: false,
-    updatedAt: null,
-  }));
-
+  const builtins = BUILTIN_PLUGINS.map(toBuiltinRegistration);
   const locals = Array.from(LOCAL_PLUGIN_REGISTRATIONS.values())
     .sort((a, b) => a.plugin.name.localeCompare(b.plugin.name) || a.plugin.id.localeCompare(b.plugin.id));
   return [...builtins, ...locals];
@@ -48,18 +51,7 @@ export function getPlugin(pluginId: string): BuiltinPlugin | undefined {
 export function getPluginRegistration(pluginId: string): PluginRegistration | undefined {
   const builtin = getBuiltinPlugin(pluginId);
   if (builtin) {
-    return {
-      plugin: builtin,
-      sourceKind: 'builtin',
-      sourceLabel: 'Built-in',
-      sourcePath: null,
-      compiledPath: null,
-      loadStatus: 'ready',
-      loadError: null,
-      canEdit: false,
-      canDelete: false,
-      updatedAt: null,
-    };
+    return toBuiltinRegistration(builtin);
   }
   return LOCAL_PLUGIN_REGISTRATIONS.get(pluginId);
 }

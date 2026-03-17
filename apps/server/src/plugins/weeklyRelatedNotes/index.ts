@@ -1,4 +1,5 @@
 import type { BuiltinPlugin, PluginNoteMeta, PluginRunContext } from '../types.js';
+import { getBoolean, getNumber, getString, parseLenientJson } from '../configHelpers.js';
 import { findHeadingSection } from '../managedBlocks.js';
 
 const DEFAULT_WEEKLY_REGEX = '^(This week \\(|[Ww]eek of ).*\\.md$';
@@ -17,9 +18,9 @@ const PHRASE_BOOSTS = [
 const STOPWORDS = new Set([
   'the', 'and', 'that', 'this', 'with', 'from', 'have', 'what', 'when', 'your', 'into', 'they', 'them', 'then',
   'there', 'their', 'would', 'could', 'should', 'about', 'after', 'before', 'while', 'through', 'because', 'just',
-  'still', 'also', 'really', 'maybe', 'notes', 'note', 'week', 'file', 'files', 'this', 'that', 'have', 'been',
+  'still', 'also', 'really', 'maybe', 'notes', 'note', 'week', 'file', 'files', 'been',
   'more', 'than', 'some', 'over', 'under', 'like', 'want', 'cool', 'good', 'better', 'make', 'made', 'does', 'did',
-  'done', 'were', 'will', 'much', 'very', 'than', 'need', 'using', 'used', 'being', 'into', 'only', 'same', 'look',
+  'done', 'were', 'will', 'much', 'very', 'need', 'using', 'used', 'being', 'only', 'same', 'look',
   'back', 'here', 'idea', 'ideas', 'going', 'think', 'thats', 'it', 'its',
 ]);
 
@@ -66,21 +67,6 @@ function resolveAnchorTimestamp(note: PluginNoteMeta): number {
 
   const createdAt = Date.parse(note.createdAt);
   return Number.isNaN(createdAt) ? note.modifiedAt : createdAt;
-}
-
-function getNumber(config: Record<string, unknown>, key: string, fallback: number): number {
-  const value = config[key];
-  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
-}
-
-function getString(config: Record<string, unknown>, key: string, fallback: string): string {
-  const value = config[key];
-  return typeof value === 'string' && value.trim().length > 0 ? value : fallback;
-}
-
-function getBoolean(config: Record<string, unknown>, key: string, fallback: boolean): boolean {
-  const value = config[key];
-  return typeof value === 'boolean' ? value : fallback;
 }
 
 function tokenize(text: string): string[] {
@@ -143,21 +129,7 @@ function parseSelection(
   targetText: string,
 ): RankedLink[] {
   const byId = new Map(candidates.map((candidate, index) => [`c${index + 1}`, candidate]));
-  const parseJson = (text: string): unknown => {
-    try {
-      return JSON.parse(text);
-    } catch {
-      const match = text.match(/\{[\s\S]*\}/);
-      if (!match) return null;
-      try {
-        return JSON.parse(match[0]);
-      } catch {
-        return null;
-      }
-    }
-  };
-
-  const parsed = parseJson(raw) as { links?: Array<{ candidateId?: string; reason?: string }> } | null;
+  const parsed = parseLenientJson(raw) as { links?: Array<{ candidateId?: string; reason?: string }> } | null;
   const chosen: RankedLink[] = [];
   const seen = new Set<string>();
 

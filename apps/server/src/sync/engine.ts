@@ -75,6 +75,7 @@ export function processSync(
   let mutated = false;
 
   const clientUuidSet = new Set(req.inventory.map((i) => i.uuid));
+  const deletedUuidSet = new Set(req.deleted_uuids);
 
   // Also include UUIDs from notes[] that might not be in inventory
   for (const note of req.notes) {
@@ -82,6 +83,11 @@ export function processSync(
   }
 
   let version = 0;
+
+  // Prepared statements for tag indexing — hoisted outside the transaction
+  // to avoid recompiling on every call to indexNoteTags
+  const deleteTagsStmt = db.prepare('DELETE FROM note_tags WHERE uuid = ?');
+  const insertTagStmt = db.prepare('INSERT OR IGNORE INTO note_tags (uuid, tag) VALUES (?, ?)');
 
   const run = db.transaction(() => {
     // Phase 2: Bulk load everything into memory (2 queries instead of ~6000)
@@ -116,11 +122,10 @@ export function processSync(
 
     function indexNoteTags(uuid: string, content: string): void {
       const tags = extractTags(content);
-      db.prepare('DELETE FROM note_tags WHERE uuid = ?').run(uuid);
+      deleteTagsStmt.run(uuid);
       if (tags.length > 0) {
-        const insert = db.prepare('INSERT OR IGNORE INTO note_tags (uuid, tag) VALUES (?, ?)');
         for (const tag of tags) {
-          insert.run(uuid, tag.toLowerCase().replace(/^#/, ''));
+          insertTagStmt.run(uuid, tag.toLowerCase().replace(/^#/, ''));
         }
       }
     }
@@ -161,7 +166,7 @@ export function processSync(
 
     for (const clientNote of req.notes) {
       // Skip if we just tombstoned it
-      if (req.deleted_uuids.includes(clientNote.uuid)) continue;
+      if (deletedUuidSet.has(clientNote.uuid)) continue;
 
       // If tombstoned on server, tell client to delete
       if (tombstoneSet.has(clientNote.uuid)) {
@@ -311,7 +316,7 @@ export function processSync(
       // Skip if already processed as a note with content
       if (notesUuidSet.has(item.uuid)) continue;
       // Skip if in deleted_uuids
-      if (req.deleted_uuids.includes(item.uuid)) continue;
+      if (deletedUuidSet.has(item.uuid)) continue;
       // Skip if tombstoned (already handled in section 2)
       if (tombstoneSet.has(item.uuid)) continue;
 
@@ -362,11 +367,9 @@ export function processSync(
     }
 
     // ── 4. Server-only notes ─────────────────────────────
-    const deletedUuids = new Set(req.deleted_uuids);
-
     for (const [uuid, serverNote] of allNotes) {
       if (clientUuidSet.has(uuid)) continue;
-      if (deletedUuids.has(uuid)) continue;
+      if (deletedUuidSet.has(uuid)) continue;
 
       const content = readNoteFile(notesDir, serverNote.filename);
       if (content !== null) {
@@ -392,7 +395,7 @@ export function processSync(
   run();
 
   log.info(
-    `SYNC v${version} ↑${response.update.length} downloaded, ↓${req.notes.filter((n) => !req.deleted_uuids.includes(n.uuid)).length} received, ✗${response.conflicts.length} conflicts, 🗑${response.delete.length} deleted`,
+    `SYNC v${version} ↑${response.update.length} downloaded, ↓${req.notes.filter((n) => !deletedUuidSet.has(n.uuid)).length} received, ✗${response.conflicts.length} conflicts, 🗑${response.delete.length} deleted`,
   );
 
   for (const u of response.update) {

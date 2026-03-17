@@ -12,6 +12,7 @@ import {
 } from './managedBlocks.js';
 import { contentHash } from '../sync/hash.js';
 import { deleteNoteFile, readNoteFile, resolveFilename, sanitizeFilename, writeNoteFile } from '../sync/files.js';
+import { UNTITLED_FILENAME_RE } from './configHelpers.js';
 import type {
   MergeNoteIntoListInput,
   PluginFindNotesFilter,
@@ -139,7 +140,7 @@ export function createPluginSdk(
       const result: PluginNoteMeta[] = [];
       for (const row of rows) {
         if (opts?.excludeUuid && row.uuid === opts.excludeUuid) continue;
-        if (opts?.excludeUntitled && /^Untitled(?: \(\d+\))?\.md$/.test(row.filename)) continue;
+        if (opts?.excludeUntitled && UNTITLED_FILENAME_RE.test(row.filename)) continue;
         result.push(toPluginNoteMeta(row));
         if (result.length >= limit) break;
       }

@@ -5,6 +5,7 @@ import type { Config } from './config.js';
 import { createPluginTables } from './db/pluginSchema.js';
 import { createSearchTables } from './db/searchSchema.js';
 import { createTables } from './db/schema.js';
+import { tableExists } from './db/utils.js';
 import { removeAllClients } from './events.js';
 import { log } from './logger.js';
 
@@ -13,13 +14,6 @@ export interface ResetServerResult {
   notes_deleted: number;
   sessions_revoked: number;
   setup_cleared: true;
-}
-
-function tableExists(db: Database.Database, tableName: string): boolean {
-  const row = db.prepare(
-    `SELECT 1 as found FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1`,
-  ).get(tableName) as { found: number } | undefined;
-  return row !== undefined;
 }
 
 function getCount(db: Database.Database, tableName: string): number {

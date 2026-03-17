@@ -1,14 +1,8 @@
 import type Database from 'better-sqlite3';
 import { log } from '../logger.js';
+import { tableExists } from './utils.js';
 
 let initializedDbs = new WeakSet<Database.Database>();
-
-function hasSearchVectorsTable(db: Database.Database): boolean {
-  const row = db.prepare(
-    `SELECT 1 as found FROM sqlite_master WHERE type = 'table' AND name = 'search_vectors' LIMIT 1`,
-  ).get() as { found: number } | undefined;
-  return row !== undefined;
-}
 
 /**
  * Initialize the vector DB by loading the sqlite-vec extension
@@ -22,7 +16,7 @@ export async function initVectorDb(db: Database.Database, dims: number): Promise
     initializedDbs.add(db);
   }
 
-  if (!hasSearchVectorsTable(db)) {
+  if (!tableExists(db, 'search_vectors')) {
     db.exec(`
       CREATE VIRTUAL TABLE IF NOT EXISTS search_vectors USING vec0(
         chunk_id INTEGER PRIMARY KEY,
