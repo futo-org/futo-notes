@@ -92,7 +92,7 @@ async function performSync(trigger: SyncTrigger, options: PerformSyncOptions = {
 
 export function notifySaved(): void {
   if (!callbacks || !isSyncConfigured()) return;
-  performSync('local-save');
+  void performSync('local-save');
 }
 
 /** Block all auto-sync and manual sync from starting. */
@@ -119,7 +119,7 @@ export async function requestSync(): Promise<void> {
 function handleResume(): void {
   if (!isSyncConfigured()) return;
   if (Date.now() - lastSyncTime < RESUME_COOLDOWN) return;
-  performSync('resume');
+  void performSync('resume');
 }
 
 function handleSSENotification(): void {
@@ -132,7 +132,7 @@ function handleSSENotification(): void {
     : SSE_SYNC_DEBOUNCE;
   sseDebounceTimer = window.setTimeout(() => {
     sseDebounceTimer = null;
-    performSync('sse');
+    void performSync('sse');
   }, delay);
 }
 

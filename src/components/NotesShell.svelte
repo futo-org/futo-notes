@@ -616,20 +616,21 @@ Escaped pipes:
   }
 
   function drainPostSyncWatcherBatch(): void {
-    postSyncBatchTimer = window.setTimeout(() => {
+    if (postSyncBatchTimer !== null) clearTimeout(postSyncBatchTimer);
+    postSyncBatchTimer = window.setTimeout(async () => {
       postSyncBatchTimer = null;
       // Filter out events that were caused by our own sync writes
       const unhandled = pendingWatcherEvents.filter(ev => !isRecentSyncWrite(ev.filename));
       pendingWatcherEvents = [];
       if (unhandled.length > 0) {
-        // Queue a single refresh rather than per-file handling
-        refreshNotesFromStorage().then(() => refreshNotesList());
+        await refreshNotesFromStorage();
+        refreshNotesList();
         // Handle active note if affected
         const activeFilename = originalId ? `${originalId}.md` : null;
         if (activeFilename) {
           const activeEvent = unhandled.find(ev => ev.filename === activeFilename);
           if (activeEvent) {
-            void handleSingleWatcherEvent(activeEvent);
+            await handleSingleWatcherEvent(activeEvent);
           }
         }
       }

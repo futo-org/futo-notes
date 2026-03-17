@@ -596,6 +596,163 @@ describe('V2 sync (inventory format)', () => {
   });
 });
 
+// ── Content-aware deduplication ───────────────────────────
+
+describe('content-aware dedup (server change / state clear)', () => {
+  let env: TestEnv;
+  let token: string;
+
+  beforeEach(async () => {
+    env = createTestEnv();
+    token = await setupAndLogin(env.app);
+  });
+
+  afterEach(() => {
+    env.cleanup();
+  });
+
+  it('deduplicates when new UUID has same filename and content as existing note', async () => {
+    const content = '# Groceries\n- Milk\n- Eggs';
+    const hash = contentHash(content);
+
+    // Client A uploads a note with uuid-old
+    await authReq(env.app, 'POST', '/sync', token, {
+      notes: [
+        {
+          uuid: 'uuid-old',
+          filename: 'groceries.md',
+          modified_at: Date.now(),
+          content_hash: hash,
+          hash_at_last_sync: '',
+          content,
+        },
+      ],
+      all_uuids: ['uuid-old'],
+      deleted_uuids: [],
+    });
+
+    // Client A clears sync state (server change) and re-uploads with uuid-new
+    const res = await authReq(env.app, 'POST', '/sync', token, {
+      notes: [
+        {
+          uuid: 'uuid-new',
+          filename: 'groceries.md',
+          modified_at: Date.now(),
+          content_hash: hash,
+          hash_at_last_sync: '',
+          content,
+        },
+      ],
+      all_uuids: ['uuid-new'],
+      deleted_uuids: [],
+    });
+
+    const data = await res.json();
+
+    // Server should tell client to delete uuid-new (it's a duplicate)
+    expect(data.delete).toContain('uuid-new');
+    // No hash_update for uuid-new (it was not stored)
+    expect(data.hash_updates.find((h: { uuid: string }) => h.uuid === 'uuid-new')).toBeUndefined();
+    // Server should send the existing note (uuid-old) as a server-only update
+    const existingUpdate = data.update.find((u: { uuid: string }) => u.uuid === 'uuid-old');
+    expect(existingUpdate).toBeDefined();
+    expect(existingUpdate.content).toBe(content);
+    expect(existingUpdate.filename).toBe('groceries.md');
+
+    // No "(2)" file should exist on disk
+    expect(readNoteFile(env.notesDir, 'groceries (2).md')).toBeNull();
+    // Original file still has original content
+    expect(readNoteFile(env.notesDir, 'groceries.md')).toBe(content);
+  });
+
+  it('does NOT dedup when content differs (genuine new note with same name)', async () => {
+    const contentA = '# Groceries v1';
+    const hashA = contentHash(contentA);
+
+    // Upload original note
+    await authReq(env.app, 'POST', '/sync', token, {
+      notes: [
+        {
+          uuid: 'uuid-old',
+          filename: 'groceries.md',
+          modified_at: Date.now(),
+          content_hash: hashA,
+          hash_at_last_sync: '',
+          content: contentA,
+        },
+      ],
+      all_uuids: ['uuid-old'],
+      deleted_uuids: [],
+    });
+
+    // Different content under new UUID — should NOT dedup
+    const contentB = '# Groceries v2 (different)';
+    const hashB = contentHash(contentB);
+    const res = await authReq(env.app, 'POST', '/sync', token, {
+      notes: [
+        {
+          uuid: 'uuid-new',
+          filename: 'groceries.md',
+          modified_at: Date.now(),
+          content_hash: hashB,
+          hash_at_last_sync: '',
+          content: contentB,
+        },
+      ],
+      all_uuids: ['uuid-new'],
+      deleted_uuids: [],
+    });
+
+    const data = await res.json();
+
+    // Should NOT delete uuid-new — it's a different note
+    expect(data.delete).not.toContain('uuid-new');
+    // Should get hash_update for uuid-new (stored as collision copy)
+    expect(data.hash_updates.find((h: { uuid: string }) => h.uuid === 'uuid-new')).toBeDefined();
+    // "(2)" file should exist
+    expect(readNoteFile(env.notesDir, 'groceries (2).md')).toBe(contentB);
+  });
+
+  it('deduplicates multiple notes in a single sync batch', async () => {
+    const content1 = 'note one';
+    const content2 = 'note two';
+    const hash1 = contentHash(content1);
+    const hash2 = contentHash(content2);
+
+    // Upload two notes with old UUIDs
+    await authReq(env.app, 'POST', '/sync', token, {
+      notes: [
+        { uuid: 'old-1', filename: 'one.md', modified_at: Date.now(), content_hash: hash1, hash_at_last_sync: '', content: content1 },
+        { uuid: 'old-2', filename: 'two.md', modified_at: Date.now(), content_hash: hash2, hash_at_last_sync: '', content: content2 },
+      ],
+      all_uuids: ['old-1', 'old-2'],
+      deleted_uuids: [],
+    });
+
+    // Re-upload both with new UUIDs (simulating state clear)
+    const res = await authReq(env.app, 'POST', '/sync', token, {
+      notes: [
+        { uuid: 'new-1', filename: 'one.md', modified_at: Date.now(), content_hash: hash1, hash_at_last_sync: '', content: content1 },
+        { uuid: 'new-2', filename: 'two.md', modified_at: Date.now(), content_hash: hash2, hash_at_last_sync: '', content: content2 },
+      ],
+      all_uuids: ['new-1', 'new-2'],
+      deleted_uuids: [],
+    });
+
+    const data = await res.json();
+
+    // Both new UUIDs should be deleted (deduped)
+    expect(data.delete).toContain('new-1');
+    expect(data.delete).toContain('new-2');
+    // Existing notes sent back as server-only updates
+    expect(data.update.find((u: { uuid: string }) => u.uuid === 'old-1')).toBeDefined();
+    expect(data.update.find((u: { uuid: string }) => u.uuid === 'old-2')).toBeDefined();
+    // No "(2)" files
+    expect(readNoteFile(env.notesDir, 'one (2).md')).toBeNull();
+    expect(readNoteFile(env.notesDir, 'two (2).md')).toBeNull();
+  });
+});
+
 // ── Sync optimization edge cases ──────────────────────────
 
 describe('sync optimization edge cases', () => {

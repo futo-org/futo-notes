@@ -182,12 +182,32 @@ export function processSync(
       const serverNote = allNotes.get(clientNote.uuid);
 
       if (!serverNote) {
-        // New note from client — store it
         const safeName = sanitizeFilename(clientNote.filename);
-        const finalName = resolveFilenameInMemory(filenameIndex, safeName, clientNote.uuid);
         const content = clientNote.content ?? '';
         const hash = contentHash(content);
 
+        // Content-aware dedup: if an existing note has the same filename AND
+        // content hash, this is a re-upload after sync state was cleared (e.g.
+        // server change or reset). Don't create a "(2)" duplicate — tombstone
+        // the client's new UUID and let the existing note be sent back via the
+        // server-only-notes path so the client adopts the original UUID.
+        const existingUuid = filenameIndex.get(safeName);
+        if (existingUuid) {
+          const existingNote = allNotes.get(existingUuid);
+          if (existingNote && existingNote.content_hash === hash) {
+            if (!tombstoneSet.has(clientNote.uuid)) {
+              createTombstone(db, clientNote.uuid);
+              tombstoneSet.add(clientNote.uuid);
+              mutated = true;
+            }
+            response.delete.push(clientNote.uuid);
+            log.debug(`  dedup: ${safeName} (${clientNote.uuid.slice(0, 8)} → ${existingUuid.slice(0, 8)})`);
+            continue;
+          }
+        }
+
+        // No dedup match — normal collision resolution
+        const finalName = resolveFilenameInMemory(filenameIndex, safeName, clientNote.uuid);
         writeNoteFile(notesDir, finalName, content, clientNote.modified_at);
         trackUpsert(clientNote.uuid, finalName, hash, clientNote.modified_at, content);
         response.hash_updates.push({ uuid: clientNote.uuid, hash_at_last_sync: hash });
