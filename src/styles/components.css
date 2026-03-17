@@ -4,6 +4,7 @@
 .notes-shell {
   position: absolute;
   inset: 0;
+  top: var(--titlebar-height, 0px);
   overflow: hidden;
   background: var(--color-bg);
   --drawer-width: min(320px, 85vw);

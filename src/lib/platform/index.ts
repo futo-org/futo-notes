@@ -23,6 +23,7 @@ function detectMobileDevice(): boolean {
 const tauriMobile = isTauri && detectMobileDevice();
 export const isDesktop = isTauri && !tauriMobile;
 export const isMobile = tauriMobile;
+export const isLinux = typeof navigator !== 'undefined' && /\blinux\b/i.test(navigator.userAgent);
 
 // Lazy-loaded platform filesystem implementation
 let _fs: PlatformFS | null = null;

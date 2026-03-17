@@ -1,7 +1,13 @@
 <script lang="ts">
   import NotesShell from './components/NotesShell.svelte';
+  import TitleBar from './components/TitleBar.svelte';
   import CrashReportDialog from './components/CrashReportDialog.svelte';
-  import { hasFileSystem, getFS } from '$lib/platform';
+  import { hasFileSystem, getFS, isDesktop, isLinux } from '$lib/platform';
+
+  const showTitlebar = isDesktop && isLinux;
+  if (showTitlebar) {
+    document.documentElement.style.setProperty('--titlebar-height', '36px');
+  }
   import { initNotes, createNote, getAllNotes, _injectTestNote } from '$lib/notes';
   import { loadPreferences, getCachedPreferences, savePreferences } from '$lib/preferences';
   import { applyThemePreference, watchSystemThemeTauri } from '$lib/theme';
@@ -149,6 +155,9 @@
     <pre style="white-space: pre-wrap; background: #f0f0f0; padding: 10px; border-radius: 8px;">{error}</pre>
   </div>
 {:else if initialized}
+  {#if showTitlebar}
+    <TitleBar />
+  {/if}
   <NotesShell {noteId} />
 {:else}
   <div class="loading-screen">
