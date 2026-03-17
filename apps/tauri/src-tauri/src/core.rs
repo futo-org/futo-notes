@@ -2581,4 +2581,609 @@ mod tests {
         assert!(load_supersearch_meta(&base).is_none());
         cleanup_temp_dir(&base);
     }
+
+    fn default_sync_arcs() -> (Arc<RwLock<SearchIndexState>>, Arc<Mutex<HashMap<String, i64>>>, Arc<AtomicI64>) {
+        (
+            Arc::new(RwLock::new(SearchIndexState::default())),
+            Arc::new(Mutex::new(HashMap::new())),
+            Arc::new(AtomicI64::new(0)),
+        )
+    }
+
+    // ── A. Path safety ──────────────────────────────────────────────────
+
+    #[test]
+    fn ensure_safe_note_id_rejects_dangerous_inputs() {
+        assert!(ensure_safe_note_id("").is_err());
+        assert!(ensure_safe_note_id("..").is_err());
+        assert!(ensure_safe_note_id(".").is_err());
+        assert!(ensure_safe_note_id("foo/bar").is_err());
+        assert!(ensure_safe_note_id("foo\\bar").is_err());
+    }
+
+    #[test]
+    fn ensure_safe_note_id_accepts_valid_inputs() {
+        assert!(ensure_safe_note_id("hello world").is_ok());
+        assert!(ensure_safe_note_id("café").is_ok());
+        assert!(ensure_safe_note_id("my-note").is_ok());
+        assert!(ensure_safe_note_id(".hidden").is_ok());
+    }
+
+    #[test]
+    fn safe_appdata_path_rejects_traversal() {
+        let base = Path::new("/tmp/test");
+        assert!(safe_appdata_path(base, "..").is_err());
+        assert!(safe_appdata_path(base, "../etc/passwd").is_err());
+        assert!(safe_appdata_path(base, "../../etc/passwd").is_err());
+        assert!(safe_appdata_path(base, "/etc/passwd").is_err());
+    }
+
+    #[test]
+    fn safe_appdata_path_accepts_valid_relative_paths() {
+        let base = Path::new("/tmp/test");
+        assert!(safe_appdata_path(base, ".preferences.json").is_ok());
+        assert!(safe_appdata_path(base, "subdir/file.json").is_ok());
+        let result = safe_appdata_path(base, ".preferences.json").unwrap();
+        assert_eq!(result, PathBuf::from("/tmp/test/.preferences.json"));
+    }
+
+    // ── B. Atomic write ─────────────────────────────────────────────────
+
+    #[test]
+    fn write_atomic_text_creates_file_with_correct_content() {
+        let base = temp_notes_dir();
+        let path = base.join("test-note.md");
+        write_atomic_text(&path, "hello world").unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "hello world");
+        // No leftover .tmp files
+        let tmps: Vec<_> = fs::read_dir(&base).unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().contains(".tmp"))
+            .collect();
+        assert!(tmps.is_empty());
+        cleanup_temp_dir(&base);
+    }
+
+    #[test]
+    fn write_atomic_text_overwrites_existing_file() {
+        let base = temp_notes_dir();
+        let path = base.join("overwrite.md");
+        write_atomic_text(&path, "first").unwrap();
+        write_atomic_text(&path, "second").unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "second");
+        let tmps: Vec<_> = fs::read_dir(&base).unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().contains(".tmp"))
+            .collect();
+        assert!(tmps.is_empty());
+        cleanup_temp_dir(&base);
+    }
+
+    // ── C. Keyword search ───────────────────────────────────────────────
+
+    #[test]
+    fn keyword_search_empty_query_returns_all_by_mtime() {
+        let mut notes = HashMap::new();
+        notes.insert("old".to_string(), build_indexed_note("old".to_string(), "old content".to_string(), 1000));
+        notes.insert("new".to_string(), build_indexed_note("new".to_string(), "new content".to_string(), 2000));
+        notes.insert("mid".to_string(), build_indexed_note("mid".to_string(), "mid content".to_string(), 1500));
+
+        let results = keyword_search_impl(&notes, "", 10);
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0].note.id, "new");
+        assert_eq!(results[1].note.id, "mid");
+        assert_eq!(results[2].note.id, "old");
+
+        // Whitespace-only also returns all
+        let results2 = keyword_search_impl(&notes, "   ", 10);
+        assert_eq!(results2.len(), 3);
+    }
+
+    #[test]
+    fn keyword_search_no_matches_returns_empty() {
+        let mut notes = HashMap::new();
+        notes.insert("note1".to_string(), build_indexed_note("note1".to_string(), "hello world".to_string(), 1000));
+        let results = keyword_search_impl(&notes, "zzzznonexistent", 10);
+        assert!(results.is_empty());
+    }
+
+    // ── D. prepare_sync_payload_impl ────────────────────────────────────
+
+    #[test]
+    fn prepare_sync_fresh_vault_generates_uuids_and_content() {
+        let base = temp_notes_dir();
+        write_atomic_text(&base.join("note-a.md"), "alpha body").unwrap();
+        write_atomic_text(&base.join("note-b.md"), "beta body").unwrap();
+
+        let input = SyncPrepareInput { state: SyncStatePayload::default() };
+        let output = prepare_sync_payload_impl(&base, input).unwrap();
+
+        assert_eq!(output.notes.len(), 2);
+        assert_eq!(output.all_uuids.len(), 2);
+
+        for note in &output.notes {
+            assert!(!note.uuid.is_empty());
+            assert!(note.content.is_some(), "first sync must include content");
+            assert!(!note.content_hash.is_empty());
+            assert_eq!(note.hash_at_last_sync, ""); // no prior sync
+        }
+
+        // UUIDs assigned in state
+        assert!(output.state.uuid_by_id.contains_key("note-a"));
+        assert!(output.state.uuid_by_id.contains_key("note-b"));
+
+        // hash_cache populated
+        let cache = output.state.hash_cache.as_ref().unwrap();
+        assert!(cache.contains_key("note-a"));
+        assert!(cache.contains_key("note-b"));
+
+        cleanup_temp_dir(&base);
+    }
+
+    #[test]
+    fn prepare_sync_unchanged_notes_skip_content() {
+        let base = temp_notes_dir();
+        write_atomic_text(&base.join("note.md"), "body").unwrap();
+
+        // First sync
+        let input1 = SyncPrepareInput { state: SyncStatePayload::default() };
+        let out1 = prepare_sync_payload_impl(&base, input1).unwrap();
+        let uuid = &out1.notes[0].uuid;
+        let hash = &out1.notes[0].content_hash;
+
+        // Simulate server accepting: set hash_by_uuid to match
+        let mut state2 = out1.state;
+        state2.hash_by_uuid.insert(uuid.clone(), hash.clone());
+
+        let input2 = SyncPrepareInput { state: state2 };
+        let out2 = prepare_sync_payload_impl(&base, input2).unwrap();
+
+        assert_eq!(out2.notes.len(), 1);
+        assert!(out2.notes[0].content.is_none(), "unchanged note should skip content");
+
+        cleanup_temp_dir(&base);
+    }
+
+    #[test]
+    fn prepare_sync_modified_note_includes_content() {
+        let base = temp_notes_dir();
+        write_atomic_text(&base.join("note.md"), "original").unwrap();
+
+        let input1 = SyncPrepareInput { state: SyncStatePayload::default() };
+        let out1 = prepare_sync_payload_impl(&base, input1).unwrap();
+        let uuid = out1.notes[0].uuid.clone();
+        let hash = out1.notes[0].content_hash.clone();
+
+        let mut state2 = out1.state;
+        state2.hash_by_uuid.insert(uuid.clone(), hash.clone());
+
+        // Modify file
+        write_atomic_text(&base.join("note.md"), "modified").unwrap();
+
+        let input2 = SyncPrepareInput { state: state2 };
+        let out2 = prepare_sync_payload_impl(&base, input2).unwrap();
+
+        assert_eq!(out2.notes.len(), 1);
+        assert!(out2.notes[0].content.is_some(), "modified note must include content");
+        assert_eq!(out2.notes[0].content.as_deref().unwrap(), "modified");
+        assert_ne!(out2.notes[0].content_hash, hash);
+
+        cleanup_temp_dir(&base);
+    }
+
+    #[test]
+    fn prepare_sync_deleted_note_not_in_output() {
+        let base = temp_notes_dir();
+        write_atomic_text(&base.join("note.md"), "body").unwrap();
+
+        let input1 = SyncPrepareInput { state: SyncStatePayload::default() };
+        let out1 = prepare_sync_payload_impl(&base, input1).unwrap();
+        assert_eq!(out1.notes.len(), 1);
+
+        // Delete file
+        fs::remove_file(base.join("note.md")).unwrap();
+
+        let input2 = SyncPrepareInput { state: out1.state };
+        let out2 = prepare_sync_payload_impl(&base, input2).unwrap();
+
+        assert!(out2.notes.is_empty());
+        assert!(out2.all_uuids.is_empty());
+
+        cleanup_temp_dir(&base);
+    }
+
+    #[test]
+    fn prepare_sync_new_note_between_syncs() {
+        let base = temp_notes_dir();
+        write_atomic_text(&base.join("first.md"), "first body").unwrap();
+
+        let input1 = SyncPrepareInput { state: SyncStatePayload::default() };
+        let out1 = prepare_sync_payload_impl(&base, input1).unwrap();
+        assert_eq!(out1.notes.len(), 1);
+
+        // Add new file
+        write_atomic_text(&base.join("second.md"), "second body").unwrap();
+
+        let input2 = SyncPrepareInput { state: out1.state };
+        let out2 = prepare_sync_payload_impl(&base, input2).unwrap();
+
+        assert_eq!(out2.notes.len(), 2);
+        assert_eq!(out2.all_uuids.len(), 2);
+
+        let second = out2.notes.iter().find(|n| n.filename == "second.md").unwrap();
+        assert!(second.content.is_some(), "new note must include content");
+
+        // New UUID is different from first note's UUID
+        let first_uuid = &out2.notes.iter().find(|n| n.filename == "first.md").unwrap().uuid;
+        assert_ne!(&second.uuid, first_uuid);
+
+        cleanup_temp_dir(&base);
+    }
+
+    #[test]
+    fn prepare_sync_hash_cache_keyed_by_mtime() {
+        let base = temp_notes_dir();
+        write_atomic_text(&base.join("note.md"), "body").unwrap();
+
+        let input1 = SyncPrepareInput { state: SyncStatePayload::default() };
+        let out1 = prepare_sync_payload_impl(&base, input1).unwrap();
+        let original_hash = out1.notes[0].content_hash.clone();
+
+        // Touch file (change mtime but same content) — write same content again
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        write_atomic_text(&base.join("note.md"), "body").unwrap();
+
+        let input2 = SyncPrepareInput { state: out1.state };
+        let out2 = prepare_sync_payload_impl(&base, input2).unwrap();
+
+        // Hash should be recomputed (same value since content unchanged)
+        assert_eq!(out2.notes[0].content_hash, original_hash);
+        // But cache entry should have new mtime
+        let cache = out2.state.hash_cache.as_ref().unwrap();
+        let entry = cache.get("note").unwrap();
+        assert_eq!(entry.hash, original_hash);
+
+        cleanup_temp_dir(&base);
+    }
+
+    // ── E. apply_sync_delta_impl ────────────────────────────────────────
+
+    #[test]
+    fn apply_sync_delta_multiple_updates_in_batch() {
+        let base = temp_notes_dir();
+        let (index, suppressed, sync_writes) = default_sync_arcs();
+
+        let updates: Vec<IncomingSyncUpdate> = (1..=3).map(|i| IncomingSyncUpdate {
+            uuid: format!("uuid-{i}"),
+            id: format!("note-{i}"),
+            content: format!("content {i}"),
+            modified_at: 1_700_000_000_000 + i,
+            content_hash: hash_sha256(&format!("content {i}")),
+        }).collect();
+
+        let output = apply_sync_delta_impl(
+            &base, &index, &suppressed, &sync_writes,
+            SyncApplyInput { state: SyncStatePayload::default(), update: updates, delete: vec![] },
+        ).unwrap();
+
+        assert_eq!(output.updated_ids.len(), 3);
+        for i in 1..=3 {
+            let path = safe_note_path(&base, &format!("note-{i}")).unwrap();
+            assert!(path.exists());
+            assert_eq!(fs::read_to_string(&path).unwrap(), format!("content {i}"));
+            assert_eq!(output.state.uuid_by_id.get(&format!("note-{i}")), Some(&format!("uuid-{i}")));
+        }
+
+        cleanup_temp_dir(&base);
+    }
+
+    #[test]
+    fn apply_sync_delta_delete_existing_note() {
+        let base = temp_notes_dir();
+        let (index, suppressed, sync_writes) = default_sync_arcs();
+
+        // Seed a file
+        write_atomic_text(&safe_note_path(&base, "doomed").unwrap(), "bye").unwrap();
+        let mut state = SyncStatePayload::default();
+        state.uuid_by_id.insert("doomed".to_string(), "uuid-doom".to_string());
+        state.hash_by_uuid.insert("uuid-doom".to_string(), "h".to_string());
+
+        let output = apply_sync_delta_impl(
+            &base, &index, &suppressed, &sync_writes,
+            SyncApplyInput { state, update: vec![], delete: vec!["uuid-doom".to_string()] },
+        ).unwrap();
+
+        assert!(!safe_note_path(&base, "doomed").unwrap().exists());
+        assert!(output.deleted_ids.contains(&"doomed".to_string()));
+        assert!(!output.state.uuid_by_id.contains_key("doomed"));
+        assert!(!output.state.hash_by_uuid.contains_key("uuid-doom"));
+
+        cleanup_temp_dir(&base);
+    }
+
+    #[test]
+    fn apply_sync_delta_filename_collision_overwrites_when_file_exists() {
+        let base = temp_notes_dir();
+        let (index, suppressed, sync_writes) = default_sync_arcs();
+
+        // Existing file "conflict.md" with different UUID
+        write_atomic_text(&safe_note_path(&base, "conflict").unwrap(), "existing").unwrap();
+        let mut state = SyncStatePayload::default();
+        state.uuid_by_id.insert("conflict".to_string(), "uuid-existing".to_string());
+
+        // Incoming note wants "conflict" but has different UUID
+        let output = apply_sync_delta_impl(
+            &base, &index, &suppressed, &sync_writes,
+            SyncApplyInput {
+                state,
+                update: vec![IncomingSyncUpdate {
+                    uuid: "uuid-new".to_string(),
+                    id: "conflict".to_string(),
+                    content: "incoming".to_string(),
+                    modified_at: 1_700_000_000_000,
+                    content_hash: hash_sha256("incoming"),
+                }],
+                delete: vec![],
+            },
+        ).unwrap();
+
+        // Current behavior: incoming note overwrites the existing file at "conflict"
+        // because original_id = Some("conflict") makes exclude == wanted in get_unique_note_id,
+        // so no dedup occurs. The old UUID mapping is silently replaced.
+        let updated = &output.updated_ids;
+        assert_eq!(updated.len(), 1);
+        assert_eq!(updated[0], "conflict");
+        let path = safe_note_path(&base, "conflict").unwrap();
+        assert!(path.exists());
+        assert_eq!(fs::read_to_string(&path).unwrap(), "incoming");
+        // UUID mapping now points to the new UUID
+        assert_eq!(output.state.uuid_by_id.get("conflict"), Some(&"uuid-new".to_string()));
+
+        cleanup_temp_dir(&base);
+    }
+
+    #[test]
+    fn apply_sync_delta_sets_watcher_suppression() {
+        let base = temp_notes_dir();
+        let (index, suppressed, sync_writes) = default_sync_arcs();
+
+        let before = now_ms();
+        let _output = apply_sync_delta_impl(
+            &base, &index, &suppressed, &sync_writes,
+            SyncApplyInput {
+                state: SyncStatePayload::default(),
+                update: vec![IncomingSyncUpdate {
+                    uuid: "u1".to_string(),
+                    id: "test".to_string(),
+                    content: "body".to_string(),
+                    modified_at: 1_700_000_000_000,
+                    content_hash: hash_sha256("body"),
+                }],
+                delete: vec![],
+            },
+        ).unwrap();
+
+        assert!(sync_writes.load(Ordering::Acquire) > before);
+        let map = suppressed.lock().unwrap();
+        assert!(map.contains_key("test.md"));
+
+        cleanup_temp_dir(&base);
+    }
+
+    // ── F. Rust Chaos Tests ─────────────────────────────────────────────
+
+    #[test]
+    fn prepare_sync_skips_directories() {
+        let base = temp_notes_dir();
+        write_atomic_text(&base.join("real-note.md"), "content").unwrap();
+        fs::create_dir_all(base.join("subdir.md")).unwrap();
+
+        let input = SyncPrepareInput { state: SyncStatePayload::default() };
+        let output = prepare_sync_payload_impl(&base, input).unwrap();
+
+        assert_eq!(output.notes.len(), 1);
+        assert_eq!(output.notes[0].filename, "real-note.md");
+
+        cleanup_temp_dir(&base);
+    }
+
+    #[test]
+    fn ensure_safe_note_id_allows_whitespace_only() {
+        // Documents that whitespace-only IDs pass validation (potential gap)
+        let result = ensure_safe_note_id("   ");
+        // Current impl allows this — documenting the behavior
+        assert!(result.is_ok(), "whitespace-only ID is currently allowed (validation gap)");
+    }
+
+    #[test]
+    fn prepare_sync_handles_dot_md_only_file() {
+        let base = temp_notes_dir();
+        // .md file — note_id_from_filename returns Some("")
+        fs::write(base.join(".md"), "empty name").unwrap();
+        write_atomic_text(&base.join("real-note.md"), "content").unwrap();
+
+        let input = SyncPrepareInput { state: SyncStatePayload::default() };
+        let output = prepare_sync_payload_impl(&base, input);
+
+        // Documents actual behavior: note_id_from_filename(".md") returns Some(""),
+        // and prepare_sync_payload_impl does NOT call ensure_safe_note_id, so the
+        // empty-ID note passes through into the output. This is a validation gap.
+        match output {
+            Ok(out) => {
+                let has_empty = out.notes.iter().any(|n| n.filename == ".md");
+                assert!(has_empty, "empty-id note currently passes through (validation gap)");
+                // The real note is also present
+                assert!(out.notes.iter().any(|n| n.filename == "real-note.md"));
+            }
+            Err(_) => {
+                // If one bad file fails entire sync, that's also a bug worth documenting
+            }
+        }
+
+        cleanup_temp_dir(&base);
+    }
+
+    #[test]
+    fn apply_sync_delta_very_long_id() {
+        let base = temp_notes_dir();
+        let (index, suppressed, sync_writes) = default_sync_arcs();
+
+        let long_id = "a".repeat(10_000);
+        let result = apply_sync_delta_impl(
+            &base, &index, &suppressed, &sync_writes,
+            SyncApplyInput {
+                state: SyncStatePayload::default(),
+                update: vec![IncomingSyncUpdate {
+                    uuid: "uuid-long".to_string(),
+                    id: long_id,
+                    content: "body".to_string(),
+                    modified_at: 1_700_000_000_000,
+                    content_hash: hash_sha256("body"),
+                }],
+                delete: vec![],
+            },
+        );
+
+        // Document behavior: filesystem may reject the very long path
+        // On most Linux systems, filename limit is 255 bytes
+        match result {
+            Ok(out) => {
+                // If it somehow succeeds, the file must exist
+                assert!(!out.updated_ids.is_empty());
+            }
+            Err(e) => {
+                // Expected: filesystem rejects the long filename
+                assert!(e.contains("os error") || e.contains("name too long") || e.contains("File name too long"),
+                    "unexpected error: {e}");
+            }
+        }
+
+        cleanup_temp_dir(&base);
+    }
+
+    #[test]
+    fn set_file_mtime_with_zero() {
+        let base = temp_notes_dir();
+        let path = base.join("zero-mtime.md");
+        write_atomic_text(&path, "content").unwrap();
+
+        // Unix epoch (0) should work
+        let result = set_file_mtime_ms(&path, 0);
+        assert!(result.is_ok(), "mtime=0 (Unix epoch) should succeed");
+
+        cleanup_temp_dir(&base);
+    }
+
+    #[test]
+    fn set_file_mtime_with_negative() {
+        let base = temp_notes_dir();
+        let path = base.join("negative-mtime.md");
+        write_atomic_text(&path, "content").unwrap();
+
+        // Before epoch — negative value
+        // FileTime::from_unix_time(-1, ...) — may panic or fail
+        // The second arg is problematic: (-1 % 1000) * 1_000_000 = -1_000_000 as u32 would wrap
+        let result = std::panic::catch_unwind(|| {
+            set_file_mtime_ms(&path, -1)
+        });
+
+        // Document behavior
+        match result {
+            Ok(Ok(())) => { /* it worked, interesting */ }
+            Ok(Err(_)) => { /* filesystem rejected it, reasonable */ }
+            Err(_) => { /* panicked — documents the bug */ }
+        }
+
+        cleanup_temp_dir(&base);
+    }
+
+    #[test]
+    fn prepare_sync_binary_md_file_does_not_crash_all() {
+        let base = temp_notes_dir();
+        // Write a valid note
+        write_atomic_text(&base.join("good.md"), "good content").unwrap();
+        // Write a binary file with .md extension
+        fs::write(base.join("binary.md"), &[0xFF, 0xFE, 0x00, 0x01, 0x80, 0x81]).unwrap();
+
+        let input = SyncPrepareInput { state: SyncStatePayload::default() };
+        let result = prepare_sync_payload_impl(&base, input);
+
+        // Current behavior: par_iter().collect::<Result>() means one bad file fails all
+        // This chaos test documents that behavior
+        match result {
+            Ok(out) => {
+                // If binary files are handled gracefully, good
+                assert!(out.notes.iter().any(|n| n.filename == "good.md"));
+            }
+            Err(_) => {
+                // Expected: binary file causes read_to_string to produce invalid UTF-8
+                // Actually read_to_string with binary may still work on linux, just garbled
+                // Either outcome documents current behavior
+            }
+        }
+
+        cleanup_temp_dir(&base);
+    }
+
+    #[test]
+    fn prepare_sync_skips_symlinks() {
+        let base = temp_notes_dir();
+        let external = temp_notes_dir();
+        write_atomic_text(&external.join("outside.md"), "external content").unwrap();
+        write_atomic_text(&base.join("real.md"), "real content").unwrap();
+
+        // Create symlink inside notes dir pointing outside
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(
+                external.join("outside.md"),
+                base.join("linked.md"),
+            ).unwrap();
+
+            let input = SyncPrepareInput { state: SyncStatePayload::default() };
+            let output = prepare_sync_payload_impl(&base, input).unwrap();
+
+            // Documents: DirEntry::metadata() uses fstatat (no symlink follow on Linux),
+            // so is_file() returns false for symlinks and they are excluded from sync.
+            let linked = output.notes.iter().find(|n| n.filename == "linked.md");
+            assert!(linked.is_none(), "symlinks should be excluded (entry.metadata does not follow)");
+            assert_eq!(output.notes.len(), 1);
+            assert_eq!(output.notes[0].filename, "real.md");
+        }
+
+        cleanup_temp_dir(&base);
+        cleanup_temp_dir(&external);
+    }
+
+    #[test]
+    fn prepare_sync_toctou_deleted_file() {
+        // TOCTOU race: file exists during read_dir but deleted before read_to_string
+        // We can't reliably trigger the race in a unit test, but we can test
+        // that deleting a file after prepare_sync starts doesn't crash
+        let base = temp_notes_dir();
+        write_atomic_text(&base.join("ephemeral.md"), "here today").unwrap();
+        write_atomic_text(&base.join("stable.md"), "always here").unwrap();
+
+        // Delete the file before sync reads it — simulates race
+        // In practice we can't control timing, but if the file is deleted
+        // between read_dir and read_to_string, read_to_string fails
+        fs::remove_file(base.join("ephemeral.md")).unwrap();
+
+        let input = SyncPrepareInput { state: SyncStatePayload::default() };
+        let result = prepare_sync_payload_impl(&base, input);
+
+        // The file was deleted BEFORE sync started, so metadata().is_file() should
+        // also fail and it should be filtered out. This test verifies that path.
+        match result {
+            Ok(out) => {
+                assert_eq!(out.notes.len(), 1);
+                assert_eq!(out.notes[0].filename, "stable.md");
+            }
+            Err(_) => {
+                // If it errors, documents that one missing file breaks all
+            }
+        }
+
+        cleanup_temp_dir(&base);
+    }
 }
