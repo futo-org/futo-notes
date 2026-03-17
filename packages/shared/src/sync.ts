@@ -2,14 +2,6 @@ import type { NoteSyncMeta } from './note.js';
 
 // ── Sync ───────────────────────────────────────────────
 
-export interface SyncRequest {
-  notes: NoteSyncMeta[];
-  /** Every UUID the client currently has (superset of notes[].uuid). */
-  all_uuids: string[];
-  /** UUIDs the client has deleted since last sync. */
-  deleted_uuids: string[];
-}
-
 export interface InventoryItem {
   uuid: string;
   content_hash: string;
@@ -17,8 +9,7 @@ export interface InventoryItem {
   modified_at: number;
 }
 
-/** V2 sync request — sends compact inventory instead of all_uuids. */
-export interface SyncRequestV2 {
+export interface SyncRequest {
   /** Only notes that changed client-side (content_hash !== hash_at_last_sync). */
   notes: NoteSyncMeta[];
   /** All UUIDs with their current hashes — server uses to detect its own changes. */

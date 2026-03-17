@@ -138,7 +138,7 @@ describe('GET /events (SSE)', () => {
             hash_at_last_sync: '',
             content,
           }],
-          all_uuids: ['u1'],
+          inventory: [{ uuid: 'u1', content_hash: hash, filename: 'test.md', modified_at: Date.now() }],
           deleted_uuids: [],
         }),
       });
@@ -180,7 +180,7 @@ describe('GET /events (SSE)', () => {
             hash_at_last_sync: '',
             content,
           }],
-          all_uuids: ['u1'],
+          inventory: [{ uuid: 'u1', content_hash: hash, filename: 'test.md', modified_at: Date.now() }],
           deleted_uuids: [],
         }),
       });
@@ -219,7 +219,7 @@ describe('GET /events (SSE)', () => {
             hash_at_last_sync: '',
             content,
           }],
-          all_uuids: ['u-seed'],
+          inventory: [{ uuid: 'u-seed', content_hash: hash, filename: 'seed.md', modified_at: Date.now() }],
           deleted_uuids: [],
         }),
       });
@@ -240,7 +240,7 @@ describe('GET /events (SSE)', () => {
         },
         body: JSON.stringify({
           notes: [],
-          all_uuids: [],
+          inventory: [],
           deleted_uuids: [],
         }),
       });

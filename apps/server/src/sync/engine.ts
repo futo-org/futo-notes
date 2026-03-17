@@ -1,5 +1,5 @@
 import type Database from 'better-sqlite3';
-import type { SyncRequest, SyncResponse, InventoryItem } from '@futo-notes/shared';
+import type { SyncRequest, SyncResponse } from '@futo-notes/shared';
 import { extractTags } from '@futo-notes/shared';
 import type { NoteRow } from '../db/notes.js';
 import { getAllNotes, upsertNote, deleteNote } from '../db/notes.js';
@@ -60,15 +60,10 @@ export interface ProcessSyncResult {
   version: number;
 }
 
-/**
- * Process a sync request. Supports both V1 (all_uuids) and V2 (inventory) formats.
- * Pass `inventory` for V2 requests; omit for V1.
- */
 export function processSync(
   db: Database.Database,
   notesDir: string,
   req: SyncRequest,
-  inventory?: InventoryItem[],
 ): ProcessSyncResult {
   const response: SyncResponse = {
     update: [],
@@ -79,12 +74,9 @@ export function processSync(
 
   let mutated = false;
 
-  // Build client UUID set from inventory (V2) or all_uuids (V1)
-  const clientUuidSet = inventory
-    ? new Set(inventory.map((i) => i.uuid))
-    : new Set(req.all_uuids);
+  const clientUuidSet = new Set(req.inventory.map((i) => i.uuid));
 
-  // Also include UUIDs from notes[] that might not be in all_uuids/inventory
+  // Also include UUIDs from notes[] that might not be in inventory
   for (const note of req.notes) {
     clientUuidSet.add(note.uuid);
   }
@@ -314,57 +306,55 @@ export function processSync(
       }
     }
 
-    // ── 3b. Process inventory-only entries (V2) ──────────
-    if (inventory) {
-      for (const item of inventory) {
-        // Skip if already processed as a note with content
-        if (notesUuidSet.has(item.uuid)) continue;
-        // Skip if in deleted_uuids
-        if (req.deleted_uuids.includes(item.uuid)) continue;
-        // Skip if tombstoned (already handled in section 2)
-        if (tombstoneSet.has(item.uuid)) continue;
+    // ── 3b. Process inventory-only entries ────────────────
+    for (const item of req.inventory) {
+      // Skip if already processed as a note with content
+      if (notesUuidSet.has(item.uuid)) continue;
+      // Skip if in deleted_uuids
+      if (req.deleted_uuids.includes(item.uuid)) continue;
+      // Skip if tombstoned (already handled in section 2)
+      if (tombstoneSet.has(item.uuid)) continue;
 
-        const serverNote = allNotes.get(item.uuid);
-        if (!serverNote) continue; // Client has it, server doesn't — skip
+      const serverNote = allNotes.get(item.uuid);
+      if (!serverNote) continue; // Client has it, server doesn't — skip
 
-        if (serverNote.content_hash !== item.content_hash) {
-          // Server changed, client unchanged → send server version
-          const content = readNoteFile(notesDir, serverNote.filename);
-          if (content !== null) {
-            response.update.push({
-              uuid: serverNote.uuid,
-              filename: serverNote.filename,
-              modified_at: serverNote.modified_at,
-              content_hash: serverNote.content_hash,
-              hash_at_last_sync: serverNote.content_hash,
-              content,
-            });
-          }
-        } else {
-          // Hashes match — check for filename rename
-          const safeName = sanitizeFilename(item.filename);
-          const finalName = resolveFilenameInMemory(filenameIndex, safeName, item.uuid);
-          if (finalName !== serverNote.filename) {
-            if (item.modified_at >= serverNote.modified_at) {
-              // Client renamed more recently — accept client's filename
-              const content = readNoteFile(notesDir, serverNote.filename) ?? '';
-              deleteNoteFile(notesDir, serverNote.filename);
-              writeNoteFile(notesDir, finalName, content, item.modified_at);
-              trackUpsert(item.uuid, finalName, serverNote.content_hash, item.modified_at, content);
-              response.hash_updates.push({ uuid: item.uuid, hash_at_last_sync: serverNote.content_hash });
-            } else {
-              // Server's filename is newer — send to client
-              const content = readNoteFile(notesDir, serverNote.filename);
-              if (content !== null) {
-                response.update.push({
-                  uuid: serverNote.uuid,
-                  filename: serverNote.filename,
-                  modified_at: serverNote.modified_at,
-                  content_hash: serverNote.content_hash,
-                  hash_at_last_sync: serverNote.content_hash,
-                  content,
-                });
-              }
+      if (serverNote.content_hash !== item.content_hash) {
+        // Server changed, client unchanged → send server version
+        const content = readNoteFile(notesDir, serverNote.filename);
+        if (content !== null) {
+          response.update.push({
+            uuid: serverNote.uuid,
+            filename: serverNote.filename,
+            modified_at: serverNote.modified_at,
+            content_hash: serverNote.content_hash,
+            hash_at_last_sync: serverNote.content_hash,
+            content,
+          });
+        }
+      } else {
+        // Hashes match — check for filename rename
+        const safeName = sanitizeFilename(item.filename);
+        const finalName = resolveFilenameInMemory(filenameIndex, safeName, item.uuid);
+        if (finalName !== serverNote.filename) {
+          if (item.modified_at >= serverNote.modified_at) {
+            // Client renamed more recently — accept client's filename
+            const content = readNoteFile(notesDir, serverNote.filename) ?? '';
+            deleteNoteFile(notesDir, serverNote.filename);
+            writeNoteFile(notesDir, finalName, content, item.modified_at);
+            trackUpsert(item.uuid, finalName, serverNote.content_hash, item.modified_at, content);
+            response.hash_updates.push({ uuid: item.uuid, hash_at_last_sync: serverNote.content_hash });
+          } else {
+            // Server's filename is newer — send to client
+            const content = readNoteFile(notesDir, serverNote.filename);
+            if (content !== null) {
+              response.update.push({
+                uuid: serverNote.uuid,
+                filename: serverNote.filename,
+                modified_at: serverNote.modified_at,
+                content_hash: serverNote.content_hash,
+                hash_at_last_sync: serverNote.content_hash,
+                content,
+              });
             }
           }
         }

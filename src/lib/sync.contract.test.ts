@@ -116,7 +116,7 @@ describe('client-server contract', () => {
             content,
           },
         ],
-        all_uuids: ['server-note-1'],
+        inventory: [{ uuid: 'server-note-1', content_hash: hash, filename: 'direct-upload.md', modified_at: 1700000000000 }],
         deleted_uuids: [],
       }),
     });

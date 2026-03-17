@@ -119,7 +119,7 @@ async function importNotes(token) {
     const batch = notes.slice(i, i + batchSize);
     await api('POST', '/sync', token, {
       notes: batch,
-      all_uuids: notes.map(n => n.uuid),
+      inventory: notes.map(n => ({ uuid: n.uuid, content_hash: n.content_hash, filename: n.filename, modified_at: n.modified_at })),
       deleted_uuids: [],
     });
   }

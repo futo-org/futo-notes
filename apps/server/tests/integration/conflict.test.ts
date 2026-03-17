@@ -32,7 +32,7 @@ describe('conflict detection and resolution', () => {
           content: origContent,
         },
       ],
-      all_uuids: ['u1'],
+      inventory: [{ uuid: 'u1', content_hash: origHash, filename: 'shared.md', modified_at: Date.now() }],
       deleted_uuids: [],
     });
 
@@ -50,7 +50,7 @@ describe('conflict detection and resolution', () => {
           content: serverContent,
         },
       ],
-      all_uuids: ['u1'],
+      inventory: [{ uuid: 'u1', content_hash: serverHash, filename: 'shared.md', modified_at: Date.now() }],
       deleted_uuids: [],
     });
 
@@ -68,7 +68,7 @@ describe('conflict detection and resolution', () => {
           content: clientContent,
         },
       ],
-      all_uuids: ['u1'],
+      inventory: [{ uuid: 'u1', content_hash: clientHash, filename: 'shared.md', modified_at: Date.now() }],
       deleted_uuids: [],
     });
 
@@ -110,7 +110,7 @@ describe('conflict detection and resolution', () => {
           content: origContent,
         },
       ],
-      all_uuids: ['u1'],
+      inventory: [{ uuid: 'u1', content_hash: origHash, filename: 'doc.md', modified_at: Date.now() }],
       deleted_uuids: [],
     });
 
@@ -128,7 +128,7 @@ describe('conflict detection and resolution', () => {
           content: sContent,
         },
       ],
-      all_uuids: ['u1'],
+      inventory: [{ uuid: 'u1', content_hash: sHash, filename: 'doc.md', modified_at: Date.now() }],
       deleted_uuids: [],
     });
 
@@ -146,7 +146,7 @@ describe('conflict detection and resolution', () => {
           content: cContent,
         },
       ],
-      all_uuids: ['u1'],
+      inventory: [{ uuid: 'u1', content_hash: cHash, filename: 'doc.md', modified_at: Date.now() }],
       deleted_uuids: [],
     });
 

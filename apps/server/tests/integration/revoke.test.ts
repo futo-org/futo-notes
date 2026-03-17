@@ -24,7 +24,7 @@ describe('POST /revoke', () => {
     // Token should no longer work
     const syncRes = await authReq(env.app, 'POST', '/sync', token, {
       notes: [],
-      all_uuids: [],
+      inventory: [],
       deleted_uuids: [],
     });
     expect(syncRes.status).toBe(401);
@@ -44,14 +44,14 @@ describe('POST /revoke', () => {
     // Both tokens should fail
     const r1 = await authReq(env.app, 'POST', '/sync', token, {
       notes: [],
-      all_uuids: [],
+      inventory: [],
       deleted_uuids: [],
     });
     expect(r1.status).toBe(401);
 
     const r2 = await authReq(env.app, 'POST', '/sync', token2, {
       notes: [],
-      all_uuids: [],
+      inventory: [],
       deleted_uuids: [],
     });
     expect(r2.status).toBe(401);
@@ -76,7 +76,7 @@ describe('POST /revoke', () => {
     // token1 should still work
     const r1 = await authReq(env.app, 'POST', '/sync', token, {
       notes: [],
-      all_uuids: [],
+      inventory: [],
       deleted_uuids: [],
     });
     expect(r1.status).toBe(200);
@@ -84,7 +84,7 @@ describe('POST /revoke', () => {
     // token2 should be revoked
     const r2 = await authReq(env.app, 'POST', '/sync', token2, {
       notes: [],
-      all_uuids: [],
+      inventory: [],
       deleted_uuids: [],
     });
     expect(r2.status).toBe(401);

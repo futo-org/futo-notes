@@ -32,7 +32,7 @@ describe('delete propagation', () => {
           content,
         },
       ],
-      all_uuids: ['u1'],
+      inventory: [{ uuid: 'u1', content_hash: hash, filename: 'deleteme.md', modified_at: Date.now() }],
       deleted_uuids: [],
     });
     expect(readNoteFile(env.notesDir, 'deleteme.md')).toBe(content);
@@ -40,7 +40,7 @@ describe('delete propagation', () => {
     // Client A deletes the note
     await authReq(env.app, 'POST', '/sync', token, {
       notes: [],
-      all_uuids: [],
+      inventory: [],
       deleted_uuids: ['u1'],
     });
     expect(readNoteFile(env.notesDir, 'deleteme.md')).toBeNull();
@@ -48,7 +48,7 @@ describe('delete propagation', () => {
     // Client B still has the note — should be told to delete
     const res = await authReq(env.app, 'POST', '/sync', token, {
       notes: [],
-      all_uuids: ['u1'],
+      inventory: [{ uuid: 'u1', content_hash: hash, filename: 'deleteme.md', modified_at: Date.now() }],
       deleted_uuids: [],
     });
     const data = await res.json();
@@ -71,12 +71,12 @@ describe('delete propagation', () => {
           content,
         },
       ],
-      all_uuids: ['u1'],
+      inventory: [{ uuid: 'u1', content_hash: hash, filename: 'note.md', modified_at: Date.now() }],
       deleted_uuids: [],
     });
     await authReq(env.app, 'POST', '/sync', token, {
       notes: [],
-      all_uuids: [],
+      inventory: [],
       deleted_uuids: ['u1'],
     });
 
@@ -92,7 +92,7 @@ describe('delete propagation', () => {
           content,
         },
       ],
-      all_uuids: ['u1'],
+      inventory: [{ uuid: 'u1', content_hash: hash, filename: 'note.md', modified_at: Date.now() }],
       deleted_uuids: [],
     });
     const data = await res.json();

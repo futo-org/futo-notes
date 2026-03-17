@@ -40,7 +40,7 @@ curl -X POST http://localhost:3005/login \
 curl -X POST http://localhost:3005/sync \
   -H 'Content-Type: application/json' \
   -H 'Authorization: Bearer abc123...' \
-  -d '{"notes": [], "all_uuids": [], "deleted_uuids": []}'
+  -d '{"notes": [], "inventory": [], "deleted_uuids": []}'
 ```
 
 ## Configuration

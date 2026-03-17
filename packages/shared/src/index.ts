@@ -1,7 +1,6 @@
 export type { NoteSyncMeta } from './note.js';
 export type {
   SyncRequest,
-  SyncRequestV2,
   SyncResponse,
   SyncCheckRequest,
   SyncCheckResponse,

@@ -19,7 +19,7 @@ describe('POST /sync', () => {
   it('rejects unauthorized request (401)', async () => {
     const res = await req(env.app, 'POST', '/sync', {
       notes: [],
-      all_uuids: [],
+      inventory: [],
       deleted_uuids: [],
     });
     expect(res.status).toBe(401);
@@ -33,7 +33,7 @@ describe('POST /sync', () => {
   it('handles empty sync', async () => {
     const res = await authReq(env.app, 'POST', '/sync', token, {
       notes: [],
-      all_uuids: [],
+      inventory: [],
       deleted_uuids: [],
     });
     expect(res.status).toBe(200);
@@ -47,6 +47,7 @@ describe('POST /sync', () => {
   it('full round-trip: upload then download', async () => {
     const content = '# Test Note\nHello!';
     const hash = contentHash(content);
+    const now = Date.now();
 
     // Client A uploads a note
     const uploadRes = await authReq(env.app, 'POST', '/sync', token, {
@@ -54,13 +55,13 @@ describe('POST /sync', () => {
         {
           uuid: 'u1',
           filename: 'test.md',
-          modified_at: Date.now(),
+          modified_at: now,
           content_hash: hash,
           hash_at_last_sync: '',
           content,
         },
       ],
-      all_uuids: ['u1'],
+      inventory: [{ uuid: 'u1', content_hash: hash, filename: 'test.md', modified_at: now }],
       deleted_uuids: [],
     });
     expect(uploadRes.status).toBe(200);
@@ -70,7 +71,7 @@ describe('POST /sync', () => {
     // Client B has no notes — should receive the note
     const downloadRes = await authReq(env.app, 'POST', '/sync', token, {
       notes: [],
-      all_uuids: [],
+      inventory: [],
       deleted_uuids: [],
     });
     expect(downloadRes.status).toBe(200);
@@ -83,6 +84,7 @@ describe('POST /sync', () => {
   it('two-client modification scenario', async () => {
     const origContent = 'original';
     const origHash = contentHash(origContent);
+    const now = Date.now();
 
     // Client A uploads
     await authReq(env.app, 'POST', '/sync', token, {
@@ -90,31 +92,32 @@ describe('POST /sync', () => {
         {
           uuid: 'u1',
           filename: 'shared.md',
-          modified_at: Date.now(),
+          modified_at: now,
           content_hash: origHash,
           hash_at_last_sync: '',
           content: origContent,
         },
       ],
-      all_uuids: ['u1'],
+      inventory: [{ uuid: 'u1', content_hash: origHash, filename: 'shared.md', modified_at: now }],
       deleted_uuids: [],
     });
 
     // Client A modifies the note
     const newContent = 'modified by A';
     const newHash = contentHash(newContent);
+    const now2 = Date.now();
     const res = await authReq(env.app, 'POST', '/sync', token, {
       notes: [
         {
           uuid: 'u1',
           filename: 'shared.md',
-          modified_at: Date.now(),
+          modified_at: now2,
           content_hash: newHash,
           hash_at_last_sync: origHash,
           content: newContent,
         },
       ],
-      all_uuids: ['u1'],
+      inventory: [{ uuid: 'u1', content_hash: newHash, filename: 'shared.md', modified_at: now2 }],
       deleted_uuids: [],
     });
 
@@ -139,7 +142,7 @@ describe('POST /sync', () => {
   it('rejects note missing required fields (422)', async () => {
     const res = await authReq(env.app, 'POST', '/sync', token, {
       notes: [{ uuid: 'u1' }],
-      all_uuids: ['u1'],
+      inventory: [{ uuid: 'u1', content_hash: 'x', filename: 'x.md', modified_at: Date.now() }],
       deleted_uuids: [],
     });
     expect(res.status).toBe(422);
@@ -148,19 +151,20 @@ describe('POST /sync', () => {
   it('rejects note filenames that do not map to valid titles (422)', async () => {
     const content = 'bad title';
     const hash = contentHash(content);
+    const now = Date.now();
 
     const res = await authReq(env.app, 'POST', '/sync', token, {
       notes: [
         {
           uuid: 'u1',
           filename: '.hidden.md',
-          modified_at: Date.now(),
+          modified_at: now,
           content_hash: hash,
           hash_at_last_sync: '',
           content,
         },
       ],
-      all_uuids: ['u1'],
+      inventory: [{ uuid: 'u1', content_hash: hash, filename: '.hidden.md', modified_at: now }],
       deleted_uuids: [],
     });
 
@@ -205,7 +209,7 @@ describe('POST /sync/check', () => {
     // Empty sync — no mutations
     await authReq(env.app, 'POST', '/sync', token, {
       notes: [],
-      all_uuids: [],
+      inventory: [],
       deleted_uuids: [],
     });
 
@@ -218,6 +222,7 @@ describe('POST /sync/check', () => {
   it('returns changes_available after a note is uploaded', async () => {
     const content = 'hello';
     const hash = contentHash(content);
+    const now = Date.now();
 
     // Upload a note — this mutates the server
     await authReq(env.app, 'POST', '/sync', token, {
@@ -225,13 +230,13 @@ describe('POST /sync/check', () => {
         {
           uuid: 'u1',
           filename: 'test.md',
-          modified_at: Date.now(),
+          modified_at: now,
           content_hash: hash,
           hash_at_last_sync: '',
           content,
         },
       ],
-      all_uuids: ['u1'],
+      inventory: [{ uuid: 'u1', content_hash: hash, filename: 'test.md', modified_at: now }],
       deleted_uuids: [],
     });
 
@@ -253,6 +258,7 @@ describe('POST /sync/check', () => {
   it('returns up_to_date when client has current version', async () => {
     const content = 'hello';
     const hash = contentHash(content);
+    const now = Date.now();
 
     // Upload a note
     const syncRes = await authReq(env.app, 'POST', '/sync', token, {
@@ -260,13 +266,13 @@ describe('POST /sync/check', () => {
         {
           uuid: 'u1',
           filename: 'test.md',
-          modified_at: Date.now(),
+          modified_at: now,
           content_hash: hash,
           hash_at_last_sync: '',
           content,
         },
       ],
-      all_uuids: ['u1'],
+      inventory: [{ uuid: 'u1', content_hash: hash, filename: 'test.md', modified_at: now }],
       deleted_uuids: [],
     });
     const syncData = await syncRes.json();
@@ -282,6 +288,7 @@ describe('POST /sync/check', () => {
   it('version increments on delete', async () => {
     const content = 'hello';
     const hash = contentHash(content);
+    const now = Date.now();
 
     // Upload a note
     const syncRes = await authReq(env.app, 'POST', '/sync', token, {
@@ -289,13 +296,13 @@ describe('POST /sync/check', () => {
         {
           uuid: 'u1',
           filename: 'test.md',
-          modified_at: Date.now(),
+          modified_at: now,
           content_hash: hash,
           hash_at_last_sync: '',
           content,
         },
       ],
-      all_uuids: ['u1'],
+      inventory: [{ uuid: 'u1', content_hash: hash, filename: 'test.md', modified_at: now }],
       deleted_uuids: [],
     });
     const v1 = (await syncRes.json()).version;
@@ -303,7 +310,7 @@ describe('POST /sync/check', () => {
     // Delete the note
     const deleteRes = await authReq(env.app, 'POST', '/sync', token, {
       notes: [],
-      all_uuids: [],
+      inventory: [],
       deleted_uuids: ['u1'],
     });
     const v2 = (await deleteRes.json()).version;
@@ -327,7 +334,7 @@ describe('/sync response includes version', () => {
   it('includes version in sync response', async () => {
     const res = await authReq(env.app, 'POST', '/sync', token, {
       notes: [],
-      all_uuids: [],
+      inventory: [],
       deleted_uuids: [],
     });
     const data = await res.json();
@@ -338,7 +345,7 @@ describe('/sync response includes version', () => {
     // First empty sync — no mutation
     const res1 = await authReq(env.app, 'POST', '/sync', token, {
       notes: [],
-      all_uuids: [],
+      inventory: [],
       deleted_uuids: [],
     });
     const v1 = (await res1.json()).version;
@@ -347,35 +354,37 @@ describe('/sync response includes version', () => {
     // Upload a note — mutation
     const content = 'hello';
     const hash = contentHash(content);
+    const now = Date.now();
     const res2 = await authReq(env.app, 'POST', '/sync', token, {
       notes: [
         {
           uuid: 'u1',
           filename: 'test.md',
-          modified_at: Date.now(),
+          modified_at: now,
           content_hash: hash,
           hash_at_last_sync: '',
           content,
         },
       ],
-      all_uuids: ['u1'],
+      inventory: [{ uuid: 'u1', content_hash: hash, filename: 'test.md', modified_at: now }],
       deleted_uuids: [],
     });
     const v2 = (await res2.json()).version;
     expect(v2).toBe(1);
 
     // Same note, no changes — no mutation
+    const now2 = Date.now();
     const res3 = await authReq(env.app, 'POST', '/sync', token, {
       notes: [
         {
           uuid: 'u1',
           filename: 'test.md',
-          modified_at: Date.now(),
+          modified_at: now2,
           content_hash: hash,
           hash_at_last_sync: hash,
         },
       ],
-      all_uuids: ['u1'],
+      inventory: [{ uuid: 'u1', content_hash: hash, filename: 'test.md', modified_at: now2 }],
       deleted_uuids: [],
     });
     const v3 = (await res3.json()).version;
@@ -383,9 +392,9 @@ describe('/sync response includes version', () => {
   });
 });
 
-// ── Phase 3a: V2 sync format (inventory) ─────────────────
+// ── Sync format (inventory) ───────────────────────────────
 
-describe('V2 sync (inventory format)', () => {
+describe('sync (inventory format)', () => {
   let env: TestEnv;
   let token: string;
 
@@ -398,7 +407,7 @@ describe('V2 sync (inventory format)', () => {
     env.cleanup();
   });
 
-  it('handles empty V2 sync', async () => {
+  it('handles empty sync', async () => {
     const res = await authReq(env.app, 'POST', '/sync', token, {
       notes: [],
       inventory: [],
@@ -413,7 +422,7 @@ describe('V2 sync (inventory format)', () => {
     expect(typeof data.version).toBe('number');
   });
 
-  it('uploads new note via V2', async () => {
+  it('uploads new note', async () => {
     const content = '# New Note';
     const hash = contentHash(content);
 
@@ -441,42 +450,44 @@ describe('V2 sync (inventory format)', () => {
   it('detects server-side changes for inventory-only entries', async () => {
     const content = 'original';
     const hash = contentHash(content);
+    const now = Date.now();
 
-    // Upload via V1
+    // Upload
     await authReq(env.app, 'POST', '/sync', token, {
       notes: [
         {
           uuid: 'u1',
           filename: 'doc.md',
-          modified_at: Date.now(),
+          modified_at: now,
           content_hash: hash,
           hash_at_last_sync: '',
           content,
         },
       ],
-      all_uuids: ['u1'],
+      inventory: [{ uuid: 'u1', content_hash: hash, filename: 'doc.md', modified_at: now }],
       deleted_uuids: [],
     });
 
-    // Another client modifies via V1
+    // Another client modifies
     const newContent = 'modified by B';
     const newHash = contentHash(newContent);
+    const now2 = Date.now();
     await authReq(env.app, 'POST', '/sync', token, {
       notes: [
         {
           uuid: 'u1',
           filename: 'doc.md',
-          modified_at: Date.now(),
+          modified_at: now2,
           content_hash: newHash,
           hash_at_last_sync: hash,
           content: newContent,
         },
       ],
-      all_uuids: ['u1'],
+      inventory: [{ uuid: 'u1', content_hash: newHash, filename: 'doc.md', modified_at: now2 }],
       deleted_uuids: [],
     });
 
-    // Original client syncs V2 — note is unchanged on client (inventory only)
+    // Original client syncs — note is unchanged on client (inventory only)
     const res = await authReq(env.app, 'POST', '/sync', token, {
       notes: [],
       inventory: [{ uuid: 'u1', content_hash: hash, filename: 'doc.md', modified_at: Date.now() }],
@@ -493,6 +504,7 @@ describe('V2 sync (inventory format)', () => {
   it('skips unchanged inventory entries', async () => {
     const content = 'stable';
     const hash = contentHash(content);
+    const now = Date.now();
 
     // Upload
     await authReq(env.app, 'POST', '/sync', token, {
@@ -500,17 +512,17 @@ describe('V2 sync (inventory format)', () => {
         {
           uuid: 'u1',
           filename: 'stable.md',
-          modified_at: Date.now(),
+          modified_at: now,
           content_hash: hash,
           hash_at_last_sync: '',
           content,
         },
       ],
-      all_uuids: ['u1'],
+      inventory: [{ uuid: 'u1', content_hash: hash, filename: 'stable.md', modified_at: now }],
       deleted_uuids: [],
     });
 
-    // V2 sync with matching hash — no update expected
+    // Sync with matching hash — no update expected
     const res = await authReq(env.app, 'POST', '/sync', token, {
       notes: [],
       inventory: [{ uuid: 'u1', content_hash: hash, filename: 'stable.md', modified_at: Date.now() }],
@@ -522,27 +534,28 @@ describe('V2 sync (inventory format)', () => {
     expect(data.hash_updates).toEqual([]);
   });
 
-  it('sends server-only notes to V2 client', async () => {
+  it('sends server-only notes to client', async () => {
     const content = 'server only';
     const hash = contentHash(content);
+    const now = Date.now();
 
-    // Upload from another client via V1
+    // Upload from another client
     await authReq(env.app, 'POST', '/sync', token, {
       notes: [
         {
           uuid: 'u1',
           filename: 'server-only.md',
-          modified_at: Date.now(),
+          modified_at: now,
           content_hash: hash,
           hash_at_last_sync: '',
           content,
         },
       ],
-      all_uuids: ['u1'],
+      inventory: [{ uuid: 'u1', content_hash: hash, filename: 'server-only.md', modified_at: now }],
       deleted_uuids: [],
     });
 
-    // New client syncs V2 with empty inventory — should get the note
+    // New client syncs with empty inventory — should get the note
     const res = await authReq(env.app, 'POST', '/sync', token, {
       notes: [],
       inventory: [],
@@ -555,9 +568,10 @@ describe('V2 sync (inventory format)', () => {
     expect(data.update[0].content).toBe(content);
   });
 
-  it('handles V2 deletions', async () => {
+  it('handles deletions', async () => {
     const content = 'to delete';
     const hash = contentHash(content);
+    const now = Date.now();
 
     // Upload
     await authReq(env.app, 'POST', '/sync', token, {
@@ -565,17 +579,17 @@ describe('V2 sync (inventory format)', () => {
         {
           uuid: 'u1',
           filename: 'delete-me.md',
-          modified_at: Date.now(),
+          modified_at: now,
           content_hash: hash,
           hash_at_last_sync: '',
           content,
         },
       ],
-      all_uuids: ['u1'],
+      inventory: [{ uuid: 'u1', content_hash: hash, filename: 'delete-me.md', modified_at: now }],
       deleted_uuids: [],
     });
 
-    // Delete via V2
+    // Delete
     const res = await authReq(env.app, 'POST', '/sync', token, {
       notes: [],
       inventory: [],
@@ -586,7 +600,7 @@ describe('V2 sync (inventory format)', () => {
     expect(readNoteFile(env.notesDir, 'delete-me.md')).toBeNull();
   });
 
-  it('rejects V2 with malformed inventory', async () => {
+  it('rejects malformed inventory', async () => {
     const res = await authReq(env.app, 'POST', '/sync', token, {
       notes: [],
       inventory: [{ uuid: 'u1' }], // missing content_hash and filename
@@ -614,6 +628,7 @@ describe('content-aware dedup (server change / state clear)', () => {
   it('deduplicates when new UUID has same filename and content as existing note', async () => {
     const content = '# Groceries\n- Milk\n- Eggs';
     const hash = contentHash(content);
+    const now = Date.now();
 
     // Client A uploads a note with uuid-old
     await authReq(env.app, 'POST', '/sync', token, {
@@ -621,29 +636,30 @@ describe('content-aware dedup (server change / state clear)', () => {
         {
           uuid: 'uuid-old',
           filename: 'groceries.md',
-          modified_at: Date.now(),
+          modified_at: now,
           content_hash: hash,
           hash_at_last_sync: '',
           content,
         },
       ],
-      all_uuids: ['uuid-old'],
+      inventory: [{ uuid: 'uuid-old', content_hash: hash, filename: 'groceries.md', modified_at: now }],
       deleted_uuids: [],
     });
 
     // Client A clears sync state (server change) and re-uploads with uuid-new
+    const now2 = Date.now();
     const res = await authReq(env.app, 'POST', '/sync', token, {
       notes: [
         {
           uuid: 'uuid-new',
           filename: 'groceries.md',
-          modified_at: Date.now(),
+          modified_at: now2,
           content_hash: hash,
           hash_at_last_sync: '',
           content,
         },
       ],
-      all_uuids: ['uuid-new'],
+      inventory: [{ uuid: 'uuid-new', content_hash: hash, filename: 'groceries.md', modified_at: now2 }],
       deleted_uuids: [],
     });
 
@@ -668,6 +684,7 @@ describe('content-aware dedup (server change / state clear)', () => {
   it('does NOT dedup when content differs (genuine new note with same name)', async () => {
     const contentA = '# Groceries v1';
     const hashA = contentHash(contentA);
+    const now = Date.now();
 
     // Upload original note
     await authReq(env.app, 'POST', '/sync', token, {
@@ -675,31 +692,32 @@ describe('content-aware dedup (server change / state clear)', () => {
         {
           uuid: 'uuid-old',
           filename: 'groceries.md',
-          modified_at: Date.now(),
+          modified_at: now,
           content_hash: hashA,
           hash_at_last_sync: '',
           content: contentA,
         },
       ],
-      all_uuids: ['uuid-old'],
+      inventory: [{ uuid: 'uuid-old', content_hash: hashA, filename: 'groceries.md', modified_at: now }],
       deleted_uuids: [],
     });
 
     // Different content under new UUID — should NOT dedup
     const contentB = '# Groceries v2 (different)';
     const hashB = contentHash(contentB);
+    const now2 = Date.now();
     const res = await authReq(env.app, 'POST', '/sync', token, {
       notes: [
         {
           uuid: 'uuid-new',
           filename: 'groceries.md',
-          modified_at: Date.now(),
+          modified_at: now2,
           content_hash: hashB,
           hash_at_last_sync: '',
           content: contentB,
         },
       ],
-      all_uuids: ['uuid-new'],
+      inventory: [{ uuid: 'uuid-new', content_hash: hashB, filename: 'groceries.md', modified_at: now2 }],
       deleted_uuids: [],
     });
 
@@ -718,24 +736,32 @@ describe('content-aware dedup (server change / state clear)', () => {
     const content2 = 'note two';
     const hash1 = contentHash(content1);
     const hash2 = contentHash(content2);
+    const now = Date.now();
 
     // Upload two notes with old UUIDs
     await authReq(env.app, 'POST', '/sync', token, {
       notes: [
-        { uuid: 'old-1', filename: 'one.md', modified_at: Date.now(), content_hash: hash1, hash_at_last_sync: '', content: content1 },
-        { uuid: 'old-2', filename: 'two.md', modified_at: Date.now(), content_hash: hash2, hash_at_last_sync: '', content: content2 },
+        { uuid: 'old-1', filename: 'one.md', modified_at: now, content_hash: hash1, hash_at_last_sync: '', content: content1 },
+        { uuid: 'old-2', filename: 'two.md', modified_at: now, content_hash: hash2, hash_at_last_sync: '', content: content2 },
       ],
-      all_uuids: ['old-1', 'old-2'],
+      inventory: [
+        { uuid: 'old-1', content_hash: hash1, filename: 'one.md', modified_at: now },
+        { uuid: 'old-2', content_hash: hash2, filename: 'two.md', modified_at: now },
+      ],
       deleted_uuids: [],
     });
 
     // Re-upload both with new UUIDs (simulating state clear)
+    const now2 = Date.now();
     const res = await authReq(env.app, 'POST', '/sync', token, {
       notes: [
-        { uuid: 'new-1', filename: 'one.md', modified_at: Date.now(), content_hash: hash1, hash_at_last_sync: '', content: content1 },
-        { uuid: 'new-2', filename: 'two.md', modified_at: Date.now(), content_hash: hash2, hash_at_last_sync: '', content: content2 },
+        { uuid: 'new-1', filename: 'one.md', modified_at: now2, content_hash: hash1, hash_at_last_sync: '', content: content1 },
+        { uuid: 'new-2', filename: 'two.md', modified_at: now2, content_hash: hash2, hash_at_last_sync: '', content: content2 },
       ],
-      all_uuids: ['new-1', 'new-2'],
+      inventory: [
+        { uuid: 'new-1', content_hash: hash1, filename: 'one.md', modified_at: now2 },
+        { uuid: 'new-2', content_hash: hash2, filename: 'two.md', modified_at: now2 },
+      ],
       deleted_uuids: [],
     });
 
@@ -771,6 +797,7 @@ describe('sync optimization edge cases', () => {
   it('version is monotonically increasing across multiple operations', async () => {
     const contentA = '# Note A';
     const hashA = contentHash(contentA);
+    const now = Date.now();
 
     // Upload note A
     const uploadRes = await authReq(env.app, 'POST', '/sync', token, {
@@ -778,13 +805,13 @@ describe('sync optimization edge cases', () => {
         {
           uuid: 'u1',
           filename: 'note-a.md',
-          modified_at: Date.now(),
+          modified_at: now,
           content_hash: hashA,
           hash_at_last_sync: '',
           content: contentA,
         },
       ],
-      all_uuids: ['u1'],
+      inventory: [{ uuid: 'u1', content_hash: hashA, filename: 'note-a.md', modified_at: now }],
       deleted_uuids: [],
     });
     const v1 = (await uploadRes.json()).version;
@@ -793,18 +820,19 @@ describe('sync optimization edge cases', () => {
     // Modify note A
     const modifiedContent = '# Note A (modified)';
     const modifiedHash = contentHash(modifiedContent);
+    const now2 = Date.now();
     const modifyRes = await authReq(env.app, 'POST', '/sync', token, {
       notes: [
         {
           uuid: 'u1',
           filename: 'note-a.md',
-          modified_at: Date.now(),
+          modified_at: now2,
           content_hash: modifiedHash,
           hash_at_last_sync: hashA,
           content: modifiedContent,
         },
       ],
-      all_uuids: ['u1'],
+      inventory: [{ uuid: 'u1', content_hash: modifiedHash, filename: 'note-a.md', modified_at: now2 }],
       deleted_uuids: [],
     });
     const v2 = (await modifyRes.json()).version;
@@ -813,7 +841,7 @@ describe('sync optimization edge cases', () => {
     // Delete note A
     const deleteRes = await authReq(env.app, 'POST', '/sync', token, {
       notes: [],
-      all_uuids: [],
+      inventory: [],
       deleted_uuids: ['u1'],
     });
     const v3 = (await deleteRes.json()).version;
@@ -823,48 +851,50 @@ describe('sync optimization edge cases', () => {
     expect(v1 < v2 && v2 < v3).toBe(true);
   });
 
-  it('V2 conflict produces correct version bump', async () => {
+  it('conflict produces correct version bump', async () => {
     const origContent = 'original content';
     const origHash = contentHash(origContent);
+    const now = Date.now();
 
-    // Client A uploads a note via V1
+    // Client A uploads a note
     const uploadRes = await authReq(env.app, 'POST', '/sync', token, {
       notes: [
         {
           uuid: 'u1',
           filename: 'shared.md',
-          modified_at: Date.now(),
+          modified_at: now,
           content_hash: origHash,
           hash_at_last_sync: '',
           content: origContent,
         },
       ],
-      all_uuids: ['u1'],
+      inventory: [{ uuid: 'u1', content_hash: origHash, filename: 'shared.md', modified_at: now }],
       deleted_uuids: [],
     });
     const vAfterUpload = (await uploadRes.json()).version;
 
-    // Client B modifies the note via V1 (server now has different content)
+    // Client B modifies the note (server now has different content)
     const bContent = 'modified by client B';
     const bHash = contentHash(bContent);
+    const now2 = Date.now();
     const bRes = await authReq(env.app, 'POST', '/sync', token, {
       notes: [
         {
           uuid: 'u1',
           filename: 'shared.md',
-          modified_at: Date.now(),
+          modified_at: now2,
           content_hash: bHash,
           hash_at_last_sync: origHash,
           content: bContent,
         },
       ],
-      all_uuids: ['u1'],
+      inventory: [{ uuid: 'u1', content_hash: bHash, filename: 'shared.md', modified_at: now2 }],
       deleted_uuids: [],
     });
     const vAfterB = (await bRes.json()).version;
     expect(vAfterB).toBeGreaterThan(vAfterUpload);
 
-    // Client A sends stale V2 sync — it changed content too but has stale hash_at_last_sync
+    // Client A sends stale sync — it changed content too but has stale hash_at_last_sync
     const aContent = 'modified by client A';
     const aHash = contentHash(aContent);
     const conflictRes = await authReq(env.app, 'POST', '/sync', token, {
@@ -904,11 +934,11 @@ describe('sync optimization edge cases', () => {
     expect(conflictData.conflicts[0].client_content).toBe(aContent);
   });
 
-  it('V2 rename detection via inventory', async () => {
+  it('rename detection via inventory', async () => {
     const content = 'rename me';
     const hash = contentHash(content);
 
-    // Upload via V1
+    // Upload
     await authReq(env.app, 'POST', '/sync', token, {
       notes: [
         {
@@ -920,14 +950,14 @@ describe('sync optimization edge cases', () => {
           content,
         },
       ],
-      all_uuids: ['u1'],
+      inventory: [{ uuid: 'u1', content_hash: hash, filename: 'old-name.md', modified_at: 1000 }],
       deleted_uuids: [],
     });
 
     // Verify file exists on server
     expect(readNoteFile(env.notesDir, 'old-name.md')).toBe(content);
 
-    // V2 sync with inventory-only: different filename, matching hash, newer modified_at
+    // Sync with inventory-only: different filename, matching hash, newer modified_at
     const res = await authReq(env.app, 'POST', '/sync', token, {
       notes: [],
       inventory: [{ uuid: 'u1', content_hash: hash, filename: 'new-name.md', modified_at: 2000 }],
@@ -945,11 +975,11 @@ describe('sync optimization edge cases', () => {
     expect(readNoteFile(env.notesDir, 'old-name.md')).toBeNull();
   });
 
-  it('V2 rename from server wins when server is newer', async () => {
+  it('rename from server wins when server is newer', async () => {
     const content = 'rename me';
     const hash = contentHash(content);
 
-    // Upload via V1 with old filename
+    // Upload with old filename
     await authReq(env.app, 'POST', '/sync', token, {
       notes: [
         {
@@ -961,11 +991,11 @@ describe('sync optimization edge cases', () => {
           content,
         },
       ],
-      all_uuids: ['u1'],
+      inventory: [{ uuid: 'u1', content_hash: hash, filename: 'original.md', modified_at: 1000 }],
       deleted_uuids: [],
     });
 
-    // Another client renames via V1 (newer modified_at, same content)
+    // Another client renames (newer modified_at, same content)
     await authReq(env.app, 'POST', '/sync', token, {
       notes: [
         {
@@ -976,14 +1006,14 @@ describe('sync optimization edge cases', () => {
           hash_at_last_sync: hash,
         },
       ],
-      all_uuids: ['u1'],
+      inventory: [{ uuid: 'u1', content_hash: hash, filename: 'server-renamed.md', modified_at: 3000 }],
       deleted_uuids: [],
     });
 
     // Verify the server has the renamed file
     expect(readNoteFile(env.notesDir, 'server-renamed.md')).toBe(content);
 
-    // Original client sends V2 inventory-only with old filename and older modified_at
+    // Original client sends inventory-only with old filename and older modified_at
     const res = await authReq(env.app, 'POST', '/sync', token, {
       notes: [],
       inventory: [{ uuid: 'u1', content_hash: hash, filename: 'original.md', modified_at: 1000 }],
@@ -1002,6 +1032,7 @@ describe('sync optimization edge cases', () => {
   it('sync/check returns up_to_date at exactly the current version', async () => {
     const content = 'check me';
     const hash = contentHash(content);
+    const now = Date.now();
 
     // Upload a note to bump the version
     const syncRes = await authReq(env.app, 'POST', '/sync', token, {
@@ -1009,13 +1040,13 @@ describe('sync optimization edge cases', () => {
         {
           uuid: 'u1',
           filename: 'check.md',
-          modified_at: Date.now(),
+          modified_at: now,
           content_hash: hash,
           hash_at_last_sync: '',
           content,
         },
       ],
-      all_uuids: ['u1'],
+      inventory: [{ uuid: 'u1', content_hash: hash, filename: 'check.md', modified_at: now }],
       deleted_uuids: [],
     });
     const currentVersion = (await syncRes.json()).version;
@@ -1032,9 +1063,10 @@ describe('sync optimization edge cases', () => {
     expect(staleData.status).toBe('changes_available');
   });
 
-  it('no-op V1 and V2 syncs do not increment version', async () => {
+  it('no-op syncs do not increment version', async () => {
     const content = 'stable note';
     const hash = contentHash(content);
+    const now = Date.now();
 
     // Upload a note to establish a baseline version
     const setupRes = await authReq(env.app, 'POST', '/sync', token, {
@@ -1042,43 +1074,34 @@ describe('sync optimization edge cases', () => {
         {
           uuid: 'u1',
           filename: 'stable.md',
-          modified_at: Date.now(),
+          modified_at: now,
           content_hash: hash,
           hash_at_last_sync: '',
           content,
         },
       ],
-      all_uuids: ['u1'],
+      inventory: [{ uuid: 'u1', content_hash: hash, filename: 'stable.md', modified_at: now }],
       deleted_uuids: [],
     });
     const baseVersion = (await setupRes.json()).version;
     expect(baseVersion).toBeGreaterThan(0);
 
-    // V1 empty sync — no mutations
-    const v1EmptyRes = await authReq(env.app, 'POST', '/sync', token, {
-      notes: [],
-      all_uuids: ['u1'],
-      deleted_uuids: [],
-    });
-    const v1EmptyVersion = (await v1EmptyRes.json()).version;
-    expect(v1EmptyVersion).toBe(baseVersion);
-
-    // V2 empty sync — no mutations
-    const v2EmptyRes = await authReq(env.app, 'POST', '/sync', token, {
+    // Empty sync — no mutations
+    const emptyRes = await authReq(env.app, 'POST', '/sync', token, {
       notes: [],
       inventory: [],
       deleted_uuids: [],
     });
-    const v2EmptyVersion = (await v2EmptyRes.json()).version;
-    expect(v2EmptyVersion).toBe(baseVersion);
+    const emptyVersion = (await emptyRes.json()).version;
+    expect(emptyVersion).toBe(baseVersion);
 
-    // V2 sync with inventory item that matches server — no mutations
-    const v2MatchRes = await authReq(env.app, 'POST', '/sync', token, {
+    // Sync with inventory item that matches server — no mutations
+    const matchRes = await authReq(env.app, 'POST', '/sync', token, {
       notes: [],
       inventory: [{ uuid: 'u1', content_hash: hash, filename: 'stable.md', modified_at: Date.now() }],
       deleted_uuids: [],
     });
-    const v2MatchVersion = (await v2MatchRes.json()).version;
-    expect(v2MatchVersion).toBe(baseVersion);
+    const matchVersion = (await matchRes.json()).version;
+    expect(matchVersion).toBe(baseVersion);
   });
 });

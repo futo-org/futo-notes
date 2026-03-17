@@ -177,7 +177,7 @@ async function syncNotes(server, token, notes) {
       hash_at_last_sync: note.hash_at_last_sync,
       content: note.content,
     })),
-    all_uuids: notes.map((note) => note.uuid),
+    inventory: notes.map((note) => ({ uuid: note.uuid, content_hash: note.content_hash, filename: note.filename, modified_at: note.modified_at })),
     deleted_uuids: [],
   };
 

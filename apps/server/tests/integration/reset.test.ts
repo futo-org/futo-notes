@@ -45,7 +45,7 @@ describe('POST /reset', () => {
           content,
         },
       ],
-      all_uuids: ['u-reset'],
+      inventory: [{ uuid: 'u-reset', content_hash: hash, filename: 'reset-me.md', modified_at: Date.now() }],
       deleted_uuids: [],
     });
     expect(upload.status).toBe(200);
@@ -86,14 +86,14 @@ describe('POST /reset', () => {
     // All sessions should be invalid.
     const syncWithFirst = await authReq(env.app, 'POST', '/sync', token, {
       notes: [],
-      all_uuids: [],
+      inventory: [],
       deleted_uuids: [],
     });
     expect(syncWithFirst.status).toBe(401);
 
     const syncWithSecond = await authReq(env.app, 'POST', '/sync', secondToken, {
       notes: [],
-      all_uuids: [],
+      inventory: [],
       deleted_uuids: [],
     });
     expect(syncWithSecond.status).toBe(401);
@@ -126,7 +126,7 @@ describe('POST /reset', () => {
           content,
         },
       ],
-      all_uuids: ['u-dev-reset'],
+      inventory: [{ uuid: 'u-dev-reset', content_hash: hash, filename: 'dev-reset-me.md', modified_at: Date.now() }],
       deleted_uuids: [],
     });
     expect(upload.status).toBe(200);
@@ -165,14 +165,14 @@ describe('POST /reset', () => {
 
     const syncWithFirst = await authReq(env.app, 'POST', '/sync', token, {
       notes: [],
-      all_uuids: [],
+      inventory: [],
       deleted_uuids: [],
     });
     expect(syncWithFirst.status).toBe(401);
 
     const syncWithSecond = await authReq(env.app, 'POST', '/sync', secondToken, {
       notes: [],
-      all_uuids: [],
+      inventory: [],
       deleted_uuids: [],
     });
     expect(syncWithSecond.status).toBe(401);

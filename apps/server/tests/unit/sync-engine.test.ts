@@ -25,7 +25,7 @@ describe('sync engine', () => {
     const db = getDb();
     const { response: result } = processSync(db, env.notesDir, {
       notes: [],
-      all_uuids: [],
+      inventory: [],
       deleted_uuids: [],
     });
 
@@ -39,19 +39,20 @@ describe('sync engine', () => {
     const db = getDb();
     const content = '# Hello\nWorld';
     const hash = contentHash(content);
+    const now = Date.now();
 
     const { response: result } = processSync(db, env.notesDir, {
       notes: [
         {
           uuid: 'u1',
           filename: 'hello.md',
-          modified_at: Date.now(),
+          modified_at: now,
           content_hash: hash,
           hash_at_last_sync: '',
           content,
         },
       ],
-      all_uuids: ['u1'],
+      inventory: [{ uuid: 'u1', content_hash: hash, filename: 'hello.md', modified_at: now }],
       deleted_uuids: [],
     });
 
@@ -76,7 +77,7 @@ describe('sync engine', () => {
           content,
         },
       ],
-      all_uuids: ['u1'],
+      inventory: [{ uuid: 'u1', content_hash: hash, filename: 'preserve.md', modified_at: modifiedAt }],
       deleted_uuids: [],
     });
 
@@ -93,7 +94,7 @@ describe('sync engine', () => {
 
     const { response: result } = processSync(db, env.notesDir, {
       notes: [],
-      all_uuids: [],
+      inventory: [],
       deleted_uuids: [],
     });
 
@@ -111,19 +112,20 @@ describe('sync engine', () => {
 
     const newContent = 'new content';
     const newHash = contentHash(newContent);
+    const now = Date.now();
 
     const { response: result } = processSync(db, env.notesDir, {
       notes: [
         {
           uuid: 'u1',
           filename: 'note.md',
-          modified_at: Date.now(),
+          modified_at: now,
           content_hash: newHash,
           hash_at_last_sync: oldHash,
           content: newContent,
         },
       ],
-      all_uuids: ['u1'],
+      inventory: [{ uuid: 'u1', content_hash: newHash, filename: 'note.md', modified_at: now }],
       deleted_uuids: [],
     });
 
@@ -139,17 +141,18 @@ describe('sync engine', () => {
     writeNoteFile(env.notesDir, 'note.md', serverContent);
     upsertNote(db, 'u1', 'note.md', serverHash, Date.now());
 
+    const now = Date.now();
     const { response: result } = processSync(db, env.notesDir, {
       notes: [
         {
           uuid: 'u1',
           filename: 'note.md',
-          modified_at: Date.now(),
+          modified_at: now,
           content_hash: origHash,
           hash_at_last_sync: origHash,
         },
       ],
-      all_uuids: ['u1'],
+      inventory: [{ uuid: 'u1', content_hash: origHash, filename: 'note.md', modified_at: now }],
       deleted_uuids: [],
     });
 
@@ -168,19 +171,20 @@ describe('sync engine', () => {
 
     const clientContent = 'client version';
     const clientHash = contentHash(clientContent);
+    const now = Date.now();
 
     const { response: result } = processSync(db, env.notesDir, {
       notes: [
         {
           uuid: 'u1',
           filename: 'note.md',
-          modified_at: Date.now(),
+          modified_at: now,
           content_hash: clientHash,
           hash_at_last_sync: origHash,
           content: clientContent,
         },
       ],
-      all_uuids: ['u1'],
+      inventory: [{ uuid: 'u1', content_hash: clientHash, filename: 'note.md', modified_at: now }],
       deleted_uuids: [],
     });
 
@@ -205,7 +209,7 @@ describe('sync engine', () => {
 
     const { response: result } = processSync(db, env.notesDir, {
       notes: [],
-      all_uuids: [],
+      inventory: [],
       deleted_uuids: ['d1'],
     });
 
@@ -219,7 +223,7 @@ describe('sync engine', () => {
 
     const { response: result } = processSync(db, env.notesDir, {
       notes: [],
-      all_uuids: ['dead'],
+      inventory: [{ uuid: 'dead', content_hash: 'dummy', filename: 'dead.md', modified_at: Date.now() }],
       deleted_uuids: [],
     });
 
@@ -229,19 +233,21 @@ describe('sync engine', () => {
   it('prevents re-upload of tombstoned note', () => {
     const db = getDb();
     createTombstone(db, 'dead');
+    const now = Date.now();
+    const zombieHash = contentHash('brains');
 
     const { response: result } = processSync(db, env.notesDir, {
       notes: [
         {
           uuid: 'dead',
           filename: 'zombie.md',
-          modified_at: Date.now(),
-          content_hash: contentHash('brains'),
+          modified_at: now,
+          content_hash: zombieHash,
           hash_at_last_sync: '',
           content: 'brains',
         },
       ],
-      all_uuids: ['dead'],
+      inventory: [{ uuid: 'dead', content_hash: zombieHash, filename: 'zombie.md', modified_at: now }],
       deleted_uuids: [],
     });
 
@@ -267,7 +273,7 @@ describe('sync engine', () => {
           hash_at_last_sync: hash,
         },
       ],
-      all_uuids: ['u1'],
+      inventory: [{ uuid: 'u1', content_hash: hash, filename: 'new name.md', modified_at: T0 + 3000 }],
       deleted_uuids: [],
     });
 
@@ -295,19 +301,20 @@ describe('sync engine', () => {
 
     const newContent = 'new stuff';
     const newHash = contentHash(newContent);
+    const now = Date.now();
 
     const { response: result } = processSync(db, env.notesDir, {
       notes: [
         {
           uuid: 'u1',
           filename: 'new name.md',
-          modified_at: Date.now(),
+          modified_at: now,
           content_hash: newHash,
           hash_at_last_sync: oldHash,
           content: newContent,
         },
       ],
-      all_uuids: ['u1'],
+      inventory: [{ uuid: 'u1', content_hash: newHash, filename: 'new name.md', modified_at: now }],
       deleted_uuids: [],
     });
 
@@ -328,27 +335,33 @@ describe('sync engine', () => {
     const db = getDb();
     const c1 = '# Note 1';
     const c2 = '# Note 2';
+    const h1 = contentHash(c1);
+    const h2 = contentHash(c2);
+    const now = Date.now();
 
     const { response: result } = processSync(db, env.notesDir, {
       notes: [
         {
           uuid: 'u1',
           filename: 'note1.md',
-          modified_at: Date.now(),
-          content_hash: contentHash(c1),
+          modified_at: now,
+          content_hash: h1,
           hash_at_last_sync: '',
           content: c1,
         },
         {
           uuid: 'u2',
           filename: 'note2.md',
-          modified_at: Date.now(),
-          content_hash: contentHash(c2),
+          modified_at: now,
+          content_hash: h2,
           hash_at_last_sync: '',
           content: c2,
         },
       ],
-      all_uuids: ['u1', 'u2'],
+      inventory: [
+        { uuid: 'u1', content_hash: h1, filename: 'note1.md', modified_at: now },
+        { uuid: 'u2', content_hash: h2, filename: 'note2.md', modified_at: now },
+      ],
       deleted_uuids: [],
     });
 
@@ -376,7 +389,7 @@ describe('sync engine', () => {
         content_hash: hash,
         hash_at_last_sync: hash,
       }],
-      all_uuids: ['u1'],
+      inventory: [{ uuid: 'u1', content_hash: hash, filename: 'shopping list.md', modified_at: T0 + 5000 }],
       deleted_uuids: [],
     });
 
@@ -394,7 +407,7 @@ describe('sync engine', () => {
         content_hash: hash,
         hash_at_last_sync: hash,
       }],
-      all_uuids: ['u1'],
+      inventory: [{ uuid: 'u1', content_hash: hash, filename: 'grocery list.md', modified_at: T0 }],
       deleted_uuids: [],
     });
 
@@ -424,7 +437,7 @@ describe('sync engine', () => {
         uuid: 'u1', filename: 'new.md', modified_at: T0 + 5000,
         content_hash: hash, hash_at_last_sync: hash,
       }],
-      all_uuids: ['u1'],
+      inventory: [{ uuid: 'u1', content_hash: hash, filename: 'new.md', modified_at: T0 + 5000 }],
       deleted_uuids: [],
     });
 
@@ -434,7 +447,7 @@ describe('sync engine', () => {
         uuid: 'u1', filename: 'old.md', modified_at: T0,
         content_hash: hash, hash_at_last_sync: hash,
       }],
-      all_uuids: ['u1'],
+      inventory: [{ uuid: 'u1', content_hash: hash, filename: 'old.md', modified_at: T0 }],
       deleted_uuids: [],
     });
     expect(r2.update).toHaveLength(1);
@@ -445,7 +458,7 @@ describe('sync engine', () => {
         uuid: 'u1', filename: 'new.md', modified_at: T0 + 5000,
         content_hash: hash, hash_at_last_sync: hash,
       }],
-      all_uuids: ['u1'],
+      inventory: [{ uuid: 'u1', content_hash: hash, filename: 'new.md', modified_at: T0 + 5000 }],
       deleted_uuids: [],
     });
     expect(r3.update).toHaveLength(0);
@@ -457,7 +470,7 @@ describe('sync engine', () => {
         uuid: 'u1', filename: 'new.md', modified_at: T0 + 5000,
         content_hash: hash, hash_at_last_sync: hash,
       }],
-      all_uuids: ['u1'],
+      inventory: [{ uuid: 'u1', content_hash: hash, filename: 'new.md', modified_at: T0 + 5000 }],
       deleted_uuids: [],
     });
     expect(r4.update).toHaveLength(0);
@@ -479,7 +492,7 @@ describe('sync engine', () => {
         uuid: 'u1', filename: 'name-from-A.md', modified_at: T0 + 3000,
         content_hash: hash, hash_at_last_sync: hash,
       }],
-      all_uuids: ['u1'],
+      inventory: [{ uuid: 'u1', content_hash: hash, filename: 'name-from-A.md', modified_at: T0 + 3000 }],
       deleted_uuids: [],
     });
 
@@ -489,7 +502,7 @@ describe('sync engine', () => {
         uuid: 'u1', filename: 'name-from-B.md', modified_at: T0 + 5000,
         content_hash: hash, hash_at_last_sync: hash,
       }],
-      all_uuids: ['u1'],
+      inventory: [{ uuid: 'u1', content_hash: hash, filename: 'name-from-B.md', modified_at: T0 + 5000 }],
       deleted_uuids: [],
     });
 
@@ -503,7 +516,7 @@ describe('sync engine', () => {
         uuid: 'u1', filename: 'name-from-A.md', modified_at: T0 + 3000,
         content_hash: hash, hash_at_last_sync: hash,
       }],
-      all_uuids: ['u1'],
+      inventory: [{ uuid: 'u1', content_hash: hash, filename: 'name-from-A.md', modified_at: T0 + 3000 }],
       deleted_uuids: [],
     });
 
