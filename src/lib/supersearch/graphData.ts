@@ -58,6 +58,7 @@ export async function computeGraphData(notes: NotePreview[]): Promise<GraphData>
         if (!note) return null;
         return {
           noteId,
+          uuid: entry.uuid,
           title: note.title,
           preview: note.preview,
           tags: note.tags,
@@ -66,7 +67,10 @@ export async function computeGraphData(notes: NotePreview[]): Promise<GraphData>
       })
       .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
 
-    cached = buildGraphDataFromEntries(graphEntries);
+    cached = await buildGraphDataFromEntries(
+      graphEntries,
+      platformName === 'tauri' ? getFS() : undefined,
+    );
     return cached;
   } finally {
     computing = false;

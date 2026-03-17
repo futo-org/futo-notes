@@ -21,7 +21,7 @@ function makeEntry(
 }
 
 describe('buildGraphClusters', () => {
-  it('creates deterministic semantic clusters with readable labels', () => {
+  it('creates deterministic semantic clusters with readable labels', async () => {
     const entries: GraphClusterInput[] = [
       makeEntry('recipe-1', 'Carnitas Recipe', ['recipes'], [0.95, 0.04, 0.01], -90, 40),
       makeEntry('recipe-2', 'Pot Roast Recipe', ['recipes'], [0.93, 0.06, 0.01], -86, 45),
@@ -37,8 +37,8 @@ describe('buildGraphClusters', () => {
       makeEntry('personal-4', 'Weekend plans', ['personal'], [0.04, 0.07, 0.89], 84, 69),
     ];
 
-    const first = buildGraphClusters(entries);
-    const second = buildGraphClusters(entries);
+    const first = await buildGraphClusters(entries);
+    const second = await buildGraphClusters(entries);
 
     expect(first).toEqual(second);
     expect(first.map((cluster) => cluster.label)).toEqual(expect.arrayContaining([
@@ -49,7 +49,7 @@ describe('buildGraphClusters', () => {
     expect(first.every((cluster) => cluster.noteIds.length >= 3)).toBe(true);
   });
 
-  it('filters filler words out of fallback labels', () => {
+  it('filters filler words out of fallback labels', async () => {
     const entries: GraphClusterInput[] = [
       makeEntry('a', 'The Alfred Loomi Product', [], [0.9, 0.08, 0.02], 0, 0),
       makeEntry('b', 'Had Alfred Loomi Notes', [], [0.91, 0.07, 0.02], 4, 1),
@@ -57,7 +57,7 @@ describe('buildGraphClusters', () => {
       makeEntry('d', 'Alfred Loomi Roadmap', [], [0.89, 0.09, 0.02], 7, 4),
     ];
 
-    const [cluster] = buildGraphClusters(entries);
+    const [cluster] = await buildGraphClusters(entries);
 
     expect(cluster.label).not.toMatch(/\b(The|Had)\b/);
     expect(cluster.label).toMatch(/Alfred|Loomi/);

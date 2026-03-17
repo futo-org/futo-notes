@@ -1,4 +1,5 @@
 import { UMAP } from 'umap-js';
+import type { PlatformFS } from '../platform/types';
 
 export interface GraphNode {
   noteId: string;
@@ -27,6 +28,7 @@ export interface GraphData {
 
 export interface GraphClusterInput {
   noteId: string;
+  uuid?: string;
   title: string;
   preview: string;
   tags: string[];
@@ -37,6 +39,7 @@ export interface GraphClusterInput {
 
 export interface GraphVectorEntry {
   noteId: string;
+  uuid?: string;
   title: string;
   preview: string;
   tags: string[];
@@ -577,10 +580,27 @@ function kMeans(entries: GraphClusterInput[], clusterCount: number): number[] {
   return assignments;
 }
 
-export function buildGraphClusters(entries: GraphClusterInput[]): GraphCluster[] {
+export async function buildGraphClusters(
+  entries: GraphClusterInput[],
+  platform?: { graphComputeClusters?: PlatformFS['graphComputeClusters'] },
+): Promise<GraphCluster[]> {
   if (entries.length === 0) return [];
-  const clusterCount = determineClusterCount(entries.length);
-  const assignments = kMeans(entries, Math.min(clusterCount, entries.length));
+
+  let assignments: number[];
+  if (platform?.graphComputeClusters) {
+    const result = await platform.graphComputeClusters({
+      uuids: entries.map((e) => e.uuid ?? e.noteId),
+      seed: GRAPH_LAYOUT_SEED,
+    });
+    const uuidToCluster = new Map<string, number>();
+    for (const a of result.assignments) {
+      uuidToCluster.set(a.uuid, a.clusterIndex);
+    }
+    assignments = entries.map((e) => uuidToCluster.get(e.uuid ?? e.noteId) ?? 0);
+  } else {
+    const clusterCount = determineClusterCount(entries.length);
+    assignments = kMeans(entries, Math.min(clusterCount, entries.length));
+  }
   const docFreq = collectDocumentFrequencies(entries);
   const buckets = new Map<number, GraphClusterInput[]>();
 
@@ -617,103 +637,143 @@ export function buildGraphClusters(entries: GraphClusterInput[]): GraphCluster[]
   }));
 }
 
-export function buildGraphDataFromEntries(entries: GraphVectorEntry[]): GraphData {
+export async function buildGraphDataFromEntries(
+  entries: GraphVectorEntry[],
+  platform?: {
+    graphComputePositions?: PlatformFS['graphComputePositions'];
+    graphComputeClusters?: PlatformFS['graphComputeClusters'];
+  },
+): Promise<GraphData> {
   if (entries.length < 2) {
     throw new Error('Need at least 2 matched notes for graph');
   }
 
-  const vectors = entries.map((entry) => entry.vector);
-  const nNeighbors = Math.min(15, Math.max(2, vectors.length - 1));
-  const umap = new UMAP({
-    nComponents: 2,
-    nNeighbors,
-    minDist: 0.1,
-    random: createSeededRandom(GRAPH_LAYOUT_SEED ^ entries.length),
-  });
-  const coords = umap.fit(vectors);
+  const nNeighbors = Math.min(15, Math.max(2, entries.length - 1));
 
-  let xMin = Infinity;
-  let xMax = -Infinity;
-  let yMin = Infinity;
-  let yMax = -Infinity;
-  for (const coord of coords) {
-    if (coord[0] < xMin) xMin = coord[0];
-    if (coord[0] > xMax) xMax = coord[0];
-    if (coord[1] < yMin) yMin = coord[1];
-    if (coord[1] > yMax) yMax = coord[1];
-  }
-  const xRange = xMax - xMin || 1;
-  const yRange = yMax - yMin || 1;
-  const halfRange = Math.max(150, Math.sqrt(entries.length) * 35);
+  let graphEntries: GraphClusterInput[];
 
-  const graphEntries: GraphClusterInput[] = [];
-  for (let i = 0; i < entries.length; i++) {
-    const x = ((coords[i][0] - xMin) / xRange) * halfRange * 2 - halfRange;
-    const y = ((coords[i][1] - yMin) / yRange) * halfRange * 2 - halfRange;
-    graphEntries.push({
-      noteId: entries[i].noteId,
-      title: entries[i].title,
-      preview: entries[i].preview,
-      tags: entries[i].tags,
-      vector: entries[i].vector,
-      x,
-      y,
+  // Use native Rust UMAP when available
+  if (platform?.graphComputePositions) {
+    const uuids = entries.map((entry) => entry.uuid ?? entry.noteId);
+    const positions = await platform.graphComputePositions({
+      uuids,
+      seed: GRAPH_LAYOUT_SEED,
+      nNeighbors,
+      minDist: 0.1,
     });
-  }
+    const posMap = new Map<string, { x: number; y: number }>();
+    for (const pos of positions) {
+      posMap.set(pos.uuid, { x: pos.x, y: pos.y });
+    }
+    graphEntries = entries.map((entry) => {
+      const key = entry.uuid ?? entry.noteId;
+      const pos = posMap.get(key) ?? { x: 0, y: 0 };
+      return {
+        noteId: entry.noteId,
+        uuid: entry.uuid,
+        title: entry.title,
+        preview: entry.preview,
+        tags: entry.tags,
+        vector: entry.vector,
+        x: pos.x,
+        y: pos.y,
+      };
+    });
+  } else {
+    // Fallback: TypeScript UMAP implementation
+    const vectors = entries.map((entry) => entry.vector);
+    const umap = new UMAP({
+      nComponents: 2,
+      nNeighbors,
+      minDist: 0.1,
+      random: createSeededRandom(GRAPH_LAYOUT_SEED ^ entries.length),
+    });
+    const coords = umap.fit(vectors);
 
-  const minDist = 12;
-  const cellSize = minDist;
-  const jitterRandom = createSeededRandom(GRAPH_LAYOUT_SEED ^ (entries.length << 4));
-  for (let iter = 0; iter < 50; iter++) {
-    let moved = false;
-    const grid = new Map<string, number[]>();
+    let xMin = Infinity;
+    let xMax = -Infinity;
+    let yMin = Infinity;
+    let yMax = -Infinity;
+    for (const coord of coords) {
+      if (coord[0] < xMin) xMin = coord[0];
+      if (coord[0] > xMax) xMax = coord[0];
+      if (coord[1] < yMin) yMin = coord[1];
+      if (coord[1] > yMax) yMax = coord[1];
+    }
+    const xRange = xMax - xMin || 1;
+    const yRange = yMax - yMin || 1;
+    const halfRange = Math.max(150, Math.sqrt(entries.length) * 35);
 
-    for (let i = 0; i < graphEntries.length; i++) {
-      const cx = Math.floor(graphEntries[i].x / cellSize);
-      const cy = Math.floor(graphEntries[i].y / cellSize);
-      const key = `${cx},${cy}`;
-      const bucket = grid.get(key) ?? [];
-      bucket.push(i);
-      grid.set(key, bucket);
+    graphEntries = [];
+    for (let i = 0; i < entries.length; i++) {
+      const x = ((coords[i][0] - xMin) / xRange) * halfRange * 2 - halfRange;
+      const y = ((coords[i][1] - yMin) / yRange) * halfRange * 2 - halfRange;
+      graphEntries.push({
+        noteId: entries[i].noteId,
+        uuid: entries[i].uuid,
+        title: entries[i].title,
+        preview: entries[i].preview,
+        tags: entries[i].tags,
+        vector: entries[i].vector,
+        x,
+        y,
+      });
     }
 
-    for (const [key, indices] of grid) {
-      const [cx, cy] = key.split(',').map(Number);
-      for (let dx = -1; dx <= 1; dx++) {
-        for (let dy = -1; dy <= 1; dy++) {
-          const neighbor = grid.get(`${cx + dx},${cy + dy}`);
-          if (!neighbor) continue;
-          for (const i of indices) {
-            for (const j of neighbor) {
-              if (j <= i) continue;
-              const ddx = graphEntries[j].x - graphEntries[i].x;
-              const ddy = graphEntries[j].y - graphEntries[i].y;
-              const dist = Math.sqrt(ddx * ddx + ddy * ddy);
-              if (dist < minDist) {
-                if (dist > 0) {
-                  const overlap = (minDist - dist) / 2;
-                  const nx = ddx / dist;
-                  const ny = ddy / dist;
-                  graphEntries[i].x -= nx * overlap;
-                  graphEntries[i].y -= ny * overlap;
-                  graphEntries[j].x += nx * overlap;
-                  graphEntries[j].y += ny * overlap;
-                } else {
-                  graphEntries[j].x += (jitterRandom() - 0.5) * minDist;
-                  graphEntries[j].y += (jitterRandom() - 0.5) * minDist;
+    const minDist = 12;
+    const cellSize = minDist;
+    const jitterRandom = createSeededRandom(GRAPH_LAYOUT_SEED ^ (entries.length << 4));
+    for (let iter = 0; iter < 50; iter++) {
+      let moved = false;
+      const grid = new Map<string, number[]>();
+
+      for (let i = 0; i < graphEntries.length; i++) {
+        const cx = Math.floor(graphEntries[i].x / cellSize);
+        const cy = Math.floor(graphEntries[i].y / cellSize);
+        const key = `${cx},${cy}`;
+        const bucket = grid.get(key) ?? [];
+        bucket.push(i);
+        grid.set(key, bucket);
+      }
+
+      for (const [key, indices] of grid) {
+        const [cx, cy] = key.split(',').map(Number);
+        for (let dx = -1; dx <= 1; dx++) {
+          for (let dy = -1; dy <= 1; dy++) {
+            const neighbor = grid.get(`${cx + dx},${cy + dy}`);
+            if (!neighbor) continue;
+            for (const i of indices) {
+              for (const j of neighbor) {
+                if (j <= i) continue;
+                const ddx = graphEntries[j].x - graphEntries[i].x;
+                const ddy = graphEntries[j].y - graphEntries[i].y;
+                const dist = Math.sqrt(ddx * ddx + ddy * ddy);
+                if (dist < minDist) {
+                  if (dist > 0) {
+                    const overlap = (minDist - dist) / 2;
+                    const nx = ddx / dist;
+                    const ny = ddy / dist;
+                    graphEntries[i].x -= nx * overlap;
+                    graphEntries[i].y -= ny * overlap;
+                    graphEntries[j].x += nx * overlap;
+                    graphEntries[j].y += ny * overlap;
+                  } else {
+                    graphEntries[j].x += (jitterRandom() - 0.5) * minDist;
+                    graphEntries[j].y += (jitterRandom() - 0.5) * minDist;
+                  }
+                  moved = true;
                 }
-                moved = true;
               }
             }
           }
         }
       }
-    }
 
-    if (!moved) break;
+      if (!moved) break;
+    }
   }
 
-  const clusters = buildGraphClusters(graphEntries);
+  const clusters = await buildGraphClusters(graphEntries, platform);
   const clusterByNoteId = new Map<string, { id: string; index: number }>();
   for (let i = 0; i < clusters.length; i++) {
     for (const noteId of clusters[i].noteIds) {

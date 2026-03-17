@@ -156,6 +156,29 @@ export const tauriFS: PlatformFS = {
   async supersearchAllNoteVectors(): Promise<Array<{ uuid: string; vector: number[] }>> {
     return invoke<Array<{ uuid: string; vector: number[] }>>('supersearch_all_note_vectors');
   },
+
+  async graphComputePositions(input: {
+    uuids: string[];
+    seed: number;
+    nNeighbors: number;
+    minDist: number;
+  }): Promise<Array<{ uuid: string; x: number; y: number }>> {
+    const result = await invoke<{ positions: Array<{ uuid: string; x: number; y: number }> }>(
+      'graph_compute_positions',
+      { input },
+    );
+    return result.positions;
+  },
+
+  async graphComputeClusters(input: {
+    uuids: string[];
+    seed: number;
+  }): Promise<{ assignments: Array<{ uuid: string; clusterIndex: number }>; clusterCount: number }> {
+    return invoke<{ assignments: Array<{ uuid: string; clusterIndex: number }>; clusterCount: number }>(
+      'graph_compute_clusters',
+      { input },
+    );
+  },
 };
 
 export function onFileChange(callback: (event: FileChangeEvent) => void): () => void {

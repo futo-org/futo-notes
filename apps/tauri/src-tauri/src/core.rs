@@ -54,7 +54,7 @@ pub struct CoreState {
     watcher: Arc<Mutex<Option<RecommendedWatcher>>>,
     suppressed_watcher_events: Arc<Mutex<HashMap<String, i64>>>,
     sync_writes_until: Arc<AtomicI64>,
-    vectors: Arc<RwLock<Option<Arc<VectorArtifacts>>>>,
+    pub(crate) vectors: Arc<RwLock<Option<Arc<VectorArtifacts>>>>,
     engagement: Arc<RwLock<EngagementState>>,
     supersearch_meta: Arc<RwLock<Option<SupersearchMeta>>>,
 }
@@ -616,7 +616,7 @@ fn load_vector_artifacts_from_disk(base: &Path) -> Result<VectorArtifacts, Strin
     })
 }
 
-fn ensure_vectors_loaded(
+pub(crate) fn ensure_vectors_loaded(
     base: &Path,
     cache: &Arc<RwLock<Option<Arc<VectorArtifacts>>>>,
 ) -> Result<Arc<VectorArtifacts>, String> {

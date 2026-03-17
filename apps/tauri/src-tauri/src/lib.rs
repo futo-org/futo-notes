@@ -1,4 +1,6 @@
 pub mod core;
+pub mod graph_clusters;
+pub mod graph_positions;
 
 use core::*;
 use tauri::Manager;
@@ -43,6 +45,14 @@ pub fn run() {
                     }
                 }).unwrap();
             }
+            // On Linux, disable native GTK decorations so the frontend can
+            // render its own Breeze-style titlebar consistently across DEs.
+            #[cfg(target_os = "linux")]
+            {
+                if let Some(w) = _app.get_webview_window("main") {
+                    w.set_decorations(false)?;
+                }
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -86,6 +96,8 @@ pub fn run() {
             engagement_flush,
             supersearch_is_ready,
             supersearch_get_state,
+            graph_positions::graph_compute_positions,
+            graph_clusters::graph_compute_clusters,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

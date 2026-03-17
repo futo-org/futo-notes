@@ -1105,6 +1105,8 @@ dependencies = [
  "filetime",
  "notify",
  "objc2",
+ "rand 0.9.2",
+ "rand_chacha 0.9.0",
  "rayon",
  "reqwest 0.12.28",
  "serde",

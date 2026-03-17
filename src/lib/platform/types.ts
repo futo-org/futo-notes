@@ -47,6 +47,18 @@ export interface PlatformFS {
   supersearchNoteVector?(uuid: string): Promise<number[]>;
   supersearchAllNoteVectors?(): Promise<Array<{ uuid: string; vector: number[] }>>;
 
+  // Graph layout (native UMAP + K-Means)
+  graphComputePositions?(input: {
+    uuids: string[];
+    seed: number;
+    nNeighbors: number;
+    minDist: number;
+  }): Promise<Array<{ uuid: string; x: number; y: number }>>;
+  graphComputeClusters?(input: {
+    uuids: string[];
+    seed: number;
+  }): Promise<{ assignments: Array<{ uuid: string; clusterIndex: number }>; clusterCount: number }>;
+
   // Optional platform-specific
   pickImage?(): Promise<string | null>;
 }
