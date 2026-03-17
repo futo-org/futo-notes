@@ -134,6 +134,42 @@ curl -s --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
 - Regression tests: `tests/p0-regressions.spec.ts` (crash/IME), `tests/p1-regressions.spec.ts` (links), `tests/p2-regressions.spec.ts` (title/formatting)
 - Some Android-native issues (IME, status bar) require device QA even when Playwright passes
 
+## Test Requirements
+
+Every code change that touches logic must include or update tests. No exceptions.
+
+### When to add tests
+
+| What you changed | Required test |
+|---|---|
+| New Tauri `#[tauri::command]` | Rust unit test in `core.rs` for the underlying `_impl` function |
+| Sync logic (client or server) | Server integration test in `apps/server/tests/integration/` |
+| Sync state transitions | Multi-client test using `SyncClient` helper in `multi-client-sync.test.ts` |
+| Shared package (`@futo-notes/shared`) | Unit test in `packages/shared/` |
+| Bug fix (any layer) | Regression test that reproduces the bug BEFORE the fix, then passes after |
+| New UI interaction or flow | Playwright spec in `tests/` |
+| Path/filename handling | Both: server test (sanitization) + Rust test (path safety) |
+
+### Where tests live
+
+- **Rust core**: `apps/tauri/src-tauri/src/core.rs` `#[cfg(test)]` module. Test `_impl` functions directly.
+- **Server integration**: `apps/server/tests/integration/`. Use `createTestEnv()` + `setupAndLogin()` from `tests/helpers/setup.ts`.
+- **Multi-client sync**: `apps/server/tests/integration/multi-client-sync.test.ts`. Use `SyncClient` class for stateful multi-client scenarios.
+- **Shared package**: `packages/shared/src/*.test.ts`.
+- **Playwright E2E**: `tests/*.spec.ts`. For server-connected tests, follow `dashboard.spec.ts` pattern.
+- **Chaos/adversarial**: `apps/server/tests/integration/chaos-sync.test.ts` (server), Rust chaos tests in `core.rs`.
+
+### How to run
+
+| Suite | Command |
+|---|---|
+| All server tests | `npm run server:test` |
+| Rust tests | `npm run tauri:test:rust` |
+| Shared package | `npm run test:shared` |
+| Unit tests | `npm run test:unit` |
+| Playwright E2E | `npm run test` |
+| Everything | `npm run test:all` then `npm run test` |
+
 ## Debugging
 
 ```bash
