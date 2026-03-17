@@ -305,23 +305,26 @@ describe('Chaos sync tests', () => {
 
   // ── Timestamp abuse (2 tests) ─────────────────────────────
 
-  it('Test 14: modified_at MAX_SAFE_INTEGER — far-future note wins rename conflicts', async () => {
+  it('Test 14: modified_at far-future — far-future note wins rename conflicts', async () => {
     const content = 'far future note';
     const hash = contentHash(content);
+    // Use year-9999 timestamp instead of MAX_SAFE_INTEGER to avoid EINVAL from
+    // utimes on filesystems that can't represent dates past 2038/2106.
+    const farFuture = new Date('9999-12-31T23:59:59Z').getTime();
 
-    // Upload a note with MAX_SAFE_INTEGER modified_at
+    // Upload a note with a far-future modified_at
     const res = await authReq(env.app, 'POST', '/sync', token, {
       notes: [
         {
           uuid: 'uuid-future',
           filename: 'future.md',
-          modified_at: Number.MAX_SAFE_INTEGER,
+          modified_at: farFuture,
           content_hash: hash,
           hash_at_last_sync: '',
           content,
         },
       ],
-      inventory: inv([{ uuid: 'uuid-future', filename: 'future.md', content_hash: hash, modified_at: Number.MAX_SAFE_INTEGER }]),
+      inventory: inv([{ uuid: 'uuid-future', filename: 'future.md', content_hash: hash, modified_at: farFuture }]),
       deleted_uuids: [],
     });
 
@@ -336,7 +339,7 @@ describe('Chaos sync tests', () => {
         {
           uuid: 'uuid-future',
           filename: 'renamed-by-normal-client.md',
-          modified_at: now, // normal timestamp, far less than MAX_SAFE_INTEGER
+          modified_at: now, // normal timestamp, far less than farFuture
           content_hash: hash,
           hash_at_last_sync: hash,
         },
@@ -349,7 +352,7 @@ describe('Chaos sync tests', () => {
     const data2 = await res2.json();
 
     // The server should send back the far-future filename since its modified_at
-    // (MAX_SAFE_INTEGER) is newer than the rename attempt's Date.now()
+    // (far-future) is newer than the rename attempt's Date.now()
     expect(data2.update).toHaveLength(1);
     expect(data2.update[0].filename).toBe('future.md');
   });
