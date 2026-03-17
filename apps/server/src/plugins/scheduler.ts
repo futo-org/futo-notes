@@ -19,7 +19,7 @@ import { getPlugin, listPluginRegistrations, listPlugins } from './registry.js';
 import type {
   BuiltinPlugin,
   PluginApplyMode,
-  PluginConfigField,
+
   PluginRunItemRow,
   PluginRunRow,
   PluginRunStatus,

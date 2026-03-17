@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
   TAG_REGEX,
-  MAX_TAG_LENGTH,
   isValidTagName,
   extractTags,
   extractHeaderTagBlock,

@@ -535,7 +535,7 @@ function kMeans(entries: GraphClusterInput[], clusterCount: number): number[] {
     centroids.push(entries[farthestIndex].vector.slice());
   }
 
-  let assignments = new Array<number>(entries.length).fill(0);
+  const assignments = new Array<number>(entries.length).fill(0);
   for (let iter = 0; iter < 24; iter++) {
     let changed = false;
     for (let i = 0; i < entries.length; i++) {
