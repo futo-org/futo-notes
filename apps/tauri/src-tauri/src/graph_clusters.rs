@@ -6,6 +6,7 @@ use tauri::{AppHandle, State};
 use crate::core::{CoreState, VectorArtifacts, ensure_vectors_loaded, notes_root, task_join_err};
 
 // Same seed used by the TypeScript graph layout code.
+#[cfg(test)]
 const GRAPH_LAYOUT_SEED: u32 = 0x51f1_5e77;
 
 // ---------------------------------------------------------------------------

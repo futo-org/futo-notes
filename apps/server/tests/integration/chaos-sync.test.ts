@@ -357,7 +357,7 @@ describe('Chaos sync tests', () => {
     expect(data2.update[0].filename).toBe('future.md');
   });
 
-  it('Test 15: modified_at -1 — note is stored and retrievable', async () => {
+  it('Test 15: modified_at -1 — rejected as invalid', async () => {
     const content = 'negative timestamp';
     const hash = contentHash(content);
 
@@ -376,23 +376,9 @@ describe('Chaos sync tests', () => {
       deleted_uuids: [],
     });
 
-    expect(res.status).toBe(200);
-
-    // Verify it was stored
-    const diskContent = readFileSync(path.join(env.notesDir, 'negative.md'), 'utf8');
-    expect(diskContent).toBe(content);
-
-    // Verify it can be synced back by another client
-    const res2 = await authReq(env.app, 'POST', '/sync', token, {
-      notes: [],
-      inventory: [],
-      deleted_uuids: [],
-    });
-
-    const data2 = await res2.json();
-    const note = data2.update.find((u: { uuid: string }) => u.uuid === 'uuid-neg');
-    expect(note).toBeDefined();
-    expect(note.content).toBe(content);
+    expect(res.status).toBe(400);
+    const data = await res.json();
+    expect(data.error).toMatch(/modified_at/);
   });
 
   // ── Payload stress (2 tests) ──────────────────────────────

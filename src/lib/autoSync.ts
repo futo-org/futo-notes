@@ -28,6 +28,7 @@ let initialRetryTimer: number | null = null;
 let initialRetryCount = 0;
 let backgroundRetryTimer: number | null = null;
 let pendingBackgroundTrigger: SyncTrigger | null = null;
+let pendingLocalSave = false;
 const INITIAL_RETRY_DELAYS = [4_000, 8_000, 16_000, 30_000, 30_000];
 
 type SyncTrigger = 'local-save' | 'manual' | 'sse' | 'resume' | 'initial';
@@ -50,6 +51,9 @@ async function performSync(trigger: SyncTrigger, options: PerformSyncOptions = {
   if (syncing || paused || !callbacks || !isSyncConfigured()) {
     if (!options.requireExecution && backgroundTrigger && callbacks && isSyncConfigured() && (syncing || paused)) {
       scheduleBackgroundRetry(trigger);
+    }
+    if (syncing && trigger === 'local-save') {
+      pendingLocalSave = true;
     }
     if (options.requireExecution) {
       if (syncing) throw new Error('Sync already in progress');
@@ -87,6 +91,10 @@ async function performSync(trigger: SyncTrigger, options: PerformSyncOptions = {
   } finally {
     syncing = false;
     callbacks.onSyncStateChange?.(false);
+    if (pendingLocalSave) {
+      pendingLocalSave = false;
+      setTimeout(() => void performSync('local-save'), 0);
+    }
   }
 }
 
@@ -219,10 +227,20 @@ export function startAutoSync(cb: AutoSyncCallbacks): void {
   };
   document.addEventListener('visibilitychange', handler);
   cleanupFns.push(() => document.removeEventListener('visibilitychange', handler));
+
+  // Window focus — visibilitychange doesn't fire in Tauri/WebKitGTK on window raise
+  const focusHandler = () => {
+    connectSSE();
+    handleResume();
+  };
+  window.addEventListener('focus', focusHandler);
+  cleanupFns.push(() => window.removeEventListener('focus', focusHandler));
 }
 
 export function stopAutoSync(): void {
   stopSSE();
+  lastSyncTime = 0;
+  pendingLocalSave = false;
   if (initialSyncTimer !== null) {
     clearTimeout(initialSyncTimer);
     initialSyncTimer = null;

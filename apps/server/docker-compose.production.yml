@@ -7,6 +7,7 @@ services:
     volumes:
       - ${STONEFRUIT_DATA_PATH:-./stonefruit-data}:/app/apps/server/data
     environment:
+      - NODE_ENV=production
       - PORT=3005
       - DATABASE_PATH=./data/stonefruit.db
       - NOTES_PATH=./data/notes

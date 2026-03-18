@@ -106,6 +106,19 @@ function escapeHtml(text: string): string {
 }
 
 /**
+ * Blocks dangerous URL schemes (javascript:, data:, vbscript:) while allowing
+ * all others including custom deep link schemes (stonefruit://, obsidian://, etc.).
+ * Must decode HTML entities before checking since escapeHtml runs first.
+ */
+export function sanitizeUrl(url: string): string {
+  // Decode HTML entities for scheme check
+  const decoded = url.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#x27;/g, "'").replace(/&#47;/g, '/');
+  const trimmed = decoded.replace(/[\s\x00-\x1f]+/g, '').toLowerCase();
+  if (/^(javascript|data|vbscript)\s*:/i.test(trimmed)) return '';
+  return url;
+}
+
+/**
  * Renders inline markdown to HTML
  * Supports: bold, italic, code, strikethrough, links
  */
@@ -128,10 +141,14 @@ function renderInlineMarkdown(text: string): string {
   // Strikethrough: ~~text~~
   html = html.replace(/~~([^~]+)~~/g, '<del>$1</del>');
 
-  // Links: [text](url)
+  // Links: [text](url) — blocked schemes render as plain text
   html = html.replace(
     /\[([^\]]+)\]\(([^)]+)\)/g,
-    '<a href="$2" class="cm-md-table-link" target="_blank" rel="noopener noreferrer">$1</a>'
+    (_match, linkText, href) => {
+      const safe = sanitizeUrl(href);
+      if (!safe) return linkText;
+      return `<a href="${safe}" class="cm-md-table-link" target="_blank" rel="noopener noreferrer">${linkText}</a>`;
+    }
   );
 
   return html;

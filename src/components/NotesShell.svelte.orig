@@ -534,17 +534,12 @@ Escaped pipes:
         // dismisses the keyboard on mobile).
         if (freshContent !== editor?.getContent()) {
           // If the user typed while sync was in flight, keep local editing state.
-          // Skip content replacement but still refresh metadata below.
-          const userIsEditing = editor?.hasFocus() && (saveTimeout !== null || saveInFlight !== null || saveQueued);
-          if (!userIsEditing) {
-            content = freshContent;
-            suppressSaveOnChange = true;
-            editor?.setContent(freshContent, { preserveSelection: true });
-            suppressSaveOnChange = false;
-          }
+          if (editor?.hasFocus() && (saveTimeout !== null || saveInFlight !== null || saveQueued)) return;
+          content = freshContent;
+          suppressSaveOnChange = true;
+          editor?.setContent(freshContent, { preserveSelection: true });
+          suppressSaveOnChange = false;
         }
-        // H13: Always refresh metadata (title/savedTitle) even when content
-        // replacement was skipped due to active editing.
         const meta = getNoteById(originalId);
         if (meta) {
           title = meta.title;
@@ -1565,17 +1560,6 @@ Escaped pipes:
           enqueueWatcherEvent(event);
         }));
       });
-
-      // H10: Await save durability before window closes
-      import('@tauri-apps/api/window').then(({ getCurrentWindow }) => {
-        getCurrentWindow().onCloseRequested(async (e) => {
-          e.preventDefault();
-          await flushSave();
-          getCurrentWindow().destroy();
-        }).then((unlisten) => {
-          cleanupNativeListeners.push(unlisten);
-        });
-      }).catch(() => { /* non-Tauri environment */ });
     }
 
     // Global keyboard shortcuts

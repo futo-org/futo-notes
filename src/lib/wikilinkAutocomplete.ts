@@ -1,6 +1,6 @@
-import { autocompletion, startCompletion, completionKeymap } from '@codemirror/autocomplete';
+import { autocompletion, startCompletion } from '@codemirror/autocomplete';
 import type { CompletionContext, CompletionResult, Completion } from '@codemirror/autocomplete';
-import { EditorView, keymap } from '@codemirror/view';
+import { EditorView } from '@codemirror/view';
 import { getAllNotes } from '$lib/notes';
 import { searchNotes } from '$lib/searchIndex';
 
@@ -87,7 +87,6 @@ export function wikilinkAutocomplete() {
       closeOnBlur: true,
       tooltipClass: () => 'cm-wikilink-tooltip'
     }),
-    wikilinkInputHandler,
-    keymap.of(completionKeymap)
+    wikilinkInputHandler
   ];
 }

@@ -26,6 +26,7 @@ CMD ["npx", "vitest", "run"]
 
 # Production stage
 FROM node:22-slim
+ENV NODE_ENV=production
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*

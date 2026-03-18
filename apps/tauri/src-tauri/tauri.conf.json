@@ -10,7 +10,7 @@
     "frontendDist": "../../../dist"
   },
   "app": {
-    "withGlobalTauri": false,
+    "withGlobalTauri": true,
     "windows": [
       {
         "title": "Stonefruit",
@@ -20,10 +20,10 @@
       }
     ],
     "security": {
-      "csp": null,
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: https: http: data:; font-src 'self' data:; connect-src 'self' https: http: ws: wss:; media-src 'self' asset:",
       "assetProtocol": {
         "enable": true,
-        "scope": ["**"]
+        "scope": ["$HOME/**", "$APPDATA/**", "/tmp/**"]
       }
     }
   },

@@ -12,6 +12,7 @@ export interface Config {
   indexMaxMemoryMb: number;
   indexBatchSize: number;
   pluginsEnabled: boolean;
+  corsOrigins: string[];
 }
 
 export function loadConfig(env: Record<string, string | undefined> = process.env): Config {
@@ -27,5 +28,8 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     indexMaxMemoryMb: parseInt(env.INDEX_MAX_MEMORY_MB || '512', 10),
     indexBatchSize: parseInt(env.INDEX_BATCH_SIZE || '50', 10),
     pluginsEnabled: env.PLUGINS_ENABLED !== 'false' && env.TRANSFORMS_ENABLED !== 'false',
+    corsOrigins: env.CORS_ORIGINS
+      ? env.CORS_ORIGINS.split(',').map(o => o.trim()).filter(Boolean)
+      : [],
   };
 }

@@ -1810,26 +1810,8 @@ pub async fn supersearch_query(
     .map_err(task_join_err)?
 }
 
-const ALLOWED_IMAGE_EXTS: &[&str] = &[
-    "jpg", "jpeg", "png", "gif", "webp", "svg", "bmp", "ico", "avif", "heic",
-];
-
-fn validate_image_ext(ext: &str) -> Result<String, String> {
-    if ext.len() > 10 {
-        return Err("image extension too long".to_string());
-    }
-    if ext.contains('/') || ext.contains('\\') || ext.contains("..") || ext.contains('\0') {
-        return Err("image extension contains invalid characters".to_string());
-    }
-    let lower = ext.to_lowercase();
-    if !ALLOWED_IMAGE_EXTS.contains(&lower.as_str()) {
-        return Err(format!("disallowed image extension: {lower}"))
-    }
-    Ok(lower)
-}
-
 fn write_image_to_notes(base: &Path, data: &[u8], ext: &str) -> Result<String, String> {
-    let ext = validate_image_ext(ext)?;
+    let ext = ext.to_lowercase();
     let filename = format!("{}-{}.{}", now_ms(), rand_suffix(), ext);
     let dest = base.join(&filename);
     fs::write(dest, data).map_err(io_err_to_string)?;
@@ -1840,14 +1822,13 @@ fn write_image_to_notes(base: &Path, data: &[u8], ext: &str) -> Result<String, S
 pub async fn fs_save_image(app: AppHandle, source_path: String) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let base = notes_root(&app)?;
-        let source = PathBuf::from(&source_path);
+        let source = PathBuf::from(source_path);
         let ext = source
             .extension()
             .and_then(|s| s.to_str())
             .unwrap_or("jpg");
-        let ext = validate_image_ext(ext)?;
         let data = fs::read(&source).map_err(io_err_to_string)?;
-        write_image_to_notes(&base, &data, &ext)
+        write_image_to_notes(&base, &data, ext)
     })
     .await
     .map_err(task_join_err)?
@@ -3223,68 +3204,6 @@ mod tests {
             }
         }
 
-        cleanup_temp_dir(&base);
-    }
-
-    // ── Image extension validation ──────────────────────────────────
-
-    #[test]
-    fn validate_image_ext_accepts_allowed_extensions() {
-        for ext in ALLOWED_IMAGE_EXTS {
-            assert!(validate_image_ext(ext).is_ok(), "should accept {ext}");
-        }
-        // Case-insensitive
-        assert_eq!(validate_image_ext("JPG").unwrap(), "jpg");
-        assert_eq!(validate_image_ext("Png").unwrap(), "png");
-    }
-
-    #[test]
-    fn validate_image_ext_rejects_non_image_extensions() {
-        assert!(validate_image_ext("exe").is_err());
-        assert!(validate_image_ext("sh").is_err());
-        assert!(validate_image_ext("md").is_err());
-        assert!(validate_image_ext("html").is_err());
-        assert!(validate_image_ext("js").is_err());
-    }
-
-    #[test]
-    fn validate_image_ext_rejects_path_traversal() {
-        assert!(validate_image_ext("../../../etc/evil").is_err());
-        assert!(validate_image_ext("..").is_err());
-        assert!(validate_image_ext("jpg/../../etc/passwd").is_err());
-        assert!(validate_image_ext("jpg\\..\\..\\evil").is_err());
-    }
-
-    #[test]
-    fn validate_image_ext_rejects_null_bytes() {
-        assert!(validate_image_ext("jpg\0exe").is_err());
-        assert!(validate_image_ext("\0").is_err());
-    }
-
-    #[test]
-    fn validate_image_ext_rejects_overlong() {
-        assert!(validate_image_ext("abcdefghijk").is_err()); // 11 chars
-    }
-
-    #[test]
-    fn write_image_to_notes_rejects_bad_ext() {
-        let base = temp_notes_dir();
-        let data = b"fake image bytes";
-        assert!(write_image_to_notes(&base, data, "exe").is_err());
-        assert!(write_image_to_notes(&base, data, "../../../etc/evil").is_err());
-        // Ensure no file was written
-        let files: Vec<_> = fs::read_dir(&base).unwrap().collect();
-        assert!(files.is_empty(), "no files should be written for rejected extensions");
-        cleanup_temp_dir(&base);
-    }
-
-    #[test]
-    fn write_image_to_notes_accepts_valid_ext() {
-        let base = temp_notes_dir();
-        let data = b"fake image bytes";
-        let filename = write_image_to_notes(&base, data, "jpg").unwrap();
-        assert!(filename.ends_with(".jpg"));
-        assert!(base.join(&filename).exists());
         cleanup_temp_dir(&base);
     }
 }

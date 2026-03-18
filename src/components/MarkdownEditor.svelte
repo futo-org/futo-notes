@@ -2,6 +2,7 @@
   import {
     EditorView,
     keymap,
+    drawSelection,
     Decoration,
     MatchDecorator,
     ViewPlugin
@@ -20,6 +21,7 @@
   import { toggleBold, toggleItalic, toggleStrikethrough, isListLine } from '$lib/markdownToolbar';
   import { openUrl } from '$lib/openUrl';
   import { wikilinkAutocomplete } from '$lib/wikilinkAutocomplete';
+  import { completionKeymap } from '@codemirror/autocomplete';
   import { navigate } from '../router';
 
   interface Props {
@@ -178,6 +180,7 @@
     compensating = false;
 
     const extensions = [
+      drawSelection(),
       listContinuationKeymap,
       history(),
       keymap.of([
@@ -185,6 +188,7 @@
         { key: 'Mod-i', run: (v) => { toggleItalic(v); return true; } },
         { key: 'Mod-Shift-s', run: (v) => { toggleStrikethrough(v); return true; } },
         indentWithTab,
+        ...completionKeymap,
         ...defaultKeymap,
         ...historyKeymap,
       ]),

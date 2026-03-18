@@ -170,6 +170,115 @@ describe('POST /sync', () => {
 
     expect(res.status).toBe(422);
   });
+
+  // ── modified_at validation ─────────────────────────────
+
+  it('rejects note with non-finite modified_at (NaN)', async () => {
+    const content = 'bad timestamp';
+    const hash = contentHash(content);
+
+    const res = await authReq(env.app, 'POST', '/sync', token, {
+      notes: [
+        {
+          uuid: 'u1',
+          filename: 'test.md',
+          modified_at: NaN,
+          content_hash: hash,
+          hash_at_last_sync: '',
+          content,
+        },
+      ],
+      inventory: [{ uuid: 'u1', content_hash: hash, filename: 'test.md', modified_at: Date.now() }],
+      deleted_uuids: [],
+    });
+    expect(res.status).toBe(400);
+    const data = await res.json();
+    expect(data.error).toMatch(/modified_at/);
+  });
+
+  it('rejects note with negative modified_at', async () => {
+    const content = 'negative ts';
+    const hash = contentHash(content);
+
+    const res = await authReq(env.app, 'POST', '/sync', token, {
+      notes: [
+        {
+          uuid: 'u1',
+          filename: 'test.md',
+          modified_at: -1,
+          content_hash: hash,
+          hash_at_last_sync: '',
+          content,
+        },
+      ],
+      inventory: [{ uuid: 'u1', content_hash: hash, filename: 'test.md', modified_at: Date.now() }],
+      deleted_uuids: [],
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('rejects inventory with non-finite modified_at (Infinity)', async () => {
+    const res = await authReq(env.app, 'POST', '/sync', token, {
+      notes: [],
+      inventory: [{ uuid: 'u1', content_hash: 'abc', filename: 'test.md', modified_at: Infinity }],
+      deleted_uuids: [],
+    });
+    expect(res.status).toBe(400);
+    const data = await res.json();
+    expect(data.error).toMatch(/modified_at/);
+  });
+
+  it('rejects inventory with string modified_at', async () => {
+    const res = await authReq(env.app, 'POST', '/sync', token, {
+      notes: [],
+      inventory: [{ uuid: 'u1', content_hash: 'abc', filename: 'test.md', modified_at: 'not-a-number' }],
+      deleted_uuids: [],
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('accepts modified_at of 0', async () => {
+    const content = 'epoch zero';
+    const hash = contentHash(content);
+
+    const res = await authReq(env.app, 'POST', '/sync', token, {
+      notes: [
+        {
+          uuid: 'u1',
+          filename: 'test.md',
+          modified_at: 0,
+          content_hash: hash,
+          hash_at_last_sync: '',
+          content,
+        },
+      ],
+      inventory: [{ uuid: 'u1', content_hash: hash, filename: 'test.md', modified_at: 0 }],
+      deleted_uuids: [],
+    });
+    expect(res.status).toBe(200);
+  });
+
+  // ── Inventory filename validation ──────────────────────
+
+  it('rejects inventory with invalid filename (leading dot)', async () => {
+    const res = await authReq(env.app, 'POST', '/sync', token, {
+      notes: [],
+      inventory: [{ uuid: 'u1', content_hash: 'abc', filename: '.hidden.md', modified_at: Date.now() }],
+      deleted_uuids: [],
+    });
+    expect(res.status).toBe(422);
+    const data = await res.json();
+    expect(data.error).toMatch(/inventory filenames/);
+  });
+
+  it('rejects inventory with filename missing .md extension', async () => {
+    const res = await authReq(env.app, 'POST', '/sync', token, {
+      notes: [],
+      inventory: [{ uuid: 'u1', content_hash: 'abc', filename: 'test.txt', modified_at: Date.now() }],
+      deleted_uuids: [],
+    });
+    expect(res.status).toBe(422);
+  });
 });
 
 // ── Phase 1: /sync/check and version tracking ────────────

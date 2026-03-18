@@ -4,8 +4,8 @@ import { getDb } from '../../src/db/index.js';
 import { processSync } from '../../src/sync/engine.js';
 import { contentHash } from '../../src/sync/hash.js';
 import { upsertNote, getNote } from '../../src/db/notes.js';
-import { writeNoteFile, readNoteFile } from '../../src/sync/files.js';
-import { createTombstone } from '../../src/db/tombstones.js';
+import { writeNoteFile, readNoteFile, deleteNoteFile } from '../../src/sync/files.js';
+import { createTombstone, getAllTombstones, pruneTombstones } from '../../src/db/tombstones.js';
 
 import { statSync } from 'node:fs';
 import path from 'node:path';
@@ -523,5 +523,117 @@ describe('sync engine', () => {
     expect(resultA2.update).toHaveLength(1);
     expect(resultA2.update[0].filename).toBe('name-from-B.md');
     expect(resultA2.hash_updates).toHaveLength(0);
+  });
+
+  it('conflict resolution sends empty content when server file is missing on disk', () => {
+    const db = getDb();
+    const origHash = contentHash('original');
+    const serverContent = 'server version';
+    const serverHash = contentHash(serverContent);
+    writeNoteFile(env.notesDir, 'note.md', serverContent);
+    upsertNote(db, 'u1', 'note.md', serverHash, Date.now());
+
+    // Delete the server file from disk to simulate missing file
+    deleteNoteFile(env.notesDir, 'note.md');
+
+    const clientContent = 'client version';
+    const clientHash = contentHash(clientContent);
+    const now = Date.now();
+
+    const { response: result } = processSync(db, env.notesDir, {
+      notes: [
+        {
+          uuid: 'u1',
+          filename: 'note.md',
+          modified_at: now,
+          content_hash: clientHash,
+          hash_at_last_sync: origHash,
+          content: clientContent,
+        },
+      ],
+      inventory: [{ uuid: 'u1', content_hash: clientHash, filename: 'note.md', modified_at: now }],
+      deleted_uuids: [],
+    });
+
+    // Server should still send an update (with empty content) so the client gets the hash mapping
+    const origUpdate = result.update.find((u: any) => u.uuid === 'u1');
+    expect(origUpdate).toBeDefined();
+    expect(origUpdate!.content).toBe('');
+    expect(origUpdate!.content_hash).toBe(serverHash);
+    expect(origUpdate!.hash_at_last_sync).toBe(serverHash);
+
+    // Conflict metadata should still be reported
+    expect(result.conflicts).toHaveLength(1);
+    expect(result.conflicts[0].client_content).toBe(clientContent);
+  });
+
+  it('pruneTombstones removes entries older than maxAgeMs', () => {
+    const db = getDb();
+
+    // Create a tombstone and manually backdate its deleted_at
+    createTombstone(db, 'old-uuid');
+    const oldDate = new Date(Date.now() - 100 * 24 * 60 * 60 * 1000).toISOString(); // 100 days ago
+    db.prepare('UPDATE tombstones SET deleted_at = ? WHERE uuid = ?').run(oldDate, 'old-uuid');
+
+    // Create a recent tombstone
+    createTombstone(db, 'new-uuid');
+
+    expect(getAllTombstones(db)).toHaveLength(2);
+
+    // Prune with 90-day threshold
+    const pruned = pruneTombstones(db);
+
+    expect(pruned).toBe(1);
+    const remaining = getAllTombstones(db);
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0].uuid).toBe('new-uuid');
+  });
+
+  it('pruneTombstones is called during sync and removes expired entries', () => {
+    const db = getDb();
+
+    // Create tombstones with backdated deleted_at
+    createTombstone(db, 'expired-1');
+    createTombstone(db, 'expired-2');
+    const oldDate = new Date(Date.now() - 100 * 24 * 60 * 60 * 1000).toISOString();
+    db.prepare('UPDATE tombstones SET deleted_at = ? WHERE uuid = ?').run(oldDate, 'expired-1');
+    db.prepare('UPDATE tombstones SET deleted_at = ? WHERE uuid = ?').run(oldDate, 'expired-2');
+
+    // Create a recent tombstone
+    createTombstone(db, 'recent');
+
+    expect(getAllTombstones(db)).toHaveLength(3);
+
+    // Run a sync — pruneTombstones should be called at the start
+    processSync(db, env.notesDir, {
+      notes: [],
+      inventory: [],
+      deleted_uuids: [],
+    });
+
+    // Expired tombstones should be gone, recent one remains
+    const remaining = getAllTombstones(db);
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0].uuid).toBe('recent');
+  });
+
+  it('pruneTombstones respects custom maxAgeMs', () => {
+    const db = getDb();
+
+    createTombstone(db, 'uuid-1');
+    // Backdate to 10 days ago
+    const tenDaysAgo = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString();
+    db.prepare('UPDATE tombstones SET deleted_at = ? WHERE uuid = ?').run(tenDaysAgo, 'uuid-1');
+
+    createTombstone(db, 'uuid-2');
+
+    // With 5-day threshold, both should survive (uuid-2 is fresh)
+    // but uuid-1 (10 days old) should be pruned
+    const pruned = pruneTombstones(db, 5 * 24 * 60 * 60 * 1000);
+    expect(pruned).toBe(1);
+
+    const remaining = getAllTombstones(db);
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0].uuid).toBe('uuid-2');
   });
 });

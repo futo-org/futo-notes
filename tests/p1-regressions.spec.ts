@@ -15,6 +15,29 @@ async function blurEditor(page: Page): Promise<void> {
   await page.waitForTimeout(200);
 }
 
+test.describe('P1 ForYouPage Regressions', () => {
+  test('focusing ForYouPage elements does not set editorFocused', async ({ page }) => {
+    // Bug: on the ForYouPage (no note open), tapping "Browse Notes" on Android
+    // triggered onfocusin on .note-body which set editorFocused=true, causing
+    // the keyboard toolbar to appear instead of opening the sidebar.
+    await page.goto('/');
+    await page.waitForLoadState('domcontentloaded');
+    await page.waitForSelector('.for-you-page', { timeout: 10000 });
+
+    // Focus the Quick capture button (the only focusable element on desktop ForYouPage)
+    const quickCapture = page.locator('.quick-capture-btn');
+    await quickCapture.focus();
+    await page.waitForTimeout(100);
+
+    // editorFocused should NOT be true — we're on the ForYouPage, not editing a note
+    const noteBody = page.locator('.note-body');
+    const hasEditorFocused = await noteBody.evaluate(
+      (el) => el.hasAttribute('data-editor-focused')
+    );
+    expect(hasEditorFocused).toBe(false);
+  });
+});
+
 test.describe('P1 Link Clickability Regressions', () => {
   test('markdown link text is clickable and opens a new page', async ({ page }) => {
     await openNewNote(page);

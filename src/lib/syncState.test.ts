@@ -71,11 +71,11 @@ describe('loadSyncState', () => {
     expect(state.deletedUuids).toEqual(['ok']);
   });
 
-  it('caches after first load', async () => {
+  it('returns an immutable copy (mutations do not leak to cache)', async () => {
     const state1 = await loadSyncState();
     state1.hashByUuid['mutated'] = 'yes';
     const state2 = await loadSyncState();
-    expect(state2.hashByUuid['mutated']).toBe('yes');
+    expect(state2.hashByUuid['mutated']).toBeUndefined();
   });
 });
 

@@ -34,8 +34,9 @@ describe('sanitizeTitle', () => {
     expect(sanitizeTitle('Dr. Smith')).toBe('Dr. Smith');
   });
 
-  it('preserves titles that are only dots', () => {
-    expect(sanitizeTitle('...')).toBe('...');
+  it('returns FALLBACK_TITLE for all-dots input', () => {
+    expect(sanitizeTitle('...')).toBe(FALLBACK_TITLE);
+    expect(sanitizeTitle('.')).toBe(FALLBACK_TITLE);
   });
 
   it('does not truncate long titles', () => {

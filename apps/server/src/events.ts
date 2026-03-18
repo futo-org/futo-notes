@@ -30,6 +30,7 @@ export function resolveSseTicket(ticket: string): string | null {
     tickets.delete(ticket);
     return null;
   }
+  tickets.delete(ticket);
   return entry.tokenHash;
 }
 

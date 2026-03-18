@@ -45,8 +45,12 @@ describe('sanitizeFilename', () => {
     expect(sanitizeFilename('.md')).toBe('Untitled.md');
   });
 
-  it('preserves dot-only names', () => {
-    expect(sanitizeFilename('...')).toBe('..md');
+  it('returns Untitled.md for all-dots input', () => {
+    expect(sanitizeFilename('...')).toBe('Untitled.md');
+  });
+
+  it('strips leading dots from names', () => {
+    expect(sanitizeFilename('.hidden.md')).toBe('hidden.md');
   });
 });
 

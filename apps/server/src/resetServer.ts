@@ -16,7 +16,12 @@ export interface ResetServerResult {
   setup_cleared: true;
 }
 
+const TABLE_NAME_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+
 function getCount(db: Database.Database, tableName: string): number {
+  if (!TABLE_NAME_RE.test(tableName)) {
+    throw new Error(`Invalid table name: ${tableName}`);
+  }
   if (!tableExists(db, tableName)) return 0;
   const row = db.prepare(`SELECT COUNT(*) as count FROM ${tableName}`).get() as { count: number };
   return row.count;

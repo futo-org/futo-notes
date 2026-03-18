@@ -3,7 +3,7 @@ import type { SyncRequest, SyncResponse } from '@futo-notes/shared';
 import { extractTags } from '@futo-notes/shared';
 import type { NoteRow } from '../db/notes.js';
 import { getAllNotes, upsertNote, deleteNote } from '../db/notes.js';
-import { getAllTombstones, createTombstone } from '../db/tombstones.js';
+import { getAllTombstones, createTombstone, pruneTombstones } from '../db/tombstones.js';
 import {
   sanitizeFilename,
   writeNoteFile,
@@ -90,6 +90,12 @@ export function processSync(
   const insertTagStmt = db.prepare('INSERT OR IGNORE INTO note_tags (uuid, tag) VALUES (?, ?)');
 
   const run = db.transaction(() => {
+    // Garbage-collect expired tombstones before loading
+    const pruned = pruneTombstones(db);
+    if (pruned > 0) {
+      log.info(`pruned ${pruned} expired tombstone(s)`);
+    }
+
     // Phase 2: Bulk load everything into memory (2 queries instead of ~6000)
     const allNotes = new Map<string, NoteRow>(
       getAllNotes(db).map((n) => [n.uuid, n]),
@@ -299,16 +305,17 @@ export function processSync(
 
       // Send server version to client
       const serverContent = readNoteFile(notesDir, serverNote.filename);
-      if (serverContent !== null) {
-        response.update.push({
-          uuid: clientNote.uuid,
-          filename: serverNote.filename,
-          modified_at: serverNote.modified_at,
-          content_hash: serverHash,
-          hash_at_last_sync: serverHash,
-          content: serverContent,
-        });
+      if (serverContent === null) {
+        log.warn(`conflict resolution: server file missing for ${serverNote.filename} (${clientNote.uuid.slice(0, 8)}), sending empty content`);
       }
+      response.update.push({
+        uuid: clientNote.uuid,
+        filename: serverNote.filename,
+        modified_at: serverNote.modified_at,
+        content_hash: serverHash,
+        hash_at_last_sync: serverHash,
+        content: serverContent ?? '',
+      });
     }
 
     // ── 3b. Process inventory-only entries ────────────────

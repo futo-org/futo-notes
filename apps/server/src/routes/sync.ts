@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { bodyLimit } from 'hono/body-limit';
 import { validateTitle, type SyncRequest, type SyncCheckRequest } from '@futo-notes/shared';
 import { authMiddleware } from '../middleware/auth.js';
 import { getDb } from '../db/index.js';
@@ -7,6 +8,8 @@ import { getSyncVersion } from '../db/syncVersion.js';
 import { loadConfig } from '../config.js';
 import { log } from '../logger.js';
 import { applyNoteMutationEffects } from '../sync/noteMutationEffects.js';
+
+const MAX_BODY_SIZE = 500 * 1024 * 1024; // 500 MB
 
 const sync = new Hono();
 
@@ -33,7 +36,7 @@ sync.post('/sync/check', authMiddleware, async (c) => {
 
 // ── Main sync endpoint ───────────────────────────────────
 
-sync.post('/sync', authMiddleware, async (c) => {
+sync.post('/sync', bodyLimit({ maxSize: MAX_BODY_SIZE, onError: (c) => c.json({ error: `Request body too large (max ${MAX_BODY_SIZE / 1024 / 1024} MB)` }, 413) }), authMiddleware, async (c) => {
   let rawBody: Record<string, unknown>;
   try {
     rawBody = await c.req.json();
@@ -53,6 +56,21 @@ sync.post('/sync', authMiddleware, async (c) => {
       log.warn('invalid sync payload: malformed inventory entry');
       return c.json({ error: 'Invalid sync payload: each inventory item must have uuid, content_hash, and filename' }, 422);
     }
+    if (typeof item.modified_at !== 'number' || !Number.isFinite(item.modified_at) || item.modified_at < 0) {
+      log.warn(`invalid sync payload: invalid modified_at in inventory (${item.uuid})`);
+      return c.json({ error: 'Invalid sync payload: inventory modified_at must be a finite non-negative number' }, 400);
+    }
+    if (!item.filename.toLowerCase().endsWith('.md')) {
+      log.warn(`invalid sync payload: inventory filename missing .md extension (${item.filename})`);
+      return c.json({ error: 'Invalid sync payload: inventory filenames must end with .md' }, 422);
+    }
+    const invTitle = item.filename.slice(0, -3);
+    const invTitleIssues = validateTitle(invTitle);
+    if (invTitleIssues.length > 0) {
+      const details = invTitleIssues.map((issue) => issue.kind).join(', ');
+      log.warn(`invalid sync payload: invalid inventory filename (${item.filename}) [${details}]`);
+      return c.json({ error: 'Invalid sync payload: inventory filenames must map directly to valid note titles' }, 422);
+    }
   }
 
   // Validate notes entries
@@ -60,6 +78,10 @@ sync.post('/sync', authMiddleware, async (c) => {
     if (!note.uuid || !note.filename || typeof note.content_hash !== 'string' || typeof note.hash_at_last_sync !== 'string') {
       log.warn('invalid sync payload: malformed note entry');
       return c.json({ error: 'Invalid sync payload: each note must have uuid, filename, content_hash, and hash_at_last_sync' }, 422);
+    }
+    if (typeof note.modified_at !== 'number' || !Number.isFinite(note.modified_at) || note.modified_at < 0) {
+      log.warn(`invalid sync payload: invalid modified_at in note (${note.uuid})`);
+      return c.json({ error: 'Invalid sync payload: note modified_at must be a finite non-negative number' }, 400);
     }
     if (!note.filename.toLowerCase().endsWith('.md')) {
       log.warn(`invalid sync payload: filename missing .md extension (${note.filename})`);

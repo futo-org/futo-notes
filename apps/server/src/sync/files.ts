@@ -27,6 +27,9 @@ export function sanitizeFilename(raw: string): string {
   // Delegate to shared rules
   name = sanitizeTitle(name);
 
+  // Defense-in-depth: strip any leading dots that survived sanitization
+  name = name.replace(/^\.+/, '') || 'Untitled';
+
   return name + ext;
 }
 

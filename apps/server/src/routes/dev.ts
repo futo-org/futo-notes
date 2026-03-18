@@ -6,6 +6,7 @@ import { performServerReset } from '../resetServer.js';
 const dev = new Hono();
 
 dev.post('/dev/nuke', async (c) => {
+  if (process.env.NODE_ENV === 'production') return c.json({ error: 'Not available' }, 404);
   const db = getDb();
   const config = loadConfig();
 

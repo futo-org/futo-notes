@@ -43,7 +43,9 @@ export interface FilenameIssue {
  * It does not rewrite dots or silently truncate long titles.
  */
 export function sanitizeTitle(title: string): string {
-  return title.replace(FORBIDDEN_CHARS_RE, '').trim() || FALLBACK_TITLE;
+  let result = title.replace(FORBIDDEN_CHARS_RE, '').trim();
+  if (/^\.+$/.test(result)) result = '';
+  return result || FALLBACK_TITLE;
 }
 
 /**

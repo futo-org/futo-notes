@@ -18,9 +18,33 @@ import plugins from './routes/plugins.js';
 import { recordActivity } from './search/scheduler.js';
 import { recordPluginActivity } from './plugins/scheduler.js';
 
+/** Check whether an origin is allowed by the CORS policy. */
+function isAllowedOrigin(origin: string, extraOrigins: string[]): boolean {
+  // Tauri webview origins
+  if (origin === 'tauri://localhost' || origin === 'https://tauri.localhost') {
+    return true;
+  }
+  // Local development (any port on localhost / 127.0.0.1)
+  if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
+    return true;
+  }
+  // Additional origins from CORS_ORIGINS env var
+  if (extraOrigins.includes(origin)) {
+    return true;
+  }
+  return false;
+}
+
 export function createApp(): Hono {
   const app = new Hono();
-  app.use('*', cors());
+  const config = loadConfig();
+  app.use('*', cors({
+    origin: (origin) => {
+      // Tauri webview sends a null/empty origin — allow it
+      if (!origin) return '*';
+      return isAllowedOrigin(origin, config.corsOrigins) ? origin : '';
+    },
+  }));
 
   // Request logging middleware
   app.use('*', async (c, next) => {
@@ -52,7 +76,6 @@ export function createApp(): Hono {
   app.route('/', admin);
 
   // Search routes (only when search is enabled)
-  const config = loadConfig();
   if (config.searchEnabled) {
     app.route('/', search);
   }

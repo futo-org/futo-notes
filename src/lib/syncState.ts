@@ -80,7 +80,7 @@ function sanitizeState(raw: unknown): SyncState {
 }
 
 export async function loadSyncState(): Promise<SyncState> {
-  if (cached) return cached;
+  if (cached) return structuredClone(cached);
   if (!hasFileSystem) {
     cached = cloneDefault();
     return cached;
