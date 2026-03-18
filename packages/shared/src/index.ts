@@ -11,6 +11,8 @@ export type {
   RevokeRequest,
   RevokeResponse,
   HealthResponse,
+  ChangePasswordRequest,
+  ChangePasswordResponse,
   ErrorResponse,
 } from './sync.js';
 export {

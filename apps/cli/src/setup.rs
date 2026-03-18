@@ -1,5 +1,5 @@
 use crate::cli::SetupArgs;
-use crate::docker::{self, DEFAULT_PORT};
+use crate::docker::{self, DEFAULT_DATA_PATH, DEFAULT_PORT};
 use crate::server_api;
 use anyhow::{anyhow, bail, Context, Result};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
@@ -43,15 +43,23 @@ fn run_non_interactive(args: SetupArgs) -> Result<()> {
     }
 
     let port = args.port.unwrap_or(DEFAULT_PORT);
+    let data_path = args
+        .data_path
+        .clone()
+        .unwrap_or_else(|| DEFAULT_DATA_PATH.to_string());
     let password = read_password(&args)?;
-    let config = Config { port, password };
+    let config = Config {
+        port,
+        data_path,
+        password,
+    };
     validate_config(&config)?;
 
     let version = docker::check_docker()?;
     println!("Docker {} detected", version);
 
     let work_dir = std::env::current_dir().context("failed to get working directory")?;
-    write_compose_file(&work_dir, config.port)?;
+    write_compose_file(&work_dir, &config)?;
     println!("Wrote docker-compose.yml to {}", work_dir.display());
 
     println!("Pulling image...");
@@ -63,7 +71,7 @@ fn run_non_interactive(args: SetupArgs) -> Result<()> {
     println!("Setting password...");
     server_api::setup(&base_url(config.port), &config.password)?;
 
-    print_success(config.port);
+    print_success(&config);
     Ok(())
 }
 
@@ -95,6 +103,7 @@ fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Re
 #[derive(Debug, Clone)]
 struct Config {
     port: u16,
+    data_path: String,
     password: String,
 }
 
@@ -152,7 +161,7 @@ enum WorkerEvent {
 struct App {
     screen: Screen,
     focused: usize,
-    inputs: [InputField; 3],
+    inputs: [InputField; 4],
     error: Option<String>,
     compose_preview: String,
     deployment_error: Option<String>,
@@ -175,6 +184,11 @@ impl Default for App {
             focused: 0,
             inputs: [
                 InputField::new("Port", DEFAULT_PORT.to_string(), false),
+                InputField::new(
+                    "Notes storage directory",
+                    DEFAULT_DATA_PATH.to_string(),
+                    false,
+                ),
                 InputField::new("Password", String::new(), true),
                 InputField::new("Confirm password", String::new(), true),
             ],
@@ -343,10 +357,13 @@ impl App {
             .iter()
             .map(|line| Line::from(Span::styled(*line, Style::default().fg(PRIMARY))))
             .collect::<Vec<_>>();
-        frame.render_widget(Paragraph::new(Text::from(banner)), layout[0]);
         frame.render_widget(
-            Paragraph::new("Let's set up your self-hosted notes server")
-                .style(Style::default().fg(TEXT))
+            Paragraph::new(Text::from(banner)).alignment(Alignment::Center),
+            layout[0],
+        );
+        frame.render_widget(
+            Paragraph::new("Let's set up your server")
+                .style(Style::default().fg(Color::White))
                 .alignment(Alignment::Center),
             layout[1],
         );
@@ -407,6 +424,7 @@ impl App {
                 Constraint::Length(3),
                 Constraint::Length(3),
                 Constraint::Length(3),
+                Constraint::Length(3),
                 Constraint::Min(1),
             ])
             .split(inner);
@@ -430,14 +448,16 @@ impl App {
             frame.render_widget(widget, chunks[idx]);
         }
 
-        let mut footer = vec![Line::from(vec![
-            key_span("Enter"),
-            Span::raw(" submit  "),
-            key_span("Tab"),
-            Span::raw(" next field  "),
-            key_span("Esc"),
-            Span::raw(" quit"),
-        ])];
+        let mut footer = vec![
+            Line::from(vec![
+                key_span("Enter"),
+                Span::raw(" submit  "),
+                key_span("Tab"),
+                Span::raw(" next field  "),
+                key_span("Esc"),
+                Span::raw(" quit"),
+            ]),
+        ];
 
         if let Some(error) = &self.error {
             footer.insert(
@@ -533,6 +553,11 @@ impl App {
 
         let port = self.config.as_ref().map(|c| c.port).unwrap_or(DEFAULT_PORT);
         let url = base_url(port);
+        let data_path = self
+            .config
+            .as_ref()
+            .map(|c| c.data_path.as_str())
+            .unwrap_or(DEFAULT_DATA_PATH);
         let text = Text::from(vec![
             Line::from(Span::styled(
                 "Stonefruit server is running!",
@@ -540,6 +565,7 @@ impl App {
             )),
             Line::raw(""),
             Line::from(format!("Server: {}", url)),
+            Line::from(format!("Notes/data: {}", data_path)),
             Line::raw(""),
             Line::from("Next steps:"),
             Line::from("1. Open Stonefruit on your phone or computer"),
@@ -578,17 +604,18 @@ impl App {
                 .value
                 .parse::<u16>()
                 .map_err(|_| anyhow!("port must be between 1 and 65535"))?,
-            password: self.inputs[1].value.clone(),
+            data_path: self.inputs[1].value.clone(),
+            password: self.inputs[2].value.clone(),
         };
 
-        if self.inputs[1].value != self.inputs[2].value {
+        if self.inputs[2].value != self.inputs[3].value {
             self.error = Some("passwords do not match".to_string());
             return Ok(());
         }
 
         validate_config(&config)?;
         self.error = None;
-        self.compose_preview = docker::generate_compose(config.port);
+        self.compose_preview = docker::generate_compose(config.port, &config.data_path);
         self.config = Some(config);
         self.screen = Screen::DeployPreview;
         Ok(())
@@ -600,7 +627,7 @@ impl App {
             .config
             .clone()
             .ok_or_else(|| anyhow!("missing setup config"))?;
-        write_compose_file(&work_dir, config.port)?;
+        write_compose_file(&work_dir, &config)?;
         self.work_dir = Some(work_dir.clone());
         self.phase_statuses = [
             (Phase::Pull, PhaseStatus::Pending),
@@ -637,14 +664,18 @@ impl App {
     }
 }
 
-fn write_compose_file(work_dir: &Path, port: u16) -> Result<()> {
-    let compose = docker::generate_compose(port);
+fn write_compose_file(work_dir: &Path, config: &Config) -> Result<()> {
+    let compose = docker::generate_compose(config.port, &config.data_path);
     fs::write(work_dir.join("docker-compose.yml"), compose).context("failed to write compose file")
 }
 
 fn validate_config(config: &Config) -> Result<()> {
     if config.port == 0 {
         bail!("port must be between 1 and 65535");
+    }
+
+    if config.data_path.trim().is_empty() {
+        bail!("notes storage directory cannot be empty");
     }
 
     if config.password.len() < 8 {
@@ -723,10 +754,11 @@ fn spawn_deploy_worker(
     });
 }
 
-fn print_success(port: u16) {
+fn print_success(config: &Config) {
     println!();
     println!("Stonefruit server is running!");
-    println!("  Server: {}", base_url(port));
+    println!("  Server: {}", base_url(config.port));
+    println!("  Notes/data: {}", config.data_path);
     println!();
     println!("Next steps:");
     println!("  1. Open Stonefruit on your phone or computer");
@@ -784,7 +816,6 @@ fn spinner_frame(index: usize) -> &'static str {
 
 const SPINNER_FRAMES: &[&str] = &["-", "\\", "|", "/"];
 const PRIMARY: Color = Color::Rgb(176, 125, 59);
-const TEXT: Color = Color::Rgb(28, 25, 23);
 const BORDER: Color = Color::Rgb(221, 216, 208);
 const MUTED: Color = Color::Rgb(120, 113, 108);
 const SUCCESS: Color = Color::Rgb(61, 122, 63);
@@ -862,12 +893,24 @@ fn char_to_byte_index(value: &str, char_index: usize) -> usize {
 mod tests {
     use super::{read_password, validate_config, Config};
     use crate::cli::SetupArgs;
+    use crate::docker::DEFAULT_DATA_PATH;
 
     #[test]
     fn validate_requires_password_length() {
         let config = Config {
             port: 3005,
+            data_path: DEFAULT_DATA_PATH.to_string(),
             password: "short".to_string(),
+        };
+        assert!(validate_config(&config).is_err());
+    }
+
+    #[test]
+    fn validate_requires_data_path() {
+        let config = Config {
+            port: 3005,
+            data_path: "   ".to_string(),
+            password: "abcdefgh".to_string(),
         };
         assert!(validate_config(&config).is_err());
     }
@@ -876,6 +919,7 @@ mod tests {
     fn read_password_uses_flag_value() {
         let args = SetupArgs {
             port: None,
+            data_path: None,
             password: Some("abcdefgh".to_string()),
             password_stdin: false,
             yes: true,

@@ -12,6 +12,8 @@ import dev from './routes/dev.js';
 import search from './routes/search.js';
 import dashboard from './routes/dashboard.js';
 import reset from './routes/reset.js';
+import changePassword from './routes/changePassword.js';
+import admin from './routes/admin.js';
 import plugins from './routes/plugins.js';
 import { recordActivity } from './search/scheduler.js';
 import { recordPluginActivity } from './plugins/scheduler.js';
@@ -46,6 +48,8 @@ export function createApp(): Hono {
   app.route('/', revoke);
   app.route('/', events);
   app.route('/', reset);
+  app.route('/', changePassword);
+  app.route('/', admin);
 
   // Search routes (only when search is enabled)
   const config = loadConfig();

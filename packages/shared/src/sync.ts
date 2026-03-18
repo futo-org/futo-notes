@@ -81,6 +81,18 @@ export interface HealthResponse {
   setup_complete: boolean;
 }
 
+// ── Change Password ───────────────────────────────────
+
+export interface ChangePasswordRequest {
+  current_password: string;
+  new_password: string;
+}
+
+export interface ChangePasswordResponse {
+  success: boolean;
+  token: string;
+}
+
 // ── Errors ─────────────────────────────────────────────
 
 export interface ErrorResponse {

@@ -43,6 +43,25 @@ pub fn setup(base_url: &str, password: &str) -> Result<()> {
     }
 }
 
+pub fn login(base_url: &str, password: &str) -> Result<String> {
+    let client = client()?;
+    let response = client
+        .post(format!("{}/login", trim_url(base_url)))
+        .json(&LoginRequest { password })
+        .send()
+        .with_context(|| format!("failed to reach {}", base_url))?;
+
+    match response.status() {
+        StatusCode::OK => {
+            let data: LoginResponse = response.json().context("invalid login response")?;
+            Ok(data.token)
+        }
+        StatusCode::UNAUTHORIZED => bail!("invalid password"),
+        StatusCode::FORBIDDEN => bail!("setup not complete"),
+        code => bail!("login returned status {}", code),
+    }
+}
+
 pub fn dashboard_status(base_url: &str) -> Result<Value> {
     let client = client()?;
     let response = client
@@ -59,6 +78,43 @@ pub fn dashboard_status(base_url: &str) -> Result<Value> {
         .context("invalid dashboard status response")
 }
 
+pub fn dashboard_status_auth(base_url: &str, token: &str) -> Result<Value> {
+    let client = client()?;
+    let response = client
+        .get(format!("{}/dashboard/status", trim_url(base_url)))
+        .header("Authorization", format!("Bearer {}", token))
+        .send()
+        .with_context(|| format!("failed to reach {}", base_url))?;
+
+    match response.status() {
+        StatusCode::OK => response
+            .json::<Value>()
+            .context("invalid dashboard status response"),
+        StatusCode::UNAUTHORIZED => bail!("session expired or invalid"),
+        code => bail!("status request returned {}", code),
+    }
+}
+
+pub fn reset_password(base_url: &str, admin_token: &str, new_password: &str) -> Result<()> {
+    let client = client()?;
+    let response = client
+        .post(format!("{}/admin/reset-password", trim_url(base_url)))
+        .header("Authorization", format!("AdminToken {}", admin_token))
+        .json(&ResetPasswordRequest {
+            new_password,
+        })
+        .send()
+        .with_context(|| format!("failed to reach {}", base_url))?;
+
+    match response.status() {
+        StatusCode::OK => Ok(()),
+        StatusCode::UNAUTHORIZED => bail!("invalid admin token"),
+        StatusCode::UNPROCESSABLE_ENTITY => bail!("new password must be at least 8 characters"),
+        StatusCode::TOO_MANY_REQUESTS => bail!("too many attempts — try again later"),
+        code => bail!("reset-password returned status {}", code),
+    }
+}
+
 fn client() -> Result<Client> {
     Client::builder()
         .timeout(Duration::from_secs(5))
@@ -73,4 +129,19 @@ fn trim_url(base_url: &str) -> &str {
 #[derive(Debug, Serialize)]
 struct SetupRequest<'a> {
     password: &'a str,
+}
+
+#[derive(Debug, Serialize)]
+struct LoginRequest<'a> {
+    password: &'a str,
+}
+
+#[derive(Debug, Deserialize)]
+struct LoginResponse {
+    token: String,
+}
+
+#[derive(Debug, Serialize)]
+struct ResetPasswordRequest<'a> {
+    new_password: &'a str,
 }

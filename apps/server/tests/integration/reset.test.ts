@@ -71,17 +71,15 @@ describe('POST /reset', () => {
     expect(resetData.sessions_revoked).toBe(2);
     expect(resetData.setup_cleared).toBe(true);
 
-    // Dashboard status should reflect a fresh setup state.
+    // Dashboard status requires auth now; verify reset via /health.
+    const healthRes = await req(env.app, 'GET', '/health');
+    expect(healthRes.status).toBe(200);
+    const health = await healthRes.json() as { setup_complete: boolean };
+    expect(health.setup_complete).toBe(false);
+
+    // Unauthenticated /dashboard/status should return 401 after reset.
     const statusRes = await req(env.app, 'GET', '/dashboard/status');
-    expect(statusRes.status).toBe(200);
-    const status = await statusRes.json() as {
-      notes_count: number;
-      sessions_count: number;
-      setup_complete: boolean;
-    };
-    expect(status.notes_count).toBe(0);
-    expect(status.sessions_count).toBe(0);
-    expect(status.setup_complete).toBe(false);
+    expect(statusRes.status).toBe(401);
 
     // All sessions should be invalid.
     const syncWithFirst = await authReq(env.app, 'POST', '/sync', token, {
@@ -152,16 +150,15 @@ describe('POST /reset', () => {
     expect(nukeData.setup_cleared).toBe(true);
     expect(nukeData.message).toContain('Server wiped clean');
 
+    // Dashboard status requires auth; verify reset via /health.
+    const healthRes2 = await req(env.app, 'GET', '/health');
+    expect(healthRes2.status).toBe(200);
+    const health2 = await healthRes2.json() as { setup_complete: boolean };
+    expect(health2.setup_complete).toBe(false);
+
+    // Unauthenticated /dashboard/status should return 401 after nuke.
     const statusRes = await req(env.app, 'GET', '/dashboard/status');
-    expect(statusRes.status).toBe(200);
-    const status = await statusRes.json() as {
-      notes_count: number;
-      sessions_count: number;
-      setup_complete: boolean;
-    };
-    expect(status.notes_count).toBe(0);
-    expect(status.sessions_count).toBe(0);
-    expect(status.setup_complete).toBe(false);
+    expect(statusRes.status).toBe(401);
 
     const syncWithFirst = await authReq(env.app, 'POST', '/sync', token, {
       notes: [],

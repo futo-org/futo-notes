@@ -2,8 +2,13 @@ use anyhow::{bail, Context, Result};
 use std::process::Command;
 
 pub const DEFAULT_PORT: u16 = 3005;
+pub const DEFAULT_DATA_PATH: &str = "./stonefruit-data";
 
-pub fn generate_compose(port: u16) -> String {
+pub fn generate_compose(port: u16, data_path: &str) -> String {
+    let data_mount = format!(
+        "{}:/app/apps/server/data",
+        yaml_double_quote(data_path.trim())
+    );
     format!(
         r#"services:
   server:
@@ -12,17 +17,18 @@ pub fn generate_compose(port: u16) -> String {
     ports:
       - "{port}:{port}"
     volumes:
-      - data:/app/apps/server/data
+      - "{data_mount}"
     environment:
       - PORT={port}
       - DATABASE_PATH=./data/stonefruit.db
       - NOTES_PATH=./data/notes
     restart: unless-stopped
-
-volumes:
-  data:
 "#
     )
+}
+
+fn yaml_double_quote(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
 pub fn check_docker() -> Result<String> {
@@ -73,12 +79,19 @@ fn run_compose(work_dir: &std::path::Path, args: &[&str]) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::generate_compose;
+    use super::{generate_compose, DEFAULT_DATA_PATH};
 
     #[test]
     fn compose_uses_selected_port() {
-        let compose = generate_compose(4141);
+        let compose = generate_compose(4141, DEFAULT_DATA_PATH);
         assert!(compose.contains("\"4141:4141\""));
         assert!(compose.contains("PORT=4141"));
+    }
+
+    #[test]
+    fn compose_uses_selected_data_path() {
+        let compose = generate_compose(4141, "/srv/stonefruit data");
+        assert!(compose.contains("\"/srv/stonefruit data:/app/apps/server/data\""));
+        assert!(!compose.contains("volumes:\n  data:"));
     }
 }

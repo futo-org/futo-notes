@@ -12,7 +12,7 @@ describe('Dashboard', () => {
     env.cleanup();
   });
 
-  it('GET / returns valid HTML with no JS syntax errors', async () => {
+  it('GET / returns valid HTML without auth', async () => {
     const res = await req(env.app, 'GET', '/');
     expect(res.status).toBe(200);
     const html = await res.text();
@@ -32,6 +32,11 @@ describe('Dashboard', () => {
     expect(html).toContain('progress-fill-indeterminate');
     expect(html).toContain("status.textContent = 'Starting...'");
 
+    // Verify setup and login cards exist
+    expect(html).toContain('id="setup-card"');
+    expect(html).toContain('id="login-card"');
+    expect(html).toContain('id="change-pw-modal"');
+
     // Verify the script tag is present and parseable
     const scriptMatch = html.match(/<script>([\s\S]*?)<\/script>/);
     expect(scriptMatch).toBeTruthy();
@@ -42,8 +47,14 @@ describe('Dashboard', () => {
     expect(html).not.toContain('installPlugin()');
   });
 
-  it('GET /dashboard/status returns valid JSON with search section', async () => {
+  it('GET /dashboard/status without auth returns 401', async () => {
     const res = await req(env.app, 'GET', '/dashboard/status');
+    expect(res.status).toBe(401);
+  });
+
+  it('GET /dashboard/status with valid token returns 200', async () => {
+    const token = await setupAndLogin(env.app);
+    const res = await authReq(env.app, 'GET', '/dashboard/status', token);
     expect(res.status).toBe(200);
     const data = await res.json() as Record<string, unknown>;
 
@@ -55,7 +66,8 @@ describe('Dashboard', () => {
   });
 
   it('GET /dashboard/status includes built-in plugin status when enabled', async () => {
-    const res = await req(env.app, 'GET', '/dashboard/status');
+    const token = await setupAndLogin(env.app);
+    const res = await authReq(env.app, 'GET', '/dashboard/status', token);
     expect(res.status).toBe(200);
     const data = await res.json() as Record<string, unknown>;
 
@@ -95,7 +107,7 @@ describe('Dashboard', () => {
     });
     expect(createRes.status).toBe(201);
 
-    const res = await req(env.app, 'GET', '/dashboard/status');
+    const res = await authReq(env.app, 'GET', '/dashboard/status', token);
     expect(res.status).toBe(200);
     const data = await res.json() as {
       plugins: { plugins: Array<Record<string, unknown>> };
@@ -116,7 +128,8 @@ describe('Dashboard', () => {
     env.cleanup();
     env = createTestEnv();
 
-    const res = await req(env.app, 'GET', '/dashboard/status');
+    const token = await setupAndLogin(env.app);
+    const res = await authReq(env.app, 'GET', '/dashboard/status', token);
     expect(res.status).toBe(200);
     const data = await res.json() as Record<string, unknown>;
 

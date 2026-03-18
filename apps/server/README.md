@@ -47,11 +47,11 @@ curl -X POST http://localhost:3005/sync \
 
 Copy `.env.example` to `.env` and edit as needed:
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `PORT` | `3005` | HTTP server port |
-| `DATABASE_PATH` | `./data/stonefruit.db` | SQLite database file |
-| `NOTES_PATH` | `./data/notes` | Directory for `.md` files |
+| Variable        | Default                | Description               |
+| --------------- | ---------------------- | ------------------------- |
+| `PORT`          | `3005`                 | HTTP server port          |
+| `DATABASE_PATH` | `./data/stonefruit.db` | SQLite database file      |
+| `NOTES_PATH`    | `./data/notes`         | Directory for `.md` files |
 
 ## Docker
 
@@ -67,30 +67,14 @@ curl -O https://gitlab.futo.org/stonefruit/stonefruit/-/raw/main/apps/server/doc
 docker compose -f docker-compose.production.yml up -d
 ```
 
-The server will be available at `http://localhost:3005`. Data is persisted in a Docker volume.
+The server will be available at `http://localhost:3005`. By default, data is persisted in `./stonefruit-data` on the host.
 
-### Run hardware benchmark from Docker image (no repo required)
-
-If the server container is already running:
+If you want a different host path, override the mount source with `STONEFRUIT_DATA_PATH`:
 
 ```bash
-docker exec -it <container_name_or_id> node dist/benchmark.js
-```
-
-If you only have the image and want a one-shot benchmark:
-
-```bash
-docker run --rm -it \
-  -v stonefruit-data:/app/apps/server/data \
-  --entrypoint node \
-  gitlab.futo.org:5050/stonefruit/stonefruit/server:latest \
-  dist/benchmark.js
-```
-
-With compose (`docker-compose.production.yml`):
-
-```bash
-docker compose -f docker-compose.production.yml exec server node dist/benchmark.js
+mkdir -p /srv/stonefruit-data
+STONEFRUIT_DATA_PATH=/srv/stonefruit-data \
+  docker compose -f docker-compose.production.yml up -d
 ```
 
 ### Build from source
@@ -161,13 +145,13 @@ volumes:
 
 ## API
 
-| Route | Auth | Description |
-|-------|------|-------------|
-| `GET /health` | No | Returns `{"status": "ok", "setup_complete": bool}` |
-| `POST /setup` | No | One-time password setup. Body: `{"password": "..."}` |
-| `POST /login` | No | Returns session token. Body: `{"password": "..."}` |
-| `POST /sync` | Bearer | Full sync round-trip (see below) |
-| `POST /revoke` | Bearer | Revoke sessions. Body: `{"mode": "current" | "all" | "specific"}` |
+| Route          | Auth   | Description                                                            |
+| -------------- | ------ | ---------------------------------------------------------------------- |
+| `GET /health`  | No     | Returns `{"status": "ok", "setup_complete": bool}`                     |
+| `POST /setup`  | No     | One-time password setup. Body: `{"password": "..."}`                   |
+| `POST /login`  | No     | Returns session token. Body: `{"password": "..."}`                     |
+| `POST /sync`   | Bearer | Full sync round-trip (see below)                                       |
+| `POST /revoke` | Bearer | Revoke sessions. Body: `{"mode": "current" \| "all" \| "specific"}`   |
 
 ### Sync Protocol
 

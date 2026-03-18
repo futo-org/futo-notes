@@ -2,14 +2,15 @@ import { Hono } from 'hono';
 import { getDb } from '../db/index.js';
 import { isSetupComplete } from '../db/auth.js';
 import { loadConfig } from '../config.js';
+import { authMiddleware, type AuthEnv } from '../middleware/auth.js';
 
-const dashboard = new Hono();
+const dashboard = new Hono<AuthEnv>();
 
 // Track server start time for uptime
 const startedAt = Date.now();
 
-// ── JSON status endpoint (unauthenticated) ──────────────────────────
-dashboard.get('/dashboard/status', async (c) => {
+// ── JSON status endpoint (authenticated) ────────────────────────────
+dashboard.get('/dashboard/status', authMiddleware, async (c) => {
   const db = getDb();
   const config = loadConfig();
 
@@ -191,6 +192,8 @@ function dashboardHtml(): string {
     padding: 2.5rem 0 2rem;
     border-bottom: 3px solid var(--white);
     margin-bottom: 2.5rem;
+    flex-wrap: wrap;
+    gap: 0.75rem;
   }
 
   header .header-left h1 {
@@ -459,34 +462,6 @@ function dashboardHtml(): string {
     text-decoration: none;
     cursor: not-allowed;
     opacity: 0.5;
-  }
-
-  /* Downloads */
-  .download-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 1px;
-    background: var(--border);
-  }
-
-  .download-link {
-    display: block;
-    text-align: center;
-    padding: 0.85rem 1rem;
-    background: var(--surface);
-    color: var(--white);
-    text-decoration: none;
-    border-radius: 0;
-    font-size: 0.8rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    transition: background 0.1s;
-  }
-
-  .download-link:hover {
-    background: var(--surface-hover);
-    color: var(--accent);
   }
 
   /* Inputs */
@@ -967,6 +942,101 @@ function dashboardHtml(): string {
     pointer-events: none;
   }
 
+  /* Auth UI */
+  .auth-buttons {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .login-card, .setup-form-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+    max-width: 400px;
+  }
+
+  .login-card h2, .setup-form-card h2 {
+    font-family: inherit;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--gray-light);
+    margin-bottom: 1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .auth-form-field {
+    margin-bottom: 0.75rem;
+  }
+
+  .auth-form-field label {
+    display: block;
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--gray);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    margin-bottom: 0.35rem;
+  }
+
+  .auth-form-field input {
+    width: 100%;
+    padding: 0.55rem 0.7rem;
+    border: 1px solid var(--border);
+    background: var(--black);
+    color: var(--white);
+    font: inherit;
+    font-size: 0.85rem;
+  }
+
+  .auth-form-field input:focus {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+    border-color: var(--accent);
+  }
+
+  .auth-form-error {
+    display: none;
+    color: var(--danger);
+    font-size: 0.8rem;
+    font-weight: 700;
+    margin-bottom: 0.75rem;
+  }
+
+  .auth-form-actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+  }
+
+  .unauth-message {
+    color: var(--gray);
+    font-size: 0.85rem;
+    margin-bottom: 1.5rem;
+  }
+
+  /* Change password modal */
+  .change-pw-modal {
+    width: min(440px, 100%);
+    border: 2px solid var(--border-light);
+    background: var(--black);
+    padding: 1.5rem;
+    box-shadow: 0 0 40px rgba(0, 0, 0, 0.4);
+  }
+
+  .change-pw-modal h3 {
+    font-size: 1rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 0.75rem;
+    color: var(--white);
+  }
+
   /* Plugin toolbar */
   .plugin-toolbar {
     display: flex;
@@ -1407,7 +1477,7 @@ function dashboardHtml(): string {
     body { padding: 0; }
     .container { padding: 0 1rem 3rem; }
     .stats-grid { grid-template-columns: 1fr; }
-    .download-grid { grid-template-columns: 1fr; }
+
     .danger-actions { flex-direction: column-reverse; }
     .danger-actions .btn { width: 100%; }
     .plugin-card-header { flex-direction: column; }
@@ -1431,11 +1501,52 @@ function dashboardHtml(): string {
       <span>Server Online</span>
       <span aria-hidden="true">/</span>
       <span id="uptime"><span class="loading">...</span></span>
+      <div class="auth-buttons">
+        <button class="btn btn-muted" id="change-pw-btn" onclick="openChangePwDialog()" style="display:none">Change Password</button>
+        <button class="btn btn-muted" id="logout-btn" onclick="logoutDashboard()" style="display:none">Log out</button>
+      </div>
     </div>
   </header>
 
   <main id="main">
     <div id="error-banner"></div>
+
+    <!-- Setup Card (shown when setup_complete is false) -->
+    <div id="setup-card" class="setup-form-card" style="display:none">
+      <h2>First-Time Setup</h2>
+      <p style="font-size:0.85rem;color:var(--gray-light);margin-bottom:1rem;">Create a password to secure your server. You will use this password to log in from the dashboard and connect devices.</p>
+      <div class="auth-form-field">
+        <label for="setup-password">Password</label>
+        <input id="setup-password" type="password" autocomplete="new-password" placeholder="At least 8 characters">
+      </div>
+      <div class="auth-form-field">
+        <label for="setup-confirm">Confirm Password</label>
+        <input id="setup-confirm" type="password" autocomplete="new-password" placeholder="Repeat password">
+      </div>
+      <div class="auth-form-error" id="setup-error"></div>
+      <div class="auth-form-actions">
+        <button class="btn btn-primary" id="setup-submit-btn" onclick="runSetup()">Set Password</button>
+      </div>
+    </div>
+
+    <!-- Login Card (shown when logged out and setup is complete) -->
+    <div id="login-card" class="login-card" style="display:none">
+      <h2>Log In</h2>
+      <p style="font-size:0.85rem;color:var(--gray-light);margin-bottom:1rem;">Enter your server password to view dashboard data and manage settings.</p>
+      <div class="auth-form-field">
+        <label for="login-password">Password</label>
+        <input id="login-password" type="password" autocomplete="current-password" placeholder="Server password">
+      </div>
+      <div class="auth-form-error" id="login-error"></div>
+      <div class="auth-form-actions">
+        <button class="btn btn-primary" id="login-submit-btn" onclick="loginDashboard()">Log In</button>
+      </div>
+    </div>
+
+    <!-- Unauth message -->
+    <div id="unauth-message" class="unauth-message" style="display:none">
+      Log in to view server statistics and manage settings.
+    </div>
 
     <!-- Stats -->
     <div class="stats-grid" role="region" aria-label="Server statistics">
@@ -1480,22 +1591,11 @@ function dashboardHtml(): string {
       </div>
     </section>
 
-    <!-- Download -->
-    <div class="card" role="region" aria-label="Download apps">
-      <h2>Download Apps</h2>
-      <div class="download-grid">
-        <a class="download-link" href="https://play.google.com/store/apps/details?id=org.futo.notes" target="_blank">Android</a>
-        <a class="download-link" href="https://apps.apple.com/app/futo-notes/id0000000000" target="_blank">iOS</a>
-        <a class="download-link" href="https://github.com/nickoehler/futo-notes-releases/releases" target="_blank">Desktop</a>
-        <a class="download-link" href="https://notes.futo.org" target="_blank">Web</a>
-      </div>
-    </div>
-
     <!-- Setup Guide -->
     <div class="card" role="region" aria-label="Setup guide">
       <h2>Setup Guide</h2>
       <ol class="setup-steps">
-        <li>Download Stonefruit on your device using a link above</li>
+        <li>Download Stonefruit on your device</li>
         <li>Open the app, go to <strong>Settings &rarr; Sync</strong>, and enter this server URL: <code id="server-url">...</code></li>
         <li>Enter the password you set during server setup and tap <strong>Connect</strong></li>
       </ol>
@@ -1516,7 +1616,7 @@ function dashboardHtml(): string {
   </main>
 
   <div class="footer">
-    <a href="https://notes.futo.org">Stonefruit</a> &middot; <a href="https://futo.org">FUTO</a>
+    Stonefruit &middot; FUTO
   </div>
 </div>
 
@@ -1563,6 +1663,29 @@ function dashboardHtml(): string {
     <div class="plugin-editor-actions">
       <button class="btn btn-muted" id="plugin-editor-cancel-btn" onclick="closePluginEditor()">Cancel</button>
       <button class="btn btn-primary" id="plugin-editor-save-btn" onclick="saveLocalPlugin()">Save automation</button>
+    </div>
+  </div>
+</div>
+
+<div id="change-pw-modal" class="modal-backdrop" aria-hidden="true">
+  <div class="change-pw-modal" role="dialog" aria-modal="true" aria-labelledby="change-pw-title">
+    <h3 id="change-pw-title">Change Password</h3>
+    <div class="auth-form-field">
+      <label for="change-pw-current">Current Password</label>
+      <input id="change-pw-current" type="password" autocomplete="current-password">
+    </div>
+    <div class="auth-form-field">
+      <label for="change-pw-new">New Password</label>
+      <input id="change-pw-new" type="password" autocomplete="new-password" placeholder="At least 8 characters">
+    </div>
+    <div class="auth-form-field">
+      <label for="change-pw-confirm">Confirm New Password</label>
+      <input id="change-pw-confirm" type="password" autocomplete="new-password">
+    </div>
+    <div class="auth-form-error" id="change-pw-error"></div>
+    <div class="danger-actions">
+      <button class="btn btn-muted" id="change-pw-cancel-btn" onclick="closeChangePwDialog()">Cancel</button>
+      <button class="btn btn-primary" id="change-pw-submit-btn" onclick="submitChangePw()">Change Password</button>
     </div>
   </div>
 </div>
@@ -2381,13 +2504,94 @@ function dashboardHtml(): string {
     pollTimer = setInterval(refresh, fast ? 2000 : 5000);
   }
 
-  async function refresh() {
+  // ── Auth state ──────────────────────────────────────
+  let authToken = sessionStorage.getItem('dashboard_token');
+  let setupComplete = true;
+
+  function clearAuthToken() {
+    authToken = null;
+    sessionStorage.removeItem('dashboard_token');
+  }
+
+  function setAuthToken(token) {
+    authToken = token;
+    sessionStorage.setItem('dashboard_token', token);
+  }
+
+  function showUnauthenticatedShell() {
+    $('notes-count').textContent = '-';
+    $('sessions-count').textContent = '-';
+    $('setup').innerHTML = '-';
+    $('search-content').innerHTML = '<span class="stat-label">Log in to view</span>';
+    var tCard = $('plugins-card');
+    if (tCard) tCard.style.display = 'none';
+    $('logout-btn').style.display = 'none';
+    $('change-pw-btn').style.display = 'none';
+    if (setupComplete) {
+      $('login-card').style.display = '';
+      $('unauth-message').style.display = '';
+      $('setup-card').style.display = 'none';
+    } else {
+      $('login-card').style.display = 'none';
+      $('unauth-message').style.display = 'none';
+      $('setup-card').style.display = '';
+    }
+  }
+
+  function showAuthenticatedShell() {
+    $('login-card').style.display = 'none';
+    $('setup-card').style.display = 'none';
+    $('unauth-message').style.display = 'none';
+    $('logout-btn').style.display = '';
+    $('change-pw-btn').style.display = '';
+  }
+
+  async function boot() {
     try {
-      const res = await fetch('/dashboard/status');
+      const res = await fetch('/health');
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const health = await res.json();
+      setupComplete = health.setup_complete;
+      $('status').innerHTML = badge('Online', 'ok');
+      $('setup').innerHTML = setupComplete ? badge('Complete', 'ok') : badge('Not configured', 'warn');
+
+      if (!setupComplete) {
+        showUnauthenticatedShell();
+        return;
+      }
+
+      if (authToken) {
+        await refresh();
+      } else {
+        showUnauthenticatedShell();
+        schedulePoll(false);
+      }
+    } catch (e) {
+      $('status').innerHTML = badge('Unreachable', 'error');
+      $('error-banner').textContent = 'Could not reach server: ' + e.message;
+      $('error-banner').style.display = 'block';
+    }
+  }
+
+  async function refresh() {
+    if (!authToken) {
+      showUnauthenticatedShell();
+      return;
+    }
+    try {
+      const res = await fetch('/dashboard/status', {
+        headers: { 'Authorization': 'Bearer ' + authToken },
+      });
+      if (res.status === 401) {
+        clearAuthToken();
+        showUnauthenticatedShell();
+        return;
+      }
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const data = await res.json();
       const pluginEditing = isPluginConfigEditing();
 
+      showAuthenticatedShell();
       $('status').innerHTML = badge('Online', 'ok');
       $('setup').innerHTML = data.setup_complete ? badge('Complete', 'ok') : badge('Not configured', 'warn');
       $('notes-count').textContent = data.notes_count.toLocaleString();
@@ -2447,46 +2651,101 @@ function dashboardHtml(): string {
     }
   }
 
-  // Token management
-  let authToken = sessionStorage.getItem('dashboard_token');
-
-  function clearAuthToken() {
-    authToken = null;
-    sessionStorage.removeItem('dashboard_token');
-  }
-
+  // ── Login / Logout / Setup ─────────────────────────
   window.loginDashboard = async function() {
-    const token = await getToken('manage plugins');
-    if (token) refresh();
-  };
-
-  window.logoutDashboard = function() {
-    clearAuthToken();
-    refresh();
-  };
-
-  async function getToken(actionLabel) {
-    if (authToken) return authToken;
-    const password = prompt('Enter server password to ' + actionLabel + ':');
-    if (!password) return null;
+    var passwordInput = $('login-password');
+    var errorEl = $('login-error');
+    var btn = $('login-submit-btn');
+    if (!passwordInput) return;
+    var password = passwordInput.value;
+    if (!password) {
+      if (errorEl) { errorEl.textContent = 'Enter your password.'; errorEl.style.display = 'block'; }
+      return;
+    }
+    if (btn) btn.disabled = true;
+    if (errorEl) errorEl.style.display = 'none';
     try {
       const res = await fetch('/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password }),
+        body: JSON.stringify({ password: password }),
       });
       if (!res.ok) {
-        alert('Invalid password');
-        return null;
+        var errBody = await res.json().catch(function() { return {}; });
+        if (errorEl) { errorEl.textContent = errBody.error || 'Invalid password'; errorEl.style.display = 'block'; }
+        return;
       }
-      const data = await res.json();
-      authToken = data.token;
-      sessionStorage.setItem('dashboard_token', authToken);
-      return authToken;
+      var data = await res.json();
+      setAuthToken(data.token);
+      passwordInput.value = '';
+      await refresh();
+      schedulePoll(false);
     } catch (e) {
-      alert('Login failed: ' + e.message);
-      return null;
+      if (errorEl) { errorEl.textContent = 'Login failed: ' + e.message; errorEl.style.display = 'block'; }
+    } finally {
+      if (btn) btn.disabled = false;
     }
+  };
+
+  window.logoutDashboard = function() {
+    clearAuthToken();
+    showUnauthenticatedShell();
+  };
+
+  window.runSetup = async function() {
+    var pw = $('setup-password');
+    var confirm = $('setup-confirm');
+    var errorEl = $('setup-error');
+    var btn = $('setup-submit-btn');
+    if (!pw || !confirm) return;
+    if (errorEl) errorEl.style.display = 'none';
+    if (pw.value.length < 8) {
+      if (errorEl) { errorEl.textContent = 'Password must be at least 8 characters.'; errorEl.style.display = 'block'; }
+      return;
+    }
+    if (pw.value !== confirm.value) {
+      if (errorEl) { errorEl.textContent = 'Passwords do not match.'; errorEl.style.display = 'block'; }
+      return;
+    }
+    if (btn) btn.disabled = true;
+    try {
+      const setupRes = await fetch('/setup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: pw.value }),
+      });
+      if (!setupRes.ok) {
+        var data = await setupRes.json().catch(function() { return {}; });
+        if (errorEl) { errorEl.textContent = data.error || 'Setup failed'; errorEl.style.display = 'block'; }
+        return;
+      }
+      // Auto-login
+      const loginRes = await fetch('/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: pw.value }),
+      });
+      if (loginRes.ok) {
+        const loginData = await loginRes.json();
+        setAuthToken(loginData.token);
+      }
+      setupComplete = true;
+      pw.value = '';
+      confirm.value = '';
+      await refresh();
+      schedulePoll(false);
+    } catch (e) {
+      if (errorEl) { errorEl.textContent = 'Error: ' + e.message; errorEl.style.display = 'block'; }
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  };
+
+  async function getToken(actionLabel) {
+    if (authToken) return authToken;
+    // If not logged in, prompt inline login
+    window.loginDashboard();
+    return null;
   }
 
   window.indexNow = async function() {
@@ -3203,16 +3462,22 @@ function dashboardHtml(): string {
   }, true);
 
   document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape' && resetModal && resetModal.classList.contains('open')) {
-      window.closeResetDialog();
-      return;
-    }
-    if (event.key === 'Escape' && runAllBatchModal && runAllBatchModal.classList.contains('open')) {
-      window.closeRunAllModal();
-      return;
-    }
-    if (event.key === 'Escape' && pluginEditorModal && pluginEditorModal.classList.contains('open')) {
-      window.closePluginEditor();
+    if (event.key === 'Escape') {
+      if (changePwModal && changePwModal.classList.contains('open')) {
+        window.closeChangePwDialog();
+        return;
+      }
+      if (resetModal && resetModal.classList.contains('open')) {
+        window.closeResetDialog();
+        return;
+      }
+      if (runAllBatchModal && runAllBatchModal.classList.contains('open')) {
+        window.closeRunAllModal();
+        return;
+      }
+      if (pluginEditorModal && pluginEditorModal.classList.contains('open')) {
+        window.closePluginEditor();
+      }
     }
   });
 
@@ -3271,8 +3536,111 @@ function dashboardHtml(): string {
     }
   };
 
-  refresh();
-  schedulePoll(false);
+  // ── Change password modal ───────────────────────────
+  const changePwModal = $('change-pw-modal');
+
+  window.openChangePwDialog = function() {
+    if (!changePwModal) return;
+    changePwModal.classList.add('open');
+    changePwModal.setAttribute('aria-hidden', 'false');
+    $('change-pw-current').value = '';
+    $('change-pw-new').value = '';
+    $('change-pw-confirm').value = '';
+    var err = $('change-pw-error');
+    if (err) err.style.display = 'none';
+    $('change-pw-current').focus();
+  };
+
+  window.closeChangePwDialog = function() {
+    if (!changePwModal) return;
+    changePwModal.classList.remove('open');
+    changePwModal.setAttribute('aria-hidden', 'true');
+  };
+
+  window.submitChangePw = async function() {
+    var current = $('change-pw-current');
+    var newPw = $('change-pw-new');
+    var confirm = $('change-pw-confirm');
+    var errorEl = $('change-pw-error');
+    var btn = $('change-pw-submit-btn');
+    if (!current || !newPw || !confirm) return;
+    if (errorEl) errorEl.style.display = 'none';
+
+    if (newPw.value.length < 8) {
+      if (errorEl) { errorEl.textContent = 'New password must be at least 8 characters.'; errorEl.style.display = 'block'; }
+      return;
+    }
+    if (newPw.value !== confirm.value) {
+      if (errorEl) { errorEl.textContent = 'Passwords do not match.'; errorEl.style.display = 'block'; }
+      return;
+    }
+    if (!authToken) {
+      if (errorEl) { errorEl.textContent = 'Not logged in.'; errorEl.style.display = 'block'; }
+      return;
+    }
+
+    if (btn) btn.disabled = true;
+    try {
+      const res = await fetch('/change-password', {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer ' + authToken,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          current_password: current.value,
+          new_password: newPw.value,
+        }),
+      });
+      if (res.status === 401) {
+        if (errorEl) { errorEl.textContent = 'Invalid current password.'; errorEl.style.display = 'block'; }
+        return;
+      }
+      if (!res.ok) {
+        var data = await res.json().catch(function() { return {}; });
+        if (errorEl) { errorEl.textContent = data.error || 'Failed to change password'; errorEl.style.display = 'block'; }
+        return;
+      }
+      var result = await res.json();
+      setAuthToken(result.token);
+      window.closeChangePwDialog();
+      refresh();
+    } catch (e) {
+      if (errorEl) { errorEl.textContent = 'Error: ' + e.message; errorEl.style.display = 'block'; }
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  };
+
+  if (changePwModal) {
+    changePwModal.addEventListener('click', function(event) {
+      if (event.target === changePwModal) {
+        window.closeChangePwDialog();
+      }
+    });
+  }
+
+  // Handle Enter key in login/setup fields
+  var loginPwInput = $('login-password');
+  if (loginPwInput) {
+    loginPwInput.addEventListener('keydown', function(event) {
+      if (event.key === 'Enter') window.loginDashboard();
+    });
+  }
+  var setupPwInput = $('setup-password');
+  var setupConfirmInput = $('setup-confirm');
+  if (setupPwInput) {
+    setupPwInput.addEventListener('keydown', function(event) {
+      if (event.key === 'Enter') window.runSetup();
+    });
+  }
+  if (setupConfirmInput) {
+    setupConfirmInput.addEventListener('keydown', function(event) {
+      if (event.key === 'Enter') window.runSetup();
+    });
+  }
+
+  boot();
 })();
 </script>
 

@@ -7,16 +7,18 @@
 
 set -eu
 
+PROJECT_ID="stonefruit%2Fstonefruit"
+
 check_docker_access() {
   if ! command -v docker >/dev/null 2>&1; then
     echo ""
     echo "Docker was not detected."
-    echo "Install Docker before running 'stonefruit setup': https://docs.docker.com/get-docker/"
-    return
+    echo "Install Docker before running Stonefruit setup: https://docs.docker.com/get-docker/"
+    return 1
   fi
 
   if docker version >/dev/null 2>&1; then
-    return
+    return 0
   fi
 
   DOCKER_ERROR="$(docker version 2>&1 || true)"
@@ -28,11 +30,12 @@ check_docker_access() {
     echo "  sudo usermod -aG docker $USER"
     echo "  newgrp docker"
     echo "Then run 'stonefruit setup'."
-    return
+    return 1
   fi
 
   echo "Docker is installed, but it is not currently accessible."
   echo "$DOCKER_ERROR"
+  return 1
 }
 
 # Detect OS
@@ -59,13 +62,35 @@ detect_arch() {
   esac
 }
 
+resolve_version() {
+  if [ "$VERSION" != "latest" ]; then
+    echo "$VERSION"
+    return 0
+  fi
+
+  API_URL="https://gitlab.futo.org/api/v4/projects/${PROJECT_ID}/packages?package_name=stonefruit-cli&package_type=generic&per_page=1&order_by=created_at&sort=desc"
+  RESPONSE="$(curl -fsSL "$API_URL")" || {
+    echo "Error: failed to resolve the latest Stonefruit CLI version." >&2
+    exit 1
+  }
+
+  RESOLVED_VERSION="$(printf '%s' "$RESPONSE" | sed -n 's/.*"version":"\([^"]*\)".*/\1/p' | head -n 1)"
+  if [ -z "$RESOLVED_VERSION" ]; then
+    echo "Error: failed to resolve the latest Stonefruit CLI version." >&2
+    exit 1
+  fi
+
+  echo "$RESOLVED_VERSION"
+}
+
 OS="$(detect_os)"
 ARCH="$(detect_arch)"
 VERSION="${VERSION:-latest}"
+RESOLVED_VERSION="$(resolve_version)"
 
-DOWNLOAD_URL="https://gitlab.futo.org/api/v4/projects/justin%2Ffuto-notes/packages/generic/stonefruit-cli/${VERSION}/stonefruit-${OS}-${ARCH}"
+DOWNLOAD_URL="https://gitlab.futo.org/api/v4/projects/${PROJECT_ID}/packages/generic/stonefruit-cli/${RESOLVED_VERSION}/stonefruit-${OS}-${ARCH}"
 
-echo "Downloading Stonefruit CLI (${OS}/${ARCH}, version: ${VERSION})..."
+echo "Downloading Stonefruit CLI (${OS}/${ARCH}, version: ${RESOLVED_VERSION})..."
 
 # Create a temporary file for the download
 TMPFILE="$(mktemp)"
@@ -119,7 +144,10 @@ case ":${PATH}:" in
     ;;
 esac
 
-check_docker_access
-
 echo ""
-echo "Run 'stonefruit setup' to get started."
+if check_docker_access; then
+  echo "Launching Stonefruit setup..."
+  exec "$INSTALL_PATH" setup
+fi
+
+echo "Run '$INSTALL_PATH setup' to get started."

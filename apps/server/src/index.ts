@@ -7,6 +7,7 @@ import { isSetupComplete, setPasswordHash } from './db/auth.js';
 import { hashPassword } from './auth/password.js';
 import { createApp } from './app.js';
 import { reconcile } from './sync/recovery.js';
+import { generateAdminToken, writeAdminToken } from './auth/adminToken.js';
 import { log } from './logger.js';
 
 function getLanAddress(): string | undefined {
@@ -53,6 +54,10 @@ if (process.env.NODE_ENV === 'development') {
     }
   }
 }
+
+// Generate admin token for password reset via CLI
+const adminToken = generateAdminToken();
+writeAdminToken(config.notesPath, adminToken);
 
 // Reconcile DB with disk (recover from any crash-induced divergence)
 log.info('reconciling DB with disk...');

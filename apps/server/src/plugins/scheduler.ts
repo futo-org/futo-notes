@@ -1214,8 +1214,12 @@ export function startPluginScheduler(config: Config): void {
       log.error(`plugins: failed to load local plugins: ${lastError}`);
     })
     .finally(() => {
-      ensurePluginRows(getDb());
-      broadcastPluginStatus();
+      try {
+        ensurePluginRows(getDb());
+        broadcastPluginStatus();
+      } catch {
+        // DB may be gone after reset/nuke — safe to ignore
+      }
     });
   schedulerInterval = setInterval(() => {
     tick().catch((err) => {

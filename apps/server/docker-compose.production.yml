@@ -5,12 +5,9 @@ services:
     ports:
       - "3005:3005"
     volumes:
-      - data:/app/apps/server/data
+      - ${STONEFRUIT_DATA_PATH:-./stonefruit-data}:/app/apps/server/data
     environment:
       - PORT=3005
       - DATABASE_PATH=./data/stonefruit.db
       - NOTES_PATH=./data/notes
     restart: unless-stopped
-
-volumes:
-  data:

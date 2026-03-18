@@ -87,3 +87,9 @@ data/
 
 # Experiments live in ../notes-experiments
 experiments/
+
+# Verification
+test-screenshots
+
+# Docker testing
+apps/cli/stonefruit-data
