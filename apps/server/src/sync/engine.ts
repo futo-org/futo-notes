@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3';
 import type { SyncRequest, SyncResponse } from '@futo-notes/shared';
-import { extractTags } from '@futo-notes/shared';
+import { extractTags, isImageFilename } from '@futo-notes/shared';
 import type { NoteRow } from '../db/notes.js';
 import { getAllNotes, upsertNote, deleteNote } from '../db/notes.js';
 import { getAllTombstones, createTombstone, pruneTombstones } from '../db/tombstones.js';
@@ -9,8 +9,11 @@ import {
   writeNoteFile,
   readNoteFile,
   deleteNoteFile,
+  readBlobFile,
+  sanitizeImageFilename,
+  listImageFiles,
 } from './files.js';
-import { contentHash } from './hash.js';
+import { contentHash, binaryContentHash } from './hash.js';
 import { getSyncVersion, incrementSyncVersion } from '../db/syncVersion.js';
 import { log } from '../logger.js';
 
@@ -21,8 +24,9 @@ function resolveFilenameInMemory(
   sanitized: string,
   uuid: string,
 ): string {
-  const ext = '.md';
-  const base = sanitized.slice(0, -ext.length);
+  const dotIdx = sanitized.lastIndexOf('.');
+  const ext = dotIdx >= 0 ? sanitized.slice(dotIdx) : '.md';
+  const base = dotIdx >= 0 ? sanitized.slice(0, dotIdx) : sanitized;
   let candidate = sanitized;
   let counter = 1;
   while (true) {
@@ -111,17 +115,17 @@ export function processSync(
     }
 
     // Helpers that keep DB + in-memory state in sync
-    function trackUpsert(uuid: string, filename: string, hash: string, modifiedAt: number, content?: string): void {
+    function trackUpsert(uuid: string, filename: string, hash: string, modifiedAt: number, content?: string, isBlob?: boolean): void {
       const oldNote = allNotes.get(uuid);
       if (oldNote && oldNote.filename !== filename) {
         filenameIndex.delete(oldNote.filename);
       }
-      upsertNote(db, uuid, filename, hash, modifiedAt);
-      allNotes.set(uuid, { uuid, filename, content_hash: hash, modified_at: modifiedAt, created_at: '' });
+      upsertNote(db, uuid, filename, hash, modifiedAt, isBlob);
+      allNotes.set(uuid, { uuid, filename, content_hash: hash, modified_at: modifiedAt, created_at: '', is_blob: isBlob ? 1 : 0 });
       filenameIndex.set(filename, uuid);
       mutated = true;
-      // Index tags when content is available
-      if (content !== undefined) {
+      // Index tags when content is available (skip for blobs)
+      if (content !== undefined && !isBlob) {
         indexNoteTags(uuid, content);
       }
     }
@@ -185,6 +189,47 @@ export function processSync(
       const serverNote = allNotes.get(clientNote.uuid);
 
       if (!serverNote) {
+        if (clientNote.is_blob) {
+          // Blob: file was pre-uploaded via PUT /sync/blob
+          let safeName: string;
+          try {
+            safeName = sanitizeImageFilename(clientNote.filename);
+          } catch {
+            log.warn(`skipping blob with invalid filename: ${clientNote.filename}`);
+            continue;
+          }
+          const finalName = resolveFilenameInMemory(filenameIndex, safeName, clientNote.uuid);
+
+          // Verify file exists on disk (pre-uploaded)
+          const blobData = readBlobFile(notesDir, finalName);
+          if (!blobData) {
+            log.warn(`blob file missing on disk: ${finalName} (${clientNote.uuid.slice(0, 8)})`);
+            continue;
+          }
+          const hash = binaryContentHash(blobData);
+
+          // Content-aware dedup for blobs
+          const existingUuid = filenameIndex.get(safeName);
+          if (existingUuid) {
+            const existingNote = allNotes.get(existingUuid);
+            if (existingNote && existingNote.content_hash === hash) {
+              if (!tombstoneSet.has(clientNote.uuid)) {
+                createTombstone(db, clientNote.uuid);
+                tombstoneSet.add(clientNote.uuid);
+                mutated = true;
+              }
+              response.delete.push(clientNote.uuid);
+              log.debug(`  dedup blob: ${safeName} (${clientNote.uuid.slice(0, 8)} → ${existingUuid.slice(0, 8)})`);
+              continue;
+            }
+          }
+
+          trackUpsert(clientNote.uuid, finalName, hash, clientNote.modified_at, undefined, true);
+          response.hash_updates.push({ uuid: clientNote.uuid, hash_at_last_sync: hash });
+          continue;
+        }
+
+        // Original non-blob new note logic
         const safeName = sanitizeFilename(clientNote.filename);
         const content = clientNote.content ?? '';
         const hash = contentHash(content);
@@ -222,6 +267,11 @@ export function processSync(
       const lastSync = clientNote.hash_at_last_sync;
 
       if (clientHash === lastSync && serverHash === lastSync) {
+        if (clientNote.is_blob) {
+          // Blobs don't rename, just confirm
+          response.hash_updates.push({ uuid: clientNote.uuid, hash_at_last_sync: serverHash });
+          continue;
+        }
         // No changes on either side — but check for filename changes
         const safeName = sanitizeFilename(clientNote.filename);
         const finalName = resolveFilenameInMemory(filenameIndex, safeName, clientNote.uuid);
@@ -252,6 +302,20 @@ export function processSync(
       }
 
       if (clientHash !== lastSync && serverHash === lastSync) {
+        if (clientNote.is_blob) {
+          let safeName: string;
+          try { safeName = sanitizeImageFilename(clientNote.filename); } catch { continue; }
+          const finalName = resolveFilenameInMemory(filenameIndex, safeName, clientNote.uuid);
+          const blobData = readBlobFile(notesDir, finalName);
+          if (!blobData) { continue; }
+          const hash = binaryContentHash(blobData);
+          if (finalName !== serverNote.filename) {
+            deleteNoteFile(notesDir, serverNote.filename);
+          }
+          trackUpsert(clientNote.uuid, finalName, hash, clientNote.modified_at, undefined, true);
+          response.hash_updates.push({ uuid: clientNote.uuid, hash_at_last_sync: hash });
+          continue;
+        }
         // Client changed, server unchanged — accept client version
         const safeName = sanitizeFilename(clientNote.filename);
         const finalName = resolveFilenameInMemory(filenameIndex, safeName, clientNote.uuid);
@@ -269,6 +333,17 @@ export function processSync(
       }
 
       if (clientHash === lastSync && serverHash !== lastSync) {
+        if (serverNote.is_blob) {
+          response.update.push({
+            uuid: clientNote.uuid,
+            filename: serverNote.filename,
+            modified_at: serverNote.modified_at,
+            content_hash: serverHash,
+            hash_at_last_sync: serverHash,
+            is_blob: true,
+          });
+          continue;
+        }
         // Server changed, client unchanged — send server version
         const content = readNoteFile(notesDir, serverNote.filename);
         if (content !== null) {
@@ -285,6 +360,30 @@ export function processSync(
       }
 
       // Both changed — conflict
+      if (clientNote.is_blob) {
+        // Images are immutable; last-write-wins
+        if (clientNote.modified_at >= serverNote.modified_at) {
+          let safeName: string;
+          try { safeName = sanitizeImageFilename(clientNote.filename); } catch { continue; }
+          const finalName = resolveFilenameInMemory(filenameIndex, safeName, clientNote.uuid);
+          const blobData = readBlobFile(notesDir, finalName);
+          if (!blobData) { continue; }
+          const hash = binaryContentHash(blobData);
+          trackUpsert(clientNote.uuid, finalName, hash, clientNote.modified_at, undefined, true);
+          response.hash_updates.push({ uuid: clientNote.uuid, hash_at_last_sync: hash });
+        } else {
+          response.update.push({
+            uuid: clientNote.uuid,
+            filename: serverNote.filename,
+            modified_at: serverNote.modified_at,
+            content_hash: serverHash,
+            hash_at_last_sync: serverHash,
+            is_blob: true,
+          });
+        }
+        continue;
+      }
+
       // Server keeps its version. Save client's version as a conflict copy.
       const conflictName = conflictFilenameInMemory(filenameIndex, clientNote.filename, clientNote.uuid);
       const clientContent = clientNote.content ?? '';
@@ -331,6 +430,17 @@ export function processSync(
       if (!serverNote) continue; // Client has it, server doesn't — skip
 
       if (serverNote.content_hash !== item.content_hash) {
+        if (serverNote.is_blob) {
+          response.update.push({
+            uuid: serverNote.uuid,
+            filename: serverNote.filename,
+            modified_at: serverNote.modified_at,
+            content_hash: serverNote.content_hash,
+            hash_at_last_sync: serverNote.content_hash,
+            is_blob: true,
+          });
+          continue;
+        }
         // Server changed, client unchanged → send server version
         const content = readNoteFile(notesDir, serverNote.filename);
         if (content !== null) {
@@ -348,6 +458,10 @@ export function processSync(
         const safeName = sanitizeFilename(item.filename);
         const finalName = resolveFilenameInMemory(filenameIndex, safeName, item.uuid);
         if (finalName !== serverNote.filename) {
+          // Skip rename logic for blobs (machine-generated filenames don't rename)
+          if (isImageFilename(item.filename)) {
+            continue;
+          }
           if (item.modified_at >= serverNote.modified_at) {
             // Client renamed more recently — accept client's filename
             const content = readNoteFile(notesDir, serverNote.filename) ?? '';
@@ -377,6 +491,18 @@ export function processSync(
     for (const [uuid, serverNote] of allNotes) {
       if (clientUuidSet.has(uuid)) continue;
       if (deletedUuidSet.has(uuid)) continue;
+
+      if (serverNote.is_blob) {
+        response.update.push({
+          uuid: serverNote.uuid,
+          filename: serverNote.filename,
+          modified_at: serverNote.modified_at,
+          content_hash: serverNote.content_hash,
+          hash_at_last_sync: serverNote.content_hash,
+          is_blob: true,
+        });
+        continue;
+      }
 
       const content = readNoteFile(notesDir, serverNote.filename);
       if (content !== null) {

@@ -6,6 +6,7 @@ import health from './routes/health.js';
 import setup from './routes/setup.js';
 import login from './routes/login.js';
 import sync from './routes/sync.js';
+import blobSync from './routes/blobSync.js';
 import revoke from './routes/revoke.js';
 import events from './routes/events.js';
 import dev from './routes/dev.js';
@@ -20,8 +21,9 @@ import { recordPluginActivity } from './plugins/scheduler.js';
 
 /** Check whether an origin is allowed by the CORS policy. */
 function isAllowedOrigin(origin: string, extraOrigins: string[]): boolean {
-  // Tauri webview origins
-  if (origin === 'tauri://localhost' || origin === 'https://tauri.localhost') {
+  // Tauri webview origins (desktop: tauri://localhost or https://tauri.localhost,
+  // Android: http://tauri.localhost)
+  if (/^(tauri|https?):\/\/tauri\.localhost$/.test(origin)) {
     return true;
   }
   // Local development (any port on localhost / 127.0.0.1)
@@ -69,6 +71,7 @@ export function createApp(): Hono {
   app.route('/', setup);
   app.route('/', login);
   app.route('/', sync);
+  app.route('/', blobSync);
   app.route('/', revoke);
   app.route('/', events);
   app.route('/', reset);

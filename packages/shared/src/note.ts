@@ -10,4 +10,6 @@ export interface NoteSyncMeta {
   hash_at_last_sync: string;
   /** Included only when content_hash !== hash_at_last_sync. */
   content?: string;
+  /** True when this entry is a binary file (image), not a text note. */
+  is_blob?: boolean;
 }

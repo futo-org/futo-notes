@@ -3,7 +3,7 @@ import { refreshNotesAfterSync } from './notes';
 import { getCachedPreferences, savePreferences } from './preferences';
 import { clearSyncState, findIdForUuid, loadSyncState, saveSyncState } from './syncState';
 import { getClientId } from './sseClient';
-import { applySyncDeltaRust, prepareSyncPayloadRust } from './rustCore';
+import { applySyncDeltaRust, prepareImageSyncRust, prepareSyncPayloadRust, readImageBytesRust, writeSyncedImageRust, applyImageSyncDeltaRust, hasRustCore } from './rustCore';
 import { FALLBACK_TITLE, type HealthResponse, type LoginResponse, type SyncCheckResponse, type SyncResponse } from '@futo-notes/shared';
 
 export interface SyncSummary {
@@ -71,6 +71,33 @@ async function authPost<T>(baseUrl: string, token: string, path: string, body: u
     body: JSON.stringify(body),
   });
   return parseJsonOrThrow<T>(res);
+}
+
+async function authPutBinary(baseUrl: string, token: string, path: string, data: Uint8Array, headers: Record<string, string>): Promise<void> {
+  const res = await fetch(`${baseUrl}${path}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/octet-stream',
+      Authorization: `Bearer ${token}`,
+      ...headers,
+    },
+    body: data as unknown as BodyInit,
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Blob upload failed: HTTP ${res.status} ${text}`);
+  }
+}
+
+async function authGetBinary(baseUrl: string, token: string, path: string): Promise<number[]> {
+  const res = await fetch(`${baseUrl}${path}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    throw new Error(`Blob download failed: HTTP ${res.status}`);
+  }
+  const buf = await res.arrayBuffer();
+  return Array.from(new Uint8Array(buf));
 }
 
 async function setSyncError(errorMessage: string): Promise<void> {
@@ -190,23 +217,74 @@ async function doFullSync(
 ): Promise<SyncSummary> {
   const outgoingByUuid = new Map<string, string>();
 
+  // ── Phase 0: Prepare image inventory via Rust ──────────
+  let imageInventory: import('./rustCore').ImageSyncEntry[] = [];
+  if (hasRustCore()) {
+    try {
+      const imagePrep = await prepareImageSyncRust(state);
+      state = imagePrep.nextState;
+      imageInventory = imagePrep.images;
+    } catch {
+      // Image sync not available (e.g. old binary) — continue without
+    }
+  }
+
+  // ── Phase 1: Upload new/changed images ─────────────────
+  const changedImages = imageInventory.filter((img) => img.content_hash !== img.hash_at_last_sync);
+  for (const img of changedImages) {
+    try {
+      const bytes = await readImageBytesRust(img.filename);
+      await authPutBinary(serverUrl, token, `/sync/blob/${img.uuid}`, new Uint8Array(bytes), {
+        'X-Filename': img.filename,
+        'X-Modified-At': String(img.modified_at),
+      });
+    } catch {
+      // Skip individual image upload failures — don't block note sync
+    }
+  }
+
+  // ── Phase 2: Main sync (merge image entries) ───────────
   // Build V2 payload: only send changed notes with content, compact inventory for the rest
   const changedNotes = prepared.notes.filter((n) => n.content !== undefined);
-  const inventory = prepared.notes.map((n) => ({
-    uuid: n.uuid,
-    content_hash: n.content_hash,
-    filename: n.filename,
-    modified_at: n.modified_at,
+
+  // Include image entries in notes[] and inventory[]
+  const imageNotes = changedImages.map((img) => ({
+    uuid: img.uuid,
+    filename: img.filename,
+    modified_at: img.modified_at,
+    content_hash: img.content_hash,
+    hash_at_last_sync: img.hash_at_last_sync,
+    is_blob: true as const,
   }));
+
+  const imageInventoryItems = imageInventory.map((img) => ({
+    uuid: img.uuid,
+    content_hash: img.content_hash,
+    filename: img.filename,
+    modified_at: img.modified_at,
+  }));
+
+  const inventory = [
+    ...prepared.notes.map((n) => ({
+      uuid: n.uuid,
+      content_hash: n.content_hash,
+      filename: n.filename,
+      modified_at: n.modified_at,
+    })),
+    ...imageInventoryItems,
+  ];
 
   for (const note of prepared.notes) {
     outgoingByUuid.set(note.uuid, noteIdFromFilename(note.filename));
+  }
+  for (const img of imageInventory) {
+    outgoingByUuid.set(img.uuid, img.filename);
   }
 
   let response: SyncResponse;
   try {
     response = await authPost<SyncResponse>(serverUrl, token, '/sync', {
-      notes: changedNotes,
+      notes: [...changedNotes, ...imageNotes],
       inventory,
       deleted_uuids: state.deletedUuids,
     }, { 'X-Client-Id': getClientId() });
@@ -216,11 +294,11 @@ async function doFullSync(
     throw e;
   }
 
-  // Apply incoming changes via Rust (parallel file writes + index update)
+  // Apply incoming note changes via Rust (parallel file writes + index update)
   const updatedIds = new Set<string>();
   const deletedIds = new Set<string>();
   const updatesForRust = response.update
-    .filter((note): note is SyncResponse['update'][number] & { content: string } => typeof note.content === 'string')
+    .filter((note): note is SyncResponse['update'][number] & { content: string } => typeof note.content === 'string' && !note.is_blob)
     .map((note) => ({
       uuid: note.uuid,
       id: noteIdFromFilename(note.filename),
@@ -238,6 +316,32 @@ async function doFullSync(
 
   for (const note of updatesForRust) {
     outgoingByUuid.set(note.uuid, note.id);
+  }
+
+  // ── Phase 3: Download images from response ─────────────
+  const blobUpdates = response.update.filter((u) => u.is_blob);
+  if (hasRustCore() && blobUpdates.length > 0) {
+    for (const blob of blobUpdates) {
+      try {
+        const data = await authGetBinary(serverUrl, token, `/sync/blob/${blob.uuid}`);
+        await writeSyncedImageRust(blob.filename, data, blob.modified_at);
+        // Update sync state for downloaded image
+        state.uuidById[blob.filename] = blob.uuid;
+        state.hashByUuid[blob.uuid] = blob.content_hash;
+      } catch {
+        // Skip individual image download failures
+      }
+    }
+
+    // Handle image deletions
+    const blobDeletes = response.delete.filter((uuid) => {
+      const filename = findIdForUuid(state, uuid);
+      return filename && !filename.endsWith('.md');
+    });
+    if (blobDeletes.length > 0) {
+      const imgDelta = await applyImageSyncDeltaRust(state, blobDeletes);
+      state = imgDelta.nextState;
+    }
   }
 
   for (const update of response.hash_updates) {
@@ -265,7 +369,7 @@ async function doFullSync(
 
   return {
     uploaded: response.hash_updates.length,
-    downloaded,
+    downloaded: downloaded + blobUpdates.length,
     deleted,
     conflicts: response.conflicts.length,
     updatedIds: Array.from(updatedIds),

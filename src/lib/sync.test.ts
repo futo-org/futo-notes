@@ -11,6 +11,11 @@ vi.mock('./syncState');
 vi.mock('./rustCore', () => ({
   prepareSyncPayloadRust: vi.fn(),
   applySyncDeltaRust: vi.fn(),
+  prepareImageSyncRust: vi.fn(),
+  readImageBytesRust: vi.fn(),
+  writeSyncedImageRust: vi.fn(),
+  applyImageSyncDeltaRust: vi.fn(),
+  hasRustCore: vi.fn(() => false),
 }));
 
 import { refreshNotesAfterSync } from './notes';

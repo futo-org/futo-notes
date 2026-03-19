@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type Database from 'better-sqlite3';
 import { getNoteByFilename } from '../db/notes.js';
-import { sanitizeTitle } from '@futo-notes/shared';
+import { sanitizeTitle, isImageFilename } from '@futo-notes/shared';
 
 /**
  * Sanitize a client-provided filename for safe filesystem storage.
@@ -114,6 +114,56 @@ export function deleteNoteFile(notesDir: string, filename: string): void {
 export function listNoteFiles(notesDir: string): string[] {
   try {
     return fs.readdirSync(notesDir).filter((f) => f.endsWith('.md'));
+  } catch {
+    return [];
+  }
+}
+
+/** Write a binary blob file to disk and optionally set mtime. */
+export function writeBlobFile(
+  notesDir: string,
+  filename: string,
+  data: Buffer,
+  modifiedAtMs?: number,
+): void {
+  fs.mkdirSync(notesDir, { recursive: true });
+  const fullPath = path.join(notesDir, filename);
+  fs.writeFileSync(fullPath, data);
+
+  if (typeof modifiedAtMs === 'number' && Number.isFinite(modifiedAtMs) && modifiedAtMs >= 0) {
+    const ts = new Date(modifiedAtMs);
+    fs.utimesSync(fullPath, ts, ts);
+  }
+}
+
+/** Read a binary blob file from disk. Returns null if file doesn't exist. */
+export function readBlobFile(notesDir: string, filename: string): Buffer | null {
+  try {
+    return fs.readFileSync(path.join(notesDir, filename));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Sanitize a client-provided image filename.
+ * Validates extension, strips path traversal. No title validation (machine-generated names).
+ */
+export function sanitizeImageFilename(raw: string): string {
+  let name = raw;
+  name = name.replace(/\.\./g, '');
+  name = name.replace(/[/\\]/g, '');
+  name = name.replace(/^\.+/, '');
+  if (!name || !isImageFilename(name)) {
+    throw new Error(`Invalid image filename: ${raw}`);
+  }
+  return name;
+}
+
+/** List all image files in the notes directory. */
+export function listImageFiles(notesDir: string): string[] {
+  try {
+    return fs.readdirSync(notesDir).filter((f) => isImageFilename(f));
   } catch {
     return [];
   }

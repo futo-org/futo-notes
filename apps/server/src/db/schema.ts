@@ -44,3 +44,10 @@ export function createTables(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_note_tags_tag ON note_tags(tag);
   `);
 }
+
+export function migrateSchema(db: Database.Database): void {
+  const columns = db.pragma('table_info(notes)') as { name: string }[];
+  if (!columns.some(c => c.name === 'is_blob')) {
+    db.exec('ALTER TABLE notes ADD COLUMN is_blob INTEGER NOT NULL DEFAULT 0');
+  }
+}

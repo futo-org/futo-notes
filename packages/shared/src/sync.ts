@@ -1,5 +1,17 @@
 import type { NoteSyncMeta } from './note.js';
 
+// ── Images ────────────────────────────────────────────
+
+export const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif', 'heic'] as const;
+
+/** Check whether a filename has an image extension (case-insensitive). */
+export function isImageFilename(filename: string): boolean {
+  const dot = filename.lastIndexOf('.');
+  if (dot < 0) return false;
+  const ext = filename.slice(dot + 1).toLowerCase();
+  return (IMAGE_EXTENSIONS as readonly string[]).includes(ext);
+}
+
 // ── Sync ───────────────────────────────────────────────
 
 export interface InventoryItem {

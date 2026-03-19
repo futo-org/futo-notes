@@ -15,6 +15,7 @@ export type {
   ChangePasswordResponse,
   ErrorResponse,
 } from './sync.js';
+export { IMAGE_EXTENSIONS, isImageFilename } from './sync.js';
 export {
   FORBIDDEN_CHARS_RE,
   FORBIDDEN_CHARS_DISPLAY,

@@ -249,6 +249,58 @@ pub struct SyncApplyOutput {
     pub elapsed_ms: u128,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct ImageSyncEntry {
+    pub uuid: String,
+    pub filename: String,
+    pub content_hash: String,
+    pub modified_at: i64,
+    pub hash_at_last_sync: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ImageFileEntry {
+    pub filename: String,
+    pub size: u64,
+    pub mtime: i64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImageSyncPrepareInput {
+    pub state: SyncStatePayload,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImageSyncPrepareOutput {
+    pub state: SyncStatePayload,
+    pub images: Vec<ImageSyncEntry>,
+    pub elapsed_ms: u128,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WriteSyncedImageInput {
+    pub filename: String,
+    pub data: Vec<u8>,
+    pub modified_at: i64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApplyImageSyncDeltaInput {
+    pub state: SyncStatePayload,
+    pub delete_uuids: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApplyImageSyncDeltaOutput {
+    pub state: SyncStatePayload,
+    pub deleted_filenames: Vec<String>,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct KeywordSearchInput {
@@ -564,6 +616,11 @@ pub(crate) fn note_id_from_filename(name: &str) -> Option<String> {
 
 fn hash_sha256(content: &str) -> String {
     let digest = Sha256::digest(content.as_bytes());
+    digest.iter().map(|b| format!("{b:02x}")).collect::<String>()
+}
+
+fn hash_sha256_bytes(data: &[u8]) -> String {
+    let digest = Sha256::digest(data);
     digest.iter().map(|b| format!("{b:02x}")).collect::<String>()
 }
 
@@ -895,6 +952,75 @@ fn prepare_sync_payload_impl(base: &Path, input: SyncPrepareInput) -> Result<Syn
         state,
         notes,
         all_uuids,
+        elapsed_ms: started.elapsed().as_millis(),
+    })
+}
+
+fn prepare_image_sync_impl(base: &Path, input: ImageSyncPrepareInput) -> Result<ImageSyncPrepareOutput, String> {
+    let started = Instant::now();
+    let mut state = input.state;
+    let hash_cache = state.hash_cache.clone().unwrap_or_default();
+
+    let files: Vec<(String, PathBuf, i64)> = fs::read_dir(base)
+        .map_err(io_err_to_string)?
+        .filter_map(|entry| entry.ok())
+        .filter_map(|entry| {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if !is_image_filename(&name) {
+                return None;
+            }
+            let meta = entry.metadata().ok()?;
+            if !meta.is_file() {
+                return None;
+            }
+            Some((name, entry.path(), file_mtime_ms(&meta)))
+        })
+        .collect();
+
+    let hash_snapshot = state.hash_by_uuid.clone();
+
+    let images: Vec<ImageSyncEntry> = files
+        .par_iter()
+        .map(|(filename, path, mtime)| {
+            let uuid = state.uuid_by_id.get(filename).cloned().unwrap_or_else(|| Uuid::new_v4().to_string());
+            let cached = hash_cache.get(filename);
+
+            let hash = if cached.map(|e| e.modified_at) == Some(*mtime) {
+                cached.map(|e| e.hash.clone()).unwrap_or_default()
+            } else {
+                let data = fs::read(path).map_err(io_err_to_string)?;
+                hash_sha256_bytes(&data)
+            };
+
+            let hash_at_last_sync = hash_snapshot.get(&uuid).cloned().unwrap_or_default();
+
+            Ok::<ImageSyncEntry, String>(ImageSyncEntry {
+                uuid,
+                filename: filename.clone(),
+                content_hash: hash,
+                modified_at: *mtime,
+                hash_at_last_sync,
+            })
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+
+    // Update state with image UUIDs and hash cache
+    let mut new_hash_cache = state.hash_cache.take().unwrap_or_default();
+    for img in &images {
+        state.uuid_by_id.insert(img.filename.clone(), img.uuid.clone());
+        new_hash_cache.insert(
+            img.filename.clone(),
+            HashCacheEntry {
+                modified_at: img.modified_at,
+                hash: img.content_hash.clone(),
+            },
+        );
+    }
+    state.hash_cache = Some(new_hash_cache);
+
+    Ok(ImageSyncPrepareOutput {
+        state,
+        images,
         elapsed_ms: started.elapsed().as_millis(),
     })
 }
@@ -1814,6 +1940,17 @@ const ALLOWED_IMAGE_EXTS: &[&str] = &[
     "jpg", "jpeg", "png", "gif", "webp", "svg", "bmp", "ico", "avif", "heic",
 ];
 
+pub(crate) fn is_image_filename(name: &str) -> bool {
+    let dot = match name.rfind('.') {
+        Some(i) => i,
+        None => return false,
+    };
+    let ext = &name[dot + 1..];
+    if ext.is_empty() { return false; }
+    let lower = ext.to_lowercase();
+    ALLOWED_IMAGE_EXTS.contains(&lower.as_str())
+}
+
 fn validate_image_ext(ext: &str) -> Result<String, String> {
     if ext.len() > 10 {
         return Err("image extension too long".to_string());
@@ -2086,6 +2223,163 @@ pub async fn core_apply_sync_delta(
     tauri::async_runtime::spawn_blocking(move || {
         let base = notes_root(&app)?;
         apply_sync_delta_impl(&base, &index, &suppressed_watcher_events, &sync_writes_until, input)
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
+#[tauri::command]
+pub async fn core_prepare_image_sync(
+    app: AppHandle,
+    input: ImageSyncPrepareInput,
+) -> Result<ImageSyncPrepareOutput, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = notes_root(&app)?;
+        prepare_image_sync_impl(&base, input)
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
+#[tauri::command]
+pub async fn core_read_image_bytes(
+    app: AppHandle,
+    filename: String,
+) -> Result<Vec<u8>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = notes_root(&app)?;
+        if !is_image_filename(&filename) {
+            return Err("not an image filename".to_string());
+        }
+        // Basic path safety: no traversal
+        if filename.contains("..") || filename.contains('/') || filename.contains('\\') {
+            return Err("invalid filename".to_string());
+        }
+        let path = base.join(&filename);
+        fs::read(&path).map_err(io_err_to_string)
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
+#[tauri::command]
+pub async fn core_write_synced_image(
+    app: AppHandle,
+    state: State<'_, CoreState>,
+    input: WriteSyncedImageInput,
+) -> Result<(), String> {
+    let sync_writes_until = state.sync_writes_until.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = notes_root(&app)?;
+        if !is_image_filename(&input.filename) {
+            return Err("not an image filename".to_string());
+        }
+        if input.filename.contains("..") || input.filename.contains('/') || input.filename.contains('\\') {
+            return Err("invalid filename".to_string());
+        }
+        sync_writes_until.store(now_ms() + WATCHER_SUPPRESSION_MS, Ordering::Release);
+        let path = base.join(&input.filename);
+        fs::write(&path, &input.data).map_err(io_err_to_string)?;
+        if input.modified_at >= 0 {
+            let _ = set_file_mtime_ms(&path, input.modified_at);
+        }
+        Ok(())
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
+#[tauri::command]
+pub async fn core_apply_image_sync_delta(
+    app: AppHandle,
+    state: State<'_, CoreState>,
+    input: ApplyImageSyncDeltaInput,
+) -> Result<ApplyImageSyncDeltaOutput, String> {
+    let sync_writes_until = state.sync_writes_until.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = notes_root(&app)?;
+        sync_writes_until.store(now_ms() + WATCHER_SUPPRESSION_MS, Ordering::Release);
+        let mut out_state = input.state;
+        let mut deleted_filenames = Vec::new();
+
+        for uuid in &input.delete_uuids {
+            // Find filename by UUID
+            let maybe_filename = out_state.uuid_by_id.iter()
+                .find(|(_, v)| *v == uuid)
+                .map(|(k, _)| k.clone());
+
+            if let Some(filename) = maybe_filename {
+                if is_image_filename(&filename) {
+                    let path = base.join(&filename);
+                    let _ = fs::remove_file(&path);
+                    deleted_filenames.push(filename.clone());
+                    out_state.uuid_by_id.remove(&filename);
+                }
+            }
+            out_state.hash_by_uuid.remove(uuid);
+            out_state.deleted_uuids.retain(|x| x != uuid);
+        }
+
+        Ok(ApplyImageSyncDeltaOutput {
+            state: out_state,
+            deleted_filenames,
+        })
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
+fn list_image_files_impl(base: &Path) -> Result<Vec<ImageFileEntry>, String> {
+    let mut entries = Vec::new();
+    for entry in fs::read_dir(base).map_err(io_err_to_string)? {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        let name = entry.file_name().to_string_lossy().to_string();
+        if !is_image_filename(&name) {
+            continue;
+        }
+        let meta = match entry.metadata() {
+            Ok(m) if m.is_file() => m,
+            _ => continue,
+        };
+        entries.push(ImageFileEntry {
+            filename: name,
+            size: meta.len(),
+            mtime: file_mtime_ms(&meta),
+        });
+    }
+    entries.sort_by(|a, b| b.mtime.cmp(&a.mtime));
+    Ok(entries)
+}
+
+fn delete_image_file_impl(base: &Path, filename: &str) -> Result<(), String> {
+    if !is_image_filename(filename) {
+        return Err("not an image filename".to_string());
+    }
+    if filename.contains("..") || filename.contains('/') || filename.contains('\\') {
+        return Err("invalid filename".to_string());
+    }
+    let path = base.join(filename);
+    fs::remove_file(&path).map_err(io_err_to_string)
+}
+
+#[tauri::command]
+pub async fn core_list_image_files(app: AppHandle) -> Result<Vec<ImageFileEntry>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = notes_root(&app)?;
+        list_image_files_impl(&base)
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
+#[tauri::command]
+pub async fn core_delete_image_file(app: AppHandle, filename: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = notes_root(&app)?;
+        delete_image_file_impl(&base, &filename)
     })
     .await
     .map_err(task_join_err)?
@@ -3285,6 +3579,135 @@ mod tests {
         let filename = write_image_to_notes(&base, data, "jpg").unwrap();
         assert!(filename.ends_with(".jpg"));
         assert!(base.join(&filename).exists());
+        cleanup_temp_dir(&base);
+    }
+
+    // ── Image sync tests ──────────────────────────────────────
+
+    #[test]
+    fn is_image_filename_valid() {
+        assert!(is_image_filename("photo.jpg"));
+        assert!(is_image_filename("photo.JPEG"));
+        assert!(is_image_filename("1234-abc.png"));
+        assert!(is_image_filename("test.gif"));
+        assert!(is_image_filename("test.webp"));
+        assert!(is_image_filename("test.svg"));
+        assert!(is_image_filename("test.bmp"));
+        assert!(is_image_filename("test.ico"));
+        assert!(is_image_filename("test.avif"));
+        assert!(is_image_filename("test.heic"));
+    }
+
+    #[test]
+    fn is_image_filename_invalid() {
+        assert!(!is_image_filename("note.md"));
+        assert!(!is_image_filename("file.txt"));
+        assert!(!is_image_filename("no_extension"));
+        assert!(!is_image_filename(".hidden"));
+        assert!(!is_image_filename("script.exe"));
+    }
+
+    #[test]
+    fn hash_sha256_bytes_correct() {
+        let data = b"hello world";
+        let hash = hash_sha256_bytes(data);
+        assert_eq!(hash, "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9");
+    }
+
+    #[test]
+    fn prepare_image_sync_scans_images() {
+        let base = temp_notes_dir();
+        fs::write(base.join("1234-abc.jpg"), b"fake jpeg data").unwrap();
+        fs::write(base.join("5678-def.png"), b"fake png data").unwrap();
+        write_atomic_text(&base.join("note.md"), "# Hello").unwrap();
+
+        let input = ImageSyncPrepareInput { state: SyncStatePayload::default() };
+        let output = prepare_image_sync_impl(&base, input).unwrap();
+
+        assert_eq!(output.images.len(), 2);
+        let filenames: Vec<&str> = output.images.iter().map(|i| i.filename.as_str()).collect();
+        assert!(filenames.contains(&"1234-abc.jpg"));
+        assert!(filenames.contains(&"5678-def.png"));
+
+        // Verify hashes are non-empty
+        for img in &output.images {
+            assert!(!img.content_hash.is_empty());
+            assert!(!img.uuid.is_empty());
+        }
+
+        cleanup_temp_dir(&base);
+    }
+
+    #[test]
+    fn prepare_image_sync_uses_hash_cache() {
+        let base = temp_notes_dir();
+        fs::write(base.join("img.jpg"), b"image data").unwrap();
+
+        // First scan
+        let input1 = ImageSyncPrepareInput { state: SyncStatePayload::default() };
+        let out1 = prepare_image_sync_impl(&base, input1).unwrap();
+        assert_eq!(out1.images.len(), 1);
+
+        // Second scan with cached state — should use cache
+        let input2 = ImageSyncPrepareInput { state: out1.state };
+        let out2 = prepare_image_sync_impl(&base, input2).unwrap();
+        assert_eq!(out2.images.len(), 1);
+        assert_eq!(out2.images[0].content_hash, out1.images[0].content_hash);
+
+        cleanup_temp_dir(&base);
+    }
+
+    // ── Image gallery (list / delete) tests ──────────────────────────
+
+    #[test]
+    fn list_image_files_returns_images_only() {
+        let base = temp_notes_dir();
+        fs::write(base.join("photo.jpg"), b"jpeg").unwrap();
+        fs::write(base.join("diagram.png"), b"png").unwrap();
+        write_atomic_text(&base.join("note.md"), "# Hello").unwrap();
+        fs::write(base.join("readme.txt"), b"text").unwrap();
+
+        let entries = list_image_files_impl(&base).unwrap();
+        assert_eq!(entries.len(), 2);
+        let names: Vec<&str> = entries.iter().map(|e| e.filename.as_str()).collect();
+        assert!(names.contains(&"photo.jpg"));
+        assert!(names.contains(&"diagram.png"));
+        assert!(!names.iter().any(|n| n.ends_with(".md") || n.ends_with(".txt")));
+
+        cleanup_temp_dir(&base);
+    }
+
+    #[test]
+    fn delete_image_file_removes_file() {
+        let base = temp_notes_dir();
+        fs::write(base.join("to-delete.png"), b"png data").unwrap();
+        assert!(base.join("to-delete.png").exists());
+
+        delete_image_file_impl(&base, "to-delete.png").unwrap();
+        assert!(!base.join("to-delete.png").exists());
+
+        cleanup_temp_dir(&base);
+    }
+
+    #[test]
+    fn delete_image_file_rejects_non_image() {
+        let base = temp_notes_dir();
+        write_atomic_text(&base.join("note.md"), "# Keep me").unwrap();
+
+        let result = delete_image_file_impl(&base, "note.md");
+        assert!(result.is_err());
+        assert!(base.join("note.md").exists());
+
+        cleanup_temp_dir(&base);
+    }
+
+    #[test]
+    fn delete_image_file_rejects_traversal() {
+        let base = temp_notes_dir();
+        assert!(delete_image_file_impl(&base, "../etc/passwd.png").is_err());
+        assert!(delete_image_file_impl(&base, "sub/image.jpg").is_err());
+        assert!(delete_image_file_impl(&base, "..\\evil.png").is_err());
+
         cleanup_temp_dir(&base);
     }
 }

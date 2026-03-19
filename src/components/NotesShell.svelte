@@ -23,6 +23,7 @@
   import ForYouPage from './ForYouPage.svelte';
   import NoteTagBar from './NoteTagBar.svelte';
   import SidebarTagView from './SidebarTagView.svelte';
+  import SidebarImageView from './SidebarImageView.svelte';
   import { startAutoSync, stopAutoSync, notifySaved } from '$lib/autoSync';
   import { keyboard } from '$lib/keyboard.svelte';
   import { navigate } from '../router';
@@ -285,11 +286,12 @@ Escaped pipes:
   let noteBody: HTMLElement | undefined = $state(undefined);
   let titleTextarea: HTMLTextAreaElement | undefined = $state(undefined);
 
-  let sidebarView: 'notes' | 'tags' = $state((typeof localStorage !== 'undefined' && localStorage.getItem('futo-notes:sidebarView') as 'notes' | 'tags') || 'notes');
+  let sidebarView: 'notes' | 'tags' | 'images' = $state((typeof localStorage !== 'undefined' && localStorage.getItem('futo-notes:sidebarView') as 'notes' | 'tags' | 'images') || 'notes');
   let drawerWidth = $state(0);
   let saveTimeout: number | null = null;
   let saveInFlight: Promise<void> | null = null;
   let saveQueued = false;
+  let lastEditTime = 0;
   let notesLoaded = false;
   let loading = false;
   let titleWarning = $state('');
@@ -314,6 +316,11 @@ Escaped pipes:
   let sidebarWidth = $state(280);
   let sidebarCollapsed = $state(false);
   let resizing = $state(false);
+
+  function toggleSidebar(collapsed?: boolean) {
+    sidebarCollapsed = collapsed ?? !sidebarCollapsed;
+    localStorage.setItem('futo-notes:sidebarCollapsed', String(sidebarCollapsed));
+  }
   let resizeStartX = 0;
   let resizeStartWidth = 0;
 
@@ -535,7 +542,7 @@ Escaped pipes:
         if (freshContent !== editor?.getContent()) {
           // If the user typed while sync was in flight, keep local editing state.
           // Skip content replacement but still refresh metadata below.
-          const userIsEditing = editor?.hasFocus() && (saveTimeout !== null || saveInFlight !== null || saveQueued);
+          const userIsEditing = editor?.hasFocus() && (saveTimeout !== null || saveInFlight !== null || saveQueued || Date.now() - lastEditTime < 1000);
           if (!userIsEditing) {
             content = freshContent;
             suppressSaveOnChange = true;
@@ -829,6 +836,7 @@ Escaped pipes:
 
   function debouncedSave(): void {
     if (suppressSaveOnChange || loading || !hasFileSystem || !editor || noteId === null) return;
+    lastEditTime = Date.now();
     if (saveTimeout !== null) {
       clearTimeout(saveTimeout);
     }
@@ -1516,7 +1524,7 @@ Escaped pipes:
       onSyncError: (err) => console.warn('Auto-sync error:', err),
       flushPendingSave: flushSave,
       onSupersearchReady: () => { void checkSupersearchArtifacts(true); },
-      shouldDeferSync: () => saveTimeout !== null || saveInFlight !== null || saveQueued || Boolean(editor?.isComposing?.()),
+      shouldDeferSync: () => saveTimeout !== null || saveInFlight !== null || saveQueued || Boolean(editor?.isComposing?.()) || Date.now() - lastEditTime < 1000,
       onSyncStateChange: (active) => {
         syncWriteActive = active;
         if (active) {
@@ -1536,8 +1544,9 @@ Escaped pipes:
       },
     });
 
-    // Desktop sidebar: load persisted width
+    // Desktop sidebar: load persisted width + collapsed state
     if (isDesktop) {
+      if (localStorage.getItem('futo-notes:sidebarCollapsed') === 'true') sidebarCollapsed = true;
       import('$lib/platform/tauri')
         .then(({ getConfig }) => getConfig())
         .then((cfg) => {
@@ -1557,7 +1566,7 @@ Escaped pipes:
     if (isTauri) {
       import('$lib/platform/tauri').then(({ onMenuAction, onFileChange }) => {
         cleanupNativeListeners.push(onMenuAction((action) => {
-          if (action === 'toggle-sidebar') sidebarCollapsed = !sidebarCollapsed;
+          if (action === 'toggle-sidebar') toggleSidebar();
           else if (action === 'new-note') void createNewNote();
         }));
 
@@ -1775,16 +1784,28 @@ Escaped pipes:
         <button class="brand-emoji" onclick={cycleFruit}>{brandFruit}</button>
         <button class="brand-text" onclick={handleBrandClick}>Stonefruit{#if import.meta.env.DEV}<span class="dev-badge">DEV</span>{/if}</button>
       </div>
-      <button
-        class="sidebar-settings-btn"
-        aria-label="Settings"
-        onclick={() => { settingsOpen = true; }}
-      >
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
-          <circle cx="12" cy="12" r="3"/>
-        </svg>
-      </button>
+      <div class="sidebar-header-actions">
+        <button
+          class="sidebar-settings-btn"
+          aria-label="Settings"
+          onclick={() => { settingsOpen = true; }}
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
+            <circle cx="12" cy="12" r="3"/>
+          </svg>
+        </button>
+        {#if !isMobile}
+          <button class="sidebar-collapse-btn" aria-label="Collapse sidebar"
+            onclick={() => { toggleSidebar(true); }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="2"/>
+              <line x1="9" y1="3" x2="9" y2="21"/>
+              <polyline points="15 8 12 12 15 16"/>
+            </svg>
+          </button>
+        {/if}
+      </div>
     </div>
     <div class="drawer-search-area">
       <button class="search-button" onclick={() => { searchOpen = true; }}>
@@ -1806,6 +1827,11 @@ Escaped pipes:
           <path d="M12 2H2v10l9.29 9.29c.94.94 2.48.94 3.42 0l6.58-6.58c.94-.94.94-2.48 0-3.42L12 2Z"/><path d="M7 7h.01"/>
         </svg>
       </button>
+      <button class:active={sidebarView === 'images'} aria-label="Images view" onclick={() => { sidebarView = 'images'; localStorage.setItem('futo-notes:sidebarView', 'images'); }}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>
+        </svg>
+      </button>
     </div>
     {#if sidebarView === 'tags'}
       <SidebarTagView
@@ -1813,6 +1839,8 @@ Escaped pipes:
         selectedId={noteId !== 'new' ? noteId : null}
         onselect={handleNoteSelect}
       />
+    {:else if sidebarView === 'images'}
+      <SidebarImageView />
     {:else}
       <VirtualList
         items={notes}
@@ -1885,6 +1913,16 @@ Escaped pipes:
         {/if}
       </div>
     {/if}
+    {#if !isMobile && sidebarCollapsed}
+      <button class="sidebar-expand-btn" aria-label="Expand sidebar"
+        onclick={() => { toggleSidebar(false); }}>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="18" height="18" rx="2"/>
+          <line x1="9" y1="3" x2="9" y2="21"/>
+          <polyline points="14 8 17 12 14 16"/>
+        </svg>
+      </button>
+    {/if}
     <!-- Overlay replaces filter: brightness/contrast for GPU-composited dimming -->
     <div
       bind:this={overlayEl}
@@ -1900,7 +1938,7 @@ Escaped pipes:
           <textarea
             rows="1"
             class="title-input w-full border-none bg-transparent p-0 focus:outline-none"
-            style="font-family: var(--font-serif); font-size: 30px; font-weight: 400; line-height: 1.2; letter-spacing: -0.01em; color: var(--color-text); resize: none; overflow: hidden; min-height: 36px;"
+            style="font-family: var(--font-serif); font-size: 30px; font-weight: 700; line-height: 1.2; letter-spacing: -0.01em; color: var(--color-text); resize: none; overflow: hidden; min-height: 36px;"
             placeholder="Untitled"
             bind:value={title}
             oninput={handleTitleInput}

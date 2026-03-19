@@ -179,6 +179,92 @@ export async function applySyncDeltaRust(
   };
 }
 
+// ── Image sync wrappers ──────────────────────────────────
+
+export interface ImageSyncEntry {
+  uuid: string;
+  filename: string;
+  content_hash: string;
+  modified_at: number;
+  hash_at_last_sync: string;
+}
+
+interface RustImageSyncPrepareOutput {
+  state: RustSyncState;
+  images: ImageSyncEntry[];
+  elapsedMs: number;
+}
+
+interface RustApplyImageSyncDeltaOutput {
+  state: RustSyncState;
+  deletedFilenames: string[];
+}
+
+export async function prepareImageSyncRust(state: SyncState): Promise<{
+  nextState: SyncState;
+  images: ImageSyncEntry[];
+  elapsedMs: number;
+}> {
+  const payload = await tauriInvoke<RustImageSyncPrepareOutput>('core_prepare_image_sync', {
+    input: {
+      state: toRustState(state),
+    },
+  });
+
+  return {
+    nextState: fromRustState(payload.state),
+    images: payload.images,
+    elapsedMs: payload.elapsedMs,
+  };
+}
+
+export async function readImageBytesRust(filename: string): Promise<number[]> {
+  return tauriInvoke<number[]>('core_read_image_bytes', { filename });
+}
+
+export async function writeSyncedImageRust(filename: string, data: number[], modifiedAt: number): Promise<void> {
+  await tauriInvoke<void>('core_write_synced_image', {
+    input: {
+      filename,
+      data,
+      modifiedAt: toI64(modifiedAt),
+    },
+  });
+}
+
+export async function applyImageSyncDeltaRust(state: SyncState, deleteUuids: string[]): Promise<{
+  nextState: SyncState;
+  deletedFilenames: string[];
+}> {
+  const payload = await tauriInvoke<RustApplyImageSyncDeltaOutput>('core_apply_image_sync_delta', {
+    input: {
+      state: toRustState(state),
+      deleteUuids,
+    },
+  });
+
+  return {
+    nextState: fromRustState(payload.state),
+    deletedFilenames: payload.deletedFilenames,
+  };
+}
+
+// Image gallery wrappers
+
+export interface ImageFileEntry {
+  filename: string;
+  size: number;
+  mtime: number;
+}
+
+export async function listImageFilesRust(): Promise<ImageFileEntry[]> {
+  return tauriInvoke<ImageFileEntry[]>('core_list_image_files');
+}
+
+export async function deleteImageFileRust(filename: string): Promise<void> {
+  await tauriInvoke<void>('core_delete_image_file', { filename });
+}
+
 // Engagement wrappers
 export async function engagementLoadRust(): Promise<void> {
   await tauriInvoke<void>('engagement_load');

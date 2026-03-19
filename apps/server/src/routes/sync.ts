@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
-import { validateTitle, type SyncRequest, type SyncCheckRequest } from '@futo-notes/shared';
+import { validateTitle, isImageFilename, type SyncRequest, type SyncCheckRequest } from '@futo-notes/shared';
 import { authMiddleware } from '../middleware/auth.js';
 import { getDb } from '../db/index.js';
 import { processSync } from '../sync/engine.js';
@@ -61,15 +61,19 @@ sync.post('/sync', bodyLimit({ maxSize: MAX_BODY_SIZE, onError: (c) => c.json({ 
       return c.json({ error: 'Invalid sync payload: inventory modified_at must be a finite non-negative number' }, 400);
     }
     if (!item.filename.toLowerCase().endsWith('.md')) {
-      log.warn(`invalid sync payload: inventory filename missing .md extension (${item.filename})`);
-      return c.json({ error: 'Invalid sync payload: inventory filenames must end with .md' }, 422);
-    }
-    const invTitle = item.filename.slice(0, -3);
-    const invTitleIssues = validateTitle(invTitle);
-    if (invTitleIssues.length > 0) {
-      const details = invTitleIssues.map((issue) => issue.kind).join(', ');
-      log.warn(`invalid sync payload: invalid inventory filename (${item.filename}) [${details}]`);
-      return c.json({ error: 'Invalid sync payload: inventory filenames must map directly to valid note titles' }, 422);
+      if (!isImageFilename(item.filename)) {
+        log.warn(`invalid sync payload: inventory filename has unsupported extension (${item.filename})`);
+        return c.json({ error: 'Invalid sync payload: inventory filenames must end with .md or be a valid image file' }, 422);
+      }
+      // Image filenames skip title validation (machine-generated names)
+    } else {
+      const invTitle = item.filename.slice(0, -3);
+      const invTitleIssues = validateTitle(invTitle);
+      if (invTitleIssues.length > 0) {
+        const details = invTitleIssues.map((issue) => issue.kind).join(', ');
+        log.warn(`invalid sync payload: invalid inventory filename (${item.filename}) [${details}]`);
+        return c.json({ error: 'Invalid sync payload: inventory filenames must map directly to valid note titles' }, 422);
+      }
     }
   }
 
@@ -84,15 +88,18 @@ sync.post('/sync', bodyLimit({ maxSize: MAX_BODY_SIZE, onError: (c) => c.json({ 
       return c.json({ error: 'Invalid sync payload: note modified_at must be a finite non-negative number' }, 400);
     }
     if (!note.filename.toLowerCase().endsWith('.md')) {
-      log.warn(`invalid sync payload: filename missing .md extension (${note.filename})`);
-      return c.json({ error: 'Invalid sync payload: note filenames must end with .md' }, 422);
-    }
-    const title = note.filename.slice(0, -3);
-    const titleIssues = validateTitle(title);
-    if (titleIssues.length > 0) {
-      const details = titleIssues.map((issue) => issue.kind).join(', ');
-      log.warn(`invalid sync payload: invalid note filename (${note.filename}) [${details}]`);
-      return c.json({ error: 'Invalid sync payload: note filenames must map directly to valid note titles' }, 422);
+      if (!isImageFilename(note.filename)) {
+        log.warn(`invalid sync payload: filename has unsupported extension (${note.filename})`);
+        return c.json({ error: 'Invalid sync payload: note filenames must end with .md or be a valid image file' }, 422);
+      }
+    } else {
+      const title = note.filename.slice(0, -3);
+      const titleIssues = validateTitle(title);
+      if (titleIssues.length > 0) {
+        const details = titleIssues.map((issue) => issue.kind).join(', ');
+        log.warn(`invalid sync payload: invalid note filename (${note.filename}) [${details}]`);
+        return c.json({ error: 'Invalid sync payload: note filenames must map directly to valid note titles' }, 422);
+      }
     }
   }
 

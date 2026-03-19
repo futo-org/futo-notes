@@ -6,6 +6,7 @@ export interface NoteRow {
   content_hash: string;
   modified_at: number;
   created_at: string;
+  is_blob: number;
 }
 
 export function getNote(db: Database.Database, uuid: string): NoteRow | null {
@@ -22,15 +23,17 @@ export function upsertNote(
   filename: string,
   contentHash: string,
   modifiedAt: number,
+  isBlob?: boolean,
 ): void {
   db.prepare(
-    `INSERT INTO notes (uuid, filename, content_hash, modified_at)
-     VALUES (?, ?, ?, ?)
+    `INSERT INTO notes (uuid, filename, content_hash, modified_at, is_blob)
+     VALUES (?, ?, ?, ?, ?)
      ON CONFLICT(uuid) DO UPDATE SET
        filename = excluded.filename,
        content_hash = excluded.content_hash,
-       modified_at = excluded.modified_at`,
-  ).run(uuid, filename, contentHash, modifiedAt);
+       modified_at = excluded.modified_at,
+       is_blob = excluded.is_blob`,
+  ).run(uuid, filename, contentHash, modifiedAt, isBlob ? 1 : 0);
 }
 
 export function deleteNote(db: Database.Database, uuid: string): number {
