@@ -141,6 +141,7 @@
   .for-you-card-title {
     font-family: var(--font-serif);
     font-size: 17px;
+    font-weight: 700;
     color: var(--color-text);
     line-height: 1.3;
     overflow: hidden;

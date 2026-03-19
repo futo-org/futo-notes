@@ -1,11 +1,11 @@
 /* Live Markdown Transform Styles */
 
-/* Headings — Inria for H1-H3, sans for H4-H6 */
+/* Headings — serif for H1-H3, sans for H4-H6 */
 .cm-md-h1,
 .cm-md-h2,
 .cm-md-h3 {
   font-family: var(--font-serif);
-  font-weight: 400;
+  font-weight: 700;
   letter-spacing: -0.01em;
   color: var(--color-text);
 }

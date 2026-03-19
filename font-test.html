@@ -1,0 +1,669 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stonefruit Font Tester</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cabin:ital,wght@0,400..700;1,400..700&family=Comfortaa:wght@300..700&family=Inter:wght@100..900&family=Nunito:ital,wght@0,200..1000;1,200..1000&family=Nunito+Sans:ital,opsz,wght@0,6..12,200..1000;1,6..12,200..1000&family=Outfit:wght@100..900&family=Plus+Jakarta+Sans:ital,wght@0,200..800;1,200..800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --color-primary: #B07D3B;
+    --color-primary-hover: #9A6C2F;
+    --color-text: #1C1917;
+    --color-border: #DDD8D0;
+    --color-surface: #F0ECE6;
+    --color-muted: #78716C;
+    --color-bg: #FAF9F6;
+    --color-sidebar: #F0ECE6;
+    --color-danger: #B8442A;
+    --color-text-inverse: #FAF9F6;
+    --ink-rgb: 28, 25, 23;
+    --paper-rgb: 250, 249, 246;
+    --primary-rgb: 176, 125, 59;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--color-bg);
+    color: var(--color-text);
+    font-size: 18px;
+    line-height: 1.7;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  /* ── Font picker bar (top) ── */
+  .font-bar {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    height: 48px;
+    background: var(--color-text);
+    color: var(--color-text-inverse);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 16px;
+    z-index: 100;
+    font-size: 14px;
+  }
+  .font-bar .label { color: rgba(250,249,246,0.5); white-space: nowrap; }
+  .font-bar .now-showing { color: var(--color-primary); font-weight: 600; margin-left: auto; white-space: nowrap; }
+  .fbtn {
+    padding: 4px 12px;
+    border: 1px solid rgba(250,249,246,0.15);
+    background: transparent;
+    color: var(--color-text-inverse);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: all 0.12s;
+  }
+  .fbtn:hover { background: rgba(250,249,246,0.1); }
+  .fbtn.active { background: var(--color-primary); border-color: var(--color-primary); color: #fff; }
+  .next-btn {
+    padding: 4px 14px;
+    background: var(--color-primary);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .next-btn:hover { background: var(--color-primary-hover); }
+  .arrow-hint { color: rgba(250,249,246,0.3); font-size: 12px; }
+
+  /* ── App shell ── */
+  .shell {
+    display: flex;
+    position: absolute;
+    top: 48px; left: 0; right: 0; bottom: 0;
+  }
+
+  /* ── Sidebar ── */
+  .sidebar {
+    width: 280px;
+    flex: 0 0 280px;
+    background: var(--color-sidebar);
+    border-right: 1px solid var(--color-border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .sidebar-header {
+    padding: 20px 16px 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .sidebar-brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--color-text);
+  }
+  .sidebar-brand .emoji { font-size: 20px; }
+  .sidebar-icons {
+    display: flex;
+    gap: 4px;
+  }
+  .icon-btn {
+    width: 36px;
+    height: 36px;
+    border: none;
+    background: transparent;
+    border-radius: 8px;
+    color: var(--color-muted);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+  }
+  .icon-btn:hover { background: rgba(var(--ink-rgb), 0.06); }
+
+  .sidebar-search {
+    padding: 12px;
+  }
+  .search-btn {
+    width: 100%;
+    height: 40px;
+    border-radius: 10px;
+    border: none;
+    background: rgba(var(--ink-rgb), 0.05);
+    color: var(--color-muted);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font-size: 14px;
+  }
+  .search-btn:hover { background: rgba(var(--ink-rgb), 0.08); }
+
+  .sidebar-tabs {
+    display: flex;
+    gap: 2px;
+    padding: 4px 12px 8px;
+  }
+  .tab-btn {
+    flex: 1;
+    padding: 6px 0;
+    border: none;
+    background: transparent;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--color-muted);
+  }
+  .tab-btn.active {
+    background: rgba(var(--ink-rgb), 0.08);
+    color: var(--color-text);
+    font-weight: 500;
+  }
+
+  .note-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px;
+  }
+  .note-item {
+    height: 72px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--color-border);
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 4px;
+    transition: background 0.1s;
+  }
+  .note-item:hover { background: rgba(var(--ink-rgb), 0.03); }
+  .note-item.selected {
+    background: rgba(var(--primary-rgb), 0.12);
+  }
+  .note-item.selected .note-item-title {
+    color: var(--color-primary-hover);
+    font-weight: 600;
+  }
+  .note-item-title {
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--color-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .note-item-preview {
+    font-size: 13px;
+    color: var(--color-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .note-item-date {
+    font-size: 11px;
+    color: rgba(var(--ink-rgb), 0.35);
+  }
+
+  .fab {
+    position: absolute;
+    bottom: 20px;
+    right: 16px;
+    width: 48px;
+    height: 48px;
+    border-radius: 24px;
+    background: var(--color-primary);
+    color: var(--color-text-inverse);
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    box-shadow: 0 2px 8px rgba(var(--primary-rgb), 0.25), 0 0 0 1px rgba(var(--primary-rgb), 0.1);
+  }
+  .fab:active { transform: scale(0.96); }
+
+  /* ── Main editor area ── */
+  .main {
+    flex: 1;
+    background: var(--color-bg);
+    overflow-y: auto;
+    position: relative;
+  }
+  .editor-wrap {
+    max-width: 740px;
+    margin: 0 auto;
+    padding: 0 20px;
+  }
+
+  /* Title */
+  .note-title {
+    font-size: 30px;
+    font-weight: 400;
+    letter-spacing: -0.01em;
+    color: var(--color-text);
+    padding: 24px 0 4px;
+    border: none;
+    outline: none;
+    width: 100%;
+    line-height: 1.2;
+  }
+
+  /* Tags */
+  .tag-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 4px 0 12px;
+  }
+  .tag {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 12px;
+    padding: 2px 8px;
+    font-size: 12px;
+    color: var(--color-muted);
+  }
+
+  /* Editor content (markdown) */
+  .editor-content {
+    padding-bottom: 200px;
+  }
+  .editor-content p {
+    font-size: 18px;
+    line-height: 1.7;
+    color: var(--color-text);
+    margin-bottom: 0;
+  }
+  .editor-content p + p { margin-top: 0; }
+
+  /* Headings */
+  .editor-content h1 {
+    font-size: 32px;
+    font-weight: 400;
+    letter-spacing: -0.01em;
+    color: var(--color-text);
+    margin: 24px 0 8px;
+    line-height: 1.3;
+  }
+  .editor-content h2 {
+    font-size: 26px;
+    font-weight: 400;
+    color: var(--color-text);
+    margin: 20px 0 8px;
+    line-height: 1.3;
+  }
+  .editor-content h3 {
+    font-size: 22px;
+    font-weight: 400;
+    color: var(--color-text);
+    margin: 16px 0 8px;
+    line-height: 1.4;
+  }
+  .editor-content h4 {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--color-text);
+    margin: 16px 0 4px;
+  }
+
+  /* Bold, italic, links */
+  .editor-content strong { font-weight: 700; }
+  .editor-content em { font-style: italic; }
+  .editor-content a {
+    color: var(--color-primary);
+    text-decoration: underline;
+    text-decoration-color: rgba(var(--primary-rgb), 0.35);
+  }
+  .editor-content a:hover {
+    color: var(--color-primary-hover);
+    text-decoration-color: rgba(var(--primary-rgb), 0.5);
+  }
+
+  /* Blockquote */
+  .editor-content blockquote {
+    padding-left: 15px;
+    border-left: 2px solid var(--color-primary);
+    color: var(--color-muted);
+    font-style: italic;
+    margin: 8px 0;
+  }
+
+  /* Inline code */
+  .editor-content code {
+    background: rgba(var(--ink-rgb), 0.05);
+    color: var(--color-primary-hover);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.88em;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  }
+
+  /* Code block */
+  .editor-content pre {
+    background: rgba(var(--ink-rgb), 0.03);
+    padding: 12px 16px;
+    border-left: 2px solid var(--color-border);
+    border-radius: 4px;
+    margin: 8px 0;
+    overflow-x: auto;
+  }
+  .editor-content pre code {
+    background: none;
+    color: var(--color-text);
+    padding: 0;
+    font-size: 14px;
+  }
+
+  /* Lists */
+  .editor-content ul, .editor-content ol {
+    padding-left: 24px;
+    margin: 4px 0;
+  }
+  .editor-content li {
+    font-size: 18px;
+    line-height: 1.7;
+    color: var(--color-text);
+  }
+  .editor-content li + li { margin-top: 2px; }
+
+  /* Task list */
+  .editor-content input[type="checkbox"] {
+    accent-color: var(--color-primary);
+    margin-right: 6px;
+  }
+
+  /* Table */
+  .editor-content table {
+    border-collapse: collapse;
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    margin: 8px 0;
+    width: 100%;
+  }
+  .editor-content th {
+    background: var(--color-surface);
+    font-weight: 600;
+    text-align: left;
+    padding: 10px 14px;
+    border: 1px solid var(--color-border);
+    font-size: 14px;
+  }
+  .editor-content td {
+    padding: 10px 14px;
+    border: 1px solid var(--color-border);
+    font-size: 14px;
+  }
+  .editor-content tr:nth-child(even) td { background: rgba(var(--ink-rgb), 0.02); }
+
+  /* HR */
+  .editor-content hr {
+    border: none;
+    border-top: 1px solid var(--color-border);
+    margin: 16px 0;
+  }
+
+  /* Three-dot menu */
+  .menu-btn {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    border: none;
+    background: rgba(var(--paper-rgb), 0.92);
+    backdrop-filter: blur(12px);
+    box-shadow: 0 2px 8px rgba(var(--ink-rgb), 0.08), 0 0 0 1px rgba(var(--ink-rgb), 0.04);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-muted);
+    font-size: 20px;
+  }
+
+  /* Wikilink style */
+  .wikilink {
+    color: var(--color-primary);
+    text-decoration: underline;
+    text-decoration-style: dashed;
+    text-decoration-color: rgba(var(--primary-rgb), 0.35);
+    cursor: pointer;
+  }
+</style>
+</head>
+<body>
+
+<!-- Font picker bar -->
+<div class="font-bar">
+  <span class="label">Font:</span>
+  <div id="font-buttons" style="display:flex;gap:4px;flex-wrap:wrap;"></div>
+  <button class="next-btn" onclick="nextFont()">Next &rarr;</button>
+  <span class="arrow-hint">&larr; &rarr; keys</span>
+  <span class="now-showing" id="now-showing"></span>
+</div>
+
+<!-- App shell -->
+<div class="shell">
+
+  <!-- Sidebar -->
+  <div class="sidebar" style="position:relative;">
+    <div class="sidebar-header">
+      <div class="sidebar-brand">
+        <span class="emoji">&#127825;</span>
+        <span>Stonefruit</span>
+      </div>
+      <div class="sidebar-icons">
+        <button class="icon-btn" title="Settings">&#9881;</button>
+        <button class="icon-btn" title="Collapse">&lsaquo;</button>
+      </div>
+    </div>
+
+    <div class="sidebar-search">
+      <button class="search-btn">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        Search
+      </button>
+    </div>
+
+    <div class="sidebar-tabs">
+      <button class="tab-btn active">Notes</button>
+      <button class="tab-btn">Tags</button>
+      <button class="tab-btn">Images</button>
+    </div>
+
+    <div class="note-list">
+      <div class="note-item selected">
+        <div class="note-item-title">Weekly planning</div>
+        <div class="note-item-preview">Review goals for the week and assign priorities...</div>
+        <div class="note-item-date">Today, 2:14 PM</div>
+      </div>
+      <div class="note-item">
+        <div class="note-item-title">Sync protocol notes</div>
+        <div class="note-item-preview">Hash-based sync works by comparing local state with...</div>
+        <div class="note-item-date">Today, 11:30 AM</div>
+      </div>
+      <div class="note-item">
+        <div class="note-item-title">Grocery list</div>
+        <div class="note-item-preview">Eggs, milk, sourdough bread, olive oil, tomatoes...</div>
+        <div class="note-item-date">Yesterday</div>
+      </div>
+      <div class="note-item">
+        <div class="note-item-title">Book recommendations</div>
+        <div class="note-item-preview">Designing Data-Intensive Applications, The Art of...</div>
+        <div class="note-item-date">Mar 17</div>
+      </div>
+      <div class="note-item">
+        <div class="note-item-title">Meeting notes - design review</div>
+        <div class="note-item-preview">Discussed the new sidebar layout and font choices...</div>
+        <div class="note-item-date">Mar 16</div>
+      </div>
+      <div class="note-item">
+        <div class="note-item-title">Docker cheat sheet</div>
+        <div class="note-item-preview">docker compose up -d, docker logs -f container...</div>
+        <div class="note-item-date">Mar 15</div>
+      </div>
+      <div class="note-item">
+        <div class="note-item-title">Recipe - sourdough bread</div>
+        <div class="note-item-preview">500g bread flour, 350g water, 100g starter, 10g salt...</div>
+        <div class="note-item-date">Mar 14</div>
+      </div>
+      <div class="note-item">
+        <div class="note-item-title">Travel packing list</div>
+        <div class="note-item-preview">Passport, chargers, toiletries, rain jacket, notebook...</div>
+        <div class="note-item-date">Mar 12</div>
+      </div>
+      <div class="note-item">
+        <div class="note-item-title">Rust learnings</div>
+        <div class="note-item-preview">Ownership model, borrowing, lifetimes, trait objects...</div>
+        <div class="note-item-date">Mar 10</div>
+      </div>
+      <div class="note-item">
+        <div class="note-item-title">Project ideas</div>
+        <div class="note-item-preview">Offline-first calendar, habit tracker with local sync...</div>
+        <div class="note-item-date">Mar 8</div>
+      </div>
+    </div>
+
+    <button class="fab">+</button>
+  </div>
+
+  <!-- Main editor -->
+  <div class="main">
+    <button class="menu-btn">&#8943;</button>
+    <div class="editor-wrap">
+      <div class="note-title">Weekly planning</div>
+
+      <div class="tag-bar">
+        <span class="tag">#planning</span>
+        <span class="tag">#weekly</span>
+      </div>
+
+      <div class="editor-content">
+        <h2>Goals for the week</h2>
+        <p>Focus on <strong>shipping the font picker</strong> and getting the sync protocol stable. Need to finalize the typography before the next release &mdash; the current Inria Sans works but we should <em>explore warmer alternatives</em>.</p>
+
+        <ul>
+          <li><input type="checkbox" checked> Evaluate candidate fonts (Nunito Sans, Comfortaa, Cabin, Inter, Plus Jakarta Sans, Outfit, Nunito)</li>
+          <li><input type="checkbox"> Update font loading in <code>app.css</code></li>
+          <li><input type="checkbox"> Test on mobile (Android + iOS)</li>
+          <li><input type="checkbox"> Run Lighthouse audit after font swap</li>
+        </ul>
+
+        <h2>Notes from Monday standup</h2>
+        <p>Server-side sync is <strong>hash-based</strong>: the client sends its local state, the server responds with what's different. See <span class="wikilink">Sync protocol notes</span> for the full spec.</p>
+
+        <blockquote>
+          <p>"The filename <em>is</em> the title. No case changes, no dash-to-space, no transformations." &mdash; design doc</p>
+        </blockquote>
+
+        <p>This means <code>grocery list.md</code> becomes the title "grocery list" exactly as-is. The <code>sanitizeFilename()</code> function only strips characters that would break the filesystem.</p>
+
+        <h3>Font evaluation criteria</h3>
+        <table>
+          <thead>
+            <tr><th>Criterion</th><th>Weight</th><th>Notes</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Readability at 18px</td><td>High</td><td>Primary body text size</td></tr>
+            <tr><td>Weight range</td><td>Medium</td><td>Need 400, 500, 600, 700</td></tr>
+            <tr><td>Italic quality</td><td>Medium</td><td>Used heavily in markdown</td></tr>
+            <tr><td>Character distinguishability</td><td>High</td><td>lIl1 oO0 rn vs m</td></tr>
+            <tr><td>Warmth / personality</td><td>Medium</td><td>Should feel editorial, not clinical</td></tr>
+          </tbody>
+        </table>
+
+        <h3>Typography samples at key sizes</h3>
+        <p style="font-size:14px;color:var(--color-muted);">14px &mdash; Sidebar items, small labels, metadata</p>
+        <p style="font-size:15px;">15px &mdash; Note titles in sidebar list</p>
+        <p>18px &mdash; Body text in the editor (this paragraph)</p>
+        <p style="font-size:22px;">22px &mdash; Heading level 3</p>
+        <p style="font-size:26px;">26px &mdash; Heading level 2</p>
+        <p style="font-size:30px;font-weight:400;letter-spacing:-0.01em;">30px &mdash; Note title</p>
+
+        <hr>
+
+        <h2>Weight comparison</h2>
+        <p style="font-weight:300;">Weight 300 &mdash; The quick brown fox jumps over the lazy dog</p>
+        <p style="font-weight:400;">Weight 400 &mdash; The quick brown fox jumps over the lazy dog</p>
+        <p style="font-weight:500;">Weight 500 &mdash; The quick brown fox jumps over the lazy dog</p>
+        <p style="font-weight:600;">Weight 600 &mdash; The quick brown fox jumps over the lazy dog</p>
+        <p style="font-weight:700;">Weight 700 &mdash; The quick brown fox jumps over the lazy dog</p>
+
+        <hr>
+
+        <h2>Mixed content</h2>
+        <p>Here's a paragraph with <strong>bold text</strong>, <em>italic text</em>, <code>inline code</code>, and a <a href="#">regular link</a>. Numbers: 0123456789. Special: $1,234.56 &bull; 3.14159 &bull; 2026-03-19.</p>
+
+        <p>Distinguishability: <strong>lIl1</strong> &nbsp; <strong>oO0</strong> &nbsp; <strong>rn</strong> vs <strong>m</strong></p>
+
+        <pre><code>const sync = await fetch('/sync', {
+  method: 'POST',
+  body: JSON.stringify({ notes, hashes })
+});
+const { changed, deleted } = await sync.json();</code></pre>
+
+        <p>After the sync completes, the client applies changes locally and updates its hash map. Conflicts are resolved using <strong>last-write-wins</strong> with full version history preserved on the server.</p>
+
+        <h3>Italic paragraph</h3>
+        <p><em>Notes are just files. Move them, back them up, edit them in any text editor. Your data is always yours. Stonefruit doesn't lock you into a proprietary format or require a cloud account. Everything is plain markdown, stored where you choose.</em></p>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const fonts = [
+  { name: 'Nunito Sans', family: '"Nunito Sans"' },
+  { name: 'Comfortaa', family: '"Comfortaa"' },
+  { name: 'Cabin', family: '"Cabin"' },
+  { name: 'Inter', family: '"Inter"' },
+  { name: 'Plus Jakarta Sans', family: '"Plus Jakarta Sans"' },
+  { name: 'Outfit', family: '"Outfit"' },
+  { name: 'Nunito', family: '"Nunito"' },
+];
+
+let current = 0;
+
+function setFont(idx) {
+  current = idx;
+  const fam = fonts[idx].family + ', sans-serif';
+  document.body.style.fontFamily = fam;
+  document.getElementById('now-showing').textContent = 'Now showing: ' + fonts[idx].name;
+  document.querySelectorAll('.fbtn').forEach((btn, i) => {
+    btn.classList.toggle('active', i === idx);
+  });
+}
+
+function nextFont() {
+  setFont((current + 1) % fonts.length);
+}
+
+const container = document.getElementById('font-buttons');
+fonts.forEach((f, i) => {
+  const btn = document.createElement('button');
+  btn.className = 'fbtn';
+  btn.textContent = f.name;
+  btn.style.fontFamily = f.family + ', sans-serif';
+  btn.onclick = () => setFont(i);
+  container.appendChild(btn);
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowRight') { e.preventDefault(); setFont((current + 1) % fonts.length); }
+  if (e.key === 'ArrowLeft') { e.preventDefault(); setFont((current - 1 + fonts.length) % fonts.length); }
+});
+
+setFont(0);
+</script>
+</body>
+</html>
