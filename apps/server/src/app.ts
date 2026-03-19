@@ -21,9 +21,11 @@ import { recordPluginActivity } from './plugins/scheduler.js';
 
 /** Check whether an origin is allowed by the CORS policy. */
 function isAllowedOrigin(origin: string, extraOrigins: string[]): boolean {
-  // Tauri webview origins (desktop: tauri://localhost or https://tauri.localhost,
-  // Android: http://tauri.localhost)
-  if (/^(tauri|https?):\/\/tauri\.localhost$/.test(origin)) {
+  // Tauri webview origins:
+  //   desktop/iOS: tauri://localhost
+  //   macOS/Windows: https://tauri.localhost
+  //   Android: http://tauri.localhost
+  if (origin === 'tauri://localhost' || /^https?:\/\/tauri\.localhost$/.test(origin)) {
     return true;
   }
   // Local development (any port on localhost / 127.0.0.1)
