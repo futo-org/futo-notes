@@ -148,11 +148,12 @@ async function seedNotes(baseUrl: string, token: string, notes: SeedNoteInput[])
 
 async function loginDashboard(page: Page, baseUrl: string): Promise<void> {
   await page.goto(baseUrl);
+  await expect(page.locator('#login-card')).toBeVisible({ timeout: 10_000 });
+
+  await page.fill('#login-password', DASHBOARD_PASSWORD);
+  await page.click('#login-submit-btn');
+
   await expect(page.locator('#plugin-grid')).toBeVisible({ timeout: 10_000 });
-
-  page.once('dialog', (dialog) => dialog.accept(DASHBOARD_PASSWORD));
-  await page.getByRole('button', { name: 'Log in' }).click();
-
   await expect(page.locator('.plugin-auth-note')).toContainText('Signed in for automation controls');
   await expect(page.locator('[data-plugin-switch]').first()).toBeEnabled();
 }
@@ -192,7 +193,9 @@ test.describe('Server Dashboard', () => {
     ]);
 
     await expect.poll(async () => {
-      const res = await fetch(`${harness!.baseUrl}/dashboard/status`);
+      const res = await fetch(`${harness!.baseUrl}/dashboard/status`, {
+        headers: { 'Authorization': `Bearer ${harness!.token}` },
+      });
       const data = await res.json() as { notes_count: number };
       return data.notes_count;
     }).toBe(2);

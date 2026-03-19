@@ -113,7 +113,7 @@ Use this flow when the user wants a working desktop demo end-to-end:
 
 ```bash
 curl -s --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
-  "https://gitlab.futo.org/api/v4/projects/justin%2Ffuto-notes/pipelines?ref=main&per_page=1"
+  "https://gitlab.futo.org/api/v4/projects/stonefruit%2Fstonefruit/pipelines?ref=main&per_page=1"
 ```
 
 ## Common Patterns

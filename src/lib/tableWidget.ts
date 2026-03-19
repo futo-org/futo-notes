@@ -113,6 +113,7 @@ function escapeHtml(text: string): string {
 export function sanitizeUrl(url: string): string {
   // Decode HTML entities for scheme check
   const decoded = url.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#x27;/g, "'").replace(/&#47;/g, '/');
+  // eslint-disable-next-line no-control-regex -- intentional: strip C0 control chars from URLs
   const trimmed = decoded.replace(/[\s\x00-\x1f]+/g, '').toLowerCase();
   if (/^(javascript|data|vbscript)\s*:/i.test(trimmed)) return '';
   return url;
