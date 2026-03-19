@@ -3074,8 +3074,14 @@ mod tests {
         let mut state2 = out1.state;
         state2.hash_by_uuid.insert(uuid.clone(), hash.clone());
 
-        // Modify file
+        // Modify file and bump mtime so the hash cache sees a different timestamp
         write_atomic_text(&base.join("note.md"), "modified").unwrap();
+        let future_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64
+            + 2000;
+        set_file_mtime_ms(&base.join("note.md"), future_ms).unwrap();
 
         let input2 = SyncPrepareInput { state: state2 };
         let out2 = prepare_sync_payload_impl(&base, input2).unwrap();
