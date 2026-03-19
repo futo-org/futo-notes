@@ -11,7 +11,6 @@ import {
   deleteNoteFile,
   readBlobFile,
   sanitizeImageFilename,
-  listImageFiles,
 } from './files.js';
 import { contentHash, binaryContentHash } from './hash.js';
 import { getSyncVersion, incrementSyncVersion } from '../db/syncVersion.js';
