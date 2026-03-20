@@ -135,7 +135,7 @@ docker:prune:
 
 lint:
   stage: test
-  needs: []
+  needs: [docker:prune]
   cache:
     - !reference [.cache-npm, cache]
   script:
@@ -145,7 +145,7 @@ lint:
 
 test:unit:
   stage: test
-  needs: []
+  needs: [docker:prune]
   cache:
     - !reference [.cache-npm, cache]
   script:
@@ -154,7 +154,7 @@ test:unit:
 
 test:e2e:
   stage: test
-  needs: []
+  needs: [docker:prune]
   cache:
     - !reference [.cache-npm, cache]
     - !reference [.cache-playwright, cache]
@@ -165,7 +165,7 @@ test:e2e:
 
 test:server:
   stage: test
-  needs: []
+  needs: [docker:prune]
   cache:
     - !reference [.cache-npm, cache]
   script:
@@ -174,7 +174,7 @@ test:server:
 
 test:server:smoke:
   stage: test
-  needs: []
+  needs: [docker:prune]
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
     - if: $CI_COMMIT_TAG
@@ -195,7 +195,7 @@ test:server:smoke:
 
 test:rust:
   stage: test
-  needs: []
+  needs: [docker:prune]
   rules:
     - if: $CI_COMMIT_TAG
     - if: $CI_MERGE_REQUEST_IID
@@ -236,7 +236,7 @@ docker:publish:
 
 cli:test:
   stage: test
-  needs: []
+  needs: [docker:prune]
   cache:
     - !reference [.cache-cargo-cli, cache]
   script:
