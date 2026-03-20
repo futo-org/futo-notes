@@ -3,7 +3,9 @@
 
 # Whitelist workspace manifests
 !package.json
-!package-lock.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!.npmrc
 
 # Whitelist server app
 !apps/server/
