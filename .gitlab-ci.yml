@@ -6,10 +6,11 @@ default:
   before_script:
     - . $HOME/.nvm/nvm.sh
     - export PATH="$CARGO_HOME/bin:$PATH"
-  variables:
-    CARGO_HOME: $CI_PROJECT_DIR/.cargo-home
-    npm_config_cache: $CI_PROJECT_DIR/.npm
-    PLAYWRIGHT_BROWSERS_PATH: $CI_PROJECT_DIR/.cache-ms-playwright
+
+variables:
+  CARGO_HOME: $CI_PROJECT_DIR/.cargo-home
+  npm_config_cache: $CI_PROJECT_DIR/.npm
+  PLAYWRIGHT_BROWSERS_PATH: $CI_PROJECT_DIR/.cache-ms-playwright
 
 workflow:
   rules:
