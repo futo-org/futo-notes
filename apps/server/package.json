@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "automation:loop": "tsx scripts/run-automation-loop.ts",
-    "rebuild-native": "npm rebuild better-sqlite3 argon2",
+    "rebuild-native": "pnpm rebuild better-sqlite3 argon2",
     "dev": "NODE_ENV=development tsx watch src/index.ts",
     "build": "tsup",
     "start": "node dist/index.js",
@@ -13,7 +13,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@futo-notes/shared": "*",
+    "@futo-notes/shared": "workspace:*",
     "@hono/node-server": "^1.19.9",
     "argon2": "^0.44.0",
     "better-sqlite3": "^11.0.0",

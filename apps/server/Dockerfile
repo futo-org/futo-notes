@@ -1,28 +1,29 @@
-# Build context must be monorepo root so npm can resolve workspaces.
+# Build context must be monorepo root so pnpm can resolve workspaces.
 # Usage: docker build -f apps/server/Dockerfile .
 FROM node:22-slim AS builder
 WORKDIR /app
 
 # Install build tools plus git for plugin repo installs/tests
 RUN apt-get update && apt-get install -y python3 make g++ git && rm -rf /var/lib/apt/lists/*
+RUN corepack enable && corepack prepare pnpm@10.29.2 --activate
 
 # Copy workspace root files
-COPY package.json package-lock.json ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 COPY packages/shared/package.json packages/shared/
 COPY apps/server/package.json apps/server/
 
-RUN npm ci --workspace=apps/server --workspace=packages/shared
+RUN pnpm install --frozen-lockfile --filter @futo-notes/server --filter @futo-notes/shared
 
 # Copy source
 COPY packages/shared/ packages/shared/
 COPY apps/server/ apps/server/
 
-RUN cd apps/server && npm run build
+RUN cd apps/server && pnpm run build
 
 # Test stage — run server tests inside the build environment
 FROM builder AS test
 WORKDIR /app/apps/server
-CMD ["npx", "vitest", "run"]
+CMD ["pnpm", "exec", "vitest", "run"]
 
 # Production stage
 FROM node:22-slim

@@ -5,11 +5,13 @@ default:
   interruptible: true
   before_script:
     - . $HOME/.nvm/nvm.sh
+    - corepack enable
+    - corepack prepare pnpm@10.29.2 --activate
     - export PATH="$CARGO_HOME/bin:$PATH"
 
 variables:
   CARGO_HOME: $CI_PROJECT_DIR/.cargo-home
-  npm_config_cache: $CI_PROJECT_DIR/.npm
+  PNPM_STORE_DIR: $CI_PROJECT_DIR/.pnpm-store
   PLAYWRIGHT_BROWSERS_PATH: $CI_PROJECT_DIR/.cache-ms-playwright
 
 workflow:
@@ -79,13 +81,13 @@ stages:
 # Cache templates
 # ─────────────────────────────────────────────────────────────
 
-.cache-npm:
+.cache-pnpm:
   cache:
     key:
       files:
-        - package-lock.json
+        - pnpm-lock.yaml
     paths:
-      - .npm/
+      - .pnpm-store/
     policy: pull-push
 
 .cache-cargo-tauri:
@@ -113,7 +115,7 @@ stages:
     key:
       prefix: playwright
       files:
-        - package-lock.json
+        - pnpm-lock.yaml
     paths:
       - .cache-ms-playwright/
     policy: pull-push
@@ -137,40 +139,40 @@ lint:
   stage: test
   needs: [docker:prune]
   cache:
-    - !reference [.cache-npm, cache]
+    - !reference [.cache-pnpm, cache]
   script:
-    - npm ci
-    - npm run lint
-    - npm run lint:platform
+    - pnpm install --frozen-lockfile
+    - pnpm run lint
+    - pnpm run lint:platform
 
 test:unit:
   stage: test
   needs: [docker:prune]
   cache:
-    - !reference [.cache-npm, cache]
+    - !reference [.cache-pnpm, cache]
   script:
-    - npm ci
-    - npm run test:unit
+    - pnpm install --frozen-lockfile
+    - pnpm run test:unit
 
 test:e2e:
   stage: test
   needs: [docker:prune]
   cache:
-    - !reference [.cache-npm, cache]
+    - !reference [.cache-pnpm, cache]
     - !reference [.cache-playwright, cache]
   script:
-    - npm ci
-    - npx playwright install --with-deps chromium
-    - npm test
+    - pnpm install --frozen-lockfile
+    - pnpm exec playwright install --with-deps chromium
+    - pnpm test
 
 test:server:
   stage: test
   needs: [docker:prune]
   cache:
-    - !reference [.cache-npm, cache]
+    - !reference [.cache-pnpm, cache]
   script:
-    - npm ci
-    - npm run server:test
+    - pnpm install --frozen-lockfile
+    - pnpm run server:test
 
 test:server:smoke:
   stage: test
@@ -200,13 +202,13 @@ test:rust:
     - if: $CI_COMMIT_TAG
     - if: $CI_MERGE_REQUEST_IID
   cache:
-    - !reference [.cache-npm, cache]
+    - !reference [.cache-pnpm, cache]
     - !reference [.cache-cargo-tauri, cache]
   script:
-    - npm ci
+    - pnpm install --frozen-lockfile
     - !reference [.setup-linux-deps, script]
     - !reference [.setup-rust, script]
-    - npm run tauri:test:rust
+    - pnpm run tauri:test:rust
 
 # ─────────────────────────────────────────────────────────────
 # Docker (default branch only)
@@ -337,10 +339,10 @@ build:linux:
   stage: build
   needs: [lint, test:unit, test:e2e]
   cache:
-    - !reference [.cache-npm, cache]
+    - !reference [.cache-pnpm, cache]
     - !reference [.cache-cargo-tauri, cache]
   script:
-    - npm ci
+    - pnpm install --frozen-lockfile
     - !reference [.setup-linux-deps, script]
     - !reference [.setup-rust, script]
     - !reference [.set-version, script]
@@ -363,13 +365,13 @@ build:android:
   stage: build
   needs: [lint, test:unit, test:e2e]
   cache:
-    - !reference [.cache-npm, cache]
+    - !reference [.cache-pnpm, cache]
     - !reference [.cache-cargo-tauri, cache]
   variables:
     ANDROID_HOME: /opt/android-sdk
     JAVA_HOME: /opt/jdk-21
   script:
-    - npm ci
+    - pnpm install --frozen-lockfile
     # JDK 21
     - |
       if [ ! -d "$JAVA_HOME" ]; then

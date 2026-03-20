@@ -3,13 +3,20 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "workspaces": [
-    "apps/*",
-    "packages/*"
-  ],
+  "packageManager": "pnpm@10.29.2",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "argon2",
+      "better-sqlite3",
+      "esbuild",
+      "node-llama-cpp",
+      "protobufjs",
+      "sharp"
+    ]
+  },
   "scripts": {
     "dev": "vite",
-    "automation:loop": "npm --workspace @futo-notes/server run automation:loop --",
+    "automation:loop": "pnpm --filter @futo-notes/server run automation:loop --",
     "reset": "node scripts/reset-demo.mjs",
     "build": "tsc && vite build",
     "preview": "vite preview",
@@ -17,24 +24,24 @@
     "lint:platform": "! rg -n \"platform/(electron|capacitor)|isElectron|isCapacitor\" src --glob '!src/lib/platform/**' --glob '!src/**/__mocks__/**' --glob '!src/**/*.test.ts'",
     "test": "playwright test",
     "test:unit": "vitest run",
-    "test:shared": "cd packages/shared && npm test",
-    "test:all": "npm run test:unit && npm run test:shared && npm run server:test",
+    "test:shared": "pnpm --filter @futo-notes/shared test",
+    "test:all": "pnpm run test:unit && pnpm run test:shared && pnpm run server:test",
     "test:unit:watch": "vitest",
     "test:headed": "playwright test --headed",
     "test:ui": "playwright test --ui",
-    "ci": "npm run lint && npm run test:all && npm run build && npm run test",
+    "ci": "pnpm run lint && pnpm run test:all && pnpm run build && pnpm run test",
     "tauri:dev": "cd apps/tauri && WINIT_UNIX_BACKEND=wayland GDK_BACKEND=wayland WEBKIT_DISABLE_DMABUF_RENDERER=1 cargo tauri dev --config src-tauri/tauri.dev.conf.json",
-    "tauri:prod": "npm run build && cd apps/tauri && WINIT_UNIX_BACKEND=wayland GDK_BACKEND=wayland WEBKIT_DISABLE_DMABUF_RENDERER=1 cargo tauri dev --config src-tauri/tauri.prod.conf.json",
-    "tauri:build": "npm run build && cd apps/tauri && cargo tauri build",
+    "tauri:prod": "pnpm run build && cd apps/tauri && WINIT_UNIX_BACKEND=wayland GDK_BACKEND=wayland WEBKIT_DISABLE_DMABUF_RENDERER=1 cargo tauri dev --config src-tauri/tauri.prod.conf.json",
+    "tauri:build": "pnpm run build && cd apps/tauri && cargo tauri build",
     "tauri:android:dev": "cd apps/tauri && cargo tauri android dev",
-    "tauri:android:dev:offline": "npm run build && cd apps/tauri && cargo tauri android build --debug --apk && cd src-tauri/gen/android && ./gradlew app:installUniversalDebug && adb shell monkey -p com.futo.notes -c android.intent.category.LAUNCHER 1",
+    "tauri:android:dev:offline": "pnpm run build && cd apps/tauri && cargo tauri android build --debug --apk && cd src-tauri/gen/android && ./gradlew app:installUniversalDebug && adb shell monkey -p com.futo.notes -c android.intent.category.LAUNCHER 1",
     "tauri:android:build": "cd apps/tauri && cargo tauri android build",
     "tauri:ios:dev": "cd apps/tauri && cargo tauri ios dev --config src-tauri/tauri.ios.dev.conf.json",
-    "tauri:ios:dev:offline": "npm run build && cd apps/tauri && cargo tauri ios build --debug && xcrun devicectl device install app --device 00008150-001C70A634F0401C src-tauri/gen/apple/build/arm64/Stonefruit.ipa && xcrun devicectl device process launch --device 00008150-001C70A634F0401C com.futo.notes",
+    "tauri:ios:dev:offline": "pnpm run build && cd apps/tauri && cargo tauri ios build --debug && xcrun devicectl device install app --device 00008150-001C70A634F0401C src-tauri/gen/apple/build/arm64/Stonefruit.ipa && xcrun devicectl device process launch --device 00008150-001C70A634F0401C com.futo.notes",
     "tauri:ios:build": "cd apps/tauri && cargo tauri ios build",
-    "tauri:test:rust": "cd apps/tauri && npm run test:rust",
-    "server:dev": "cd apps/server && npm run dev",
-    "server:test": "cd apps/server && npm test"
+    "tauri:test:rust": "pnpm --filter @futo-notes/tauri run test:rust",
+    "server:dev": "pnpm --filter @futo-notes/server run dev",
+    "server:test": "pnpm --filter @futo-notes/server test"
   },
   "dependencies": {
     "@codemirror/lang-markdown": "6.5.0",
