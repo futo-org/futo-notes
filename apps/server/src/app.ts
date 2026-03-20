@@ -44,8 +44,9 @@ export function createApp(): Hono {
   const config = loadConfig();
   app.use('*', cors({
     origin: (origin) => {
-      // Tauri webview sends a null/empty origin — allow it
-      if (!origin) return '*';
+      // Tauri webview sends a null/empty origin — allow it.
+      // iOS WKWebView sends the literal string "null" for custom URL schemes (tauri://).
+      if (!origin || origin === 'null') return '*';
       return isAllowedOrigin(origin, config.corsOrigins) ? origin : '';
     },
   }));
