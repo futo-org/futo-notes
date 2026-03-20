@@ -5,8 +5,26 @@ pub mod graph_positions;
 use core::*;
 use tauri::Manager;
 
+/// Raise the file-descriptor soft limit. iOS defaults to 256 which is too low
+/// for a WebView app that also reads/writes thousands of note files during sync.
+#[cfg(unix)]
+fn raise_fd_limit() {
+    unsafe {
+        let mut rlim: libc::rlimit = std::mem::zeroed();
+        if libc::getrlimit(libc::RLIMIT_NOFILE, &mut rlim) == 0 {
+            let target = rlim.rlim_max.min(10240);
+            if rlim.rlim_cur < target {
+                rlim.rlim_cur = target;
+                libc::setrlimit(libc::RLIMIT_NOFILE, &rlim);
+            }
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(unix)]
+    raise_fd_limit();
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())

@@ -1118,6 +1118,7 @@ name = "futo-notes-tauri"
 version = "0.1.0"
 dependencies = [
  "filetime",
+ "libc",
  "notify",
  "objc2 0.6.4",
  "rand 0.9.2",
