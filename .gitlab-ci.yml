@@ -2,8 +2,14 @@ default:
   tags:
     - dind
   image: gitlab.futo.org:5050/futocore/ci/kitchensink:latest
+  interruptible: true
   before_script:
     - . $HOME/.nvm/nvm.sh
+    - export PATH="$CARGO_HOME/bin:$PATH"
+  variables:
+    CARGO_HOME: $CI_PROJECT_DIR/.cargo-home
+    npm_config_cache: $CI_PROJECT_DIR/.npm
+    PLAYWRIGHT_BROWSERS_PATH: $CI_PROJECT_DIR/.cache-ms-playwright
 
 workflow:
   rules:
@@ -27,10 +33,18 @@ stages:
     - |
       if ! command -v rustup >/dev/null 2>&1; then
         curl https://sh.rustup.rs -sSf | sh -s -- -y
-        export PATH="$HOME/.cargo/bin:$PATH"
+        export PATH="$CARGO_HOME/bin:$PATH"
       fi
     - rustup default stable
-    - cargo install tauri-cli --locked
+    - |
+      if command -v cargo-tauri >/dev/null 2>&1; then
+        echo "cargo-tauri already installed (cached)"
+      else
+        echo "Installing cargo-binstall..."
+        curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
+        echo "Installing tauri-cli via binstall..."
+        cargo binstall tauri-cli --no-confirm --locked
+      fi
 
 .setup-linux-deps:
   script:
@@ -61,6 +75,49 @@ stages:
       "
 
 # ─────────────────────────────────────────────────────────────
+# Cache templates
+# ─────────────────────────────────────────────────────────────
+
+.cache-npm:
+  cache:
+    key:
+      files:
+        - package-lock.json
+    paths:
+      - .npm/
+    policy: pull-push
+
+.cache-cargo-tauri:
+  cache:
+    key:
+      files:
+        - apps/tauri/src-tauri/Cargo.lock
+    paths:
+      - .cargo-home/
+      - apps/tauri/src-tauri/target/
+    policy: pull-push
+
+.cache-cargo-cli:
+  cache:
+    key:
+      files:
+        - apps/cli/Cargo.lock
+    paths:
+      - .cargo-home/
+      - apps/cli/target/
+    policy: pull-push
+
+.cache-playwright:
+  cache:
+    key:
+      prefix: playwright
+      files:
+        - package-lock.json
+    paths:
+      - .cache-ms-playwright/
+    policy: pull-push
+
+# ─────────────────────────────────────────────────────────────
 # Cleanup
 # ─────────────────────────────────────────────────────────────
 
@@ -77,6 +134,9 @@ docker:prune:
 
 lint:
   stage: test
+  needs: []
+  cache:
+    - !reference [.cache-npm, cache]
   script:
     - npm ci
     - npm run lint
@@ -84,12 +144,19 @@ lint:
 
 test:unit:
   stage: test
+  needs: []
+  cache:
+    - !reference [.cache-npm, cache]
   script:
     - npm ci
     - npm run test:unit
 
 test:e2e:
   stage: test
+  needs: []
+  cache:
+    - !reference [.cache-npm, cache]
+    - !reference [.cache-playwright, cache]
   script:
     - npm ci
     - npx playwright install --with-deps chromium
@@ -97,12 +164,19 @@ test:e2e:
 
 test:server:
   stage: test
+  needs: []
+  cache:
+    - !reference [.cache-npm, cache]
   script:
     - npm ci
     - npm run server:test
 
 test:server:smoke:
   stage: test
+  needs: []
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_TAG
   script:
     - IMAGE_SHA=$(docker build -q -f apps/server/Dockerfile .)
     - CONTAINER="sf-smoke-${CI_JOB_ID}"
@@ -120,9 +194,13 @@ test:server:smoke:
 
 test:rust:
   stage: test
+  needs: []
   rules:
     - if: $CI_COMMIT_TAG
     - if: $CI_MERGE_REQUEST_IID
+  cache:
+    - !reference [.cache-npm, cache]
+    - !reference [.cache-cargo-tauri, cache]
   script:
     - npm ci
     - !reference [.setup-linux-deps, script]
@@ -135,7 +213,10 @@ test:rust:
 
 docker:publish:
   stage: build
-  needs: [test:server, test:server:smoke]
+  needs:
+    - job: test:server
+    - job: test:server:smoke
+      optional: true
   script:
     - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
     - docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
@@ -152,21 +233,66 @@ docker:publish:
 # CLI
 # ─────────────────────────────────────────────────────────────
 
-cli:build:
-  stage: build
+cli:test:
+  stage: test
+  needs: []
+  cache:
+    - !reference [.cache-cargo-cli, cache]
   script:
     - !reference [.setup-rust, script]
     - cd apps/cli
     - cargo test
+  rules:
+    - if: $CI_COMMIT_TAG
+    - if: $CI_MERGE_REQUEST_IID
+      changes:
+        - apps/cli/**/*
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes:
+        - apps/cli/**/*
+
+cli:build:amd64:
+  stage: build
+  needs: [cli:test]
+  cache:
+    - !reference [.cache-cargo-cli, cache]
+  script:
+    - !reference [.setup-rust, script]
+    - cd apps/cli
     - |
       VERSION="${CI_COMMIT_TAG#v}"
       [ -z "$VERSION" ] && VERSION="dev"
       mkdir -p dist
       STONEFRUIT_VERSION="$VERSION" cargo build --release
       cp target/release/stonefruit "dist/stonefruit-linux-amd64"
+  artifacts:
+    paths:
+      - apps/cli/dist/
+    expire_in: 4 weeks
+  rules:
+    - if: $CI_COMMIT_TAG
+    - if: $CI_MERGE_REQUEST_IID
+      changes:
+        - apps/cli/**/*
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes:
+        - apps/cli/**/*
+
+cli:build:arm64:
+  stage: build
+  needs: [cli:test]
+  cache:
+    - !reference [.cache-cargo-cli, cache]
+  script:
+    - !reference [.setup-rust, script]
+    - cd apps/cli
+    - |
       rustup target add aarch64-unknown-linux-gnu
       apt-get update -qq && apt-get install -y -qq gcc-aarch64-linux-gnu >/dev/null 2>&1 || true
       export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
+      VERSION="${CI_COMMIT_TAG#v}"
+      [ -z "$VERSION" ] && VERSION="dev"
+      mkdir -p dist
       STONEFRUIT_VERSION="$VERSION" cargo build --release --target aarch64-unknown-linux-gnu
       cp target/aarch64-unknown-linux-gnu/release/stonefruit "dist/stonefruit-linux-arm64"
   artifacts:
@@ -185,7 +311,8 @@ cli:build:
 cli:publish:
   stage: publish
   image: curlimages/curl:latest
-  needs: [cli:build]
+  needs: [cli:build:amd64, cli:build:arm64]
+  interruptible: false
   before_script: []
   script:
     - |
@@ -208,6 +335,9 @@ cli:publish:
 build:linux:
   stage: build
   needs: [lint, test:unit, test:e2e]
+  cache:
+    - !reference [.cache-npm, cache]
+    - !reference [.cache-cargo-tauri, cache]
   script:
     - npm ci
     - !reference [.setup-linux-deps, script]
@@ -231,6 +361,9 @@ build:linux:
 build:android:
   stage: build
   needs: [lint, test:unit, test:e2e]
+  cache:
+    - !reference [.cache-npm, cache]
+    - !reference [.cache-cargo-tauri, cache]
   variables:
     ANDROID_HOME: /opt/android-sdk
     JAVA_HOME: /opt/jdk-21
@@ -328,6 +461,7 @@ build:macos:
 
 publish:
   stage: publish
+  interruptible: false
   needs:
     - job: build:linux
       artifacts: true
@@ -407,6 +541,7 @@ publish:
 release:
   stage: release
   image: registry.gitlab.com/gitlab-org/release-cli:latest
+  interruptible: false
   needs:
     - job: publish
       artifacts: true
