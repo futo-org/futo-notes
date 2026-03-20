@@ -5,7 +5,7 @@ Use this when iterating on built-in smart automations against the canonical vaul
 ## Command
 
 ```bash
-npm run automation:loop -- --source ~/Documents/demo-vault-backup
+pnpm run automation:loop -- --source ~/Documents/demo-vault-backup
 ```
 
 Optional flags:

@@ -7,17 +7,17 @@ Self-hosted sync server for Stonefruit. Hash-based sync protocol over a single `
 From the **monorepo root**:
 
 ```bash
-npm install
-npm run server:dev       # http://localhost:3005
+pnpm install
+pnpm run server:dev       # http://localhost:3005
 ```
 
 Or from `apps/server/`:
 
 ```bash
-npm run dev              # Dev server with hot reload
-npm run build            # Build to dist/
-npm run start            # Run production build
-npm test                 # Run tests
+pnpm run dev              # Dev server with hot reload
+pnpm run build            # Build to dist/
+pnpm run start            # Run production build
+pnpm test                 # Run tests
 ```
 
 ## Setup

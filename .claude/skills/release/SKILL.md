@@ -28,7 +28,7 @@ One-time setup:
 ## Step 1: Run All Tests
 
 ```bash
-npm test
+pnpm test
 ```
 
 **If ANY test fails, STOP.** Report failures to the user. Do not proceed.

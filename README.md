@@ -45,10 +45,10 @@ STONEFRUIT_DATA_PATH=/srv/stonefruit-data \
 Common commands from the monorepo root:
 
 ```bash
-npm install
-npm run dev
-npm run tauri:dev
-npm run build
+pnpm install
+pnpm run dev
+pnpm run tauri:dev
+pnpm run build
 ```
 
 If you are working from source, see [AGENTS.md](./AGENTS.md) and [apps/server/README.md](./apps/server/README.md).

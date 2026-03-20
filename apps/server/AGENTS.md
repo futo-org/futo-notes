@@ -24,7 +24,7 @@ See `.env.example`: `PORT` (default 3005), `DATABASE_PATH`.
 
 | What changed | Run |
 |---|---|
-| Any server code | `npm test` in `apps/server/` (or `npm run server:test` from root) |
+| Any server code | `pnpm test` in `apps/server/` (or `pnpm run server:test` from root) |
 | Dockerfile / docker-compose | Above, then `docker compose up --build` → `curl -sf http://localhost:3005/health` → `docker compose down` |
 | Auth or sync logic | Above, then run setup, login, and sync smoke requests (see `apps/server/README.md`) |
 
@@ -32,4 +32,4 @@ If anything fails: check `docker compose logs`, fix, rerun. Do not report comple
 
 ## Error Handling
 
-When the user pastes a server error or failing test: grep for the error in `apps/server/src/`, read the source, check `git log --oneline -5 -- <file>`, fix, and rerun `npm test`. Don't ask — act.
+When the user pastes a server error or failing test: grep for the error in `apps/server/src/`, read the source, check `git log --oneline -5 -- <file>`, fix, and rerun `pnpm test`. Don't ask — act.

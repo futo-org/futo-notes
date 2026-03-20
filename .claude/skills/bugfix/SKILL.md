@@ -44,7 +44,7 @@ Run the test and **confirm it fails**:
 
 ```bash
 # Run the new test — it should fail
-npm run test:unit -- --reporter verbose 2>&1 | tail -20
+pnpm run test:unit -- --reporter verbose 2>&1 | tail -20
 ```
 
 If it passes, something is wrong — the test doesn't exercise the bug. Revisit before continuing.
@@ -76,8 +76,8 @@ Run the regression test — it should now pass:
 Then run the broader test suite to make sure you didn't break anything else. Use the project's verification chain from AGENTS.md — pick the chain matching what you changed. At minimum:
 
 ```bash
-npx tsc --noEmit 2>&1 | head -30          # Type check
-npm run build 2>&1 | tail -20              # Build
+pnpm exec tsc --noEmit 2>&1 | head -30          # Type check
+pnpm run build 2>&1 | tail -20              # Build
 # + relevant test suite(s) for the area you changed
 ```
 

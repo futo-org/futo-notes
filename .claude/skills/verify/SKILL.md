@@ -48,14 +48,14 @@ Run the build once upfront if any chain needs it (frontend, styles, or unit-test
 
 ### Always (unless only CI files changed):
 ```bash
-npx tsc --noEmit 2>&1 | head -30
+pnpm exec tsc --noEmit 2>&1 | head -30
 ```
 If type errors → stop and report.
 
 ### frontend, styles, or unit-testable logic:
 Build once (don't repeat if multiple categories match):
 ```bash
-npm run build 2>&1 | tail -20
+pnpm run build 2>&1 | tail -20
 ```
 
 ### frontend or styles — Playwright specs:
@@ -65,12 +65,12 @@ grep -rl '<feature-keyword>' tests/*.spec.ts
 ```
 Run matching specs, or if unsure run all:
 ```bash
-npm run test 2>&1 | tail -40
+pnpm run test 2>&1 | tail -40
 ```
 
 ### server:
 ```bash
-npm run server:test 2>&1 | tail -30
+pnpm run server:test 2>&1 | tail -30
 ```
 
 ### server-docker:
@@ -82,21 +82,21 @@ docker compose down 2>&1
 ```
 
 ### dashboard:
-After server tests pass, smoke-test the dashboard. Start a temp server (`cd apps/server && PORT=3005 NODE_ENV=development npx tsx src/index.ts &`), run the auth flow via curl (nuke → setup → login → authenticated endpoint → verify unauthenticated 401), then `pkill -f "tsx src/index.ts"`. If Playwright MCP browser tools are available, prefer using them to navigate to `http://localhost:3005/` and exercise the UI interactively — this catches rendering bugs that curl cannot.
+After server tests pass, smoke-test the dashboard. Start a temp server (`cd apps/server && PORT=3005 NODE_ENV=development pnpm exec tsx src/index.ts &`), run the auth flow via curl (nuke → setup → login → authenticated endpoint → verify unauthenticated 401), then `pkill -f "tsx src/index.ts"`. If Playwright MCP browser tools are available, prefer using them to navigate to `http://localhost:3005/` and exercise the UI interactively — this catches rendering bugs that curl cannot.
 
 ### shared:
 ```bash
-npm run test:shared 2>&1 | tail -20
+pnpm run test:shared 2>&1 | tail -20
 ```
 
 ### unit-tests or other unit-testable logic:
 ```bash
-npm run test:unit 2>&1 | tail -30
+pnpm run test:unit 2>&1 | tail -30
 ```
 
 ### tauri-rust:
 ```bash
-npm run tauri:test:rust 2>&1 | tail -30
+pnpm run tauri:test:rust 2>&1 | tail -30
 ```
 
 ### cli:
@@ -151,7 +151,7 @@ Uses `agent-browser` (Rust CLI) — faster than Playwright MCP, handles CodeMirr
 
 1. Start the dev server, then open in agent-browser:
 ```bash
-npm run dev &
+pnpm run dev &
 sleep 4
 agent-browser open http://localhost:5173
 ```
@@ -183,7 +183,7 @@ This is the real app. Use it whenever the feature touches platform APIs, Rust co
 pkill -f "futo-notes-tauri" 2>/dev/null
 pkill -f "cargo-tauri" 2>/dev/null
 sleep 2
-npm run tauri:dev &
+pnpm run tauri:dev &
 # Tauri compiles Rust + starts Vite on port 5180; first build is slow (~60s), rebuilds are faster (~20s)
 ```
 Wait for the MCP bridge to be ready (port 9223):
@@ -221,7 +221,7 @@ adb devices | grep -v "^List"
 
 2. Build and deploy:
 ```bash
-npm run build 2>&1 | tail -5
+pnpm run build 2>&1 | tail -5
 cd apps/tauri && CARGO_TAURI_CLI_NO_DEV_SERVER=1 cargo tauri android build --debug --apk 2>&1 | tail -10
 adb install -r apps/tauri/src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk
 ```
