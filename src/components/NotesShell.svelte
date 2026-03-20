@@ -1579,8 +1579,14 @@ Escaped pipes:
       import('@tauri-apps/api/window').then(({ getCurrentWindow }) => {
         getCurrentWindow().onCloseRequested(async (e) => {
           e.preventDefault();
-          await flushSave();
-          getCurrentWindow().destroy();
+          // Flush with a 3s timeout so a stuck save never blocks close
+          await Promise.race([flushSave(), new Promise((r) => setTimeout(r, 3000))]);
+          try {
+            const { exit } = await import('@tauri-apps/plugin-process');
+            await exit(0);
+          } catch {
+            getCurrentWindow().destroy();
+          }
         }).then((unlisten) => {
           cleanupNativeListeners.push(unlisten);
         });
