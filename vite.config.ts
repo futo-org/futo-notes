@@ -12,7 +12,22 @@ export default defineConfig({
     outDir: 'dist',
     emptyOutDir: true,
     sourcemap: false,
-    chunkSizeWarningLimit: 700
+    chunkSizeWarningLimit: 700,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('@codemirror') || id.includes('codemirror') || id.includes('@lezer')) {
+            return 'codemirror';
+          }
+          if (id.includes('node_modules/svelte')) {
+            return 'svelte';
+          }
+          if (id.includes('@tauri-apps')) {
+            return 'tauri-vendor';
+          }
+        }
+      }
+    }
   },
   resolve: {
     alias: {

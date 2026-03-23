@@ -48,14 +48,14 @@
 
     async function init(): Promise<void> {
       try {
-        if (hasFileSystem || import.meta.env.DEV) {
-          await initNotes();
-          if (import.meta.env.DEV) {
-            (window as any).__testNotes = { createNote, getAllNotes, _injectTestNote };
-          }
-        }
-
-        const prefs = await loadPreferences();
+        const [, prefs] = await Promise.all([
+          (hasFileSystem || import.meta.env.DEV) ? initNotes().then(() => {
+            if (import.meta.env.DEV) {
+              (window as any).__testNotes = { createNote, getAllNotes, _injectTestNote };
+            }
+          }) : Promise.resolve(),
+          loadPreferences(),
+        ]);
         await applyThemePreference(prefs.appearance.theme);
         stopWatchingSystemTheme?.();
         stopWatchingSystemTheme = watchSystemThemeTauri(() => {

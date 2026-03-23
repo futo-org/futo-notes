@@ -1,9 +1,15 @@
 <script lang="ts">
   import { hasFileSystem, isMobile, isDesktop, isTauri } from '$lib/platform';
   import MarkdownEditor from './MarkdownEditor.svelte';
-  import MarkdownToolbar from './MarkdownToolbar.svelte';
-  import SettingsScreen from './SettingsScreen.svelte';
-  import SearchPopup from './SearchPopup.svelte';
+  // Lazy-loaded: MarkdownToolbar only shown on mobile
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let MarkdownToolbar: any = $state(null);
+  // Lazy-loaded: SettingsScreen only needed when user opens settings
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let SettingsScreen: any = $state(null);
+  // Lazy-loaded: SearchPopup only needed when user opens search (Ctrl+P or button)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let SearchPopup: any = $state(null);
   import VirtualList from './VirtualList.svelte';
   import type { NotePreview } from '../types';
   import {
@@ -24,244 +30,19 @@
   import NoteTagBar from './NoteTagBar.svelte';
   import SidebarTagView from './SidebarTagView.svelte';
   import SidebarImageView from './SidebarImageView.svelte';
-  import { startAutoSync, stopAutoSync, notifySaved } from '$lib/autoSync';
+  // AutoSync is loaded lazily — not needed for initial render
+  let _autoSync: typeof import('$lib/autoSync') | null = null;
+  const getAutoSync = () => _autoSync ?? (_autoSync = null, import('$lib/autoSync').then(m => { _autoSync = m; return m; }));
+  const notifySaved = () => { _autoSync?.notifySaved(); };
   import { keyboard } from '$lib/keyboard.svelte';
   import { navigate } from '../router';
-  import { SCROLL_TEST_NOTES } from '$lib/scrollTestNotes';
   import { getCachedPreferences } from '$lib/preferences';
   import { onToast } from '$lib/toast';
 
-  import { clearGraphCache, type GraphData } from '$lib/supersearch/graphData';
+  import type { GraphData } from '$lib/supersearch/graphData';
   // Lazy-loaded: GraphCanvas component + graphData pipeline
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let GraphCanvas: any = $state(null);
-
-  const GFM_TEST_CONTENT = `# GFM Syntax Test Note
-
-This note tests GitHub Flavored Markdown features commonly used by LLMs.
-
-## ATX Headings (1-6 levels)
-
-# Heading 1
-## Heading 2
-### Heading 3
-#### Heading 4
-##### Heading 5
-###### Heading 6
-
-## Paragraphs and Line Breaks
-
-This is a paragraph with
-a soft line break (just a newline).
-
-This paragraph ends with two spaces
-to create a hard line break.
-
-This paragraph ends with a backslash\\
-to create a hard line break.
-
-## Thematic Breaks
-
----
-
-## Emphasis and Strong Emphasis
-
-*italic text*
-
-**bold text**
-
-***bold and italic***
-
-**bold with *nested italic* inside**
-
-## Strikethrough (GFM Extension)
-
-~~This text is struck through~~
-
-~~strikethrough with **bold** inside~~
-
-## Code Spans
-
-Use \`inline code\` for short snippets.
-
-Use \`\`backticks \` inside code\`\` with double backticks.
-
-## Fenced Code Blocks
-
-\`\`\`
-Plain fenced code block
-no language specified
-\`\`\`
-
-\`\`\`javascript
-// With language identifier
-function hello() {
-  console.log("Hello, world!");
-}
-\`\`\`
-
-\`\`\`python
-# Python example
-def hello():
-    print("Hello, world!")
-\`\`\`
-
-## Block Quotes
-
-> This is a block quote.
-> It can span multiple lines.
-
-> Block quotes can contain
->
-> multiple paragraphs.
-
-> Nested block quotes:
->
-> > This is nested one level.
-> >
-> > > This is nested two levels.
-
-> Block quotes can contain other elements:
->
-> - Lists
-> - **Bold text**
-> - \`code\`
-
-## Lists
-
-### Unordered Lists
-
-- Item one
-- Item two
-  - Nested item
-  - Another nested item
-    - Deeply nested
-
-### Ordered Lists
-
-1. First item
-2. Second item
-3. Third item
-   1. Nested ordered
-   2. Another nested
-
-### Mixed Lists
-
-1. Ordered item
-   - Unordered nested
-   - Another unordered
-2. Back to ordered
-   1. Nested ordered
-   2. Another nested
-
-### Loose vs Tight Lists
-
-- Tight list item 1
-- Tight list item 2
-- Tight list item 3
-
-- Loose list item 1
-
-- Loose list item 2
-
-- Loose list item 3
-
-## Task Lists (GFM Extension)
-
-- [x] Completed task
-- [x] Another completed task
-- [ ] Incomplete task
-- [ ] Another incomplete task
-
-1. [x] Ordered task list
-2. [ ] Also works with numbers
-
-## Links
-
-[Basic link](https://example.com)
-
-[Link with *emphasis*](https://example.com)
-
-## Images
-
-![Alt text](https://futo.org/images/authors/futologo.png "Image Title")
-
-## Tables (GFM Extension)
-
-| Left | Center | Right |
-|:-----|:------:|------:|
-| L1   |   C1   |    R1 |
-| L2   |   C2   |    R2 |
-| L3   |   C3   |    R3 |
-
-Minimal table:
-
-| Foo | Bar |
-| --- | --- |
-| Baz | Qux |
-
-Table with inline formatting:
-
-| Feature | Supported |
-|---------|-----------|
-| **Bold** | Yes |
-| *Italic* | Yes |
-| \`Code\` | Yes |
-| ~~Strike~~ | Yes |
-| [Links](https://example.com) | Yes |
-
-Escaped pipes:
-
-| Expression | Result |
-|------------|--------|
-| \`a \\| b\` | a \\| b |
-
-## Backslash Escapes
-
-\\*not italic\\*
-
-\\\`not code\\\`
-
-\\# not a heading
-
-\\[not a link\\](https://example.com)
-
-\\- not a list item
-
-\\| not \\| a \\| table \\|
-
-## Edge Cases
-
-### Nested Formatting
-
-**bold *bold-italic* bold**
-
-*italic **italic-bold** italic*
-
-### Code in Lists
-
-- Item with \`inline code\`
-- Item with block:
-  \`\`\`
-  code block in list
-  \`\`\`
-
-### Links in Tables
-
-| Name | Link |
-|------|------|
-| Example | [Click](https://example.com) |
-
-### Wide Tables
-
-| Short | This is a very long cell that contains a lot of text to test how tables handle overflow |
-|-------|-----------------------------------------------------------------------------------------|
-| A     | B                                                                                       |
-
-| A | B | C | D | E | F | G |
-|---|---|---|---|---|---|---|
-| 1 | 2 | 3 | 4 | 5 | 6 | 7 |
-`;
 
   interface Props {
     noteId: string | null;
@@ -337,6 +118,13 @@ Escaped pipes:
 
   // Search
   let searchOpen = $state(false);
+
+  async function openSearch(): Promise<void> {
+    if (!SearchPopup) {
+      SearchPopup = (await import('./SearchPopup.svelte')).default;
+    }
+    searchOpen = true;
+  }
 
   function handleSearchSelect(id: string): void {
     searchOpen = false;
@@ -756,7 +544,7 @@ Escaped pipes:
 
   function refreshNotesList(): void {
     notes = hasFileSystem ? getAllNotes() : [];
-    clearGraphCache();
+    import('$lib/supersearch/graphData').then(m => m.clearGraphCache());
     if (!graphSidebarOpen) {
       graphData = null;
     }
@@ -827,9 +615,11 @@ Escaped pipes:
 
   async function createTestNote(): Promise<void> {
     if (!hasFileSystem) return;
-    const noteTitle = 'Markdown test note';
-    await createNote(sanitizeFilename(noteTitle), GFM_TEST_CONTENT);
-    // Also create scroll test notes for performance testing
+    const [{ GFM_TEST_CONTENT }, { SCROLL_TEST_NOTES }] = await Promise.all([
+      import('$lib/gfmTestContent'),
+      import('$lib/scrollTestNotes'),
+    ]);
+    await createNote(sanitizeFilename('Markdown test note'), GFM_TEST_CONTENT);
     for (const note of SCROLL_TEST_NOTES) {
       await createNote(sanitizeFilename(note.title), note.content);
     }
@@ -1521,6 +1311,9 @@ Escaped pipes:
 
   $effect(() => {
     keyboard.init();
+    if (isMobile && !MarkdownToolbar) {
+      import('./MarkdownToolbar.svelte').then(m => { MarkdownToolbar = m.default; });
+    }
     if (hasFileSystem && !notesLoaded) {
       refreshNotesList();
       notesLoaded = true;
@@ -1528,32 +1321,34 @@ Escaped pipes:
     registerBackSwipeHandler();
     updateDrawerMetrics();
 
-    // Auto-sync
-    startAutoSync({
-      onSyncComplete: handleSyncComplete,
-      onSyncError: (err) => console.warn('Auto-sync error:', err),
-      flushPendingSave: flushSave,
-      onSupersearchReady: () => { void checkSupersearchArtifacts(true); },
-      shouldDeferSync: () => saveTimeout !== null || saveInFlight !== null || saveQueued || Boolean(editor?.isComposing?.()) || Date.now() - lastEditTime < 1000,
-      onOfflineChange: (offline) => { syncOffline = offline; },
-      onSyncStateChange: (active) => {
-        syncWriteActive = active;
-        if (active) {
-          syncStartEditVersion = editVersion;
-          if (syncStatusClearTimer !== null) { clearTimeout(syncStatusClearTimer); syncStatusClearTimer = null; }
-          syncStatusMessage = 'Syncing...';
-          // Show indicator with minimum 1s display
-          if (syncIndicatorTimer !== null) { clearTimeout(syncIndicatorTimer); syncIndicatorTimer = null; }
-          syncIndicatorVisible = true;
-        }
-        if (!active) {
-          drainPostSyncWatcherBatch();
-          // Keep indicator visible for at least 1s
-          if (syncIndicatorTimer === null) {
-            syncIndicatorTimer = window.setTimeout(() => { syncIndicatorVisible = false; syncIndicatorTimer = null; }, 1000);
+    // Auto-sync — loaded lazily to keep initial bundle small
+    getAutoSync().then(({ startAutoSync }) => {
+      startAutoSync({
+        onSyncComplete: handleSyncComplete,
+        onSyncError: (err) => console.warn('Auto-sync error:', err),
+        flushPendingSave: flushSave,
+        onSupersearchReady: () => { void checkSupersearchArtifacts(true); },
+        shouldDeferSync: () => saveTimeout !== null || saveInFlight !== null || saveQueued || Boolean(editor?.isComposing?.()) || Date.now() - lastEditTime < 1000,
+        onOfflineChange: (offline) => { syncOffline = offline; },
+        onSyncStateChange: (active) => {
+          syncWriteActive = active;
+          if (active) {
+            syncStartEditVersion = editVersion;
+            if (syncStatusClearTimer !== null) { clearTimeout(syncStatusClearTimer); syncStatusClearTimer = null; }
+            syncStatusMessage = 'Syncing...';
+            // Show indicator with minimum 1s display
+            if (syncIndicatorTimer !== null) { clearTimeout(syncIndicatorTimer); syncIndicatorTimer = null; }
+            syncIndicatorVisible = true;
           }
-        }
-      },
+          if (!active) {
+            drainPostSyncWatcherBatch();
+            // Keep indicator visible for at least 1s
+            if (syncIndicatorTimer === null) {
+              syncIndicatorTimer = window.setTimeout(() => { syncIndicatorVisible = false; syncIndicatorTimer = null; }, 1000);
+            }
+          }
+        },
+      });
     });
 
     // Desktop sidebar: load persisted width + collapsed state
@@ -1613,7 +1408,7 @@ Escaped pipes:
 
       if (e.key === 'p') {
         e.preventDefault();
-        searchOpen = true;
+        void openSearch();
       } else if (e.key === 'n') {
         e.preventDefault();
         createNewNote();
@@ -1622,7 +1417,7 @@ Escaped pipes:
     window.addEventListener('keydown', handleGlobalShortcut);
 
     return () => {
-      stopAutoSync();
+      _autoSync?.stopAutoSync();
       flushSave();
       if (externalRescanTimer !== null) {
         clearTimeout(externalRescanTimer);
@@ -1806,7 +1601,12 @@ Escaped pipes:
         <button
           class="sidebar-settings-btn"
           aria-label="Settings"
-          onclick={() => { settingsOpen = true; }}
+          onclick={async () => {
+            if (!SettingsScreen) {
+              SettingsScreen = (await import('./SettingsScreen.svelte')).default;
+            }
+            settingsOpen = true;
+          }}
         >
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
             <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
@@ -1826,7 +1626,7 @@ Escaped pipes:
       </div>
     </div>
     <div class="drawer-search-area">
-      <button class="search-button" onclick={() => { searchOpen = true; }}>
+      <button class="search-button" onclick={() => { void openSearch(); }}>
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="11" cy="11" r="8"/>
           <line x1="21" y1="21" x2="16.65" y2="16.65"/>
@@ -2010,7 +1810,7 @@ Escaped pipes:
     {/if}
   </div>
 
-  {#if isMobile}
+  {#if isMobile && MarkdownToolbar}
     <MarkdownToolbar
       getView={() => editor?.getView() ?? null}
       {editorFocused}
@@ -2104,7 +1904,7 @@ Escaped pipes:
   {/if}
 </div>
 
-{#if settingsOpen}
+{#if settingsOpen && SettingsScreen}
   <SettingsScreen
     onclose={() => { settingsOpen = false; }}
     onimported={handleImported}
@@ -2130,7 +1930,7 @@ Escaped pipes:
   </div>
 {/if}
 
-{#if searchOpen}
+{#if searchOpen && SearchPopup}
   <SearchPopup onclose={() => { searchOpen = false; }} onselect={handleSearchSelect} />
 {/if}
 

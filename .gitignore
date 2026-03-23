@@ -94,3 +94,4 @@ test-screenshots
 
 # Docker testing
 apps/cli/stonefruit-data
+autoresearch-results.tsv
