@@ -26,7 +26,7 @@ test_desktop_smoke_macos_task:
     - pnpm install --frozen-lockfile
     # Build frontend + debug binary
     - pnpm run build
-    - cd apps/tauri && cargo tauri build --debug --no-bundle && cd ../..
+    - (cd apps/tauri && cargo tauri build --debug --no-bundle)
     # Pre-configure notes dir so app boots to editor
     - |
       NOTES_DIR=$(mktemp -d)
