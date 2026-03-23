@@ -9,7 +9,6 @@ stages:
 
 windows:smoke-test:
   stage: test
-  image: alpine:latest
   tags:
     - proxmoxshell
   variables:
@@ -20,8 +19,6 @@ windows:smoke-test:
   before_script:
     - *proxmox-auth
   script:
-    - apk add --no-cache curl jq openssh-client
-
     # 1. Verify Proxmox connectivity
     - |
       echo "=== Testing Proxmox API connectivity ==="
