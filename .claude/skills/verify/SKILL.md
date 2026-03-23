@@ -30,6 +30,8 @@ echo "Worktree: $WORKTREE_ROOT → Vite port $VITE_PORT, web port $WEB_VITE_PORT
 
 Since shell variables don't persist between separate Bash tool calls, **re-compute these values** (or source-paste them) at the start of any Bash block that needs them.
 
+> **Parallel worktree setup**: When setting up multiple worktrees, run `pnpm install` in all of them concurrently — they have separate `node_modules` and don't conflict. This saves ~12s per additional worktree.
+
 | Purpose | Range | Notes |
 |---|---|---|
 | Tauri Vite (per worktree) | 5200–5249 | Avoids 5173/5180–5182 |
@@ -236,12 +238,17 @@ if [ "$ALREADY_RUNNING" = false ]; then
     sleep 2
   fi
 
-  # Launch with worktree-specific Vite port via inline config override
+  # Launch with worktree-specific Vite port and unique identifier.
+  # The `s` prefix on the slot is required: D-Bus well-known names cannot have
+  # segments starting with a digit, and tauri-plugin-single-instance panics if
+  # the identifier violates this (e.g., `.47` fails, `.s47` works).
+  # NOTE: Use Bash tool's `run_in_background` parameter instead of shell `&` —
+  # `$!` does not expand correctly inside the Bash tool.
   cd "$WORKTREE_ROOT/apps/tauri" && \
     WINIT_UNIX_BACKEND=wayland GDK_BACKEND=wayland WEBKIT_DISABLE_DMABUF_RENDERER=1 \
     cargo tauri dev \
       --config src-tauri/tauri.dev.conf.json \
-      --config '{"build":{"beforeDevCommand":"npm run dev --prefix ../.. -- --host 127.0.0.1 --port '"$VITE_PORT"' --strictPort","devUrl":"http://127.0.0.1:'"$VITE_PORT"'"}}' \
+      --config '{"identifier":"com.futo.notes.verify.s'"$SLOT"'","build":{"beforeDevCommand":"npm run dev --prefix ../.. -- --host 127.0.0.1 --port '"$VITE_PORT"' --strictPort","devUrl":"http://127.0.0.1:'"$VITE_PORT"'"}}' \
     > "$TAURI_LOG" 2>&1 &
   echo $! > "$PID_FILE"
   # First build is slow (~60s), rebuilds are faster (~20s)
@@ -294,10 +301,34 @@ fi
 
 ### Android
 
-Use when verifying Android-specific behavior or when the user asks. Requires a connected device or emulator. The app includes `tauri-plugin-mcp-bridge` (debug builds), so the same Tauri MCP tools used for desktop work on Android — no coordinate guessing or raw `adb` taps needed.
+Use when verifying Android-specific behavior or when the user asks. The app includes `tauri-plugin-mcp-bridge` (debug builds), so the same Tauri MCP tools used for desktop work on Android — no coordinate guessing or raw `adb` taps needed.
 
-1. Check device is connected:
+1. Check device/emulator is connected. **If none is connected, start one automatically:**
 ```bash
+DEVICE_COUNT=$(adb devices 2>/dev/null | grep -v "^List" | grep -c "device$")
+if [ "$DEVICE_COUNT" -eq 0 ]; then
+  echo "No Android device/emulator found. Starting emulator..."
+  # Pick the first available AVD
+  AVD_NAME=$($ANDROID_HOME/emulator/emulator -list-avds 2>/dev/null | head -1)
+  if [ -z "$AVD_NAME" ]; then
+    echo "FAIL: No AVDs available. Create one with Android Studio or avdmanager."
+  else
+    echo "Launching AVD: $AVD_NAME"
+    $ANDROID_HOME/emulator/emulator -avd "$AVD_NAME" -no-snapshot-load &
+    EMULATOR_PID=$!
+    # Wait for the emulator to boot (up to 120s)
+    echo "Waiting for emulator to boot..."
+    for i in $(seq 1 60); do
+      BOOT=$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')
+      [ "$BOOT" = "1" ] && echo "Emulator booted (${i}x2s)" && break
+      sleep 2
+    done
+    BOOT=$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')
+    [ "$BOOT" != "1" ] && echo "FAIL: Emulator did not boot in time"
+  fi
+else
+  echo "Android device/emulator connected ($DEVICE_COUNT)"
+fi
 adb devices | grep -v "^List"
 ```
 

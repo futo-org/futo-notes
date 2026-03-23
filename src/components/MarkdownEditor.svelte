@@ -19,6 +19,7 @@
   import { buildSetContentTransaction, type SetEditorContentOptions } from '$lib/editorContentSync';
   import { hasFileSystem, isTauri } from '$lib/platform';
   import { toggleBold, toggleItalic, toggleStrikethrough, isListLine } from '$lib/markdownToolbar';
+  import { imagePasteHandler } from '$lib/imagePaste';
   import { openUrl } from '$lib/openUrl';
   import { wikilinkAutocomplete } from '$lib/wikilinkAutocomplete';
   import { typingLatencyExtension } from '$lib/typingLatency';
@@ -198,6 +199,7 @@
       autoLinkHighlight,
       tableRendering,
       wikilinkAutocomplete(),
+      imagePasteHandler,
       wikilinkClickHandler,
       linkClickHandler,
       EditorView.contentAttributes.of({
