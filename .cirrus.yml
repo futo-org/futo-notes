@@ -24,6 +24,8 @@ test_desktop_smoke_macos_task:
     - corepack enable
     - corepack prepare pnpm@10.29.2 --activate
     - pnpm install --frozen-lockfile
+    # Install tauri-cli for building
+    - cargo install tauri-cli --locked
     # Build frontend + debug binary
     - pnpm run build
     - (cd apps/tauri && cargo tauri build --debug --no-bundle)
