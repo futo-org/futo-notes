@@ -700,6 +700,11 @@
       // This prevents duplicate note creation from debounced saves firing with partial titles.
       if (!originalId && !newContent.trim()) return false;
 
+      // Skip write if nothing changed — prevents mtime bumps from setContent during
+      // note loading (CM6 fires docChanged → rAF onchange → debouncedSave even when
+      // the content is identical to what was just loaded).
+      if (originalId && newTitle === savedTitle && newContent === content) return false;
+
       // Block saving if another note already has this name
       if (hasDuplicateTitle(newTitle)) return false;
 

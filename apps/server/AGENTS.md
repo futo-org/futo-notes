@@ -30,6 +30,3 @@ See `.env.example`: `PORT` (default 3005), `DATABASE_PATH`.
 
 If anything fails: check `docker compose logs`, fix, rerun. Do not report completion until passing.
 
-## Error Handling
-
-When the user pastes a server error or failing test: grep for the error in `apps/server/src/`, read the source, check `git log --oneline -5 -- <file>`, fix, and rerun `pnpm test`. Don't ask — act.

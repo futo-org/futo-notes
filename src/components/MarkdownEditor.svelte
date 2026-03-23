@@ -8,7 +8,7 @@
     ViewPlugin
   } from '@codemirror/view';
   import type { DecorationSet, ViewUpdate } from '@codemirror/view';
-  import { EditorState } from '@codemirror/state';
+  import { EditorState, Transaction } from '@codemirror/state';
   import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
   import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
   import { onMount } from 'svelte';
@@ -16,7 +16,7 @@
   import { tableRendering } from '$lib/tableRenderingField';
   import { liveMarkdownTransform, preloadImages } from '$lib/liveMarkdownTransform';
   import { getImageWebPath } from '$lib/fileSystem';
-  import { buildSetContentTransaction, type SetEditorContentOptions } from '$lib/editorContentSync';
+  import { buildSetContentTransaction, type SetEditorContentOptions, type SetContentResult } from '$lib/editorContentSync';
   import { hasFileSystem, isTauri } from '$lib/platform';
   import { toggleBold, toggleItalic, toggleStrikethrough, isListLine } from '$lib/markdownToolbar';
   import { imagePasteHandler } from '$lib/imagePaste';
@@ -37,6 +37,22 @@
 
   let container: HTMLDivElement;
   let view: EditorView | null = $state(null);
+
+  // When true, the next $effect trigger for `content` is from our own
+  // onchange callback — the editor already has this content, skip the
+  // round-trip through buildSetContentTransaction entirely.
+  let editorOwnsContent = false;
+
+  // Coalesce rapid doc changes (paste, composition, multi-cursor) into
+  // a single onchange + toString() per animation frame.
+  let onchangeRafId = 0;
+
+  // Pre-allocated options for external content updates — avoids object
+  // allocation per $effect trigger.
+  const EXTERNAL_UPDATE_OPTS: SetEditorContentOptions = {
+    preserveSelection: true,
+    annotations: [Transaction.addToHistory.of(false)],
+  };
 
   // Scroll compensation — see docs/devlog.md
   let anchorPos = -1;
@@ -240,7 +256,17 @@
       }),
       EditorView.updateListener.of(update => {
         if (update.docChanged && onchange) {
-          onchange(update.state.doc.toString());
+          editorOwnsContent = true;
+          // Coalesce rapid changes into one toString() + onchange per frame.
+          // Paste, IME composition, and multi-cursor edits can fire multiple
+          // docChanged updates in the same frame — this avoids O(n) string
+          // allocation for each intermediate state.
+          if (!onchangeRafId) {
+            onchangeRafId = requestAnimationFrame(() => {
+              onchangeRafId = 0;
+              if (view) onchange(view.state.doc.toString());
+            });
+          }
         }
       }),
       // Typing latency measurement (dev only)
@@ -281,6 +307,7 @@
     }
 
     return () => {
+      if (onchangeRafId) { cancelAnimationFrame(onchangeRafId); onchangeRafId = 0; }
       view?.destroy();
       view = null;
     };
@@ -288,8 +315,12 @@
 
   $effect(() => {
     if (!view) return;
-    if (content === view.state.doc.toString()) return;
-    setContent(content, { preserveSelection: true });
+    // Read `content` to ensure Svelte tracks it as a dependency,
+    // but skip the work if this change originated from the editor itself
+    // (the editor already has this content — no round-trip needed).
+    const c = content;
+    if (editorOwnsContent) { editorOwnsContent = false; return; }
+    setContent(c, EXTERNAL_UPDATE_OPTS);
   });
 
   $effect(() => {
@@ -313,15 +344,24 @@
 
   export function setContent(text: string, options: SetEditorContentOptions = {}): void {
     if (!view) return;
-    const spec = buildSetContentTransaction(view.state, text, options);
-    if (!spec) return;
-    // Reset scroll compensation anchor so stale positions from the previous note
-    // don't cause bad scroll adjustments when the new content renders
-    anchorPos = -1;
-    anchorBlockTop = 0;
-    compensating = false;
-    preloadImages(text, hasFileSystem ? getImageWebPath : undefined, () => view);
-    view.dispatch(spec);
+    const result = buildSetContentTransaction(view.state, text, options);
+    if (!result) return;
+    // Only reset scroll compensation for note switches (full replacement).
+    // Same-note sync updates (preserveSelection) should keep the scroll position.
+    if (!options.preserveSelection) {
+      anchorPos = -1;
+      anchorBlockTop = 0;
+      compensating = false;
+    }
+    view.dispatch(result.spec);
+    // Defer image preloading — only scan the inserted text (not the full doc)
+    // so incremental sync updates don't re-scan the entire document.
+    const preloadText = result.insertedText;
+    if (preloadText) {
+      const getImageFn = hasFileSystem ? getImageWebPath : undefined;
+      const viewRef = view;
+      queueMicrotask(() => preloadImages(preloadText, getImageFn, () => viewRef));
+    }
   }
 
   export function focus(): void {

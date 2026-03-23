@@ -146,6 +146,8 @@ export function registerLocalImageUrl(filename: string, webUrl: string): void {
   localImageUrlCache.set(filename, webUrl);
 }
 
+const IMAGE_REGEX = /!\[[^\]]*\]\(([^\s)]+)(?:\s+"[^"]*")?\)/g;
+
 /**
  * Preload all images found in markdown text and cache their dimensions.
  * Call this when a note is opened so images are ready before the user scrolls.
@@ -156,9 +158,11 @@ export function preloadImages(
   getImageWebPath?: (filename: string) => Promise<string>,
   getView?: () => EditorView | null
 ): void {
-  const imageRegex = /!\[[^\]]*\]\(([^\s)]+)(?:\s+"[^"]*")?\)/g;
+  // Fast-path: skip regex scan entirely if there's no image syntax
+  if (!markdownText.includes('![')) return;
+  IMAGE_REGEX.lastIndex = 0;
   let match;
-  while ((match = imageRegex.exec(markdownText)) !== null) {
+  while ((match = IMAGE_REGEX.exec(markdownText)) !== null) {
     const src = match[1];
 
     // For local filenames, resolve to web URL first

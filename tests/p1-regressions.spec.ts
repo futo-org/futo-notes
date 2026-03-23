@@ -101,3 +101,51 @@ After table`);
     await expect(tableLink).toHaveAttribute('rel', /noopener/);
   });
 });
+
+test.describe('P1 Note Selection Regressions', () => {
+  test('selecting a note does not trigger a save (no mtime bump)', async ({ page }) => {
+    // Bug: setContent fires CM6 docChanged which schedules onchange via rAF.
+    // By the time the rAF fires, loading=false, so debouncedSave runs and
+    // writes the note with identical content, bumping its mtime and moving
+    // it to the top of the recency-sorted sidebar list.
+    await page.goto('/');
+    await page.waitForLoadState('domcontentloaded');
+    await page.waitForFunction(() => !!(window as any).__testNotes, null, { timeout: 15000 });
+
+    // Create two notes
+    await page.evaluate(async () => {
+      await (window as any).__testNotes.createNote('note-alpha', 'Alpha note content here');
+      await (window as any).__testNotes.createNote('note-beta', 'Beta note content here');
+    });
+
+    // Record initial mtime for note-beta
+    const mtimeBefore = await page.evaluate(() => {
+      const notes = (window as any).__testNotes.getAllNotes();
+      return notes.find((n: any) => n.id === 'note-beta')?.modificationTime;
+    });
+    expect(mtimeBefore).toBeTruthy();
+
+    // Open note-alpha first to initialize the editor
+    await page.goto('/#/note/note-alpha');
+    await page.waitForSelector('.cm-content', { timeout: 10000 });
+    await page.waitForTimeout(700); // Wait past the 500ms save debounce
+
+    // Now select note-beta (this is the action under test)
+    await page.goto('/#/note/note-beta');
+    await page.waitForSelector('.cm-content', { timeout: 10000 });
+    await page.waitForFunction(() => {
+      const v = (window as any).__cmGetView?.();
+      return v && v.state.doc.toString().includes('Beta note');
+    }, null, { timeout: 10000 });
+
+    // Wait past the rAF + debounce window (500ms debounce + 200ms buffer)
+    await page.waitForTimeout(800);
+
+    // Check that note-beta's mtime did NOT change — selecting shouldn't modify it
+    const mtimeAfter = await page.evaluate(() => {
+      const notes = (window as any).__testNotes.getAllNotes();
+      return notes.find((n: any) => n.id === 'note-beta')?.modificationTime;
+    });
+    expect(mtimeAfter).toBe(mtimeBefore);
+  });
+});
