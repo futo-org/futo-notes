@@ -15,6 +15,7 @@ export interface AutoSyncCallbacks {
   onSupersearchReady?: () => void;
   shouldDeferSync?: () => boolean;
   onSyncStateChange?: (syncing: boolean) => void;
+  onOfflineChange?: (offline: boolean) => void;
 }
 
 let callbacks: AutoSyncCallbacks | null = null;
@@ -48,6 +49,11 @@ function isSyncConfigured(): boolean {
 
 async function performSync(trigger: SyncTrigger, options: PerformSyncOptions = {}): Promise<SyncSummary | null> {
   const backgroundTrigger = isBackgroundTrigger(trigger);
+  if (!navigator.onLine) {
+    callbacks?.onOfflineChange?.(true);
+    if (backgroundTrigger) scheduleBackgroundRetry(trigger);
+    return null;
+  }
   if (syncing || paused || !callbacks || !isSyncConfigured()) {
     if (!options.requireExecution && backgroundTrigger && callbacks && isSyncConfigured() && (syncing || paused)) {
       scheduleBackgroundRetry(trigger);
@@ -205,6 +211,21 @@ export function startAutoSync(cb: AutoSyncCallbacks): void {
   }
 
   if (!hasFileSystem) return;
+
+  // Offline detection
+  if (!navigator.onLine) callbacks.onOfflineChange?.(!navigator.onLine);
+  const offlineHandler = () => { callbacks?.onOfflineChange?.(true); };
+  const onlineHandler = () => {
+    callbacks?.onOfflineChange?.(false);
+    connectSSE();
+    void performSync('resume');
+  };
+  window.addEventListener('offline', offlineHandler);
+  window.addEventListener('online', onlineHandler);
+  cleanupFns.push(() => {
+    window.removeEventListener('offline', offlineHandler);
+    window.removeEventListener('online', onlineHandler);
+  });
 
   // SSE for near-instant notifications (may no-op if prefs aren't loaded yet)
   connectSSE();

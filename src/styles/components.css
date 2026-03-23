@@ -1350,6 +1350,10 @@
   z-index: 20;
 }
 
+.sync-indicator.sync-offline {
+  color: var(--color-muted);
+}
+
 /* ===========================
    Sidebar Tag View
    =========================== */

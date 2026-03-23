@@ -379,6 +379,7 @@ Escaped pipes:
   let syncStatusClearTimer: number | null = null;
   let syncIndicatorVisible = $state(false);
   let syncIndicatorTimer: number | null = null;
+  let syncOffline = $state(false);
 
   function recordWrite(filename: string): void {
     recentWrites.set(filename, Date.now());
@@ -1525,6 +1526,7 @@ Escaped pipes:
       flushPendingSave: flushSave,
       onSupersearchReady: () => { void checkSupersearchArtifacts(true); },
       shouldDeferSync: () => saveTimeout !== null || saveInFlight !== null || saveQueued || Boolean(editor?.isComposing?.()) || Date.now() - lastEditTime < 1000,
+      onOfflineChange: (offline) => { syncOffline = offline; },
       onSyncStateChange: (active) => {
         syncWriteActive = active;
         if (active) {
@@ -1977,7 +1979,19 @@ Escaped pipes:
         <ForYouPage {notes} onbrowse={() => setDrawerOpen(true)} onquickcapture={createNewNote} />
       {/if}
     </div>
-    {#if syncIndicatorVisible}
+    {#if syncOffline}
+      <div class="sync-indicator sync-offline">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="2" x2="22" y1="2" y2="22"/>
+          <path d="M8.5 16.5a5 5 0 0 1 7 0"/>
+          <path d="M2 8.82a15 15 0 0 1 4.17-2.65"/>
+          <path d="M10.66 5c4.01-.36 8.14.9 11.34 3.76"/>
+          <path d="M16.85 11.25a10 10 0 0 1 2.22 1.68"/>
+          <path d="M5 12.86a10 10 0 0 1 5.17-2.86"/>
+          <line x1="12" x2="12.01" y1="20" y2="20"/>
+        </svg>
+      </div>
+    {:else if syncIndicatorVisible}
       <div class="sync-indicator">
         <svg class="sync-spinner" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
           <path d="M21 12a9 9 0 1 1-6.219-8.56"/>

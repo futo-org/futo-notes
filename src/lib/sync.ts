@@ -60,8 +60,16 @@ async function parseJsonOrThrow<T>(res: Response): Promise<T> {
   return data as T;
 }
 
+const SYNC_TIMEOUT_MS = 10_000;
+
+function fetchWithTimeout(url: string, init?: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), SYNC_TIMEOUT_MS);
+  return fetch(url, { ...init, signal: controller.signal }).finally(() => clearTimeout(timeoutId));
+}
+
 async function authPost<T>(baseUrl: string, token: string, path: string, body: unknown, extraHeaders?: Record<string, string>): Promise<T> {
-  const res = await fetch(`${baseUrl}${path}`, {
+  const res = await fetchWithTimeout(`${baseUrl}${path}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -74,7 +82,7 @@ async function authPost<T>(baseUrl: string, token: string, path: string, body: u
 }
 
 async function authPutBinary(baseUrl: string, token: string, path: string, data: Uint8Array, headers: Record<string, string>): Promise<void> {
-  const res = await fetch(`${baseUrl}${path}`, {
+  const res = await fetchWithTimeout(`${baseUrl}${path}`, {
     method: 'PUT',
     headers: {
       'Content-Type': 'application/octet-stream',
@@ -90,7 +98,7 @@ async function authPutBinary(baseUrl: string, token: string, path: string, data:
 }
 
 async function authGetBinary(baseUrl: string, token: string, path: string): Promise<number[]> {
-  const res = await fetch(`${baseUrl}${path}`, {
+  const res = await fetchWithTimeout(`${baseUrl}${path}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) {
