@@ -77,11 +77,12 @@ describe('Dashboard', () => {
     expect(plugins).toHaveProperty('model');
     expect(plugins).toHaveProperty('scheduler');
     const items = plugins.plugins as Array<Record<string, unknown>>;
-    expect(items).toHaveLength(3);
+    expect(items).toHaveLength(4);
     expect(items.map((item) => item.id)).toEqual([
       'auto-tagger',
       'quick-capture-to-list',
       'weekly-related-notes',
+      'daily-note',
     ]);
   });
 

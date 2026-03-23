@@ -372,7 +372,7 @@ describe('Daily Note Plugin', () => {
 
     // Verify the shared profile was stored in plugin_state with _shared plugin_id
     const row = getDb().prepare(
-      `SELECT value_json FROM plugin_state WHERE plugin_id = '_shared' AND state_key = 'user-profile'`,
+      `SELECT value_json FROM plugin_state WHERE plugin_id = '__shared__' AND state_key = 'user-profile'`,
     ).get() as { value_json: string } | undefined;
     expect(row).toBeDefined();
     const profile = JSON.parse(row!.value_json);

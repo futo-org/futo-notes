@@ -4,7 +4,7 @@ export default defineConfig({
   entry: ['src/index.ts', 'src/benchmark.ts'],
   format: ['esm'],
   outDir: 'dist',
-  external: ['better-sqlite3', 'argon2'],
+  external: ['better-sqlite3', 'argon2', 'undici'],
   noExternal: ['@futo-notes/shared'],
   clean: true,
 });

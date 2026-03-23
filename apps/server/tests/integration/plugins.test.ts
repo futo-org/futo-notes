@@ -198,7 +198,7 @@ describe('Plugins', () => {
     };
 
     expect(data.scheduler.phase).toBe('idle');
-    expect(data.plugins).toHaveLength(3);
+    expect(data.plugins).toHaveLength(4);
     const autoTagger = data.plugins.find((plugin) => plugin.id === 'auto-tagger');
     const quickCapture = data.plugins.find((plugin) => plugin.id === 'quick-capture-to-list');
     const weeklyRelated = data.plugins.find((plugin) => plugin.id === 'weekly-related-notes');

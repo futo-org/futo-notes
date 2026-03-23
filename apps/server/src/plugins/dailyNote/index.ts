@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import type { BuiltinPlugin, PluginRunContext, UserProfile } from '../types.js';
-import { getBoolean, getNumber, getString, parseLenientJson } from '../configHelpers.js';
+import { getBoolean, getNumber, parseLenientJson } from '../configHelpers.js';
 
 const CHECKBOX_TASK_RE = /^- \[ ] (.+)$/gm;
 

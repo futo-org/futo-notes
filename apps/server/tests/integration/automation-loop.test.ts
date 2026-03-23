@@ -57,6 +57,9 @@ describe('automation loop', () => {
       if (input.purpose === 'weekly-related-notes-selection') {
         return '{"links":[]}';
       }
+      if (input.purpose === 'daily-note-generate') {
+        return '# Daily Note\n\nNothing planned.';
+      }
       throw new Error(`Unexpected test LLM purpose: ${input.purpose}`);
     });
 
@@ -66,6 +69,7 @@ describe('automation loop', () => {
     });
 
     expect(result.pluginResults.map((plugin) => plugin.status)).toEqual([
+      'succeeded',
       'succeeded',
       'succeeded',
       'succeeded',
