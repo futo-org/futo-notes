@@ -23,6 +23,7 @@ import type {
   RenameNoteInput,
   ReplaceManagedBlockInput,
   RunBuiltinLlmInput,
+  UserProfile,
 } from './types.js';
 
 function stripMd(filename: string): string {
@@ -375,6 +376,26 @@ export function createPluginSdk(
           value_json = excluded.value_json,
           updated_at = excluded.updated_at
       `).run(pluginId, key, JSON.stringify(value), Date.now());
+    },
+
+    async getUserProfile(): Promise<UserProfile | null> {
+      const row = db.prepare(`
+        SELECT value_json
+        FROM plugin_state
+        WHERE plugin_id = '__shared__' AND state_key = 'user-profile'
+      `).get() as { value_json: string } | undefined;
+      if (!row) return null;
+      return JSON.parse(row.value_json) as UserProfile;
+    },
+
+    async setUserProfile(profile: UserProfile): Promise<void> {
+      db.prepare(`
+        INSERT INTO plugin_state (plugin_id, state_key, value_json, updated_at)
+        VALUES ('__shared__', 'user-profile', ?, ?)
+        ON CONFLICT(plugin_id, state_key) DO UPDATE SET
+          value_json = excluded.value_json,
+          updated_at = excluded.updated_at
+      `).run(JSON.stringify(profile), Date.now());
     },
   };
 }

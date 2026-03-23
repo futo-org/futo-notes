@@ -1,31 +1,24 @@
-import { resolveModelFile, unloadModel as unloadEmbeddingModel, type LoadModelCallbacks } from '../search/modelManager.js';
+import { Ollama } from 'ollama';
+import { Agent } from 'undici';
 import { log } from '../logger.js';
 import type { RunBuiltinLlmInput } from './types.js';
+import type { LoadModelCallbacks } from '../search/modelManager.js';
 
-interface LoadedState {
-  model: { dispose(): Promise<void> };
-  context: { getSequence(): unknown; dispose(): Promise<void> };
-  LlamaChatSession: new (opts: { contextSequence: unknown; systemPrompt?: string; autoDisposeSequence?: boolean }) => {
-    prompt(text: string, opts?: { maxTokens?: number; temperature?: number; signal?: AbortSignal }): Promise<string>;
-    dispose(opts?: { disposeSequence?: boolean }): void;
-  };
+// Custom fetch with extended timeouts for long-running LLM inference on CPU
+const llmAgent = new Agent({ bodyTimeout: 0, headersTimeout: 0, connectTimeout: 30_000 });
+function llmFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  return fetch(input, { ...init, dispatcher: llmAgent } as RequestInit);
 }
 
 const BUILTIN_LLM = {
-  id: 'qwen3.5-4b',
-  hfUri: 'hf:Qwen/Qwen3-4B-GGUF:Qwen3-4B-Q4_K_M.gguf',
-  sizeBytes: 2_800_000_000,
+  id: 'qwen3.5:4b',
+  ollamaModel: 'qwen3.5:4b',
 };
 
-let currentModel: LoadedState | null = null;
+let ollamaClient: Ollama | null = null;
+let modelReady = false;
 let loadingPromise: Promise<void> | null = null;
 let testResponder: ((input: RunBuiltinLlmInput) => Promise<string> | string) | null = null;
-
-function formatSize(bytes: number): string {
-  if (bytes >= 1_000_000_000) return `${(bytes / 1_000_000_000).toFixed(1)}GB`;
-  if (bytes >= 1_000_000) return `${(bytes / 1_000_000).toFixed(0)}MB`;
-  return `${bytes}B`;
-}
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs?: number): Promise<T> {
   if (!timeoutMs || timeoutMs <= 0) return promise;
@@ -44,69 +37,46 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs?: number): Promise<T> {
   });
 }
 
-export function preparePromptForModel(input: RunBuiltinLlmInput): { systemPrompt?: string; userPrompt: string } {
-  let userPrompt = input.userPrompt;
-
-  // Qwen3 supports /no_think as a soft switch for direct answers.
-  if (input.disableThinking && !userPrompt.startsWith('/no_think')) {
-    userPrompt = `/no_think\n${userPrompt}`;
-  }
-
-  return {
-    systemPrompt: input.systemPrompt,
-    userPrompt,
-  };
-}
-
 export async function loadBuiltinLlm(
-  modelsDir: string,
+  _modelsDir: string,
   callbacks?: LoadModelCallbacks,
 ): Promise<void> {
   if (testResponder) return;
-  if (currentModel) return;
+  if (modelReady) return;
   if (loadingPromise) {
     await loadingPromise;
     return;
   }
 
   loadingPromise = (async () => {
-    await unloadEmbeddingModel();
+    log.info(`plugins: connecting to Ollama for model "${BUILTIN_LLM.id}"...`);
 
-    log.info(`plugins: downloading/loading built-in LLM "${BUILTIN_LLM.id}" (${formatSize(BUILTIN_LLM.sizeBytes)})...`);
+    const client = new Ollama({ fetch: llmFetch as typeof globalThis.fetch });
 
-    const modelPath = await resolveModelFile(BUILTIN_LLM.hfUri, modelsDir, callbacks?.onDownloadProgress);
-    callbacks?.onDownloadComplete?.();
-
-    log.info(`plugins: loading built-in LLM "${BUILTIN_LLM.id}" into memory...`);
-
-    const llamaCpp = await import('node-llama-cpp');
-    const { getLlama, LlamaChatSession } = llamaCpp;
-    const llama = await getLlama();
-
-    let model;
-    let context;
+    // Verify the model is available
     try {
-      model = await llama.loadModel({ modelPath });
-      context = await model.createContext({ contextSize: 8192 });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (/memory|alloc|context/i.test(msg)) {
-        log.warn(`plugins: GPU context failed (${msg}), retrying with gpuLayers=0 (CPU-only)...`);
-        if (model) await model.dispose().catch(() => {});
-        model = await llama.loadModel({ modelPath, gpuLayers: 0 });
-        context = await model.createContext({ contextSize: 8192 });
-      } else {
-        throw err;
+      const models = await client.list();
+      const available = models.models.some((m) => m.name === BUILTIN_LLM.ollamaModel || m.name.startsWith(BUILTIN_LLM.ollamaModel));
+      if (!available) {
+        log.info(`plugins: pulling model "${BUILTIN_LLM.ollamaModel}" via Ollama...`);
+        const stream = await client.pull({ model: BUILTIN_LLM.ollamaModel, stream: true });
+        for await (const progress of stream) {
+          if (progress.total && progress.completed) {
+            callbacks?.onDownloadProgress?.({
+              totalSize: progress.total,
+              downloadedSize: progress.completed,
+            });
+          }
+        }
+        callbacks?.onDownloadComplete?.();
       }
+    } catch (err) {
+      throw new Error(`Failed to connect to Ollama: ${err instanceof Error ? err.message : String(err)}. Is Ollama running?`);
     }
 
-    currentModel = {
-      model: model as LoadedState['model'],
-      context: context as LoadedState['context'],
-      LlamaChatSession: LlamaChatSession as LoadedState['LlamaChatSession'],
-    };
-
-    log.info(`plugins: built-in LLM "${BUILTIN_LLM.id}" loaded`);
+    ollamaClient = client;
+    modelReady = true;
+    log.info(`plugins: Ollama model "${BUILTIN_LLM.id}" ready`);
   })();
 
   try {
@@ -121,29 +91,34 @@ export function getBuiltinLlmRunner(): ((input: RunBuiltinLlmInput) => Promise<s
     const responder = testResponder;
     return async (input) => Promise.resolve(responder(input));
   }
-  if (!currentModel) return null;
+  if (!ollamaClient || !modelReady) return null;
 
-  const { context, LlamaChatSession } = currentModel;
+  const client = ollamaClient;
 
   return async (input: RunBuiltinLlmInput): Promise<string> => {
-    const prompt = preparePromptForModel(input);
-    const session = new LlamaChatSession({
-      contextSequence: context.getSequence(),
-      systemPrompt: prompt.systemPrompt,
-      autoDisposeSequence: true,
-    });
-
-    try {
-      const result = await withTimeout(session.prompt(prompt.userPrompt, {
-        maxTokens: input.maxTokens ?? 64,
-        temperature: input.temperature ?? 0.3,
-      }), input.timeoutMs);
-
-      log.info(`plugins: raw LLM output (${result.length} chars) for purpose="${input.purpose}": "${result.slice(0, 200)}"`);
-      return result.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
-    } finally {
-      session.dispose({ disposeSequence: true });
+    const messages: Array<{ role: 'system' | 'user'; content: string }> = [];
+    if (input.systemPrompt) {
+      messages.push({ role: 'system', content: input.systemPrompt });
     }
+    messages.push({ role: 'user', content: input.userPrompt });
+
+    const response = await withTimeout(client.chat({
+      model: BUILTIN_LLM.ollamaModel,
+      messages,
+      think: !input.disableThinking,
+      options: {
+        num_predict: input.maxTokens ?? 64,
+        temperature: input.temperature ?? 0.3,
+      },
+    }), input.timeoutMs);
+
+    const result = response.message.content;
+    log.info(`plugins: raw LLM output (${result.length} chars) for purpose="${input.purpose}": "${result.slice(0, 200)}"`);
+    const stripped = result.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+    if (stripped.length === 0 && result.length > 0) {
+      log.warn(`plugins: LLM output was entirely think tags (${result.length} chars of thinking, 0 chars of answer)`);
+    }
+    return stripped;
   };
 }
 
@@ -156,23 +131,17 @@ export async function unloadBuiltinLlm(): Promise<void> {
     }
   }
 
-  if (!currentModel) return;
-  try {
-    await currentModel.context.dispose();
-    await currentModel.model.dispose();
-  } catch (err) {
-    log.warn(`plugins: error unloading built-in LLM: ${err instanceof Error ? err.message : String(err)}`);
-  }
-  currentModel = null;
-  log.info('plugins: built-in LLM unloaded');
+  ollamaClient = null;
+  modelReady = false;
+  log.info('plugins: Ollama LLM connection released');
 }
 
 export function isBuiltinLlmLoaded(): boolean {
-  return testResponder !== null || currentModel !== null;
+  return testResponder !== null || modelReady;
 }
 
 export function getBuiltinLlmInfo(): { id: string; loaded: boolean } {
-  return { id: testResponder ? 'test-double' : BUILTIN_LLM.id, loaded: testResponder !== null || currentModel !== null };
+  return { id: testResponder ? 'test-double' : BUILTIN_LLM.id, loaded: testResponder !== null || modelReady };
 }
 
 export function __setTestLlmResponder(responder: ((input: RunBuiltinLlmInput) => Promise<string> | string) | null): void {

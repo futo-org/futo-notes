@@ -20,6 +20,7 @@
     "esbuild": "^0.25.10",
     "hono": "^4.0.0",
     "node-llama-cpp": "^3.0.0",
+    "ollama": "^0.6.3",
     "sqlite-vec": "^0.1.0",
     "yaml": "^2.8.2"
   },

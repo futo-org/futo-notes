@@ -292,6 +292,8 @@ Escaped pipes:
   let saveInFlight: Promise<void> | null = null;
   let saveQueued = false;
   let lastEditTime = 0;
+  let editVersion = 0;
+  let syncStartEditVersion = 0;
   let notesLoaded = false;
   let loading = false;
   let titleWarning = $state('');
@@ -541,10 +543,11 @@ Escaped pipes:
         // Skipping avoids a full document dispatch that loses focus (and
         // dismisses the keyboard on mobile).
         if (freshContent !== editor?.getContent()) {
-          // If the user typed while sync was in flight, keep local editing state.
-          // Skip content replacement but still refresh metadata below.
-          const userIsEditing = editor?.hasFocus() && (saveTimeout !== null || saveInFlight !== null || saveQueued || Date.now() - lastEditTime < 1000);
-          if (!userIsEditing) {
+          // If the user typed while sync was in flight, local state is newer — skip overwrite.
+          // editVersion is incremented on every keystroke; syncStartEditVersion is
+          // captured when sync begins. A mismatch means the user edited during sync.
+          const editedDuringSync = editVersion !== syncStartEditVersion;
+          if (!editedDuringSync) {
             content = freshContent;
             suppressSaveOnChange = true;
             editor?.setContent(freshContent, { preserveSelection: true });
@@ -838,6 +841,7 @@ Escaped pipes:
   function debouncedSave(): void {
     if (suppressSaveOnChange || loading || !hasFileSystem || !editor || noteId === null) return;
     lastEditTime = Date.now();
+    editVersion++;
     if (saveTimeout !== null) {
       clearTimeout(saveTimeout);
     }
@@ -927,7 +931,12 @@ Escaped pipes:
       }
 
       originalId = result.id;
-      content = newContent;
+      // Only update content state if the editor hasn't drifted during the async save.
+      // Otherwise, the stale snapshot triggers MarkdownEditor's $effect, which replaces
+      // the entire document and resets the cursor to position 0.
+      if (editor.getContent() === newContent) {
+        content = newContent;
+      }
       savedTitle = newTitle;
 
       // Patch graph data in-place so the graph view survives renames
@@ -1530,6 +1539,7 @@ Escaped pipes:
       onSyncStateChange: (active) => {
         syncWriteActive = active;
         if (active) {
+          syncStartEditVersion = editVersion;
           if (syncStatusClearTimer !== null) { clearTimeout(syncStatusClearTimer); syncStatusClearTimer = null; }
           syncStatusMessage = 'Syncing...';
           // Show indicator with minimum 1s display

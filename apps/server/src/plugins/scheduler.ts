@@ -8,7 +8,7 @@ import { log } from '../logger.js';
 import { tryAcquire, release, holder } from '../schedulerLock.js';
 import { isWithinIdleWindow } from '../search/scheduler.js';
 import { applyNoteMutationEffects } from '../sync/noteMutationEffects.js';
-import { readNoteFile, writeNoteFile } from '../sync/files.js';
+import { readNoteFile, resolveFilename, sanitizeFilename, writeNoteFile } from '../sync/files.js';
 import { contentHash } from '../sync/hash.js';
 import { getNote, upsertNote } from '../db/notes.js';
 import { extractTags, extractHeaderTagBlock } from '@futo-notes/shared';
@@ -529,6 +529,17 @@ async function applyApprovedItemsInternal(
           appliedTags: allTags,
           filename: note.filename,
         };
+      } else if (item.change_type === 'create_note') {
+        const title = String(after.title ?? '');
+        const content = String(after.content ?? '');
+        const uuid = String(after.uuid ?? item.entity_id);
+        if (!title || !content) throw new Error('create_note requires title and content');
+        const filename = resolveFilename(db, sanitizeFilename(`${title}.md`), uuid);
+        const now = Date.now();
+        writeNoteFile(config.notesPath, filename, content, now);
+        upsertNote(db, uuid, filename, contentHash(content), now);
+        changedUuids.add(uuid);
+        nextAfter = { ...after, filename, uuid };
       } else {
         throw new Error(`Unsupported change type: ${item.change_type}`);
       }

@@ -87,6 +87,7 @@ data/
 
 # Experiments live in ../notes-experiments
 experiments/
+.tmp
 
 # Verification
 test-screenshots

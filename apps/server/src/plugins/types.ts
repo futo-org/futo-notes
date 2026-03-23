@@ -3,7 +3,7 @@ export const PLUGIN_RUN_STATUSES = ['queued', 'running', 'awaiting_approval', 's
 export const PLUGIN_ITEM_STATUSES = ['suggested', 'approved', 'rejected', 'applied', 'failed'] as const;
 export const PLUGIN_TRIGGER_TYPES = ['manual', 'scheduled'] as const;
 export const PLUGIN_APPLY_MODES = ['preview', 'auto_apply'] as const;
-export const PLUGIN_CHANGE_TYPES = ['rename_note', 'merge_note_into_list', 'replace_managed_block', 'tag_note'] as const;
+export const PLUGIN_CHANGE_TYPES = ['rename_note', 'merge_note_into_list', 'replace_managed_block', 'tag_note', 'create_note'] as const;
 export const PLUGIN_LOG_LEVELS = ['debug', 'info', 'warn', 'error'] as const;
 export const PLUGIN_SOURCE_KINDS = ['builtin', 'local'] as const;
 export const PLUGIN_LOAD_STATUSES = ['ready', 'error'] as const;
@@ -145,6 +145,17 @@ export interface ReplaceManagedBlockResult {
   deletedUuids: string[];
 }
 
+export interface UserProfile {
+  updatedAt: number;
+  profiledNoteCount: number;
+  domains: string[];
+  activeProjects: string[];
+  recurringThemes: string[];
+  people: string[];
+  writingStyle: string;
+  recentNoteTitles: string[];
+}
+
 export interface PluginSdk {
   findNotes(filter?: PluginFindNotesFilter): Promise<PluginNoteMeta[]>;
   getNote(uuid: string): Promise<PluginNoteMeta | null>;
@@ -158,6 +169,8 @@ export interface PluginSdk {
   log(level: PluginLogLevel, message: string, context?: Record<string, unknown>): Promise<void>;
   getPluginState<T = unknown>(key: string): Promise<T | null>;
   setPluginState(key: string, value: unknown): Promise<void>;
+  getUserProfile(): Promise<UserProfile | null>;
+  setUserProfile(profile: UserProfile): Promise<void>;
 }
 
 export interface PluginRunContext {

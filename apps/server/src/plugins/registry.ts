@@ -2,11 +2,13 @@ import type { BuiltinPlugin, PluginRegistration } from './types.js';
 import { autoTaggerPlugin } from './autoTagger/index.js';
 import { quickCaptureToListPlugin } from './quickCaptureToList/index.js';
 import { weeklyRelatedNotesPlugin } from './weeklyRelatedNotes/index.js';
+import { dailyNotePlugin } from './dailyNote/index.js';
 
 const BUILTIN_PLUGINS: BuiltinPlugin[] = [
   autoTaggerPlugin,
   quickCaptureToListPlugin,
   weeklyRelatedNotesPlugin,
+  dailyNotePlugin,
 ];
 const LOCAL_PLUGIN_REGISTRATIONS = new Map<string, PluginRegistration>();
 

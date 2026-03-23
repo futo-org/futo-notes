@@ -21,6 +21,7 @@
   import { toggleBold, toggleItalic, toggleStrikethrough, isListLine } from '$lib/markdownToolbar';
   import { openUrl } from '$lib/openUrl';
   import { wikilinkAutocomplete } from '$lib/wikilinkAutocomplete';
+  import { typingLatencyExtension } from '$lib/typingLatency';
   import { completionKeymap } from '@codemirror/autocomplete';
   import { navigate } from '../router';
 
@@ -240,6 +241,8 @@
           onchange(update.state.doc.toString());
         }
       }),
+      // Typing latency measurement (dev only)
+      ...(import.meta.env.DEV ? typingLatencyExtension() : []),
       // Cursor context detection for toolbar
       EditorView.updateListener.of((() => {
         let lastOnList = false;
@@ -284,7 +287,7 @@
   $effect(() => {
     if (!view) return;
     if (content === view.state.doc.toString()) return;
-    setContent(content);
+    setContent(content, { preserveSelection: true });
   });
 
   $effect(() => {

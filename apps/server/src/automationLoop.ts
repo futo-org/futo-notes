@@ -326,13 +326,13 @@ async function waitForBatchCompletion(
   headers: AuthHeaders,
   batchId: string,
 ): Promise<NonNullable<PluginStatusResponse['run_all_batch']>> {
-  for (let attempt = 0; attempt < 800; attempt += 1) {
+  for (let attempt = 0; attempt < 6000; attempt += 1) {
     const status = await requestJson<PluginStatusResponse>(app, 'GET', '/plugins/status', undefined, headers);
     const batch = status.data.run_all_batch;
     if (batch && batch.batch_id === batchId && batch.status === 'completed') {
       return batch;
     }
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await new Promise((resolve) => setTimeout(resolve, 100));
   }
 
   throw new Error(`Timed out waiting for automation batch ${batchId}`);

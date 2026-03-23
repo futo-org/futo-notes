@@ -14,6 +14,28 @@ Two modes: **change verification** (what did I break?) and **feature verificatio
 
 For feature verification, skip to Step 2 and pick the relevant chains yourself based on the feature. Always include Step 3 (UI verification) if the feature is user-facing.
 
+## Instance Setup (always run first)
+
+Multiple Tauri instances can run simultaneously from different git worktrees. Each worktree gets unique ports derived from its path so instances never collide. Run this once at the start of every `/verify` invocation and reference the variables in all subsequent commands.
+
+```bash
+WORKTREE_ROOT="$(git rev-parse --show-toplevel)"
+SLOT=$(( $(printf "%d" "0x$(echo -n "$WORKTREE_ROOT" | md5sum | cut -c1-8)") % 50 ))
+VITE_PORT=$(( 5200 + SLOT ))
+WEB_VITE_PORT=$(( 5250 + SLOT ))
+TAURI_LOG="/tmp/tauri-verify-${SLOT}.log"
+PID_FILE="/tmp/tauri-verify-${SLOT}.pid"
+echo "Worktree: $WORKTREE_ROOT → Vite port $VITE_PORT, web port $WEB_VITE_PORT (slot $SLOT)"
+```
+
+Since shell variables don't persist between separate Bash tool calls, **re-compute these values** (or source-paste them) at the start of any Bash block that needs them.
+
+| Purpose | Range | Notes |
+|---|---|---|
+| Tauri Vite (per worktree) | 5200–5249 | Avoids 5173/5180–5182 |
+| Web Vite (per worktree) | 5250–5299 | Separate from Tauri range |
+| MCP bridge | 9223–9322 | Plugin auto-scans; we discover after launch |
+
 ## Step 1: Detect what changed (change verification mode only)
 
 Collect all changed files — last commit, staged, and unstaged:
@@ -123,9 +145,9 @@ mkdir -p ./test-screenshots
 
 ### Choosing web vs Tauri
 
-The web dev server (port 5173) stubs out all Tauri commands — it cannot exercise any code path that flows through Rust `#[tauri::command]` handlers, native file system operations, `@tauri-apps/*` plugin APIs, or platform-specific behavior. Many frontend files in this codebase depend on Tauri APIs (`invoke()`, `@tauri-apps/plugin-dialog`, `@tauri-apps/plugin-clipboard-manager`, etc.).
+The web dev server stubs out all Tauri commands — it cannot exercise any code path that flows through Rust `#[tauri::command]` handlers, native file system operations, `@tauri-apps/*` plugin APIs, or platform-specific behavior. Many frontend files in this codebase depend on Tauri APIs (`invoke()`, `@tauri-apps/plugin-dialog`, `@tauri-apps/plugin-clipboard-manager`, etc.).
 
-**Use the Tauri desktop app (port 5180) when ANY of these are true:**
+**Use the Tauri desktop app when ANY of these are true:**
 - `tauri-rust` is in the detected categories (Rust backend changed)
 - Changed frontend files import from `@tauri-apps/*`, call `invoke()`, or use `rustCore`
 - The feature involves file I/O, native dialogs, clipboard, window management, titlebar, or any platform API
@@ -139,7 +161,7 @@ grep -rl 'invoke\|@tauri-apps\|rustCore' $(git diff --name-only HEAD~1 HEAD 2>/d
 ```
 If any files match → use Tauri. If none match and changes are purely CSS/markdown/CodeMirror decorations → web is acceptable.
 
-**Use the web dev server (port 5173) ONLY when:**
+**Use the web dev server ONLY when:**
 - Changes are purely CSS / Tailwind styling
 - Changes are purely CodeMirror decorations / markdown rendering (no Tauri API calls)
 - No Rust changes involved
@@ -149,11 +171,17 @@ If any files match → use Tauri. If none match and changes are purely CSS/markd
 
 Uses `agent-browser` (Rust CLI) — faster than Playwright MCP, handles CodeMirror typing natively, and supports annotated screenshots with element labels.
 
-1. Start the dev server, then open in agent-browser:
+1. Start the dev server on the worktree-specific port, then open in agent-browser:
 ```bash
-pnpm run dev &
+# Re-compute instance variables (see Instance Setup)
+WORKTREE_ROOT="$(git rev-parse --show-toplevel)"
+SLOT=$(( $(printf "%d" "0x$(echo -n "$WORKTREE_ROOT" | md5sum | cut -c1-8)") % 50 ))
+WEB_VITE_PORT=$(( 5250 + SLOT ))
+
+pnpm run dev -- --port $WEB_VITE_PORT --strictPort &
+VITE_PID=$!
 sleep 4
-agent-browser open http://localhost:5173
+agent-browser open http://localhost:$WEB_VITE_PORT
 ```
 
 2. Interact via agent-browser CLI:
@@ -171,28 +199,76 @@ agent-browser eval 'document.querySelector("[data-wikilink]").click()'        # 
 3. Clean up:
 ```bash
 agent-browser close
-pkill -f "vite" 2>/dev/null
+kill $VITE_PID 2>/dev/null
 ```
 
 ### Desktop (Tauri — the default for most features)
 
-This is the real app. Use it whenever the feature touches platform APIs, Rust commands, or anything beyond pure CSS/markdown rendering. The app has `tauri-plugin-mcp-bridge` installed (debug builds only), which exposes the Tauri MCP tools for direct webview interaction.
+This is the real app. Use it whenever the feature touches platform APIs, Rust commands, or anything beyond pure CSS/markdown rendering. The app has `tauri-plugin-mcp-bridge` installed (debug builds only), which exposes the Tauri MCP tools for direct webview interaction. The MCP bridge auto-scans ports 9223–9322 so multiple instances coexist.
 
-1. Kill any stale Tauri processes, then launch fresh:
+1. Check for an already-running instance from this worktree, or kill stale and launch fresh:
 ```bash
-pkill -f "futo-notes-tauri" 2>/dev/null
-pkill -f "cargo-tauri" 2>/dev/null
-sleep 2
-pnpm run tauri:dev &
-# Tauri compiles Rust + starts Vite on port 5180; first build is slow (~60s), rebuilds are faster (~20s)
-```
-Wait for the MCP bridge to be ready (port 9223):
-```bash
-for i in $(seq 1 90); do ss -tlnp 2>/dev/null | grep -q 9223 && echo "MCP bridge ready" && break; sleep 2; done
+# Re-compute instance variables (see Instance Setup)
+WORKTREE_ROOT="$(git rev-parse --show-toplevel)"
+SLOT=$(( $(printf "%d" "0x$(echo -n "$WORKTREE_ROOT" | md5sum | cut -c1-8)") % 50 ))
+VITE_PORT=$(( 5200 + SLOT ))
+TAURI_LOG="/tmp/tauri-verify-${SLOT}.log"
+PID_FILE="/tmp/tauri-verify-${SLOT}.pid"
+
+# Check if this worktree already has a running instance
+ALREADY_RUNNING=false
+if [ -f "$PID_FILE" ]; then
+  CARGO_PID=$(cat "$PID_FILE")
+  if kill -0 "$CARGO_PID" 2>/dev/null; then
+    echo "Tauri already running for this worktree (PID $CARGO_PID)"
+    ALREADY_RUNNING=true
+  else
+    rm -f "$PID_FILE"
+  fi
+fi
+
+if [ "$ALREADY_RUNNING" = false ]; then
+  # Kill stale instance for THIS worktree only (not other worktrees)
+  if [ -f "$PID_FILE" ]; then
+    CARGO_PID=$(cat "$PID_FILE")
+    kill -- -$(ps -o pgid= "$CARGO_PID" | tr -d ' ') 2>/dev/null
+    rm -f "$PID_FILE"
+    sleep 2
+  fi
+
+  # Launch with worktree-specific Vite port via inline config override
+  cd "$WORKTREE_ROOT/apps/tauri" && \
+    WINIT_UNIX_BACKEND=wayland GDK_BACKEND=wayland WEBKIT_DISABLE_DMABUF_RENDERER=1 \
+    cargo tauri dev \
+      --config src-tauri/tauri.dev.conf.json \
+      --config '{"build":{"beforeDevCommand":"npm run dev --prefix ../.. -- --host 127.0.0.1 --port '"$VITE_PORT"' --strictPort","devUrl":"http://127.0.0.1:'"$VITE_PORT"'"}}' \
+    > "$TAURI_LOG" 2>&1 &
+  echo $! > "$PID_FILE"
+  # First build is slow (~60s), rebuilds are faster (~20s)
+fi
 ```
 
-2. Connect via Tauri MCP tools:
-   - `driver_session` with action `start` to connect to the running app
+Discover the MCP bridge port from the log (the plugin prints its actual port on startup):
+```bash
+TAURI_LOG="/tmp/tauri-verify-${SLOT}.log"
+for i in $(seq 1 90); do
+  MCP_PORT=$(grep -oP "initialized for .* on [^:]+:\K\d+" "$TAURI_LOG" 2>/dev/null | tail -1)
+  [ -n "$MCP_PORT" ] && echo "MCP bridge ready on port $MCP_PORT" && break
+  sleep 2
+done
+
+# Fallback: scan for the Tauri process listening in the MCP port range
+if [ -z "$MCP_PORT" ]; then
+  TAURI_PID=$(pgrep -f "futo-notes-tauri" --newest 2>/dev/null)
+  if [ -n "$TAURI_PID" ]; then
+    MCP_PORT=$(ss -tlnp 2>/dev/null | grep "pid=$TAURI_PID" | grep -oP ':\K(92[2-9]\d|93[01]\d|932[0-2])' | head -1)
+  fi
+fi
+echo "Using MCP bridge port: $MCP_PORT"
+```
+
+2. Connect via Tauri MCP tools — pass the discovered port:
+   - `driver_session` with action `start` and **`port` set to the discovered `$MCP_PORT`** (do NOT hardcode 9223)
    - `webview_dom_snapshot` (type: accessibility) to see the current UI state with element refs
    - `webview_interact` to click, scroll, swipe elements (by CSS selector, text, or ref ID)
    - `webview_keyboard` to type text or press keys (for CodeMirror, use `webview_execute_js` with `document.execCommand('insertText', false, 'text')` since CM6 in WebKit doesn't respond to synthetic key events)
@@ -202,12 +278,18 @@ for i in $(seq 1 90); do ss -tlnp 2>/dev/null | grep -q 9223 && echo "MCP bridge
 
    Note: Native Tauri dialogs (`@tauri-apps/plugin-dialog`) are NOT in the DOM. Use coordinate-based `webview_interact` clicks based on screenshot positions to interact with them.
 
-3. Clean up:
+3. Clean up — kill only THIS worktree's processes:
    - `driver_session` with action `stop`
-   - Then kill processes:
+   - Then kill the process tree:
 ```bash
-pkill -f "cargo-tauri" 2>/dev/null
-pkill -f "futo-notes-tauri" 2>/dev/null
+WORKTREE_ROOT="$(git rev-parse --show-toplevel)"
+SLOT=$(( $(printf "%d" "0x$(echo -n "$WORKTREE_ROOT" | md5sum | cut -c1-8)") % 50 ))
+PID_FILE="/tmp/tauri-verify-${SLOT}.pid"
+if [ -f "$PID_FILE" ]; then
+  CARGO_PID=$(cat "$PID_FILE")
+  kill -- -$(ps -o pgid= "$CARGO_PID" | tr -d ' ') 2>/dev/null
+  rm -f "$PID_FILE" "/tmp/tauri-verify-${SLOT}.log"
+fi
 ```
 
 ### Android
@@ -237,8 +319,16 @@ adb shell pidof com.futo.notes  # confirm running
 
 4. Connect the Tauri MCP bridge. The bridge plugin runs inside the Android WebView and listens on a local socket. Forward its port to localhost, then connect:
 ```bash
-# Kill any stale desktop Tauri process that might hold port 9223
-pkill -f "futo-notes-tauri" 2>/dev/null; sleep 1
+# Kill this worktree's stale desktop Tauri process if it holds port 9223
+WORKTREE_ROOT="$(git rev-parse --show-toplevel)"
+SLOT=$(( $(printf "%d" "0x$(echo -n "$WORKTREE_ROOT" | md5sum | cut -c1-8)") % 50 ))
+PID_FILE="/tmp/tauri-verify-${SLOT}.pid"
+if [ -f "$PID_FILE" ]; then
+  CARGO_PID=$(cat "$PID_FILE")
+  kill -- -$(ps -o pgid= "$CARGO_PID" | tr -d ' ') 2>/dev/null
+  rm -f "$PID_FILE" "/tmp/tauri-verify-${SLOT}.log"
+  sleep 1
+fi
 # Forward the Android app's MCP bridge port
 adb forward tcp:9223 tcp:9223
 ```
@@ -264,7 +354,7 @@ adb forward --remove tcp:9223 2>/dev/null
 **Important Android MCP notes:**
 - The MCP bridge operates inside the WebView, so it sees the same DOM as the user. It cannot interact with native Android UI outside the WebView (e.g., system permission dialogs).
 - `adb shell input tap` is unreliable for WebView content — coordinates don't map 1:1 due to device pixel ratio and viewport offsets. Always prefer `webview_interact` with selectors or ref IDs.
-- If the MCP bridge port (9223) is blocked by a stale desktop Tauri process, kill it first with `pkill -f "futo-notes-tauri"`.
+- If the MCP bridge port (9223) is blocked by a stale desktop Tauri process, kill it using the PID file for the current worktree (see cleanup pattern above).
 - For video recording (e.g., animation verification), use `adb shell screenrecord` — the MCP tools don't support video capture.
 
 ### What to look for
