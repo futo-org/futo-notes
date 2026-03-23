@@ -155,17 +155,21 @@ async function main() {
 
   // 3. Editor present + typing
   await check('editor present + typing', async () => {
-    // Check editor exists
-    const editorCheck = await send(ws, 'execute_js', {
-      script: `(() => {
-        const el = document.querySelector('.cm-editor');
-        return el ? 'found' : 'missing';
-      })()`,
-    });
-    // editorCheck may be wrapped in a data field — extract the value
-    const editorVal = editorCheck?.result ?? editorCheck?.data ?? editorCheck;
-    if (String(editorVal).includes('missing')) {
-      throw new Error('.cm-editor not found in DOM');
+    // Wait for editor to appear — app may still be loading/routing
+    let editorFound = false;
+    for (let attempt = 0; attempt < 15; attempt++) {
+      const editorCheck = await send(ws, 'execute_js', {
+        script: `(() => {
+          const el = document.querySelector('.cm-editor');
+          return el ? 'found' : 'missing';
+        })()`,
+      });
+      const editorVal = String(editorCheck?.result ?? editorCheck?.data ?? editorCheck);
+      if (editorVal.includes('found')) { editorFound = true; break; }
+      await sleep(2_000);
+    }
+    if (!editorFound) {
+      throw new Error('.cm-editor not found in DOM after 30s');
     }
 
     // Focus and type

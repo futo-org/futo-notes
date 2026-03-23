@@ -74,7 +74,9 @@ build_ios_task:
     - echo "Building iOS version $VERSION"
 
     # Install dependencies
-    - npm ci
+    - corepack enable
+    - corepack prepare pnpm@10.29.2 --activate
+    - pnpm install --frozen-lockfile
 
     # Set version in tauri.conf.json from git tag
     - |
@@ -186,7 +188,9 @@ build_macos_task:
     - echo "Building macOS version $VERSION"
 
     # Install dependencies
-    - npm ci
+    - corepack enable
+    - corepack prepare pnpm@10.29.2 --activate
+    - pnpm install --frozen-lockfile
 
     # Set version in tauri.conf.json from git tag
     - |
