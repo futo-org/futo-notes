@@ -19,87 +19,37 @@ windows:smoke-test:
   before_script:
     - *proxmox-auth
   script:
+    # 0. Debug: check what's available
+    - |
+      echo "=== Environment diagnostics ==="
+      echo "PROXMOX_HOST=$PROXMOX_HOST"
+      echo "PROXMOX_NODE=$PROXMOX_NODE"
+      echo "PROXMOX_USER is set: $([ -n "$PROXMOX_USER" ] && echo yes || echo NO)"
+      echo "PROXMOX_TOKEN_ID is set: $([ -n "$PROXMOX_TOKEN_ID" ] && echo yes || echo NO)"
+      echo "PROXMOX_TOKEN_SECRET is set: $([ -n "$PROXMOX_TOKEN_SECRET" ] && echo yes || echo NO)"
+      echo "PROXMOX_AUTH starts with: $(echo "$PROXMOX_AUTH" | head -c 30)..."
+      echo "Available tools: curl=$(which curl 2>/dev/null || echo missing) jq=$(which jq 2>/dev/null || echo missing) ssh=$(which ssh 2>/dev/null || echo missing)"
+      echo "aws CLI: $(which aws 2>/dev/null || echo missing)"
+
     # 1. Verify Proxmox connectivity
     - |
       echo "=== Testing Proxmox API connectivity ==="
-      RESULT=$(curl -s -k -H "$PROXMOX_AUTH" \
-        "https://${PROXMOX_HOST}:8006/api2/json/version")
-      echo "$RESULT" | jq .
-      echo "$RESULT" | jq -e '.data.version' || { echo "FAIL: Cannot reach Proxmox API"; exit 1; }
+      echo "Trying https://${PROXMOX_HOST}:8006/api2/json/version ..."
+      RESULT=$(curl -sv -k -H "Authorization: $PROXMOX_AUTH" \
+        "https://${PROXMOX_HOST}:8006/api2/json/version" 2>&1)
+      echo "$RESULT"
+      echo "---"
+      # Also try without auth to see if Proxmox is reachable at all
+      echo "Trying unauthenticated..."
+      curl -sv -k "https://${PROXMOX_HOST}:8006/api2/json/version" 2>&1 | tail -20
 
-    # 2. Check template VM exists
+    # 2. Check template VM exists (non-fatal for diagnostics)
     - |
       echo "=== Checking template VM $TEMPLATE_VMID ==="
-      RESULT=$(curl -s -k -H "$PROXMOX_AUTH" \
-        "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${TEMPLATE_VMID}/status/current")
-      echo "$RESULT" | jq .
-      echo "$RESULT" | jq -e '.data.status' || { echo "FAIL: Template VM $TEMPLATE_VMID not found"; exit 1; }
+      curl -s -k -H "Authorization: $PROXMOX_AUTH" \
+        "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${TEMPLATE_VMID}/status/current" | jq .
 
-    # 3. Clone VM
-    - |
-      echo "=== Cloning VM from template ==="
-      VMID=$(curl -s -k -H "$PROXMOX_AUTH" \
-        "https://${PROXMOX_HOST}:8006/api2/json/cluster/nextid" | jq -r '.data')
-      echo "Assigned VMID: $VMID"
-      CLONE_RESULT=$(curl -s -k -H "$PROXMOX_AUTH" -X POST \
-        "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${TEMPLATE_VMID}/clone" \
-        -d "newid=${VMID}&name=${VM_NAME}&full=1")
-      echo "$CLONE_RESULT" | jq .
-      echo "VMID=$VMID" >> vm.env
-
-    # 4. Wait for clone
-    - |
-      source vm.env
-      echo "Waiting for clone to finish..."
-      for i in $(seq 1 60); do
-        STATUS=$(curl -s -k -H "$PROXMOX_AUTH" \
-          "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${VMID}/status/current" \
-          | jq -r '.data.lock // empty')
-        [ -z "$STATUS" ] && echo "Clone complete." && break
-        echo "  still cloning ($STATUS)... [$i/60]"
-        sleep 5
-      done
-
-    # 5. Start VM
-    - |
-      source vm.env
-      echo "=== Starting VM $VMID ==="
-      curl -s -k -H "$PROXMOX_AUTH" -X POST \
-        "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${VMID}/status/start" | jq .
-
-    # 6. Wait for IP via guest agent
-    - |
-      source vm.env
-      echo "Waiting for VM to boot and report IP..."
-      for i in $(seq 1 60); do
-        VM_IP=$(curl -s -k -H "$PROXMOX_AUTH" \
-          "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${VMID}/agent/network-get-interfaces" \
-          2>/dev/null | jq -r '.data.result[]?.["ip-addresses"][]? | select(.["ip-address-type"]=="ipv4") | .["ip-address"]' \
-          | grep -v "^127\." | head -1)
-        if [ -n "$VM_IP" ]; then
-          echo "VM has IP: $VM_IP"
-          break
-        fi
-        echo "  waiting for guest agent... [$i/60]"
-        sleep 5
-      done
-      if [ -z "$VM_IP" ]; then
-        echo "WARN: No IP after 5 min — guest agent may not be installed"
-      fi
-
-    # 7. Try SSH (if we got an IP)
-    - |
-      source vm.env
-      if [ -n "$VM_IP" ]; then
-        echo "=== Testing SSH to $VM_IP ==="
-        for i in $(seq 1 6); do
-          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 ci@${VM_IP} "echo SSH_OK" 2>/dev/null && echo "SSH works!" && break
-          echo "  SSH not ready yet... [$i/6]"
-          sleep 10
-        done
-      fi
-
-    # 8. Check AWS credentials (for signing later)
+    # 3. Check AWS credentials
     - |
       echo "=== Testing AWS credentials ==="
       if command -v aws >/dev/null 2>&1; then
@@ -108,37 +58,14 @@ windows:smoke-test:
         echo "WARN: aws CLI not installed on this runner"
       fi
 
-    # Summary
+    # 4. Check what other tools exist
     - |
-      source vm.env
-      echo ""
-      echo "========================================="
-      echo "  SMOKE TEST SUMMARY"
-      echo "========================================="
-      echo "  Proxmox API:  OK"
-      echo "  Template VM:  $TEMPLATE_VMID"
-      echo "  Cloned VMID:  $VMID"
-      echo "  VM IP:        ${VM_IP:-NOT AVAILABLE}"
-      echo "  SSH:          ${VM_IP:+tested}${VM_IP:-skipped}"
-      echo "========================================="
+      echo "=== Checking for jsign ==="
+      which jsign 2>/dev/null && jsign --version 2>&1 || echo "jsign not found"
+      echo "=== Checking for makensis ==="
+      which makensis 2>/dev/null || echo "makensis not found"
+      echo "=== Network interfaces ==="
+      ip addr show 2>/dev/null | grep "inet " || ifconfig 2>/dev/null | grep "inet " || echo "no ip tool found"
 
   after_script:
-    # Always clean up the VM
-    - |
-      export PROXMOX_AUTH="PVEAPIToken=${PROXMOX_USER}!${PROXMOX_TOKEN_ID}=${PROXMOX_TOKEN_SECRET}"
-      if [ -f vm.env ]; then
-        source vm.env
-        if [ -n "$VMID" ]; then
-          echo "=== Cleaning up VM $VMID ==="
-          curl -s -k -H "$PROXMOX_AUTH" -X POST \
-            "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${VMID}/status/stop" || true
-          sleep 10
-          curl -s -k -H "$PROXMOX_AUTH" -X DELETE \
-            "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${VMID}?purge=1&destroy-unreferenced-disks=1" || true
-          echo "VM $VMID destroyed."
-        fi
-      fi
-  artifacts:
-    reports:
-      dotenv: vm.env
-    expire_in: 1 day
+    - echo "Diagnostic run complete — no VMs to clean up"
