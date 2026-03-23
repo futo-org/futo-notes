@@ -1,641 +1,147 @@
-default:
-  tags:
-    - dind
-  image: gitlab.futo.org:5050/futocore/ci/kitchensink:latest
-  interruptible: true
-  before_script:
-    - . $HOME/.nvm/nvm.sh
-    - corepack enable
-    - corepack prepare pnpm@10.29.2 --activate
-    - export PATH="$CARGO_HOME/bin:$PATH"
-
-variables:
-  CARGO_HOME: $CI_PROJECT_DIR/.cargo-home
-  PNPM_STORE_DIR: $CI_PROJECT_DIR/.pnpm-store
-  PLAYWRIGHT_BROWSERS_PATH: $CI_PROJECT_DIR/.cache-ms-playwright
-
-workflow:
-  rules:
-    - if: $CI_COMMIT_TAG
-    - if: $CI_MERGE_REQUEST_IID
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+# Temporary test pipeline — Windows CI infra smoke test
+# Full pipeline backed up at .gitlab-ci.yml.full-with-windows
 
 stages:
-  - cleanup
   - test
-  - build
-  - publish
-  - release
 
-# ─────────────────────────────────────────────────────────────
-# Reusable script fragments
-# ─────────────────────────────────────────────────────────────
+.proxmox-auth: &proxmox-auth
+  - export PROXMOX_AUTH="PVEAPIToken=${PROXMOX_USER}!${PROXMOX_TOKEN_ID}=${PROXMOX_TOKEN_SECRET}"
 
-.setup-rust:
-  script:
-    - |
-      if ! command -v rustup >/dev/null 2>&1; then
-        curl https://sh.rustup.rs -sSf | sh -s -- -y
-        export PATH="$CARGO_HOME/bin:$PATH"
-      fi
-    - rustup default stable
-    - |
-      if command -v cargo-tauri >/dev/null 2>&1; then
-        echo "cargo-tauri already installed (cached)"
-      else
-        echo "Installing cargo-binstall..."
-        curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
-        echo "Installing tauri-cli via binstall..."
-        cargo binstall tauri-cli --no-confirm --locked
-      fi
-
-.setup-linux-deps:
-  script:
-    - |
-      if command -v apt-get >/dev/null 2>&1; then
-        apt-get update
-        DEBIAN_FRONTEND=noninteractive apt-get install -y \
-          libwebkit2gtk-4.1-dev \
-          libgtk-3-dev \
-          libayatana-appindicator3-dev \
-          librsvg2-dev \
-          patchelf \
-          xdg-utils
-      fi
-
-.set-version:
-  script:
-    - |
-      VERSION="${CI_COMMIT_TAG#v}"
-      echo "VERSION=$VERSION" >> build.env
-      echo "Building version $VERSION from tag $CI_COMMIT_TAG"
-      node -e "
-        const fs = require('fs');
-        const f = 'apps/tauri/src-tauri/tauri.conf.json';
-        const c = JSON.parse(fs.readFileSync(f, 'utf8'));
-        c.version = '$VERSION';
-        fs.writeFileSync(f, JSON.stringify(c, null, 2) + '\n');
-      "
-
-# ─────────────────────────────────────────────────────────────
-# Cache templates
-# ─────────────────────────────────────────────────────────────
-
-.cache-pnpm:
-  cache:
-    key:
-      files:
-        - pnpm-lock.yaml
-    paths:
-      - .pnpm-store/
-    policy: pull-push
-
-.cache-cargo-tauri:
-  cache:
-    key:
-      files:
-        - apps/tauri/src-tauri/Cargo.lock
-    paths:
-      - .cargo-home/
-      - apps/tauri/src-tauri/target/
-    policy: pull-push
-
-.cache-cargo-cli:
-  cache:
-    key:
-      files:
-        - apps/cli/Cargo.lock
-    paths:
-      - .cargo-home/
-      - apps/cli/target/
-    policy: pull-push
-
-.cache-playwright:
-  cache:
-    key:
-      prefix: playwright
-      files:
-        - pnpm-lock.yaml
-    paths:
-      - .cache-ms-playwright/
-    policy: pull-push
-
-# ─────────────────────────────────────────────────────────────
-# Cleanup
-# ─────────────────────────────────────────────────────────────
-
-docker:prune:
-  stage: cleanup
-  script:
-    - docker system prune -af --volumes
-    - df -h /
-  allow_failure: true
-
-# ─────────────────────────────────────────────────────────────
-# Tests
-# ─────────────────────────────────────────────────────────────
-
-lint:
+windows:smoke-test:
   stage: test
-  needs: [docker:prune]
-  cache:
-    - !reference [.cache-pnpm, cache]
-  script:
-    - pnpm install --frozen-lockfile
-    - pnpm run lint
-    - pnpm run lint:platform
-
-test:unit:
-  stage: test
-  needs: [docker:prune]
-  cache:
-    - !reference [.cache-pnpm, cache]
-  script:
-    - pnpm install --frozen-lockfile
-    - pnpm run test:unit
-
-test:e2e:
-  stage: test
-  needs: [docker:prune]
-  cache:
-    - !reference [.cache-pnpm, cache]
-    - !reference [.cache-playwright, cache]
-  script:
-    - pnpm install --frozen-lockfile
-    - pnpm exec playwright install --with-deps chromium
-    - pnpm test
-
-test:server:
-  stage: test
-  needs: [docker:prune]
-  cache:
-    - !reference [.cache-pnpm, cache]
-  script:
-    - pnpm install --frozen-lockfile
-    - pnpm run server:test
-
-test:server:smoke:
-  stage: test
-  needs: [docker:prune]
-  rules:
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-    - if: $CI_COMMIT_TAG
-  script:
-    - IMAGE_SHA=$(docker build -q -f apps/server/Dockerfile .)
-    - CONTAINER="sf-smoke-${CI_JOB_ID}"
-    - docker rm -f "$CONTAINER" 2>/dev/null || true
-    - docker run --rm -d --name "$CONTAINER" -e SEARCH_ENABLED=false -e TRANSFORMS_ENABLED=false "$IMAGE_SHA"
-    - |
-      cleanup() { docker logs "$CONTAINER" 2>&1 || true; docker stop "$CONTAINER" 2>/dev/null || true; }
-      trap cleanup EXIT
-      for i in $(seq 1 10); do
-        docker exec "$CONTAINER" node -e "fetch('http://localhost:3005/health').then(r=>{if(!r.ok)throw r;process.exit(0)}).catch(()=>process.exit(1))" && exit 0
-        sleep 2
-      done
-      echo "Health check failed after 10 retries"
-      exit 1
-
-test:rust:
-  stage: test
-  needs: [docker:prune]
-  rules:
-    - if: $CI_COMMIT_TAG
-    - if: $CI_MERGE_REQUEST_IID
-  cache:
-    - !reference [.cache-pnpm, cache]
-    - !reference [.cache-cargo-tauri, cache]
-  script:
-    - pnpm install --frozen-lockfile
-    - !reference [.setup-linux-deps, script]
-    - !reference [.setup-rust, script]
-    - pnpm run tauri:test:rust
-
-test:rust:macos:
-  stage: test
+  image: alpine:latest
   tags:
-    - macscript
-  needs: [docker:prune]
-  allow_failure: true
-  before_script:
-    - env | grep -E '^(CI_)' > .cienv
-  rules:
-    - if: $CI_COMMIT_TAG
-    - if: $CI_MERGE_REQUEST_IID
-  script:
-    - cirrus run testRustMacOS --artifacts-dir . --env-file .cienv
-
-test:desktop-smoke:
-  stage: test
-  needs: [docker:prune]
-  rules:
-    - if: $CI_COMMIT_TAG
-    - if: $CI_MERGE_REQUEST_IID
-      changes:
-        - apps/tauri/**/*
-        - src/**/*
-        - packages/shared/**/*
-  cache:
-    - !reference [.cache-pnpm, cache]
-    - !reference [.cache-cargo-tauri, cache]
-  script:
-    - pnpm install --frozen-lockfile
-    - !reference [.setup-linux-deps, script]
-    - !reference [.setup-rust, script]
-    - DEBIAN_FRONTEND=noninteractive apt-get install -y xvfb
-    # Build frontend + debug binary
-    - pnpm run build
-    - cd apps/tauri && cargo tauri build --debug --no-bundle && cd ../..
-    # Pre-configure notes dir so app boots to editor
-    - |
-      NOTES_DIR=$(mktemp -d)
-      mkdir -p ~/.local/share/com.futo.notes
-      echo '{"notesDir":"'"$NOTES_DIR"'"}' > ~/.local/share/com.futo.notes/notes-dir-override.json
-    # Launch under xvfb
-    - |
-      TAURI_LOG="/tmp/tauri-smoke.log"
-      WEBKIT_DISABLE_DMABUF_RENDERER=1 \
-        xvfb-run -a --server-args="-screen 0 1280x800x24" \
-        apps/tauri/src-tauri/target/debug/futo-notes-tauri > "$TAURI_LOG" 2>&1 &
-    # Run smoke tests (script handles port discovery + retries)
-    - node tests/desktop-smoke.mjs --log-file /tmp/tauri-smoke.log
-  after_script:
-    - kill $(pgrep -f futo-notes-tauri) 2>/dev/null || true
-  artifacts:
-    when: always
-    paths:
-      - test-screenshots/smoke-*.png
-      - test-screenshots/smoke-results.json
-    expire_in: 1 week
-
-test:desktop-smoke:macos:
-  stage: test
-  tags:
-    - macscript
-  needs: [docker:prune]
-  allow_failure: true
-  before_script:
-    - env | grep -E '^(CI_)' > .cienv
-  rules:
-    - if: $CI_COMMIT_TAG
-    - if: $CI_MERGE_REQUEST_IID
-      changes:
-        - apps/tauri/**/*
-        - src/**/*
-  script:
-    - cirrus run testDesktopSmokeMacOS --artifacts-dir . --env-file .cienv
-
-# ─────────────────────────────────────────────────────────────
-# Docker (default branch only)
-# ─────────────────────────────────────────────────────────────
-
-docker:publish:
-  stage: build
-  needs:
-    - job: test:server
-    - job: test:server:smoke
-      optional: true
-  script:
-    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
-    - docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
-    - docker buildx create --use --name multiarch
-    - |
-      export IMAGE="$CI_REGISTRY_IMAGE/server"
-      docker buildx build -f apps/server/Dockerfile \
-        --platform linux/amd64,linux/arm64 \
-        -t "$IMAGE:latest" --push .
-  rules:
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-
-# ─────────────────────────────────────────────────────────────
-# CLI
-# ─────────────────────────────────────────────────────────────
-
-cli:test:
-  stage: test
-  needs: [docker:prune]
-  cache:
-    - !reference [.cache-cargo-cli, cache]
-  script:
-    - !reference [.setup-rust, script]
-    - cd apps/cli
-    - cargo test
-  rules:
-    - if: $CI_COMMIT_TAG
-    - if: $CI_MERGE_REQUEST_IID
-      changes:
-        - apps/cli/**/*
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-      changes:
-        - apps/cli/**/*
-
-cli:build:amd64:
-  stage: build
-  needs: [cli:test]
-  cache:
-    - !reference [.cache-cargo-cli, cache]
-  script:
-    - !reference [.setup-rust, script]
-    - cd apps/cli
-    - |
-      VERSION="${CI_COMMIT_TAG#v}"
-      [ -z "$VERSION" ] && VERSION="dev"
-      mkdir -p dist
-      STONEFRUIT_VERSION="$VERSION" cargo build --release
-      cp target/release/stonefruit "dist/stonefruit-linux-amd64"
-  artifacts:
-    paths:
-      - apps/cli/dist/
-    expire_in: 4 weeks
-  rules:
-    - if: $CI_COMMIT_TAG
-    - if: $CI_MERGE_REQUEST_IID
-      changes:
-        - apps/cli/**/*
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-      changes:
-        - apps/cli/**/*
-
-cli:build:arm64:
-  stage: build
-  needs: [cli:test]
-  cache:
-    - !reference [.cache-cargo-cli, cache]
-  script:
-    - !reference [.setup-rust, script]
-    - cd apps/cli
-    - |
-      rustup target add aarch64-unknown-linux-gnu
-      apt-get update -qq && apt-get install -y -qq gcc-aarch64-linux-gnu >/dev/null 2>&1 || true
-      export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
-      VERSION="${CI_COMMIT_TAG#v}"
-      [ -z "$VERSION" ] && VERSION="dev"
-      mkdir -p dist
-      STONEFRUIT_VERSION="$VERSION" cargo build --release --target aarch64-unknown-linux-gnu
-      cp target/aarch64-unknown-linux-gnu/release/stonefruit "dist/stonefruit-linux-arm64"
-  artifacts:
-    paths:
-      - apps/cli/dist/
-    expire_in: 4 weeks
-  rules:
-    - if: $CI_COMMIT_TAG
-    - if: $CI_MERGE_REQUEST_IID
-      changes:
-        - apps/cli/**/*
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-      changes:
-        - apps/cli/**/*
-
-cli:publish:
-  stage: publish
-  image: curlimages/curl:latest
-  needs: [cli:build:amd64, cli:build:arm64]
-  interruptible: false
-  before_script: []
-  script:
-    - |
-      VERSION="${CI_COMMIT_TAG#v}"
-      for f in apps/cli/dist/stonefruit-*; do
-        [ -f "$f" ] || continue
-        NAME=$(basename "$f")
-        echo "Uploading $NAME"
-        curl --fail --header "JOB-TOKEN: $CI_JOB_TOKEN" \
-          --upload-file "$f" \
-          "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/stonefruit-cli/${VERSION}/${NAME}"
-      done
-  rules:
-    - if: $CI_COMMIT_TAG
-
-# ─────────────────────────────────────────────────────────────
-# Builds (tags only)
-# ─────────────────────────────────────────────────────────────
-
-build:linux:
-  stage: build
-  needs: [lint, test:unit, test:e2e]
-  cache:
-    - !reference [.cache-pnpm, cache]
-    - !reference [.cache-cargo-tauri, cache]
-  script:
-    - pnpm install --frozen-lockfile
-    - !reference [.setup-linux-deps, script]
-    - !reference [.setup-rust, script]
-    - !reference [.set-version, script]
-    - cd apps/tauri && cargo tauri build
-  after_script:
-    - |
-      echo "=== Linux build artifacts ==="
-      find apps/tauri/src-tauri/target/release/bundle -type f \
-        \( -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" \) 2>/dev/null
-  artifacts:
-    paths:
-      - apps/tauri/src-tauri/target/release/bundle/deb/*.deb
-      - apps/tauri/src-tauri/target/release/bundle/rpm/*.rpm
-      - apps/tauri/src-tauri/target/release/bundle/appimage/*.AppImage
-    expire_in: 4 weeks
-  rules:
-    - if: $CI_COMMIT_TAG
-
-build:android:
-  stage: build
-  needs: [lint, test:unit, test:e2e]
-  cache:
-    - !reference [.cache-pnpm, cache]
-    - !reference [.cache-cargo-tauri, cache]
+    - proxmoxshell
   variables:
-    ANDROID_HOME: /opt/android-sdk
-    JAVA_HOME: /opt/jdk-21
+    PROXMOX_HOST: "127.0.0.1"
+    PROXMOX_NODE: "green"
+    TEMPLATE_VMID: "101"
+    VM_NAME: "stonefruit-win-smoke-${CI_PIPELINE_ID}"
+  before_script:
+    - *proxmox-auth
   script:
-    - pnpm install --frozen-lockfile
-    # JDK 21
+    - apk add --no-cache curl jq openssh-client
+
+    # 1. Verify Proxmox connectivity
     - |
-      if [ ! -d "$JAVA_HOME" ]; then
-        curl -sL https://download.oracle.com/java/21/latest/jdk-21_linux-x64_bin.tar.gz | tar xz -C /opt
-        mv /opt/jdk-21* /opt/jdk-21
+      echo "=== Testing Proxmox API connectivity ==="
+      RESULT=$(curl -s -k -H "$PROXMOX_AUTH" \
+        "https://${PROXMOX_HOST}:8006/api2/json/version")
+      echo "$RESULT" | jq .
+      echo "$RESULT" | jq -e '.data.version' || { echo "FAIL: Cannot reach Proxmox API"; exit 1; }
+
+    # 2. Check template VM exists
+    - |
+      echo "=== Checking template VM $TEMPLATE_VMID ==="
+      RESULT=$(curl -s -k -H "$PROXMOX_AUTH" \
+        "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${TEMPLATE_VMID}/status/current")
+      echo "$RESULT" | jq .
+      echo "$RESULT" | jq -e '.data.status' || { echo "FAIL: Template VM $TEMPLATE_VMID not found"; exit 1; }
+
+    # 3. Clone VM
+    - |
+      echo "=== Cloning VM from template ==="
+      VMID=$(curl -s -k -H "$PROXMOX_AUTH" \
+        "https://${PROXMOX_HOST}:8006/api2/json/cluster/nextid" | jq -r '.data')
+      echo "Assigned VMID: $VMID"
+      CLONE_RESULT=$(curl -s -k -H "$PROXMOX_AUTH" -X POST \
+        "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${TEMPLATE_VMID}/clone" \
+        -d "newid=${VMID}&name=${VM_NAME}&full=1")
+      echo "$CLONE_RESULT" | jq .
+      echo "VMID=$VMID" >> vm.env
+
+    # 4. Wait for clone
+    - |
+      source vm.env
+      echo "Waiting for clone to finish..."
+      for i in $(seq 1 60); do
+        STATUS=$(curl -s -k -H "$PROXMOX_AUTH" \
+          "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${VMID}/status/current" \
+          | jq -r '.data.lock // empty')
+        [ -z "$STATUS" ] && echo "Clone complete." && break
+        echo "  still cloning ($STATUS)... [$i/60]"
+        sleep 5
+      done
+
+    # 5. Start VM
+    - |
+      source vm.env
+      echo "=== Starting VM $VMID ==="
+      curl -s -k -H "$PROXMOX_AUTH" -X POST \
+        "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${VMID}/status/start" | jq .
+
+    # 6. Wait for IP via guest agent
+    - |
+      source vm.env
+      echo "Waiting for VM to boot and report IP..."
+      for i in $(seq 1 60); do
+        VM_IP=$(curl -s -k -H "$PROXMOX_AUTH" \
+          "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${VMID}/agent/network-get-interfaces" \
+          2>/dev/null | jq -r '.data.result[]?.["ip-addresses"][]? | select(.["ip-address-type"]=="ipv4") | .["ip-address"]' \
+          | grep -v "^127\." | head -1)
+        if [ -n "$VM_IP" ]; then
+          echo "VM has IP: $VM_IP"
+          break
+        fi
+        echo "  waiting for guest agent... [$i/60]"
+        sleep 5
+      done
+      if [ -z "$VM_IP" ]; then
+        echo "WARN: No IP after 5 min — guest agent may not be installed"
       fi
-      export PATH="$JAVA_HOME/bin:$PATH"
-      java -version
-    # Android SDK + NDK
+
+    # 7. Try SSH (if we got an IP)
     - |
-      mkdir -p "$ANDROID_HOME"
-      if [ ! -d "$ANDROID_HOME/cmdline-tools/latest" ]; then
-        curl -sL https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o /tmp/cmdtools.zip
-        unzip -q /tmp/cmdtools.zip -d "$ANDROID_HOME/cmdline-tools"
-        mv "$ANDROID_HOME/cmdline-tools/cmdline-tools" "$ANDROID_HOME/cmdline-tools/latest"
+      source vm.env
+      if [ -n "$VM_IP" ]; then
+        echo "=== Testing SSH to $VM_IP ==="
+        for i in $(seq 1 6); do
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 ci@${VM_IP} "echo SSH_OK" 2>/dev/null && echo "SSH works!" && break
+          echo "  SSH not ready yet... [$i/6]"
+          sleep 10
+        done
       fi
-      export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
-      yes | sdkmanager --licenses > /dev/null 2>&1 || true
-      sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0" "ndk;27.0.12077973"
-      export NDK_HOME="$ANDROID_HOME/ndk/27.0.12077973"
-    # Rust with Android targets
-    - !reference [.setup-rust, script]
-    - rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android i686-linux-android
-    # Version
-    - !reference [.set-version, script]
-    # Initialize Tauri Android project
-    - cd apps/tauri && cargo tauri android init
-    - cd apps/tauri && cargo tauri icon src-tauri/icons/icon-1024-rgba8.png
-    # Configure release signing
+
+    # 8. Check AWS credentials (for signing later)
     - |
-      if [ -n "$KEYSTORE_BASE64" ]; then
-        echo "$KEYSTORE_BASE64" | base64 -d > /tmp/release.keystore
-        cat > src-tauri/gen/android/keystore.properties <<EOF
-      keyAlias=${KEY_ALIAS:-upload}
-      password=${KEYSTORE_PASSWORD}
-      storeFile=/tmp/release.keystore
-      EOF
-        node ../../scripts/patch-android-signing.mjs src-tauri/gen/android/app/build.gradle.kts
+      echo "=== Testing AWS credentials ==="
+      if command -v aws >/dev/null 2>&1; then
+        aws sts get-caller-identity 2>&1 && echo "AWS credentials OK" || echo "WARN: AWS credentials not configured"
       else
-        echo "WARNING: No KEYSTORE_BASE64 set — APK will be unsigned"
+        echo "WARN: aws CLI not installed on this runner"
       fi
-    # Build APK
-    - cargo tauri android build --apk
+
+    # Summary
+    - |
+      source vm.env
+      echo ""
+      echo "========================================="
+      echo "  SMOKE TEST SUMMARY"
+      echo "========================================="
+      echo "  Proxmox API:  OK"
+      echo "  Template VM:  $TEMPLATE_VMID"
+      echo "  Cloned VMID:  $VMID"
+      echo "  VM IP:        ${VM_IP:-NOT AVAILABLE}"
+      echo "  SSH:          ${VM_IP:+tested}${VM_IP:-skipped}"
+      echo "========================================="
+
   after_script:
+    # Always clean up the VM
     - |
-      echo "=== Android build artifacts ==="
-      find apps/tauri/src-tauri/gen/android -name "*.apk" -type f 2>/dev/null
-  artifacts:
-    paths:
-      - apps/tauri/src-tauri/gen/android/app/build/outputs/apk/**/*.apk
-    expire_in: 4 weeks
-  rules:
-    - if: $CI_COMMIT_TAG
-
-build:ios:
-  stage: build
-  tags:
-    - macscript
-  needs: [lint, test:unit, test:e2e]
-  before_script:
-    - env | grep -E '^(CI_|IOS_|ASC_)' > .cienv
-  script:
-    - cirrus run buildFutoNotesIOS --artifacts-dir . --env-file .cienv
-  artifacts:
-    paths:
-      - buildFutoNotesIOS/binary/*.ipa
-    expire_in: 4 weeks
-  rules:
-    - if: $CI_COMMIT_TAG
-
-build:macos:
-  stage: build
-  tags:
-    - macscript
-  needs: [lint, test:unit, test:e2e]
-  before_script:
-    - env | grep -E '^(CI_|MACOS_|ASC_)' > .cienv
-  script:
-    - cirrus run buildFutoNotesMacOS --artifacts-dir . --env-file .cienv
-  artifacts:
-    paths:
-      - buildFutoNotesMacOS/binary/*.dmg
-    expire_in: 4 weeks
-  rules:
-    - if: $CI_COMMIT_TAG
-
-# ─────────────────────────────────────────────────────────────
-# Publish to GitLab Package Registry
-# ─────────────────────────────────────────────────────────────
-
-publish:
-  stage: publish
-  interruptible: false
-  needs:
-    - job: build:linux
-      artifacts: true
-    - job: build:android
-      artifacts: true
-    - job: build:ios
-      artifacts: true
-      optional: true
-    - job: build:macos
-      artifacts: true
-      optional: true
-  script:
-    - VERSION="${CI_COMMIT_TAG#v}"
-    - REGISTRY_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/stonefruit/${CI_COMMIT_TAG}"
-    # Linux
-    - |
-      for f in apps/tauri/src-tauri/target/release/bundle/deb/*.deb; do
-        [ -f "$f" ] || continue
-        NAME="stonefruit_${VERSION}_amd64.deb"
-        echo "Uploading $NAME"
-        curl --fail -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$f" "${REGISTRY_URL}/${NAME}"
-        echo "DEB_URL=${REGISTRY_URL}/${NAME}" >> publish.env
-      done
-    - |
-      for f in apps/tauri/src-tauri/target/release/bundle/rpm/*.rpm; do
-        [ -f "$f" ] || continue
-        NAME="stonefruit-${VERSION}-1.x86_64.rpm"
-        echo "Uploading $NAME"
-        curl --fail -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$f" "${REGISTRY_URL}/${NAME}"
-        echo "RPM_URL=${REGISTRY_URL}/${NAME}" >> publish.env
-      done
-    - |
-      for f in apps/tauri/src-tauri/target/release/bundle/appimage/*.AppImage; do
-        [ -f "$f" ] || continue
-        NAME="Stonefruit-${VERSION}-x86_64.AppImage"
-        echo "Uploading $NAME"
-        curl --fail -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$f" "${REGISTRY_URL}/${NAME}"
-        echo "APPIMAGE_URL=${REGISTRY_URL}/${NAME}" >> publish.env
-      done
-    # Android APK
-    - |
-      APK=$(find apps/tauri/src-tauri/gen/android -name "*release*.apk" -type f 2>/dev/null | head -1)
-      if [ -n "$APK" ]; then
-        NAME="stonefruit-${VERSION}.apk"
-        echo "Uploading $NAME"
-        curl --fail -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$APK" "${REGISTRY_URL}/${NAME}"
-        echo "APK_URL=${REGISTRY_URL}/${NAME}" >> publish.env
-      fi
-    # iOS IPA
-    - |
-      IPA=$(find buildFutoNotesIOS -name "*.ipa" -type f 2>/dev/null | head -1)
-      if [ -n "$IPA" ]; then
-        NAME="Stonefruit-${VERSION}.ipa"
-        echo "Uploading $NAME"
-        curl --fail -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$IPA" "${REGISTRY_URL}/${NAME}"
-        echo "IPA_URL=${REGISTRY_URL}/${NAME}" >> publish.env
-      fi
-    # macOS DMG
-    - |
-      DMG=$(find buildFutoNotesMacOS -name "*.dmg" -type f 2>/dev/null | head -1)
-      if [ -n "$DMG" ]; then
-        NAME="Stonefruit-${VERSION}-universal.dmg"
-        echo "Uploading $NAME"
-        curl --fail -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$DMG" "${REGISTRY_URL}/${NAME}"
-        echo "DMG_URL=${REGISTRY_URL}/${NAME}" >> publish.env
+      export PROXMOX_AUTH="PVEAPIToken=${PROXMOX_USER}!${PROXMOX_TOKEN_ID}=${PROXMOX_TOKEN_SECRET}"
+      if [ -f vm.env ]; then
+        source vm.env
+        if [ -n "$VMID" ]; then
+          echo "=== Cleaning up VM $VMID ==="
+          curl -s -k -H "$PROXMOX_AUTH" -X POST \
+            "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${VMID}/status/stop" || true
+          sleep 10
+          curl -s -k -H "$PROXMOX_AUTH" -X DELETE \
+            "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${VMID}?purge=1&destroy-unreferenced-disks=1" || true
+          echo "VM $VMID destroyed."
+        fi
       fi
   artifacts:
     reports:
-      dotenv: publish.env
-  rules:
-    - if: $CI_COMMIT_TAG
-
-# ─────────────────────────────────────────────────────────────
-# Create GitLab Release
-# ─────────────────────────────────────────────────────────────
-
-release:
-  stage: release
-  image: registry.gitlab.com/gitlab-org/release-cli:latest
-  interruptible: false
-  needs:
-    - job: publish
-      artifacts: true
-  before_script: []
-  script:
-    - VERSION="${CI_COMMIT_TAG#v}"
-    - REGISTRY_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/stonefruit/${CI_COMMIT_TAG}"
-    - |
-      release-cli create \
-        --name "Stonefruit ${CI_COMMIT_TAG}" \
-        --tag-name "${CI_COMMIT_TAG}" \
-        --description "Stonefruit release ${CI_COMMIT_TAG}" \
-        --assets-link "{\"name\":\"stonefruit_${VERSION}_amd64.deb\",\"url\":\"${REGISTRY_URL}/stonefruit_${VERSION}_amd64.deb\",\"link_type\":\"package\"}" \
-        --assets-link "{\"name\":\"stonefruit-${VERSION}-1.x86_64.rpm\",\"url\":\"${REGISTRY_URL}/stonefruit-${VERSION}-1.x86_64.rpm\",\"link_type\":\"package\"}" \
-        --assets-link "{\"name\":\"Stonefruit-${VERSION}-x86_64.AppImage\",\"url\":\"${REGISTRY_URL}/Stonefruit-${VERSION}-x86_64.AppImage\",\"link_type\":\"package\"}" \
-        --assets-link "{\"name\":\"stonefruit-${VERSION}.apk\",\"url\":\"${REGISTRY_URL}/stonefruit-${VERSION}.apk\",\"link_type\":\"package\"}" \
-        --assets-link "{\"name\":\"Stonefruit-${VERSION}.ipa\",\"url\":\"${REGISTRY_URL}/Stonefruit-${VERSION}.ipa\",\"link_type\":\"package\"}" \
-        --assets-link "{\"name\":\"Stonefruit-${VERSION}-universal.dmg\",\"url\":\"${REGISTRY_URL}/Stonefruit-${VERSION}-universal.dmg\",\"link_type\":\"package\"}"
-  rules:
-    - if: $CI_COMMIT_TAG
+      dotenv: vm.env
+    expire_in: 1 day
