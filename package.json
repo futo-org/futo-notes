@@ -40,6 +40,7 @@
     "tauri:ios:dev:offline": "pnpm run build && cd apps/tauri && cargo tauri ios build --debug && xcrun devicectl device install app --device 00008150-001C70A634F0401C src-tauri/gen/apple/build/arm64/Stonefruit.ipa && xcrun devicectl device process launch --device 00008150-001C70A634F0401C com.futo.notes",
     "tauri:ios:build": "cd apps/tauri && cargo tauri ios build",
     "tauri:test:rust": "pnpm --filter @futo-notes/tauri run test:rust",
+    "test:desktop-smoke": "node tests/desktop-smoke.mjs",
     "server:dev": "pnpm --filter @futo-notes/server run dev",
     "server:test": "pnpm --filter @futo-notes/server test"
   },
@@ -69,6 +70,7 @@
     "typescript": "5.9.3",
     "typescript-eslint": "^8.54.0",
     "vite": "7.3.1",
-    "vitest": "^4.0.18"
+    "vitest": "^4.0.18",
+    "ws": "^8.20.0"
   }
 }

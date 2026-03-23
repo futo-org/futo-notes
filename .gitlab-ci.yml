@@ -210,6 +210,80 @@ test:rust:
     - !reference [.setup-rust, script]
     - pnpm run tauri:test:rust
 
+test:rust:macos:
+  stage: test
+  tags:
+    - macscript
+  needs: [docker:prune]
+  allow_failure: true
+  before_script:
+    - env | grep -E '^(CI_)' > .cienv
+  rules:
+    - if: $CI_COMMIT_TAG
+    - if: $CI_MERGE_REQUEST_IID
+  script:
+    - cirrus run testRustMacOS --artifacts-dir . --env-file .cienv
+
+test:desktop-smoke:
+  stage: test
+  needs: [docker:prune]
+  rules:
+    - if: $CI_COMMIT_TAG
+    - if: $CI_MERGE_REQUEST_IID
+      changes:
+        - apps/tauri/**/*
+        - src/**/*
+        - packages/shared/**/*
+  cache:
+    - !reference [.cache-pnpm, cache]
+    - !reference [.cache-cargo-tauri, cache]
+  script:
+    - pnpm install --frozen-lockfile
+    - !reference [.setup-linux-deps, script]
+    - !reference [.setup-rust, script]
+    - DEBIAN_FRONTEND=noninteractive apt-get install -y xvfb
+    # Build frontend + debug binary
+    - pnpm run build
+    - cd apps/tauri && cargo tauri build --debug --no-bundle && cd ../..
+    # Pre-configure notes dir so app boots to editor
+    - |
+      NOTES_DIR=$(mktemp -d)
+      mkdir -p ~/.local/share/com.futo.notes
+      echo '{"notesDir":"'"$NOTES_DIR"'"}' > ~/.local/share/com.futo.notes/notes-dir-override.json
+    # Launch under xvfb
+    - |
+      TAURI_LOG="/tmp/tauri-smoke.log"
+      WEBKIT_DISABLE_DMABUF_RENDERER=1 \
+        xvfb-run -a --server-args="-screen 0 1280x800x24" \
+        apps/tauri/src-tauri/target/debug/futo-notes-tauri > "$TAURI_LOG" 2>&1 &
+    # Run smoke tests (script handles port discovery + retries)
+    - node tests/desktop-smoke.mjs --log-file /tmp/tauri-smoke.log
+  after_script:
+    - kill $(pgrep -f futo-notes-tauri) 2>/dev/null || true
+  artifacts:
+    when: always
+    paths:
+      - test-screenshots/smoke-*.png
+      - test-screenshots/smoke-results.json
+    expire_in: 1 week
+
+test:desktop-smoke:macos:
+  stage: test
+  tags:
+    - macscript
+  needs: [docker:prune]
+  allow_failure: true
+  before_script:
+    - env | grep -E '^(CI_)' > .cienv
+  rules:
+    - if: $CI_COMMIT_TAG
+    - if: $CI_MERGE_REQUEST_IID
+      changes:
+        - apps/tauri/**/*
+        - src/**/*
+  script:
+    - cirrus run testDesktopSmokeMacOS --artifacts-dir . --env-file .cienv
+
 # ─────────────────────────────────────────────────────────────
 # Docker (default branch only)
 # ─────────────────────────────────────────────────────────────
