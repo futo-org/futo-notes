@@ -152,16 +152,16 @@ sign_windows:
   stage: sign
   tags:
     - dind
-  image: gitlab.futo.org:5050/futocore/ci/kitchensink:latest
+  image: debian:bookworm-slim
   needs:
     - job: build_windows
       artifacts: true
   before_script: []
   script:
     - |
-      if ! command -v aws >/dev/null 2>&1 || ! command -v java >/dev/null 2>&1; then
+      if ! command -v aws >/dev/null 2>&1 || ! command -v java >/dev/null 2>&1 || ! command -v python3 >/dev/null 2>&1; then
         apt-get update
-        DEBIAN_FRONTEND=noninteractive apt-get install -y awscli default-jre-headless
+        DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl jq awscli default-jre-headless python3
       fi
     - |
       mkdir -p /deploy/signing
