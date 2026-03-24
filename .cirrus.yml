@@ -24,8 +24,6 @@ test_desktop_smoke_macos_task:
     - corepack enable
     - corepack prepare pnpm@10.29.2 --activate
     - pnpm install --frozen-lockfile
-    # Install tauri-cli for building
-    - cargo install tauri-cli --locked
     # Build frontend + debug binary
     - pnpm run build
     - (cd apps/tauri && cargo tauri build --debug --no-bundle)
@@ -76,9 +74,7 @@ build_ios_task:
     - echo "Building iOS version $VERSION"
 
     # Install dependencies
-    - corepack enable
-    - corepack prepare pnpm@10.29.2 --activate
-    - pnpm install --frozen-lockfile
+    - npm ci
 
     # Set version in tauri.conf.json from git tag
     - |
@@ -190,9 +186,7 @@ build_macos_task:
     - echo "Building macOS version $VERSION"
 
     # Install dependencies
-    - corepack enable
-    - corepack prepare pnpm@10.29.2 --activate
-    - pnpm install --frozen-lockfile
+    - npm ci
 
     # Set version in tauri.conf.json from git tag
     - |

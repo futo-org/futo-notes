@@ -155,29 +155,17 @@ async function main() {
 
   // 3. Editor present + typing
   await check('editor present + typing', async () => {
-    // Wait for editor to appear — app may be on note list, setup, or loading.
-    // After a few attempts, try navigating to a new note to force the editor open.
-    let editorFound = false;
-    for (let attempt = 0; attempt < 20; attempt++) {
-      const editorCheck = await send(ws, 'execute_js', {
-        script: `(() => {
-          const el = document.querySelector('.cm-editor');
-          return el ? 'found' : 'hash=' + location.hash;
-        })()`,
-      });
-      const editorVal = String(editorCheck?.result ?? editorCheck?.data ?? editorCheck);
-      if (editorVal.includes('found')) { editorFound = true; break; }
-      // After 5 attempts (10s), try navigating to a new note
-      if (attempt === 5) {
-        console.log(`    Editor not found (${editorVal}), navigating to new note...`);
-        await send(ws, 'execute_js', {
-          script: `location.hash = '#/note/new'`,
-        });
-      }
-      await sleep(2_000);
-    }
-    if (!editorFound) {
-      throw new Error('.cm-editor not found in DOM after 40s');
+    // Check editor exists
+    const editorCheck = await send(ws, 'execute_js', {
+      script: `(() => {
+        const el = document.querySelector('.cm-editor');
+        return el ? 'found' : 'missing';
+      })()`,
+    });
+    // editorCheck may be wrapped in a data field — extract the value
+    const editorVal = editorCheck?.result ?? editorCheck?.data ?? editorCheck;
+    if (String(editorVal).includes('missing')) {
+      throw new Error('.cm-editor not found in DOM');
     }
 
     // Focus and type
