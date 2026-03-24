@@ -5,7 +5,13 @@ set -euo pipefail
 # Based on FCast's signing flow:
 # https://gitlab.futo.org/videostreaming/fcast-internal/-/blob/main/ci/sign.sh
 
-FILE="${1:?Usage: sign-windows.sh <file>}"
+PROBE_ONLY=0
+if [ "${1:-}" = "--probe-env" ]; then
+  PROBE_ONLY=1
+  FILE=""
+else
+  FILE="${1:?Usage: sign-windows.sh <file>}"
+fi
 CERT_FILE="${CERT_FILE:-/deploy/signing/fullchain.pem}"
 AWS_REGION="${WINDOWS_SIGN_AWS_REGION:-us-east-1}"
 AWS_ALIAS="${WINDOWS_SIGN_AWS_ALIAS:-FUTO-EV-signing-key}"
@@ -13,14 +19,16 @@ TSA_URL="${WINDOWS_SIGN_TSA_URL:-http://timestamp.globalsign.com/tsa/r6advanced1
 JSIGN_VERSION="${JSIGN_VERSION:-7.4}"
 JSIGN_JAR="${JSIGN_JAR:-$PWD/.ci-cache/jsign/jsign-cli-${JSIGN_VERSION}.jar}"
 
-if [ ! -f "$FILE" ]; then
-  echo "ERROR: File not found: $FILE" >&2
-  exit 1
-fi
+if [ "$PROBE_ONLY" -eq 0 ]; then
+  if [ ! -f "$FILE" ]; then
+    echo "ERROR: File not found: $FILE" >&2
+    exit 1
+  fi
 
-if [ ! -f "$CERT_FILE" ]; then
-  echo "ERROR: Certificate chain not found: $CERT_FILE" >&2
-  exit 1
+  if [ ! -f "$CERT_FILE" ]; then
+    echo "ERROR: Certificate chain not found: $CERT_FILE" >&2
+    exit 1
+  fi
 fi
 
 if ! command -v aws >/dev/null 2>&1; then
@@ -96,6 +104,11 @@ fi
 if [ -z "$AWS_ACCESS_KEY_ID" ] || [ "$AWS_ACCESS_KEY_ID" = "null" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ] || [ "$AWS_SECRET_ACCESS_KEY" = "null" ] || [ -z "$AWS_SESSION_TOKEN" ] || [ "$AWS_SESSION_TOKEN" = "null" ]; then
   echo "ERROR: Failed to obtain usable temporary AWS credentials" >&2
   exit 1
+fi
+
+if [ "$PROBE_ONLY" -eq 1 ]; then
+  echo "AWS signing credentials resolved successfully"
+  exit 0
 fi
 
 echo "Signing $FILE..."

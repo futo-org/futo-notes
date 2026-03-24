@@ -2,6 +2,7 @@
 # Full pipeline backed up at .gitlab-ci.yml.full-with-windows
 
 stages:
+  - preflight
   - provision
   - build
   - sign
@@ -16,6 +17,18 @@ variables:
 
 .proxmox_auth: &proxmox_auth
   - export PROXMOX_AUTH="PVEAPIToken=${PROXMOX_USER}!${PROXMOX_TOKEN_ID}=${PROXMOX_TOKEN_SECRET}"
+
+signing_preflight:
+  stage: preflight
+  tags:
+    - dind
+  image: debian:bookworm-slim
+  before_script: []
+  script:
+    - |
+      apt-get update
+      DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl jq awscli default-jre-headless python3
+    - bash ci/sign-windows.sh --probe-env
 
 provision_vm:
   stage: provision
