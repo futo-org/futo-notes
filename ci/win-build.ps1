@@ -98,7 +98,9 @@ $conf.version = $Version
 $conf | ConvertTo-Json -Depth 10 | Set-Content apps\tauri\src-tauri\tauri.conf.json
 
 Invoke-Step "Installing npm dependencies" {
-    pnpm install --frozen-lockfile
+    # The Windows desktop build only needs the root app, Tauri shell, and shared package.
+    # Excluding the server workspace avoids native server-only deps like better-sqlite3.
+    pnpm install --filter . --filter @futo-notes/tauri --filter @futo-notes/shared --frozen-lockfile
 }
 
 Invoke-Step "Building frontend" {
