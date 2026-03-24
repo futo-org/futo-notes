@@ -702,6 +702,11 @@ windows:sign:
     - job: build:windows
       artifacts: true
   script:
+    - |
+      if ! command -v aws >/dev/null 2>&1 || ! command -v java >/dev/null 2>&1; then
+        apt-get update
+        DEBIAN_FRONTEND=noninteractive apt-get install -y awscli default-jre-headless
+      fi
     # Download fullchain.pem from GitLab secure files
     - |
       mkdir -p /deploy/signing

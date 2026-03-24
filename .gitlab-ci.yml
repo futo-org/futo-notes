@@ -4,6 +4,7 @@
 stages:
   - provision
   - build
+  - sign
   - cleanup
 
 variables:
@@ -147,6 +148,42 @@ build_windows:
       - windows-artifacts/*
     expire_in: 1 week
 
+sign_windows:
+  stage: sign
+  tags:
+    - dind
+  image: gitlab.futo.org:5050/futocore/ci/kitchensink:latest
+  needs:
+    - job: build_windows
+      artifacts: true
+  before_script: []
+  script:
+    - |
+      if ! command -v aws >/dev/null 2>&1 || ! command -v java >/dev/null 2>&1; then
+        apt-get update
+        DEBIAN_FRONTEND=noninteractive apt-get install -y awscli default-jre-headless
+      fi
+    - |
+      mkdir -p /deploy/signing
+      FILE_ID=$(curl --silent --fail \
+        --header "JOB-TOKEN: $CI_JOB_TOKEN" \
+        "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/secure_files" \
+        | jq -r '.[] | select(.name=="fullchain.pem") | .id')
+      test -n "$FILE_ID"
+      curl --silent --fail \
+        --header "JOB-TOKEN: $CI_JOB_TOKEN" \
+        --output /deploy/signing/fullchain.pem \
+        "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/secure_files/${FILE_ID}/download"
+    - |
+      for f in windows-artifacts/*.exe; do
+        [ -f "$f" ] || continue
+        CERT_FILE=/deploy/signing/fullchain.pem bash ci/sign-windows.sh "$f"
+      done
+  artifacts:
+    paths:
+      - windows-artifacts/*.exe
+    expire_in: 1 week
+
 cleanup_vm:
   stage: cleanup
   tags:
@@ -155,6 +192,8 @@ cleanup_vm:
     - job: provision_vm
       artifacts: true
     - job: build_windows
+    - job: sign_windows
+      optional: true
   when: always
   before_script:
     - *proxmox_auth
