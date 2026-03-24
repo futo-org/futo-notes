@@ -42,15 +42,19 @@ function Get-PythonExe {
 }
 
 # Python (needed by node-gyp for native modules like better-sqlite3)
-if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
+$pythonExe = Get-PythonExe
+if (-not $pythonExe) {
     Write-Host "Installing Python..."
     winget install --id Python.Python.3.12 --accept-source-agreements --accept-package-agreements -e
     Refresh-Path
+    $pythonExe = Get-PythonExe
 }
-$pythonExe = Get-PythonExe
 if (-not $pythonExe) {
     throw "Python installation succeeded, but python.exe could not be located"
 }
+$pythonDir = Split-Path -Parent $pythonExe
+Write-Host "Using Python at $pythonExe"
+$env:PATH = $pythonDir + ";" + $env:PATH
 $env:PYTHON = $pythonExe
 $env:npm_config_python = $pythonExe
 [System.Environment]::SetEnvironmentVariable("PYTHON", $pythonExe, "User")
