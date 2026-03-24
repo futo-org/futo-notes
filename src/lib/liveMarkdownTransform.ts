@@ -853,33 +853,35 @@ class LiveMarkdownPlugin implements PluginValue {
     text: string,
     decorations: Array<{ from: number; to: number; value: any }>
   ): void {
-    const match = text.match(/^\[([^\]]*)\]\(([^)]+)\)$/);
-    if (match) {
-      const linkText = match[1];
-      const textStart = from + 1;
-      const textEnd = textStart + linkText.length;
+    // Find the ]( boundary. Can't use a simple regex because URLs may
+    // contain parentheses (e.g., Wikipedia links, Colab notebooks).
+    // CM6 already parsed the correct node boundaries.
+    const closeBracket = text.indexOf('](');
+    if (text[0] !== '[' || closeBracket === -1) return;
 
-      // Hide opening bracket
-      decorations.push({
-        from,
-        to: from + 1,
-        value: { class: 'cm-md-marker-hidden' }
-      });
+    const textStart = from + 1;
+    const textEnd = from + closeBracket;
 
-      // Hide closing bracket and URL
-      decorations.push({
-        from: textEnd,
-        to,
-        value: { class: 'cm-md-marker-hidden' }
-      });
+    // Hide opening bracket
+    decorations.push({
+      from,
+      to: from + 1,
+      value: { class: 'cm-md-marker-hidden' }
+    });
 
-      // Add className to link text
-      decorations.push({
-        from: textStart,
-        to: textEnd,
-        value: { class: 'cm-md-link' }
-      });
-    }
+    // Hide closing bracket and URL (everything from ]( to end)
+    decorations.push({
+      from: textEnd,
+      to,
+      value: { class: 'cm-md-marker-hidden' }
+    });
+
+    // Add className to link text
+    decorations.push({
+      from: textStart,
+      to: textEnd,
+      value: { class: 'cm-md-link' }
+    });
   }
 
   private processImage(
@@ -888,18 +890,23 @@ class LiveMarkdownPlugin implements PluginValue {
     text: string,
     decorations: Array<{ from: number; to: number; value: any }>
   ): void {
-    // Handle optional title: ![alt](url) or ![alt](url "title")
-    const match = text.match(/^!\[([^\]]*)\]\(([^\s)]+)(?:\s+"[^"]*")?\)$/);
-    if (match) {
-      const alt = match[1];
-      const url = match[2];
+    // Parse ![alt](url) using indexOf, not regex, because URLs may contain parens.
+    if (!text.startsWith('![')) return;
+    const altEnd = text.indexOf('](');
+    if (altEnd === -1) return;
 
-      decorations.push({
-        from,
-        to,
-        value: { widget: new ImageWidget(alt, url, to) }
-      });
-    }
+    const alt = text.slice(2, altEnd);
+    // URL is everything between ]( and the final )
+    let url = text.slice(altEnd + 2, text.length - 1);
+    // Strip optional title: url "title" → url
+    const titleMatch = url.match(/\s+"[^"]*"$/);
+    if (titleMatch) url = url.slice(0, -titleMatch[0].length);
+
+    decorations.push({
+      from,
+      to,
+      value: { widget: new ImageWidget(alt, url, to) }
+    });
   }
 
   private processBlockQuote(

@@ -1,0 +1,109 @@
+# Server-side adversarial edge cases — tag extraction under broken syntax.
+# Tests client/server conformance when markdown is malformed.
+
+- name: server-tag-in-unclosed-fence
+  complexity: 160
+  markdown: "```\n#inside unclosed fence\nstill in fence #alsoInside"
+  cursor: null
+  expect:
+    tags: []
+
+- name: server-tag-after-unclosed-inline-code
+  complexity: 150
+  markdown: "`unclosed code #tag"
+  cursor: null
+  expect:
+    # QUIRK: Server's inline code stripper requires matching backtick pairs.
+    # A single unclosed backtick does NOT suppress tag extraction.
+    # Client (CM6) may or may not parse this as code.
+    tags:
+      - "#tag"
+
+- name: server-tag-between-fences
+  complexity: 140
+  markdown: "```\ncode\n```\n#real\n```\nmore code\n```"
+  cursor: null
+  expect:
+    tags:
+      - "#real"
+
+- name: server-tag-nested-fences
+  complexity: 170
+  markdown: "````\n```\n#insideInner\n```\n````\n#outside"
+  cursor: null
+  expect:
+    tags:
+      - "#outside"
+
+- name: server-tag-mismatched-fence-type
+  complexity: 160
+  markdown: "```\n#inside\n~~~"
+  cursor: null
+  expect:
+    tags: []
+
+- name: server-tag-adjacent-to-punctuation
+  complexity: 130
+  markdown: "(#tag) [#tag2] {#tag3}"
+  cursor: null
+  expect:
+    tags: []
+
+- name: server-tag-with-emoji-before
+  complexity: 130
+  markdown: "text #valid and no\u200Btag"
+  cursor: null
+  expect:
+    tags:
+      - "#valid"
+
+- name: server-header-block-with-non-tag-line
+  complexity: 140
+  markdown: "#tag1\nNot a tag line\n#tag2"
+  cursor: null
+  expect:
+    header_tag_block:
+      tags: ["#tag1"]
+      hidden: true
+
+- name: server-header-block-empty-first-line
+  complexity: 130
+  markdown: "\n#tag1\nContent"
+  cursor: null
+  expect:
+    header_tag_block:
+      tags: []
+      hidden: false
+
+- name: server-tag-unicode-after-hash
+  complexity: 140
+  markdown: "#café is not a tag because of é"
+  cursor: null
+  expect:
+    # TAG_REGEX: [a-zA-Z][a-zA-Z0-9_-]* requires ASCII-only.
+    # "é" breaks the tag at "caf" but "é" is not a valid terminator
+    # (not in [.,;:!?)}\]] or whitespace), so no tag is matched at all.
+    tags: []
+
+- name: server-many-tags
+  complexity: 120
+  markdown: "#a #b #c #d #e #f #g #h #i #j #k #l #m #n #o #p"
+  cursor: null
+  expect:
+    tags:
+      - "#a"
+      - "#b"
+      - "#c"
+      - "#d"
+      - "#e"
+      - "#f"
+      - "#g"
+      - "#h"
+      - "#i"
+      - "#j"
+      - "#k"
+      - "#l"
+      - "#m"
+      - "#n"
+      - "#o"
+      - "#p"

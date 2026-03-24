@@ -1,0 +1,43 @@
+- name: no-reveal-other-lines
+  complexity: 35
+  markdown: |
+    # Heading One
+    # Heading Two
+  cursor: { line: 0, ch: 5 }
+  expect:
+    visible_text_contains: "# Heading One"
+    visible_text_excludes: "# Heading Two"
+
+- name: no-reveal-when-blurred
+  complexity: 15
+  markdown: "# Hidden Heading"
+  cursor: null
+  expect:
+    visible_text: "Hidden Heading"
+    visible_text_excludes: "#"
+
+- name: reveal-blockquote-dimmed
+  complexity: 30
+  markdown: "> Quote text"
+  cursor: { line: 0, ch: 5 }
+  expect:
+    decorations:
+      - class: cm-md-quote-marker
+        count: 1
+
+- name: reveal-list-preserves-indent
+  complexity: 30
+  markdown: "- List item"
+  cursor: { line: 0, ch: 5 }
+  expect:
+    visible_text_contains: "- List item"
+
+- name: reveal-fenced-code-on-cursor
+  complexity: 25
+  markdown: |
+    ```
+    code here
+    ```
+  cursor: { line: 0, ch: 1 }
+  expect:
+    visible_text_contains: "```"

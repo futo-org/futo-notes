@@ -142,9 +142,9 @@ function renderInlineMarkdown(text: string): string {
   // Strikethrough: ~~text~~
   html = html.replace(/~~([^~]+)~~/g, '<del>$1</del>');
 
-  // Links: [text](url) — blocked schemes render as plain text
+  // Links: [text](url) — balanced parens in URLs, blocked schemes render as plain text
   html = html.replace(
-    /\[([^\]]+)\]\(([^)]+)\)/g,
+    /\[([^\]]+)\]\(([^()\s]*(?:\([^)]*\)[^()\s]*)*)\)/g,
     (_match, linkText, href) => {
       const safe = sanitizeUrl(href);
       if (!safe) return linkText;

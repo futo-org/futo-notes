@@ -62,7 +62,7 @@
   let scrollTimer: number | null = null;
 
   const PLAIN_URL_REGEX = /\b(?:https?:\/\/|www\.)[^\s<>()]+[^\s<>().,!?;:]/g;
-  const MARKDOWN_LINK_REGEX = /\[([^\]]+)\]\(((?:https?:\/\/|www\.)[^)\s]+)(?:\s+"[^"]*")?\)/g;
+  const MARKDOWN_LINK_REGEX = /\[([^\]]+)\]\(((?:https?:\/\/|www\.)[^()\s]*(?:\([^)]*\)[^()\s]*)*)(?:\s+"[^"]*")?\)/g;
 
   const autoLinkMatcher = new MatchDecorator({
     regexp: PLAIN_URL_REGEX,

@@ -4,7 +4,7 @@ import path from 'path';
 export default defineConfig({
   test: {
     globals: true,
-    include: ['src/**/*.test.ts'],
+    include: ['src/**/*.test.ts', 'markdown-spec/**/*.test.ts'],
     mockReset: true,
   },
   resolve: {

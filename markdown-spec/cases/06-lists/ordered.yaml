@@ -1,0 +1,37 @@
+- name: ol-basic
+  complexity: 10
+  markdown: |
+    1. First ordered
+    2. Second ordered
+    3. Third ordered
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-marker-hidden
+        count: 3
+      - class: cm-md-ol-item
+        count: 3
+    widgets:
+      - class: cm-md-number
+        count: 3
+
+- name: ol-cursor-reveal
+  complexity: 20
+  markdown: |
+    1. First ordered
+    2. Second ordered
+  cursor: { line: 0, ch: 5 }
+  expect:
+    visible_text_contains: "1. First ordered"
+
+- name: ol-nested
+  complexity: 35
+  markdown: |
+    1. Outer item
+       1. Nested item
+       2. Another nested
+  cursor: null
+  expect:
+    widgets:
+      - class: cm-md-number
+        count: 3

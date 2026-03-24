@@ -1,0 +1,118 @@
+- name: server-tag-basic
+  complexity: 10
+  markdown: "Simple note with #tag here."
+  cursor: null
+  expect:
+    tags:
+      - "#tag"
+
+- name: server-tag-multiple
+  complexity: 20
+  markdown: "Note with #first and #second tags."
+  cursor: null
+  expect:
+    tags:
+      - "#first"
+      - "#second"
+
+- name: server-tag-in-code-excluded
+  complexity: 40
+  markdown: "Real #tag and `#fake` in code."
+  cursor: null
+  expect:
+    tags:
+      - "#tag"
+
+- name: server-tag-in-fenced-code-excluded
+  complexity: 40
+  markdown: |
+    Real #tag before code.
+
+    ```
+    #notATag in code block
+    ```
+  cursor: null
+  expect:
+    tags:
+      - "#tag"
+
+- name: server-tag-case-dedup
+  complexity: 45
+  markdown: "Both #Project and #project should dedup."
+  cursor: null
+  expect:
+    tags:
+      - "#Project"
+
+- name: server-tag-with-special-trailing
+  complexity: 35
+  markdown: "A #tag, then #another. And #third!"
+  cursor: null
+  expect:
+    tags:
+      - "#tag"
+      - "#another"
+      - "#third"
+
+- name: server-tag-not-number-start
+  complexity: 30
+  markdown: "This #123 is not a tag but #abc is."
+  cursor: null
+  expect:
+    tags:
+      - "#abc"
+
+- name: server-tag-not-midword
+  complexity: 30
+  markdown: "foo#bar is not a tag."
+  cursor: null
+  expect:
+    tags: []
+
+- name: server-tag-header-block
+  complexity: 25
+  markdown: |
+    #project #important
+
+    Content with #inline tag
+  cursor: null
+  expect:
+    header_tag_block:
+      tags: ["#project", "#important"]
+      hidden: true
+    tags:
+      - "#project"
+      - "#important"
+      - "#inline"
+
+- name: server-tag-tilde-fence-excluded
+  complexity: 50
+  markdown: |
+    ~~~
+    #notATag
+    ~~~
+
+    Real #tag
+  cursor: null
+  expect:
+    tags:
+      - "#tag"
+
+- name: server-tag-unclosed-fence
+  complexity: 80
+  markdown: |
+    ```
+    #inside unclosed fence
+    everything after is code
+    #alsoInside
+  cursor: null
+  expect:
+    tags: []
+
+- name: server-tag-double-backtick-inline
+  complexity: 55
+  markdown: "Real #tag and ``#fake in double backtick`` code"
+  cursor: null
+  expect:
+    tags:
+      - "#tag"

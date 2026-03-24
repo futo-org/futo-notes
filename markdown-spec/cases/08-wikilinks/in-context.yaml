@@ -1,0 +1,74 @@
+- name: wikilink-in-blockquote
+  complexity: 60
+  markdown: "> See [[design doc]] for details"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-quote
+      - class: cm-md-wikilink
+        text: "design doc"
+
+- name: wikilink-in-list
+  complexity: 60
+  markdown: "- Check [[my note]]"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-ul-item
+      - class: cm-md-wikilink
+        text: "my note"
+
+- name: wikilink-in-heading
+  complexity: 65
+  markdown: "## See [[my note]]"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-h2
+      - class: cm-md-wikilink
+        text: "my note"
+
+- name: wikilink-in-task
+  complexity: 70
+  markdown: "- [ ] Review [[design doc]]"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-task
+      - class: cm-md-wikilink
+        text: "design doc"
+
+- name: wikilink-not-in-inline-code
+  complexity: 50
+  markdown: "Use `[[not a wikilink]]` syntax"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-code
+      - class: cm-md-wikilink
+        count: 0
+
+- name: wikilink-not-in-code-block
+  complexity: 50
+  markdown: |
+    ```
+    [[not a wikilink]]
+    ```
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-wikilink
+        count: 0
+
+- name: wikilink-with-emphasis-adjacent
+  complexity: 80
+  markdown: "Read *about* [[my note]] and **review** it"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-emphasis
+        text: "about"
+      - class: cm-md-wikilink
+        text: "my note"
+      - class: cm-md-strong
+        text: "review"

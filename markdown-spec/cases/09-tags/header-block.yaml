@@ -1,0 +1,63 @@
+- name: header-tag-single-line
+  complexity: 15
+  markdown: |
+    #project #important
+
+    # Actual Heading
+  cursor: null
+  expect:
+    header_tag_block:
+      tags: ["#project", "#important"]
+      hidden: true
+    tags:
+      - "#project"
+      - "#important"
+
+- name: header-tag-multi-line
+  complexity: 25
+  markdown: |
+    #project #important
+    #status-active
+
+    # Heading Here
+  cursor: null
+  expect:
+    header_tag_block:
+      tags: ["#project", "#important", "#status-active"]
+      hidden: true
+    tags:
+      - "#project"
+      - "#important"
+      - "#status-active"
+
+- name: header-tag-cursor-reveal
+  complexity: 30
+  markdown: |
+    #project #important
+
+    # Heading Here
+  cursor: { line: 0, ch: 3 }
+  expect:
+    visible_text_contains: "#project"
+
+- name: header-tag-none
+  complexity: 15
+  markdown: "# Just a heading"
+  cursor: null
+  expect:
+    header_tag_block:
+      tags: []
+      hidden: false
+    tags: []
+
+- name: header-tag-dedup-case
+  complexity: 40
+  markdown: |
+    #Project #project
+
+    Content here
+  cursor: null
+  expect:
+    header_tag_block:
+      tags: ["#Project"]
+      hidden: true

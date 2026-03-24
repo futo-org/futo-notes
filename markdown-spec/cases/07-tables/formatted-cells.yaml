@@ -1,0 +1,71 @@
+- name: table-with-bold
+  complexity: 65
+  markdown: |
+    | Feature | Status |
+    |---------|--------|
+    | **Bold** | Yes |
+  cursor: null
+  expect:
+    widgets:
+      - class: cm-md-table-wrapper
+        count: 1
+
+- name: table-with-code
+  complexity: 65
+  markdown: |
+    | Command | Description |
+    |---------|-------------|
+    | `ls` | List files |
+  cursor: null
+  expect:
+    widgets:
+      - class: cm-md-table-wrapper
+        count: 1
+
+- name: table-with-link
+  complexity: 70
+  markdown: |
+    | Name | Link |
+    |------|------|
+    | Example | [Click](https://example.com) |
+  cursor: null
+  expect:
+    widgets:
+      - class: cm-md-table-wrapper
+        count: 1
+
+- name: table-with-strikethrough
+  complexity: 65
+  markdown: |
+    | Item | Status |
+    |------|--------|
+    | Old | ~~removed~~ |
+  cursor: null
+  expect:
+    widgets:
+      - class: cm-md-table-wrapper
+        count: 1
+
+- name: table-escaped-pipe
+  complexity: 80
+  markdown: |
+    | Expression | Result |
+    |------------|--------|
+    | `a \| b` | a \| b |
+  cursor: null
+  expect:
+    widgets:
+      - class: cm-md-table-wrapper
+        count: 1
+
+- name: table-many-columns
+  complexity: 90
+  markdown: |
+    | A | B | C | D | E | F | G |
+    |---|---|---|---|---|---|---|
+    | 1 | 2 | 3 | 4 | 5 | 6 | 7 |
+  cursor: null
+  expect:
+    widgets:
+      - class: cm-md-table-wrapper
+        count: 1
