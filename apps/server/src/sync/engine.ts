@@ -316,9 +316,25 @@ export function processSync(
           continue;
         }
         // Client changed, server unchanged — accept client version
+        if (clientNote.content === undefined || clientNote.content === null) {
+          // Client claims content changed but didn't send it — skip to avoid data loss.
+          // Send the server's current version back so the client can reconcile.
+          const serverContent = readNoteFile(notesDir, serverNote.filename);
+          if (serverContent !== null) {
+            response.update.push({
+              uuid: clientNote.uuid,
+              filename: serverNote.filename,
+              modified_at: serverNote.modified_at,
+              content_hash: serverHash,
+              hash_at_last_sync: serverHash,
+              content: serverContent,
+            });
+          }
+          continue;
+        }
         const safeName = sanitizeFilename(clientNote.filename);
         const finalName = resolveFilenameInMemory(filenameIndex, safeName, clientNote.uuid);
-        const content = clientNote.content ?? '';
+        const content = clientNote.content;
         const hash = contentHash(content);
 
         // Clean up old file if filename changed
@@ -356,6 +372,53 @@ export function processSync(
           });
         }
         continue;
+      }
+
+      // Both changed — but first guard against missing content (same as above).
+      if (clientNote.content === undefined || clientNote.content === null) {
+        const serverContent = readNoteFile(notesDir, serverNote.filename);
+        if (serverContent !== null) {
+          response.update.push({
+            uuid: clientNote.uuid,
+            filename: serverNote.filename,
+            modified_at: serverNote.modified_at,
+            content_hash: serverHash,
+            hash_at_last_sync: serverHash,
+            content: serverContent,
+          });
+        }
+        continue;
+      }
+
+      // Check if both sides converged to the same content.
+      // This handles: (a) sync state reset (client re-uploads with hash_at_last_sync='')
+      // and (b) two clients independently editing to identical content.
+      {
+        const cc = clientNote.content;
+        const converged = clientNote.content_hash === serverHash
+          || contentHash(cc) === serverHash;
+        if (converged) {
+          response.hash_updates.push({ uuid: clientNote.uuid, hash_at_last_sync: serverHash });
+          const safeName = sanitizeFilename(clientNote.filename);
+          const finalName = resolveFilenameInMemory(filenameIndex, safeName, clientNote.uuid);
+          if (finalName !== serverNote.filename) {
+            if (clientNote.modified_at >= serverNote.modified_at) {
+              deleteNoteFile(notesDir, serverNote.filename);
+              writeNoteFile(notesDir, finalName, cc, clientNote.modified_at);
+              trackUpsert(clientNote.uuid, finalName, serverHash, clientNote.modified_at, cc);
+            } else {
+              response.update.push({
+                uuid: clientNote.uuid,
+                filename: serverNote.filename,
+                modified_at: serverNote.modified_at,
+                content_hash: serverHash,
+                hash_at_last_sync: serverHash,
+                content: cc,
+              });
+            }
+          }
+          continue;
+        }
       }
 
       // Both changed — conflict
