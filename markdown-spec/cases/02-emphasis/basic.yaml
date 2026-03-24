@@ -1,0 +1,47 @@
+- name: italic-basic
+  complexity: 10
+  markdown: "This is *italic text* here."
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-marker-hidden
+        count: 2
+      - class: cm-md-emphasis
+        text: "italic text"
+    visible_text: "This is italic text here."
+
+- name: bold-basic
+  complexity: 10
+  markdown: "This is **bold text** here."
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-marker-hidden
+        count: 2
+      - class: cm-md-strong
+        text: "bold text"
+    visible_text: "This is bold text here."
+
+- name: bold-italic-basic
+  complexity: 20
+  markdown: "This is ***bold italic*** here."
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-emphasis
+      - class: cm-md-strong
+    visible_text: "This is bold italic here."
+
+- name: italic-cursor-reveal
+  complexity: 20
+  markdown: "This is *italic text* here."
+  cursor: { line: 0, ch: 12 }
+  expect:
+    visible_text_contains: "*italic text*"
+
+- name: bold-cursor-reveal
+  complexity: 20
+  markdown: "This is **bold text** here."
+  cursor: { line: 0, ch: 14 }
+  expect:
+    visible_text_contains: "**bold text**"

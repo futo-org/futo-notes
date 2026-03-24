@@ -1,0 +1,72 @@
+- name: fenced-code-basic
+  complexity: 15
+  markdown: |
+    ```
+    hello world
+    ```
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-marker-hidden
+        count: 2
+      - class: cm-md-code-block
+        count: 1
+      - class: cm-md-code-block-single
+        count: 1
+
+- name: fenced-code-with-language
+  complexity: 15
+  markdown: |
+    ```javascript
+    function hello() {
+      console.log("world");
+    }
+    ```
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-marker-hidden
+        count: 2
+      - class: cm-md-code-block
+        count: 3
+      - class: cm-md-code-block-first
+        count: 1
+      - class: cm-md-code-block-last
+        count: 1
+
+- name: fenced-code-tilde
+  complexity: 30
+  markdown: |
+    ~~~python
+    print("hello")
+    ~~~
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-code-block
+        count: 1
+
+- name: fenced-code-wikilink-not-decorated
+  complexity: 70
+  markdown: |
+    ```
+    This [[should not]] be a wikilink
+    ```
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-wikilink
+        count: 0
+
+- name: fenced-code-tag-not-decorated
+  complexity: 70
+  markdown: |
+    ```
+    This #should not be styled as a tag
+    ```
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-tag
+        count: 0
+    tags: []

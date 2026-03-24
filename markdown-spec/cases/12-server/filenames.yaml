@@ -1,0 +1,20 @@
+- name: server-filename-basic
+  complexity: 10
+  markdown: "grocery list"
+  cursor: null
+  expect:
+    tags: []
+
+- name: server-filename-with-tags
+  complexity: 25
+  markdown: |
+    #shopping
+
+    Buy milk and eggs.
+  cursor: null
+  expect:
+    tags:
+      - "#shopping"
+    header_tag_block:
+      tags: ["#shopping"]
+      hidden: true

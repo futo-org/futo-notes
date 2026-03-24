@@ -1,0 +1,88 @@
+- name: tag-not-in-inline-code
+  complexity: 40
+  markdown: "Use `#notATag` in code."
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-tag
+        count: 0
+    tags: []
+
+- name: tag-not-in-fenced-code
+  complexity: 40
+  markdown: |
+    ```
+    #notATag inside code block
+    ```
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-tag
+        count: 0
+    tags: []
+
+- name: tag-not-starting-with-number
+  complexity: 30
+  markdown: "This #123 is not a tag."
+  cursor: null
+  expect:
+    tags: []
+
+- name: tag-not-midword
+  complexity: 30
+  markdown: "example#section is not a tag."
+  cursor: null
+  expect:
+    tags: []
+
+- name: tag-bare-hash
+  complexity: 30
+  markdown: "Just a # alone."
+  cursor: null
+  expect:
+    tags: []
+
+- name: tag-mixed-code-and-text
+  complexity: 60
+  markdown: "Real #tag and `#fake` tag"
+  cursor: null
+  expect:
+    tags:
+      - "#tag"
+
+- name: tag-over-max-length
+  complexity: 50
+  markdown: "Tag #abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxy too long"
+  cursor: null
+  expect:
+    tags: []
+
+- name: tag-after-code-block
+  complexity: 70
+  markdown: |
+    ```
+    code here
+    ```
+    Real #tag after code
+  cursor: null
+  expect:
+    tags:
+      - "#tag"
+
+- name: tag-in-tilde-fence
+  complexity: 50
+  markdown: |
+    ~~~
+    #notATag
+    ~~~
+  cursor: null
+  expect:
+    tags: []
+
+- name: tag-case-dedup
+  complexity: 45
+  markdown: "Both #Project and #project are here."
+  cursor: null
+  expect:
+    tags:
+      - "#Project"

@@ -1,0 +1,77 @@
+- name: ul-basic
+  complexity: 10
+  markdown: |
+    - First item
+    - Second item
+    - Third item
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-marker-hidden
+        count: 3
+      - class: cm-md-ul-item
+        count: 3
+    widgets:
+      - class: cm-md-bullet
+        count: 3
+
+- name: ul-nested
+  complexity: 30
+  markdown: |
+    - Outer item
+      - Nested item
+        - Deep nested
+  cursor: null
+  expect:
+    widgets:
+      - class: cm-md-bullet
+        count: 3
+
+- name: ul-cursor-reveal
+  complexity: 20
+  markdown: |
+    - First item
+    - Second item
+  cursor: { line: 0, ch: 5 }
+  expect:
+    visible_text_contains: "- First item"
+
+- name: ul-with-emphasis
+  complexity: 60
+  markdown: "- Item with **bold** text"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-ul-item
+      - class: cm-md-strong
+        text: "bold"
+
+- name: ul-with-inline-code
+  complexity: 60
+  markdown: "- Item with `code` text"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-ul-item
+      - class: cm-md-code
+
+- name: ul-with-wikilink
+  complexity: 65
+  markdown: "- Check [[my note]]"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-ul-item
+      - class: cm-md-wikilink
+        text: "my note"
+
+- name: ul-with-tag
+  complexity: 65
+  markdown: "- Important item #todo"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-ul-item
+      - class: cm-md-tag
+    tags:
+      - "#todo"

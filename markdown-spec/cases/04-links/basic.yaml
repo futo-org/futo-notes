@@ -1,0 +1,47 @@
+- name: link-basic
+  complexity: 10
+  markdown: "Check out [example](https://example.com) here."
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-link
+        text: "example"
+    visible_text: "Check out example here."
+
+- name: link-with-emphasis
+  complexity: 60
+  markdown: "[**bold link**](https://example.com)"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-link
+      - class: cm-md-strong
+
+- name: link-cursor-reveal
+  complexity: 20
+  markdown: "Click [here](https://example.com) now."
+  cursor: { line: 0, ch: 9 }
+  expect:
+    visible_text_contains: "[here](https://example.com)"
+
+- name: link-with-parens-in-url
+  complexity: 45
+  markdown: "[notebook](https://colab.research.google.com/github/unslothai/notebooks/blob/main/nb/Qwen3_5_(4B)_Vision_GRPO.ipynb)"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-link
+        text: "notebook"
+    visible_text: "notebook"
+
+- name: link-adjacent
+  complexity: 50
+  markdown: "[one](https://a.com) and [two](https://b.com)"
+  cursor: null
+  expect:
+    # CM6 may split mark decorations at boundaries, creating more elements
+    # than the 2 logical links. Don't assert exact count.
+    decorations:
+      - class: cm-md-link
+        text: "one"
+    visible_text_contains: "one"

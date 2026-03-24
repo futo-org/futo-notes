@@ -1,0 +1,37 @@
+- name: blockquote-basic
+  complexity: 10
+  markdown: "> This is a quote."
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-marker-hidden
+        count: 1
+      - class: cm-md-quote
+        count: 1
+    visible_text: "This is a quote."
+
+- name: blockquote-multiline
+  complexity: 20
+  markdown: |
+    > First line.
+    > Second line.
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-quote
+        count: 2
+      - class: cm-md-marker-hidden
+        count: 2
+
+- name: blockquote-cursor-dimmed-marker
+  complexity: 30
+  markdown: |
+    > First line.
+    > Second line.
+  cursor: { line: 0, ch: 5 }
+  expect:
+    decorations:
+      - class: cm-md-quote-marker
+        count: 1
+      - class: cm-md-marker-hidden
+        count: 1

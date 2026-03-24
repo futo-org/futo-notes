@@ -1,0 +1,98 @@
+- name: task-unchecked
+  complexity: 15
+  markdown: "- [ ] Incomplete task"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-marker-hidden
+        count: 1
+      - class: cm-md-task
+        text: "Incomplete task"
+    widgets:
+      - class: cm-md-task-checkbox
+        count: 1
+
+- name: task-checked
+  complexity: 15
+  markdown: "- [x] Completed task"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-task
+        text: "Completed task"
+    widgets:
+      - class: cm-md-task-checkbox
+        count: 1
+
+- name: task-mixed
+  complexity: 25
+  markdown: |
+    - [x] Done
+    - [ ] Not done
+    - [x] Also done
+  cursor: null
+  expect:
+    widgets:
+      - class: cm-md-task-checkbox
+        count: 3
+    decorations:
+      - class: cm-md-task
+        count: 3
+
+- name: ordered-task
+  complexity: 30
+  markdown: |
+    1. [x] First task done
+    2. [ ] Second task pending
+  cursor: null
+  expect:
+    widgets:
+      - class: cm-md-task-checkbox
+        count: 2
+      - class: cm-md-number
+        count: 2
+    decorations:
+      - class: cm-md-task
+        count: 2
+
+- name: task-cursor-reveal
+  complexity: 25
+  markdown: "- [ ] A task item"
+  cursor: { line: 0, ch: 8 }
+  expect:
+    visible_text_contains: "- [ ] A task item"
+
+- name: task-uppercase-x
+  complexity: 30
+  markdown: "- [X] Task with uppercase X"
+  cursor: null
+  expect:
+    widgets:
+      - class: cm-md-task-checkbox
+        count: 1
+    decorations:
+      - class: cm-md-task
+
+- name: task-with-wikilink
+  complexity: 70
+  markdown: "- [ ] Review [[design doc]]"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-task
+      - class: cm-md-wikilink
+        text: "design doc"
+    widgets:
+      - class: cm-md-task-checkbox
+        count: 1
+
+- name: task-with-tag
+  complexity: 70
+  markdown: "- [ ] Fix bug #urgent"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-task
+      - class: cm-md-tag
+    tags:
+      - "#urgent"

@@ -1,0 +1,69 @@
+- name: bold-inside-italic
+  complexity: 40
+  markdown: "*italic **bold-italic** italic*"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-emphasis
+      - class: cm-md-strong
+
+- name: italic-inside-bold
+  complexity: 40
+  markdown: "**bold *bold-italic* bold**"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-strong
+      - class: cm-md-emphasis
+
+- name: adjacent-emphasis
+  complexity: 50
+  markdown: "*first* and *second*"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-emphasis
+        count: 2
+      - class: cm-md-marker-hidden
+        count: 4
+    visible_text: "first and second"
+
+- name: emphasis-with-punctuation
+  complexity: 50
+  markdown: "A *word*, another **word**."
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-emphasis
+        text: "word"
+      - class: cm-md-strong
+        text: "word"
+
+- name: strikethrough-basic
+  complexity: 10
+  markdown: "This is ~~strikethrough~~ text."
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-marker-hidden
+        count: 2
+      - class: cm-md-strikethrough
+        text: "strikethrough"
+    visible_text: "This is strikethrough text."
+
+- name: strikethrough-with-bold
+  complexity: 60
+  markdown: "~~strikethrough with **bold** inside~~"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-strikethrough
+      - class: cm-md-strong
+        text: "bold"
+
+- name: strikethrough-cursor-reveal
+  complexity: 20
+  markdown: "This is ~~struck~~ text."
+  cursor: { line: 0, ch: 12 }
+  expect:
+    visible_text_contains: "~~struck~~"

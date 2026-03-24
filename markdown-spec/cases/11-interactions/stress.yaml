@@ -1,0 +1,141 @@
+- name: multi-feature-document
+  complexity: 100
+  markdown: |
+    #project #design
+
+    # Design Document
+
+    ## Overview
+
+    This document describes the **new architecture** for [[project alpha]].
+
+    > The key insight is that *simplicity* wins.
+    > See [[design principles]] for more.
+
+    ## Tasks
+
+    - [x] Write spec #done
+    - [ ] Review with team #pending
+    - [ ] Deploy to staging
+
+    ## Notes
+
+    | Component | Status |
+    |-----------|--------|
+    | Frontend  | **Done** |
+    | Backend   | `WIP` |
+
+    ---
+
+    For questions, contact the team.
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-h1
+        count: 1
+      - class: cm-md-h2
+        count: 3
+      - class: cm-md-strong
+      - class: cm-md-emphasis
+      - class: cm-md-wikilink
+        count: 2
+      - class: cm-md-quote
+      - class: cm-md-task
+        count: 3
+    widgets:
+      - class: cm-md-task-checkbox
+        count: 3
+      - class: cm-md-table-wrapper
+        count: 1
+      - class: cm-md-hr-widget
+        count: 1
+    tags:
+      - "#project"
+      - "#design"
+      - "#done"
+      - "#pending"
+
+- name: nested-blockquote-with-list-and-emphasis
+  complexity: 110
+  markdown: |
+    > Outer quote with **bold**
+    > > Inner quote with *italic*
+    > > - A list in a nested quote
+    > > - With [[a wikilink]]
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-quote
+      - class: cm-md-strong
+      - class: cm-md-emphasis
+      - class: cm-md-wikilink
+        text: "a wikilink"
+
+- name: deeply-nested-list
+  complexity: 120
+  markdown: |
+    - Level 0
+      - Level 1
+        - Level 2
+          - Level 3
+            - Level 4
+              - Level 5
+  cursor: null
+  expect:
+    widgets:
+      - class: cm-md-bullet
+        count: 6
+
+- name: code-blocks-preserve-content
+  complexity: 90
+  markdown: |
+    ```
+    # This is not a heading
+    **not bold**
+    - not a list
+    [[not a wikilink]]
+    #notATag
+    ```
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-h1
+        count: 0
+      - class: cm-md-strong
+        count: 0
+      - class: cm-md-wikilink
+        count: 0
+      - class: cm-md-tag
+        count: 0
+
+- name: all-inline-formatting
+  complexity: 80
+  markdown: "Here is *italic*, **bold**, ~~struck~~, `code`, and [link](https://a.com)"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-emphasis
+      - class: cm-md-strong
+      - class: cm-md-strikethrough
+      - class: cm-md-code
+      - class: cm-md-link
+    visible_text: "Here is italic, bold, struck, code, and link"
+
+- name: hr-basic
+  complexity: 10
+  markdown: "---"
+  cursor: null
+  expect:
+    widgets:
+      - class: cm-md-hr-widget
+        count: 1
+
+- name: hr-cursor-reveal
+  complexity: 20
+  markdown: "---"
+  cursor: { line: 0, ch: 1 }
+  expect:
+    visible_text_contains: "---"
+    widgets:
+      - class: cm-md-hr-widget
+        count: 0

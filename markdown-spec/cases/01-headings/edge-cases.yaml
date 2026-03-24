@@ -1,0 +1,53 @@
+- name: heading-with-emphasis
+  complexity: 60
+  markdown: "## Heading with **bold** inside"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-h2
+      - class: cm-md-strong
+        text: "bold"
+    visible_text: "Heading with bold inside"
+
+- name: heading-with-inline-code
+  complexity: 60
+  markdown: "### Heading with `code` inside"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-h3
+      - class: cm-md-code
+
+- name: heading-no-space
+  complexity: 40
+  markdown: "#NoSpace"
+  cursor: null
+  expect:
+    # QUIRK: #NoSpace (no space after #) is NOT a heading in CM6.
+    # It matches TAG_REGEX and gets treated as a header tag block,
+    # which is hidden when the editor is blurred.
+    decorations:
+      - class: cm-md-h1
+        count: 0
+
+- name: heading-with-wikilink
+  complexity: 70
+  markdown: "## See [[my note]] for details"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-h2
+      - class: cm-md-wikilink
+        text: "my note"
+    visible_text: "See my note for details"
+
+- name: heading-multiple-on-cursor-line
+  complexity: 40
+  markdown: |
+    # First
+    ## Second
+    ### Third
+  cursor: { line: 1, ch: 3 }
+  expect:
+    visible_text_contains: "## Second"
+    visible_text_excludes: "# First"

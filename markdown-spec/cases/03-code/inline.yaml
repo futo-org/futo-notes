@@ -1,0 +1,38 @@
+- name: inline-code-basic
+  complexity: 10
+  markdown: "Use `inline code` for snippets."
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-marker-hidden
+        count: 2
+      - class: cm-md-code
+    visible_text: "Use inline code for snippets."
+
+- name: inline-code-double-backtick
+  complexity: 40
+  markdown: "Use ``backticks ` inside code`` here."
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-code
+    visible_text: "Use backticks ` inside code here."
+
+- name: inline-code-cursor-reveal
+  complexity: 20
+  markdown: "Use `code` here."
+  cursor: { line: 0, ch: 6 }
+  expect:
+    visible_text_contains: "`code`"
+
+- name: inline-code-adjacent
+  complexity: 50
+  markdown: "`one` and `two` and `three`"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-code
+        count: 3
+      - class: cm-md-marker-hidden
+        count: 6
+    visible_text: "one and two and three"

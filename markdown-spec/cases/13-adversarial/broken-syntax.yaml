@@ -1,0 +1,443 @@
+# Broken, ambiguous, and adversarial markdown inputs.
+# These test that the editor doesn't crash, doesn't render garbage,
+# and degrades gracefully when given malformed input.
+
+# --- Unclosed formatting ---
+
+- name: unclosed-bold
+  complexity: 150
+  markdown: "**bold without closing"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-strong
+        count: 0
+    visible_text_contains: "**bold without closing"
+
+- name: unclosed-italic
+  complexity: 150
+  markdown: "*italic without closing"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-emphasis
+        count: 0
+    visible_text_contains: "*italic without closing"
+
+- name: unclosed-strikethrough
+  complexity: 150
+  markdown: "~~strikethrough without closing"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-strikethrough
+        count: 0
+    visible_text_contains: "~~strikethrough without closing"
+
+- name: unclosed-inline-code
+  complexity: 150
+  markdown: "`code without closing"
+  cursor: null
+  expect:
+    visible_text_contains: "`code without closing"
+
+- name: unclosed-link-bracket
+  complexity: 150
+  markdown: "[link text without closing"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-link
+        count: 0
+    visible_text_contains: "[link text without closing"
+
+- name: unclosed-link-url
+  complexity: 150
+  markdown: "[text](https://example.com"
+  cursor: null
+  expect:
+    # CM6 may still parse this as a link depending on parser leniency.
+    # Just verify it doesn't crash and text is visible.
+    visible_text_contains: "text"
+
+- name: unclosed-wikilink
+  complexity: 130
+  markdown: "[[unclosed wikilink"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-wikilink
+        count: 0
+
+- name: unclosed-fenced-code
+  complexity: 160
+  markdown: "```\ncode but no closing fence\nmore code"
+  cursor: null
+  expect:
+    # Unclosed fences: CM6 treats remaining lines as code block content.
+    decorations:
+      - class: cm-md-code-block
+
+# --- Mismatched/overlapping markers ---
+
+- name: mismatched-bold-italic-overlap
+  complexity: 160
+  markdown: "*italic **and bold* hmm**"
+  cursor: null
+  expect:
+    visible_text_contains: "italic"
+
+- name: mismatched-emphasis-nesting
+  complexity: 160
+  markdown: "**bold *italic** not italic*"
+  cursor: null
+  expect:
+    visible_text_contains: "bold"
+
+- name: bold-with-space-after-marker
+  complexity: 140
+  markdown: "** not bold ** really"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-strong
+        count: 0
+
+- name: italic-with-space-after-marker
+  complexity: 140
+  markdown: "* not italic * really"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-emphasis
+        count: 0
+
+- name: triple-star-asymmetric
+  complexity: 160
+  markdown: "***bold-italic** only bold ends*"
+  cursor: null
+  expect:
+    visible_text_contains: "bold-italic"
+
+- name: four-stars
+  complexity: 170
+  markdown: "****what happens here****"
+  cursor: null
+  expect:
+    visible_text_contains: "what happens here"
+
+- name: five-stars
+  complexity: 170
+  markdown: "*****five stars*****"
+  cursor: null
+  expect:
+    visible_text_contains: "five stars"
+
+# --- Escaped characters ---
+
+- name: escaped-bold
+  complexity: 130
+  markdown: "\\*\\*not bold\\*\\*"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-strong
+        count: 0
+
+- name: escaped-heading
+  complexity: 130
+  markdown: "\\# not a heading"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-h1
+        count: 0
+
+- name: escaped-wikilink-open
+  complexity: 140
+  markdown: "\\[\\[not a wikilink]]"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-wikilink
+        count: 0
+
+- name: escaped-backtick
+  complexity: 130
+  markdown: "\\`not code\\`"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-code
+        count: 0
+
+# --- Syntax at boundaries ---
+
+- name: emphasis-at-line-boundary
+  complexity: 140
+  markdown: "*italic\nacross lines*"
+  cursor: null
+  expect:
+    visible_text_contains: "italic"
+
+- name: bold-at-line-boundary
+  complexity: 140
+  markdown: "**bold\nacross lines**"
+  cursor: null
+  expect:
+    visible_text_contains: "bold"
+
+- name: wikilink-with-newline
+  complexity: 130
+  markdown: "[[note\nwith newline]]"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-wikilink
+        count: 0
+
+- name: heading-after-text
+  complexity: 110
+  markdown: "some text # not a heading"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-h1
+        count: 0
+
+- name: heading-with-only-hashes
+  complexity: 120
+  markdown: "######"
+  cursor: null
+  expect:
+    # CM6 parses ###### (no space, no text) as an ATX heading with empty content.
+    # After marker hiding, nothing remains visible.
+    decorations:
+      - class: cm-md-h6
+
+- name: heading-seven-levels
+  complexity: 120
+  markdown: "####### not a valid heading"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-h1
+        count: 0
+      - class: cm-md-h2
+        count: 0
+      - class: cm-md-h3
+        count: 0
+      - class: cm-md-h4
+        count: 0
+      - class: cm-md-h5
+        count: 0
+      - class: cm-md-h6
+        count: 0
+
+# --- Empty/degenerate inputs ---
+
+- name: empty-bold
+  complexity: 130
+  markdown: "****"
+  cursor: null
+  expect:
+    # CM6 parses **** as empty StrongEmphasis — markers hidden, nothing visible.
+    # This is correct behavior (degenerate but valid syntax).
+    decorations:
+      - class: cm-md-strong
+        count: 0
+
+- name: empty-italic
+  complexity: 130
+  markdown: "**"
+  cursor: null
+  expect:
+    visible_text_contains: "**"
+
+- name: empty-inline-code
+  complexity: 130
+  markdown: "``"
+  cursor: null
+  expect:
+    visible_text_contains: "``"
+
+- name: empty-link
+  complexity: 130
+  markdown: "[](https://example.com)"
+  cursor: null
+  expect:
+    # CM6 parses this as a valid link with empty text.
+    # processLink hides all markers — nothing visible remains.
+    decorations:
+      - class: cm-md-marker-hidden
+
+- name: empty-wikilink
+  complexity: 130
+  markdown: "[[]]"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-wikilink
+        count: 0
+
+- name: link-empty-url
+  complexity: 130
+  markdown: "[text]()"
+  cursor: null
+  expect:
+    visible_text_contains: "text"
+
+- name: empty-fenced-code
+  complexity: 110
+  markdown: "```\n```"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-marker-hidden
+        count: 2
+
+- name: only-whitespace
+  complexity: 100
+  markdown: "   \n  \n   "
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-h1
+        count: 0
+
+# --- Table edge cases ---
+
+- name: table-single-column
+  complexity: 140
+  markdown: "| A |\n|---|\n| 1 |"
+  cursor: null
+  expect:
+    widgets:
+      - class: cm-md-table-wrapper
+        count: 1
+
+- name: table-no-separator
+  complexity: 150
+  markdown: "| A | B |\n| 1 | 2 |"
+  cursor: null
+  expect:
+    widgets:
+      - class: cm-md-table-wrapper
+        count: 0
+
+- name: table-empty-cells
+  complexity: 140
+  markdown: "| A | B |\n|---|---|\n| | |"
+  cursor: null
+  expect:
+    widgets:
+      - class: cm-md-table-wrapper
+        count: 1
+
+# --- Deeply nested structures ---
+
+- name: deeply-nested-blockquotes
+  complexity: 150
+  markdown: "> > > > > five levels deep"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-quote
+
+- name: deeply-nested-lists
+  complexity: 150
+  markdown: "- L0\n  - L1\n    - L2\n      - L3\n        - L4\n          - L5\n            - L6\n              - L7"
+  cursor: null
+  expect:
+    widgets:
+      - class: cm-md-bullet
+        count: 8
+
+# --- Pathological combinations ---
+
+- name: wikilink-inside-link-syntax
+  complexity: 170
+  markdown: "[[[nested]] link](https://example.com)"
+  cursor: null
+  expect:
+    visible_text_contains: "nested"
+
+- name: link-inside-wikilink
+  complexity: 170
+  markdown: "[[note [with](url) inside]]"
+  cursor: null
+  expect:
+    visible_text_contains: "note"
+
+- name: tag-that-looks-like-heading
+  complexity: 140
+  markdown: " #tag at start with space"
+  cursor: null
+  expect:
+    tags:
+      - "#tag"
+
+- name: heading-that-looks-like-tag
+  complexity: 140
+  markdown: "#heading"
+  cursor: null
+  expect:
+    # QUIRK: Server extracts #heading as a tag (regex match).
+    # Client renders it as an ATX heading, NOT a tag.
+    # This is a known client/server conformance gap.
+    tags:
+      - "#heading"
+
+- name: all-markers-on-one-line
+  complexity: 180
+  markdown: "# **bold** *italic* ~~struck~~ `code` [link](url) [[wiki]] #tag"
+  cursor: null
+  expect:
+    visible_text_contains: "bold"
+    tags:
+      - "#tag"
+
+- name: markdown-injection-attempt
+  complexity: 180
+  markdown: "```\n</div><script>alert(1)</script>\n```"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-code-block
+
+- name: extremely-long-line
+  complexity: 160
+  markdown: "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-h1
+        count: 0
+
+- name: rapid-formatting-alternation
+  complexity: 170
+  markdown: "*a* **b** *c* **d** *e* **f** *g* **h** *i* **j**"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-emphasis
+        count: 5
+      - class: cm-md-strong
+        count: 5
+
+- name: nested-code-fences
+  complexity: 170
+  markdown: "````\n```\ninner fence\n```\n````"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-code-block
+
+- name: backtick-in-bold
+  complexity: 140
+  markdown: "**bold `code` bold**"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-strong
+      - class: cm-md-code

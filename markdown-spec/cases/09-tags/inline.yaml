@@ -1,0 +1,87 @@
+- name: tag-basic
+  complexity: 10
+  markdown: "This is #important text."
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-tag
+        count: 1
+    tags:
+      - "#important"
+
+- name: tag-multiple
+  complexity: 20
+  markdown: "Both #urgent and #review needed."
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-tag
+        count: 2
+    tags:
+      - "#urgent"
+      - "#review"
+
+- name: tag-cursor-reveal
+  complexity: 20
+  markdown: "This is #important text."
+  cursor: { line: 0, ch: 10 }
+  expect:
+    visible_text_contains: "#important"
+
+- name: tag-with-dashes
+  complexity: 25
+  markdown: "Tag #status-in-progress here."
+  cursor: null
+  expect:
+    tags:
+      - "#status-in-progress"
+
+- name: tag-with-underscore
+  complexity: 25
+  markdown: "Tag #my_tag here."
+  cursor: null
+  expect:
+    tags:
+      - "#my_tag"
+
+- name: tag-with-numbers
+  complexity: 25
+  markdown: "Tag #version2 here."
+  cursor: null
+  expect:
+    tags:
+      - "#version2"
+
+- name: tag-max-length
+  complexity: 40
+  markdown: "Tag #abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwx here."
+  cursor: null
+  expect:
+    tags:
+      - "#abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwx"
+
+- name: tag-followed-by-punctuation
+  complexity: 35
+  markdown: "Check #tag1, and #tag2. Also #tag3!"
+  cursor: null
+  expect:
+    tags:
+      - "#tag1"
+      - "#tag2"
+      - "#tag3"
+
+- name: tag-at-line-start
+  complexity: 20
+  markdown: "#hello at start"
+  cursor: null
+  expect:
+    tags:
+      - "#hello"
+
+- name: tag-at-line-end
+  complexity: 20
+  markdown: "end of line #goodbye"
+  cursor: null
+  expect:
+    tags:
+      - "#goodbye"

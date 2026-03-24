@@ -1,0 +1,96 @@
+- name: h1-basic
+  complexity: 10
+  markdown: "# Hello World"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-marker-hidden
+        count: 1
+      - class: cm-md-h1
+        text: "Hello World"
+        attrs:
+          data-heading-level: "1"
+    visible_text: "Hello World"
+
+- name: h2-basic
+  complexity: 10
+  markdown: "## Second Level"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-marker-hidden
+        count: 1
+      - class: cm-md-h2
+        text: "Second Level"
+    visible_text: "Second Level"
+
+- name: h3-basic
+  complexity: 10
+  markdown: "### Third Level"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-h3
+        text: "Third Level"
+    visible_text: "Third Level"
+
+- name: h4-basic
+  complexity: 10
+  markdown: "#### Fourth Level"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-h4
+        text: "Fourth Level"
+
+- name: h5-basic
+  complexity: 10
+  markdown: "##### Fifth Level"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-h5
+        text: "Fifth Level"
+
+- name: h6-basic
+  complexity: 10
+  markdown: "###### Sixth Level"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-h6
+        text: "Sixth Level"
+
+- name: h1-cursor-reveal
+  complexity: 20
+  markdown: "# Heading One"
+  cursor: { line: 0, ch: 5 }
+  expect:
+    visible_text_contains: "# Heading One"
+
+- name: all-heading-levels
+  complexity: 30
+  markdown: |
+    # H1
+    ## H2
+    ### H3
+    #### H4
+    ##### H5
+    ###### H6
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-marker-hidden
+        count: 6
+      - class: cm-md-h1
+        count: 1
+      - class: cm-md-h2
+        count: 1
+      - class: cm-md-h3
+        count: 1
+      - class: cm-md-h4
+        count: 1
+      - class: cm-md-h5
+        count: 1
+      - class: cm-md-h6
+        count: 1

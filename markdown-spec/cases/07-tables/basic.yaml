@@ -1,0 +1,36 @@
+- name: table-basic
+  complexity: 15
+  markdown: |
+    | Header 1 | Header 2 |
+    |----------|----------|
+    | Cell 1   | Cell 2   |
+  cursor: null
+  expect:
+    widgets:
+      - class: cm-md-table-wrapper
+        count: 1
+
+- name: table-with-alignment
+  complexity: 35
+  markdown: |
+    | Left | Center | Right |
+    |:-----|:------:|------:|
+    | L1   |   C1   |    R1 |
+  cursor: null
+  expect:
+    widgets:
+      - class: cm-md-table-wrapper
+        count: 1
+
+- name: table-cursor-reveal
+  complexity: 30
+  markdown: |
+    | A | B |
+    |---|---|
+    | 1 | 2 |
+  cursor: { line: 0, ch: 3 }
+  expect:
+    visible_text_contains: "|"
+    widgets:
+      - class: cm-md-table-wrapper
+        count: 0

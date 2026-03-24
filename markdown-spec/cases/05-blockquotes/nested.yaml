@@ -1,0 +1,79 @@
+- name: blockquote-nested-level-2
+  complexity: 40
+  markdown: |
+    > Outer quote
+    > > Inner quote
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-quote-level-1
+        count: 1
+      - class: cm-md-quote-level-2
+        count: 1
+
+- name: blockquote-nested-level-3
+  complexity: 50
+  markdown: |
+    > Level 1
+    > > Level 2
+    > > > Level 3
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-quote-level-1
+        count: 1
+      - class: cm-md-quote-level-2
+        count: 1
+      - class: cm-md-quote-level-3
+        count: 1
+
+- name: blockquote-with-wikilink
+  complexity: 60
+  markdown: "> See [[my note]] for details"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-quote
+      - class: cm-md-wikilink
+        text: "my note"
+    visible_text: "See my note for details"
+
+- name: blockquote-with-emphasis
+  complexity: 60
+  markdown: "> This is **bold** in a quote"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-quote
+      - class: cm-md-strong
+        text: "bold"
+
+- name: blockquote-with-inline-code
+  complexity: 60
+  markdown: "> Use `code` in a quote"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-quote
+      - class: cm-md-code
+
+- name: blockquote-with-tag
+  complexity: 65
+  markdown: "> Important note #review"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-quote
+      - class: cm-md-tag
+    tags:
+      - "#review"
+
+- name: blockquote-with-link
+  complexity: 60
+  markdown: "> Check [this](https://example.com) out"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-quote
+      - class: cm-md-link
+        text: "this"

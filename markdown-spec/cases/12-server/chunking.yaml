@@ -1,0 +1,44 @@
+- name: server-chunk-short-note
+  complexity: 15
+  markdown: "This is a short note with just a few words."
+  cursor: null
+  expect:
+    chunk_count: 1
+
+- name: server-chunk-empty
+  complexity: 10
+  markdown: ""
+  cursor: null
+  expect:
+    chunk_count: 0
+
+- name: server-chunk-whitespace-only
+  complexity: 10
+  markdown: "   \n  \n  "
+  cursor: null
+  expect:
+    chunk_count: 0
+
+- name: server-chunk-below-min-words
+  complexity: 15
+  markdown: "Too few."
+  cursor: null
+  expect:
+    chunk_count: 0
+
+- name: server-chunk-heading-split
+  complexity: 50
+  markdown: "# Section One\n\nThis is the first section with enough content to be meaningful. It has multiple sentences and covers a reasonable amount of ground. We need to make sure there is enough text here to be worth chunking into its own section. Adding more words to reach a reasonable length for testing the chunking algorithm. More text to ensure we have a good amount of content. This section discusses the architecture and design decisions that were made during the planning phase. We considered several alternatives before settling on the current approach. The key factors in our decision were simplicity, maintainability, and performance. Furthermore we explored additional options including serverless deployment, edge computing, and hybrid approaches. Each option was evaluated against our core requirements of offline-first operation, data sovereignty, and minimal operational overhead. The analysis revealed that a self-hosted Docker-based approach best met our needs while keeping the operational burden manageable for individual users and small teams. We also considered the long-term maintenance implications of each approach and concluded that simplicity in the deployment model would pay dividends over time. The architecture document captures all of these deliberations and the rationale behind each decision. We recommend revisiting these decisions quarterly as the landscape evolves and new technologies become available. In particular the emergence of WebAssembly-based runtimes could change the calculus significantly. For now though the current approach serves us well and has proven reliable in production use across multiple deployment environments including home servers, VPS instances, and corporate intranets. Additional testing confirmed that the sync protocol handles network partitions gracefully and recovers automatically when connectivity is restored.\n\n# Section Two\n\nThis is the second section which also has substantial content. We want to verify that the chunker splits on heading boundaries correctly. This section covers the implementation details and the technical decisions that were made. More text to make this section long enough to matter for the chunking algorithm. The implementation was done in TypeScript with a focus on type safety and clear abstractions. Each module has well-defined responsibilities and interfaces. We also added comprehensive tests to ensure correctness. The frontend uses Svelte 5 with its new runes-based reactivity system which provides excellent performance characteristics. The editor component is built on CodeMirror 6 which gives us full control over the editing experience while maintaining excellent performance even with large documents. The sync client implements a hash-based protocol that minimizes bandwidth usage by only transmitting content that has actually changed. On the server side we use Hono as the HTTP framework paired with better-sqlite3 for persistent storage. This combination provides excellent request throughput while keeping the deployment footprint minimal. Docker packaging ensures consistent behavior across different host environments. The CLI tool built with Rust provides a streamlined setup experience that handles Docker Compose orchestration automatically. Authentication uses Argon2 for password hashing with configurable work factors."
+  cursor: null
+  expect:
+    chunk_count: 1
+
+- name: server-chunk-with-tags-and-headings
+  complexity: 70
+  markdown: "#project #design\n\n# Design Document\n\n## Overview\n\nThis is a long document that should be chunked into multiple sections. The overview section provides context about the project and its goals. We are building a notes application that supports offline-first operation with optional self-hosted sync. The application should be fast, reliable, and easy to use. Additional context about the project scope and timeline goes here to ensure we have enough content. The project aims to provide a seamless note-taking experience that works entirely offline while optionally syncing with a self-hosted server. Users should be able to write, organize, and search their notes without any internet connection. When connectivity is available, changes sync automatically in the background without interrupting the user's workflow. The design prioritizes simplicity and reliability over feature count. We believe that a focused tool that does a few things exceptionally well is more valuable than a bloated application that tries to do everything. This philosophy informs every design decision from the sync protocol to the editor behavior. We have conducted extensive user research with early adopters and the feedback has been overwhelmingly positive. Users appreciate the speed, the clean interface, and the peace of mind that comes from self-hosting their data. Several users have migrated from commercial note-taking applications and report improved productivity due to the reduced friction in their writing workflow. The project roadmap includes mobile support via Tauri's cross-platform capabilities.\n\n## Implementation\n\nThe implementation section covers the technical details. We use Svelte 5 for the frontend and Tauri v2 for the desktop shell. The server is built with Hono and uses better-sqlite3 for storage. Sync uses a hash-based protocol for efficiency. More details about the implementation follow here to ensure adequate content length for chunk boundaries. The sync protocol is designed to be simple and efficient using content hashes to minimize data transfer. The client maintains a local copy of all note metadata including content hashes and modification timestamps. During sync the client sends its current state to the server which compares hashes to determine which notes need updating in each direction. This approach means that sync completes in a single round trip regardless of how many notes have changed. The server responds with all the information the client needs to bring itself up to date. Error handling is built into every layer of the stack. Network failures are retried with exponential backoff. Conflicts are detected via hash comparison and presented to the user for resolution. The database uses WAL mode for improved concurrent access performance. All API endpoints are authenticated using bearer tokens issued during the login flow."
+  cursor: null
+  expect:
+    chunk_count: 1
+    tags:
+      - "#project"
+      - "#design"

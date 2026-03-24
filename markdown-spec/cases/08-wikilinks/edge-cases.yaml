@@ -1,0 +1,37 @@
+- name: wikilink-special-chars
+  complexity: 40
+  markdown: "[[note with (parens) and spaces]]"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-wikilink
+        text: "note with (parens) and spaces"
+        attrs:
+          data-wikilink: "note with (parens) and spaces"
+
+- name: wikilink-single-bracket
+  complexity: 130
+  markdown: "[not a wikilink]"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-wikilink
+        count: 0
+
+- name: wikilink-adjacent-to-text
+  complexity: 50
+  markdown: "before[[note]]after"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-wikilink
+        text: "note"
+
+- name: wikilink-long-title
+  complexity: 60
+  markdown: "[[this is a very long note title that contains many words and characters]]"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-wikilink
+        text: "this is a very long note title that contains many words and characters"

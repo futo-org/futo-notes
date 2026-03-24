@@ -1,0 +1,122 @@
+- name: bold-in-blockquote
+  complexity: 60
+  markdown: "> This is **important** text"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-quote
+      - class: cm-md-strong
+        text: "important"
+
+- name: italic-in-list
+  complexity: 60
+  markdown: "- An *italic* item"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-ul-item
+      - class: cm-md-emphasis
+        text: "italic"
+
+- name: code-in-list
+  complexity: 60
+  markdown: "- Use `command` here"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-ul-item
+      - class: cm-md-code
+
+- name: link-in-list
+  complexity: 65
+  markdown: "- Visit [site](https://example.com)"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-ul-item
+      - class: cm-md-link
+        text: "site"
+
+- name: wikilink-and-tag-on-same-line
+  complexity: 65
+  markdown: "See [[my note]] and #review"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-wikilink
+        text: "my note"
+      - class: cm-md-tag
+    tags:
+      - "#review"
+
+- name: emphasis-and-wikilink
+  complexity: 70
+  markdown: "Read *about* the [[design doc]]"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-emphasis
+        text: "about"
+      - class: cm-md-wikilink
+        text: "design doc"
+
+- name: bold-and-link
+  complexity: 65
+  markdown: "Click **[important link](https://example.com)** now"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-strong
+      - class: cm-md-link
+
+- name: tag-in-ordered-list
+  complexity: 65
+  markdown: "1. First task #priority"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-ol-item
+      - class: cm-md-tag
+    tags:
+      - "#priority"
+
+- name: strikethrough-in-blockquote
+  complexity: 65
+  markdown: "> ~~removed text~~ stays"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-quote
+      - class: cm-md-strikethrough
+
+- name: heading-then-list
+  complexity: 50
+  markdown: |
+    ## Shopping List
+    - Milk
+    - Eggs
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-h2
+      - class: cm-md-ul-item
+        count: 2
+    widgets:
+      - class: cm-md-bullet
+        count: 2
+
+- name: code-block-in-document
+  complexity: 55
+  markdown: |
+    Some text before.
+
+    ```javascript
+    const x = 1;
+    ```
+
+    Some text after.
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-code-block
+        count: 1
