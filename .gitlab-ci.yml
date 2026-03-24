@@ -114,54 +114,23 @@ build_windows:
         sleep 10
       done
 
-    # Install Git, Node.js, pnpm, NSIS, tauri-cli
+    # Upload build scripts to VM
+    - |
+      sshpass -p "${PROXMOX_WIN_PASSWORD}" scp -o StrictHostKeyChecking=no \
+        ci/win-install-deps.ps1 ci/win-build.ps1 \
+        "${PROXMOX_WIN_USER}@${VM_IP}:C:/Users/${PROXMOX_WIN_USER}/"
+
+    # Install build dependencies
     - |
       echo "=== Installing build dependencies ==="
-      sshpass -p "${PROXMOX_WIN_PASSWORD}" ssh -o StrictHostKeyChecking=no "${PROXMOX_WIN_USER}@${VM_IP}" "powershell -NoProfile -Command \"
-        \\\$ErrorActionPreference = 'Stop'
-
-        Write-Host 'Installing Git...'
-        winget install --id Git.Git --accept-source-agreements --accept-package-agreements -e
-        \\\$env:PATH = 'C:\\Program Files\\Git\\cmd;' + \\\$env:PATH
-
-        Write-Host 'Installing Node.js...'
-        winget install --id OpenJS.NodeJS.LTS --accept-source-agreements --accept-package-agreements -e
-        \\\$env:PATH = 'C:\\Program Files\\nodejs;' + \\\$env:PATH
-
-        Write-Host 'Installing pnpm...'
-        npm install -g pnpm@10.29.2
-
-        Write-Host 'Installing NSIS...'
-        winget install --id NSIS.NSIS --accept-source-agreements --accept-package-agreements -e
-
-        Write-Host 'Installing tauri-cli...'
-        cargo binstall tauri-cli --no-confirm --locked
-
-        Write-Host 'All dependencies installed.'
-        git --version
-        node --version
-        pnpm --version
-        cargo tauri --version
-      \""
+      sshpass -p "${PROXMOX_WIN_PASSWORD}" ssh -o StrictHostKeyChecking=no "${PROXMOX_WIN_USER}@${VM_IP}" \
+        "powershell -NoProfile -ExecutionPolicy Bypass -File C:\\Users\\${PROXMOX_WIN_USER}\\win-install-deps.ps1"
 
     # Clone and build
     - |
       echo "=== Cloning and building ==="
-      sshpass -p "${PROXMOX_WIN_PASSWORD}" ssh -o StrictHostKeyChecking=no "${PROXMOX_WIN_USER}@${VM_IP}" "powershell -NoProfile -Command \"
-        \\\$ErrorActionPreference = 'Stop'
-        \\\$env:PATH = \\\$env:USERPROFILE + '\\.cargo\\bin;C:\\Program Files\\Git\\cmd;C:\\Program Files\\nodejs;C:\\Program Files (x86)\\NSIS;' + \\\$env:PATH
-
-        git clone --depth 1 ${CI_REPOSITORY_URL} C:\\build\\stonefruit
-        Set-Location C:\\build\\stonefruit
-
-        pnpm install --frozen-lockfile
-        pnpm run build
-        Set-Location apps\\tauri
-        cargo tauri build
-
-        Write-Host '=== Build artifacts ==='
-        Get-ChildItem -Recurse src-tauri\\target\\release\\bundle\\nsis\\
-      \""
+      sshpass -p "${PROXMOX_WIN_PASSWORD}" ssh -o StrictHostKeyChecking=no "${PROXMOX_WIN_USER}@${VM_IP}" \
+        "powershell -NoProfile -ExecutionPolicy Bypass -File C:\\Users\\${PROXMOX_WIN_USER}\\win-build.ps1 -RepoUrl '${CI_REPOSITORY_URL}' -Branch '${CI_COMMIT_SHA}' -Version '0.1.0'"
 
     # Retrieve artifacts
     - mkdir -p windows-artifacts
