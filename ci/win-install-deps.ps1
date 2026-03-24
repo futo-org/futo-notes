@@ -38,7 +38,18 @@ if (-not (Get-Command makensis -ErrorAction SilentlyContinue)) {
     Refresh-Path
 }
 
-# tauri-cli (cargo-binstall should already be available since Rust is on the template)
+# cargo-binstall (for fast binary installs)
+if (-not (Get-Command cargo-binstall -ErrorAction SilentlyContinue)) {
+    Write-Host "Installing cargo-binstall..."
+    # Use the official installer script
+    Set-ExecutionPolicy Unrestricted -Scope Process -Force
+    Invoke-WebRequest -Uri "https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.ps1" -OutFile install-binstall.ps1
+    .\install-binstall.ps1
+    Remove-Item install-binstall.ps1
+    Refresh-Path
+}
+
+# tauri-cli
 if (-not (Get-Command cargo-tauri -ErrorAction SilentlyContinue)) {
     Write-Host "Installing tauri-cli..."
     cargo binstall tauri-cli --no-confirm --locked
