@@ -155,14 +155,12 @@ run_commands:
     # Check what's pre-installed on the template
     - |
       echo "=== Pre-installed tools ==="
-      sshpass -p "${PROXMOX_WIN_PASSWORD}" ssh -o StrictHostKeyChecking=no "${PROXMOX_WIN_USER}@${VM_IP}" "powershell -Command '
-        Write-Host \"Git: \$(try { git --version } catch { \"not installed\" })\"
-        Write-Host \"Rust: \$(try { rustc --version } catch { \"not installed\" })\"
-        Write-Host \"Node: \$(try { node --version } catch { \"not installed\" })\"
-        Write-Host \"NSIS: \$(try { makensis /VERSION } catch { \"not installed\" })\"
-        Write-Host \"VS Build Tools: \$(Test-Path \"C:\\Program Files (x86)\\Microsoft Visual Studio\")\"
-        Write-Host \"winget: \$(try { winget --version } catch { \"not installed\" })\"
-      '"
+      sshpass -p "${PROXMOX_WIN_PASSWORD}" ssh -o StrictHostKeyChecking=no "${PROXMOX_WIN_USER}@${VM_IP}" "where git 2>nul && git --version || echo git: not installed"
+      sshpass -p "${PROXMOX_WIN_PASSWORD}" ssh -o StrictHostKeyChecking=no "${PROXMOX_WIN_USER}@${VM_IP}" "where rustc 2>nul && rustc --version || echo rust: not installed"
+      sshpass -p "${PROXMOX_WIN_PASSWORD}" ssh -o StrictHostKeyChecking=no "${PROXMOX_WIN_USER}@${VM_IP}" "where node 2>nul && node --version || echo node: not installed"
+      sshpass -p "${PROXMOX_WIN_PASSWORD}" ssh -o StrictHostKeyChecking=no "${PROXMOX_WIN_USER}@${VM_IP}" "where makensis 2>nul || echo nsis: not installed"
+      sshpass -p "${PROXMOX_WIN_PASSWORD}" ssh -o StrictHostKeyChecking=no "${PROXMOX_WIN_USER}@${VM_IP}" "where winget 2>nul && winget --version || echo winget: not installed"
+      sshpass -p "${PROXMOX_WIN_PASSWORD}" ssh -o StrictHostKeyChecking=no "${PROXMOX_WIN_USER}@${VM_IP}" "dir \"C:\\Program Files (x86)\\Microsoft Visual Studio\" 2>nul || echo VS Build Tools: not installed"
 
     # Summary
     - |
