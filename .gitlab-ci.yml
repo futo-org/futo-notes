@@ -165,15 +165,6 @@ test:e2e:
     - pnpm exec playwright install --with-deps chromium
     - pnpm test
 
-test:shared:
-  stage: test
-  needs: [docker:prune]
-  cache:
-    - !reference [.cache-pnpm, cache]
-  script:
-    - pnpm install --frozen-lockfile
-    - pnpm run test:shared
-
 test:server:
   stage: test
   needs: [docker:prune]
@@ -542,6 +533,255 @@ build:macos:
     - if: $CI_COMMIT_TAG
 
 # ─────────────────────────────────────────────────────────────
+# Windows build (Proxmox VM)
+# ─────────────────────────────────────────────────────────────
+# Flow: provision Windows VM → SSH in to build → sign artifacts → cleanup VM
+# Based on devops/templates/proxmox-win-ci
+# Template VM 101 has: Rust 1.92, VS Build Tools (MSVC), winget
+# Needs installed at build time: Git, Node.js, pnpm, NSIS, tauri-cli
+# Required CI/CD variables (masked, protected):
+#   PROXMOX_USER, PROXMOX_TOKEN_ID, PROXMOX_TOKEN_SECRET
+#   PROXMOX_WIN_USER, PROXMOX_WIN_PASSWORD
+
+.proxmox_auth: &proxmox_auth
+  - export PROXMOX_AUTH="PVEAPIToken=${PROXMOX_USER}!${PROXMOX_TOKEN_ID}=${PROXMOX_TOKEN_SECRET}"
+
+windows:provision:
+  stage: build
+  tags:
+    - proxmoxshell
+  needs: [lint, test:unit, test:e2e]
+  before_script:
+    - *proxmox_auth
+  variables:
+    PROXMOX_HOST: "127.0.0.1"
+    PROXMOX_NODE: "green"
+    TEMPLATE_VMID: "101"
+    VM_NAME: "stonefruit-win-${CI_PIPELINE_ID}"
+    CLONE_TYPE: "1"
+  script:
+    # Get next available VMID
+    - |
+      export NEXT_VMID=$(curl -s -k \
+        -H "Authorization: ${PROXMOX_AUTH}" \
+        "https://${PROXMOX_HOST}:8006/api2/json/cluster/nextid" | jq -r '.data')
+      echo "VMID=${NEXT_VMID}" >> provision.env
+      echo "Using VMID: ${NEXT_VMID}"
+
+    # Clone the template VM and poll task until done
+    - |
+      CLONE_RESPONSE=$(curl -s -k -X POST \
+        -H "Authorization: ${PROXMOX_AUTH}" \
+        -H "Content-Type: application/x-www-form-urlencoded" \
+        -d "newid=${NEXT_VMID}&name=${VM_NAME}&full=${CLONE_TYPE}" \
+        "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${TEMPLATE_VMID}/clone")
+      UPID=$(echo "$CLONE_RESPONSE" | jq -r '.data')
+      echo "Clone task started: $UPID"
+
+    - |
+      UPID_ENCODED=$(printf '%s' "$UPID" | jq -sRr @uri)
+      LATEST_TEMP=""
+      while true; do
+        TASK_STATUS=$(curl -s -k \
+          -H "Authorization: ${PROXMOX_AUTH}" \
+          "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/tasks/${UPID_ENCODED}/status")
+        STATUS=$(echo "$TASK_STATUS" | jq -r '.data.status')
+        if [ "$STATUS" = "stopped" ]; then
+          EXIT_STATUS=$(echo "$TASK_STATUS" | jq -r '.data.exitstatus')
+          if [ "$EXIT_STATUS" = "OK" ]; then
+            echo "Clone completed successfully!"
+            break
+          else
+            echo "Clone failed: $EXIT_STATUS"
+            exit 1
+          fi
+        fi
+        TASK_LOG=$(curl -s -k \
+          -H "Authorization: ${PROXMOX_AUTH}" \
+          "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/tasks/${UPID_ENCODED}/log?limit=10000")
+        LATEST=$(echo "$TASK_LOG" | jq -r '.data | sort_by(.n) | last | .t // "waiting..."')
+        if [ "$LATEST_TEMP" != "$LATEST" ]; then
+          echo "Status: $STATUS | $LATEST"
+          LATEST_TEMP="$LATEST"
+        fi
+        sleep 5
+      done
+
+    # Start the VM
+    - |
+      source provision.env
+      curl -s -k -X POST \
+        -H "Authorization: ${PROXMOX_AUTH}" \
+        "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${VMID}/status/start"
+
+    # Wait for VM to get an IP via QEMU guest agent
+    - |
+      source provision.env
+      echo "Waiting for VM to boot and get IP..."
+      for i in $(seq 1 60); do
+        IP=$(curl -s -k \
+          -H "Authorization: ${PROXMOX_AUTH}" \
+          "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${VMID}/agent/network-get-interfaces" 2>/dev/null \
+          | jq -r '.data.result[]? | select(.name != "Loopback Pseudo-Interface 1") | ."ip-addresses"[]? | select(."ip-address-type" == "ipv4") | ."ip-address"' \
+          | head -1)
+        if [ -n "$IP" ] && [ "$IP" != "null" ]; then
+          echo "VM_IP=${IP}" >> provision.env
+          echo "VM is up at: ${IP}"
+          break
+        fi
+        echo "Waiting for start and IP... (${i}/60)"
+        sleep 10
+      done
+      if [ -z "$IP" ] || [ "$IP" = "null" ]; then
+        echo "ERROR: No IP after 10 minutes"
+        exit 1
+      fi
+
+  artifacts:
+    reports:
+      dotenv: provision.env
+  rules:
+    - if: $CI_COMMIT_TAG
+
+build:windows:
+  stage: build
+  tags:
+    - proxmoxshell
+  needs:
+    - job: windows:provision
+      artifacts: true
+  script:
+    # Wait for SSH to be ready
+    - |
+      for i in $(seq 1 30); do
+        if sshpass -p "${PROXMOX_WIN_PASSWORD}" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 "${PROXMOX_WIN_USER}@${VM_IP}" "echo ready" 2>/dev/null; then
+          echo "SSH is ready!"
+          break
+        fi
+        echo "Waiting for SSH... ($i/30)"
+        sleep 10
+      done
+
+    # Upload build scripts to VM
+    - |
+      sshpass -p "${PROXMOX_WIN_PASSWORD}" scp -o StrictHostKeyChecking=no \
+        ci/win-install-deps.ps1 ci/win-build.ps1 \
+        "${PROXMOX_WIN_USER}@${VM_IP}:C:/Users/${PROXMOX_WIN_USER}/"
+
+    # Install build dependencies
+    - |
+      sshpass -p "${PROXMOX_WIN_PASSWORD}" ssh -o StrictHostKeyChecking=no "${PROXMOX_WIN_USER}@${VM_IP}" \
+        "powershell -NoProfile -ExecutionPolicy Bypass -File C:\\Users\\${PROXMOX_WIN_USER}\\win-install-deps.ps1"
+
+    # Clone repo and build
+    - |
+      VERSION="${CI_COMMIT_TAG#v}"
+      sshpass -p "${PROXMOX_WIN_PASSWORD}" ssh -o StrictHostKeyChecking=no "${PROXMOX_WIN_USER}@${VM_IP}" \
+        "powershell -NoProfile -ExecutionPolicy Bypass -File C:\\Users\\${PROXMOX_WIN_USER}\\win-build.ps1 -RepoUrl ${CI_REPOSITORY_URL} -Branch ${CI_COMMIT_TAG} -Version ${VERSION}"
+
+    # Retrieve build artifacts
+    - mkdir -p windows-artifacts
+    - |
+      sshpass -p "${PROXMOX_WIN_PASSWORD}" scp -o StrictHostKeyChecking=no -r \
+        "${PROXMOX_WIN_USER}@${VM_IP}:C:/build/stonefruit/apps/tauri/src-tauri/target/release/bundle/nsis/*" \
+        windows-artifacts/
+    - |
+      echo "=== Windows build artifacts ==="
+      ls -la windows-artifacts/
+
+  artifacts:
+    paths:
+      - windows-artifacts/*
+    expire_in: 4 weeks
+  rules:
+    - if: $CI_COMMIT_TAG
+
+windows:sign:
+  stage: build
+  tags:
+    - dind
+  image: debian:bookworm-slim
+  needs:
+    - job: build:windows
+      artifacts: true
+  before_script: []
+  script:
+    - |
+      if ! command -v aws >/dev/null 2>&1 || ! command -v java >/dev/null 2>&1 || ! command -v python3 >/dev/null 2>&1; then
+        apt-get update
+        DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl jq awscli default-jre-headless python3
+      fi
+    # Download fullchain.pem from GitLab secure files
+    - |
+      mkdir -p /deploy/signing
+      FILE_ID=$(curl --silent --fail \
+        --header "JOB-TOKEN: $CI_JOB_TOKEN" \
+        "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/secure_files" \
+        | jq -r '.[] | select(.name=="fullchain.pem") | .id')
+      test -n "$FILE_ID"
+      curl --silent --fail \
+        --header "JOB-TOKEN: $CI_JOB_TOKEN" \
+        --output /deploy/signing/fullchain.pem \
+        "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/secure_files/${FILE_ID}/download"
+      echo "Downloaded fullchain.pem"
+    # Sign all .exe artifacts
+    - |
+      for f in windows-artifacts/*.exe; do
+        [ -f "$f" ] || continue
+        CERT_FILE=/deploy/signing/fullchain.pem bash ci/sign-windows.sh "$f"
+      done
+  artifacts:
+    paths:
+      - windows-artifacts/*.exe
+    expire_in: 4 weeks
+  rules:
+    - if: $CI_COMMIT_TAG
+
+windows:cleanup:
+  stage: build
+  tags:
+    - proxmoxshell
+  needs:
+    - job: windows:provision
+      artifacts: true
+    - job: build:windows
+  when: always
+  before_script:
+    - *proxmox_auth
+  variables:
+    PROXMOX_HOST: "127.0.0.1"
+    PROXMOX_NODE: "green"
+  script:
+    - |
+      if [ -z "$VMID" ]; then
+        echo "No VMID found, skipping cleanup."
+        exit 0
+      fi
+      echo "Stopping VM $VMID..."
+      curl -s -k -X POST \
+        -H "Authorization: ${PROXMOX_AUTH}" \
+        "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${VMID}/status/stop"
+    - |
+      echo "Waiting for VM to stop..."
+      for i in $(seq 1 30); do
+        STATUS=$(curl -s -k \
+          -H "Authorization: ${PROXMOX_AUTH}" \
+          "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${VMID}/status/current" | jq -r '.data.status')
+        if [ "$STATUS" = "stopped" ]; then
+          echo "VM stopped!"
+          break
+        fi
+        sleep 5
+      done
+    - |
+      curl -s -k -X DELETE \
+        -H "Authorization: ${PROXMOX_AUTH}" \
+        "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${VMID}"
+      echo "VM ${VMID} deleted"
+  rules:
+    - if: $CI_COMMIT_TAG
+
+# ─────────────────────────────────────────────────────────────
 # Publish to GitLab Package Registry
 # ─────────────────────────────────────────────────────────────
 
@@ -557,6 +797,9 @@ publish:
       artifacts: true
       optional: true
     - job: build:macos
+      artifacts: true
+      optional: true
+    - job: windows:sign
       artifacts: true
       optional: true
   script:
@@ -614,6 +857,15 @@ publish:
         curl --fail -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$DMG" "${REGISTRY_URL}/${NAME}"
         echo "DMG_URL=${REGISTRY_URL}/${NAME}" >> publish.env
       fi
+    # Windows NSIS installer
+    - |
+      NSIS=$(find windows-artifacts -name "*.exe" -type f 2>/dev/null | head -1)
+      if [ -n "$NSIS" ]; then
+        NAME="Stonefruit-${VERSION}-x64-setup.exe"
+        echo "Uploading $NAME"
+        curl --fail -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$NSIS" "${REGISTRY_URL}/${NAME}"
+        echo "WINDOWS_URL=${REGISTRY_URL}/${NAME}" >> publish.env
+      fi
   artifacts:
     reports:
       dotenv: publish.env
@@ -645,6 +897,7 @@ release:
         --assets-link "{\"name\":\"Stonefruit-${VERSION}-x86_64.AppImage\",\"url\":\"${REGISTRY_URL}/Stonefruit-${VERSION}-x86_64.AppImage\",\"link_type\":\"package\"}" \
         --assets-link "{\"name\":\"stonefruit-${VERSION}.apk\",\"url\":\"${REGISTRY_URL}/stonefruit-${VERSION}.apk\",\"link_type\":\"package\"}" \
         --assets-link "{\"name\":\"Stonefruit-${VERSION}.ipa\",\"url\":\"${REGISTRY_URL}/Stonefruit-${VERSION}.ipa\",\"link_type\":\"package\"}" \
-        --assets-link "{\"name\":\"Stonefruit-${VERSION}-universal.dmg\",\"url\":\"${REGISTRY_URL}/Stonefruit-${VERSION}-universal.dmg\",\"link_type\":\"package\"}"
+        --assets-link "{\"name\":\"Stonefruit-${VERSION}-universal.dmg\",\"url\":\"${REGISTRY_URL}/Stonefruit-${VERSION}-universal.dmg\",\"link_type\":\"package\"}" \
+        --assets-link "{\"name\":\"Stonefruit-${VERSION}-x64-setup.exe\",\"url\":\"${REGISTRY_URL}/Stonefruit-${VERSION}-x64-setup.exe\",\"link_type\":\"package\"}"
   rules:
     - if: $CI_COMMIT_TAG
