@@ -17,7 +17,7 @@ AWS_REGION="${WINDOWS_SIGN_AWS_REGION:-us-east-1}"
 AWS_ALIAS="${WINDOWS_SIGN_AWS_ALIAS:-FUTO-EV-signing-key}"
 TSA_URL="${WINDOWS_SIGN_TSA_URL:-http://timestamp.globalsign.com/tsa/r6advanced1}"
 JSIGN_VERSION="${JSIGN_VERSION:-7.4}"
-JSIGN_JAR="${JSIGN_JAR:-$PWD/.ci-cache/jsign/jsign-cli-${JSIGN_VERSION}.jar}"
+JSIGN_JAR="${JSIGN_JAR:-$PWD/.ci-cache/jsign/jsign-${JSIGN_VERSION}.jar}"
 
 if [ "$PROBE_ONLY" -eq 0 ]; then
   if [ ! -f "$FILE" ]; then
@@ -66,7 +66,8 @@ fi
 
 mkdir -p "$(dirname "$JSIGN_JAR")"
 if [ ! -f "$JSIGN_JAR" ]; then
-  curl -fsSL "https://repo1.maven.org/maven2/net/jsign/jsign-cli/${JSIGN_VERSION}/jsign-cli-${JSIGN_VERSION}.jar" -o "$JSIGN_JAR"
+  # Use the official all-in-one JAR published on GitHub releases.
+  curl -fsSL "https://github.com/ebourg/jsign/releases/download/${JSIGN_VERSION}/jsign-${JSIGN_VERSION}.jar" -o "$JSIGN_JAR"
 fi
 
 if [ -z "${AWS_ACCESS_KEY_ID:-}" ]; then
