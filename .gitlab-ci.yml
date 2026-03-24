@@ -165,6 +165,15 @@ test:e2e:
     - pnpm exec playwright install --with-deps chromium
     - pnpm test
 
+test:shared:
+  stage: test
+  needs: [docker:prune]
+  cache:
+    - !reference [.cache-pnpm, cache]
+  script:
+    - pnpm install --frozen-lockfile
+    - pnpm run test:shared
+
 test:server:
   stage: test
   needs: [docker:prune]
