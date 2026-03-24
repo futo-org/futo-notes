@@ -536,9 +536,14 @@ build:macos:
 # Windows build (Proxmox VM)
 # ─────────────────────────────────────────────────────────────
 # Flow: provision Windows VM → SSH in to build → sign artifacts → cleanup VM
-# Based on FCast sender pattern (videostreaming/fcast senders/desktop/.gitlab-ci.yml)
+# Based on devops/templates/proxmox-win-ci
+# Template VM 101 has: Rust 1.92, VS Build Tools (MSVC), winget
+# Needs installed at build time: Git, Node.js, pnpm, NSIS, tauri-cli
+# Required CI/CD variables (masked, protected):
+#   PROXMOX_USER, PROXMOX_TOKEN_ID, PROXMOX_TOKEN_SECRET
+#   PROXMOX_WIN_USER, PROXMOX_WIN_PASSWORD
 
-.proxmox-auth: &proxmox-auth
+.proxmox_auth: &proxmox_auth
   - export PROXMOX_AUTH="PVEAPIToken=${PROXMOX_USER}!${PROXMOX_TOKEN_ID}=${PROXMOX_TOKEN_SECRET}"
 
 windows:provision:
@@ -547,56 +552,94 @@ windows:provision:
     - proxmoxshell
   needs: [lint, test:unit, test:e2e]
   before_script:
-    - *proxmox-auth
+    - *proxmox_auth
   variables:
     PROXMOX_HOST: "127.0.0.1"
     PROXMOX_NODE: "green"
     TEMPLATE_VMID: "101"
     VM_NAME: "stonefruit-win-${CI_PIPELINE_ID}"
+    CLONE_TYPE: "1"
   script:
-    # Clone VM from Windows template
+    # Get next available VMID
     - |
-      VMID=$(curl -s -k -H "$PROXMOX_AUTH" \
+      export NEXT_VMID=$(curl -s -k \
+        -H "Authorization: ${PROXMOX_AUTH}" \
         "https://${PROXMOX_HOST}:8006/api2/json/cluster/nextid" | jq -r '.data')
-      curl -s -k -H "$PROXMOX_AUTH" -X POST \
-        "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${TEMPLATE_VMID}/clone" \
-        -d "newid=${VMID}&name=${VM_NAME}&full=1" | jq .
-    # Wait for clone to finish
+      echo "VMID=${NEXT_VMID}" >> provision.env
+      echo "Using VMID: ${NEXT_VMID}"
+
+    # Clone the template VM and poll task until done
     - |
-      echo "Waiting for VM $VMID clone to complete..."
-      for i in $(seq 1 60); do
-        STATUS=$(curl -s -k -H "$PROXMOX_AUTH" \
-          "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${VMID}/status/current" \
-          | jq -r '.data.lock // empty')
-        [ -z "$STATUS" ] && break
+      CLONE_RESPONSE=$(curl -s -k -X POST \
+        -H "Authorization: ${PROXMOX_AUTH}" \
+        -H "Content-Type: application/x-www-form-urlencoded" \
+        -d "newid=${NEXT_VMID}&name=${VM_NAME}&full=${CLONE_TYPE}" \
+        "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${TEMPLATE_VMID}/clone")
+      UPID=$(echo "$CLONE_RESPONSE" | jq -r '.data')
+      echo "Clone task started: $UPID"
+
+    - |
+      UPID_ENCODED=$(printf '%s' "$UPID" | jq -sRr @uri)
+      LATEST_TEMP=""
+      while true; do
+        TASK_STATUS=$(curl -s -k \
+          -H "Authorization: ${PROXMOX_AUTH}" \
+          "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/tasks/${UPID_ENCODED}/status")
+        STATUS=$(echo "$TASK_STATUS" | jq -r '.data.status')
+        if [ "$STATUS" = "stopped" ]; then
+          EXIT_STATUS=$(echo "$TASK_STATUS" | jq -r '.data.exitstatus')
+          if [ "$EXIT_STATUS" = "OK" ]; then
+            echo "Clone completed successfully!"
+            break
+          else
+            echo "Clone failed: $EXIT_STATUS"
+            exit 1
+          fi
+        fi
+        TASK_LOG=$(curl -s -k \
+          -H "Authorization: ${PROXMOX_AUTH}" \
+          "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/tasks/${UPID_ENCODED}/log?limit=10000")
+        LATEST=$(echo "$TASK_LOG" | jq -r '.data | sort_by(.n) | last | .t // "waiting..."')
+        if [ "$LATEST_TEMP" != "$LATEST" ]; then
+          echo "Status: $STATUS | $LATEST"
+          LATEST_TEMP="$LATEST"
+        fi
         sleep 5
       done
+
     # Start the VM
     - |
-      curl -s -k -H "$PROXMOX_AUTH" -X POST \
+      source provision.env
+      curl -s -k -X POST \
+        -H "Authorization: ${PROXMOX_AUTH}" \
         "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${VMID}/status/start"
-    # Wait for QEMU guest agent to report IP
+
+    # Wait for VM to get an IP via QEMU guest agent
     - |
-      echo "Waiting for VM to boot and report IP..."
+      source provision.env
+      echo "Waiting for VM to boot and get IP..."
       for i in $(seq 1 60); do
-        VM_IP=$(curl -s -k -H "$PROXMOX_AUTH" \
-          "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${VMID}/agent/network-get-interfaces" \
-          2>/dev/null | jq -r '.data.result[]?.["ip-addresses"][]? | select(.["ip-address-type"]=="ipv4") | .["ip-address"]' \
-          | grep -v "^127\." | head -1)
-        [ -n "$VM_IP" ] && break
-        sleep 5
+        IP=$(curl -s -k \
+          -H "Authorization: ${PROXMOX_AUTH}" \
+          "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${VMID}/agent/network-get-interfaces" 2>/dev/null \
+          | jq -r '.data.result[]? | select(.name != "Loopback Pseudo-Interface 1") | ."ip-addresses"[]? | select(."ip-address-type" == "ipv4") | ."ip-address"' \
+          | head -1)
+        if [ -n "$IP" ] && [ "$IP" != "null" ]; then
+          echo "VM_IP=${IP}" >> provision.env
+          echo "VM is up at: ${IP}"
+          break
+        fi
+        echo "Waiting for start and IP... (${i}/60)"
+        sleep 10
       done
-      if [ -z "$VM_IP" ]; then
-        echo "ERROR: Could not get VM IP after 5 minutes"
+      if [ -z "$IP" ] || [ "$IP" = "null" ]; then
+        echo "ERROR: No IP after 10 minutes"
         exit 1
       fi
-      echo "VM ready at $VM_IP"
-    - echo "VM_IP=$VM_IP" >> vm.env
-    - echo "VMID=$VMID" >> vm.env
+
   artifacts:
     reports:
-      dotenv: vm.env
-    expire_in: 1 day
+      dotenv: provision.env
   rules:
     - if: $CI_COMMIT_TAG
 
@@ -607,85 +650,105 @@ build:windows:
   needs:
     - job: windows:provision
       artifacts: true
-  variables:
-    WIN_USER: "ci"
   script:
     # Wait for SSH to be ready
     - |
-      echo "Waiting for SSH on $VM_IP..."
       for i in $(seq 1 30); do
-        ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 ${WIN_USER}@${VM_IP} "echo ready" 2>/dev/null && break
-        sleep 5
+        if sshpass -p "${PROXMOX_WIN_PASSWORD}" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 "${PROXMOX_WIN_USER}@${VM_IP}" "echo ready" 2>/dev/null; then
+          echo "SSH is ready!"
+          break
+        fi
+        echo "Waiting for SSH... ($i/30)"
+        sleep 10
       done
-    # Install build dependencies on Windows VM
+
+    # Install build dependencies (Git, Node.js, pnpm, NSIS, tauri-cli)
+    # Rust + VS Build Tools are already on the template
     - |
-      ssh -o StrictHostKeyChecking=no ${WIN_USER}@${VM_IP} "powershell -Command '
-        # Install Rust
-        if (-not (Get-Command rustup -ErrorAction SilentlyContinue)) {
-          Invoke-WebRequest -Uri https://win.rustup.rs/x86_64 -OutFile rustup-init.exe
-          ./rustup-init.exe -y --default-toolchain stable
-          Remove-Item rustup-init.exe
-        }
-        \$env:PATH = \"\$env:USERPROFILE\\.cargo\\bin;\$env:PATH\"
-        rustup default stable
+      sshpass -p "${PROXMOX_WIN_PASSWORD}" ssh -o StrictHostKeyChecking=no "${PROXMOX_WIN_USER}@${VM_IP}" "powershell -NoProfile -Command \"
+        \\\$ErrorActionPreference = 'Stop'
 
-        # Install Node.js via winget
+        # Git
+        if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+          Write-Host 'Installing Git...'
+          winget install --id Git.Git --accept-source-agreements --accept-package-agreements -e
+          \\\$env:PATH = 'C:\\Program Files\\Git\\cmd;' + \\\$env:PATH
+        }
+
+        # Node.js
         if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
+          Write-Host 'Installing Node.js...'
           winget install --id OpenJS.NodeJS.LTS --accept-source-agreements --accept-package-agreements -e
+          \\\$env:PATH = 'C:\\Program Files\\nodejs;' + \\\$env:PATH
         }
 
-        # Install pnpm
-        if (-not (Get-Command pnpm -ErrorAction SilentlyContinue)) {
-          npm install -g pnpm@10.29.2
+        # pnpm
+        Write-Host 'Installing pnpm...'
+        npm install -g pnpm@10.29.2
+
+        # NSIS (Tauri Windows installer)
+        if (-not (Get-Command makensis -ErrorAction SilentlyContinue)) {
+          Write-Host 'Installing NSIS...'
+          winget install --id NSIS.NSIS --accept-source-agreements --accept-package-agreements -e
         }
 
-        # Install cargo-binstall + tauri-cli
+        # tauri-cli
         if (-not (Get-Command cargo-tauri -ErrorAction SilentlyContinue)) {
+          Write-Host 'Installing tauri-cli...'
           cargo install cargo-binstall
           cargo binstall tauri-cli --no-confirm --locked
         }
 
-        # NSIS (Tauri uses it for Windows installers)
-        if (-not (Get-Command makensis -ErrorAction SilentlyContinue)) {
-          winget install --id NSIS.NSIS --accept-source-agreements --accept-package-agreements -e
-        }
+        Write-Host 'All dependencies installed.'
+      \""
 
-        # Visual Studio Build Tools (MSVC — needed for Rust on Windows)
-        if (-not (Test-Path \"C:\\Program Files (x86)\\Microsoft Visual Studio\")) {
-          winget install --id Microsoft.VisualStudio.2022.BuildTools --accept-source-agreements --accept-package-agreements -e --override \"--quiet --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended\"
-        }
-      '"
     # Clone repo and build
     - |
       VERSION="${CI_COMMIT_TAG#v}"
-      ssh -o StrictHostKeyChecking=no ${WIN_USER}@${VM_IP} "powershell -Command '
-        \$env:PATH = \"\$env:USERPROFILE\\.cargo\\bin;C:\\Program Files\\nodejs;C:\\Program Files\\NSIS;C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools\\VC\\Tools\\MSVC\\*\\bin\\Hostx64\\x64;\$env:PATH\"
+      sshpass -p "${PROXMOX_WIN_PASSWORD}" ssh -o StrictHostKeyChecking=no "${PROXMOX_WIN_USER}@${VM_IP}" "powershell -NoProfile -Command \"
+        \\\$ErrorActionPreference = 'Stop'
+        \\\$env:PATH = \\\$env:USERPROFILE + '\\.cargo\\bin;C:\\Program Files\\Git\\cmd;C:\\Program Files\\nodejs;C:\\Program Files (x86)\\NSIS;' + \\\$env:PATH
 
-        # Clone the repo
+        # Clone
         git clone --depth 1 --branch ${CI_COMMIT_TAG} ${CI_REPOSITORY_URL} C:\\build\\stonefruit
-        cd C:\\build\\stonefruit
+        Set-Location C:\\build\\stonefruit
 
-        # Set version in tauri config
-        \$conf = Get-Content apps\\tauri\\src-tauri\\tauri.conf.json | ConvertFrom-Json
-        \$conf.version = \"${VERSION}\"
-        \$conf | ConvertTo-Json -Depth 10 | Set-Content apps\\tauri\\src-tauri\\tauri.conf.json
+        # Set version
+        \\\$conf = Get-Content apps\\tauri\\src-tauri\\tauri.conf.json | ConvertFrom-Json
+        \\\$conf.version = '${VERSION}'
+        \\\$conf | ConvertTo-Json -Depth 10 | Set-Content apps\\tauri\\src-tauri\\tauri.conf.json
 
-        # Install deps and build
+        # Build
         pnpm install --frozen-lockfile
         pnpm run build
-        cd apps\\tauri
+        Set-Location apps\\tauri
         cargo tauri build
-      '"
+      \""
+
     # Retrieve build artifacts
     - mkdir -p windows-artifacts
     - |
-      scp -o StrictHostKeyChecking=no -r \
-        "${WIN_USER}@${VM_IP}:C:/build/stonefruit/apps/tauri/src-tauri/target/release/bundle/nsis/*" \
+      sshpass -p "${PROXMOX_WIN_PASSWORD}" scp -o StrictHostKeyChecking=no -r \
+        "${PROXMOX_WIN_USER}@${VM_IP}:C:/build/stonefruit/apps/tauri/src-tauri/target/release/bundle/nsis/*" \
         windows-artifacts/
     - |
       echo "=== Windows build artifacts ==="
       ls -la windows-artifacts/
-    # Sign the NSIS installer and exe
+
+  artifacts:
+    paths:
+      - windows-artifacts/*.exe
+    expire_in: 4 weeks
+  rules:
+    - if: $CI_COMMIT_TAG
+
+windows:sign:
+  stage: build
+  needs:
+    - job: build:windows
+      artifacts: true
+  script:
+    # Download fullchain.pem from GitLab secure files
     - |
       mkdir -p /deploy/signing
       FILE_ID=$(curl --silent --fail \
@@ -697,6 +760,7 @@ build:windows:
         --output /deploy/signing/fullchain.pem \
         "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/secure_files/${FILE_ID}/download"
       echo "Downloaded fullchain.pem"
+    # Sign all .exe artifacts
     - |
       export CERT_FILE="/deploy/signing/fullchain.pem"
       for f in windows-artifacts/*.exe; do
@@ -721,23 +785,37 @@ windows:cleanup:
     - job: build:windows
   when: always
   before_script:
-    - *proxmox-auth
+    - *proxmox_auth
   variables:
     PROXMOX_HOST: "127.0.0.1"
     PROXMOX_NODE: "green"
   script:
     - |
-      if [ -n "$VMID" ]; then
-        echo "Stopping and destroying VM $VMID..."
-        curl -s -k -H "$PROXMOX_AUTH" -X POST \
-          "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${VMID}/status/stop"
-        sleep 10
-        curl -s -k -H "$PROXMOX_AUTH" -X DELETE \
-          "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${VMID}?purge=1&destroy-unreferenced-disks=1"
-        echo "VM $VMID destroyed."
-      else
+      if [ -z "$VMID" ]; then
         echo "No VMID found, skipping cleanup."
+        exit 0
       fi
+      echo "Stopping VM $VMID..."
+      curl -s -k -X POST \
+        -H "Authorization: ${PROXMOX_AUTH}" \
+        "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${VMID}/status/stop"
+    - |
+      echo "Waiting for VM to stop..."
+      for i in $(seq 1 30); do
+        STATUS=$(curl -s -k \
+          -H "Authorization: ${PROXMOX_AUTH}" \
+          "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${VMID}/status/current" | jq -r '.data.status')
+        if [ "$STATUS" = "stopped" ]; then
+          echo "VM stopped!"
+          break
+        fi
+        sleep 5
+      done
+    - |
+      curl -s -k -X DELETE \
+        -H "Authorization: ${PROXMOX_AUTH}" \
+        "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${VMID}"
+      echo "VM ${VMID} deleted"
   rules:
     - if: $CI_COMMIT_TAG
 
@@ -759,7 +837,7 @@ publish:
     - job: build:macos
       artifacts: true
       optional: true
-    - job: build:windows
+    - job: windows:sign
       artifacts: true
       optional: true
   script:

@@ -1,21 +1,17 @@
-# Temporary test pipeline — Windows CI infra smoke test
+# Temporary test pipeline — Windows build test
 # Full pipeline backed up at .gitlab-ci.yml.full-with-windows
-# Based on: https://gitlab.futo.org/devops/templates/proxmox-win-ci
 
 stages:
   - provision
-  - test
+  - build
   - cleanup
 
 variables:
   PROXMOX_HOST: "127.0.0.1"
   PROXMOX_NODE: "green"
   TEMPLATE_VMID: "101"
-  VM_NAME: "stonefruit-win-smoke-${CI_PIPELINE_ID}"
+  VM_NAME: "stonefruit-win-build-${CI_PIPELINE_ID}"
   CLONE_TYPE: "1"
-  # Required CI/CD variables (masked):
-  # PROXMOX_USER, PROXMOX_TOKEN_ID, PROXMOX_TOKEN_SECRET
-  # PROXMOX_WIN_USER, PROXMOX_WIN_PASSWORD
 
 .proxmox_auth: &proxmox_auth
   - export PROXMOX_AUTH="PVEAPIToken=${PROXMOX_USER}!${PROXMOX_TOKEN_ID}=${PROXMOX_TOKEN_SECRET}"
@@ -27,21 +23,6 @@ provision_vm:
   before_script:
     - *proxmox_auth
   script:
-    # Verify credentials are set
-    - |
-      echo "=== Pre-flight checks ==="
-      echo "PROXMOX_USER is set: $([ -n "$PROXMOX_USER" ] && echo yes || echo NO)"
-      echo "PROXMOX_WIN_USER is set: $([ -n "$PROXMOX_WIN_USER" ] && echo yes || echo NO)"
-
-    # Verify Proxmox API connectivity
-    - |
-      echo "=== Testing Proxmox API ==="
-      RESULT=$(curl -s -k -H "Authorization: ${PROXMOX_AUTH}" \
-        "https://${PROXMOX_HOST}:8006/api2/json/version")
-      echo "$RESULT" | jq .
-      echo "$RESULT" | jq -e '.data.version' || { echo "FAIL: Cannot reach Proxmox API"; exit 1; }
-
-    # Get next available VMID
     - |
       export NEXT_VMID=$(curl -s -k \
         -H "Authorization: ${PROXMOX_AUTH}" \
@@ -49,7 +30,6 @@ provision_vm:
       echo "VMID=${NEXT_VMID}" >> provision.env
       echo "Using VMID: ${NEXT_VMID}"
 
-    # Clone the template VM
     - |
       CLONE_RESPONSE=$(curl -s -k -X POST \
         -H "Authorization: ${PROXMOX_AUTH}" \
@@ -59,7 +39,6 @@ provision_vm:
       UPID=$(echo "$CLONE_RESPONSE" | jq -r '.data')
       echo "Clone task started: $UPID"
 
-    # Poll task status until clone completes
     - |
       UPID_ENCODED=$(printf '%s' "$UPID" | jq -sRr @uri)
       LATEST_TEMP=""
@@ -71,11 +50,10 @@ provision_vm:
         if [ "$STATUS" = "stopped" ]; then
           EXIT_STATUS=$(echo "$TASK_STATUS" | jq -r '.data.exitstatus')
           if [ "$EXIT_STATUS" = "OK" ]; then
-            echo "Clone completed successfully!"
+            echo "Clone completed!"
             break
           else
-            echo "Clone failed: $EXIT_STATUS"
-            exit 1
+            echo "Clone failed: $EXIT_STATUS"; exit 1
           fi
         fi
         TASK_LOG=$(curl -s -k \
@@ -89,14 +67,12 @@ provision_vm:
         sleep 5
       done
 
-    # Start the VM
     - |
       source provision.env
       curl -s -k -X POST \
         -H "Authorization: ${PROXMOX_AUTH}" \
         "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${VMID}/status/start"
 
-    # Wait for VM to get an IP via QEMU guest agent
     - |
       source provision.env
       echo "Waiting for VM to boot and get IP..."
@@ -114,24 +90,20 @@ provision_vm:
         echo "Waiting for start and IP... (${i}/60)"
         sleep 10
       done
-      if [ -z "$IP" ] || [ "$IP" = "null" ]; then
-        echo "ERROR: No IP after 10 minutes"
-        exit 1
-      fi
 
   artifacts:
     reports:
       dotenv: provision.env
 
-run_commands:
-  stage: test
+build_windows:
+  stage: build
   tags:
     - proxmoxshell
   needs:
     - job: provision_vm
       artifacts: true
   script:
-    # Wait for SSH to be ready
+    # Wait for SSH
     - |
       for i in $(seq 1 30); do
         if sshpass -p "${PROXMOX_WIN_PASSWORD}" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 "${PROXMOX_WIN_USER}@${VM_IP}" "echo ready" 2>/dev/null; then
@@ -142,35 +114,69 @@ run_commands:
         sleep 10
       done
 
-    # Basic connectivity test
+    # Install Git, Node.js, pnpm, NSIS, tauri-cli
     - |
-      echo "=== VM info ==="
-      sshpass -p "${PROXMOX_WIN_PASSWORD}" ssh -o StrictHostKeyChecking=no "${PROXMOX_WIN_USER}@${VM_IP}" "hostname && whoami"
+      echo "=== Installing build dependencies ==="
+      sshpass -p "${PROXMOX_WIN_PASSWORD}" ssh -o StrictHostKeyChecking=no "${PROXMOX_WIN_USER}@${VM_IP}" "powershell -NoProfile -Command \"
+        \\\$ErrorActionPreference = 'Stop'
 
-    # Check Windows version
-    - |
-      echo "=== Windows version ==="
-      sshpass -p "${PROXMOX_WIN_PASSWORD}" ssh -o StrictHostKeyChecking=no "${PROXMOX_WIN_USER}@${VM_IP}" "powershell -Command \"Get-ComputerInfo | Select-Object WindowsVersion, OsArchitecture\""
+        Write-Host 'Installing Git...'
+        winget install --id Git.Git --accept-source-agreements --accept-package-agreements -e
+        \\\$env:PATH = 'C:\\Program Files\\Git\\cmd;' + \\\$env:PATH
 
-    # Check what's pre-installed on the template
-    - |
-      echo "=== Pre-installed tools ==="
-      sshpass -p "${PROXMOX_WIN_PASSWORD}" ssh -o StrictHostKeyChecking=no "${PROXMOX_WIN_USER}@${VM_IP}" "where git 2>nul && git --version || echo git: not installed"
-      sshpass -p "${PROXMOX_WIN_PASSWORD}" ssh -o StrictHostKeyChecking=no "${PROXMOX_WIN_USER}@${VM_IP}" "where rustc 2>nul && rustc --version || echo rust: not installed"
-      sshpass -p "${PROXMOX_WIN_PASSWORD}" ssh -o StrictHostKeyChecking=no "${PROXMOX_WIN_USER}@${VM_IP}" "where node 2>nul && node --version || echo node: not installed"
-      sshpass -p "${PROXMOX_WIN_PASSWORD}" ssh -o StrictHostKeyChecking=no "${PROXMOX_WIN_USER}@${VM_IP}" "where makensis 2>nul || echo nsis: not installed"
-      sshpass -p "${PROXMOX_WIN_PASSWORD}" ssh -o StrictHostKeyChecking=no "${PROXMOX_WIN_USER}@${VM_IP}" "where winget 2>nul && winget --version || echo winget: not installed"
-      sshpass -p "${PROXMOX_WIN_PASSWORD}" ssh -o StrictHostKeyChecking=no "${PROXMOX_WIN_USER}@${VM_IP}" "dir \"C:\\Program Files (x86)\\Microsoft Visual Studio\" 2>nul || echo VS Build Tools: not installed"
+        Write-Host 'Installing Node.js...'
+        winget install --id OpenJS.NodeJS.LTS --accept-source-agreements --accept-package-agreements -e
+        \\\$env:PATH = 'C:\\Program Files\\nodejs;' + \\\$env:PATH
 
-    # Summary
+        Write-Host 'Installing pnpm...'
+        npm install -g pnpm@10.29.2
+
+        Write-Host 'Installing NSIS...'
+        winget install --id NSIS.NSIS --accept-source-agreements --accept-package-agreements -e
+
+        Write-Host 'Installing tauri-cli...'
+        cargo binstall tauri-cli --no-confirm --locked
+
+        Write-Host 'All dependencies installed.'
+        git --version
+        node --version
+        pnpm --version
+        cargo tauri --version
+      \""
+
+    # Clone and build
     - |
-      echo ""
-      echo "========================================="
-      echo "  SMOKE TEST PASSED"
-      echo "========================================="
-      echo "  VM IP:     $VM_IP"
-      echo "  VMID:      $VMID"
-      echo "========================================="
+      echo "=== Cloning and building ==="
+      sshpass -p "${PROXMOX_WIN_PASSWORD}" ssh -o StrictHostKeyChecking=no "${PROXMOX_WIN_USER}@${VM_IP}" "powershell -NoProfile -Command \"
+        \\\$ErrorActionPreference = 'Stop'
+        \\\$env:PATH = \\\$env:USERPROFILE + '\\.cargo\\bin;C:\\Program Files\\Git\\cmd;C:\\Program Files\\nodejs;C:\\Program Files (x86)\\NSIS;' + \\\$env:PATH
+
+        git clone --depth 1 ${CI_REPOSITORY_URL} C:\\build\\stonefruit
+        Set-Location C:\\build\\stonefruit
+
+        pnpm install --frozen-lockfile
+        pnpm run build
+        Set-Location apps\\tauri
+        cargo tauri build
+
+        Write-Host '=== Build artifacts ==='
+        Get-ChildItem -Recurse src-tauri\\target\\release\\bundle\\nsis\\
+      \""
+
+    # Retrieve artifacts
+    - mkdir -p windows-artifacts
+    - |
+      sshpass -p "${PROXMOX_WIN_PASSWORD}" scp -o StrictHostKeyChecking=no -r \
+        "${PROXMOX_WIN_USER}@${VM_IP}:C:/build/stonefruit/apps/tauri/src-tauri/target/release/bundle/nsis/*" \
+        windows-artifacts/
+    - |
+      echo "=== Retrieved artifacts ==="
+      ls -la windows-artifacts/
+
+  artifacts:
+    paths:
+      - windows-artifacts/*
+    expire_in: 1 week
 
 cleanup_vm:
   stage: cleanup
@@ -179,12 +185,11 @@ cleanup_vm:
   needs:
     - job: provision_vm
       artifacts: true
-    - job: run_commands
+    - job: build_windows
   when: always
   before_script:
     - *proxmox_auth
   script:
-    # Stop the VM
     - |
       if [ -z "$VMID" ]; then
         echo "No VMID found, skipping cleanup."
@@ -194,8 +199,6 @@ cleanup_vm:
       curl -s -k -X POST \
         -H "Authorization: ${PROXMOX_AUTH}" \
         "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${VMID}/status/stop"
-
-    # Wait for VM to stop
     - |
       echo "Waiting for VM to stop..."
       for i in $(seq 1 30); do
@@ -208,8 +211,6 @@ cleanup_vm:
         fi
         sleep 5
       done
-
-    # Delete the VM
     - |
       curl -s -k -X DELETE \
         -H "Authorization: ${PROXMOX_AUTH}" \
