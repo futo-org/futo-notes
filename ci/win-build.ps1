@@ -17,6 +17,8 @@ Write-Host "=== Cloning repo (branch: $Branch) ==="
 if (Test-Path C:\build\stonefruit) {
     Remove-Item -Recurse -Force C:\build\stonefruit
 }
+# Disable credential manager to avoid wincredman errors
+git config --global credential.helper ""
 git clone --depth 1 --branch $Branch $RepoUrl C:\build\stonefruit
 Set-Location C:\build\stonefruit
 

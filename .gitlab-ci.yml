@@ -130,7 +130,7 @@ build_windows:
     - |
       echo "=== Cloning and building ==="
       sshpass -p "${PROXMOX_WIN_PASSWORD}" ssh -o StrictHostKeyChecking=no "${PROXMOX_WIN_USER}@${VM_IP}" \
-        "powershell -NoProfile -ExecutionPolicy Bypass -File C:\\Users\\${PROXMOX_WIN_USER}\\win-build.ps1 -RepoUrl ${CI_REPOSITORY_URL} -Branch ${CI_COMMIT_SHA} -Version 0.1.0"
+        "powershell -NoProfile -ExecutionPolicy Bypass -File C:\\Users\\${PROXMOX_WIN_USER}\\win-build.ps1 -RepoUrl ${CI_REPOSITORY_URL} -Branch ${CI_COMMIT_REF_NAME} -Version 0.1.0"
 
     # Retrieve artifacts
     - mkdir -p windows-artifacts
