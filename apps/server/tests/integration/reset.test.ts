@@ -109,6 +109,37 @@ describe('POST /reset', () => {
     expect(setupAgain.status).toBe(201);
   });
 
+  it('sync with blobs works after reset (regression: is_blob column missing)', async () => {
+    const content = '# Before reset';
+    const hash = contentHash(content);
+
+    // Seed a note before reset.
+    await authReq(env.app, 'POST', '/sync', token, {
+      notes: [{ uuid: 'u-pre', filename: 'pre.md', modified_at: Date.now(), content_hash: hash, hash_at_last_sync: '', content }],
+      inventory: [{ uuid: 'u-pre', content_hash: hash, filename: 'pre.md', modified_at: Date.now() }],
+      deleted_uuids: [],
+    });
+
+    // Reset.
+    const resetRes = await authReq(env.app, 'POST', '/reset', token, { confirmation: 'DELETE' });
+    expect(resetRes.status).toBe(200);
+
+    // Re-setup and login.
+    await req(env.app, 'POST', '/setup', { password: 'newpass123' });
+    const loginRes = await req(env.app, 'POST', '/login', { password: 'newpass123' });
+    const newToken = ((await loginRes.json()) as { token: string }).token;
+
+    // Sync a blob note — this used to fail with "table notes has no column named is_blob".
+    const blobContent = Buffer.from([0x89, 0x50, 0x4e, 0x47]).toString('base64');
+    const blobHash = contentHash(blobContent);
+    const syncRes = await authReq(env.app, 'POST', '/sync', newToken, {
+      notes: [{ uuid: 'u-blob', filename: 'image.png', modified_at: Date.now(), content_hash: blobHash, hash_at_last_sync: '', content: blobContent, is_blob: true }],
+      inventory: [{ uuid: 'u-blob', content_hash: blobHash, filename: 'image.png', modified_at: Date.now() }],
+      deleted_uuids: [],
+    });
+    expect(syncRes.status).toBe(200);
+  });
+
   it('dev nuke uses the same full reset behavior without auth', async () => {
     const content = '# Reset me too';
     const hash = contentHash(content);
