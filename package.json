@@ -30,7 +30,7 @@
     "test:headed": "playwright test --headed",
     "test:ui": "playwright test --ui",
     "ci": "pnpm run lint && pnpm run test:all && pnpm run build && pnpm run test",
-    "tauri:dev": "cd apps/tauri && WINIT_UNIX_BACKEND=wayland GDK_BACKEND=wayland WEBKIT_DISABLE_DMABUF_RENDERER=1 cargo tauri dev --config src-tauri/tauri.dev.conf.json",
+    "tauri:dev": "node scripts/tauri-dev.mjs",
     "tauri:prod": "pnpm run build && cd apps/tauri && WINIT_UNIX_BACKEND=wayland GDK_BACKEND=wayland WEBKIT_DISABLE_DMABUF_RENDERER=1 cargo tauri dev --config src-tauri/tauri.prod.conf.json",
     "tauri:build": "pnpm run build && cd apps/tauri && cargo tauri build",
     "tauri:android:dev": "cd apps/tauri && cargo tauri android dev",

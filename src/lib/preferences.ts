@@ -1,4 +1,4 @@
-import { getFS, hasFileSystem } from './platform';
+import { getPlatformFS, hasFileSystem } from './platform';
 
 const PREFS_PATH = '.preferences.json';
 const PREFS_BACKUP_PATH = '.preferences.json.bak';
@@ -64,9 +64,11 @@ export async function loadPreferences(): Promise<AppPreferences> {
     return cached;
   }
 
+  const fs = await getPlatformFS();
+
   // Try main preferences file
   try {
-    const data = await getFS().readAppData(PREFS_PATH);
+    const data = await fs.readAppData(PREFS_PATH);
     if (data) {
       const saved = JSON.parse(data);
       cached = deepMerge(DEFAULTS, saved);
@@ -75,7 +77,7 @@ export async function loadPreferences(): Promise<AppPreferences> {
   } catch {
     // Main file corrupt or unreadable — try backup
     try {
-      const backupData = await getFS().readAppData(PREFS_BACKUP_PATH);
+      const backupData = await fs.readAppData(PREFS_BACKUP_PATH);
       if (backupData) {
         const saved = JSON.parse(backupData);
         cached = deepMerge(DEFAULTS, saved);
@@ -109,15 +111,17 @@ export async function savePreferences(prefs: AppPreferences): Promise<void> {
   cached = prefs;
   if (!hasFileSystem) return;
 
+  const fs = await getPlatformFS();
+
   // Back up current preferences before writing new ones
   try {
-    const current = await getFS().readAppData(PREFS_PATH);
+    const current = await fs.readAppData(PREFS_PATH);
     if (current) {
-      await getFS().writeAppData(PREFS_BACKUP_PATH, current);
+      await fs.writeAppData(PREFS_BACKUP_PATH, current);
     }
   } catch {
     // No existing prefs to back up — that's fine
   }
 
-  await getFS().writeAppData(PREFS_PATH, JSON.stringify(prefs, null, 2));
+  await fs.writeAppData(PREFS_PATH, JSON.stringify(prefs, null, 2));
 }

@@ -70,7 +70,16 @@ struct NotesDirOverride {
     notes_dir: Option<String>,
 }
 
+/// Returns the custom data directory set via STONEFRUIT_DATA_DIR env var, if present.
+/// Used to redirect app data to a per-worktree isolated directory during development.
+fn env_data_dir() -> Option<PathBuf> {
+    std::env::var("STONEFRUIT_DATA_DIR").ok().map(PathBuf::from)
+}
+
 fn override_file_path(app: &AppHandle) -> Result<PathBuf, String> {
+    if let Some(data_dir) = env_data_dir() {
+        return Ok(data_dir.join(NOTES_DIR_OVERRIDE_FILE));
+    }
     let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     Ok(data_dir.join(NOTES_DIR_OVERRIDE_FILE))
 }
@@ -347,6 +356,9 @@ pub(crate) fn task_join_err<E: std::fmt::Display>(err: E) -> String {
 }
 
 fn default_notes_root(app: &AppHandle) -> Result<PathBuf, String> {
+    if let Some(data_dir) = env_data_dir() {
+        return Ok(data_dir.join("notes"));
+    }
     let docs = app
         .path()
         .document_dir()
@@ -2685,6 +2697,45 @@ mod tests {
 
     fn cleanup_temp_dir(path: &Path) {
         let _ = fs::remove_dir_all(path);
+    }
+
+    // Serialize env-var mutations to prevent flaky failures when tests run in parallel.
+    static ENV_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn env_data_dir_returns_none_when_unset() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        std::env::remove_var("STONEFRUIT_DATA_DIR");
+        assert_eq!(env_data_dir(), None);
+    }
+
+    #[test]
+    fn env_data_dir_returns_path_when_set() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        std::env::set_var("STONEFRUIT_DATA_DIR", "/tmp/wt-test-data");
+        let result = env_data_dir();
+        std::env::remove_var("STONEFRUIT_DATA_DIR");
+        assert_eq!(result, Some(PathBuf::from("/tmp/wt-test-data")));
+    }
+
+    #[test]
+    fn override_file_resolves_to_env_data_dir() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        std::env::set_var("STONEFRUIT_DATA_DIR", "/tmp/wt-test-data");
+        let expected = PathBuf::from("/tmp/wt-test-data").join(NOTES_DIR_OVERRIDE_FILE);
+        let actual = env_data_dir().map(|d| d.join(NOTES_DIR_OVERRIDE_FILE));
+        std::env::remove_var("STONEFRUIT_DATA_DIR");
+        assert_eq!(actual, Some(expected));
+    }
+
+    #[test]
+    fn default_notes_dir_resolves_to_env_data_dir_notes() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        std::env::set_var("STONEFRUIT_DATA_DIR", "/tmp/wt-test-data");
+        let expected = PathBuf::from("/tmp/wt-test-data").join("notes");
+        let actual = env_data_dir().map(|d| d.join("notes"));
+        std::env::remove_var("STONEFRUIT_DATA_DIR");
+        assert_eq!(actual, Some(expected));
     }
 
     #[test]

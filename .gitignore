@@ -84,6 +84,7 @@ test-results/
 
 # Local data (SQLite DB + notes)
 data/
+.tauri-data/
 
 # Experiments live in ../notes-experiments
 experiments/
