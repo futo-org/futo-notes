@@ -1,5 +1,25 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { buildGraphClusters, type GraphClusterInput } from './graphLayout';
+
+// Mocks for computeGraphData tests
+const mockPlatformName = { value: 'tauri' as string };
+const mockFS = {
+  supersearchAllNoteVectors: vi.fn(),
+};
+
+vi.mock('../platform', () => ({
+  get platformName() {
+    return mockPlatformName.value;
+  },
+  getFS: () => mockFS,
+}));
+
+const mockLoadSyncState = vi.fn();
+vi.mock('../syncState', () => ({
+  loadSyncState: (...args: unknown[]) => mockLoadSyncState(...args),
+}));
+
+const { computeGraphData, clearGraphCache } = await import('./graphData');
 
 function makeEntry(
   noteId: string,
@@ -19,6 +39,57 @@ function makeEntry(
     y,
   };
 }
+
+describe('computeGraphData', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    clearGraphCache();
+    mockPlatformName.value = 'tauri';
+  });
+
+  it('returns empty GraphData when there are 0 vectors', async () => {
+    mockFS.supersearchAllNoteVectors.mockResolvedValue([]);
+
+    const result = await computeGraphData([]);
+
+    expect(result.nodes).toEqual([]);
+    expect(result.clusters).toEqual([]);
+    expect(result.nodeIndex).toEqual(new Map());
+  });
+
+  it('returns single-node GraphData when there is 1 vector', async () => {
+    mockFS.supersearchAllNoteVectors.mockResolvedValue([
+      { uuid: 'uuid-1', vector: [0.1, 0.2, 0.3] },
+    ]);
+    mockLoadSyncState.mockResolvedValue({
+      uuidById: { 'my-note': 'uuid-1' },
+      hashByUuid: {},
+      deletedUuids: [],
+    });
+
+    const notes = [
+      { id: 'my-note', title: 'My Note', preview: 'preview text', tags: ['test'] },
+    ];
+    const result = await computeGraphData(notes);
+
+    expect(result.nodes).toHaveLength(1);
+    expect(result.nodes[0]).toEqual({
+      noteId: 'my-note',
+      title: 'My Note',
+      x: 0,
+      y: 0,
+      clusterId: 'cluster-0',
+      clusterIndex: 0,
+    });
+    expect(result.clusters).toHaveLength(1);
+    expect(result.clusters[0]).toMatchObject({
+      id: 'cluster-0',
+      label: 'My Note',
+      noteIds: ['my-note'],
+    });
+    expect(result.nodeIndex.get('my-note')).toBe(0);
+  });
+});
 
 describe('buildGraphClusters', () => {
   it('creates deterministic semantic clusters with readable labels', async () => {

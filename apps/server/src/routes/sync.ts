@@ -8,6 +8,7 @@ import { getSyncVersion } from '../db/syncVersion.js';
 import { loadConfig } from '../config.js';
 import { log } from '../logger.js';
 import { applyNoteMutationEffects } from '../sync/noteMutationEffects.js';
+import { triggerIndexAfterSync } from '../search/scheduler.js';
 
 const MAX_BODY_SIZE = 500 * 1024 * 1024; // 500 MB
 
@@ -137,6 +138,11 @@ function handlePostSync(
     incrementVersion: false,
     searchEnabled: config.searchEnabled,
   });
+
+  // Trigger background indexing when sync mutates server state
+  if (mutatedServerState && config.searchEnabled) {
+    triggerIndexAfterSync();
+  }
 }
 
 export default sync;

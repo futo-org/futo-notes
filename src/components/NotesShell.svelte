@@ -32,7 +32,7 @@
   import SidebarImageView from './SidebarImageView.svelte';
   // AutoSync is loaded lazily — not needed for initial render
   let _autoSync: typeof import('$lib/autoSync') | null = null;
-  const getAutoSync = () => _autoSync ?? (_autoSync = null, import('$lib/autoSync').then(m => { _autoSync = m; return m; }));
+  const getAutoSync = (): Promise<typeof import('$lib/autoSync')> => _autoSync ? Promise.resolve(_autoSync) : import('$lib/autoSync').then(m => { _autoSync = m; return m; });
   const notifySaved = () => { _autoSync?.notifySaved(); };
   import { keyboard } from '$lib/keyboard.svelte';
   import { navigate } from '../router';
@@ -975,14 +975,33 @@
         import('./GraphCanvas.svelte'),
       ]);
       GraphCanvas = canvasMod.default;
-      graphData = await computeGraphData(notes);
+      const result = await computeGraphData(notes);
+      if (result.nodes.length === 0) {
+        showToast('No notes to graph');
+        return;
+      }
+      graphData = result;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes('no chunks') || msg.includes('Need at least')) {
-        showToast('Not enough notes indexed for graph');
-      } else {
-        showToast('Indexing required for graph view');
+      try {
+        const prefs = getCachedPreferences();
+        if (prefs.sync.serverUrl && prefs.sync.token) {
+          const resp = await fetch(`${prefs.sync.serverUrl}/search/status`, {
+            headers: { Authorization: `Bearer ${prefs.sync.token}` },
+          });
+          if (resp.ok) {
+            const status = await resp.json();
+            const phase = status?.scheduler?.phase;
+            if (phase === 'indexing' || phase === 'downloading_model' || phase === 'loading_model' || phase === 'building_artifacts') {
+              showToast('Indexing in progress...');
+              return;
+            }
+          }
+        }
+      } catch {
+        // Fall through to show original error
       }
+      showToast(msg);
       graphSidebarOpen = false;
     } finally {
       graphLoading = false;

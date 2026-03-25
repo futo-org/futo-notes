@@ -345,6 +345,39 @@ export function stopSearchScheduler(): void {
   downloadProgress = null;
 }
 
+// ── Sync-triggered indexing ──────────────────────────────
+
+let lastSyncTriggerTime = 0;
+const SYNC_TRIGGER_THROTTLE_MS = 10 * 60 * 1000; // 10 minutes
+
+/**
+ * Trigger indexing after sync mutates server state.
+ * First invocation after server start runs immediately.
+ * Subsequent invocations are throttled to at most once per 10 minutes.
+ * Bypasses the idle window but respects the scheduler lock.
+ */
+export function triggerIndexAfterSync(): void {
+  if (!currentConfig || running || isDisabled()) return;
+
+  const now = Date.now();
+  if (lastSyncTriggerTime > 0 && now - lastSyncTriggerTime < SYNC_TRIGGER_THROTTLE_MS) {
+    return; // Throttled
+  }
+
+  const db = getDb();
+  const dirtyCount = getDirtyUuids(db, 2).length;
+  if (dirtyCount === 0) return;
+
+  if (!tryAcquire('search')) {
+    log.info(`search: sync trigger skipped, lock held by ${holder()}`);
+    return;
+  }
+
+  lastSyncTriggerTime = now;
+  log.info(`search: sync-triggered indexing (dirty=${dirtyCount})`);
+  void startTrackedIndexJob(currentConfig, 'search: sync-triggered index failed');
+}
+
 export async function setEnhancedSearchEnabled(enabled: boolean): Promise<void> {
   if (!currentConfig) {
     throw new Error('Search scheduler not initialized');

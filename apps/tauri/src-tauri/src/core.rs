@@ -603,6 +603,53 @@ fn make_preview(content: &str) -> String {
     content.chars().take(100).collect::<String>().replace('\n', " ")
 }
 
+/// One-way migration: convert .txt files to .md in the notes directory.
+/// If a collision exists (same name with .md already present), renames to `name (imported).md`.
+fn convert_txt_to_md(base: &Path) {
+    let entries = match fs::read_dir(base) {
+        Ok(entries) => entries.filter_map(|e| e.ok()).collect::<Vec<_>>(),
+        Err(_) => return,
+    };
+
+    let md_set: std::collections::HashSet<String> = entries
+        .iter()
+        .filter_map(|e| {
+            let name = e.file_name().to_string_lossy().to_string();
+            if name.ends_with(".md") {
+                Some(name.to_lowercase())
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    for entry in &entries {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if !name.ends_with(".txt") {
+            continue;
+        }
+        let txt_base = &name[..name.len() - 4]; // strip .txt
+        let md_name = format!("{txt_base}.md");
+
+        let target = if md_set.contains(&md_name.to_lowercase()) {
+            // Collision: both name.txt and name.md exist
+            let mut candidate = format!("{txt_base} (imported).md");
+            let mut counter = 2;
+            while md_set.contains(&candidate.to_lowercase())
+                || base.join(&candidate).exists()
+            {
+                candidate = format!("{txt_base} (imported {counter}).md");
+                counter += 1;
+            }
+            candidate
+        } else {
+            md_name
+        };
+
+        let _ = fs::rename(base.join(&name), base.join(&target));
+    }
+}
+
 pub(crate) fn note_id_from_filename(name: &str) -> Option<String> {
     if !name.ends_with(".md") {
         return None;
@@ -724,6 +771,7 @@ fn note_to_preview(note: &IndexedNote) -> NotePreviewPayload {
 }
 
 fn scan_notes(base: &Path) -> Result<HashMap<String, IndexedNote>, String> {
+    convert_txt_to_md(base);
     let entries: Vec<(String, PathBuf, i64)> = fs::read_dir(base)
         .map_err(io_err_to_string)?
         .filter_map(|entry| entry.ok())
@@ -854,6 +902,7 @@ struct PreparedLocalNote {
 
 fn prepare_sync_payload_impl(base: &Path, input: SyncPrepareInput) -> Result<SyncPrepareOutput, String> {
     let started = Instant::now();
+    convert_txt_to_md(base);
     let mut state = input.state;
     let hash_cache = state.hash_cache.clone().unwrap_or_default();
 
@@ -1525,7 +1574,8 @@ fn map_notify_event(event: &Event) -> Option<&'static str> {
 pub async fn fs_list_note_files(app: AppHandle) -> Result<Vec<NoteFileEntry>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let base = notes_root(&app)?;
-        let mut files = fs::read_dir(base)
+        convert_txt_to_md(&base);
+        let mut files = fs::read_dir(&base)
             .map_err(io_err_to_string)?
             .filter_map(|entry| entry.ok())
             .filter_map(|entry| {
@@ -3713,6 +3763,77 @@ mod tests {
         assert!(delete_image_file_impl(&base, "../etc/passwd.png").is_err());
         assert!(delete_image_file_impl(&base, "sub/image.jpg").is_err());
         assert!(delete_image_file_impl(&base, "..\\evil.png").is_err());
+
+        cleanup_temp_dir(&base);
+    }
+
+    // ── G. .txt → .md conversion tests ─────────────────────────────────
+
+    #[test]
+    fn convert_txt_renames_to_md() {
+        let base = temp_notes_dir();
+        fs::write(base.join("groceries.txt"), "milk\neggs").unwrap();
+
+        convert_txt_to_md(&base);
+
+        assert!(!base.join("groceries.txt").exists());
+        assert!(base.join("groceries.md").exists());
+        assert_eq!(fs::read_to_string(base.join("groceries.md")).unwrap(), "milk\neggs");
+
+        cleanup_temp_dir(&base);
+    }
+
+    #[test]
+    fn convert_txt_handles_collision_with_existing_md() {
+        let base = temp_notes_dir();
+        fs::write(base.join("note.md"), "md content").unwrap();
+        fs::write(base.join("note.txt"), "txt content").unwrap();
+
+        convert_txt_to_md(&base);
+
+        // .md should be untouched
+        assert_eq!(fs::read_to_string(base.join("note.md")).unwrap(), "md content");
+        // .txt should become (imported).md
+        assert!(!base.join("note.txt").exists());
+        assert!(base.join("note (imported).md").exists());
+        assert_eq!(fs::read_to_string(base.join("note (imported).md")).unwrap(), "txt content");
+
+        cleanup_temp_dir(&base);
+    }
+
+    #[test]
+    fn convert_txt_ignores_non_txt_files() {
+        let base = temp_notes_dir();
+        fs::write(base.join("data.csv"), "a,b,c").unwrap();
+        fs::write(base.join("note.md"), "content").unwrap();
+
+        convert_txt_to_md(&base);
+
+        // csv should not be touched
+        assert!(base.join("data.csv").exists());
+        assert!(base.join("note.md").exists());
+
+        cleanup_temp_dir(&base);
+    }
+
+    #[test]
+    fn convert_txt_in_prepare_sync() {
+        let base = temp_notes_dir();
+        fs::write(base.join("from-txt.txt"), "imported content").unwrap();
+        write_atomic_text(&base.join("existing.md"), "md content").unwrap();
+
+        let input = SyncPrepareInput { state: SyncStatePayload::default() };
+        let output = prepare_sync_payload_impl(&base, input).unwrap();
+
+        // Should have 2 notes: existing.md and from-txt.md (converted)
+        assert_eq!(output.notes.len(), 2);
+        let filenames: Vec<&str> = output.notes.iter().map(|n| n.filename.as_str()).collect();
+        assert!(filenames.contains(&"existing.md"));
+        assert!(filenames.contains(&"from-txt.md"));
+
+        // .txt file should no longer exist on disk
+        assert!(!base.join("from-txt.txt").exists());
+        assert!(base.join("from-txt.md").exists());
 
         cleanup_temp_dir(&base);
     }

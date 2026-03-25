@@ -110,8 +110,51 @@ export function deleteNoteFile(notesDir: string, filename: string): void {
   }
 }
 
-/** List all .md files in the notes directory. */
+/**
+ * Convert any .txt files in the notes directory to .md (one-way migration).
+ * If a collision exists (same name with .md already present), renames to `name (imported).md`.
+ */
+export function convertTxtFiles(notesDir: string): void {
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(notesDir);
+  } catch {
+    return;
+  }
+
+  const mdSet = new Set(entries.filter((f) => f.endsWith('.md')).map((f) => f.toLowerCase()));
+
+  for (const entry of entries) {
+    if (!entry.endsWith('.txt')) continue;
+    const base = entry.slice(0, -4); // strip .txt
+    const mdName = `${base}.md`;
+
+    let targetName: string;
+    if (mdSet.has(mdName.toLowerCase())) {
+      // Collision: both name.txt and name.md exist
+      targetName = `${base} (imported).md`;
+      // Handle unlikely double collision
+      let counter = 2;
+      while (mdSet.has(targetName.toLowerCase())) {
+        targetName = `${base} (imported ${counter}).md`;
+        counter++;
+      }
+    } else {
+      targetName = mdName;
+    }
+
+    try {
+      fs.renameSync(path.join(notesDir, entry), path.join(notesDir, targetName));
+      mdSet.add(targetName.toLowerCase());
+    } catch {
+      // Skip files that can't be renamed (permissions, etc.)
+    }
+  }
+}
+
+/** List all .md files in the notes directory. Converts .txt files to .md first. */
 export function listNoteFiles(notesDir: string): string[] {
+  convertTxtFiles(notesDir);
   try {
     return fs.readdirSync(notesDir).filter((f) => f.endsWith('.md'));
   } catch {

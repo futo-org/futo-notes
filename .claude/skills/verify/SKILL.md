@@ -388,6 +388,68 @@ adb forward --remove tcp:9223 2>/dev/null
 - If the MCP bridge port (9223) is blocked by a stale desktop Tauri process, kill it using the PID file for the current worktree (see cleanup pattern above).
 - For video recording (e.g., animation verification), use `adb shell screenrecord` — the MCP tools don't support video capture.
 
+### Handling loading/async states in screenshots
+
+After taking a screenshot, inspect it for loading or computing states (spinners, "Computing...", "Loading...", progress indicators). If a loading state is visible:
+
+1. Wait 5 seconds, re-screenshot
+2. Repeat up to 6 times (30 seconds total)
+3. If the state resolves, capture the final rendered state — that's the screenshot that matters
+4. If still loading after 30 seconds, report it as **STUCK** in the verification table and investigate (check console logs via `webview_execute_js` or `read_logs`)
+
+A screenshot showing only a loading state does not count as verification. Every changed feature needs at least one screenshot showing the **actual rendered UI**, not a transient state.
+
+### Verifying features that require app restart
+
+Some features only manifest after an app restart (e.g., crash dialog appears on launch after a crash was captured, preferences recovery from backup). For these:
+
+1. Trigger the precondition (e.g., fire a test crash, corrupt a file)
+2. Kill the Tauri process (using the PID file cleanup pattern)
+3. Relaunch the app (same launch command as initial setup)
+4. Wait for MCP bridge to reconnect
+5. Screenshot the result
+
+Don't skip restart-dependent features — they're often the ones most likely to break.
+
+### Verifying features that need a sync server
+
+Many features require a running sync server with data (graph/indexing, sync dedup, SSE notifications). When verification touches sync, indexing, or graph, stand up an isolated server:
+
+```bash
+WORKTREE_ROOT="$(git rev-parse --show-toplevel)"
+SLOT=$(( $(printf "%d" "0x$(echo -n "$WORKTREE_ROOT" | md5sum | cut -c1-8)") % 50 ))
+VERIFY_SERVER_PORT=$(( 3100 + SLOT ))
+VERIFY_SERVER_DIR=$(mktemp -d /tmp/stonefruit-verify-server-XXXXXX)
+
+# Start an isolated server with its own DB and notes dir
+cd "$WORKTREE_ROOT/apps/server"
+PORT=$VERIFY_SERVER_PORT \
+  DATABASE_PATH="$VERIFY_SERVER_DIR/test.db" \
+  NOTES_PATH="$VERIFY_SERVER_DIR/notes" \
+  pnpm exec tsx src/index.ts > "$VERIFY_SERVER_DIR/server.log" 2>&1 &
+VERIFY_SERVER_PID=$!
+echo $VERIFY_SERVER_PID > "$VERIFY_SERVER_DIR/server.pid"
+sleep 3
+
+# Confirm server is healthy
+curl -sf http://localhost:$VERIFY_SERVER_PORT/health && echo " Server OK on port $VERIFY_SERVER_PORT" || echo " FAIL"
+```
+
+Then in the Tauri app, connect to `http://localhost:$VERIFY_SERVER_PORT` with a test password (at least 8 chars). After connecting + syncing:
+1. Verify notes sync (check count in toast)
+2. Wait for indexing to complete (check `GET /search/status` — phase should reach `idle` with dirty count 0)
+3. Open graph — should render with actual nodes, not just "Computing..."
+4. Verify the specific feature being tested
+
+Clean up the server when done:
+```bash
+VERIFY_SERVER_DIR=$(ls -d /tmp/stonefruit-verify-server-* 2>/dev/null | head -1)
+if [ -n "$VERIFY_SERVER_DIR" ] && [ -f "$VERIFY_SERVER_DIR/server.pid" ]; then
+  kill $(cat "$VERIFY_SERVER_DIR/server.pid") 2>/dev/null
+  rm -rf "$VERIFY_SERVER_DIR"
+fi
+```
+
 ### What to look for
 
 Focus on what changed or the specific feature being verified. Common checks:
@@ -395,6 +457,8 @@ Focus on what changed or the specific feature being verified. Common checks:
 - **Theme/styles**: Toggle light/dark, check contrast, verify no broken layouts
 - **Navigation**: Sidebar, note switching, back/forward, search
 - **Settings**: Open settings, toggle options, verify they persist after reload
+- **Crash dialog**: Trigger a test crash → restart the app → verify the dialog appears, Copy button works, overlay doesn't dismiss
+- **Sync/graph/indexing**: Stand up isolated server → connect client → sync → wait for index → verify graph renders
 - **New features**: Exercise the happy path, then try one edge case
 
 Name screenshots descriptively: `web-editor-heading-decoration.png`, `android-dark-theme-sidebar.png`, `desktop-settings-panel-open.png`.

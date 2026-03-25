@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { authMiddleware } from '../middleware/auth.js';
 import { loadConfig } from '../config.js';
-import { triggerIndexNow } from '../search/scheduler.js';
+import { triggerIndexNow, getSchedulerState } from '../search/scheduler.js';
 import { getCapabilities, getJobStatus } from '../search/status.js';
 import { getDb } from '../db/index.js';
 import { log } from '../logger.js';
@@ -20,7 +20,8 @@ search.get('/search/capabilities', authMiddleware, (c) => {
 search.get('/search/status', authMiddleware, (c) => {
   const db = getDb();
   const status = getJobStatus(db);
-  return c.json(status);
+  const scheduler = getSchedulerState();
+  return c.json({ ...status, scheduler });
 });
 
 search.post('/search/reindex', authMiddleware, (c) => {

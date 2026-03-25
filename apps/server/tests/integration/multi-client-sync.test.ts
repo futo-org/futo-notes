@@ -284,7 +284,7 @@ describe('Multi-client sync', () => {
 
     // A deletes the note, syncs
     clientA.deleteNote(uuid);
-    const resADel = await clientA.sync();
+    await clientA.sync();
     // Deletion should be processed (no update for this uuid)
     expect(clientA.notes.has(uuid)).toBe(false);
 
@@ -493,5 +493,103 @@ describe('Multi-client sync', () => {
       filenames.add(note.filename);
     }
     expect(filenames.size).toBe(5);
+  });
+
+  // ── Reset-client dedup tests ──────────────────────────────
+
+  it('reset client with same notes does not create duplicates', async () => {
+    // Client A syncs 20 notes to fresh server
+    const clientA = new SyncClient(env.app, token);
+    for (let i = 0; i < 20; i++) {
+      clientA.createNote(`note-${i}.md`, `Content for note ${i}`);
+    }
+    await clientA.sync();
+
+    // Client B has the exact same 20 files but with fresh UUIDs (simulating reset)
+    const clientB = new SyncClient(env.app, token);
+    for (let i = 0; i < 20; i++) {
+      clientB.createNote(`note-${i}.md`, `Content for note ${i}`);
+    }
+    const resB = await clientB.sync();
+
+    // Client B should NOT create duplicates. All its UUIDs should be tombstoned
+    // and it should receive the server's 20 notes via delete + update.
+    expect(resB.delete.length).toBe(20); // all client B UUIDs tombstoned
+
+    // Verify with a fresh client: exactly 20 notes, no (2) duplicates
+    const verifier = new SyncClient(env.app, token);
+    await verifier.sync();
+    expect(verifier.notes.size).toBe(20);
+
+    const filenames = [...verifier.notes.values()].map((n) => n.filename);
+    expect(filenames.filter((f) => f.includes('(2)')).length).toBe(0);
+  });
+
+  it('reset client with slightly different content: server wins, no (2) copies', async () => {
+    // Client A syncs 10 notes
+    const clientA = new SyncClient(env.app, token);
+    for (let i = 0; i < 10; i++) {
+      clientA.createNote(`doc-${i}.md`, `Original content ${i}`);
+    }
+    await clientA.sync();
+
+    // Client B has same filenames but 5 have slightly different content (fresh UUIDs)
+    const clientB = new SyncClient(env.app, token);
+    for (let i = 0; i < 10; i++) {
+      const content = i < 5 ? `Original content ${i}` : `Modified content ${i}`;
+      clientB.createNote(`doc-${i}.md`, content);
+    }
+    const resB = await clientB.sync();
+
+    // All 10 client B UUIDs should be tombstoned (reset client, server wins)
+    expect(resB.delete.length).toBe(10);
+
+    // Verify: exactly 10 notes, server content preserved for all
+    const verifier = new SyncClient(env.app, token);
+    await verifier.sync();
+    expect(verifier.notes.size).toBe(10);
+
+    // Server's original content should be preserved (not client B's modified content)
+    for (let i = 5; i < 10; i++) {
+      const note = verifier.getNoteByFilename(`doc-${i}.md`);
+      expect(note).toBeDefined();
+      expect(note!.content).toBe(`Original content ${i}`);
+    }
+
+    // No (2) duplicates
+    const filenames = [...verifier.notes.values()].map((n) => n.filename);
+    expect(filenames.filter((f) => f.includes('(2)')).length).toBe(0);
+  });
+
+  it('client with real sync history creating colliding filename gets (2) copy', async () => {
+    // Client A creates and syncs a note
+    const clientA = new SyncClient(env.app, token);
+    clientA.createNote('shared-name.md', 'Client A original');
+    await clientA.sync();
+
+    // Client B syncs to get the note (establishing sync history)
+    const clientB = new SyncClient(env.app, token);
+    await clientB.sync();
+    expect(clientB.notes.size).toBe(1);
+
+    // Client B creates a NEW note with the same filename (has sync history → hash_at_last_sync is set for existing)
+    // But this new note has empty hash_at_last_sync because it's never been synced.
+    // However, the client has sync history overall (serverVersion > 0, hashByUuid populated).
+    // The key difference: when a client has previously synced, it already has the existing note's UUID.
+    // A truly new note with a colliding name from a synced client is a legitimate collision.
+    clientB.createNote('new-note.md', 'Client B new note');
+    await clientB.sync();
+
+    // Client A syncs and creates another note with the same filename as B's new note
+    clientA.createNote('new-note.md', 'Client A different note');
+    await clientA.sync();
+
+    // This should create a (2) copy since Client A has real sync history
+    const verifier = new SyncClient(env.app, token);
+    await verifier.sync();
+
+    const filenames = [...verifier.notes.values()].map((n) => n.filename).sort();
+    expect(filenames).toContain('new-note.md');
+    expect(filenames.some((f) => f.startsWith('new-note') && f.includes('(2)'))).toBe(true);
   });
 });

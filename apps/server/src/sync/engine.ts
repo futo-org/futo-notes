@@ -113,6 +113,14 @@ export function processSync(
       filenameIndex.set(note.filename, uuid);
     }
 
+    // Detect reset client: a client where NONE of its UUIDs are known to the server
+    // and the server already has notes. This means the client cleared its sync state
+    // and is re-uploading with fresh UUIDs. In this case, server is source of truth
+    // on filename collisions — don't create (2) duplicates.
+    const isResetClient = allNotes.size > 0
+      && !req.notes.some((n) => allNotes.has(n.uuid))
+      && !req.inventory.some((i) => allNotes.has(i.uuid));
+
     // Helpers that keep DB + in-memory state in sync
     function trackUpsert(uuid: string, filename: string, hash: string, modifiedAt: number, content?: string, isBlob?: boolean): void {
       const oldNote = allNotes.get(uuid);
@@ -233,15 +241,14 @@ export function processSync(
         const content = clientNote.content ?? '';
         const hash = contentHash(content);
 
-        // Content-aware dedup: if an existing note has the same filename AND
-        // content hash, this is a re-upload after sync state was cleared (e.g.
-        // server change or reset). Don't create a "(2)" duplicate — tombstone
-        // the client's new UUID and let the existing note be sent back via the
-        // server-only-notes path so the client adopts the original UUID.
+        // Dedup / reset-client handling: server already has a note with this filename
         const existingUuid = filenameIndex.get(safeName);
         if (existingUuid) {
           const existingNote = allNotes.get(existingUuid);
           if (existingNote && existingNote.content_hash === hash) {
+            // Same filename + same content hash → exact duplicate (re-upload after
+            // sync state cleared). Tombstone client's UUID, let the server's note be
+            // sent back via the server-only-notes path so client adopts original UUID.
             if (!tombstoneSet.has(clientNote.uuid)) {
               createTombstone(db, clientNote.uuid);
               tombstoneSet.add(clientNote.uuid);
@@ -251,9 +258,37 @@ export function processSync(
             log.debug(`  dedup: ${safeName} (${clientNote.uuid.slice(0, 8)} → ${existingUuid.slice(0, 8)})`);
             continue;
           }
+
+          // Same filename but different content. Check if this is a reset client
+          // (no reliable sync history) vs a client with real divergent history.
+          // A reset client is one where NONE of its UUIDs are known to the server
+          // and it has no hash_at_last_sync — i.e. it cleared its sync state entirely.
+          if (isResetClient && existingNote) {
+            // Reset/reconnect: server is source of truth. Tombstone client's UUID
+            // and send the server's version so the client adopts server's UUID+content.
+            if (!tombstoneSet.has(clientNote.uuid)) {
+              createTombstone(db, clientNote.uuid);
+              tombstoneSet.add(clientNote.uuid);
+              mutated = true;
+            }
+            response.delete.push(clientNote.uuid);
+            const serverContent = readNoteFile(notesDir, existingNote.filename);
+            if (serverContent !== null) {
+              response.update.push({
+                uuid: existingNote.uuid,
+                filename: existingNote.filename,
+                modified_at: existingNote.modified_at,
+                content_hash: existingNote.content_hash,
+                hash_at_last_sync: existingNote.content_hash,
+                content: serverContent,
+              });
+            }
+            log.debug(`  reset-dedup: ${safeName} (${clientNote.uuid.slice(0, 8)} → ${existingUuid.slice(0, 8)}, server wins)`);
+            continue;
+          }
         }
 
-        // No dedup match — normal collision resolution
+        // No dedup match or client has real sync history — normal collision resolution
         const finalName = resolveFilenameInMemory(filenameIndex, safeName, clientNote.uuid);
         writeNoteFile(notesDir, finalName, content, clientNote.modified_at);
         trackUpsert(clientNote.uuid, finalName, hash, clientNote.modified_at, content);

@@ -790,7 +790,7 @@ describe('content-aware dedup (server change / state clear)', () => {
     expect(readNoteFile(env.notesDir, 'groceries.md')).toBe(content);
   });
 
-  it('does NOT dedup when content differs (genuine new note with same name)', async () => {
+  it('reset client with different content: server wins, no (2) copy', async () => {
     const contentA = '# Groceries v1';
     const hashA = contentHash(contentA);
     const now = Date.now();
@@ -811,7 +811,8 @@ describe('content-aware dedup (server change / state clear)', () => {
       deleted_uuids: [],
     });
 
-    // Different content under new UUID — should NOT dedup
+    // Reset client (no known UUIDs) with different content under new UUID
+    // Server should win — no (2) copy created
     const contentB = '# Groceries v2 (different)';
     const hashB = contentHash(contentB);
     const now2 = Date.now();
@@ -832,12 +833,14 @@ describe('content-aware dedup (server change / state clear)', () => {
 
     const data = await res.json();
 
-    // Should NOT delete uuid-new — it's a different note
-    expect(data.delete).not.toContain('uuid-new');
-    // Should get hash_update for uuid-new (stored as collision copy)
-    expect(data.hash_updates.find((h: { uuid: string }) => h.uuid === 'uuid-new')).toBeDefined();
-    // "(2)" file should exist
-    expect(readNoteFile(env.notesDir, 'groceries (2).md')).toBe(contentB);
+    // Reset client's UUID should be tombstoned
+    expect(data.delete).toContain('uuid-new');
+    // Server's note should be sent back so client adopts it
+    expect(data.update.find((u: { uuid: string }) => u.uuid === 'uuid-old')).toBeDefined();
+    // NO (2) file — server's version preserved
+    expect(readNoteFile(env.notesDir, 'groceries (2).md')).toBeNull();
+    // Original content preserved
+    expect(readNoteFile(env.notesDir, 'groceries.md')).toBe(contentA);
   });
 
   it('deduplicates multiple notes in a single sync batch', async () => {

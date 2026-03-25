@@ -70,7 +70,12 @@ export function installGlobalHandlers(): void {
   window.onerror = (message, source, lineno, colno, error) => {
     const errorStr = error?.message || String(message);
     const stack = error?.stack || `${source}:${lineno}:${colno}`;
-    queueToLocalStorage(buildReport(errorStr, stack, 'js_error'));
+    const report = buildReport(errorStr, stack, 'js_error');
+    queueToLocalStorage(report);
+    // Belt-and-suspenders: attempt immediate file write if FS is ready
+    if (hasFileSystem) {
+      try { writeCrashReport(report).catch(() => {}); } catch { /* FS not ready */ }
+    }
     if (existingErrorHandler) {
       existingErrorHandler.call(window, message, source, lineno, colno, error);
     }
@@ -81,7 +86,12 @@ export function installGlobalHandlers(): void {
     const reason = event.reason;
     const errorStr = reason instanceof Error ? reason.message : String(reason);
     const stack = reason instanceof Error ? reason.stack : undefined;
-    queueToLocalStorage(buildReport(errorStr, stack, 'unhandled_rejection'));
+    const report = buildReport(errorStr, stack, 'unhandled_rejection');
+    queueToLocalStorage(report);
+    // Belt-and-suspenders: attempt immediate file write if FS is ready
+    if (hasFileSystem) {
+      try { writeCrashReport(report).catch(() => {}); } catch { /* FS not ready */ }
+    }
     if (existingRejectionHandler) {
       existingRejectionHandler.call(window, event);
     }
@@ -106,12 +116,22 @@ export async function flushCrashQueue(): Promise<void> {
   }
 
   if (hasFileSystem) {
+    const remaining: CrashReport[] = [];
     for (const report of queue) {
-      await writeCrashReport(report);
+      try {
+        await writeCrashReport(report);
+      } catch {
+        remaining.push(report);
+      }
     }
+    if (remaining.length > 0) {
+      localStorage.setItem(LS_QUEUE_KEY, JSON.stringify(remaining));
+    } else {
+      localStorage.removeItem(LS_QUEUE_KEY);
+    }
+  } else {
+    localStorage.removeItem(LS_QUEUE_KEY);
   }
-
-  localStorage.removeItem(LS_QUEUE_KEY);
 }
 
 export async function writeCrashReport(report: CrashReport): Promise<void> {

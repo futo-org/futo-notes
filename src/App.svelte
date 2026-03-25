@@ -137,12 +137,16 @@
       const sendResult = await sendAllPendingReports(result.userDescription);
       if (sendResult.sent > 0) {
         showToast(`Sent ${sendResult.sent} crash report${sendResult.sent > 1 ? 's' : ''}`);
-      } else if (sendResult.failed > 0) {
-        showToast('Failed to send crash reports');
+      } else if (sendResult.failed > 0 && sendResult.sent === 0) {
+        showToast('Failed to send — reports saved locally');
       }
     } else {
-      // User chose "Don't Send" - just discard these reports
+      // User chose "Don't Send" — permanent opt-out
+      const prefs = getCachedPreferences();
+      prefs.crashReporting.enabled = false;
+      await savePreferences(prefs);
       await discardAllPendingReports();
+      showToast('Crash reporting disabled. Re-enable in Settings.');
     }
 
     pendingCrashReports = [];

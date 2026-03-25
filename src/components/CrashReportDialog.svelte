@@ -13,6 +13,7 @@
   let showDetails = $state(false);
   let showContext = $state(false);
   let userDescription = $state('');
+  let copyFeedback = $state(false);
 
   function handleSend(): void {
     onresolved({
@@ -26,12 +27,25 @@
     onresolved({ action: 'discard', alwaysSend: false });
   }
 
+  async function handleCopyReport(): Promise<void> {
+    if (!firstReport) return;
+    const lines = [
+      `Error: ${firstReport.error}`,
+      firstReport.stack ? `Stack: ${firstReport.stack}` : '',
+      `Type: ${firstReport.type}`,
+      `Platform: ${firstReport.platform} | ${firstReport.app_version}`,
+    ].filter(Boolean);
+    await navigator.clipboard.writeText(lines.join('\n'));
+    copyFeedback = true;
+    setTimeout(() => { copyFeedback = false; }, 2000);
+  }
+
   const reportCount = $derived(reports.length);
   const firstReport = $derived(reports[0]);
 </script>
 
-<div class="crash-overlay" role="button" tabindex="-1" onclick={handleDiscard} onkeydown={(e) => e.key === 'Escape' && handleDiscard()} style="padding-bottom: {keyboard.height + 24}px">
-  <div class="crash-panel" role="dialog" aria-modal="true" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
+<div class="crash-overlay" role="presentation" style="padding-bottom: {keyboard.height + 24}px">
+  <div class="crash-panel" role="dialog" aria-modal="true" tabindex="-1" onkeydown={(e) => e.key === 'Escape' && handleDiscard()}>
     <div class="crash-header">
       <h2 class="crash-title">Crash Report</h2>
     </div>
@@ -59,6 +73,9 @@
             <pre class="crash-detail-value">{firstReport.type}</pre>
             <div class="crash-detail-label">Platform</div>
             <pre class="crash-detail-value">{firstReport.platform} | {firstReport.app_version}</pre>
+            <button class="crash-copy-btn" onclick={handleCopyReport}>
+              {copyFeedback ? 'Copied!' : 'Copy report'}
+            </button>
           </div>
         {/if}
       {/if}
@@ -191,6 +208,24 @@
     white-space: pre-wrap;
     word-break: break-all;
     line-height: 1.4;
+  }
+
+  .crash-copy-btn {
+    display: inline-block;
+    margin-top: 10px;
+    padding: 4px 10px;
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    background: var(--color-bg);
+    color: var(--color-muted);
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .crash-copy-btn:active {
+    opacity: 0.7;
   }
 
   .crash-textarea {

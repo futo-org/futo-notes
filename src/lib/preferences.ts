@@ -1,6 +1,7 @@
 import { getFS, hasFileSystem } from './platform';
 
 const PREFS_PATH = '.preferences.json';
+const PREFS_BACKUP_PATH = '.preferences.json.bak';
 
 export interface AppPreferences {
   appearance: {
@@ -63,25 +64,35 @@ export async function loadPreferences(): Promise<AppPreferences> {
     return cached;
   }
 
+  // Try main preferences file
   try {
     const data = await getFS().readAppData(PREFS_PATH);
     if (data) {
       const saved = JSON.parse(data);
       cached = deepMerge(DEFAULTS, saved);
-    } else {
-      cached = {
-        appearance: { ...DEFAULTS.appearance },
-        crashReporting: { ...DEFAULTS.crashReporting },
-        sync: { ...DEFAULTS.sync },
-      };
+      return cached;
     }
   } catch {
-    cached = {
-      appearance: { ...DEFAULTS.appearance },
-      crashReporting: { ...DEFAULTS.crashReporting },
-      sync: { ...DEFAULTS.sync },
-    };
+    // Main file corrupt or unreadable — try backup
+    try {
+      const backupData = await getFS().readAppData(PREFS_BACKUP_PATH);
+      if (backupData) {
+        const saved = JSON.parse(backupData);
+        cached = deepMerge(DEFAULTS, saved);
+        console.warn('Preferences recovery: loaded from backup after corrupt main preferences file');
+        return cached;
+      }
+    } catch {
+      // Backup also failed
+    }
+    console.warn('Preferences recovery: using defaults after corrupt/missing preferences file');
   }
+
+  cached = {
+    appearance: { ...DEFAULTS.appearance },
+    crashReporting: { ...DEFAULTS.crashReporting },
+    sync: { ...DEFAULTS.sync },
+  };
   return cached;
 }
 
@@ -97,6 +108,16 @@ export function getCachedPreferences(): AppPreferences {
 export async function savePreferences(prefs: AppPreferences): Promise<void> {
   cached = prefs;
   if (!hasFileSystem) return;
+
+  // Back up current preferences before writing new ones
+  try {
+    const current = await getFS().readAppData(PREFS_PATH);
+    if (current) {
+      await getFS().writeAppData(PREFS_BACKUP_PATH, current);
+    }
+  } catch {
+    // No existing prefs to back up — that's fine
+  }
 
   await getFS().writeAppData(PREFS_PATH, JSON.stringify(prefs, null, 2));
 }

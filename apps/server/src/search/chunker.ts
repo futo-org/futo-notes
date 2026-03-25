@@ -20,14 +20,11 @@ const SHORT_NOTE_THRESHOLD = 512;
  * Split markdown content into chunks at heading and paragraph boundaries.
  * - Target ~900 tokens per chunk with 15% overlap
  * - Short notes (<512 tokens) become a single chunk
+ * - Any non-empty note gets at least one chunk (no minimum-word cutoff)
  * - Returns chunks with their byte offsets
  */
-const MIN_WORDS = 10;
-
 export function chunkContent(content: string): Chunk[] {
   if (!content.trim()) return [];
-
-  if (content.split(/\s+/).filter(Boolean).length < MIN_WORDS) return [];
 
   // Short notes: single chunk
   if (estimateTokens(content) < SHORT_NOTE_THRESHOLD) {

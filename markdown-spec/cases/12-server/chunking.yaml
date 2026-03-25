@@ -19,12 +19,12 @@
   expect:
     chunk_count: 0
 
-- name: server-chunk-below-min-words
+- name: server-chunk-very-short-note
   complexity: 15
   markdown: "Too few."
   cursor: null
   expect:
-    chunk_count: 0
+    chunk_count: 1
 
 - name: server-chunk-heading-split
   complexity: 50

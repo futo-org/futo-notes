@@ -4,6 +4,8 @@ import type { NotePreview } from '../../types';
 import {
   buildGraphDataFromEntries,
   type GraphData,
+  type GraphNode,
+  type GraphCluster,
 } from './graphLayout';
 
 export type { GraphCluster, GraphData, GraphNode, GraphClusterInput } from './graphLayout';
@@ -22,10 +24,14 @@ export function clearGraphCache(): void {
 export async function computeGraphData(notes: NotePreview[]): Promise<GraphData> {
   if (cached) return cached;
   if (computing) {
-    while (computing) {
+    // Wait up to 10s for a concurrent computation to finish, checking cached each iteration
+    for (let i = 0; i < 100 && computing; i++) {
+      if (cached) return cached;
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
     if (cached) return cached;
+    // Timed out — reset the flag and fall through to retry
+    computing = false;
   }
 
   computing = true;
@@ -36,8 +42,10 @@ export async function computeGraphData(notes: NotePreview[]): Promise<GraphData>
     }
 
     const vectorEntries = await fs.supersearchAllNoteVectors();
-    if (vectorEntries.length < 2) {
-      throw new Error('Need at least 2 notes with vectors for graph');
+
+    if (vectorEntries.length === 0) {
+      cached = { nodes: [], clusters: [], nodeIndex: new Map() };
+      return cached;
     }
 
     const syncState = await loadSyncState();
@@ -66,6 +74,36 @@ export async function computeGraphData(notes: NotePreview[]): Promise<GraphData>
         };
       })
       .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+
+    if (graphEntries.length === 0) {
+      cached = { nodes: [], clusters: [], nodeIndex: new Map() };
+      return cached;
+    }
+
+    if (graphEntries.length === 1) {
+      const entry = graphEntries[0];
+      const node: GraphNode = {
+        noteId: entry.noteId,
+        title: entry.title,
+        x: 0,
+        y: 0,
+        clusterId: 'cluster-0',
+        clusterIndex: 0,
+      };
+      const cluster: GraphCluster = {
+        id: 'cluster-0',
+        label: entry.title,
+        x: 0,
+        y: 0,
+        radius: 48,
+        color: '#d96f32',
+        noteIds: [entry.noteId],
+      };
+      const nodeIndex = new Map<string, number>();
+      nodeIndex.set(entry.noteId, 0);
+      cached = { nodes: [node], clusters: [cluster], nodeIndex };
+      return cached;
+    }
 
     cached = await buildGraphDataFromEntries(
       graphEntries,

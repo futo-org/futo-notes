@@ -4,7 +4,7 @@
   import { getCachedPreferences, savePreferences } from '$lib/preferences';
   import { applyThemePreference, type ThemePreference } from '$lib/theme';
   import { connectSyncServer, saveSyncServerUrl, syncNow } from '$lib/sync';
-  import { requestSync, connectSSE } from '$lib/autoSync';
+  import { getAppVersion } from '$lib/crashHandler';
   import { showGlobalToast } from '$lib/toast';
   import { ask } from '@tauri-apps/plugin-dialog';
   import { formatRelativeTime } from '$lib/utils';
@@ -108,6 +108,7 @@
 
       connectSyncPhase = 'Syncing notes...';
       const summary = await syncNow();
+      const { connectSSE } = await import('$lib/autoSync');
       connectSSE();
 
       const updatedPrefs = getCachedPreferences();
@@ -160,7 +161,8 @@
     syncStatus = 'Syncing...';
     try {
       await persistSyncUrl();
-      await requestSync();
+      const { requestSync: doSync } = await import('$lib/autoSync');
+      await doSync();
       const updatedPrefs = getCachedPreferences();
       hasSyncToken = Boolean(updatedPrefs.sync.token);
       syncLastAt = updatedPrefs.sync.lastSyncedAt;
@@ -391,6 +393,8 @@
           </button>
         {/if}
       </section>
+
+      <p class="settings-version">Stonefruit v{getAppVersion()}</p>
     </div>
 
     {#if connectSyncing}
@@ -772,5 +776,12 @@
 
   .connect-sync-cancel:active {
     opacity: 0.7;
+  }
+
+  .settings-version {
+    text-align: center;
+    font-size: 12px;
+    color: var(--color-muted);
+    margin: 16px 0 8px;
   }
 </style>

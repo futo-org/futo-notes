@@ -28,7 +28,7 @@ vi.mock('./sseClient', () => ({
 
 import { getCachedPreferences } from './preferences';
 import { syncNow } from './sync';
-import { startAutoSync, stopAutoSync, notifySaved } from './autoSync';
+import { startAutoSync, stopAutoSync, notifySaved, requestSync } from './autoSync';
 
 const mockGetCachedPreferences = vi.mocked(getCachedPreferences);
 const mockSyncNow = vi.mocked(syncNow);
@@ -146,6 +146,24 @@ describe('autoSync', () => {
     // The dropped local-save should now have triggered a follow-up sync
     expect(mockSyncNow).toHaveBeenCalledTimes(1);
     expect(onSyncComplete).toHaveBeenCalledTimes(2); // first sync + retry
+  });
+
+  it('requestSync() before startAutoSync() falls back to direct syncNow()', async () => {
+    const summary: SyncSummary = {
+      uploaded: 1,
+      downloaded: 0,
+      deleted: 0,
+      conflicts: 0,
+      updatedIds: ['note-1'],
+      deletedIds: [],
+      renamed: [],
+    };
+    mockSyncNow.mockResolvedValue(summary);
+
+    // Do NOT call startAutoSync() — callbacks is null
+    // requestSync() should not throw "Sync system not initialized"
+    await expect(requestSync()).resolves.toBeUndefined();
+    expect(mockSyncNow).toHaveBeenCalledTimes(1);
   });
 
   it('retries a deferred SSE sync after the editor stops deferring', async () => {
