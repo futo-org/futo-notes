@@ -2,6 +2,10 @@
 /**
  * Worktree-aware wrapper for `pnpm run tauri:dev`.
  *
+ * When run from the main repo:
+ *   - Points notes to ~/Documents/fake-notes (never touches ~/Documents/stonefruit)
+ *   - Seeds fake-notes with test notes on first launch
+ *
  * When run from a git worktree it automatically:
  *   - Assigns a unique Vite port (5200–5249) derived from the worktree path
  *   - Uses a unique app identifier to avoid D-Bus single-instance conflicts
@@ -10,13 +14,12 @@
  *   - Pre-writes .preferences.json so the app auto-connects to the isolated server
  *   - Seeds a small test vault on first launch
  *
- * When run from the main repo it passes through to the standard dev command.
- *
  * Password for the isolated server: testing123
  */
 import { createHash } from 'crypto'
 import { execSync, spawn } from 'child_process'
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'fs'
+import { homedir } from 'os'
 import { join } from 'path'
 
 const repoRoot = execSync('git rev-parse --show-toplevel', { encoding: 'utf8' }).trim()
@@ -32,13 +35,32 @@ const WAYLAND_ENV = {
 
 ;(async () => {
 if (!isWorktree) {
-  // Non-worktree: run original command unchanged.
+  // Main repo: point notes at ~/Documents/fake-notes so the real vault is untouched.
+  const dataDir = join(repoRoot, '.tauri-data')
+  const notesDir = join(homedir(), 'Documents', 'fake-notes')
+
+  mkdirSync(notesDir, { recursive: true })
+  mkdirSync(dataDir, { recursive: true })
+  writeFileSync(
+    join(dataDir, 'notes-dir-override.json'),
+    JSON.stringify({ notesDir }, null, 2) + '\n'
+  )
+
+  // Seed test notes if none exist yet.
+  if (readdirSync(notesDir).filter((f) => f.endsWith('.md')).length === 0) {
+    writeFileSync(join(notesDir, 'welcome.md'), '# Welcome\n\nThis is the dev notes vault. Your real vault is in `~/Documents/stonefruit`.\n')
+    writeFileSync(join(notesDir, 'test note.md'), '# Test Note\n\nA sample note for development testing.\n')
+    writeFileSync(join(notesDir, 'another note.md'), '# Another Note\n\nUseful for testing [[test note]] links and search.\n')
+  }
+
+  console.log(`[tauri-dev] main repo | notes: ${notesDir}`)
+
   const child = spawn(
     'cargo',
     ['tauri', 'dev', '--config', 'src-tauri/tauri.dev.conf.json'],
     {
       cwd: join(repoRoot, 'apps/tauri'),
-      env: { ...process.env, ...WAYLAND_ENV },
+      env: { ...process.env, ...WAYLAND_ENV, STONEFRUIT_DATA_DIR: dataDir },
       stdio: 'inherit',
     }
   )
