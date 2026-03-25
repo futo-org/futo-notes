@@ -4,7 +4,7 @@ import type Database from 'better-sqlite3';
 import type { Config } from './config.js';
 import { createPluginTables } from './db/pluginSchema.js';
 import { createSearchTables } from './db/searchSchema.js';
-import { createTables } from './db/schema.js';
+import { createTables, migrateSchema } from './db/schema.js';
 import { tableExists } from './db/utils.js';
 import { removeAllClients } from './events.js';
 import { log } from './logger.js';
@@ -75,12 +75,15 @@ export async function performServerReset(
   removeAllClients();
 
   db.exec(`
+    DROP TABLE IF EXISTS note_tags;
     DROP TABLE IF EXISTS tombstones;
     DROP TABLE IF EXISTS notes;
     DROP TABLE IF EXISTS sessions;
     DROP TABLE IF EXISTS auth;
+    DROP TABLE IF EXISTS sync_meta;
   `);
   createTables(db);
+  migrateSchema(db);
 
   db.exec(`
     DROP TABLE IF EXISTS search_chunks;
