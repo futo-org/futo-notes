@@ -67,7 +67,7 @@ fn run_non_interactive(args: SetupArgs) -> Result<()> {
     println!("Starting container...");
     docker::compose_up(&work_dir)?;
     println!("Waiting for server...");
-    wait_for_server(config.port)?;
+    server_api::wait_for_healthy(&base_url(config.port), std::time::Duration::from_secs(30))?;
     println!("Setting password...");
     server_api::setup(&base_url(config.port), &config.password)?;
 
@@ -709,24 +709,16 @@ fn base_url(port: u16) -> String {
     format!("http://localhost:{port}")
 }
 
-fn wait_for_server(port: u16) -> Result<()> {
-    let base_url = base_url(port);
-    let deadline = Instant::now() + Duration::from_secs(30);
-    while Instant::now() < deadline {
-        if server_api::check_health(&base_url).is_ok() {
-            return Ok(());
-        }
-        std::thread::sleep(Duration::from_secs(1));
-    }
-
-    bail!("server did not become healthy within 30 seconds");
-}
-
 fn run_deploy_phase(phase: Phase, work_dir: &Path, config: &Config) -> Result<()> {
     match phase {
         Phase::Pull => docker::compose_pull(work_dir),
         Phase::Start => docker::compose_up(work_dir),
-        Phase::Health => wait_for_server(config.port),
+        Phase::Health => {
+            server_api::wait_for_healthy(
+                &base_url(config.port),
+                std::time::Duration::from_secs(30),
+            )
+        }
         Phase::Setup => server_api::setup(&base_url(config.port), &config.password),
     }
 }

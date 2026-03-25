@@ -1,0 +1,218 @@
+use crate::cli::UpdateArgs;
+use crate::docker;
+use crate::server_api;
+use anyhow::{bail, Context, Result};
+use crossterm::execute;
+use crossterm::style::{Attribute, Color, Print, ResetColor, SetAttribute, SetForegroundColor};
+use std::io::{stdout, Write};
+use std::path::PathBuf;
+use std::time::{Duration, Instant};
+
+const PRIMARY: Color = Color::Rgb {
+    r: 176,
+    g: 125,
+    b: 59,
+};
+const SUCCESS: Color = Color::Rgb {
+    r: 61,
+    g: 122,
+    b: 63,
+};
+const MUTED: Color = Color::Rgb {
+    r: 120,
+    g: 113,
+    b: 108,
+};
+
+pub fn run(args: UpdateArgs) -> Result<()> {
+    let started = Instant::now();
+    let work_dir = resolve_work_dir(&args)?;
+
+    if !work_dir.join("docker-compose.yml").exists() {
+        bail!(
+            "No docker-compose.yml found in {}. Run 'stonefruit setup' first.",
+            work_dir.display()
+        );
+    }
+
+    // Check Docker
+    step("Checking Docker")?;
+    let version = docker::check_docker()?;
+    done(&format!("Docker {}", version))?;
+
+    // Snapshot current image
+    let old_image = docker::get_container_image_id("stonefruit")?;
+
+    // Pull
+    step("Pulling latest image")?;
+    docker::compose_pull(&work_dir)?;
+    done("done")?;
+
+    // Recreate
+    step("Restarting container")?;
+    docker::compose_up_recreate(&work_dir)?;
+    done("done")?;
+
+    // Health check
+    let port = docker::parse_compose_port(&work_dir)?;
+    let base_url = format!("http://localhost:{}", port);
+    step("Waiting for server")?;
+    server_api::wait_for_healthy(&base_url, Duration::from_secs(30))?;
+    done("healthy")?;
+
+    // Compare images
+    let new_image = docker::get_container_image_id("stonefruit")?;
+    println!();
+    print_result(&old_image, &new_image)?;
+
+    // Elapsed
+    let elapsed = started.elapsed().as_secs();
+    print_elapsed(elapsed)?;
+
+    Ok(())
+}
+
+fn resolve_work_dir(args: &UpdateArgs) -> Result<PathBuf> {
+    match &args.compose_dir {
+        Some(dir) => {
+            let path = PathBuf::from(dir);
+            if !path.is_dir() {
+                bail!("{} is not a directory", dir);
+            }
+            Ok(path)
+        }
+        None => std::env::current_dir().context("failed to get working directory"),
+    }
+}
+
+fn step(label: &str) -> Result<()> {
+    execute!(
+        stdout(),
+        SetForegroundColor(MUTED),
+        Print(format!("  {}... ", label)),
+        ResetColor,
+    )?;
+    stdout().flush()?;
+    Ok(())
+}
+
+fn done(text: &str) -> Result<()> {
+    execute!(stdout(), Print(format!("{}\n", text)))?;
+    Ok(())
+}
+
+fn short_id(full: &str) -> &str {
+    let s = full.strip_prefix("sha256:").unwrap_or(full);
+    let end = s.len().min(12);
+    &s[..end]
+}
+
+fn print_result(old: &Option<String>, new: &Option<String>) -> Result<()> {
+    match (old, new) {
+        (Some(old_id), Some(new_id)) if old_id != new_id => {
+            execute!(
+                stdout(),
+                Print("  "),
+                SetForegroundColor(SUCCESS),
+                SetAttribute(Attribute::Bold),
+                Print("Updated to a new version."),
+                SetAttribute(Attribute::Reset),
+                ResetColor,
+                Print("\n"),
+                Print("  "),
+                SetForegroundColor(MUTED),
+                Print(format!(
+                    "Image: {} \u{2192} {}",
+                    short_id(old_id),
+                    short_id(new_id)
+                )),
+                ResetColor,
+                Print("\n"),
+            )?;
+        }
+        (_, Some(new_id)) if old.is_none() => {
+            execute!(
+                stdout(),
+                Print("  "),
+                SetForegroundColor(SUCCESS),
+                SetAttribute(Attribute::Bold),
+                Print("Container created."),
+                SetAttribute(Attribute::Reset),
+                ResetColor,
+                Print("\n"),
+                Print("  "),
+                SetForegroundColor(MUTED),
+                Print(format!("Image: {}", short_id(new_id))),
+                ResetColor,
+                Print("\n"),
+            )?;
+        }
+        (Some(old_id), Some(_)) => {
+            execute!(
+                stdout(),
+                Print("  "),
+                SetForegroundColor(PRIMARY),
+                Print("Already up to date."),
+                ResetColor,
+                Print("\n"),
+                Print("  "),
+                SetForegroundColor(MUTED),
+                Print(format!("Image: {}", short_id(old_id))),
+                ResetColor,
+                Print("\n"),
+            )?;
+        }
+        _ => {
+            println!("  Server is running.");
+        }
+    }
+    Ok(())
+}
+
+fn print_elapsed(seconds: u64) -> Result<()> {
+    execute!(
+        stdout(),
+        Print("\n  "),
+        SetForegroundColor(MUTED),
+        Print(format!("Done in {}s.", seconds)),
+        ResetColor,
+        Print("\n"),
+    )?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cli::UpdateArgs;
+
+    #[test]
+    fn short_id_strips_sha256_prefix() {
+        assert_eq!(short_id("sha256:abc123def456789"), "abc123def456");
+    }
+
+    #[test]
+    fn short_id_handles_no_prefix() {
+        assert_eq!(short_id("abc123def456789"), "abc123def456");
+    }
+
+    #[test]
+    fn short_id_handles_short_input() {
+        assert_eq!(short_id("sha256:abc"), "abc");
+    }
+
+    #[test]
+    fn resolve_work_dir_defaults_to_cwd() {
+        let args = UpdateArgs { compose_dir: None };
+        let result = resolve_work_dir(&args).unwrap();
+        assert!(result.is_dir());
+    }
+
+    #[test]
+    fn resolve_work_dir_rejects_nonexistent() {
+        let args = UpdateArgs {
+            compose_dir: Some("/nonexistent/path/12345".to_string()),
+        };
+        assert!(resolve_work_dir(&args).is_err());
+    }
+}

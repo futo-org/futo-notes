@@ -568,6 +568,12 @@ function dashboardHtml(): string {
   .danger-card {
     border: 2px solid var(--accent);
     background: var(--surface);
+    transition: opacity 0.2s ease;
+  }
+
+  .danger-card.muted {
+    opacity: 0.4;
+    pointer-events: none;
   }
 
   .danger-card h2 {
@@ -2536,6 +2542,8 @@ function dashboardHtml(): string {
       $('unauth-message').style.display = 'none';
       $('setup-card').style.display = '';
     }
+    var dangerCard = document.querySelector('.danger-card');
+    if (dangerCard) dangerCard.classList.add('muted');
   }
 
   function showAuthenticatedShell() {
@@ -2544,6 +2552,8 @@ function dashboardHtml(): string {
     $('unauth-message').style.display = 'none';
     $('logout-btn').style.display = '';
     $('change-pw-btn').style.display = '';
+    var dangerCard = document.querySelector('.danger-card');
+    if (dangerCard) dangerCard.classList.remove('muted');
   }
 
   async function boot() {

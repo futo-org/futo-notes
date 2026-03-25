@@ -3,7 +3,7 @@ use reqwest::blocking::Client;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct HealthResponse {
@@ -113,6 +113,20 @@ pub fn reset_password(base_url: &str, admin_token: &str, new_password: &str) -> 
         StatusCode::TOO_MANY_REQUESTS => bail!("too many attempts — try again later"),
         code => bail!("reset-password returned status {}", code),
     }
+}
+
+pub fn wait_for_healthy(base_url: &str, timeout: Duration) -> Result<()> {
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        if check_health(base_url).is_ok() {
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_secs(1));
+    }
+    bail!(
+        "server did not become healthy within {}s",
+        timeout.as_secs()
+    );
 }
 
 fn client() -> Result<Client> {

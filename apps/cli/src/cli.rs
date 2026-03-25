@@ -19,6 +19,8 @@ pub enum Commands {
     Status(StatusArgs),
     /// Reset the server password via admin token (no data loss)
     ResetPassword(ResetPasswordArgs),
+    /// Pull the latest server image and restart
+    Update(UpdateArgs),
     /// Print version
     Version,
 }
@@ -92,6 +94,13 @@ pub struct ResetPasswordArgs {
     /// Read the new password from stdin
     #[arg(long, conflicts_with = "password")]
     pub password_stdin: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct UpdateArgs {
+    /// Directory containing docker-compose.yml (default: current directory)
+    #[arg(long)]
+    pub compose_dir: Option<String>,
 }
 
 pub const fn version() -> &'static str {
