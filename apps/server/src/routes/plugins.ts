@@ -284,8 +284,12 @@ plugins.get('/plugins/runs/:runId', authMiddleware, (c) => {
 });
 
 plugins.post('/plugins/runs/:runId/items/:itemId/approve', authMiddleware, (c) => {
+  const itemId = Number(c.req.param('itemId'));
+  if (!Number.isInteger(itemId) || itemId <= 0) {
+    return c.json({ error: 'itemId must be a positive integer' }, 400);
+  }
   try {
-    approveRunItem(c.req.param('runId'), Number(c.req.param('itemId')));
+    approveRunItem(c.req.param('runId'), itemId);
     return c.json({ approved: true });
   } catch (err) {
     return c.json({ error: err instanceof Error ? err.message : String(err) }, 409);
@@ -293,8 +297,12 @@ plugins.post('/plugins/runs/:runId/items/:itemId/approve', authMiddleware, (c) =
 });
 
 plugins.post('/plugins/runs/:runId/items/:itemId/reject', authMiddleware, (c) => {
+  const itemId = Number(c.req.param('itemId'));
+  if (!Number.isInteger(itemId) || itemId <= 0) {
+    return c.json({ error: 'itemId must be a positive integer' }, 400);
+  }
   try {
-    rejectRunItem(c.req.param('runId'), Number(c.req.param('itemId')));
+    rejectRunItem(c.req.param('runId'), itemId);
     return c.json({ rejected: true });
   } catch (err) {
     return c.json({ error: err instanceof Error ? err.message : String(err) }, 409);

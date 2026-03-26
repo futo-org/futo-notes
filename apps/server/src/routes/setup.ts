@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import type { SetupRequest } from '@futo-notes/shared';
 import { getDb } from '../db/index.js';
 import { isSetupComplete, setPasswordHash } from '../db/auth.js';
-import { hashPassword } from '../auth/password.js';
+import { hashPassword, MAX_PASSWORD_LENGTH } from '../auth/password.js';
 import { rateLimit } from '../middleware/rateLimit.js';
 import { log } from '../logger.js';
 
@@ -22,6 +22,9 @@ setup.post('/setup', rateLimit(5), async (c) => {
 
   if (body.password.length < 8) {
     return c.json({ error: 'Password must be at least 8 characters' }, 422);
+  }
+  if (body.password.length > MAX_PASSWORD_LENGTH) {
+    return c.json({ error: `Password must not exceed ${MAX_PASSWORD_LENGTH} characters` }, 422);
   }
 
   const db = getDb();

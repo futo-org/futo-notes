@@ -9,11 +9,17 @@ import { loadConfig } from '../config.js';
 import { log } from '../logger.js';
 
 const MAX_BLOB_SIZE = 100 * 1024 * 1024; // 100 MB
+const PATH_SAFE_RE = /^[a-zA-Z0-9_-]+$/;
 
 const blobSync = new Hono();
 
 blobSync.put('/sync/blob/:uuid', authMiddleware, async (c) => {
   const uuid = c.req.param('uuid');
+
+  if (!PATH_SAFE_RE.test(uuid)) {
+    return c.json({ error: 'Invalid UUID format' }, 400);
+  }
+
   const rawFilename = c.req.header('X-Filename');
   const modifiedAtStr = c.req.header('X-Modified-At');
 
@@ -43,6 +49,9 @@ blobSync.put('/sync/blob/:uuid', authMiddleware, async (c) => {
   const data = Buffer.from(body);
   const hash = binaryContentHash(data);
   const modifiedAt = modifiedAtStr ? Number(modifiedAtStr) : undefined;
+  if (modifiedAt !== undefined && (!Number.isFinite(modifiedAt) || modifiedAt < 0)) {
+    return c.json({ error: 'X-Modified-At must be a finite non-negative number' }, 400);
+  }
   const config = loadConfig();
 
   writeBlobFile(config.notesPath, filename, data, modifiedAt);
@@ -53,6 +62,11 @@ blobSync.put('/sync/blob/:uuid', authMiddleware, async (c) => {
 
 blobSync.get('/sync/blob/:uuid', authMiddleware, async (c) => {
   const uuid = c.req.param('uuid');
+
+  if (!PATH_SAFE_RE.test(uuid)) {
+    return c.json({ error: 'Invalid UUID format' }, 400);
+  }
+
   const db = getDb();
   const note = getNote(db, uuid);
 

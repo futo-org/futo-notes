@@ -238,7 +238,7 @@ export function processSync(
 
         // Original non-blob new note logic
         const safeName = sanitizeFilename(clientNote.filename);
-        const content = clientNote.content ?? '';
+        const content = clientNote.content as string; // Route validates non-blob notes have content
         const hash = contentHash(content);
 
         // Dedup / reset-client handling: server already has a note with this filename

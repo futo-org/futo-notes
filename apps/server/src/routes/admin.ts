@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import { getDb } from '../db/index.js';
 import { updatePasswordHash } from '../db/auth.js';
 import { deleteAllSessions } from '../db/sessions.js';
-import { hashPassword } from '../auth/password.js';
+import { hashPassword, MAX_PASSWORD_LENGTH } from '../auth/password.js';
 import { getAdminToken } from '../auth/adminToken.js';
 import { rateLimit } from '../middleware/rateLimit.js';
 import { removeAllClients } from '../events.js';
@@ -47,6 +47,9 @@ admin.post('/admin/reset-password', rateLimit(3), async (c) => {
   }
   if (body.new_password.length < 8) {
     return c.json({ error: 'New password must be at least 8 characters' }, 422);
+  }
+  if (body.new_password.length > MAX_PASSWORD_LENGTH) {
+    return c.json({ error: `New password must not exceed ${MAX_PASSWORD_LENGTH} characters` }, 422);
   }
 
   const db = getDb();

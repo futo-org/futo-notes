@@ -18,6 +18,7 @@ import admin from './routes/admin.js';
 import plugins from './routes/plugins.js';
 import { recordActivity } from './search/scheduler.js';
 import { recordPluginActivity } from './plugins/scheduler.js';
+import { resetting } from './db/index.js';
 
 /** Check whether an origin is allowed by the CORS policy. */
 function isAllowedOrigin(origin: string, extraOrigins: string[]): boolean {
@@ -50,6 +51,14 @@ export function createApp(): Hono {
       return isAllowedOrigin(origin, config.corsOrigins) ? origin : '';
     },
   }));
+
+  // Reject requests while a server reset is in progress
+  app.use('*', async (c, next) => {
+    if (resetting) {
+      return c.json({ error: 'Server is resetting — try again shortly' }, 503);
+    }
+    await next();
+  });
 
   // Request logging middleware
   app.use('*', async (c, next) => {

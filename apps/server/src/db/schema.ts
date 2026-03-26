@@ -46,9 +46,32 @@ export function createTables(db: Database.Database): void {
   `);
 }
 
+/** Must equal the highest migration version. Bump when adding a new migration. */
+export const SCHEMA_VERSION = 2;
+
+const MIGRATIONS: Array<{ version: number; up: (db: Database.Database) => void }> = [
+  {
+    version: 2,
+    up(db) {
+      // Legacy DBs (pre-blob support) may lack this column.
+      // Fresh DBs already have it in createTables(), so check first.
+      const columns = db.pragma('table_info(notes)') as { name: string }[];
+      if (!columns.some(c => c.name === 'is_blob')) {
+        db.exec('ALTER TABLE notes ADD COLUMN is_blob INTEGER NOT NULL DEFAULT 0');
+      }
+    },
+  },
+];
+
 export function migrateSchema(db: Database.Database): void {
-  const columns = db.pragma('table_info(notes)') as { name: string }[];
-  if (!columns.some(c => c.name === 'is_blob')) {
-    db.exec('ALTER TABLE notes ADD COLUMN is_blob INTEGER NOT NULL DEFAULT 0');
+  const current = db.pragma('user_version', { simple: true }) as number;
+  if (current >= SCHEMA_VERSION) return;
+
+  for (const migration of MIGRATIONS) {
+    if (current < migration.version) {
+      migration.up(db);
+    }
   }
+
+  db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

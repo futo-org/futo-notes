@@ -4,7 +4,7 @@ import type Database from 'better-sqlite3';
 import type { Config } from './config.js';
 import { createPluginTables } from './db/pluginSchema.js';
 import { createSearchTables } from './db/searchSchema.js';
-import { createTables, migrateSchema } from './db/schema.js';
+import { closeDb, getDb, initDb, setResetting } from './db/index.js';
 import { tableExists } from './db/utils.js';
 import { removeAllClients } from './events.js';
 import { log } from './logger.js';
@@ -53,10 +53,12 @@ export async function performServerReset(
 
   log.warn(`${reason}: erasing all notes, clearing auth, and revoking every session`);
 
+  setResetting(true);
+
   if (config.searchEnabled) {
     try {
       const { stopSearchScheduler } = await import('./search/scheduler.js');
-      stopSearchScheduler();
+      await stopSearchScheduler();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       log.warn(`${reason}: failed to stop search scheduler cleanly: ${message}`);
@@ -74,47 +76,22 @@ export async function performServerReset(
 
   removeAllClients();
 
-  db.exec(`
-    DROP TABLE IF EXISTS note_tags;
-    DROP TABLE IF EXISTS tombstones;
-    DROP TABLE IF EXISTS notes;
-    DROP TABLE IF EXISTS sessions;
-    DROP TABLE IF EXISTS auth;
-    DROP TABLE IF EXISTS sync_meta;
-  `);
-  createTables(db);
-  migrateSchema(db);
+  // Close the DB, delete the file (+ WAL/SHM), and reinitialize fresh.
+  // This guarantees the reset DB is identical to a brand-new server.
+  closeDb();
+  const dbPath = config.databasePath;
+  fs.rmSync(dbPath, { force: true });
+  fs.rmSync(dbPath + '-wal', { force: true });
+  fs.rmSync(dbPath + '-shm', { force: true });
+  initDb(dbPath);
 
-  db.exec(`
-    DROP TABLE IF EXISTS search_chunks;
-    DROP TABLE IF EXISTS search_jobs;
-    DROP TABLE IF EXISTS search_index_state;
-    DROP TABLE IF EXISTS search_config;
-  `);
-  try {
-    db.exec('DROP TABLE IF EXISTS search_vectors');
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    log.warn(`${reason}: unable to drop search_vectors (continuing): ${message}`);
-  }
+  setResetting(false);
+
   if (config.searchEnabled) {
-    createSearchTables(db);
+    createSearchTables(getDb());
   }
-
-  db.exec(`
-    DROP TABLE IF EXISTS plugin_run_logs;
-    DROP TABLE IF EXISTS plugin_run_items;
-    DROP TABLE IF EXISTS plugin_runs;
-    DROP TABLE IF EXISTS plugin_state;
-    DROP TABLE IF EXISTS plugins;
-    DROP TABLE IF EXISTS transform_history;
-    DROP TABLE IF EXISTS transform_jobs;
-    DROP TABLE IF EXISTS transform_state;
-    DROP TABLE IF EXISTS transform_config;
-    DROP TABLE IF EXISTS plugin_installs;
-  `);
   if (config.pluginsEnabled) {
-    createPluginTables(db);
+    createPluginTables(getDb());
   }
 
   wipeNotesDirectory(config.notesPath);
