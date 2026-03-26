@@ -127,11 +127,12 @@ function getMinimalChangeFromDoc(
     let chunkMatch = true;
     for (let i = 0; i < chunkLen; i++) {
       if (docSlice.charCodeAt(i) !== nextText.charCodeAt(nextBase + i)) {
-        // Found divergence — scan from end of this chunk to find exact boundary
+        // Found divergence — scan from end of this chunk to find exact boundary.
+        // Each matching iteration decrements docSuffix/nextSuffix to consume
+        // the shared suffix character. On mismatch, just break — the cursors
+        // are already positioned correctly after the last match.
         for (let j = chunkLen - 1; j >= i; j--) {
           if (docSlice.charCodeAt(j) !== nextText.charCodeAt(nextBase + j)) {
-            docSuffix -= chunkLen - 1 - j;
-            nextSuffix -= chunkLen - 1 - j;
             break;
           }
           docSuffix--;

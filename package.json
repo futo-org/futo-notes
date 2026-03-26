@@ -48,6 +48,8 @@
   "dependencies": {
     "@codemirror/lang-markdown": "6.5.0",
     "@codemirror/language-data": "6.5.2",
+    "@codemirror/state": "6.6.0",
+    "@codemirror/view": "6.40.0",
     "@lucide/svelte": "^0.574.0",
     "@sveltejs/vite-plugin-svelte": "^6.2.4",
     "@tailwindcss/vite": "^4.1.18",

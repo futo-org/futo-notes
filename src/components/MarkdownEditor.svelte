@@ -319,7 +319,11 @@
     // but skip the work if this change originated from the editor itself
     // (the editor already has this content — no round-trip needed).
     const c = content;
-    if (editorOwnsContent) { editorOwnsContent = false; return; }
+    if (editorOwnsContent) {
+      editorOwnsContent = false;
+      // Safety: fall through to sync if programmatic setContent failed.
+      if (view.state.doc.length === c.length) return;
+    }
     setContent(c, EXTERNAL_UPDATE_OPTS);
   });
 

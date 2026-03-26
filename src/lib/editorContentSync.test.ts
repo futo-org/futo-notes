@@ -61,4 +61,17 @@ describe('buildSetContentTransaction', () => {
     expect(result).not.toBeNull();
     expect(result!.insertedText).toBe('goodbye');
   });
+
+  it('suffix scan does not corrupt content when old and new share trailing chars', () => {
+    // Regression: getMinimalChangeFromDoc suffix scanner double-counted
+    // matched positions, producing a corrupted minimal diff when old/new
+    // content shared characters at the end (e.g. both end with '.').
+    const state = EditorState.create({ doc: 'Note A body with some text.' });
+    const nextText = 'Note B has different content entirely.';
+    const result = buildSetContentTransaction(state, nextText, { preserveSelection: true });
+
+    expect(result).not.toBeNull();
+    const next = state.update(result!.spec).state;
+    expect(next.doc.toString()).toBe(nextText);
+  });
 });
