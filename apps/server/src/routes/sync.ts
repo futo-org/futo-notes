@@ -9,6 +9,8 @@ import { loadConfig } from '../config.js';
 import { log } from '../logger.js';
 import { applyNoteMutationEffects } from '../sync/noteMutationEffects.js';
 import { triggerIndexAfterSync } from '../search/scheduler.js';
+import { checkPostSyncInvariants } from '../sync/invariants.js';
+import { isRecordingEnabled, recordSnapshot, dumpFailingSnapshot } from '../sync/recording.js';
 
 const MAX_BODY_SIZE = 500 * 1024 * 1024; // 500 MB
 
@@ -108,10 +110,25 @@ sync.post('/sync', bodyLimit({ maxSize: MAX_BODY_SIZE, onError: (c) => c.json({ 
 
   const db = getDb();
   const config = loadConfig();
+  const versionBefore = getSyncVersion(db);
   const { response: result, version } = processSync(db, config.notesPath, body);
   result.version = version;
 
   handlePostSync(c, result, body, config);
+
+  // Verify final server state + record
+  const versionAfter = getSyncVersion(db);
+  if (isRecordingEnabled()) {
+    recordSnapshot(body, result, versionBefore, versionAfter);
+  }
+  const invariants = checkPostSyncInvariants(db, config.notesPath, result, versionBefore, versionAfter);
+  if (!invariants.passed) {
+    log.error(`Post-sync invariant violations: ${invariants.violations.join('; ')}`);
+    if (isRecordingEnabled()) {
+      dumpFailingSnapshot(config.databasePath, body, result, invariants);
+    }
+  }
+
   return c.json(result);
 });
 
