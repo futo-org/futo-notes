@@ -1807,7 +1807,7 @@ function dashboardHtml(): string {
         } else {
           html += '<div class="stat-row"><span class="stat-label">Status</span>' + badge('Ready', 'ok') + '</div>';
         }
-        html += '<div class="stat-row"><span class="stat-label">First index</span><span class="stat-value">Will start during next idle window</span></div>';
+        html += '<div class="stat-row"><span class="stat-label">First index</span><span class="stat-value">Will start automatically</span></div>';
       } else if (s.current_job) {
         const pct = s.current_job.notes_total
           ? Math.round((s.current_job.notes_processed / s.current_job.notes_total) * 100)
@@ -1843,10 +1843,7 @@ function dashboardHtml(): string {
       } else if (s.dirty_count > 0) {
         html += '<div class="stat-row"><span class="stat-label">Status</span>' + badge('Pending', 'warn') + '</div>';
         html += '<div class="stat-row"><span class="stat-label">Queued</span><span class="stat-value">' + s.dirty_count + ' notes</span></div>';
-        // Explain why it's waiting
-        if (sched.idleWindow && !sched.idleWindow.active) {
-          html += '<div class="stat-row"><span class="stat-label">Waiting for</span><span class="stat-value">Idle window (' + sched.idleWindow.start + ' – ' + sched.idleWindow.end + ')</span></div>';
-        }
+        // Queued notes will be indexed within 5 minutes
       } else {
         html += '<div class="stat-row"><span class="stat-label">Status</span>' + badge('Up to date', 'ok') + '</div>';
       }
