@@ -137,7 +137,13 @@ export async function flushCrashQueue(): Promise<void> {
 function crashFilename(report: CrashReport): string {
   const ts = new Date(report.timestamp).getTime();
   const sid = (report.session_id || 'nosession').slice(0, 8);
-  return `crash-${ts}-${sid}.json`;
+  // Hash the error string so distinct crashes at the same ms get unique filenames
+  let h = 0;
+  for (let i = 0; i < report.error.length; i++) {
+    h = ((h << 5) - h + report.error.charCodeAt(i)) | 0;
+  }
+  const eh = (h >>> 0).toString(36).slice(0, 4);
+  return `crash-${ts}-${sid}-${eh}.json`;
 }
 
 export async function writeCrashReport(report: CrashReport): Promise<void> {
