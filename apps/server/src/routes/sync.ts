@@ -54,10 +54,30 @@ sync.post('/sync', bodyLimit({ maxSize: MAX_BODY_SIZE, onError: (c) => c.json({ 
     return c.json({ error: 'Invalid sync payload: notes, inventory, and deleted_uuids must be arrays' }, 422);
   }
 
+  // Validate deleted_uuids entries are all strings
+  for (const uuid of body.deleted_uuids) {
+    if (typeof uuid !== 'string') {
+      log.warn('invalid sync payload: non-string in deleted_uuids');
+      return c.json({ error: 'Invalid sync payload: each deleted_uuids entry must be a string' }, 422);
+    }
+  }
+
+  // Build UUID sets for duplicate / cross-array detection
+  const noteUuids = new Set<string>();
+  const deletedUuidSet = new Set(body.deleted_uuids);
+
   for (const item of body.inventory) {
-    if (!item.uuid || typeof item.content_hash !== 'string' || !item.filename) {
+    if (typeof item.uuid !== 'string' || typeof item.content_hash !== 'string' || typeof item.filename !== 'string') {
       log.warn('invalid sync payload: malformed inventory entry');
-      return c.json({ error: 'Invalid sync payload: each inventory item must have uuid, content_hash, and filename' }, 422);
+      return c.json({ error: 'Invalid sync payload: each inventory item must have uuid, content_hash, and filename as strings' }, 422);
+    }
+    if (!item.uuid || !item.content_hash || !item.filename) {
+      log.warn('invalid sync payload: empty string in inventory entry');
+      return c.json({ error: 'Invalid sync payload: inventory uuid, content_hash, and filename must be non-empty' }, 422);
+    }
+    if (item.content_hash.length > 128) {
+      log.warn(`invalid sync payload: inventory content_hash too long (${item.uuid})`);
+      return c.json({ error: 'Invalid sync payload: content_hash exceeds maximum length' }, 422);
     }
     if (typeof item.modified_at !== 'number' || !Number.isFinite(item.modified_at) || item.modified_at < 0) {
       log.warn(`invalid sync payload: invalid modified_at in inventory (${item.uuid})`);
@@ -81,14 +101,58 @@ sync.post('/sync', bodyLimit({ maxSize: MAX_BODY_SIZE, onError: (c) => c.json({ 
   }
 
   // Validate notes entries
+  const MAX_NOTE_CONTENT_BYTES = 50 * 1024 * 1024; // 50 MB
+
   for (const note of body.notes) {
-    if (!note.uuid || !note.filename || typeof note.content_hash !== 'string' || typeof note.hash_at_last_sync !== 'string') {
+    if (typeof note.uuid !== 'string' || typeof note.filename !== 'string' || typeof note.content_hash !== 'string' || typeof note.hash_at_last_sync !== 'string') {
       log.warn('invalid sync payload: malformed note entry');
-      return c.json({ error: 'Invalid sync payload: each note must have uuid, filename, content_hash, and hash_at_last_sync' }, 422);
+      return c.json({ error: 'Invalid sync payload: each note must have uuid, filename, content_hash, and hash_at_last_sync as strings' }, 422);
+    }
+    if (!note.uuid || !note.filename || !note.content_hash) {
+      log.warn('invalid sync payload: empty string in note entry');
+      return c.json({ error: 'Invalid sync payload: note uuid, filename, and content_hash must be non-empty' }, 422);
+    }
+    if (note.content_hash.length > 128 || note.hash_at_last_sync.length > 128) {
+      log.warn(`invalid sync payload: hash field too long (${note.uuid})`);
+      return c.json({ error: 'Invalid sync payload: hash fields exceed maximum length' }, 422);
     }
     if (typeof note.modified_at !== 'number' || !Number.isFinite(note.modified_at) || note.modified_at < 0) {
       log.warn(`invalid sync payload: invalid modified_at in note (${note.uuid})`);
       return c.json({ error: 'Invalid sync payload: note modified_at must be a finite non-negative number' }, 400);
+    }
+    // Validate is_blob field type
+    if (note.is_blob !== undefined && typeof note.is_blob !== 'boolean') {
+      log.warn(`invalid sync payload: is_blob must be a boolean (${note.uuid})`);
+      return c.json({ error: 'Invalid sync payload: is_blob must be a boolean if present' }, 422);
+    }
+    // Validate content field
+    if (note.content !== undefined && typeof note.content !== 'string') {
+      log.warn(`invalid sync payload: note content must be a string if present (${note.uuid})`);
+      return c.json({ error: 'Invalid sync payload: note content must be a string if present' }, 422);
+    }
+    if (!note.is_blob) {
+      // Non-blob notes must include content when content has changed (not a rename-only).
+      // Rename-only = content_hash matches hash_at_last_sync (filename changed but content didn't).
+      const isRenameOnly = note.content_hash === note.hash_at_last_sync;
+      if (!isRenameOnly && typeof note.content !== 'string') {
+        log.warn(`invalid sync payload: non-blob note with changed content must include content (${note.uuid})`);
+        return c.json({ error: 'Invalid sync payload: non-blob notes with changed content must include content as a string' }, 422);
+      }
+    }
+    if (typeof note.content === 'string' && Buffer.byteLength(note.content, 'utf8') > MAX_NOTE_CONTENT_BYTES) {
+      log.warn(`invalid sync payload: note content too large (${note.uuid})`);
+      return c.json({ error: `Invalid sync payload: note content exceeds ${MAX_NOTE_CONTENT_BYTES / 1024 / 1024} MB limit` }, 413);
+    }
+    // Duplicate UUID detection
+    if (noteUuids.has(note.uuid)) {
+      log.warn(`invalid sync payload: duplicate UUID in notes (${note.uuid})`);
+      return c.json({ error: 'Invalid sync payload: duplicate UUID in notes' }, 422);
+    }
+    noteUuids.add(note.uuid);
+    // Cross-array conflict: same UUID in notes and deleted_uuids
+    if (deletedUuidSet.has(note.uuid)) {
+      log.warn(`invalid sync payload: UUID in both notes and deleted_uuids (${note.uuid})`);
+      return c.json({ error: 'Invalid sync payload: UUID cannot appear in both notes and deleted_uuids' }, 422);
     }
     if (!note.filename.toLowerCase().endsWith('.md')) {
       if (!isImageFilename(note.filename)) {

@@ -161,58 +161,45 @@ describe('Chaos sync tests', () => {
 
   // ── Duplicate/contradictory UUIDs (3 tests) ───────────────
 
-  it('Test 11: same UUID twice in notes[] — server does not crash', async () => {
-    // CHAOS: documents which content wins when the same UUID appears twice
+  it('Test 11: same UUID twice in notes[] — server rejects with 422', async () => {
+    // Duplicate UUIDs in notes[] are now rejected at the validation layer.
     const content1 = 'first version';
     const hash1 = contentHash(content1);
     const content2 = 'second version';
     const hash2 = contentHash(content2);
     const now = Date.now();
 
-    let res: Response;
-    try {
-      res = await authReq(env.app, 'POST', '/sync', token, {
-        notes: [
-          {
-            uuid: 'uuid-dup',
-            filename: 'duplicate.md',
-            modified_at: now,
-            content_hash: hash1,
-            hash_at_last_sync: '',
-            content: content1,
-          },
-          {
-            uuid: 'uuid-dup',
-            filename: 'duplicate.md',
-            modified_at: now + 1,
-            content_hash: hash2,
-            hash_at_last_sync: '',
-            content: content2,
-          },
-        ],
-        inventory: inv([{ uuid: 'uuid-dup', filename: 'duplicate.md', content_hash: hash2, modified_at: now + 1 }]),
-        deleted_uuids: [],
-      });
-    } catch (e) {
-      // CHAOS: if the server crashes, document it
-      expect.unreachable(`Server crashed on duplicate UUID in notes[]: ${e}`);
-      return;
-    }
+    const res = await authReq(env.app, 'POST', '/sync', token, {
+      notes: [
+        {
+          uuid: 'uuid-dup',
+          filename: 'duplicate.md',
+          modified_at: now,
+          content_hash: hash1,
+          hash_at_last_sync: '',
+          content: content1,
+        },
+        {
+          uuid: 'uuid-dup',
+          filename: 'duplicate.md',
+          modified_at: now + 1,
+          content_hash: hash2,
+          hash_at_last_sync: '',
+          content: content2,
+        },
+      ],
+      inventory: inv([{ uuid: 'uuid-dup', filename: 'duplicate.md', content_hash: hash2, modified_at: now + 1 }]),
+      deleted_uuids: [],
+    });
 
-    // Server should not crash — any 2xx is acceptable
-    expect(res.status).toBe(200);
-
-    // Document which content won (likely the last one processed)
-    const files = readdirSync(env.notesDir).filter((f) => f.endsWith('.md'));
-    expect(files.length).toBeGreaterThanOrEqual(1);
-
-    const diskContent = readFileSync(path.join(env.notesDir, files[0]), 'utf8');
-    // The second entry is processed second; for a new note the first creates it,
-    // the second sees it as existing. Document actual behavior.
-    expect([content1, content2]).toContain(diskContent);
+    expect(res.status).toBe(422);
+    const data = await res.json();
+    expect(data.error).toMatch(/duplicate UUID/i);
   });
 
-  it('Test 12: UUID in both notes[] and deleted_uuids — deletion should win', async () => {
+  it('Test 12: UUID in both notes[] and deleted_uuids — server rejects with 422', async () => {
+    // Having the same UUID in both notes[] and deleted_uuids is now rejected
+    // at the validation layer as a protocol violation.
     const content = 'will be deleted';
     const hash = contentHash(content);
     const now = Date.now();
@@ -232,18 +219,9 @@ describe('Chaos sync tests', () => {
       deleted_uuids: ['uuid-conflict'], // also requesting deletion
     });
 
-    expect(res.status).toBe(200);
-
-    // Engine processes deletes first (section 1), then notes (section 3)
-    // which skips notes whose uuid is in deleted_uuids.
-    // The note should NOT exist on disk.
-    let files: string[] = [];
-    try {
-      files = readdirSync(env.notesDir).filter((f) => f.endsWith('.md'));
-    } catch {
-      // notesDir may not exist if nothing was ever written — that's fine
-    }
-    expect(files).toHaveLength(0);
+    expect(res.status).toBe(422);
+    const data = await res.json();
+    expect(data.error).toMatch(/both notes and deleted_uuids/);
   });
 
   it('Test 13: tombstone resurrection — server should reject re-created note', async () => {
@@ -2485,9 +2463,9 @@ describe('Chaos sync tests', () => {
 
   // ── DATA LOSS: missing content on client-changed path ──
 
-  it('BUG PROBE: client claims edit but omits content field — server should not silently write empty', async () => {
-    // Engine line 321: `clientNote.content ?? ''` — if content is undefined,
-    // the note gets overwritten with empty string. This is silent data loss.
+  it('BUG PROBE: client claims edit but omits content field — server rejects with 422', async () => {
+    // Non-blob notes with changed content (content_hash !== hash_at_last_sync)
+    // must include the content field. Omitting it is now rejected at validation.
     const original = 'important data that must not be lost';
     const origHash = contentHash(original);
     const now = Date.now();
@@ -2518,13 +2496,10 @@ describe('Chaos sync tests', () => {
       deleted_uuids: [],
     });
 
-    expect(res.status).toBe(200);
-
-    // HARD ASSERTION: The server must NOT silently erase note content.
-    // Engine line 321: `clientNote.content ?? ''` writes empty string when
-    // content is undefined. This is a data loss bug.
-    const diskContent = readFileSync(path.join(env.notesDir, 'precious.md'), 'utf8');
-    expect(diskContent).toBe(original);
+    // Server now rejects this at validation — no silent data loss possible.
+    expect(res.status).toBe(422);
+    const data = await res.json();
+    expect(data.error).toMatch(/content/);
   });
 
   // ── SPURIOUS CONFLICT: empty hash_at_last_sync on existing note ──

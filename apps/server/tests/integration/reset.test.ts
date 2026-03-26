@@ -1,8 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import Database from 'better-sqlite3';
 import fs from 'node:fs';
 import { createTestEnv, setupAndLogin, authReq, req, type TestEnv } from '../helpers/setup.js';
 import { contentHash } from '../../src/sync/hash.js';
 import { readNoteFile } from '../../src/sync/files.js';
+import { SCHEMA_VERSION, createTables, migrateSchema } from '../../src/db/schema.js';
 
 describe('POST /reset', () => {
   let env: TestEnv;
@@ -138,6 +140,32 @@ describe('POST /reset', () => {
       deleted_uuids: [],
     });
     expect(syncRes.status).toBe(200);
+  });
+
+  it('reset DB has correct schema version and matches fresh DB', async () => {
+    // Perform reset.
+    const resetRes = await authReq(env.app, 'POST', '/reset', token, { confirmation: 'DELETE' });
+    expect(resetRes.status).toBe(200);
+
+    // Open the reset DB directly and check user_version.
+    const resetDb = new Database(env.dbPath);
+    const resetVersion = resetDb.pragma('user_version', { simple: true }) as number;
+    expect(resetVersion).toBe(SCHEMA_VERSION);
+
+    // Compare table_info for core tables with a fresh DB.
+    const freshDb = new Database(':memory:');
+    createTables(freshDb);
+    migrateSchema(freshDb);
+
+    const coreTables = ['auth', 'sessions', 'notes', 'tombstones', 'sync_meta', 'note_tags'];
+    for (const table of coreTables) {
+      const resetColumns = resetDb.pragma(`table_info(${table})`);
+      const freshColumns = freshDb.pragma(`table_info(${table})`);
+      expect(resetColumns).toEqual(freshColumns);
+    }
+
+    resetDb.close();
+    freshDb.close();
   });
 
   it('dev nuke uses the same full reset behavior without auth', async () => {

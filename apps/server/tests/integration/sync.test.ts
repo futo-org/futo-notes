@@ -258,6 +258,120 @@ describe('POST /sync', () => {
     expect(res.status).toBe(200);
   });
 
+  // ── Type strictness and protocol invariant validation ──
+
+  it('rejects deleted_uuids with non-string items', async () => {
+    const res = await authReq(env.app, 'POST', '/sync', token, {
+      notes: [],
+      inventory: [],
+      deleted_uuids: ['valid-uuid', 123, null],
+    });
+    expect(res.status).toBe(422);
+    const data = await res.json();
+    expect(data.error).toMatch(/deleted_uuids/);
+  });
+
+  it('rejects note with uuid as number', async () => {
+    const res = await authReq(env.app, 'POST', '/sync', token, {
+      notes: [{ uuid: 123, filename: 'test.md', modified_at: Date.now(), content_hash: 'abc', hash_at_last_sync: '', content: 'text' }],
+      inventory: [],
+      deleted_uuids: [],
+    });
+    expect(res.status).toBe(422);
+  });
+
+  it('rejects non-blob note without content', async () => {
+    const res = await authReq(env.app, 'POST', '/sync', token, {
+      notes: [{ uuid: 'u1', filename: 'test.md', modified_at: Date.now(), content_hash: 'abc', hash_at_last_sync: '' }],
+      inventory: [],
+      deleted_uuids: [],
+    });
+    expect(res.status).toBe(422);
+    const data = await res.json();
+    expect(data.error).toMatch(/non-blob.*content/);
+  });
+
+  it('rejects note with content as number', async () => {
+    const res = await authReq(env.app, 'POST', '/sync', token, {
+      notes: [{ uuid: 'u1', filename: 'test.md', modified_at: Date.now(), content_hash: 'abc', hash_at_last_sync: '', content: 12345 }],
+      inventory: [],
+      deleted_uuids: [],
+    });
+    expect(res.status).toBe(422);
+    const data = await res.json();
+    expect(data.error).toMatch(/content/);
+  });
+
+  it('rejects note with is_blob as string "true"', async () => {
+    const res = await authReq(env.app, 'POST', '/sync', token, {
+      notes: [{ uuid: 'u1', filename: 'image.png', modified_at: Date.now(), content_hash: 'abc', hash_at_last_sync: '', is_blob: 'true' }],
+      inventory: [],
+      deleted_uuids: [],
+    });
+    expect(res.status).toBe(422);
+    const data = await res.json();
+    expect(data.error).toMatch(/is_blob/);
+  });
+
+  it('rejects note with empty content_hash', async () => {
+    const res = await authReq(env.app, 'POST', '/sync', token, {
+      notes: [{ uuid: 'u1', filename: 'test.md', modified_at: Date.now(), content_hash: '', hash_at_last_sync: '', content: 'text' }],
+      inventory: [],
+      deleted_uuids: [],
+    });
+    expect(res.status).toBe(422);
+  });
+
+  it('rejects note with content_hash over 128 chars', async () => {
+    const res = await authReq(env.app, 'POST', '/sync', token, {
+      notes: [{ uuid: 'u1', filename: 'test.md', modified_at: Date.now(), content_hash: 'a'.repeat(129), hash_at_last_sync: '', content: 'text' }],
+      inventory: [],
+      deleted_uuids: [],
+    });
+    expect(res.status).toBe(422);
+    const data = await res.json();
+    expect(data.error).toMatch(/hash/);
+  });
+
+  it('rejects duplicate UUID in notes', async () => {
+    const hash = contentHash('text');
+    const res = await authReq(env.app, 'POST', '/sync', token, {
+      notes: [
+        { uuid: 'u1', filename: 'a.md', modified_at: Date.now(), content_hash: hash, hash_at_last_sync: '', content: 'text' },
+        { uuid: 'u1', filename: 'b.md', modified_at: Date.now(), content_hash: hash, hash_at_last_sync: '', content: 'text' },
+      ],
+      inventory: [],
+      deleted_uuids: [],
+    });
+    expect(res.status).toBe(422);
+    const data = await res.json();
+    expect(data.error).toMatch(/duplicate UUID/i);
+  });
+
+  it('rejects UUID in both notes and deleted_uuids', async () => {
+    const hash = contentHash('text');
+    const res = await authReq(env.app, 'POST', '/sync', token, {
+      notes: [{ uuid: 'u1', filename: 'test.md', modified_at: Date.now(), content_hash: hash, hash_at_last_sync: '', content: 'text' }],
+      inventory: [],
+      deleted_uuids: ['u1'],
+    });
+    expect(res.status).toBe(422);
+    const data = await res.json();
+    expect(data.error).toMatch(/both notes and deleted_uuids/);
+  });
+
+  it('rejects oversized note content (byte-based)', async () => {
+    // Create a string whose byte length exceeds 50 MB
+    // Use multi-byte chars to ensure byte-based check works
+    const bigContent = '\u{1F600}'.repeat(13 * 1024 * 1024); // ~52 MB in UTF-8 (4 bytes each)
+    const res = await authReq(env.app, 'POST', '/sync', token, {
+      notes: [{ uuid: 'u1', filename: 'big.md', modified_at: Date.now(), content_hash: 'abc', hash_at_last_sync: '', content: bigContent }],
+      inventory: [],
+      deleted_uuids: [],
+    });
+    expect(res.status).toBe(413);
+  });
+
   // ── Inventory filename validation ──────────────────────
 
   it('rejects inventory with invalid filename (leading dot)', async () => {

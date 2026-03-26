@@ -102,6 +102,53 @@ describe('Blob sync', () => {
       expect(onDisk).not.toBeNull();
       expect(onDisk!.equals(data)).toBe(true);
     });
+
+    it('rejects UUID with special characters', async () => {
+      const data = Buffer.from('fake image');
+      // Use dots which are not path-safe per our regex
+      const res = await uploadBlob(env, token, 'foo.bar', 'test.jpg', data, Date.now());
+      expect(res.status).toBe(400);
+      const body = await res.json() as { error: string };
+      expect(body.error).toMatch(/UUID/i);
+    });
+
+    it('rejects UUID with spaces', async () => {
+      const data = Buffer.from('fake image');
+      const res = await uploadBlob(env, token, 'foo bar', 'test.jpg', data, Date.now());
+      expect(res.status).toBe(400);
+    });
+
+    it('rejects NaN X-Modified-At', async () => {
+      const data = Buffer.from('fake image');
+      const res = await env.app.request('/sync/blob/img-nan', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          Authorization: `Bearer ${token}`,
+          'X-Filename': 'test.jpg',
+          'X-Modified-At': 'not-a-number',
+        },
+        body: new Uint8Array(data) as unknown as BodyInit,
+      });
+      expect(res.status).toBe(400);
+      const body = await res.json() as { error: string };
+      expect(body.error).toMatch(/Modified-At/);
+    });
+
+    it('rejects negative X-Modified-At', async () => {
+      const data = Buffer.from('fake image');
+      const res = await env.app.request('/sync/blob/img-neg', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          Authorization: `Bearer ${token}`,
+          'X-Filename': 'test.jpg',
+          'X-Modified-At': '-100',
+        },
+        body: new Uint8Array(data) as unknown as BodyInit,
+      });
+      expect(res.status).toBe(400);
+    });
   });
 
   describe('GET /sync/blob/:uuid', () => {

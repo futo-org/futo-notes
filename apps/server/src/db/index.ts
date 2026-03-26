@@ -5,6 +5,13 @@ import { createTables, migrateSchema } from './schema.js';
 
 let db: Database.Database | null = null;
 
+/** True while a server reset is in progress. Middleware should reject requests with 503. */
+export let resetting = false;
+
+export function setResetting(value: boolean): void {
+  resetting = value;
+}
+
 export function initDb(dbPath: string): Database.Database {
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   db = new Database(dbPath);

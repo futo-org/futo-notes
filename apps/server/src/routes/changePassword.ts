@@ -3,7 +3,7 @@ import type { ChangePasswordRequest, ChangePasswordResponse } from '@futo-notes/
 import { getDb } from '../db/index.js';
 import { getPasswordHash, updatePasswordHash } from '../db/auth.js';
 import { deleteAllSessions, createSession } from '../db/sessions.js';
-import { verifyPassword, hashPassword } from '../auth/password.js';
+import { verifyPassword, hashPassword, MAX_PASSWORD_LENGTH } from '../auth/password.js';
 import { generateToken, hashToken } from '../auth/token.js';
 import { authMiddleware, type AuthEnv } from '../middleware/auth.js';
 import { rateLimit } from '../middleware/rateLimit.js';
@@ -28,6 +28,9 @@ changePassword.post('/change-password', rateLimit(5), authMiddleware, async (c) 
   }
   if (body.new_password.length < 8) {
     return c.json({ error: 'New password must be at least 8 characters' }, 422);
+  }
+  if (body.new_password.length > MAX_PASSWORD_LENGTH) {
+    return c.json({ error: `New password must not exceed ${MAX_PASSWORD_LENGTH} characters` }, 422);
   }
 
   const db = getDb();

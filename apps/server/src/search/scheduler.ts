@@ -334,15 +334,18 @@ export function startSearchScheduler(config: Config): void {
 
 
 /**
- * Stop the search scheduler.
+ * Stop the search scheduler and wait for any in-flight job to finish.
  */
-export function stopSearchScheduler(): void {
+export async function stopSearchScheduler(): Promise<void> {
   if (schedulerInterval) {
     clearInterval(schedulerInterval);
     schedulerInterval = null;
   }
   activeJobToken++;
   abortController?.abort();
+  if (runningJobPromise) {
+    try { await runningJobPromise; } catch { /* job may reject on abort — safe to ignore */ }
+  }
   running = false;
   release('search');
   runningJobPromise = null;
