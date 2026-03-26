@@ -47,6 +47,7 @@
   },
   "dependencies": {
     "@codemirror/lang-markdown": "6.5.0",
+    "@codemirror/language": "6.12.2",
     "@codemirror/language-data": "6.5.2",
     "@codemirror/state": "6.6.0",
     "@codemirror/view": "6.40.0",
