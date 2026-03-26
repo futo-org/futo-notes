@@ -166,7 +166,7 @@
       const updatedPrefs = getCachedPreferences();
       hasSyncToken = Boolean(updatedPrefs.sync.token);
       syncLastAt = updatedPrefs.sync.lastSyncedAt;
-      syncStatus = 'Sync started';
+      syncStatus = 'Sync complete';
     } catch (e) {
       syncStatus = `Sync failed: ${getErrorMessage(e)}`;
     } finally {

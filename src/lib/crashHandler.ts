@@ -134,9 +134,15 @@ export async function flushCrashQueue(): Promise<void> {
   }
 }
 
+function crashFilename(report: CrashReport): string {
+  const ts = new Date(report.timestamp).getTime();
+  const sid = (report.session_id || 'nosession').slice(0, 8);
+  return `crash-${ts}-${sid}.json`;
+}
+
 export async function writeCrashReport(report: CrashReport): Promise<void> {
   if (!hasFileSystem) return;
-  const filename = `crash-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.json`;
+  const filename = crashFilename(report);
   await getFS().writeAppData(`${CRASHLOGS_DIR}/${filename}`, JSON.stringify(report));
 }
 

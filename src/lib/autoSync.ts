@@ -19,6 +19,7 @@ export interface AutoSyncCallbacks {
 }
 
 let callbacks: AutoSyncCallbacks | null = null;
+let flushPendingSaveFn: (() => Promise<void>) | null = null;
 let sseDebounceTimer: number | null = null;
 let syncing = false;
 let paused = false;
@@ -125,6 +126,7 @@ export async function waitForSyncIdle(): Promise<void> {
 export async function requestSync(): Promise<void> {
   if (!isSyncConfigured()) throw new Error('Sync not configured');
   if (!callbacks) {
+    if (flushPendingSaveFn) await flushPendingSaveFn();
     const { syncNow: directSync } = await import('./sync');
     await directSync();
     return;
@@ -208,6 +210,7 @@ export function connectSSE(): void {
 
 export function startAutoSync(cb: AutoSyncCallbacks): void {
   callbacks = cb;
+  flushPendingSaveFn = cb.flushPendingSave;
   cancelBackgroundRetry();
   if (initialSyncTimer !== null) {
     clearTimeout(initialSyncTimer);

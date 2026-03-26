@@ -978,6 +978,7 @@
       const result = await computeGraphData(notes);
       if (result.nodes.length === 0) {
         showToast('No notes to graph');
+        graphSidebarOpen = false;
         return;
       }
       graphData = result;
@@ -994,6 +995,7 @@
             const phase = status?.scheduler?.phase;
             if (phase === 'indexing' || phase === 'downloading_model' || phase === 'loading_model' || phase === 'building_artifacts') {
               showToast('Indexing in progress...');
+              graphSidebarOpen = false;
               return;
             }
           }
