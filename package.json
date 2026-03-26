@@ -15,6 +15,7 @@
     ]
   },
   "scripts": {
+    "prepare": "git config core.hooksPath .githooks",
     "dev": "vite",
     "automation:loop": "pnpm --filter @futo-notes/server run automation:loop --",
     "reset": "node scripts/reset-demo.mjs",

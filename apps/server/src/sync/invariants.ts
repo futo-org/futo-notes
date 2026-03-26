@@ -1,5 +1,4 @@
 import type Database from 'better-sqlite3';
-import path from 'node:path';
 import type { SyncResponse } from '@futo-notes/shared';
 import { isImageFilename } from '@futo-notes/shared';
 import { getAllNotes, type NoteRow } from '../db/notes.js';

@@ -1,0 +1,12 @@
+#!/bin/sh
+# Pre-commit hook: run ESLint on staged .ts files
+# Installed via: git config core.hooksPath .githooks
+
+STAGED_TS=$(git diff --cached --name-only --diff-filter=ACM -- '*.ts' '*.tsx')
+
+if [ -z "$STAGED_TS" ]; then
+  exit 0
+fi
+
+echo "Running ESLint on staged TypeScript files..."
+pnpm run lint
