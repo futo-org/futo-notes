@@ -12,13 +12,20 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 COPY packages/shared/package.json packages/shared/
 COPY apps/server/package.json apps/server/
 
-RUN pnpm install --frozen-lockfile --filter @futo-notes/server --filter @futo-notes/shared
+# Enable injected workspace deps (required for pnpm v10 deploy)
+RUN echo "inject-workspace-packages=true" >> .npmrc
+
+# --no-frozen-lockfile: inject-workspace-packages changes layout, not resolution
+RUN pnpm install --no-frozen-lockfile --filter @futo-notes/server --filter @futo-notes/shared
 
 # Copy source
 COPY packages/shared/ packages/shared/
 COPY apps/server/ apps/server/
 
 RUN cd apps/server && pnpm run build
+
+# Deploy production-only deps into a self-contained directory
+RUN pnpm deploy --prod --filter @futo-notes/server /app/deploy
 
 # Test stage — run server tests inside the build environment
 FROM builder AS test
@@ -36,14 +43,11 @@ LABEL org.opencontainers.image.title="Stonefruit Server"
 LABEL org.opencontainers.image.description="Self-hosted sync server for Stonefruit"
 LABEL org.opencontainers.image.source="https://gitlab.futo.org/stonefruit/stonefruit"
 
-COPY --from=builder /app/package.json ./
-COPY --from=builder /app/node_modules/ node_modules/
-COPY --from=builder /app/packages/shared/ packages/shared/
-COPY --from=builder /app/apps/server/package.json apps/server/
-COPY --from=builder /app/apps/server/dist/ apps/server/dist/
+COPY --from=builder /app/deploy/package.json ./
+COPY --from=builder /app/deploy/node_modules/ node_modules/
+COPY --from=builder /app/apps/server/dist/ dist/
 
 EXPOSE 3005
-WORKDIR /app/apps/server
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD node -e "fetch('http://localhost:3005/health').then(r=>{if(!r.ok)throw r;process.exit(0)}).catch(()=>process.exit(1))"
