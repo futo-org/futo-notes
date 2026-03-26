@@ -215,6 +215,15 @@ async function ensureProcessorImpl(config: Config): Promise<boolean> {
     upsert.run('query_prefix', modelDef.queryPrefix, now);
   }
 
+  // Detect model/quantization change and force re-index
+  const storedUri = (db.prepare("SELECT value FROM search_config WHERE key = 'model_uri'")
+    .get() as { value: string } | undefined)?.value;
+  if (storedUri && storedUri !== modelDef.hfUri) {
+    log.info(`search: model changed from "${storedUri}" to "${modelDef.hfUri}", clearing index for re-embedding`);
+    db.prepare('DELETE FROM search_index_state').run();
+  }
+  upsert.run('model_uri', modelDef.hfUri, now);
+
   // Create processor
   const { createEmbeddingProcessor } = await import('./embeddingIndexer.js');
   jobProcessor = createEmbeddingProcessor(model, config.notesPath);
