@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { initDb, closeDb, getDb } from '../../src/db/index.js';
+import { initDb, closeDb, getDb, setResetting } from '../../src/db/index.js';
 import { createPluginTables } from '../../src/db/pluginSchema.js';
 import { createSearchTables } from '../../src/db/searchSchema.js';
 import { createApp } from '../../src/app.js';
@@ -45,6 +45,7 @@ export function createTestEnv(): TestEnv {
     notesDir,
     tmpDir,
     cleanup: () => {
+      setResetting(false);
       closeDb();
       rmSync(tmpDir, { recursive: true, force: true });
       delete process.env.DATABASE_PATH;

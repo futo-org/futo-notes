@@ -11,12 +11,18 @@ describe('POST /reset', () => {
   let token: string;
 
   beforeEach(async () => {
+    // Disable search/plugin schedulers — reset tests don't need them and
+    // starting/stopping them across tests adds latency that causes CI timeouts.
+    process.env.SEARCH_ENABLED = 'false';
+    process.env.PLUGINS_ENABLED = 'false';
     env = createTestEnv();
     token = await setupAndLogin(env.app);
   });
 
   afterEach(() => {
     env.cleanup();
+    delete process.env.SEARCH_ENABLED;
+    delete process.env.PLUGINS_ENABLED;
   });
 
   it('rejects unauthorized request (401)', async () => {
