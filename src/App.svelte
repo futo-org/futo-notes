@@ -58,10 +58,10 @@
         ]);
         await applyThemePreference(prefs.appearance.theme);
         stopWatchingSystemTheme?.();
-        stopWatchingSystemTheme = watchSystemThemeTauri(() => {
+        stopWatchingSystemTheme = watchSystemThemeTauri((tauriTheme) => {
           const latestPrefs = getCachedPreferences();
           if (latestPrefs.appearance.theme === 'auto') {
-            void applyThemePreference('auto');
+            void applyThemePreference('auto', tauriTheme);
           }
         });
 

@@ -19,8 +19,13 @@ export function applyResolvedTheme(theme: ResolvedTheme): void {
   document.documentElement.style.colorScheme = theme;
 }
 
-export async function applyThemePreference(preference: ThemePreference): Promise<ResolvedTheme> {
-  const resolved = resolveTheme(preference);
+export async function applyThemePreference(
+  preference: ThemePreference,
+  systemThemeOverride?: ResolvedTheme,
+): Promise<ResolvedTheme> {
+  const resolved = preference === 'auto' && systemThemeOverride
+    ? systemThemeOverride
+    : resolveTheme(preference);
   applyResolvedTheme(resolved);
   await syncStatusBarTheme(resolved);
   return resolved;
@@ -42,15 +47,15 @@ export function watchSystemTheme(onChange: () => void): () => void {
  * on Linux (webkit2gtk doesn't fire matchMedia change events).
  * Falls back to matchMedia if the Tauri API isn't available.
  */
-export function watchSystemThemeTauri(onChange: () => void): () => void {
+export function watchSystemThemeTauri(onChange: (theme?: ResolvedTheme) => void): () => void {
   let tauriUnlisten: (() => void) | null = null;
   let fallbackUnlisten: (() => void) | null = null;
   let disposed = false;
 
   import('@tauri-apps/api/window').then(({ getCurrentWindow }) => {
     if (disposed) return;
-    getCurrentWindow().onThemeChanged(() => {
-      onChange();
+    getCurrentWindow().onThemeChanged(({ payload: theme }) => {
+      onChange(theme as ResolvedTheme);
     }).then(unlisten => {
       if (disposed) { unlisten(); return; }
       tauriUnlisten = unlisten;
