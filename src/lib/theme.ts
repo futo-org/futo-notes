@@ -15,6 +15,7 @@ export function resolveTheme(preference: ThemePreference): ResolvedTheme {
 
 export function applyResolvedTheme(theme: ResolvedTheme): void {
   if (typeof document === 'undefined') return;
+  if (document.documentElement.dataset.theme === theme) return;
   document.documentElement.dataset.theme = theme;
   document.documentElement.style.colorScheme = theme;
 }
@@ -49,6 +50,7 @@ export function watchSystemTheme(onChange: () => void): () => void {
  */
 export function watchSystemThemeTauri(onChange: (theme?: ResolvedTheme) => void): () => void {
   let tauriUnlisten: (() => void) | null = null;
+  let portalUnlisten: (() => void) | null = null;
   let fallbackUnlisten: (() => void) | null = null;
   let disposed = false;
 
@@ -60,6 +62,16 @@ export function watchSystemThemeTauri(onChange: (theme?: ResolvedTheme) => void)
       if (disposed) { unlisten(); return; }
       tauriUnlisten = unlisten;
     });
+
+    import('@tauri-apps/api/event').then(({ listen }) => {
+      if (disposed) return;
+      listen<string>('linux-theme-changed', (event) => {
+        onChange(event.payload as ResolvedTheme);
+      }).then(unlisten => {
+        if (disposed) { unlisten(); return; }
+        portalUnlisten = unlisten;
+      });
+    }).catch(() => {});
   }).catch(() => {
     // Tauri API not available (web mode) — fall back to matchMedia
     if (disposed) return;
@@ -69,6 +81,7 @@ export function watchSystemThemeTauri(onChange: (theme?: ResolvedTheme) => void)
   return () => {
     disposed = true;
     tauriUnlisten?.();
+    portalUnlisten?.();
     fallbackUnlisten?.();
   };
 }

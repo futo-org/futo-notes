@@ -3,7 +3,53 @@ pub mod graph_clusters;
 pub mod graph_positions;
 
 use core::*;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
+
+/// Watch the XDG Desktop Portal for color-scheme changes and emit a Tauri event.
+/// This covers GNOME, KDE Plasma, and any DE that implements the portal.
+/// Tauri's built-in onThemeChanged doesn't fire on Linux when the DE switches
+/// between light and dark mode.
+#[cfg(target_os = "linux")]
+fn linux_color_scheme_watcher(app: tauri::AppHandle) {
+    use std::io::BufRead;
+    use std::process::{Command, Stdio};
+
+    let Ok(mut child) = Command::new("gdbus")
+        .args([
+            "monitor",
+            "--session",
+            "--dest",
+            "org.freedesktop.portal.Desktop",
+            "--object-path",
+            "/org/freedesktop/portal/desktop",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+    else {
+        return;
+    };
+    let Some(stdout) = child.stdout.take() else {
+        return;
+    };
+    let reader = std::io::BufReader::new(stdout);
+
+    for line in reader.lines() {
+        let Ok(line) = line else { break };
+        // Match: SettingChanged ('org.freedesktop.appearance', 'color-scheme', <uint32 N>)
+        // N: 0 = no preference, 1 = prefer dark, 2 = prefer light
+        if !line.contains("color-scheme") || !line.contains("SettingChanged") {
+            continue;
+        }
+        let theme = if line.contains("uint32 1") {
+            "dark"
+        } else {
+            "light"
+        };
+        let _ = app.emit("linux-theme-changed", theme);
+    }
+    let _ = child.kill();
+}
 
 /// Raise the file-descriptor soft limit. iOS defaults to 256 which is too low
 /// for a WebView app that also reads/writes thousands of note files during sync.
@@ -77,6 +123,13 @@ pub fn run() {
                 if let Some(w) = _app.get_webview_window("main") {
                     w.set_decorations(false)?;
                 }
+                // Monitor system color scheme via XDG Desktop Portal.
+                // Tauri's onThemeChanged doesn't fire on Linux when the DE
+                // switches between light/dark mode.
+                let app_handle = _app.handle().clone();
+                std::thread::spawn(move || {
+                    linux_color_scheme_watcher(app_handle);
+                });
             }
             Ok(())
         })
