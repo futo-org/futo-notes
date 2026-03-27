@@ -880,7 +880,7 @@
 .notes-shell.desktop-layout .drawer-overlay { display: none; }
 
 .notes-shell.desktop-layout .note-title-row {
-  padding-top: 32px;
+  padding-top: 60px;
   max-width: 740px;
   margin-left: auto;
   margin-right: auto;
