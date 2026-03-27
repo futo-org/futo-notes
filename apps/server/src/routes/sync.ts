@@ -207,10 +207,7 @@ function handlePostSync(
   const mutatedServerState = body.deleted_uuids.length > 0
     || result.hash_updates.length > 0
     || result.conflicts.length > 0;
-  const changedUuids = [
-    ...result.hash_updates.map((update) => update.uuid),
-    ...result.update.map((update) => update.uuid),
-  ];
+  const changedUuids = result.hash_updates.map((update) => update.uuid);
   applyNoteMutationEffects(getDb(), {
     changedUuids,
     deletedUuids: body.deleted_uuids,

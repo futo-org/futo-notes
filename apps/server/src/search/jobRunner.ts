@@ -89,6 +89,8 @@ export async function runIndexJob(
       db.prepare(`
         UPDATE search_jobs SET notes_processed = ?, checkpoint = ? WHERE job_id = ?
       `).run(notesProcessed, JSON.stringify(processedUuids), jobId);
+
+      log.info(`search: job ${jobId} progress ${notesProcessed}/${notesTotal}`);
     }
 
     // Mark completed

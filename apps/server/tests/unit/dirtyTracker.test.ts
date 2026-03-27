@@ -139,6 +139,26 @@ describe('dirtyTracker', () => {
     ));
   });
 
+  it('getDirtyUuids excludes non-.md files', () => {
+    const db = getDb();
+    upsertNote(db, 'u1', 'note1.md', 'hash1', Date.now());
+    upsertNote(db, 'u2', 'photo.jpg', 'hash2', Date.now(), true);
+    upsertNote(db, 'u3', 'image.png', 'hash3', Date.now(), true);
+
+    const dirty = getDirtyUuids(db, 2);
+    expect(dirty).toEqual(['u1']);
+  });
+
+  it('getDirtyUuids excludes non-.md files even without is_blob flag', () => {
+    const db = getDb();
+    upsertNote(db, 'u1', 'note1.md', 'hash1', Date.now());
+    // Hypothetical non-.md, non-blob file
+    upsertNote(db, 'u2', 'data.txt', 'hash2', Date.now());
+
+    const dirty = getDirtyUuids(db, 2);
+    expect(dirty).toEqual(['u1']);
+  });
+
   it('removeDirtyForDeleted is a no-op for empty array', () => {
     const db = getDb();
     db.prepare(

@@ -28,7 +28,8 @@ export function getDirtyUuids(db: Database.Database, level: number): string[] {
   const rows = db.prepare(`
     SELECT n.uuid FROM notes n
     LEFT JOIN search_index_state s ON s.uuid = n.uuid AND s.level = ?
-    WHERE s.uuid IS NULL OR s.content_hash != n.content_hash
+    WHERE (s.uuid IS NULL OR s.content_hash != n.content_hash)
+      AND n.filename LIKE '%.md'
   `).all(level) as { uuid: string }[];
   return rows.map((r) => r.uuid);
 }
