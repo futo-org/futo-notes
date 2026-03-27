@@ -28,6 +28,7 @@ Svelte 5 frontend shared across all platforms (Tauri desktop, Android, iOS, web 
 ## Testing
 
 - **Playwright E2E**: `tests/*.spec.ts` — covers markdown rendering, wikilinks, image paste, search, sync.
+- **Markdown spec + cursor movement**: `tests/markdown-spec.spec.ts` reads `markdown-spec/cases/**`; use it for cursor-reveal and wrapped-line navigation regressions.
 - **Unit tests**: `src/lib/*.test.ts` — notes, search index, table widget, editor content sync.
 - **Regression tests**: `tests/p0-regressions.spec.ts` (crash/IME), `tests/p1-regressions.spec.ts` (links), `tests/p2-regressions.spec.ts` (title/formatting).
 

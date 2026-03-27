@@ -14,14 +14,14 @@ const maxComplexity = process.env.SPEC_MAX_COMPLEXITY
 
 const allCases = loadSpecCases(getCasesDir(), maxComplexity);
 
-const tagCases = allCases.filter(c => c.expect.tags !== undefined);
-const headerBlockCases = allCases.filter(c => c.expect.header_tag_block !== undefined);
-const chunkCases = allCases.filter(c => c.expect.chunk_count !== undefined);
+const tagCases = allCases.filter(c => c.expect?.tags !== undefined);
+const headerBlockCases = allCases.filter(c => c.expect?.header_tag_block !== undefined);
+const chunkCases = allCases.filter(c => c.expect?.chunk_count !== undefined);
 
 describe('Tag Extraction Conformance', () => {
   for (const specCase of tagCases) {
     it(`[${specCase.complexity}] ${specCase.name}`, () => {
-      expect(extractTags(specCase.markdown)).toEqual(specCase.expect.tags);
+      expect(extractTags(specCase.markdown)).toEqual(specCase.expect!.tags);
     });
   }
 });
@@ -30,8 +30,8 @@ describe('Header Tag Block Conformance', () => {
   for (const specCase of headerBlockCases) {
     it(`[${specCase.complexity}] ${specCase.name}`, () => {
       const result = extractHeaderTagBlock(specCase.markdown);
-      expect(result.tags).toEqual(specCase.expect.header_tag_block!.tags);
-      if (specCase.expect.header_tag_block!.hidden) {
+      expect(result.tags).toEqual(specCase.expect!.header_tag_block!.tags);
+      if (specCase.expect!.header_tag_block!.hidden) {
         expect(result.endOffset).toBeGreaterThan(0);
       } else {
         expect(result.endOffset).toBe(0);
@@ -43,7 +43,7 @@ describe('Header Tag Block Conformance', () => {
 describe('Content Chunking Conformance', () => {
   for (const specCase of chunkCases) {
     it(`[${specCase.complexity}] ${specCase.name}`, () => {
-      expect(chunkContent(specCase.markdown).length).toBe(specCase.expect.chunk_count);
+      expect(chunkContent(specCase.markdown).length).toBe(specCase.expect!.chunk_count);
     });
   }
 });

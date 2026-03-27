@@ -92,6 +92,7 @@ curl -s --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
 - Full docs: `docs/automation-loop.md`
 
 - Regression tests: `tests/p0-regressions.spec.ts` (crash/IME), `tests/p1-regressions.spec.ts` (links), `tests/p2-regressions.spec.ts` (title/formatting)
+- Markdown spec + cursor movement coverage: `tests/markdown-spec.spec.ts` and `markdown-spec/cases/**`. The movement-path editor cases run in CI via `pnpm run test:markdown-spec`.
 - Some Android-native issues (IME, status bar) require device QA even when Playwright passes
 
 ## Test Requirements

@@ -314,6 +314,13 @@
   display: none;
 }
 
+.cm-md-marker-hidden.cm-md-marker-widget {
+  display: inline-block !important;
+  width: 0 !important;
+  overflow: hidden !important;
+  white-space: nowrap !important;
+}
+
 /* Focus state — show hidden elements when editing */
 .cm-editor:focus-within .cm-md-h1 .cm-md-h1-marker,
 .cm-editor:focus-within .cm-md-h2 .cm-md-h2-marker,

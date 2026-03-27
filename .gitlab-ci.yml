@@ -163,7 +163,8 @@ test:e2e:
   script:
     - pnpm install --frozen-lockfile
     - pnpm exec playwright install --with-deps chromium
-    - pnpm test
+    - pnpm run test:markdown-spec
+    - pnpm run test:e2e:rest
 
 test:shared:
   stage: test

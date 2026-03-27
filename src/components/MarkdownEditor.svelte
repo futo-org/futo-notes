@@ -13,6 +13,7 @@
   import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
   import { onMount } from 'svelte';
   import { listContinuationKeymap } from '$lib/listContinuation';
+  import { cursorMotionKeymap } from '$lib/cursorMotion';
   import { tableRendering } from '$lib/tableRenderingField';
   import { liveMarkdownTransform, preloadImages } from '$lib/liveMarkdownTransform';
   import { getImageWebPath } from '$lib/fileSystem';
@@ -199,6 +200,7 @@
 
     const extensions = [
       drawSelection(),
+      cursorMotionKeymap,
       listContinuationKeymap,
       history(),
       keymap.of([

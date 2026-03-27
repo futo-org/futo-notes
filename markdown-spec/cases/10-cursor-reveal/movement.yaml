@@ -1,0 +1,118 @@
+- name: hr-leading-italic-wrap-arrow-up-stays-in-paragraph
+  complexity: 45
+  markdown: |
+    ---
+
+    *I* wrote a long sentence that should wrap inside the pinned editor width so ArrowUp from the visual end of this paragraph stays inside the same logical line instead of jumping to the horizontal rule above it.
+  require_wrapped_start_line: true
+  start_cursor: { line: 2, ch: 999 }
+  moves: [ArrowUp]
+  checkpoints:
+    - after: 1
+      line: 2
+      vertical: up
+  expect_final:
+    line: 2
+
+- name: hr-plain-wrap-arrow-up-stays-in-paragraph
+  complexity: 40
+  markdown: |
+    ---
+
+    I wrote a long sentence that should wrap inside the pinned editor width so ArrowUp from the visual end of this paragraph stays inside the same logical line instead of jumping to the horizontal rule above it.
+  require_wrapped_start_line: true
+  start_cursor: { line: 2, ch: 999 }
+  moves: [ArrowUp]
+  checkpoints:
+    - after: 1
+      line: 2
+      vertical: up
+  expect_final:
+    line: 2
+
+- name: plain-wrap-arrow-up-stays-in-same-line
+  complexity: 35
+  markdown: |
+    This control paragraph should also wrap inside the pinned editor width so ArrowUp from its visual end moves to the previous wrapped row while staying in the same logical line.
+  require_wrapped_start_line: true
+  start_cursor: { line: 0, ch: 999 }
+  moves: [ArrowUp]
+  checkpoints:
+    - after: 1
+      line: 0
+      vertical: up
+  expect_final:
+    line: 0
+
+- name: leading-italic-hides-after-moving-below-element
+  complexity: 45
+  markdown: |
+    ---
+
+    *I* wrote a long sentence that should wrap inside the pinned editor width so moving down from the first visual row leaves the italic span and should hide the markdown markers again.
+  require_wrapped_start_line: true
+  start_cursor: { line: 2, ch: 1 }
+  moves: [ArrowDown]
+  checkpoints:
+    - after: 1
+      line: 2
+      visible_text_excludes: "*I*"
+  expect_final:
+    line: 2
+    visible_text_excludes: "*I*"
+
+- name: down-onto-wikilink-line-does-not-reveal-early
+  complexity: 35
+  markdown: |
+    see not rendering? I have to add an extra space. hm is that standard?
+
+
+    continued in [[fix tomorrow]]
+  start_cursor: { line: 2, ch: 0 }
+  moves: [ArrowDown]
+  checkpoints:
+    - after: 1
+      line: 3
+  expect_final:
+    line: 3
+
+- name: descend-through-blank-lines-lands-at-wikilink-line-start
+  complexity: 40
+  markdown: |
+    see not rendering? I have to add an extra space. hm is that standard?
+
+
+    continued in [[fix tomorrow]]
+  start_cursor: { line: 0, ch: 52 }
+  moves: [ArrowDown, ArrowDown, ArrowDown]
+  checkpoints:
+    - after: 1
+      line: 1
+      ch: 0
+    - after: 2
+      line: 2
+      ch: 0
+    - after: 3
+      line: 3
+      ch: 0
+      visible_text_excludes: "[[fix tomorrow]]"
+  expect_final:
+    line: 3
+    ch: 0
+    visible_text_excludes: "[[fix tomorrow]]"
+
+- name: wikilink-hides-after-moving-to-line-start
+  complexity: 35
+  markdown: |
+    continued in [[fix tomorrow]]
+  start_cursor: { line: 0, ch: 18 }
+  moves: [Home]
+  checkpoints:
+    - after: 1
+      line: 0
+      ch: 0
+      visible_text_excludes: "[[fix tomorrow]]"
+  expect_final:
+    line: 0
+    ch: 0
+    visible_text_excludes: "[[fix tomorrow]]"

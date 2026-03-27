@@ -42,6 +42,23 @@ class HorizontalRuleWidget extends WidgetType {
   }
 }
 
+class HiddenMarkerWidget extends WidgetType {
+  toDOM(): HTMLElement {
+    const span = document.createElement('span');
+    span.className = 'cm-md-marker-hidden cm-md-marker-widget';
+    span.setAttribute('aria-hidden', 'true');
+    return span;
+  }
+
+  eq(): boolean {
+    return true;
+  }
+
+  ignoreEvent(): boolean {
+    return true;
+  }
+}
+
 class TaskCheckboxWidget extends WidgetType {
   constructor(private checked: boolean) {
     super();
@@ -330,6 +347,81 @@ const NUMBER_MARKER_W = 24;  // "N." + margin-right
 const CHECKBOX_MARKER_W = 32; // checkbox wrapper + margin-right
 const ORDERED_TASK_MARKER_W = 56; // number widget + checkbox widget
 
+interface SelectionRangeLike {
+  from: number;
+  to: number;
+}
+
+interface LineNumberLookup {
+  lineAt(pos: number): { number: number };
+}
+
+export function getCursorLinesForReveal(
+  hasFocus: boolean,
+  ranges: readonly SelectionRangeLike[],
+  doc: LineNumberLookup
+): Set<number> {
+  const lines = new Set<number>();
+  if (!hasFocus) return lines;
+  for (const range of ranges) {
+    lines.add(doc.lineAt(range.from).number);
+  }
+  return lines;
+}
+
+export function isBlockRevealSensitive(nodeName: string): boolean {
+  return /^(ATXHeading|ListItem|FencedCode|CodeBlock|HorizontalRule)/.test(nodeName);
+}
+
+export function isInlineRevealSensitive(nodeName: string): boolean {
+  return /^(Emphasis|StrongEmphasis|InlineCode|Link|Image|Strikethrough|Task)/.test(nodeName);
+}
+
+export function selectionTouchesRange(
+  hasFocus: boolean,
+  ranges: readonly SelectionRangeLike[],
+  from: number,
+  to: number
+): boolean {
+  if (!hasFocus) return false;
+  for (const range of ranges) {
+    if (range.from === range.to) {
+      if (range.from >= from && range.from < to) return true;
+      continue;
+    }
+    if (range.from < to && range.to > from) return true;
+  }
+  return false;
+}
+
+export function shouldSkipBlockDecorations(
+  nodeName: string,
+  line: number,
+  cursorLines: Set<number>
+): boolean {
+  return isBlockRevealSensitive(nodeName) && cursorLines.has(line);
+}
+
+export function shouldSkipInlineDecorations(
+  nodeName: string,
+  from: number,
+  to: number,
+  hasFocus: boolean,
+  ranges: readonly SelectionRangeLike[]
+): boolean {
+  return isInlineRevealSensitive(nodeName) && selectionTouchesRange(hasFocus, ranges, from, to);
+}
+
+export function shouldHideHeaderTagBlock(
+  blockLastLine: number,
+  cursorLines: Set<number>
+): boolean {
+  for (let line = 1; line <= blockLastLine; line += 1) {
+    if (cursorLines.has(line)) return false;
+  }
+  return true;
+}
+
 // Parser utilities
 class MarkdownParser {
   static isHeading(nodeName: string): boolean {
@@ -383,6 +475,7 @@ class LiveMarkdownPlugin implements PluginValue {
   decorations: DecorationSet = Decoration.none;
   lastTreeLength: number = 0;
   lastCursorLine: number = -1;
+  lastCursorPos: number = -1;
   compositionSuspended = false;
   pendingRefresh: ReturnType<typeof setTimeout> | null = null;
   destroyed = false;
@@ -393,7 +486,8 @@ class LiveMarkdownPlugin implements PluginValue {
     ensureSyntaxTree(view.state, view.state.doc.length, 200);
     this.lastTreeLength = syntaxTree(view.state).length;
     this.decorations = this.buildDecorations(view);
-    this.lastCursorLine = view.state.doc.lineAt(view.state.selection.main.head).number;
+    this.lastCursorPos = view.state.selection.main.head;
+    this.lastCursorLine = view.state.doc.lineAt(this.lastCursorPos).number;
     this.scheduleParseRefresh(view);
   }
 
@@ -413,7 +507,8 @@ class LiveMarkdownPlugin implements PluginValue {
       this.compositionSuspended = false;
       this.decorations = this.buildDecorations(update.view);
       this.lastTreeLength = syntaxTree(update.state).length;
-      this.lastCursorLine = update.state.doc.lineAt(update.state.selection.main.head).number;
+      this.lastCursorPos = update.state.selection.main.head;
+      this.lastCursorLine = update.state.doc.lineAt(this.lastCursorPos).number;
       return;
     }
 
@@ -434,16 +529,22 @@ class LiveMarkdownPlugin implements PluginValue {
     // Only treat selectionSet as needing rebuild when the cursor's line changed,
     // not on every keystroke (cursor moves within same line during typing)
     let cursorLineChanged = false;
+    let selectionMovedWithinLine = false;
     if (update.selectionSet) {
-      const curLine = update.state.doc.lineAt(update.state.selection.main.head).number;
+      const curPos = update.state.selection.main.head;
+      const curLine = update.state.doc.lineAt(curPos).number;
       if (curLine !== this.lastCursorLine) {
         this.lastCursorLine = curLine;
         cursorLineChanged = true;
+      } else if (!update.docChanged && curPos !== this.lastCursorPos) {
+        selectionMovedWithinLine = true;
       }
+      this.lastCursorPos = curPos;
     }
 
     const shouldRebuild = update.docChanged ||
       cursorLineChanged ||
+      selectionMovedWithinLine ||
       update.focusChanged ||
       treeGrew ||
       imageCacheChanged ||
@@ -492,10 +593,7 @@ class LiveMarkdownPlugin implements PluginValue {
         const line = view.state.doc.lineAt(from).number;
 
         // Skip if cursor is in this line for block elements
-        if (
-          this.isBlockElement(nodeName) &&
-          cursorLines.has(line)
-        ) {
+        if (this.isBlockElement(nodeName) && cursorLines.has(line)) {
           // For ListItem on cursor lines, still apply indent padding
           // so indentation doesn't visually jump when cursor enters/leaves
           if (nodeName === 'ListItem') {
@@ -505,10 +603,7 @@ class LiveMarkdownPlugin implements PluginValue {
         }
 
         // Skip if cursor is inside this element
-        if (
-          this.isInlineElement(nodeName) &&
-          this.isCursorInside(view, from, to)
-        ) {
+        if (this.isInlineElement(nodeName) && this.isCursorInside(view, from, to)) {
           return;
         }
 
@@ -518,10 +613,10 @@ class LiveMarkdownPlugin implements PluginValue {
     });
 
     // Process wikilinks (not part of markdown syntax tree)
-    this.processWikilinks(view, decorations, cursorLines);
+    this.processWikilinks(view, decorations);
 
     // Process inline tag styling
-    this.processInlineTags(view, decorations, cursorLines);
+    this.processInlineTags(view, decorations);
 
     // Build decoration ranges
     const ranges: any[] = [];
@@ -554,11 +649,7 @@ class LiveMarkdownPlugin implements PluginValue {
     if (headerEndOffset > 0) {
       const doc = view.state.doc;
       const blockLastLine = doc.lineAt(Math.max(0, Math.min(headerEndOffset - 1, doc.length))).number;
-      let cursorInBlock = false;
-      for (let l = 1; l <= blockLastLine; l++) {
-        if (cursorLines.has(l)) { cursorInBlock = true; break; }
-      }
-      if (!cursorInBlock) {
+      if (shouldHideHeaderTagBlock(blockLastLine, cursorLines)) {
         for (let l = 1; l <= blockLastLine; l++) {
           const line = doc.line(l);
           ranges.push(Decoration.line({ class: 'cm-header-tag-hidden' }).range(line.from));
@@ -591,34 +682,19 @@ class LiveMarkdownPlugin implements PluginValue {
   }
 
   private getCursorLines(view: EditorView): Set<number> {
-    const lines = new Set<number>();
-    if (!view.hasFocus) {
-      return lines;
-    }
-    for (const range of view.state.selection.ranges) {
-      const line = view.state.doc.lineAt(range.from).number;
-      lines.add(line);
-    }
-    return lines;
+    return getCursorLinesForReveal(view.hasFocus, view.state.selection.ranges, view.state.doc);
   }
 
   private isBlockElement(nodeName: string): boolean {
-    return /^(ATXHeading|ListItem|FencedCode|CodeBlock|HorizontalRule)/.test(
-      nodeName
-    );
+    return isBlockRevealSensitive(nodeName);
   }
 
   private isInlineElement(nodeName: string): boolean {
-    return /^(Emphasis|StrongEmphasis|InlineCode|Link|Image|Strikethrough|Task)/.test(nodeName);
+    return isInlineRevealSensitive(nodeName);
   }
 
   private isCursorInside(view: EditorView, from: number, to: number): boolean {
-    if (!view.hasFocus) return false;
-    for (const range of view.state.selection.ranges) {
-      if (range.from >= from && range.from <= to) return true;
-      if (range.to >= from && range.to <= to) return true;
-    }
-    return false;
+    return selectionTouchesRange(view.hasFocus, view.state.selection.ranges, from, to);
   }
 
   private processElement(
@@ -703,14 +779,14 @@ class LiveMarkdownPlugin implements PluginValue {
       decorations.push({
         from,
         to: from + markerLength,
-        value: { class: 'cm-md-marker-hidden' }
+        value: { widget: new HiddenMarkerWidget() }
       });
 
       // Hide end marker
       decorations.push({
         from: to - markerLength,
         to,
-        value: { class: 'cm-md-marker-hidden' }
+        value: { widget: new HiddenMarkerWidget() }
       });
 
       // Add className to content
@@ -1226,8 +1302,7 @@ class LiveMarkdownPlugin implements PluginValue {
 
   private processWikilinks(
     view: EditorView,
-    decorations: Array<{ from: number; to: number; value: any }>,
-    cursorLines: Set<number>
+    decorations: Array<{ from: number; to: number; value: any }>
   ): void {
     const doc = view.state.doc;
     const text = doc.toString();
@@ -1238,13 +1313,7 @@ class LiveMarkdownPlugin implements PluginValue {
       const from = match.index;
       const to = from + match[0].length;
       const title = match[1];
-      const line = doc.lineAt(from).number;
-
-      // Skip if cursor is on this line
-      if (cursorLines.has(line)) continue;
-
-      // Skip if cursor is inside the match range
-      if (this.isCursorInside(view, from, to)) continue;
+      if (selectionTouchesRange(view.hasFocus, view.state.selection.ranges, from, to)) continue;
 
       // Skip if inside code block or inline code
       const tree = syntaxTree(view.state);
@@ -1285,8 +1354,7 @@ class LiveMarkdownPlugin implements PluginValue {
 
   private processInlineTags(
     view: EditorView,
-    decorations: Array<{ from: number; to: number; value: any }>,
-    cursorLines: Set<number>
+    decorations: Array<{ from: number; to: number; value: any }>
   ): void {
     const doc = view.state.doc;
     const text = doc.toString();
@@ -1303,10 +1371,7 @@ class LiveMarkdownPlugin implements PluginValue {
       // Skip tags within the header tag block region
       if (from < endOffset) continue;
 
-      const line = doc.lineAt(from).number;
-
-      // Skip if cursor is on this line
-      if (cursorLines.has(line)) continue;
+      if (selectionTouchesRange(view.hasFocus, view.state.selection.ranges, from, to)) continue;
 
       // Skip if inside code block or inline code
       let inCode = false;
