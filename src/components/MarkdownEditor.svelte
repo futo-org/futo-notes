@@ -23,7 +23,7 @@
   import { openUrl } from '$lib/openUrl';
   import { wikilinkAutocomplete } from '$lib/wikilinkAutocomplete';
   import { typingLatencyExtension } from '$lib/typingLatency';
-  import { completionKeymap } from '@codemirror/autocomplete';
+  import { acceptCompletion, completionKeymap } from '@codemirror/autocomplete';
   import { navigate } from '../router';
 
   interface Props {
@@ -205,6 +205,7 @@
         { key: 'Mod-b', run: (v) => { toggleBold(v); return true; } },
         { key: 'Mod-i', run: (v) => { toggleItalic(v); return true; } },
         { key: 'Mod-Shift-s', run: (v) => { toggleStrikethrough(v); return true; } },
+        { key: 'Tab', run: acceptCompletion },
         indentWithTab,
         ...completionKeymap,
         ...defaultKeymap,
