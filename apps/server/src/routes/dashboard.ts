@@ -1859,7 +1859,7 @@ function dashboardHtml(): string {
         html += '<div class="stat-row"><span class="stat-label">Chunks indexed</span><span class="stat-value">' + (s.chunk_count || 0).toLocaleString() + '</span></div>';
 
         // Last indexed
-        html += '<div class="stat-row"><span class="stat-label">Last indexed</span><span class="stat-value">' + formatTime(s.last_indexed_at) + '</span></div>';
+        html += '<div class="stat-row"><span class="stat-label">Last indexed</span><span class="stat-value">' + ((isBusy || s.current_job) ? '' : formatTime(s.last_indexed_at)) + '</span></div>';
 
         // Last run error
         if (s.last_run && s.last_run.status === 'failed' && s.last_run.error_message) {
