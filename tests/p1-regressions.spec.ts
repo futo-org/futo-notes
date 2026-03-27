@@ -15,6 +15,31 @@ async function blurEditor(page: Page): Promise<void> {
   await page.waitForTimeout(200);
 }
 
+async function getCursorState(page: Page): Promise<{ line: number; ch: number; lineText: string }> {
+  return page.evaluate(() => {
+    const view = (window as any).__cmGetView?.();
+    if (!view) throw new Error('CM EditorView not found');
+    const pos = view.state.selection.main.head;
+    const line = view.state.doc.lineAt(pos);
+    return {
+      line: line.number - 1,
+      ch: pos - line.from,
+      lineText: line.text,
+    };
+  });
+}
+
+async function setCursorPosition(page: Page, ch: number): Promise<void> {
+  await page.evaluate((nextCh) => {
+    const view = (window as any).__cmGetView?.();
+    if (!view) throw new Error('CM EditorView not found');
+    const line = view.state.doc.line(1);
+    view.dispatch({ selection: { anchor: line.from + nextCh } });
+    view.focus();
+  }, ch);
+  await page.waitForTimeout(100);
+}
+
 test.describe('P1 ForYouPage Regressions', () => {
   test('focusing ForYouPage elements does not set editorFocused', async ({ page }) => {
     // Bug: on the ForYouPage (no note open), tapping "Browse Notes" on Android
@@ -79,6 +104,68 @@ test.describe('P1 Link Clickability Regressions', () => {
     await popup.waitForLoadState('domcontentloaded');
     expect(popup.url()).toContain('example.com');
     await popup.close();
+  });
+
+  test('clicking to the right of an end-of-line markdown link places the cursor instead of opening it', async ({ page }) => {
+    await openNewNote(page);
+
+    const editor = page.locator('.cm-content');
+    await editor.click();
+    await editor.fill('See [OpenAI](https://openai.com)');
+    await setCursorPosition(page, 0);
+    await blurEditor(page);
+
+    const markdownLink = page.locator('.cm-md-link', { hasText: 'OpenAI' }).first();
+    await expect(markdownLink).toBeVisible();
+
+    const linkBox = await markdownLink.boundingBox();
+    expect(linkBox).not.toBeNull();
+    const lineBox = await page.locator('.cm-line').first().boundingBox();
+    expect(lineBox).not.toBeNull();
+
+    let popupOpened = false;
+    page.on('popup', () => { popupOpened = true; });
+
+    await page.mouse.click(linkBox!.x + linkBox!.width + 4, lineBox!.y + lineBox!.height / 2);
+    await page.waitForTimeout(250);
+
+    expect(popupOpened).toBe(false);
+
+    const cursor = await getCursorState(page);
+    expect(cursor.lineText).toBe('See [OpenAI](https://openai.com)');
+    expect(cursor.line).toBe(0);
+    expect(cursor.ch).toBe('See [OpenAI](https://openai.com)'.length);
+  });
+
+  test('clicking to the right of an end-of-line plain URL places the cursor instead of opening it', async ({ page }) => {
+    await openNewNote(page);
+
+    const editor = page.locator('.cm-content');
+    await editor.click();
+    await editor.fill('Visit https://example.com');
+    await setCursorPosition(page, 0);
+    await blurEditor(page);
+
+    const autoLink = page.locator('.cm-md-autolink', { hasText: 'https://example.com' }).first();
+    await expect(autoLink).toBeVisible();
+
+    const linkBox = await autoLink.boundingBox();
+    expect(linkBox).not.toBeNull();
+    const lineBox = await page.locator('.cm-line').first().boundingBox();
+    expect(lineBox).not.toBeNull();
+
+    let popupOpened = false;
+    page.on('popup', () => { popupOpened = true; });
+
+    await page.mouse.click(linkBox!.x + linkBox!.width + 4, lineBox!.y + lineBox!.height / 2);
+    await page.waitForTimeout(250);
+
+    expect(popupOpened).toBe(false);
+
+    const cursor = await getCursorState(page);
+    expect(cursor.lineText).toBe('Visit https://example.com');
+    expect(cursor.line).toBe(0);
+    expect(cursor.ch).toBe('Visit https://example.com'.length);
   });
 
   test('table links render as external anchors', async ({ page }) => {

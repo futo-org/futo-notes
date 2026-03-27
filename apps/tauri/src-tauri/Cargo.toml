@@ -39,6 +39,9 @@ tauri-plugin-single-instance = "2"
 [target.'cfg(target_os = "ios")'.dependencies]
 objc2 = "0.6"
 
+[target.'cfg(target_os = "linux")'.dependencies]
+glib = "0.18"
+
 [lints.clippy]
 too_many_lines = "warn"
 

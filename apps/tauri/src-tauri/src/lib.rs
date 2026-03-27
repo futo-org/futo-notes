@@ -5,6 +5,28 @@ pub mod graph_positions;
 use core::*;
 use tauri::{Emitter, Manager};
 
+fn should_suppress_libsoup_http2_warning(log_domain: Option<&str>, message: &str) -> bool {
+    log_domain == Some("libsoup-http2")
+        && message.contains("Unexpected state changed WRITE_DATA -> READ_DATA_START")
+        && message.contains("expected to be from READ_HEADERS")
+}
+
+#[cfg(target_os = "linux")]
+fn install_linux_log_filters() {
+    glib::log_set_handler(
+        Some("libsoup-http2"),
+        glib::LogLevels::LEVEL_WARNING,
+        false,
+        false,
+        |log_domain, log_level, message| {
+            if should_suppress_libsoup_http2_warning(log_domain, message) {
+                return;
+            }
+            glib::log_default_handler(log_domain, log_level, Some(message));
+        },
+    );
+}
+
 /// Watch the XDG Desktop Portal for color-scheme changes and emit a Tauri event.
 /// This covers GNOME, KDE Plasma, and any DE that implements the portal.
 /// Tauri's built-in onThemeChanged doesn't fire on Linux when the DE switches
@@ -71,6 +93,8 @@ fn raise_fd_limit() {
 pub fn run() {
     #[cfg(unix)]
     raise_fd_limit();
+    #[cfg(target_os = "linux")]
+    install_linux_log_filters();
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
@@ -185,4 +209,25 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_suppress_libsoup_http2_warning;
+
+    #[test]
+    fn suppresses_only_the_known_libsoup_http2_warning() {
+        assert!(should_suppress_libsoup_http2_warning(
+            Some("libsoup-http2"),
+            "Unexpected state changed WRITE_DATA -> READ_DATA_START, expected to be from READ_HEADERS",
+        ));
+        assert!(!should_suppress_libsoup_http2_warning(
+            Some("webkit2gtk"),
+            "Unexpected state changed WRITE_DATA -> READ_DATA_START, expected to be from READ_HEADERS",
+        ));
+        assert!(!should_suppress_libsoup_http2_warning(
+            Some("libsoup-http2"),
+            "Some other warning",
+        ));
+    }
 }

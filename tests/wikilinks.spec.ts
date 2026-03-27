@@ -32,6 +32,31 @@ async function injectTestNotes(page: Page): Promise<void> {
   });
 }
 
+async function getCursorState(page: Page): Promise<{ line: number; ch: number; lineText: string }> {
+  return page.evaluate(() => {
+    const view = (window as any).__cmGetView?.();
+    if (!view) throw new Error('CM EditorView not found');
+    const pos = view.state.selection.main.head;
+    const line = view.state.doc.lineAt(pos);
+    return {
+      line: line.number - 1,
+      ch: pos - line.from,
+      lineText: line.text,
+    };
+  });
+}
+
+async function setCursorPosition(page: Page, ch: number): Promise<void> {
+  await page.evaluate((nextCh) => {
+    const view = (window as any).__cmGetView?.();
+    if (!view) throw new Error('CM EditorView not found');
+    const line = view.state.doc.line(1);
+    view.dispatch({ selection: { anchor: line.from + nextCh } });
+    view.focus();
+  }, ch);
+  await page.waitForTimeout(100);
+}
+
 // ============================================================================
 // DECORATION TESTS
 // ============================================================================
@@ -113,6 +138,48 @@ test.describe('Wikilink Navigation', () => {
 
     const url = page.url();
     expect(url).toContain('some%20target%20note');
+  });
+
+  test('clicking to the right of a single-line wikilink places the cursor at line end', async ({ page }) => {
+    await setupEditor(page, '[[Stonefruit bugs]]');
+    await setCursorPosition(page, 0);
+    await blurEditor(page);
+
+    const wikilinkBox = await page.locator('.cm-md-wikilink').boundingBox();
+    expect(wikilinkBox).not.toBeNull();
+    const lineBox = await page.locator('.cm-line').first().boundingBox();
+    expect(lineBox).not.toBeNull();
+
+    await page.mouse.click(wikilinkBox!.x + wikilinkBox!.width + 4, lineBox!.y + lineBox!.height / 2);
+    await page.waitForTimeout(150);
+
+    const cursor = await getCursorState(page);
+    expect(cursor.lineText).toBe('[[Stonefruit bugs]]');
+    expect(cursor.line).toBe(0);
+    expect(cursor.ch).toBe('[[Stonefruit bugs]]'.length);
+    await expect(page.locator('.cm-md-wikilink')).toHaveCount(0);
+    await expect(page.locator('.cm-line').first()).toContainText('[[Stonefruit bugs]]');
+  });
+
+  test('clicking to the right of a line ending in a wikilink places the cursor at line end', async ({ page }) => {
+    await setupEditor(page, 'write more of [[Visions of Stonefruit]]');
+    await setCursorPosition(page, 0);
+    await blurEditor(page);
+
+    const wikilinkBox = await page.locator('.cm-md-wikilink').boundingBox();
+    expect(wikilinkBox).not.toBeNull();
+    const lineBox = await page.locator('.cm-line').first().boundingBox();
+    expect(lineBox).not.toBeNull();
+
+    await page.mouse.click(wikilinkBox!.x + wikilinkBox!.width + 4, lineBox!.y + lineBox!.height / 2);
+    await page.waitForTimeout(150);
+
+    const cursor = await getCursorState(page);
+    expect(cursor.lineText).toBe('write more of [[Visions of Stonefruit]]');
+    expect(cursor.line).toBe(0);
+    expect(cursor.ch).toBe('write more of [[Visions of Stonefruit]]'.length);
+    await expect(page.locator('.cm-md-wikilink')).toHaveCount(0);
+    await expect(page.locator('.cm-line').first()).toContainText('write more of [[Visions of Stonefruit]]');
   });
 });
 

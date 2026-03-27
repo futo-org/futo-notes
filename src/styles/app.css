@@ -1,4 +1,4 @@
-@import "tailwindcss";
+@import "tailwindcss" source("../");
 @import "./components.css" layer(components);
 @import "./markdown.css" layer(components);
 

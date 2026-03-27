@@ -122,6 +122,40 @@ async function getVisibleLineText(page: Page, lineIndex: number): Promise<string
   return page.locator('.cm-line').nth(lineIndex).evaluate((el) => (el as HTMLElement).innerText.trim());
 }
 
+async function clickRenderedTextBoundary(page: Page, selector: string, visibleOffset: number): Promise<void> {
+  const target = page.locator(selector);
+  await expect(target).toBeVisible();
+  const clickPoint = await target.evaluate((el, offset) => {
+    const textNode = Array.from(el.childNodes).find((node) => node.nodeType === Node.TEXT_NODE) as Text | undefined;
+    if (!textNode) throw new Error('Rendered text node not found');
+    const range = document.createRange();
+    range.setStart(textNode, offset as number);
+    range.setEnd(textNode, offset as number);
+    const rect = range.getClientRects()[0] ?? range.getBoundingClientRect();
+    return {
+      x: rect.left - 1,
+      y: (rect.top + rect.bottom) / 2,
+    };
+  }, visibleOffset);
+
+  await page.mouse.click(clickPoint.x, clickPoint.y);
+  await page.waitForTimeout(150);
+}
+
+async function getCursorState(page: Page): Promise<{ line: number; ch: number; text: string }> {
+  return page.evaluate(() => {
+    const view = (window as any).__cmGetView?.();
+    if (!view) throw new Error('CM EditorView not found');
+    const pos = view.state.selection.main.head;
+    const line = view.state.doc.lineAt(pos);
+    return {
+      line: line.number - 1,
+      ch: pos - line.from,
+      text: line.text,
+    };
+  });
+}
+
 // ============================================================================
 // HEADING TESTS
 // ============================================================================
@@ -226,6 +260,30 @@ test.describe('Emphasis (Bold/Italic)', () => {
     expect(await getVisibleLineText(page, 0)).toBe('This is bold text.');
     expect(await getVisibleLineText(page, 0)).not.toContain('**');
   });
+
+  test('clicking inside italic text places the cursor at the clicked character', async ({ page }) => {
+    await setupEditor(page, '*Why*');
+    await blurEditor(page);
+
+    await clickRenderedTextBoundary(page, '.cm-md-emphasis', 1);
+    const cursor = await getCursorState(page);
+
+    expect(cursor.text).toBe('*Why*');
+    expect(cursor.line).toBe(0);
+    expect(cursor.ch).toBe(2);
+  });
+
+  test('clicking inside bold text places the cursor at the clicked character', async ({ page }) => {
+    await setupEditor(page, '**Why**');
+    await blurEditor(page);
+
+    await clickRenderedTextBoundary(page, '.cm-md-strong', 1);
+    const cursor = await getCursorState(page);
+
+    expect(cursor.text).toBe('**Why**');
+    expect(cursor.line).toBe(0);
+    expect(cursor.ch).toBe(3);
+  });
 });
 
 // ============================================================================
@@ -253,6 +311,18 @@ test.describe('Strikethrough', () => {
     const strike = page.locator('.cm-md-strikethrough');
     const text = await strike.textContent();
     expect(text).not.toContain('~~');
+  });
+
+  test('clicking inside strikethrough text places the cursor at the clicked character', async ({ page }) => {
+    await setupEditor(page, '~~Why~~');
+    await blurEditor(page);
+
+    await clickRenderedTextBoundary(page, '.cm-md-strikethrough', 1);
+    const cursor = await getCursorState(page);
+
+    expect(cursor.text).toBe('~~Why~~');
+    expect(cursor.line).toBe(0);
+    expect(cursor.ch).toBe(3);
   });
 });
 
@@ -288,6 +358,43 @@ test.describe('Inline Code', () => {
     const text = await code.evaluate((el) => (el as HTMLElement).innerText);
     expect(text).toBe('code');
     expect(text).not.toContain('`');
+  });
+
+  test('clicking inline code reveals backticks without dropping code styling', async ({ page }) => {
+    await setupEditor(page, 'Use `code is here` now.');
+    await blurEditor(page);
+
+    const code = page.locator('.cm-md-code');
+    await expect(code).toBeVisible();
+
+    const before = await code.evaluate((el) => {
+      const style = window.getComputedStyle(el);
+      return {
+        color: style.color,
+        fontFamily: style.fontFamily,
+      };
+    });
+
+    await code.click();
+    await page.waitForTimeout(150);
+
+    const visibleText = await getVisibleEditorText(page);
+    expect(visibleText).toContain('`code is here`');
+
+    const revealedCode = page.locator('.cm-md-code');
+    await expect(revealedCode).toBeVisible();
+
+    const after = await revealedCode.evaluate((el) => {
+      const style = window.getComputedStyle(el);
+      return {
+        color: style.color,
+        fontFamily: style.fontFamily,
+      };
+    });
+
+    expect(after.fontFamily.toLowerCase()).toMatch(/monaco|menlo|mono/);
+    expect(after.fontFamily).toBe(before.fontFamily);
+    expect(after.color).toBe(before.color);
   });
 });
 

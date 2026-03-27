@@ -122,6 +122,129 @@
     openUrl(url);
   }
 
+  let pendingInlineStyledClickPos: number | null = null;
+  const INLINE_STYLED_SELECTOR = '.cm-md-emphasis, .cm-md-strong, .cm-md-strikethrough, .cm-md-code';
+  const EXTERNAL_LINK_SELECTOR = '.cm-md-link:not(.cm-md-wikilink)';
+  const VISIBLE_LINE_EDGE_SELECTOR = [
+    '.cm-md-wikilink',
+    EXTERNAL_LINK_SELECTOR,
+    INLINE_STYLED_SELECTOR,
+    '.cm-md-tag',
+    '.cm-md-task-checkbox-wrapper',
+    '.cm-md-image-wrapper'
+  ].join(', ');
+
+  function getFirstTextNode(root: Node): Text | null {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let current = walker.nextNode();
+    while (current) {
+      if (current.textContent && current.textContent.length > 0) {
+        return current as Text;
+      }
+      current = walker.nextNode();
+    }
+    return null;
+  }
+
+  function getTextOffsetAtPoint(textNode: Text, x: number): number {
+    const textLength = textNode.textContent?.length ?? 0;
+    let bestOffset = 0;
+    let bestDistance = Number.POSITIVE_INFINITY;
+
+    for (let offset = 0; offset <= textLength; offset += 1) {
+      const range = document.createRange();
+      range.setStart(textNode, offset);
+      range.setEnd(textNode, offset);
+      const rect = range.getClientRects()[0] ?? range.getBoundingClientRect();
+      const distance = Math.abs(rect.left - x);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestOffset = offset;
+      }
+    }
+
+    return bestOffset;
+  }
+
+  function findInlineStyledElementAtPoint(target: Element | null, x: number, y: number): Element | null {
+    const line = target?.closest('.cm-line');
+    if (!line) return null;
+
+    for (const candidate of line.querySelectorAll(INLINE_STYLED_SELECTOR)) {
+      const rect = candidate.getBoundingClientRect();
+      if (x >= rect.left - 1 && x <= rect.right + 1 && y >= rect.top - 1 && y <= rect.bottom + 1) {
+        return candidate;
+      }
+    }
+
+    return null;
+  }
+
+  function findExternalLinkElementAtPoint(target: Element | null, x: number, y: number): Element | null {
+    const line = target?.closest('.cm-line');
+    if (!line) return null;
+
+    for (const candidate of line.querySelectorAll(EXTERNAL_LINK_SELECTOR)) {
+      const rect = candidate.getBoundingClientRect();
+      if (x >= rect.left - 1 && x <= rect.right + 1 && y >= rect.top - 1 && y <= rect.bottom + 1) {
+        return candidate;
+      }
+    }
+
+    return null;
+  }
+
+  function getRenderedLineRight(line: HTMLElement): number | null {
+    let right: number | null = null;
+
+    for (const candidate of line.querySelectorAll(VISIBLE_LINE_EDGE_SELECTOR)) {
+      const rect = (candidate as HTMLElement).getBoundingClientRect();
+      if (rect.width <= 0 && rect.height <= 0) continue;
+      right = right === null ? rect.right : Math.max(right, rect.right);
+    }
+
+    if (right !== null) return right;
+
+    const walker = document.createTreeWalker(line, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
+    let current = walker.nextNode();
+
+    while (current) {
+      if (current instanceof HTMLElement) {
+        if (
+          current === line ||
+          current.classList.contains('cm-md-marker-hidden') ||
+          current.classList.contains('cm-md-marker-widget')
+        ) {
+          current = walker.nextNode();
+          continue;
+        }
+
+        const rect = current.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0) {
+          right = right === null ? rect.right : Math.max(right, rect.right);
+        }
+      } else if (current instanceof Text) {
+        const parent = current.parentElement;
+        if (
+          current.textContent &&
+          parent &&
+          !parent.closest('.cm-md-marker-hidden, .cm-md-marker-widget')
+        ) {
+          const range = document.createRange();
+          range.selectNodeContents(current);
+          for (const rect of range.getClientRects()) {
+            if (rect.width <= 0 && rect.height <= 0) continue;
+            right = right === null ? rect.right : Math.max(right, rect.right);
+          }
+        }
+      }
+
+      current = walker.nextNode();
+    }
+
+    return right;
+  }
+
   const wikilinkClickHandler = EditorView.domEventHandlers({
     mousedown: (event) => {
       const target = event.target as HTMLElement | null;
@@ -147,10 +270,104 @@
     }
   });
 
+  const lineEndClickHandler = EditorView.domEventHandlers({
+    mousedown: (event, v) => {
+      if (event.button !== 0) return false;
+
+      const targetNode = event.target as Node | null;
+      const target =
+        targetNode instanceof Element ? targetNode : targetNode?.parentElement ?? null;
+      const lineEl = target?.closest('.cm-line') as HTMLElement | null;
+      const hit = document.elementFromPoint(event.clientX, event.clientY);
+      const lineCandidate = (hit?.closest('.cm-line') ?? lineEl) as HTMLElement | null;
+      if (!lineCandidate) return false;
+
+      let linePos: number | null = null;
+      try {
+        linePos = v.posAtDOM(lineCandidate, 0);
+      } catch {
+        try {
+          linePos = v.posAtCoords({ x: event.clientX, y: event.clientY });
+        } catch {
+          linePos = null;
+        }
+      }
+      if (linePos === null) return false;
+
+      const line = v.state.doc.lineAt(linePos);
+      const visibleRight = getRenderedLineRight(lineCandidate);
+      if (visibleRight === null || event.clientX <= visibleRight + 1) return false;
+
+      event.preventDefault();
+      v.focus();
+      requestAnimationFrame(() => {
+        if (!view) return;
+        v.dispatch({ selection: { anchor: line.to } });
+      });
+      return true;
+    }
+  });
+
+  const inlineStyledClickHandler = EditorView.domEventHandlers({
+    mousedown: (event, v) => {
+      if (event.button !== 0) return false;
+
+      const targetNode = event.target as Node | null;
+      const target =
+        targetNode instanceof Element ? targetNode : targetNode?.parentElement ?? null;
+      if (!target || target.closest('.cm-md-link')) return false;
+
+      const hit = document.elementFromPoint(event.clientX, event.clientY);
+      const inline =
+        findInlineStyledElementAtPoint(hit, event.clientX, event.clientY) ??
+        findInlineStyledElementAtPoint(target, event.clientX, event.clientY) ??
+        hit?.closest(INLINE_STYLED_SELECTOR) ??
+        target.closest(INLINE_STYLED_SELECTOR);
+      if (!inline) return false;
+
+      const textNode = getFirstTextNode(inline);
+      if (!textNode) return false;
+
+      const visibleLength = textNode.textContent?.length ?? 0;
+      const rawStart = v.posAtDOM(textNode, 0);
+      const rawEnd = v.posAtDOM(textNode, visibleLength);
+      const hiddenMarkerChars = Math.max(0, rawEnd - rawStart - visibleLength);
+      const contentStart = rawStart + Math.floor(hiddenMarkerChars / 2);
+      const contentEnd = rawEnd - Math.ceil(hiddenMarkerChars / 2);
+      const offset = getTextOffsetAtPoint(textNode, event.clientX);
+      pendingInlineStyledClickPos = Math.min(contentStart + offset, contentEnd);
+      event.preventDefault();
+      v.focus();
+      return true;
+    },
+    click: (event, v) => {
+      if (pendingInlineStyledClickPos === null) return false;
+      const pos = pendingInlineStyledClickPos;
+      pendingInlineStyledClickPos = null;
+
+      event.preventDefault();
+      event.stopPropagation();
+      requestAnimationFrame(() => {
+        if (!view) return;
+        v.dispatch({ selection: { anchor: pos } });
+      });
+      return true;
+    }
+  });
+
   const linkClickHandler = EditorView.domEventHandlers({
     mousedown: (event, v) => {
-      const target = event.target as HTMLElement | null;
+      const targetNode = event.target as Node | null;
+      const target =
+        targetNode instanceof Element ? targetNode : targetNode?.parentElement ?? null;
       if (target?.closest('a.cm-md-table-link')) return false;
+      const hit = document.elementFromPoint(event.clientX, event.clientY);
+      const link =
+        findExternalLinkElementAtPoint(hit, event.clientX, event.clientY) ??
+        findExternalLinkElementAtPoint(target, event.clientX, event.clientY) ??
+        hit?.closest(EXTERNAL_LINK_SELECTOR) ??
+        target?.closest(EXTERNAL_LINK_SELECTOR);
+      if (!link) return false;
       const pos = v.posAtCoords({ x: event.clientX, y: event.clientY });
       if (pos === null) return false;
       const url = findUrlAtPosition(v, pos);
@@ -159,8 +376,17 @@
       return true;
     },
     click: (event, v) => {
-      const target = event.target as HTMLElement | null;
+      const targetNode = event.target as Node | null;
+      const target =
+        targetNode instanceof Element ? targetNode : targetNode?.parentElement ?? null;
       if (target?.closest('a.cm-md-table-link')) return false;
+      const hit = document.elementFromPoint(event.clientX, event.clientY);
+      const link =
+        findExternalLinkElementAtPoint(hit, event.clientX, event.clientY) ??
+        findExternalLinkElementAtPoint(target, event.clientX, event.clientY) ??
+        hit?.closest(EXTERNAL_LINK_SELECTOR) ??
+        target?.closest(EXTERNAL_LINK_SELECTOR);
+      if (!link) return false;
       const pos = v.posAtCoords({ x: event.clientX, y: event.clientY });
       if (pos === null) return false;
       const url = findUrlAtPosition(v, pos);
@@ -219,6 +445,8 @@
       tableRendering,
       wikilinkAutocomplete(),
       imagePasteHandler,
+      inlineStyledClickHandler,
+      lineEndClickHandler,
       wikilinkClickHandler,
       linkClickHandler,
       EditorView.contentAttributes.of({

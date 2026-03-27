@@ -69,8 +69,12 @@
             </svg>
           </button>
           {#if menuOpen}
-            <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
-            <div class="sidebar-image-menu-backdrop" onclick={() => { menuOpen = false; }}></div>
+            <button
+              type="button"
+              class="sidebar-image-menu-backdrop"
+              aria-label="Close image menu"
+              onclick={() => { menuOpen = false; }}
+            ></button>
             <div class="sidebar-image-menu">
               <button class="danger" onclick={handleDelete}>Delete image</button>
             </div>

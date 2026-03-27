@@ -374,7 +374,7 @@ export function isBlockRevealSensitive(nodeName: string): boolean {
 }
 
 export function isInlineRevealSensitive(nodeName: string): boolean {
-  return /^(Emphasis|StrongEmphasis|InlineCode|Link|Image|Strikethrough|Task)/.test(nodeName);
+  return /^(Link|Image|Task)/.test(nodeName);
 }
 
 export function selectionTouchesRange(
@@ -386,7 +386,9 @@ export function selectionTouchesRange(
   if (!hasFocus) return false;
   for (const range of ranges) {
     if (range.from === range.to) {
-      if (range.from >= from && range.from < to) return true;
+      // Treat a caret at the exact end of inline markdown as touching the range
+      // so hidden closing markers are revealed and the cursor remains visible.
+      if (range.from >= from && range.from <= to) return true;
       continue;
     }
     if (range.from < to && range.to > from) return true;
@@ -711,11 +713,11 @@ class LiveMarkdownPlugin implements PluginValue {
     if (MarkdownParser.isHeading(nodeName)) {
       this.processHeading(nodeName, from, to, text, decorations);
     } else if (MarkdownParser.isEmphasis(nodeName)) {
-      this.processEmphasis(nodeName, from, to, text, decorations);
+      this.processEmphasis(nodeName, from, to, text, view, decorations);
     } else if (MarkdownParser.isCode(nodeName)) {
       this.processCode(nodeName, from, to, text, view, decorations);
     } else if (MarkdownParser.isStrikethrough(nodeName)) {
-      this.processStrikethrough(from, to, decorations);
+      this.processStrikethrough(from, to, view, decorations);
     } else if (MarkdownParser.isLink(nodeName)) {
       this.processLink(from, to, text, decorations);
     } else if (MarkdownParser.isImage(nodeName)) {
@@ -768,31 +770,35 @@ class LiveMarkdownPlugin implements PluginValue {
     from: number,
     to: number,
     text: string,
+    view: EditorView,
     decorations: Array<{ from: number; to: number; value: any }>
   ): void {
     const isStrong = nodeName === 'StrongEmphasis';
     const cssClass = isStrong ? 'cm-md-strong' : 'cm-md-emphasis';
     const markerLength = isStrong ? 2 : 1;
+    const revealMarkers = selectionTouchesRange(view.hasFocus, view.state.selection.ranges, from, to);
 
     if (text.length >= markerLength * 2) {
-      // Hide start marker
-      decorations.push({
-        from,
-        to: from + markerLength,
-        value: { widget: new HiddenMarkerWidget() }
-      });
+      if (!revealMarkers) {
+        // Hide start marker
+        decorations.push({
+          from,
+          to: from + markerLength,
+          value: { widget: new HiddenMarkerWidget() }
+        });
 
-      // Hide end marker
-      decorations.push({
-        from: to - markerLength,
-        to,
-        value: { widget: new HiddenMarkerWidget() }
-      });
+        // Hide end marker
+        decorations.push({
+          from: to - markerLength,
+          to,
+          value: { widget: new HiddenMarkerWidget() }
+        });
+      }
 
-      // Add className to content
+      // Keep emphasis styling active even when markers are revealed.
       decorations.push({
-        from: from + markerLength,
-        to: to - markerLength,
+        from: revealMarkers ? from : from + markerLength,
+        to: revealMarkers ? to : to - markerLength,
         value: { class: cssClass }
       });
     }
@@ -808,20 +814,23 @@ class LiveMarkdownPlugin implements PluginValue {
   ): void {
     if (nodeName === 'InlineCode') {
       const backticks = text.match(/^`+/)?.[0].length ?? 1;
+      const revealMarkers = selectionTouchesRange(view.hasFocus, view.state.selection.ranges, from, to);
 
-      // Hide start backticks
-      decorations.push({
-        from,
-        to: from + backticks,
-        value: { class: 'cm-md-marker-hidden' }
-      });
+      if (!revealMarkers) {
+        // Hide start backticks
+        decorations.push({
+          from,
+          to: from + backticks,
+          value: { class: 'cm-md-marker-hidden' }
+        });
 
-      // Hide end backticks
-      decorations.push({
-        from: to - backticks,
-        to,
-        value: { class: 'cm-md-marker-hidden' }
-      });
+        // Hide end backticks
+        decorations.push({
+          from: to - backticks,
+          to,
+          value: { class: 'cm-md-marker-hidden' }
+        });
+      }
 
       // Add className
       decorations.push({
@@ -899,26 +908,31 @@ class LiveMarkdownPlugin implements PluginValue {
   private processStrikethrough(
     from: number,
     to: number,
+    view: EditorView,
     decorations: Array<{ from: number; to: number; value: any }>
   ): void {
-    // Hide start ~~
-    decorations.push({
-      from,
-      to: from + 2,
-      value: { class: 'cm-md-marker-hidden' }
-    });
+    const revealMarkers = selectionTouchesRange(view.hasFocus, view.state.selection.ranges, from, to);
 
-    // Hide end ~~
-    decorations.push({
-      from: to - 2,
-      to,
-      value: { class: 'cm-md-marker-hidden' }
-    });
+    if (!revealMarkers) {
+      // Hide start ~~
+      decorations.push({
+        from,
+        to: from + 2,
+        value: { class: 'cm-md-marker-hidden' }
+      });
 
-    // Add className
+      // Hide end ~~
+      decorations.push({
+        from: to - 2,
+        to,
+        value: { class: 'cm-md-marker-hidden' }
+      });
+    }
+
+    // Keep strikethrough styling active even when markers are revealed.
     decorations.push({
-      from: from + 2,
-      to: to - 2,
+      from: revealMarkers ? from : from + 2,
+      to: revealMarkers ? to : to - 2,
       value: { class: 'cm-md-strikethrough' }
     });
   }
