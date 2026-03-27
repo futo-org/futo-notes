@@ -2079,6 +2079,7 @@ pub async fn fs_start_watcher(app: AppHandle, state: State<'_, CoreState>) -> Re
     let watcher_state = state.watcher.clone();
     let suppressed_watcher_events = state.suppressed_watcher_events.clone();
     let sync_writes_until = state.sync_writes_until.clone();
+    let watcher_index = state.index.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let mut guard = watcher_state
             .lock()
@@ -2116,6 +2117,9 @@ pub async fn fs_start_watcher(app: AppHandle, state: State<'_, CoreState>) -> Re
                     };
                     if should_suppress {
                         continue;
+                    }
+                    if let Ok(mut idx) = watcher_index.write() {
+                        idx.loaded = false;
                     }
                     let _ = app_handle.emit(
                         "fs:change",
