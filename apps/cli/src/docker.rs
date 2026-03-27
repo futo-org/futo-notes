@@ -6,7 +6,7 @@ pub const DEFAULT_DATA_PATH: &str = "./stonefruit-data";
 
 pub fn generate_compose(port: u16, data_path: &str) -> String {
     let data_mount = format!(
-        "{}:/app/apps/server/data",
+        "{}:/app/data",
         yaml_double_quote(data_path.trim())
     );
     format!(
@@ -132,7 +132,7 @@ mod tests {
     #[test]
     fn compose_uses_selected_data_path() {
         let compose = generate_compose(4141, "/srv/stonefruit data");
-        assert!(compose.contains("\"/srv/stonefruit data:/app/apps/server/data\""));
+        assert!(compose.contains("\"/srv/stonefruit data:/app/data\""));
         assert!(!compose.contains("volumes:\n  data:"));
     }
 

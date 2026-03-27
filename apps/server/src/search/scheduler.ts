@@ -15,7 +15,6 @@ export type SchedulerPhase =
   | 'disabled';
 
 let schedulerInterval: ReturnType<typeof setInterval> | null = null;
-let lastActivity = Date.now();
 let running = false;
 let currentConfig: Config | null = null;
 let disabledByUser = false;
@@ -70,11 +69,7 @@ export function getSchedulerState(): {
   return {
     phase: isDisabled() ? 'disabled' : phase,
     modelReady: jobProcessor !== null,
-    idleWindow: {
-      start: currentConfig.indexIdleStart,
-      end: currentConfig.indexIdleEnd,
-      active: isWithinIdleWindow(currentConfig.indexIdleStart, currentConfig.indexIdleEnd),
-    },
+    idleWindow: null,
     downloadProgress: phase === 'downloading_model' ? downloadProgress : null,
     userEnabled: !disabledByUser,
     disabledReason: disabledByUser ? 'user' : null,
@@ -115,10 +110,11 @@ export function isWithinIdleWindow(start: string, end: string, now?: Date): bool
 }
 
 /**
- * Record activity (called on sync, etc.) to track idle time.
+ * Record activity (called on sync, etc.).
+ * Retained as a no-op export for callers; idle-time gating was removed.
  */
 export function recordActivity(): void {
-  lastActivity = Date.now();
+  // no-op — proactive scheduler no longer tracks idle time
 }
 
 async function canUseEmbeddingModelNow(): Promise<boolean> {
@@ -293,16 +289,16 @@ async function runIndexInBackground(config: Config, signal?: AbortSignal): Promi
   broadcastSupersearchReady();
 }
 
+const SCHEDULER_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes between scheduled runs
+let lastSchedulerRunTime = 0;
+
 async function tick(): Promise<void> {
   if (running || !currentConfig || isDisabled()) return;
 
+  const now = Date.now();
+  if (lastSchedulerRunTime > 0 && now - lastSchedulerRunTime < SCHEDULER_COOLDOWN_MS) return;
+
   const config = currentConfig;
-  const inWindow = isWithinIdleWindow(config.indexIdleStart, config.indexIdleEnd);
-  const idleMs = Date.now() - lastActivity;
-  const idleThresholdMs = 3 * 60 * 60 * 1000; // 3 hours
-
-  if (!inWindow && idleMs < idleThresholdMs) return;
-
   const db = getDb();
   const dirtyCount = getDirtyUuids(db, 2).length;
   if (dirtyCount === 0) return;
@@ -312,7 +308,8 @@ async function tick(): Promise<void> {
     return;
   }
 
-  log.info(`search: scheduler triggered (inWindow=${inWindow} idle=${Math.round(idleMs / 60000)}min dirty=${dirtyCount})`);
+  lastSchedulerRunTime = now;
+  log.info(`search: scheduler triggered (dirty=${dirtyCount})`);
 
   await startTrackedIndexJob(config, 'search: scheduler tick failed');
 }
@@ -329,7 +326,7 @@ export function startSearchScheduler(config: Config): void {
     });
   }, 60_000);
   schedulerInterval.unref();
-  log.info(`search: scheduler started (idle window ${config.indexIdleStart}-${config.indexIdleEnd})`);
+  log.info('search: scheduler started (proactive indexing, 5-min cooldown)');
 }
 
 
@@ -355,6 +352,7 @@ export async function stopSearchScheduler(): Promise<void> {
   ensureProcessorPromise = null;
   disabledByUser = false;
   downloadProgress = null;
+  lastSchedulerRunTime = 0;
 }
 
 // ── Sync-triggered indexing ──────────────────────────────

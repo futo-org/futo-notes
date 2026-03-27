@@ -14,7 +14,7 @@ const QWEN3_QUERY_PREFIX =
 export const MODEL_REGISTRY: ModelDef[] = [
   {
     id: 'qwen3-embedding-0.6b',
-    hfUri: 'hf:enacimie/Qwen3-Embedding-0.6B-Q4_K_M-GGUF:qwen3-embedding-0.6b-q4_k_m.gguf',
+    hfUri: 'hf:enacimie/Qwen3-Embedding-0.6B-Q4_K_M-GGUF/qwen3-embedding-0.6b-q4_k_m.gguf',
     nativeDims: 1024,
     dims: 1024,
     sizeBytes: 396_000_000,

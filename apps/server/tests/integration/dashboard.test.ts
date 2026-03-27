@@ -124,6 +124,13 @@ describe('Dashboard', () => {
     });
   });
 
+  it('renderSearch blanks Last indexed during active indexing', async () => {
+    const res = await req(env.app, 'GET', '/');
+    const html = await res.text();
+    // When isBusy or current_job is active, Last indexed should show blank, not a stale timestamp
+    expect(html).toContain("(isBusy || s.current_job) ? '' : formatTime(s.last_indexed_at)");
+  });
+
   it('GET /dashboard/status returns plugins: null when disabled', async () => {
     process.env.PLUGINS_ENABLED = 'false';
     env.cleanup();

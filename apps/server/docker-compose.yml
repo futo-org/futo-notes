@@ -6,11 +6,8 @@ services:
     ports:
       - "${PORT:-3005}:${PORT:-3005}"
     volumes:
-      - data:/app/apps/server/data
+      - ${STONEFRUIT_DATA_PATH:-./data}:/app/data
     env_file:
       - .env
     environment:
       - LOG_LEVEL=${LOG_LEVEL:-info}
-
-volumes:
-  data:

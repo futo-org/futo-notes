@@ -5,7 +5,7 @@ services:
     ports:
       - "3005:3005"
     volumes:
-      - ${STONEFRUIT_DATA_PATH:-./stonefruit-data}:/app/apps/server/data
+      - ${STONEFRUIT_DATA_PATH:-./stonefruit-data}:/app/data
     environment:
       - NODE_ENV=production
       - PORT=3005
