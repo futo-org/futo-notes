@@ -5,7 +5,7 @@ services:
     ports:
       - "3005:3005"
     volumes:
-      - "./stonefruit-data:/app/apps/server/data"
+      - "./stonefruit-data:/app/data"
     environment:
       - PORT=3005
       - DATABASE_PATH=./data/stonefruit.db
