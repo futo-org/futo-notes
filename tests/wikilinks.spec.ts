@@ -181,6 +181,32 @@ test.describe('Wikilink Navigation', () => {
     await expect(page.locator('.cm-md-wikilink')).toHaveCount(0);
     await expect(page.locator('.cm-line').first()).toContainText('write more of [[Visions of Stonefruit]]');
   });
+
+  test('triple clicking a plain line above a wikilink selects only that line', async ({ page }) => {
+    await setupEditor(page, 'dark mode auto activate\n[[Stonefruit bugs]]\nafter');
+    await setCursorPosition(page, 0);
+    await blurEditor(page);
+
+    const lineBox = await page.locator('.cm-line').nth(0).boundingBox();
+    expect(lineBox).not.toBeNull();
+
+    await page.mouse.click(lineBox!.x + 40, lineBox!.y + lineBox!.height / 2, { clickCount: 3, delay: 50 });
+    await page.waitForTimeout(200);
+
+    const selection = await page.evaluate(() => {
+      const view = (window as any).__cmGetView?.();
+      if (!view) throw new Error('CM EditorView not found');
+      const sel = view.state.selection.main;
+      return {
+        from: sel.from,
+        to: sel.to,
+        text: view.state.sliceDoc(sel.from, sel.to),
+      };
+    });
+
+    expect(selection.text).toBe('dark mode auto activate');
+    await expect(page.locator('.cm-md-wikilink')).toHaveCount(1);
+  });
 });
 
 // ============================================================================

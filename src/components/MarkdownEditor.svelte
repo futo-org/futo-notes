@@ -270,6 +270,40 @@
     }
   });
 
+  const tripleClickLineSelectionHandler = EditorView.domEventHandlers({
+    mousedown: (event, v) => {
+      if (event.button !== 0 || event.detail !== 3) return false;
+
+      const targetNode = event.target as Node | null;
+      const target =
+        targetNode instanceof Element ? targetNode : targetNode?.parentElement ?? null;
+      const hit = document.elementFromPoint(event.clientX, event.clientY);
+      const lineCandidate = (hit?.closest('.cm-line') ?? target?.closest('.cm-line')) as HTMLElement | null;
+      if (!lineCandidate) return false;
+
+      let linePos: number | null = null;
+      try {
+        linePos = v.posAtDOM(lineCandidate, 0);
+      } catch {
+        try {
+          linePos = v.posAtCoords({ x: event.clientX, y: event.clientY });
+        } catch {
+          linePos = null;
+        }
+      }
+      if (linePos === null) return false;
+
+      const line = v.state.doc.lineAt(linePos);
+      event.preventDefault();
+      v.focus();
+      requestAnimationFrame(() => {
+        if (!view) return;
+        v.dispatch({ selection: { anchor: line.from, head: line.to } });
+      });
+      return true;
+    }
+  });
+
   const lineEndClickHandler = EditorView.domEventHandlers({
     mousedown: (event, v) => {
       if (event.button !== 0) return false;
@@ -445,6 +479,7 @@
       tableRendering,
       wikilinkAutocomplete(),
       imagePasteHandler,
+      tripleClickLineSelectionHandler,
       inlineStyledClickHandler,
       lineEndClickHandler,
       wikilinkClickHandler,
