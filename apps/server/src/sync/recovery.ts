@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { getAllNotes, upsertNote, deleteNote } from '../db/notes.js';
 import { listNoteFiles, readNoteFile } from './files.js';
@@ -41,14 +42,21 @@ export function reconcile(db: Database.Database, notesDir: string): void {
     diskFiles.delete(note.filename);
   }
 
-  // Remaining disk files have no DB entry — log them but don't auto-adopt.
-  // Files should enter the DB only through sync (which carries the client's real UUID).
-  // Auto-adopting with random UUIDs causes duplicate entries when clients sync later.
+  // Remaining disk files have no DB entry — adopt them with server-generated UUIDs.
+  // The sync engine's dedup logic (same filename + same hash → tombstone client UUID)
+  // ensures clients won't create duplicates when they sync later.
   if (diskFiles.size > 0) {
-    log.info(`reconcile: ${diskFiles.size} orphaned file(s) on disk (will be adopted on next sync)`);
+    let adopted = 0;
     for (const filename of diskFiles) {
-      log.debug(`  reconcile: orphaned file: ${filename}`);
+      const content = readNoteFile(notesDir, filename);
+      if (content === null) continue;
+      const uuid = crypto.randomUUID();
+      const hash = contentHash(content);
+      upsertNote(db, uuid, filename, hash, Date.now());
+      adopted++;
+      log.debug(`  reconcile: adopted orphan ${filename} as ${uuid.slice(0, 8)}`);
     }
+    log.info(`reconcile: adopted ${adopted} orphaned file(s)`);
   }
 
   log.info(`reconcile done: removed=${removed} hash_updated=${hashUpdated}`);

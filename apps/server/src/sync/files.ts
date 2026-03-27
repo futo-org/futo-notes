@@ -125,7 +125,7 @@ export function convertTxtFiles(notesDir: string): void {
   const mdSet = new Set(entries.filter((f) => f.endsWith('.md')).map((f) => f.toLowerCase()));
 
   for (const entry of entries) {
-    if (!entry.endsWith('.txt')) continue;
+    if (!entry.toLowerCase().endsWith('.txt')) continue;
     const base = entry.slice(0, -4); // strip .txt
     const mdName = `${base}.md`;
 

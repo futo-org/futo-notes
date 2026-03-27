@@ -44,16 +44,37 @@ describe('recovery / reconcile', () => {
     expect(note!.content_hash).toBe(contentHash('new content'));
   });
 
-  it('does not auto-adopt orphaned files (avoids UUID conflicts with client sync)', () => {
+  it('adopts orphaned files on disk with server-generated UUIDs', () => {
     const db = getDb();
     fs.mkdirSync(env.notesDir, { recursive: true });
     fs.writeFileSync(path.join(env.notesDir, 'orphan.md'), 'orphan content', 'utf8');
 
     reconcile(db, env.notesDir);
 
-    // Orphaned files should NOT be added — they'll be adopted via sync with real client UUIDs
     const allNotes = getAllNotes(db);
-    expect(allNotes).toHaveLength(0);
+    expect(allNotes).toHaveLength(1);
+    expect(allNotes[0].filename).toBe('orphan.md');
+    expect(allNotes[0].content_hash).toBe(contentHash('orphan content'));
+    // UUID should be a valid v4 UUID
+    expect(allNotes[0].uuid).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{3,4}-[0-9a-f]{12}$/);
+  });
+
+  it('adopts converted .txt files via reconcile', () => {
+    const db = getDb();
+    fs.mkdirSync(env.notesDir, { recursive: true });
+    fs.writeFileSync(path.join(env.notesDir, 'imported.txt'), 'text file content', 'utf8');
+
+    reconcile(db, env.notesDir);
+
+    // .txt should have been converted to .md and adopted
+    const allNotes = getAllNotes(db);
+    expect(allNotes).toHaveLength(1);
+    expect(allNotes[0].filename).toBe('imported.md');
+    expect(allNotes[0].content_hash).toBe(contentHash('text file content'));
+
+    // Original .txt should be gone from disk
+    expect(fs.existsSync(path.join(env.notesDir, 'imported.txt'))).toBe(false);
+    expect(fs.existsSync(path.join(env.notesDir, 'imported.md'))).toBe(true);
   });
 
   it('handles empty notes directory', () => {

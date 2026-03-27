@@ -637,7 +637,7 @@ fn convert_txt_to_md(base: &Path) {
 
     for entry in &entries {
         let name = entry.file_name().to_string_lossy().to_string();
-        if !name.ends_with(".txt") {
+        if !name.to_lowercase().ends_with(".txt") {
             continue;
         }
         let txt_base = &name[..name.len() - 4]; // strip .txt
@@ -2102,7 +2102,8 @@ pub async fn fs_start_watcher(app: AppHandle, state: State<'_, CoreState>) -> Re
                     let Some(filename) = path.file_name().and_then(|p| p.to_str()) else {
                         continue;
                     };
-                    if !filename.ends_with(".md") {
+                    let lower = filename.to_lowercase();
+                    if !lower.ends_with(".md") && !lower.ends_with(".txt") {
                         continue;
                     }
                     if sync_writes_until.load(Ordering::Acquire) > now_ms() {
@@ -3867,6 +3868,25 @@ mod tests {
         // csv should not be touched
         assert!(base.join("data.csv").exists());
         assert!(base.join("note.md").exists());
+
+        cleanup_temp_dir(&base);
+    }
+
+    #[test]
+    fn convert_txt_case_insensitive() {
+        let base = temp_notes_dir();
+        fs::write(base.join("uppercase.TXT"), "upper").unwrap();
+        fs::write(base.join("mixed.Txt"), "mixed").unwrap();
+
+        convert_txt_to_md(&base);
+
+        assert!(!base.join("uppercase.TXT").exists());
+        assert!(base.join("uppercase.md").exists());
+        assert_eq!(fs::read_to_string(base.join("uppercase.md")).unwrap(), "upper");
+
+        assert!(!base.join("mixed.Txt").exists());
+        assert!(base.join("mixed.md").exists());
+        assert_eq!(fs::read_to_string(base.join("mixed.md")).unwrap(), "mixed");
 
         cleanup_temp_dir(&base);
     }
