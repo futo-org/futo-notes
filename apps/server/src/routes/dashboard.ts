@@ -2755,134 +2755,114 @@ function dashboardHtml(): string {
     return null;
   }
 
-  window.indexNow = async function() {
-    const btn = $('index-now-btn');
-    const status = $('index-status');
-    if (!btn) return;
+  async function adminFetch(endpoint, opts) {
+    opts = opts || {};
+    var label = opts.label || 'perform action';
+    var method = opts.method || (opts.body !== undefined ? 'POST' : 'GET');
+    var failMsg = opts.failMsg || 'Request failed';
 
-    const token = await getToken('trigger indexing');
-    if (!token) return;
+    var token = await getToken(label);
+    if (!token) return null;
+
+    var headers = { 'Authorization': 'Bearer ' + token };
+    var init = { method: method, headers: headers };
+
+    if (opts.body !== undefined) {
+      headers['Content-Type'] = 'application/json';
+      init.body = JSON.stringify(opts.body);
+    }
+
+    try {
+      var res = await fetch(endpoint, init);
+
+      if (res.status === 401) {
+        clearAuthToken();
+        alert('Session expired, please try again');
+        refresh();
+        return null;
+      }
+
+      var data = await res.json().catch(function() { return {}; });
+
+      if (!res.ok) {
+        if (opts.onError) {
+          opts.onError(data, res);
+        } else {
+          alert(data.error || failMsg);
+        }
+        return null;
+      }
+
+      return data;
+    } catch (e) {
+      if (opts.onCatch) {
+        opts.onCatch(e);
+      } else {
+        alert('Error: ' + e.message);
+      }
+      return null;
+    }
+  }
+
+  window.indexNow = async function() {
+    var btn = $('index-now-btn');
+    var status = $('index-status');
+    if (!btn) return;
 
     btn.disabled = true;
     if (status) status.textContent = 'Starting...';
     schedulePoll(true);
 
-    try {
-      const res = await fetch('/search/reindex', {
-        method: 'POST',
-        headers: { 'Authorization': 'Bearer ' + token },
-      });
-      if (res.status === 401) {
-        clearAuthToken();
-        alert('Session expired, please try again');
-        refresh();
-        btn.disabled = false;
-        if (status) status.textContent = '';
-        return;
-      }
-      const data = await res.json();
-      if (!res.ok) {
-        alert(data.error || 'Failed to start indexing');
-        btn.disabled = false;
-        if (status) status.textContent = '';
-        return;
-      }
-      // 202 Accepted — job is running in background, refresh will show progress
-      refresh();
-    } catch (e) {
-      alert('Error: ' + e.message);
+    var data = await adminFetch('/search/reindex', {
+      label: 'trigger indexing',
+      method: 'POST',
+      failMsg: 'Failed to start indexing',
+    });
+    if (!data) {
       btn.disabled = false;
       if (status) status.textContent = '';
+      return;
     }
+    // 202 Accepted — job is running in background, refresh will show progress
+    refresh();
   };
 
 
   window.setEnhancedSearchEnabled = async function(enabled) {
-    const token = await getToken(enabled ? 'enable enhanced search' : 'disable enhanced search');
-    if (!token) return;
-
-    const btn = $('enhanced-search-toggle');
+    var btn = $('enhanced-search-toggle');
     if (btn) btn.disabled = true;
 
-    try {
-      const res = await fetch('/search/set-enhanced-search', {
-        method: 'POST',
-        headers: {
-          'Authorization': 'Bearer ' + token,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ enabled }),
-      });
-      if (res.status === 401) {
-        clearAuthToken();
-        alert('Session expired, please try again');
-        refresh();
-        return;
-      }
-      const data = await res.json();
-      if (!res.ok) {
-        alert(data.error || 'Failed to update enhanced search');
-        return;
-      }
-      refresh();
-    } catch (e) {
-      alert('Error: ' + e.message);
-    } finally {
-      if (btn) btn.disabled = false;
-    }
+    var data = await adminFetch('/search/set-enhanced-search', {
+      label: enabled ? 'enable enhanced search' : 'disable enhanced search',
+      body: { enabled: enabled },
+      failMsg: 'Failed to update enhanced search',
+    });
+    if (btn) btn.disabled = false;
+    if (!data) return;
+    refresh();
   };
 
   window.triggerPlugin = async function(id) {
-    const token = await getToken('run plugin');
-    if (!token) return;
-    try {
-      const res = await fetch('/plugins/' + id + '/run', {
-        method: 'POST',
-        headers: { 'Authorization': 'Bearer ' + token },
-      });
-      if (res.status === 401) {
-        clearAuthToken();
-        alert('Session expired, please try again');
-        refresh();
-        return;
-      }
-      const data = await res.json();
-      if (!res.ok) {
-        alert(data.error || 'Failed to run plugin');
-        return;
-      }
-      refresh();
-    } catch (e) {
-      alert('Error: ' + e.message);
-    }
+    var data = await adminFetch('/plugins/' + id + '/run', {
+      label: 'run plugin',
+      method: 'POST',
+      failMsg: 'Failed to run plugin',
+    });
+    if (!data) return;
+    refresh();
   };
 
   window.triggerAllPlugins = async function() {
-    const token = await getToken('run all automations');
-    if (!token) return;
-    try {
-      const res = await fetch('/plugins/run-all', {
-        method: 'POST',
-        headers: { 'Authorization': 'Bearer ' + token },
-      });
-      if (res.status === 401) {
-        clearAuthToken();
-        alert('Session expired, please try again');
-        refresh();
-        return;
-      }
-      const data = await res.json();
-      if (!res.ok) {
-        alert(data.error || 'Failed to run automations');
-        return;
-      }
-      activeRunAllBatchId = data.batch_id || (data.batch && data.batch.batch_id) || null;
-      activeRunAllBatch = data.batch || null;
-      window.openRunAllModal();
-      refresh();
-    } catch (e) {
-      alert('Error: ' + e.message);
-    }
+    var data = await adminFetch('/plugins/run-all', {
+      label: 'run all automations',
+      method: 'POST',
+      failMsg: 'Failed to run automations',
+    });
+    if (!data) return;
+    activeRunAllBatchId = data.batch_id || (data.batch && data.batch.batch_id) || null;
+    activeRunAllBatch = data.batch || null;
+    window.openRunAllModal();
+    refresh();
   };
 
   window.checkForTags = async function(button) {
@@ -2895,63 +2875,61 @@ function dashboardHtml(): string {
     var pluginId = card.getAttribute('data-plugin-card');
     if (!pluginId) return;
 
-    var token = await getToken('scan notes for tags');
-    if (!token) return;
-
     button.disabled = true;
     button.textContent = 'Scanning\u2026';
-    try {
-      var res = await fetch('/plugins/tags', {
-        headers: { 'Authorization': 'Bearer ' + token },
-      });
-      if (res.status === 401) {
-        clearAuthToken();
-        alert('Session expired, please try again');
-        refresh();
-        return;
-      }
-      var data = await res.json();
-      if (!res.ok || !Array.isArray(data.tags)) {
-        alert(data.error || 'Failed to scan tags');
-        return;
-      }
 
-      // Persist discovered tags to localStorage
-      localStorage.setItem('discovered-tags-' + pluginId, JSON.stringify(data.tags));
-
-      // Collect currently active tag names
-      var activeTags = {};
-      var oldPills = list.querySelectorAll('.tag-pill.active');
-      for (var i = 0; i < oldPills.length; i++) {
-        activeTags[oldPills[i].getAttribute('data-tag-pill')] = true;
+    var data = await adminFetch('/plugins/tags', {
+      label: 'scan notes for tags',
+      failMsg: 'Failed to scan tags',
+      onError: function(d) {
+        alert(d.error || 'Failed to scan tags');
+        button.textContent = 'Check for tags';
+        button.disabled = false;
+      },
+      onCatch: function(e) {
+        alert('Error: ' + e.message);
+        button.textContent = 'Check for tags';
+        button.disabled = false;
+      },
+    });
+    if (!data || !Array.isArray(data.tags)) {
+      if (data) {
+        alert('Failed to scan tags');
+        button.textContent = 'Check for tags';
+        button.disabled = false;
       }
-
-      // Replace all pills with the discovered set
-      list.innerHTML = '';
-      for (var j = 0; j < data.tags.length; j++) {
-        var tagName = data.tags[j];
-        var isActive = activeTags[tagName] || false;
-        list.insertAdjacentHTML('beforeend', renderTagPill(tagName, isActive, false));
-      }
-
-      if (data.tags.length === 0) {
-        list.innerHTML = '<span class="plugin-tag-empty">No tags found in your notes</span>';
-      }
-
-      button.textContent = data.tags.length > 0
-        ? 'Found ' + data.tags.length + ' tag' + (data.tags.length === 1 ? '' : 's')
-        : 'No tags in your notes';
-      setTimeout(function() { button.textContent = 'Check for tags'; button.disabled = false; }, 2000);
-    } catch (e) {
-      alert('Error: ' + e.message);
-      button.textContent = 'Check for tags';
-      button.disabled = false;
+      return;
     }
+
+    // Persist discovered tags to localStorage
+    localStorage.setItem('discovered-tags-' + pluginId, JSON.stringify(data.tags));
+
+    // Collect currently active tag names
+    var activeTags = {};
+    var oldPills = list.querySelectorAll('.tag-pill.active');
+    for (var i = 0; i < oldPills.length; i++) {
+      activeTags[oldPills[i].getAttribute('data-tag-pill')] = true;
+    }
+
+    // Replace all pills with the discovered set
+    list.innerHTML = '';
+    for (var j = 0; j < data.tags.length; j++) {
+      var tagName = data.tags[j];
+      var isActive = activeTags[tagName] || false;
+      list.insertAdjacentHTML('beforeend', renderTagPill(tagName, isActive, false));
+    }
+
+    if (data.tags.length === 0) {
+      list.innerHTML = '<span class="plugin-tag-empty">No tags found in your notes</span>';
+    }
+
+    button.textContent = data.tags.length > 0
+      ? 'Found ' + data.tags.length + ' tag' + (data.tags.length === 1 ? '' : 's')
+      : 'No tags in your notes';
+    setTimeout(function() { button.textContent = 'Check for tags'; button.disabled = false; }, 2000);
   };
 
   window.savePluginConfig = async function(id) {
-    const token = await getToken('save automation settings');
-    if (!token) return;
     var card = document.querySelector('[data-plugin-card="' + id + '"]');
     if (!card) return;
 
@@ -2987,31 +2965,14 @@ function dashboardHtml(): string {
       body.config[tagKey] = readTagListValue(card, tagKey);
     }
 
-    try {
-      const res = await fetch('/plugins/' + id + '/config', {
-        method: 'POST',
-        headers: {
-          'Authorization': 'Bearer ' + token,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(body),
-      });
-      if (res.status === 401) {
-        clearAuthToken();
-        alert('Session expired, please try again');
-        refresh();
-        return;
-      }
-      const data = await res.json();
-      if (!res.ok) {
-        alert(data.error || 'Failed to save settings');
-        return;
-      }
-      clearPluginDraft(id);
-      refresh();
-    } catch (e) {
-      alert('Error: ' + e.message);
-    }
+    var data = await adminFetch('/plugins/' + id + '/config', {
+      label: 'save automation settings',
+      body: body,
+      failMsg: 'Failed to save settings',
+    });
+    if (!data) return;
+    clearPluginDraft(id);
+    refresh();
   };
 
   window.syncScheduleFields = function(selectEl) {
@@ -3023,184 +2984,79 @@ function dashboardHtml(): string {
   };
 
   window.togglePlugin = async function(id, enabled) {
-    const token = await getToken(enabled ? 'enable plugin' : 'disable plugin');
-    if (!token) return;
-    try {
-      const res = await fetch('/plugins/' + id + '/' + (enabled ? 'enable' : 'disable'), {
-        method: 'POST',
-        headers: { 'Authorization': 'Bearer ' + token },
-      });
-      if (res.status === 401) {
-        clearAuthToken();
-        alert('Session expired, please try again');
-        refresh();
-        return;
-      }
-      const data = await res.json();
-      if (!res.ok) {
-        alert(data.error || 'Failed to update plugin');
-        return;
-      }
-      refresh();
-    } catch (e) {
-      alert('Error: ' + e.message);
-    }
+    var data = await adminFetch('/plugins/' + id + '/' + (enabled ? 'enable' : 'disable'), {
+      label: enabled ? 'enable plugin' : 'disable plugin',
+      method: 'POST',
+      failMsg: 'Failed to update plugin',
+    });
+    if (!data) return;
+    refresh();
   };
 
   window.viewPluginRun = async function(runId) {
-    const token = await getToken('view plugin run');
-    if (!token) return;
-    try {
-      const res = await fetch('/plugins/runs/' + runId, {
-        headers: { 'Authorization': 'Bearer ' + token },
-      });
-      if (res.status === 401) {
-        clearAuthToken();
-        alert('Session expired, please try again');
-        refresh();
-        return;
-      }
-      const data = await res.json();
-      if (!res.ok) {
-        alert(data.error || 'Failed to load run detail');
-        return;
-      }
-      activePluginRunId = runId;
-      activePluginRunDetail = data;
-      refresh();
-    } catch (e) {
-      alert('Error: ' + e.message);
-    }
+    var data = await adminFetch('/plugins/runs/' + runId, {
+      label: 'view plugin run',
+      failMsg: 'Failed to load run detail',
+    });
+    if (!data) return;
+    activePluginRunId = runId;
+    activePluginRunDetail = data;
+    refresh();
   };
 
   window.approveRunItem = async function(runId, itemId) {
-    const token = await getToken('approve plugin change');
-    if (!token) return;
-    try {
-      const res = await fetch('/plugins/runs/' + runId + '/items/' + itemId + '/approve', {
-        method: 'POST',
-        headers: { 'Authorization': 'Bearer ' + token },
-      });
-      if (res.status === 401) {
-        clearAuthToken();
-        alert('Session expired, please try again');
-        refresh();
-        return;
-      }
-      const data = await res.json();
-      if (!res.ok) {
-        alert(data.error || 'Failed to approve change');
-        return;
-      }
-      activePluginRunId = runId;
-      refresh();
-    } catch (e) {
-      alert('Error: ' + e.message);
-    }
+    var data = await adminFetch('/plugins/runs/' + runId + '/items/' + itemId + '/approve', {
+      label: 'approve plugin change',
+      method: 'POST',
+      failMsg: 'Failed to approve change',
+    });
+    if (!data) return;
+    activePluginRunId = runId;
+    refresh();
   };
 
   window.rejectRunItem = async function(runId, itemId) {
-    const token = await getToken('reject plugin change');
-    if (!token) return;
-    try {
-      const res = await fetch('/plugins/runs/' + runId + '/items/' + itemId + '/reject', {
-        method: 'POST',
-        headers: { 'Authorization': 'Bearer ' + token },
-      });
-      if (res.status === 401) {
-        clearAuthToken();
-        alert('Session expired, please try again');
-        refresh();
-        return;
-      }
-      const data = await res.json();
-      if (!res.ok) {
-        alert(data.error || 'Failed to reject change');
-        return;
-      }
-      activePluginRunId = runId;
-      refresh();
-    } catch (e) {
-      alert('Error: ' + e.message);
-    }
+    var data = await adminFetch('/plugins/runs/' + runId + '/items/' + itemId + '/reject', {
+      label: 'reject plugin change',
+      method: 'POST',
+      failMsg: 'Failed to reject change',
+    });
+    if (!data) return;
+    activePluginRunId = runId;
+    refresh();
   };
 
   window.approveAllRunItems = async function(runId) {
-    const token = await getToken('approve all plugin changes');
-    if (!token) return;
-    try {
-      const res = await fetch('/plugins/runs/' + runId + '/approve-all', {
-        method: 'POST',
-        headers: { 'Authorization': 'Bearer ' + token },
-      });
-      if (res.status === 401) {
-        clearAuthToken();
-        alert('Session expired, please try again');
-        refresh();
-        return;
-      }
-      const data = await res.json();
-      if (!res.ok) {
-        alert(data.error || 'Failed to approve all changes');
-        return;
-      }
-      activePluginRunId = runId;
-      refresh();
-    } catch (e) {
-      alert('Error: ' + e.message);
-    }
+    var data = await adminFetch('/plugins/runs/' + runId + '/approve-all', {
+      label: 'approve all plugin changes',
+      method: 'POST',
+      failMsg: 'Failed to approve all changes',
+    });
+    if (!data) return;
+    activePluginRunId = runId;
+    refresh();
   };
 
   window.rejectAllRunItems = async function(runId) {
-    const token = await getToken('reject all plugin changes');
-    if (!token) return;
-    try {
-      const res = await fetch('/plugins/runs/' + runId + '/reject-all', {
-        method: 'POST',
-        headers: { 'Authorization': 'Bearer ' + token },
-      });
-      if (res.status === 401) {
-        clearAuthToken();
-        alert('Session expired, please try again');
-        refresh();
-        return;
-      }
-      const data = await res.json();
-      if (!res.ok) {
-        alert(data.error || 'Failed to reject all changes');
-        return;
-      }
-      activePluginRunId = runId;
-      refresh();
-    } catch (e) {
-      alert('Error: ' + e.message);
-    }
+    var data = await adminFetch('/plugins/runs/' + runId + '/reject-all', {
+      label: 'reject all plugin changes',
+      method: 'POST',
+      failMsg: 'Failed to reject all changes',
+    });
+    if (!data) return;
+    activePluginRunId = runId;
+    refresh();
   };
 
   window.applyApprovedRunItems = async function(runId) {
-    const token = await getToken('apply approved plugin changes');
-    if (!token) return;
-    try {
-      const res = await fetch('/plugins/runs/' + runId + '/apply-approved', {
-        method: 'POST',
-        headers: { 'Authorization': 'Bearer ' + token },
-      });
-      if (res.status === 401) {
-        clearAuthToken();
-        alert('Session expired, please try again');
-        refresh();
-        return;
-      }
-      const data = await res.json();
-      if (!res.ok) {
-        alert(data.error || 'Failed to apply approved changes');
-        return;
-      }
-      activePluginRunId = runId;
-      refresh();
-    } catch (e) {
-      alert('Error: ' + e.message);
-    }
+    var data = await adminFetch('/plugins/runs/' + runId + '/apply-approved', {
+      label: 'apply approved plugin changes',
+      method: 'POST',
+      failMsg: 'Failed to apply approved changes',
+    });
+    if (!data) return;
+    activePluginRunId = runId;
+    refresh();
   };
 
   const pluginEditorModal = $('plugin-editor-modal');
@@ -3287,32 +3143,15 @@ function dashboardHtml(): string {
   };
 
   window.editLocalPlugin = async function(pluginId) {
-    const token = await getToken('edit local automation');
-    if (!token) return;
-    try {
-      const res = await fetch('/plugins/local/' + pluginId + '/source', {
-        headers: { 'Authorization': 'Bearer ' + token },
-      });
-      if (res.status === 401) {
-        clearAuthToken();
-        alert('Session expired, please try again');
-        refresh();
-        return;
-      }
-      const data = await res.json();
-      if (!res.ok) {
-        alert(data.error || 'Failed to load plugin source');
-        return;
-      }
-      openPluginEditor('edit', pluginId, data.source || '', data.loadError || '');
-    } catch (e) {
-      alert('Error: ' + e.message);
-    }
+    var data = await adminFetch('/plugins/local/' + pluginId + '/source', {
+      label: 'edit local automation',
+      failMsg: 'Failed to load plugin source',
+    });
+    if (!data) return;
+    openPluginEditor('edit', pluginId, data.source || '', data.loadError || '');
   };
 
   window.saveLocalPlugin = async function() {
-    const token = await getToken(pluginEditorMode === 'edit' ? 'save local automation' : 'create local automation');
-    if (!token) return;
     if (!pluginEditorIdInput || !pluginEditorSource || !pluginEditorSaveBtn || !pluginEditorCancelBtn || !pluginEditorCloseBtn) return;
 
     var pluginId = pluginEditorIdInput.value.trim();
@@ -3335,69 +3174,43 @@ function dashboardHtml(): string {
     pluginEditorCloseBtn.disabled = true;
     pluginEditorSaveBtn.textContent = pluginEditorMode === 'edit' ? 'Saving...' : 'Creating...';
 
-    try {
-      const isEdit = pluginEditorMode === 'edit';
-      const res = await fetch(isEdit ? '/plugins/local/' + pluginId + '/source' : '/plugins/local', {
-        method: isEdit ? 'PUT' : 'POST',
-        headers: {
-          'Authorization': 'Bearer ' + token,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(isEdit ? { source: source } : { plugin_id: pluginId, source: source }),
-      });
-      if (res.status === 401) {
-        clearAuthToken();
-        alert('Session expired, please try again');
-        window.closePluginEditor();
-        refresh();
-        return;
-      }
-      const data = await res.json();
-      if (!res.ok) {
-        setPluginEditorError(data.error || 'Failed to save automation');
-        return;
-      }
-      window.closePluginEditor();
-      refresh();
-    } catch (e) {
-      setPluginEditorError('Error: ' + e.message);
-    } finally {
-      if (pluginEditorSaveBtn) {
-        pluginEditorSaveBtn.disabled = false;
-        pluginEditorSaveBtn.textContent = pluginEditorMode === 'edit' ? 'Save changes' : 'Save automation';
-      }
-      if (pluginEditorCancelBtn) pluginEditorCancelBtn.disabled = false;
-      if (pluginEditorCloseBtn) pluginEditorCloseBtn.disabled = false;
+    var isEdit = pluginEditorMode === 'edit';
+    var data = await adminFetch(isEdit ? '/plugins/local/' + pluginId + '/source' : '/plugins/local', {
+      label: isEdit ? 'save local automation' : 'create local automation',
+      method: isEdit ? 'PUT' : 'POST',
+      body: isEdit ? { source: source } : { plugin_id: pluginId, source: source },
+      onError: function(d) {
+        setPluginEditorError(d.error || 'Failed to save automation');
+      },
+      onCatch: function(e) {
+        setPluginEditorError('Error: ' + e.message);
+      },
+    });
+
+    if (pluginEditorSaveBtn) {
+      pluginEditorSaveBtn.disabled = false;
+      pluginEditorSaveBtn.textContent = pluginEditorMode === 'edit' ? 'Save changes' : 'Save automation';
     }
+    if (pluginEditorCancelBtn) pluginEditorCancelBtn.disabled = false;
+    if (pluginEditorCloseBtn) pluginEditorCloseBtn.disabled = false;
+
+    if (!data) return;
+    window.closePluginEditor();
+    refresh();
   };
 
   window.deleteLocalPlugin = async function(pluginId) {
-    const token = await getToken('delete local automation');
-    if (!token) return;
     if (!window.confirm('Delete local automation "' + pluginId + '"? Past run history will be kept.')) {
       return;
     }
 
-    try {
-      const res = await fetch('/plugins/local/' + pluginId, {
-        method: 'DELETE',
-        headers: { 'Authorization': 'Bearer ' + token },
-      });
-      if (res.status === 401) {
-        clearAuthToken();
-        alert('Session expired, please try again');
-        refresh();
-        return;
-      }
-      const data = await res.json();
-      if (!res.ok) {
-        alert(data.error || 'Failed to delete local automation');
-        return;
-      }
-      refresh();
-    } catch (e) {
-      alert('Error: ' + e.message);
-    }
+    var data = await adminFetch('/plugins/local/' + pluginId, {
+      label: 'delete local automation',
+      method: 'DELETE',
+      failMsg: 'Failed to delete local automation',
+    });
+    if (!data) return;
+    refresh();
   };
 
   function updateResetConfirmState() {

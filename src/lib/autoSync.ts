@@ -204,8 +204,7 @@ function scheduleInitialRetry(): void {
 
 export function connectSSE(): void {
   if (!isSyncConfigured()) return;
-  const prefs = getCachedPreferences();
-  startSSE(prefs.sync.serverUrl, prefs.sync.token, handleSSENotification, handleSupersearchReady);
+  startSSE(handleSSENotification, handleSupersearchReady);
 }
 
 export function startAutoSync(cb: AutoSyncCallbacks): void {

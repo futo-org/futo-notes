@@ -3,11 +3,12 @@ import crypto from 'node:crypto';
 import { getDb } from '../db/index.js';
 import { updatePasswordHash } from '../db/auth.js';
 import { deleteAllSessions } from '../db/sessions.js';
-import { hashPassword, MAX_PASSWORD_LENGTH } from '../auth/password.js';
+import { hashPassword } from '../auth/password.js';
 import { getAdminToken } from '../auth/adminToken.js';
 import { rateLimit } from '../middleware/rateLimit.js';
 import { removeAllClients } from '../events.js';
 import { log } from '../logger.js';
+import { parseJsonBody, validatePassword } from './helpers.js';
 
 const admin = new Hono();
 
@@ -35,22 +36,12 @@ admin.post('/admin/reset-password', rateLimit(3), async (c) => {
     return c.json({ error: 'Invalid admin token' }, 401);
   }
 
-  let body: { new_password?: string };
-  try {
-    body = await c.req.json();
-  } catch {
-    return c.json({ error: 'Invalid JSON' }, 400);
-  }
+  const parsed = await parseJsonBody<{ new_password?: string }>(c);
+  if (parsed instanceof Response) return parsed;
+  const body = parsed;
 
-  if (!body.new_password || typeof body.new_password !== 'string') {
-    return c.json({ error: 'Missing required field: new_password' }, 400);
-  }
-  if (body.new_password.length < 8) {
-    return c.json({ error: 'New password must be at least 8 characters' }, 422);
-  }
-  if (body.new_password.length > MAX_PASSWORD_LENGTH) {
-    return c.json({ error: `New password must not exceed ${MAX_PASSWORD_LENGTH} characters` }, 422);
-  }
+  const pwErr = validatePassword(body.new_password, 'new_password', 'New password');
+  if (pwErr) return c.json({ error: pwErr.error }, pwErr.status);
 
   const db = getDb();
   const newHash = await hashPassword(body.new_password);

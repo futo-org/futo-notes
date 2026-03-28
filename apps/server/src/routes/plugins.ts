@@ -24,6 +24,7 @@ import {
   triggerPluginNow,
   updatePluginConfig,
 } from '../plugins/scheduler.js';
+import { parseJsonBody, errorMessage } from './helpers.js';
 
 const plugins = new Hono();
 
@@ -133,15 +134,17 @@ plugins.post('/plugins/:id/config', authMiddleware, async (c) => {
     return c.json({ error: `Unknown plugin: ${pluginId}` }, 404);
   }
 
-  try {
-    const body = await c.req.json<{
-      schedule_kind?: 'manual' | 'daily' | 'weekly';
-      schedule_time?: string | null;
-      schedule_day?: number | null;
-      auto_apply?: boolean;
-      config?: Record<string, unknown>;
-    }>();
+  const parsed = await parseJsonBody<{
+    schedule_kind?: 'manual' | 'daily' | 'weekly';
+    schedule_time?: string | null;
+    schedule_day?: number | null;
+    auto_apply?: boolean;
+    config?: Record<string, unknown>;
+  }>(c);
+  if (parsed instanceof Response) return parsed;
+  const body = parsed;
 
+  try {
     if (body.schedule_kind && !['manual', 'daily', 'weekly'].includes(body.schedule_kind)) {
       return c.json({ error: 'schedule_kind must be manual, daily, or weekly' }, 400);
     }
@@ -165,7 +168,7 @@ plugins.post('/plugins/:id/config', authMiddleware, async (c) => {
     });
     return c.json({ updated: true });
   } catch (err) {
-    return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
+    return c.json({ error: errorMessage(err) }, 400);
   }
 });
 
@@ -179,7 +182,7 @@ plugins.post('/plugins/:id/run', authMiddleware, async (c) => {
     const { runId } = await triggerPluginNow(pluginId);
     return c.json({ started: true, run_id: runId }, 202);
   } catch (err) {
-    return c.json({ error: err instanceof Error ? err.message : String(err) }, 409);
+    return c.json({ error: errorMessage(err) }, 409);
   }
 });
 
@@ -193,7 +196,7 @@ plugins.post('/plugins/run-all', authMiddleware, async (c) => {
       batch,
     }, 202);
   } catch (err) {
-    return c.json({ error: err instanceof Error ? err.message : String(err) }, 409);
+    return c.json({ error: errorMessage(err) }, 409);
   }
 });
 
@@ -213,13 +216,16 @@ plugins.get('/plugins/local/:id/source', authMiddleware, async (c) => {
     const data = await getLocalPluginSource(getDb(), loadConfig(), c.req.param('id'));
     return c.json(data);
   } catch (err) {
-    return c.json({ error: err instanceof Error ? err.message : String(err) }, 404);
+    return c.json({ error: errorMessage(err) }, 404);
   }
 });
 
 plugins.post('/plugins/local', authMiddleware, async (c) => {
+  const parsed = await parseJsonBody<{ plugin_id?: string; source?: string }>(c);
+  if (parsed instanceof Response) return parsed;
+  const body = parsed;
+
   try {
-    const body = await c.req.json<{ plugin_id?: string; source?: string }>();
     if (typeof body.plugin_id !== 'string' || body.plugin_id.trim().length === 0) {
       return c.json({ error: 'plugin_id is required' }, 400);
     }
@@ -239,14 +245,17 @@ plugins.post('/plugins/local', authMiddleware, async (c) => {
       },
     }, 201);
   } catch (err) {
-    return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
+    return c.json({ error: errorMessage(err) }, 400);
   }
 });
 
 plugins.put('/plugins/local/:id/source', authMiddleware, async (c) => {
+  const parsed = await parseJsonBody<{ source?: string }>(c);
+  if (parsed instanceof Response) return parsed;
+  const body = parsed;
+
   try {
     const pluginId = c.req.param('id');
-    const body = await c.req.json<{ source?: string }>();
     if (typeof body.source !== 'string' || body.source.trim().length === 0) {
       return c.json({ error: 'source is required' }, 400);
     }
@@ -262,7 +271,7 @@ plugins.put('/plugins/local/:id/source', authMiddleware, async (c) => {
       },
     });
   } catch (err) {
-    return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
+    return c.json({ error: errorMessage(err) }, 400);
   }
 });
 
@@ -271,7 +280,7 @@ plugins.delete('/plugins/local/:id', authMiddleware, async (c) => {
     await deleteLocalPlugin(getDb(), loadConfig(), c.req.param('id'));
     return c.json({ deleted: true });
   } catch (err) {
-    return c.json({ error: err instanceof Error ? err.message : String(err) }, 404);
+    return c.json({ error: errorMessage(err) }, 404);
   }
 });
 
@@ -279,7 +288,7 @@ plugins.get('/plugins/runs/:runId', authMiddleware, (c) => {
   try {
     return c.json(getPluginRunDetail(c.req.param('runId')));
   } catch (err) {
-    return c.json({ error: err instanceof Error ? err.message : String(err) }, 404);
+    return c.json({ error: errorMessage(err) }, 404);
   }
 });
 
@@ -292,7 +301,7 @@ plugins.post('/plugins/runs/:runId/items/:itemId/approve', authMiddleware, (c) =
     approveRunItem(c.req.param('runId'), itemId);
     return c.json({ approved: true });
   } catch (err) {
-    return c.json({ error: err instanceof Error ? err.message : String(err) }, 409);
+    return c.json({ error: errorMessage(err) }, 409);
   }
 });
 
@@ -305,7 +314,7 @@ plugins.post('/plugins/runs/:runId/items/:itemId/reject', authMiddleware, (c) =>
     rejectRunItem(c.req.param('runId'), itemId);
     return c.json({ rejected: true });
   } catch (err) {
-    return c.json({ error: err instanceof Error ? err.message : String(err) }, 409);
+    return c.json({ error: errorMessage(err) }, 409);
   }
 });
 
@@ -314,7 +323,7 @@ plugins.post('/plugins/runs/:runId/approve-all', authMiddleware, (c) => {
     approveAllRunItems(c.req.param('runId'));
     return c.json({ approved: true });
   } catch (err) {
-    return c.json({ error: err instanceof Error ? err.message : String(err) }, 409);
+    return c.json({ error: errorMessage(err) }, 409);
   }
 });
 
@@ -323,7 +332,7 @@ plugins.post('/plugins/runs/:runId/reject-all', authMiddleware, (c) => {
     rejectAllRunItems(c.req.param('runId'));
     return c.json({ rejected: true });
   } catch (err) {
-    return c.json({ error: err instanceof Error ? err.message : String(err) }, 409);
+    return c.json({ error: errorMessage(err) }, 409);
   }
 });
 
@@ -332,7 +341,7 @@ plugins.post('/plugins/runs/:runId/apply-approved', authMiddleware, async (c) =>
     await applyApprovedRunItems(c.req.param('runId'));
     return c.json({ applied: true });
   } catch (err) {
-    return c.json({ error: err instanceof Error ? err.message : String(err) }, 409);
+    return c.json({ error: errorMessage(err) }, 409);
   }
 });
 

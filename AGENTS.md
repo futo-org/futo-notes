@@ -47,6 +47,18 @@ Each app has its own `AGENTS.md` with app-specific details.
 - **IMPORTANT**: Tauri dev ports are split by target to avoid collisions: desktop `5180`, Android `5181`, iOS `5182`.
 - **IMPORTANT**: `window.confirm()`/`window.alert()` don't block properly in Tauri's webview. Use `ask()`/`message()` from `@tauri-apps/plugin-dialog` instead.
 
+## Push Concerns Down, Not Out
+
+When adding cross-cutting behavior (auth, validation, error handling, coordination, persistence), make it an infrastructure concern — not something every call site must remember. If an agent (or a human) forgetting to add a line would cause a bug, that line shouldn't need to exist.
+
+**Good examples already in this repo:**
+- Filename/path safety is pushed down to `packages/shared/src/filename.ts` and `apps/server/src/sync/files.ts` — callers don't think about filesystem rules.
+- Platform-specific I/O is behind `src/lib/platform/index.ts` — components never branch on platform.
+- `src/lib/authFetch.ts` handles Bearer tokens, timeouts, and error parsing — API callers don't attach auth headers.
+- `apps/server/src/routes/helpers.ts` centralizes JSON parsing, password validation, and error extraction — routes don't repeat boilerplate.
+
+**When writing new code:** If you find yourself copying a pattern from another file (auth headers, try/parse/catch, validation checks), stop and check whether a shared helper already exists or should be created. The less each feature has to do, the fewer ways it can go wrong.
+
 ## Close The Loop (Required)
 
 Do not report a fix or addition as complete until you verify it. If verification fails, iterate until it passes.

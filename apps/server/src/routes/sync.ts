@@ -11,6 +11,7 @@ import { applyNoteMutationEffects } from '../sync/noteMutationEffects.js';
 import { triggerIndexAfterSync } from '../search/scheduler.js';
 import { checkPostSyncInvariants } from '../sync/invariants.js';
 import { isRecordingEnabled, recordSnapshot, dumpFailingSnapshot } from '../sync/recording.js';
+import { parseJsonBody } from './helpers.js';
 
 const MAX_BODY_SIZE = 500 * 1024 * 1024; // 500 MB
 
@@ -19,12 +20,9 @@ const sync = new Hono();
 // ── Quick-check endpoint (Phase 1) ──────────────────────
 
 sync.post('/sync/check', authMiddleware, async (c) => {
-  let body: SyncCheckRequest;
-  try {
-    body = await c.req.json();
-  } catch {
-    return c.json({ error: 'Invalid JSON' }, 400);
-  }
+  const parsed = await parseJsonBody<SyncCheckRequest>(c);
+  if (parsed instanceof Response) return parsed;
+  const body = parsed;
 
   if (typeof body.version !== 'number') {
     return c.json({ error: 'version must be a number' }, 422);
@@ -40,14 +38,9 @@ sync.post('/sync/check', authMiddleware, async (c) => {
 // ── Main sync endpoint ───────────────────────────────────
 
 sync.post('/sync', bodyLimit({ maxSize: MAX_BODY_SIZE, onError: (c) => c.json({ error: `Request body too large (max ${MAX_BODY_SIZE / 1024 / 1024} MB)` }, 413) }), authMiddleware, async (c) => {
-  let rawBody: Record<string, unknown>;
-  try {
-    rawBody = await c.req.json();
-  } catch {
-    return c.json({ error: 'Invalid JSON' }, 400);
-  }
-
-  const body = rawBody as unknown as SyncRequest;
+  const parsed = await parseJsonBody<Record<string, unknown>>(c);
+  if (parsed instanceof Response) return parsed;
+  const body = parsed as unknown as SyncRequest;
 
   if (!Array.isArray(body.notes) || !Array.isArray(body.inventory) || !Array.isArray(body.deleted_uuids)) {
     log.warn('invalid sync payload: missing required arrays');

@@ -1,7 +1,12 @@
-import { getFS, platformName } from '../platform';
+import { platformName } from '../platform';
 import { hasRustCore, supersearchIsReadyRust, supersearchGetStateRust } from '../rustCore';
+import { persistedJson } from '../persistedJson';
+import { getFS } from '../platform';
 
-const STATE_PATH = '.supersearch-state.json';
+const store = persistedJson<SupersearchState | null>({
+  path: '.supersearch-state.json',
+  defaultValue: null,
+});
 
 export interface SupersearchState {
   artifactVersion: string;
@@ -16,17 +21,11 @@ export async function loadSupersearchState(): Promise<SupersearchState | null> {
   if (hasRustCore()) {
     return supersearchGetStateRust();
   }
-  try {
-    const raw = await getFS().readAppData(STATE_PATH);
-    if (!raw) return null;
-    return JSON.parse(raw) as SupersearchState;
-  } catch {
-    return null;
-  }
+  return store.load();
 }
 
 export async function saveSupersearchState(state: SupersearchState): Promise<void> {
-  await getFS().writeAppData(STATE_PATH, JSON.stringify(state, null, 2));
+  await store.save(state);
 }
 
 export async function hasLocalArtifacts(): Promise<boolean> {

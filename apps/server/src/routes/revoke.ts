@@ -5,16 +5,14 @@ import { getDb } from '../db/index.js';
 import { deleteSession, deleteAllSessions, deleteSessions } from '../db/sessions.js';
 import { removeClientsByTokenHash, removeAllClients } from '../events.js';
 import { log } from '../logger.js';
+import { parseJsonBody } from './helpers.js';
 
 const revoke = new Hono<AuthEnv>();
 
 revoke.post('/revoke', authMiddleware, async (c) => {
-  let body: RevokeRequest;
-  try {
-    body = await c.req.json();
-  } catch {
-    return c.json({ error: 'Invalid JSON' }, 400);
-  }
+  const parsed = await parseJsonBody<RevokeRequest>(c);
+  if (parsed instanceof Response) return parsed;
+  const body = parsed;
 
   if (!body.mode || !['current', 'all', 'specific'].includes(body.mode)) {
     return c.json({ error: 'Invalid mode — must be "current", "all", or "specific"' }, 400);

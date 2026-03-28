@@ -1,3 +1,5 @@
+import { authFetch, AuthFetchError, getSyncConfig } from './authFetch';
+
 const SSE_DEBUG = false;
 const SSE_RECONNECT_DELAY_MS = 2_000;
 
@@ -17,8 +19,6 @@ export function getClientId(): string {
 }
 
 export function startSSE(
-  serverUrl: string,
-  token: string,
   onSyncAvailable: () => void,
   onSupersearchReady?: () => void,
 ): void {
@@ -36,24 +36,21 @@ export function startSSE(
 
   const connect = async (): Promise<void> => {
     try {
-      const res = await fetch(`${serverUrl}/events/session`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-      if (res.status === 401 || res.status === 403) {
-        throw new SseAuthError('SSE auth rejected');
+      let data: { ticket?: string };
+      try {
+        data = await authFetch<{ ticket?: string }>('/events/session', { method: 'POST' });
+      } catch (e) {
+        if (e instanceof AuthFetchError && (e.status === 401 || e.status === 403)) {
+          throw new SseAuthError('SSE auth rejected');
+        }
+        throw e;
       }
-      if (!res.ok) {
-        throw new Error(`SSE ticket request failed: HTTP ${res.status}`);
-      }
-      const data = await res.json() as { ticket?: string };
       if (!data.ticket) {
         throw new Error('SSE ticket response missing ticket');
       }
       if (stopped || generation !== connectGeneration) return;
 
+      const { serverUrl } = getSyncConfig();
       const url = `${serverUrl}/events?ticket=${encodeURIComponent(data.ticket)}&clientId=${encodeURIComponent(getClientId())}`;
       if (SSE_DEBUG) console.debug('[SSE] connecting to', url.replace(/ticket=[^&]+/, 'ticket=***'));
 

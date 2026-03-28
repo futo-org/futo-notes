@@ -1,5 +1,9 @@
 <script lang="ts">
   import { hasFileSystem, isMobile, isDesktop, isTauri } from '$lib/platform';
+  import type { FileChangeEvent } from '$lib/platform/types';
+  import { createWriteSuppressor } from '$lib/writeSuppression';
+  import { createWatcherBatch } from '$lib/watcherBatch';
+  import { createSyncCoordinator } from '$lib/syncCoordinator';
   import MarkdownEditor from './MarkdownEditor.svelte';
   // Lazy-loaded: MarkdownToolbar only shown on mobile
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -37,6 +41,7 @@
   import { keyboard } from '$lib/keyboard.svelte';
   import { navigate } from '../router';
   import { getCachedPreferences } from '$lib/preferences';
+  import { authFetch } from '$lib/authFetch';
   import { onToast } from '$lib/toast';
 
   import type { GraphData } from '$lib/supersearch/graphData';
@@ -74,7 +79,6 @@
   let saveQueued = false;
   let lastEditTime = 0;
   let editVersion = 0;
-  let syncStartEditVersion = 0;
   let notesLoaded = false;
   let loading = false;
   let titleWarning = $state('');
@@ -151,67 +155,19 @@
   let noteLoadVersion = 0;
 
   // File watcher self-write suppression (desktop native)
-  const recentWrites = new Map<string, number>();
-  const recentSyncWrites = new Map<string, number>();
-  const recentRemoteRenames = new Map<string, { toId: string; ts: number }>();
+  const writeSuppressor = createWriteSuppressor();
   let externalRescanTimer: number | null = null;
   let externalRescanInFlight = false;
   let externalRescanQueued = false;
 
-  let syncWriteActive = false;
-  let pendingWatcherEvents: Array<{ type: 'add' | 'change' | 'unlink'; filename: string }> = [];
-  let postSyncBatchTimer: number | null = null;
-  let watcherBatchTimer: number | null = null;
-  let watcherHandlerInFlight = false;
-  let watcherHandlerQueue: Array<{ type: 'add' | 'change' | 'unlink'; filename: string }> = [];
+  // Watcher batch — initialized after handleSingleWatcherEvent is defined (see below)
+  let watcherBatch: ReturnType<typeof createWatcherBatch> | null = null;
+  // Sync coordinator — initialized in the mount $effect after watcherBatch
+  let syncCoord: ReturnType<typeof createSyncCoordinator> | null = null;
 
   let syncStatusMessage = $state('');
-  let syncStatusClearTimer: number | null = null;
   let syncIndicatorVisible = $state(false);
-  let syncIndicatorTimer: number | null = null;
   let syncOffline = $state(false);
-
-  function recordWrite(filename: string): void {
-    recentWrites.set(filename, Date.now());
-    // Clean old entries
-    for (const [key, ts] of recentWrites) {
-      if (Date.now() - ts > 2000) recentWrites.delete(key);
-    }
-  }
-
-  function isRecentWrite(filename: string): boolean {
-    const ts = recentWrites.get(filename);
-    return ts !== undefined && Date.now() - ts < 1000;
-  }
-
-  function recordSyncWrite(filename: string): void {
-    recentSyncWrites.set(filename, Date.now());
-    for (const [key, ts] of recentSyncWrites) {
-      if (Date.now() - ts > 5000) recentSyncWrites.delete(key);
-    }
-  }
-
-  function isRecentSyncWrite(filename: string): boolean {
-    const ts = recentSyncWrites.get(filename);
-    return ts !== undefined && Date.now() - ts < 5000;
-  }
-
-  function recordRemoteRename(fromId: string, toId: string): void {
-    recentRemoteRenames.set(fromId, { toId, ts: Date.now() });
-    for (const [key, value] of recentRemoteRenames) {
-      if (Date.now() - value.ts > 5000) recentRemoteRenames.delete(key);
-    }
-  }
-
-  function getRecentRemoteRename(id: string): { toId: string; ts: number } | null {
-    const entry = recentRemoteRenames.get(id);
-    if (!entry) return null;
-    if (Date.now() - entry.ts > 5000) {
-      recentRemoteRenames.delete(id);
-      return null;
-    }
-    return entry;
-  }
 
 
   // Toast
@@ -257,9 +213,9 @@
     let completed = false;
     try {
       const { checkForUpdate, downloadArtifact } = await import('$lib/supersearch/artifactManager');
-      const { hasUpdate, capabilities } = await checkForUpdate(prefs.sync.serverUrl, prefs.sync.token);
+      const { hasUpdate, capabilities } = await checkForUpdate();
       if (hasUpdate && capabilities) {
-        const downloaded = await downloadArtifact(prefs.sync.serverUrl, prefs.sync.token, capabilities);
+        const downloaded = await downloadArtifact(capabilities);
         if (!downloaded) return;
       }
       completed = true;
@@ -276,12 +232,12 @@
   async function handleSyncComplete(summary: SyncSummary): Promise<void> {
 
     const hasRemoteNoteChanges = summary.updatedIds.length > 0 || summary.deletedIds.length > 0 || summary.renamed.length > 0;
-    for (const id of summary.updatedIds) recordSyncWrite(`${id}.md`);
-    for (const id of summary.deletedIds) recordSyncWrite(`${id}.md`);
+    for (const id of summary.updatedIds) writeSuppressor.recordSyncWrite(`${id}.md`);
+    for (const id of summary.deletedIds) writeSuppressor.recordSyncWrite(`${id}.md`);
     for (const rename of summary.renamed) {
-      recordSyncWrite(`${rename.fromId}.md`);
-      recordSyncWrite(`${rename.toId}.md`);
-      recordRemoteRename(rename.fromId, rename.toId);
+      writeSuppressor.recordSyncWrite(`${rename.fromId}.md`);
+      writeSuppressor.recordSyncWrite(`${rename.toId}.md`);
+      writeSuppressor.recordRemoteRename(rename.fromId, rename.toId);
     }
     if (hasRemoteNoteChanges) {
       // Defer note list refresh so it doesn't block active typing.
@@ -334,7 +290,7 @@
           // If the user typed while sync was in flight, local state is newer — skip overwrite.
           // editVersion is incremented on every keystroke; syncStartEditVersion is
           // captured when sync begins. A mismatch means the user edited during sync.
-          const editedDuringSync = editVersion !== syncStartEditVersion;
+          const editedDuringSync = editVersion !== (syncCoord?.getSyncStartEditVersion() ?? 0);
           if (!editedDuringSync) {
             content = freshContent;
             suppressSaveOnChange = true;
@@ -363,94 +319,34 @@
     // Sync status banner
     const totalChanges = summary.updatedIds.length + summary.deletedIds.length + summary.renamed.length;
     if (totalChanges > 20) {
-      syncStatusMessage = `Synced ${totalChanges} notes`;
-      syncStatusClearTimer = window.setTimeout(() => { syncStatusMessage = ''; syncStatusClearTimer = null; }, 3000);
+      syncCoord?.setStatusWithTimeout(`Synced ${totalChanges} notes`, 3000);
     } else {
       syncStatusMessage = '';
     }
 
   }
 
-  function enqueueWatcherEvent(event: { type: 'add' | 'change' | 'unlink'; filename: string }): void {
-    if (syncWriteActive) {
-      pendingWatcherEvents.push(event);
-      return;
-    }
-    watcherHandlerQueue.push(event);
-    if (watcherBatchTimer === null) {
-      watcherBatchTimer = window.setTimeout(() => {
-        watcherBatchTimer = null;
-        void processWatcherBatch();
-      }, 50);
-    }
-  }
-
-  async function processWatcherBatch(): Promise<void> {
-    if (watcherHandlerInFlight) return;
-    watcherHandlerInFlight = true;
-    try {
-      while (watcherHandlerQueue.length > 0) {
-        const batch = watcherHandlerQueue.splice(0);
-        // Deduplicate: keep last event per filename
-        const deduped = new Map<string, { type: 'add' | 'change' | 'unlink'; filename: string }>();
-        for (const ev of batch) {
-          deduped.set(ev.filename, ev);
-        }
-        const events = [...deduped.values()];
-
-        if (events.length > 10) {
-          // Bulk: single refresh instead of per-file processing
-          await refreshNotesFromStorage();
-          refreshNotesList();
-          // Handle active note if affected
-          const activeFilename = originalId ? `${originalId}.md` : null;
-          if (activeFilename) {
-            const activeEvent = deduped.get(activeFilename);
-            if (activeEvent) {
-              await handleSingleWatcherEvent(activeEvent);
-            }
-          }
-        } else {
-          for (const ev of events) {
-            await handleSingleWatcherEvent(ev);
-          }
-        }
+  async function handleBulkWatcherRefresh(events: FileChangeEvent[]): Promise<void> {
+    await refreshNotesFromStorage();
+    refreshNotesList();
+    // Handle active note if affected
+    const activeFilename = originalId ? `${originalId}.md` : null;
+    if (activeFilename) {
+      const activeEvent = events.find(ev => ev.filename === activeFilename);
+      if (activeEvent) {
+        await handleSingleWatcherEvent(activeEvent);
       }
-    } finally {
-      watcherHandlerInFlight = false;
     }
   }
 
-  function drainPostSyncWatcherBatch(): void {
-    if (postSyncBatchTimer !== null) clearTimeout(postSyncBatchTimer);
-    postSyncBatchTimer = window.setTimeout(async () => {
-      postSyncBatchTimer = null;
-      // Filter out events that were caused by our own sync writes
-      const unhandled = pendingWatcherEvents.filter(ev => !isRecentSyncWrite(ev.filename));
-      pendingWatcherEvents = [];
-      if (unhandled.length > 0) {
-        await refreshNotesFromStorage();
-        refreshNotesList();
-        // Handle active note if affected
-        const activeFilename = originalId ? `${originalId}.md` : null;
-        if (activeFilename) {
-          const activeEvent = unhandled.find(ev => ev.filename === activeFilename);
-          if (activeEvent) {
-            await handleSingleWatcherEvent(activeEvent);
-          }
-        }
-      }
-    }, 500);
-  }
-
-  async function handleSingleWatcherEvent(event: { type: 'add' | 'change' | 'unlink'; filename: string }): Promise<void> {
+  async function handleSingleWatcherEvent(event: FileChangeEvent): Promise<void> {
     const { type, filename } = event;
     if (!filename.endsWith('.md')) return;
-    if (isRecentSyncWrite(filename)) return;
-    if (isRecentWrite(filename)) return;
+    if (writeSuppressor.isRecentSyncWrite(filename)) return;
+    if (writeSuppressor.isRecentWrite(filename)) return;
 
     const id = filename.replace(/\.md$/, '');
-    if (type === 'unlink' && getRecentRemoteRename(id)) return;
+    if (type === 'unlink' && writeSuppressor.getRecentRemoteRename(id)) return;
     // Suppress change events for open note when save is pending or in-flight
     if (id === originalId && (saveTimeout !== null || saveInFlight !== null) && type === 'change') return;
     if (id === originalId && hasOpenDraftChanges() && (type === 'change' || type === 'unlink')) {
@@ -499,6 +395,13 @@
       notifySaved();
     }
   }
+
+  // Initialize the watcher batch now that the event handlers are defined
+  watcherBatch = createWatcherBatch({
+    onEvent: handleSingleWatcherEvent,
+    onBulkRefresh: handleBulkWatcherRefresh,
+    suppressor: writeSuppressor,
+  });
 
   function updateDrawerMetrics(): void {
     if (drawer) {
@@ -711,18 +614,18 @@
       const savedOriginalId = originalId;
       if (savedOriginalId) {
         // Mark rename source/target before disk writes to suppress our own watcher events.
-        recordWrite(`${savedOriginalId}.md`);
+        writeSuppressor.recordWrite(`${savedOriginalId}.md`);
         if (savedOriginalId !== newId) {
-          recordWrite(`${newId}.md`);
+          writeSuppressor.recordWrite(`${newId}.md`);
         }
       }
 
       const result = await updateNote(newId, newTitle, newContent, savedOriginalId ?? undefined);
 
       // Track write for file-watcher self-suppression
-      recordWrite(`${result.id}.md`);
+      writeSuppressor.recordWrite(`${result.id}.md`);
       if (savedOriginalId && savedOriginalId !== result.id) {
-        recordWrite(`${savedOriginalId}.md`); // unlink event from rename
+        writeSuppressor.recordWrite(`${savedOriginalId}.md`); // unlink event from rename
       }
 
       originalId = result.id;
@@ -933,7 +836,7 @@
       clearTimeout(saveTimeout);
       saveTimeout = null;
     }
-    recordWrite(`${idToDelete}.md`);
+    writeSuppressor.recordWrite(`${idToDelete}.md`);
     originalId = null;
     await deleteNote(idToDelete);
     refreshNotesList();
@@ -987,17 +890,12 @@
       try {
         const prefs = getCachedPreferences();
         if (prefs.sync.serverUrl && prefs.sync.token) {
-          const resp = await fetch(`${prefs.sync.serverUrl}/search/status`, {
-            headers: { Authorization: `Bearer ${prefs.sync.token}` },
-          });
-          if (resp.ok) {
-            const status = await resp.json();
-            const phase = status?.scheduler?.phase;
-            if (phase === 'indexing' || phase === 'downloading_model' || phase === 'loading_model' || phase === 'building_artifacts') {
-              showToast('Indexing in progress...');
-              graphSidebarOpen = false;
-              return;
-            }
+          const status = await authFetch<{ scheduler?: { phase?: string } }>('/search/status');
+          const phase = status?.scheduler?.phase;
+          if (phase === 'indexing' || phase === 'downloading_model' || phase === 'loading_model' || phase === 'building_artifacts') {
+            showToast('Indexing in progress...');
+            graphSidebarOpen = false;
+            return;
           }
         }
       } catch {
@@ -1348,32 +1246,30 @@
     updateDrawerMetrics();
 
     // Auto-sync — loaded lazily to keep initial bundle small
+    syncCoord = createSyncCoordinator(
+      {
+        watcherBatch: watcherBatch!,
+        getEditVersion: () => editVersion,
+        isSavePending: () => saveTimeout !== null || saveInFlight !== null || saveQueued,
+        isComposing: () => Boolean(editor?.isComposing?.()),
+        getLastEditTime: () => lastEditTime,
+      },
+      {
+        onStatusMessage: (msg) => { syncStatusMessage = msg; },
+        onIndicatorChange: (visible) => { syncIndicatorVisible = visible; },
+        onOfflineChange: (offline) => { syncOffline = offline; },
+      },
+    );
+    const coord = syncCoord;
     getAutoSync().then(({ startAutoSync }) => {
       startAutoSync({
         onSyncComplete: handleSyncComplete,
         onSyncError: (err) => console.warn('Auto-sync error:', err),
         flushPendingSave: flushSave,
         onSupersearchReady: () => { void checkSupersearchArtifacts(true); },
-        shouldDeferSync: () => saveTimeout !== null || saveInFlight !== null || saveQueued || Boolean(editor?.isComposing?.()) || Date.now() - lastEditTime < 1000,
-        onOfflineChange: (offline) => { syncOffline = offline; },
-        onSyncStateChange: (active) => {
-          syncWriteActive = active;
-          if (active) {
-            syncStartEditVersion = editVersion;
-            if (syncStatusClearTimer !== null) { clearTimeout(syncStatusClearTimer); syncStatusClearTimer = null; }
-            syncStatusMessage = 'Syncing...';
-            // Show indicator with minimum 1s display
-            if (syncIndicatorTimer !== null) { clearTimeout(syncIndicatorTimer); syncIndicatorTimer = null; }
-            syncIndicatorVisible = true;
-          }
-          if (!active) {
-            drainPostSyncWatcherBatch();
-            // Keep indicator visible for at least 1s
-            if (syncIndicatorTimer === null) {
-              syncIndicatorTimer = window.setTimeout(() => { syncIndicatorVisible = false; syncIndicatorTimer = null; }, 1000);
-            }
-          }
-        },
+        shouldDeferSync: coord.shouldDeferSync,
+        onOfflineChange: coord.onOfflineChange,
+        onSyncStateChange: coord.onSyncStateChange,
       });
     });
 
@@ -1404,7 +1300,7 @@
         }));
 
         cleanupNativeListeners.push(onFileChange((event) => {
-          enqueueWatcherEvent(event);
+          watcherBatch?.enqueue(event);
         }));
       });
 
@@ -1449,18 +1345,8 @@
         clearTimeout(externalRescanTimer);
         externalRescanTimer = null;
       }
-      if (watcherBatchTimer !== null) {
-        clearTimeout(watcherBatchTimer);
-        watcherBatchTimer = null;
-      }
-      if (postSyncBatchTimer !== null) {
-        clearTimeout(postSyncBatchTimer);
-        postSyncBatchTimer = null;
-      }
-      if (syncStatusClearTimer !== null) {
-        clearTimeout(syncStatusClearTimer);
-        syncStatusClearTimer = null;
-      }
+      watcherBatch?.destroy();
+      syncCoord?.destroy();
       cleanupNativeListeners.forEach((cleanup) => cleanup());
       window.removeEventListener('keydown', handleGlobalShortcut);
     };

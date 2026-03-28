@@ -8,6 +8,7 @@ import { triggerIndexNow, getSchedulerState } from '../search/scheduler.js';
 import { getCapabilities, getJobStatus } from '../search/status.js';
 import { getDb } from '../db/index.js';
 import { log } from '../logger.js';
+import { parseJsonBody, errorMessage } from './helpers.js';
 
 const search = new Hono();
 
@@ -29,15 +30,18 @@ search.post('/search/reindex', authMiddleware, (c) => {
     triggerIndexNow();
     return c.json({ started: true }, 202);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = errorMessage(err);
     log.error(`search: reindex failed: ${message}`);
     return c.json({ error: message }, 409);
   }
 });
 
 search.post('/search/set-enhanced-search', authMiddleware, async (c) => {
+  const parsed = await parseJsonBody<{ enabled: boolean }>(c);
+  if (parsed instanceof Response) return parsed;
+  const body = parsed;
+
   try {
-    const body = await c.req.json<{ enabled: boolean }>();
     if (typeof body.enabled !== 'boolean') {
       return c.json({ error: 'Missing or invalid enabled flag' }, 400);
     }
@@ -47,7 +51,7 @@ search.post('/search/set-enhanced-search', authMiddleware, async (c) => {
 
     return c.json({ enabled: body.enabled }, 200);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = errorMessage(err);
     log.error(`search: set-enhanced-search failed: ${message}`);
     return c.json({ error: message }, 409);
   }
@@ -115,8 +119,11 @@ search.get('/search/index', authMiddleware, (c) => {
 });
 
 search.post('/search/embed-query', authMiddleware, async (c) => {
+  const parsed = await parseJsonBody<{ query: string }>(c);
+  if (parsed instanceof Response) return parsed;
+  const body = parsed;
+
   try {
-    const body = await c.req.json<{ query: string }>();
     if (!body.query || typeof body.query !== 'string') {
       return c.json({ error: 'Missing or invalid query' }, 400);
     }
@@ -140,7 +147,7 @@ search.post('/search/embed-query', authMiddleware, async (c) => {
           return c.json({ error: 'Embedding model not available' }, 503);
         }
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+        const message = errorMessage(err);
         log.warn(`search: ensureModelLoaded failed: ${message}`);
         return c.json({ error: 'Embedding model not available' }, 503);
       }
@@ -153,7 +160,7 @@ search.post('/search/embed-query', authMiddleware, async (c) => {
     const vector = await model.embedQuery(body.query);
     return c.json({ vector, dims: model.dims, model: 'active' });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = errorMessage(err);
     log.error(`search: embed-query failed: ${message}`);
     return c.json({ error: message }, 500);
   }

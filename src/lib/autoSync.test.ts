@@ -19,7 +19,7 @@ vi.mock('./sync', () => ({
 let sseNotificationHandler: (() => void) | null = null;
 
 vi.mock('./sseClient', () => ({
-  startSSE: vi.fn((_serverUrl: string, _token: string, onSyncAvailable: () => void) => {
+  startSSE: vi.fn((onSyncAvailable: () => void) => {
     sseNotificationHandler = onSyncAvailable;
   }),
   stopSSE: vi.fn(),

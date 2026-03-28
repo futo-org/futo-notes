@@ -3,10 +3,11 @@ import type { LoginRequest, LoginResponse } from '@futo-notes/shared';
 import { getDb } from '../db/index.js';
 import { getPasswordHash, isSetupComplete } from '../db/auth.js';
 import { createSession } from '../db/sessions.js';
-import { verifyPassword, MAX_PASSWORD_LENGTH } from '../auth/password.js';
+import { verifyPassword } from '../auth/password.js';
 import { generateToken, hashToken } from '../auth/token.js';
 import { rateLimit } from '../middleware/rateLimit.js';
 import { log } from '../logger.js';
+import { parseJsonBody, validatePassword } from './helpers.js';
 
 const login = new Hono();
 
@@ -17,19 +18,12 @@ login.post('/login', rateLimit(5), async (c) => {
     return c.json({ error: 'Setup not complete — call POST /setup first' }, 403);
   }
 
-  let body: LoginRequest;
-  try {
-    body = await c.req.json();
-  } catch {
-    return c.json({ error: 'Invalid JSON' }, 400);
-  }
+  const parsed = await parseJsonBody<LoginRequest>(c);
+  if (parsed instanceof Response) return parsed;
+  const body = parsed;
 
-  if (!body.password || typeof body.password !== 'string') {
-    return c.json({ error: 'Missing required field: password' }, 400);
-  }
-  if (body.password.length > MAX_PASSWORD_LENGTH) {
-    return c.json({ error: `Password must not exceed ${MAX_PASSWORD_LENGTH} characters` }, 422);
-  }
+  const pwErr = validatePassword(body.password, 'password', 'Password', { skipMinLength: true });
+  if (pwErr) return c.json({ error: pwErr.error }, pwErr.status);
 
   const storedHash = getPasswordHash(db)!;
   const valid = await verifyPassword(storedHash, body.password);

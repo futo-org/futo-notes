@@ -1,6 +1,4 @@
-import { getFS, hasFileSystem } from './platform';
-
-const SYNC_STATE_PATH = '.sync-state-v1.json';
+import { persistedJson } from './persistedJson';
 
 export interface SyncState {
   hashByUuid: Record<string, string>;
@@ -13,14 +11,6 @@ export interface SyncState {
   /** Set when a local rename hasn't been synced yet (quick-check must not skip). */
   hasPendingRenames?: boolean;
 }
-
-const DEFAULT_STATE: SyncState = {
-  hashByUuid: {},
-  uuidById: {},
-  deletedUuids: [],
-};
-
-let cached: SyncState | null = null;
 
 function cloneDefault(): SyncState {
   return {
@@ -79,31 +69,20 @@ function sanitizeState(raw: unknown): SyncState {
   };
 }
 
-export async function loadSyncState(): Promise<SyncState> {
-  if (cached) return structuredClone(cached);
-  if (!hasFileSystem) {
-    cached = cloneDefault();
-    return cached;
-  }
+const store = persistedJson<SyncState>({
+  path: '.sync-state-v1.json',
+  defaultValue: cloneDefault,
+  validate: sanitizeState,
+  cache: true,
+  cloneOnRead: true,
+});
 
-  try {
-    const content = await getFS().readAppData(SYNC_STATE_PATH);
-    if (!content) {
-      cached = cloneDefault();
-      return cached;
-    }
-    cached = sanitizeState(JSON.parse(content));
-    return cached;
-  } catch {
-    cached = cloneDefault();
-    return cached;
-  }
+export async function loadSyncState(): Promise<SyncState> {
+  return store.load();
 }
 
 export async function saveSyncState(state: SyncState): Promise<void> {
-  cached = state;
-  if (!hasFileSystem) return;
-  await getFS().writeAppData(SYNC_STATE_PATH, JSON.stringify(state, null, 2));
+  return store.save(state);
 }
 
 export function findIdForUuid(state: SyncState, uuid: string): string | null {
@@ -141,7 +120,5 @@ export async function clearDeletedUuid(uuid: string): Promise<void> {
 }
 
 export async function clearSyncState(): Promise<void> {
-  cached = { ...DEFAULT_STATE, hashByUuid: {}, uuidById: {}, deletedUuids: [] };
-  if (!hasFileSystem) return;
-  await getFS().writeAppData(SYNC_STATE_PATH, JSON.stringify(cached, null, 2));
+  await store.save(cloneDefault());
 }

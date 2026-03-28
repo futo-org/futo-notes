@@ -3,6 +3,7 @@ import { authMiddleware, type AuthEnv } from '../middleware/auth.js';
 import { getDb } from '../db/index.js';
 import { loadConfig } from '../config.js';
 import { performServerReset } from '../resetServer.js';
+import { parseJsonBody } from './helpers.js';
 
 interface ResetRequest {
   confirmation?: string;
@@ -11,12 +12,9 @@ interface ResetRequest {
 const reset = new Hono<AuthEnv>();
 
 reset.post('/reset', authMiddleware, async (c) => {
-  let body: ResetRequest;
-  try {
-    body = await c.req.json();
-  } catch {
-    return c.json({ error: 'Invalid JSON' }, 400);
-  }
+  const parsed = await parseJsonBody<ResetRequest>(c);
+  if (parsed instanceof Response) return parsed;
+  const body = parsed;
 
   if (body.confirmation !== 'DELETE') {
     return c.json({ error: 'Confirmation mismatch — send confirmation as "DELETE"' }, 400);

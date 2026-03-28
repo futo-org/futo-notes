@@ -3,21 +3,11 @@ import type { SupersearchState } from './state';
 import { hasRustCore, supersearchDownloadWithMetaRust } from '../rustCore';
 import { setServerSearchCapabilities } from './capabilities';
 import type { SearchCapabilities } from './capabilitiesTypes';
+import { authFetch, getSyncConfig } from '../authFetch';
 
-export async function checkForUpdate(
-  serverUrl: string,
-  token: string,
-): Promise<{ hasUpdate: boolean; capabilities: SearchCapabilities | null }> {
+export async function checkForUpdate(): Promise<{ hasUpdate: boolean; capabilities: SearchCapabilities | null }> {
   try {
-    const res = await fetch(`${serverUrl}/search/capabilities`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!res.ok) {
-      setServerSearchCapabilities(null);
-      return { hasUpdate: false, capabilities: null };
-    }
-
-    const capabilities = (await res.json()) as SearchCapabilities;
+    const capabilities = await authFetch<SearchCapabilities>('/search/capabilities');
     setServerSearchCapabilities(capabilities);
     if (!capabilities.artifact_hash) return { hasUpdate: false, capabilities };
 
@@ -35,8 +25,6 @@ export async function checkForUpdate(
 }
 
 export async function downloadArtifact(
-  serverUrl: string,
-  token: string,
   capabilities: SearchCapabilities,
 ): Promise<boolean> {
   try {
@@ -45,6 +33,7 @@ export async function downloadArtifact(
       return false;
     }
 
+    const { serverUrl, token } = getSyncConfig();
     const meta: SupersearchState = {
       artifactVersion: capabilities.artifact_version,
       artifactHash: capabilities.artifact_hash,
