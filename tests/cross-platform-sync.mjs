@@ -438,9 +438,19 @@ async function deleteVsEdit(a, b, server) {
   // B syncs first — edit wins
   await b.syncNow();
 
-  // A syncs — gets the edit back (server preserves the edit)
+  // A syncs — gets the edit back (server preserves the edit).
+  // Auto-sync may have already sent the delete, so A might need a
+  // second sync to pick up B's version after the server resolves it.
   await a.syncNow();
-  const aContent = await a.readNote('contested');
+  let aContent;
+  try {
+    aContent = await a.readNote('contested');
+  } catch {
+    // File may not exist yet if the first sync sent the delete —
+    // a second sync should retrieve B's edit from the server.
+    await a.syncNow();
+    aContent = await a.readNote('contested');
+  }
   assertEqual(aContent, '# B edited this', 'A should get B\'s edit back');
 }
 
