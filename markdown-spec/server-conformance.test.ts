@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { loadSpecCases, getCasesDir } from './loader.js';
 import { extractTags, extractHeaderTagBlock } from '@futo-notes/shared';
-import { chunkContent } from '../apps/server/src/search/chunker.js';
 
 /**
  * Server-side conformance runner. Catches client/server drift —
@@ -16,7 +15,6 @@ const allCases = loadSpecCases(getCasesDir(), maxComplexity);
 
 const tagCases = allCases.filter(c => c.expect?.tags !== undefined);
 const headerBlockCases = allCases.filter(c => c.expect?.header_tag_block !== undefined);
-const chunkCases = allCases.filter(c => c.expect?.chunk_count !== undefined);
 
 describe('Tag Extraction Conformance', () => {
   for (const specCase of tagCases) {
@@ -36,14 +34,6 @@ describe('Header Tag Block Conformance', () => {
       } else {
         expect(result.endOffset).toBe(0);
       }
-    });
-  }
-});
-
-describe('Content Chunking Conformance', () => {
-  for (const specCase of chunkCases) {
-    it(`[${specCase.complexity}] ${specCase.name}`, () => {
-      expect(chunkContent(specCase.markdown).length).toBe(specCase.expect!.chunk_count);
     });
   }
 });

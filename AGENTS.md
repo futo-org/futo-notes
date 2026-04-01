@@ -1,17 +1,19 @@
 # AGENTS.md - Stonefruit
 
-@README.md for project overview. @package.json for all scripts (`pnpm run` to list).
+@README.md for project overview. @justfile for the preferred repo-root commands. @package.json for the underlying scripts (`pnpm run` to list).
 
 ## Quick Start
 
 ```bash
-pnpm install        # Install all workspace dependencies
-pnpm run dev        # Web dev server (http://localhost:5173)
-pnpm run tauri:dev  # Tauri desktop dev (Wayland-first, fixed port 5180)
-pnpm run build      # TypeScript check + Vite build → dist/
-pnpm run test:unit  # Vitest unit tests
-pnpm run lint       # ESLint
+just install      # Install all workspace dependencies
+just tauri-dev    # Tauri desktop dev (Wayland-first, fixed port 5180)
+just android-dev  # Android dev
+just ios-dev      # iOS dev
+just build        # TypeScript check + Vite build → dist/
+just check        # Lint + tests + build sanity pass
 ```
+
+Prefer `just` from the monorepo root for the common workflows above. Use raw `pnpm` commands only when you need a script that is not wrapped in `justfile`.
 
 ## Monorepo
 
@@ -19,24 +21,34 @@ npm workspaces. Shared Svelte app at root, platform shells in `apps/`, shared pa
 
 ```
 src/                  ← Shared Svelte 5 app (editor, UI, sync client)
+crates/
+  stonefruit-core/    ← Shared Rust crate (hash, sync logic, search, graph)
+  stonefruit-server/  ← Self-hosted Axum sync server (Rust, Docker)
 apps/
   tauri/              ← Tauri v2 desktop + mobile shell (Rust backend)
-  server/             ← Self-hosted Hono sync server (TypeScript, Docker)
   cli/                ← Server setup/management CLI (Rust, Ratatui TUI)
 packages/
   shared/             ← Shared types & utils (sync protocol, filename rules)
 ```
 
 - **Client stack**: Svelte 5 + Tauri v2 + Vite + Tailwind v4 + CodeMirror 6
-- **Server stack**: Hono + better-sqlite3 + Docker. Hash-based sync via `POST /sync`. SSE push notifications. Semantic search with embeddings.
+- **Server stack**: Axum + rusqlite + sqlite-vec + Docker. Hash-based sync via `POST /sync`. Polling-based sync check. Server-side hybrid search (BM25 + vector) and graph layout.
+- **Shared Rust crate** (`stonefruit-core`): Hash computation, sync logic, search (UMAP + K-Means), graph layout, file operations. Tauri imports core functions directly — do not reimplement logic that exists in `stonefruit-core`.
 - **CLI stack**: Rust + Clap + Ratatui. Deploys and manages the server via Docker Compose.
-- **Shared package** (`@futo-notes/shared`): `SyncRequest`/`SyncResponse` types, `NoteSyncMeta`, filename sanitization (`sanitizeTitle`, `validateTitle`). Consumed as TypeScript source (no build step).
-
-Each app has its own `AGENTS.md` with app-specific details.
+- **Shared package** (`@futo-notes/shared`): Filename sanitization (`sanitizeTitle`, `validateTitle`). Consumed as TypeScript source (no build step).
 
 ## Browser Tools
 
 **Use `agent-browser` over Playwright MCP** for interactive browser tasks — poking around, testing UI, taking screenshots, inspecting state. It's faster, handles CodeMirror typing natively, and supports annotated screenshots with element labels. For the Tauri app (desktop, Android, iOS), use the Tauri MCP bridge tools (`driver_session`, `webview_*`) — the bridge is included in debug builds on all platforms.
+
+When switching sync servers in debug builds, prefer the dev-only `window.__testSync` hook over UI automation. It is exposed in Tauri dev webviews and supports:
+
+- `await window.__testSync.connect(serverUrl, password)`
+- `await window.__testSync.status()`
+- `await window.__testSync.syncNow()`
+- `await window.__testSync.disconnect()`
+
+For Android emulator runs, use `10.0.2.2` instead of `127.0.0.1` for host services.
 
 ## Key Constraints
 
@@ -52,10 +64,10 @@ Each app has its own `AGENTS.md` with app-specific details.
 When adding cross-cutting behavior (auth, validation, error handling, coordination, persistence), make it an infrastructure concern — not something every call site must remember. If an agent (or a human) forgetting to add a line would cause a bug, that line shouldn't need to exist.
 
 **Good examples already in this repo:**
-- Filename/path safety is pushed down to `packages/shared/src/filename.ts` and `apps/server/src/sync/files.ts` — callers don't think about filesystem rules.
+- Filename/path safety is pushed down to `packages/shared/src/filename.ts` and `stonefruit-core` — callers don't think about filesystem rules.
 - Platform-specific I/O is behind `src/lib/platform/index.ts` — components never branch on platform.
 - `src/lib/authFetch.ts` handles Bearer tokens, timeouts, and error parsing — API callers don't attach auth headers.
-- `apps/server/src/routes/helpers.ts` centralizes JSON parsing, password validation, and error extraction — routes don't repeat boilerplate.
+- Server middleware in `crates/stonefruit-server/src/middleware.rs` centralizes auth checks — routes don't repeat boilerplate.
 
 **When writing new code:** If you find yourself copying a pattern from another file (auth headers, try/parse/catch, validation checks), stop and check whether a shared helper already exists or should be created. The less each feature has to do, the fewer ways it can go wrong.
 
@@ -67,12 +79,13 @@ Do not report a fix or addition as complete until you verify it. If verification
 
 | What changed | Verification |
 |---|---|
-| Frontend / UI / Svelte | `pnpm run build` → `pnpm run test -- <spec>` (broaden Playwright coverage if risk is broad) |
-| Unit-testable logic | `pnpm run build` → `pnpm run test:unit` |
-| Server (sync, auth, API) | `pnpm run server:test` from root, or `pnpm test` in `apps/server/` |
-| Server + Docker | Above, then `docker compose up --build` in `apps/server/` → `curl -s http://localhost:3005/health` |
-| Shared package | `pnpm run test:shared` |
-| CSS / Tailwind only | `pnpm run build` (catches missing classes) → visual spot-check via Playwright screenshot or `pnpm run dev` |
+| Frontend / UI / Svelte | `just build` → `pnpm run test -- <spec>` (broaden Playwright coverage if risk is broad) |
+| Unit-testable logic | `just build` → `just test-unit` |
+| Server (sync, auth, API) | `just server-test` (runs `cargo test -p stonefruit-server`) |
+| Server + Docker | Above, then `just server-up` → `just server-health` → `just server-down` |
+| Shared package | `just test-shared` |
+| CSS / Tailwind only | `just build` (catches missing classes) → visual spot-check via Playwright screenshot |
+| Sync client stack (full) | `just test-cross-platform` (boots 2 Tauri instances + server, runs 12 scenarios) |
 | CI / pipeline config | Push branch → check pipeline via GitLab API (see GitLab CI section) |
 
 Always pipe build output through `| tail -20` for readability. Run `pnpm exec tsc --noEmit | head -30` before a full build to catch type errors early.
@@ -96,13 +109,6 @@ curl -s --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
 
 ## Testing
 
-- **Automation harness**: before building one-off note-moving setups for smart automations, run `pnpm run automation:loop -- --source ~/Documents/demo-vault-backup`
-- The harness copies the source vault into a temp run directory, bootstraps it into an isolated temp server DB, runs the built-in automations through the real server plugin routes, and leaves the source vault untouched
-- Default artifacts live under `.tmp/automation-loop/` and include `vault/`, `diff.patch`, `summary.txt`, `report.json`, and `runs/<plugin-id>.json`
-- Read `summary.txt` first, then `diff.patch`, then the per-plugin JSON in `runs/` when a transform looks wrong
-- Use `--plugin <id>` to narrow the loop to one built-in automation during iteration
-- Full docs: `docs/automation-loop.md`
-
 - Regression tests: `tests/p0-regressions.spec.ts` (crash/IME), `tests/p1-regressions.spec.ts` (links), `tests/p2-regressions.spec.ts` (title/formatting)
 - Markdown spec + cursor movement coverage: `tests/markdown-spec.spec.ts` and `markdown-spec/cases/**`. The movement-path editor cases run in CI via `pnpm run test:markdown-spec`.
 - Some Android-native issues (IME, status bar) require device QA even when Playwright passes
@@ -116,32 +122,36 @@ Every code change that touches logic must include or update tests. No exceptions
 | What you changed | Required test |
 |---|---|
 | New Tauri `#[tauri::command]` | Rust unit test in `core.rs` for the underlying `_impl` function |
-| Sync logic (client or server) | Server integration test in `apps/server/tests/integration/` |
-| Sync state transitions | Multi-client test using `SyncClient` helper in `multi-client-sync.test.ts` |
+| Sync logic (client or server) | Rust integration test in `crates/stonefruit-server/tests/` |
+| Sync state transitions | Rust two-client test in `crates/stonefruit-server/tests/e2e_two_client.rs` |
 | Shared package (`@futo-notes/shared`) | Unit test in `packages/shared/` |
 | Bug fix (any layer) | Regression test that reproduces the bug BEFORE the fix, then passes after |
 | New UI interaction or flow | Playwright spec in `tests/` |
+| Full-stack sync (client ↔ server) | Cross-platform scenario in `tests/cross-platform-sync.mjs` |
 | Path/filename handling | Both: server test (sanitization) + Rust test (path safety) |
 
 ### Where tests live
 
 - **Rust core**: `apps/tauri/src-tauri/src/core.rs` `#[cfg(test)]` module. Test `_impl` functions directly.
-- **Server integration**: `apps/server/tests/integration/`. Use `createTestEnv()` + `setupAndLogin()` from `tests/helpers/setup.ts`.
-- **Multi-client sync**: `apps/server/tests/integration/multi-client-sync.test.ts`. Use `SyncClient` class for stateful multi-client scenarios.
+- **Server integration**: `crates/stonefruit-server/tests/`. Rust integration tests with in-process Axum server.
+- **Multi-client sync**: `crates/stonefruit-server/tests/e2e_two_client.rs`. Two-client scenarios with separate vault directories.
 - **Shared package**: `packages/shared/src/*.test.ts`.
-- **Playwright E2E**: `tests/*.spec.ts`. For server-connected tests, follow `dashboard.spec.ts` pattern.
-- **Chaos/adversarial**: `apps/server/tests/integration/chaos-sync.test.ts` (server), Rust chaos tests in `core.rs`.
+- **Playwright E2E**: `tests/*.spec.ts`.
+- **Property-based sync**: `crates/stonefruit-server/tests/proptest_sync.rs`. Proptest-driven sync convergence tests.
+- **Cross-platform sync**: `tests/cross-platform-sync.mjs`. Two real Tauri instances + server, 12 multi-client scenarios through the full client stack. Shared helpers in `tests/lib/`.
+- **What cross-platform now covers well**: real CodeMirror typing and save flush, real `syncManager` completion handling, open-note remote rename propagation, active-note reload, edit-during-sync draft protection, and native watcher behavior for clean vs dirty open notes.
 
 ### How to run
 
 | Suite | Command |
 |---|---|
-| All server tests | `pnpm run server:test` |
-| Rust tests | `pnpm run tauri:test:rust` |
-| Shared package | `pnpm run test:shared` |
-| Unit tests | `pnpm run test:unit` |
-| Playwright E2E | `pnpm run test` |
-| Everything | `pnpm run test:all` then `pnpm run test` |
+| All server tests | `just server-test` |
+| Rust tests | `just test-rust` |
+| Shared package | `just test-shared` |
+| Unit tests | `just test-unit` |
+| Playwright E2E | `just test-e2e` |
+| Cross-platform sync | `just test-cross-platform` |
+| Everything | `just test` then `just test-e2e` |
 
 ## Debugging
 

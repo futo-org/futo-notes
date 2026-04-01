@@ -1,19 +1,27 @@
-use filetime::{set_file_mtime, FileTime};
-use notify::{Config as NotifyConfig, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{
+    Config as NotifyConfig, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher,
+};
 use rayon::prelude::*;
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
-use uuid::Uuid;
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::fs;
 use std::io;
-use std::path::{Component, Path, PathBuf};
-use std::sync::{Arc, Mutex, RwLock};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicI64, Ordering};
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::sync::{Arc, Mutex, RwLock};
+use std::time::Instant;
+use stonefruit_core::files::{
+    ensure_safe_note_id, file_mtime_ms, note_id_from_filename, safe_appdata_path, safe_note_path,
+    set_file_mtime_ms,
+};
+use stonefruit_core::hash::hash_sha256;
+#[cfg(test)]
+use stonefruit_core::hash::hash_sha256_bytes;
 use tauri::{AppHandle, Emitter, Manager, State};
+
+pub(crate) use stonefruit_core::files::{now_ms, write_atomic_text};
 
 #[derive(Default)]
 struct EngagementState {
@@ -189,125 +197,11 @@ pub struct HashCacheEntry {
     pub hash: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(default, rename_all = "camelCase")]
-pub struct SyncStatePayload {
-    pub hash_by_uuid: HashMap<String, String>,
-    pub uuid_by_id: HashMap<String, String>,
-    pub deleted_uuids: Vec<String>,
-    pub hash_cache: Option<HashMap<String, HashCacheEntry>>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct SyncRequestNote {
-    pub uuid: String,
-    pub filename: String,
-    pub modified_at: i64,
-    pub content_hash: String,
-    pub hash_at_last_sync: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub content: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SyncPrepareInput {
-    pub state: SyncStatePayload,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SyncPrepareOutput {
-    pub state: SyncStatePayload,
-    pub notes: Vec<SyncRequestNote>,
-    pub all_uuids: Vec<String>,
-    pub elapsed_ms: u128,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct IncomingSyncUpdate {
-    pub uuid: String,
-    pub id: String,
-    pub content: String,
-    pub modified_at: i64,
-    pub content_hash: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SyncApplyInput {
-    pub state: SyncStatePayload,
-    pub update: Vec<IncomingSyncUpdate>,
-    pub delete: Vec<String>,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SyncRenameOutput {
-    pub from_id: String,
-    pub to_id: String,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SyncApplyOutput {
-    pub state: SyncStatePayload,
-    pub updated_ids: Vec<String>,
-    pub deleted_ids: Vec<String>,
-    pub renamed: Vec<SyncRenameOutput>,
-    pub elapsed_ms: u128,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct ImageSyncEntry {
-    pub uuid: String,
-    pub filename: String,
-    pub content_hash: String,
-    pub modified_at: i64,
-    pub hash_at_last_sync: String,
-}
-
 #[derive(Debug, Clone, Serialize)]
 pub struct ImageFileEntry {
     pub filename: String,
     pub size: u64,
     pub mtime: i64,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ImageSyncPrepareInput {
-    pub state: SyncStatePayload,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ImageSyncPrepareOutput {
-    pub state: SyncStatePayload,
-    pub images: Vec<ImageSyncEntry>,
-    pub elapsed_ms: u128,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WriteSyncedImageInput {
-    pub filename: String,
-    pub data: Vec<u8>,
-    pub modified_at: i64,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ApplyImageSyncDeltaInput {
-    pub state: SyncStatePayload,
-    pub delete_uuids: Vec<String>,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ApplyImageSyncDeltaOutput {
-    pub state: SyncStatePayload,
-    pub deleted_filenames: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -340,13 +234,6 @@ pub struct SupersearchResultPayload {
     pub score: f32,
 }
 
-pub(crate) fn now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
-}
-
 pub(crate) fn io_err_to_string(err: io::Error) -> String {
     err.to_string()
 }
@@ -377,58 +264,6 @@ pub(crate) fn notes_root(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(root)
 }
 
-fn ensure_safe_note_id(id: &str) -> Result<(), String> {
-    if id.is_empty() {
-        return Err("note id cannot be empty".to_string());
-    }
-    if id.contains('/') || id.contains('\\') || id == ".." || id == "." {
-        return Err("invalid note id".to_string());
-    }
-    Ok(())
-}
-
-fn safe_note_path(base: &Path, id: &str) -> Result<PathBuf, String> {
-    ensure_safe_note_id(id)?;
-    Ok(base.join(format!("{id}.md")))
-}
-
-fn safe_appdata_path(base: &Path, rel_path: &str) -> Result<PathBuf, String> {
-    let rel = Path::new(rel_path);
-    for component in rel.components() {
-        match component {
-            Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
-                return Err("path traversal blocked".to_string())
-            }
-            _ => {}
-        }
-    }
-    Ok(base.join(rel))
-}
-
-fn file_mtime_ms(meta: &fs::Metadata) -> i64 {
-    meta.modified()
-        .ok()
-        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or_else(now_ms)
-}
-
-pub(crate) fn write_atomic_text(path: &Path, content: &str) -> Result<(), String> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| "invalid file path".to_string())?;
-    fs::create_dir_all(parent).map_err(io_err_to_string)?;
-
-    let filename = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .ok_or_else(|| "invalid file name".to_string())?;
-
-    let tmp = parent.join(format!(".{filename}.tmp-{}", now_ms()));
-    fs::write(&tmp, content).map_err(io_err_to_string)?;
-    fs::rename(&tmp, path).map_err(io_err_to_string)
-}
-
 fn load_app_config(base: &Path) -> AppConfigFile {
     let path = base.join(APP_CONFIG_PATH);
     let Ok(raw) = fs::read_to_string(path) else {
@@ -441,11 +276,6 @@ fn save_app_config(base: &Path, cfg: &AppConfigFile) -> Result<(), String> {
     let path = base.join(APP_CONFIG_PATH);
     let serialized = serde_json::to_string_pretty(cfg).map_err(|err| err.to_string())?;
     write_atomic_text(&path, &serialized)
-}
-
-fn set_file_mtime_ms(path: &Path, modified_at_ms: i64) -> Result<(), String> {
-    let filetime = FileTime::from_unix_time(modified_at_ms / 1000, ((modified_at_ms % 1000) * 1_000_000) as u32);
-    set_file_mtime(path, filetime).map_err(io_err_to_string)
 }
 
 fn extract_headings(content: &str) -> String {
@@ -464,7 +294,12 @@ fn extract_headings(content: &str) -> String {
             if hash_count == 0 || hash_count > 6 {
                 return None;
             }
-            if !trimmed.chars().nth(hash_count).map(|c| c.is_whitespace()).unwrap_or(false) {
+            if !trimmed
+                .chars()
+                .nth(hash_count)
+                .map(|c| c.is_whitespace())
+                .unwrap_or(false)
+            {
                 return None;
             }
             Some(trimmed[hash_count..].trim().to_string())
@@ -588,7 +423,9 @@ fn extract_tags_from_line(line: &str, tags: &mut Vec<String>, seen: &mut HashSet
             }
             // Consume tag body: letters, digits, hyphens, underscores
             let body_start = i;
-            while i < len && (chars[i].is_ascii_alphanumeric() || chars[i] == '-' || chars[i] == '_') {
+            while i < len
+                && (chars[i].is_ascii_alphanumeric() || chars[i] == '-' || chars[i] == '_')
+            {
                 i += 1;
             }
             let body_len = i - body_start;
@@ -596,7 +433,13 @@ fn extract_tags_from_line(line: &str, tags: &mut Vec<String>, seen: &mut HashSet
                 continue;
             }
             // Must be followed by whitespace, end-of-line, or punctuation
-            if i < len && !chars[i].is_whitespace() && !matches!(chars[i], '.' | ',' | ';' | ':' | '!' | '?' | ')' | '}' | ']') {
+            if i < len
+                && !chars[i].is_whitespace()
+                && !matches!(
+                    chars[i],
+                    '.' | ',' | ';' | ':' | '!' | '?' | ')' | '}' | ']'
+                )
+            {
                 continue;
             }
             let tag: String = chars[tag_start..i].iter().collect();
@@ -612,7 +455,11 @@ fn extract_tags_from_line(line: &str, tags: &mut Vec<String>, seen: &mut HashSet
 }
 
 fn make_preview(content: &str) -> String {
-    content.chars().take(100).collect::<String>().replace('\n', " ")
+    content
+        .chars()
+        .take(100)
+        .collect::<String>()
+        .replace('\n', " ")
 }
 
 /// One-way migration: convert .txt files to .md in the notes directory.
@@ -647,9 +494,7 @@ fn convert_txt_to_md(base: &Path) {
             // Collision: both name.txt and name.md exist
             let mut candidate = format!("{txt_base} (imported).md");
             let mut counter = 2;
-            while md_set.contains(&candidate.to_lowercase())
-                || base.join(&candidate).exists()
-            {
+            while md_set.contains(&candidate.to_lowercase()) || base.join(&candidate).exists() {
                 candidate = format!("{txt_base} (imported {counter}).md");
                 counter += 1;
             }
@@ -660,27 +505,6 @@ fn convert_txt_to_md(base: &Path) {
 
         let _ = fs::rename(base.join(&name), base.join(&target));
     }
-}
-
-pub(crate) fn note_id_from_filename(name: &str) -> Option<String> {
-    if !name.ends_with(".md") {
-        return None;
-    }
-    let id = name.trim_end_matches(".md").to_string();
-    if id.is_empty() {
-        return None;
-    }
-    Some(id)
-}
-
-fn hash_sha256(content: &str) -> String {
-    let digest = Sha256::digest(content.as_bytes());
-    digest.iter().map(|b| format!("{b:02x}")).collect::<String>()
-}
-
-fn hash_sha256_bytes(data: &[u8]) -> String {
-    let digest = Sha256::digest(data);
-    digest.iter().map(|b| format!("{b:02x}")).collect::<String>()
 }
 
 fn floor_char_boundary(text: &str, idx: usize) -> usize {
@@ -703,7 +527,8 @@ fn load_vector_artifacts_from_disk(base: &Path) -> Result<VectorArtifacts, Strin
     let manifest_path = base.join(".supersearch-manifest.json");
     let bin_path = base.join(".supersearch-vectors.bin");
     let manifest_raw = fs::read_to_string(&manifest_path).map_err(io_err_to_string)?;
-    let manifest: ManifestPayload = serde_json::from_str(&manifest_raw).map_err(|err| err.to_string())?;
+    let manifest: ManifestPayload =
+        serde_json::from_str(&manifest_raw).map_err(|err| err.to_string())?;
 
     if manifest.dims == 0 {
         return Err("invalid supersearch manifest: dims must be > 0".to_string());
@@ -741,14 +566,18 @@ pub(crate) fn ensure_vectors_loaded(
     cache: &Arc<RwLock<Option<Arc<VectorArtifacts>>>>,
 ) -> Result<Arc<VectorArtifacts>, String> {
     {
-        let read = cache.read().map_err(|_| "vector cache lock poisoned".to_string())?;
+        let read = cache
+            .read()
+            .map_err(|_| "vector cache lock poisoned".to_string())?;
         if let Some(artifacts) = read.as_ref() {
             return Ok(Arc::clone(artifacts));
         }
     }
 
     let loaded = Arc::new(load_vector_artifacts_from_disk(base)?);
-    let mut write = cache.write().map_err(|_| "vector cache lock poisoned".to_string())?;
+    let mut write = cache
+        .write()
+        .map_err(|_| "vector cache lock poisoned".to_string())?;
     if let Some(existing) = write.as_ref() {
         return Ok(Arc::clone(existing));
     }
@@ -816,14 +645,18 @@ fn scan_notes(base: &Path) -> Result<HashMap<String, IndexedNote>, String> {
 
 fn ensure_index_loaded(base: &Path, state: &Arc<RwLock<SearchIndexState>>) -> Result<(), String> {
     {
-        let read = state.read().map_err(|_| "search index lock poisoned".to_string())?;
+        let read = state
+            .read()
+            .map_err(|_| "search index lock poisoned".to_string())?;
         if read.loaded {
             return Ok(());
         }
     }
 
     let scanned = scan_notes(base)?;
-    let mut write = state.write().map_err(|_| "search index lock poisoned".to_string())?;
+    let mut write = state
+        .write()
+        .map_err(|_| "search index lock poisoned".to_string())?;
     write.notes = scanned;
     write.loaded = true;
     Ok(())
@@ -872,162 +705,105 @@ fn load_supersearch_meta(base: &Path) -> Option<SupersearchMeta> {
     serde_json::from_str::<SupersearchMeta>(&raw).ok()
 }
 
-fn get_unique_note_id(base: &Path, wanted: &str, exclude: Option<&str>) -> Result<String, String> {
-    if Some(wanted) == exclude {
-        return Ok(wanted.to_string());
-    }
+// ── V2 Sync (filename-based, no UUIDs) ─────────────────────────────────
 
-    let wanted_path = safe_note_path(base, wanted)?;
-    if !wanted_path.exists() {
-        return Ok(wanted.to_string());
-    }
-
-    let mut counter = 2;
-    loop {
-        let candidate = format!("{wanted}-{counter}");
-        if Some(candidate.as_str()) == exclude {
-            return Ok(candidate);
-        }
-        let candidate_path = safe_note_path(base, &candidate)?;
-        if !candidate_path.exists() {
-            return Ok(candidate);
-        }
-        counter += 1;
-    }
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default, rename_all = "camelCase")]
+pub struct V2SyncState {
+    pub device_id: String,
+    pub last_server_version: u64,
+    pub file_hashes: HashMap<String, String>,
+    pub hash_cache: Option<HashMap<String, HashCacheEntry>>,
 }
 
-fn find_id_for_uuid(uuid_by_id: &HashMap<String, String>, uuid: &str) -> Option<String> {
-    uuid_by_id
-        .iter()
-        .find_map(|(id, mapped)| (mapped == uuid).then(|| id.clone()))
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct V2SyncPrepareInput {
+    pub state: V2SyncState,
 }
 
-#[derive(Clone)]
-struct PreparedLocalNote {
-    id: String,
-    uuid: String,
-    modified_at: i64,
-    hash: String,
-    hash_at_last_sync: String,
-    content: Option<String>,
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct V2SyncPrepareOutput {
+    pub state: V2SyncState,
+    pub inventory: Vec<V2InventoryItem>,
+    pub changed: Vec<V2ChangedNote>,
+    pub new: Vec<V2NewNote>,
+    pub deleted: Vec<String>,
+    pub elapsed_ms: u128,
 }
 
-fn prepare_sync_payload_impl(base: &Path, input: SyncPrepareInput) -> Result<SyncPrepareOutput, String> {
+#[derive(Debug, Clone, Serialize)]
+pub struct V2InventoryItem {
+    pub filename: String,
+    pub hash: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct V2ChangedNote {
+    pub filename: String,
+    pub content: String,
+    pub hash: String,
+    pub modified_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct V2NewNote {
+    pub filename: String,
+    pub content: String,
+    pub hash: String,
+    pub modified_at: i64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct V2SyncApplyInput {
+    pub update: Vec<V2IncomingUpdate>,
+    pub delete: Vec<String>,
+    pub conflicts: Vec<V2IncomingConflict>,
+    #[serde(default)]
+    pub timestamps: HashMap<String, i64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct V2IncomingUpdate {
+    pub filename: String,
+    pub content: String,
+    pub hash: String,
+    pub modified_at: i64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct V2IncomingConflict {
+    pub filename: String,
+    pub content: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct V2SyncApplyOutput {
+    pub updated_filenames: Vec<String>,
+    pub deleted_filenames: Vec<String>,
+    pub conflict_filenames: Vec<String>,
+    pub elapsed_ms: u128,
+}
+
+fn prepare_sync_payload_v2_impl(
+    base: &Path,
+    input: V2SyncPrepareInput,
+) -> Result<V2SyncPrepareOutput, String> {
     let started = Instant::now();
     convert_txt_to_md(base);
     let mut state = input.state;
     let hash_cache = state.hash_cache.clone().unwrap_or_default();
 
+    // Scan all .md files
     let files: Vec<(String, PathBuf, i64)> = fs::read_dir(base)
         .map_err(io_err_to_string)?
         .filter_map(|entry| entry.ok())
         .filter_map(|entry| {
             let name = entry.file_name().to_string_lossy().to_string();
-            let id = note_id_from_filename(&name)?;
-            let meta = entry.metadata().ok()?;
-            if !meta.is_file() {
-                return None;
-            }
-            Some((id, entry.path(), file_mtime_ms(&meta)))
-        })
-        .collect();
-
-    let uuid_snapshot = state.uuid_by_id.clone();
-    let hash_snapshot = state.hash_by_uuid.clone();
-
-    let mut prepared = files
-        .par_iter()
-        .map(|(id, path, mtime)| {
-            let uuid = uuid_snapshot.get(id).cloned().unwrap_or_else(|| Uuid::new_v4().to_string());
-            let cached = hash_cache.get(id);
-
-            let mut content: Option<String> = None;
-            let hash = if cached.map(|entry| entry.modified_at) == Some(*mtime) {
-                cached.map(|entry| entry.hash.clone()).unwrap_or_default()
-            } else {
-                let body = fs::read_to_string(path).map_err(io_err_to_string)?;
-                let computed = hash_sha256(&body);
-                content = Some(body);
-                computed
-            };
-
-            let hash_at_last_sync = hash_snapshot.get(&uuid).cloned().unwrap_or_default();
-            let needs_content = hash != hash_at_last_sync;
-            if needs_content && content.is_none() {
-                content = Some(fs::read_to_string(path).map_err(io_err_to_string)?);
-            }
-
-            Ok::<PreparedLocalNote, String>(PreparedLocalNote {
-                id: id.clone(),
-                uuid,
-                modified_at: *mtime,
-                hash,
-                hash_at_last_sync,
-                content: if needs_content { content } else { None },
-            })
-        })
-        .collect::<Result<Vec<_>, String>>()?;
-
-    prepared.sort_by(|a, b| b.modified_at.cmp(&a.modified_at));
-
-    let active_ids: HashSet<String> = prepared.iter().map(|p| p.id.clone()).collect();
-    let mut new_hash_cache = HashMap::new();
-    let mut notes = Vec::with_capacity(prepared.len());
-    let mut all_uuids = Vec::with_capacity(prepared.len());
-
-    for item in prepared {
-        state
-            .uuid_by_id
-            .insert(item.id.clone(), item.uuid.clone());
-
-        new_hash_cache.insert(
-            item.id.clone(),
-            HashCacheEntry {
-                modified_at: item.modified_at,
-                hash: item.hash.clone(),
-            },
-        );
-
-        all_uuids.push(item.uuid.clone());
-        notes.push(SyncRequestNote {
-            uuid: item.uuid,
-            filename: format!("{}.md", item.id),
-            modified_at: item.modified_at,
-            content_hash: item.hash,
-            hash_at_last_sync: item.hash_at_last_sync,
-            content: item.content,
-        });
-    }
-
-    if let Some(existing) = state.hash_cache.take() {
-        for (id, entry) in existing {
-            if active_ids.contains(&id) {
-                new_hash_cache.entry(id).or_insert(entry);
-            }
-        }
-    }
-
-    state.hash_cache = Some(new_hash_cache);
-
-    Ok(SyncPrepareOutput {
-        state,
-        notes,
-        all_uuids,
-        elapsed_ms: started.elapsed().as_millis(),
-    })
-}
-
-fn prepare_image_sync_impl(base: &Path, input: ImageSyncPrepareInput) -> Result<ImageSyncPrepareOutput, String> {
-    let started = Instant::now();
-    let mut state = input.state;
-    let hash_cache = state.hash_cache.clone().unwrap_or_default();
-
-    let files: Vec<(String, PathBuf, i64)> = fs::read_dir(base)
-        .map_err(io_err_to_string)?
-        .filter_map(|entry| entry.ok())
-        .filter_map(|entry| {
-            let name = entry.file_name().to_string_lossy().to_string();
-            if !is_image_filename(&name) {
+            if !name.ends_with(".md") {
                 return None;
             }
             let meta = entry.metadata().ok()?;
@@ -1038,68 +814,122 @@ fn prepare_image_sync_impl(base: &Path, input: ImageSyncPrepareInput) -> Result<
         })
         .collect();
 
-    let hash_snapshot = state.hash_by_uuid.clone();
+    // Parallel hash computation with mtime cache
+    let file_hashes_snapshot = state.file_hashes.clone();
 
-    let images: Vec<ImageSyncEntry> = files
+    let computed: Vec<(String, String, Option<String>, i64)> = files
         .par_iter()
         .map(|(filename, path, mtime)| {
-            let uuid = state.uuid_by_id.get(filename).cloned().unwrap_or_else(|| Uuid::new_v4().to_string());
             let cached = hash_cache.get(filename);
+            let mut content: Option<String> = None;
 
             let hash = if cached.map(|e| e.modified_at) == Some(*mtime) {
                 cached.map(|e| e.hash.clone()).unwrap_or_default()
             } else {
-                let data = fs::read(path).map_err(io_err_to_string)?;
-                hash_sha256_bytes(&data)
+                let body = fs::read_to_string(path).map_err(io_err_to_string)?;
+                let computed = hash_sha256(&body);
+                content = Some(body);
+                computed
             };
 
-            let hash_at_last_sync = hash_snapshot.get(&uuid).cloned().unwrap_or_default();
+            let last_sync_hash = file_hashes_snapshot.get(filename).cloned();
+            let needs_content = last_sync_hash.as_deref() != Some(&hash);
+            if needs_content && content.is_none() {
+                content = Some(fs::read_to_string(path).map_err(io_err_to_string)?);
+            }
 
-            Ok::<ImageSyncEntry, String>(ImageSyncEntry {
-                uuid,
-                filename: filename.clone(),
-                content_hash: hash,
-                modified_at: *mtime,
-                hash_at_last_sync,
-            })
+            Ok::<(String, String, Option<String>, i64), String>((
+                filename.clone(),
+                hash,
+                if needs_content { content } else { None },
+                *mtime,
+            ))
         })
         .collect::<Result<Vec<_>, String>>()?;
 
-    // Update state with image UUIDs and hash cache
-    let mut new_hash_cache = state.hash_cache.take().unwrap_or_default();
-    for img in &images {
-        state.uuid_by_id.insert(img.filename.clone(), img.uuid.clone());
+    let mut inventory = Vec::new();
+    let mut changed = Vec::new();
+    let mut new_notes = Vec::new();
+    let mut new_hash_cache = HashMap::new();
+    let active_filenames: HashSet<String> = computed.iter().map(|(f, _, _, _)| f.clone()).collect();
+
+    for (filename, hash, content, mtime) in computed {
+        inventory.push(V2InventoryItem {
+            filename: filename.clone(),
+            hash: hash.clone(),
+        });
+
         new_hash_cache.insert(
-            img.filename.clone(),
+            filename.clone(),
             HashCacheEntry {
-                modified_at: img.modified_at,
-                hash: img.content_hash.clone(),
+                modified_at: mtime,
+                hash: hash.clone(),
             },
         );
+
+        let last_sync_hash = state.file_hashes.get(&filename);
+        match last_sync_hash {
+            None => {
+                // New file
+                if let Some(content) = content {
+                    new_notes.push(V2NewNote {
+                        filename: filename.clone(),
+                        content,
+                        hash: hash.clone(),
+                        modified_at: mtime,
+                    });
+                }
+            }
+            Some(last_hash) if last_hash != &hash => {
+                // Changed file
+                if let Some(content) = content {
+                    changed.push(V2ChangedNote {
+                        filename: filename.clone(),
+                        content,
+                        hash: hash.clone(),
+                        modified_at: mtime,
+                    });
+                }
+            }
+            _ => {
+                // Unchanged
+            }
+        }
     }
+
+    // Detect deletions: files in file_hashes that no longer exist on disk
+    let deleted: Vec<String> = state
+        .file_hashes
+        .keys()
+        .filter(|f| !active_filenames.contains(*f))
+        .cloned()
+        .collect();
+
     state.hash_cache = Some(new_hash_cache);
 
-    Ok(ImageSyncPrepareOutput {
+    Ok(V2SyncPrepareOutput {
         state,
-        images,
+        inventory,
+        changed,
+        new: new_notes,
+        deleted,
         elapsed_ms: started.elapsed().as_millis(),
     })
 }
 
-fn apply_sync_delta_impl(
+fn apply_sync_delta_v2_impl(
     base: &Path,
     index: &Arc<RwLock<SearchIndexState>>,
     suppressed_watcher_events: &Arc<Mutex<HashMap<String, i64>>>,
     sync_writes_until: &Arc<AtomicI64>,
-    input: SyncApplyInput,
-) -> Result<SyncApplyOutput, String> {
+    input: V2SyncApplyInput,
+) -> Result<V2SyncApplyOutput, String> {
     let started = Instant::now();
     sync_writes_until.store(now_ms() + WATCHER_SUPPRESSION_MS, Ordering::Release);
-    let mut state = input.state;
-    let mut hash_cache = state.hash_cache.clone().unwrap_or_default();
-    let mut updated_ids = Vec::new();
-    let mut deleted_ids = Vec::new();
-    let mut renamed = Vec::new();
+
+    let mut updated_filenames = Vec::new();
+    let mut deleted_filenames = Vec::new();
+    let mut conflict_filenames = Vec::new();
 
     let suppress_filename = |filename: &str| {
         if let Ok(mut map) = suppressed_watcher_events.lock() {
@@ -1109,133 +939,131 @@ fn apply_sync_delta_impl(
         }
     };
 
-    for uuid in &input.delete {
-        let maybe_id = find_id_for_uuid(&state.uuid_by_id, uuid);
-        if let Some(id) = maybe_id {
-            suppress_filename(&format!("{id}.md"));
-            let path = safe_note_path(base, &id)?;
-            let _ = fs::remove_file(&path);
-            deleted_ids.push(id.clone());
-            state.uuid_by_id.remove(&id);
-            hash_cache.remove(&id);
+    // Delete files
+    for filename in &input.delete {
+        suppress_filename(filename);
+        let path = base.join(filename);
+        let _ = fs::remove_file(&path);
+        deleted_filenames.push(filename.clone());
 
-            if let Ok(mut idx) = index.write() {
-                if idx.loaded {
-                    idx.notes.remove(&id);
-                }
+        // Update search index
+        let id = filename.strip_suffix(".md").unwrap_or(filename);
+        if let Ok(mut idx) = index.write() {
+            if idx.loaded {
+                idx.notes.remove(id);
             }
         }
-        state.hash_by_uuid.remove(uuid);
-        state.deleted_uuids.retain(|x| x != uuid);
     }
 
+    // Write updates
     for update in &input.update {
-        let incoming_id = update.id.clone();
-        let mapped_id = find_id_for_uuid(&state.uuid_by_id, &update.uuid);
-        let incoming_exists = safe_note_path(base, &incoming_id)?.exists();
+        suppress_filename(&update.filename);
+        let path = base.join(&update.filename);
+        write_atomic_text(&path, &update.content)?;
 
-        let original_id = if let Some(mapped) = mapped_id.clone() {
-            if mapped != incoming_id {
-                Some(mapped)
-            } else if incoming_exists {
-                Some(incoming_id.clone())
-            } else {
-                None
-            }
-        } else if incoming_exists {
-            Some(incoming_id.clone())
-        } else {
-            None
-        };
-
-        let final_id = get_unique_note_id(base, &incoming_id, original_id.as_deref())?;
-        suppress_filename(&format!("{final_id}.md"));
-
-        let final_path = safe_note_path(base, &final_id)?;
-        write_atomic_text(&final_path, &update.content)?;
-        if update.modified_at >= 0 {
-            let _ = set_file_mtime_ms(&final_path, update.modified_at);
+        // 0 means "no timestamp from server" — keep the filesystem's own mtime
+        if update.modified_at > 0 {
+            let _ = set_file_mtime_ms(&path, update.modified_at);
         }
 
-        if let Some(old) = &original_id {
-            if old != &final_id {
-                suppress_filename(&format!("{old}.md"));
-                let old_path = safe_note_path(base, old)?;
-                let _ = fs::remove_file(&old_path);
-                hash_cache.remove(old);
-                renamed.push(SyncRenameOutput {
-                    from_id: old.clone(),
-                    to_id: final_id.clone(),
-                });
-
-                if let Ok(mut idx) = index.write() {
-                    if idx.loaded {
-                        idx.notes.remove(old);
-                    }
-                }
-            }
-        }
-
-        let actual_mtime = fs::metadata(&final_path)
+        let id = update
+            .filename
+            .strip_suffix(".md")
+            .unwrap_or(&update.filename);
+        let actual_mtime = fs::metadata(&path)
             .map(|meta| file_mtime_ms(&meta))
-            .unwrap_or(update.modified_at.max(0));
-
-        if let Some(mapped) = mapped_id {
-            if mapped != final_id {
-                state.uuid_by_id.remove(&mapped);
-            }
-        }
-
-        state
-            .uuid_by_id
-            .insert(final_id.clone(), update.uuid.clone());
-        state
-            .hash_by_uuid
-            .insert(update.uuid.clone(), update.content_hash.clone());
-        state.deleted_uuids.retain(|x| x != &update.uuid);
-
-        hash_cache.insert(
-            final_id.clone(),
-            HashCacheEntry {
-                modified_at: actual_mtime,
-                hash: update.content_hash.clone(),
-            },
-        );
+            .unwrap_or(now_ms());
 
         if let Ok(mut idx) = index.write() {
             if idx.loaded {
                 idx.notes.insert(
-                    final_id.clone(),
-                    build_indexed_note(final_id.clone(), update.content.clone(), actual_mtime),
+                    id.to_string(),
+                    build_indexed_note(id.to_string(), update.content.clone(), actual_mtime),
                 );
             }
         }
 
-        updated_ids.push(final_id);
+        updated_filenames.push(update.filename.clone());
     }
 
-    state.hash_cache = Some(hash_cache);
+    // Write conflict copies
+    for conflict in &input.conflicts {
+        suppress_filename(&conflict.filename);
+        let path = base.join(&conflict.filename);
+        write_atomic_text(&path, &conflict.content)?;
 
-    updated_ids.sort();
-    updated_ids.dedup();
-    deleted_ids.sort();
-    deleted_ids.dedup();
-    renamed.sort_by(|a, b| {
-        a.from_id
-            .cmp(&b.from_id)
-            .then_with(|| a.to_id.cmp(&b.to_id))
-    });
-    renamed.dedup_by(|a, b| a.from_id == b.from_id && a.to_id == b.to_id);
+        let id = conflict
+            .filename
+            .strip_suffix(".md")
+            .unwrap_or(&conflict.filename);
+        let actual_mtime = fs::metadata(&path)
+            .map(|meta| file_mtime_ms(&meta))
+            .unwrap_or(now_ms());
+
+        if let Ok(mut idx) = index.write() {
+            if idx.loaded {
+                idx.notes.insert(
+                    id.to_string(),
+                    build_indexed_note(id.to_string(), conflict.content.clone(), actual_mtime),
+                );
+            }
+        }
+
+        conflict_filenames.push(conflict.filename.clone());
+    }
+
+    // Correct local file mtimes from server-authoritative timestamps.
+    // This fixes files that were already up-to-date (same hash) but had wrong mtimes.
+    for (filename, server_mtime) in &input.timestamps {
+        if *server_mtime > 0 {
+            let path = base.join(filename);
+            if let Ok(meta) = fs::metadata(&path) {
+                if file_mtime_ms(&meta) != *server_mtime {
+                    suppress_filename(filename);
+                    let _ = set_file_mtime_ms(&path, *server_mtime);
+                }
+            }
+        }
+    }
 
     sync_writes_until.store(now_ms() + WATCHER_SUPPRESSION_MS, Ordering::Release);
 
-    Ok(SyncApplyOutput {
-        state,
-        updated_ids,
-        deleted_ids,
-        renamed,
+    Ok(V2SyncApplyOutput {
+        updated_filenames,
+        deleted_filenames,
+        conflict_filenames,
         elapsed_ms: started.elapsed().as_millis(),
     })
+}
+
+#[tauri::command]
+pub async fn core_prepare_sync_payload_v2(
+    app: AppHandle,
+    input: V2SyncPrepareInput,
+) -> Result<V2SyncPrepareOutput, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = notes_root(&app)?;
+        prepare_sync_payload_v2_impl(&base, input)
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
+#[tauri::command]
+pub async fn core_apply_sync_delta_v2(
+    app: AppHandle,
+    state: State<'_, CoreState>,
+    input: V2SyncApplyInput,
+) -> Result<V2SyncApplyOutput, String> {
+    let index = state.index.clone();
+    let suppressed = state.suppressed_watcher_events.clone();
+    let sync_until = state.sync_writes_until.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = notes_root(&app)?;
+        apply_sync_delta_v2_impl(&base, &index, &suppressed, &sync_until, input)
+    })
+    .await
+    .map_err(task_join_err)?
 }
 
 fn build_highlighted_segments(text: &str, terms: &[String]) -> Vec<SnippetSegmentPayload> {
@@ -1483,14 +1311,11 @@ fn dot_product_unrolled(query: &[f32], candidate: &[f32]) -> f32 {
 }
 
 fn should_replace_min_score(min_hit: ScoredChunk, candidate: ScoredChunk) -> bool {
-    candidate.score > min_hit.score || (candidate.score == min_hit.score && candidate.idx < min_hit.idx)
+    candidate.score > min_hit.score
+        || (candidate.score == min_hit.score && candidate.idx < min_hit.idx)
 }
 
-fn push_top_score(
-    heap: &mut BinaryHeap<Reverse<ScoredChunk>>,
-    hit: ScoredChunk,
-    limit: usize,
-) {
+fn push_top_score(heap: &mut BinaryHeap<Reverse<ScoredChunk>>, hit: ScoredChunk, limit: usize) {
     if heap.len() < limit {
         heap.push(Reverse(hit));
         return;
@@ -1661,7 +1486,11 @@ pub async fn fs_write_note(
 }
 
 #[tauri::command]
-pub async fn fs_delete_note_file(app: AppHandle, state: State<'_, CoreState>, id: String) -> Result<(), String> {
+pub async fn fs_delete_note_file(
+    app: AppHandle,
+    state: State<'_, CoreState>,
+    id: String,
+) -> Result<(), String> {
     let index = state.index.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let base = notes_root(&app)?;
@@ -1691,7 +1520,10 @@ pub async fn fs_note_exists(app: AppHandle, id: String) -> Result<bool, String> 
 }
 
 #[tauri::command]
-pub async fn fs_delete_all_content(app: AppHandle, state: State<'_, CoreState>) -> Result<(), String> {
+pub async fn fs_delete_all_content(
+    app: AppHandle,
+    state: State<'_, CoreState>,
+) -> Result<(), String> {
     let index = state.index.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let base = notes_root(&app)?;
@@ -1732,7 +1564,11 @@ pub async fn appdata_read(app: AppHandle, rel_path: String) -> Result<Option<Str
 }
 
 #[tauri::command]
-pub async fn appdata_write(app: AppHandle, rel_path: String, content: String) -> Result<(), String> {
+pub async fn appdata_write(
+    app: AppHandle,
+    rel_path: String,
+    content: String,
+) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         let base = notes_root(&app)?;
         let path = safe_appdata_path(&base, &rel_path)?;
@@ -1777,7 +1613,10 @@ pub async fn appdata_list(app: AppHandle, rel_dir: String) -> Result<Vec<String>
 }
 
 #[tauri::command]
-pub async fn appdata_read_binary(app: AppHandle, rel_path: String) -> Result<Option<Vec<u8>>, String> {
+pub async fn appdata_read_binary(
+    app: AppHandle,
+    rel_path: String,
+) -> Result<Option<Vec<u8>>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let base = notes_root(&app)?;
         let path = safe_appdata_path(&base, &rel_path)?;
@@ -1792,7 +1631,11 @@ pub async fn appdata_read_binary(app: AppHandle, rel_path: String) -> Result<Opt
 }
 
 #[tauri::command]
-pub async fn appdata_write_binary(app: AppHandle, rel_path: String, data: Vec<u8>) -> Result<(), String> {
+pub async fn appdata_write_binary(
+    app: AppHandle,
+    rel_path: String,
+    data: Vec<u8>,
+) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         let base = notes_root(&app)?;
         let path = safe_appdata_path(&base, &rel_path)?;
@@ -1860,8 +1703,7 @@ pub async fn supersearch_download(
         *write = None;
 
         if let Some(meta) = meta {
-            let meta_json =
-                serde_json::to_string_pretty(&meta).map_err(|e| e.to_string())?;
+            let meta_json = serde_json::to_string_pretty(&meta).map_err(|e| e.to_string())?;
             write_atomic_text(&base.join(".supersearch-state.json"), &meta_json)?;
             let mut ss_write = supersearch_meta_state
                 .write()
@@ -2008,7 +1850,9 @@ pub(crate) fn is_image_filename(name: &str) -> bool {
         None => return false,
     };
     let ext = &name[dot + 1..];
-    if ext.is_empty() { return false; }
+    if ext.is_empty() {
+        return false;
+    }
     let lower = ext.to_lowercase();
     ALLOWED_IMAGE_EXTS.contains(&lower.as_str())
 }
@@ -2022,7 +1866,7 @@ fn validate_image_ext(ext: &str) -> Result<String, String> {
     }
     let lower = ext.to_lowercase();
     if !ALLOWED_IMAGE_EXTS.contains(&lower.as_str()) {
-        return Err(format!("disallowed image extension: {lower}"))
+        return Err(format!("disallowed image extension: {lower}"));
     }
     Ok(lower)
 }
@@ -2040,10 +1884,7 @@ pub async fn fs_save_image(app: AppHandle, source_path: String) -> Result<String
     tauri::async_runtime::spawn_blocking(move || {
         let base = notes_root(&app)?;
         let source = PathBuf::from(&source_path);
-        let ext = source
-            .extension()
-            .and_then(|s| s.to_str())
-            .unwrap_or("jpg");
+        let ext = source.extension().and_then(|s| s.to_str()).unwrap_or("jpg");
         let ext = validate_image_ext(ext)?;
         let data = fs::read(&source).map_err(io_err_to_string)?;
         write_image_to_notes(&base, &data, &ext)
@@ -2053,7 +1894,11 @@ pub async fn fs_save_image(app: AppHandle, source_path: String) -> Result<String
 }
 
 #[tauri::command]
-pub async fn fs_save_image_bytes(app: AppHandle, data: Vec<u8>, ext: String) -> Result<String, String> {
+pub async fn fs_save_image_bytes(
+    app: AppHandle,
+    data: Vec<u8>,
+    ext: String,
+) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let base = notes_root(&app)?;
         write_image_to_notes(&base, &data, &ext)
@@ -2217,7 +2062,9 @@ pub async fn core_rebuild_index(
     tauri::async_runtime::spawn_blocking(move || {
         let base = notes_root(&app)?;
         let scanned = scan_notes(&base)?;
-        let mut write = index.write().map_err(|_| "search index lock poisoned".to_string())?;
+        let mut write = index
+            .write()
+            .map_err(|_| "search index lock poisoned".to_string())?;
         write.notes = scanned;
         write.loaded = true;
 
@@ -2238,7 +2085,9 @@ pub async fn core_get_note_previews(
     tauri::async_runtime::spawn_blocking(move || {
         let base = notes_root(&app)?;
         ensure_index_loaded(&base, &index)?;
-        let read = index.read().map_err(|_| "search index lock poisoned".to_string())?;
+        let read = index
+            .read()
+            .map_err(|_| "search index lock poisoned".to_string())?;
         let mut previews: Vec<_> = read.notes.values().map(note_to_preview).collect();
         previews.sort_by(|a, b| b.modification_time.cmp(&a.modification_time));
         Ok(previews)
@@ -2257,140 +2106,11 @@ pub async fn core_keyword_search(
     tauri::async_runtime::spawn_blocking(move || {
         let base = notes_root(&app)?;
         ensure_index_loaded(&base, &index)?;
-        let read = index.read().map_err(|_| "search index lock poisoned".to_string())?;
+        let read = index
+            .read()
+            .map_err(|_| "search index lock poisoned".to_string())?;
         let limit = input.limit.unwrap_or(200).max(1);
         Ok(keyword_search_impl(&read.notes, &input.query, limit))
-    })
-    .await
-    .map_err(task_join_err)?
-}
-
-#[tauri::command]
-pub async fn core_prepare_sync_payload(
-    app: AppHandle,
-    input: SyncPrepareInput,
-) -> Result<SyncPrepareOutput, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let base = notes_root(&app)?;
-        prepare_sync_payload_impl(&base, input)
-    })
-    .await
-    .map_err(task_join_err)?
-}
-
-#[tauri::command]
-pub async fn core_apply_sync_delta(
-    app: AppHandle,
-    state: State<'_, CoreState>,
-    input: SyncApplyInput,
-) -> Result<SyncApplyOutput, String> {
-    let index = state.index.clone();
-    let suppressed_watcher_events = state.suppressed_watcher_events.clone();
-    let sync_writes_until = state.sync_writes_until.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        let base = notes_root(&app)?;
-        apply_sync_delta_impl(&base, &index, &suppressed_watcher_events, &sync_writes_until, input)
-    })
-    .await
-    .map_err(task_join_err)?
-}
-
-#[tauri::command]
-pub async fn core_prepare_image_sync(
-    app: AppHandle,
-    input: ImageSyncPrepareInput,
-) -> Result<ImageSyncPrepareOutput, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let base = notes_root(&app)?;
-        prepare_image_sync_impl(&base, input)
-    })
-    .await
-    .map_err(task_join_err)?
-}
-
-#[tauri::command]
-pub async fn core_read_image_bytes(
-    app: AppHandle,
-    filename: String,
-) -> Result<Vec<u8>, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let base = notes_root(&app)?;
-        if !is_image_filename(&filename) {
-            return Err("not an image filename".to_string());
-        }
-        // Basic path safety: no traversal
-        if filename.contains("..") || filename.contains('/') || filename.contains('\\') {
-            return Err("invalid filename".to_string());
-        }
-        let path = base.join(&filename);
-        fs::read(&path).map_err(io_err_to_string)
-    })
-    .await
-    .map_err(task_join_err)?
-}
-
-#[tauri::command]
-pub async fn core_write_synced_image(
-    app: AppHandle,
-    state: State<'_, CoreState>,
-    input: WriteSyncedImageInput,
-) -> Result<(), String> {
-    let sync_writes_until = state.sync_writes_until.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        let base = notes_root(&app)?;
-        if !is_image_filename(&input.filename) {
-            return Err("not an image filename".to_string());
-        }
-        if input.filename.contains("..") || input.filename.contains('/') || input.filename.contains('\\') {
-            return Err("invalid filename".to_string());
-        }
-        sync_writes_until.store(now_ms() + WATCHER_SUPPRESSION_MS, Ordering::Release);
-        let path = base.join(&input.filename);
-        fs::write(&path, &input.data).map_err(io_err_to_string)?;
-        if input.modified_at >= 0 {
-            let _ = set_file_mtime_ms(&path, input.modified_at);
-        }
-        Ok(())
-    })
-    .await
-    .map_err(task_join_err)?
-}
-
-#[tauri::command]
-pub async fn core_apply_image_sync_delta(
-    app: AppHandle,
-    state: State<'_, CoreState>,
-    input: ApplyImageSyncDeltaInput,
-) -> Result<ApplyImageSyncDeltaOutput, String> {
-    let sync_writes_until = state.sync_writes_until.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        let base = notes_root(&app)?;
-        sync_writes_until.store(now_ms() + WATCHER_SUPPRESSION_MS, Ordering::Release);
-        let mut out_state = input.state;
-        let mut deleted_filenames = Vec::new();
-
-        for uuid in &input.delete_uuids {
-            // Find filename by UUID
-            let maybe_filename = out_state.uuid_by_id.iter()
-                .find(|(_, v)| *v == uuid)
-                .map(|(k, _)| k.clone());
-
-            if let Some(filename) = maybe_filename {
-                if is_image_filename(&filename) {
-                    let path = base.join(&filename);
-                    let _ = fs::remove_file(&path);
-                    deleted_filenames.push(filename.clone());
-                    out_state.uuid_by_id.remove(&filename);
-                }
-            }
-            out_state.hash_by_uuid.remove(uuid);
-            out_state.deleted_uuids.retain(|x| x != uuid);
-        }
-
-        Ok(ApplyImageSyncDeltaOutput {
-            state: out_state,
-            deleted_filenames,
-        })
     })
     .await
     .map_err(task_join_err)?
@@ -2453,10 +2173,7 @@ pub async fn core_delete_image_file(app: AppHandle, filename: String) -> Result<
 }
 
 #[tauri::command]
-pub async fn engagement_load(
-    app: AppHandle,
-    state: State<'_, CoreState>,
-) -> Result<(), String> {
+pub async fn engagement_load(app: AppHandle, state: State<'_, CoreState>) -> Result<(), String> {
     let engagement = state.engagement.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let base = notes_root(&app)?;
@@ -2586,10 +2303,7 @@ pub async fn engagement_get_all(
 }
 
 #[tauri::command]
-pub async fn engagement_flush(
-    app: AppHandle,
-    state: State<'_, CoreState>,
-) -> Result<(), String> {
+pub async fn engagement_flush(app: AppHandle, state: State<'_, CoreState>) -> Result<(), String> {
     let engagement = state.engagement.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let base = notes_root(&app)?;
@@ -2770,7 +2484,8 @@ mod tests {
 
     #[test]
     fn highlighted_segments_merge_overlaps() {
-        let segments = build_highlighted_segments("xfoobarx", &vec!["foo".to_string(), "foob".to_string()]);
+        let segments =
+            build_highlighted_segments("xfoobarx", &["foo".to_string(), "foob".to_string()]);
         let highlighted = segments.iter().filter(|s| s.highlight).collect::<Vec<_>>();
         assert_eq!(highlighted.len(), 1);
         assert_eq!(highlighted[0].text, "foob");
@@ -2826,602 +2541,21 @@ mod tests {
         assert!(results[0].score > results[1].score);
     }
 
-    #[test]
-    fn apply_sync_delta_handles_rename_and_hash_state() {
-        let base = temp_notes_dir();
-        let old_path = safe_note_path(&base, "old-name").expect("safe path");
-        write_atomic_text(&old_path, "old body").expect("seed file");
-
-        let mut state = SyncStatePayload::default();
-        state
-            .uuid_by_id
-            .insert("old-name".to_string(), "uuid-1".to_string());
-        state
-            .hash_by_uuid
-            .insert("uuid-1".to_string(), "oldhash".to_string());
-
-        let index = Arc::new(RwLock::new(SearchIndexState::default()));
-        let suppressed_watcher_events = Arc::new(Mutex::new(HashMap::new()));
-        let sync_writes_until = Arc::new(AtomicI64::new(0));
-        let output = apply_sync_delta_impl(
-            &base,
-            &index,
-            &suppressed_watcher_events,
-            &sync_writes_until,
-            SyncApplyInput {
-                state,
-                update: vec![IncomingSyncUpdate {
-                    uuid: "uuid-1".to_string(),
-                    id: "new-name".to_string(),
-                    content: "new body".to_string(),
-                    modified_at: 1_700_000_000_000,
-                    content_hash: "newhash".to_string(),
-                }],
-                delete: vec!["uuid-missing".to_string()],
-            },
-        )
-        .expect("apply delta");
-
-        assert!(safe_note_path(&base, "new-name").expect("new path").exists());
-        assert!(!safe_note_path(&base, "old-name").expect("old path").exists());
-        assert_eq!(output.state.uuid_by_id.get("new-name"), Some(&"uuid-1".to_string()));
-        assert_eq!(output.state.hash_by_uuid.get("uuid-1"), Some(&"newhash".to_string()));
-        assert!(output.updated_ids.iter().any(|id| id == "new-name"));
-        assert_eq!(output.renamed.len(), 1);
-        assert_eq!(output.renamed[0].from_id, "old-name");
-        assert_eq!(output.renamed[0].to_id, "new-name");
-
-        cleanup_temp_dir(&base);
-    }
-
-    #[test]
-    fn engagement_load_track_flush_round_trip() {
-        let base = temp_notes_dir();
-        let state = Arc::new(RwLock::new(EngagementState::default()));
-
-        // Load from empty dir (no file on disk)
-        ensure_engagement_loaded(&base, &state).expect("initial load");
-        {
-            let read = state.read().unwrap();
-            assert!(read.loaded);
-            assert!(read.data.notes.is_empty());
-        }
-
-        // Track open
-        {
-            let mut write = state.write().unwrap();
-            let record = write.data.notes.entry("test-note".to_string()).or_insert(EngagementRecord {
-                last_opened_at: 0,
-                open_count: 0,
-                last_edited_at: 0,
-                edit_count: 0,
-            });
-            record.open_count += 1;
-            record.last_opened_at = now_ms();
-            write.dirty = true;
-        }
-
-        // Track edit
-        {
-            let mut write = state.write().unwrap();
-            let record = write.data.notes.get_mut("test-note").unwrap();
-            record.edit_count += 1;
-            record.last_edited_at = now_ms();
-            write.dirty = true;
-        }
-
-        // Flush to disk
-        {
-            let mut write = state.write().unwrap();
-            assert!(write.dirty);
-            let json = serde_json::to_string_pretty(&write.data).unwrap();
-            write_atomic_text(&base.join(".engagement-v1.json"), &json).unwrap();
-            write.dirty = false;
-        }
-
-        // Reload from disk into a fresh state
-        let state2 = Arc::new(RwLock::new(EngagementState::default()));
-        ensure_engagement_loaded(&base, &state2).expect("reload");
-        {
-            let read = state2.read().unwrap();
-            let record = read.data.notes.get("test-note").expect("record exists");
-            assert_eq!(record.open_count, 1);
-            assert_eq!(record.edit_count, 1);
-            assert!(record.last_opened_at > 0);
-            assert!(record.last_edited_at > 0);
-        }
-
-        cleanup_temp_dir(&base);
-    }
-
-    #[test]
-    fn engagement_rename_moves_record() {
-        let base = temp_notes_dir();
-        let state = Arc::new(RwLock::new(EngagementState::default()));
-        ensure_engagement_loaded(&base, &state).unwrap();
-
-        {
-            let mut write = state.write().unwrap();
-            write.data.notes.insert(
-                "old-note".to_string(),
-                EngagementRecord {
-                    last_opened_at: 100,
-                    open_count: 5,
-                    last_edited_at: 200,
-                    edit_count: 3,
-                },
-            );
-        }
-
-        {
-            let mut write = state.write().unwrap();
-            if let Some(record) = write.data.notes.remove("old-note") {
-                write.data.notes.insert("new-note".to_string(), record);
-            }
-        }
-
-        {
-            let read = state.read().unwrap();
-            assert!(read.data.notes.get("old-note").is_none());
-            let record = read.data.notes.get("new-note").expect("renamed record");
-            assert_eq!(record.open_count, 5);
-            assert_eq!(record.edit_count, 3);
-        }
-
-        cleanup_temp_dir(&base);
-    }
-
-    #[test]
-    fn supersearch_meta_save_load_round_trip() {
-        let base = temp_notes_dir();
-
-        let meta = SupersearchMeta {
-            artifact_version: "1.0".to_string(),
-            artifact_hash: "abc123".to_string(),
-            downloaded_at: 1_700_000_000_000,
-            model: "test-model".to_string(),
-            dims: 384,
-            chunk_count: 42,
-        };
-
-        let json = serde_json::to_string_pretty(&meta).unwrap();
-        write_atomic_text(&base.join(".supersearch-state.json"), &json).unwrap();
-
-        let loaded = load_supersearch_meta(&base).expect("meta should load");
-        assert_eq!(loaded.artifact_version, "1.0");
-        assert_eq!(loaded.artifact_hash, "abc123");
-        assert_eq!(loaded.downloaded_at, 1_700_000_000_000);
-        assert_eq!(loaded.model, "test-model");
-        assert_eq!(loaded.dims, 384);
-        assert_eq!(loaded.chunk_count, 42);
-
-        cleanup_temp_dir(&base);
-    }
-
-    #[test]
-    fn supersearch_meta_returns_none_when_missing() {
-        let base = temp_notes_dir();
-        assert!(load_supersearch_meta(&base).is_none());
-        cleanup_temp_dir(&base);
-    }
-
-    fn default_sync_arcs() -> (Arc<RwLock<SearchIndexState>>, Arc<Mutex<HashMap<String, i64>>>, Arc<AtomicI64>) {
-        (
-            Arc::new(RwLock::new(SearchIndexState::default())),
-            Arc::new(Mutex::new(HashMap::new())),
-            Arc::new(AtomicI64::new(0)),
-        )
-    }
-
-    // ── A. Path safety ──────────────────────────────────────────────────
-
-    #[test]
-    fn ensure_safe_note_id_rejects_dangerous_inputs() {
-        assert!(ensure_safe_note_id("").is_err());
-        assert!(ensure_safe_note_id("..").is_err());
-        assert!(ensure_safe_note_id(".").is_err());
-        assert!(ensure_safe_note_id("foo/bar").is_err());
-        assert!(ensure_safe_note_id("foo\\bar").is_err());
-    }
-
-    #[test]
-    fn ensure_safe_note_id_accepts_valid_inputs() {
-        assert!(ensure_safe_note_id("hello world").is_ok());
-        assert!(ensure_safe_note_id("café").is_ok());
-        assert!(ensure_safe_note_id("my-note").is_ok());
-        assert!(ensure_safe_note_id(".hidden").is_ok());
-    }
-
-    #[test]
-    fn safe_appdata_path_rejects_traversal() {
-        let base = Path::new("/tmp/test");
-        assert!(safe_appdata_path(base, "..").is_err());
-        assert!(safe_appdata_path(base, "../etc/passwd").is_err());
-        assert!(safe_appdata_path(base, "../../etc/passwd").is_err());
-        assert!(safe_appdata_path(base, "/etc/passwd").is_err());
-    }
-
-    #[test]
-    fn safe_appdata_path_accepts_valid_relative_paths() {
-        let base = Path::new("/tmp/test");
-        assert!(safe_appdata_path(base, ".preferences.json").is_ok());
-        assert!(safe_appdata_path(base, "subdir/file.json").is_ok());
-        let result = safe_appdata_path(base, ".preferences.json").unwrap();
-        assert_eq!(result, PathBuf::from("/tmp/test/.preferences.json"));
-    }
-
-    // ── B. Atomic write ─────────────────────────────────────────────────
-
-    #[test]
-    fn write_atomic_text_creates_file_with_correct_content() {
-        let base = temp_notes_dir();
-        let path = base.join("test-note.md");
-        write_atomic_text(&path, "hello world").unwrap();
-        assert_eq!(fs::read_to_string(&path).unwrap(), "hello world");
-        // No leftover .tmp files
-        let tmps: Vec<_> = fs::read_dir(&base).unwrap()
-            .filter_map(|e| e.ok())
-            .filter(|e| e.file_name().to_string_lossy().contains(".tmp"))
-            .collect();
-        assert!(tmps.is_empty());
-        cleanup_temp_dir(&base);
-    }
-
-    #[test]
-    fn write_atomic_text_overwrites_existing_file() {
-        let base = temp_notes_dir();
-        let path = base.join("overwrite.md");
-        write_atomic_text(&path, "first").unwrap();
-        write_atomic_text(&path, "second").unwrap();
-        assert_eq!(fs::read_to_string(&path).unwrap(), "second");
-        let tmps: Vec<_> = fs::read_dir(&base).unwrap()
-            .filter_map(|e| e.ok())
-            .filter(|e| e.file_name().to_string_lossy().contains(".tmp"))
-            .collect();
-        assert!(tmps.is_empty());
-        cleanup_temp_dir(&base);
-    }
-
-    // ── C. Keyword search ───────────────────────────────────────────────
-
-    #[test]
-    fn keyword_search_empty_query_returns_all_by_mtime() {
-        let mut notes = HashMap::new();
-        notes.insert("old".to_string(), build_indexed_note("old".to_string(), "old content".to_string(), 1000));
-        notes.insert("new".to_string(), build_indexed_note("new".to_string(), "new content".to_string(), 2000));
-        notes.insert("mid".to_string(), build_indexed_note("mid".to_string(), "mid content".to_string(), 1500));
-
-        let results = keyword_search_impl(&notes, "", 10);
-        assert_eq!(results.len(), 3);
-        assert_eq!(results[0].note.id, "new");
-        assert_eq!(results[1].note.id, "mid");
-        assert_eq!(results[2].note.id, "old");
-
-        // Whitespace-only also returns all
-        let results2 = keyword_search_impl(&notes, "   ", 10);
-        assert_eq!(results2.len(), 3);
-    }
-
-    #[test]
-    fn keyword_search_no_matches_returns_empty() {
-        let mut notes = HashMap::new();
-        notes.insert("note1".to_string(), build_indexed_note("note1".to_string(), "hello world".to_string(), 1000));
-        let results = keyword_search_impl(&notes, "zzzznonexistent", 10);
-        assert!(results.is_empty());
-    }
-
-    // ── D. prepare_sync_payload_impl ────────────────────────────────────
-
-    #[test]
-    fn prepare_sync_fresh_vault_generates_uuids_and_content() {
-        let base = temp_notes_dir();
-        write_atomic_text(&base.join("note-a.md"), "alpha body").unwrap();
-        write_atomic_text(&base.join("note-b.md"), "beta body").unwrap();
-
-        let input = SyncPrepareInput { state: SyncStatePayload::default() };
-        let output = prepare_sync_payload_impl(&base, input).unwrap();
-
-        assert_eq!(output.notes.len(), 2);
-        assert_eq!(output.all_uuids.len(), 2);
-
-        for note in &output.notes {
-            assert!(!note.uuid.is_empty());
-            assert!(note.content.is_some(), "first sync must include content");
-            assert!(!note.content_hash.is_empty());
-            assert_eq!(note.hash_at_last_sync, ""); // no prior sync
-        }
-
-        // UUIDs assigned in state
-        assert!(output.state.uuid_by_id.contains_key("note-a"));
-        assert!(output.state.uuid_by_id.contains_key("note-b"));
-
-        // hash_cache populated
-        let cache = output.state.hash_cache.as_ref().unwrap();
-        assert!(cache.contains_key("note-a"));
-        assert!(cache.contains_key("note-b"));
-
-        cleanup_temp_dir(&base);
-    }
-
-    #[test]
-    fn prepare_sync_unchanged_notes_skip_content() {
-        let base = temp_notes_dir();
-        write_atomic_text(&base.join("note.md"), "body").unwrap();
-
-        // First sync
-        let input1 = SyncPrepareInput { state: SyncStatePayload::default() };
-        let out1 = prepare_sync_payload_impl(&base, input1).unwrap();
-        let uuid = &out1.notes[0].uuid;
-        let hash = &out1.notes[0].content_hash;
-
-        // Simulate server accepting: set hash_by_uuid to match
-        let mut state2 = out1.state;
-        state2.hash_by_uuid.insert(uuid.clone(), hash.clone());
-
-        let input2 = SyncPrepareInput { state: state2 };
-        let out2 = prepare_sync_payload_impl(&base, input2).unwrap();
-
-        assert_eq!(out2.notes.len(), 1);
-        assert!(out2.notes[0].content.is_none(), "unchanged note should skip content");
-
-        cleanup_temp_dir(&base);
-    }
-
-    #[test]
-    fn prepare_sync_modified_note_includes_content() {
-        let base = temp_notes_dir();
-        write_atomic_text(&base.join("note.md"), "original").unwrap();
-
-        let input1 = SyncPrepareInput { state: SyncStatePayload::default() };
-        let out1 = prepare_sync_payload_impl(&base, input1).unwrap();
-        let uuid = out1.notes[0].uuid.clone();
-        let hash = out1.notes[0].content_hash.clone();
-
-        let mut state2 = out1.state;
-        state2.hash_by_uuid.insert(uuid.clone(), hash.clone());
-
-        // Modify file and bump mtime so the hash cache sees a different timestamp
-        write_atomic_text(&base.join("note.md"), "modified").unwrap();
-        let future_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as i64
-            + 2000;
-        set_file_mtime_ms(&base.join("note.md"), future_ms).unwrap();
-
-        let input2 = SyncPrepareInput { state: state2 };
-        let out2 = prepare_sync_payload_impl(&base, input2).unwrap();
-
-        assert_eq!(out2.notes.len(), 1);
-        assert!(out2.notes[0].content.is_some(), "modified note must include content");
-        assert_eq!(out2.notes[0].content.as_deref().unwrap(), "modified");
-        assert_ne!(out2.notes[0].content_hash, hash);
-
-        cleanup_temp_dir(&base);
-    }
-
-    #[test]
-    fn prepare_sync_deleted_note_not_in_output() {
-        let base = temp_notes_dir();
-        write_atomic_text(&base.join("note.md"), "body").unwrap();
-
-        let input1 = SyncPrepareInput { state: SyncStatePayload::default() };
-        let out1 = prepare_sync_payload_impl(&base, input1).unwrap();
-        assert_eq!(out1.notes.len(), 1);
-
-        // Delete file
-        fs::remove_file(base.join("note.md")).unwrap();
-
-        let input2 = SyncPrepareInput { state: out1.state };
-        let out2 = prepare_sync_payload_impl(&base, input2).unwrap();
-
-        assert!(out2.notes.is_empty());
-        assert!(out2.all_uuids.is_empty());
-
-        cleanup_temp_dir(&base);
-    }
-
-    #[test]
-    fn prepare_sync_new_note_between_syncs() {
-        let base = temp_notes_dir();
-        write_atomic_text(&base.join("first.md"), "first body").unwrap();
-
-        let input1 = SyncPrepareInput { state: SyncStatePayload::default() };
-        let out1 = prepare_sync_payload_impl(&base, input1).unwrap();
-        assert_eq!(out1.notes.len(), 1);
-
-        // Add new file
-        write_atomic_text(&base.join("second.md"), "second body").unwrap();
-
-        let input2 = SyncPrepareInput { state: out1.state };
-        let out2 = prepare_sync_payload_impl(&base, input2).unwrap();
-
-        assert_eq!(out2.notes.len(), 2);
-        assert_eq!(out2.all_uuids.len(), 2);
-
-        let second = out2.notes.iter().find(|n| n.filename == "second.md").unwrap();
-        assert!(second.content.is_some(), "new note must include content");
-
-        // New UUID is different from first note's UUID
-        let first_uuid = &out2.notes.iter().find(|n| n.filename == "first.md").unwrap().uuid;
-        assert_ne!(&second.uuid, first_uuid);
-
-        cleanup_temp_dir(&base);
-    }
-
-    #[test]
-    fn prepare_sync_hash_cache_keyed_by_mtime() {
-        let base = temp_notes_dir();
-        write_atomic_text(&base.join("note.md"), "body").unwrap();
-
-        let input1 = SyncPrepareInput { state: SyncStatePayload::default() };
-        let out1 = prepare_sync_payload_impl(&base, input1).unwrap();
-        let original_hash = out1.notes[0].content_hash.clone();
-
-        // Touch file (change mtime but same content) — write same content again
-        std::thread::sleep(std::time::Duration::from_millis(50));
-        write_atomic_text(&base.join("note.md"), "body").unwrap();
-
-        let input2 = SyncPrepareInput { state: out1.state };
-        let out2 = prepare_sync_payload_impl(&base, input2).unwrap();
-
-        // Hash should be recomputed (same value since content unchanged)
-        assert_eq!(out2.notes[0].content_hash, original_hash);
-        // But cache entry should have new mtime
-        let cache = out2.state.hash_cache.as_ref().unwrap();
-        let entry = cache.get("note").unwrap();
-        assert_eq!(entry.hash, original_hash);
-
-        cleanup_temp_dir(&base);
-    }
-
-    // ── E. apply_sync_delta_impl ────────────────────────────────────────
-
-    #[test]
-    fn apply_sync_delta_multiple_updates_in_batch() {
-        let base = temp_notes_dir();
-        let (index, suppressed, sync_writes) = default_sync_arcs();
-
-        let updates: Vec<IncomingSyncUpdate> = (1..=3).map(|i| IncomingSyncUpdate {
-            uuid: format!("uuid-{i}"),
-            id: format!("note-{i}"),
-            content: format!("content {i}"),
-            modified_at: 1_700_000_000_000 + i,
-            content_hash: hash_sha256(&format!("content {i}")),
-        }).collect();
-
-        let output = apply_sync_delta_impl(
-            &base, &index, &suppressed, &sync_writes,
-            SyncApplyInput { state: SyncStatePayload::default(), update: updates, delete: vec![] },
-        ).unwrap();
-
-        assert_eq!(output.updated_ids.len(), 3);
-        for i in 1..=3 {
-            let path = safe_note_path(&base, &format!("note-{i}")).unwrap();
-            assert!(path.exists());
-            assert_eq!(fs::read_to_string(&path).unwrap(), format!("content {i}"));
-            assert_eq!(output.state.uuid_by_id.get(&format!("note-{i}")), Some(&format!("uuid-{i}")));
-        }
-
-        cleanup_temp_dir(&base);
-    }
-
-    #[test]
-    fn apply_sync_delta_delete_existing_note() {
-        let base = temp_notes_dir();
-        let (index, suppressed, sync_writes) = default_sync_arcs();
-
-        // Seed a file
-        write_atomic_text(&safe_note_path(&base, "doomed").unwrap(), "bye").unwrap();
-        let mut state = SyncStatePayload::default();
-        state.uuid_by_id.insert("doomed".to_string(), "uuid-doom".to_string());
-        state.hash_by_uuid.insert("uuid-doom".to_string(), "h".to_string());
-
-        let output = apply_sync_delta_impl(
-            &base, &index, &suppressed, &sync_writes,
-            SyncApplyInput { state, update: vec![], delete: vec!["uuid-doom".to_string()] },
-        ).unwrap();
-
-        assert!(!safe_note_path(&base, "doomed").unwrap().exists());
-        assert!(output.deleted_ids.contains(&"doomed".to_string()));
-        assert!(!output.state.uuid_by_id.contains_key("doomed"));
-        assert!(!output.state.hash_by_uuid.contains_key("uuid-doom"));
-
-        cleanup_temp_dir(&base);
-    }
-
-    #[test]
-    fn apply_sync_delta_filename_collision_overwrites_when_file_exists() {
-        let base = temp_notes_dir();
-        let (index, suppressed, sync_writes) = default_sync_arcs();
-
-        // Existing file "conflict.md" with different UUID
-        write_atomic_text(&safe_note_path(&base, "conflict").unwrap(), "existing").unwrap();
-        let mut state = SyncStatePayload::default();
-        state.uuid_by_id.insert("conflict".to_string(), "uuid-existing".to_string());
-
-        // Incoming note wants "conflict" but has different UUID
-        let output = apply_sync_delta_impl(
-            &base, &index, &suppressed, &sync_writes,
-            SyncApplyInput {
-                state,
-                update: vec![IncomingSyncUpdate {
-                    uuid: "uuid-new".to_string(),
-                    id: "conflict".to_string(),
-                    content: "incoming".to_string(),
-                    modified_at: 1_700_000_000_000,
-                    content_hash: hash_sha256("incoming"),
-                }],
-                delete: vec![],
-            },
-        ).unwrap();
-
-        // Current behavior: incoming note overwrites the existing file at "conflict"
-        // because original_id = Some("conflict") makes exclude == wanted in get_unique_note_id,
-        // so no dedup occurs. The old UUID mapping is silently replaced.
-        let updated = &output.updated_ids;
-        assert_eq!(updated.len(), 1);
-        assert_eq!(updated[0], "conflict");
-        let path = safe_note_path(&base, "conflict").unwrap();
-        assert!(path.exists());
-        assert_eq!(fs::read_to_string(&path).unwrap(), "incoming");
-        // UUID mapping now points to the new UUID
-        assert_eq!(output.state.uuid_by_id.get("conflict"), Some(&"uuid-new".to_string()));
-
-        cleanup_temp_dir(&base);
-    }
-
-    #[test]
-    fn apply_sync_delta_sets_watcher_suppression() {
-        let base = temp_notes_dir();
-        let (index, suppressed, sync_writes) = default_sync_arcs();
-
-        let before = now_ms();
-        let _output = apply_sync_delta_impl(
-            &base, &index, &suppressed, &sync_writes,
-            SyncApplyInput {
-                state: SyncStatePayload::default(),
-                update: vec![IncomingSyncUpdate {
-                    uuid: "u1".to_string(),
-                    id: "test".to_string(),
-                    content: "body".to_string(),
-                    modified_at: 1_700_000_000_000,
-                    content_hash: hash_sha256("body"),
-                }],
-                delete: vec![],
-            },
-        ).unwrap();
-
-        assert!(sync_writes.load(Ordering::Acquire) > before);
-        let map = suppressed.lock().unwrap();
-        assert!(map.contains_key("test.md"));
-
-        cleanup_temp_dir(&base);
-    }
+    // V1 sync tests removed — V1 protocol is dead code.
+    // See git history for original tests.
 
     // ── F. Rust Chaos Tests ─────────────────────────────────────────────
-
-    #[test]
-    fn prepare_sync_skips_directories() {
-        let base = temp_notes_dir();
-        write_atomic_text(&base.join("real-note.md"), "content").unwrap();
-        fs::create_dir_all(base.join("subdir.md")).unwrap();
-
-        let input = SyncPrepareInput { state: SyncStatePayload::default() };
-        let output = prepare_sync_payload_impl(&base, input).unwrap();
-
-        assert_eq!(output.notes.len(), 1);
-        assert_eq!(output.notes[0].filename, "real-note.md");
-
-        cleanup_temp_dir(&base);
-    }
+    // (V1-dependent chaos tests removed; non-V1 tests preserved below)
 
     #[test]
     fn ensure_safe_note_id_allows_whitespace_only() {
         // Documents that whitespace-only IDs pass validation (potential gap)
         let result = ensure_safe_note_id("   ");
         // Current impl allows this — documenting the behavior
-        assert!(result.is_ok(), "whitespace-only ID is currently allowed (validation gap)");
+        assert!(
+            result.is_ok(),
+            "whitespace-only ID is currently allowed (validation gap)"
+        );
     }
 
     #[test]
@@ -3433,203 +2567,15 @@ mod tests {
     #[test]
     fn note_id_from_filename_returns_some_for_valid() {
         assert_eq!(note_id_from_filename("hello.md"), Some("hello".to_string()));
-        assert_eq!(note_id_from_filename("my note.md"), Some("my note".to_string()));
+        assert_eq!(
+            note_id_from_filename("my note.md"),
+            Some("my note".to_string())
+        );
     }
 
     #[test]
     fn note_id_from_filename_returns_none_for_non_md() {
         assert_eq!(note_id_from_filename("hello.txt"), None);
-    }
-
-    #[test]
-    fn prepare_sync_handles_dot_md_only_file() {
-        let base = temp_notes_dir();
-        // .md file — note_id_from_filename now returns None, filtering it out
-        fs::write(base.join(".md"), "empty name").unwrap();
-        write_atomic_text(&base.join("real-note.md"), "content").unwrap();
-
-        let input = SyncPrepareInput { state: SyncStatePayload::default() };
-        let output = prepare_sync_payload_impl(&base, input);
-
-        // With the fix, note_id_from_filename(".md") returns None,
-        // so the empty-ID file is excluded from sync payloads.
-        match output {
-            Ok(out) => {
-                let has_empty = out.notes.iter().any(|n| n.filename == ".md");
-                assert!(!has_empty, ".md file should be filtered out of sync payload");
-                // The real note is still present
-                assert!(out.notes.iter().any(|n| n.filename == "real-note.md"));
-            }
-            Err(e) => {
-                panic!("prepare_sync_payload_impl failed unexpectedly: {}", e);
-            }
-        }
-
-        cleanup_temp_dir(&base);
-    }
-
-    #[test]
-    fn apply_sync_delta_very_long_id() {
-        let base = temp_notes_dir();
-        let (index, suppressed, sync_writes) = default_sync_arcs();
-
-        let long_id = "a".repeat(10_000);
-        let result = apply_sync_delta_impl(
-            &base, &index, &suppressed, &sync_writes,
-            SyncApplyInput {
-                state: SyncStatePayload::default(),
-                update: vec![IncomingSyncUpdate {
-                    uuid: "uuid-long".to_string(),
-                    id: long_id,
-                    content: "body".to_string(),
-                    modified_at: 1_700_000_000_000,
-                    content_hash: hash_sha256("body"),
-                }],
-                delete: vec![],
-            },
-        );
-
-        // Document behavior: filesystem may reject the very long path
-        // On most Linux systems, filename limit is 255 bytes
-        match result {
-            Ok(out) => {
-                // If it somehow succeeds, the file must exist
-                assert!(!out.updated_ids.is_empty());
-            }
-            Err(e) => {
-                // Expected: filesystem rejects the long filename
-                assert!(e.contains("os error") || e.contains("name too long") || e.contains("File name too long"),
-                    "unexpected error: {e}");
-            }
-        }
-
-        cleanup_temp_dir(&base);
-    }
-
-    #[test]
-    fn set_file_mtime_with_zero() {
-        let base = temp_notes_dir();
-        let path = base.join("zero-mtime.md");
-        write_atomic_text(&path, "content").unwrap();
-
-        // Unix epoch (0) should work
-        let result = set_file_mtime_ms(&path, 0);
-        assert!(result.is_ok(), "mtime=0 (Unix epoch) should succeed");
-
-        cleanup_temp_dir(&base);
-    }
-
-    #[test]
-    fn set_file_mtime_with_negative() {
-        let base = temp_notes_dir();
-        let path = base.join("negative-mtime.md");
-        write_atomic_text(&path, "content").unwrap();
-
-        // Before epoch — negative value
-        // FileTime::from_unix_time(-1, ...) — may panic or fail
-        // The second arg is problematic: (-1 % 1000) * 1_000_000 = -1_000_000 as u32 would wrap
-        let result = std::panic::catch_unwind(|| {
-            set_file_mtime_ms(&path, -1)
-        });
-
-        // Document behavior
-        match result {
-            Ok(Ok(())) => { /* it worked, interesting */ }
-            Ok(Err(_)) => { /* filesystem rejected it, reasonable */ }
-            Err(_) => { /* panicked — documents the bug */ }
-        }
-
-        cleanup_temp_dir(&base);
-    }
-
-    #[test]
-    fn prepare_sync_binary_md_file_does_not_crash_all() {
-        let base = temp_notes_dir();
-        // Write a valid note
-        write_atomic_text(&base.join("good.md"), "good content").unwrap();
-        // Write a binary file with .md extension
-        fs::write(base.join("binary.md"), &[0xFF, 0xFE, 0x00, 0x01, 0x80, 0x81]).unwrap();
-
-        let input = SyncPrepareInput { state: SyncStatePayload::default() };
-        let result = prepare_sync_payload_impl(&base, input);
-
-        // Current behavior: par_iter().collect::<Result>() means one bad file fails all
-        // This chaos test documents that behavior
-        match result {
-            Ok(out) => {
-                // If binary files are handled gracefully, good
-                assert!(out.notes.iter().any(|n| n.filename == "good.md"));
-            }
-            Err(_) => {
-                // Expected: binary file causes read_to_string to produce invalid UTF-8
-                // Actually read_to_string with binary may still work on linux, just garbled
-                // Either outcome documents current behavior
-            }
-        }
-
-        cleanup_temp_dir(&base);
-    }
-
-    #[test]
-    fn prepare_sync_skips_symlinks() {
-        let base = temp_notes_dir();
-        let external = temp_notes_dir();
-        write_atomic_text(&external.join("outside.md"), "external content").unwrap();
-        write_atomic_text(&base.join("real.md"), "real content").unwrap();
-
-        // Create symlink inside notes dir pointing outside
-        #[cfg(unix)]
-        {
-            std::os::unix::fs::symlink(
-                external.join("outside.md"),
-                base.join("linked.md"),
-            ).unwrap();
-
-            let input = SyncPrepareInput { state: SyncStatePayload::default() };
-            let output = prepare_sync_payload_impl(&base, input).unwrap();
-
-            // Documents: DirEntry::metadata() uses fstatat (no symlink follow on Linux),
-            // so is_file() returns false for symlinks and they are excluded from sync.
-            let linked = output.notes.iter().find(|n| n.filename == "linked.md");
-            assert!(linked.is_none(), "symlinks should be excluded (entry.metadata does not follow)");
-            assert_eq!(output.notes.len(), 1);
-            assert_eq!(output.notes[0].filename, "real.md");
-        }
-
-        cleanup_temp_dir(&base);
-        cleanup_temp_dir(&external);
-    }
-
-    #[test]
-    fn prepare_sync_toctou_deleted_file() {
-        // TOCTOU race: file exists during read_dir but deleted before read_to_string
-        // We can't reliably trigger the race in a unit test, but we can test
-        // that deleting a file after prepare_sync starts doesn't crash
-        let base = temp_notes_dir();
-        write_atomic_text(&base.join("ephemeral.md"), "here today").unwrap();
-        write_atomic_text(&base.join("stable.md"), "always here").unwrap();
-
-        // Delete the file before sync reads it — simulates race
-        // In practice we can't control timing, but if the file is deleted
-        // between read_dir and read_to_string, read_to_string fails
-        fs::remove_file(base.join("ephemeral.md")).unwrap();
-
-        let input = SyncPrepareInput { state: SyncStatePayload::default() };
-        let result = prepare_sync_payload_impl(&base, input);
-
-        // The file was deleted BEFORE sync started, so metadata().is_file() should
-        // also fail and it should be filtered out. This test verifies that path.
-        match result {
-            Ok(out) => {
-                assert_eq!(out.notes.len(), 1);
-                assert_eq!(out.notes[0].filename, "stable.md");
-            }
-            Err(_) => {
-                // If it errors, documents that one missing file breaks all
-            }
-        }
-
-        cleanup_temp_dir(&base);
     }
 
     // ── Image extension validation ──────────────────────────────────
@@ -3680,7 +2626,10 @@ mod tests {
         assert!(write_image_to_notes(&base, data, "../../../etc/evil").is_err());
         // Ensure no file was written
         let files: Vec<_> = fs::read_dir(&base).unwrap().collect();
-        assert!(files.is_empty(), "no files should be written for rejected extensions");
+        assert!(
+            files.is_empty(),
+            "no files should be written for rejected extensions"
+        );
         cleanup_temp_dir(&base);
     }
 
@@ -3723,50 +2672,10 @@ mod tests {
     fn hash_sha256_bytes_correct() {
         let data = b"hello world";
         let hash = hash_sha256_bytes(data);
-        assert_eq!(hash, "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9");
-    }
-
-    #[test]
-    fn prepare_image_sync_scans_images() {
-        let base = temp_notes_dir();
-        fs::write(base.join("1234-abc.jpg"), b"fake jpeg data").unwrap();
-        fs::write(base.join("5678-def.png"), b"fake png data").unwrap();
-        write_atomic_text(&base.join("note.md"), "# Hello").unwrap();
-
-        let input = ImageSyncPrepareInput { state: SyncStatePayload::default() };
-        let output = prepare_image_sync_impl(&base, input).unwrap();
-
-        assert_eq!(output.images.len(), 2);
-        let filenames: Vec<&str> = output.images.iter().map(|i| i.filename.as_str()).collect();
-        assert!(filenames.contains(&"1234-abc.jpg"));
-        assert!(filenames.contains(&"5678-def.png"));
-
-        // Verify hashes are non-empty
-        for img in &output.images {
-            assert!(!img.content_hash.is_empty());
-            assert!(!img.uuid.is_empty());
-        }
-
-        cleanup_temp_dir(&base);
-    }
-
-    #[test]
-    fn prepare_image_sync_uses_hash_cache() {
-        let base = temp_notes_dir();
-        fs::write(base.join("img.jpg"), b"image data").unwrap();
-
-        // First scan
-        let input1 = ImageSyncPrepareInput { state: SyncStatePayload::default() };
-        let out1 = prepare_image_sync_impl(&base, input1).unwrap();
-        assert_eq!(out1.images.len(), 1);
-
-        // Second scan with cached state — should use cache
-        let input2 = ImageSyncPrepareInput { state: out1.state };
-        let out2 = prepare_image_sync_impl(&base, input2).unwrap();
-        assert_eq!(out2.images.len(), 1);
-        assert_eq!(out2.images[0].content_hash, out1.images[0].content_hash);
-
-        cleanup_temp_dir(&base);
+        assert_eq!(
+            hash,
+            "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"
+        );
     }
 
     // ── Image gallery (list / delete) tests ──────────────────────────
@@ -3784,7 +2693,9 @@ mod tests {
         let names: Vec<&str> = entries.iter().map(|e| e.filename.as_str()).collect();
         assert!(names.contains(&"photo.jpg"));
         assert!(names.contains(&"diagram.png"));
-        assert!(!names.iter().any(|n| n.ends_with(".md") || n.ends_with(".txt")));
+        assert!(!names
+            .iter()
+            .any(|n| n.ends_with(".md") || n.ends_with(".txt")));
 
         cleanup_temp_dir(&base);
     }
@@ -3834,7 +2745,10 @@ mod tests {
 
         assert!(!base.join("groceries.txt").exists());
         assert!(base.join("groceries.md").exists());
-        assert_eq!(fs::read_to_string(base.join("groceries.md")).unwrap(), "milk\neggs");
+        assert_eq!(
+            fs::read_to_string(base.join("groceries.md")).unwrap(),
+            "milk\neggs"
+        );
 
         cleanup_temp_dir(&base);
     }
@@ -3848,11 +2762,17 @@ mod tests {
         convert_txt_to_md(&base);
 
         // .md should be untouched
-        assert_eq!(fs::read_to_string(base.join("note.md")).unwrap(), "md content");
+        assert_eq!(
+            fs::read_to_string(base.join("note.md")).unwrap(),
+            "md content"
+        );
         // .txt should become (imported).md
         assert!(!base.join("note.txt").exists());
         assert!(base.join("note (imported).md").exists());
-        assert_eq!(fs::read_to_string(base.join("note (imported).md")).unwrap(), "txt content");
+        assert_eq!(
+            fs::read_to_string(base.join("note (imported).md")).unwrap(),
+            "txt content"
+        );
 
         cleanup_temp_dir(&base);
     }
@@ -3882,33 +2802,14 @@ mod tests {
 
         assert!(!base.join("uppercase.TXT").exists());
         assert!(base.join("uppercase.md").exists());
-        assert_eq!(fs::read_to_string(base.join("uppercase.md")).unwrap(), "upper");
+        assert_eq!(
+            fs::read_to_string(base.join("uppercase.md")).unwrap(),
+            "upper"
+        );
 
         assert!(!base.join("mixed.Txt").exists());
         assert!(base.join("mixed.md").exists());
         assert_eq!(fs::read_to_string(base.join("mixed.md")).unwrap(), "mixed");
-
-        cleanup_temp_dir(&base);
-    }
-
-    #[test]
-    fn convert_txt_in_prepare_sync() {
-        let base = temp_notes_dir();
-        fs::write(base.join("from-txt.txt"), "imported content").unwrap();
-        write_atomic_text(&base.join("existing.md"), "md content").unwrap();
-
-        let input = SyncPrepareInput { state: SyncStatePayload::default() };
-        let output = prepare_sync_payload_impl(&base, input).unwrap();
-
-        // Should have 2 notes: existing.md and from-txt.md (converted)
-        assert_eq!(output.notes.len(), 2);
-        let filenames: Vec<&str> = output.notes.iter().map(|n| n.filename.as_str()).collect();
-        assert!(filenames.contains(&"existing.md"));
-        assert!(filenames.contains(&"from-txt.md"));
-
-        // .txt file should no longer exist on disk
-        assert!(!base.join("from-txt.txt").exists());
-        assert!(base.join("from-txt.md").exists());
 
         cleanup_temp_dir(&base);
     }

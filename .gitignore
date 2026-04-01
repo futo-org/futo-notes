@@ -8,14 +8,6 @@ Pods/
 dist/
 .sourcemaps
 
-# Capacitor generated assets (regenerated on cap sync)
-apps/mobile/android/app/src/main/assets/public/*
-!apps/mobile/android/app/src/main/assets/public/.gitkeep
-apps/mobile/android/app/src/main/assets/capacitor.config.json
-apps/mobile/android/app/src/main/assets/capacitor.plugins.json
-apps/mobile/ios/App/App/public/*
-!apps/mobile/ios/App/App/public/.gitkeep
-
 # Android
 .gradle/
 .kotlin/
@@ -32,7 +24,6 @@ Build/
 build/
 Index/
 DerivedData/
-apps/mobile/ios/build/
 
 # Native signing
 *.orig.*
@@ -47,7 +38,6 @@ release.keystore
 npm-debug.*
 yarn-debug.*
 yarn-error.*
-capacitor-build.log
 
 # macOS
 .DS_Store
@@ -67,12 +57,7 @@ capacitor-build.log
 
 app-example
 
-# Desktop (Electron)
-apps/desktop/dist-electron/
-apps/desktop/release/
-
 # Server
-apps/server/dist/
 
 # Playwright
 .playwright-mcp
@@ -94,6 +79,16 @@ experiments/
 test-screenshots
 
 # Docker testing
-apps/cli/stonefruit-data
+stonefruit-data
+/docker-compose.yml
+/.stonefruit-cli.json
 autoresearch-results.tsv
-apps/server/coverage/
+
+# Rust
+target/
+
+# MCP config (local)
+.mcp.json
+
+# Codex
+.codex

@@ -1,0 +1,8 @@
+[workspace]
+resolver = "2"
+members = [
+  "crates/stonefruit-core",
+  "crates/stonefruit-server",
+  "apps/cli",
+  "apps/tauri/src-tauri",
+]

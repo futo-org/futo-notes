@@ -1,5 +1,6 @@
 <script lang="ts">
-  import type { NotePreview } from '../types';
+  import { getContext } from 'svelte';
+  import { APP_CONTEXT_KEY, type AppContext } from '$lib/appContext.svelte';
   import { getEngagementData } from '$lib/engagement';
   import { getForYouNotes } from '$lib/forYou';
   import { isMobile } from '$lib/platform';
@@ -7,15 +8,16 @@
   import { navigate } from '../router';
   import { formatRelativeTime } from '$lib/utils';
 
+  const appCtx = getContext<AppContext>(APP_CONTEXT_KEY);
+
   interface Props {
-    notes: NotePreview[];
     onbrowse?: () => void;
     onquickcapture?: () => void;
   }
 
-  let { notes, onbrowse, onquickcapture }: Props = $props();
+  let { onbrowse, onquickcapture }: Props = $props();
 
-  const forYouNotes = $derived(getForYouNotes(notes, getEngagementData()));
+  const forYouNotes = $derived(getForYouNotes(appCtx.notes, getEngagementData()));
 
   function handleCardClick(id: string): void {
     navigate(`/note/${encodeURIComponent(id)}`);

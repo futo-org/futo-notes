@@ -6,22 +6,16 @@
   "packageManager": "pnpm@10.29.2",
   "pnpm": {
     "onlyBuiltDependencies": [
-      "argon2",
-      "better-sqlite3",
       "esbuild",
-      "node-llama-cpp",
-      "protobufjs",
-      "sharp"
+      "protobufjs"
     ]
   },
   "scripts": {
     "prepare": "git config core.hooksPath .githooks || true",
     "dev": "vite",
-    "automation:loop": "pnpm --filter @futo-notes/server run automation:loop --",
-    "reset": "node scripts/reset-demo.mjs",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "lint": "eslint src apps/server/src packages/shared/src --ext .ts",
+    "lint": "eslint src packages/shared/src --ext .ts",
     "lint:platform": "! rg -n \"platform/(electron|capacitor)|isElectron|isCapacitor\" src --glob '!src/lib/platform/**' --glob '!src/**/__mocks__/**' --glob '!src/**/*.test.ts'",
     "test": "playwright test",
     "test:markdown-spec": "playwright test tests/markdown-spec.spec.ts",
@@ -36,16 +30,18 @@
     "tauri:dev": "node scripts/tauri-dev.mjs",
     "tauri:prod": "pnpm run build && cd apps/tauri && WINIT_UNIX_BACKEND=wayland GDK_BACKEND=wayland WEBKIT_DISABLE_DMABUF_RENDERER=1 cargo tauri dev --config src-tauri/tauri.prod.conf.json",
     "tauri:build": "pnpm run build && cd apps/tauri && cargo tauri build",
-    "tauri:android:dev": "cd apps/tauri && cargo tauri android dev",
-    "tauri:android:dev:offline": "pnpm run build && cd apps/tauri && cargo tauri android build --debug --apk && cd src-tauri/gen/android && ./gradlew app:installUniversalDebug && adb shell monkey -p com.futo.notes -c android.intent.category.LAUNCHER 1",
+    "tauri:android:dev": "cd apps/tauri && cargo tauri android dev --config src-tauri/tauri.android.dev-mode.conf.json",
+    "tauri:android:dev:offline": "pnpm run build && cd apps/tauri && cargo tauri android build --debug --apk --config src-tauri/tauri.android.offline.conf.json && cd src-tauri/gen/android && ./gradlew app:installUniversalDebug && adb shell monkey -p com.futo.notes -c android.intent.category.LAUNCHER 1",
     "tauri:android:build": "cd apps/tauri && cargo tauri android build",
     "tauri:ios:dev": "cd apps/tauri && cargo tauri ios dev --config src-tauri/tauri.ios.dev.conf.json",
     "tauri:ios:dev:offline": "pnpm run build && cd apps/tauri && cargo tauri ios build --debug && xcrun devicectl device install app --device 00008150-001C70A634F0401C src-tauri/gen/apple/build/arm64/Stonefruit.ipa && xcrun devicectl device process launch --device 00008150-001C70A634F0401C com.futo.notes",
     "tauri:ios:build": "cd apps/tauri && cargo tauri ios build",
     "tauri:test:rust": "pnpm --filter @futo-notes/tauri run test:rust",
     "test:desktop-smoke": "node tests/desktop-smoke.mjs",
-    "server:dev": "pnpm --filter @futo-notes/server run dev",
-    "server:test": "pnpm --filter @futo-notes/server test"
+    "test:cross-platform": "node tests/cross-platform-sync.mjs",
+    "test:cross-platform:android": "node tests/cross-platform-sync.mjs --matrix desktop-android",
+    "server:dev": "PORT=3005 DATA_DIR=./data STONEFRUIT_DEV_PASSWORD=testing123 SEARCH_OLLAMA_MODEL=qwen3-embedding:0.6b SEARCH_EMBED_DIMS=1024 SEARCH_MODEL_ID=qwen3-embedding-0.6b cargo run -p stonefruit-server",
+    "server:test": "cargo test -p stonefruit-server"
   },
   "dependencies": {
     "@codemirror/lang-markdown": "6.5.0",
@@ -61,13 +57,11 @@
     "@tauri-apps/plugin-dialog": "^2.4.1",
     "@tauri-apps/plugin-opener": "^2.5.3",
     "@tauri-apps/plugin-process": "^2.3.1",
-    "@xenova/transformers": "^2.17.0",
     "codemirror": "6.0.2",
     "force-graph": "^1.51.1",
     "minisearch": "7.2.0",
     "svelte": "^5.49.2",
-    "tailwindcss": "^4.1.18",
-    "umap-js": "^1.4.0"
+    "tailwindcss": "^4.1.18"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.2",

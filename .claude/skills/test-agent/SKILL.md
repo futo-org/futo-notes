@@ -82,52 +82,24 @@ mkdir -p "$TEST_AGENT_DIR"/{tests,results,screenshots}
 
 #### Writing ephemeral server tests
 
-Write test files to the temp directory, then run them with vitest pointing at the project config:
+Server tests are Rust integration tests in `crates/stonefruit-server/tests/`. To add a new test scenario, write a Rust test file:
 
 ```bash
-TEST_AGENT_DIR="/tmp/stonefruit-test-agent-XXXXXX"  # use the actual dir
-
-# Write the ephemeral test file
-cat > "$TEST_AGENT_DIR/tests/scenario-name.test.ts" << 'TESTEOF'
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { createTestEnv, setupAndLogin, type TestEnv } from '../../apps/server/tests/helpers/setup.js';
-import { SyncClient } from '../../apps/server/tests/helpers/sync-client.js';
-
-describe('scenario: <name>', () => {
-  let env: TestEnv;
-  let token: string;
-
-  beforeEach(async () => {
-    env = createTestEnv();
-    token = await setupAndLogin(env.app);
-  });
-
-  afterEach(() => env.cleanup());
-
-  it('<what we are testing>', async () => {
-    const client1 = new SyncClient(env.app, token);
-    const client2 = new SyncClient(env.app, token);
-    // ... scenario actions ...
-    // ... assertions comparing actual vs expected ...
-  });
-});
-TESTEOF
-
-# Run it — use the project's vitest config so imports resolve correctly
-cd "$WORKTREE_ROOT" && pnpm exec vitest run "$TEST_AGENT_DIR/tests/scenario-name.test.ts" \
-  --config apps/server/vitest.config.ts \
-  --reporter verbose 2>&1 | tee "$TEST_AGENT_DIR/results/scenario-name.txt"
+# Run existing server tests
+cd "$WORKTREE_ROOT" && cargo test -p stonefruit-server -- --nocapture 2>&1 | tee "$TEST_AGENT_DIR/results/server-tests.txt"
 ```
 
-**Available test building blocks** (from `apps/server/tests/helpers/`):
+**Existing test coverage** (in `crates/stonefruit-server/tests/`):
 
-| Helper | What it gives you |
+| Test file | What it covers |
 |---|---|
-| `createTestEnv()` | Isolated DB + notes dir + Hono app instance |
-| `setupAndLogin(app)` | Auth token for the test server |
-| `authReq(app, method, path, token, body?)` | Authenticated HTTP request |
-| `SyncClient` | Stateful sync client with `.createNote()`, `.editNote()`, `.deleteNote()`, `.renameNote()`, `.sync()` |
-| `contentHash(content)` | The same hash function the sync engine uses |
+| `sync.rs` | Sync engine: conflicts, merges, tombstones, multi-device |
+| `e2e_two_client.rs` | Two-client end-to-end scenarios |
+| `golden_vaults.rs` | Deterministic golden-vault fixtures |
+| `routes.rs` | HTTP endpoint integration tests |
+| `auth.rs` | Authentication and authorization |
+| `proptest_sync.rs` | Property-based sync convergence |
+| `sync_10k.rs` | Large vault performance |
 
 **For UI scenarios** — use Tauri MCP tools or agent-browser following `/verify`'s patterns:
 - Take before/after screenshots

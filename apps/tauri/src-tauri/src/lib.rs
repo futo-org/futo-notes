@@ -1,6 +1,4 @@
 pub mod core;
-pub mod graph_clusters;
-pub mod graph_positions;
 
 use core::*;
 use tauri::{Emitter, Manager};
@@ -111,34 +109,42 @@ pub fn run() {
         .setup(|_app| {
             #[cfg(desktop)]
             {
-                _app.handle().plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-                    if let Some(w) = app.get_webview_window("main") {
-                        let _ = w.set_focus();
-                    }
-                }))?;
+                if std::env::var("STONEFRUIT_MULTI_INSTANCE").is_err() {
+                    _app.handle().plugin(tauri_plugin_single_instance::init(
+                        |app, _args, _cwd| {
+                            if let Some(w) = app.get_webview_window("main") {
+                                let _ = w.set_focus();
+                            }
+                        },
+                    ))?;
+                }
             }
             // On iOS, extend the webview edge-to-edge so CSS env(safe-area-inset-*)
             // reports correct values and the app fills the full screen.
             #[cfg(target_os = "ios")]
             {
                 let webview = _app.get_webview_window("main").unwrap();
-                webview.with_webview(move |wv| {
-                    use objc2::runtime::AnyObject;
-                    use objc2::msg_send;
-                    unsafe {
-                        let wk: *mut AnyObject = wv.inner().cast();
-                        // WKWebView.scrollView
-                        let scroll_view: *mut AnyObject = msg_send![wk, scrollView];
-                        // UIScrollView.contentInsetAdjustmentBehavior = .never (2)
-                        let _: () = msg_send![scroll_view, setContentInsetAdjustmentBehavior: 2_isize];
-                        // Get the WKWebView's superview (the view controller's view)
-                        let superview: *mut AnyObject = msg_send![wk, superview];
-                        if !superview.is_null() {
-                            // Set insetsLayoutMarginsFromSafeArea = NO
-                            let _: () = msg_send![superview, setInsetsLayoutMarginsFromSafeArea: false];
+                webview
+                    .with_webview(move |wv| {
+                        use objc2::msg_send;
+                        use objc2::runtime::AnyObject;
+                        unsafe {
+                            let wk: *mut AnyObject = wv.inner().cast();
+                            // WKWebView.scrollView
+                            let scroll_view: *mut AnyObject = msg_send![wk, scrollView];
+                            // UIScrollView.contentInsetAdjustmentBehavior = .never (2)
+                            let _: () =
+                                msg_send![scroll_view, setContentInsetAdjustmentBehavior: 2_isize];
+                            // Get the WKWebView's superview (the view controller's view)
+                            let superview: *mut AnyObject = msg_send![wk, superview];
+                            if !superview.is_null() {
+                                // Set insetsLayoutMarginsFromSafeArea = NO
+                                let _: () =
+                                    msg_send![superview, setInsetsLayoutMarginsFromSafeArea: false];
+                            }
                         }
-                    }
-                }).unwrap();
+                    })
+                    .unwrap();
             }
             // On Linux, disable native GTK decorations so the frontend can
             // render its own Breeze-style titlebar consistently across DEs.
@@ -187,12 +193,8 @@ pub fn run() {
             core_rebuild_index,
             core_get_note_previews,
             core_keyword_search,
-            core_prepare_sync_payload,
-            core_apply_sync_delta,
-            core_prepare_image_sync,
-            core_read_image_bytes,
-            core_write_synced_image,
-            core_apply_image_sync_delta,
+            core_prepare_sync_payload_v2,
+            core_apply_sync_delta_v2,
             core_list_image_files,
             core_delete_image_file,
             engagement_load,
@@ -204,8 +206,6 @@ pub fn run() {
             engagement_flush,
             supersearch_is_ready,
             supersearch_get_state,
-            graph_positions::graph_compute_positions,
-            graph_clusters::graph_compute_clusters,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

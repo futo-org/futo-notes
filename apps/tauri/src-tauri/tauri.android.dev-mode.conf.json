@@ -1,0 +1,7 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "build": {
+    "beforeDevCommand": "sh -c 'HOST=${TAURI_DEV_HOST:-127.0.0.1}; npm run dev --prefix ../.. -- --host \"$HOST\" --port 5181 --strictPort'",
+    "devUrl": "http://127.0.0.1:5181"
+  }
+}

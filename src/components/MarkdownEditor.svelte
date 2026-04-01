@@ -23,7 +23,6 @@
   import { imagePasteHandler } from '$lib/imagePaste';
   import { openUrl } from '$lib/openUrl';
   import { wikilinkAutocomplete } from '$lib/wikilinkAutocomplete';
-  import { typingLatencyExtension } from '$lib/typingLatency';
   import { acceptCompletion, completionKeymap } from '@codemirror/autocomplete';
   import { navigate } from '../router';
 
@@ -535,8 +534,6 @@
           }
         }
       }),
-      // Typing latency measurement (dev only)
-      ...(import.meta.env.DEV ? typingLatencyExtension() : []),
       // Cursor context detection for toolbar
       EditorView.updateListener.of((() => {
         let lastOnList = false;

@@ -1,19 +1,14 @@
 # Deny all by default
 *
 
-# Whitelist workspace manifests
-!package.json
-!pnpm-lock.yaml
-!pnpm-workspace.yaml
-!.npmrc
+# Whitelist Cargo workspace manifests
+!Cargo.toml
+!Cargo.lock
 
-# Whitelist server app
-!apps/server/
-apps/server/dist/
-apps/server/node_modules/
-apps/server/data/
-apps/server/.env
+# Whitelist Rust crates
+!crates/
+crates/*/target/
 
-# Whitelist shared package
+# Whitelist shared package (for future Node.js builds)
 !packages/shared/
 packages/shared/node_modules/

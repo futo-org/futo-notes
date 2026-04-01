@@ -8,36 +8,36 @@ export interface FileChangeEvent {
   filename: string;
 }
 
-export interface PlatformFS {
+// ── V2 focused interfaces ──────────────────────────────────────────────
+
+/** Core file system operations — everything needed for offline-first editing and sync. */
+export interface FileSystem {
   listNoteFiles(): Promise<NoteFile[]>;
   readNote(id: string): Promise<string>;
   writeNote(id: string, content: string, modifiedAtMs?: number): Promise<number>;
   deleteNoteFile(id: string): Promise<void>;
   noteExists(id: string): Promise<boolean>;
 
-  // App data (prefs, crash logs — dotfiles in the notes directory)
   readAppData(path: string): Promise<string | null>;
   writeAppData(path: string, content: string): Promise<void>;
   deleteAppData(path: string): Promise<void>;
   listAppData(dir: string): Promise<string[]>;
 
-  // Images
   saveImage(sourcePath: string): Promise<string>;
   saveImageBytes?(data: ArrayBuffer, ext: string): Promise<string>;
   getImageUrl(filename: string): Promise<string>;
 
-  // App info
   getAppVersion(): Promise<string>;
   getPlatformName(): string;
 
-  // Bulk operations
   deleteAllContent(): Promise<void>;
+}
 
-  // Binary app data (supersearch artifacts)
+/** Platform-specific capabilities beyond core file I/O. */
+export interface NativeCapabilities {
   readBinaryAppData?(path: string): Promise<ArrayBuffer | null>;
   writeBinaryAppData?(path: string, data: ArrayBuffer): Promise<void>;
 
-  // Supersearch (native platforms)
   supersearchDownload?(serverUrl: string, token: string): Promise<void>;
   supersearchHasArtifacts?(): Promise<boolean>;
   supersearchQuery?(
@@ -47,20 +47,12 @@ export interface PlatformFS {
   supersearchNoteVector?(uuid: string): Promise<number[]>;
   supersearchAllNoteVectors?(): Promise<Array<{ uuid: string; vector: number[] }>>;
 
-  // Graph layout (native UMAP + K-Means)
-  graphComputePositions?(input: {
-    uuids: string[];
-    seed: number;
-    nNeighbors: number;
-    minDist: number;
-  }): Promise<Array<{ uuid: string; x: number; y: number }>>;
-  graphComputeClusters?(input: {
-    uuids: string[];
-    seed: number;
-  }): Promise<{ assignments: Array<{ uuid: string; clusterIndex: number }>; clusterCount: number }>;
-
-  // Optional platform-specific
   pickImage?(): Promise<string | null>;
 }
+
+// ── Unified interface (backward compat) ────────────────────────────────
+
+/** Full platform interface — extends both FileSystem and NativeCapabilities. */
+export interface PlatformFS extends FileSystem, NativeCapabilities {}
 
 export type PlatformName = 'tauri' | 'web';

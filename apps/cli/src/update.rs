@@ -1,12 +1,10 @@
 use crate::cli::UpdateArgs;
-use crate::docker;
-use crate::server_api;
+use crate::{config, docker, server_api, settings};
 use anyhow::{bail, Context, Result};
 use crossterm::execute;
 use crossterm::style::{Attribute, Color, Print, ResetColor, SetAttribute, SetForegroundColor};
 use std::io::{stdout, Write};
-use std::path::PathBuf;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 const PRIMARY: Color = Color::Rgb {
     r: 176,
@@ -26,7 +24,7 @@ const MUTED: Color = Color::Rgb {
 
 pub fn run(args: UpdateArgs) -> Result<()> {
     let started = Instant::now();
-    let work_dir = resolve_work_dir(&args)?;
+    let work_dir = settings::resolve_work_dir(args.compose_dir.as_deref())?;
 
     if !work_dir.join("docker-compose.yml").exists() {
         bail!(
@@ -37,6 +35,8 @@ pub fn run(args: UpdateArgs) -> Result<()> {
 
     // Migrate compose file if needed (fix volume mount path from old releases)
     migrate_compose_volume(&work_dir)?;
+    let config = config::load_or_infer(&work_dir)?;
+    config::write_managed_files(&work_dir, &config)?;
 
     // Check Docker
     step("Checking Docker")?;
@@ -57,10 +57,9 @@ pub fn run(args: UpdateArgs) -> Result<()> {
     done("done")?;
 
     // Health check
-    let port = docker::parse_compose_port(&work_dir)?;
-    let base_url = format!("http://localhost:{}", port);
+    let base_url = settings::base_url(config.port);
     step("Waiting for server")?;
-    server_api::wait_for_healthy(&base_url, Duration::from_secs(30))?;
+    server_api::wait_for_healthy(&base_url, config.startup_timeout())?;
     done("healthy")?;
 
     // Compare images
@@ -73,19 +72,6 @@ pub fn run(args: UpdateArgs) -> Result<()> {
     print_elapsed(elapsed)?;
 
     Ok(())
-}
-
-fn resolve_work_dir(args: &UpdateArgs) -> Result<PathBuf> {
-    match &args.compose_dir {
-        Some(dir) => {
-            let path = PathBuf::from(dir);
-            if !path.is_dir() {
-                bail!("{} is not a directory", dir);
-            }
-            Ok(path)
-        }
-        None => std::env::current_dir().context("failed to get working directory"),
-    }
 }
 
 fn step(label: &str) -> Result<()> {
@@ -207,8 +193,6 @@ fn print_elapsed(seconds: u64) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cli::UpdateArgs;
-
     #[test]
     fn short_id_strips_sha256_prefix() {
         assert_eq!(short_id("sha256:abc123def456789"), "abc123def456");
@@ -222,13 +206,6 @@ mod tests {
     #[test]
     fn short_id_handles_short_input() {
         assert_eq!(short_id("sha256:abc"), "abc");
-    }
-
-    #[test]
-    fn resolve_work_dir_defaults_to_cwd() {
-        let args = UpdateArgs { compose_dir: None };
-        let result = resolve_work_dir(&args).unwrap();
-        assert!(result.is_dir());
     }
 
     #[test]
@@ -259,13 +236,5 @@ mod tests {
         let result = std::fs::read_to_string(&compose).unwrap();
         assert_eq!(result, content);
         let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn resolve_work_dir_rejects_nonexistent() {
-        let args = UpdateArgs {
-            compose_dir: Some("/nonexistent/path/12345".to_string()),
-        };
-        assert!(resolve_work_dir(&args).is_err());
     }
 }

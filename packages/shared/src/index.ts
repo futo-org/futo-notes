@@ -1,10 +1,4 @@
-export type { NoteSyncMeta } from './note.js';
 export type {
-  SyncRequest,
-  SyncResponse,
-  SyncCheckRequest,
-  SyncCheckResponse,
-  InventoryItem,
   SetupRequest,
   LoginRequest,
   LoginResponse,

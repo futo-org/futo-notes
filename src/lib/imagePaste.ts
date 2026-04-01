@@ -28,6 +28,42 @@ function extFromMime(mime: string): string {
   return map[mime] ?? 'png';
 }
 
+type ImagePasteFS = {
+  saveImageBytes: (data: ArrayBuffer, ext: string) => Promise<string>;
+  getImageUrl: (filename: string) => Promise<string>;
+};
+
+/**
+ * Save a pasted image and insert markdown at the current cursor.
+ * Returns false on failure after reporting the error.
+ */
+export async function pasteImageIntoView(
+  view: Pick<EditorView, 'state' | 'dispatch' | 'focus'>,
+  imageFile: Pick<File, 'type' | 'arrayBuffer'>,
+  fs: ImagePasteFS,
+  reportError: (message: string, error: unknown) => void = console.error,
+): Promise<boolean> {
+  try {
+    const buffer = await imageFile.arrayBuffer();
+    const ext = extFromMime(imageFile.type);
+    const filename = await fs.saveImageBytes(buffer, ext);
+    const webUrl = await fs.getImageUrl(filename);
+    registerLocalImageUrl(filename, webUrl);
+
+    const pos = view.state.selection.main.head;
+    const insert = `![](${filename})\n`;
+    view.dispatch({
+      changes: { from: pos, insert },
+      selection: { anchor: pos + insert.length },
+    });
+    view.focus();
+    return true;
+  } catch (err) {
+    reportError('Image paste failed:', err);
+    return false;
+  }
+}
+
 /**
  * CodeMirror extension that intercepts paste events containing images.
  * When `saveImageBytes` is available (Tauri desktop/mobile), saves the image
@@ -58,21 +94,7 @@ export const imagePasteHandler = EditorView.domEventHandlers({
     const saveImageBytes = fs.saveImageBytes.bind(fs);
     const getImageUrl = fs.getImageUrl.bind(fs);
 
-    // Save asynchronously, insert markdown when done
-    imageFile.arrayBuffer().then(async (buffer) => {
-      const ext = extFromMime(imageFile.type);
-      const filename = await saveImageBytes(buffer, ext);
-      const webUrl = await getImageUrl(filename);
-      registerLocalImageUrl(filename, webUrl);
-
-      const pos = view.state.selection.main.head;
-      const insert = `![](${filename})\n`;
-      view.dispatch({
-        changes: { from: pos, insert },
-        selection: { anchor: pos + insert.length },
-      });
-      view.focus();
-    });
+    void pasteImageIntoView(view, imageFile, { saveImageBytes, getImageUrl });
 
     return true;
   }

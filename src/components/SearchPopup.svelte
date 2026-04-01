@@ -1,6 +1,14 @@
 <script lang="ts">
   import type { SearchResultItem } from '../types';
-  import { searchKeyword, searchWithVectors, type SearchTimingResult } from '$lib/notes';
+  import { searchKeyword, getAllNotes } from '$lib/notes';
+  import { getSyncConfig } from '$lib/authFetch';
+  import {
+    fetchServerSearchResults,
+    fuseConnectedSearchResults,
+    hasSemanticServerResults,
+    mapServerResults,
+    type ServerSearchResult,
+  } from '$lib/serverSearch';
 
   interface Props {
     onclose: () => void;
@@ -13,20 +21,30 @@
   let inputEl: HTMLInputElement | undefined = $state(undefined);
   let selectedIndex = $state(-1);
   let resultEls: HTMLElement[] = $state([]);
-  let vectorResults: SearchTimingResult | null = $state(null);
-  let vectorSearching = $state(false);
+  let serverSearching = $state(false);
 
   let keywordResults: SearchResultItem[] = $state([]);
+  let serverResults: ServerSearchResult | null = $state(null);
   let results: SearchResultItem[] = $derived(
     !query.trim()
       ? keywordResults
-      : (vectorResults ? vectorResults.results : keywordResults)
+      : fuseConnectedSearchResults(keywordResults, serverResults)
   );
-  let timing = $derived(vectorResults?.timing ?? null);
+  let timing = $derived(serverResults?.timing ?? null);
+
+  /** Check if a sync server is configured (has URL + token). */
+  function hasServer(): boolean {
+    try {
+      const { serverUrl, token } = getSyncConfig();
+      return Boolean(serverUrl && token);
+    } catch {
+      return false;
+    }
+  }
 
   let keywordRequestId = 0;
 
-  // Debounced keyword search — instant results
+  // Debounced keyword search — instant results (always runs, offline-capable)
   $effect(() => {
     const q = query;
     const requestId = ++keywordRequestId;
@@ -63,45 +81,51 @@
     return () => clearTimeout(timer);
   });
 
-  // Debounced unified search (keyword + vector with 300ms deadline)
-  let vectorDebounceTimer: ReturnType<typeof setTimeout> | undefined;
-  let vectorAbortController: AbortController | null = null;
+  // Debounced server search — hybrid keyword+vector results from V2 server
+  let serverDebounceTimer: ReturnType<typeof setTimeout> | undefined;
+  let serverAbortController: AbortController | null = null;
 
   $effect(() => {
     const q = query;
 
-    vectorSearching = false;
+    serverSearching = false;
 
-    if (vectorDebounceTimer) clearTimeout(vectorDebounceTimer);
-    if (vectorAbortController) {
-      vectorAbortController.abort();
-      vectorAbortController = null;
+    if (serverDebounceTimer) clearTimeout(serverDebounceTimer);
+    if (serverAbortController) {
+      serverAbortController.abort();
+      serverAbortController = null;
     }
 
     if (!q.trim()) {
-      vectorResults = null;
+      serverResults = null;
       return;
     }
 
-    vectorDebounceTimer = setTimeout(async () => {
+    if (!hasServer()) return;
+
+    serverDebounceTimer = setTimeout(async () => {
       if (q !== query) return;
 
       const controller = new AbortController();
-      vectorAbortController = controller;
-      vectorSearching = true;
+      serverAbortController = controller;
+      serverSearching = true;
+
       try {
-        const result = await searchWithVectors(q, controller.signal);
+        const { serverUrl, token } = getSyncConfig();
+        const data = await fetchServerSearchResults(serverUrl, token, q, controller.signal);
+
         if (q === query) {
-          vectorResults = result;
+          serverResults = mapServerResults(data, getAllNotes());
         }
       } catch (e) {
         if (e instanceof DOMException && e.name === 'AbortError') return;
-        if (q === query) vectorResults = null;
+        // Server failed — silently keep showing keyword results
+        if (q === query) serverResults = null;
       } finally {
-        if (vectorAbortController === controller) {
-          vectorAbortController = null;
+        if (serverAbortController === controller) {
+          serverAbortController = null;
         }
-        if (q === query) vectorSearching = false;
+        if (q === query) serverSearching = false;
       }
     }, 150);
   });
@@ -174,10 +198,10 @@
         placeholder="Search notes..."
         bind:value={query}
       />
-      {#if vectorSearching}
-        <span class="search-vector-indicator" title="Searching with AI..."></span>
-      {:else if vectorResults && query}
-        <span class="search-vector-done" title="AI-enhanced results"></span>
+      {#if serverSearching}
+        <span class="search-vector-indicator" title="Searching server..."></span>
+      {:else if hasSemanticServerResults(serverResults) && query}
+        <span class="search-vector-done" title="Server-enhanced results"></span>
       {/if}
       {#if query}
         <button class="search-clear" aria-label="Clear search" onclick={() => { query = ''; inputEl?.focus(); }}>
@@ -189,10 +213,10 @@
       {/if}
     </div>
 
-    {#if timing && query}
+    {#if timing && hasSemanticServerResults(serverResults) && query}
       <div class="search-timing-row">
         <span class="search-timing">
-          {#if timing.embed > 0}embed: {formatMs(timing.embed)} | {/if}search: {formatMs(timing.keyword + timing.vector)} | total: {formatMs(timing.total)}
+          keyword: {formatMs(timing.keyword)} | vector: {formatMs(timing.vector)} | total: {formatMs(timing.total)}
         </span>
       </div>
     {/if}

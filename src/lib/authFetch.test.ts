@@ -2,11 +2,11 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('./preferences', () => ({
+vi.mock('./appState', () => ({
   getCachedPreferences: vi.fn(),
 }));
 
-import { getCachedPreferences } from './preferences';
+import { getCachedPreferences } from './appState';
 import { authFetch, AuthFetchError, getSyncConfig } from './authFetch';
 
 const mockGetCachedPreferences = vi.mocked(getCachedPreferences);

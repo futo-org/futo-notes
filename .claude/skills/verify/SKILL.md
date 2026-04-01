@@ -55,9 +55,8 @@ Categorize changed files into ALL matching categories:
 | `src/**/*.svelte`, `src/**/*.ts` (not test files) | frontend (check if files import `@tauri-apps/*` or `invoke` → also mark as tauri-dependent) |
 | `src/**/*.css`, `src/styles/**` | styles |
 | `src/**/*.test.ts`, `src/**/*.spec.ts` | unit-tests |
-| `apps/server/**` (not Dockerfile/docker-compose) | server |
-| `apps/server/Dockerfile`, `docker-compose*` | server-docker |
-| `apps/server/src/routes/dashboard*` | dashboard |
+| `crates/stonefruit-server/**` (not Dockerfile/docker-compose) | server |
+| `crates/stonefruit-server/Dockerfile`, `docker-compose*` | server-docker |
 | `apps/tauri/src-tauri/**` | tauri-rust |
 | `apps/cli/**` | cli |
 | `packages/shared/**` | shared |
@@ -100,13 +99,13 @@ pnpm run server:test 2>&1 | tail -30
 ### server-docker:
 After server tests pass:
 ```bash
-cd apps/server && docker compose up --build -d 2>&1 | tail -20
+docker compose -f crates/stonefruit-server/docker-compose.yml up --build -d 2>&1 | tail -20
 sleep 3 && curl -sf http://localhost:3005/health && echo "OK" || echo "FAIL"
-docker compose down 2>&1
+docker compose -f crates/stonefruit-server/docker-compose.yml down 2>&1
 ```
 
 ### dashboard:
-After server tests pass, smoke-test the dashboard. Start a temp server (`cd apps/server && PORT=3005 NODE_ENV=development pnpm exec tsx src/index.ts &`), run the auth flow via curl (nuke → setup → login → authenticated endpoint → verify unauthenticated 401), then `pkill -f "tsx src/index.ts"`. If Playwright MCP browser tools are available, prefer using them to navigate to `http://localhost:3005/` and exercise the UI interactively — this catches rendering bugs that curl cannot.
+After server tests pass, smoke-test the server. Start a temp server (`PORT=3005 DATA_DIR=$(mktemp -d) STONEFRUIT_DEV_PASSWORD=testing123 cargo run -p stonefruit-server &`), run the auth flow via curl (setup → login → authenticated endpoint → verify unauthenticated 401), then kill the process.
 
 ### shared:
 ```bash
@@ -421,12 +420,12 @@ SLOT=$(( $(printf "%d" "0x$(echo -n "$WORKTREE_ROOT" | md5sum | cut -c1-8)") % 5
 VERIFY_SERVER_PORT=$(( 3100 + SLOT ))
 VERIFY_SERVER_DIR=$(mktemp -d /tmp/stonefruit-verify-server-XXXXXX)
 
-# Start an isolated server with its own DB and notes dir
-cd "$WORKTREE_ROOT/apps/server"
+# Start an isolated Rust server with its own data dir
+cd "$WORKTREE_ROOT"
 PORT=$VERIFY_SERVER_PORT \
-  DATABASE_PATH="$VERIFY_SERVER_DIR/test.db" \
-  NOTES_PATH="$VERIFY_SERVER_DIR/notes" \
-  pnpm exec tsx src/index.ts > "$VERIFY_SERVER_DIR/server.log" 2>&1 &
+  DATA_DIR="$VERIFY_SERVER_DIR" \
+  STONEFRUIT_DEV_PASSWORD=testing123 \
+  cargo run -p stonefruit-server > "$VERIFY_SERVER_DIR/server.log" 2>&1 &
 VERIFY_SERVER_PID=$!
 echo $VERIFY_SERVER_PID > "$VERIFY_SERVER_DIR/server.pid"
 sleep 3

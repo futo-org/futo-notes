@@ -24,6 +24,7 @@ stages:
   - cleanup
   - test
   - build
+  - verify
   - publish
   - release
 
@@ -179,10 +180,10 @@ test:server:
   stage: test
   needs: [docker:prune]
   cache:
-    - !reference [.cache-pnpm, cache]
+    - !reference [.cache-cargo-tauri, cache]
   script:
-    - pnpm install --frozen-lockfile
-    - pnpm run server:test
+    - !reference [.setup-rust, script]
+    - cargo test -p stonefruit-server
 
 test:server:smoke:
   stage: test
@@ -191,15 +192,15 @@ test:server:smoke:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
     - if: $CI_COMMIT_TAG
   script:
-    - IMAGE_SHA=$(docker build -q -f apps/server/Dockerfile .)
+    - IMAGE_SHA=$(docker build -q -f crates/stonefruit-server/Dockerfile .)
     - CONTAINER="sf-smoke-${CI_JOB_ID}"
     - docker rm -f "$CONTAINER" 2>/dev/null || true
-    - docker run --rm -d --name "$CONTAINER" -e SEARCH_ENABLED=false -e TRANSFORMS_ENABLED=false "$IMAGE_SHA"
+    - docker run --rm -d --name "$CONTAINER" "$IMAGE_SHA"
     - |
       cleanup() { docker logs "$CONTAINER" 2>&1 || true; docker stop "$CONTAINER" 2>/dev/null || true; }
       trap cleanup EXIT
       for i in $(seq 1 10); do
-        docker exec "$CONTAINER" node -e "fetch('http://localhost:3005/health').then(r=>{if(!r.ok)throw r;process.exit(0)}).catch(()=>process.exit(1))" && exit 0
+        if curl -sf "http://$(docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$CONTAINER"):3006/health"; then exit 0; fi
         sleep 2
       done
       echo "Health check failed after 10 retries"
@@ -265,7 +266,7 @@ test:desktop-smoke:
       TAURI_LOG="/tmp/tauri-smoke.log"
       WEBKIT_DISABLE_DMABUF_RENDERER=1 \
         xvfb-run -a --server-args="-screen 0 1280x800x24" \
-        apps/tauri/src-tauri/target/debug/futo-notes-tauri > "$TAURI_LOG" 2>&1 &
+        target/debug/futo-notes-tauri > "$TAURI_LOG" 2>&1 &
     # Run smoke tests (script handles port discovery + retries)
     - node tests/desktop-smoke.mjs --log-file /tmp/tauri-smoke.log
   after_script:
@@ -276,6 +277,43 @@ test:desktop-smoke:
       - test-screenshots/smoke-*.png
       - test-screenshots/smoke-results.json
     expire_in: 1 week
+
+test:cross-platform-sync:
+  stage: test
+  needs: [docker:prune]
+  rules:
+    - if: $CI_COMMIT_TAG
+    - if: $CI_MERGE_REQUEST_IID
+      changes:
+        - apps/tauri/**/*
+        - src/**/*
+        - crates/**/*
+        - packages/shared/**/*
+  cache:
+    - !reference [.cache-pnpm, cache]
+    - !reference [.cache-cargo-tauri, cache]
+  script:
+    - pnpm install --frozen-lockfile
+    - !reference [.setup-linux-deps, script]
+    - !reference [.setup-rust, script]
+    - DEBIAN_FRONTEND=noninteractive apt-get install -y xvfb
+    # Build debug Tauri binary (beforeBuildCommand runs pnpm build with test hooks) + server binary
+    - cd apps/tauri && VITE_INCLUDE_TEST_HOOKS=true cargo tauri build --debug --no-bundle && cd ../..
+    - cargo build -p stonefruit-server
+    # Run cross-platform sync tests under xvfb
+    - >-
+      WEBKIT_DISABLE_DMABUF_RENDERER=1
+      xvfb-run -a --server-args="-screen 0 1280x800x24"
+      node tests/cross-platform-sync.mjs
+  after_script:
+    - kill $(pgrep -f futo-notes-tauri) 2>/dev/null || true
+    - kill $(pgrep -f stonefruit-server) 2>/dev/null || true
+  artifacts:
+    when: always
+    paths:
+      - test-screenshots/sync-results.json
+    expire_in: 1 week
+  timeout: 20m
 
 test:desktop-smoke:macos:
   stage: test
@@ -310,10 +348,45 @@ docker:publish:
     - docker buildx create --use --name multiarch
     - |
       export IMAGE="$CI_REGISTRY_IMAGE/server"
-      docker buildx build -f apps/server/Dockerfile \
+      TAGS="-t $IMAGE:latest"
+      if [ -n "$CI_COMMIT_TAG" ]; then
+        TAGS="$TAGS -t $IMAGE:${CI_COMMIT_TAG}"
+      fi
+      docker buildx build -f crates/stonefruit-server/Dockerfile \
         --platform linux/amd64,linux/arm64 \
-        -t "$IMAGE:latest" --push .
+        $TAGS --push .
   rules:
+    - if: $CI_COMMIT_TAG
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+docker:verify:
+  stage: verify
+  needs: [docker:publish]
+  script:
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+    - |
+      IMAGE="$CI_REGISTRY_IMAGE/server"
+      TAG="${CI_COMMIT_TAG:-latest}"
+      echo "Pulling $IMAGE:$TAG"
+      docker pull "$IMAGE:$TAG"
+    - CONTAINER="sf-verify-${CI_JOB_ID}"
+    - docker rm -f "$CONTAINER" 2>/dev/null || true
+    - docker run --rm -d --name "$CONTAINER" "$IMAGE:$TAG"
+    - |
+      cleanup() { docker logs "$CONTAINER" 2>&1 || true; docker stop "$CONTAINER" 2>/dev/null || true; }
+      trap cleanup EXIT
+      IP=$(docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$CONTAINER")
+      for i in $(seq 1 15); do
+        if curl -sf "http://$IP:3006/health" > /dev/null; then
+          echo "Health check passed on attempt $i"
+          exit 0
+        fi
+        sleep 2
+      done
+      echo "Published image health check failed after 15 retries"
+      exit 1
+  rules:
+    - if: $CI_COMMIT_TAG
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
 # ─────────────────────────────────────────────────────────────
@@ -351,7 +424,7 @@ cli:build:amd64:
       [ -z "$VERSION" ] && VERSION="dev"
       mkdir -p dist
       STONEFRUIT_VERSION="$VERSION" cargo build --release
-      cp target/release/stonefruit "dist/stonefruit-linux-amd64"
+      cp ../../target/release/stonefruit "dist/stonefruit-linux-amd64"
   artifacts:
     paths:
       - apps/cli/dist/
@@ -381,7 +454,7 @@ cli:build:arm64:
       [ -z "$VERSION" ] && VERSION="dev"
       mkdir -p dist
       STONEFRUIT_VERSION="$VERSION" cargo build --release --target aarch64-unknown-linux-gnu
-      cp target/aarch64-unknown-linux-gnu/release/stonefruit "dist/stonefruit-linux-arm64"
+      cp ../../target/aarch64-unknown-linux-gnu/release/stonefruit "dist/stonefruit-linux-arm64"
   artifacts:
     paths:
       - apps/cli/dist/
@@ -710,7 +783,7 @@ windows:sign:
   stage: build
   tags:
     - dind
-  image: debian:bookworm-slim
+  image: debian:trixie-slim
   needs:
     - job: build:windows
       artifacts: true
@@ -792,6 +865,66 @@ windows:cleanup:
     - if: $CI_COMMIT_TAG
 
 # ─────────────────────────────────────────────────────────────
+# Release gate — all platform artifacts must exist
+# ─────────────────────────────────────────────────────────────
+
+release:gate:
+  stage: verify
+  needs:
+    - job: docker:verify
+    - job: build:linux
+      artifacts: true
+    - job: build:android
+      artifacts: true
+    - job: build:ios
+      artifacts: true
+    - job: build:macos
+      artifacts: true
+    - job: windows:sign
+      artifacts: true
+    - job: cli:build:amd64
+      artifacts: true
+    - job: cli:build:arm64
+      artifacts: true
+  before_script: []
+  script:
+    - |
+      MISSING=0
+      check() { if ! ls $1 >/dev/null 2>&1; then echo "MISSING: $1"; MISSING=$((MISSING+1)); else echo "OK: $1"; fi; }
+
+      echo "=== Platform artifacts ==="
+      check "apps/tauri/src-tauri/target/release/bundle/deb/*.deb"
+      check "apps/tauri/src-tauri/target/release/bundle/rpm/*.rpm"
+      check "apps/tauri/src-tauri/target/release/bundle/appimage/*.AppImage"
+      check "apps/tauri/src-tauri/gen/android/app/build/outputs/apk/**/*release*.apk"
+      check "buildFutoNotesIOS/binary/*.ipa"
+      check "buildFutoNotesMacOS/binary/*.dmg"
+
+      echo ""
+      echo "=== Windows installer ==="
+      check "windows-artifacts/*.exe"
+
+      echo ""
+      echo "=== CLI binaries ==="
+      check "apps/cli/dist/stonefruit-linux-amd64"
+      check "apps/cli/dist/stonefruit-linux-arm64"
+
+      # Verify CLI binaries are executable and report version
+      echo ""
+      echo "=== CLI version check ==="
+      chmod +x apps/cli/dist/stonefruit-linux-amd64
+      apps/cli/dist/stonefruit-linux-amd64 version || echo "WARN: version command failed"
+
+      echo ""
+      if [ "$MISSING" -gt 0 ]; then
+        echo "RELEASE BLOCKED: $MISSING artifact(s) missing"
+        exit 1
+      fi
+      echo "All artifacts present — release gate passed"
+  rules:
+    - if: $CI_COMMIT_TAG
+
+# ─────────────────────────────────────────────────────────────
 # Publish to GitLab Package Registry
 # ─────────────────────────────────────────────────────────────
 
@@ -799,19 +932,17 @@ publish:
   stage: publish
   interruptible: false
   needs:
+    - job: release:gate
     - job: build:linux
       artifacts: true
     - job: build:android
       artifacts: true
     - job: build:ios
       artifacts: true
-      optional: true
     - job: build:macos
       artifacts: true
-      optional: true
     - job: windows:sign
       artifacts: true
-      optional: true
   script:
     - VERSION="${CI_COMMIT_TAG#v}"
     - REGISTRY_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/stonefruit/${CI_COMMIT_TAG}"

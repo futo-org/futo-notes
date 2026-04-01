@@ -1,5 +1,6 @@
 use crate::cli::SetupArgs;
-use crate::docker::{self, DEFAULT_DATA_PATH, DEFAULT_PORT};
+use crate::config::{self, CliConfig};
+use crate::docker::{self, PullProgress, DEFAULT_DATA_PATH, DEFAULT_PORT};
 use crate::server_api;
 use anyhow::{anyhow, bail, Context, Result};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
@@ -13,7 +14,6 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 use ratatui::{Frame, Terminal};
-use std::fs;
 use std::io::{self, Read};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
@@ -34,7 +34,7 @@ pub fn run(args: SetupArgs) -> Result<()> {
         return run_non_interactive(args);
     }
 
-    run_interactive()
+    run_interactive(args)
 }
 
 fn run_non_interactive(args: SetupArgs) -> Result<()> {
@@ -52,6 +52,7 @@ fn run_non_interactive(args: SetupArgs) -> Result<()> {
         port,
         data_path,
         password,
+        semantic_search_enabled: !args.disable_semantic_search,
     };
     validate_config(&config)?;
 
@@ -59,7 +60,7 @@ fn run_non_interactive(args: SetupArgs) -> Result<()> {
     println!("Docker {} detected", version);
 
     let work_dir = std::env::current_dir().context("failed to get working directory")?;
-    write_compose_file(&work_dir, &config)?;
+    write_managed_files(&work_dir, &config)?;
     println!("Wrote docker-compose.yml to {}", work_dir.display());
 
     println!("Pulling image...");
@@ -67,17 +68,20 @@ fn run_non_interactive(args: SetupArgs) -> Result<()> {
     println!("Starting container...");
     docker::compose_up(&work_dir)?;
     println!("Waiting for server...");
-    server_api::wait_for_healthy(&base_url(config.port), std::time::Duration::from_secs(30))?;
+    server_api::wait_for_healthy(
+        &base_url(config.port),
+        cli_config(&config).startup_timeout(),
+    )?;
     println!("Setting password...");
-    server_api::setup(&base_url(config.port), &config.password)?;
+    finish_setup(&config)?;
 
     print_success(&config);
     Ok(())
 }
 
-fn run_interactive() -> Result<()> {
+fn run_interactive(args: SetupArgs) -> Result<()> {
     let mut terminal = init_terminal()?;
-    let result = App::default().run(&mut terminal);
+    let result = App::from_args(args).run(&mut terminal);
     restore_terminal(&mut terminal)?;
     result
 }
@@ -105,6 +109,7 @@ struct Config {
     port: u16,
     data_path: String,
     password: String,
+    semantic_search_enabled: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -112,6 +117,7 @@ enum Screen {
     Welcome,
     DockerCheck,
     Config,
+    SemanticSearch,
     DeployPreview,
     DeployRunning,
     Success,
@@ -153,6 +159,7 @@ enum WorkerEvent {
     DockerCheckOk(String),
     DockerCheckErr(String),
     PhaseStarted(Phase),
+    PullProgress(PullProgress),
     PhaseFinished(Phase),
     DeployFinished,
     DeployFailed(Phase, String),
@@ -162,9 +169,11 @@ struct App {
     screen: Screen,
     focused: usize,
     inputs: [InputField; 4],
+    semantic_search_enabled: bool,
     error: Option<String>,
     compose_preview: String,
     deployment_error: Option<String>,
+    pull_progress: Option<PullProgress>,
     phase_statuses: [(Phase, PhaseStatus); 4],
     phase_index: usize,
     work_dir: Option<PathBuf>,
@@ -192,9 +201,11 @@ impl Default for App {
                 InputField::new("Password", String::new(), true),
                 InputField::new("Confirm password", String::new(), true),
             ],
+            semantic_search_enabled: true,
             error: None,
             compose_preview: String::new(),
             deployment_error: None,
+            pull_progress: None,
             phase_statuses: [
                 (Phase::Pull, PhaseStatus::Pending),
                 (Phase::Start, PhaseStatus::Pending),
@@ -214,6 +225,20 @@ impl Default for App {
 }
 
 impl App {
+    fn from_args(args: SetupArgs) -> Self {
+        let mut app = Self::default();
+        if let Some(port) = args.port {
+            app.inputs[0].set_value(port.to_string());
+        }
+        if let Some(data_path) = args.data_path {
+            app.inputs[1].set_value(data_path);
+        }
+        if args.disable_semantic_search {
+            app.semantic_search_enabled = false;
+        }
+        app
+    }
+
     fn run(&mut self, terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> {
         loop {
             while let Ok(event) = self.rx.try_recv() {
@@ -259,9 +284,10 @@ impl App {
                 _ => {}
             },
             Screen::Config => self.handle_config_key(key)?,
+            Screen::SemanticSearch => self.handle_semantic_search_key(key),
             Screen::DeployPreview => match key.code {
                 KeyCode::Enter => self.start_deploy()?,
-                KeyCode::Esc => self.should_quit = true,
+                KeyCode::Esc => self.screen = Screen::SemanticSearch,
                 _ => {}
             },
             Screen::DeployRunning => match key.code {
@@ -299,6 +325,29 @@ impl App {
         Ok(())
     }
 
+    fn handle_semantic_search_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Left | KeyCode::Char('y') | KeyCode::Char('Y') => {
+                self.semantic_search_enabled = true;
+            }
+            KeyCode::Right | KeyCode::Char('n') | KeyCode::Char('N') => {
+                self.semantic_search_enabled = false;
+            }
+            KeyCode::Tab | KeyCode::Char(' ') => {
+                self.semantic_search_enabled = !self.semantic_search_enabled;
+            }
+            KeyCode::Enter => {
+                if let Some(config) = self.config.as_mut() {
+                    config.semantic_search_enabled = self.semantic_search_enabled;
+                    self.compose_preview = docker::generate_compose(&cli_config(config));
+                    self.screen = Screen::DeployPreview;
+                }
+            }
+            KeyCode::Esc => self.screen = Screen::Config,
+            _ => {}
+        }
+    }
+
     fn handle_worker_event(&mut self, event: WorkerEvent) -> Result<()> {
         match event {
             WorkerEvent::DockerCheckOk(_version) => {
@@ -311,10 +360,19 @@ impl App {
             WorkerEvent::PhaseStarted(phase) => {
                 self.set_phase_status(phase, PhaseStatus::Running);
                 self.deployment_error = None;
+                if phase != Phase::Pull {
+                    self.pull_progress = None;
+                }
+            }
+            WorkerEvent::PullProgress(progress) => {
+                self.pull_progress = Some(progress);
             }
             WorkerEvent::PhaseFinished(phase) => {
                 self.set_phase_status(phase, PhaseStatus::Done);
                 self.phase_index = phase_index(phase) + 1;
+                if phase == Phase::Pull {
+                    self.pull_progress = None;
+                }
             }
             WorkerEvent::DeployFinished => {
                 self.screen = Screen::Success;
@@ -336,6 +394,7 @@ impl App {
             Screen::Welcome => self.render_welcome(frame, area),
             Screen::DockerCheck => self.render_docker_check(frame, area),
             Screen::Config => self.render_config(frame, area),
+            Screen::SemanticSearch => self.render_semantic_search(frame, area),
             Screen::DeployPreview => self.render_deploy_preview(frame, area),
             Screen::DeployRunning => self.render_deploy_running(frame, area),
             Screen::Success => self.render_success(frame, area),
@@ -448,16 +507,14 @@ impl App {
             frame.render_widget(widget, chunks[idx]);
         }
 
-        let mut footer = vec![
-            Line::from(vec![
-                key_span("Enter"),
-                Span::raw(" submit  "),
-                key_span("Tab"),
-                Span::raw(" next field  "),
-                key_span("Esc"),
-                Span::raw(" quit"),
-            ]),
-        ];
+        let mut footer = vec![Line::from(vec![
+            key_span("Enter"),
+            Span::raw(" submit  "),
+            key_span("Tab"),
+            Span::raw(" next field  "),
+            key_span("Esc"),
+            Span::raw(" quit"),
+        ])];
 
         if let Some(error) = &self.error {
             footer.insert(
@@ -468,6 +525,56 @@ impl App {
         }
 
         frame.render_widget(Paragraph::new(Text::from(footer)), chunks[4]);
+    }
+
+    fn render_semantic_search(&self, frame: &mut Frame, area: Rect) {
+        let block = panel("Semantic Search");
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+
+        let on_style = if self.semantic_search_enabled {
+            Style::default().fg(SUCCESS).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(MUTED)
+        };
+        let off_style = if self.semantic_search_enabled {
+            Style::default().fg(MUTED)
+        } else {
+            Style::default().fg(DANGER).add_modifier(Modifier::BOLD)
+        };
+
+        let text = Text::from(vec![
+            Line::from("Semantic search finds notes by meaning, not just exact keywords."),
+            Line::raw(""),
+            Line::from("Enable semantic search?"),
+            Line::from("Recommended: Yes."),
+            Line::from("First startup may take a few minutes while the embedding model downloads."),
+            Line::raw(""),
+            Line::from(vec![
+                Span::styled("[Yes]", on_style),
+                Span::raw("   "),
+                Span::styled("[No]", off_style),
+            ]),
+            Line::raw(""),
+            Line::from("You can change this later with `stonefruit settings`."),
+            Line::raw(""),
+            Line::from(vec![
+                key_span("Y"),
+                Span::raw("/"),
+                key_span("N"),
+                Span::raw(" choose  "),
+                key_span("←"),
+                Span::raw("/"),
+                key_span("→"),
+                Span::raw(" move  "),
+                key_span("Enter"),
+                Span::raw(" continue  "),
+                key_span("Esc"),
+                Span::raw(" back"),
+            ]),
+        ]);
+
+        frame.render_widget(Paragraph::new(text).wrap(Wrap { trim: false }), inner);
     }
 
     fn render_deploy_preview(&self, frame: &mut Frame, area: Rect) {
@@ -527,6 +634,21 @@ impl App {
                 Line::from(vec![prefix, Span::raw(phase.label())])
             })
             .collect::<Vec<_>>();
+        let mut lines = lines;
+        if let Some(progress) = &self.pull_progress {
+            lines.push(Line::raw(""));
+            lines.push(Line::from(format!(
+                "Image {} of {}: {}",
+                progress.image_index, progress.image_count, progress.image
+            )));
+            lines.push(Line::from(render_progress_bar(progress)));
+            lines.push(Line::from(format!(
+                "Layers: {} / {}   {}",
+                progress.completed_layers,
+                progress.total_layers.max(progress.completed_layers),
+                progress.status
+            )));
+        }
         frame.render_widget(Paragraph::new(Text::from(lines)), chunks[0]);
 
         let footer = if let Some(error) = &self.deployment_error {
@@ -558,6 +680,17 @@ impl App {
             .as_ref()
             .map(|c| c.data_path.as_str())
             .unwrap_or(DEFAULT_DATA_PATH);
+        let semantic_search = self
+            .config
+            .as_ref()
+            .map(|c| {
+                if c.semantic_search_enabled {
+                    "enabled"
+                } else {
+                    "disabled"
+                }
+            })
+            .unwrap_or("enabled");
         let text = Text::from(vec![
             Line::from(Span::styled(
                 "Stonefruit server is running!",
@@ -566,11 +699,14 @@ impl App {
             Line::raw(""),
             Line::from(format!("Server: {}", url)),
             Line::from(format!("Notes/data: {}", data_path)),
+            Line::from(format!("Semantic search: {}", semantic_search)),
             Line::raw(""),
             Line::from("Next steps:"),
             Line::from("1. Open Stonefruit on your phone or computer"),
             Line::from("2. Go to Settings > Sync"),
             Line::from("3. Enter the server URL and your password"),
+            Line::raw(""),
+            Line::from("To change server features later, run: stonefruit settings"),
             Line::raw(""),
             Line::from("For HTTPS, see: https://stonefruit.futo.org/docs/remote-access"),
             Line::raw(""),
@@ -606,6 +742,7 @@ impl App {
                 .map_err(|_| anyhow!("port must be between 1 and 65535"))?,
             data_path: self.inputs[1].value.clone(),
             password: self.inputs[2].value.clone(),
+            semantic_search_enabled: self.semantic_search_enabled,
         };
 
         if self.inputs[2].value != self.inputs[3].value {
@@ -615,9 +752,8 @@ impl App {
 
         validate_config(&config)?;
         self.error = None;
-        self.compose_preview = docker::generate_compose(config.port, &config.data_path);
         self.config = Some(config);
-        self.screen = Screen::DeployPreview;
+        self.screen = Screen::SemanticSearch;
         Ok(())
     }
 
@@ -627,7 +763,7 @@ impl App {
             .config
             .clone()
             .ok_or_else(|| anyhow!("missing setup config"))?;
-        write_compose_file(&work_dir, &config)?;
+        write_managed_files(&work_dir, &config)?;
         self.work_dir = Some(work_dir.clone());
         self.phase_statuses = [
             (Phase::Pull, PhaseStatus::Pending),
@@ -637,6 +773,7 @@ impl App {
         ];
         self.phase_index = 0;
         self.deployment_error = None;
+        self.pull_progress = None;
         self.screen = Screen::DeployRunning;
         spawn_deploy_worker(self.tx.clone(), work_dir, config, Phase::Pull);
         Ok(())
@@ -651,6 +788,9 @@ impl App {
             }
             self.deployment_error = None;
             let phase = Phase::all()[self.phase_index];
+            if phase == Phase::Pull {
+                self.pull_progress = None;
+            }
             spawn_deploy_worker(self.tx.clone(), work_dir, config, phase);
         }
     }
@@ -664,9 +804,32 @@ impl App {
     }
 }
 
-fn write_compose_file(work_dir: &Path, config: &Config) -> Result<()> {
-    let compose = docker::generate_compose(config.port, &config.data_path);
-    fs::write(work_dir.join("docker-compose.yml"), compose).context("failed to write compose file")
+fn render_progress_bar(progress: &PullProgress) -> String {
+    const WIDTH: usize = 28;
+
+    let total_images = progress.image_count.max(1);
+    let completed_images = progress.image_index.saturating_sub(1);
+    let current_ratio = if progress.total_layers == 0 {
+        0.0
+    } else {
+        progress.completed_layers as f64 / progress.total_layers as f64
+    };
+    let overall = ((completed_images as f64) + current_ratio) / total_images as f64;
+    let filled = (overall * WIDTH as f64).round() as usize;
+    let filled = filled.min(WIDTH);
+    let empty = WIDTH.saturating_sub(filled);
+    let percent = (overall * 100.0).round() as usize;
+
+    format!(
+        "[{}{}] {:>3}%",
+        "#".repeat(filled),
+        "-".repeat(empty),
+        percent
+    )
+}
+
+fn write_managed_files(work_dir: &Path, config: &Config) -> Result<()> {
+    config::write_managed_files(work_dir, &cli_config(config))
 }
 
 fn validate_config(config: &Config) -> Result<()> {
@@ -683,7 +846,7 @@ fn validate_config(config: &Config) -> Result<()> {
     }
 
     let listener = TcpListener::bind(("0.0.0.0", config.port))
-        .map_err(|_| anyhow!("port {} is already in use", config.port))?;
+        .map_err(|_| anyhow!(port_in_use_message(config.port)))?;
     drop(listener);
 
     Ok(())
@@ -706,20 +869,65 @@ fn read_password(args: &SetupArgs) -> Result<String> {
 }
 
 fn base_url(port: u16) -> String {
-    format!("http://localhost:{port}")
+    config::base_url(port)
+}
+
+fn finish_setup(config: &Config) -> Result<()> {
+    match server_api::setup(&base_url(config.port), &config.password)? {
+        server_api::SetupStatus::Created => Ok(()),
+        server_api::SetupStatus::AlreadyConfigured => {
+            bail!(existing_install_message(config))
+        }
+    }
+}
+
+fn port_in_use_message(port: u16) -> String {
+    let has_existing_install = std::env::current_dir()
+        .ok()
+        .map(|dir| {
+            dir.join("docker-compose.yml").exists() || dir.join(config::SETTINGS_FILENAME).exists()
+        })
+        .unwrap_or(false);
+
+    format_port_in_use_message(port, has_existing_install)
+}
+
+fn format_port_in_use_message(port: u16, has_existing_install: bool) -> String {
+    if has_existing_install {
+        format!(
+            "port {port} is already in use.\nThis directory already looks like a Stonefruit server install.\nRun `stonefruit settings` to change the existing install, run `stonefruit update` to refresh it, or stop it with `docker compose down` before running setup again."
+        )
+    } else {
+        format!(
+            "port {port} is already in use.\nStop the process using port {port}, or run setup with `--port <PORT>`."
+        )
+    }
+}
+
+fn existing_install_message(config: &Config) -> String {
+    format!(
+        "server is already configured.\nThe data directory `{}` already contains a Stonefruit server setup.\nUse `stonefruit settings` or `stonefruit update` to manage the existing install, use `stonefruit reset-password` if you need a new password, or remove/rename that data directory if you want a fresh server.",
+        config.data_path
+    )
+}
+
+fn cli_config(config: &Config) -> CliConfig {
+    CliConfig::new(
+        config.port,
+        config.data_path.clone(),
+        config.semantic_search_enabled,
+    )
 }
 
 fn run_deploy_phase(phase: Phase, work_dir: &Path, config: &Config) -> Result<()> {
     match phase {
         Phase::Pull => docker::compose_pull(work_dir),
         Phase::Start => docker::compose_up(work_dir),
-        Phase::Health => {
-            server_api::wait_for_healthy(
-                &base_url(config.port),
-                std::time::Duration::from_secs(30),
-            )
-        }
-        Phase::Setup => server_api::setup(&base_url(config.port), &config.password),
+        Phase::Health => server_api::wait_for_healthy(
+            &base_url(config.port),
+            cli_config(config).startup_timeout(),
+        ),
+        Phase::Setup => finish_setup(config),
     }
 }
 
@@ -732,7 +940,15 @@ fn spawn_deploy_worker(
     std::thread::spawn(move || {
         for phase in Phase::all().into_iter().skip(phase_index(start_phase)) {
             let _ = tx.send(WorkerEvent::PhaseStarted(phase));
-            match run_deploy_phase(phase, &work_dir, &config) {
+            let result = match phase {
+                Phase::Pull => {
+                    docker::pull_images_with_progress(&cli_config(&config), |progress| {
+                        let _ = tx.send(WorkerEvent::PullProgress(progress));
+                    })
+                }
+                _ => run_deploy_phase(phase, &work_dir, &config),
+            };
+            match result {
                 Ok(()) => {
                     let _ = tx.send(WorkerEvent::PhaseFinished(phase));
                 }
@@ -751,11 +967,21 @@ fn print_success(config: &Config) {
     println!("Stonefruit server is running!");
     println!("  Server: {}", base_url(config.port));
     println!("  Notes/data: {}", config.data_path);
+    println!(
+        "  Semantic search: {}",
+        if config.semantic_search_enabled {
+            "enabled"
+        } else {
+            "disabled"
+        }
+    );
     println!();
     println!("Next steps:");
     println!("  1. Open Stonefruit on your phone or computer");
     println!("  2. Go to Settings > Sync");
     println!("  3. Enter the server URL and your password");
+    println!();
+    println!("To change server features later, run: stonefruit settings");
     println!();
     println!("For HTTPS, see: https://stonefruit.futo.org/docs/remote-access");
 }
@@ -840,6 +1066,11 @@ impl InputField {
         }
     }
 
+    fn set_value(&mut self, value: String) {
+        self.cursor = value.chars().count();
+        self.value = value;
+    }
+
     fn handle_key(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
@@ -883,7 +1114,10 @@ fn char_to_byte_index(value: &str, char_index: usize) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::{read_password, validate_config, Config};
+    use super::{
+        existing_install_message, format_port_in_use_message, read_password, validate_config,
+        Config,
+    };
     use crate::cli::SetupArgs;
     use crate::docker::DEFAULT_DATA_PATH;
 
@@ -893,6 +1127,7 @@ mod tests {
             port: 3005,
             data_path: DEFAULT_DATA_PATH.to_string(),
             password: "short".to_string(),
+            semantic_search_enabled: true,
         };
         assert!(validate_config(&config).is_err());
     }
@@ -903,6 +1138,7 @@ mod tests {
             port: 3005,
             data_path: "   ".to_string(),
             password: "abcdefgh".to_string(),
+            semantic_search_enabled: true,
         };
         assert!(validate_config(&config).is_err());
     }
@@ -914,8 +1150,32 @@ mod tests {
             data_path: None,
             password: Some("abcdefgh".to_string()),
             password_stdin: false,
+            disable_semantic_search: false,
             yes: true,
         };
         assert_eq!(read_password(&args).unwrap(), "abcdefgh");
+    }
+
+    #[test]
+    fn port_in_use_message_mentions_settings_for_existing_install() {
+        let message = format_port_in_use_message(3005, true);
+        assert!(message.contains("stonefruit settings"));
+        assert!(message.contains("docker compose down"));
+    }
+
+    #[test]
+    fn existing_install_message_points_to_management_commands() {
+        let config = Config {
+            port: 3005,
+            data_path: "./stonefruit-data".to_string(),
+            password: "abcdefgh".to_string(),
+            semantic_search_enabled: true,
+        };
+        let message = existing_install_message(&config);
+        assert!(message.contains("server is already configured"));
+        assert!(message.contains("stonefruit settings"));
+        assert!(message.contains("stonefruit update"));
+        assert!(message.contains("stonefruit reset-password"));
+        assert!(message.contains("./stonefruit-data"));
     }
 }

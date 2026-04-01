@@ -9,11 +9,10 @@
  *   node tests/desktop-smoke.mjs --log-file /tmp/tauri.log --screenshot-dir ./shots
  */
 
-import { WebSocket } from 'ws';
-import { randomUUID } from 'node:crypto';
-import { writeFileSync, readFileSync, mkdirSync, existsSync } from 'node:fs';
+import { writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
+import { send, discoverPort, connectWs, sleep } from './lib/mcp-client.mjs';
 
 // ── CLI args ────────────────────────────────────────────────────
 
@@ -28,76 +27,6 @@ const { values: args } = parseArgs({
 if (!args.port && !args['log-file']) {
   console.error('Usage: desktop-smoke.mjs --port <N> | --log-file <path>');
   process.exit(1);
-}
-
-// ── Helpers ─────────────────────────────────────────────────────
-
-/** Send a command over WebSocket and wait for the matching response. */
-function send(ws, command, cmdArgs = {}) {
-  return new Promise((resolve, reject) => {
-    const id = randomUUID();
-    const timeout = setTimeout(() => {
-      ws.off('message', handler);
-      reject(new Error(`Timeout waiting for response to ${command} (id=${id})`));
-    }, 15_000);
-
-    function handler(raw) {
-      const msg = JSON.parse(raw.toString());
-      if (msg.id !== id) return;
-      ws.off('message', handler);
-      clearTimeout(timeout);
-      if (msg.success) {
-        resolve(msg.data);
-      } else {
-        reject(new Error(msg.error || `Command ${command} failed`));
-      }
-    }
-
-    ws.on('message', handler);
-    ws.send(JSON.stringify({ id, command, args: cmdArgs }));
-  });
-}
-
-/** Discover the MCP bridge port by scanning a Tauri log file. */
-async function discoverPort(logFile, timeoutMs = 120_000) {
-  const start = Date.now();
-  const pattern = /initialized for .* on [^:]+:(\d+)/;
-
-  while (Date.now() - start < timeoutMs) {
-    try {
-      const log = readFileSync(logFile, 'utf8');
-      const match = log.match(pattern);
-      if (match) return parseInt(match[1], 10);
-    } catch {
-      // file may not exist yet
-    }
-    await sleep(2_000);
-  }
-  throw new Error(`MCP bridge port not found in ${logFile} after ${timeoutMs}ms`);
-}
-
-/** Connect to the WebSocket with retries. */
-function connectWs(port, timeoutMs = 30_000) {
-  return new Promise((resolve, reject) => {
-    const start = Date.now();
-    const url = `ws://127.0.0.1:${port}`;
-
-    function attempt() {
-      if (Date.now() - start > timeoutMs) {
-        return reject(new Error(`Could not connect to ${url} after ${timeoutMs}ms`));
-      }
-      const ws = new WebSocket(url);
-      ws.on('open', () => resolve(ws));
-      ws.on('error', () => {
-        setTimeout(attempt, 1_000);
-      });
-    }
-    attempt();
-  });
-}
-
-function sleep(ms) {
-  return new Promise((r) => setTimeout(r, ms));
 }
 
 // ── Checks ──────────────────────────────────────────────────────
@@ -155,6 +84,12 @@ async function main() {
 
   // 3. Editor present + typing
   await check('editor present + typing', async () => {
+    // Navigate to a new note — the editor only mounts when a note is open
+    await send(ws, 'execute_js', {
+      script: `window.location.hash = '#/note/new'`,
+    });
+    await sleep(1_000);
+
     let editorFound = false;
     for (let attempt = 0; attempt < 15; attempt++) {
       const editorCheck = await send(ws, 'execute_js', {
