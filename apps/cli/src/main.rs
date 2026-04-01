@@ -1,7 +1,9 @@
 mod cli;
+mod config;
 mod docker;
 mod reset_password;
 mod server_api;
+mod settings;
 mod setup;
 mod status;
 mod update;
@@ -15,6 +17,7 @@ fn main() -> Result<()> {
 
     match cli.command {
         Some(Commands::Setup(args)) => setup::run(args),
+        Some(Commands::Settings(args)) => settings::run(args),
         Some(Commands::Status(args)) => status::run(args),
         Some(Commands::ResetPassword(args)) => reset_password::run(args),
         Some(Commands::Update(args)) => update::run(args),

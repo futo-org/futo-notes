@@ -1,14 +1,9 @@
 import { describe, it, expect, beforeEach, afterAll, vi } from 'vitest';
 
 vi.mock('$lib/platform');
-vi.mock('./syncState');
 vi.mock('./rustCore');
 
 import { testFS } from '$lib/platform';
-import { markLocalDeleteForSync, trackLocalRenameForSync } from './syncState';
-
-const mockMarkLocalDeleteForSync = vi.mocked(markLocalDeleteForSync);
-const mockTrackLocalRenameForSync = vi.mocked(trackLocalRenameForSync);
 
 // notes.ts has module-level state (initialized, notesCache). Use resetModules to get fresh state.
 async function freshNotes() {
@@ -18,8 +13,6 @@ async function freshNotes() {
 
 beforeEach(() => {
   testFS._reset();
-  mockMarkLocalDeleteForSync.mockResolvedValue();
-  mockTrackLocalRenameForSync.mockResolvedValue();
 });
 
 afterAll(() => {
@@ -96,7 +89,7 @@ describe('updateNote', () => {
     expect(content).toBe('new content');
   });
 
-  it('handles rename (deletes old, writes new, tracks in syncState)', async () => {
+  it('handles rename (deletes old, writes new)', async () => {
     await testFS.writeNote('old-name', 'content');
 
     const { initNotes, updateNote, getNoteById } = await freshNotes();
@@ -113,14 +106,11 @@ describe('updateNote', () => {
     // Cache should have new, not old
     expect(getNoteById('old-name')).toBeUndefined();
     expect(getNoteById('new-name')).toBeDefined();
-
-    // Should have tracked the rename
-    expect(mockTrackLocalRenameForSync).toHaveBeenCalledWith('old-name', 'new-name');
   });
 });
 
 describe('deleteNote', () => {
-  it('removes file and cache; tracks in syncState by default', async () => {
+  it('removes file and cache', async () => {
     await testFS.writeNote('doomed', 'goodbye');
 
     const { initNotes, deleteNote, getNoteById } = await freshNotes();
@@ -131,18 +121,6 @@ describe('deleteNote', () => {
 
     expect(getNoteById('doomed')).toBeUndefined();
     expect(await testFS.noteExists('doomed')).toBe(false);
-    expect(mockMarkLocalDeleteForSync).toHaveBeenCalledWith('doomed');
-  });
-
-  it('skips sync tracking when trackSyncDelete: false', async () => {
-    await testFS.writeNote('synced', 'content');
-
-    const { initNotes, deleteNote } = await freshNotes();
-    await initNotes();
-
-    await deleteNote('synced', { trackSyncDelete: false });
-
-    expect(mockMarkLocalDeleteForSync).not.toHaveBeenCalled();
   });
 });
 

@@ -107,17 +107,17 @@ if (!isWorktree) {
     )
   }
 
-  // Start isolated sync server.
+  // Start isolated Rust sync server.
+  const serverDataDir = join(dataDir, 'server-data')
+  mkdirSync(serverDataDir, { recursive: true })
   console.log(`[tauri-dev] Starting isolated server on port ${serverPort}…`)
-  const serverProc = spawn('pnpm', ['exec', 'tsx', 'src/index.ts'], {
-    cwd: join(repoRoot, 'apps/server'),
+  const serverProc = spawn('cargo', ['run', '-p', 'stonefruit-server'], {
+    cwd: repoRoot,
     env: {
       ...process.env,
-      NODE_ENV: 'development',
       PORT: String(serverPort),
-      DATABASE_PATH: join(dataDir, 'server.db'),
-      NOTES_PATH: join(dataDir, 'server-notes'),
-      SEARCH_ENABLED: 'false', // skip heavy indexing in dev
+      DATA_DIR: serverDataDir,
+      STONEFRUIT_DEV_PASSWORD: 'testing123',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   })

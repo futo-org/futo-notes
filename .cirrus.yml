@@ -24,6 +24,7 @@ test_desktop_smoke_macos_task:
     - corepack enable
     - corepack prepare pnpm@10.29.2 --activate
     - pnpm install --frozen-lockfile
+    - cargo install tauri-cli --locked
     # Build frontend + debug binary
     - pnpm run build
     - (cd apps/tauri && cargo tauri build --debug --no-bundle)
@@ -34,7 +35,7 @@ test_desktop_smoke_macos_task:
       echo '{"notesDir":"'"$NOTES_DIR"'"}' > "$HOME/Library/Application Support/com.futo.notes/notes-dir-override.json"
     # Launch (Cirrus macOS VMs have a display — no xvfb needed)
     - |
-      apps/tauri/src-tauri/target/debug/futo-notes-tauri > /tmp/tauri-smoke.log 2>&1 &
+      target/debug/futo-notes-tauri > /tmp/tauri-smoke.log 2>&1 &
     # Run smoke tests (script handles port discovery from log)
     - node tests/desktop-smoke.mjs --log-file /tmp/tauri-smoke.log
     - kill $(pgrep -f futo-notes-tauri) 2>/dev/null || true

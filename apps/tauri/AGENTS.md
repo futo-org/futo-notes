@@ -4,18 +4,20 @@ Tauri v2 desktop + mobile shell. Rust backend with all file I/O, sync, search, a
 
 **Stack**: Rust + Tauri v2 + serde. Plugins: dialog, process, clipboard-manager, opener, single-instance (desktop), mcp-bridge (debug).
 
+From the monorepo root, prefer the `just` wrappers for the common Tauri flows: `just tauri-dev`, `just tauri-prod`, `just tauri-build`, `just android-dev`, `just ios-dev`, and `just test-rust`.
+
 ## Architecture
 
-- **`core.rs`** (~2800 lines): All business logic — file I/O, sync payload prep/apply, keyword search, semantic search (vector download + query), image sync, engagement tracking. Every public Tauri command wraps an `_impl` function for testability.
-- **`graph_positions.rs`**: UMAP-like layout for note graph visualization (kNN → fuzzy simplicial set → SGD optimization).
-- **`graph_clusters.rs`**: K-Means clustering with heuristic cluster count (3–12 based on note count).
+- **`core.rs`**: All business logic — file I/O, sync payload prep/apply (V2 only), keyword search, semantic search (vector download + query), engagement tracking. Every public Tauri command wraps an `_impl` function for testability. Imports file operations and hashing directly from `stonefruit-core` — do not add wrapper functions.
 - **`lib.rs`**: App setup — plugin registration, platform-specific init (iOS safe-area, Linux GTK decorations, fd limit bump).
 - **`main.rs`**: Entry point. Disables WebKitGTK DMA-BUF renderer on Linux for Wayland stability.
+
+Graph layout and clustering are computed **server-side** via `stonefruit-core::graph` and served at `/graph/layout`. There is no client-side graph computation.
 
 ## Key Patterns
 
 - **Atomic writes**: All note writes go through `write_atomic_text()` (temp file + rename) for crash safety.
-- **Path safety**: `ensure_safe_note_id()` blocks `..`, `.`, `/`, `\` — never bypass this for user-supplied paths.
+- **Path safety**: `ensure_safe_note_id()` (from `stonefruit_core::files`) blocks `..`, `.`, `/`, `\` — never bypass this for user-supplied paths.
 - **Filesystem watcher**: `notify` crate watches notes dir for external edits, emits `note_changed` events. Sync writes suppress watcher events for 5s to avoid loops.
 - **Lazy vector loading**: Semantic search artifacts are downloaded on demand from the server, cached in app data.
 - **Platform configs**: `#[cfg(target_os = "...")]` and `#[cfg(debug_assertions)]` for platform/build-specific behavior.
@@ -24,18 +26,36 @@ Tauri v2 desktop + mobile shell. Rust backend with all file I/O, sync, search, a
 
 | Target | Port | Command |
 |---|---|---|
-| Desktop | 5180 | `pnpm run tauri:dev` |
-| Android | 5181 | `pnpm run tauri:android:dev` |
-| iOS | 5182 | `pnpm run tauri:ios:dev` |
+| Desktop | 5180 | `just tauri-dev` |
+| Android | 5181 | `just android-dev` |
+| iOS | 5182 | `just ios-dev` |
+
+## Tauri MCP
+
+Debug builds include the MCP bridge. Prefer `webview-execute-js` for deterministic automation over brittle UI clicking when possible.
+
+For sync server switching, use the dev-only webview hook:
+
+- `await window.__testSync.connect(serverUrl, password)`
+- `await window.__testSync.status()`
+- `await window.__testSync.syncNow()`
+- `await window.__testSync.disconnect()`
+
+Notes:
+- Desktop dev server URLs use `127.0.0.1`
+- Android emulator must use `10.0.2.2` for host services
+- `connect()` clears server-scoped cached state first so graph/sync state does not bleed across backend switches
+- The same test hooks are available in debug builds created with `VITE_INCLUDE_TEST_HOOKS=true`, which is how `just test-cross-platform` drives the app
 
 ## Building & Testing
 
 ```bash
-pnpm run tauri:dev          # Desktop dev (Wayland-first)
-pnpm run tauri:build        # Production desktop build
-pnpm run tauri:test:rust    # Rust unit tests (creates dist/ first)
-pnpm run tauri:android:dev  # Android dev
-pnpm run tauri:ios:dev      # iOS dev
+just tauri-dev       # Desktop dev (Wayland-first)
+just tauri-prod      # Production-config desktop dev
+just tauri-build     # Production desktop build
+just test-rust       # Rust unit tests (creates dist/ first)
+just android-dev     # Android dev
+just ios-dev         # iOS dev
 ```
 
 `test:rust` requires `dist/` to exist (Tauri build system expects it). The script creates it automatically.
@@ -44,9 +64,9 @@ pnpm run tauri:ios:dev      # iOS dev
 
 | What changed | Run |
 |---|---|
-| Rust logic (`core.rs`, graph) | `pnpm run tauri:test:rust` |
-| New `#[tauri::command]` | Add unit test for `_impl` function, then `pnpm run tauri:test:rust` |
-| Tauri config / capabilities | `pnpm run tauri:dev` → manual smoke test |
+| Rust logic (`core.rs`, graph) | `just test-rust` |
+| New `#[tauri::command]` | Add unit test for `_impl` function, then `just test-rust` |
+| Tauri config / capabilities | `just tauri-dev` → manual smoke test |
 | Mobile-specific code | Build + deploy to device, check `adb logcat` (Android) or Xcode logs (iOS) |
 
 ## Constraints

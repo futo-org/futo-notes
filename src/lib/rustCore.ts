@@ -1,49 +1,6 @@
 import type { NotePreview, SearchResultItem } from '../types';
-import type { SyncState } from './syncState';
-import type { NoteSyncMeta } from '@futo-notes/shared';
 import type { EngagementRecord } from './engagement';
-import type { SupersearchState } from './supersearch/state';
 import { platformName } from './platform';
-
-interface RustHashCacheEntry {
-  modifiedAt: number;
-  hash: string;
-}
-
-interface RustSyncState {
-  hashByUuid: Record<string, string>;
-  uuidById: Record<string, string>;
-  deletedUuids: string[];
-  hashCache?: Record<string, RustHashCacheEntry>;
-}
-
-interface RustSyncPrepareOutput {
-  state: RustSyncState;
-  notes: NoteSyncMeta[];
-  allUuids: string[];
-  elapsedMs: number;
-}
-
-interface RustIncomingSyncUpdate {
-  uuid: string;
-  id: string;
-  content: string;
-  modified_at: number;
-  content_hash: string;
-}
-
-interface RustSyncRename {
-  fromId: string;
-  toId: string;
-}
-
-interface RustSyncApplyOutput {
-  state: RustSyncState;
-  updatedIds: string[];
-  deletedIds: string[];
-  renamed: RustSyncRename[];
-  elapsedMs: number;
-}
 
 interface RustSearchSnippetSegment {
   text: string;
@@ -55,11 +12,6 @@ interface RustSearchResult {
   snippet: RustSearchSnippetSegment[] | null;
 }
 
-function toI64(value: number): number {
-  if (!Number.isFinite(value)) return 0;
-  return Math.trunc(value);
-}
-
 async function tauriInvoke<T>(command: string, payload?: Record<string, unknown>): Promise<T> {
   const { invoke } = await import('@tauri-apps/api/core');
   return invoke<T>(command, payload);
@@ -67,42 +19,6 @@ async function tauriInvoke<T>(command: string, payload?: Record<string, unknown>
 
 export function hasRustCore(): boolean {
   return platformName === 'tauri';
-}
-
-function toRustState(state: SyncState): RustSyncState {
-  const hashCache: Record<string, RustHashCacheEntry> | undefined = state.hashCache
-    ? Object.fromEntries(
-      Object.entries(state.hashCache).map(([id, entry]) => [
-        id,
-        { modifiedAt: toI64(entry.modifiedAt), hash: entry.hash },
-      ]),
-    )
-    : undefined;
-
-  return {
-    hashByUuid: { ...state.hashByUuid },
-    uuidById: { ...state.uuidById },
-    deletedUuids: [...state.deletedUuids],
-    ...(hashCache ? { hashCache } : {}),
-  };
-}
-
-function fromRustState(state: RustSyncState): SyncState {
-  const hashCache = state.hashCache
-    ? Object.fromEntries(
-      Object.entries(state.hashCache).map(([id, entry]) => [
-        id,
-        { modifiedAt: toI64(entry.modifiedAt), hash: entry.hash },
-      ]),
-    )
-    : undefined;
-
-  return {
-    hashByUuid: { ...state.hashByUuid },
-    uuidById: { ...state.uuidById },
-    deletedUuids: [...state.deletedUuids],
-    ...(hashCache ? { hashCache } : {}),
-  };
 }
 
 export async function rebuildRustIndex(): Promise<NotePreview[]> {
@@ -128,125 +44,86 @@ export async function keywordSearchRust(query: string, limit = 200): Promise<Sea
   }));
 }
 
-export async function prepareSyncPayloadRust(state: SyncState): Promise<{
-  nextState: SyncState;
-  notes: NoteSyncMeta[];
-  allUuids: string[];
+// ── V2 Sync (filename-based, no UUIDs) ─────────────────────
+
+interface RustV2HashCacheEntry {
+  modifiedAt: number;
+  hash: string;
+}
+
+interface RustV2SyncState {
+  deviceId: string;
+  lastServerVersion: number;
+  fileHashes: Record<string, string>;
+  hashCache?: Record<string, RustV2HashCacheEntry>;
+}
+
+interface RustV2SyncPrepareOutput {
+  state: RustV2SyncState;
+  inventory: { filename: string; hash: string }[];
+  changed: { filename: string; content: string; hash: string }[];
+  new: { filename: string; content: string; hash: string }[];
+  deleted: string[];
+  elapsedMs: number;
+}
+
+interface RustV2SyncApplyOutput {
+  updatedFilenames: string[];
+  deletedFilenames: string[];
+  conflictFilenames: string[];
+  elapsedMs: number;
+}
+
+export type { RustV2SyncState };
+
+export async function prepareSyncPayloadV2(state: import('./appState').V2SyncState): Promise<{
+  nextState: import('./appState').V2SyncState;
+  inventory: { filename: string; hash: string }[];
+  changed: { filename: string; content: string; hash: string }[];
+  new: { filename: string; content: string; hash: string }[];
+  deleted: string[];
   elapsedMs: number;
 }> {
-  const payload = await tauriInvoke<RustSyncPrepareOutput>('core_prepare_sync_payload', {
-    input: {
-      state: toRustState(state),
-    },
+  const rustState: RustV2SyncState = {
+    deviceId: state.deviceId,
+    lastServerVersion: state.lastServerVersion,
+    fileHashes: { ...state.fileHashes },
+    ...(state.hashCache ? { hashCache: state.hashCache } : {}),
+  };
+
+  const payload = await tauriInvoke<RustV2SyncPrepareOutput>('core_prepare_sync_payload_v2', {
+    input: { state: rustState },
   });
 
   return {
-    nextState: fromRustState(payload.state),
-    notes: payload.notes,
-    allUuids: payload.allUuids,
+    nextState: {
+      deviceId: payload.state.deviceId,
+      lastServerVersion: payload.state.lastServerVersion,
+      fileHashes: payload.state.fileHashes,
+      ...(payload.state.hashCache ? { hashCache: payload.state.hashCache } : {}),
+    },
+    inventory: payload.inventory,
+    changed: payload.changed,
+    new: payload.new,
+    deleted: payload.deleted,
     elapsedMs: payload.elapsedMs,
   };
 }
 
-export async function applySyncDeltaRust(
-  state: SyncState,
-  updates: RustIncomingSyncUpdate[],
+export async function applySyncDeltaV2(
+  updates: { filename: string; content: string; hash: string; modified_at: number }[],
   deletes: string[],
+  conflicts: { filename: string; content: string }[],
+  timestamps: Record<string, number> = {},
 ): Promise<{
-  nextState: SyncState;
-  updatedIds: string[];
-  deletedIds: string[];
-  renamed: RustSyncRename[];
-  elapsedMs: number;
-}> {
-  const payload = await tauriInvoke<RustSyncApplyOutput>('core_apply_sync_delta', {
-    input: {
-      state: toRustState(state),
-      update: updates.map((update) => ({
-        ...update,
-        modified_at: toI64(update.modified_at),
-      })),
-      delete: deletes,
-    },
-  });
-
-  return {
-    nextState: fromRustState(payload.state),
-    updatedIds: payload.updatedIds,
-    deletedIds: payload.deletedIds,
-    renamed: payload.renamed,
-    elapsedMs: payload.elapsedMs,
-  };
-}
-
-// ── Image sync wrappers ──────────────────────────────────
-
-export interface ImageSyncEntry {
-  uuid: string;
-  filename: string;
-  content_hash: string;
-  modified_at: number;
-  hash_at_last_sync: string;
-}
-
-interface RustImageSyncPrepareOutput {
-  state: RustSyncState;
-  images: ImageSyncEntry[];
-  elapsedMs: number;
-}
-
-interface RustApplyImageSyncDeltaOutput {
-  state: RustSyncState;
+  updatedFilenames: string[];
   deletedFilenames: string[];
-}
-
-export async function prepareImageSyncRust(state: SyncState): Promise<{
-  nextState: SyncState;
-  images: ImageSyncEntry[];
+  conflictFilenames: string[];
   elapsedMs: number;
 }> {
-  const payload = await tauriInvoke<RustImageSyncPrepareOutput>('core_prepare_image_sync', {
-    input: {
-      state: toRustState(state),
-    },
+  return tauriInvoke<RustV2SyncApplyOutput>('core_apply_sync_delta_v2', {
+    input: { update: updates, delete: deletes, conflicts, timestamps },
   });
-
-  return {
-    nextState: fromRustState(payload.state),
-    images: payload.images,
-    elapsedMs: payload.elapsedMs,
-  };
-}
-
-export async function readImageBytesRust(filename: string): Promise<number[]> {
-  return tauriInvoke<number[]>('core_read_image_bytes', { filename });
-}
-
-export async function writeSyncedImageRust(filename: string, data: number[], modifiedAt: number): Promise<void> {
-  await tauriInvoke<void>('core_write_synced_image', {
-    input: {
-      filename,
-      data,
-      modifiedAt: toI64(modifiedAt),
-    },
-  });
-}
-
-export async function applyImageSyncDeltaRust(state: SyncState, deleteUuids: string[]): Promise<{
-  nextState: SyncState;
-  deletedFilenames: string[];
-}> {
-  const payload = await tauriInvoke<RustApplyImageSyncDeltaOutput>('core_apply_image_sync_delta', {
-    input: {
-      state: toRustState(state),
-      deleteUuids,
-    },
-  });
-
-  return {
-    nextState: fromRustState(payload.state),
-    deletedFilenames: payload.deletedFilenames,
-  };
 }
 
 // Image gallery wrappers
@@ -294,19 +171,3 @@ export async function engagementFlushRust(): Promise<void> {
   await tauriInvoke<void>('engagement_flush');
 }
 
-// Supersearch state wrappers
-export async function supersearchIsReadyRust(): Promise<boolean> {
-  return tauriInvoke<boolean>('supersearch_is_ready');
-}
-
-export async function supersearchGetStateRust(): Promise<SupersearchState | null> {
-  return tauriInvoke<SupersearchState | null>('supersearch_get_state');
-}
-
-export async function supersearchDownloadWithMetaRust(
-  serverUrl: string,
-  token: string,
-  meta: SupersearchState,
-): Promise<void> {
-  await tauriInvoke<void>('supersearch_download', { serverUrl, token, meta });
-}

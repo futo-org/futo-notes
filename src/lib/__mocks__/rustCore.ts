@@ -1,9 +1,7 @@
 import type { NotePreview, SearchResultItem } from '../../types';
-import type { SyncState } from '../syncState';
-import type { NoteSyncMeta } from '@futo-notes/shared';
 import { extractTags } from '@futo-notes/shared';
 import type { EngagementRecord } from '../engagement';
-import type { SupersearchState } from '../supersearch/state';
+import type { V2SyncState } from '../appState';
 
 // Access the same testFS instance used by the platform mock (stored on globalThis)
 const g = globalThis as unknown as {
@@ -67,27 +65,24 @@ export async function keywordSearchRust(query: string, _limit = 200): Promise<Se
     .map((note) => ({ note, snippet: [{ text: note.preview, highlight: false }], source: 'keyword' as const }));
 }
 
-export async function prepareSyncPayloadRust(state: SyncState): Promise<{
-  nextState: SyncState;
-  notes: NoteSyncMeta[];
-  allUuids: string[];
+export async function prepareSyncPayloadV2(state: V2SyncState): Promise<{
+  nextState: V2SyncState;
+  inventory: { filename: string; hash: string }[];
+  changed: { filename: string; content: string; hash: string }[];
+  new: { filename: string; content: string; hash: string }[];
+  deleted: string[];
   elapsedMs: number;
 }> {
   const fs = g.__futoActiveFS!;
   const files = await fs.listNoteFiles();
-  interface HashEntry { modifiedAt: number; hash: string }
-  const hashCache: Record<string, HashEntry> = state.hashCache ? { ...state.hashCache } : {};
-  const notes: NoteSyncMeta[] = [];
-
-  const nextUuidById = { ...state.uuidById };
-  const nextHashByUuid = { ...state.hashByUuid };
+  const hashCache: Record<string, { modifiedAt: number; hash: string }> = state.hashCache ? { ...state.hashCache } : {};
+  const inventory: { filename: string; hash: string }[] = [];
+  const changed: { filename: string; content: string; hash: string }[] = [];
+  const newNotes: { filename: string; content: string; hash: string }[] = [];
 
   for (const file of files) {
     const id = file.name.replace(/\.md$/, '');
-    const uuid = nextUuidById[id] ?? crypto.randomUUID();
-    nextUuidById[id] = uuid;
-
-    const modTime = file.mtime || Date.now();
+    const filename = file.name;
     const cached = hashCache[id];
     let hash: string;
     let content: string | undefined;
@@ -97,146 +92,78 @@ export async function prepareSyncPayloadRust(state: SyncState): Promise<{
     } else {
       content = await fs.readNote(id);
       hash = await sha256Hex(content);
-      hashCache[id] = { modifiedAt: modTime, hash };
+      hashCache[id] = { modifiedAt: file.mtime || Date.now(), hash };
     }
 
-    const lastSyncHash = nextHashByUuid[uuid] ?? '';
-    const needsContent = hash !== lastSyncHash;
-    if (needsContent && content === undefined) {
-      content = await fs.readNote(id);
+    inventory.push({ filename, hash });
+    const lastHash = state.fileHashes[filename];
+    if (!lastHash) {
+      if (content === undefined) content = await fs.readNote(id);
+      newNotes.push({ filename, content, hash });
+    } else if (hash !== lastHash) {
+      if (content === undefined) content = await fs.readNote(id);
+      changed.push({ filename, content, hash });
     }
-
-    notes.push({
-      uuid,
-      filename: `${id}.md`,
-      modified_at: modTime,
-      content_hash: hash,
-      hash_at_last_sync: lastSyncHash,
-      ...(needsContent ? { content } : {}),
-    });
   }
 
-  // Clean stale cache entries
-  const activeIds = new Set(files.map(f => f.name.replace(/\.md$/, '')));
-  for (const id of Object.keys(hashCache)) {
-    if (!activeIds.has(id)) delete hashCache[id];
-  }
+  const currentFilenames = new Set(files.map(f => f.name));
+  const deleted = Object.keys(state.fileHashes).filter(f => !currentFilenames.has(f));
 
   return {
-    nextState: {
-      hashByUuid: nextHashByUuid,
-      uuidById: nextUuidById,
-      deletedUuids: [...state.deletedUuids],
-      hashCache,
-    },
-    notes,
-    allUuids: notes.map(n => n.uuid),
+    nextState: { ...state, hashCache },
+    inventory,
+    changed,
+    new: newNotes,
+    deleted,
     elapsedMs: 0,
   };
 }
 
-export async function applySyncDeltaRust(
-  state: SyncState,
-  updates: Array<{ uuid: string; id: string; content: string; modified_at: number; content_hash: string }>,
+export async function applySyncDeltaV2(
+  updates: { filename: string; content: string; hash: string; modified_at: number }[],
   deletes: string[],
+  conflicts: { filename: string; content: string }[],
+  _timestamps: Record<string, number> = {},
 ): Promise<{
-  nextState: SyncState;
-  updatedIds: string[];
-  deletedIds: string[];
-  renamed: Array<{ fromId: string; toId: string }>;
+  updatedFilenames: string[];
+  deletedFilenames: string[];
+  conflictFilenames: string[];
   elapsedMs: number;
 }> {
   const fs = g.__futoActiveFS!;
-  const nextUuidById = { ...state.uuidById };
-  const nextHashByUuid = { ...state.hashByUuid };
-  let nextDeletedUuids = [...state.deletedUuids];
-  const updatedIds: string[] = [];
-  const deletedIds: string[] = [];
-  const renamed: Array<{ fromId: string; toId: string }> = [];
+  const updatedFilenames: string[] = [];
+  const deletedFilenames: string[] = [];
+  const conflictFilenames: string[] = [];
 
   for (const update of updates) {
-    // If this UUID was previously mapped to a different ID, delete the old file (rename)
-    const oldId = Object.entries(nextUuidById).find(([, v]) => v === update.uuid)?.[0];
-    if (oldId && oldId !== update.id) {
-      try { await fs.deleteNoteFile(oldId); } catch { /* may already be gone */ }
-      delete nextUuidById[oldId];
-      renamed.push({ fromId: oldId, toId: update.id });
-    }
-    await fs.writeNote(update.id, update.content, update.modified_at);
-    nextUuidById[update.id] = update.uuid;
-    nextHashByUuid[update.uuid] = update.content_hash;
-    updatedIds.push(update.id);
+    const id = update.filename.replace(/\.md$/i, '');
+    await fs.writeNote(id, update.content, update.modified_at);
+    updatedFilenames.push(update.filename);
+  }
+  for (const filename of deletes) {
+    const id = filename.replace(/\.md$/i, '');
+    try { await fs.deleteNoteFile(id); } catch { /* may already be gone */ }
+    deletedFilenames.push(filename);
+  }
+  for (const conflict of conflicts) {
+    const id = conflict.filename.replace(/\.md$/i, '');
+    await fs.writeNote(id, conflict.content);
+    conflictFilenames.push(conflict.filename);
   }
 
-  for (const uuid of deletes) {
-    const id = Object.entries(nextUuidById).find(([, v]) => v === uuid)?.[0];
-    if (id) {
-      try { await fs.deleteNoteFile(id); } catch { /* may already be gone */ }
-      delete nextUuidById[id];
-      deletedIds.push(id);
-    }
-    delete nextHashByUuid[uuid];
-    nextDeletedUuids = nextDeletedUuids.filter(u => u !== uuid);
-  }
-
-  return {
-    nextState: {
-      hashByUuid: nextHashByUuid,
-      uuidById: nextUuidById,
-      deletedUuids: nextDeletedUuids,
-      hashCache: state.hashCache,
-    },
-    updatedIds,
-    deletedIds,
-    renamed,
-    elapsedMs: 0,
-  };
+  return { updatedFilenames, deletedFilenames, conflictFilenames, elapsedMs: 0 };
 }
+
+// Image wrappers
+export interface ImageFileEntry { filename: string; size: number; mtime: number }
+export async function listImageFilesRust(): Promise<ImageFileEntry[]> { return []; }
+export async function deleteImageFileRust(_filename: string): Promise<void> {}
 
 // Engagement mock stubs
-const engagementStore: Record<string, EngagementRecord> = {};
-
-export async function engagementLoadRust(): Promise<void> {
-  // no-op in mock
-}
-
-export async function engagementTrackOpenRust(_id: string): Promise<void> {
-  // no-op in mock
-}
-
-export async function engagementTrackEditRust(_id: string): Promise<void> {
-  // no-op in mock
-}
-
-export async function engagementRemoveRust(_id: string): Promise<void> {
-  // no-op in mock
-}
-
-export async function engagementRenameRust(_oldId: string, _newId: string): Promise<void> {
-  // no-op in mock
-}
-
-export async function engagementGetAllRust(): Promise<Record<string, EngagementRecord>> {
-  return { ...engagementStore };
-}
-
-export async function engagementFlushRust(): Promise<void> {
-  // no-op in mock
-}
-
-// Supersearch state mock stubs
-export async function supersearchIsReadyRust(): Promise<boolean> {
-  return false;
-}
-
-export async function supersearchGetStateRust(): Promise<SupersearchState | null> {
-  return null;
-}
-
-export async function supersearchDownloadWithMetaRust(
-  _serverUrl: string,
-  _token: string,
-  _meta: SupersearchState,
-): Promise<void> {
-  // no-op in mock
-}
+export async function engagementLoadRust(): Promise<void> {}
+export async function engagementTrackOpenRust(_id: string): Promise<void> {}
+export async function engagementTrackEditRust(_id: string): Promise<void> {}
+export async function engagementRemoveRust(_id: string): Promise<void> {}
+export async function engagementRenameRust(_oldId: string, _newId: string): Promise<void> {}
+export async function engagementGetAllRust(): Promise<Record<string, EngagementRecord>> { return {}; }
+export async function engagementFlushRust(): Promise<void> {}

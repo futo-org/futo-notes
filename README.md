@@ -28,7 +28,7 @@ stonefruit status
 If you do not want to use the CLI, run the published production Compose file. It pulls the pre-built server image from the GitLab Container Registry:
 
 ```bash
-curl -O https://gitlab.futo.org/stonefruit/stonefruit/-/raw/main/apps/server/docker-compose.production.yml
+curl -O https://gitlab.futo.org/stonefruit/stonefruit/-/raw/main/crates/stonefruit-server/docker-compose.production.yml
 docker compose -f docker-compose.production.yml up -d
 ```
 
@@ -51,4 +51,20 @@ pnpm run tauri:dev
 pnpm run build
 ```
 
-If you are working from source, see [AGENTS.md](./AGENTS.md) and [apps/server/README.md](./apps/server/README.md).
+### Semantic Search (V2 Server)
+
+Server-side semantic search and graph indexing are enabled when the Rust server has an Ollama embedding model configured.
+
+```bash
+export SEARCH_OLLAMA_MODEL=qwen3-embedding:0.6b
+# Optional if Ollama is not on the default local port:
+export SEARCH_OLLAMA_BASE_URL=http://127.0.0.1:11434
+```
+
+Optional overrides:
+
+- `SEARCH_MODEL_ID` to control the stored model identifier
+- `SEARCH_EMBED_DIMS` if you use a non-1024d embedding model
+- `SEARCH_QUERY_PREFIX` to override the query instruction prefix
+
+If you are working from source, see [AGENTS.md](./AGENTS.md).

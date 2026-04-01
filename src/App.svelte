@@ -9,10 +9,11 @@
     document.documentElement.style.setProperty('--titlebar-height', '36px');
   }
   import { initNotes, createNote, getAllNotes, _injectTestNote } from '$lib/notes';
-  import { loadPreferences, getCachedPreferences, savePreferences } from '$lib/preferences';
+  import { loadPreferences, getCachedPreferences, savePreferences } from '$lib/appState';
   import { applyThemePreference, watchSystemThemeTauri } from '$lib/theme';
   import { flushCrashQueue, setAppVersion, type CrashReport } from '$lib/crashHandler';
   import { sendAllPendingReports, discardAllPendingReports, loadPendingReports } from '$lib/crashReporter';
+  import { installTestSync } from '$lib/testSync';
 
   let hash = $state(window.location.hash.slice(1) || '/');
   let initialized = $state(false);
@@ -50,8 +51,9 @@
       try {
         const [, prefs] = await Promise.all([
           (hasFileSystem || import.meta.env.DEV) ? initNotes().then(() => {
-            if (import.meta.env.DEV) {
+            if (import.meta.env.DEV || import.meta.env.VITE_INCLUDE_TEST_HOOKS === 'true') {
               (window as any).__testNotes = { createNote, getAllNotes, _injectTestNote };
+              installTestSync();
             }
           }) : Promise.resolve(),
           loadPreferences(),

@@ -1,9 +1,9 @@
 <script lang="ts">
   import { hasFileSystem, isDesktop } from '$lib/platform';
   import { deleteAllNotes } from '$lib/notes';
-  import { getCachedPreferences, savePreferences } from '$lib/preferences';
+  import { getCachedPreferences, savePreferences } from '$lib/appState';
   import { applyThemePreference, type ThemePreference } from '$lib/theme';
-  import { connectSyncServer, saveSyncServerUrl, syncNow } from '$lib/sync';
+  import { connectSyncServerV2, syncNowV2, saveSyncServerUrl } from '$lib/syncServiceV2';
   import { getAppVersion } from '$lib/crashHandler';
   import { showGlobalToast } from '$lib/toast';
   import { ask } from '@tauri-apps/plugin-dialog';
@@ -101,15 +101,13 @@
     connectSyncPhase = 'Connecting to server...';
     connectSyncError = '';
     try {
-      await connectSyncServer(syncUrl, syncPassword);
+      await connectSyncServerV2(syncUrl, syncPassword);
       hasSyncToken = true;
       tokenServerUrl = syncUrl;
       syncPassword = '';
 
       connectSyncPhase = 'Syncing notes...';
-      const summary = await syncNow();
-      const { connectSSE } = await import('$lib/autoSync');
-      connectSSE();
+      const summary = await syncNowV2();
 
       const updatedPrefs = getCachedPreferences();
       syncLastAt = updatedPrefs.sync.lastSyncedAt;
@@ -161,7 +159,7 @@
     syncStatus = 'Syncing...';
     try {
       await persistSyncUrl();
-      const { requestSync: doSync } = await import('$lib/autoSync');
+      const { requestSyncV2: doSync } = await import('$lib/autoSyncV2');
       await doSync();
       const updatedPrefs = getCachedPreferences();
       hasSyncToken = Boolean(updatedPrefs.sync.token);

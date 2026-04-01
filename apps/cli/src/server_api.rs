@@ -11,6 +11,12 @@ pub struct HealthResponse {
     pub setup_complete: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SetupStatus {
+    Created,
+    AlreadyConfigured,
+}
+
 pub fn check_health(base_url: &str) -> Result<HealthResponse> {
     let client = client()?;
     let response = client
@@ -27,7 +33,7 @@ pub fn check_health(base_url: &str) -> Result<HealthResponse> {
         .context("invalid health response")
 }
 
-pub fn setup(base_url: &str, password: &str) -> Result<()> {
+pub fn setup(base_url: &str, password: &str) -> Result<SetupStatus> {
     let client = client()?;
     let response = client
         .post(format!("{}/setup", trim_url(base_url)))
@@ -36,8 +42,8 @@ pub fn setup(base_url: &str, password: &str) -> Result<()> {
         .with_context(|| format!("failed to reach {}", base_url))?;
 
     match response.status() {
-        StatusCode::CREATED => Ok(()),
-        StatusCode::CONFLICT => bail!("server is already configured"),
+        StatusCode::CREATED => Ok(SetupStatus::Created),
+        StatusCode::CONFLICT => Ok(SetupStatus::AlreadyConfigured),
         StatusCode::UNPROCESSABLE_ENTITY => bail!("password must be at least 8 characters"),
         code => bail!("setup returned status {}", code),
     }
@@ -100,9 +106,7 @@ pub fn reset_password(base_url: &str, admin_token: &str, new_password: &str) -> 
     let response = client
         .post(format!("{}/admin/reset-password", trim_url(base_url)))
         .header("Authorization", format!("AdminToken {}", admin_token))
-        .json(&ResetPasswordRequest {
-            new_password,
-        })
+        .json(&ResetPasswordRequest { new_password })
         .send()
         .with_context(|| format!("failed to reach {}", base_url))?;
 

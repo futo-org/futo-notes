@@ -1,5 +1,3 @@
-import type { NoteSyncMeta } from './note.js';
-
 // ── Images ────────────────────────────────────────────
 
 export const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif', 'heic'] as const;
@@ -10,55 +8,6 @@ export function isImageFilename(filename: string): boolean {
   if (dot < 0) return false;
   const ext = filename.slice(dot + 1).toLowerCase();
   return (IMAGE_EXTENSIONS as readonly string[]).includes(ext);
-}
-
-// ── Sync ───────────────────────────────────────────────
-
-export interface InventoryItem {
-  uuid: string;
-  content_hash: string;
-  filename: string;
-  modified_at: number;
-}
-
-export interface SyncRequest {
-  /** Only notes that changed client-side (content_hash !== hash_at_last_sync). */
-  notes: NoteSyncMeta[];
-  /** All UUIDs with their current hashes — server uses to detect its own changes. */
-  inventory: InventoryItem[];
-  /** UUIDs the client has deleted since last sync. */
-  deleted_uuids: string[];
-  /** Last-seen sync version from server. */
-  version?: number;
-}
-
-export interface SyncResponse {
-  /** Notes the client should create or update. */
-  update: NoteSyncMeta[];
-  /** UUIDs the client should delete locally. */
-  delete: string[];
-  /** Hash confirmations so client can update hash_at_last_sync. */
-  hash_updates: { uuid: string; hash_at_last_sync: string }[];
-  /** Conflict copies created on the server — client should download on next sync. */
-  conflicts: {
-    uuid: string;
-    server_filename: string;
-    client_filename: string;
-    client_content: string;
-  }[];
-  /** Monotonic version — client stores this and uses /sync/check to skip no-op syncs. */
-  version?: number;
-}
-
-// ── Sync Check ────────────────────────────────────────
-
-export interface SyncCheckRequest {
-  version: number;
-}
-
-export interface SyncCheckResponse {
-  status: 'up_to_date' | 'changes_available';
-  version: number;
 }
 
 // ── Auth ───────────────────────────────────────────────

@@ -32,6 +32,17 @@ export interface WatcherBatchOptions {
   onBulkRefresh: (events: FileChangeEvent[]) => Promise<void>;
   /** Write suppressor for filtering self-caused events in post-sync drain. */
   suppressor: WriteSuppressor;
+  /**
+   * Look up the last-known content hash for a filename (from V2 sync state).
+   * Used by the rename heuristic to match unlink+add pairs by hash.
+   * If not provided, rename detection is disabled.
+   */
+  getFileHash?: (filename: string) => string | undefined;
+  /**
+   * Compute the content hash of a file. Used to verify that a newly created
+   * file matches a recently deleted file (rename detection).
+   */
+  computeFileHash?: (filename: string) => Promise<string | undefined>;
 }
 
 export interface WatcherBatch {
@@ -41,8 +52,10 @@ export interface WatcherBatch {
   destroy(): void;
 }
 
+const RENAME_DETECT_WINDOW_MS = 500;
+
 export function createWatcherBatch(options: WatcherBatchOptions): WatcherBatch {
-  const { onEvent, onBulkRefresh, suppressor } = options;
+  const { onEvent, onBulkRefresh, suppressor, getFileHash, computeFileHash } = options;
 
   let syncActive = false;
   let pendingWatcherEvents: FileChangeEvent[] = [];
@@ -51,11 +64,59 @@ export function createWatcherBatch(options: WatcherBatchOptions): WatcherBatch {
   let postSyncBatchTimer: number | null = null;
   let watcherHandlerInFlight = false;
 
+  // ── Rename detection state ───────────────────────────────
+  // When a .md file is unlinked, hold it briefly to see if a matching
+  // add event follows (external rename). The events still enter the queue
+  // as separate unlink + add — no protocol-level rename.
+  const pendingDeletes: Map<string, { hash: string; timer: number }> = new Map();
+
   function enqueue(event: FileChangeEvent): void {
     if (syncActive) {
       pendingWatcherEvents.push(event);
       return;
     }
+
+    // Rename detection: hold unlink events briefly
+    if (event.type === 'unlink' && event.filename.endsWith('.md') && getFileHash && computeFileHash) {
+      const hash = getFileHash(event.filename);
+      if (hash) {
+        const timer = window.setTimeout(() => {
+          // No matching add arrived — finalize as deletion
+          pendingDeletes.delete(event.filename);
+          pushToQueue(event);
+        }, RENAME_DETECT_WINDOW_MS);
+        pendingDeletes.set(event.filename, { hash, timer });
+        return;
+      }
+    }
+
+    // Rename detection: check add events against pending deletes
+    if (event.type === 'add' && event.filename.endsWith('.md') && computeFileHash && pendingDeletes.size > 0) {
+      // Check asynchronously, then enqueue both events together
+      void (async () => {
+        const newHash = await computeFileHash(event.filename);
+        if (newHash) {
+          for (const [deletedFilename, pending] of pendingDeletes) {
+            if (pending.hash === newHash) {
+              // Match found — cancel the delete timer and emit both events together
+              clearTimeout(pending.timer);
+              pendingDeletes.delete(deletedFilename);
+              pushToQueue({ type: 'unlink', filename: deletedFilename });
+              pushToQueue(event);
+              return;
+            }
+          }
+        }
+        // No match — just enqueue the add
+        pushToQueue(event);
+      })();
+      return;
+    }
+
+    pushToQueue(event);
+  }
+
+  function pushToQueue(event: FileChangeEvent): void {
     watcherHandlerQueue.push(event);
     if (watcherBatchTimer === null) {
       watcherBatchTimer = window.setTimeout(() => {
@@ -117,6 +178,10 @@ export function createWatcherBatch(options: WatcherBatchOptions): WatcherBatch {
       clearTimeout(postSyncBatchTimer);
       postSyncBatchTimer = null;
     }
+    for (const pending of pendingDeletes.values()) {
+      clearTimeout(pending.timer);
+    }
+    pendingDeletes.clear();
     pendingWatcherEvents = [];
     watcherHandlerQueue = [];
   }

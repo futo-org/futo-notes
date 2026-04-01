@@ -15,6 +15,8 @@ pub struct Cli {
 pub enum Commands {
     /// Run the setup wizard to deploy a Stonefruit server
     Setup(SetupArgs),
+    /// Change CLI-managed server settings and reapply docker-compose
+    Settings(SettingsArgs),
     /// Show server status
     Status(StatusArgs),
     /// Reset the server password via admin token (no data loss)
@@ -43,6 +45,10 @@ pub struct SetupArgs {
     #[arg(long, conflicts_with = "password")]
     pub password_stdin: bool,
 
+    /// Disable semantic search and deploy a sync-only server
+    #[arg(long)]
+    pub disable_semantic_search: bool,
+
     /// Skip the interactive wizard and run setup immediately
     #[arg(long)]
     pub yes: bool,
@@ -50,12 +56,23 @@ pub struct SetupArgs {
 
 impl SetupArgs {
     pub fn wants_non_interactive(&self) -> bool {
-        self.yes
-            || self.port.is_some()
-            || self.data_path.is_some()
-            || self.password.is_some()
-            || self.password_stdin
+        self.yes || self.password.is_some() || self.password_stdin
     }
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct SettingsArgs {
+    /// Directory containing docker-compose.yml (default: current directory)
+    #[arg(long)]
+    pub compose_dir: Option<String>,
+
+    /// Enable semantic search
+    #[arg(long, conflicts_with = "disable_semantic_search")]
+    pub enable_semantic_search: bool,
+
+    /// Disable semantic search
+    #[arg(long, conflicts_with = "enable_semantic_search")]
+    pub disable_semantic_search: bool,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -115,12 +132,41 @@ mod tests {
     use super::SetupArgs;
 
     #[test]
-    fn data_path_enables_non_interactive_mode() {
+    fn data_path_does_not_enable_non_interactive_mode() {
         let args = SetupArgs {
             port: None,
             data_path: Some("/srv/stonefruit-data".to_string()),
             password: None,
             password_stdin: false,
+            disable_semantic_search: false,
+            yes: false,
+        };
+
+        assert!(!args.wants_non_interactive());
+    }
+
+    #[test]
+    fn disable_semantic_search_does_not_enable_non_interactive_mode() {
+        let args = SetupArgs {
+            port: None,
+            data_path: None,
+            password: None,
+            password_stdin: false,
+            disable_semantic_search: true,
+            yes: false,
+        };
+
+        assert!(!args.wants_non_interactive());
+    }
+
+    #[test]
+    fn password_enables_non_interactive_mode() {
+        let args = SetupArgs {
+            port: Some(3006),
+            data_path: None,
+            password: Some("abcdefgh".to_string()),
+            password_stdin: false,
+            disable_semantic_search: false,
             yes: false,
         };
 
