@@ -378,7 +378,7 @@ docker:verify:
       trap cleanup EXIT
       IP=$(docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$CONTAINER")
       for i in $(seq 1 15); do
-        if curl -sf "http://$IP:3006/health" > /dev/null; then
+        if curl -sf "http://$IP:3005/health" > /dev/null; then
           echo "Health check passed on attempt $i"
           exit 0
         fi
