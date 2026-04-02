@@ -90,8 +90,8 @@ pub async fn status(State(state): State<AppState>) -> Result<Json<Value>, AppErr
             },
             "current_job": if phase == crate::indexer::IndexerPhase::Indexing {
                 Some(json!({
-                    "notes_processed": indexer.notes_processed,
-                    "notes_total": indexer.notes_total,
+                    "notes_processed": notes_count - dirty_count,
+                    "notes_total": notes_count,
                 }))
             } else {
                 None

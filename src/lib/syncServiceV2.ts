@@ -11,7 +11,7 @@ export interface SyncSummary {
   renamed: Array<{ fromId: string; toId: string }>;
 }
 
-const SYNC_TIMEOUT_MS = 10_000;
+const SYNC_TIMEOUT_MS = 120_000;
 
 function normalizeBaseUrl(input: string): string {
   let url = input.trim().replace(/\/+$/, '');
