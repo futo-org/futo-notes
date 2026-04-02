@@ -113,6 +113,6 @@ Invoke-Step "Building Tauri (Windows)" {
 }
 
 Write-Host "=== Build artifacts ==="
-Get-ChildItem -Recurse src-tauri\target\release\bundle\nsis\ -ErrorAction Stop
+Get-ChildItem -Recurse ..\..\target\release\bundle\nsis\ -ErrorAction Stop
 
 Write-Host "=== Build complete ==="
