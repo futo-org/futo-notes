@@ -454,13 +454,13 @@ build:linux:
   after_script:
     - |
       echo "=== Linux build artifacts ==="
-      find apps/tauri/src-tauri/target/release/bundle -type f \
+      find target/release/bundle -type f \
         \( -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" \) 2>/dev/null
   artifacts:
     paths:
-      - apps/tauri/src-tauri/target/release/bundle/deb/*.deb
-      - apps/tauri/src-tauri/target/release/bundle/rpm/*.rpm
-      - apps/tauri/src-tauri/target/release/bundle/appimage/*.AppImage
+      - target/release/bundle/deb/*.deb
+      - target/release/bundle/rpm/*.rpm
+      - target/release/bundle/appimage/*.AppImage
     expire_in: 4 weeks
   rules:
     - if: $CI_COMMIT_TAG
@@ -835,12 +835,13 @@ release:gate:
     - |
       MISSING=0
       check() { if ! ls $1 >/dev/null 2>&1; then echo "MISSING: $1"; MISSING=$((MISSING+1)); else echo "OK: $1"; fi; }
+      check_find() { if [ -z "$(find $1 -name "$2" -type f 2>/dev/null)" ]; then echo "MISSING: $2 in $1"; MISSING=$((MISSING+1)); else echo "OK: $2 in $1"; fi; }
 
       echo "=== Platform artifacts ==="
-      check "apps/tauri/src-tauri/target/release/bundle/deb/*.deb"
-      check "apps/tauri/src-tauri/target/release/bundle/rpm/*.rpm"
-      check "apps/tauri/src-tauri/target/release/bundle/appimage/*.AppImage"
-      check "apps/tauri/src-tauri/gen/android/app/build/outputs/apk/**/*release*.apk"
+      check "target/release/bundle/deb/*.deb"
+      check "target/release/bundle/rpm/*.rpm"
+      check "target/release/bundle/appimage/*.AppImage"
+      check_find "apps/tauri/src-tauri/gen/android" "*release*.apk"
       check "buildFutoNotesIOS/binary/*.ipa"
       check "buildFutoNotesMacOS/binary/*.dmg"
 
@@ -892,21 +893,21 @@ release:
     - REGISTRY_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/stonefruit/${CI_COMMIT_TAG}"
     # Linux
     - |
-      for f in apps/tauri/src-tauri/target/release/bundle/deb/*.deb; do
+      for f in target/release/bundle/deb/*.deb; do
         [ -f "$f" ] || continue
         NAME="stonefruit_${VERSION}_amd64.deb"
         echo "Uploading $NAME"
         curl --fail -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$f" "${REGISTRY_URL}/${NAME}"
       done
     - |
-      for f in apps/tauri/src-tauri/target/release/bundle/rpm/*.rpm; do
+      for f in target/release/bundle/rpm/*.rpm; do
         [ -f "$f" ] || continue
         NAME="stonefruit-${VERSION}-1.x86_64.rpm"
         echo "Uploading $NAME"
         curl --fail -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$f" "${REGISTRY_URL}/${NAME}"
       done
     - |
-      for f in apps/tauri/src-tauri/target/release/bundle/appimage/*.AppImage; do
+      for f in target/release/bundle/appimage/*.AppImage; do
         [ -f "$f" ] || continue
         NAME="Stonefruit-${VERSION}-x86_64.AppImage"
         echo "Uploading $NAME"
