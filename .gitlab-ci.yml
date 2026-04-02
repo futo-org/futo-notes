@@ -734,6 +734,7 @@ build:windows:
   needs:
     - job: windows:provision
       artifacts: true
+  before_script: []
   script:
     # Wait for SSH to be ready
     - |
