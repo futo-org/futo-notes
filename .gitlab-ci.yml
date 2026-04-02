@@ -21,11 +21,9 @@ workflow:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
 stages:
-  - cleanup
   - test
   - build
   - verify
-  - publish
   - release
 
 # ─────────────────────────────────────────────────────────────
@@ -122,75 +120,42 @@ stages:
     policy: pull-push
 
 # ─────────────────────────────────────────────────────────────
-# Cleanup
+# Tests (MR + main only — tags skip straight to build)
 # ─────────────────────────────────────────────────────────────
 
-docker:prune:
-  stage: cleanup
-  script:
-    - docker system prune -af --volumes
-    - df -h /
-  allow_failure: true
-
-# ─────────────────────────────────────────────────────────────
-# Tests
-# ─────────────────────────────────────────────────────────────
-
-lint:
+test:
   stage: test
-  needs: [docker:prune]
-  cache:
-    - !reference [.cache-pnpm, cache]
-  script:
-    - pnpm install --frozen-lockfile
-    - pnpm run lint
-    - pnpm run lint:platform
-
-test:unit:
-  stage: test
-  needs: [docker:prune]
-  cache:
-    - !reference [.cache-pnpm, cache]
-  script:
-    - pnpm install --frozen-lockfile
-    - pnpm run test:unit
-
-test:e2e:
-  stage: test
-  needs: [docker:prune]
   cache:
     - !reference [.cache-pnpm, cache]
     - !reference [.cache-playwright, cache]
   script:
     - pnpm install --frozen-lockfile
+    - pnpm run lint
+    - pnpm run lint:platform
+    - pnpm run test:unit
+    - pnpm run test:shared
     - pnpm exec playwright install --with-deps chromium
     - pnpm run test:markdown-spec
     - pnpm run test:e2e:rest
-
-test:shared:
-  stage: test
-  needs: [docker:prune]
-  cache:
-    - !reference [.cache-pnpm, cache]
-  script:
-    - pnpm install --frozen-lockfile
-    - pnpm run test:shared
+  rules:
+    - if: $CI_MERGE_REQUEST_IID
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
 test:server:
   stage: test
-  needs: [docker:prune]
   cache:
     - !reference [.cache-cargo-tauri, cache]
   script:
     - !reference [.setup-rust, script]
     - cargo test -p stonefruit-server
+  rules:
+    - if: $CI_MERGE_REQUEST_IID
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
 test:server:smoke:
   stage: test
-  needs: [docker:prune]
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-    - if: $CI_COMMIT_TAG
   script:
     - IMAGE_SHA=$(docker build -q -f crates/stonefruit-server/Dockerfile .)
     - CONTAINER="sf-smoke-${CI_JOB_ID}"
@@ -208,10 +173,6 @@ test:server:smoke:
 
 test:rust:
   stage: test
-  needs: [docker:prune]
-  rules:
-    - if: $CI_COMMIT_TAG
-    - if: $CI_MERGE_REQUEST_IID
   cache:
     - !reference [.cache-pnpm, cache]
     - !reference [.cache-cargo-tauri, cache]
@@ -220,31 +181,23 @@ test:rust:
     - !reference [.setup-linux-deps, script]
     - !reference [.setup-rust, script]
     - pnpm run tauri:test:rust
+  rules:
+    - if: $CI_MERGE_REQUEST_IID
 
 test:rust:macos:
   stage: test
   tags:
     - macscript
-  needs: [docker:prune]
   allow_failure: true
   before_script:
     - env | grep -E '^(CI_)' > .cienv
-  rules:
-    - if: $CI_COMMIT_TAG
-    - if: $CI_MERGE_REQUEST_IID
   script:
     - cirrus run testRustMacOS --artifacts-dir . --env-file .cienv
+  rules:
+    - if: $CI_MERGE_REQUEST_IID
 
 test:desktop-smoke:
   stage: test
-  needs: [docker:prune]
-  rules:
-    - if: $CI_COMMIT_TAG
-    - if: $CI_MERGE_REQUEST_IID
-      changes:
-        - apps/tauri/**/*
-        - src/**/*
-        - packages/shared/**/*
   cache:
     - !reference [.cache-pnpm, cache]
     - !reference [.cache-cargo-tauri, cache]
@@ -277,18 +230,15 @@ test:desktop-smoke:
       - test-screenshots/smoke-*.png
       - test-screenshots/smoke-results.json
     expire_in: 1 week
-
-test:cross-platform-sync:
-  stage: test
-  needs: [docker:prune]
   rules:
-    - if: $CI_COMMIT_TAG
     - if: $CI_MERGE_REQUEST_IID
       changes:
         - apps/tauri/**/*
         - src/**/*
-        - crates/**/*
         - packages/shared/**/*
+
+test:cross-platform-sync:
+  stage: test
   cache:
     - !reference [.cache-pnpm, cache]
     - !reference [.cache-cargo-tauri, cache]
@@ -314,35 +264,52 @@ test:cross-platform-sync:
       - test-screenshots/sync-results.json
     expire_in: 1 week
   timeout: 20m
+  rules:
+    - if: $CI_MERGE_REQUEST_IID
+      changes:
+        - apps/tauri/**/*
+        - src/**/*
+        - crates/**/*
+        - packages/shared/**/*
 
 test:desktop-smoke:macos:
   stage: test
   tags:
     - macscript
-  needs: [docker:prune]
   allow_failure: true
   before_script:
     - env | grep -E '^(CI_)' > .cienv
+  script:
+    - cirrus run testDesktopSmokeMacOS --artifacts-dir . --env-file .cienv
   rules:
-    - if: $CI_COMMIT_TAG
     - if: $CI_MERGE_REQUEST_IID
       changes:
         - apps/tauri/**/*
         - src/**/*
+
+cli:test:
+  stage: test
+  cache:
+    - !reference [.cache-cargo-cli, cache]
   script:
-    - cirrus run testDesktopSmokeMacOS --artifacts-dir . --env-file .cienv
+    - !reference [.setup-rust, script]
+    - cd apps/cli
+    - cargo test
+  rules:
+    - if: $CI_MERGE_REQUEST_IID
+      changes:
+        - apps/cli/**/*
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes:
+        - apps/cli/**/*
 
 # ─────────────────────────────────────────────────────────────
-# Docker (default branch only)
+# Docker
 # ─────────────────────────────────────────────────────────────
 
 docker:publish:
   stage: build
   timeout: 2h
-  needs:
-    - job: test:server
-    - job: test:server:smoke
-      optional: true
   script:
     - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
     - docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
@@ -394,27 +361,8 @@ docker:verify:
 # CLI
 # ─────────────────────────────────────────────────────────────
 
-cli:test:
-  stage: test
-  needs: [docker:prune]
-  cache:
-    - !reference [.cache-cargo-cli, cache]
-  script:
-    - !reference [.setup-rust, script]
-    - cd apps/cli
-    - cargo test
-  rules:
-    - if: $CI_COMMIT_TAG
-    - if: $CI_MERGE_REQUEST_IID
-      changes:
-        - apps/cli/**/*
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-      changes:
-        - apps/cli/**/*
-
 cli:build:amd64:
   stage: build
-  needs: [cli:test]
   cache:
     - !reference [.cache-cargo-cli, cache]
   script:
@@ -441,7 +389,6 @@ cli:build:amd64:
 
 cli:build:arm64:
   stage: build
-  needs: [cli:test]
   cache:
     - !reference [.cache-cargo-cli, cache]
   script:
@@ -470,7 +417,7 @@ cli:build:arm64:
         - apps/cli/**/*
 
 cli:publish:
-  stage: publish
+  stage: release
   image: curlimages/curl:latest
   needs: [cli:build:amd64, cli:build:arm64]
   interruptible: false
@@ -495,7 +442,6 @@ cli:publish:
 
 build:linux:
   stage: build
-  needs: [lint, test:unit, test:e2e]
   cache:
     - !reference [.cache-pnpm, cache]
     - !reference [.cache-cargo-tauri, cache]
@@ -521,7 +467,6 @@ build:linux:
 
 build:android:
   stage: build
-  needs: [lint, test:unit, test:e2e]
   cache:
     - !reference [.cache-pnpm, cache]
     - !reference [.cache-cargo-tauri, cache]
@@ -588,7 +533,6 @@ build:ios:
   stage: build
   tags:
     - macscript
-  needs: [lint, test:unit, test:e2e]
   before_script:
     - env | grep -E '^(CI_|IOS_|ASC_)' > .cienv
   script:
@@ -604,7 +548,6 @@ build:macos:
   stage: build
   tags:
     - macscript
-  needs: [lint, test:unit, test:e2e]
   before_script:
     - env | grep -E '^(CI_|MACOS_|ASC_)' > .cienv
   script:
@@ -634,7 +577,6 @@ windows:provision:
   stage: build
   tags:
     - proxmoxshell
-  needs: [lint, test:unit, test:e2e]
   before_script:
     - *proxmox_auth
   variables:
@@ -927,11 +869,11 @@ release:gate:
     - if: $CI_COMMIT_TAG
 
 # ─────────────────────────────────────────────────────────────
-# Publish to GitLab Package Registry
+# Publish + create GitLab release
 # ─────────────────────────────────────────────────────────────
 
-publish:
-  stage: publish
+release:
+  stage: release
   interruptible: false
   needs:
     - job: release:gate
@@ -955,7 +897,6 @@ publish:
         NAME="stonefruit_${VERSION}_amd64.deb"
         echo "Uploading $NAME"
         curl --fail -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$f" "${REGISTRY_URL}/${NAME}"
-        echo "DEB_URL=${REGISTRY_URL}/${NAME}" >> publish.env
       done
     - |
       for f in apps/tauri/src-tauri/target/release/bundle/rpm/*.rpm; do
@@ -963,7 +904,6 @@ publish:
         NAME="stonefruit-${VERSION}-1.x86_64.rpm"
         echo "Uploading $NAME"
         curl --fail -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$f" "${REGISTRY_URL}/${NAME}"
-        echo "RPM_URL=${REGISTRY_URL}/${NAME}" >> publish.env
       done
     - |
       for f in apps/tauri/src-tauri/target/release/bundle/appimage/*.AppImage; do
@@ -971,7 +911,6 @@ publish:
         NAME="Stonefruit-${VERSION}-x86_64.AppImage"
         echo "Uploading $NAME"
         curl --fail -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$f" "${REGISTRY_URL}/${NAME}"
-        echo "APPIMAGE_URL=${REGISTRY_URL}/${NAME}" >> publish.env
       done
     # Android APK
     - |
@@ -980,7 +919,6 @@ publish:
         NAME="stonefruit-${VERSION}.apk"
         echo "Uploading $NAME"
         curl --fail -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$APK" "${REGISTRY_URL}/${NAME}"
-        echo "APK_URL=${REGISTRY_URL}/${NAME}" >> publish.env
       fi
     # iOS IPA
     - |
@@ -989,7 +927,6 @@ publish:
         NAME="Stonefruit-${VERSION}.ipa"
         echo "Uploading $NAME"
         curl --fail -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$IPA" "${REGISTRY_URL}/${NAME}"
-        echo "IPA_URL=${REGISTRY_URL}/${NAME}" >> publish.env
       fi
     # macOS DMG
     - |
@@ -998,7 +935,6 @@ publish:
         NAME="Stonefruit-${VERSION}-universal.dmg"
         echo "Uploading $NAME"
         curl --fail -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$DMG" "${REGISTRY_URL}/${NAME}"
-        echo "DMG_URL=${REGISTRY_URL}/${NAME}" >> publish.env
       fi
     # Windows NSIS installer
     - |
@@ -1007,29 +943,11 @@ publish:
         NAME="Stonefruit-${VERSION}-x64-setup.exe"
         echo "Uploading $NAME"
         curl --fail -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$NSIS" "${REGISTRY_URL}/${NAME}"
-        echo "WINDOWS_URL=${REGISTRY_URL}/${NAME}" >> publish.env
       fi
-  artifacts:
-    reports:
-      dotenv: publish.env
-  rules:
-    - if: $CI_COMMIT_TAG
-
-# ─────────────────────────────────────────────────────────────
-# Create GitLab Release
-# ─────────────────────────────────────────────────────────────
-
-release:
-  stage: release
-  image: registry.gitlab.com/gitlab-org/release-cli:latest
-  interruptible: false
-  needs:
-    - job: publish
-      artifacts: true
-  before_script: []
-  script:
-    - VERSION="${CI_COMMIT_TAG#v}"
-    - REGISTRY_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/stonefruit/${CI_COMMIT_TAG}"
+    # Create GitLab release
+    - |
+      curl -sL "https://gitlab.com/api/v4/projects/gitlab-org%2Frelease-cli/packages/generic/release-cli/latest/release-cli-linux-amd64" \
+        -o /usr/local/bin/release-cli && chmod +x /usr/local/bin/release-cli
     - |
       release-cli create \
         --name "Stonefruit ${CI_COMMIT_TAG}" \
