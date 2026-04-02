@@ -338,6 +338,7 @@ test:desktop-smoke:macos:
 
 docker:publish:
   stage: build
+  timeout: 2h
   needs:
     - job: test:server
     - job: test:server:smoke
