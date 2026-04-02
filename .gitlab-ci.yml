@@ -120,7 +120,8 @@ stages:
     policy: pull-push
 
 # ─────────────────────────────────────────────────────────────
-# Tests (MR + main only — tags skip straight to build)
+# Tests
+# On tags, tests run in parallel with builds (builds use needs: [])
 # ─────────────────────────────────────────────────────────────
 
 test:
@@ -138,6 +139,7 @@ test:
     - pnpm run test:markdown-spec
     - pnpm run test:e2e:rest
   rules:
+    - if: $CI_COMMIT_TAG
     - if: $CI_MERGE_REQUEST_IID
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
@@ -149,12 +151,14 @@ test:server:
     - !reference [.setup-rust, script]
     - cargo test -p stonefruit-server
   rules:
+    - if: $CI_COMMIT_TAG
     - if: $CI_MERGE_REQUEST_IID
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
 test:server:smoke:
   stage: test
   rules:
+    - if: $CI_COMMIT_TAG
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
   script:
     - IMAGE_SHA=$(docker build -q -f crates/stonefruit-server/Dockerfile .)
@@ -182,6 +186,7 @@ test:rust:
     - !reference [.setup-rust, script]
     - pnpm run tauri:test:rust
   rules:
+    - if: $CI_COMMIT_TAG
     - if: $CI_MERGE_REQUEST_IID
 
 test:rust:macos:
@@ -194,6 +199,7 @@ test:rust:macos:
   script:
     - cirrus run testRustMacOS --artifacts-dir . --env-file .cienv
   rules:
+    - if: $CI_COMMIT_TAG
     - if: $CI_MERGE_REQUEST_IID
 
 test:desktop-smoke:
@@ -231,6 +237,7 @@ test:desktop-smoke:
       - test-screenshots/smoke-results.json
     expire_in: 1 week
   rules:
+    - if: $CI_COMMIT_TAG
     - if: $CI_MERGE_REQUEST_IID
       changes:
         - apps/tauri/**/*
@@ -265,6 +272,7 @@ test:cross-platform-sync:
     expire_in: 1 week
   timeout: 20m
   rules:
+    - if: $CI_COMMIT_TAG
     - if: $CI_MERGE_REQUEST_IID
       changes:
         - apps/tauri/**/*
@@ -282,6 +290,7 @@ test:desktop-smoke:macos:
   script:
     - cirrus run testDesktopSmokeMacOS --artifacts-dir . --env-file .cienv
   rules:
+    - if: $CI_COMMIT_TAG
     - if: $CI_MERGE_REQUEST_IID
       changes:
         - apps/tauri/**/*
@@ -296,6 +305,7 @@ cli:test:
     - cd apps/cli
     - cargo test
   rules:
+    - if: $CI_COMMIT_TAG
     - if: $CI_MERGE_REQUEST_IID
       changes:
         - apps/cli/**/*
@@ -310,6 +320,7 @@ cli:test:
 docker:publish:
   stage: build
   timeout: 2h
+  needs: []
   script:
     - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
     - docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
@@ -363,6 +374,7 @@ docker:verify:
 
 cli:build:amd64:
   stage: build
+  needs: []
   cache:
     - !reference [.cache-cargo-cli, cache]
   script:
@@ -389,6 +401,7 @@ cli:build:amd64:
 
 cli:build:arm64:
   stage: build
+  needs: []
   cache:
     - !reference [.cache-cargo-cli, cache]
   script:
@@ -442,6 +455,7 @@ cli:publish:
 
 build:linux:
   stage: build
+  needs: []
   cache:
     - !reference [.cache-pnpm, cache]
     - !reference [.cache-cargo-tauri, cache]
@@ -467,37 +481,18 @@ build:linux:
 
 build:android:
   stage: build
-  cache:
+  needs: []
+  image: gitlab.futo.org:5050/stonefruit/stonefruit/ci/android:latest
     - !reference [.cache-pnpm, cache]
     - !reference [.cache-cargo-tauri, cache]
   variables:
     ANDROID_HOME: /opt/android-sdk
     JAVA_HOME: /opt/jdk-21
+    NDK_HOME: /opt/android-sdk/ndk/27.0.12077973
   script:
+    - export PATH="$JAVA_HOME/bin:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
     - pnpm install --frozen-lockfile
-    # JDK 21
-    - |
-      if [ ! -d "$JAVA_HOME" ]; then
-        curl -sL https://download.oracle.com/java/21/latest/jdk-21_linux-x64_bin.tar.gz | tar xz -C /opt
-        mv /opt/jdk-21* /opt/jdk-21
-      fi
-      export PATH="$JAVA_HOME/bin:$PATH"
-      java -version
-    # Android SDK + NDK
-    - |
-      mkdir -p "$ANDROID_HOME"
-      if [ ! -d "$ANDROID_HOME/cmdline-tools/latest" ]; then
-        curl -sL https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o /tmp/cmdtools.zip
-        unzip -q /tmp/cmdtools.zip -d "$ANDROID_HOME/cmdline-tools"
-        mv "$ANDROID_HOME/cmdline-tools/cmdline-tools" "$ANDROID_HOME/cmdline-tools/latest"
-      fi
-      export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
-      yes | sdkmanager --licenses > /dev/null 2>&1 || true
-      sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0" "ndk;27.0.12077973"
-      export NDK_HOME="$ANDROID_HOME/ndk/27.0.12077973"
-    # Rust with Android targets
     - !reference [.setup-rust, script]
-    - rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android i686-linux-android
     # Version
     - !reference [.set-version, script]
     # Initialize Tauri Android project
@@ -531,6 +526,7 @@ build:android:
 
 build:ios:
   stage: build
+  needs: []
   tags:
     - macscript
   before_script:
@@ -546,6 +542,7 @@ build:ios:
 
 build:macos:
   stage: build
+  needs: []
   tags:
     - macscript
   before_script:
@@ -575,6 +572,7 @@ build:macos:
 
 windows:provision:
   stage: build
+  needs: []
   tags:
     - proxmoxshell
   before_script:
@@ -815,6 +813,10 @@ windows:cleanup:
 release:gate:
   stage: verify
   needs:
+    - job: test
+    - job: test:server
+    - job: test:server:smoke
+      optional: true
     - job: docker:verify
     - job: build:linux
       artifacts: true
