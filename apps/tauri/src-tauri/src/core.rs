@@ -1,5 +1,6 @@
 use notify::{
-    Config as NotifyConfig, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher,
+    event::ModifyKind, Config as NotifyConfig, Event, EventKind, RecommendedWatcher, RecursiveMode,
+    Watcher,
 };
 use rayon::prelude::*;
 use reqwest::blocking::Client;
@@ -1401,6 +1402,9 @@ pub(crate) fn vector_search_impl(
 fn map_notify_event(event: &Event) -> Option<&'static str> {
     match event.kind {
         EventKind::Create(_) => Some("add"),
+        // Ignore metadata-only changes (atime, permissions) — they don't affect
+        // note content and on iOS/macOS kqueue fires these spuriously.
+        EventKind::Modify(ModifyKind::Metadata(_)) => None,
         EventKind::Modify(_) => Some("change"),
         EventKind::Remove(_) => Some("unlink"),
         _ => None,
@@ -2069,7 +2073,11 @@ pub async fn core_rebuild_index(
         write.loaded = true;
 
         let mut previews: Vec<_> = write.notes.values().map(note_to_preview).collect();
-        previews.sort_by(|a, b| b.modification_time.cmp(&a.modification_time));
+        previews.sort_by(|a, b| {
+            b.modification_time
+                .cmp(&a.modification_time)
+                .then_with(|| a.id.cmp(&b.id))
+        });
         Ok(previews)
     })
     .await
@@ -2089,7 +2097,11 @@ pub async fn core_get_note_previews(
             .read()
             .map_err(|_| "search index lock poisoned".to_string())?;
         let mut previews: Vec<_> = read.notes.values().map(note_to_preview).collect();
-        previews.sort_by(|a, b| b.modification_time.cmp(&a.modification_time));
+        previews.sort_by(|a, b| {
+            b.modification_time
+                .cmp(&a.modification_time)
+                .then_with(|| a.id.cmp(&b.id))
+        });
         Ok(previews)
     })
     .await
