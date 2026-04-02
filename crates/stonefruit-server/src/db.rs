@@ -78,9 +78,9 @@ const SEED: &str = "INSERT OR IGNORE INTO sync_meta (key, value) VALUES ('sync_v
 pub fn register_sqlite_vec() {
     type SqliteVecInit = unsafe extern "C" fn(
         *mut rusqlite::ffi::sqlite3,
-        *mut *mut i8,
+        *mut *mut std::os::raw::c_char,
         *const rusqlite::ffi::sqlite3_api_routines,
-    ) -> i32;
+    ) -> std::os::raw::c_int;
 
     unsafe {
         rusqlite::ffi::sqlite3_auto_extension(Some(
