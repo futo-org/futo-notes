@@ -209,6 +209,6 @@ build_macos_task:
     - cd ../..
 
     # Copy DMG to artifacts location
-    - cp apps/tauri/src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg ./
+    - cp target/universal-apple-darwin/release/bundle/dmg/*.dmg ./
   binary_artifacts:
     path: "*.dmg"

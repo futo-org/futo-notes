@@ -768,7 +768,7 @@ build:windows:
     - mkdir -p windows-artifacts
     - |
       sshpass -p "${PROXMOX_WIN_PASSWORD}" scp -o StrictHostKeyChecking=no -r \
-        "${PROXMOX_WIN_USER}@${VM_IP}:C:/build/stonefruit/apps/tauri/src-tauri/target/release/bundle/nsis/*" \
+        "${PROXMOX_WIN_USER}@${VM_IP}:C:/build/stonefruit/target/release/bundle/nsis/*" \
         windows-artifacts/
     - |
       echo "=== Windows build artifacts ==="
