@@ -708,8 +708,6 @@ impl App {
             Line::raw(""),
             Line::from("To change server features later, run: stonefruit settings"),
             Line::raw(""),
-            Line::from("For HTTPS, see: https://stonefruit.futo.org/docs/remote-access"),
-            Line::raw(""),
             Line::from(vec![
                 key_span("Enter"),
                 Span::raw(" exit  "),
@@ -982,8 +980,6 @@ fn print_success(config: &Config) {
     println!("  3. Enter the server URL and your password");
     println!();
     println!("To change server features later, run: stonefruit settings");
-    println!();
-    println!("For HTTPS, see: https://stonefruit.futo.org/docs/remote-access");
 }
 
 fn phase_index(phase: Phase) -> usize {
