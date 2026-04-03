@@ -1319,50 +1319,54 @@ class LiveMarkdownPlugin implements PluginValue {
     decorations: Array<{ from: number; to: number; value: any }>
   ): void {
     const doc = view.state.doc;
-    const text = doc.toString();
+    const tree = syntaxTree(view.state);
     const regex = /\[\[([^\]\n]+)\]\]/g;
-    let match;
 
-    while ((match = regex.exec(text)) !== null) {
-      const from = match.index;
-      const to = from + match[0].length;
-      const title = match[1];
-      if (selectionTouchesRange(view.hasFocus, view.state.selection.ranges, from, to)) continue;
+    for (let i = 1; i <= doc.lines; i++) {
+      const line = doc.line(i);
+      let match;
+      regex.lastIndex = 0;
 
-      // Skip if inside code block or inline code
-      const tree = syntaxTree(view.state);
-      let inCode = false;
-      tree.iterate({
-        from, to: from + 1,
-        enter: (node) => {
-          if (MarkdownParser.isCode(node.name)) inCode = true;
-        }
-      });
-      if (inCode) continue;
+      while ((match = regex.exec(line.text)) !== null) {
+        const from = line.from + match.index;
+        const to = from + match[0].length;
+        const title = match[1];
+        if (selectionTouchesRange(view.hasFocus, view.state.selection.ranges, from, to)) continue;
 
-      // Hide [[
-      decorations.push({
-        from,
-        to: from + 2,
-        value: { class: 'cm-md-marker-hidden' }
-      });
+        // Skip if inside code block or inline code
+        let inCode = false;
+        tree.iterate({
+          from, to: from + 1,
+          enter: (node) => {
+            if (MarkdownParser.isCode(node.name)) inCode = true;
+          }
+        });
+        if (inCode) continue;
 
-      // Hide ]]
-      decorations.push({
-        from: to - 2,
-        to,
-        value: { class: 'cm-md-marker-hidden' }
-      });
+        // Hide [[
+        decorations.push({
+          from,
+          to: from + 2,
+          value: { class: 'cm-md-marker-hidden' }
+        });
 
-      // Style title as wikilink
-      decorations.push({
-        from: from + 2,
-        to: to - 2,
-        value: {
-          class: 'cm-md-link cm-md-wikilink',
-          attributes: { 'data-wikilink': title }
-        }
-      });
+        // Hide ]]
+        decorations.push({
+          from: to - 2,
+          to,
+          value: { class: 'cm-md-marker-hidden' }
+        });
+
+        // Style title as wikilink
+        decorations.push({
+          from: from + 2,
+          to: to - 2,
+          value: {
+            class: 'cm-md-link cm-md-wikilink',
+            attributes: { 'data-wikilink': title }
+          }
+        });
+      }
     }
   }
 
