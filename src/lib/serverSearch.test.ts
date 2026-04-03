@@ -96,6 +96,79 @@ describe('serverSearch helpers', () => {
     expect(mapped.results[0].note.id).toBe('shopping');
   });
 
+  // ── Regression: filename normalization for stable note lookup ────
+
+  it('resolves bare-id filenames without .md suffix', () => {
+    const response: ServerSearchResponse = {
+      results: [
+        { filename: 'shopping', snippet: 'milk', score: 1, source: 'keyword' },
+      ],
+      timing: { keyword_ms: 1, vector_ms: 0, total_ms: 1 },
+      vector_enabled: false,
+    };
+
+    const mapped = mapServerResults(response, notes);
+    expect(mapped.results).toHaveLength(1);
+    expect(mapped.results[0].note.id).toBe('shopping');
+  });
+
+  it('drops double .md.md suffix results that do not match a local note', () => {
+    const response: ServerSearchResponse = {
+      results: [
+        { filename: 'shopping.md.md', snippet: 'milk', score: 1, source: 'keyword' },
+      ],
+      timing: { keyword_ms: 1, vector_ms: 0, total_ms: 1 },
+      vector_enabled: false,
+    };
+
+    // "shopping.md.md" → strip .md → "shopping.md" → sanitize → "shopping.md"
+    // "shopping.md" is not in the local notes map, so this result is dropped
+    const mapped = mapServerResults(response, notes);
+    expect(mapped.results).toHaveLength(0);
+  });
+
+  it('handles case-insensitive .MD suffix stripping', () => {
+    const response: ServerSearchResponse = {
+      results: [
+        { filename: 'shopping.MD', snippet: 'milk', score: 1, source: 'keyword' },
+      ],
+      timing: { keyword_ms: 1, vector_ms: 0, total_ms: 1 },
+      vector_enabled: false,
+    };
+
+    const mapped = mapServerResults(response, notes);
+    expect(mapped.results).toHaveLength(1);
+    expect(mapped.results[0].note.id).toBe('shopping');
+  });
+
+  it('handles mixed-case .Md suffix', () => {
+    const response: ServerSearchResponse = {
+      results: [
+        { filename: 'packing.Md', snippet: 'passport', score: 0.9, source: 'vector' },
+      ],
+      timing: { keyword_ms: 0, vector_ms: 2, total_ms: 2 },
+      vector_enabled: true,
+    };
+
+    const mapped = mapServerResults(response, notes);
+    expect(mapped.results).toHaveLength(1);
+    expect(mapped.results[0].note.id).toBe('packing');
+  });
+
+  it('normalizes filenames with multiple forbidden char types', () => {
+    const response: ServerSearchResponse = {
+      results: [
+        { filename: 'shop:p|i*n?g.md', snippet: 'milk', score: 1, source: 'keyword' },
+      ],
+      timing: { keyword_ms: 1, vector_ms: 0, total_ms: 1 },
+      vector_enabled: false,
+    };
+
+    const mapped = mapServerResults(response, notes);
+    expect(mapped.results).toHaveLength(1);
+    expect(mapped.results[0].note.id).toBe('shopping');
+  });
+
   it('drops unmapped server results and keeps local fallback active', () => {
     const response: ServerSearchResponse = {
       results: [

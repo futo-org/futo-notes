@@ -154,6 +154,98 @@ describe('computeGraphData', () => {
     expect(result.clusters[0]?.noteIds).toEqual(['mynote']);
   });
 
+  // ── Regression: filename normalization for stable note lookup ────
+
+  it('resolves bare-id filenames without .md suffix', async () => {
+    mockAuthFetch.mockResolvedValue({
+      nodes: [{ filename: 'my-note', x: 10, y: 20, cluster_index: 0 }],
+      clusters: [
+        {
+          index: 0,
+          label: 'My Note',
+          center_x: 10,
+          center_y: 20,
+          radius: 48,
+          color_index: 0,
+          filenames: ['my-note'],
+        },
+      ],
+      note_count: 1,
+      indexed_count: 1,
+    });
+
+    const result = await computeGraphData();
+    expect(result.nodes[0]?.noteId).toBe('my-note');
+    expect(result.clusters[0]?.noteIds).toEqual(['my-note']);
+  });
+
+  it('strips only one .md suffix from double .md.md filenames', async () => {
+    mockAuthFetch.mockResolvedValue({
+      nodes: [{ filename: 'note.md.md', x: 10, y: 20, cluster_index: 0 }],
+      clusters: [
+        {
+          index: 0,
+          label: 'Note',
+          center_x: 10,
+          center_y: 20,
+          radius: 48,
+          color_index: 0,
+          filenames: ['note.md.md'],
+        },
+      ],
+      note_count: 1,
+      indexed_count: 1,
+    });
+
+    const result = await computeGraphData();
+    // "note.md.md" → strip .md → "note.md" → sanitize → "note.md"
+    expect(result.nodes[0]?.noteId).toBe('note.md');
+  });
+
+  it('handles case-insensitive .MD suffix', async () => {
+    mockAuthFetch.mockResolvedValue({
+      nodes: [{ filename: 'my-note.MD', x: 10, y: 20, cluster_index: 0 }],
+      clusters: [
+        {
+          index: 0,
+          label: 'My Note',
+          center_x: 10,
+          center_y: 20,
+          radius: 48,
+          color_index: 0,
+          filenames: ['my-note.MD'],
+        },
+      ],
+      note_count: 1,
+      indexed_count: 1,
+    });
+
+    const result = await computeGraphData();
+    expect(result.nodes[0]?.noteId).toBe('my-note');
+  });
+
+  it('normalizes filenames with multiple forbidden char types', async () => {
+    mockAuthFetch.mockResolvedValue({
+      nodes: [{ filename: 'my:n|o*t?e.md', x: 10, y: 20, cluster_index: 0 }],
+      clusters: [
+        {
+          index: 0,
+          label: 'My Note',
+          center_x: 10,
+          center_y: 20,
+          radius: 48,
+          color_index: 0,
+          filenames: ['my:n|o*t?e.md'],
+        },
+      ],
+      note_count: 1,
+      indexed_count: 1,
+    });
+
+    const result = await computeGraphData();
+    expect(result.nodes[0]?.noteId).toBe('mynote');
+  });
+
   it('deduplicates repeated nodes for the same filename', async () => {
     mockAuthFetch.mockResolvedValue({
       nodes: [

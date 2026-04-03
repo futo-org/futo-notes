@@ -368,6 +368,77 @@ mod tests {
         assert_eq!(note_id_from_filename(".md"), None);
     }
 
+    // ── note_id_from_filename regression: .md / bare-id / malformed ─
+
+    #[test]
+    fn note_id_bare_id_no_extension() {
+        // Bare IDs without .md must return None
+        assert_eq!(note_id_from_filename("shopping"), None);
+        assert_eq!(note_id_from_filename("my note"), None);
+        assert_eq!(note_id_from_filename("café"), None);
+    }
+
+    #[test]
+    fn note_id_double_md_suffix() {
+        // Only one trailing .md stripped — the remaining ".md" becomes part of the ID
+        assert_eq!(
+            note_id_from_filename("note.md.md"),
+            Some("note.md".to_string())
+        );
+    }
+
+    #[test]
+    fn note_id_triple_md_suffix() {
+        assert_eq!(
+            note_id_from_filename("note.md.md.md"),
+            Some("note.md.md".to_string())
+        );
+    }
+
+    #[test]
+    fn note_id_case_sensitive_extension() {
+        // strip_suffix is case-sensitive — .MD and .Md are not stripped
+        assert_eq!(note_id_from_filename("note.MD"), None);
+        assert_eq!(note_id_from_filename("note.Md"), None);
+        assert_eq!(note_id_from_filename("note.mD"), None);
+    }
+
+    #[test]
+    fn note_id_unicode_and_emoji() {
+        assert_eq!(
+            note_id_from_filename("café ☕.md"),
+            Some("café ☕".to_string())
+        );
+        assert_eq!(
+            note_id_from_filename("📝 notes.md"),
+            Some("📝 notes".to_string())
+        );
+    }
+
+    #[test]
+    fn note_id_dots_in_title() {
+        // Interior dots are fine — only .md at the very end is stripped
+        assert_eq!(
+            note_id_from_filename("v2.0 release.md"),
+            Some("v2.0 release".to_string())
+        );
+        assert_eq!(
+            note_id_from_filename("Dr. Smith.md"),
+            Some("Dr. Smith".to_string())
+        );
+    }
+
+    #[test]
+    fn note_id_md_as_part_of_title() {
+        // "markdown.md" → "markdown", not "mark" (no greedy stripping)
+        assert_eq!(
+            note_id_from_filename("markdown.md"),
+            Some("markdown".to_string())
+        );
+        // ".md" embedded but not at suffix position
+        assert_eq!(note_id_from_filename("file.md.txt"), None);
+    }
+
     // ── get_unique_note_id ──────────────────────────────────────────
 
     #[test]
