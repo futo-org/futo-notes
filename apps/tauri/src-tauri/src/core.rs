@@ -113,6 +113,7 @@ fn save_notes_dir_override(app: &AppHandle, dir: Option<&str>) -> Result<(), Str
 #[derive(Default)]
 struct SearchIndexState {
     loaded: bool,
+    bodies_loaded: bool,
     notes: HashMap<String, IndexedNote>,
 }
 
@@ -669,18 +670,16 @@ fn scan_notes(base: &Path) -> Result<HashMap<String, IndexedNote>, String> {
     let indexed = entries
         .par_iter()
         .filter_map(|(id, path, mtime)| {
-            let body = fs::read_to_string(path).ok()?;
-
-            // Use cached metadata when mtime matches to skip extraction
+            // Use cached metadata when mtime matches — skip reading the file body
             if let Some(cached) = cache.entries.get(id.as_str()) {
                 if cached.mtime == *mtime {
                     return Some(IndexedNote {
                         title: id.clone(),
                         title_lower: id.to_lowercase(),
                         preview: cached.preview.clone(),
-                        body_lower: body.to_lowercase(),
+                        body_lower: String::new(),
                         headings_lower: cached.headings_lower.clone(),
-                        body,
+                        body: String::new(),
                         mtime: *mtime,
                         id: id.clone(),
                         tags: cached.tags.clone(),
@@ -688,6 +687,7 @@ fn scan_notes(base: &Path) -> Result<HashMap<String, IndexedNote>, String> {
                 }
             }
 
+            let body = fs::read_to_string(path).ok()?;
             Some(build_indexed_note(id.clone(), body, *mtime))
         })
         .collect::<Vec<_>>();
@@ -719,6 +719,36 @@ fn scan_notes(base: &Path) -> Result<HashMap<String, IndexedNote>, String> {
     Ok(map)
 }
 
+/// Load file bodies for notes that were constructed from the preview cache
+/// (body left empty to speed up startup). Called lazily before keyword search.
+fn backfill_bodies(base: &Path, notes: &mut HashMap<String, IndexedNote>) {
+    let deferred: Vec<String> = notes
+        .iter()
+        .filter(|(_, note)| note.body.is_empty())
+        .map(|(id, _)| id.clone())
+        .collect();
+
+    if deferred.is_empty() {
+        return;
+    }
+
+    let loaded: Vec<(String, String)> = deferred
+        .par_iter()
+        .filter_map(|id| {
+            let path = base.join(format!("{}.md", id));
+            let body = fs::read_to_string(&path).ok()?;
+            Some((id.clone(), body))
+        })
+        .collect();
+
+    for (id, body) in loaded {
+        if let Some(note) = notes.get_mut(&id) {
+            note.body_lower = body.to_lowercase();
+            note.body = body;
+        }
+    }
+}
+
 fn ensure_index_loaded(base: &Path, state: &Arc<RwLock<SearchIndexState>>) -> Result<(), String> {
     {
         let read = state
@@ -735,6 +765,7 @@ fn ensure_index_loaded(base: &Path, state: &Arc<RwLock<SearchIndexState>>) -> Re
         .map_err(|_| "search index lock poisoned".to_string())?;
     write.notes = scanned;
     write.loaded = true;
+    write.bodies_loaded = false;
     Ok(())
 }
 
@@ -1619,6 +1650,7 @@ pub async fn fs_delete_all_content(
         if let Ok(mut idx) = index.write() {
             idx.notes.clear();
             idx.loaded = true;
+            idx.bodies_loaded = true;
         }
 
         Ok(())
@@ -2146,6 +2178,7 @@ pub async fn core_rebuild_index(
             .map_err(|_| "search index lock poisoned".to_string())?;
         write.notes = scanned;
         write.loaded = true;
+        write.bodies_loaded = false;
 
         let mut previews: Vec<_> = write.notes.values().map(note_to_preview).collect();
         previews.sort_by(|a, b| {
@@ -2193,6 +2226,25 @@ pub async fn core_keyword_search(
     tauri::async_runtime::spawn_blocking(move || {
         let base = notes_root(&app)?;
         ensure_index_loaded(&base, &index)?;
+
+        // Backfill deferred bodies (cache-hit notes had body skipped at scan time)
+        {
+            let needs_backfill = index
+                .read()
+                .map_err(|_| "search index lock poisoned".to_string())?
+                .bodies_loaded
+                == false;
+            if needs_backfill {
+                let mut write = index
+                    .write()
+                    .map_err(|_| "search index lock poisoned".to_string())?;
+                if !write.bodies_loaded {
+                    backfill_bodies(&base, &mut write.notes);
+                    write.bodies_loaded = true;
+                }
+            }
+        }
+
         let read = index
             .read()
             .map_err(|_| "search index lock poisoned".to_string())?;
@@ -3009,6 +3061,51 @@ mod tests {
         assert_eq!(first_note.mtime, second_note.mtime);
 
         cleanup_temp_dir(&base);
+    }
+
+    #[test]
+    fn scan_notes_defers_body_for_cache_hits() {
+        let base = temp_notes_dir();
+        fs::write(base.join("note.md"), "# Heading\n\nBody text here").unwrap();
+
+        // First scan reads the full body
+        let first = scan_notes(&base).unwrap();
+        assert_eq!(first.get("note").unwrap().body, "# Heading\n\nBody text here");
+
+        // Second scan (cache hit) defers body
+        let second = scan_notes(&base).unwrap();
+        let deferred = second.get("note").unwrap();
+        assert!(deferred.body.is_empty(), "cache-hit body should be empty");
+        assert!(
+            deferred.body_lower.is_empty(),
+            "cache-hit body_lower should be empty"
+        );
+        // But preview/tags/headings are still correct
+        assert_eq!(deferred.preview, first.get("note").unwrap().preview);
+        assert_eq!(deferred.headings_lower, "heading");
+
+        cleanup_temp_dir(&base);
+    }
+
+    #[test]
+    fn backfill_bodies_loads_deferred_notes() {
+        let base = temp_notes_dir();
+        fs::write(base.join("alpha.md"), "Alpha body").unwrap();
+        fs::write(base.join("beta.md"), "Beta body").unwrap();
+
+        // First scan populates cache, second scan defers bodies
+        scan_notes(&base).unwrap();
+        let mut notes = scan_notes(&base).unwrap();
+
+        assert!(notes.get("alpha").unwrap().body.is_empty());
+        assert!(notes.get("beta").unwrap().body.is_empty());
+
+        backfill_bodies(&base, &mut notes);
+
+        assert_eq!(notes.get("alpha").unwrap().body, "Alpha body");
+        assert_eq!(notes.get("alpha").unwrap().body_lower, "alpha body");
+        assert_eq!(notes.get("beta").unwrap().body, "Beta body");
+        assert_eq!(notes.get("beta").unwrap().body_lower, "beta body");
     }
 
     #[test]
