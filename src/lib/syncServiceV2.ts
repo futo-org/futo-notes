@@ -267,8 +267,6 @@ async function doFullSyncV2(
 
   syncState.fileHashes = newFileHashes;
   syncState.lastServerVersion = response.version;
-  // Clear hash cache after sync to force re-scan next time
-  syncState.hashCache = undefined;
   await saveV2SyncState(syncState);
   await clearSyncErrorAndSetTime();
 

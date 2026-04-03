@@ -156,6 +156,49 @@ describe('syncServiceV2', () => {
     expect(rustCoreMocks.applySyncDeltaV2).not.toHaveBeenCalled();
   });
 
+  it('preserves hash cache after full sync', async () => {
+    const { appState, syncServiceV2 } = await freshModules();
+
+    await appState.loadAppState();
+    await appState.updateAppState({ serverUrl: 'http://sync.example.com', authToken: 'test-token' });
+
+    await appState.saveV2SyncState({
+      deviceId: 'device-a',
+      lastServerVersion: 0,
+      fileHashes: {},
+    });
+
+    const expectedHashCache = { 'note.md': { modifiedAt: 1_700_000_000_000, hash: 'abc123' } };
+
+    rustCoreMocks.prepareSyncPayloadV2.mockResolvedValue({
+      nextState: {
+        deviceId: 'device-a',
+        lastServerVersion: 0,
+        fileHashes: {},
+        hashCache: expectedHashCache,
+      },
+      inventory: [],
+      changed: [],
+      new: [],
+      deleted: [],
+      elapsedMs: 0,
+    });
+
+    mockFetch.mockResolvedValueOnce(
+      Response.json({
+        update: [],
+        delete: [],
+        conflicts: [],
+        version: 1,
+      })
+    );
+
+    await syncServiceV2.syncNowV2();
+
+    const savedState = await appState.loadV2SyncState();
+    expect(savedState.hashCache).toEqual(expectedHashCache);
+  });
+
   it('returns rename summaries for remote delete-create renames', async () => {
     const { appState, syncServiceV2 } = await freshModules();
 
