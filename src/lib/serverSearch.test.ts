@@ -77,6 +77,25 @@ describe('serverSearch helpers', () => {
     expect(mapped.semanticResults).toHaveLength(0);
   });
 
+  it('normalizes server filenames with forbidden chars before lookup', () => {
+    const response: ServerSearchResponse = {
+      results: [
+        {
+          filename: 'shop<ping>.md',
+          snippet: 'milk and eggs',
+          score: 1,
+          source: 'keyword',
+        },
+      ],
+      timing: { keyword_ms: 1, vector_ms: 0, total_ms: 1 },
+      vector_enabled: false,
+    };
+
+    const mapped = mapServerResults(response, notes);
+    expect(mapped.results).toHaveLength(1);
+    expect(mapped.results[0].note.id).toBe('shopping');
+  });
+
   it('drops unmapped server results and keeps local fallback active', () => {
     const response: ServerSearchResponse = {
       results: [

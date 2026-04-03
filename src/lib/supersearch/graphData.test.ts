@@ -129,6 +129,31 @@ describe('computeGraphData', () => {
     await expect(computeGraphData()).rejects.toThrow('Connect to a server to view the graph');
   });
 
+  it('normalizes server filenames with forbidden chars', async () => {
+    mockAuthFetch.mockResolvedValue({
+      nodes: [{ filename: 'my<note>.md', x: 120, y: -80, cluster_index: 0 }],
+      clusters: [
+        {
+          index: 0,
+          label: 'My Note',
+          center_x: 120,
+          center_y: -80,
+          radius: 48,
+          color_index: 0,
+          filenames: ['my<note>.md'],
+        },
+      ],
+      note_count: 1,
+      indexed_count: 1,
+    });
+
+    const result = await computeGraphData();
+
+    expect(result.nodes[0]?.noteId).toBe('mynote');
+    expect(result.nodes[0]?.title).toBe('mynote');
+    expect(result.clusters[0]?.noteIds).toEqual(['mynote']);
+  });
+
   it('deduplicates repeated nodes for the same filename', async () => {
     mockAuthFetch.mockResolvedValue({
       nodes: [

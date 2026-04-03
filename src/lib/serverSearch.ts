@@ -1,4 +1,5 @@
 import type { SearchResultItem, NotePreview } from '../types';
+import { sanitizeTitle } from '@futo-notes/shared';
 
 export const SERVER_SEARCH_TIMEOUT_MS = 10_000;
 const RRF_K = 60;
@@ -85,7 +86,7 @@ export function mapServerResults(
   const results: SearchResultItem[] = [];
   const semanticResults: SearchResultItem[] = [];
   for (const item of response.results) {
-    const noteId = item.filename.replace(/\.md$/i, '');
+    const noteId = sanitizeTitle(item.filename.replace(/\.md$/i, ''));
     const note = notesById.get(noteId);
     if (!note) continue;
     const result: SearchResultItem = {

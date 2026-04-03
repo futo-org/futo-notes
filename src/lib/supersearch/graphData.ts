@@ -1,3 +1,4 @@
+import { sanitizeTitle } from '@futo-notes/shared';
 import { getAppState, updateAppState, type ServerGraphLayout } from '../appState';
 import { authFetch } from '../authFetch';
 import {
@@ -87,7 +88,7 @@ function serverLayoutToGraphData(layout: ServerGraphLayout): GraphData {
  * The server always returns filenames with exactly one `.md` suffix.
  */
 function filenameToNoteId(filename: string): string {
-  return filename.replace(/\.md$/i, '');
+  return sanitizeTitle(filename.replace(/\.md$/i, ''));
 }
 
 async function fetchServerGraphLayout(): Promise<ServerGraphLayout | null> {
