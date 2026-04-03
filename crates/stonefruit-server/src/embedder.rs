@@ -138,14 +138,54 @@ fn normalize_base_url(input: &str) -> String {
     }
 }
 
+/// Maximum time to wait for Ollama to become reachable during startup.
+const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+const PROBE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(2);
+
 fn probe_ollama(client: &reqwest::blocking::Client, config: &EmbedderConfig) -> Result<(), String> {
     let version_url = format!("{}/api/version", config.ollama_base_url);
-    client
-        .get(&version_url)
-        .send()
-        .and_then(|response| response.error_for_status())
-        .map_err(|e| format!("Failed to reach Ollama at {}: {e}", config.ollama_base_url))?;
+    let deadline = std::time::Instant::now() + PROBE_TIMEOUT;
+    let mut last_err = String::new();
 
+    // Retry until Ollama is reachable or we hit the deadline.
+    // This handles Docker restarts where Ollama may not be ready yet.
+    while std::time::Instant::now() < deadline {
+        match client
+            .get(&version_url)
+            .send()
+            .and_then(|response| response.error_for_status())
+        {
+            Ok(_) => {
+                if !last_err.is_empty() {
+                    tracing::info!("Ollama is now reachable at {}", config.ollama_base_url);
+                }
+                return probe_ollama_model(client, config);
+            }
+            Err(e) => {
+                if last_err.is_empty() {
+                    tracing::warn!(
+                        "Waiting for Ollama at {} (retrying for up to {}s): {e}",
+                        config.ollama_base_url,
+                        PROBE_TIMEOUT.as_secs()
+                    );
+                }
+                last_err = e.to_string();
+                std::thread::sleep(PROBE_INTERVAL);
+            }
+        }
+    }
+
+    Err(format!(
+        "Failed to reach Ollama at {} after {}s: {last_err}",
+        config.ollama_base_url,
+        PROBE_TIMEOUT.as_secs()
+    ))
+}
+
+fn probe_ollama_model(
+    client: &reqwest::blocking::Client,
+    config: &EmbedderConfig,
+) -> Result<(), String> {
     let tags_url = format!("{}/api/tags", config.ollama_base_url);
     let tags = client
         .get(&tags_url)
