@@ -110,7 +110,15 @@ This appears in `LiveMarkdownPlugin.constructor`, `buildDecorations`, `update`, 
 
 `searchIndex.ts` serializes the entire MiniSearch index to JSON and writes it as `.search-index-v1.json`. For a vault with 1000+ notes, this can be several MB. It's written on every `persistIndex()` call. Since the Rust core now handles keyword search (`keywordSearchRust`), the MiniSearch index is only used for wikilink autocomplete. Consider whether it's still worth persisting.
 
-### 3d. Image preloading
+### 3d. Startup reads every file unconditionally
+
+`initNotes()` calls `rebuildRustIndex()` → `core_rebuild_index` → `scan_notes()`, which reads every `.md` file in the vault on every launch. For 2400 notes this takes ~6s. Most of that time is spent in `fs::read_to_string` + `build_indexed_note` (headings, tags, preview extraction) — work that's wasted when files haven't changed since the last launch.
+
+The fix is an mtime-based file cache (`.file-cache.json`) that stores `{mtime, hash, preview, tags}` per file. On startup, `stat()` all files (~50ms), only read the ones whose mtime changed, and return cached previews for the rest. The full search index (`IndexedNote` with lowercase body, headings map) is built lazily on first search, not at startup.
+
+This also subsumes the `hashCache` currently shuttled between TS and Rust via `V2SyncState` (see 2c). Moving hash ownership entirely into Rust eliminates the `hashCache` field from `AppState`, `V2SyncState`, `saveV2SyncState`, `clearV2SyncState`, and `testSync.clearServerScopedState` — a meaningful reduction in the sync client complexity flagged in 4b.
+
+### 3e. Image preloading
 
 `preloadImages` scans the full markdown text with a regex on every `setContent` call. For notes with many images, this fires network requests eagerly. The `imageSizeCache` is unbounded and never evicted. This was flagged in the scroll-fix report but not addressed.
 
@@ -227,6 +235,7 @@ The `sync_10k.rs` test verifies correctness for 10K notes but doesn't measure la
 | **High** | Extract wikilink/tag processing from `liveMarkdownTransform` into separate ViewPlugins | Eliminates `doc.toString()` on every cursor move |
 | **High** | Cache `extractHeaderTagBlock` result in a StateField | Eliminates redundant full-doc scan per rebuild |
 | **High** | Remove `ensureSyntaxTree` from non-constructor paths | Reduces main-thread blocking on large notes |
+| **High** | Unified file cache for startup (mtime-based `.file-cache.json`, lazy search index) | Startup from ~6s to ~200ms for 2400 notes; eliminates `hashCache` TS↔Rust shuttling |
 | **Medium** | Decompose `NotesShell.svelte` into smaller controllers | Reduces cognitive load, easier to modify |
 | **Medium** | Unify `appState.ts` API surface | Eliminates confusion between 3 accessor patterns |
 | **Medium** | Merge `writeSuppression` into `watcherBatch`, `syncCoordinator` into `syncManager` | Reduces sync coordination from 4 modules to 2 |
@@ -246,3 +255,147 @@ The `sync_10k.rs` test verifies correctness for 10K notes but doesn't measure la
 - The cross-platform test harness. It's thorough and catches real bugs.
 - The AGENTS.md / CLAUDE.md documentation. It's detailed and accurate.
 - The `editorContentSync.ts` minimal-diff algorithm. It's clever, correct, and avoids `toString()`.
+
+---
+
+## 10. Implementation Chunks
+
+Work from this review is grouped into six chunks, sequenced by impact and dependency. Each chunk is independently shippable.
+
+**Recommended order: 1 → 2 → 5 → 3 → 4 → 6**
+
+---
+
+### Chunk 1: Startup Performance (File Cache)
+
+**Sections:** 3d, 2c (hashCache portion)
+
+**Scope:**
+- New `core_startup_previews` Tauri command backed by mtime-based `.file-cache.json`
+- `initNotes()` calls the new command instead of `rebuildRustIndex()`
+- `core_get_note_previews` uses cached previews when the search index isn't loaded
+- Full search index (`scan_notes()`) deferred to first `core_keyword_search` call
+- `hashCache` removed from `V2SyncState`, `AppState`, and all TS sync plumbing — Rust owns it via the file cache
+- Migration path: first launch seeds cache from existing `hashCache` in `.app-state.json`
+- Watcher invalidates specific cache entries on file change
+
+**Acceptance criteria:**
+- [ ] Warm startup (no files changed) completes in < 500ms for 2400 notes
+- [ ] Cold startup (no cache file) produces identical note list to current behavior
+- [ ] Modifying a note externally and relaunching shows updated preview
+- [ ] Deleting a note externally and relaunching removes it from the list
+- [ ] First keyword search after startup returns correct results (lazy index loads)
+- [ ] Sync works end-to-end without `hashCache` in TS (server test suite passes)
+- [ ] `just test` and `just server-test` pass
+- [ ] `.app-state.json` no longer contains `hashCache` after first launch on new code
+
+**Dependencies:** None. Can start immediately.
+
+---
+
+### Chunk 2: Editor Hot-Path Performance
+
+**Sections:** 3a, 3b, 2b
+
+**Scope:**
+- Remove `ensureSyntaxTree` calls from `update()` and `buildDecorations()` — keep only the constructor call
+- Extract `processWikilinks` into a standalone ViewPlugin using `MatchDecorator` instead of `doc.toString()` regex
+- Extract `processInlineTags` into a standalone ViewPlugin, same approach
+- Cache `extractHeaderTagBlock` result in a `StateField` that only recomputes on doc change
+- Extract widget classes from `liveMarkdownTransform.ts` into `src/lib/editor/widgets/` (one file per widget)
+
+**Acceptance criteria:**
+- [ ] `liveMarkdownTransform.ts` is under 400 lines (down from 900)
+- [ ] No `doc.toString()` calls remain in any decoration rebuild path
+- [ ] `ensureSyntaxTree` is called only once per plugin lifecycle (constructor)
+- [ ] All existing Playwright markdown spec tests pass (`just test-markdown-spec`)
+- [ ] All existing decoration tests pass (`liveMarkdownTransform.reveal.test.ts`)
+- [ ] Manual check: open a 50KB note, cursor movement feels responsive (no visible lag)
+- [ ] `just build` passes (no missing imports)
+
+**Dependencies:** None. Independent of Chunk 1.
+
+---
+
+### Chunk 5: Correctness Fixes
+
+**Sections:** 5a, 5b
+
+**Scope:**
+- Replace `trim_end_matches(".md")` with `strip_suffix(".md")` in `note_id_from_filename`
+- Normalize server search response filenames at the boundary (one place) instead of triple-mapping in `serverSearch.ts`, `graphData.ts`, and `syncServiceV2.ts`
+
+**Acceptance criteria:**
+- [ ] `note_id_from_filename("note.md.md")` returns `Some("note.md")`, not `Some("note")`
+- [ ] Server search results for filenames with `.md` suffix map correctly to local note IDs
+- [ ] No `.md.md` triple-mapping workarounds remain in client code
+- [ ] `just test` and `just server-test` pass
+- [ ] Regression test added for the `.md.md` filename case
+
+**Dependencies:** None. These are small, ship whenever.
+
+---
+
+### Chunk 3: Search Path Unification
+
+**Sections:** 4a, 4c, 3c
+
+**Scope:**
+- Route wikilink autocomplete through `core_keyword_search` (Rust) instead of MiniSearch
+- Remove `searchIndex.ts` and the `minisearch` dependency
+- Remove `.search-index-v1.json` persistence
+- Unify `SearchPopup.svelte` to call one function that returns `{ local: results[], server: results[] | null }` instead of managing two independent result lists
+
+**Acceptance criteria:**
+- [ ] `minisearch` removed from `package.json`
+- [ ] No `searchIndex.ts` file exists
+- [ ] `.search-index-v1.json` is no longer written or read
+- [ ] Wikilink autocomplete returns results with equivalent quality to current MiniSearch (title matches, recency)
+- [ ] `SearchPopup.svelte` has one debounce timer and one loading state, not two
+- [ ] `just build` and `just test` pass
+- [ ] Manual check: wikilink `[[` autocomplete is responsive (< 100ms)
+
+**Dependencies:** Chunk 1 should land first (lazy search index means `core_keyword_search` triggers a full scan on first call — that's fine, but the behavior should be established before rerouting autocomplete through it).
+
+---
+
+### Chunk 4: Sync Client Simplification
+
+**Sections:** 4b, 6a
+
+**Scope:**
+- Add unit tests for `syncManager.svelte.ts` covering: `handleSyncComplete` with renames, content reload, draft protection; `handleSingleWatcherEvent` with suppression and external rescan; auto-sync start/stop
+- Merge `writeSuppression.ts` into `watcherBatch.ts` (its only consumer)
+- Merge `syncCoordinator.ts` into `syncManager.svelte.ts` (`shouldDeferSync` is 3 lines)
+- Sync coordination goes from 4 modules to 2
+
+**Acceptance criteria:**
+- [ ] `syncManager.svelte.ts` has unit tests covering the three flows above
+- [ ] `writeSuppression.ts` and `syncCoordinator.ts` no longer exist as separate files
+- [ ] All existing sync tests pass (`just server-test`, `just test-cross-platform`)
+- [ ] No change in sync behavior — this is a pure refactor
+- [ ] `just test` passes
+
+**Dependencies:** Write the unit tests *before* merging modules. The tests are the safety net for the refactor.
+
+---
+
+### Chunk 6: Frontend Cleanup
+
+**Sections:** 2a, 4d, 4e, 3e
+
+**Scope:**
+- Extract `DrawerController`, `NoteMenuController`, `KeyboardInsetController` from `NotesShell.svelte` as Svelte 5 rune-based state objects
+- Move component-specific styles from `components.css` into Svelte `<style>` blocks where components already exist
+- Remove non-Rust engagement path (stub in tests)
+- Add LRU eviction or max-size bound to `imageSizeCache`
+
+**Acceptance criteria:**
+- [ ] `NotesShell.svelte` script section is under 250 lines
+- [ ] `components.css` is under 400 lines (down from 700+)
+- [ ] `engagement.ts` has no `if (!hasRustCore())` branches
+- [ ] `imageSizeCache` has a bounded size (e.g., 500 entries max)
+- [ ] `just build` and `just test` pass
+- [ ] Manual check: drawer swipe, note menu, keyboard inset behavior unchanged
+
+**Dependencies:** None, but lowest priority. Pick up items opportunistically.
