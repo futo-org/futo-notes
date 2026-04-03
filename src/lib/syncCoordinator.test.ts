@@ -99,7 +99,7 @@ describe('syncCoordinator', () => {
       coord.destroy();
     });
 
-    it('shows sync indicator on start, hides after 1s on stop', () => {
+    it('shows sync indicator on start, hides after 400ms on stop', () => {
       const onIndicatorChange = vi.fn();
       const coord = createSyncCoordinator(makeDeps(), makeUI({ onIndicatorChange }));
 
@@ -108,10 +108,10 @@ describe('syncCoordinator', () => {
 
       onIndicatorChange.mockClear();
       coord.onSyncStateChange(false);
-      // Not hidden yet — minimum 1s display
+      // Not hidden yet — minimum 400ms display
       expect(onIndicatorChange).not.toHaveBeenCalled();
 
-      vi.advanceTimersByTime(1000);
+      vi.advanceTimersByTime(400);
       expect(onIndicatorChange).toHaveBeenCalledWith(false);
 
       coord.destroy();

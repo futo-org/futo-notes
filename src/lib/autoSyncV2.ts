@@ -28,6 +28,7 @@ let initialRetryCount = 0;
 let backgroundRetryTimer: number | null = null;
 let pollTimer: number | null = null;
 let pendingLocalSave = false;
+let pendingLocalSaveTimer: number | null = null;
 
 type SyncTrigger = 'local-save' | 'manual' | 'poll' | 'resume' | 'initial';
 
@@ -87,7 +88,14 @@ async function performSync(trigger: SyncTrigger, options: { propagateErrors?: bo
     callbacks.onSyncStateChange?.(false);
     if (pendingLocalSave) {
       pendingLocalSave = false;
-      setTimeout(() => void performSync('local-save'), 0);
+      // Delay retry so the spinner hides between cycles. If the user keeps
+      // typing, the next natural save→sync will fire first and this becomes
+      // a harmless no-op (performSync guards against double-sync).
+      cancelPendingLocalSaveRetry();
+      pendingLocalSaveTimer = window.setTimeout(() => {
+        pendingLocalSaveTimer = null;
+        void performSync('local-save');
+      }, 2_000);
     }
   }
 }
@@ -151,6 +159,13 @@ function stopPolling(): void {
 }
 
 // ── Retry logic ────────────────────────────────────────────
+
+function cancelPendingLocalSaveRetry(): void {
+  if (pendingLocalSaveTimer !== null) {
+    clearTimeout(pendingLocalSaveTimer);
+    pendingLocalSaveTimer = null;
+  }
+}
 
 function cancelBackgroundRetry(): void {
   if (backgroundRetryTimer !== null) {
@@ -245,6 +260,7 @@ export function stopAutoSyncV2(): void {
   stopPolling();
   lastSyncTime = 0;
   pendingLocalSave = false;
+  cancelPendingLocalSaveRetry();
   if (initialSyncTimer !== null) {
     clearTimeout(initialSyncTimer);
     initialSyncTimer = null;

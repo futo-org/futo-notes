@@ -81,12 +81,12 @@ export function createSyncCoordinator(
     }
     if (!active) {
       deps.watcherBatch.drainPostSync();
-      // Keep indicator visible for at least 1s
+      // Keep indicator visible briefly so it doesn't flash invisibly
       if (syncIndicatorTimer === null) {
         syncIndicatorTimer = window.setTimeout(() => {
           ui.onIndicatorChange(false);
           syncIndicatorTimer = null;
-        }, 1000);
+        }, 400);
       }
     }
   }
