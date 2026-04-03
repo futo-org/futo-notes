@@ -302,21 +302,23 @@ fn appdata_traversal_comprehensive() {
 
 #[test]
 fn note_id_from_filename_adversarial() {
-    // Double .md extension — trim_end_matches is greedy
-    let result = note_id_from_filename("test.md.md");
-    assert!(result.is_some());
-    // Verify the actual value — trim_end_matches(".md") strips trailing ".md" greedily
-    let id = result.unwrap();
-    // "test.md.md" → trim_end_matches(".md") → "test" (strips both .md suffixes)
-    // This is a known behavior of trim_end_matches
-    assert_eq!(id, "test", "trim_end_matches strips greedily: {id}");
+    // Double .md extension — strip_suffix removes only one trailing ".md"
+    assert_eq!(
+        note_id_from_filename("test.md.md"),
+        Some("test.md".to_string())
+    );
 
-    // ".md.md" → strips both, leaves "" → None
-    assert_eq!(note_id_from_filename(".md.md"), None);
+    // ".md.md" → strip one ".md" → ".md" which is non-empty
+    assert_eq!(
+        note_id_from_filename(".md.md"),
+        Some(".md".to_string())
+    );
 
-    // "md.md" → strips trailing ".md" → "md" or strips both → ""
-    let r = note_id_from_filename("md.md");
-    assert!(r.is_some()); // "md.md" ends with ".md", strip → might be "md" or ""
+    // "md.md" → strip one ".md" → "md"
+    assert_eq!(
+        note_id_from_filename("md.md"),
+        Some("md".to_string())
+    );
 }
 
 // ── Adversarial: blob hash parity with binary content ──────────────────

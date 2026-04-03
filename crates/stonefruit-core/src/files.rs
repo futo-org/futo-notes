@@ -208,14 +208,11 @@ pub fn write_atomic_text(path: &Path, content: &str) -> Result<(), String> {
 /// Extract a note ID from a filename by stripping the `.md` extension.
 /// Returns `None` for non-`.md` files or if the resulting ID is empty.
 pub fn note_id_from_filename(name: &str) -> Option<String> {
-    if !name.ends_with(".md") {
-        return None;
-    }
-    let id = name.trim_end_matches(".md").to_string();
+    let id = name.strip_suffix(".md")?;
     if id.is_empty() {
         return None;
     }
-    Some(id)
+    Some(id.to_string())
 }
 
 /// Find a unique note ID by appending `-2`, `-3`, ... if needed.
@@ -843,14 +840,11 @@ mod tests {
 
     #[test]
     fn note_id_from_double_md_extension() {
-        // "note.md.md" — trim_end_matches strips ALL trailing ".md"
-        let result = note_id_from_filename("note.md.md");
-        // This is potentially surprising — trim_end_matches is greedy
-        assert!(result.is_some());
-        let id = result.unwrap();
-        // trim_end_matches(".md") on "note.md.md" strips both ".md" suffixes
-        // leaving just "note" — this may or may not be intended
-        assert!(!id.is_empty());
+        // "note.md.md" — strip_suffix removes only the single trailing ".md"
+        assert_eq!(
+            note_id_from_filename("note.md.md"),
+            Some("note.md".to_string())
+        );
     }
 
     #[test]
