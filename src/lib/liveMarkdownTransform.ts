@@ -7,9 +7,9 @@ import {
   WidgetType,
   ViewUpdate
 } from '@codemirror/view';
-import { StateEffect } from '@codemirror/state';
+import { StateEffect, type Text } from '@codemirror/state';
 import { syntaxTree, ensureSyntaxTree } from '@codemirror/language';
-import { extractHeaderTagBlock, TAG_REGEX } from '@futo-notes/shared';
+import { TAG_REGEX } from '@futo-notes/shared';
 
 export const imageCacheUpdated = StateEffect.define<null>();
 export const liveMarkdownRefresh = StateEffect.define<null>();
@@ -162,6 +162,9 @@ export function resolveImageSrc(src: string): string {
 export function registerLocalImageUrl(filename: string, webUrl: string): void {
   localImageUrlCache.set(filename, webUrl);
 }
+
+/** Matches a line that consists only of tags and whitespace (header tag block detection). */
+const TAG_LINE_RE = /^\s*#[a-zA-Z][a-zA-Z0-9_-]{0,49}(\s+#[a-zA-Z][a-zA-Z0-9_-]{0,49})*\s*$/;
 
 const IMAGE_REGEX = /!\[[^\]]*\]\(([^\s)]+)(?:\s+"[^"]*")?\)/g;
 
@@ -481,6 +484,8 @@ class LiveMarkdownPlugin implements PluginValue {
   compositionSuspended = false;
   pendingRefresh: ReturnType<typeof setTimeout> | null = null;
   destroyed = false;
+  private cachedHeaderDoc: Text | null = null;
+  private cachedHeaderEndOffset: number = 0;
 
   constructor(view: EditorView) {
     // Force full parse so all decorations are present from the start,
@@ -574,7 +579,7 @@ class LiveMarkdownPlugin implements PluginValue {
     const cursorLines = this.getCursorLines(view);
 
     // Compute header tag block offset for skipping overlapping decorations
-    const headerEndOffset = extractHeaderTagBlock(view.state.doc.toString()).endOffset;
+    const headerEndOffset = this.getHeaderEndOffset(view.state.doc);
 
     // Get syntax tree
     const tree = syntaxTree(view.state);
@@ -615,7 +620,7 @@ class LiveMarkdownPlugin implements PluginValue {
     this.processWikilinks(view, decorations);
 
     // Process inline tag styling
-    this.processInlineTags(view, decorations);
+    this.processInlineTags(view, decorations, headerEndOffset);
 
     // Build decoration ranges
     const ranges: any[] = [];
@@ -1367,43 +1372,89 @@ class LiveMarkdownPlugin implements PluginValue {
     }
   }
 
+  /**
+   * Compute the header tag block end offset by scanning only the first few
+   * doc lines. Cached by doc identity — CM6 Text objects are immutable,
+   * so the same reference means the same content.
+   */
+  private getHeaderEndOffset(doc: Text): number {
+    if (doc === this.cachedHeaderDoc) return this.cachedHeaderEndOffset;
+
+    let endLineNum = 0;
+    for (let i = 1; i <= doc.lines; i++) {
+      if (TAG_LINE_RE.test(doc.line(i).text)) {
+        endLineNum = i;
+      } else {
+        break;
+      }
+    }
+
+    let offset = 0;
+    if (endLineNum > 0) {
+      offset = doc.line(endLineNum).to + 1;
+      // Include trailing blank line separator if present
+      if (endLineNum < doc.lines) {
+        const nextLine = doc.line(endLineNum + 1);
+        if (nextLine.text.trim() === '') {
+          offset = nextLine.to + 1;
+        }
+      }
+      offset = Math.min(offset, doc.length);
+    }
+
+    this.cachedHeaderDoc = doc;
+    this.cachedHeaderEndOffset = offset;
+    return offset;
+  }
+
+  /**
+   * Iterate line-by-line for inline tags instead of materializing doc.toString().
+   * Tags are line-bounded so per-line regex works correctly.
+   * Header tag block offset is pre-computed and passed in.
+   */
   private processInlineTags(
     view: EditorView,
-    decorations: Array<{ from: number; to: number; value: any }>
+    decorations: Array<{ from: number; to: number; value: any }>,
+    headerEndOffset: number
   ): void {
     const doc = view.state.doc;
-    const text = doc.toString();
-    const { endOffset } = extractHeaderTagBlock(text);
     const tree = syntaxTree(view.state);
 
-    const regex = new RegExp(TAG_REGEX.source, TAG_REGEX.flags);
-    let match;
+    // Find the first line after the header tag block
+    const startLineNum = headerEndOffset > 0
+      ? doc.lineAt(Math.min(headerEndOffset, doc.length)).number
+      : 1;
 
-    while ((match = regex.exec(text)) !== null) {
-      const from = match.index;
-      const to = from + match[0].length;
+    for (let i = startLineNum; i <= doc.lines; i++) {
+      const line = doc.line(i);
+      // Fast-path: skip lines that can't contain a tag
+      if (!line.text.includes('#')) continue;
 
-      // Skip tags within the header tag block region
-      if (from < endOffset) continue;
+      const regex = new RegExp(TAG_REGEX.source, TAG_REGEX.flags);
+      let match;
 
-      if (selectionTouchesRange(view.hasFocus, view.state.selection.ranges, from, to)) continue;
+      while ((match = regex.exec(line.text)) !== null) {
+        const from = line.from + match.index;
+        const to = from + match[0].length;
 
-      // Skip if inside code block or inline code
-      let inCode = false;
-      tree.iterate({
-        from, to: from + 1,
-        enter: (node) => {
-          if (MarkdownParser.isCode(node.name)) inCode = true;
-        }
-      });
-      if (inCode) continue;
+        if (selectionTouchesRange(view.hasFocus, view.state.selection.ranges, from, to)) continue;
 
-      // Style the tag
-      decorations.push({
-        from,
-        to,
-        value: { class: 'cm-md-tag' }
-      });
+        // Skip if inside code block or inline code
+        let inCode = false;
+        tree.iterate({
+          from, to: from + 1,
+          enter: (node) => {
+            if (MarkdownParser.isCode(node.name)) inCode = true;
+          }
+        });
+        if (inCode) continue;
+
+        decorations.push({
+          from,
+          to,
+          value: { class: 'cm-md-tag' }
+        });
+      }
     }
   }
 
