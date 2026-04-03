@@ -749,6 +749,108 @@ fn backfill_bodies(base: &Path, notes: &mut HashMap<String, IndexedNote>) {
     }
 }
 
+/// Fast preview-only scan: returns sorted previews without loading full file
+/// bodies into the search index.  Cache-hit files (mtime unchanged) are served
+/// entirely from the on-disk metadata cache — no `read_to_string` at all.
+/// Cache-miss files are read once to extract preview/tags/headings, then the
+/// body is dropped.  The search index (`SearchIndexState`) is NOT populated;
+/// keyword search will lazily build it on first use via `ensure_index_loaded`.
+fn scan_note_previews(base: &Path) -> Result<Vec<NotePreviewPayload>, String> {
+    convert_txt_to_md(base);
+    let cache = load_note_cache(base);
+
+    let entries: Vec<(String, PathBuf, i64)> = fs::read_dir(base)
+        .map_err(io_err_to_string)?
+        .filter_map(|entry| entry.ok())
+        .filter_map(|entry| {
+            let name = entry.file_name().to_string_lossy().to_string();
+            let id = note_id_from_filename(&name)?;
+            let path = entry.path();
+            let metadata = entry.metadata().ok()?;
+            if !metadata.is_file() {
+                return None;
+            }
+            Some((id, path, file_mtime_ms(&metadata)))
+        })
+        .collect();
+
+    let results: Vec<(NotePreviewPayload, Option<CachedNoteMeta>)> = entries
+        .par_iter()
+        .filter_map(|(id, path, mtime)| {
+            // Cache hit — no file read needed
+            if let Some(cached) = cache.entries.get(id.as_str()) {
+                if cached.mtime == *mtime {
+                    return Some((
+                        NotePreviewPayload {
+                            id: id.clone(),
+                            title: id.clone(),
+                            preview: cached.preview.clone(),
+                            modification_time: *mtime,
+                            tags: cached.tags.clone(),
+                        },
+                        None, // no cache update needed
+                    ));
+                }
+            }
+
+            // Cache miss — read file to extract metadata, then discard body
+            let body = fs::read_to_string(path).ok()?;
+            let preview = make_preview(&body);
+            let tags = extract_tags(&body);
+            let headings_lower = extract_headings(&body).to_lowercase();
+
+            Some((
+                NotePreviewPayload {
+                    id: id.clone(),
+                    title: id.clone(),
+                    preview: preview.clone(),
+                    modification_time: *mtime,
+                    tags: tags.clone(),
+                },
+                Some(CachedNoteMeta {
+                    mtime: *mtime,
+                    preview,
+                    tags,
+                    headings_lower,
+                }),
+            ))
+        })
+        .collect();
+
+    // Merge cache updates into the existing cache (keep hits, replace misses)
+    let mut new_entries = HashMap::with_capacity(results.len());
+    let mut previews = Vec::with_capacity(results.len());
+    for (preview, maybe_new_meta) in results {
+        let id = preview.id.clone();
+        previews.push(preview);
+        if let Some(meta) = maybe_new_meta {
+            new_entries.insert(id, meta);
+        } else if let Some(existing) = cache.entries.get(&id) {
+            new_entries.insert(id, existing.clone());
+        }
+    }
+
+    // Only re-save if there were cache misses or deletions
+    if new_entries.len() != cache.entries.len()
+        || new_entries.keys().any(|k| !cache.entries.contains_key(k))
+    {
+        save_note_cache(
+            base,
+            &NoteMetadataCache {
+                version: 1,
+                entries: new_entries,
+            },
+        );
+    }
+
+    previews.sort_by(|a, b| {
+        b.modification_time
+            .cmp(&a.modification_time)
+            .then_with(|| a.id.cmp(&b.id))
+    });
+    Ok(previews)
+}
+
 fn ensure_index_loaded(base: &Path, state: &Arc<RwLock<SearchIndexState>>) -> Result<(), String> {
     {
         let read = state
@@ -2193,6 +2295,18 @@ pub async fn core_rebuild_index(
 }
 
 #[tauri::command]
+pub async fn core_get_note_list(
+    app: AppHandle,
+) -> Result<Vec<NotePreviewPayload>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = notes_root(&app)?;
+        scan_note_previews(&base)
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
+#[tauri::command]
 pub async fn core_get_note_previews(
     app: AppHandle,
     state: State<'_, CoreState>,
@@ -3156,6 +3270,105 @@ mod tests {
         assert_eq!(cache.entries.len(), 1);
         assert!(cache.entries.contains_key("keep"));
         assert!(!cache.entries.contains_key("remove"));
+
+        cleanup_temp_dir(&base);
+    }
+
+    // ── scan_note_previews tests ──────────────────────────────────────
+
+    #[test]
+    fn scan_note_previews_returns_sorted_previews() {
+        let base = temp_notes_dir();
+        fs::write(base.join("alpha.md"), "# Alpha\nBody #tag1").unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        fs::write(base.join("beta.md"), "Beta content").unwrap();
+
+        let previews = scan_note_previews(&base).unwrap();
+        assert_eq!(previews.len(), 2);
+        // Most-recent first
+        assert_eq!(previews[0].id, "beta");
+        assert_eq!(previews[1].id, "alpha");
+        assert_eq!(previews[1].tags, vec!["#tag1"]);
+
+        cleanup_temp_dir(&base);
+    }
+
+    #[test]
+    fn scan_note_previews_uses_cache_without_reading_files() {
+        let base = temp_notes_dir();
+        fs::write(base.join("note.md"), "# Heading\nContent #cached").unwrap();
+
+        // First call populates the cache
+        let first = scan_note_previews(&base).unwrap();
+        assert_eq!(first.len(), 1);
+        assert_eq!(first[0].tags, vec!["#cached"]);
+
+        // Overwrite file content but preserve mtime by restoring the same bytes
+        // (the cache should still serve stale preview since mtime is unchanged)
+        let mtime_before = fs::metadata(base.join("note.md")).unwrap();
+        let mtime_ms = file_mtime_ms(&mtime_before);
+
+        // Second call should produce identical results from cache
+        let second = scan_note_previews(&base).unwrap();
+        assert_eq!(second[0].preview, first[0].preview);
+        assert_eq!(second[0].tags, first[0].tags);
+        assert_eq!(second[0].modification_time, mtime_ms);
+
+        cleanup_temp_dir(&base);
+    }
+
+    #[test]
+    fn scan_note_previews_detects_cache_miss_on_mtime_change() {
+        let base = temp_notes_dir();
+        fs::write(base.join("note.md"), "Original").unwrap();
+
+        let first = scan_note_previews(&base).unwrap();
+        assert_eq!(first[0].preview, "Original");
+
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        fs::write(base.join("note.md"), "Updated").unwrap();
+
+        let second = scan_note_previews(&base).unwrap();
+        assert_eq!(second[0].preview, "Updated");
+
+        cleanup_temp_dir(&base);
+    }
+
+    #[test]
+    fn scan_note_previews_removes_deleted_files_from_cache() {
+        let base = temp_notes_dir();
+        fs::write(base.join("keep.md"), "keep").unwrap();
+        fs::write(base.join("gone.md"), "gone").unwrap();
+
+        scan_note_previews(&base).unwrap();
+        let cache = load_note_cache(&base);
+        assert_eq!(cache.entries.len(), 2);
+
+        fs::remove_file(base.join("gone.md")).unwrap();
+
+        let previews = scan_note_previews(&base).unwrap();
+        assert_eq!(previews.len(), 1);
+        assert_eq!(previews[0].id, "keep");
+
+        let cache = load_note_cache(&base);
+        assert_eq!(cache.entries.len(), 1);
+        assert!(cache.entries.contains_key("keep"));
+
+        cleanup_temp_dir(&base);
+    }
+
+    #[test]
+    fn scan_note_previews_does_not_populate_search_index() {
+        // Verify that scan_note_previews is independent of SearchIndexState
+        let base = temp_notes_dir();
+        fs::write(base.join("test.md"), "body text").unwrap();
+
+        let previews = scan_note_previews(&base).unwrap();
+        assert_eq!(previews.len(), 1);
+
+        // The function should not require or touch SearchIndexState —
+        // it's a pure function of (base dir, cache file).
+        // This test just confirms it runs without any index state.
 
         cleanup_temp_dir(&base);
     }

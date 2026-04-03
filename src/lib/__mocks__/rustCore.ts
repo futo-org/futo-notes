@@ -50,6 +50,10 @@ export async function rebuildRustIndex(): Promise<NotePreview[]> {
   return scanNotes();
 }
 
+export async function getNoteListFast(): Promise<NotePreview[]> {
+  return scanNotes();
+}
+
 export async function getRustNotePreviews(): Promise<NotePreview[]> {
   return scanNotes();
 }

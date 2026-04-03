@@ -8,7 +8,7 @@ import {
 } from './fileSystem';
 import { ensureNotesFolder, getPlatformFS } from './platform';
 import { loadEngagement, trackEdit, removeEngagement, renameEngagement } from './engagement';
-import { getRustNotePreviews, hasRustCore, keywordSearchRust, rebuildRustIndex } from './rustCore';
+import { getNoteListFast, hasRustCore, keywordSearchRust } from './rustCore';
 import { clearV2SyncState } from './appState';
 import { extractTags } from '@futo-notes/shared';
 
@@ -27,14 +27,14 @@ export async function initNotes(): Promise<void> {
   await getPlatformFS(); // Initialize platform FS before any file operations
   await ensureNotesFolder();
 
-  notesCache = hasRustCore() ? await rebuildRustIndex() : [];
+  notesCache = hasRustCore() ? await getNoteListFast() : [];
   await loadEngagement();
   initialized = true;
 }
 
 export async function refreshNotesFromStorage(): Promise<void> {
   if (!hasRustCore()) return;
-  notesCache = await getRustNotePreviews();
+  notesCache = await getNoteListFast();
 }
 
 export async function refreshNotesAfterSync(_updatedIds: string[], _deletedIds: string[]): Promise<void> {

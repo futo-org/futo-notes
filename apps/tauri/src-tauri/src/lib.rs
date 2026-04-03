@@ -191,6 +191,7 @@ pub fn run() {
             app_get_version,
             app_get_platform,
             core_rebuild_index,
+            core_get_note_list,
             core_get_note_previews,
             core_keyword_search,
             core_prepare_sync_payload_v2,

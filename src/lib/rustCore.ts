@@ -25,6 +25,11 @@ export async function rebuildRustIndex(): Promise<NotePreview[]> {
   return tauriInvoke<NotePreview[]>('core_rebuild_index');
 }
 
+/** Fast preview-only scan — skips reading file bodies for cached notes. */
+export async function getNoteListFast(): Promise<NotePreview[]> {
+  return tauriInvoke<NotePreview[]>('core_get_note_list');
+}
+
 export async function getRustNotePreviews(): Promise<NotePreview[]> {
   return tauriInvoke<NotePreview[]>('core_get_note_previews');
 }
