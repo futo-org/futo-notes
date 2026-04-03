@@ -72,7 +72,7 @@ async function performSync(trigger: SyncTrigger, options: { propagateErrors?: bo
     if (trigger === 'local-save' || trigger === 'manual') {
       await callbacks.flushPendingSave();
     }
-    const summary = await syncNowV2();
+    const summary = await syncNowV2(trigger === 'local-save' ? { skipCheck: true } : undefined);
     lastSyncTime = Date.now();
     cancelInitialRetry();
     cancelBackgroundRetry();

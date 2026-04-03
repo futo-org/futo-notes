@@ -232,7 +232,7 @@ export async function connectSyncServerV2(urlInput: string, password: string): P
   await clearV2SyncState();
 }
 
-export async function syncNowV2(): Promise<SyncSummary> {
+export async function syncNowV2(options?: { skipCheck?: boolean }): Promise<SyncSummary> {
   const prefs = getCachedPreferences();
   const serverUrl = normalizeBaseUrl(prefs.sync.serverUrl);
   const token = prefs.sync.token;
@@ -243,8 +243,10 @@ export async function syncNowV2(): Promise<SyncSummary> {
 
   let syncState = await loadV2SyncState();
 
-  // Quick-check: skip full sync if nothing changed
-  if (syncState.lastServerVersion > 0) {
+  // Quick-check: skip full sync if nothing changed.
+  // When triggered by a local save we already know there are local changes,
+  // so skip the round-trip to /sync/check.
+  if (!options?.skipCheck && syncState.lastServerVersion > 0) {
     try {
       const check = await authPost<SyncCheckResponse>(serverUrl, token, '/sync/check', {
         version: syncState.lastServerVersion,
