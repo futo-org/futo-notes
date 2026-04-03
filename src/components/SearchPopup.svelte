@@ -7,6 +7,7 @@
     fuseConnectedSearchResults,
     hasSemanticServerResults,
     mapServerResults,
+    warmupServerSearch,
     type ServerSearchResult,
   } from '$lib/serverSearch';
 
@@ -179,6 +180,12 @@
 
   $effect(() => {
     inputEl?.focus();
+
+    // Warm up Ollama embedding model before the user starts typing
+    try {
+      const { serverUrl, token } = getSyncConfig();
+      if (serverUrl && token) warmupServerSearch(serverUrl, token);
+    } catch {}
   });
 </script>
 

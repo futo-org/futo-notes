@@ -138,7 +138,9 @@ curl -s --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
 
 ## Step 3: UI Verification
 
-When changes affect anything user-facing, or when verifying a user-facing feature, visually verify in the actual app. Skip for backend-only, test-only, or CI-only changes.
+When changes affect anything user-facing, or when verifying a user-facing feature, visually verify in the actual app. Skip for test-only or CI-only changes.
+
+**"Invisible" behavior still needs UI verification.** Fire-and-forget network calls, background warmups, prefetches, preloads — anything with no visible UI change — must still be verified in the running app. Use `webview_execute_js` to check network activity, inspect console logs via `read_logs`, or check server logs to confirm the request actually fires. "No UI change" is not a reason to skip; it means you verify via a different signal. For server-side changes (new routes, modified responses), launch the app and confirm the client actually hits the new endpoint.
 
 ```bash
 mkdir -p ./test-screenshots
@@ -459,6 +461,7 @@ Focus on what changed or the specific feature being verified. Common checks:
 - **Crash dialog**: Trigger a test crash → restart the app → verify the dialog appears, Copy button works, overlay doesn't dismiss
 - **Sync/graph/indexing**: Stand up isolated server → connect client → sync → wait for index → verify graph renders
 - **New features**: Exercise the happy path, then try one edge case
+- **Invisible behavior** (warmups, prefetches, fire-and-forget calls): Open the relevant UI surface, then check server logs or use `webview_execute_js` / `read_logs` to confirm the request actually fired. Example: for a search warmup, open the search popup and check the server log for the warmup request
 
 Name screenshots descriptively: `web-editor-heading-decoration.png`, `android-dark-theme-sidebar.png`, `desktop-settings-panel-open.png`.
 

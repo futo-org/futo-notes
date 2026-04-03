@@ -211,6 +211,28 @@ pub async fn search(
     }))
 }
 
+/// `POST /search/warmup` — fire-and-forget embed to keep Ollama model loaded.
+pub async fn warmup(State(state): State<AppState>) -> Json<serde_json::Value> {
+    let model_ready = state
+        .indexer_status
+        .read()
+        .map(|s| s.model_ready)
+        .unwrap_or(false);
+
+    if model_ready {
+        let (reply_tx, _reply_rx) = oneshot::channel();
+        let _ = state
+            .indexer_tx
+            .send(IndexerCommand::EmbedQuery {
+                text: "w".to_string(),
+                reply: reply_tx,
+            })
+            .await;
+    }
+
+    Json(serde_json::json!({ "ok": true }))
+}
+
 /// `GET /search/status`
 pub async fn status(State(state): State<AppState>) -> Json<StatusResponse> {
     let s = state.indexer_status.read().unwrap();

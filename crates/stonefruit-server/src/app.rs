@@ -52,6 +52,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/blob/{filename}", get(routes::blob::download_blob))
         .route("/search", get(routes::search::search))
         .route("/search/status", get(routes::search::status))
+        .route("/search/warmup", post(routes::search::warmup))
         .route("/graph/layout", get(routes::graph::layout))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),

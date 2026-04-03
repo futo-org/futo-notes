@@ -28,6 +28,14 @@ export interface ServerSearchResult {
   };
 }
 
+/** Fire-and-forget: poke Ollama to load the embedding model before a real query. */
+export function warmupServerSearch(serverUrl: string, token: string): void {
+  fetch(`${serverUrl}/search/warmup`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  }).catch(() => {});
+}
+
 export async function fetchServerSearchResults(
   serverUrl: string,
   token: string,
