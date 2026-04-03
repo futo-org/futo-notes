@@ -71,6 +71,7 @@ pub struct CoreState {
 const WATCHER_SUPPRESSION_MS: i64 = 5_000;
 
 const APP_CONFIG_PATH: &str = ".app-config.json";
+const NOTE_PREVIEW_CACHE_FILE: &str = ".note-preview-cache.json";
 const NOTES_DIR_OVERRIDE_FILE: &str = "notes-dir-override.json";
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -205,6 +206,20 @@ pub struct ImageFileEntry {
     pub mtime: i64,
 }
 
+#[derive(Clone, Serialize, Deserialize)]
+struct CachedNoteMeta {
+    mtime: i64,
+    preview: String,
+    tags: Vec<String>,
+    headings_lower: String,
+}
+
+#[derive(Serialize, Deserialize, Default)]
+struct NoteMetadataCache {
+    version: u8,
+    entries: HashMap<String, CachedNoteMeta>,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct KeywordSearchInput {
@@ -277,6 +292,26 @@ fn save_app_config(base: &Path, cfg: &AppConfigFile) -> Result<(), String> {
     let path = base.join(APP_CONFIG_PATH);
     let serialized = serde_json::to_string_pretty(cfg).map_err(|err| err.to_string())?;
     write_atomic_text(&path, &serialized)
+}
+
+fn load_note_cache(base: &Path) -> NoteMetadataCache {
+    let path = base.join(NOTE_PREVIEW_CACHE_FILE);
+    let Ok(raw) = fs::read_to_string(path) else {
+        return NoteMetadataCache::default();
+    };
+    let mut cache: NoteMetadataCache =
+        serde_json::from_str(&raw).unwrap_or_default();
+    if cache.version != 1 {
+        cache = NoteMetadataCache::default();
+    }
+    cache
+}
+
+fn save_note_cache(base: &Path, cache: &NoteMetadataCache) {
+    let path = base.join(NOTE_PREVIEW_CACHE_FILE);
+    if let Ok(json) = serde_json::to_string(cache) {
+        let _ = write_atomic_text(&path, &json);
+    }
 }
 
 fn extract_headings(content: &str) -> String {
@@ -614,6 +649,8 @@ fn note_to_preview(note: &IndexedNote) -> NotePreviewPayload {
 
 fn scan_notes(base: &Path) -> Result<HashMap<String, IndexedNote>, String> {
     convert_txt_to_md(base);
+    let cache = load_note_cache(base);
+
     let entries: Vec<(String, PathBuf, i64)> = fs::read_dir(base)
         .map_err(io_err_to_string)?
         .filter_map(|entry| entry.ok())
@@ -633,9 +670,47 @@ fn scan_notes(base: &Path) -> Result<HashMap<String, IndexedNote>, String> {
         .par_iter()
         .filter_map(|(id, path, mtime)| {
             let body = fs::read_to_string(path).ok()?;
+
+            // Use cached metadata when mtime matches to skip extraction
+            if let Some(cached) = cache.entries.get(id.as_str()) {
+                if cached.mtime == *mtime {
+                    return Some(IndexedNote {
+                        title: id.clone(),
+                        title_lower: id.to_lowercase(),
+                        preview: cached.preview.clone(),
+                        body_lower: body.to_lowercase(),
+                        headings_lower: cached.headings_lower.clone(),
+                        body,
+                        mtime: *mtime,
+                        id: id.clone(),
+                        tags: cached.tags.clone(),
+                    });
+                }
+            }
+
             Some(build_indexed_note(id.clone(), body, *mtime))
         })
         .collect::<Vec<_>>();
+
+    // Build updated cache from scan results
+    let new_cache = NoteMetadataCache {
+        version: 1,
+        entries: indexed
+            .iter()
+            .map(|note| {
+                (
+                    note.id.clone(),
+                    CachedNoteMeta {
+                        mtime: note.mtime,
+                        preview: note.preview.clone(),
+                        tags: note.tags.clone(),
+                        headings_lower: note.headings_lower.clone(),
+                    },
+                )
+            })
+            .collect(),
+    };
+    save_note_cache(base, &new_cache);
 
     let mut map = HashMap::with_capacity(indexed.len());
     for note in indexed {
@@ -2822,6 +2897,168 @@ mod tests {
         assert!(!base.join("mixed.Txt").exists());
         assert!(base.join("mixed.md").exists());
         assert_eq!(fs::read_to_string(base.join("mixed.md")).unwrap(), "mixed");
+
+        cleanup_temp_dir(&base);
+    }
+
+    // ── Note preview cache tests ─────────────────────────────────────
+
+    #[test]
+    fn note_cache_round_trips_to_disk() {
+        let base = temp_notes_dir();
+        let mut entries = HashMap::new();
+        entries.insert(
+            "hello".to_string(),
+            CachedNoteMeta {
+                mtime: 1000,
+                preview: "Hello world".to_string(),
+                tags: vec!["#test".to_string()],
+                headings_lower: "heading one".to_string(),
+            },
+        );
+        let cache = NoteMetadataCache {
+            version: 1,
+            entries,
+        };
+
+        save_note_cache(&base, &cache);
+        let loaded = load_note_cache(&base);
+
+        assert_eq!(loaded.version, 1);
+        assert_eq!(loaded.entries.len(), 1);
+        let entry = loaded.entries.get("hello").unwrap();
+        assert_eq!(entry.mtime, 1000);
+        assert_eq!(entry.preview, "Hello world");
+        assert_eq!(entry.tags, vec!["#test"]);
+        assert_eq!(entry.headings_lower, "heading one");
+
+        cleanup_temp_dir(&base);
+    }
+
+    #[test]
+    fn note_cache_returns_default_when_missing() {
+        let base = temp_notes_dir();
+        let cache = load_note_cache(&base);
+        assert_eq!(cache.version, 0); // Default
+        assert!(cache.entries.is_empty());
+        cleanup_temp_dir(&base);
+    }
+
+    #[test]
+    fn note_cache_returns_default_on_corrupt_json() {
+        let base = temp_notes_dir();
+        fs::write(base.join(NOTE_PREVIEW_CACHE_FILE), "not json{{{").unwrap();
+        let cache = load_note_cache(&base);
+        assert!(cache.entries.is_empty());
+        cleanup_temp_dir(&base);
+    }
+
+    #[test]
+    fn note_cache_rejects_wrong_version() {
+        let base = temp_notes_dir();
+        let json = r#"{"version":99,"entries":{"a":{"mtime":1,"preview":"p","tags":[],"headings_lower":""}}}"#;
+        fs::write(base.join(NOTE_PREVIEW_CACHE_FILE), json).unwrap();
+        let cache = load_note_cache(&base);
+        assert!(cache.entries.is_empty());
+        cleanup_temp_dir(&base);
+    }
+
+    #[test]
+    fn scan_notes_creates_cache_file() {
+        let base = temp_notes_dir();
+        fs::write(base.join("alpha.md"), "# Alpha\nBody text #tag1").unwrap();
+        fs::write(base.join("beta.md"), "Beta content").unwrap();
+
+        let result = scan_notes(&base).unwrap();
+        assert_eq!(result.len(), 2);
+
+        // Cache file should now exist
+        let cache = load_note_cache(&base);
+        assert_eq!(cache.version, 1);
+        assert_eq!(cache.entries.len(), 2);
+        assert!(cache.entries.contains_key("alpha"));
+        assert!(cache.entries.contains_key("beta"));
+
+        // Verify cached content matches indexed content
+        let alpha_cached = cache.entries.get("alpha").unwrap();
+        let alpha_indexed = result.get("alpha").unwrap();
+        assert_eq!(alpha_cached.preview, alpha_indexed.preview);
+        assert_eq!(alpha_cached.tags, alpha_indexed.tags);
+        assert_eq!(alpha_cached.mtime, alpha_indexed.mtime);
+        assert_eq!(alpha_cached.headings_lower, alpha_indexed.headings_lower);
+
+        cleanup_temp_dir(&base);
+    }
+
+    #[test]
+    fn scan_notes_uses_cache_for_unchanged_files() {
+        let base = temp_notes_dir();
+        fs::write(base.join("note.md"), "# Heading\n\nSome content #mytag").unwrap();
+
+        // First scan populates the cache
+        let first = scan_notes(&base).unwrap();
+        let first_note = first.get("note").unwrap();
+        assert_eq!(first_note.tags, vec!["#mytag"]);
+
+        // Second scan should use cache (mtime unchanged) and produce identical results
+        let second = scan_notes(&base).unwrap();
+        let second_note = second.get("note").unwrap();
+        assert_eq!(first_note.preview, second_note.preview);
+        assert_eq!(first_note.tags, second_note.tags);
+        assert_eq!(first_note.headings_lower, second_note.headings_lower);
+        assert_eq!(first_note.mtime, second_note.mtime);
+
+        cleanup_temp_dir(&base);
+    }
+
+    #[test]
+    fn scan_notes_invalidates_cache_on_mtime_change() {
+        let base = temp_notes_dir();
+        fs::write(base.join("note.md"), "Original").unwrap();
+
+        // First scan
+        scan_notes(&base).unwrap();
+        let cache_before = load_note_cache(&base);
+        let original_preview = cache_before.entries.get("note").unwrap().preview.clone();
+
+        // Modify the file (changes mtime)
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        fs::write(base.join("note.md"), "Updated content here").unwrap();
+
+        // Second scan should detect mtime change and re-extract
+        let result = scan_notes(&base).unwrap();
+        let note = result.get("note").unwrap();
+        assert_ne!(note.preview, original_preview);
+        assert_eq!(note.preview, "Updated content here");
+
+        // Cache should be updated
+        let cache_after = load_note_cache(&base);
+        assert_eq!(
+            cache_after.entries.get("note").unwrap().preview,
+            "Updated content here"
+        );
+
+        cleanup_temp_dir(&base);
+    }
+
+    #[test]
+    fn scan_notes_removes_deleted_files_from_cache() {
+        let base = temp_notes_dir();
+        fs::write(base.join("keep.md"), "keep").unwrap();
+        fs::write(base.join("remove.md"), "remove").unwrap();
+
+        scan_notes(&base).unwrap();
+        let cache = load_note_cache(&base);
+        assert_eq!(cache.entries.len(), 2);
+
+        // Delete one file
+        fs::remove_file(base.join("remove.md")).unwrap();
+
+        scan_notes(&base).unwrap();
+        let cache = load_note_cache(&base);
+        assert_eq!(cache.entries.len(), 1);
+        assert!(cache.entries.contains_key("keep"));
+        assert!(!cache.entries.contains_key("remove"));
 
         cleanup_temp_dir(&base);
     }
