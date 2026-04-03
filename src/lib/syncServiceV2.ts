@@ -76,6 +76,12 @@ function stripMdExtension(filename: string): string {
   return filename.replace(/\.md$/i, '');
 }
 
+function isCollisionVariantFilename(sourceFilename: string, candidateFilename: string): boolean {
+  const sourceId = stripMdExtension(sourceFilename);
+  const candidateId = stripMdExtension(candidateFilename);
+  return candidateId.startsWith(`${sourceId} (`) && /\(\d+\)$/.test(candidateId);
+}
+
 export function deriveRemoteRenames(params: {
   previousFileHashes: Record<string, string>;
   updates: Array<{ filename: string; hash: string }>;
@@ -114,6 +120,70 @@ export function deriveRemoteRenames(params: {
   }
 
   return renamed;
+}
+
+function deriveCollisionRenames(params: {
+  localNewNotes: Array<{ filename: string; hash: string }>;
+  updates: Array<{ filename: string; hash: string }>;
+  deletes: string[];
+}): Array<{ fromId: string; toId: string }> {
+  const localNewByFilename = new Map(params.localNewNotes.map((note) => [note.filename, note]));
+  const updatesByHash = new Map<string, string[]>();
+  for (const update of params.updates) {
+    if (!update.filename.endsWith('.md')) continue;
+    const matching = updatesByHash.get(update.hash);
+    if (matching) {
+      matching.push(update.filename);
+    } else {
+      updatesByHash.set(update.hash, [update.filename]);
+    }
+  }
+
+  const renamed: Array<{ fromId: string; toId: string }> = [];
+  const consumedTargets = new Set<string>();
+
+  for (const deletedFilename of params.deletes) {
+    if (!deletedFilename.endsWith('.md')) continue;
+    const localNew = localNewByFilename.get(deletedFilename);
+    if (!localNew) continue;
+
+    const candidates = updatesByHash.get(localNew.hash);
+    if (!candidates) continue;
+
+    const nextFilename = candidates.find(
+      (candidate) =>
+        candidate !== deletedFilename
+        && !consumedTargets.has(candidate)
+        && isCollisionVariantFilename(deletedFilename, candidate),
+    );
+    if (!nextFilename) continue;
+
+    consumedTargets.add(nextFilename);
+    renamed.push({
+      fromId: stripMdExtension(deletedFilename),
+      toId: stripMdExtension(nextFilename),
+    });
+  }
+
+  return renamed;
+}
+
+function mergeRenames(
+  primary: Array<{ fromId: string; toId: string }>,
+  secondary: Array<{ fromId: string; toId: string }>,
+): Array<{ fromId: string; toId: string }> {
+  const merged = [...primary];
+  const usedFromIds = new Set(primary.map((entry) => entry.fromId));
+  const usedToIds = new Set(primary.map((entry) => entry.toId));
+
+  for (const entry of secondary) {
+    if (usedFromIds.has(entry.fromId) || usedToIds.has(entry.toId)) continue;
+    merged.push(entry);
+    usedFromIds.add(entry.fromId);
+    usedToIds.add(entry.toId);
+  }
+
+  return merged;
 }
 
 export interface HealthResponse {
@@ -274,11 +344,18 @@ async function doFullSyncV2(
   await saveV2SyncState(syncState);
   await clearSyncErrorAndSetTime();
 
-  const renamed = deriveRemoteRenames({
-    previousFileHashes,
-    updates: mdUpdates,
-    deletes: mdDeletes,
-  });
+  const renamed = mergeRenames(
+    deriveRemoteRenames({
+      previousFileHashes,
+      updates: mdUpdates,
+      deletes: mdDeletes,
+    }),
+    deriveCollisionRenames({
+      localNewNotes: prepared.new,
+      updates: mdUpdates,
+      deletes: mdDeletes,
+    }),
+  );
   const renamedFromIds = new Set(renamed.map((entry) => entry.fromId));
   const renamedToIds = new Set(renamed.map((entry) => entry.toId));
   const updatedIds = applied.updatedFilenames

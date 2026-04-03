@@ -263,4 +263,142 @@ describe('syncServiceV2', () => {
     expect(summary.updatedIds).toEqual([]);
     expect(summary.deletedIds).toEqual([]);
   });
+
+  it('infers rename summaries for stale-state collision reconciliation', async () => {
+    const { appState, syncServiceV2 } = await freshModules();
+
+    await appState.loadAppState();
+    await appState.updateAppState({ serverUrl: 'http://sync.example.com', authToken: 'test-token' });
+
+    await appState.saveV2SyncState({
+      deviceId: 'device-a',
+      lastServerVersion: 1,
+      fileHashes: {},
+    });
+
+    rustCoreMocks.prepareSyncPayloadV2.mockResolvedValue({
+      nextState: {
+        deviceId: 'device-a',
+        lastServerVersion: 1,
+        fileHashes: {},
+      },
+      inventory: [
+        { filename: 'note.md', hash: 'client-hash' },
+      ],
+      changed: [],
+      new: [
+        { filename: 'note.md', content: '# Client version', hash: 'client-hash' },
+      ],
+      deleted: [],
+      elapsedMs: 0,
+    });
+    rustCoreMocks.applySyncDeltaV2.mockResolvedValue({
+      updatedFilenames: ['note.md', 'note (2).md'],
+      deletedFilenames: ['note.md'],
+      conflictFilenames: [],
+      elapsedMs: 0,
+    });
+
+    mockFetch.mockResolvedValueOnce(
+      Response.json({
+        status: 'changes_available',
+        version: 2,
+      })
+    );
+    mockFetch.mockResolvedValueOnce(
+      Response.json({
+        update: [
+          {
+            filename: 'note.md',
+            content: '# Server version',
+            hash: 'server-hash',
+            modified_at: 1_700_000_000_000,
+          },
+          {
+            filename: 'note (2).md',
+            content: '# Client version',
+            hash: 'client-hash',
+            modified_at: 1_700_000_000_001,
+          },
+        ],
+        delete: ['note.md'],
+        conflicts: [],
+        version: 2,
+        timestamps: {},
+      })
+    );
+
+    const summary = await syncServiceV2.syncNowV2();
+
+    expect(summary.renamed).toEqual([{ fromId: 'note', toId: 'note (2)' }]);
+    expect(summary.deletedIds).toEqual([]);
+    expect(summary.updatedIds).toEqual(['note']);
+  });
+
+  it('does not infer a collision rename without a matching local new note', async () => {
+    const { appState, syncServiceV2 } = await freshModules();
+
+    await appState.loadAppState();
+    await appState.updateAppState({ serverUrl: 'http://sync.example.com', authToken: 'test-token' });
+
+    await appState.saveV2SyncState({
+      deviceId: 'device-a',
+      lastServerVersion: 1,
+      fileHashes: {},
+    });
+
+    rustCoreMocks.prepareSyncPayloadV2.mockResolvedValue({
+      nextState: {
+        deviceId: 'device-a',
+        lastServerVersion: 1,
+        fileHashes: {},
+      },
+      inventory: [],
+      changed: [],
+      new: [],
+      deleted: [],
+      elapsedMs: 0,
+    });
+    rustCoreMocks.applySyncDeltaV2.mockResolvedValue({
+      updatedFilenames: ['note.md', 'note (2).md'],
+      deletedFilenames: ['note.md'],
+      conflictFilenames: [],
+      elapsedMs: 0,
+    });
+
+    mockFetch.mockResolvedValueOnce(
+      Response.json({
+        status: 'changes_available',
+        version: 2,
+      })
+    );
+    mockFetch.mockResolvedValueOnce(
+      Response.json({
+        update: [
+          {
+            filename: 'note.md',
+            content: '# Server version',
+            hash: 'server-hash',
+            modified_at: 1_700_000_000_000,
+          },
+          {
+            filename: 'note (2).md',
+            content: '# Client version',
+            hash: 'client-hash',
+            modified_at: 1_700_000_000_001,
+          },
+        ],
+        delete: ['note.md'],
+        conflicts: [],
+        version: 2,
+        timestamps: {},
+      })
+    );
+
+    const summary = await syncServiceV2.syncNowV2();
+
+    expect(summary.renamed).toEqual([]);
+    expect(summary.deletedIds).toEqual(['note']);
+    expect(summary.updatedIds).toEqual(['note', 'note (2)']);
+  });
 });

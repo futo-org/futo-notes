@@ -86,6 +86,28 @@ export interface SyncManager {
 
 // ── Constants ────────────────────────────────────────────────────────────
 
+function isCollisionVariantId(sourceId: string, candidateId: string): boolean {
+  return candidateId.startsWith(`${sourceId} (`) && /\(\d+\)$/.test(candidateId);
+}
+
+export function findActiveSyncRename(
+  summary: Pick<SyncSummary, 'updatedIds' | 'deletedIds' | 'renamed'>,
+  originalId: string,
+  recentRenameTarget?: string | null,
+): { fromId: string; toId: string } | null {
+  const explicitRename = summary.renamed.find((rename) => rename.fromId === originalId);
+  if (explicitRename) return explicitRename;
+  if (recentRenameTarget && recentRenameTarget !== originalId) {
+    return { fromId: originalId, toId: recentRenameTarget };
+  }
+  if (!summary.deletedIds.includes(originalId)) return null;
+
+  const collisionRenameTarget = summary.updatedIds.find((id) => isCollisionVariantId(originalId, id));
+  if (!collisionRenameTarget) return null;
+
+  return { fromId: originalId, toId: collisionRenameTarget };
+}
+
 // ── Factory ──────────────────────────────────────────────────────────────
 
 // eslint-disable-next-line max-lines-per-function -- Sync lifecycle, watcher coordination, and Svelte rune state are intentionally kept together.
@@ -217,6 +239,20 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
   // ── Sync complete handler ──
 
   async function handleSyncComplete(summary: SyncSummary): Promise<void> {
+    function applyActiveRename(fromId: string, toId: string): void {
+      const meta = getNoteById(toId);
+      const newTitle = meta?.title ?? toId;
+      deps.applyRemoteRename(toId, newTitle);
+
+      deps.patchGraphNode(fromId, toId, newTitle);
+
+      const currentPath = window.location.hash.slice(1) || '/';
+      if (currentPath === `/note/${encodeURIComponent(fromId)}`) {
+        deps.setPrevNoteId(toId);
+        deps.navigate(`/note/${encodeURIComponent(toId)}`);
+      }
+    }
+
     const hasRemoteNoteChanges = summary.updatedIds.length > 0 || summary.deletedIds.length > 0 || summary.renamed.length > 0;
     for (const id of summary.updatedIds) writeSuppressor.recordSyncWrite(`${id}.md`);
     for (const id of summary.deletedIds) writeSuppressor.recordSyncWrite(`${id}.md`);
@@ -232,20 +268,12 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
     const originalId = deps.getOriginalId();
 
     const activeRename = originalId
-      ? summary.renamed.find((rename) => rename.fromId === originalId)
-      : undefined;
+      ? findActiveSyncRename(summary, originalId)
+      : null;
     if (activeRename) {
-      const previousId = activeRename.fromId;
-      const meta = getNoteById(activeRename.toId);
-      const newTitle = meta?.title ?? activeRename.toId;
-      deps.applyRemoteRename(activeRename.toId, newTitle);
-
-      deps.patchGraphNode(previousId, activeRename.toId, newTitle);
-
-      const currentPath = window.location.hash.slice(1) || '/';
-      if (currentPath === `/note/${encodeURIComponent(previousId)}`) {
-        deps.setPrevNoteId(activeRename.toId);
-        deps.navigate(`/note/${encodeURIComponent(activeRename.toId)}`);
+      applyActiveRename(activeRename.fromId, activeRename.toId);
+      if (!summary.renamed.some((rename) => rename.fromId === activeRename.fromId && rename.toId === activeRename.toId)) {
+        writeSuppressor.recordRemoteRename(activeRename.fromId, activeRename.toId);
       }
     }
 
@@ -266,7 +294,17 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
           deps.applyRemoteRename(currentOriginalId, meta.title);
         }
       } catch {
-        deps.cancelAndClear();
+        const recoveredRename = findActiveSyncRename(
+          summary,
+          currentOriginalId,
+          writeSuppressor.getRecentRemoteRename(currentOriginalId)?.toId ?? null,
+        );
+        if (recoveredRename && recoveredRename.toId !== currentOriginalId) {
+          writeSuppressor.recordRemoteRename(recoveredRename.fromId, recoveredRename.toId);
+          applyActiveRename(recoveredRename.fromId, recoveredRename.toId);
+        } else {
+          deps.showToast('Open note changed during sync; keeping local draft');
+        }
       }
     }
 
