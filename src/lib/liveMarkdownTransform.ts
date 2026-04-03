@@ -514,7 +514,6 @@ class LiveMarkdownPlugin implements PluginValue {
       return;
     }
 
-    ensureSyntaxTree(update.state, update.state.doc.length, 200);
     const tree = syntaxTree(update.state);
     const treeGrew = tree.length > this.lastTreeLength;
     const imageCacheChanged = update.transactions.some(
@@ -570,8 +569,6 @@ class LiveMarkdownPlugin implements PluginValue {
     if (view.composing || view.compositionStarted) {
       return Decoration.none;
     }
-
-    ensureSyntaxTree(view.state, view.state.doc.length, 200);
 
     const decorations: Array<{ from: number; to: number; value: any }> = [];
     const cursorLines = this.getCursorLines(view);
