@@ -21,6 +21,7 @@ pub struct GraphLayoutResponse {
 
 #[derive(Serialize)]
 pub struct GraphNode {
+    /// Sync-protocol filename: `{title}.md` — always exactly one `.md` suffix.
     pub filename: String,
     pub x: f32,
     pub y: f32,
@@ -35,6 +36,7 @@ pub struct GraphCluster {
     pub center_y: f32,
     pub radius: f32,
     pub color_index: usize,
+    /// Sync-protocol filenames: each is `{title}.md` — always exactly one `.md` suffix.
     pub filenames: Vec<String>,
 }
 

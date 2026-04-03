@@ -61,7 +61,7 @@ describe('serverSearch helpers', () => {
     const response: ServerSearchResponse = {
       results: [
         {
-          filename: 'shopping.md.md',
+          filename: 'shopping.md',
           snippet: 'milk and eggs',
           score: 1,
           source: 'keyword',

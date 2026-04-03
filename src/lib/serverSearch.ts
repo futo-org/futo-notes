@@ -5,6 +5,7 @@ const RRF_K = 60;
 
 export interface ServerSearchResponse {
   results: Array<{
+    /** Sync-protocol filename: `{title}.md` — always exactly one `.md` suffix. */
     filename: string;
     snippet: string;
     score: number;
@@ -65,23 +66,27 @@ export async function fetchServerSearchResults(
   }
 }
 
+/**
+ * Map server search filenames (`{title}.md`) back to local NotePreview objects.
+ *
+ * The server always returns filenames with exactly one `.md` suffix — the same
+ * format used by the sync protocol.  We derive the note ID by stripping that
+ * suffix: `"shopping.md"` → `"shopping"`.
+ */
 export function mapServerResults(
   response: ServerSearchResponse,
   notes: NotePreview[],
 ): ServerSearchResult {
-  const notesByFilename = new Map<string, NotePreview>();
+  const notesById = new Map<string, NotePreview>();
   for (const note of notes) {
-    notesByFilename.set(`${note.id}.md`, note);
-    notesByFilename.set(`${note.id}.md.md`, note);
-    notesByFilename.set(note.id, note);
+    notesById.set(note.id, note);
   }
 
   const results: SearchResultItem[] = [];
   const semanticResults: SearchResultItem[] = [];
   for (const item of response.results) {
-    const note =
-      notesByFilename.get(item.filename) ??
-      notesByFilename.get(stripMarkdownSuffixes(item.filename));
+    const noteId = item.filename.replace(/\.md$/i, '');
+    const note = notesById.get(noteId);
     if (!note) continue;
     const result: SearchResultItem = {
       note,
@@ -103,10 +108,6 @@ export function mapServerResults(
       total: response.timing.total_ms,
     },
   };
-}
-
-function stripMarkdownSuffixes(filename: string): string {
-  return filename.replace(/(?:\.md)+$/i, '');
 }
 
 export function hasSemanticServerResults(serverResults: ServerSearchResult | null): boolean {

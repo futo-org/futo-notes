@@ -38,6 +38,8 @@ pub struct SearchResponse {
 
 #[derive(Serialize)]
 pub struct SearchHit {
+    /// Sync-protocol filename: `{title}.md` — always exactly one `.md` suffix.
+    /// Clients derive the note ID by stripping the single `.md` suffix.
     pub filename: String,
     pub snippet: String,
     pub score: f64,

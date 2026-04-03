@@ -52,7 +52,7 @@ describe('computeGraphData', () => {
 
   it('maps a server layout into GraphData and caches it', async () => {
     mockAuthFetch.mockResolvedValue({
-      nodes: [{ filename: 'my-note.md.md', x: 120, y: -80, cluster_index: 0 }],
+      nodes: [{ filename: 'my-note.md', x: 120, y: -80, cluster_index: 0 }],
       clusters: [
         {
           index: 0,
@@ -61,7 +61,7 @@ describe('computeGraphData', () => {
           center_y: -80,
           radius: 48,
           color_index: 0,
-          filenames: ['my-note.md.md'],
+          filenames: ['my-note.md'],
         },
       ],
       note_count: 1,
@@ -129,11 +129,11 @@ describe('computeGraphData', () => {
     await expect(computeGraphData()).rejects.toThrow('Connect to a server to view the graph');
   });
 
-  it('deduplicates repeated markdown-suffix variants into one node', async () => {
+  it('deduplicates repeated nodes for the same filename', async () => {
     mockAuthFetch.mockResolvedValue({
       nodes: [
         { filename: 'dupe.md', x: 10, y: 20, cluster_index: 0 },
-        { filename: 'dupe.md.md', x: 10, y: 20, cluster_index: 0 },
+        { filename: 'dupe.md', x: 10, y: 20, cluster_index: 0 },
       ],
       clusters: [
         {
@@ -143,7 +143,7 @@ describe('computeGraphData', () => {
           center_y: 20,
           radius: 48,
           color_index: 0,
-          filenames: ['dupe.md', 'dupe.md.md'],
+          filenames: ['dupe.md', 'dupe.md'],
         },
       ],
       note_count: 2,

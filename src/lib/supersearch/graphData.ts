@@ -71,7 +71,7 @@ function serverLayoutToGraphData(layout: ServerGraphLayout): GraphData {
     nodeIndex.set(noteId, nodes.length);
     nodes.push({
       noteId,
-      title: filenameToTitle(sn.filename),
+      title: filenameToNoteId(sn.filename),
       x: sn.x,
       y: sn.y,
       clusterId: sortedClusterIdx >= 0 ? `cluster-${sortedClusterIdx}` : null,
@@ -82,16 +82,12 @@ function serverLayoutToGraphData(layout: ServerGraphLayout): GraphData {
   return { nodes, clusters, nodeIndex };
 }
 
+/**
+ * Derive the note ID from a sync-protocol filename (`{title}.md`).
+ * The server always returns filenames with exactly one `.md` suffix.
+ */
 function filenameToNoteId(filename: string): string {
-  return stripMarkdownSuffixes(filename);
-}
-
-function filenameToTitle(filename: string): string {
-  return stripMarkdownSuffixes(filename);
-}
-
-function stripMarkdownSuffixes(filename: string): string {
-  return filename.replace(/(?:\.md)+$/i, '');
+  return filename.replace(/\.md$/i, '');
 }
 
 async function fetchServerGraphLayout(): Promise<ServerGraphLayout | null> {
