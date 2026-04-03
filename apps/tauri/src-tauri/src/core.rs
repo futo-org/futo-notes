@@ -3274,6 +3274,169 @@ mod tests {
         cleanup_temp_dir(&base);
     }
 
+    #[test]
+    fn scan_notes_adds_new_file_to_existing_cache() {
+        let base = temp_notes_dir();
+        fs::write(base.join("existing.md"), "# Existing\nBody #old").unwrap();
+
+        // First scan: cache has one entry
+        scan_notes(&base).unwrap();
+        let cache = load_note_cache(&base);
+        assert_eq!(cache.entries.len(), 1);
+        assert!(cache.entries.contains_key("existing"));
+
+        // Add a new file
+        fs::write(base.join("newcomer.md"), "# New Note\nFresh content #new").unwrap();
+
+        // Second scan: cache grows to two entries
+        let result = scan_notes(&base).unwrap();
+        let cache = load_note_cache(&base);
+        assert_eq!(cache.entries.len(), 2);
+        assert!(cache.entries.contains_key("existing"));
+        assert!(cache.entries.contains_key("newcomer"));
+
+        // New entry has correct metadata
+        let newcomer = cache.entries.get("newcomer").unwrap();
+        assert_eq!(newcomer.tags, vec!["#new"]);
+        assert!(newcomer.headings_lower.contains("new note"));
+
+        // Existing entry is still served from cache (body deferred)
+        let existing = result.get("existing").unwrap();
+        assert!(existing.body.is_empty(), "unchanged note should have deferred body");
+
+        // New entry has its body populated (was read fresh)
+        let newcomer_note = result.get("newcomer").unwrap();
+        assert_eq!(newcomer_note.body, "# New Note\nFresh content #new");
+
+        cleanup_temp_dir(&base);
+    }
+
+    #[test]
+    fn scan_notes_re_extracts_tags_and_headings_on_change() {
+        let base = temp_notes_dir();
+        fs::write(base.join("note.md"), "# Old Heading\nText #oldtag").unwrap();
+
+        scan_notes(&base).unwrap();
+        let cache = load_note_cache(&base);
+        let entry = cache.entries.get("note").unwrap();
+        assert_eq!(entry.tags, vec!["#oldtag"]);
+        assert!(entry.headings_lower.contains("old heading"));
+
+        // Modify file with new tags and headings
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        fs::write(base.join("note.md"), "# New Heading\nDifferent #newtag #extra").unwrap();
+
+        let result = scan_notes(&base).unwrap();
+        let note = result.get("note").unwrap();
+        assert_eq!(note.tags, vec!["#newtag", "#extra"]);
+        assert!(note.headings_lower.contains("new heading"));
+        assert!(!note.headings_lower.contains("old heading"));
+
+        // Cache is updated with new metadata
+        let cache = load_note_cache(&base);
+        let entry = cache.entries.get("note").unwrap();
+        assert_eq!(entry.tags, vec!["#newtag", "#extra"]);
+        assert!(entry.headings_lower.contains("new heading"));
+
+        cleanup_temp_dir(&base);
+    }
+
+    #[test]
+    fn scan_notes_handles_mixed_add_delete_unchanged() {
+        let base = temp_notes_dir();
+        fs::write(base.join("stable.md"), "Stable content").unwrap();
+        fs::write(base.join("doomed.md"), "Will be deleted").unwrap();
+        fs::write(base.join("mutable.md"), "# Before\nOld body #v1").unwrap();
+
+        scan_notes(&base).unwrap();
+        let cache = load_note_cache(&base);
+        assert_eq!(cache.entries.len(), 3);
+
+        // Simultaneous changes: delete one, modify one, add one
+        fs::remove_file(base.join("doomed.md")).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        fs::write(base.join("mutable.md"), "# After\nNew body #v2").unwrap();
+        fs::write(base.join("fresh.md"), "Brand new").unwrap();
+
+        let result = scan_notes(&base).unwrap();
+        assert_eq!(result.len(), 3); // stable + mutable + fresh
+
+        // Stable: cache hit, body deferred
+        let stable = result.get("stable").unwrap();
+        assert!(stable.body.is_empty(), "unchanged note body should be deferred");
+        assert_eq!(stable.preview, "Stable content");
+
+        // Mutable: cache miss, full re-read
+        let mutable = result.get("mutable").unwrap();
+        assert_eq!(mutable.body, "# After\nNew body #v2");
+        assert_eq!(mutable.tags, vec!["#v2"]);
+        assert!(mutable.headings_lower.contains("after"));
+
+        // Fresh: new entry, full read
+        let fresh = result.get("fresh").unwrap();
+        assert_eq!(fresh.body, "Brand new");
+
+        // Doomed: evicted from cache
+        let cache = load_note_cache(&base);
+        assert_eq!(cache.entries.len(), 3);
+        assert!(!cache.entries.contains_key("doomed"));
+        assert!(cache.entries.contains_key("stable"));
+        assert!(cache.entries.contains_key("mutable"));
+        assert!(cache.entries.contains_key("fresh"));
+
+        cleanup_temp_dir(&base);
+    }
+
+    #[test]
+    fn scan_notes_cold_cache_reads_all_bodies() {
+        let base = temp_notes_dir();
+        fs::write(base.join("one.md"), "Body one").unwrap();
+        fs::write(base.join("two.md"), "Body two").unwrap();
+
+        // Delete any existing cache to ensure cold start
+        let _ = fs::remove_file(base.join(NOTE_PREVIEW_CACHE_FILE));
+
+        let result = scan_notes(&base).unwrap();
+
+        // With no cache, every note body must be fully read
+        assert_eq!(result.get("one").unwrap().body, "Body one");
+        assert_eq!(result.get("two").unwrap().body, "Body two");
+
+        // Cache is now populated for next run
+        let cache = load_note_cache(&base);
+        assert_eq!(cache.entries.len(), 2);
+
+        cleanup_temp_dir(&base);
+    }
+
+    #[test]
+    fn backfill_after_mixed_cache_hits_and_misses() {
+        let base = temp_notes_dir();
+        fs::write(base.join("cached.md"), "Cached body text").unwrap();
+        fs::write(base.join("changed.md"), "Original").unwrap();
+
+        // First scan populates cache
+        scan_notes(&base).unwrap();
+
+        // Modify one file
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        fs::write(base.join("changed.md"), "Modified body text").unwrap();
+
+        // Second scan: cached.md is a cache hit (empty body), changed.md is fresh
+        let mut result = scan_notes(&base).unwrap();
+        assert!(result.get("cached").unwrap().body.is_empty());
+        assert_eq!(result.get("changed").unwrap().body, "Modified body text");
+
+        // Backfill loads the deferred body
+        backfill_bodies(&base, &mut result);
+        assert_eq!(result.get("cached").unwrap().body, "Cached body text");
+        assert_eq!(result.get("cached").unwrap().body_lower, "cached body text");
+        // Already-loaded body is preserved
+        assert_eq!(result.get("changed").unwrap().body, "Modified body text");
+
+        cleanup_temp_dir(&base);
+    }
+
     // ── scan_note_previews tests ──────────────────────────────────────
 
     #[test]
