@@ -827,6 +827,59 @@ fn tombstone_prevents_reupload() {
     assert!(resp_b.delete.contains(&"deleted.md".to_string()));
 }
 
+#[test]
+fn tombstone_does_not_block_reupload_as_new() {
+    let (conn, tmp) = test_env();
+
+    // Device A creates and syncs a note
+    let content = "# Untitled (2)";
+    let hash = hash_sha256(content);
+    let mut create_req = make_request("device-a");
+    create_req.new.push(NewNote {
+        filename: "Untitled (2).md".into(),
+        content: content.into(),
+        hash: hash.clone(),
+        modified_at: 1000,
+    });
+    create_req.inventory.push(InventoryItem {
+        filename: "Untitled (2).md".into(),
+        hash: hash.clone(),
+    });
+    process_sync(&conn, &notes_dir(&tmp), &create_req).unwrap();
+
+    // Device A deletes it → tombstone created
+    let mut del_req = make_request("device-a");
+    del_req.deleted.push("Untitled (2).md".into());
+    process_sync(&conn, &notes_dir(&tmp), &del_req).unwrap();
+    assert!(!file_exists(&tmp, "Untitled (2).md"));
+
+    // Device A re-uploads the same filename as new (e.g. user created another "Untitled (2)")
+    let new_content = "# Fresh note";
+    let new_hash = hash_sha256(new_content);
+    let mut reupload_req = make_request("device-a");
+    reupload_req.new.push(NewNote {
+        filename: "Untitled (2).md".into(),
+        content: new_content.into(),
+        hash: new_hash.clone(),
+        modified_at: 2000,
+    });
+    reupload_req.inventory.push(InventoryItem {
+        filename: "Untitled (2).md".into(),
+        hash: new_hash.clone(),
+    });
+
+    let resp = process_sync(&conn, &notes_dir(&tmp), &reupload_req).unwrap();
+
+    // Response must NOT tell client to delete the file it just uploaded
+    assert!(
+        !resp.delete.contains(&"Untitled (2).md".to_string()),
+        "server should not send delete for a file being re-uploaded as new"
+    );
+    // File should exist on server
+    assert!(file_exists(&tmp, "Untitled (2).md"));
+    assert_eq!(read_file(&tmp, "Untitled (2).md").unwrap(), new_content);
+}
+
 // ── Three-way merge tests ─────────────────────────────────────────────
 
 /// Seed base content into content_store so three-way merge can find it.

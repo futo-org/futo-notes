@@ -294,6 +294,10 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
           deps.applyRemoteRename(currentOriginalId, meta.title);
         }
       } catch {
+        // If originalId changed during the await (local rename raced with readNote),
+        // the file legitimately no longer exists under the old name — skip silently.
+        if (deps.getOriginalId() !== currentOriginalId) return;
+
         const recoveredRename = findActiveSyncRename(
           summary,
           currentOriginalId,

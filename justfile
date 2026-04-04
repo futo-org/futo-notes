@@ -20,6 +20,8 @@ alias cs := cli-setup
 alias cset := cli-settings
 alias cst := cli-status
 alias cu := cli-update
+alias dd := deploy-deb
+alias dr := deploy-rpm
 
 install:
   pnpm install
@@ -150,6 +152,68 @@ cli-status *args:
 
 cli-update *args:
   cargo run -p stonefruit-cli -- update {{args}}
+
+# Build .deb from current repo state and install it
+deploy-deb:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  CONF="apps/tauri/src-tauri/tauri.conf.json"
+  BUNDLE_DIR="target/release/bundle/deb"
+  # Stamp version from latest git tag + commit distance
+  LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+  COMMITS_SINCE=$(git rev-list "${LATEST_TAG}..HEAD" --count)
+  BASE_VER="${LATEST_TAG#v}"
+  if [ "$COMMITS_SINCE" -gt 0 ]; then
+    VERSION="${BASE_VER}-dev.${COMMITS_SINCE}"
+  else
+    VERSION="${BASE_VER}"
+  fi
+  echo "Version: ${VERSION}"
+  node -e "const fs=require('fs'),f='${CONF}',c=JSON.parse(fs.readFileSync(f));c.version='${VERSION}';fs.writeFileSync(f,JSON.stringify(c,null,2)+'\n')"
+  # Clean stale bundles so we never install an old one
+  rm -rf "$BUNDLE_DIR"
+  echo "Building .deb package..."
+  cd apps/tauri && cargo tauri build --bundles deb
+  cd ../..
+  DEB=$(ls -t "${BUNDLE_DIR}"/*.deb | head -1)
+  # Kill running instance (comm is truncated to 15 chars, so use -f)
+  pkill -f futo-notes-tauri 2>/dev/null && echo "Stopped running instance." && sleep 1 || true
+  echo "Installing ${DEB}..."
+  sudo dpkg -i "$DEB"
+  # Restore tauri.conf.json so git stays clean
+  git checkout -- "$CONF"
+  echo "Done. Installed Stonefruit ${VERSION}."
+
+# Build .rpm from current repo state and install it
+deploy-rpm:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  CONF="apps/tauri/src-tauri/tauri.conf.json"
+  BUNDLE_DIR="target/release/bundle/rpm"
+  # Stamp version from latest git tag + commit distance
+  LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+  COMMITS_SINCE=$(git rev-list "${LATEST_TAG}..HEAD" --count)
+  BASE_VER="${LATEST_TAG#v}"
+  if [ "$COMMITS_SINCE" -gt 0 ]; then
+    VERSION="${BASE_VER}-dev.${COMMITS_SINCE}"
+  else
+    VERSION="${BASE_VER}"
+  fi
+  echo "Version: ${VERSION}"
+  node -e "const fs=require('fs'),f='${CONF}',c=JSON.parse(fs.readFileSync(f));c.version='${VERSION}';fs.writeFileSync(f,JSON.stringify(c,null,2)+'\n')"
+  # Clean stale bundles so we never install an old one
+  rm -rf "$BUNDLE_DIR"
+  echo "Building .rpm package..."
+  cd apps/tauri && cargo tauri build --bundles rpm
+  cd ../..
+  RPM=$(ls -t "${BUNDLE_DIR}"/*.rpm | head -1)
+  # Kill running instance (comm is truncated to 15 chars, so use -f)
+  pkill -f futo-notes-tauri 2>/dev/null && echo "Stopped running instance." && sleep 1 || true
+  echo "Installing ${RPM}..."
+  sudo dnf install -y "$RPM" || sudo rpm -Uvh --force "$RPM"
+  # Restore tauri.conf.json so git stays clean
+  git checkout -- "$CONF"
+  echo "Done. Installed Stonefruit ${VERSION}."
 
 cli-build-all:
   cd apps/cli && make build-all

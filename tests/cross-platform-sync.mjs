@@ -583,6 +583,44 @@ async function largeSync(a, b, server) {
   }
 }
 
+async function tombstoneDoesNotBlockNewNote(a, b, server) {
+  await a.connectSync(server.url, server.password);
+
+  // Create a note and sync it to the server
+  await a.writeNote('Untitled', '# First');
+  await a.syncNow();
+
+  // Delete it and sync — server creates a tombstone
+  await a.deleteNote('Untitled');
+  await a.syncNow();
+  const gone = !(await a.noteExists('Untitled'));
+  assert(gone, 'Untitled should be deleted');
+
+  // Create a NEW note with the same auto-generated title, open it in the editor
+  await a.openNewNote();
+  await a.flushSave();
+  const state1 = await a.getOpenNoteState();
+  assertEqual(state1.title, 'Untitled', 'new note should get title Untitled');
+
+  // Type content so the note has substance, then sync
+  await a.typeInEditor('# Fresh note');
+  await a.flushSave();
+  await waitForSavePending(a, false);
+  const syncResult = await a.syncNow();
+
+  // The sync must NOT delete the note we just created
+  assert(
+    !syncResult.summary.deletedIds?.includes('Untitled'),
+    'sync should not return Untitled in deletedIds',
+  );
+
+  // No spurious toast should appear
+  await sleep(500);
+  const finalState = await a.getOpenNoteState();
+  assertEqual(finalState.toastMessage, '', 'no toast should appear after syncing re-created note');
+  assert(await a.noteExists('Untitled'), 'Untitled should still exist on disk');
+}
+
 // ── Scenario registry ───────────────────────────────────────────
 
 const scenarios = [
@@ -599,6 +637,7 @@ const scenarios = [
   { name: 'rapid reconnect', fn: rapidReconnect, matrices: ['desktop-desktop', 'desktop-android'] },
   { name: 'offline accumulation', fn: offlineAccumulation, matrices: ['desktop-desktop', 'desktop-android'] },
   { name: 'large sync', fn: largeSync, matrices: ['desktop-desktop', 'desktop-android'] },
+  { name: 'tombstone does not block new note', fn: tombstoneDoesNotBlockNewNote, matrices: ['desktop-desktop'] },
 ];
 
 // ── Main ────────────────────────────────────────────────────────

@@ -125,6 +125,15 @@ pub fn process_sync(
         note_meta.remove(filename);
     }
 
+    // ── 1b. Un-tombstone files being re-uploaded as new ─────────────
+    // Must run before section 2 so tombstone propagation skips these.
+
+    for new_note in &req.new {
+        if tombstones.remove(&new_note.filename) {
+            remove_tombstone(&tx, &new_note.filename)?;
+        }
+    }
+
     // ── 2. Propagate server deletions ──────────────────────────────
 
     for tombstoned in &tombstones {
@@ -324,12 +333,6 @@ pub fn process_sync(
                     continue;
                 }
             }
-        }
-
-        if tombstones.contains(&new_note.filename) {
-            // Was recently deleted — still accept the new note (un-tombstone)
-            remove_tombstone(&tx, &new_note.filename)?;
-            tombstones.remove(&new_note.filename);
         }
 
         let created = process_new_note(
