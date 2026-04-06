@@ -156,6 +156,44 @@ async function getCursorState(page: Page): Promise<{ line: number; ch: number; t
   });
 }
 
+async function getSelectionState(page: Page): Promise<{ from: number; to: number; empty: boolean; text: string }> {
+  return page.evaluate(() => {
+    const view = (window as any).__cmGetView?.();
+    if (!view) throw new Error('CM EditorView not found');
+    const selection = view.state.selection.main;
+    return {
+      from: selection.from,
+      to: selection.to,
+      empty: selection.empty,
+      text: view.state.doc.sliceString(selection.from, selection.to),
+    };
+  });
+}
+
+async function getVisibleTextPoint(page: Page, substring: string, offset = 0): Promise<{ x: number; y: number }> {
+  return page.evaluate(({ substring, offset }) => {
+    const root = document.querySelector('.cm-content');
+    if (!root) throw new Error('CM content not found');
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let node: Node | null;
+    while ((node = walker.nextNode())) {
+      const text = node.textContent ?? '';
+      const start = text.indexOf(substring);
+      if (start === -1) continue;
+      const range = document.createRange();
+      const pos = start + offset;
+      range.setStart(node, pos);
+      range.setEnd(node, pos);
+      const rect = range.getClientRects()[0] ?? range.getBoundingClientRect();
+      return {
+        x: rect.left + 1,
+        y: (rect.top + rect.bottom) / 2,
+      };
+    }
+    throw new Error(`Visible substring not found: ${substring}`);
+  }, { substring, offset });
+}
+
 // ============================================================================
 // HEADING TESTS
 // ============================================================================
@@ -283,6 +321,39 @@ test.describe('Emphasis (Bold/Italic)', () => {
     expect(cursor.text).toBe('**Why**');
     expect(cursor.line).toBe(0);
     expect(cursor.ch).toBe(3);
+  });
+
+  test('backward drag across italic stays stable until selection settles', async ({ page }) => {
+    const paragraph = `Actually, right now there's a good oppurtunity to learn a bit and try this all out. There is a task above that will probably improve sync dramatically. I should get deep in the weeds of building out the architecture there, which will be in Rust, and see how much I am held back by my knowledge gaps. Tell Claude I need to deeply understand the problem first, the way it operates now, and *then* we can sketch a solution together.`;
+
+    await setupEditor(page, paragraph);
+    await page.locator('.cm-content').click();
+    await page.waitForTimeout(100);
+
+    const dragStart = await getVisibleTextPoint(page, 'we can sketch', 2);
+    const dragEnd = await getVisibleTextPoint(page, 'problem first', 0);
+    const expected = 'problem first, the way it operates now, and *then* we';
+
+    await page.mouse.move(dragStart.x, dragStart.y);
+    await page.mouse.down();
+    await page.mouse.move(dragEnd.x, dragEnd.y, { steps: 20 });
+
+    const duringDrag = await getSelectionState(page);
+    expect(duringDrag.empty).toBe(false);
+    expect(duringDrag.text).toBe(expected);
+
+    const duringDragVisible = await getVisibleEditorText(page);
+    expect(duringDragVisible).not.toContain('*then*');
+
+    await page.mouse.up();
+    await page.waitForTimeout(150);
+
+    const settled = await getSelectionState(page);
+    expect(settled.empty).toBe(false);
+    expect(settled.text).toBe(expected);
+
+    const settledVisible = await getVisibleEditorText(page);
+    expect(settledVisible).toContain('*then*');
   });
 });
 

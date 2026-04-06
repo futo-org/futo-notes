@@ -13,6 +13,26 @@ import { TAG_REGEX } from '@futo-notes/shared';
 
 export const imageCacheUpdated = StateEffect.define<null>();
 export const liveMarkdownRefresh = StateEffect.define<null>();
+const INLINE_SELECTION_DRAGGING_ATTR = 'inlineSelectionDragging';
+
+export function setInlineSelectionDragging(
+  view: EditorView,
+  dragging: boolean,
+  refresh = false
+): void {
+  const current = view.dom.dataset[INLINE_SELECTION_DRAGGING_ATTR] === 'true';
+  if (current === dragging) return;
+
+  if (dragging) {
+    view.dom.dataset[INLINE_SELECTION_DRAGGING_ATTR] = 'true';
+  } else {
+    delete view.dom.dataset[INLINE_SELECTION_DRAGGING_ATTR];
+  }
+
+  if (refresh) {
+    view.dispatch({ effects: liveMarkdownRefresh.of(null) });
+  }
+}
 
 // Widget Classes
 class HorizontalRuleWidget extends WidgetType {
@@ -39,23 +59,6 @@ class HorizontalRuleWidget extends WidgetType {
 
   ignoreEvent(): boolean {
     return false;
-  }
-}
-
-class HiddenMarkerWidget extends WidgetType {
-  toDOM(): HTMLElement {
-    const span = document.createElement('span');
-    span.className = 'cm-md-marker-hidden cm-md-marker-widget';
-    span.setAttribute('aria-hidden', 'true');
-    return span;
-  }
-
-  eq(): boolean {
-    return true;
-  }
-
-  ignoreEvent(): boolean {
-    return true;
   }
 }
 
@@ -397,6 +400,19 @@ export function selectionTouchesRange(
     if (range.from < to && range.to > from) return true;
   }
   return false;
+}
+
+export function shouldRevealInlineMarkers(
+  view: EditorView,
+  from: number,
+  to: number
+): boolean {
+  if (!selectionTouchesRange(view.hasFocus, view.state.selection.ranges, from, to)) {
+    return false;
+  }
+
+  // Keep the rendered DOM stable while the pointer is still held down.
+  return view.dom.dataset[INLINE_SELECTION_DRAGGING_ATTR] !== 'true';
 }
 
 export function shouldSkipBlockDecorations(
@@ -778,7 +794,7 @@ class LiveMarkdownPlugin implements PluginValue {
     const isStrong = nodeName === 'StrongEmphasis';
     const cssClass = isStrong ? 'cm-md-strong' : 'cm-md-emphasis';
     const markerLength = isStrong ? 2 : 1;
-    const revealMarkers = selectionTouchesRange(view.hasFocus, view.state.selection.ranges, from, to);
+    const revealMarkers = shouldRevealInlineMarkers(view, from, to);
 
     if (text.length >= markerLength * 2) {
       if (!revealMarkers) {
@@ -786,14 +802,14 @@ class LiveMarkdownPlugin implements PluginValue {
         decorations.push({
           from,
           to: from + markerLength,
-          value: { widget: new HiddenMarkerWidget() }
+          value: { class: 'cm-md-marker-hidden' }
         });
 
         // Hide end marker
         decorations.push({
           from: to - markerLength,
           to,
-          value: { widget: new HiddenMarkerWidget() }
+          value: { class: 'cm-md-marker-hidden' }
         });
       }
 
@@ -816,7 +832,7 @@ class LiveMarkdownPlugin implements PluginValue {
   ): void {
     if (nodeName === 'InlineCode') {
       const backticks = text.match(/^`+/)?.[0].length ?? 1;
-      const revealMarkers = selectionTouchesRange(view.hasFocus, view.state.selection.ranges, from, to);
+      const revealMarkers = shouldRevealInlineMarkers(view, from, to);
 
       if (!revealMarkers) {
         // Hide start backticks
@@ -913,7 +929,7 @@ class LiveMarkdownPlugin implements PluginValue {
     view: EditorView,
     decorations: Array<{ from: number; to: number; value: any }>
   ): void {
-    const revealMarkers = selectionTouchesRange(view.hasFocus, view.state.selection.ranges, from, to);
+    const revealMarkers = shouldRevealInlineMarkers(view, from, to);
 
     if (!revealMarkers) {
       // Hide start ~~

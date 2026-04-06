@@ -15,7 +15,7 @@
   import { listContinuationKeymap } from '$lib/listContinuation';
   import { cursorMotionKeymap } from '$lib/cursorMotion';
   import { tableRendering } from '$lib/tableRenderingField';
-  import { liveMarkdownTransform, preloadImages } from '$lib/liveMarkdownTransform';
+  import { liveMarkdownTransform, preloadImages, setInlineSelectionDragging } from '$lib/liveMarkdownTransform';
   import { getImageWebPath } from '$lib/fileSystem';
   import { buildSetContentTransaction, type SetEditorContentOptions, type SetContentResult } from '$lib/editorContentSync';
   import { hasFileSystem, isTauri } from '$lib/platform';
@@ -121,7 +121,6 @@
     openUrl(url);
   }
 
-  let pendingInlineStyledClickPos: number | null = null;
   const INLINE_STYLED_SELECTOR = '.cm-md-emphasis, .cm-md-strong, .cm-md-strikethrough, .cm-md-code';
   const EXTERNAL_LINK_SELECTOR = '.cm-md-link:not(.cm-md-wikilink)';
   const VISIBLE_LINE_EDGE_SELECTOR = [
@@ -191,6 +190,34 @@
     }
 
     return null;
+  }
+
+  function getInlineStyledPosition(v: EditorView, event: MouseEvent): number | null {
+    const targetNode = event.target as Node | null;
+    const target =
+      targetNode instanceof Element ? targetNode : targetNode?.parentElement ?? null;
+    if (!target || target.closest('.cm-md-link')) return null;
+
+    const hit = document.elementFromPoint(event.clientX, event.clientY);
+    const inline =
+      findInlineStyledElementAtPoint(hit, event.clientX, event.clientY) ??
+      findInlineStyledElementAtPoint(target, event.clientX, event.clientY) ??
+      hit?.closest(INLINE_STYLED_SELECTOR) ??
+      target.closest(INLINE_STYLED_SELECTOR);
+    if (!inline) return null;
+
+    const textNode = getFirstTextNode(inline);
+    if (!textNode) return null;
+
+    const visibleLength = textNode.textContent?.length ?? 0;
+    const rawStart = v.posAtDOM(textNode, 0);
+    const rawEnd = v.posAtDOM(textNode, visibleLength);
+    const hiddenMarkerChars = Math.max(0, rawEnd - rawStart - visibleLength);
+    const contentStart = rawStart + Math.floor(hiddenMarkerChars / 2);
+    const contentEnd = rawEnd - Math.ceil(hiddenMarkerChars / 2);
+    const offset = getTextOffsetAtPoint(textNode, event.clientX);
+
+    return Math.min(contentStart + offset, contentEnd);
   }
 
   function getRenderedLineRight(line: HTMLElement): number | null {
@@ -342,46 +369,16 @@
   });
 
   const inlineStyledClickHandler = EditorView.domEventHandlers({
-    mousedown: (event, v) => {
-      if (event.button !== 0) return false;
-
-      const targetNode = event.target as Node | null;
-      const target =
-        targetNode instanceof Element ? targetNode : targetNode?.parentElement ?? null;
-      if (!target || target.closest('.cm-md-link')) return false;
-
-      const hit = document.elementFromPoint(event.clientX, event.clientY);
-      const inline =
-        findInlineStyledElementAtPoint(hit, event.clientX, event.clientY) ??
-        findInlineStyledElementAtPoint(target, event.clientX, event.clientY) ??
-        hit?.closest(INLINE_STYLED_SELECTOR) ??
-        target.closest(INLINE_STYLED_SELECTOR);
-      if (!inline) return false;
-
-      const textNode = getFirstTextNode(inline);
-      if (!textNode) return false;
-
-      const visibleLength = textNode.textContent?.length ?? 0;
-      const rawStart = v.posAtDOM(textNode, 0);
-      const rawEnd = v.posAtDOM(textNode, visibleLength);
-      const hiddenMarkerChars = Math.max(0, rawEnd - rawStart - visibleLength);
-      const contentStart = rawStart + Math.floor(hiddenMarkerChars / 2);
-      const contentEnd = rawEnd - Math.ceil(hiddenMarkerChars / 2);
-      const offset = getTextOffsetAtPoint(textNode, event.clientX);
-      pendingInlineStyledClickPos = Math.min(contentStart + offset, contentEnd);
-      event.preventDefault();
-      v.focus();
-      return true;
-    },
     click: (event, v) => {
-      if (pendingInlineStyledClickPos === null) return false;
-      const pos = pendingInlineStyledClickPos;
-      pendingInlineStyledClickPos = null;
+      if (event.detail !== 1 || !v.state.selection.main.empty) return false;
+      const pos = getInlineStyledPosition(v, event);
+      if (pos === null) return false;
 
       event.preventDefault();
       event.stopPropagation();
       requestAnimationFrame(() => {
         if (!view) return;
+        v.focus();
         v.dispatch({ selection: { anchor: pos } });
       });
       return true;
@@ -449,6 +446,32 @@
     }
   }
 
+  let pointerSelectionSettleTimer: number | null = null;
+
+  function clearPointerSelectionSettleTimer(): void {
+    if (pointerSelectionSettleTimer !== null) {
+      clearTimeout(pointerSelectionSettleTimer);
+      pointerSelectionSettleTimer = null;
+    }
+  }
+
+  function schedulePointerSelectionSettle(v: EditorView): void {
+    clearPointerSelectionSettleTimer();
+    pointerSelectionSettleTimer = window.setTimeout(() => {
+      pointerSelectionSettleTimer = null;
+      setInlineSelectionDragging(v, false, true);
+    }, 0);
+  }
+
+  const pointerSelectionTrackingHandler = EditorView.domEventHandlers({
+    mousedown: (event, v) => {
+      if (event.button !== 0) return false;
+      clearPointerSelectionSettleTimer();
+      setInlineSelectionDragging(v, true);
+      return false;
+    }
+  });
+
   onMount(() => {
     preloadImages(content, hasFileSystem ? getImageWebPath : undefined, () => view);
 
@@ -478,6 +501,7 @@
       tableRendering,
       wikilinkAutocomplete(),
       imagePasteHandler,
+      pointerSelectionTrackingHandler,
       tripleClickLineSelectionHandler,
       inlineStyledClickHandler,
       lineEndClickHandler,
@@ -560,6 +584,16 @@
 
     view = v;
 
+    const onGlobalMouseUp = () => {
+      schedulePointerSelectionSettle(v);
+    };
+    const onGlobalBlur = () => {
+      clearPointerSelectionSettleTimer();
+      setInlineSelectionDragging(v, false, true);
+    };
+    window.addEventListener('mouseup', onGlobalMouseUp, true);
+    window.addEventListener('blur', onGlobalBlur);
+
     if (import.meta.env.DEV) {
       const w = window as any;
       w.__cmToggle = (v: EditorView, name: string) => {
@@ -571,6 +605,9 @@
 
     return () => {
       if (onchangeRafId) { cancelAnimationFrame(onchangeRafId); onchangeRafId = 0; }
+      clearPointerSelectionSettleTimer();
+      window.removeEventListener('mouseup', onGlobalMouseUp, true);
+      window.removeEventListener('blur', onGlobalBlur);
       view?.destroy();
       view = null;
     };
