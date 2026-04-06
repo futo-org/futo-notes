@@ -22,6 +22,7 @@ alias cst := cli-status
 alias cu := cli-update
 alias dd := deploy-deb
 alias dr := deploy-rpm
+alias di := deploy-ios
 
 install:
   pnpm install
@@ -214,6 +215,62 @@ deploy-rpm:
   # Restore tauri.conf.json so git stays clean
   git checkout -- "$CONF"
   echo "Done. Installed Stonefruit ${VERSION}."
+
+# Build iOS .ipa from current repo state and install on connected iPhone
+deploy-ios:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  CONF="apps/tauri/src-tauri/tauri.conf.json"
+  INFO_PLIST="apps/tauri/src-tauri/gen/apple/futo-notes-tauri_iOS/Info.plist"
+  IPA="apps/tauri/src-tauri/gen/apple/build/arm64/Stonefruit.ipa"
+  BUNDLE_ID="com.futo.notes"
+  # Auto-detect connected device
+  DEVFILE=$(mktemp /tmp/devices.XXXXXX.json)
+  xcrun devicectl list devices --json-output "$DEVFILE" >/dev/null 2>&1
+  DEVICE=$(python3 -c "
+  import json
+  data = json.load(open('$DEVFILE'))
+  devices = data.get('result', {}).get('devices', [])
+  for d in devices:
+      conn = d.get('connectionProperties', {})
+      if conn.get('transportType'):
+          print(d.get('identifier', ''))
+          break
+  ")
+  rm -f "$DEVFILE"
+  if [ -z "$DEVICE" ]; then
+    echo "Error: No connected iOS device found."
+    exit 1
+  fi
+  echo "Device: ${DEVICE}"
+  # Stamp version from latest git tag + commit distance
+  LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+  COMMITS_SINCE=$(git rev-list "${LATEST_TAG}..HEAD" --count)
+  BASE_VER="${LATEST_TAG#v}"
+  if [ "$COMMITS_SINCE" -gt 0 ]; then
+    VERSION="${BASE_VER}-dev.${COMMITS_SINCE}"
+  else
+    VERSION="${BASE_VER}"
+  fi
+  echo "Version: ${VERSION}"
+  node -e "const fs=require('fs'),f='${CONF}',c=JSON.parse(fs.readFileSync(f));c.version='${VERSION}';fs.writeFileSync(f,JSON.stringify(c,null,2)+'\n')"
+  # Clean stale build so we never install an old one
+  rm -f "$IPA"
+  echo "Building iOS .ipa..."
+  cd apps/tauri && cargo tauri ios build
+  cd ../..
+  if [ ! -f "$IPA" ]; then
+    echo "Error: IPA not found at ${IPA}"
+    git checkout -- "$CONF"
+    exit 1
+  fi
+  echo "Installing on device ${DEVICE}..."
+  xcrun devicectl device install app --device "$DEVICE" "$IPA"
+  echo "Launching..."
+  xcrun devicectl device process launch --device "$DEVICE" "$BUNDLE_ID"
+  # Restore stamped files so git stays clean
+  git checkout -- "$CONF" "$INFO_PLIST"
+  echo "Done. Installed Stonefruit ${VERSION} on iOS device."
 
 cli-build-all:
   cd apps/cli && make build-all
