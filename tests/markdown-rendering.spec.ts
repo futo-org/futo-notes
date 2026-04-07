@@ -194,6 +194,15 @@ async function getVisibleTextPoint(page: Page, substring: string, offset = 0): P
   }, { substring, offset });
 }
 
+async function getLocatorCenter(locator: ReturnType<Page['locator']>): Promise<{ x: number; y: number }> {
+  const box = await locator.boundingBox();
+  if (!box) throw new Error('Expected locator bounding box');
+  return {
+    x: box.x + box.width / 2,
+    y: box.y + box.height / 2,
+  };
+}
+
 // ============================================================================
 // HEADING TESTS
 // ============================================================================
@@ -395,6 +404,27 @@ test.describe('Strikethrough', () => {
     expect(cursor.line).toBe(0);
     expect(cursor.ch).toBe(3);
   });
+
+  test('holding mouse down on rendered strikethrough keeps the line-through visible', async ({ page }) => {
+    await setupEditor(page, 'This is ~~struck~~ text.');
+
+    const strike = page.locator('.cm-md-strikethrough');
+    await expect(strike).toBeVisible();
+
+    const before = await strike.evaluate((el) => window.getComputedStyle(el).textDecorationLine);
+    expect(before).toContain('line-through');
+
+    const center = await getLocatorCenter(strike);
+    await page.mouse.move(center.x, center.y);
+    await page.mouse.down();
+    await page.waitForTimeout(75);
+
+    const during = await strike.evaluate((el) => window.getComputedStyle(el).textDecorationLine);
+
+    await page.mouse.up();
+
+    expect(during).toContain('line-through');
+  });
 });
 
 // ============================================================================
@@ -466,6 +496,49 @@ test.describe('Inline Code', () => {
     expect(after.fontFamily.toLowerCase()).toMatch(/monaco|menlo|mono/);
     expect(after.fontFamily).toBe(before.fontFamily);
     expect(after.color).toBe(before.color);
+  });
+
+  test('holding mouse down on inline code keeps the background visible', async ({ page }) => {
+    await setupEditor(page, 'Use `code` here.');
+
+    const code = page.locator('.cm-md-code');
+    await expect(code).toBeVisible();
+
+    const before = await code.evaluate((el) => window.getComputedStyle(el).backgroundColor);
+    expect(before).not.toBe('rgba(0, 0, 0, 0)');
+
+    const center = await getLocatorCenter(code);
+    await page.mouse.move(center.x, center.y);
+    await page.mouse.down();
+    await page.waitForTimeout(75);
+
+    const during = await code.evaluate((el) => window.getComputedStyle(el).backgroundColor);
+
+    await page.mouse.up();
+
+    expect(during).not.toBe('rgba(0, 0, 0, 0)');
+  });
+
+  test('holding mouse down without dragging does not flatten unrelated code and strikethrough decorations', async ({ page }) => {
+    await setupEditor(page, 'Alpha ~~strike~~ beta `code` gamma');
+
+    const strike = page.locator('.cm-md-strikethrough');
+    const code = page.locator('.cm-md-code');
+    await expect(strike).toBeVisible();
+    await expect(code).toBeVisible();
+
+    const plainTextPoint = await getVisibleTextPoint(page, 'Alpha', 2);
+    await page.mouse.move(plainTextPoint.x, plainTextPoint.y);
+    await page.mouse.down();
+    await page.waitForTimeout(75);
+
+    const strikeDisplay = await strike.evaluate((el) => window.getComputedStyle(el).display);
+    const codeDisplay = await code.evaluate((el) => window.getComputedStyle(el).display);
+
+    await page.mouse.up();
+
+    expect(strikeDisplay).not.toBe('contents');
+    expect(codeDisplay).not.toBe('contents');
   });
 });
 

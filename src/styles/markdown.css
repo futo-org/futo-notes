@@ -317,9 +317,7 @@
 /* Keep inline selection on rendered markdown working by flattening styled spans
    while the pointer is down, without rebuilding the editor DOM mid-drag. */
 .cm-editor[data-inline-selection-dragging="true"] .cm-md-emphasis,
-.cm-editor[data-inline-selection-dragging="true"] .cm-md-strong,
-.cm-editor[data-inline-selection-dragging="true"] .cm-md-strikethrough,
-.cm-editor[data-inline-selection-dragging="true"] .cm-md-code {
+.cm-editor[data-inline-selection-dragging="true"] .cm-md-strong {
   display: contents !important;
 }
 
