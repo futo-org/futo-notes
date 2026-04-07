@@ -309,9 +309,14 @@
   color: var(--color-muted);
 }
 
-/* Decorative markers (hidden by display: none) */
+/* Decorative markers — zero-width inline-block keeps the element in the
+   layout flow (so CodeMirror's coordsAtPos works for cursor movement)
+   while visibility:hidden excludes it from innerText. */
 .cm-md-marker-hidden {
-  display: none;
+  visibility: hidden !important;
+  display: inline-block !important;
+  width: 0 !important;
+  overflow: hidden !important;
 }
 
 /* Keep inline selection on rendered markdown working by flattening styled spans
