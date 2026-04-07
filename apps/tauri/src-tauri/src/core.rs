@@ -2239,6 +2239,36 @@ pub async fn fs_save_image_bytes(
     .map_err(task_join_err)?
 }
 
+/// Read an image from the native clipboard and save as PNG.
+/// Used on Linux/Wayland where WebKitGTK gives empty clipboardData to JS.
+#[tauri::command]
+pub async fn fs_paste_clipboard_image(app: AppHandle) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        use tauri_plugin_clipboard_manager::ClipboardExt;
+        let image = app.clipboard().read_image().map_err(|e| format!("Clipboard read failed: {e}"))?;
+        let (width, height) = (image.width(), image.height());
+        if width == 0 || height == 0 {
+            return Err("No image in clipboard".to_string());
+        }
+        let mut png_buf = Vec::new();
+        {
+            let mut encoder = png::Encoder::new(&mut png_buf, width, height);
+            encoder.set_color(png::ColorType::Rgba);
+            encoder.set_depth(png::BitDepth::Eight);
+            let mut writer = encoder
+                .write_header()
+                .map_err(|e| format!("PNG header error: {e}"))?;
+            writer
+                .write_image_data(image.rgba())
+                .map_err(|e| format!("PNG write error: {e}"))?;
+        }
+        let base = notes_root(&app)?;
+        write_image_to_notes(&base, &png_buf, "png")
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
 #[tauri::command]
 pub async fn fs_get_image_path(app: AppHandle, filename: String) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {

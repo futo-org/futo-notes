@@ -183,6 +183,7 @@ pub fn run() {
             supersearch_all_note_vectors,
             fs_save_image,
             fs_save_image_bytes,
+            fs_paste_clipboard_image,
             fs_get_image_path,
             fs_start_watcher,
             app_get_config,

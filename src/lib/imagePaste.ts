@@ -1,5 +1,5 @@
 import { EditorView } from '@codemirror/view';
-import { getFS } from '$lib/platform';
+import { getFS, isTauri } from '$lib/platform';
 import { registerLocalImageUrl } from '$lib/liveMarkdownTransform';
 
 const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml', 'image/bmp', 'image/avif', 'image/heic'];
@@ -33,6 +33,26 @@ type ImagePasteFS = {
   getImageUrl: (filename: string) => Promise<string>;
 };
 
+/** Save image bytes, register the URL, and insert markdown at the cursor. */
+async function saveAndInsert(
+  view: Pick<EditorView, 'state' | 'dispatch' | 'focus'>,
+  buffer: ArrayBuffer,
+  ext: string,
+  fs: ImagePasteFS,
+): Promise<void> {
+  const filename = await fs.saveImageBytes(buffer, ext);
+  const webUrl = await fs.getImageUrl(filename);
+  registerLocalImageUrl(filename, webUrl);
+
+  const pos = view.state.selection.main.head;
+  const insert = `![](${filename})\n`;
+  view.dispatch({
+    changes: { from: pos, insert },
+    selection: { anchor: pos + insert.length },
+  });
+  view.focus();
+}
+
 /**
  * Save a pasted image and insert markdown at the current cursor.
  * Returns false on failure after reporting the error.
@@ -45,23 +65,31 @@ export async function pasteImageIntoView(
 ): Promise<boolean> {
   try {
     const buffer = await imageFile.arrayBuffer();
-    const ext = extFromMime(imageFile.type);
-    const filename = await fs.saveImageBytes(buffer, ext);
-    const webUrl = await fs.getImageUrl(filename);
-    registerLocalImageUrl(filename, webUrl);
-
-    const pos = view.state.selection.main.head;
-    const insert = `![](${filename})\n`;
-    view.dispatch({
-      changes: { from: pos, insert },
-      selection: { anchor: pos + insert.length },
-    });
-    view.focus();
+    await saveAndInsert(view, buffer, extFromMime(imageFile.type), fs);
     return true;
   } catch (err) {
     reportError('Image paste failed:', err);
     return false;
   }
+}
+
+/**
+ * Fallback for WebKitGTK on Wayland where clipboardData is empty.
+ * Reads clipboard image and encodes to PNG entirely in Rust — no JS serialization.
+ */
+async function pasteFromNativeClipboard(view: EditorView, fs: ImagePasteFS): Promise<void> {
+  const { invoke } = await import('@tauri-apps/api/core');
+  const filename = await invoke<string>('fs_paste_clipboard_image');
+  const webUrl = await fs.getImageUrl(filename);
+  registerLocalImageUrl(filename, webUrl);
+
+  const pos = view.state.selection.main.head;
+  const insert = `![](${filename})\n`;
+  view.dispatch({
+    changes: { from: pos, insert },
+    selection: { anchor: pos + insert.length },
+  });
+  view.focus();
 }
 
 /**
@@ -75,9 +103,6 @@ export const imagePasteHandler = EditorView.domEventHandlers({
     const clipboardData = event.clipboardData;
     if (!clipboardData) return false;
 
-    const imageFile = getImageFile(clipboardData);
-    if (!imageFile) return false;
-
     // Only handle if the platform supports saving image bytes
     let fs: ReturnType<typeof getFS>;
     try {
@@ -88,14 +113,26 @@ export const imagePasteHandler = EditorView.domEventHandlers({
 
     if (!fs.saveImageBytes) return false;
 
-    // We have an image and can save it — prevent default paste
-    event.preventDefault();
-
     const saveImageBytes = fs.saveImageBytes.bind(fs);
     const getImageUrl = fs.getImageUrl.bind(fs);
 
-    void pasteImageIntoView(view, imageFile, { saveImageBytes, getImageUrl });
+    const imageFile = getImageFile(clipboardData);
+    if (imageFile) {
+      event.preventDefault();
+      void pasteImageIntoView(view, imageFile, { saveImageBytes, getImageUrl });
+      return true;
+    }
 
-    return true;
+    // WebKitGTK on Wayland returns empty clipboardData for images.
+    // Fall back to the Tauri native clipboard plugin.
+    if (isTauri && clipboardData.items.length === 0) {
+      event.preventDefault();
+      void pasteFromNativeClipboard(view, { saveImageBytes, getImageUrl }).catch((err) => {
+        console.error('Native clipboard image paste failed:', err);
+      });
+      return true;
+    }
+
+    return false;
   }
 });
