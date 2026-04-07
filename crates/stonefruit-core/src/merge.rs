@@ -166,4 +166,22 @@ mod tests {
             MergeResult::Clean(content.to_string())
         );
     }
+
+    #[test]
+    fn qa_scenario4_paragraph_merge_no_trailing_newline() {
+        // Reproduces QA Scenario 4: two clients edit different paragraphs of a
+        // note that does NOT end with a trailing newline. diffy should merge cleanly.
+        let base = "qa threeway merge test\n\nParagraph one: unchanged by both clients.\n\nParagraph two: client will edit this paragraph.\n\nParagraph three: peer will edit this paragraph.";
+        let ours = "qa threeway merge test\n\nParagraph one: unchanged by both clients.\n\nParagraph two: client will edit this paragraph.\n\nParagraph three: PEER EDITED THIS PARAGRAPH during three-way merge test.";
+        let theirs = "qa threeway merge test\n\nParagraph one: unchanged by both clients.\n\nParagraph two: CLIENT EDITED THIS PARAGRAPH during three-way merge test.\n\nParagraph three: peer will edit this paragraph.";
+
+        let result = three_way_merge(base, ours, theirs);
+        match &result {
+            MergeResult::Clean(merged) => {
+                assert!(merged.contains("CLIENT EDITED"), "Missing client edit");
+                assert!(merged.contains("PEER EDITED"), "Missing peer edit");
+            }
+            MergeResult::Conflict => panic!("Expected clean merge for non-overlapping paragraph edits, got conflict"),
+        }
+    }
 }
