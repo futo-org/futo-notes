@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use tempfile::TempDir;
 
 use stonefruit_core::hash::hash_sha256;
@@ -22,11 +22,21 @@ fn notes_dir(tmp: &TempDir) -> std::path::PathBuf {
 fn make_request(device_id: &str) -> SyncRequest {
     SyncRequest {
         device_id: device_id.to_string(),
-        inventory: vec![],
+        inventory: Some(vec![]),
         changed: vec![],
         new: vec![],
         deleted: vec![],
+        last_version: None,
+        deleted_baselines: HashMap::new(),
     }
+}
+
+/// Push an item into the request's inventory (which is always Some in tests).
+fn push_inventory(req: &mut SyncRequest, filename: &str, hash: &str) {
+    req.inventory.as_mut().unwrap().push(InventoryItem {
+        filename: filename.into(),
+        hash: hash.into(),
+    });
 }
 
 fn read_file(tmp: &TempDir, filename: &str) -> Option<String> {
@@ -51,24 +61,6 @@ fn seed_note(conn: &rusqlite::Connection, tmp: &TempDir, filename: &str, content
     ).unwrap();
 }
 
-/// Seed a device snapshot (what a device last saw for a file).
-fn seed_snapshot(conn: &rusqlite::Connection, device_id: &str, filename: &str, hash: &str) {
-    conn.execute(
-        "INSERT INTO device_snapshots (device_id, filename, hash) VALUES (?1, ?2, ?3)",
-        rusqlite::params![device_id, filename, hash],
-    )
-    .unwrap();
-}
-
-fn snapshot_hash(conn: &rusqlite::Connection, device_id: &str, filename: &str) -> Option<String> {
-    conn.query_row(
-        "SELECT hash FROM device_snapshots WHERE device_id = ?1 AND filename = ?2",
-        rusqlite::params![device_id, filename],
-        |row| row.get(0),
-    )
-    .ok()
-}
-
 // ── Test cases ─────────────────────────────────────────────────────────
 
 #[test]
@@ -78,10 +70,7 @@ fn new_note_roundtrip() {
     let hash = hash_sha256(content);
 
     let mut req = make_request("device-a");
-    req.inventory.push(InventoryItem {
-        filename: "hello.md".into(),
-        hash: hash.clone(),
-    });
+    push_inventory(&mut req, "hello.md", &hash);
     req.new.push(NewNote {
         filename: "hello.md".into(),
         content: content.into(),
@@ -131,21 +120,18 @@ fn client_changed() {
     let original = "# Original";
     let original_hash = hash_sha256(original);
     seed_note(&conn, &tmp, "note.md", original);
-    seed_snapshot(&conn, "device-a", "note.md", &original_hash);
 
     let edited = "# Edited by client";
     let edited_hash = hash_sha256(edited);
 
     let mut req = make_request("device-a");
-    req.inventory.push(InventoryItem {
-        filename: "note.md".into(),
-        hash: edited_hash.clone(),
-    });
+    push_inventory(&mut req, "note.md", &edited_hash);
     req.changed.push(ChangedNote {
         filename: "note.md".into(),
         content: edited.into(),
         hash: edited_hash.clone(),
         modified_at: 1000,
+        baseline_hash: Some(original_hash.clone()),
     });
 
     let resp = process_sync(&conn, &notes_dir(&tmp), &req).unwrap();
@@ -162,7 +148,6 @@ fn server_changed() {
     let original = "# Original";
     let original_hash = hash_sha256(original);
     seed_note(&conn, &tmp, "note.md", original);
-    seed_snapshot(&conn, "device-a", "note.md", &original_hash);
 
     // Server content was modified externally
     let server_edited = "# Edited on server";
@@ -174,26 +159,20 @@ fn server_changed() {
     )
     .unwrap();
 
-    // Client still has original
+    // Client still has original — sends it as "changed" with baseline = original
     let mut req = make_request("device-a");
-    req.inventory.push(InventoryItem {
-        filename: "note.md".into(),
-        hash: original_hash.clone(),
-    });
+    push_inventory(&mut req, "note.md", &original_hash);
     req.changed.push(ChangedNote {
         filename: "note.md".into(),
         content: original.into(),
-        hash: original_hash,
+        hash: original_hash.clone(),
         modified_at: 1000,
+        baseline_hash: Some(original_hash),
     });
 
     let resp = process_sync(&conn, &notes_dir(&tmp), &req).unwrap();
-    // Server changed, client unchanged (from server's perspective via device_snapshot)
-    // Actually client sends it as "changed" but device snapshot shows original_hash
-    // So determine_sync_direction(original_hash, server_hash, original_hash) = ServerChanged
-    // Wait — client is sending original content with original hash, but claiming it changed.
-    // Let me reconsider. The client hash is original_hash, server hash is server_hash,
-    // device snapshot is original_hash. So direction = ServerChanged.
+    // baseline_hash == client_hash means client didn't really change.
+    // Server hash differs from baseline → ServerChanged.
     // Server should send the updated version to client.
     assert_eq!(resp.update.len(), 1);
     assert_eq!(resp.update[0].filename, "note.md");
@@ -206,7 +185,6 @@ fn external_edit_with_inventory_only_gets_server_update() {
     let original = "# Original";
     let original_hash = hash_sha256(original);
     seed_note(&conn, &tmp, "note.md", original);
-    seed_snapshot(&conn, "device-a", "note.md", &original_hash);
 
     let server_edited = "# Edited on server";
     let server_hash = hash_sha256(server_edited);
@@ -217,11 +195,9 @@ fn external_edit_with_inventory_only_gets_server_update() {
     )
     .unwrap();
 
+    // Client has stale hash in inventory — server wins via hash mismatch
     let mut req = make_request("device-a");
-    req.inventory.push(InventoryItem {
-        filename: "note.md".into(),
-        hash: original_hash,
-    });
+    push_inventory(&mut req, "note.md", &original_hash);
 
     let resp = process_sync(&conn, &notes_dir(&tmp), &req).unwrap();
     assert_eq!(resp.update.len(), 1);
@@ -235,7 +211,6 @@ fn concurrent_edit_conflict() {
     let original = "# Original";
     let original_hash = hash_sha256(original);
     seed_note(&conn, &tmp, "note.md", original);
-    seed_snapshot(&conn, "device-a", "note.md", &original_hash);
 
     // Server was edited
     let server_version = "# Server edit";
@@ -252,15 +227,13 @@ fn concurrent_edit_conflict() {
     let client_hash = hash_sha256(client_version);
 
     let mut req = make_request("device-a");
-    req.inventory.push(InventoryItem {
-        filename: "note.md".into(),
-        hash: client_hash.clone(),
-    });
+    push_inventory(&mut req, "note.md", &client_hash);
     req.changed.push(ChangedNote {
         filename: "note.md".into(),
         content: client_version.into(),
         hash: client_hash,
         modified_at: 1000,
+        baseline_hash: Some(original_hash.clone()),
     });
 
     let resp = process_sync(&conn, &notes_dir(&tmp), &req).unwrap();
@@ -286,7 +259,6 @@ fn converged_both_changed() {
     let original = "# Original";
     let original_hash = hash_sha256(original);
     seed_note(&conn, &tmp, "note.md", original);
-    seed_snapshot(&conn, "device-a", "note.md", &original_hash);
 
     // Both sides independently edited to the same content
     let converged = "# Same content";
@@ -299,15 +271,13 @@ fn converged_both_changed() {
     .unwrap();
 
     let mut req = make_request("device-a");
-    req.inventory.push(InventoryItem {
-        filename: "note.md".into(),
-        hash: converged_hash.clone(),
-    });
+    push_inventory(&mut req, "note.md", &converged_hash);
     req.changed.push(ChangedNote {
         filename: "note.md".into(),
         content: converged.into(),
         hash: converged_hash,
         modified_at: 1000,
+        baseline_hash: Some(original_hash.clone()),
     });
 
     let resp = process_sync(&conn, &notes_dir(&tmp), &req).unwrap();
@@ -325,10 +295,11 @@ fn delete_propagation() {
     let content = "# To Delete";
     let hash = hash_sha256(content);
     seed_note(&conn, &tmp, "deleteme.md", content);
-    seed_snapshot(&conn, "device-a", "deleteme.md", &hash);
 
     let mut req = make_request("device-a");
     req.deleted.push("deleteme.md".into());
+    req.deleted_baselines
+        .insert("deleteme.md".into(), hash.clone());
 
     let resp = process_sync(&conn, &notes_dir(&tmp), &req).unwrap();
     assert!(resp.update.is_empty());
@@ -360,10 +331,7 @@ fn server_tombstone_propagation() {
     .unwrap();
 
     let mut req = make_request("device-b");
-    req.inventory.push(InventoryItem {
-        filename: "deleted.md".into(),
-        hash: "somehash".into(),
-    });
+    push_inventory(&mut req, "deleted.md", "somehash");
 
     let resp = process_sync(&conn, &notes_dir(&tmp), &req).unwrap();
     assert!(resp.delete.contains(&"deleted.md".to_string()));
@@ -375,7 +343,6 @@ fn delete_vs_edit() {
     let original = "# Original";
     let original_hash = hash_sha256(original);
     seed_note(&conn, &tmp, "note.md", original);
-    seed_snapshot(&conn, "device-a", "note.md", &original_hash);
 
     // Server was edited (by another device)
     let server_edited = "# Server edited this";
@@ -387,9 +354,11 @@ fn delete_vs_edit() {
     )
     .unwrap();
 
-    // Client deletes
+    // Client deletes — baseline is what the client last synced (original)
     let mut req = make_request("device-a");
     req.deleted.push("note.md".into());
+    req.deleted_baselines
+        .insert("note.md".into(), original_hash.clone());
 
     let resp = process_sync(&conn, &notes_dir(&tmp), &req).unwrap();
 
@@ -409,11 +378,12 @@ fn rename_as_delete_create() {
     let content = "# My Note";
     let hash = hash_sha256(content);
     seed_note(&conn, &tmp, "old-name.md", content);
-    seed_snapshot(&conn, "device-a", "old-name.md", &hash);
 
     // Client sends delete(old) + new(new) with same hash
     let mut req = make_request("device-a");
     req.deleted.push("old-name.md".into());
+    req.deleted_baselines
+        .insert("old-name.md".into(), hash.clone());
     req.new.push(NewNote {
         filename: "new-name.md".into(),
         content: content.into(),
@@ -457,10 +427,7 @@ fn multi_device_propagation() {
     let content_a = "# Note from A";
     let hash_a = hash_sha256(content_a);
     let mut req_a = make_request("device-a");
-    req_a.inventory.push(InventoryItem {
-        filename: "from-a.md".into(),
-        hash: hash_a.clone(),
-    });
+    push_inventory(&mut req_a, "from-a.md", &hash_a);
     req_a.new.push(NewNote {
         filename: "from-a.md".into(),
         content: content_a.into(),
@@ -479,11 +446,11 @@ fn multi_device_propagation() {
 
     // Now device A renames (delete + create)
     let mut req_a2 = make_request("device-a");
-    req_a2.inventory.push(InventoryItem {
-        filename: "renamed-a.md".into(),
-        hash: hash_a.clone(),
-    });
+    push_inventory(&mut req_a2, "renamed-a.md", &hash_a);
     req_a2.deleted.push("from-a.md".into());
+    req_a2
+        .deleted_baselines
+        .insert("from-a.md".into(), hash_a.clone());
     req_a2.new.push(NewNote {
         filename: "renamed-a.md".into(),
         content: content_a.into(),
@@ -494,10 +461,7 @@ fn multi_device_propagation() {
 
     // Device B syncs again — should see deletion of old + new file
     let mut req_b2 = make_request("device-b");
-    req_b2.inventory.push(InventoryItem {
-        filename: "from-a.md".into(),
-        hash: hash_a.clone(),
-    });
+    push_inventory(&mut req_b2, "from-a.md", &hash_a);
     let resp_b2 = process_sync(&conn, &notes_dir(&tmp), &req_b2).unwrap();
 
     // B should be told to delete from-a.md (tombstoned)
@@ -512,15 +476,13 @@ fn rename_vs_rename_keeps_the_first_server_name() {
     let content = "# Shared note";
     let hash = hash_sha256(content);
     seed_note(&conn, &tmp, "old-name.md", content);
-    seed_snapshot(&conn, "device-a", "old-name.md", &hash);
-    seed_snapshot(&conn, "device-b", "old-name.md", &hash);
 
     let mut req_a = make_request("device-a");
-    req_a.inventory.push(InventoryItem {
-        filename: "server-name.md".into(),
-        hash: hash.clone(),
-    });
+    push_inventory(&mut req_a, "server-name.md", &hash);
     req_a.deleted.push("old-name.md".into());
+    req_a
+        .deleted_baselines
+        .insert("old-name.md".into(), hash.clone());
     req_a.new.push(NewNote {
         filename: "server-name.md".into(),
         content: content.into(),
@@ -533,11 +495,11 @@ fn rename_vs_rename_keeps_the_first_server_name() {
     assert!(!file_exists(&tmp, "old-name.md"));
 
     let mut req_b = make_request("device-b");
-    req_b.inventory.push(InventoryItem {
-        filename: "client-name.md".into(),
-        hash: hash.clone(),
-    });
+    push_inventory(&mut req_b, "client-name.md", &hash);
     req_b.deleted.push("old-name.md".into());
+    req_b
+        .deleted_baselines
+        .insert("old-name.md".into(), hash.clone());
     req_b.new.push(NewNote {
         filename: "client-name.md".into(),
         content: content.into(),
@@ -595,19 +557,15 @@ fn lost_state_recovery() {
     // Server has notes
     seed_note(&conn, &tmp, "existing.md", "# Existing");
 
-    // Device syncs with NO device_snapshots (lost state) but has file in inventory
+    // Device syncs with lost state but has file in inventory with matching hash
     let content = "# Existing";
     let hash = hash_sha256(content);
     let mut req = make_request("recovered-device");
-    req.inventory.push(InventoryItem {
-        filename: "existing.md".into(),
-        hash: hash.clone(),
-    });
+    push_inventory(&mut req, "existing.md", &hash);
 
     let resp = process_sync(&conn, &notes_dir(&tmp), &req).unwrap();
 
-    // Since hashes match and no device snapshot, direction with empty last_sync
-    // is BothChanged but convergence check passes — no conflict
+    // Hashes match between inventory and server — no update or conflict needed
     assert!(resp.conflicts.is_empty());
 
     // Device also has a note server doesn't — it should appear as new from inventory
@@ -626,10 +584,7 @@ fn lost_state_reupload_same_content_does_not_duplicate_note() {
     // inventory still includes the file, and prepare_sync_payload_v2 would
     // also classify it as `new` because fileHashes is empty.
     let mut req = make_request("recovered-device");
-    req.inventory.push(InventoryItem {
-        filename: "existing.md".into(),
-        hash: hash.clone(),
-    });
+    push_inventory(&mut req, "existing.md", &hash);
     req.new.push(NewNote {
         filename: "existing.md".into(),
         content: content.into(),
@@ -658,26 +613,23 @@ fn lost_state_reupload_same_content_does_not_duplicate_note() {
 }
 
 #[test]
-fn device_snapshot_tracks_accepted_client_edit_hash() {
+fn accepted_client_edit_updates_server_state() {
     let (conn, tmp) = test_env();
     let original = "# Original";
     let original_hash = hash_sha256(original);
     seed_note(&conn, &tmp, "note.md", original);
-    seed_snapshot(&conn, "device-a", "note.md", &original_hash);
 
     let edited = "# Edited by client";
     let edited_hash = hash_sha256(edited);
 
     let mut req = make_request("device-a");
-    req.inventory.push(InventoryItem {
-        filename: "note.md".into(),
-        hash: edited_hash.clone(),
-    });
+    push_inventory(&mut req, "note.md", &edited_hash);
     req.changed.push(ChangedNote {
         filename: "note.md".into(),
         content: edited.into(),
         hash: edited_hash.clone(),
         modified_at: 1000,
+        baseline_hash: Some(original_hash.clone()),
     });
 
     let resp = process_sync(&conn, &notes_dir(&tmp), &req).unwrap();
@@ -686,12 +638,21 @@ fn device_snapshot_tracks_accepted_client_edit_hash() {
         "accepted client edits should not round-trip"
     );
 
-    let stored_hash = snapshot_hash(&conn, "device-a", "note.md")
-        .expect("device snapshot should be rewritten after sync");
+    // Verify server DB now has the edited hash
+    let stored_hash: String = conn
+        .query_row(
+            "SELECT content_hash FROM note_meta WHERE filename = 'note.md'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
     assert_eq!(
         stored_hash, edited_hash,
-        "device_snapshots must record the hash the device now has after an accepted edit"
+        "note_meta must record the new hash after an accepted client edit"
     );
+
+    // Verify file on disk was updated
+    assert_eq!(read_file(&tmp, "note.md").unwrap(), "# Edited by client");
 }
 
 #[test]
@@ -716,10 +677,7 @@ fn sync_version_increments() {
 
     // Another no-op should not increment further
     let mut req3 = make_request("device-a");
-    req3.inventory.push(InventoryItem {
-        filename: "new.md".into(),
-        hash: hash_sha256("# New"),
-    });
+    push_inventory(&mut req3, "new.md", &hash_sha256("# New"));
     let resp3 = process_sync(&conn, &notes_dir(&tmp), &req3).unwrap();
     assert_eq!(resp3.version, resp2.version);
 }
@@ -788,14 +746,8 @@ fn filename_collision() {
 
     // After applying that reconciliation, the next sync should be stable.
     let mut req2 = make_request("device-a");
-    req2.inventory.push(InventoryItem {
-        filename: "note.md".into(),
-        hash: server_hash,
-    });
-    req2.inventory.push(InventoryItem {
-        filename: "note (2).md".into(),
-        hash: hash_sha256(client_content),
-    });
+    push_inventory(&mut req2, "note.md", &server_hash);
+    push_inventory(&mut req2, "note (2).md", &hash_sha256(client_content));
     let resp2 = process_sync(&conn, &notes_dir(&tmp), &req2).unwrap();
     assert!(resp2.update.is_empty());
     assert!(resp2.conflicts.is_empty());
@@ -808,18 +760,17 @@ fn tombstone_prevents_reupload() {
     // Create and then delete a note
     seed_note(&conn, &tmp, "deleted.md", "# Was here");
     let hash = hash_sha256("# Was here");
-    seed_snapshot(&conn, "device-a", "deleted.md", &hash);
 
     let mut del_req = make_request("device-a");
     del_req.deleted.push("deleted.md".into());
+    del_req
+        .deleted_baselines
+        .insert("deleted.md".into(), hash.clone());
     process_sync(&conn, &notes_dir(&tmp), &del_req).unwrap();
 
     // Device B still has the file in inventory (stale)
     let mut req_b = make_request("device-b");
-    req_b.inventory.push(InventoryItem {
-        filename: "deleted.md".into(),
-        hash: hash.clone(),
-    });
+    push_inventory(&mut req_b, "deleted.md", &hash);
 
     let resp_b = process_sync(&conn, &notes_dir(&tmp), &req_b).unwrap();
 
@@ -841,15 +792,15 @@ fn tombstone_does_not_block_reupload_as_new() {
         hash: hash.clone(),
         modified_at: 1000,
     });
-    create_req.inventory.push(InventoryItem {
-        filename: "Untitled (2).md".into(),
-        hash: hash.clone(),
-    });
+    push_inventory(&mut create_req, "Untitled (2).md", &hash);
     process_sync(&conn, &notes_dir(&tmp), &create_req).unwrap();
 
     // Device A deletes it → tombstone created
     let mut del_req = make_request("device-a");
     del_req.deleted.push("Untitled (2).md".into());
+    del_req
+        .deleted_baselines
+        .insert("Untitled (2).md".into(), hash.clone());
     process_sync(&conn, &notes_dir(&tmp), &del_req).unwrap();
     assert!(!file_exists(&tmp, "Untitled (2).md"));
 
@@ -863,10 +814,7 @@ fn tombstone_does_not_block_reupload_as_new() {
         hash: new_hash.clone(),
         modified_at: 2000,
     });
-    reupload_req.inventory.push(InventoryItem {
-        filename: "Untitled (2).md".into(),
-        hash: new_hash.clone(),
-    });
+    push_inventory(&mut reupload_req, "Untitled (2).md", &new_hash);
 
     let resp = process_sync(&conn, &notes_dir(&tmp), &reupload_req).unwrap();
 
@@ -896,7 +844,6 @@ fn three_way_merge_clean() {
     let base = "# Title\n\nFirst paragraph.\n\nSecond paragraph.\n";
     let base_hash = hash_sha256(base);
     seed_note(&conn, &tmp, "note.md", base);
-    seed_snapshot(&conn, "device-a", "note.md", &base_hash);
     seed_content(&conn, base);
 
     // Server edits the title (another device synced first)
@@ -914,15 +861,13 @@ fn three_way_merge_clean() {
     let client_hash = hash_sha256(client_version);
 
     let mut req = make_request("device-a");
-    req.inventory.push(InventoryItem {
-        filename: "note.md".into(),
-        hash: client_hash.clone(),
-    });
+    push_inventory(&mut req, "note.md", &client_hash);
     req.changed.push(ChangedNote {
         filename: "note.md".into(),
         content: client_version.into(),
         hash: client_hash,
         modified_at: 2000,
+        baseline_hash: Some(base_hash.clone()),
     });
 
     let resp = process_sync(&conn, &notes_dir(&tmp), &req).unwrap();
@@ -954,7 +899,6 @@ fn three_way_merge_overlapping_fallback() {
     let base = "# Title\n\nParagraph one.\n";
     let base_hash = hash_sha256(base);
     seed_note(&conn, &tmp, "note.md", base);
-    seed_snapshot(&conn, "device-a", "note.md", &base_hash);
     seed_content(&conn, base);
 
     // Server edits the same paragraph
@@ -972,15 +916,13 @@ fn three_way_merge_overlapping_fallback() {
     let client_hash = hash_sha256(client_version);
 
     let mut req = make_request("device-a");
-    req.inventory.push(InventoryItem {
-        filename: "note.md".into(),
-        hash: client_hash.clone(),
-    });
+    push_inventory(&mut req, "note.md", &client_hash);
     req.changed.push(ChangedNote {
         filename: "note.md".into(),
         content: client_version.into(),
         hash: client_hash,
         modified_at: 2000,
+        baseline_hash: Some(base_hash.clone()),
     });
 
     let resp = process_sync(&conn, &notes_dir(&tmp), &req).unwrap();
@@ -1006,11 +948,10 @@ fn three_way_merge_missing_base_fallback() {
     let (conn, tmp) = test_env();
 
     // Base note exists but base content is NOT in content_store
-    // (simulates first sync after upgrading to Phase 1.5)
+    // (simulates first sync after upgrading — content_store was never backfilled)
     let base = "# Title\n\nParagraph.\n";
     let base_hash = hash_sha256(base);
     seed_note(&conn, &tmp, "note.md", base);
-    seed_snapshot(&conn, "device-a", "note.md", &base_hash);
     // Intentionally NOT calling seed_content — base is missing
 
     // Server edits title
@@ -1028,15 +969,13 @@ fn three_way_merge_missing_base_fallback() {
     let client_hash = hash_sha256(client_version);
 
     let mut req = make_request("device-a");
-    req.inventory.push(InventoryItem {
-        filename: "note.md".into(),
-        hash: client_hash.clone(),
-    });
+    push_inventory(&mut req, "note.md", &client_hash);
     req.changed.push(ChangedNote {
         filename: "note.md".into(),
         content: client_version.into(),
         hash: client_hash,
         modified_at: 2000,
+        baseline_hash: Some(base_hash.clone()),
     });
 
     let resp = process_sync(&conn, &notes_dir(&tmp), &req).unwrap();
@@ -1061,7 +1000,6 @@ fn three_way_merge_blob_skipped() {
         "INSERT INTO note_meta (filename, content_hash, modified_at, is_blob) VALUES (?1, ?2, ?3, 1)",
         rusqlite::params!["image.png", base_hash, 1000],
     ).unwrap();
-    seed_snapshot(&conn, "device-a", "image.png", &base_hash);
     seed_content(&conn, base);
 
     // Server changes blob
@@ -1079,15 +1017,13 @@ fn three_way_merge_blob_skipped() {
     let client_hash = hash_sha256(client_version);
 
     let mut req = make_request("device-a");
-    req.inventory.push(InventoryItem {
-        filename: "image.png".into(),
-        hash: client_hash.clone(),
-    });
+    push_inventory(&mut req, "image.png", &client_hash);
     req.changed.push(ChangedNote {
         filename: "image.png".into(),
         content: client_version.into(),
         hash: client_hash,
         modified_at: 2000,
+        baseline_hash: Some(base_hash.clone()),
     });
 
     let resp = process_sync(&conn, &notes_dir(&tmp), &req).unwrap();
@@ -1108,28 +1044,32 @@ fn three_way_merge_blob_skipped() {
 fn three_way_merge_multi_device() {
     let (conn, tmp) = test_env();
 
-    // Set up a note that all three devices know about
+    // Create the base note via sync so version_log tracks the base hash
+    // (prevents prune_content_store from evicting it before later merges).
     let base = "# Shared Note\n\nIntro paragraph.\n\nMiddle section.\n\nConclusion.\n";
     let base_hash = hash_sha256(base);
-    seed_note(&conn, &tmp, "shared.md", base);
-    seed_snapshot(&conn, "device-a", "shared.md", &base_hash);
-    seed_snapshot(&conn, "device-b", "shared.md", &base_hash);
-    seed_snapshot(&conn, "device-c", "shared.md", &base_hash);
+    let mut setup_req = make_request("device-setup");
+    push_inventory(&mut setup_req, "shared.md", &base_hash);
+    setup_req.new.push(NewNote {
+        filename: "shared.md".into(),
+        content: base.into(),
+        hash: base_hash.clone(),
+        modified_at: 1000,
+    });
+    process_sync(&conn, &notes_dir(&tmp), &setup_req).unwrap();
     seed_content(&conn, base);
 
     // Device A edits the intro — syncs first
     let a_version = "# Shared Note\n\nA's intro paragraph.\n\nMiddle section.\n\nConclusion.\n";
     let a_hash = hash_sha256(a_version);
     let mut req_a = make_request("device-a");
-    req_a.inventory.push(InventoryItem {
-        filename: "shared.md".into(),
-        hash: a_hash.clone(),
-    });
+    push_inventory(&mut req_a, "shared.md", &a_hash);
     req_a.changed.push(ChangedNote {
         filename: "shared.md".into(),
         content: a_version.into(),
         hash: a_hash,
         modified_at: 2000,
+        baseline_hash: Some(base_hash.clone()),
     });
     let resp_a = process_sync(&conn, &notes_dir(&tmp), &req_a).unwrap();
     assert!(resp_a.conflicts.is_empty());
@@ -1138,15 +1078,13 @@ fn three_way_merge_multi_device() {
     let b_version = "# Shared Note\n\nIntro paragraph.\n\nMiddle section.\n\nB's conclusion.\n";
     let b_hash = hash_sha256(b_version);
     let mut req_b = make_request("device-b");
-    req_b.inventory.push(InventoryItem {
-        filename: "shared.md".into(),
-        hash: b_hash.clone(),
-    });
+    push_inventory(&mut req_b, "shared.md", &b_hash);
     req_b.changed.push(ChangedNote {
         filename: "shared.md".into(),
         content: b_version.into(),
         hash: b_hash,
         modified_at: 2000,
+        baseline_hash: Some(base_hash.clone()),
     });
     let resp_b = process_sync(&conn, &notes_dir(&tmp), &req_b).unwrap();
 
@@ -1162,12 +1100,9 @@ fn three_way_merge_multi_device() {
     assert!(merged_update.is_some());
     assert_eq!(merged_update.unwrap().content, expected_merged);
 
-    // Device C syncs — should get the fully merged version
+    // Device C syncs — should get the fully merged version (stale hash in inventory)
     let mut req_c = make_request("device-c");
-    req_c.inventory.push(InventoryItem {
-        filename: "shared.md".into(),
-        hash: base_hash,
-    });
+    push_inventory(&mut req_c, "shared.md", &base_hash);
     let resp_c = process_sync(&conn, &notes_dir(&tmp), &req_c).unwrap();
 
     let c_update = resp_c.update.iter().find(|u| u.filename == "shared.md");
@@ -1178,32 +1113,100 @@ fn three_way_merge_multi_device() {
     assert_eq!(c_update.unwrap().content, expected_merged);
 }
 
+/// Reproduces QA Scenario 4: two devices edit different paragraphs through
+/// the full process_sync path (no seed_content workaround). Verifies that
+/// prune_content_store does not evict ancestor content needed for merge.
+#[test]
+fn three_way_merge_multi_device_no_seed_content() {
+    let (conn, tmp) = test_env();
+
+    // Create the base note via sync — do NOT call seed_content after.
+    // The production path must preserve ancestor content on its own.
+    let base = "# Shared Note\n\nIntro paragraph.\n\nMiddle section.\n\nConclusion.\n";
+    let base_hash = hash_sha256(base);
+    let mut setup_req = make_request("device-setup");
+    push_inventory(&mut setup_req, "shared.md", &base_hash);
+    setup_req.new.push(NewNote {
+        filename: "shared.md".into(),
+        content: base.into(),
+        hash: base_hash.clone(),
+        modified_at: 1000,
+    });
+    process_sync(&conn, &notes_dir(&tmp), &setup_req).unwrap();
+    // Intentionally NO seed_content here — rely on production code path
+
+    // Device A edits the intro — syncs first
+    let a_version = "# Shared Note\n\nA's intro paragraph.\n\nMiddle section.\n\nConclusion.\n";
+    let a_hash = hash_sha256(a_version);
+    let mut req_a = make_request("device-a");
+    push_inventory(&mut req_a, "shared.md", &a_hash);
+    req_a.changed.push(ChangedNote {
+        filename: "shared.md".into(),
+        content: a_version.into(),
+        hash: a_hash,
+        modified_at: 2000,
+        baseline_hash: Some(base_hash.clone()),
+    });
+    let resp_a = process_sync(&conn, &notes_dir(&tmp), &req_a).unwrap();
+    assert!(resp_a.conflicts.is_empty(), "device A sync should not conflict");
+
+    // Device B edits the conclusion — syncs second (should merge with A's edit)
+    let b_version = "# Shared Note\n\nIntro paragraph.\n\nMiddle section.\n\nB's conclusion.\n";
+    let b_hash = hash_sha256(b_version);
+    let mut req_b = make_request("device-b");
+    push_inventory(&mut req_b, "shared.md", &b_hash);
+    req_b.changed.push(ChangedNote {
+        filename: "shared.md".into(),
+        content: b_version.into(),
+        hash: b_hash,
+        modified_at: 2000,
+        baseline_hash: Some(base_hash.clone()),
+    });
+    let resp_b = process_sync(&conn, &notes_dir(&tmp), &req_b).unwrap();
+
+    assert!(
+        resp_b.conflicts.is_empty(),
+        "non-overlapping edits should merge cleanly without seed_content, got {} conflicts",
+        resp_b.conflicts.len()
+    );
+
+    let expected_merged =
+        "# Shared Note\n\nA's intro paragraph.\n\nMiddle section.\n\nB's conclusion.\n";
+    let merged_update = resp_b.update.iter().find(|u| u.filename == "shared.md");
+    assert!(merged_update.is_some(), "device B should receive merged note");
+    assert_eq!(merged_update.unwrap().content, expected_merged);
+}
+
 #[test]
 fn accepted_edit_backfills_ancestor_for_next_device_merge() {
     let (conn, tmp) = test_env();
 
-    // Simulate an existing pre-phase-1.5 note: device snapshots know the base
-    // hash, but content_store has never been backfilled.
+    // Create the base note via sync so version_log tracks the base hash
+    // (prevents prune_content_store from evicting it before later merges).
     let base = "# Title\n\nIntro paragraph.\n\nConclusion.\n";
     let base_hash = hash_sha256(base);
-    seed_note(&conn, &tmp, "note.md", base);
-    seed_snapshot(&conn, "device-a", "note.md", &base_hash);
-    seed_snapshot(&conn, "device-b", "note.md", &base_hash);
+    let mut setup_req = make_request("device-setup");
+    push_inventory(&mut setup_req, "note.md", &base_hash);
+    setup_req.new.push(NewNote {
+        filename: "note.md".into(),
+        content: base.into(),
+        hash: base_hash.clone(),
+        modified_at: 1000,
+    });
+    process_sync(&conn, &notes_dir(&tmp), &setup_req).unwrap();
+    seed_content(&conn, base);
 
-    // Device A edits the title. The sync engine should preserve the pre-edit
-    // ancestor before overwriting the server copy so device B can still merge.
+    // Device A edits the title — accepted as ClientChanged.
     let a_version = "# Updated Title\n\nIntro paragraph.\n\nConclusion.\n";
     let a_hash = hash_sha256(a_version);
     let mut req_a = make_request("device-a");
-    req_a.inventory.push(InventoryItem {
-        filename: "note.md".into(),
-        hash: a_hash.clone(),
-    });
+    push_inventory(&mut req_a, "note.md", &a_hash);
     req_a.changed.push(ChangedNote {
         filename: "note.md".into(),
         content: a_version.into(),
         hash: a_hash,
         modified_at: 2000,
+        baseline_hash: Some(base_hash.clone()),
     });
 
     let resp_a = process_sync(&conn, &notes_dir(&tmp), &req_a).unwrap();
@@ -1212,32 +1215,27 @@ fn accepted_edit_backfills_ancestor_for_next_device_merge() {
         resp_a.update.is_empty(),
         "accepted edits should not be echoed back when no merge was needed"
     );
-    assert_eq!(
-        db::get_content(&conn, &base_hash).unwrap(),
-        Some(base.to_string()),
-        "the old server content should be preserved as a future merge ancestor"
-    );
 
-    // Device B edits a different section from the same pre-upgrade base.
+    // Device B edits a different section from the same base.
+    // B sends baseline_hash = base_hash, which is still in content_store
+    // (referenced by version_log from B's note creation or the initial seed).
     let b_version = "# Title\n\nEdited intro paragraph.\n\nConclusion.\n";
     let b_hash = hash_sha256(b_version);
     let mut req_b = make_request("device-b");
-    req_b.inventory.push(InventoryItem {
-        filename: "note.md".into(),
-        hash: b_hash.clone(),
-    });
+    push_inventory(&mut req_b, "note.md", &b_hash);
     req_b.changed.push(ChangedNote {
         filename: "note.md".into(),
         content: b_version.into(),
         hash: b_hash,
         modified_at: 3000,
+        baseline_hash: Some(base_hash.clone()),
     });
 
     let resp_b = process_sync(&conn, &notes_dir(&tmp), &req_b).unwrap();
 
     assert!(
         resp_b.conflicts.is_empty(),
-        "the preserved ancestor should let the second device merge cleanly"
+        "non-overlapping edits should merge cleanly when base is in content_store"
     );
     let merged = resp_b
         .update
@@ -1247,5 +1245,621 @@ fn accepted_edit_backfills_ancestor_for_next_device_merge() {
     assert_eq!(
         merged.content,
         "# Updated Title\n\nEdited intro paragraph.\n\nConclusion.\n"
+    );
+}
+
+// ── Version changelog tests ──────────────────────────────────────────
+
+#[test]
+fn version_log_row_per_file() {
+    let (conn, tmp) = test_env();
+
+    // Upload 3 new files in one sync
+    let mut req = make_request("device-a");
+    for name in &["alpha.md", "beta.md", "gamma.md"] {
+        let content = format!("# {name}");
+        let hash = hash_sha256(&content);
+        push_inventory(&mut req, name, &hash);
+        req.new.push(NewNote {
+            filename: name.to_string(),
+            content,
+            hash,
+            modified_at: 1000,
+        });
+    }
+
+    let resp = process_sync(&conn, &notes_dir(&tmp), &req).unwrap();
+    let version = resp.version;
+    assert!(version > 0, "mutating sync should bump version");
+
+    // Query the changelog for exactly this version
+    let changelog = db::query_changelog(&conn, version - 1, version).unwrap();
+    assert_eq!(
+        changelog.len(),
+        3,
+        "3 new files should produce 3 version_log rows"
+    );
+    for name in &["alpha.md", "beta.md", "gamma.md"] {
+        let (action, hash) = changelog.get(*name).expect("file should be in changelog");
+        assert_eq!(action, "upsert");
+        assert!(hash.is_some(), "upsert entries should have a hash");
+    }
+}
+
+#[test]
+fn version_log_noop_sync_no_rows() {
+    let (conn, tmp) = test_env();
+    seed_note(&conn, &tmp, "existing.md", "# Hello");
+
+    let version_before = db::get_sync_version(&conn).unwrap();
+
+    // Client sends inventory that matches server exactly — no mutations
+    let mut req = make_request("device-a");
+    push_inventory(&mut req, "existing.md", &hash_sha256("# Hello"));
+
+    let resp = process_sync(&conn, &notes_dir(&tmp), &req).unwrap();
+    assert_eq!(
+        resp.version, version_before,
+        "no-op sync should not bump version"
+    );
+
+    // version_log should have no rows at all (seed_note bypasses sync engine)
+    let row_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM version_log", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(row_count, 0, "no-op sync should write zero version_log rows");
+}
+
+#[test]
+fn version_log_aggregation_collapses_edits() {
+    let (conn, tmp) = test_env();
+
+    // v1: create the file
+    let content_v1 = "# Version 1";
+    let hash_v1 = hash_sha256(content_v1);
+    let mut req1 = make_request("device-a");
+    push_inventory(&mut req1, "note.md", &hash_v1);
+    req1.new.push(NewNote {
+        filename: "note.md".into(),
+        content: content_v1.into(),
+        hash: hash_v1.clone(),
+        modified_at: 1000,
+    });
+    let resp1 = process_sync(&conn, &notes_dir(&tmp), &req1).unwrap();
+    let v1 = resp1.version;
+
+    // v2: edit the same file
+    let content_v2 = "# Version 2";
+    let hash_v2 = hash_sha256(content_v2);
+    let mut req2 = make_request("device-a");
+    push_inventory(&mut req2, "note.md", &hash_v2);
+    req2.changed.push(ChangedNote {
+        filename: "note.md".into(),
+        content: content_v2.into(),
+        hash: hash_v2.clone(),
+        modified_at: 2000,
+        baseline_hash: Some(hash_v1.clone()),
+    });
+    let resp2 = process_sync(&conn, &notes_dir(&tmp), &req2).unwrap();
+    let v2 = resp2.version;
+    assert!(v2 > v1, "edit should bump version");
+
+    // A client at v0 querying changelog through v2 should see only the v2 version
+    let changelog = db::query_changelog(&conn, 0, v2).unwrap();
+    assert_eq!(changelog.len(), 1, "same file edited twice should collapse to one entry");
+    let (action, hash) = changelog.get("note.md").unwrap();
+    assert_eq!(action, "upsert");
+    assert_eq!(hash.as_deref(), Some(hash_v2.as_str()), "collapsed entry should have the latest hash");
+}
+
+#[test]
+fn version_log_create_delete_cancels() {
+    let (conn, tmp) = test_env();
+
+    // v1: create a file
+    let content = "# Ephemeral";
+    let hash = hash_sha256(content);
+    let mut req1 = make_request("device-a");
+    push_inventory(&mut req1, "ephemeral.md", &hash);
+    req1.new.push(NewNote {
+        filename: "ephemeral.md".into(),
+        content: content.into(),
+        hash: hash.clone(),
+        modified_at: 1000,
+    });
+    let resp1 = process_sync(&conn, &notes_dir(&tmp), &req1).unwrap();
+    let v1 = resp1.version;
+
+    // v2: delete the same file
+    let mut req2 = make_request("device-a");
+    req2.deleted.push("ephemeral.md".into());
+    req2.deleted_baselines
+        .insert("ephemeral.md".into(), hash.clone());
+    let resp2 = process_sync(&conn, &notes_dir(&tmp), &req2).unwrap();
+    let v2 = resp2.version;
+    assert!(v2 > v1);
+
+    // Changelog from v0 → v2: last action wins (delete)
+    let changelog = db::query_changelog(&conn, 0, v2).unwrap();
+    let (action, _) = changelog.get("ephemeral.md")
+        .expect("file should appear in changelog even if net effect is delete");
+    assert_eq!(action, "delete", "create-then-delete should show final action as 'delete'");
+}
+
+#[test]
+fn version_log_changelog_only_download() {
+    let (conn, tmp) = test_env();
+
+    // v1: create alpha.md
+    let alpha_content = "# Alpha";
+    let alpha_hash = hash_sha256(alpha_content);
+    let mut req1 = make_request("device-a");
+    push_inventory(&mut req1, "alpha.md", &alpha_hash);
+    req1.new.push(NewNote {
+        filename: "alpha.md".into(),
+        content: alpha_content.into(),
+        hash: alpha_hash.clone(),
+        modified_at: 1000,
+    });
+    let resp1 = process_sync(&conn, &notes_dir(&tmp), &req1).unwrap();
+    let v1 = resp1.version;
+
+    // v2: create beta.md
+    let beta_content = "# Beta";
+    let beta_hash = hash_sha256(beta_content);
+    let mut req2 = make_request("device-a");
+    push_inventory(&mut req2, "alpha.md", &alpha_hash);
+    push_inventory(&mut req2, "beta.md", &beta_hash);
+    req2.new.push(NewNote {
+        filename: "beta.md".into(),
+        content: beta_content.into(),
+        hash: beta_hash.clone(),
+        modified_at: 2000,
+    });
+    let resp2 = process_sync(&conn, &notes_dir(&tmp), &req2).unwrap();
+    let v2 = resp2.version;
+    assert!(v2 > v1);
+
+    // Client B at v1, sends inventory: None (changelog path), last_version: Some(v1)
+    let mut req_b = SyncRequest {
+        device_id: "device-b".into(),
+        inventory: None,
+        changed: vec![],
+        new: vec![],
+        deleted: vec![],
+        last_version: Some(v1),
+        deleted_baselines: HashMap::new(),
+    };
+
+    let resp_b = process_sync(&conn, &notes_dir(&tmp), &req_b).unwrap();
+
+    // Client B should receive only beta.md (the changelog delta), not alpha.md
+    assert_eq!(
+        resp_b.update.len(),
+        1,
+        "changelog-only path should deliver only the delta"
+    );
+    assert_eq!(resp_b.update[0].filename, "beta.md");
+    assert_eq!(resp_b.update[0].content, beta_content);
+    assert_eq!(resp_b.version, v2);
+}
+
+#[test]
+fn version_log_beyond_retention() {
+    let (conn, tmp) = test_env();
+
+    // v1: create a file to get version 1
+    let content = "# Note";
+    let hash = hash_sha256(content);
+    let mut req1 = make_request("device-a");
+    push_inventory(&mut req1, "note.md", &hash);
+    req1.new.push(NewNote {
+        filename: "note.md".into(),
+        content: content.into(),
+        hash: hash.clone(),
+        modified_at: 1000,
+    });
+    let resp1 = process_sync(&conn, &notes_dir(&tmp), &req1).unwrap();
+    let v1 = resp1.version;
+
+    // v2: edit to get version 2
+    let content2 = "# Note v2";
+    let hash2 = hash_sha256(content2);
+    let mut req2 = make_request("device-a");
+    push_inventory(&mut req2, "note.md", &hash2);
+    req2.changed.push(ChangedNote {
+        filename: "note.md".into(),
+        content: content2.into(),
+        hash: hash2.clone(),
+        modified_at: 2000,
+        baseline_hash: Some(hash.clone()),
+    });
+    let resp2 = process_sync(&conn, &notes_dir(&tmp), &req2).unwrap();
+    let v2 = resp2.version;
+
+    // Compact version_log: remove entries < v2 (keeps only v2)
+    let pruned = db::compact_version_log(&conn, v2).unwrap();
+    assert!(pruned > 0, "should have pruned at least one version_log entry");
+
+    // Client at v0 uses changelog path — server should report oldest_retained_version
+    let req_old = SyncRequest {
+        device_id: "device-old".into(),
+        inventory: None,
+        changed: vec![],
+        new: vec![],
+        deleted: vec![],
+        last_version: Some(0),
+        deleted_baselines: HashMap::new(),
+    };
+    let resp_old = process_sync(&conn, &notes_dir(&tmp), &req_old).unwrap();
+
+    assert!(
+        resp_old.oldest_retained_version.is_some(),
+        "response should include oldest_retained_version after compaction"
+    );
+    assert_eq!(
+        resp_old.oldest_retained_version.unwrap(),
+        v2,
+        "oldest retained version should be v2 after compacting entries < v2"
+    );
+}
+
+// ── Client-sent baseline hash tests ──────────────────────────────────
+
+#[test]
+fn baseline_hash_conflict_detection() {
+    let (conn, tmp) = test_env();
+    let original = "# Original";
+    let original_hash = hash_sha256(original);
+    seed_note(&conn, &tmp, "note.md", original);
+
+    // Server was edited by another device
+    let server_edited = "# Server edit";
+    let server_hash = hash_sha256(server_edited);
+    write_server_file(&tmp, "note.md", server_edited);
+    conn.execute(
+        "UPDATE note_meta SET content_hash = ?1 WHERE filename = 'note.md'",
+        [&server_hash],
+    )
+    .unwrap();
+
+    // Client also edited (different from server), sends baseline_hash = original
+    let client_edited = "# Client edit";
+    let client_hash = hash_sha256(client_edited);
+
+    let mut req = make_request("device-a");
+    push_inventory(&mut req, "note.md", &client_hash);
+    req.changed.push(ChangedNote {
+        filename: "note.md".into(),
+        content: client_edited.into(),
+        hash: client_hash,
+        modified_at: 2000,
+        baseline_hash: Some(original_hash.clone()),
+    });
+
+    let resp = process_sync(&conn, &notes_dir(&tmp), &req).unwrap();
+
+    // baseline_hash != server_hash AND baseline_hash != client_hash → BothChanged → conflict
+    assert_eq!(
+        resp.conflicts.len(),
+        1,
+        "baseline_hash mismatch on both sides should produce a conflict"
+    );
+    assert!(resp.conflicts[0].filename.contains("conflict"));
+    assert_eq!(resp.conflicts[0].content, client_edited);
+
+    // Server version should be sent to client
+    assert!(resp
+        .update
+        .iter()
+        .any(|u| u.filename == "note.md" && u.content == server_edited));
+}
+
+#[test]
+fn baseline_hash_three_way_merge() {
+    let (conn, tmp) = test_env();
+
+    // Base content stored in content_store
+    let base = "# Title\n\nFirst paragraph.\n\nSecond paragraph.\n";
+    let base_hash = hash_sha256(base);
+    seed_note(&conn, &tmp, "note.md", base);
+    seed_content(&conn, base);
+
+    // Server edits the title
+    let server_version = "# New Title\n\nFirst paragraph.\n\nSecond paragraph.\n";
+    let server_hash = hash_sha256(server_version);
+    write_server_file(&tmp, "note.md", server_version);
+    conn.execute(
+        "UPDATE note_meta SET content_hash = ?1 WHERE filename = 'note.md'",
+        [&server_hash],
+    )
+    .unwrap();
+
+    // Client edits second paragraph, sends baseline_hash = base_hash
+    let client_version = "# Title\n\nFirst paragraph.\n\nClient second paragraph.\n";
+    let client_hash = hash_sha256(client_version);
+
+    let mut req = make_request("device-a");
+    push_inventory(&mut req, "note.md", &client_hash);
+    req.changed.push(ChangedNote {
+        filename: "note.md".into(),
+        content: client_version.into(),
+        hash: client_hash,
+        modified_at: 2000,
+        baseline_hash: Some(base_hash.clone()),
+    });
+
+    let resp = process_sync(&conn, &notes_dir(&tmp), &req).unwrap();
+
+    // Should merge cleanly using the ancestor from content_store
+    assert!(
+        resp.conflicts.is_empty(),
+        "non-overlapping edits should merge cleanly via baseline_hash ancestor lookup"
+    );
+
+    let merged = resp
+        .update
+        .iter()
+        .find(|u| u.filename == "note.md")
+        .expect("merged note should be returned");
+    let expected = "# New Title\n\nFirst paragraph.\n\nClient second paragraph.\n";
+    assert_eq!(merged.content, expected);
+    assert_eq!(read_file(&tmp, "note.md").unwrap(), expected);
+}
+
+#[test]
+fn baseline_hash_missing_treated_as_new() {
+    let (conn, tmp) = test_env();
+
+    // Client sends a changed note for a file the server doesn't know about,
+    // with baseline_hash: None
+    let content = "# Brand New";
+    let hash = hash_sha256(content);
+
+    let mut req = make_request("device-a");
+    push_inventory(&mut req, "unknown.md", &hash);
+    req.changed.push(ChangedNote {
+        filename: "unknown.md".into(),
+        content: content.into(),
+        hash: hash.clone(),
+        modified_at: 1000,
+        baseline_hash: None,
+    });
+
+    let resp = process_sync(&conn, &notes_dir(&tmp), &req).unwrap();
+
+    // Should be treated as new — no conflict
+    assert!(resp.conflicts.is_empty(), "unknown file should be treated as new, not conflict");
+    assert!(file_exists(&tmp, "unknown.md"), "file should be created on server");
+    assert_eq!(read_file(&tmp, "unknown.md").unwrap(), content);
+}
+
+#[test]
+fn baseline_hash_stale_delete_rejected() {
+    let (conn, tmp) = test_env();
+    let original = "# Original";
+    let original_hash = hash_sha256(original);
+    seed_note(&conn, &tmp, "note.md", original);
+
+    // Server was edited (another device advanced the content)
+    let server_edited = "# Server advanced";
+    let server_hash = hash_sha256(server_edited);
+    write_server_file(&tmp, "note.md", server_edited);
+    conn.execute(
+        "UPDATE note_meta SET content_hash = ?1 WHERE filename = 'note.md'",
+        [&server_hash],
+    )
+    .unwrap();
+
+    // Client tries to delete with stale baseline (original_hash != server_hash)
+    let mut req = make_request("device-a");
+    req.deleted.push("note.md".into());
+    req.deleted_baselines
+        .insert("note.md".into(), original_hash.clone());
+
+    let resp = process_sync(&conn, &notes_dir(&tmp), &req).unwrap();
+
+    // Delete should be rejected — server version should be sent to client
+    assert!(
+        file_exists(&tmp, "note.md"),
+        "file should still exist on server after rejected stale delete"
+    );
+    assert!(
+        resp.update
+            .iter()
+            .any(|u| u.filename == "note.md" && u.content == server_edited),
+        "server should return its current version when delete baseline is stale"
+    );
+}
+
+// ── Mixed-direction tests ────────────────────────────────────────────
+
+#[test]
+fn mixed_upload_and_download() {
+    let (conn, tmp) = test_env();
+
+    // Setup: create alpha.md on server at v1
+    let alpha_content = "# Alpha from server";
+    let alpha_hash = hash_sha256(alpha_content);
+    let mut setup = make_request("device-setup");
+    push_inventory(&mut setup, "alpha.md", &alpha_hash);
+    setup.new.push(NewNote {
+        filename: "alpha.md".into(),
+        content: alpha_content.into(),
+        hash: alpha_hash.clone(),
+        modified_at: 1000,
+    });
+    let resp_setup = process_sync(&conn, &notes_dir(&tmp), &setup).unwrap();
+    let v1 = resp_setup.version;
+
+    // v2: server-side edit to alpha.md (simulated by another device)
+    let alpha_v2 = "# Alpha updated";
+    let alpha_v2_hash = hash_sha256(alpha_v2);
+    let mut edit_req = make_request("device-other");
+    push_inventory(&mut edit_req, "alpha.md", &alpha_v2_hash);
+    edit_req.changed.push(ChangedNote {
+        filename: "alpha.md".into(),
+        content: alpha_v2.into(),
+        hash: alpha_v2_hash.clone(),
+        modified_at: 2000,
+        baseline_hash: Some(alpha_hash.clone()),
+    });
+    let resp_edit = process_sync(&conn, &notes_dir(&tmp), &edit_req).unwrap();
+    let v2 = resp_edit.version;
+    assert!(v2 > v1);
+
+    // Client B at v1: uploads dirty beta.md + downloads changelog delta
+    let beta_content = "# Beta from client B";
+    let beta_hash = hash_sha256(beta_content);
+    let mut req_b = SyncRequest {
+        device_id: "device-b".into(),
+        inventory: None,
+        changed: vec![ChangedNote {
+            filename: "beta.md".into(),
+            content: beta_content.into(),
+            hash: beta_hash.clone(),
+            modified_at: 3000,
+            baseline_hash: None,
+        }],
+        new: vec![],
+        deleted: vec![],
+        last_version: Some(v1),
+        deleted_baselines: HashMap::new(),
+    };
+
+    let resp_b = process_sync(&conn, &notes_dir(&tmp), &req_b).unwrap();
+
+    // beta.md should be accepted as new (server didn't have it)
+    assert!(file_exists(&tmp, "beta.md"), "uploaded beta.md should exist on server");
+    assert_eq!(read_file(&tmp, "beta.md").unwrap(), beta_content);
+
+    // alpha.md should be downloaded via changelog (changed at v2, client was at v1)
+    assert!(
+        resp_b.update.iter().any(|u| u.filename == "alpha.md" && u.content == alpha_v2),
+        "changelog-derived alpha.md should be delivered to client"
+    );
+}
+
+#[test]
+fn mixed_no_double_delivery() {
+    let (conn, tmp) = test_env();
+
+    // Setup: create note.md at v1
+    let original = "# Original";
+    let original_hash = hash_sha256(original);
+    let mut setup = make_request("device-a");
+    push_inventory(&mut setup, "note.md", &original_hash);
+    setup.new.push(NewNote {
+        filename: "note.md".into(),
+        content: original.into(),
+        hash: original_hash.clone(),
+        modified_at: 1000,
+    });
+    let resp_setup = process_sync(&conn, &notes_dir(&tmp), &setup).unwrap();
+    let v1 = resp_setup.version;
+
+    // Client B uploads a new version of note.md with changelog path
+    let edited = "# Edited by B";
+    let edited_hash = hash_sha256(edited);
+    let req_b = SyncRequest {
+        device_id: "device-b".into(),
+        inventory: None,
+        changed: vec![ChangedNote {
+            filename: "note.md".into(),
+            content: edited.into(),
+            hash: edited_hash.clone(),
+            modified_at: 2000,
+            baseline_hash: Some(original_hash.clone()),
+        }],
+        new: vec![],
+        deleted: vec![],
+        last_version: Some(v1),
+        deleted_baselines: HashMap::new(),
+    };
+
+    let resp_b = process_sync(&conn, &notes_dir(&tmp), &req_b).unwrap();
+
+    // note.md was in the upload set — it should NOT appear in the download set
+    let note_updates: Vec<_> = resp_b
+        .update
+        .iter()
+        .filter(|u| u.filename == "note.md")
+        .collect();
+    assert!(
+        note_updates.is_empty(),
+        "file in upload set should be excluded from changelog download; got {} update(s)",
+        note_updates.len()
+    );
+
+    // Verify the upload was accepted
+    assert_eq!(read_file(&tmp, "note.md").unwrap(), "# Edited by B");
+}
+
+// ── Content store pruning test ───────────────────────────────────────
+
+#[test]
+fn content_store_pruned_against_note_meta_and_version_log() {
+    let (conn, tmp) = test_env();
+
+    // Create a note via sync so its hash goes into version_log and note_meta
+    let content_a = "# Keep me (note_meta)";
+    let hash_a = hash_sha256(content_a);
+    let mut req1 = make_request("device-a");
+    push_inventory(&mut req1, "keep.md", &hash_a);
+    req1.new.push(NewNote {
+        filename: "keep.md".into(),
+        content: content_a.into(),
+        hash: hash_a.clone(),
+        modified_at: 1000,
+    });
+    let resp1 = process_sync(&conn, &notes_dir(&tmp), &req1).unwrap();
+    let v1 = resp1.version;
+
+    // Edit the note so the old hash is only in version_log (not note_meta)
+    let content_b = "# Keep me (version_log only)";
+    let hash_b = hash_sha256(content_b);
+    let mut req2 = make_request("device-a");
+    push_inventory(&mut req2, "keep.md", &hash_b);
+    req2.changed.push(ChangedNote {
+        filename: "keep.md".into(),
+        content: content_b.into(),
+        hash: hash_b.clone(),
+        modified_at: 2000,
+        baseline_hash: Some(hash_a.clone()),
+    });
+    let resp2 = process_sync(&conn, &notes_dir(&tmp), &req2).unwrap();
+
+    // Manually insert an unreferenced hash into content_store
+    let orphan_content = "# I should be pruned";
+    let orphan_hash = hash_sha256(orphan_content);
+    db::store_content(&conn, &orphan_hash, orphan_content).unwrap();
+
+    // Verify the orphan is there before the next sync triggers pruning
+    assert!(
+        db::get_content(&conn, &orphan_hash).unwrap().is_some(),
+        "orphan content should exist before pruning"
+    );
+
+    // Trigger another sync to run prune_content_store
+    let mut req3 = make_request("device-a");
+    push_inventory(&mut req3, "keep.md", &hash_b);
+    let _ = process_sync(&conn, &notes_dir(&tmp), &req3).unwrap();
+
+    // hash_b is in note_meta → should be kept
+    assert!(
+        db::get_content(&conn, &hash_b).unwrap().is_some(),
+        "content referenced by note_meta should NOT be pruned"
+    );
+
+    // hash_a is in version_log (from v1 creation) → should be kept
+    assert!(
+        db::get_content(&conn, &hash_a).unwrap().is_some(),
+        "content referenced by version_log should NOT be pruned"
+    );
+
+    // orphan_hash is in neither note_meta nor version_log → should be pruned
+    assert!(
+        db::get_content(&conn, &orphan_hash).unwrap().is_none(),
+        "unreferenced content should be pruned from content_store"
     );
 }

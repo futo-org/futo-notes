@@ -39,6 +39,10 @@ export interface AppState {
   lastSyncError: string;
   hashCache?: Record<string, { modifiedAt: number; hash: string }>;
 
+  // Dirty journal: files changed/deleted locally since last successful sync
+  dirtyUpserts?: string[];
+  dirtyDeletes?: string[];
+
   // Cached graph layout from server
   graphLayout?: {
     serverVersion: number;
@@ -343,6 +347,10 @@ export interface V2SyncState {
   lastServerVersion: number;
   fileHashes: Record<string, string>;
   hashCache?: Record<string, { modifiedAt: number; hash: string }>;
+  /** Dirty journal: filenames upserted locally since last sync. */
+  dirtyUpserts?: string[];
+  /** Dirty journal: filenames deleted locally since last sync. */
+  dirtyDeletes?: string[];
 }
 
 export async function loadV2SyncState(): Promise<V2SyncState> {
@@ -353,6 +361,8 @@ export async function loadV2SyncState(): Promise<V2SyncState> {
     lastServerVersion: s.lastServerVersion,
     fileHashes: s.fileHashes,
     ...(s.hashCache ? { hashCache: s.hashCache } : {}),
+    ...(s.dirtyUpserts?.length ? { dirtyUpserts: s.dirtyUpserts } : {}),
+    ...(s.dirtyDeletes?.length ? { dirtyDeletes: s.dirtyDeletes } : {}),
   };
 }
 
@@ -364,6 +374,8 @@ export async function saveV2SyncState(state: V2SyncState): Promise<void> {
     lastServerVersion: state.lastServerVersion,
     fileHashes: state.fileHashes,
     hashCache: state.hashCache,
+    dirtyUpserts: state.dirtyUpserts?.length ? state.dirtyUpserts : undefined,
+    dirtyDeletes: state.dirtyDeletes?.length ? state.dirtyDeletes : undefined,
   });
 }
 

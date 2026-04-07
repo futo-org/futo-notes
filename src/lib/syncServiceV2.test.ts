@@ -77,6 +77,8 @@ describe('syncServiceV2', () => {
       changed: [],
       new: [],
       deleted: [],
+      lastVersion: null,
+      deletedBaselines: {},
       elapsedMs: 0,
     });
     rustCoreMocks.applySyncDeltaV2.mockResolvedValue({
@@ -126,6 +128,8 @@ describe('syncServiceV2', () => {
       changed: [],
       new: [],
       deleted: [],
+      lastVersion: null,
+      deletedBaselines: {},
       elapsedMs: 0,
     });
     rustCoreMocks.applySyncDeltaV2.mockResolvedValue({
@@ -181,6 +185,8 @@ describe('syncServiceV2', () => {
       changed: [],
       new: [],
       deleted: [],
+      lastVersion: null,
+      deletedBaselines: {},
       elapsedMs: 0,
     });
 
@@ -225,6 +231,8 @@ describe('syncServiceV2', () => {
       changed: [],
       new: [],
       deleted: [],
+      lastVersion: 1,
+      deletedBaselines: {},
       elapsedMs: 0,
     });
     rustCoreMocks.applySyncDeltaV2.mockResolvedValue({
@@ -290,6 +298,8 @@ describe('syncServiceV2', () => {
         { filename: 'note.md', content: '# Client version', hash: 'client-hash' },
       ],
       deleted: [],
+      lastVersion: 1,
+      deletedBaselines: {},
       elapsedMs: 0,
     });
     rustCoreMocks.applySyncDeltaV2.mockResolvedValue({
@@ -335,6 +345,295 @@ describe('syncServiceV2', () => {
     expect(summary.updatedIds).toEqual(['note']);
   });
 
+  it('sends baseline_hash on changed files', async () => {
+    const { appState, syncServiceV2 } = await freshModules();
+
+    await appState.loadAppState();
+    await appState.updateAppState({ serverUrl: 'http://sync.example.com', authToken: 'test-token' });
+
+    await appState.saveV2SyncState({
+      deviceId: 'device-a',
+      lastServerVersion: 5,
+      fileHashes: { 'note.md': 'old-hash' },
+    });
+
+    rustCoreMocks.prepareSyncPayloadV2.mockResolvedValue({
+      nextState: {
+        deviceId: 'device-a',
+        lastServerVersion: 5,
+        fileHashes: { 'note.md': 'old-hash' },
+      },
+      inventory: [{ filename: 'note.md', hash: 'new-hash' }],
+      changed: [{ filename: 'note.md', content: '# Updated', hash: 'new-hash', baseline_hash: 'old-hash' }],
+      new: [],
+      deleted: [],
+      lastVersion: 5,
+      deletedBaselines: {},
+      elapsedMs: 0,
+    });
+
+    mockFetch.mockResolvedValueOnce(
+      Response.json({ status: 'changes_available', version: 6 })
+    );
+    mockFetch.mockResolvedValueOnce(
+      Response.json({
+        update: [],
+        delete: [],
+        conflicts: [],
+        version: 6,
+        timestamps: {},
+      })
+    );
+
+    await syncServiceV2.syncNowV2();
+
+    // The /sync call is the second fetch call (first is /sync/check)
+    const syncCall = mockFetch.mock.calls.find((call) => String(call[0]).endsWith('/sync'));
+    expect(syncCall).toBeDefined();
+    const body = JSON.parse(syncCall![1].body as string);
+    expect(body.changed).toEqual([
+      { filename: 'note.md', content: '# Updated', hash: 'new-hash', baseline_hash: 'old-hash' },
+    ]);
+  });
+
+  it('sends deleted_baselines for deleted files', async () => {
+    const { appState, syncServiceV2 } = await freshModules();
+
+    await appState.loadAppState();
+    await appState.updateAppState({ serverUrl: 'http://sync.example.com', authToken: 'test-token' });
+
+    await appState.saveV2SyncState({
+      deviceId: 'device-a',
+      lastServerVersion: 5,
+      fileHashes: { 'gone.md': 'deleted-hash' },
+    });
+
+    rustCoreMocks.prepareSyncPayloadV2.mockResolvedValue({
+      nextState: {
+        deviceId: 'device-a',
+        lastServerVersion: 5,
+        fileHashes: { 'gone.md': 'deleted-hash' },
+      },
+      inventory: [],
+      changed: [],
+      new: [],
+      deleted: ['gone.md'],
+      lastVersion: 5,
+      deletedBaselines: { 'gone.md': 'deleted-hash' },
+      elapsedMs: 0,
+    });
+
+    mockFetch.mockResolvedValueOnce(
+      Response.json({ status: 'changes_available', version: 6 })
+    );
+    mockFetch.mockResolvedValueOnce(
+      Response.json({
+        update: [],
+        delete: [],
+        conflicts: [],
+        version: 6,
+        timestamps: {},
+      })
+    );
+
+    await syncServiceV2.syncNowV2();
+
+    const syncCall = mockFetch.mock.calls.find((call) => String(call[0]).endsWith('/sync'));
+    expect(syncCall).toBeDefined();
+    const body = JSON.parse(syncCall![1].body as string);
+    expect(body.deleted_baselines).toEqual({ 'gone.md': 'deleted-hash' });
+  });
+
+  it('omits inventory when null (dirty-only upload)', async () => {
+    const { appState, syncServiceV2 } = await freshModules();
+
+    await appState.loadAppState();
+    await appState.updateAppState({ serverUrl: 'http://sync.example.com', authToken: 'test-token' });
+
+    // Set dirty journal so it skips /sync/check and goes straight to /sync
+    await appState.saveV2SyncState({
+      deviceId: 'device-a',
+      lastServerVersion: 5,
+      fileHashes: { 'note.md': 'old-hash' },
+      dirtyUpserts: ['note.md'],
+    });
+
+    rustCoreMocks.prepareSyncPayloadV2.mockResolvedValue({
+      nextState: {
+        deviceId: 'device-a',
+        lastServerVersion: 5,
+        fileHashes: { 'note.md': 'old-hash' },
+      },
+      inventory: null,
+      changed: [{ filename: 'note.md', content: '# Dirty', hash: 'new-hash', baseline_hash: 'old-hash' }],
+      new: [],
+      deleted: [],
+      lastVersion: 5,
+      deletedBaselines: {},
+      elapsedMs: 0,
+    });
+
+    mockFetch.mockResolvedValueOnce(
+      Response.json({
+        update: [],
+        delete: [],
+        conflicts: [],
+        version: 6,
+        timestamps: {},
+      })
+    );
+
+    await syncServiceV2.syncNowV2();
+
+    const syncCall = mockFetch.mock.calls.find((call) => String(call[0]).endsWith('/sync'));
+    expect(syncCall).toBeDefined();
+    const body = JSON.parse(syncCall![1].body as string);
+    expect(body).not.toHaveProperty('inventory');
+  });
+
+  it('includes last_version when available', async () => {
+    const { appState, syncServiceV2 } = await freshModules();
+
+    await appState.loadAppState();
+    await appState.updateAppState({ serverUrl: 'http://sync.example.com', authToken: 'test-token' });
+
+    await appState.saveV2SyncState({
+      deviceId: 'device-a',
+      lastServerVersion: 10,
+      fileHashes: {},
+    });
+
+    rustCoreMocks.prepareSyncPayloadV2.mockResolvedValue({
+      nextState: {
+        deviceId: 'device-a',
+        lastServerVersion: 10,
+        fileHashes: {},
+      },
+      inventory: [],
+      changed: [],
+      new: [],
+      deleted: [],
+      lastVersion: 10,
+      deletedBaselines: {},
+      elapsedMs: 0,
+    });
+
+    mockFetch.mockResolvedValueOnce(
+      Response.json({ status: 'changes_available', version: 11 })
+    );
+    mockFetch.mockResolvedValueOnce(
+      Response.json({
+        update: [],
+        delete: [],
+        conflicts: [],
+        version: 11,
+        timestamps: {},
+      })
+    );
+
+    await syncServiceV2.syncNowV2();
+
+    const syncCall = mockFetch.mock.calls.find((call) => String(call[0]).endsWith('/sync'));
+    expect(syncCall).toBeDefined();
+    const body = JSON.parse(syncCall![1].body as string);
+    expect(body.last_version).toBe(10);
+  });
+
+  it('clears dirty journal on successful sync', async () => {
+    const { appState, syncServiceV2 } = await freshModules();
+
+    await appState.loadAppState();
+    await appState.updateAppState({ serverUrl: 'http://sync.example.com', authToken: 'test-token' });
+
+    await appState.saveV2SyncState({
+      deviceId: 'device-a',
+      lastServerVersion: 5,
+      fileHashes: { 'note.md': 'old-hash' },
+      dirtyUpserts: ['note.md'],
+      dirtyDeletes: ['deleted.md'],
+    });
+
+    rustCoreMocks.prepareSyncPayloadV2.mockResolvedValue({
+      nextState: {
+        deviceId: 'device-a',
+        lastServerVersion: 5,
+        fileHashes: { 'note.md': 'old-hash' },
+        dirtyUpserts: ['note.md'],
+        dirtyDeletes: ['deleted.md'],
+      },
+      inventory: null,
+      changed: [{ filename: 'note.md', content: '# Note', hash: 'new-hash', baseline_hash: 'old-hash' }],
+      new: [],
+      deleted: ['deleted.md'],
+      lastVersion: 5,
+      deletedBaselines: { 'deleted.md': 'old-hash' },
+      elapsedMs: 0,
+    });
+
+    mockFetch.mockResolvedValueOnce(
+      Response.json({
+        update: [],
+        delete: [],
+        conflicts: [],
+        version: 6,
+        timestamps: {},
+      })
+    );
+
+    await syncServiceV2.syncNowV2();
+
+    const savedState = await appState.loadV2SyncState();
+    expect(savedState.dirtyUpserts).toBeUndefined();
+    expect(savedState.dirtyDeletes).toBeUndefined();
+  });
+
+  it('skips sync_check when dirty journal is non-empty', async () => {
+    const { appState, syncServiceV2 } = await freshModules();
+
+    await appState.loadAppState();
+    await appState.updateAppState({ serverUrl: 'http://sync.example.com', authToken: 'test-token' });
+
+    await appState.saveV2SyncState({
+      deviceId: 'device-a',
+      lastServerVersion: 5,
+      fileHashes: { 'note.md': 'old-hash' },
+      dirtyUpserts: ['note.md'],
+    });
+
+    rustCoreMocks.prepareSyncPayloadV2.mockResolvedValue({
+      nextState: {
+        deviceId: 'device-a',
+        lastServerVersion: 5,
+        fileHashes: { 'note.md': 'old-hash' },
+      },
+      inventory: null,
+      changed: [{ filename: 'note.md', content: '# Dirty', hash: 'new-hash', baseline_hash: 'old-hash' }],
+      new: [],
+      deleted: [],
+      lastVersion: 5,
+      deletedBaselines: {},
+      elapsedMs: 0,
+    });
+
+    mockFetch.mockResolvedValueOnce(
+      Response.json({
+        update: [],
+        delete: [],
+        conflicts: [],
+        version: 6,
+        timestamps: {},
+      })
+    );
+
+    await syncServiceV2.syncNowV2();
+
+    // Only one fetch call (the /sync request), no /sync/check
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const url = String(mockFetch.mock.calls[0][0]);
+    expect(url).toContain('/sync');
+    expect(url).not.toContain('/sync/check');
+  });
+
   it('does not infer a collision rename without a matching local new note', async () => {
     const { appState, syncServiceV2 } = await freshModules();
 
@@ -357,6 +656,8 @@ describe('syncServiceV2', () => {
       changed: [],
       new: [],
       deleted: [],
+      lastVersion: 1,
+      deletedBaselines: {},
       elapsedMs: 0,
     });
     rustCoreMocks.applySyncDeltaV2.mockResolvedValue({

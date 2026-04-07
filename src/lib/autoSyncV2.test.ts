@@ -21,10 +21,18 @@ const appStateMocks = vi.hoisted(() => ({
   getCachedPreferences: vi.fn(() => ({
     sync: { serverUrl: 'http://localhost:3005', token: 'test-token' },
   })),
+  loadV2SyncState: vi.fn(async () => ({
+    deviceId: 'device-a',
+    lastServerVersion: 0,
+    fileHashes: {},
+  })),
+  saveV2SyncState: vi.fn(async () => {}),
 }));
 
 vi.mock('./appState', () => ({
   getCachedPreferences: appStateMocks.getCachedPreferences,
+  loadV2SyncState: appStateMocks.loadV2SyncState,
+  saveV2SyncState: appStateMocks.saveV2SyncState,
 }));
 
 // ── Helpers ─────────────────────────────────────────────────
@@ -58,6 +66,104 @@ async function freshAutoSync() {
 }
 
 // ── Tests ───────────────────────────────────────────────────
+
+describe('autoSyncV2 – dirty journal', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    appStateMocks.loadV2SyncState.mockReset();
+    appStateMocks.saveV2SyncState.mockReset();
+    appStateMocks.loadV2SyncState.mockResolvedValue({
+      deviceId: 'device-a',
+      lastServerVersion: 0,
+      fileHashes: {},
+    });
+    appStateMocks.saveV2SyncState.mockResolvedValue(undefined);
+  });
+
+  afterEach(async () => {
+    const mod = await import('./autoSyncV2');
+    mod.stopAutoSyncV2();
+    vi.runOnlyPendingTimers();
+    vi.useRealTimers();
+  });
+
+  it('markDirtyUpsert persists filename to sync state', async () => {
+    const { startAutoSyncV2, notifySavedV2, stopAutoSyncV2 } = await freshAutoSync();
+
+    // syncNowV2 should never resolve for this test — we only care about the journal write
+    syncServiceMocks.syncNowV2.mockReturnValue(new Promise(() => {}));
+
+    startAutoSyncV2({
+      onSyncComplete: vi.fn(),
+      onSyncError: vi.fn(),
+      flushPendingSave: vi.fn(async () => {}),
+    });
+
+    // Skip the initial sync timer
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    // Clear the mock calls from initial setup / initial sync
+    appStateMocks.saveV2SyncState.mockClear();
+    appStateMocks.loadV2SyncState.mockResolvedValue({
+      deviceId: 'device-a',
+      lastServerVersion: 0,
+      fileHashes: {},
+    });
+
+    // Trigger a save notification with a filename — this calls markDirtyUpsert internally
+    notifySavedV2('file.md');
+
+    // Let the async markDirtyUpsert settle
+    await vi.advanceTimersByTimeAsync(0);
+
+    // saveV2SyncState should have been called with dirtyUpserts containing the filename
+    const saveCalls = appStateMocks.saveV2SyncState.mock.calls;
+    const journalSave = saveCalls.find(
+      (call) => call[0]?.dirtyUpserts && call[0].dirtyUpserts.includes('file.md'),
+    );
+    expect(journalSave).toBeDefined();
+
+    stopAutoSyncV2();
+  });
+
+  it('markDirtyDelete persists filename to sync state', async () => {
+    const { markDirtyDelete } = await freshAutoSync();
+
+    appStateMocks.loadV2SyncState.mockResolvedValue({
+      deviceId: 'device-a',
+      lastServerVersion: 0,
+      fileHashes: {},
+    });
+
+    await markDirtyDelete('file.md');
+
+    const saveCalls = appStateMocks.saveV2SyncState.mock.calls;
+    const journalSave = saveCalls.find(
+      (call) => call[0]?.dirtyDeletes && call[0].dirtyDeletes.includes('file.md'),
+    );
+    expect(journalSave).toBeDefined();
+  });
+
+  it('markDirtyRename writes both entries', async () => {
+    const { markDirtyRename } = await freshAutoSync();
+
+    appStateMocks.loadV2SyncState.mockResolvedValue({
+      deviceId: 'device-a',
+      lastServerVersion: 0,
+      fileHashes: {},
+    });
+
+    await markDirtyRename('old.md', 'new.md');
+
+    const saveCalls = appStateMocks.saveV2SyncState.mock.calls;
+    const journalSave = saveCalls.find(
+      (call) =>
+        call[0]?.dirtyDeletes?.includes('old.md') &&
+        call[0]?.dirtyUpserts?.includes('new.md'),
+    );
+    expect(journalSave).toBeDefined();
+  });
+});
 
 describe('autoSyncV2 – pendingLocalSave spinner chaining', () => {
   beforeEach(() => {

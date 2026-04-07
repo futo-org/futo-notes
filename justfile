@@ -104,7 +104,7 @@ test-desktop-smoke:
   pnpm run test:desktop-smoke
 
 test-cross-platform:
-  cd apps/tauri && VITE_INCLUDE_TEST_HOOKS=true cargo tauri build --debug --no-bundle && cd ../..
+  cd apps/tauri && VITE_INCLUDE_TEST_HOOKS=true cargo tauri build --debug --no-bundle --config src-tauri/tauri.dev.conf.json && cd ../..
   cd apps/tauri && VITE_INCLUDE_TEST_HOOKS=true cargo tauri android build --debug --apk --config src-tauri/tauri.android.offline.conf.json && cd ../..
   cargo build -p stonefruit-server
   pnpm run test:cross-platform

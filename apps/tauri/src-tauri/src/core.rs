@@ -923,6 +923,12 @@ pub struct V2SyncState {
     pub last_server_version: u64,
     pub file_hashes: HashMap<String, String>,
     pub hash_cache: Option<HashMap<String, HashCacheEntry>>,
+    /// Dirty journal: filenames that have been upserted locally since last sync.
+    #[serde(default)]
+    pub dirty_upserts: HashSet<String>,
+    /// Dirty journal: filenames that have been deleted locally since last sync.
+    #[serde(default)]
+    pub dirty_deletes: HashSet<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -935,10 +941,14 @@ pub struct V2SyncPrepareInput {
 #[serde(rename_all = "camelCase")]
 pub struct V2SyncPrepareOutput {
     pub state: V2SyncState,
-    pub inventory: Vec<V2InventoryItem>,
+    /// `None` = dirty-only upload (no full vault walk). `Some` = full inventory.
+    pub inventory: Option<Vec<V2InventoryItem>>,
     pub changed: Vec<V2ChangedNote>,
     pub new: Vec<V2NewNote>,
     pub deleted: Vec<String>,
+    pub last_version: Option<u64>,
+    /// Baseline hashes for deleted files (filename → last-synced hash).
+    pub deleted_baselines: HashMap<String, String>,
     pub elapsed_ms: u128,
 }
 
@@ -949,11 +959,15 @@ pub struct V2InventoryItem {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct V2ChangedNote {
     pub filename: String,
     pub content: String,
     pub hash: String,
     pub modified_at: i64,
+    /// Hash from last successful sync — third input for conflict detection.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub baseline_hash: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -997,6 +1011,83 @@ pub struct V2SyncApplyOutput {
     pub elapsed_ms: u128,
 }
 
+/// Dirty-only sync prep: read only files in the dirty journal, skip full vault walk.
+/// Sends no inventory (None), includes baseline hashes and deleted_baselines.
+fn prepare_dirty_only(
+    base: &Path,
+    mut state: V2SyncState,
+    started: Instant,
+) -> Result<V2SyncPrepareOutput, String> {
+    let mut changed = Vec::new();
+    let mut new_notes = Vec::new();
+
+    // Process dirty upserts — read only these files
+    for filename in &state.dirty_upserts {
+        let path = base.join(filename);
+        if !path.is_file() {
+            continue; // File was deleted after being marked dirty — skip
+        }
+        let content = fs::read_to_string(&path).map_err(io_err_to_string)?;
+        let hash = hash_sha256(&content);
+        let mtime = path
+            .metadata()
+            .ok()
+            .map(|m| file_mtime_ms(&m))
+            .unwrap_or(0);
+
+        let last_sync_hash = state.file_hashes.get(filename);
+        match last_sync_hash {
+            None => {
+                new_notes.push(V2NewNote {
+                    filename: filename.clone(),
+                    content,
+                    hash,
+                    modified_at: mtime,
+                });
+            }
+            Some(last_hash) if last_hash != &hash => {
+                changed.push(V2ChangedNote {
+                    filename: filename.clone(),
+                    content,
+                    hash,
+                    modified_at: mtime,
+                    baseline_hash: Some(last_hash.clone()),
+                });
+            }
+            _ => {
+                // Hash unchanged despite being in dirty journal — skip
+            }
+        }
+    }
+
+    // Process dirty deletes
+    let deleted: Vec<String> = state.dirty_deletes.iter().cloned().collect();
+    let deleted_baselines: HashMap<String, String> = deleted
+        .iter()
+        .filter_map(|f| state.file_hashes.get(f).map(|h| (f.clone(), h.clone())))
+        .collect();
+
+    let last_version = if state.last_server_version > 0 {
+        Some(state.last_server_version)
+    } else {
+        None
+    };
+
+    // Don't clear dirty journal here — it's cleared after successful sync
+    // by the TypeScript layer (only accepted entries are cleared)
+
+    Ok(V2SyncPrepareOutput {
+        state,
+        inventory: None, // No full vault walk
+        changed,
+        new: new_notes,
+        deleted,
+        last_version,
+        deleted_baselines,
+        elapsed_ms: started.elapsed().as_millis(),
+    })
+}
+
 fn prepare_sync_payload_v2_impl(
     base: &Path,
     input: V2SyncPrepareInput,
@@ -1004,6 +1095,15 @@ fn prepare_sync_payload_v2_impl(
     let started = Instant::now();
     convert_txt_to_md(base);
     let mut state = input.state;
+
+    // ── Dirty-only fast path ──────────────────────────────────
+    // When the dirty journal is non-empty, skip full vault walk.
+    // Read only the dirty files and send them with baseline hashes.
+    if !state.dirty_upserts.is_empty() || !state.dirty_deletes.is_empty() {
+        return prepare_dirty_only(base, state, started);
+    }
+
+    // ── Full vault walk (fallback/startup/recovery) ───────────
     let hash_cache = state.hash_cache.clone().unwrap_or_default();
 
     // Scan all .md files
@@ -1090,13 +1190,14 @@ fn prepare_sync_payload_v2_impl(
                 }
             }
             Some(last_hash) if last_hash != &hash => {
-                // Changed file
+                // Changed file — include baseline_hash from last sync
                 if let Some(content) = content {
                     changed.push(V2ChangedNote {
                         filename: filename.clone(),
                         content,
                         hash: hash.clone(),
                         modified_at: mtime,
+                        baseline_hash: Some(last_hash.clone()),
                     });
                 }
             }
@@ -1114,14 +1215,32 @@ fn prepare_sync_payload_v2_impl(
         .cloned()
         .collect();
 
+    // Build deleted_baselines from file_hashes for delete-vs-edit detection
+    let deleted_baselines: HashMap<String, String> = deleted
+        .iter()
+        .filter_map(|f| state.file_hashes.get(f).map(|h| (f.clone(), h.clone())))
+        .collect();
+
+    // Determine last_version for changelog-based download
+    let last_version = if state.last_server_version > 0 {
+        Some(state.last_server_version)
+    } else {
+        None
+    };
+
     state.hash_cache = Some(new_hash_cache);
+    // Clear dirty journal — it was consumed by the full vault scan
+    state.dirty_upserts.clear();
+    state.dirty_deletes.clear();
 
     Ok(V2SyncPrepareOutput {
         state,
-        inventory,
+        inventory: Some(inventory),
         changed,
         new: new_notes,
         deleted,
+        last_version,
+        deleted_baselines,
         elapsed_ms: started.elapsed().as_millis(),
     })
 }

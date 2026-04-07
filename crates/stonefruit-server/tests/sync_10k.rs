@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use tempfile::TempDir;
 
 use stonefruit_core::hash::hash_sha256;
@@ -22,10 +22,12 @@ fn notes_dir(tmp: &TempDir) -> std::path::PathBuf {
 fn make_request(device_id: &str) -> SyncRequest {
     SyncRequest {
         device_id: device_id.to_string(),
-        inventory: vec![],
+        inventory: Some(vec![]),
         changed: vec![],
         new: vec![],
         deleted: vec![],
+        last_version: None,
+        deleted_baselines: HashMap::new(),
     }
 }
 
@@ -126,7 +128,7 @@ fn second_sync_after_10k_notes_is_noop() {
     // Second sync — client now has all notes in inventory
     let mut req2 = make_request("device-a");
     for update in &resp1.update {
-        req2.inventory.push(InventoryItem {
+        req2.inventory.as_mut().unwrap().push(InventoryItem {
             filename: update.filename.clone(),
             hash: update.hash.clone(),
         });
@@ -165,7 +167,7 @@ fn partial_inventory_sync_10k_notes() {
     // Now simulate a client that only has the first half
     let mut req2 = make_request("device-partial");
     for update in full_resp.update.iter().take(NOTE_COUNT / 2) {
-        req2.inventory.push(InventoryItem {
+        req2.inventory.as_mut().unwrap().push(InventoryItem {
             filename: update.filename.clone(),
             hash: update.hash.clone(),
         });

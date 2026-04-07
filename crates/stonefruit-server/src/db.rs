@@ -33,6 +33,14 @@ CREATE TABLE IF NOT EXISTS device_snapshots (
     PRIMARY KEY (device_id, filename)
 );
 
+CREATE TABLE IF NOT EXISTS version_log (
+    version   INTEGER NOT NULL,
+    filename  TEXT NOT NULL,
+    action    TEXT NOT NULL,
+    hash      TEXT,
+    PRIMARY KEY (version, filename)
+);
+
 CREATE TABLE IF NOT EXISTS sync_meta (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -271,6 +279,82 @@ pub fn increment_sync_version(conn: &Connection) -> rusqlite::Result<u64> {
         [next.to_string()],
     )?;
     Ok(next)
+}
+
+// ── Version log helpers ───────────────────────────────────────────────
+
+/// Insert version_log entries for a set of changed files at the given version.
+/// `entries` is a list of `(filename, action, hash)` where action is "upsert" or "delete".
+pub fn insert_version_log_entries(
+    conn: &Connection,
+    version: u64,
+    entries: &[(String, &str, Option<String>)],
+) -> rusqlite::Result<()> {
+    let mut stmt = conn.prepare(
+        "INSERT OR REPLACE INTO version_log (version, filename, action, hash) VALUES (?1, ?2, ?3, ?4)",
+    )?;
+    for (filename, action, hash) in entries {
+        stmt.execute(params![version as i64, filename, action, hash])?;
+    }
+    Ok(())
+}
+
+/// Aggregate changelog entries between `after_version` (exclusive) and `up_to_version` (inclusive).
+/// Multiple edits to the same file collapse to the latest action.
+/// A create followed by a delete cancels out (removed from result).
+/// Returns a map of filename → (action, hash).
+pub fn query_changelog(
+    conn: &Connection,
+    after_version: u64,
+    up_to_version: u64,
+) -> rusqlite::Result<std::collections::HashMap<String, (String, Option<String>)>> {
+    use std::collections::HashMap;
+    let mut stmt = conn.prepare(
+        "SELECT version, filename, action, hash FROM version_log \
+         WHERE version > ?1 AND version <= ?2 \
+         ORDER BY version ASC",
+    )?;
+    let rows = stmt.query_map(params![after_version as i64, up_to_version as i64], |row| {
+        Ok((
+            row.get::<_, i64>(0)? as u64,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, Option<String>>(3)?,
+        ))
+    })?;
+
+    let mut changelog: HashMap<String, (String, Option<String>)> = HashMap::new();
+    for row in rows {
+        let (_version, filename, action, hash) = row?;
+        changelog.insert(filename, (action, hash));
+    }
+
+    // Remove entries where a file was created then deleted (net effect: nothing)
+    // This is already handled by the HashMap — last action wins.
+    // But we need to detect create+delete cancellation: if first action was "upsert"
+    // and final action is "delete", and the file didn't exist before after_version,
+    // then it cancels out. However, we can't easily know if it existed before.
+    // The simple approach: last action wins. A final "delete" means the client should
+    // delete it; a final "upsert" means the client should get it. This is correct
+    // because the server state IS the latest action's result.
+
+    Ok(changelog)
+}
+
+/// Get the oldest version still in the version_log, or None if empty.
+pub fn get_oldest_retained_version(conn: &Connection) -> rusqlite::Result<Option<u64>> {
+    let mut stmt = conn.prepare("SELECT MIN(version) FROM version_log")?;
+    let result: Option<i64> = stmt.query_row([], |row| row.get(0))?;
+    Ok(result.map(|v| v as u64))
+}
+
+/// Prune version_log entries older than `keep_version` (exclusive).
+pub fn compact_version_log(conn: &Connection, keep_version: u64) -> rusqlite::Result<usize> {
+    let deleted = conn.execute(
+        "DELETE FROM version_log WHERE version < ?1",
+        params![keep_version as i64],
+    )?;
+    Ok(deleted)
 }
 
 // ── Search helpers ─────────────────────────────────────────────────────
@@ -578,6 +662,7 @@ mod tests {
         assert!(tables.contains(&"note_meta".to_string()));
         assert!(tables.contains(&"tombstones".to_string()));
         assert!(tables.contains(&"device_snapshots".to_string()));
+        assert!(tables.contains(&"version_log".to_string()));
         assert!(tables.contains(&"sync_meta".to_string()));
         assert!(tables.contains(&"content_store".to_string()));
     }

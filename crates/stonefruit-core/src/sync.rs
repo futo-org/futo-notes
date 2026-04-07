@@ -7,10 +7,19 @@ use std::collections::{HashMap, HashSet};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SyncRequest {
     pub device_id: String,
-    pub inventory: Vec<InventoryItem>,
+    /// Full inventory. `None` = dirty-only upload (no full vault walk).
+    #[serde(default)]
+    pub inventory: Option<Vec<InventoryItem>>,
     pub changed: Vec<ChangedNote>,
     pub new: Vec<NewNote>,
     pub deleted: Vec<String>,
+    /// Client's last-known server version, for changelog-based download.
+    #[serde(default)]
+    pub last_version: Option<u64>,
+    /// Baseline hashes for deleted files (filename → last-synced hash).
+    /// Used for delete-vs-edit conflict detection after device_snapshots removal.
+    #[serde(default)]
+    pub deleted_baselines: HashMap<String, String>,
 }
 
 /// A file the client currently has (filename + hash).
@@ -28,6 +37,10 @@ pub struct ChangedNote {
     pub hash: String,
     #[serde(default)]
     pub modified_at: i64,
+    /// Hash from last successful sync (`fileHashes[filename]`).
+    /// Used as the third input to `determine_sync_direction` instead of device_snapshots.
+    #[serde(default)]
+    pub baseline_hash: Option<String>,
 }
 
 /// A file the client created since last sync.
@@ -51,6 +64,10 @@ pub struct SyncResponse {
     /// Clients use this to correct local file mtimes without re-downloading content.
     #[serde(default)]
     pub timestamps: HashMap<String, i64>,
+    /// Oldest version retained in the server's version_log.
+    /// Clients behind this version must fall back to full sync.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub oldest_retained_version: Option<u64>,
 }
 
 /// A note the client should write/overwrite.
@@ -449,15 +466,16 @@ mod tests {
     fn sync_request_serde_roundtrip() {
         let req = SyncRequest {
             device_id: "dev-1".into(),
-            inventory: vec![InventoryItem {
+            inventory: Some(vec![InventoryItem {
                 filename: "note.md".into(),
                 hash: "abc123".into(),
-            }],
+            }]),
             changed: vec![ChangedNote {
                 filename: "edited.md".into(),
                 content: "# Edited".into(),
                 hash: "def456".into(),
                 modified_at: 1700000000000,
+                baseline_hash: Some("old_hash".into()),
             }],
             new: vec![NewNote {
                 filename: "new.md".into(),
@@ -466,16 +484,22 @@ mod tests {
                 modified_at: 1700000000000,
             }],
             deleted: vec!["old.md".into()],
+            last_version: Some(41),
+            deleted_baselines: HashMap::from([("old.md".into(), "old_hash".into())]),
         };
         let json = serde_json::to_string(&req).unwrap();
         let parsed: SyncRequest = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.device_id, "dev-1");
-        assert_eq!(parsed.inventory.len(), 1);
-        assert_eq!(parsed.inventory[0].filename, "note.md");
+        let inv = parsed.inventory.as_ref().unwrap();
+        assert_eq!(inv.len(), 1);
+        assert_eq!(inv[0].filename, "note.md");
         assert_eq!(parsed.changed.len(), 1);
         assert_eq!(parsed.changed[0].content, "# Edited");
+        assert_eq!(parsed.changed[0].baseline_hash, Some("old_hash".into()));
         assert_eq!(parsed.new.len(), 1);
         assert_eq!(parsed.deleted, vec!["old.md"]);
+        assert_eq!(parsed.last_version, Some(41));
+        assert_eq!(parsed.deleted_baselines.get("old.md").unwrap(), "old_hash");
     }
 
     #[test]
@@ -494,6 +518,7 @@ mod tests {
             }],
             version: 42,
             timestamps: HashMap::new(),
+            oldest_retained_version: Some(10),
         };
         let json = serde_json::to_string(&resp).unwrap();
         let parsed: SyncResponse = serde_json::from_str(&json).unwrap();
@@ -534,15 +559,37 @@ mod tests {
     fn empty_sync_request() {
         let req = SyncRequest {
             device_id: "d".into(),
-            inventory: vec![],
+            inventory: Some(vec![]),
             changed: vec![],
             new: vec![],
             deleted: vec![],
+            last_version: None,
+            deleted_baselines: HashMap::new(),
         };
         let json = serde_json::to_string(&req).unwrap();
         let parsed: SyncRequest = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.device_id, "d");
-        assert!(parsed.inventory.is_empty());
+        assert!(parsed.inventory.unwrap().is_empty());
+    }
+
+    #[test]
+    fn sync_request_without_optional_fields() {
+        // Simulates an old-style request missing the new fields
+        let json = r#"{"device_id":"d","inventory":[],"changed":[],"new":[],"deleted":[]}"#;
+        let parsed: SyncRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.device_id, "d");
+        assert!(parsed.inventory.unwrap().is_empty());
+        assert_eq!(parsed.last_version, None);
+        assert!(parsed.deleted_baselines.is_empty());
+    }
+
+    #[test]
+    fn sync_request_without_inventory() {
+        // Dirty-only upload — no inventory field at all
+        let json = r#"{"device_id":"d","changed":[],"new":[],"deleted":[],"last_version":42}"#;
+        let parsed: SyncRequest = serde_json::from_str(json).unwrap();
+        assert!(parsed.inventory.is_none());
+        assert_eq!(parsed.last_version, Some(42));
     }
 
     // ── conflict_filename ──────────────────────────────────────────────

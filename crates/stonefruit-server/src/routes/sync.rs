@@ -17,8 +17,10 @@ pub async fn sync(
     }
 
     // Validate filenames (basic safety)
-    for item in &req.inventory {
-        validate_filename(&item.filename)?;
+    if let Some(inventory) = &req.inventory {
+        for item in inventory {
+            validate_filename(&item.filename)?;
+        }
     }
     for item in &req.changed {
         validate_filename(&item.filename)?;

@@ -184,6 +184,7 @@ impl E2EClient {
         let mut changed = Vec::new();
         let mut new = Vec::new();
         let mut deleted = Vec::new();
+        let mut deleted_baselines: HashMap<String, String> = HashMap::new();
 
         // Current files
         let current: HashMap<String, (String, String)> = self
@@ -204,7 +205,8 @@ impl E2EClient {
                         "filename": filename,
                         "content": content,
                         "hash": hash,
-                        "modified_at": 0
+                        "modified_at": 0,
+                        "baseline_hash": old
                     }));
                 }
                 None => {
@@ -222,15 +224,25 @@ impl E2EClient {
         for filename in self.file_hashes.keys() {
             if !current.contains_key(filename) {
                 deleted.push(json!(filename));
+                // Include baseline hash for delete-vs-edit conflict detection
+                deleted_baselines.insert(filename.clone(), self.file_hashes[filename].clone());
             }
         }
+
+        let last_version = if self.last_version > 0 {
+            json!(self.last_version)
+        } else {
+            json!(null)
+        };
 
         json!({
             "device_id": self.device_id,
             "inventory": inventory,
             "changed": changed,
             "new": new,
-            "deleted": deleted
+            "deleted": deleted,
+            "last_version": last_version,
+            "deleted_baselines": deleted_baselines
         })
     }
 

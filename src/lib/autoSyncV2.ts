@@ -1,5 +1,5 @@
 import { hasFileSystem } from './platform';
-import { getCachedPreferences } from './appState';
+import { getCachedPreferences, loadV2SyncState, saveV2SyncState } from './appState';
 import { syncNowV2, checkForChangesV2, type SyncSummary } from './syncServiceV2';
 
 const POLL_INTERVAL_MS = 15_000;
@@ -100,9 +100,65 @@ async function performSync(trigger: SyncTrigger, options: { propagateErrors?: bo
   }
 }
 
-export function notifySavedV2(): void {
+export function notifySavedV2(filename?: string): void {
   if (!callbacks || !isSyncConfigured()) return;
+  // Write to dirty journal if a specific file was saved
+  if (filename) {
+    void markDirtyUpsert(filename);
+  }
   void performSync('local-save');
+}
+
+/** Mark a file as dirty (upserted) in the persisted sync state. */
+async function markDirtyUpsert(filename: string): Promise<void> {
+  try {
+    const state = await loadV2SyncState();
+    const upserts = new Set(state.dirtyUpserts ?? []);
+    upserts.add(filename);
+    // If this file was in dirty_deletes, remove it (upsert overrides delete)
+    const deletes = new Set(state.dirtyDeletes ?? []);
+    deletes.delete(filename);
+    state.dirtyUpserts = [...upserts];
+    state.dirtyDeletes = deletes.size > 0 ? [...deletes] : undefined;
+    await saveV2SyncState(state);
+  } catch {
+    // Non-fatal — worst case we do a full vault scan on next sync
+  }
+}
+
+/** Mark a file as dirty (deleted) in the persisted sync state. */
+export async function markDirtyDelete(filename: string): Promise<void> {
+  try {
+    const state = await loadV2SyncState();
+    const deletes = new Set(state.dirtyDeletes ?? []);
+    deletes.add(filename);
+    // If this file was in dirty_upserts, remove it
+    const upserts = new Set(state.dirtyUpserts ?? []);
+    upserts.delete(filename);
+    state.dirtyDeletes = [...deletes];
+    state.dirtyUpserts = upserts.size > 0 ? [...upserts] : undefined;
+    await saveV2SyncState(state);
+  } catch {
+    // Non-fatal
+  }
+}
+
+/** Mark a rename: delete old + upsert new. */
+export async function markDirtyRename(oldFilename: string, newFilename: string): Promise<void> {
+  try {
+    const state = await loadV2SyncState();
+    const upserts = new Set(state.dirtyUpserts ?? []);
+    const deletes = new Set(state.dirtyDeletes ?? []);
+    deletes.add(oldFilename);
+    upserts.delete(oldFilename);
+    upserts.add(newFilename);
+    deletes.delete(newFilename);
+    state.dirtyUpserts = upserts.size > 0 ? [...upserts] : undefined;
+    state.dirtyDeletes = deletes.size > 0 ? [...deletes] : undefined;
+    await saveV2SyncState(state);
+  } catch {
+    // Non-fatal
+  }
 }
 
 export function pauseSyncV2(): void { paused = true; }

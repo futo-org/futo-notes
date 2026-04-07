@@ -70,6 +70,7 @@ interface V2SyncResponse {
   conflicts: { filename: string; content: string }[];
   version: number;
   timestamps: Record<string, number>;
+  oldest_retained_version?: number;
 }
 
 function stripMdExtension(filename: string): string {
@@ -243,6 +244,16 @@ export async function syncNowV2(options?: { skipCheck?: boolean }): Promise<Sync
 
   let syncState = await loadV2SyncState();
 
+  // Dirty journal non-empty → skip /sync/check, send dirty-only payload
+  const hasDirtyEntries = (syncState.dirtyUpserts?.length ?? 0) > 0
+    || (syncState.dirtyDeletes?.length ?? 0) > 0;
+
+  if (hasDirtyEntries) {
+    const prepared = await prepareSyncPayloadV2(syncState);
+    syncState = prepared.nextState;
+    return doFullSyncV2(serverUrl, token, syncState, prepared);
+  }
+
   // Quick-check: skip full sync if nothing changed.
   // When triggered by a local save we already know there are local changes,
   // so skip the round-trip to /sync/check.
@@ -256,6 +267,8 @@ export async function syncNowV2(options?: { skipCheck?: boolean }): Promise<Sync
       if (typeof check.version === 'number' && check.version < syncState.lastServerVersion) {
         syncState.lastServerVersion = 0;
         syncState.fileHashes = {};
+        syncState.dirtyUpserts = undefined;
+        syncState.dirtyDeletes = undefined;
         // Fall through to full sync below
       } else if (check.status === 'up_to_date') {
         // Still check for local changes
@@ -290,13 +303,16 @@ async function doFullSyncV2(
 ): Promise<SyncSummary> {
   const previousFileHashes = syncState.fileHashes;
 
-  // Send sync request
+  // Send sync request with new protocol fields
   const response = await authPost<V2SyncResponse>(serverUrl, token, '/sync', {
     device_id: syncState.deviceId,
-    inventory: prepared.inventory,
+    // inventory is null for dirty-only uploads (no full vault walk)
+    ...(prepared.inventory != null ? { inventory: prepared.inventory } : {}),
     changed: prepared.changed,
     new: prepared.new,
     deleted: prepared.deleted,
+    ...(prepared.lastVersion != null ? { last_version: prepared.lastVersion } : {}),
+    deleted_baselines: prepared.deletedBaselines,
   });
 
   // Filter out non-markdown (blob) updates — blobs are fetched via GET /blob/{filename}
@@ -343,6 +359,17 @@ async function doFullSyncV2(
 
   syncState.fileHashes = newFileHashes;
   syncState.lastServerVersion = response.version;
+
+  // Clear dirty journal — accepted entries are now synced.
+  // Conflicted entries: the server returned them as conflicts/updates, so the
+  // client has the server version. The dirty state is resolved.
+  syncState.dirtyUpserts = undefined;
+  syncState.dirtyDeletes = undefined;
+
+  // Handle oldest_retained_version: if the server signals we're beyond the
+  // retention window, the next sync should be a full sync (no dirty-only path).
+  // This is handled implicitly: the full vault walk runs when dirty journal is empty.
+
   await saveV2SyncState(syncState);
   await clearSyncErrorAndSetTime();
 

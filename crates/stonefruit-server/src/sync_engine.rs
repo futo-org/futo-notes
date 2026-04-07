@@ -24,6 +24,13 @@ struct ProcessedNote {
     is_blob: bool,
 }
 
+/// Entry for the version_log: (filename, action, hash).
+struct VersionLogEntry {
+    filename: String,
+    action: &'static str, // "upsert" or "delete"
+    hash: Option<String>,
+}
+
 // ── Sync engine ────────────────────────────────────────────────────────
 
 /// Process a V2 sync request. Runs inside a single SQLite transaction.
@@ -40,12 +47,16 @@ pub fn process_sync(
         conflicts: Vec::new(),
         version: 0,
         timestamps: HashMap::new(),
+        oldest_retained_version: None,
     };
 
     // Track filenames already queued in response.update to avoid O(n²) linear scans
     let mut update_set: HashSet<String> = HashSet::new();
 
     let mut mutated = false;
+
+    // Track all mutations for version_log
+    let mut version_log_entries: Vec<VersionLogEntry> = Vec::new();
 
     let tx = conn
         .unchecked_transaction()
@@ -54,25 +65,27 @@ pub fn process_sync(
     // Load all server state into memory
     let mut note_meta: HashMap<String, NoteMetaRow> = load_note_meta(&tx)?;
     let mut tombstones: HashSet<String> = load_tombstones(&tx)?;
-    let device_snapshots: HashMap<String, String> = load_device_snapshots(&tx, &req.device_id)?;
 
-    // Pre-pass: capture hashes of files being deleted (for rename detection)
+    // Pre-pass: capture hashes of files being deleted (for rename detection).
+    // Use client-sent baselines first, fall back to server note_meta.
     let mut deleted_file_hashes: HashMap<String, String> = HashMap::new();
     for deleted in &req.deleted {
-        if let Some(h) = device_snapshots.get(deleted) {
+        if let Some(h) = req.deleted_baselines.get(deleted) {
             deleted_file_hashes.insert(deleted.clone(), h.clone());
         } else if let Some(meta) = note_meta.get(deleted) {
             deleted_file_hashes.insert(deleted.clone(), meta.content_hash.clone());
         }
     }
 
+    // Unwrap inventory (None = dirty-only upload, no full vault walk)
+    let inventory = req.inventory.as_deref().unwrap_or(&[]);
+
     // Build a set of all filenames the client knows about
     let client_inventory: HashSet<String> =
-        req.inventory.iter().map(|i| i.filename.clone()).collect();
+        inventory.iter().map(|i| i.filename.clone()).collect();
 
     // Also build a lookup from inventory filename -> hash
-    let client_inventory_hashes: HashMap<String, String> = req
-        .inventory
+    let client_inventory_hashes: HashMap<String, String> = inventory
         .iter()
         .map(|i| (i.filename.clone(), i.hash.clone()))
         .collect();
@@ -88,11 +101,13 @@ pub fn process_sync(
 
     for filename in &req.deleted {
         if let Some(server_note) = note_meta.get(filename) {
-            let device_last_hash = device_snapshots
+            // Use client-sent baseline hash for delete-vs-edit detection
+            let baseline_hash = req
+                .deleted_baselines
                 .get(filename)
                 .map(|s| s.as_str())
                 .unwrap_or("");
-            if server_note.content_hash == device_last_hash {
+            if server_note.content_hash == baseline_hash {
                 // Server unchanged since device last saw — accept deletion
                 delete_note_file(notes_dir, filename);
                 delete_note_meta(&tx, filename)?;
@@ -100,6 +115,11 @@ pub fn process_sync(
                 tombstones.insert(filename.clone());
                 active_filenames.remove(filename);
                 mutated = true;
+                version_log_entries.push(VersionLogEntry {
+                    filename: filename.clone(),
+                    action: "delete",
+                    hash: None,
+                });
             } else {
                 // Server changed — delete-vs-edit conflict: keep server version
                 let content = read_note_file(notes_dir, filename);
@@ -118,6 +138,11 @@ pub fn process_sync(
             create_tombstone(&tx, filename)?;
             tombstones.insert(filename.clone());
             mutated = true;
+            version_log_entries.push(VersionLogEntry {
+                filename: filename.clone(),
+                action: "delete",
+                hash: None,
+            });
         }
     }
     // Remove deleted notes from the in-memory map
@@ -135,10 +160,13 @@ pub fn process_sync(
     }
 
     // ── 2. Propagate server deletions ──────────────────────────────
+    // Only applicable when client sent inventory (full sync path).
 
-    for tombstoned in &tombstones {
-        if client_inventory.contains(tombstoned) {
-            response.delete.push(tombstoned.clone());
+    if req.inventory.is_some() {
+        for tombstoned in &tombstones {
+            if client_inventory.contains(tombstoned) {
+                response.delete.push(tombstoned.clone());
+            }
         }
     }
 
@@ -151,15 +179,16 @@ pub fn process_sync(
         }
 
         if let Some(server_note) = note_meta.get(&changed.filename) {
-            let device_last_hash = device_snapshots
-                .get(&changed.filename)
-                .map(|s| s.as_str())
+            // Use client-sent baseline hash instead of device_snapshots
+            let baseline_hash = changed
+                .baseline_hash
+                .as_deref()
                 .unwrap_or("");
 
             let direction = sync::determine_sync_direction(
                 &changed.hash,
                 &server_note.content_hash,
-                device_last_hash,
+                baseline_hash,
             );
 
             match direction {
@@ -168,7 +197,7 @@ pub fn process_sync(
                         &tx,
                         notes_dir,
                         &changed.filename,
-                        device_last_hash,
+                        baseline_hash,
                         server_note.is_blob,
                     );
 
@@ -176,8 +205,8 @@ pub fn process_sync(
                     write_note_file(notes_dir, &changed.filename, &changed.content);
                     let mtime = files::mtime_or_now(changed.modified_at);
                     upsert_note_meta(&tx, &changed.filename, &changed.hash, mtime, false)?;
-                    // Keep in-memory note_meta in sync so device_snapshots
-                    // record the correct hash at end-of-sync
+                    // Keep in-memory note_meta in sync so version_log
+                    // records the correct hash at end-of-sync
                     note_meta.insert(
                         changed.filename.clone(),
                         NoteMetaRow {
@@ -188,6 +217,11 @@ pub fn process_sync(
                         },
                     );
                     mutated = true;
+                    version_log_entries.push(VersionLogEntry {
+                        filename: changed.filename.clone(),
+                        action: "upsert",
+                        hash: Some(changed.hash.clone()),
+                    });
                 }
                 sync::SyncDirection::ServerChanged => {
                     // Send server version to client
@@ -207,11 +241,12 @@ pub fn process_sync(
                         // Both sides converged to the same content — no action needed
                     } else if !server_note.is_blob {
                         // Attempt three-way merge for text files
+                        // Use client-sent baseline hash for ancestor lookup
                         if let Some(merged) = attempt_three_way_merge(
                             conn,
                             notes_dir,
                             &changed.filename,
-                            device_last_hash,
+                            baseline_hash,
                             &changed.content,
                         ) {
                             // Clean merge — write merged content to disk
@@ -234,14 +269,19 @@ pub fn process_sync(
                             response.update.push(UpdateNote {
                                 filename: changed.filename.clone(),
                                 content: merged,
-                                hash: merged_hash,
+                                hash: merged_hash.clone(),
                                 modified_at: mtime,
                             });
 
                             mutated = true;
+                            version_log_entries.push(VersionLogEntry {
+                                filename: changed.filename.clone(),
+                                action: "upsert",
+                                hash: Some(merged_hash),
+                            });
                         } else {
                             // Merge failed or base unavailable — fall back to conflict copy
-                            create_conflict_copy(
+                            let conflict_entries = create_conflict_copy(
                                 &tx,
                                 notes_dir,
                                 &changed.filename,
@@ -252,10 +292,11 @@ pub fn process_sync(
                                 &mut response,
                                 &mut mutated,
                             )?;
+                            version_log_entries.extend(conflict_entries);
                         }
                     } else {
                         // Blob files — always create conflict copy
-                        create_conflict_copy(
+                        let conflict_entries = create_conflict_copy(
                             &tx,
                             notes_dir,
                             &changed.filename,
@@ -266,6 +307,7 @@ pub fn process_sync(
                             &mut response,
                             &mut mutated,
                         )?;
+                        version_log_entries.extend(conflict_entries);
                     }
                 }
                 sync::SyncDirection::NeitherChanged => {
@@ -293,6 +335,11 @@ pub fn process_sync(
                     is_blob: created.is_blob,
                 },
             );
+            version_log_entries.push(VersionLogEntry {
+                filename: created.filename.clone(),
+                action: "upsert",
+                hash: Some(changed.hash.clone()),
+            });
             if created.filename != changed.filename {
                 response.delete.push(changed.filename.clone());
                 update_set.insert(created.filename.clone());
@@ -354,6 +401,11 @@ pub fn process_sync(
                 is_blob: created.is_blob,
             },
         );
+        version_log_entries.push(VersionLogEntry {
+            filename: created.filename.clone(),
+            action: "upsert",
+            hash: Some(new_note.hash.clone()),
+        });
         if created.filename != new_note.filename {
             response.delete.push(new_note.filename.clone());
             update_set.insert(created.filename.clone());
@@ -366,107 +418,189 @@ pub fn process_sync(
         }
     }
 
-    // ── 5. Server-only notes ───────────────────────────────────────
+    // ── 5. Download path — inventory-based or changelog-based ─────
 
-    for (filename, server_note) in &note_meta {
-        if update_set.contains(filename) {
-            continue;
-        }
+    if req.inventory.is_some() {
+        // Full inventory provided — use traditional diffing (sections 2 + 5 from old code)
+        for (filename, server_note) in &note_meta {
+            if update_set.contains(filename) {
+                continue;
+            }
 
-        if client_inventory.contains(filename) {
-            // Client already has it — check if they need an update
-            let client_hash = client_inventory_hashes
-                .get(filename)
-                .map(|s| s.as_str())
-                .unwrap_or("");
-            if client_hash != server_note.content_hash {
-                // Client's version differs from server — check via device snapshots
-                let device_last_hash = device_snapshots
+            if client_inventory.contains(filename) {
+                // Client already has it — check if they need an update
+                let client_hash = client_inventory_hashes
                     .get(filename)
                     .map(|s| s.as_str())
                     .unwrap_or("");
-                // Only send if this file wasn't already handled in changed[]
-                if !changed_filenames.contains(filename) {
-                    let direction = sync::determine_sync_direction(
-                        client_hash,
-                        &server_note.content_hash,
-                        device_last_hash,
-                    );
-                    match direction {
-                        sync::SyncDirection::ServerChanged | sync::SyncDirection::BothChanged => {
-                            if server_note.is_blob {
-                                // Blobs don't send content in sync response —
-                                // client downloads via GET /blob/{filename}
+                if client_hash != server_note.content_hash {
+                    // Only send if this file wasn't already handled in changed[]
+                    if !changed_filenames.contains(filename) {
+                        // Without device_snapshots, we treat inventory hash mismatches
+                        // as server-changed (server's version wins for download)
+                        if server_note.is_blob {
+                            response.update.push(UpdateNote {
+                                filename: filename.clone(),
+                                content: String::new(),
+                                hash: server_note.content_hash.clone(),
+                                modified_at: server_note.modified_at,
+                            });
+                        } else {
+                            let content = read_note_file(notes_dir, filename);
+                            if let Some(content) = content {
                                 response.update.push(UpdateNote {
                                     filename: filename.clone(),
-                                    content: String::new(),
+                                    content,
                                     hash: server_note.content_hash.clone(),
                                     modified_at: server_note.modified_at,
                                 });
-                            } else {
-                                let content = read_note_file(notes_dir, filename);
-                                if let Some(content) = content {
+                            }
+                        }
+                    }
+                }
+                continue;
+            }
+
+            if tombstones.contains(filename) {
+                continue;
+            }
+
+            // Client doesn't have this note — send it
+            if server_note.is_blob {
+                response.update.push(UpdateNote {
+                    filename: filename.clone(),
+                    content: String::new(),
+                    hash: server_note.content_hash.clone(),
+                    modified_at: server_note.modified_at,
+                });
+            } else {
+                let content = read_note_file(notes_dir, filename);
+                if let Some(content) = content {
+                    response.update.push(UpdateNote {
+                        filename: filename.clone(),
+                        content,
+                        hash: server_note.content_hash.clone(),
+                        modified_at: server_note.modified_at,
+                    });
+                }
+            }
+        }
+    } else if let Some(client_version) = req.last_version {
+        // No inventory — use changelog-based download path
+        let server_version =
+            db::get_sync_version(&tx).map_err(|e| AppError::internal(e.to_string()))?;
+
+        let oldest_retained = db::get_oldest_retained_version(&tx)
+            .map_err(|e| AppError::internal(e.to_string()))?;
+        response.oldest_retained_version = oldest_retained;
+
+        if client_version < server_version {
+            // Check if client is within the changelog retention window
+            let can_use_changelog = oldest_retained
+                .map(|oldest| client_version >= oldest.saturating_sub(1))
+                .unwrap_or(true); // No entries yet = nothing to download
+
+            if can_use_changelog {
+                let changelog = db::query_changelog(&tx, client_version, server_version)
+                    .map_err(|e| AppError::internal(e.to_string()))?;
+
+                // Build upload set for exclusion (files already handled in upload path)
+                let upload_filenames: HashSet<&str> = req
+                    .changed
+                    .iter()
+                    .map(|c| c.filename.as_str())
+                    .chain(req.new.iter().map(|n| n.filename.as_str()))
+                    .chain(req.deleted.iter().map(|d| d.as_str()))
+                    .collect();
+
+                for (filename, (action, _hash)) in &changelog {
+                    // Skip files already handled in the upload resolution
+                    if upload_filenames.contains(filename.as_str()) {
+                        continue;
+                    }
+                    if update_set.contains(filename) {
+                        continue;
+                    }
+
+                    match action.as_str() {
+                        "upsert" => {
+                            if let Some(server_note) = note_meta.get(filename) {
+                                if server_note.is_blob {
                                     response.update.push(UpdateNote {
                                         filename: filename.clone(),
-                                        content,
+                                        content: String::new(),
                                         hash: server_note.content_hash.clone(),
                                         modified_at: server_note.modified_at,
                                     });
+                                } else {
+                                    let content = read_note_file(notes_dir, filename);
+                                    if let Some(content) = content {
+                                        response.update.push(UpdateNote {
+                                            filename: filename.clone(),
+                                            content,
+                                            hash: server_note.content_hash.clone(),
+                                            modified_at: server_note.modified_at,
+                                        });
+                                    }
                                 }
                             }
+                        }
+                        "delete" => {
+                            response.delete.push(filename.clone());
                         }
                         _ => {}
                     }
                 }
-            }
-            continue;
-        }
 
-        if tombstones.contains(filename) {
-            continue;
-        }
-
-        // Client doesn't have this note — send it
-        if server_note.is_blob {
-            response.update.push(UpdateNote {
-                filename: filename.clone(),
-                content: String::new(),
-                hash: server_note.content_hash.clone(),
-                modified_at: server_note.modified_at,
-            });
-        } else {
-            let content = read_note_file(notes_dir, filename);
-            if let Some(content) = content {
-                response.update.push(UpdateNote {
-                    filename: filename.clone(),
-                    content,
-                    hash: server_note.content_hash.clone(),
-                    modified_at: server_note.modified_at,
-                });
+                // Also propagate tombstones that the changelog might have missed
+                // (tombstones created before the changelog window)
+                // This is handled by the "delete" action in the changelog.
             }
+            // If client is beyond retention, oldest_retained_version is set in the response.
+            // The client detects this and falls back to full sync.
         }
     }
 
-    // ── 6. Update device snapshots ─────────────────────────────────
+    // ── 6. Store content for future three-way merges ──────────────
 
-    // After all processing, record what this device now has
-    update_device_snapshots(&tx, &req.device_id, &response, req, &note_meta)?;
+    store_sync_content(&tx, req, &response);
 
-    // ── 7. Version tracking ────────────────────────────────────────
+    // ── 7. Version tracking + version_log ─────────────────────────
 
     if mutated {
-        response.version =
+        let new_version =
             db::increment_sync_version(&tx).map_err(|e| AppError::internal(e.to_string()))?;
+        response.version = new_version;
+
+        // Write version_log entries for this version
+        if !version_log_entries.is_empty() {
+            let entries: Vec<(String, &str, Option<String>)> = version_log_entries
+                .iter()
+                .map(|e| (e.filename.clone(), e.action, e.hash.clone()))
+                .collect();
+            db::insert_version_log_entries(&tx, new_version, &entries)
+                .map_err(|e| AppError::internal(e.to_string()))?;
+        }
     } else {
         response.version =
             db::get_sync_version(&tx).map_err(|e| AppError::internal(e.to_string()))?;
     }
 
-    // ── 8. Post-sync invariant checks ──────────────────────────────
+    // Set oldest_retained_version in all responses
+    if response.oldest_retained_version.is_none() {
+        response.oldest_retained_version = db::get_oldest_retained_version(&tx)
+            .map_err(|e| AppError::internal(e.to_string()))?;
+    }
+
+    // ── 8. Prune content_store ────────────────────────────────────
+
+    prune_content_store(&tx)?;
+
+    // ── 9. Post-sync invariant checks ─────────────────────────────
 
     run_invariants(&tx, notes_dir, &tombstones, response.version);
 
-    // ── 9. Populate timestamps for all active notes ───────────────
+    // ── 10. Populate timestamps for all active notes ──────────────
 
     let final_meta: HashMap<String, NoteMetaRow> = load_note_meta(&tx)?;
     for (filename, meta) in &final_meta {
@@ -562,6 +696,7 @@ fn attempt_three_way_merge(
 
 /// Create a conflict copy: write client's version as a separate file,
 /// send server's version to the client.
+/// Returns version_log entries for the conflict copy creation.
 #[allow(clippy::too_many_arguments)]
 fn create_conflict_copy(
     conn: &Connection,
@@ -573,7 +708,8 @@ fn create_conflict_copy(
     update_set: &mut HashSet<String>,
     response: &mut SyncResponse,
     mutated: &mut bool,
-) -> Result<(), AppError> {
+) -> Result<Vec<VersionLogEntry>, AppError> {
+    let mut entries = Vec::new();
     let date = chrono_date();
     let conflict_name = sync::conflict_filename(filename, &date, active_filenames);
 
@@ -584,8 +720,14 @@ fn create_conflict_copy(
     active_filenames.insert(conflict_name.clone());
 
     response.conflicts.push(ConflictNote {
-        filename: conflict_name,
+        filename: conflict_name.clone(),
         content: client_content.to_string(),
+    });
+
+    entries.push(VersionLogEntry {
+        filename: conflict_name,
+        action: "upsert",
+        hash: Some(conflict_hash),
     });
 
     // Send server's version to the client
@@ -601,6 +743,36 @@ fn create_conflict_copy(
     }
 
     *mutated = true;
+    Ok(entries)
+}
+
+/// Store content from sync request/response in content_store for future three-way merges.
+fn store_sync_content(conn: &Connection, req: &SyncRequest, response: &SyncResponse) {
+    for changed in &req.changed {
+        let _ = db::store_content(conn, &changed.hash, &changed.content);
+    }
+    for new_note in &req.new {
+        let _ = db::store_content(conn, &new_note.hash, &new_note.content);
+    }
+    for update in &response.update {
+        let _ = db::store_content(conn, &update.hash, &update.content);
+    }
+    for conflict in &response.conflicts {
+        let hash = hash_sha256(&conflict.content);
+        let _ = db::store_content(conn, &hash, &conflict.content);
+    }
+}
+
+/// Prune content_store: remove entries not referenced by note_meta or version_log.
+fn prune_content_store(conn: &Connection) -> Result<(), AppError> {
+    conn.execute(
+        "DELETE FROM content_store WHERE hash NOT IN \
+         (SELECT content_hash FROM note_meta) \
+         AND hash NOT IN \
+         (SELECT hash FROM version_log WHERE hash IS NOT NULL)",
+        [],
+    )
+    .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(())
 }
 
@@ -704,28 +876,6 @@ fn load_tombstones(conn: &Connection) -> Result<HashSet<String>, AppError> {
     Ok(set)
 }
 
-fn load_device_snapshots(
-    conn: &Connection,
-    device_id: &str,
-) -> Result<HashMap<String, String>, AppError> {
-    let mut stmt = conn
-        .prepare("SELECT filename, hash FROM device_snapshots WHERE device_id = ?1")
-        .map_err(|e| AppError::internal(e.to_string()))?;
-
-    let rows = stmt
-        .query_map([device_id], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })
-        .map_err(|e| AppError::internal(e.to_string()))?;
-
-    let mut map = HashMap::new();
-    for row in rows {
-        let (filename, hash) = row.map_err(|e| AppError::internal(e.to_string()))?;
-        map.insert(filename, hash);
-    }
-    Ok(map)
-}
-
 fn upsert_note_meta(
     conn: &Connection,
     filename: &str,
@@ -764,101 +914,6 @@ fn create_tombstone(conn: &Connection, filename: &str) -> Result<(), AppError> {
 fn remove_tombstone(conn: &Connection, filename: &str) -> Result<(), AppError> {
     conn.execute("DELETE FROM tombstones WHERE filename = ?1", [filename])
         .map_err(|e| AppError::internal(e.to_string()))?;
-    Ok(())
-}
-
-fn update_device_snapshots(
-    conn: &Connection,
-    device_id: &str,
-    response: &SyncResponse,
-    req: &SyncRequest,
-    note_meta: &HashMap<String, NoteMetaRow>,
-) -> Result<(), AppError> {
-    // Build the final set of what the device will have after applying the response:
-    // Start with inventory, apply changes from the response
-    let mut final_state: HashMap<String, String> = HashMap::new();
-
-    // Everything from inventory that wasn't deleted
-    let deleted_set: HashSet<&str> = response.delete.iter().map(|s| s.as_str()).collect();
-    for item in &req.inventory {
-        if !deleted_set.contains(item.filename.as_str()) {
-            final_state.insert(item.filename.clone(), item.hash.clone());
-        }
-    }
-
-    // Updates from server overwrite client state
-    for update in &response.update {
-        final_state.insert(update.filename.clone(), update.hash.clone());
-    }
-
-    // Client's changed notes (if accepted by server)
-    for changed in &req.changed {
-        if note_meta.contains_key(&changed.filename) {
-            // Use the server's current hash (which may be the client's if accepted)
-            if let Some(meta) = note_meta.get(&changed.filename) {
-                final_state.insert(changed.filename.clone(), meta.content_hash.clone());
-            }
-        }
-    }
-
-    // Client's new notes
-    for new_note in &req.new {
-        final_state.insert(new_note.filename.clone(), new_note.hash.clone());
-    }
-
-    // Conflict copies
-    for conflict in &response.conflicts {
-        let hash = hash_sha256(&conflict.content);
-        final_state.insert(conflict.filename.clone(), hash);
-    }
-
-    // Remove deleted
-    for filename in &req.deleted {
-        final_state.remove(filename);
-    }
-    for filename in &response.delete {
-        final_state.remove(filename);
-    }
-
-    // ── Store content in content_store for future three-way merges ──
-    // Content is available from the request (client) and response (server).
-    for changed in &req.changed {
-        let _ = db::store_content(conn, &changed.hash, &changed.content);
-    }
-    for new_note in &req.new {
-        let _ = db::store_content(conn, &new_note.hash, &new_note.content);
-    }
-    for update in &response.update {
-        let _ = db::store_content(conn, &update.hash, &update.content);
-    }
-    for conflict in &response.conflicts {
-        let hash = hash_sha256(&conflict.content);
-        let _ = db::store_content(conn, &hash, &conflict.content);
-    }
-
-    // Clear old snapshots for this device and write new ones
-    conn.execute(
-        "DELETE FROM device_snapshots WHERE device_id = ?1",
-        [device_id],
-    )
-    .map_err(|e| AppError::internal(e.to_string()))?;
-
-    let mut stmt = conn
-        .prepare("INSERT INTO device_snapshots (device_id, filename, hash) VALUES (?1, ?2, ?3)")
-        .map_err(|e| AppError::internal(e.to_string()))?;
-
-    for (filename, hash) in &final_state {
-        stmt.execute(rusqlite::params![device_id, filename, hash])
-            .map_err(|e| AppError::internal(e.to_string()))?;
-    }
-
-    // Prune content_store: remove entries no longer referenced by any device snapshot
-    conn.execute(
-        "DELETE FROM content_store WHERE hash NOT IN (SELECT DISTINCT hash FROM device_snapshots)",
-        [],
-    )
-    .map_err(|e| AppError::internal(e.to_string()))?;
-
     Ok(())
 }
 

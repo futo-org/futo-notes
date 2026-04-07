@@ -78,13 +78,11 @@ impl SimulatedClient {
     /// Build a SyncRequest by comparing current files against file_hashes,
     /// exactly like the real client's `prepareSyncPayloadV2`.
     fn prepare_sync(&self) -> SyncRequest {
-        let mut req = SyncRequest {
-            device_id: self.device_id.clone(),
-            inventory: Vec::new(),
-            changed: Vec::new(),
-            new: Vec::new(),
-            deleted: Vec::new(),
-        };
+        let mut inventory = Vec::new();
+        let mut changed = Vec::new();
+        let mut new = Vec::new();
+        let mut deleted = Vec::new();
+        let mut deleted_baselines = HashMap::new();
 
         // Scan current files
         let current_files: HashMap<String, String> = self
@@ -99,23 +97,24 @@ impl SimulatedClient {
 
         // Classify each file
         for (filename, hash) in &current_files {
-            req.inventory.push(InventoryItem {
+            inventory.push(InventoryItem {
                 filename: filename.clone(),
                 hash: hash.clone(),
             });
             match self.file_hashes.get(filename) {
                 Some(old_hash) if old_hash != hash => {
                     let content = self.read_local(filename).unwrap();
-                    req.changed.push(ChangedNote {
+                    changed.push(ChangedNote {
                         filename: filename.clone(),
                         content,
                         hash: hash.clone(),
                         modified_at: 0,
+                        baseline_hash: self.file_hashes.get(filename).cloned(),
                     });
                 }
                 None => {
                     let content = self.read_local(filename).unwrap();
-                    req.new.push(NewNote {
+                    new.push(NewNote {
                         filename: filename.clone(),
                         content,
                         hash: hash.clone(),
@@ -129,11 +128,22 @@ impl SimulatedClient {
         // Detect deletions
         for filename in self.file_hashes.keys() {
             if !current_files.contains_key(filename) {
-                req.deleted.push(filename.clone());
+                deleted.push(filename.clone());
+                if let Some(hash) = self.file_hashes.get(filename) {
+                    deleted_baselines.insert(filename.clone(), hash.clone());
+                }
             }
         }
 
-        req
+        SyncRequest {
+            device_id: self.device_id.clone(),
+            inventory: Some(inventory),
+            changed,
+            new,
+            deleted,
+            last_version: Some(self.last_server_version),
+            deleted_baselines,
+        }
     }
 
     /// Apply a SyncResponse to local state, exactly like the real client's

@@ -40,6 +40,7 @@ struct Client {
     device_id: String,
     vault_dir: PathBuf,
     file_hashes: HashMap<String, String>,
+    last_server_version: Option<u64>,
 }
 
 impl Client {
@@ -50,6 +51,7 @@ impl Client {
             device_id: device_id.to_string(),
             vault_dir,
             file_hashes: HashMap::new(),
+            last_server_version: None,
         }
     }
 
@@ -84,31 +86,30 @@ impl Client {
 
     fn prepare_and_sync(&mut self, conn: &rusqlite::Connection, notes_dir: &Path) -> SyncResponse {
         let current = self.list_md();
-        let mut req = SyncRequest {
-            device_id: self.device_id.clone(),
-            inventory: Vec::new(),
-            changed: Vec::new(),
-            new: Vec::new(),
-            deleted: Vec::new(),
-        };
+        let mut inventory = Vec::new();
+        let mut changed = Vec::new();
+        let mut new = Vec::new();
+        let mut deleted = Vec::new();
+        let mut deleted_baselines = HashMap::new();
 
         for (filename, content) in &current {
             let hash = hash_sha256(content);
-            req.inventory.push(InventoryItem {
+            inventory.push(InventoryItem {
                 filename: filename.clone(),
                 hash: hash.clone(),
             });
             match self.file_hashes.get(filename) {
                 Some(old) if old != &hash => {
-                    req.changed.push(ChangedNote {
+                    changed.push(ChangedNote {
                         filename: filename.clone(),
                         content: content.clone(),
                         hash,
                         modified_at: 0,
+                        baseline_hash: self.file_hashes.get(filename).cloned(),
                     });
                 }
                 None => {
-                    req.new.push(NewNote {
+                    new.push(NewNote {
                         filename: filename.clone(),
                         content: content.clone(),
                         hash,
@@ -120,11 +121,27 @@ impl Client {
         }
         for filename in self.file_hashes.keys() {
             if !current.contains_key(filename) {
-                req.deleted.push(filename.clone());
+                deleted.push(filename.clone());
+                if let Some(baseline) = self.file_hashes.get(filename) {
+                    deleted_baselines.insert(filename.clone(), baseline.clone());
+                }
             }
         }
 
+        let req = SyncRequest {
+            device_id: self.device_id.clone(),
+            inventory: Some(inventory),
+            changed,
+            new,
+            deleted,
+            last_version: self.last_server_version,
+            deleted_baselines,
+        };
+
         let resp = process_sync(conn, notes_dir, &req).unwrap();
+
+        // Track server version for next sync
+        self.last_server_version = Some(resp.version);
 
         // Apply response
         for update in &resp.update {
