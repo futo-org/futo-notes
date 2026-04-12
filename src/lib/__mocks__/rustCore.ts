@@ -109,8 +109,3 @@ export async function applySyncDeltaV2(
 
   return { updatedFilenames, deletedFilenames, conflictFilenames, elapsedMs: 0 };
 }
-
-// Image wrappers
-export interface ImageFileEntry { filename: string; size: number; mtime: number }
-export async function listImageFilesRust(): Promise<ImageFileEntry[]> { return []; }
-export async function deleteImageFileRust(_filename: string): Promise<void> {}

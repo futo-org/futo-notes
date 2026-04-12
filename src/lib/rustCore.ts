@@ -108,18 +108,3 @@ export async function applySyncDeltaV2(
   });
 }
 
-// Image gallery wrappers
-
-export interface ImageFileEntry {
-  filename: string;
-  size: number;
-  mtime: number;
-}
-
-export async function listImageFilesRust(): Promise<ImageFileEntry[]> {
-  return tauriInvoke<ImageFileEntry[]>('core_list_image_files');
-}
-
-export async function deleteImageFileRust(filename: string): Promise<void> {
-  await tauriInvoke<void>('core_delete_image_file', { filename });
-}
