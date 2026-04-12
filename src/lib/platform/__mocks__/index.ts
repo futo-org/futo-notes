@@ -1,4 +1,4 @@
-export type { NoteFile, FileChangeEvent, PlatformFS, PlatformName } from '../types';
+export type { NoteFile, FileChangeEvent, PlatformFS, PlatformName, DirFileEntry } from '../types';
 
 import { createNodeFS } from '../__test__/nodeFS';
 import type { PlatformFS, PlatformName } from '../types';

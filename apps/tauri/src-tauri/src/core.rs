@@ -169,6 +169,14 @@ pub struct NoteFileEntry {
     pub mtime: i64,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DirFileEntry {
+    pub name: String,
+    pub size: u64,
+    pub mtime: i64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default, rename_all = "camelCase")]
 struct AppConfigFile {
@@ -1763,6 +1771,48 @@ pub async fn fs_list_note_files(app: AppHandle) -> Result<Vec<NoteFileEntry>, St
             .collect::<Vec<_>>();
         files.sort_by(|a, b| b.mtime.cmp(&a.mtime));
         Ok(files)
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
+/// List all regular files in the notes root directory with name, size, and mtime.
+#[tauri::command]
+pub async fn fs_list_dir_files(app: AppHandle) -> Result<Vec<DirFileEntry>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = notes_root(&app)?;
+        let entries = fs::read_dir(&base)
+            .map_err(io_err_to_string)?
+            .filter_map(|entry| entry.ok())
+            .filter_map(|entry| {
+                let name = entry.file_name().to_string_lossy().to_string();
+                let meta = entry.metadata().ok()?;
+                if !meta.is_file() {
+                    return None;
+                }
+                Some(DirFileEntry {
+                    name,
+                    size: meta.len(),
+                    mtime: file_mtime_ms(&meta),
+                })
+            })
+            .collect();
+        Ok(entries)
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
+/// Delete a file by name from the notes root. Rejects traversal characters.
+#[tauri::command]
+pub async fn fs_delete_file(app: AppHandle, filename: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        if filename.contains("..") || filename.contains('/') || filename.contains('\\') {
+            return Err("invalid filename".to_string());
+        }
+        let base = notes_root(&app)?;
+        let path = base.join(&filename);
+        fs::remove_file(&path).map_err(io_err_to_string)
     })
     .await
     .map_err(task_join_err)?
