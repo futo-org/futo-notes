@@ -1,5 +1,6 @@
 import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { getVersion } from '@tauri-apps/api/app';
 import type { FileChangeEvent, PlatformFS, NoteFile } from './types';
 
 interface NoteFileRow {
@@ -121,7 +122,7 @@ export const tauriFS: PlatformFS = {
   },
 
   async getAppVersion(): Promise<string> {
-    return invoke<string>('app_get_version');
+    return getVersion();
   },
 
   getPlatformName(): string {
