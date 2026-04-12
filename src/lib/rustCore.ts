@@ -1,5 +1,4 @@
 import type { NotePreview, SearchResultItem } from '../types';
-import type { EngagementRecord } from './engagement';
 import { platformName } from './platform';
 
 interface RustSearchSnippetSegment {
@@ -163,33 +162,3 @@ export async function listImageFilesRust(): Promise<ImageFileEntry[]> {
 export async function deleteImageFileRust(filename: string): Promise<void> {
   await tauriInvoke<void>('core_delete_image_file', { filename });
 }
-
-// Engagement wrappers
-export async function engagementLoadRust(): Promise<void> {
-  await tauriInvoke<void>('engagement_load');
-}
-
-export async function engagementTrackOpenRust(id: string): Promise<void> {
-  await tauriInvoke<void>('engagement_track_open', { id });
-}
-
-export async function engagementTrackEditRust(id: string): Promise<void> {
-  await tauriInvoke<void>('engagement_track_edit', { id });
-}
-
-export async function engagementRemoveRust(id: string): Promise<void> {
-  await tauriInvoke<void>('engagement_remove', { id });
-}
-
-export async function engagementRenameRust(oldId: string, newId: string): Promise<void> {
-  await tauriInvoke<void>('engagement_rename', { oldId, newId });
-}
-
-export async function engagementGetAllRust(): Promise<Record<string, EngagementRecord>> {
-  return tauriInvoke<Record<string, EngagementRecord>>('engagement_get_all');
-}
-
-export async function engagementFlushRust(): Promise<void> {
-  await tauriInvoke<void>('engagement_flush');
-}
-

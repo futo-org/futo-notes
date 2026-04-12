@@ -1,6 +1,5 @@
 import type { NotePreview, SearchResultItem } from '../../types';
 import { extractTags } from '@futo-notes/shared';
-import type { EngagementRecord } from '../engagement';
 import type { V2SyncState } from '../appState';
 
 // Access the same testFS instance used by the platform mock (stored on globalThis)
@@ -162,12 +161,3 @@ export async function applySyncDeltaV2(
 export interface ImageFileEntry { filename: string; size: number; mtime: number }
 export async function listImageFilesRust(): Promise<ImageFileEntry[]> { return []; }
 export async function deleteImageFileRust(_filename: string): Promise<void> {}
-
-// Engagement mock stubs
-export async function engagementLoadRust(): Promise<void> {}
-export async function engagementTrackOpenRust(_id: string): Promise<void> {}
-export async function engagementTrackEditRust(_id: string): Promise<void> {}
-export async function engagementRemoveRust(_id: string): Promise<void> {}
-export async function engagementRenameRust(_oldId: string, _newId: string): Promise<void> {}
-export async function engagementGetAllRust(): Promise<Record<string, EngagementRecord>> { return {}; }
-export async function engagementFlushRust(): Promise<void> {}
