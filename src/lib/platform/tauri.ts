@@ -20,6 +20,7 @@ import { writeAtomicText } from './atomicWrite';
 import type { AtomicWriteFS } from './atomicWrite';
 import { isNotFound } from './fsErrors';
 import {
+  getNotesRoot as resolveNotesRoot,
   getDefaultNotesRoot,
   loadNotesDirOverride,
   saveNotesDirOverride,
@@ -61,8 +62,7 @@ let cachedNotesRoot: string | null = null;
 
 async function getNotesRoot(): Promise<string> {
   if (cachedNotesRoot) return cachedNotesRoot;
-  const config = await invoke<AppConfig>('app_get_config');
-  cachedNotesRoot = config.notesDir;
+  cachedNotesRoot = await resolveNotesRoot();
   return cachedNotesRoot;
 }
 

@@ -2475,6 +2475,33 @@ pub async fn app_set_notes_dir(app: AppHandle, dir: Option<String>) -> Result<()
 }
 
 #[tauri::command]
+pub async fn notes_dir_override_load(app: AppHandle) -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        Ok(load_notes_dir_override(&app).map(|p| p.to_string_lossy().to_string()))
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
+#[tauri::command]
+pub async fn notes_dir_override_save(app: AppHandle, dir: Option<String>) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        save_notes_dir_override(&app, dir.as_deref())
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
+#[tauri::command]
+pub async fn fs_ensure_dir(path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        fs::create_dir_all(&path).map_err(io_err_to_string)
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
+#[tauri::command]
 pub fn app_get_version(app: AppHandle) -> String {
     app.package_info().version.to_string()
 }

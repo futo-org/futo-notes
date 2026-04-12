@@ -17,6 +17,23 @@ vi.mock('@tauri-apps/api/path', () => ({
   isAbsolute: vi.fn((p: string) => Promise.resolve(p.startsWith('/'))),
 }));
 
+vi.mock('@tauri-apps/plugin-fs', () => ({
+  readTextFile: vi.fn(() => Promise.reject(new Error('not found'))),
+  writeTextFile: vi.fn(() => Promise.resolve()),
+  readFile: vi.fn(() => Promise.reject(new Error('not found'))),
+  writeFile: vi.fn(() => Promise.resolve()),
+  readDir: vi.fn(() => Promise.resolve([])),
+  remove: vi.fn(() => Promise.resolve()),
+  mkdir: vi.fn(() => Promise.resolve()),
+  rename: vi.fn(() => Promise.resolve()),
+  exists: vi.fn(() => Promise.resolve(false)),
+  stat: vi.fn(() => Promise.resolve({ mtime: new Date() })),
+}));
+
+vi.mock('@tauri-apps/api/app', () => ({
+  getVersion: vi.fn(() => Promise.resolve('0.0.0-test')),
+}));
+
 import { invoke } from '@tauri-apps/api/core';
 import { getConfig, saveConfig, setNotesDir } from './tauri';
 
@@ -65,16 +82,20 @@ describe('getConfig', () => {
   });
 
   it('reads sidebar widths from config file', async () => {
-    setupInvokeMock({
-      appdata_read: JSON.stringify({ sidebarWidth: 300, graphSidebarWidth: 400 }),
-    });
+    setupInvokeMock();
+    const { readTextFile } = await import('@tauri-apps/plugin-fs');
+    vi.mocked(readTextFile).mockResolvedValueOnce(
+      JSON.stringify({ sidebarWidth: 300, graphSidebarWidth: 400 }),
+    );
     const cfg = await getConfig();
     expect(cfg.sidebarWidth).toBe(300);
     expect(cfg.graphSidebarWidth).toBe(400);
   });
 
   it('handles invalid JSON in config file gracefully', async () => {
-    setupInvokeMock({ appdata_read: 'not valid json{' });
+    setupInvokeMock();
+    const { readTextFile } = await import('@tauri-apps/plugin-fs');
+    vi.mocked(readTextFile).mockResolvedValueOnce('not valid json{');
     const cfg = await getConfig();
     expect(cfg.sidebarWidth).toBeUndefined();
     expect(cfg.graphSidebarWidth).toBeUndefined();
@@ -83,43 +104,34 @@ describe('getConfig', () => {
 
 describe('saveConfig', () => {
   it('merges sidebarWidth into existing config', async () => {
-    const writes: Array<{ path: string; content: string }> = [];
-    mockInvoke.mockImplementation(async (cmd: string, args?: unknown) => {
-      if (cmd === 'notes_dir_override_load') return null;
-      if (cmd === 'fs_ensure_dir') return undefined;
-      if (cmd === 'appdata_read')
-        return JSON.stringify({ sidebarWidth: 280, graphSidebarWidth: 320 });
-      if (cmd === 'appdata_write') {
-        const a = args as { relPath: string; content: string };
-        writes.push({ path: a.relPath, content: a.content });
-        return undefined;
-      }
-      throw new Error(`unexpected invoke: ${cmd}`);
-    });
+    setupInvokeMock();
+    // Mock plugin-fs readTextFile to return existing config
+    const { readTextFile, writeTextFile, rename } = await import('@tauri-apps/plugin-fs');
+    const mockReadTextFile = vi.mocked(readTextFile);
+    const mockWriteTextFile = vi.mocked(writeTextFile);
+    const mockRename = vi.mocked(rename);
+    mockReadTextFile.mockResolvedValueOnce(JSON.stringify({ sidebarWidth: 280, graphSidebarWidth: 320 }));
 
     await saveConfig({ sidebarWidth: 350 });
-    expect(writes).toHaveLength(1);
-    const written = JSON.parse(writes[0].content);
+    expect(mockWriteTextFile).toHaveBeenCalledTimes(1);
+    // Atomic write: writes to temp then renames
+    const writtenContent = mockWriteTextFile.mock.calls[0][1] as string;
+    const written = JSON.parse(writtenContent);
     expect(written.sidebarWidth).toBe(350);
     expect(written.graphSidebarWidth).toBe(320);
+    expect(mockRename).toHaveBeenCalledTimes(1);
   });
 
   it('can set a width to null', async () => {
-    const writes: Array<{ path: string; content: string }> = [];
-    mockInvoke.mockImplementation(async (cmd: string, args?: unknown) => {
-      if (cmd === 'notes_dir_override_load') return null;
-      if (cmd === 'fs_ensure_dir') return undefined;
-      if (cmd === 'appdata_read') return JSON.stringify({ sidebarWidth: 280 });
-      if (cmd === 'appdata_write') {
-        const a = args as { relPath: string; content: string };
-        writes.push({ path: a.relPath, content: a.content });
-        return undefined;
-      }
-      throw new Error(`unexpected invoke: ${cmd}`);
-    });
+    setupInvokeMock();
+    const { readTextFile, writeTextFile } = await import('@tauri-apps/plugin-fs');
+    const mockReadTextFile = vi.mocked(readTextFile);
+    const mockWriteTextFile = vi.mocked(writeTextFile);
+    mockReadTextFile.mockResolvedValueOnce(JSON.stringify({ sidebarWidth: 280 }));
 
     await saveConfig({ sidebarWidth: null });
-    const written = JSON.parse(writes[0].content);
+    const writtenContent = mockWriteTextFile.mock.calls[0][1] as string;
+    const written = JSON.parse(writtenContent);
     expect(written.sidebarWidth).toBeNull();
   });
 });
