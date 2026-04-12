@@ -1,0 +1,248 @@
+import type { NotePreview } from '../types';
+import type { FileSystem } from './platform/types';
+import { extractTags } from '@futo-notes/shared';
+import { extractHeadings } from './searchIndex';
+
+// ── Types ─────────────────────────────────────────────────────────────
+
+export interface IndexedNote {
+  id: string;
+  title: string;
+  preview: string;
+  tags: string[];
+  headings: string;
+  body: string;
+  mtime: number;
+}
+
+interface CachedNoteMeta {
+  mtime: number;
+  preview: string;
+  tags: string[];
+  headings: string;
+}
+
+interface NotePreviewCache {
+  version: number;
+  entries: Record<string, CachedNoteMeta>;
+}
+
+const CACHE_PATH = '.note-preview-cache.json';
+const CACHE_VERSION = 1;
+
+// Guard: txt migration only needs to run once per session
+let txtMigrationDone = false;
+
+// ── Preview ───────────────────────────────────────────────────────────
+
+/** First 100 characters, newlines replaced with spaces. Matches Rust `make_preview`. */
+export function makePreview(content: string): string {
+  return content.slice(0, 100).replace(/\n/g, ' ');
+}
+
+// ── .txt migration ────────────────────────────────────────────────────
+
+/** One-way migration: rename .txt files to .md in the notes directory. */
+export async function convertTxtToMd(fs: FileSystem): Promise<void> {
+  const allFiles = await fs.listAppData('.');
+  const txtFiles = allFiles.filter(f => f.toLowerCase().endsWith('.txt'));
+  if (txtFiles.length === 0) return;
+
+  const mdSet = new Set(
+    allFiles.filter(f => f.toLowerCase().endsWith('.md')).map(f => f.toLowerCase()),
+  );
+
+  for (const txtName of txtFiles) {
+    const baseName = txtName.slice(0, -4); // strip .txt
+    const mdName = `${baseName}.md`;
+
+    let target: string;
+    if (mdSet.has(mdName.toLowerCase())) {
+      // Collision: both name.txt and name.md exist
+      target = `${baseName} (imported).md`;
+      let counter = 2;
+      while (mdSet.has(target.toLowerCase()) || allFiles.includes(target)) {
+        target = `${baseName} (imported ${counter}).md`;
+        counter++;
+      }
+    } else {
+      target = mdName;
+    }
+
+    try {
+      const content = await fs.readAppData(txtName);
+      if (content !== null) {
+        await fs.writeAppData(target, content);
+        await fs.deleteAppData(txtName);
+        mdSet.add(target.toLowerCase());
+      }
+    } catch {
+      // Skip files that can't be read/written
+    }
+  }
+}
+
+// ── Cache I/O ─────────────────────────────────────────────────────────
+
+async function loadPreviewCache(fs: FileSystem): Promise<NotePreviewCache> {
+  try {
+    const raw = await fs.readAppData(CACHE_PATH);
+    if (!raw) return { version: CACHE_VERSION, entries: {} };
+    const cache = JSON.parse(raw) as NotePreviewCache;
+    if (cache.version !== CACHE_VERSION) return { version: CACHE_VERSION, entries: {} };
+    return cache;
+  } catch {
+    return { version: CACHE_VERSION, entries: {} };
+  }
+}
+
+async function savePreviewCache(fs: FileSystem, cache: NotePreviewCache): Promise<void> {
+  try {
+    await fs.writeAppData(CACHE_PATH, JSON.stringify(cache));
+  } catch {
+    // Non-fatal
+  }
+}
+
+// ── Build helpers ─────────────────────────────────────────────────────
+
+export function buildIndexedNote(id: string, content: string, mtime: number): IndexedNote {
+  return {
+    id,
+    title: id,
+    preview: makePreview(content),
+    tags: extractTags(content),
+    headings: extractHeadings(content),
+    body: content,
+    mtime,
+  };
+}
+
+// ── Scanning ──────────────────────────────────────────────────────────
+
+/**
+ * Fast startup scan: returns NotePreview[] sorted by mtime desc.
+ * Uses a preview cache to avoid reading unchanged files.
+ * Does NOT load full bodies (search index builds lazily).
+ */
+export async function scanNotePreviews(fs: FileSystem): Promise<NotePreview[]> {
+  if (!txtMigrationDone) {
+    await convertTxtToMd(fs);
+    txtMigrationDone = true;
+  }
+  const cache = await loadPreviewCache(fs);
+  const files = await fs.listNoteFiles();
+
+  const previews: NotePreview[] = [];
+  const newEntries: Record<string, CachedNoteMeta> = {};
+  let cacheChanged = false;
+
+  for (const file of files) {
+    const id = file.name.replace(/\.md$/, '');
+    const cached = cache.entries[id];
+
+    if (cached && cached.mtime === file.mtime) {
+      // Cache hit
+      previews.push({
+        id,
+        title: id,
+        preview: cached.preview,
+        modificationTime: file.mtime,
+        tags: cached.tags,
+      });
+      newEntries[id] = cached;
+    } else {
+      // Cache miss: read file to extract metadata
+      cacheChanged = true;
+      try {
+        const content = await fs.readNote(id);
+        const preview = makePreview(content);
+        const tags = extractTags(content);
+        const headings = extractHeadings(content);
+
+        previews.push({
+          id,
+          title: id,
+          preview,
+          modificationTime: file.mtime,
+          tags,
+        });
+        newEntries[id] = { mtime: file.mtime, preview, tags, headings };
+      } catch {
+        // Skip unreadable files
+      }
+    }
+  }
+
+  // Detect deletions (cache had entries not in current files)
+  if (!cacheChanged && Object.keys(cache.entries).length !== Object.keys(newEntries).length) {
+    cacheChanged = true;
+  }
+
+  if (cacheChanged) {
+    await savePreviewCache(fs, { version: CACHE_VERSION, entries: newEntries });
+  }
+
+  // Sort by mtime desc, then id asc as tiebreaker
+  previews.sort((a, b) =>
+    b.modificationTime - a.modificationTime || a.id.localeCompare(b.id),
+  );
+
+  return previews;
+}
+
+/**
+ * Full scan for search index rebuild.
+ * Reads all file bodies and builds IndexedNote[] suitable for MiniSearch.
+ */
+export async function scanNotes(fs: FileSystem): Promise<IndexedNote[]> {
+  if (!txtMigrationDone) {
+    await convertTxtToMd(fs);
+    txtMigrationDone = true;
+  }
+  const cache = await loadPreviewCache(fs);
+  const files = await fs.listNoteFiles();
+
+  const notes: IndexedNote[] = [];
+  const newEntries: Record<string, CachedNoteMeta> = {};
+  let cacheChanged = false;
+
+  for (const file of files) {
+    const id = file.name.replace(/\.md$/, '');
+    try {
+      const content = await fs.readNote(id);
+      const cached = cache.entries[id];
+
+      let preview: string;
+      let tags: string[];
+      let headings: string;
+
+      if (cached && cached.mtime === file.mtime) {
+        // Reuse cached metadata, but we still need the body for search
+        preview = cached.preview;
+        tags = cached.tags;
+        headings = cached.headings;
+      } else {
+        cacheChanged = true;
+        preview = makePreview(content);
+        tags = extractTags(content);
+        headings = extractHeadings(content);
+      }
+
+      notes.push({ id, title: id, preview, tags, headings, body: content, mtime: file.mtime });
+      newEntries[id] = { mtime: file.mtime, preview, tags, headings };
+    } catch {
+      // Skip unreadable files
+    }
+  }
+
+  if (!cacheChanged && Object.keys(cache.entries).length !== Object.keys(newEntries).length) {
+    cacheChanged = true;
+  }
+
+  if (cacheChanged) {
+    await savePreviewCache(fs, { version: CACHE_VERSION, entries: newEntries });
+  }
+
+  return notes;
+}

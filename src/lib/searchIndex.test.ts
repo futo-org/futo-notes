@@ -146,6 +146,64 @@ describe('extractSnippet', () => {
   });
 });
 
+describe('Unicode snippet boundaries', () => {
+  it('handles emoji in highlighted text', () => {
+    const segments = buildHighlightedSegments('I love pizza 🍕 and pasta', ['pizza']);
+    expect(segments).toEqual([
+      { text: 'I love ', highlight: false },
+      { text: 'pizza', highlight: true },
+      { text: ' 🍕 and pasta', highlight: false },
+    ]);
+  });
+
+  it('handles CJK text in highlighted segments', () => {
+    const segments = buildHighlightedSegments('日本語のテスト文章', ['テスト']);
+    expect(segments).toEqual([
+      { text: '日本語の', highlight: false },
+      { text: 'テスト', highlight: true },
+      { text: '文章', highlight: false },
+    ]);
+  });
+
+  it('handles multi-term highlighting across Unicode text', () => {
+    const segments = buildHighlightedSegments('hello 世界 and goodbye 世界', ['hello', '世界']);
+    expect(segments).toEqual([
+      { text: 'hello', highlight: true },
+      { text: ' ', highlight: false },
+      { text: '世界', highlight: true },
+      { text: ' and goodbye ', highlight: false },
+      { text: '世界', highlight: true },
+    ]);
+  });
+
+  it('handles combining characters', () => {
+    // e + combining acute accent = é
+    const text = 'caf\u0065\u0301 au lait';
+    const segments = buildHighlightedSegments(text, ['lait']);
+    expect(segments).toEqual([
+      { text: 'caf\u0065\u0301 au ', highlight: false },
+      { text: 'lait', highlight: true },
+    ]);
+  });
+});
+
+describe('empty search results', () => {
+  it('returns empty array for empty query', () => {
+    addToSearchIndex({ id: 'note1', title: 'note1', body: 'some content', mtime: Date.now() });
+    expect(searchNotes('')).toEqual([]);
+  });
+
+  it('returns empty array for whitespace-only query', () => {
+    addToSearchIndex({ id: 'note1', title: 'note1', body: 'some content', mtime: Date.now() });
+    expect(searchNotes('   ')).toEqual([]);
+  });
+
+  it('returns empty array when no documents match', () => {
+    addToSearchIndex({ id: 'note1', title: 'note1', body: 'hello world', mtime: Date.now() });
+    expect(searchNotes('zzzznonexistent')).toEqual([]);
+  });
+});
+
 describe('persistence', () => {
   it('round-trips: save and load index', async () => {
     addToSearchIndex({ id: 'note1', title: 'note1', body: 'persisted content hello', mtime: 1000 });

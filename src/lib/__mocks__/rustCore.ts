@@ -1,5 +1,3 @@
-import type { NotePreview, SearchResultItem } from '../../types';
-import { extractTags } from '@futo-notes/shared';
 import type { V2SyncState } from '../appState';
 
 // Access the same testFS instance used by the platform mock (stored on globalThis)
@@ -19,53 +17,8 @@ async function sha256Hex(input: string): Promise<string> {
   return arr.map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-async function scanNotes(): Promise<NotePreview[]> {
-  const fs = g.__futoActiveFS;
-  if (!fs) return [];
-  const files = await fs.listNoteFiles();
-  const previews: NotePreview[] = [];
-  for (const file of files) {
-    const id = file.name.replace(/\.md$/, '');
-    try {
-      const content = await fs.readNote(id);
-      previews.push({
-        id,
-        title: id,
-        preview: content.slice(0, 100).replace(/\n/g, ' '),
-        modificationTime: file.mtime,
-        tags: extractTags(content),
-      });
-    } catch { /* skip unreadable */ }
-  }
-  previews.sort((a, b) => b.modificationTime - a.modificationTime);
-  return previews;
-}
-
 export function hasRustCore(): boolean {
   return true;
-}
-
-export async function rebuildRustIndex(): Promise<NotePreview[]> {
-  return scanNotes();
-}
-
-export async function getNoteListFast(): Promise<NotePreview[]> {
-  return scanNotes();
-}
-
-export async function getRustNotePreviews(): Promise<NotePreview[]> {
-  return scanNotes();
-}
-
-export async function keywordSearchRust(query: string, _limit = 200): Promise<SearchResultItem[]> {
-  const previews = await scanNotes();
-  if (!query.trim()) {
-    return previews.map((note) => ({ note, snippet: null }));
-  }
-  const lower = query.trim().toLowerCase();
-  return previews
-    .filter((note) => note.id.toLowerCase().includes(lower) || note.preview.toLowerCase().includes(lower))
-    .map((note) => ({ note, snippet: [{ text: note.preview, highlight: false }], source: 'keyword' as const }));
 }
 
 export async function prepareSyncPayloadV2(state: V2SyncState): Promise<{
