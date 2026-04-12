@@ -14,7 +14,7 @@ import {
   exists as fsExists,
   stat,
 } from '@tauri-apps/plugin-fs';
-import type { FileChangeEvent, PlatformFS, NoteFile } from './types';
+import type { DirFileEntry, FileChangeEvent, PlatformFS, NoteFile } from './types';
 import { safeNotePath, safeAppdataPath } from './pathSafety';
 import { writeAtomicText } from './atomicWrite';
 import type { AtomicWriteFS } from './atomicWrite';
@@ -225,6 +225,14 @@ export const tauriFS: PlatformFS = {
     await writeFile(fullPath, new Uint8Array(data));
   },
 
+  async listDirFiles(): Promise<DirFileEntry[]> {
+    return invoke<DirFileEntry[]>('fs_list_dir_files');
+  },
+
+  async deleteFile(filename: string): Promise<void> {
+    await invoke('fs_delete_file', { filename });
+  },
+
   async saveImage(sourcePath: string): Promise<string> {
     return invoke<string>('fs_save_image', { sourcePath });
   },
@@ -234,8 +242,8 @@ export const tauriFS: PlatformFS = {
   },
 
   async getImageUrl(filename: string): Promise<string> {
-    const path = await invoke<string>('fs_get_image_path', { filename });
-    return convertFileSrc(path);
+    const absPath = await invoke<string>('fs_get_image_path', { filename });
+    return convertFileSrc(absPath);
   },
 
   async getAppVersion(): Promise<string> {

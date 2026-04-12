@@ -183,6 +183,8 @@ pub fn run() {
             supersearch_query,
             supersearch_note_vector,
             supersearch_all_note_vectors,
+            fs_list_dir_files,
+            fs_delete_file,
             fs_save_image,
             fs_save_image_bytes,
             fs_paste_clipboard_image,

@@ -53,6 +53,14 @@ export const webFS: PlatformFS = {
     return [];
   },
 
+  async listDirFiles(): Promise<import('./types').DirFileEntry[]> {
+    return [];
+  },
+
+  async deleteFile(_filename: string): Promise<void> {
+    // no-op in web mode
+  },
+
   async saveImage(_sourcePath: string): Promise<string> {
     throw new Error('Image saving not available in web mode');
   },

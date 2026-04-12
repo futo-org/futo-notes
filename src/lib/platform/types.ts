@@ -10,6 +10,13 @@ export interface FileChangeEvent {
 
 // ── V2 focused interfaces ──────────────────────────────────────────────
 
+/** Entry returned by listDirFiles — name, byte size, mtime in ms. */
+export interface DirFileEntry {
+  name: string;
+  size: number;
+  mtime: number;
+}
+
 /** Core file system operations — everything needed for offline-first editing and sync. */
 export interface FileSystem {
   listNoteFiles(): Promise<NoteFile[]>;
@@ -22,6 +29,11 @@ export interface FileSystem {
   writeAppData(path: string, content: string): Promise<void>;
   deleteAppData(path: string): Promise<void>;
   listAppData(dir: string): Promise<string[]>;
+
+  /** List all regular files in the notes root with name, size, and mtime. */
+  listDirFiles(): Promise<DirFileEntry[]>;
+  /** Delete a file by name from the notes root. */
+  deleteFile(filename: string): Promise<void>;
 
   saveImage(sourcePath: string): Promise<string>;
   saveImageBytes?(data: ArrayBuffer, ext: string): Promise<string>;

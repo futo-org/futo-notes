@@ -1,7 +1,6 @@
 <script lang="ts">
-  import { listImageFilesRust, type ImageFileEntry } from '$lib/rustCore';
+  import { listImageFiles, deleteImage, type ImageFileEntry } from '$lib/images';
   import { getImageWebPath } from '$lib/fileSystem';
-  import { deleteImage } from '$lib/images';
 
   let images: ImageFileEntry[] = $state([]);
   let selectedImage: string | null = $state(null);
@@ -11,7 +10,7 @@
   async function loadImages(): Promise<void> {
     loading = true;
     try {
-      images = await listImageFilesRust();
+      images = await listImageFiles();
     } catch (e) {
       console.warn('Failed to load images:', e);
       images = [];

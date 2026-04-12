@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import type { PlatformFS, NoteFile } from '../types';
+import type { DirFileEntry, PlatformFS, NoteFile } from '../types';
 
 export interface TestPlatformFS extends PlatformFS {
   _cleanup(): void;
@@ -91,6 +91,23 @@ export function createNodeFS(): TestPlatformFS {
       const dirPath = path.join(tmpDir, dir);
       if (!fs.existsSync(dirPath)) return [];
       return fs.readdirSync(dirPath);
+    },
+
+    async listDirFiles(): Promise<DirFileEntry[]> {
+      if (!fs.existsSync(tmpDir)) return [];
+      const entries = fs.readdirSync(tmpDir);
+      return entries
+        .map((name) => {
+          const stat = fs.statSync(path.join(tmpDir, name));
+          if (!stat.isFile()) return null;
+          return { name, size: stat.size, mtime: stat.mtimeMs };
+        })
+        .filter((e): e is DirFileEntry => e !== null);
+    },
+
+    async deleteFile(filename: string): Promise<void> {
+      const filePath = path.join(tmpDir, filename);
+      fs.unlinkSync(filePath);
     },
 
     async saveImage(sourcePath: string): Promise<string> {
