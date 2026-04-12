@@ -47,4 +47,3 @@ function parentDir(p: string): string | null {
   if (lastSep <= 0) return null;
   return p.slice(0, lastSep);
 }
-

@@ -12,6 +12,9 @@ import {
   rename,
 } from '@tauri-apps/plugin-fs';
 import type { FileChangeEvent, PlatformFS, NoteFile } from './types';
+import { safeAppdataPath } from './pathSafety';
+import { writeAtomicText } from './atomicWrite';
+import type { AtomicWriteFS } from './atomicWrite';
 
 interface NoteFileRow {
   name: string;
@@ -73,17 +76,9 @@ export function resetNotesRootCache(): void {
   _notesRoot = null;
 }
 
-function validateAppdataPath(relPath: string): void {
-  if (relPath.startsWith('/') || relPath.startsWith('\\')) {
-    throw new Error('Absolute path not allowed');
-  }
-  for (const part of relPath.split('/')) {
-    if (part === '..' || part === '') {
-      throw new Error(`Invalid path component: "${part}"`);
-    }
-  }
-}
-
+// String matching is the best available heuristic for detecting "not found" errors
+// from @tauri-apps/plugin-fs, which does not expose typed error codes. Known fragility:
+// if the plugin changes its error message wording, this will need updating.
 function isNotFound(err: unknown): boolean {
   if (err instanceof Error) {
     const msg = err.message.toLowerCase();
@@ -91,6 +86,14 @@ function isNotFound(err: unknown): boolean {
   }
   return false;
 }
+
+/** Adapter bridging @tauri-apps/plugin-fs functions to the AtomicWriteFS interface. */
+const pluginFS: AtomicWriteFS = {
+  writeTextFile,
+  rename,
+  mkdir,
+  remove,
+};
 
 export const tauriFS: PlatformFS = {
   async listNoteFiles(): Promise<NoteFile[]> {
@@ -125,10 +128,10 @@ export const tauriFS: PlatformFS = {
   },
 
   async readAppData(path: string): Promise<string | null> {
-    validateAppdataPath(path);
     const root = await getNotesRoot();
+    const fullPath = safeAppdataPath(root, path);
     try {
-      return await readTextFile(`${root}/${path}`);
+      return await readTextFile(fullPath);
     } catch (err) {
       if (isNotFound(err)) return null;
       throw err;
@@ -136,32 +139,26 @@ export const tauriFS: PlatformFS = {
   },
 
   async writeAppData(path: string, content: string): Promise<void> {
-    validateAppdataPath(path);
     const root = await getNotesRoot();
-    const fullPath = `${root}/${path}`;
-    const dir = fullPath.substring(0, fullPath.lastIndexOf('/'));
-    await mkdir(dir, { recursive: true });
-    // Atomic write: write to temp file then rename (matches Rust write_atomic_text)
-    const tmpPath = `${dir}/.sf-tmp-${Date.now()}`;
-    await writeTextFile(tmpPath, content);
-    await rename(tmpPath, fullPath);
+    const fullPath = safeAppdataPath(root, path);
+    await writeAtomicText(fullPath, content, pluginFS);
   },
 
   async deleteAppData(path: string): Promise<void> {
-    validateAppdataPath(path);
     const root = await getNotesRoot();
+    const fullPath = safeAppdataPath(root, path);
     try {
-      await remove(`${root}/${path}`);
+      await remove(fullPath);
     } catch (err) {
       if (!isNotFound(err)) throw err;
     }
   },
 
   async listAppData(dir: string): Promise<string[]> {
-    validateAppdataPath(dir);
     const root = await getNotesRoot();
+    const fullPath = safeAppdataPath(root, dir);
     try {
-      const entries = await readDir(`${root}/${dir}`);
+      const entries = await readDir(fullPath);
       return entries.map((e) => e.name);
     } catch (err) {
       if (isNotFound(err)) return [];
@@ -170,10 +167,10 @@ export const tauriFS: PlatformFS = {
   },
 
   async readBinaryAppData(path: string): Promise<ArrayBuffer | null> {
-    validateAppdataPath(path);
     const root = await getNotesRoot();
+    const fullPath = safeAppdataPath(root, path);
     try {
-      const bytes = await readFile(`${root}/${path}`);
+      const bytes = await readFile(fullPath);
       return bytes.buffer as ArrayBuffer;
     } catch (err) {
       if (isNotFound(err)) return null;
@@ -182,9 +179,8 @@ export const tauriFS: PlatformFS = {
   },
 
   async writeBinaryAppData(path: string, data: ArrayBuffer): Promise<void> {
-    validateAppdataPath(path);
     const root = await getNotesRoot();
-    const fullPath = `${root}/${path}`;
+    const fullPath = safeAppdataPath(root, path);
     const dir = fullPath.substring(0, fullPath.lastIndexOf('/'));
     await mkdir(dir, { recursive: true });
     // Binary write is NOT atomic — matches Rust behavior
