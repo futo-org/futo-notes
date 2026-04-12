@@ -31,6 +31,7 @@
     "fs:allow-remove",
     "fs:allow-mkdir",
     "fs:allow-rename",
-    "fs:allow-exists"
+    "fs:allow-exists",
+    "fs:allow-stat"
   ]
 }

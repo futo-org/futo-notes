@@ -1880,6 +1880,25 @@ pub async fn fs_delete_all_content(
     .map_err(task_join_err)?
 }
 
+/// Thin command to set file mtime — plugin-fs does not support setting mtime,
+/// so this remains a Rust command used by writeNote and sync.
+#[tauri::command]
+pub async fn fs_set_mtime(app: AppHandle, path: String, mtime_ms: i64) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = notes_root(&app)?;
+        let target = std::path::Path::new(&path);
+        // Ensure the target path is under the notes root to prevent arbitrary mtime writes.
+        let canonical_base = base.canonicalize().map_err(io_err_to_string)?;
+        let canonical_target = target.canonicalize().map_err(io_err_to_string)?;
+        if !canonical_target.starts_with(&canonical_base) {
+            return Err("path outside notes directory".to_string());
+        }
+        set_file_mtime_ms(target, mtime_ms)
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
 #[tauri::command]
 pub async fn appdata_read(app: AppHandle, rel_path: String) -> Result<Option<String>, String> {
     tauri::async_runtime::spawn_blocking(move || {
