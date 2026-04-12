@@ -14,9 +14,10 @@ import {
   stat,
 } from '@tauri-apps/plugin-fs';
 import type { FileChangeEvent, PlatformFS, NoteFile } from './types';
-import { safeAppdataPath } from './pathSafety';
+import { safeNotePath, safeAppdataPath } from './pathSafety';
 import { writeAtomicText } from './atomicWrite';
 import type { AtomicWriteFS } from './atomicWrite';
+import { isNotFound } from './fsErrors';
 
 interface AppConfig {
   notesDir: string;
@@ -40,16 +41,6 @@ interface SupersearchRow {
   score: number;
 }
 
-// ── Note ID validation (mirrors stonefruit-core ensure_safe_note_id) ────
-
-function ensureSafeNoteId(id: string): void {
-  if (!id || id === '..' || id === '.') throw new Error(`Invalid note ID: ${id}`);
-  if (/[/\\]/.test(id)) throw new Error(`Note ID contains path separator: ${id}`);
-  // Forbidden chars: < > : " | ? * and control chars (0x00-0x1f, 0x7f)
-  // eslint-disable-next-line no-control-regex
-  if (/[<>:"|?*\x00-\x1f\x7f]/.test(id)) throw new Error(`Note ID contains forbidden chars: ${id}`);
-}
-
 // ── Cached notes root path ──────────────────────────────────────────────
 
 let cachedNotesRoot: string | null = null;
@@ -64,10 +55,6 @@ async function getNotesRoot(): Promise<string> {
 /** Call when notes dir changes (e.g. user picks a new directory). */
 export function invalidateNotesRootCache(): void {
   cachedNotesRoot = null;
-}
-
-function notePath(root: string, id: string): string {
-  return `${root}/${id}.md`;
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────
@@ -88,17 +75,6 @@ async function ensureWatcherStarted(): Promise<void> {
 
 function toBytes(data: ArrayBuffer): number[] {
   return Array.from(new Uint8Array(data));
-}
-
-// String matching is the best available heuristic for detecting "not found" errors
-// from @tauri-apps/plugin-fs, which does not expose typed error codes. Known fragility:
-// if the plugin changes its error message wording, this will need updating.
-function isNotFound(err: unknown): boolean {
-  if (err instanceof Error) {
-    const msg = err.message.toLowerCase();
-    return msg.includes('not found') || msg.includes('no such file') || msg.includes('notfound');
-  }
-  return false;
 }
 
 /** Adapter bridging @tauri-apps/plugin-fs functions to the AtomicWriteFS interface. */
@@ -125,15 +101,13 @@ export const tauriFS: PlatformFS = {
   },
 
   async readNote(id: string): Promise<string> {
-    ensureSafeNoteId(id);
     const root = await getNotesRoot();
-    return readTextFile(notePath(root, id));
+    return readTextFile(safeNotePath(root, id));
   },
 
   async writeNote(id: string, content: string, modifiedAtMs?: number): Promise<number> {
-    ensureSafeNoteId(id);
     const root = await getNotesRoot();
-    const path = notePath(root, id);
+    const path = safeNotePath(root, id);
     // Atomic write: write to temp file, then rename into place
     const tmpPath = `${root}/.sf-tmp-${Date.now()}`;
     await writeTextFile(tmpPath, content);
@@ -150,19 +124,18 @@ export const tauriFS: PlatformFS = {
   },
 
   async deleteNoteFile(id: string): Promise<void> {
-    ensureSafeNoteId(id);
     const root = await getNotesRoot();
     try {
-      await remove(notePath(root, id));
+      await remove(safeNotePath(root, id));
     } catch (e: unknown) {
       // Swallow NotFound errors — matches Rust behavior
-      if (e instanceof Error && e.message.includes('not found')) return;
-      // plugin-fs may throw string errors
-      if (typeof e === 'string' && e.includes('not found')) return;
+      if (isNotFound(e)) return;
       throw e;
     }
   },
 
+  // Intentionally removes ALL contents under notes root — .md files, images,
+  // hidden app-data files, subdirectories. This is a full reset operation.
   async deleteAllContent(): Promise<void> {
     const root = await getNotesRoot();
     const entries = await readDir(root);
@@ -174,9 +147,8 @@ export const tauriFS: PlatformFS = {
   },
 
   async noteExists(id: string): Promise<boolean> {
-    ensureSafeNoteId(id);
     const root = await getNotesRoot();
-    return fsExists(notePath(root, id));
+    return fsExists(safeNotePath(root, id));
   },
 
   async readAppData(path: string): Promise<string | null> {
