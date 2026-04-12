@@ -1,6 +1,16 @@
 import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getVersion } from '@tauri-apps/api/app';
+import {
+  readTextFile,
+  writeTextFile,
+  readFile,
+  writeFile,
+  readDir,
+  remove,
+  mkdir,
+  rename,
+} from '@tauri-apps/plugin-fs';
 import type { FileChangeEvent, PlatformFS, NoteFile } from './types';
 
 interface NoteFileRow {
@@ -47,8 +57,39 @@ function toBytes(data: ArrayBuffer): number[] {
   return Array.from(new Uint8Array(data));
 }
 
-function fromBytes(data: number[]): ArrayBuffer {
-  return new Uint8Array(data).buffer;
+// ── Appdata helpers (plugin-fs) ──────────────────────────────────────
+
+let _notesRoot: string | null = null;
+
+async function getNotesRoot(): Promise<string> {
+  if (_notesRoot) return _notesRoot;
+  const config = await invoke<AppConfig>('app_get_config');
+  _notesRoot = config.notesDir;
+  return _notesRoot;
+}
+
+/** Reset the cached notes root (called when the user changes notes dir). */
+export function resetNotesRootCache(): void {
+  _notesRoot = null;
+}
+
+function validateAppdataPath(relPath: string): void {
+  if (relPath.startsWith('/') || relPath.startsWith('\\')) {
+    throw new Error('Absolute path not allowed');
+  }
+  for (const part of relPath.split('/')) {
+    if (part === '..' || part === '') {
+      throw new Error(`Invalid path component: "${part}"`);
+    }
+  }
+}
+
+function isNotFound(err: unknown): boolean {
+  if (err instanceof Error) {
+    const msg = err.message.toLowerCase();
+    return msg.includes('not found') || msg.includes('no such file') || msg.includes('notfound');
+  }
+  return false;
 }
 
 export const tauriFS: PlatformFS = {
@@ -84,28 +125,70 @@ export const tauriFS: PlatformFS = {
   },
 
   async readAppData(path: string): Promise<string | null> {
-    return invoke<string | null>('appdata_read', { relPath: path });
+    validateAppdataPath(path);
+    const root = await getNotesRoot();
+    try {
+      return await readTextFile(`${root}/${path}`);
+    } catch (err) {
+      if (isNotFound(err)) return null;
+      throw err;
+    }
   },
 
   async writeAppData(path: string, content: string): Promise<void> {
-    await invoke('appdata_write', { relPath: path, content });
+    validateAppdataPath(path);
+    const root = await getNotesRoot();
+    const fullPath = `${root}/${path}`;
+    const dir = fullPath.substring(0, fullPath.lastIndexOf('/'));
+    await mkdir(dir, { recursive: true });
+    // Atomic write: write to temp file then rename (matches Rust write_atomic_text)
+    const tmpPath = `${dir}/.sf-tmp-${Date.now()}`;
+    await writeTextFile(tmpPath, content);
+    await rename(tmpPath, fullPath);
   },
 
   async deleteAppData(path: string): Promise<void> {
-    await invoke('appdata_delete', { relPath: path });
+    validateAppdataPath(path);
+    const root = await getNotesRoot();
+    try {
+      await remove(`${root}/${path}`);
+    } catch (err) {
+      if (!isNotFound(err)) throw err;
+    }
   },
 
   async listAppData(dir: string): Promise<string[]> {
-    return invoke<string[]>('appdata_list', { relDir: dir });
+    validateAppdataPath(dir);
+    const root = await getNotesRoot();
+    try {
+      const entries = await readDir(`${root}/${dir}`);
+      return entries.map((e) => e.name);
+    } catch (err) {
+      if (isNotFound(err)) return [];
+      throw err;
+    }
   },
 
   async readBinaryAppData(path: string): Promise<ArrayBuffer | null> {
-    const bytes = await invoke<number[] | null>('appdata_read_binary', { relPath: path });
-    return bytes ? fromBytes(bytes) : null;
+    validateAppdataPath(path);
+    const root = await getNotesRoot();
+    try {
+      const bytes = await readFile(`${root}/${path}`);
+      return bytes.buffer as ArrayBuffer;
+    } catch (err) {
+      if (isNotFound(err)) return null;
+      throw err;
+    }
   },
 
   async writeBinaryAppData(path: string, data: ArrayBuffer): Promise<void> {
-    await invoke('appdata_write_binary', { relPath: path, data: toBytes(data) });
+    validateAppdataPath(path);
+    const root = await getNotesRoot();
+    const fullPath = `${root}/${path}`;
+    const dir = fullPath.substring(0, fullPath.lastIndexOf('/'));
+    await mkdir(dir, { recursive: true });
+    // Binary write is NOT atomic — matches Rust behavior
+    await writeFile(fullPath, new Uint8Array(data));
   },
 
   async saveImage(sourcePath: string): Promise<string> {
@@ -209,4 +292,5 @@ export async function saveConfig(updates: AppConfigUpdates): Promise<void> {
 
 export async function setNotesDir(dir: string | null): Promise<void> {
   await invoke('app_set_notes_dir', { dir });
+  resetNotesRootCache();
 }
