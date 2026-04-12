@@ -171,6 +171,7 @@ pub fn run() {
             fs_delete_note_file,
             fs_note_exists,
             fs_delete_all_content,
+            fs_set_mtime,
             appdata_read,
             appdata_write,
             appdata_delete,

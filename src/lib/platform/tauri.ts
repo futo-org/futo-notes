@@ -10,16 +10,13 @@ import {
   remove,
   mkdir,
   rename,
+  exists as fsExists,
+  stat,
 } from '@tauri-apps/plugin-fs';
 import type { FileChangeEvent, PlatformFS, NoteFile } from './types';
 import { safeAppdataPath } from './pathSafety';
 import { writeAtomicText } from './atomicWrite';
 import type { AtomicWriteFS } from './atomicWrite';
-
-interface NoteFileRow {
-  name: string;
-  mtime: number;
-}
 
 interface AppConfig {
   notesDir: string;
@@ -43,9 +40,42 @@ interface SupersearchRow {
   score: number;
 }
 
-function toI64(value?: number): number | null {
-  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
-  return Math.trunc(value);
+// ── Note ID validation (mirrors stonefruit-core ensure_safe_note_id) ────
+
+function ensureSafeNoteId(id: string): void {
+  if (!id || id === '..' || id === '.') throw new Error(`Invalid note ID: ${id}`);
+  if (/[/\\]/.test(id)) throw new Error(`Note ID contains path separator: ${id}`);
+  // Forbidden chars: < > : " | ? * and control chars (0x00-0x1f, 0x7f)
+  // eslint-disable-next-line no-control-regex
+  if (/[<>:"|?*\x00-\x1f\x7f]/.test(id)) throw new Error(`Note ID contains forbidden chars: ${id}`);
+}
+
+// ── Cached notes root path ──────────────────────────────────────────────
+
+let cachedNotesRoot: string | null = null;
+
+async function getNotesRoot(): Promise<string> {
+  if (cachedNotesRoot) return cachedNotesRoot;
+  const config = await invoke<AppConfig>('app_get_config');
+  cachedNotesRoot = config.notesDir;
+  return cachedNotesRoot;
+}
+
+/** Call when notes dir changes (e.g. user picks a new directory). */
+export function invalidateNotesRootCache(): void {
+  cachedNotesRoot = null;
+}
+
+function notePath(root: string, id: string): string {
+  return `${root}/${id}.md`;
+}
+
+// ── Helpers ─────────────────────────────────────────────────────────────
+
+/** Convert a Date (or null) to Unix milliseconds, falling back to now. */
+function dateToMs(d: Date | null | undefined): number {
+  if (d) return d.getTime();
+  return Date.now();
 }
 
 let watcherStarted = false;
@@ -58,22 +88,6 @@ async function ensureWatcherStarted(): Promise<void> {
 
 function toBytes(data: ArrayBuffer): number[] {
   return Array.from(new Uint8Array(data));
-}
-
-// ── Appdata helpers (plugin-fs) ──────────────────────────────────────
-
-let _notesRoot: string | null = null;
-
-async function getNotesRoot(): Promise<string> {
-  if (_notesRoot) return _notesRoot;
-  const config = await invoke<AppConfig>('app_get_config');
-  _notesRoot = config.notesDir;
-  return _notesRoot;
-}
-
-/** Reset the cached notes root (called when the user changes notes dir). */
-export function resetNotesRootCache(): void {
-  _notesRoot = null;
 }
 
 // String matching is the best available heuristic for detecting "not found" errors
@@ -97,34 +111,72 @@ const pluginFS: AtomicWriteFS = {
 
 export const tauriFS: PlatformFS = {
   async listNoteFiles(): Promise<NoteFile[]> {
-    const files = await invoke<NoteFileRow[]>('fs_list_note_files');
-    return files
-      .filter((file) => file.name.endsWith('.md'))
-      .map((file) => ({ name: file.name, mtime: file.mtime }));
+    const root = await getNotesRoot();
+    const entries = await readDir(root);
+    const mdEntries = entries.filter((e) => e.name?.endsWith('.md') && e.isFile);
+    const noteFiles = await Promise.all(
+      mdEntries.map(async (entry) => {
+        const meta = await stat(`${root}/${entry.name}`);
+        return { name: entry.name!, mtime: dateToMs(meta.mtime) };
+      }),
+    );
+    noteFiles.sort((a, b) => b.mtime - a.mtime);
+    return noteFiles;
   },
 
   async readNote(id: string): Promise<string> {
-    return invoke<string>('fs_read_note', { id });
+    ensureSafeNoteId(id);
+    const root = await getNotesRoot();
+    return readTextFile(notePath(root, id));
   },
 
   async writeNote(id: string, content: string, modifiedAtMs?: number): Promise<number> {
-    return invoke<number>('fs_write_note', {
-      id,
-      content,
-      modifiedAtMs: toI64(modifiedAtMs),
-    });
+    ensureSafeNoteId(id);
+    const root = await getNotesRoot();
+    const path = notePath(root, id);
+    // Atomic write: write to temp file, then rename into place
+    const tmpPath = `${root}/.sf-tmp-${Date.now()}`;
+    await writeTextFile(tmpPath, content);
+    await rename(tmpPath, path);
+
+    // Set mtime if provided (plugin-fs cannot set mtime, use Rust command)
+    if (typeof modifiedAtMs === 'number' && Number.isFinite(modifiedAtMs) && modifiedAtMs >= 0) {
+      await invoke('fs_set_mtime', { path, mtimeMs: Math.trunc(modifiedAtMs) });
+    }
+
+    // Return actual mtime from disk
+    const meta = await stat(path);
+    return dateToMs(meta.mtime);
   },
 
   async deleteNoteFile(id: string): Promise<void> {
-    await invoke('fs_delete_note_file', { id });
+    ensureSafeNoteId(id);
+    const root = await getNotesRoot();
+    try {
+      await remove(notePath(root, id));
+    } catch (e: unknown) {
+      // Swallow NotFound errors — matches Rust behavior
+      if (e instanceof Error && e.message.includes('not found')) return;
+      // plugin-fs may throw string errors
+      if (typeof e === 'string' && e.includes('not found')) return;
+      throw e;
+    }
   },
 
   async deleteAllContent(): Promise<void> {
-    await invoke('fs_delete_all_content');
+    const root = await getNotesRoot();
+    const entries = await readDir(root);
+    await Promise.all(
+      entries
+        .filter((e) => e.name)
+        .map((e) => remove(`${root}/${e.name}`, { recursive: true })),
+    );
   },
 
   async noteExists(id: string): Promise<boolean> {
-    return invoke<boolean>('fs_note_exists', { id });
+    ensureSafeNoteId(id);
+    const root = await getNotesRoot();
+    return fsExists(notePath(root, id));
   },
 
   async readAppData(path: string): Promise<string | null> {
@@ -288,5 +340,5 @@ export async function saveConfig(updates: AppConfigUpdates): Promise<void> {
 
 export async function setNotesDir(dir: string | null): Promise<void> {
   await invoke('app_set_notes_dir', { dir });
-  resetNotesRootCache();
+  invalidateNotesRootCache();
 }
