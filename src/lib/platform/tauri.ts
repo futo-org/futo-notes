@@ -1,6 +1,7 @@
 import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getVersion } from '@tauri-apps/api/app';
+import { isAbsolute } from '@tauri-apps/api/path';
 import {
   readTextFile,
   writeTextFile,
@@ -18,8 +19,15 @@ import { safeNotePath, safeAppdataPath } from './pathSafety';
 import { writeAtomicText } from './atomicWrite';
 import type { AtomicWriteFS } from './atomicWrite';
 import { isNotFound } from './fsErrors';
+import {
+  getDefaultNotesRoot,
+  loadNotesDirOverride,
+  saveNotesDirOverride,
+  ensureDir,
+} from './tauriPaths';
 
-interface AppConfig {
+
+export interface AppConfig {
   notesDir: string;
   sidebarWidth?: number;
   graphSidebarWidth?: number;
@@ -27,7 +35,13 @@ interface AppConfig {
   defaultNotesDir: string;
 }
 
-interface AppConfigUpdates {
+export interface AppConfigUpdates {
+  sidebarWidth?: number | null;
+  graphSidebarWidth?: number | null;
+}
+
+/** On-disk shape of .app-config.json */
+interface AppConfigFile {
   sidebarWidth?: number | null;
   graphSidebarWidth?: number | null;
 }
@@ -302,15 +316,53 @@ export function onMenuAction(callback: (action: string) => void): () => void {
   };
 }
 
+const APP_CONFIG_PATH = '.app-config.json';
+
+async function loadAppConfigFile(): Promise<AppConfigFile> {
+  const raw = await tauriFS.readAppData(APP_CONFIG_PATH);
+  if (!raw) return {};
+  try {
+    return JSON.parse(raw) as AppConfigFile;
+  } catch {
+    return {};
+  }
+}
+
+async function saveAppConfigFile(cfg: AppConfigFile): Promise<void> {
+  await tauriFS.writeAppData(APP_CONFIG_PATH, JSON.stringify(cfg, null, 2));
+}
+
 export async function getConfig(): Promise<AppConfig> {
-  return invoke<AppConfig>('app_get_config');
+  const [override, cfg, defaultNotesDir] = await Promise.all([
+    loadNotesDirOverride(),
+    loadAppConfigFile(),
+    getDefaultNotesRoot(),
+  ]);
+  const notesDir = override ?? defaultNotesDir;
+  await ensureDir(notesDir);
+  return {
+    notesDir,
+    sidebarWidth: cfg.sidebarWidth ?? undefined,
+    graphSidebarWidth: cfg.graphSidebarWidth ?? undefined,
+    isCustomDir: override !== null,
+    defaultNotesDir,
+  };
 }
 
 export async function saveConfig(updates: AppConfigUpdates): Promise<void> {
-  await invoke('app_save_config', { updates });
+  const cfg = await loadAppConfigFile();
+  if ('sidebarWidth' in updates) cfg.sidebarWidth = updates.sidebarWidth;
+  if ('graphSidebarWidth' in updates) cfg.graphSidebarWidth = updates.graphSidebarWidth;
+  await saveAppConfigFile(cfg);
 }
 
 export async function setNotesDir(dir: string | null): Promise<void> {
-  await invoke('app_set_notes_dir', { dir });
+  if (dir !== null) {
+    if (!(await isAbsolute(dir))) {
+      throw new Error('path must be absolute');
+    }
+    await ensureDir(dir);
+  }
+  await saveNotesDirOverride(dir);
   invalidateNotesRootCache();
 }
