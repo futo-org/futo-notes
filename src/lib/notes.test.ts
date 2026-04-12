@@ -194,4 +194,18 @@ describe('search', () => {
     expect(results).toHaveLength(1);
     expect(results[0].note.id).toBe('banana-recipe');
   });
+
+  it('returns empty results when index is populated but query has no matches', async () => {
+    // createNote populates the search index via addToSearchIndex,
+    // so the index is populated after this call
+    const { initNotes, createNote, search } = await freshNotes();
+    await initNotes();
+
+    await createNote('real-note', 'this is about apples and oranges');
+
+    // Search for something that doesn't match — should return empty,
+    // NOT fall through to substring search
+    const results = await search('zzzznonexistent');
+    expect(results).toHaveLength(0);
+  });
 });

@@ -132,6 +132,10 @@ export function removeFromSearchIndex(id: string): void {
   delete mtimeMap[id];
 }
 
+export function isSearchIndexPopulated(): boolean {
+  return searchIndex != null && searchIndex.documentCount > 0;
+}
+
 export function searchNotes(query: string): SearchHit[] {
   if (!searchIndex || !query.trim()) return [];
   const results = searchIndex.search(query);

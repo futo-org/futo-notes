@@ -1,4 +1,4 @@
-import { NotePreview, SearchResultItem } from '../types';
+import type { NotePreview, SearchResultItem } from '../types';
 import {
   writeNote,
   deleteNoteFile,
@@ -6,11 +6,12 @@ import {
   renameNote as renameNoteFile,
   getUniqueNoteId
 } from './fileSystem';
-import { ensureNotesFolder, getPlatformFS } from './platform';
+import { ensureNotesFolder, getFS, getPlatformFS } from './platform';
 import { loadEngagement, trackEdit, removeEngagement, renameEngagement } from './engagement';
-import { getNoteListFast, hasRustCore, keywordSearchRust } from './rustCore';
 import { clearV2SyncState } from './appState';
 import { extractTags } from '@futo-notes/shared';
+import { scanNotePreviews, makePreview } from './notesIndex';
+import { searchNotes, extractSnippet, addToSearchIndex, isSearchIndexPopulated } from './searchIndex';
 
 // In-memory cache of notes metadata
 let notesCache: NotePreview[] = [];
@@ -27,14 +28,13 @@ export async function initNotes(): Promise<void> {
   await getPlatformFS(); // Initialize platform FS before any file operations
   await ensureNotesFolder();
 
-  notesCache = hasRustCore() ? await getNoteListFast() : [];
+  notesCache = await scanNotePreviews(getFS());
   await loadEngagement();
   initialized = true;
 }
 
 export async function refreshNotesFromStorage(): Promise<void> {
-  if (!hasRustCore()) return;
-  notesCache = await getNoteListFast();
+  notesCache = await scanNotePreviews(getFS());
 }
 
 export async function refreshNotesAfterSync(_updatedIds: string[], _deletedIds: string[]): Promise<void> {
@@ -52,12 +52,16 @@ export function getNoteById(id: string): NotePreview | undefined {
 export async function createNote(id: string, content: string, overrideMtime?: number): Promise<{ id: string; mtime: number }> {
   id = await getUniqueNoteId(id);
   const mtime = await writeNote(id, content, overrideMtime);
-  if (hasRustCore()) {
-    await refreshNotesFromStorage();
-  } else {
-    const lines = content.split('\n');
-    notesCache.push({ id, title: id, preview: lines.slice(0, 3).join(' ').slice(0, 200), modificationTime: mtime, tags: extractTags(content) });
-  }
+
+  notesCache.push({
+    id,
+    title: id,
+    preview: makePreview(content),
+    modificationTime: mtime,
+    tags: extractTags(content),
+  });
+  addToSearchIndex({ id, title: id, body: content, mtime });
+
   return { id, mtime };
 }
 
@@ -78,14 +82,17 @@ export async function updateNote(
     mtime = await writeNote(finalId, content, overrideMtime);
   }
 
-  if (hasRustCore()) {
-    await refreshNotesFromStorage();
-  } else {
-    const lines = content.split('\n');
-    const idx = notesCache.findIndex(n => n.id === (originalId ?? finalId));
-    const preview = { id: finalId, title: finalId, preview: lines.slice(0, 3).join(' ').slice(0, 200), modificationTime: mtime, tags: extractTags(content) };
-    if (idx >= 0) notesCache[idx] = preview; else notesCache.push(preview);
-  }
+  const preview: NotePreview = {
+    id: finalId,
+    title: finalId,
+    preview: makePreview(content),
+    modificationTime: mtime,
+    tags: extractTags(content),
+  };
+  const idx = notesCache.findIndex(n => n.id === (originalId ?? finalId));
+  if (idx >= 0) notesCache[idx] = preview; else notesCache.push(preview);
+
+  addToSearchIndex({ id: finalId, title: finalId, body: content, mtime });
   trackEdit(finalId);
 
   return { id: finalId, mtime };
@@ -94,12 +101,7 @@ export async function updateNote(
 export async function deleteNote(id: string): Promise<void> {
   await deleteNoteFile(id);
   removeEngagement(id);
-  if (hasRustCore()) {
-    await refreshNotesFromStorage();
-  } else {
-    notesCache = notesCache.filter(n => n.id !== id);
-  }
-
+  notesCache = notesCache.filter(n => n.id !== id);
 }
 
 export async function deleteAllNotes(): Promise<void> {
@@ -118,15 +120,23 @@ export async function deleteAllNotes(): Promise<void> {
 }
 
 export async function search(query: string): Promise<SearchResultItem[]> {
-  if (hasRustCore()) {
-    if (!query.trim()) {
-      return getAllNotes().map((note) => ({ note, snippet: null }));
-    }
-    return keywordSearchRust(query);
-  }
   if (!query.trim()) {
     return getAllNotes().map((note) => ({ note, snippet: null }));
   }
+  // If the search index is populated, trust its results (even if empty)
+  if (isSearchIndexPopulated()) {
+    const hits = searchNotes(query);
+    const results: SearchResultItem[] = [];
+    for (const hit of hits) {
+      const note = notesCache.find(n => n.id === hit.noteId);
+      if (note) {
+        results.push({ note, snippet: extractSnippet(hit), source: 'keyword' as const });
+      }
+    }
+    return results;
+  }
+  // Fallback: index not yet populated (e.g. right after startup before rebuild),
+  // use simple substring match on cache
   const lower = query.trim().toLowerCase();
   return notesCache
     .filter((note) => note.id.toLowerCase().includes(lower) || note.preview.toLowerCase().includes(lower))
@@ -134,8 +144,7 @@ export async function search(query: string): Promise<SearchResultItem[]> {
 }
 
 export async function searchKeyword(query: string): Promise<SearchResultItem[]> {
-  if (!hasRustCore()) return await search(query);
-  return keywordSearchRust(query);
+  return search(query);
 }
 
 export async function handleExternalFileChange(

@@ -1,15 +1,4 @@
-import type { NotePreview, SearchResultItem } from '../types';
 import { platformName } from './platform';
-
-interface RustSearchSnippetSegment {
-  text: string;
-  highlight: boolean;
-}
-
-interface RustSearchResult {
-  note: NotePreview;
-  snippet: RustSearchSnippetSegment[] | null;
-}
 
 async function tauriInvoke<T>(command: string, payload?: Record<string, unknown>): Promise<T> {
   const { invoke } = await import('@tauri-apps/api/core');
@@ -18,34 +7,6 @@ async function tauriInvoke<T>(command: string, payload?: Record<string, unknown>
 
 export function hasRustCore(): boolean {
   return platformName === 'tauri';
-}
-
-export async function rebuildRustIndex(): Promise<NotePreview[]> {
-  return tauriInvoke<NotePreview[]>('core_rebuild_index');
-}
-
-/** Fast preview-only scan — skips reading file bodies for cached notes. */
-export async function getNoteListFast(): Promise<NotePreview[]> {
-  return tauriInvoke<NotePreview[]>('core_get_note_list');
-}
-
-export async function getRustNotePreviews(): Promise<NotePreview[]> {
-  return tauriInvoke<NotePreview[]>('core_get_note_previews');
-}
-
-export async function keywordSearchRust(query: string, limit = 200): Promise<SearchResultItem[]> {
-  const results = await tauriInvoke<RustSearchResult[]>('core_keyword_search', {
-    input: {
-      query,
-      limit,
-    },
-  });
-
-  return results.map((result) => ({
-    note: result.note,
-    snippet: result.snippet,
-    source: 'keyword' as const,
-  }));
 }
 
 // ── V2 Sync (filename-based, no UUIDs) ─────────────────────
