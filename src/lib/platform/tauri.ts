@@ -1,7 +1,20 @@
 import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getVersion } from '@tauri-apps/api/app';
+import {
+  readTextFile,
+  writeTextFile,
+  readFile,
+  writeFile,
+  readDir,
+  remove,
+  mkdir,
+  rename,
+} from '@tauri-apps/plugin-fs';
 import type { FileChangeEvent, PlatformFS, NoteFile } from './types';
+import { safeAppdataPath } from './pathSafety';
+import { writeAtomicText } from './atomicWrite';
+import type { AtomicWriteFS } from './atomicWrite';
 
 interface NoteFileRow {
   name: string;
@@ -47,9 +60,40 @@ function toBytes(data: ArrayBuffer): number[] {
   return Array.from(new Uint8Array(data));
 }
 
-function fromBytes(data: number[]): ArrayBuffer {
-  return new Uint8Array(data).buffer;
+// ── Appdata helpers (plugin-fs) ──────────────────────────────────────
+
+let _notesRoot: string | null = null;
+
+async function getNotesRoot(): Promise<string> {
+  if (_notesRoot) return _notesRoot;
+  const config = await invoke<AppConfig>('app_get_config');
+  _notesRoot = config.notesDir;
+  return _notesRoot;
 }
+
+/** Reset the cached notes root (called when the user changes notes dir). */
+export function resetNotesRootCache(): void {
+  _notesRoot = null;
+}
+
+// String matching is the best available heuristic for detecting "not found" errors
+// from @tauri-apps/plugin-fs, which does not expose typed error codes. Known fragility:
+// if the plugin changes its error message wording, this will need updating.
+function isNotFound(err: unknown): boolean {
+  if (err instanceof Error) {
+    const msg = err.message.toLowerCase();
+    return msg.includes('not found') || msg.includes('no such file') || msg.includes('notfound');
+  }
+  return false;
+}
+
+/** Adapter bridging @tauri-apps/plugin-fs functions to the AtomicWriteFS interface. */
+const pluginFS: AtomicWriteFS = {
+  writeTextFile,
+  rename,
+  mkdir,
+  remove,
+};
 
 export const tauriFS: PlatformFS = {
   async listNoteFiles(): Promise<NoteFile[]> {
@@ -84,28 +128,63 @@ export const tauriFS: PlatformFS = {
   },
 
   async readAppData(path: string): Promise<string | null> {
-    return invoke<string | null>('appdata_read', { relPath: path });
+    const root = await getNotesRoot();
+    const fullPath = safeAppdataPath(root, path);
+    try {
+      return await readTextFile(fullPath);
+    } catch (err) {
+      if (isNotFound(err)) return null;
+      throw err;
+    }
   },
 
   async writeAppData(path: string, content: string): Promise<void> {
-    await invoke('appdata_write', { relPath: path, content });
+    const root = await getNotesRoot();
+    const fullPath = safeAppdataPath(root, path);
+    await writeAtomicText(fullPath, content, pluginFS);
   },
 
   async deleteAppData(path: string): Promise<void> {
-    await invoke('appdata_delete', { relPath: path });
+    const root = await getNotesRoot();
+    const fullPath = safeAppdataPath(root, path);
+    try {
+      await remove(fullPath);
+    } catch (err) {
+      if (!isNotFound(err)) throw err;
+    }
   },
 
   async listAppData(dir: string): Promise<string[]> {
-    return invoke<string[]>('appdata_list', { relDir: dir });
+    const root = await getNotesRoot();
+    const fullPath = safeAppdataPath(root, dir);
+    try {
+      const entries = await readDir(fullPath);
+      return entries.map((e) => e.name);
+    } catch (err) {
+      if (isNotFound(err)) return [];
+      throw err;
+    }
   },
 
   async readBinaryAppData(path: string): Promise<ArrayBuffer | null> {
-    const bytes = await invoke<number[] | null>('appdata_read_binary', { relPath: path });
-    return bytes ? fromBytes(bytes) : null;
+    const root = await getNotesRoot();
+    const fullPath = safeAppdataPath(root, path);
+    try {
+      const bytes = await readFile(fullPath);
+      return bytes.buffer as ArrayBuffer;
+    } catch (err) {
+      if (isNotFound(err)) return null;
+      throw err;
+    }
   },
 
   async writeBinaryAppData(path: string, data: ArrayBuffer): Promise<void> {
-    await invoke('appdata_write_binary', { relPath: path, data: toBytes(data) });
+    const root = await getNotesRoot();
+    const fullPath = safeAppdataPath(root, path);
+    const dir = fullPath.substring(0, fullPath.lastIndexOf('/'));
+    await mkdir(dir, { recursive: true });
+    // Binary write is NOT atomic — matches Rust behavior
+    await writeFile(fullPath, new Uint8Array(data));
   },
 
   async saveImage(sourcePath: string): Promise<string> {
@@ -209,4 +288,5 @@ export async function saveConfig(updates: AppConfigUpdates): Promise<void> {
 
 export async function setNotesDir(dir: string | null): Promise<void> {
   await invoke('app_set_notes_dir', { dir });
+  resetNotesRootCache();
 }
