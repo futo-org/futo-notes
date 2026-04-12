@@ -11,7 +11,7 @@ import { loadEngagement, trackEdit, removeEngagement, renameEngagement } from '.
 import { clearV2SyncState } from './appState';
 import { extractTags } from '@futo-notes/shared';
 import { scanNotePreviews, makePreview } from './notesIndex';
-import { searchNotes, extractSnippet, addToSearchIndex } from './searchIndex';
+import { searchNotes, extractSnippet, addToSearchIndex, isSearchIndexPopulated } from './searchIndex';
 
 // In-memory cache of notes metadata
 let notesCache: NotePreview[] = [];
@@ -123,8 +123,9 @@ export async function search(query: string): Promise<SearchResultItem[]> {
   if (!query.trim()) {
     return getAllNotes().map((note) => ({ note, snippet: null }));
   }
-  const hits = searchNotes(query);
-  if (hits.length > 0) {
+  // If the search index is populated, trust its results (even if empty)
+  if (isSearchIndexPopulated()) {
+    const hits = searchNotes(query);
     const results: SearchResultItem[] = [];
     for (const hit of hits) {
       const note = notesCache.find(n => n.id === hit.noteId);
@@ -134,8 +135,8 @@ export async function search(query: string): Promise<SearchResultItem[]> {
     }
     return results;
   }
-  // Fallback: simple substring match on cache for cases where MiniSearch
-  // hasn't been populated yet (e.g. right after startup before rebuild)
+  // Fallback: index not yet populated (e.g. right after startup before rebuild),
+  // use simple substring match on cache
   const lower = query.trim().toLowerCase();
   return notesCache
     .filter((note) => note.id.toLowerCase().includes(lower) || note.preview.toLowerCase().includes(lower))
