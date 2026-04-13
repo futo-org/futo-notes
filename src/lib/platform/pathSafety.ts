@@ -46,8 +46,11 @@ export function safeNotePath(base: string, id: string): string {
 /**
  * Build a path under `base` from a relative path, rejecting traversal.
  *
- * Rejects: absolute paths (leading `/`), `..` components, and empty
- * components (from double slashes). Allows `.` components.
+ * Rejects: absolute paths (leading `/`), `.` and `..` components, and
+ * empty components (from double slashes). `.` components are rejected
+ * because plugin-fs scope checks treat paths containing them as forbidden
+ * on some platforms — callers that want "list everything under base"
+ * should use listDirFiles() instead.
  * Returns `${base}/${relPath}`.
  */
 export function safeAppdataPath(base: string, relPath: string): string {
@@ -56,7 +59,7 @@ export function safeAppdataPath(base: string, relPath: string): string {
   }
   const components = relPath.split('/');
   for (const c of components) {
-    if (c === '..' || c === '') {
+    if (c === '..' || c === '.' || c === '') {
       throw new Error('path traversal blocked');
     }
   }

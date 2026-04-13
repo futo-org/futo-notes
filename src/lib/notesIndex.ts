@@ -44,12 +44,16 @@ export function makePreview(content: string): string {
 
 /** One-way migration: rename .txt files to .md in the notes directory. */
 export async function convertTxtToMd(fs: FileSystem): Promise<void> {
-  const allFiles = await fs.listAppData('.');
-  const txtFiles = allFiles.filter(f => f.toLowerCase().endsWith('.txt'));
+  // Use listDirFiles (notes-root flat listing) rather than listAppData('.'),
+  // which would pass a `.` component through plugin-fs scope checks and can
+  // be rejected as a forbidden path on Tauri.
+  const allEntries = await fs.listDirFiles();
+  const allNames = allEntries.map((e) => e.name);
+  const txtFiles = allNames.filter((f) => f.toLowerCase().endsWith('.txt'));
   if (txtFiles.length === 0) return;
 
   const mdSet = new Set(
-    allFiles.filter(f => f.toLowerCase().endsWith('.md')).map(f => f.toLowerCase()),
+    allNames.filter((f) => f.toLowerCase().endsWith('.md')).map((f) => f.toLowerCase()),
   );
 
   for (const txtName of txtFiles) {
@@ -61,7 +65,7 @@ export async function convertTxtToMd(fs: FileSystem): Promise<void> {
       // Collision: both name.txt and name.md exist
       target = `${baseName} (imported).md`;
       let counter = 2;
-      while (mdSet.has(target.toLowerCase()) || allFiles.includes(target)) {
+      while (mdSet.has(target.toLowerCase()) || allNames.includes(target)) {
         target = `${baseName} (imported ${counter}).md`;
         counter++;
       }

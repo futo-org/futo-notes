@@ -122,9 +122,10 @@ describe('safeAppdataPath', () => {
     expect(safeAppdataPath(base, 'subdir/file.json')).toBe('/tmp/test/subdir/file.json');
   });
 
-  it('allows . components (current directory)', () => {
-    // Rust allows CurDir (.) components — we reject empty but not '.'
-    expect(safeAppdataPath(base, './file.json')).toBe('/tmp/test/./file.json');
+  it('rejects . components (plugin-fs scope rejects them as forbidden)', () => {
+    expect(() => safeAppdataPath(base, '.')).toThrow('path traversal blocked');
+    expect(() => safeAppdataPath(base, './file.json')).toThrow('path traversal blocked');
+    expect(() => safeAppdataPath(base, 'sub/./file.json')).toThrow('path traversal blocked');
   });
 });
 
