@@ -20,6 +20,7 @@ import {
   handleExternalFileChange,
   refreshNotesFromStorage,
 } from '$lib/notes';
+import { startAutoSyncV2, stopAutoSyncV2, notifySavedV2 } from '$lib/autoSyncV2';
 
 // ── Dependency interface ─────────────────────────────────────────────────
 
@@ -125,11 +126,7 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
   // ── Write suppressor ──
   const writeSuppressor = createWriteSuppressor();
 
-  // ── AutoSync module (lazy-loaded) ──
-  let _autoSync: typeof import('$lib/autoSyncV2') | null = null;
-  const getAutoSync = (): Promise<typeof import('$lib/autoSyncV2')> =>
-    _autoSync ? Promise.resolve(_autoSync) : import('$lib/autoSyncV2').then(m => { _autoSync = m; return m; });
-  const notifySaved = () => { _autoSync?.notifySavedV2(); };
+  const notifySaved = () => { notifySavedV2(); };
 
   // ── External rescan ──
 
@@ -339,19 +336,17 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
       },
     );
     const coord = syncCoord;
-    getAutoSync().then(({ startAutoSyncV2 }) => {
-      startAutoSyncV2({
-        onSyncComplete: handleSyncComplete,
-        onSyncError: (err) => console.warn('Auto-sync error:', err),
-        flushPendingSave: deps.flushSave,
-        shouldDeferSync: coord.shouldDeferSync,
-        onOfflineChange: coord.onOfflineChange,
-        onSyncStateChange: coord.onSyncStateChange,
-      });
+    startAutoSyncV2({
+      onSyncComplete: handleSyncComplete,
+      onSyncError: (err) => console.warn('Auto-sync error:', err),
+      flushPendingSave: deps.flushSave,
+      shouldDeferSync: coord.shouldDeferSync,
+      onOfflineChange: coord.onOfflineChange,
+      onSyncStateChange: coord.onSyncStateChange,
     });
 
     return () => {
-      _autoSync?.stopAutoSyncV2();
+      stopAutoSyncV2();
       if (externalRescanTimer !== null) {
         clearTimeout(externalRescanTimer);
         externalRescanTimer = null;

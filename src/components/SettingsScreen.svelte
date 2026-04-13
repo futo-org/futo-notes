@@ -4,6 +4,7 @@
   import { getCachedPreferences, savePreferences } from '$lib/appState';
   import { applyThemePreference, type ThemePreference } from '$lib/theme';
   import { connectSyncServerV2, syncNowV2, saveSyncServerUrl } from '$lib/syncServiceV2';
+  import { requestSyncV2 } from '$lib/autoSyncV2';
   import { getAppVersion } from '$lib/crashHandler';
   import { showGlobalToast } from '$lib/toast';
   import { ask } from '@tauri-apps/plugin-dialog';
@@ -159,8 +160,7 @@
     syncStatus = 'Syncing...';
     try {
       await persistSyncUrl();
-      const { requestSyncV2: doSync } = await import('$lib/autoSyncV2');
-      await doSync();
+      await requestSyncV2();
       const updatedPrefs = getCachedPreferences();
       hasSyncToken = Boolean(updatedPrefs.sync.token);
       syncLastAt = updatedPrefs.sync.lastSyncedAt;

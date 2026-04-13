@@ -1,4 +1,4 @@
-import { getCachedPreferences, savePreferences, loadV2SyncState, saveV2SyncState, clearV2SyncState, type V2SyncState } from './appState';
+import { getCachedPreferences, savePreferences, loadV2SyncState, saveV2SyncState, clearV2SyncState, updateAppState, type V2SyncState } from './appState';
 import { prepareSyncPayloadV2, applySyncDeltaV2, hasRustCore } from './rustCore';
 
 export interface SyncSummary {
@@ -422,7 +422,6 @@ async function clearSyncErrorAndSetTime(): Promise<void> {
 }
 
 export async function saveSyncServerUrl(urlInput: string): Promise<void> {
-  const { updateAppState } = await import('./appState');
   await updateAppState({ serverUrl: normalizeBaseUrl(urlInput) });
 }
 

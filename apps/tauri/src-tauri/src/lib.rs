@@ -93,7 +93,7 @@ pub fn run() {
     raise_fd_limit();
     #[cfg(target_os = "linux")]
     install_linux_log_filters();
-    let mut builder = tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_clipboard_manager::init())
@@ -102,9 +102,7 @@ pub fn run() {
         .manage(CoreState::default());
 
     #[cfg(debug_assertions)]
-    {
-        builder = builder.plugin(tauri_plugin_mcp_bridge::init());
-    }
+    let builder = builder.plugin(tauri_plugin_mcp_bridge::init());
 
     builder
         .setup(|_app| {

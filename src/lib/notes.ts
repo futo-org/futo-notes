@@ -9,6 +9,7 @@ import {
 import { ensureNotesFolder, getFS, getPlatformFS } from './platform';
 import { loadEngagement, trackEdit, removeEngagement, renameEngagement } from './engagement';
 import { clearV2SyncState } from './appState';
+import { pauseSyncV2, resumeSyncV2, waitForSyncIdleV2 } from './autoSyncV2';
 import { extractTags } from '@futo-notes/shared';
 import { scanNotePreviews, scanNotes, makePreview } from './notesIndex';
 import {
@@ -174,7 +175,6 @@ export async function deleteNote(id: string): Promise<void> {
 export async function deleteAllNotes(): Promise<void> {
   // Pause auto-sync for the duration of the reset. Without this, a sync can race
   // between steps and see files on disk with stale state.
-  const { pauseSyncV2, resumeSyncV2, waitForSyncIdleV2 } = await import('./autoSyncV2');
   pauseSyncV2();
   try {
     await waitForSyncIdleV2();

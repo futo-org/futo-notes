@@ -32,6 +32,10 @@
     "fs:allow-mkdir",
     "fs:allow-rename",
     "fs:allow-exists",
-    "fs:allow-stat"
+    "fs:allow-stat",
+    {
+      "identifier": "fs:scope",
+      "allow": [{ "path": "**" }]
+    }
   ]
 }
