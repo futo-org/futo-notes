@@ -58,6 +58,11 @@ For Android emulator runs, use `10.0.2.2` instead of `127.0.0.1` for host servic
 - **IMPORTANT**: `pnpm run build` must run from monorepo root. Running from a workspace resolves a different build script — verify output includes `vite build` and `dist/assets/`.
 - **IMPORTANT**: Tauri dev ports are split by target to avoid collisions: desktop `5180`, Android `5181`, iOS `5182`.
 - **IMPORTANT**: `window.confirm()`/`window.alert()` don't block properly in Tauri's webview. Use `ask()`/`message()` from `@tauri-apps/plugin-dialog` instead.
+- **CRITICAL: Dev builds MUST NOT touch the user's production notes folder (`~/Documents/stonefruit`).**
+  - Debug builds default the notes root to **`~/Documents/fake-notes`** (see `default_notes_root` in `apps/tauri/src-tauri/src/core.rs`). Release builds default to `~/Documents/stonefruit`. Do not remove or weaken this guard when refactoring path resolution.
+  - The TS resolver (`src/lib/platform/tauriPaths.ts:getDefaultNotesRoot`) must delegate to the Rust `resolve_default_notes_root` command — never resolve the default in JS, because `documentDir()` gives the same path in dev and release.
+  - `STONEFRUIT_DATA_DIR` env var overrides both (used by `scripts/tauri-dev.mjs` and cross-platform tests for per-worktree isolation — writes go to `{data_dir}/notes`).
+  - Dev builds also default the sync `serverUrl` preference to `http://localhost:3005` so first-run developer experience pairs with a locally-running server. Release builds start empty.
 
 ## Push Concerns Down, Not Out
 

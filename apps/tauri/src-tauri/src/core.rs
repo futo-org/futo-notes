@@ -138,15 +138,37 @@ pub(crate) fn task_join_err<E: std::fmt::Display>(err: E) -> String {
 }
 
 fn default_notes_root(app: &AppHandle) -> Result<PathBuf, String> {
+    // 1. Explicit env override (used by dev launcher and cross-platform tests
+    //    for per-worktree isolation).
     if let Some(data_dir) = env_data_dir() {
         return Ok(data_dir.join("notes"));
     }
-    let docs = app
-        .path()
-        .document_dir()
-        .or_else(|_| app.path().app_data_dir())
-        .map_err(|e| e.to_string())?;
-    Ok(docs.join("stonefruit"))
+
+    // 2. Debug builds NEVER touch the user's production notes folder.
+    //    They default to ~/Documents/fake-notes so developers can point any
+    //    local sync server at the same folder. A dev build can still be
+    //    pointed elsewhere via Settings (writes `notes-dir-override.json`)
+    //    or via `STONEFRUIT_DATA_DIR` for per-worktree test isolation.
+    #[cfg(debug_assertions)]
+    {
+        let docs = app
+            .path()
+            .document_dir()
+            .or_else(|_| app.path().app_data_dir())
+            .map_err(|e| e.to_string())?;
+        return Ok(docs.join("fake-notes"));
+    }
+
+    // 3. Release default: ~/Documents/stonefruit (or app-data fallback).
+    #[cfg(not(debug_assertions))]
+    {
+        let docs = app
+            .path()
+            .document_dir()
+            .or_else(|_| app.path().app_data_dir())
+            .map_err(|e| e.to_string())?;
+        Ok(docs.join("stonefruit"))
+    }
 }
 
 pub(crate) fn notes_root(app: &AppHandle) -> Result<PathBuf, String> {

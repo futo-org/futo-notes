@@ -79,8 +79,12 @@ function generateDeviceId(): string {
 }
 
 function defaultState(): AppState {
+  // Dev builds default to the local sync server so first-run developer
+  // experience works without manually configuring a URL. Release builds
+  // start empty and require an explicit server choice.
+  const devServerUrl = import.meta.env.DEV ? 'http://localhost:3005' : '';
   return {
-    serverUrl: '',
+    serverUrl: devServerUrl,
     authToken: '',
     deviceId: generateDeviceId(),
     lastServerVersion: 0,

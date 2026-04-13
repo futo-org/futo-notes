@@ -23,19 +23,15 @@
     "core:window:allow-set-decorations",
     "mcp-bridge:default",
     "fs:default",
-    "fs:allow-read-text-file",
-    "fs:allow-write-text-file",
-    "fs:allow-read-file",
-    "fs:allow-write-file",
-    "fs:allow-read-dir",
-    "fs:allow-remove",
-    "fs:allow-mkdir",
-    "fs:allow-rename",
-    "fs:allow-exists",
-    "fs:allow-stat",
-    {
-      "identifier": "fs:scope",
-      "allow": [{ "path": "**" }]
-    }
+    { "identifier": "fs:allow-read-text-file", "allow": [{ "path": "**" }, { "path": "**/*" }] },
+    { "identifier": "fs:allow-write-text-file", "allow": [{ "path": "**" }, { "path": "**/*" }] },
+    { "identifier": "fs:allow-read-file", "allow": [{ "path": "**" }, { "path": "**/*" }] },
+    { "identifier": "fs:allow-write-file", "allow": [{ "path": "**" }, { "path": "**/*" }] },
+    { "identifier": "fs:allow-read-dir", "allow": [{ "path": "**" }, { "path": "**/*" }] },
+    { "identifier": "fs:allow-remove", "allow": [{ "path": "**" }, { "path": "**/*" }] },
+    { "identifier": "fs:allow-mkdir", "allow": [{ "path": "**" }, { "path": "**/*" }] },
+    { "identifier": "fs:allow-rename", "allow": [{ "path": "**" }, { "path": "**/*" }] },
+    { "identifier": "fs:allow-exists", "allow": [{ "path": "**" }, { "path": "**/*" }] },
+    { "identifier": "fs:allow-stat", "allow": [{ "path": "**" }, { "path": "**/*" }] }
   ]
 }
