@@ -1303,6 +1303,19 @@ pub async fn fs_ensure_dir(path: String) -> Result<(), String> {
     .map_err(task_join_err)?
 }
 
+/// Resolves the default notes root, honoring the STONEFRUIT_DATA_DIR env var
+/// used to isolate per-worktree dev and cross-platform test runs. The webview
+/// cannot read process env, so the TypeScript path layer delegates here.
+#[tauri::command]
+pub async fn resolve_default_notes_root(app: AppHandle) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let root = default_notes_root(&app)?;
+        Ok(root.to_string_lossy().to_string())
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
 fn rand_suffix() -> String {
     let n = now_ms().unsigned_abs() % 10_000;
     format!("{n:04}")

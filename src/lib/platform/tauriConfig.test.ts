@@ -52,6 +52,7 @@ function setupInvokeMock(overrides: Partial<Record<string, unknown>> = {}) {
     notes_dir_override_load: null,
     notes_dir_override_save: undefined,
     fs_ensure_dir: undefined,
+    resolve_default_notes_root: '/home/user/Documents/stonefruit',
     appdata_read: null,
     appdata_write: undefined,
     ...overrides,

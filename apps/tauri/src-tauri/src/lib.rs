@@ -181,6 +181,7 @@ pub fn run() {
             notes_dir_override_load,
             notes_dir_override_save,
             fs_ensure_dir,
+            resolve_default_notes_root,
             core_prepare_sync_payload_v2,
             core_apply_sync_delta_v2,
         ])

@@ -1,18 +1,17 @@
 /**
  * Notes root resolution for Tauri.
  *
- * Resolution chain:
+ * Resolution chain (matches Rust notes_root / default_notes_root exactly):
  * 1. Check notes-dir-override.json in Tauri app data dir
- * 2. Fall back to documentDir() + '/stonefruit' (or appDataDir() + '/stonefruit' if documentDir unavailable)
+ * 2. Fall back to STONEFRUIT_DATA_DIR/notes if the env var is set (dev/test)
+ * 3. Fall back to documentDir()/stonefruit (or appDataDir()/stonefruit)
  *
- * The override file lives in the Tauri **app data dir** (NOT notes root).
- * Format: { "notesDir": "/path/to/notes" }
+ * The env-var branch is resolved by a Rust command — the webview cannot read
+ * process env directly, and without this path, cross-platform tests and
+ * per-worktree dev runs would read/write the user's real vault.
  */
 
 import { invoke } from '@tauri-apps/api/core';
-import { documentDir, appDataDir, join } from '@tauri-apps/api/path';
-
-const DEFAULT_SUBFOLDER = 'stonefruit';
 
 export async function loadNotesDirOverride(): Promise<string | null> {
   return invoke<string | null>('notes_dir_override_load');
@@ -24,13 +23,7 @@ export async function saveNotesDirOverride(dir: string | null): Promise<void> {
 }
 
 export async function getDefaultNotesRoot(): Promise<string> {
-  let base: string;
-  try {
-    base = await documentDir();
-  } catch {
-    base = await appDataDir();
-  }
-  return join(base, DEFAULT_SUBFOLDER);
+  return invoke<string>('resolve_default_notes_root');
 }
 
 export async function getNotesRoot(): Promise<string> {

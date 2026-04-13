@@ -208,4 +208,52 @@ describe('search', () => {
     const results = await search('zzzznonexistent');
     expect(results).toHaveLength(0);
   });
+
+  it('finds existing notes by body content after startup (no creations yet)', async () => {
+    // Regression: before the search-index bootstrap fix, pre-existing notes
+    // were only in notesCache, not in the MiniSearch index. A new note
+    // would flip isSearchIndexPopulated() to true and all pre-existing
+    // notes became invisible to body-text search.
+    await testFS.writeNote('pre-existing-a', 'content contains zebraword123');
+    await testFS.writeNote('pre-existing-b', 'content contains whaleword456');
+
+    const { initNotes, search, createNote } = await freshNotes();
+    await initNotes();
+
+    // Create a brand-new note — this used to make pre-existing notes unsearchable.
+    await createNote('new-note', 'boring content');
+
+    const results = await search('zebraword123');
+    expect(results).toHaveLength(1);
+    expect(results[0].note.id).toBe('pre-existing-a');
+  });
+
+  it('removes deleted notes from search index', async () => {
+    await testFS.writeNote('will-delete', 'this has ghostword789');
+
+    const { initNotes, deleteNote, search } = await freshNotes();
+    await initNotes();
+
+    // Sanity: findable before delete
+    let results = await search('ghostword789');
+    expect(results).toHaveLength(1);
+
+    await deleteNote('will-delete');
+
+    results = await search('ghostword789');
+    expect(results).toHaveLength(0);
+  });
+
+  it('removes renamed id from search index and finds under new id', async () => {
+    await testFS.writeNote('old-id', 'content has phoenixword321');
+
+    const { initNotes, updateNote, search } = await freshNotes();
+    await initNotes();
+
+    await updateNote('new-id', 'New Id', 'content has phoenixword321', 'old-id');
+
+    const results = await search('phoenixword321');
+    expect(results).toHaveLength(1);
+    expect(results[0].note.id).toBe('new-id');
+  });
 });

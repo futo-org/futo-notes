@@ -10,8 +10,18 @@ import { ensureNotesFolder, getFS, getPlatformFS } from './platform';
 import { loadEngagement, trackEdit, removeEngagement, renameEngagement } from './engagement';
 import { clearV2SyncState } from './appState';
 import { extractTags } from '@futo-notes/shared';
-import { scanNotePreviews, makePreview } from './notesIndex';
-import { searchNotes, extractSnippet, addToSearchIndex, isSearchIndexPopulated } from './searchIndex';
+import { scanNotePreviews, scanNotes, makePreview } from './notesIndex';
+import {
+  searchNotes,
+  extractSnippet,
+  addToSearchIndex,
+  removeFromSearchIndex,
+  initSearchIndex,
+  loadPersistedIndex,
+  persistIndex,
+  getMtimeMap,
+  clearSearchIndex,
+} from './searchIndex';
 
 // In-memory cache of notes metadata
 let notesCache: NotePreview[] = [];
@@ -30,11 +40,65 @@ export async function initNotes(): Promise<void> {
 
   notesCache = await scanNotePreviews(getFS());
   await loadEngagement();
+  await bootstrapSearchIndex();
   initialized = true;
+}
+
+/**
+ * Ensure the search index reflects the current notesCache. Called at startup
+ * and after any bulk filesystem change (external refresh, sync apply).
+ *
+ * Strategy: try to load the persisted index, then reconcile against the current
+ * file mtimes — re-read bodies only for notes that are new or changed. If no
+ * persisted index exists, do a full body scan and build the index from scratch.
+ */
+async function bootstrapSearchIndex(): Promise<void> {
+  const fs = getFS();
+  const loaded = await loadPersistedIndex();
+
+  if (loaded) {
+    await reconcileSearchIndex();
+  } else {
+    initSearchIndex();
+    const indexed = await scanNotes(fs);
+    for (const note of indexed) {
+      addToSearchIndex({ id: note.id, title: note.title, body: note.body, mtime: note.mtime });
+    }
+  }
+
+  // Persist in the background — don't block startup on disk I/O.
+  void persistIndex();
+}
+
+/**
+ * Reconcile the search index against the current notesCache: remove entries
+ * for deleted notes, and re-read bodies for notes with new/changed mtimes.
+ */
+async function reconcileSearchIndex(): Promise<void> {
+  const fs = getFS();
+  const mtimes = getMtimeMap();
+  const currentIds = new Set(notesCache.map((n) => n.id));
+
+  for (const id of Object.keys(mtimes)) {
+    if (!currentIds.has(id)) removeFromSearchIndex(id);
+  }
+
+  for (const note of notesCache) {
+    if (mtimes[note.id] !== note.modificationTime) {
+      try {
+        const body = await fs.readNote(note.id);
+        addToSearchIndex({ id: note.id, title: note.id, body, mtime: note.modificationTime });
+      } catch {
+        // Skip unreadable files
+      }
+    }
+  }
 }
 
 export async function refreshNotesFromStorage(): Promise<void> {
   notesCache = await scanNotePreviews(getFS());
+  await reconcileSearchIndex();
+  void persistIndex();
 }
 
 export async function refreshNotesAfterSync(_updatedIds: string[], _deletedIds: string[]): Promise<void> {
@@ -78,6 +142,7 @@ export async function updateNote(
   if (originalId && originalId !== finalId) {
     mtime = await renameNoteFile(originalId, finalId, content, overrideMtime);
     renameEngagement(originalId, finalId);
+    removeFromSearchIndex(originalId);
   } else {
     mtime = await writeNote(finalId, content, overrideMtime);
   }
@@ -101,7 +166,9 @@ export async function updateNote(
 export async function deleteNote(id: string): Promise<void> {
   await deleteNoteFile(id);
   removeEngagement(id);
+  removeFromSearchIndex(id);
   notesCache = notesCache.filter(n => n.id !== id);
+  void persistIndex();
 }
 
 export async function deleteAllNotes(): Promise<void> {
@@ -114,6 +181,8 @@ export async function deleteAllNotes(): Promise<void> {
     await deleteAllContent();
     await clearV2SyncState();
     notesCache = [];
+    clearSearchIndex();
+    void persistIndex();
   } finally {
     resumeSyncV2();
   }
@@ -123,24 +192,16 @@ export async function search(query: string): Promise<SearchResultItem[]> {
   if (!query.trim()) {
     return getAllNotes().map((note) => ({ note, snippet: null }));
   }
-  // If the search index is populated, trust its results (even if empty)
-  if (isSearchIndexPopulated()) {
-    const hits = searchNotes(query);
-    const results: SearchResultItem[] = [];
-    for (const hit of hits) {
-      const note = notesCache.find(n => n.id === hit.noteId);
-      if (note) {
-        results.push({ note, snippet: extractSnippet(hit), source: 'keyword' as const });
-      }
+  // initNotes() always bootstraps the search index, so trust its results.
+  const hits = searchNotes(query);
+  const results: SearchResultItem[] = [];
+  for (const hit of hits) {
+    const note = notesCache.find((n) => n.id === hit.noteId);
+    if (note) {
+      results.push({ note, snippet: extractSnippet(hit), source: 'keyword' as const });
     }
-    return results;
   }
-  // Fallback: index not yet populated (e.g. right after startup before rebuild),
-  // use simple substring match on cache
-  const lower = query.trim().toLowerCase();
-  return notesCache
-    .filter((note) => note.id.toLowerCase().includes(lower) || note.preview.toLowerCase().includes(lower))
-    .map((note) => ({ note, snippet: [{ text: note.preview, highlight: false }] }));
+  return results;
 }
 
 export async function searchKeyword(query: string): Promise<SearchResultItem[]> {
