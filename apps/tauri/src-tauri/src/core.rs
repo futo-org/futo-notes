@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Instant;
-use stonefruit_core::files::{ensure_safe_note_id, file_mtime_ms, set_file_mtime_ms};
+use stonefruit_core::files::{file_mtime_ms, set_file_mtime_ms};
 use stonefruit_core::hash::hash_sha256;
 #[cfg(test)]
 use stonefruit_core::hash::hash_sha256_bytes;
@@ -101,14 +101,6 @@ pub(crate) struct ManifestPayload {
     pub(crate) dims: usize,
     pub(crate) chunk_count: usize,
     pub(crate) chunks: Vec<ManifestChunk>,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DirFileEntry {
-    pub name: String,
-    pub size: u64,
-    pub mtime: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -887,48 +879,6 @@ fn map_notify_event(event: &Event) -> Option<&'static str> {
     }
 }
 
-/// List all regular files in the notes root directory with name, size, and mtime.
-#[tauri::command]
-pub async fn fs_list_dir_files(app: AppHandle) -> Result<Vec<DirFileEntry>, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let base = notes_root(&app)?;
-        let entries = fs::read_dir(&base)
-            .map_err(io_err_to_string)?
-            .filter_map(|entry| entry.ok())
-            .filter_map(|entry| {
-                let name = entry.file_name().to_string_lossy().to_string();
-                let meta = entry.metadata().ok()?;
-                if !meta.is_file() {
-                    return None;
-                }
-                Some(DirFileEntry {
-                    name,
-                    size: meta.len(),
-                    mtime: file_mtime_ms(&meta),
-                })
-            })
-            .collect();
-        Ok(entries)
-    })
-    .await
-    .map_err(task_join_err)?
-}
-
-/// Delete a file by name from the notes root. Rejects traversal characters.
-#[tauri::command]
-pub async fn fs_delete_file(app: AppHandle, filename: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        if filename.contains("..") || filename.contains('/') || filename.contains('\\') {
-            return Err("invalid filename".to_string());
-        }
-        let base = notes_root(&app)?;
-        let path = base.join(&filename);
-        fs::remove_file(&path).map_err(io_err_to_string)
-    })
-    .await
-    .map_err(task_join_err)?
-}
-
 /// Thin command to set file mtime — plugin-fs does not support setting mtime,
 /// so this remains a Rust command used by writeNote and sync.
 #[tauri::command]
@@ -1174,20 +1124,6 @@ pub async fn fs_save_image(app: AppHandle, source_path: String) -> Result<String
     .map_err(task_join_err)?
 }
 
-#[tauri::command]
-pub async fn fs_save_image_bytes(
-    app: AppHandle,
-    data: Vec<u8>,
-    ext: String,
-) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let base = notes_root(&app)?;
-        write_image_to_notes(&base, &data, &ext)
-    })
-    .await
-    .map_err(task_join_err)?
-}
-
 /// Read an image from the native clipboard and save as PNG.
 /// Used on Linux/Wayland where WebKitGTK gives empty clipboardData to JS.
 #[tauri::command]
@@ -1213,18 +1149,6 @@ pub async fn fs_paste_clipboard_image(app: AppHandle) -> Result<String, String> 
         }
         let base = notes_root(&app)?;
         write_image_to_notes(&base, &png_buf, "png")
-    })
-    .await
-    .map_err(task_join_err)?
-}
-
-#[tauri::command]
-pub async fn fs_get_image_path(app: AppHandle, filename: String) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let base = notes_root(&app)?;
-        ensure_safe_note_id(&filename.replace('.', ""))?;
-        let path = base.join(filename);
-        Ok(path.to_string_lossy().to_string())
     })
     .await
     .map_err(task_join_err)?
@@ -1311,15 +1235,6 @@ pub async fn notes_dir_override_load(app: AppHandle) -> Result<Option<String>, S
 pub async fn notes_dir_override_save(app: AppHandle, dir: Option<String>) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         save_notes_dir_override(&app, dir.as_deref())
-    })
-    .await
-    .map_err(task_join_err)?
-}
-
-#[tauri::command]
-pub async fn fs_ensure_dir(path: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        fs::create_dir_all(&path).map_err(io_err_to_string)
     })
     .await
     .map_err(task_join_err)?
@@ -1446,17 +1361,6 @@ mod tests {
 
     // ── F. Rust Chaos Tests ─────────────────────────────────────────────
     // (V1-dependent chaos tests removed; non-V1 tests preserved below)
-
-    #[test]
-    fn ensure_safe_note_id_allows_whitespace_only() {
-        // Documents that whitespace-only IDs pass validation (potential gap)
-        let result = ensure_safe_note_id("   ");
-        // Current impl allows this — documenting the behavior
-        assert!(
-            result.is_ok(),
-            "whitespace-only ID is currently allowed (validation gap)"
-        );
-    }
 
     // ── Image extension validation ──────────────────────────────────
 

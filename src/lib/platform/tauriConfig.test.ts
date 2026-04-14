@@ -51,7 +51,6 @@ function setupInvokeMock(overrides: Partial<Record<string, unknown>> = {}) {
   const defaults: Record<string, unknown> = {
     notes_dir_override_load: null,
     notes_dir_override_save: undefined,
-    fs_ensure_dir: undefined,
     resolve_default_notes_root: '/home/user/Documents/stonefruit',
     appdata_read: null,
     appdata_write: undefined,
@@ -141,7 +140,6 @@ describe('setNotesDir', () => {
   it('saves override for absolute path', async () => {
     const overrideSaves: unknown[] = [];
     mockInvoke.mockImplementation(async (cmd: string, args?: unknown) => {
-      if (cmd === 'fs_ensure_dir') return undefined;
       if (cmd === 'notes_dir_override_save') {
         overrideSaves.push(args);
         return undefined;

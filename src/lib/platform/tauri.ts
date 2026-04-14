@@ -19,6 +19,7 @@ import { safeNotePath, safeAppdataPath } from './pathSafety';
 import { writeAtomicText } from './atomicWrite';
 import type { AtomicWriteFS } from './atomicWrite';
 import { isNotFound } from './fsErrors';
+import { generateImageFilename, isImageFilename } from '$lib/images';
 import {
   getNotesRoot as resolveNotesRoot,
   getDefaultNotesRoot,
@@ -85,10 +86,6 @@ async function ensureWatcherStarted(): Promise<void> {
   if (watcherStarted) return;
   await invoke('fs_start_watcher');
   watcherStarted = true;
-}
-
-function toBytes(data: ArrayBuffer): number[] {
-  return Array.from(new Uint8Array(data));
 }
 
 /** Adapter bridging @tauri-apps/plugin-fs functions to the AtomicWriteFS interface. */
@@ -226,11 +223,34 @@ export const tauriFS: PlatformFS = {
   },
 
   async listDirFiles(): Promise<DirFileEntry[]> {
-    return invoke<DirFileEntry[]>('fs_list_dir_files');
+    const root = await getNotesRoot();
+    const entries = await readDir(root);
+    const fileEntries = entries.filter((e) => e.isFile && e.name);
+    const results = await Promise.all(
+      fileEntries.map(async (entry) => {
+        try {
+          const meta = await stat(`${root}/${entry.name}`);
+          return {
+            name: entry.name!,
+            size: meta.size,
+            mtime: dateToMs(meta.mtime),
+          } as DirFileEntry;
+        } catch {
+          // Skip unreadable entries (e.g. broken symlinks) — matches the
+          // Rust `filter_map(|entry| entry.ok())` behavior.
+          return null;
+        }
+      }),
+    );
+    return results.filter((e): e is DirFileEntry => e !== null);
   },
 
   async deleteFile(filename: string): Promise<void> {
-    await invoke('fs_delete_file', { filename });
+    if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+      throw new Error('invalid filename');
+    }
+    const root = await getNotesRoot();
+    await remove(`${root}/${filename}`);
   },
 
   async saveImage(sourcePath: string): Promise<string> {
@@ -238,12 +258,21 @@ export const tauriFS: PlatformFS = {
   },
 
   async saveImageBytes(data: ArrayBuffer, ext: string): Promise<string> {
-    return invoke<string>('fs_save_image_bytes', { data: toBytes(data), ext });
+    const filename = generateImageFilename(ext);
+    const root = await getNotesRoot();
+    await writeFile(`${root}/${filename}`, new Uint8Array(data));
+    return filename;
   },
 
   async getImageUrl(filename: string): Promise<string> {
-    const absPath = await invoke<string>('fs_get_image_path', { filename });
-    return convertFileSrc(absPath);
+    if (!isImageFilename(filename)) {
+      throw new Error('not an image filename');
+    }
+    if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+      throw new Error('invalid filename');
+    }
+    const root = await getNotesRoot();
+    return convertFileSrc(`${root}/${filename}`);
   },
 
   async getAppVersion(): Promise<string> {

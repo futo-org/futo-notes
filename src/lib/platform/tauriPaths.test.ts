@@ -5,10 +5,16 @@ vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn(),
 }));
 
+vi.mock('@tauri-apps/plugin-fs', () => ({
+  mkdir: vi.fn(),
+}));
+
 import { getNotesRoot, getDefaultNotesRoot, loadNotesDirOverride, saveNotesDirOverride, ensureDir } from './tauriPaths';
 import { invoke } from '@tauri-apps/api/core';
+import { mkdir } from '@tauri-apps/plugin-fs';
 
 const mockInvoke = vi.mocked(invoke);
+const mockMkdir = vi.mocked(mkdir);
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -59,47 +65,45 @@ describe('getDefaultNotesRoot', () => {
 });
 
 describe('getNotesRoot', () => {
-  it('returns override dir when set', async () => {
+  it('returns override dir when set and creates it', async () => {
     mockInvoke.mockImplementation(async (cmd: string) => {
       if (cmd === 'notes_dir_override_load') return '/custom/notes';
-      if (cmd === 'fs_ensure_dir') return undefined;
       throw new Error(`unexpected invoke: ${cmd}`);
     });
+    mockMkdir.mockResolvedValueOnce(undefined);
     const result = await getNotesRoot();
     expect(result).toBe('/custom/notes');
-    expect(mockInvoke).toHaveBeenCalledWith('fs_ensure_dir', { path: '/custom/notes' });
+    expect(mockMkdir).toHaveBeenCalledWith('/custom/notes', { recursive: true });
   });
 
-  it('returns Rust-resolved default dir when no override', async () => {
+  it('returns Rust-resolved default dir when no override and creates it', async () => {
     mockInvoke.mockImplementation(async (cmd: string) => {
       if (cmd === 'notes_dir_override_load') return null;
       if (cmd === 'resolve_default_notes_root') return '/home/user/Documents/stonefruit';
-      if (cmd === 'fs_ensure_dir') return undefined;
       throw new Error(`unexpected invoke: ${cmd}`);
     });
+    mockMkdir.mockResolvedValueOnce(undefined);
     const result = await getNotesRoot();
     expect(result).toBe('/home/user/Documents/stonefruit');
-    expect(mockInvoke).toHaveBeenCalledWith('fs_ensure_dir', {
-      path: '/home/user/Documents/stonefruit',
-    });
+    expect(mockMkdir).toHaveBeenCalledWith('/home/user/Documents/stonefruit', { recursive: true });
   });
 
   it('honors env-derived root from Rust (e.g. STONEFRUIT_DATA_DIR for dev/test isolation)', async () => {
     mockInvoke.mockImplementation(async (cmd: string) => {
       if (cmd === 'notes_dir_override_load') return null;
       if (cmd === 'resolve_default_notes_root') return '/tmp/wt-abc/data/notes';
-      if (cmd === 'fs_ensure_dir') return undefined;
       throw new Error(`unexpected invoke: ${cmd}`);
     });
+    mockMkdir.mockResolvedValueOnce(undefined);
     const result = await getNotesRoot();
     expect(result).toBe('/tmp/wt-abc/data/notes');
   });
 });
 
 describe('ensureDir', () => {
-  it('invokes fs_ensure_dir', async () => {
-    mockInvoke.mockResolvedValueOnce(undefined);
+  it('invokes plugin-fs mkdir recursively', async () => {
+    mockMkdir.mockResolvedValueOnce(undefined);
     await ensureDir('/some/path');
-    expect(mockInvoke).toHaveBeenCalledWith('fs_ensure_dir', { path: '/some/path' });
+    expect(mockMkdir).toHaveBeenCalledWith('/some/path', { recursive: true });
   });
 });
