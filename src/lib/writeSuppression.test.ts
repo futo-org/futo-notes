@@ -122,6 +122,43 @@ describe('writeSuppression', () => {
     });
   });
 
+  describe('capturePreSyncWrites / isPreSyncWrite / clearPreSyncWrites', () => {
+    it('snapshots current local writes', () => {
+      const ws = createWriteSuppressor();
+      ws.recordWrite('note.md');
+      ws.capturePreSyncWrites();
+      expect(ws.isPreSyncWrite('note.md')).toBe(true);
+      expect(ws.isPreSyncWrite('other.md')).toBe(false);
+    });
+
+    it('survives after the local write TTL expires', () => {
+      const ws = createWriteSuppressor();
+      ws.recordWrite('note.md');
+      ws.capturePreSyncWrites();
+      vi.advanceTimersByTime(5000);
+      // isRecentWrite has expired, but pre-sync snapshot persists
+      expect(ws.isRecentWrite('note.md')).toBe(false);
+      expect(ws.isPreSyncWrite('note.md')).toBe(true);
+    });
+
+    it('is cleared by clearPreSyncWrites', () => {
+      const ws = createWriteSuppressor();
+      ws.recordWrite('note.md');
+      ws.capturePreSyncWrites();
+      ws.clearPreSyncWrites();
+      expect(ws.isPreSyncWrite('note.md')).toBe(false);
+    });
+
+    it('does not include writes recorded after the snapshot', () => {
+      const ws = createWriteSuppressor();
+      ws.recordWrite('before.md');
+      ws.capturePreSyncWrites();
+      ws.recordWrite('after.md');
+      expect(ws.isPreSyncWrite('before.md')).toBe(true);
+      expect(ws.isPreSyncWrite('after.md')).toBe(false);
+    });
+  });
+
   describe('independence', () => {
     it('local writes and sync writes are tracked independently', () => {
       const ws = createWriteSuppressor();

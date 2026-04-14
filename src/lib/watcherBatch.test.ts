@@ -192,6 +192,37 @@ describe('watcherBatch', () => {
 
       batch.destroy();
     });
+
+    it('filters local writes buffered before sync started (expired TTL)', async () => {
+      const onBulkRefresh = vi.fn(async () => {});
+      const suppressor = createWriteSuppressor();
+      const opts = makeOptions({ onBulkRefresh, suppressor });
+      const batch = createWatcherBatch(opts);
+
+      // User saves a new note — records a local write
+      suppressor.recordWrite('new note.md');
+
+      // Advance time so the 1s local-write TTL expires
+      await vi.advanceTimersByTimeAsync(1500);
+
+      // Sync starts — the watcher event for the local save arrives during sync
+      batch.setSyncActive(true);
+      batch.enqueue({ type: 'change', filename: 'new note.md' });
+      batch.enqueue({ type: 'change', filename: 'external.md' });
+
+      // Sync completes and drains
+      batch.setSyncActive(false);
+      batch.drainPostSync();
+
+      await vi.advanceTimersByTimeAsync(500);
+      expect(onBulkRefresh).toHaveBeenCalledTimes(1);
+      // The local save event should be filtered even though isRecentWrite expired —
+      // it was a known local write when sync started
+      const events = onBulkRefresh.mock.calls[0][0] as FileChangeEvent[];
+      expect(events).toEqual([{ type: 'change', filename: 'external.md' }]);
+
+      batch.destroy();
+    });
   });
 
   describe('destroy', () => {

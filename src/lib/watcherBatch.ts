@@ -156,9 +156,14 @@ export function createWatcherBatch(options: WatcherBatchOptions): WatcherBatch {
     if (postSyncBatchTimer !== null) clearTimeout(postSyncBatchTimer);
     postSyncBatchTimer = window.setTimeout(async () => {
       postSyncBatchTimer = null;
-      // Filter out events that were caused by our own sync writes
-      const unhandled = pendingWatcherEvents.filter(ev => !suppressor.isRecentSyncWrite(ev.filename));
+      // Filter out events caused by our own sync writes AND local writes that
+      // were pending when sync started (their isRecentWrite TTL may have expired
+      // during the sync round-trip, but they're still our own writes).
+      const unhandled = pendingWatcherEvents.filter(ev =>
+        !suppressor.isRecentSyncWrite(ev.filename) && !suppressor.isPreSyncWrite(ev.filename),
+      );
       pendingWatcherEvents = [];
+      suppressor.clearPreSyncWrites();
       if (unhandled.length > 0) {
         await onBulkRefresh(unhandled);
       }
@@ -167,6 +172,9 @@ export function createWatcherBatch(options: WatcherBatchOptions): WatcherBatch {
 
   function setSyncActive(active: boolean): void {
     syncActive = active;
+    if (active) {
+      suppressor.capturePreSyncWrites();
+    }
   }
 
   function destroy(): void {

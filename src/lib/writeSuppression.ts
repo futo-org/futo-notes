@@ -20,12 +20,19 @@ export interface WriteSuppressor {
   isRecentSyncWrite(filename: string): boolean;
   recordRemoteRename(fromId: string, toId: string): void;
   getRecentRemoteRename(id: string): { toId: string; ts: number } | null;
+  /** Snapshot current local writes so they survive TTL expiry during sync. */
+  capturePreSyncWrites(): void;
+  /** Check if a filename was a known local write when sync started. */
+  isPreSyncWrite(filename: string): boolean;
+  /** Clear the pre-sync snapshot (call after drain completes). */
+  clearPreSyncWrites(): void;
 }
 
 export function createWriteSuppressor(): WriteSuppressor {
   const recentWrites = new Map<string, number>();
   const recentSyncWrites = new Map<string, number>();
   const recentRemoteRenames = new Map<string, { toId: string; ts: number }>();
+  let preSyncWrites = new Set<string>();
 
   function recordWrite(filename: string): void {
     recentWrites.set(filename, Date.now());
@@ -68,6 +75,18 @@ export function createWriteSuppressor(): WriteSuppressor {
     return entry;
   }
 
+  function capturePreSyncWrites(): void {
+    preSyncWrites = new Set(recentWrites.keys());
+  }
+
+  function isPreSyncWrite(filename: string): boolean {
+    return preSyncWrites.has(filename);
+  }
+
+  function clearPreSyncWrites(): void {
+    preSyncWrites.clear();
+  }
+
   return {
     recordWrite,
     isRecentWrite,
@@ -75,5 +94,8 @@ export function createWriteSuppressor(): WriteSuppressor {
     isRecentSyncWrite,
     recordRemoteRename,
     getRecentRemoteRename,
+    capturePreSyncWrites,
+    isPreSyncWrite,
+    clearPreSyncWrites,
   };
 }
