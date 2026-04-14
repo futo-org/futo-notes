@@ -93,20 +93,10 @@ stages:
   cache:
     key:
       files:
-        - apps/tauri/src-tauri/Cargo.lock
+        - Cargo.lock
     paths:
       - .cargo-home/
-      - apps/tauri/src-tauri/target/
-    policy: pull-push
-
-.cache-cargo-cli:
-  cache:
-    key:
-      files:
-        - apps/cli/Cargo.lock
-    paths:
-      - .cargo-home/
-      - apps/cli/target/
+      - target/
     policy: pull-push
 
 .cache-playwright:
@@ -142,38 +132,6 @@ test:
     - if: $CI_COMMIT_TAG
     - if: $CI_MERGE_REQUEST_IID
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-
-test:server:
-  stage: test
-  cache:
-    - !reference [.cache-cargo-tauri, cache]
-  script:
-    - !reference [.setup-rust, script]
-    - cargo test -p stonefruit-server
-  rules:
-    - if: $CI_COMMIT_TAG
-    - if: $CI_MERGE_REQUEST_IID
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-
-test:server:smoke:
-  stage: test
-  rules:
-    - if: $CI_COMMIT_TAG
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-  script:
-    - IMAGE_SHA=$(docker build -q -f crates/stonefruit-server/Dockerfile .)
-    - CONTAINER="sf-smoke-${CI_JOB_ID}"
-    - docker rm -f "$CONTAINER" 2>/dev/null || true
-    - docker run --rm -d --name "$CONTAINER" "$IMAGE_SHA"
-    - |
-      cleanup() { docker logs "$CONTAINER" 2>&1 || true; docker stop "$CONTAINER" 2>/dev/null || true; }
-      trap cleanup EXIT
-      for i in $(seq 1 10); do
-        if curl -sf "http://$(docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$CONTAINER"):3005/health"; then exit 0; fi
-        sleep 2
-      done
-      echo "Health check failed after 10 retries"
-      exit 1
 
 test:rust:
   stage: test
@@ -254,9 +212,8 @@ test:cross-platform-sync:
     - !reference [.setup-linux-deps, script]
     - !reference [.setup-rust, script]
     - DEBIAN_FRONTEND=noninteractive apt-get install -y xvfb
-    # Build debug Tauri binary (beforeBuildCommand runs pnpm build with test hooks) + server binary
+    # Build debug Tauri binary. The E2EE sync server lives in a separate repo.
     - cd apps/tauri && VITE_INCLUDE_TEST_HOOKS=true cargo tauri build --debug --no-bundle && cd ../..
-    - cargo build -p stonefruit-server
     # Run cross-platform sync tests under xvfb
     - >-
       WEBKIT_DISABLE_DMABUF_RENDERER=1
@@ -264,7 +221,6 @@ test:cross-platform-sync:
       node tests/cross-platform-sync.mjs
   after_script:
     - kill $(pgrep -f futo-notes-tauri) 2>/dev/null || true
-    - kill $(pgrep -f stonefruit-server) 2>/dev/null || true
   artifacts:
     when: always
     paths:
@@ -295,159 +251,6 @@ test:desktop-smoke:macos:
       changes:
         - apps/tauri/**/*
         - src/**/*
-
-cli:test:
-  stage: test
-  cache:
-    - !reference [.cache-cargo-cli, cache]
-  script:
-    - !reference [.setup-rust, script]
-    - cd apps/cli
-    - cargo test
-  rules:
-    - if: $CI_COMMIT_TAG
-    - if: $CI_MERGE_REQUEST_IID
-      changes:
-        - apps/cli/**/*
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-      changes:
-        - apps/cli/**/*
-
-# ─────────────────────────────────────────────────────────────
-# Docker
-# ─────────────────────────────────────────────────────────────
-
-docker:publish:
-  stage: build
-  timeout: 2h
-  needs: []
-  script:
-    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
-    - docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
-    - docker buildx create --use --name multiarch
-    - |
-      export IMAGE="$CI_REGISTRY_IMAGE/server"
-      TAGS="-t $IMAGE:latest"
-      if [ -n "$CI_COMMIT_TAG" ]; then
-        TAGS="$TAGS -t $IMAGE:${CI_COMMIT_TAG}"
-      fi
-      docker buildx build -f crates/stonefruit-server/Dockerfile \
-        --platform linux/amd64,linux/arm64 \
-        $TAGS --push .
-  rules:
-    - if: $CI_COMMIT_TAG
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-
-docker:verify:
-  stage: verify
-  needs: [docker:publish]
-  script:
-    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
-    - |
-      IMAGE="$CI_REGISTRY_IMAGE/server"
-      TAG="${CI_COMMIT_TAG:-latest}"
-      echo "Pulling $IMAGE:$TAG"
-      docker pull "$IMAGE:$TAG"
-    - CONTAINER="sf-verify-${CI_JOB_ID}"
-    - docker rm -f "$CONTAINER" 2>/dev/null || true
-    - docker run --rm -d --name "$CONTAINER" "$IMAGE:$TAG"
-    - |
-      cleanup() { docker logs "$CONTAINER" 2>&1 || true; docker stop "$CONTAINER" 2>/dev/null || true; }
-      trap cleanup EXIT
-      IP=$(docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$CONTAINER")
-      for i in $(seq 1 15); do
-        if curl -sf "http://$IP:3005/health" > /dev/null; then
-          echo "Health check passed on attempt $i"
-          exit 0
-        fi
-        sleep 2
-      done
-      echo "Published image health check failed after 15 retries"
-      exit 1
-  rules:
-    - if: $CI_COMMIT_TAG
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-
-# ─────────────────────────────────────────────────────────────
-# CLI
-# ─────────────────────────────────────────────────────────────
-
-cli:build:amd64:
-  stage: build
-  needs: []
-  cache:
-    - !reference [.cache-cargo-cli, cache]
-  script:
-    - !reference [.setup-rust, script]
-    - cd apps/cli
-    - |
-      VERSION="${CI_COMMIT_TAG#v}"
-      [ -z "$VERSION" ] && VERSION="dev"
-      mkdir -p dist
-      STONEFRUIT_VERSION="$VERSION" cargo build --release
-      cp ../../target/release/stonefruit "dist/stonefruit-linux-amd64"
-  artifacts:
-    paths:
-      - apps/cli/dist/
-    expire_in: 4 weeks
-  rules:
-    - if: $CI_COMMIT_TAG
-    - if: $CI_MERGE_REQUEST_IID
-      changes:
-        - apps/cli/**/*
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-      changes:
-        - apps/cli/**/*
-
-cli:build:arm64:
-  stage: build
-  needs: []
-  cache:
-    - !reference [.cache-cargo-cli, cache]
-  script:
-    - !reference [.setup-rust, script]
-    - cd apps/cli
-    - |
-      rustup target add aarch64-unknown-linux-gnu
-      apt-get update -qq && apt-get install -y -qq gcc-aarch64-linux-gnu >/dev/null 2>&1 || true
-      export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
-      VERSION="${CI_COMMIT_TAG#v}"
-      [ -z "$VERSION" ] && VERSION="dev"
-      mkdir -p dist
-      STONEFRUIT_VERSION="$VERSION" cargo build --release --target aarch64-unknown-linux-gnu
-      cp ../../target/aarch64-unknown-linux-gnu/release/stonefruit "dist/stonefruit-linux-arm64"
-  artifacts:
-    paths:
-      - apps/cli/dist/
-    expire_in: 4 weeks
-  rules:
-    - if: $CI_COMMIT_TAG
-    - if: $CI_MERGE_REQUEST_IID
-      changes:
-        - apps/cli/**/*
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-      changes:
-        - apps/cli/**/*
-
-cli:publish:
-  stage: release
-  image: curlimages/curl:latest
-  needs: [cli:build:amd64, cli:build:arm64]
-  interruptible: false
-  before_script: []
-  script:
-    - |
-      VERSION="${CI_COMMIT_TAG#v}"
-      for f in apps/cli/dist/stonefruit-*; do
-        [ -f "$f" ] || continue
-        NAME=$(basename "$f")
-        echo "Uploading $NAME"
-        curl --fail --header "JOB-TOKEN: $CI_JOB_TOKEN" \
-          --upload-file "$f" \
-          "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/stonefruit-cli/${VERSION}/${NAME}"
-      done
-  rules:
-    - if: $CI_COMMIT_TAG
 
 # ─────────────────────────────────────────────────────────────
 # Builds (tags only)
@@ -561,7 +364,6 @@ build:macos:
 # Windows build (Proxmox VM)
 # ─────────────────────────────────────────────────────────────
 # Flow: provision Windows VM → SSH in to build → sign artifacts → cleanup VM
-# Based on devops/templates/proxmox-win-ci
 # Template VM 101 has: Rust 1.92, VS Build Tools (MSVC), winget
 # Needs installed at build time: Git, Node.js, pnpm, NSIS, tauri-cli
 # Required CI/CD variables (masked, protected):
@@ -815,10 +617,6 @@ release:gate:
   stage: verify
   needs:
     - job: test
-    - job: test:server
-    - job: test:server:smoke
-      optional: true
-    - job: docker:verify
     - job: build:linux
       artifacts: true
     - job: build:android
@@ -828,10 +626,6 @@ release:gate:
     - job: build:macos
       artifacts: true
     - job: windows:sign
-      artifacts: true
-    - job: cli:build:amd64
-      artifacts: true
-    - job: cli:build:arm64
       artifacts: true
   before_script: []
   script:
@@ -851,17 +645,6 @@ release:gate:
       echo ""
       echo "=== Windows installer ==="
       check "windows-artifacts/*.exe"
-
-      echo ""
-      echo "=== CLI binaries ==="
-      check "apps/cli/dist/stonefruit-linux-amd64"
-      check "apps/cli/dist/stonefruit-linux-arm64"
-
-      # Verify CLI binaries are executable and report version
-      echo ""
-      echo "=== CLI version check ==="
-      chmod +x apps/cli/dist/stonefruit-linux-amd64
-      apps/cli/dist/stonefruit-linux-amd64 version || echo "WARN: version command failed"
 
       echo ""
       if [ "$MISSING" -gt 0 ]; then
