@@ -581,7 +581,7 @@
   class:drawer-dragging={touch.isDragging}
   class:graph-sidebar-open={!isMobile && graphSidebarOpen}
 
-  style="--drawer-offset: {drawerOffset}px; --sidebar-width: {sidebarWidth}px; --graph-sidebar-width: {graphSidebarWidth}px"
+  style="--drawer-offset: {drawerOffset}px; --sidebar-width: {sidebarWidth}px; --graph-sidebar-width: {graphSidebarWidth}px; --vv-offset: {keyboard.offsetTop}px"
   ontouchstart={touch.handleTouchStart}
   ontouchmove={touch.handleTouchMove}
   ontouchend={touch.handleTouchEnd}

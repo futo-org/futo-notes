@@ -43,7 +43,7 @@
 
 .drawer-toggle.floating {
   position: absolute;
-  top: max(12px, calc(12px + env(safe-area-inset-top)));
+  top: calc(max(12px, calc(12px + env(safe-area-inset-top))) + var(--vv-offset, 0px));
   left: max(12px, calc(12px + env(safe-area-inset-left)));
   width: 44px;
   height: 44px;
@@ -612,7 +612,7 @@
    =========================== */
 .note-menu-anchor {
   position: absolute;
-  top: max(12px, calc(12px + env(safe-area-inset-top)));
+  top: calc(max(12px, calc(12px + env(safe-area-inset-top))) + var(--vv-offset, 0px));
   right: max(12px, calc(12px + env(safe-area-inset-right)));
   z-index: 36;
   transform: translateX(var(--drawer-offset));
