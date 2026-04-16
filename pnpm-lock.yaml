@@ -78,6 +78,9 @@ importers:
       '@types/js-yaml':
         specifier: ^4.0.9
         version: 4.0.9
+      eslint:
+        specifier: ^10.1.0
+        version: 10.1.0(jiti@2.6.1)
       js-yaml:
         specifier: ^4.1.1
         version: 4.1.1
