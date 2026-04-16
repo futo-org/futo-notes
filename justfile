@@ -27,31 +27,75 @@ lint:
   pnpm run lint
 
 tauri-dev:
-  pnpm run tauri:dev
+  node scripts/tauri-dev.mjs
 
 tauri-prod:
-  pnpm run tauri:prod
+  pnpm run build
+  cd apps/tauri && WINIT_UNIX_BACKEND=wayland GDK_BACKEND=wayland WEBKIT_DISABLE_DMABUF_RENDERER=1 cargo tauri dev --config src-tauri/tauri.prod.conf.json
 
 tauri-build:
-  pnpm run tauri:build
+  pnpm run build
+  cd apps/tauri && cargo tauri build
 
 android-dev:
-  pnpm run tauri:android:dev
+  cd apps/tauri && cargo tauri android dev --config src-tauri/tauri.android.dev-mode.conf.json
 
 android-offline:
-  pnpm run tauri:android:dev:offline
+  #!/usr/bin/env bash
+  set -euo pipefail
+  pnpm run build
+  cd apps/tauri
+  cargo tauri android build --debug --apk --config src-tauri/tauri.android.offline.conf.json
+  cd src-tauri/gen/android && ./gradlew app:installUniversalDebug
+  adb shell monkey -p com.futo.notes -c android.intent.category.LAUNCHER 1
 
 android-build:
-  pnpm run tauri:android:build
+  cd apps/tauri && cargo tauri android build
 
 ios-dev:
-  pnpm run tauri:ios:dev
+  cd apps/tauri && cargo tauri ios dev --config src-tauri/tauri.ios.dev.conf.json
 
 ios-offline:
-  pnpm run tauri:ios:dev:offline
+  #!/usr/bin/env bash
+  set -euo pipefail
+  IPA_DIR="apps/tauri/src-tauri/gen/apple/build/arm64"
+  pnpm run build
+  node scripts/fetch-ort-ios.mjs >/dev/null
+  # Clean stale IPAs so we always install the freshly built one
+  rm -f "$IPA_DIR"/*.ipa
+  cd apps/tauri
+  cargo tauri ios build --debug --config src-tauri/tauri.ios.dev.conf.json
+  cd ../..
+  # Find the IPA (name depends on productName in the config)
+  IPA=$(ls -t "$IPA_DIR"/*.ipa 2>/dev/null | head -1)
+  if [ -z "$IPA" ]; then
+    echo "Error: No IPA found in ${IPA_DIR}"
+    exit 1
+  fi
+  DEVFILE=$(mktemp /tmp/devices.XXXXXX.json)
+  xcrun devicectl list devices --json-output "$DEVFILE" >/dev/null 2>&1
+  DEVICE=$(python3 -c "
+  import json
+  data = json.load(open('$DEVFILE'))
+  devices = data.get('result', {}).get('devices', [])
+  for d in devices:
+      conn = d.get('connectionProperties', {})
+      if conn.get('transportType'):
+          print(d.get('identifier', ''))
+          break
+  ")
+  rm -f "$DEVFILE"
+  if [ -z "$DEVICE" ]; then
+    echo "Error: No connected iOS device found."
+    exit 1
+  fi
+  echo "Installing ${IPA} on device ${DEVICE}..."
+  xcrun devicectl device install app --device "$DEVICE" "$IPA"
+  echo "Launching..."
+  xcrun devicectl device process launch --device "$DEVICE" com.futo.notes.dev
 
 ios-build:
-  pnpm run tauri:ios:build
+  cd apps/tauri && cargo tauri ios build
 
 build:
   pnpm exec tsc --noEmit | head -30
@@ -82,10 +126,11 @@ test-ui:
   pnpm run test:ui
 
 test-desktop-smoke:
-  pnpm run test:desktop-smoke
+  node tests/desktop-smoke.mjs
 
 test-rust:
-  pnpm run tauri:test:rust
+  mkdir -p dist
+  cd apps/tauri/src-tauri && cargo test
 
 check:
   pnpm run lint

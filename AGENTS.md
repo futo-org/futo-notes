@@ -1,6 +1,6 @@
 # AGENTS.md - Stonefruit
 
-@README.md for project overview. @justfile for the preferred repo-root commands. @package.json for the underlying scripts (`pnpm run` to list).
+@README.md for project overview. @justfile for all commands.
 
 ## Quick Start
 
@@ -13,7 +13,7 @@ just build        # TypeScript check + Vite build → dist/
 just check        # Lint + tests + build sanity pass
 ```
 
-Prefer `just` from the monorepo root for the common workflows above. Use raw `pnpm` commands only when you need a script that is not wrapped in `justfile`.
+**Always use `just` from the monorepo root.** All Tauri commands (dev, build, deploy) live in the justfile — never call `cargo tauri` directly, because the justfile encodes the correct config overlays (dev bundle IDs, ORT fetch steps, device detection). The package.json only has toolchain scripts (vite, vitest, playwright, eslint).
 
 ## Monorepo
 
