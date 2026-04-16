@@ -68,6 +68,17 @@ node scripts/fetch-ort-android.mjs --abis arm64-v8a,x86_64  # + emulator
 
 Version is pinned to `ort-sys 2.0.0-rc.12`'s target (ORT 1.24.2). If you bump the `ort` dep, bump `DEFAULT_VERSION` in the fetch script. The `.so` files are gitignored.
 
+### iOS — ONNX Runtime xcframework for the inference crate
+
+The iOS build of `stonefruit-inference` links ORT statically via an xcframework with CoreML EP. `scripts/fetch-ort-ios.mjs` downloads Microsoft's prebuilt pod-archive and extracts the xcframework. Run before `cargo tauri ios build`:
+
+```bash
+# Downloads ~50 MB, extracts to apps/tauri/src-tauri/gen/apple/onnxruntime.xcframework/
+node scripts/fetch-ort-ios.mjs
+```
+
+The xcframework path is automatically set via `ORT_IOS_XCFWK_PATH` in the Xcode pre-build script (`project.yml`). The `just deploy-ios` recipe includes this step. The xcframework is gitignored.
+
 ### Android — inference smoke test
 
 With the app launched and the DevTools socket forwarded:

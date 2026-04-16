@@ -1259,7 +1259,7 @@ fn rand_suffix() -> String {
 }
 
 // ---------------------------------------------------------------------------
-// On-device inference — dev-only smoke test (Phase 2)
+// On-device inference — dev-only smoke test
 // ---------------------------------------------------------------------------
 //
 // `inference_test_embed` exists so we can drive the ORT + tokenizer pipeline
@@ -1267,19 +1267,12 @@ fn rand_suffix() -> String {
 // model on first call (~35 MB + tokenizer.json), loads an `Embedder`, and
 // returns a small metrics struct the test hook consumes.
 //
-// Gated on `debug_assertions` so it is compiled out of release builds. The
-// registration in `lib.rs` is likewise gated.
-//
-// iOS is skipped until Phase 3 because the crate isn't linked on iOS targets
-// yet (we haven't set up CoreML framework linking).
-
-// Gated only by `not(target_os = "ios")` — the iOS build doesn't link
-// stonefruit-inference yet (CoreML framework linking is Phase 3), so the
-// module can't compile there. We don't bother with a `debug_assertions`
-// gate because Tauri 2.10's `generate_handler!` doesn't reliably honor
-// `#[cfg]` attributes on individual command identifiers — once the
-// dev-UI lands in Phase 5 we'll remove this smoke-test command entirely.
-#[cfg(not(target_os = "ios"))]
+// Available on all platforms: desktop (download-binaries), Android
+// (load-dynamic + XNNPACK), iOS (xcframework + CoreML).
+// We don't bother with a `debug_assertions` gate because Tauri 2.10's
+// `generate_handler!` doesn't reliably honor `#[cfg]` attributes on
+// individual command identifiers — once the dev-UI lands in Phase 5
+// we'll remove this smoke-test command entirely.
 mod inference_dev {
     use std::path::PathBuf;
     use std::time::Instant;
@@ -1376,7 +1369,6 @@ mod inference_dev {
     }
 }
 
-#[cfg(not(target_os = "ios"))]
 pub use inference_dev::inference_test_embed;
 
 #[cfg(test)]

@@ -9,6 +9,8 @@
   import { showGlobalToast } from '$lib/toast';
   import { ask } from '@tauri-apps/plugin-dialog';
   import { formatRelativeTime } from '$lib/utils';
+  import { invoke } from '@tauri-apps/api/core';
+  import type { InferenceTestResult } from '$lib/testInference';
 
   interface Props {
     onclose: () => void;
@@ -232,6 +234,52 @@
   function testCrash(): void {
     throw new Error('Test crash from Settings');
   }
+
+  // ── Benchmark ───────────────────────────────────────────────
+  interface BenchmarkRun {
+    label: string;
+    loadMs: number;
+    embedMs: number;
+    dims: number;
+  }
+
+  let benchRunning = $state(false);
+  let benchPhase = $state('');
+  let benchResults = $state<BenchmarkRun[]>([]);
+  let benchError = $state('');
+
+  const BENCH_TEXTS = [
+    { label: 'Short (6 words)', text: 'The quick brown fox jumps.' },
+    { label: 'Medium (30 words)', text: 'Semantic search lets you find notes by meaning rather than exact keywords. This is especially useful when you remember the concept but not the specific words you used in your notes.' },
+    { label: 'Long (100+ words)', text: 'Machine learning models that run directly on-device offer significant privacy and latency advantages over cloud-based alternatives. By keeping all computation local, sensitive data never leaves the device, and results are available instantly without network round-trips. The tradeoff is that on-device models must be smaller and more efficient than their server-side counterparts, which can affect quality. Quantization techniques like INT8 reduce model size and inference time while preserving most of the output quality. Modern mobile hardware with neural processing units and GPU compute capabilities continues to close the gap, making on-device inference increasingly practical for real-world applications like search, classification, and summarization.' },
+  ];
+
+  async function runBenchmarks(): Promise<void> {
+    if (benchRunning) return;
+    benchRunning = true;
+    benchError = '';
+    benchResults = [];
+
+    try {
+      // Cold start — includes model download on first ever call
+      benchPhase = 'Loading model (first call downloads ~35 MB)...';
+      const cold = await invoke<InferenceTestResult>('inference_test_embed', { text: 'warmup' });
+      benchResults = [{ label: 'Cold start (model load + embed)', loadMs: cold.loadMs, embedMs: cold.embedMs, dims: cold.dims }];
+
+      // Warm runs for each text length
+      for (const { label, text } of BENCH_TEXTS) {
+        benchPhase = `Embedding: ${label}...`;
+        const r = await invoke<InferenceTestResult>('inference_test_embed', { text });
+        benchResults = [...benchResults, { label, loadMs: r.loadMs, embedMs: r.embedMs, dims: r.dims }];
+      }
+
+      benchPhase = '';
+    } catch (e) {
+      benchError = e instanceof Error ? e.message : String(e);
+    } finally {
+      benchRunning = false;
+    }
+  }
 </script>
 
 <div class="settings-overlay" role="button" tabindex="-1" onclick={() => !connectSyncing && !nuking && onclose()} onkeydown={(e) => e.key === 'Escape' && !connectSyncing && !nuking && onclose()}>
@@ -392,6 +440,47 @@
             </div>
           </div>
         {/if}
+      </section>
+
+      <section class="settings-section">
+        <h3 class="settings-section-title">Benchmark</h3>
+        <div class="settings-card">
+          <p class="settings-btn-desc settings-hint" style="margin-top: 0">
+            Test on-device embedding inference. First run downloads the model (~35 MB).
+          </p>
+          <div class="settings-actions">
+            <button class="settings-btn settings-btn-inline" onclick={runBenchmarks} disabled={benchRunning}>
+              {benchRunning ? 'Running...' : 'Run benchmarks'}
+            </button>
+          </div>
+          {#if benchPhase}
+            <p class="settings-btn-desc settings-hint bench-phase">{benchPhase}</p>
+          {/if}
+          {#if benchError}
+            <p class="settings-btn-desc settings-hint" style="color: var(--color-danger)">{benchError}</p>
+          {/if}
+          {#if benchResults.length > 0}
+            <table class="bench-table">
+              <thead>
+                <tr>
+                  <th>Test</th>
+                  <th>Load</th>
+                  <th>Embed</th>
+                </tr>
+              </thead>
+              <tbody>
+                {#each benchResults as row}
+                  <tr>
+                    <td>{row.label}</td>
+                    <td class="bench-num">{row.loadMs} ms</td>
+                    <td class="bench-num">{row.embedMs} ms</td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+            <p class="settings-btn-desc settings-hint">Output: {benchResults[0].dims}-dim vectors. The real indexer holds one session — load cost is paid once.</p>
+          {/if}
+        </div>
       </section>
 
       <section class="settings-section">
@@ -815,5 +904,44 @@
     font-size: 12px;
     color: var(--color-muted);
     margin: 16px 0 8px;
+  }
+
+  /* Benchmark results table */
+  .bench-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 10px 0 6px;
+    font-size: 13px;
+  }
+
+  .bench-table th {
+    text-align: left;
+    font-weight: 600;
+    color: var(--color-muted);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 4px 8px 6px 0;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .bench-table td {
+    padding: 6px 8px 6px 0;
+    color: var(--color-text);
+    border-bottom: 1px solid color-mix(in srgb, var(--color-border) 50%, transparent);
+  }
+
+  .bench-table tr:last-child td {
+    border-bottom: none;
+  }
+
+  .bench-num {
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  .bench-phase {
+    font-style: italic;
   }
 </style>

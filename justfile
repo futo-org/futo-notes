@@ -196,6 +196,8 @@ deploy-ios:
   fi
   echo "Version: ${VERSION}"
   node -e "const fs=require('fs'),f='${CONF}',c=JSON.parse(fs.readFileSync(f));c.version='${VERSION}';fs.writeFileSync(f,JSON.stringify(c,null,2)+'\n')"
+  # Fetch ORT xcframework for iOS inference (cached after first run)
+  node scripts/fetch-ort-ios.mjs >/dev/null
   # Clean stale build so we never install an old one
   rm -f "$IPA"
   echo "Building iOS .ipa..."

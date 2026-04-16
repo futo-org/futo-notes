@@ -7,11 +7,15 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		023C9AC3F07B743625BDCA50 /* Accelerate.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D8803EEB36D3259AFEA2365B /* Accelerate.framework */; };
 		14C15777DE905017A764F8B7 /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 64E86EF4A6DE3A210698036D /* UIKit.framework */; };
 		1E98AB23741E5529B48792C4 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 87DE5969AC39B298C706F108 /* LaunchScreen.storyboard */; };
 		28C2004FFD9D0589574CB057 /* MetalKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3C8C5F609C55ADDDBDDCEAEE /* MetalKit.framework */; };
+		438340DEB819A2731E743313 /* CoreML.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DA50924D033A3449ECEDBDD8 /* CoreML.framework */; };
+		4455230386853997D870F10E /* onnxruntime.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 6278BECA7043DBCDF315ED37 /* onnxruntime.xcframework */; };
 		47FFB2AC1753F83E37F77358 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = BE4B2042B14CDDAB2B4163C3 /* Assets.xcassets */; };
 		521A185D21390F6E0F59A9C7 /* assets in Resources */ = {isa = PBXBuildFile; fileRef = 540FE99B69D8C4E38C1AE718 /* assets */; };
+		643769C85EA75633ACB0A1D3 /* libapp.a in Resources */ = {isa = PBXBuildFile; fileRef = 73FD95E63A5412A706FE8491 /* libapp.a */; };
 		69041528A525351FCEE7462A /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F203B59F2974445132FFD53 /* QuartzCore.framework */; };
 		959F3C1B4275D6EA7AEF6791 /* main.mm in Sources */ = {isa = PBXBuildFile; fileRef = B3E1A79143437C7983659E2E /* main.mm */; };
 		AE51512A4128E811877BFD58 /* CoreGraphics.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 71C7EEBBD0D15474EC6129F0 /* CoreGraphics.framework */; };
@@ -27,9 +31,11 @@
 		3C8C5F609C55ADDDBDDCEAEE /* MetalKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MetalKit.framework; path = System/Library/Frameworks/MetalKit.framework; sourceTree = SDKROOT; };
 		3DE25FC2D371E7DA4845ADEB /* bindings.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = bindings.h; sourceTree = "<group>"; };
 		540FE99B69D8C4E38C1AE718 /* assets */ = {isa = PBXFileReference; lastKnownFileType = folder; path = assets; sourceTree = SOURCE_ROOT; };
+		6278BECA7043DBCDF315ED37 /* onnxruntime.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = onnxruntime.xcframework; sourceTree = "<group>"; };
 		634BB22A97B15CD736FA371C /* futo-notes-tauri_iOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "futo-notes-tauri_iOS.entitlements"; sourceTree = "<group>"; };
 		64E86EF4A6DE3A210698036D /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
 		71C7EEBBD0D15474EC6129F0 /* CoreGraphics.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreGraphics.framework; path = System/Library/Frameworks/CoreGraphics.framework; sourceTree = SDKROOT; };
+		73FD95E63A5412A706FE8491 /* libapp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libapp.a; sourceTree = "<group>"; };
 		87DE5969AC39B298C706F108 /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
 		8D73861A644C860D026E83F5 /* main.rs */ = {isa = PBXFileReference; path = main.rs; sourceTree = "<group>"; };
 		9BFB582DBEE1A7DD24488FC1 /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
@@ -39,6 +45,8 @@
 		B59A291BE93F471E3CEDE41E /* futo-notes-tauri_iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "futo-notes-tauri_iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		BE4B2042B14CDDAB2B4163C3 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		C2BAA9A73C9225D39DD3CF3F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		D8803EEB36D3259AFEA2365B /* Accelerate.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Accelerate.framework; path = System/Library/Frameworks/Accelerate.framework; sourceTree = SDKROOT; };
+		DA50924D033A3449ECEDBDD8 /* CoreML.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreML.framework; path = System/Library/Frameworks/CoreML.framework; sourceTree = SDKROOT; };
 		F4CE0DF71264A3B2FB025593 /* WebKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WebKit.framework; path = System/Library/Frameworks/WebKit.framework; sourceTree = SDKROOT; };
 		F90738C603BA06F5B66F1C90 /* core.rs */ = {isa = PBXFileReference; path = core.rs; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -56,6 +64,9 @@
 				E4A945A5562CCC44A889A7A1 /* Security.framework in Frameworks */,
 				14C15777DE905017A764F8B7 /* UIKit.framework in Frameworks */,
 				E8A9CFEB74AFCD5F24FC4699 /* WebKit.framework in Frameworks */,
+				438340DEB819A2731E743313 /* CoreML.framework in Frameworks */,
+				023C9AC3F07B743625BDCA50 /* Accelerate.framework in Frameworks */,
+				4455230386853997D870F10E /* onnxruntime.xcframework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -70,9 +81,18 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
+		2A156195FFAF49D2C851A062 /* arm64 */ = {
+			isa = PBXGroup;
+			children = (
+				7A9C04560D5FED540A550932 /* debug */,
+			);
+			path = arm64;
+			sourceTree = "<group>";
+		};
 		328928EB9DB2D53A08A51FEE /* Externals */ = {
 			isa = PBXGroup;
 			children = (
+				2A156195FFAF49D2C851A062 /* arm64 */,
 			);
 			path = Externals;
 			sourceTree = "<group>";
@@ -88,10 +108,13 @@
 		496E1ECF413DE30438F53035 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				D8803EEB36D3259AFEA2365B /* Accelerate.framework */,
 				71C7EEBBD0D15474EC6129F0 /* CoreGraphics.framework */,
+				DA50924D033A3449ECEDBDD8 /* CoreML.framework */,
 				3959C440142693157E539467 /* libapp.a */,
 				9BFB582DBEE1A7DD24488FC1 /* Metal.framework */,
 				3C8C5F609C55ADDDBDDCEAEE /* MetalKit.framework */,
+				6278BECA7043DBCDF315ED37 /* onnxruntime.xcframework */,
 				9F203B59F2974445132FFD53 /* QuartzCore.framework */,
 				2A5080A3A42485B29A6CE413 /* Security.framework */,
 				64E86EF4A6DE3A210698036D /* UIKit.framework */,
@@ -118,6 +141,14 @@
 			);
 			name = src;
 			path = ../../src;
+			sourceTree = "<group>";
+		};
+		7A9C04560D5FED540A550932 /* debug */ = {
+			isa = PBXGroup;
+			children = (
+				73FD95E63A5412A706FE8491 /* libapp.a */,
+			);
+			path = debug;
 			sourceTree = "<group>";
 		};
 		88032A142DC7B5210E5DA90D /* futo-notes-tauri_iOS */ = {
@@ -150,6 +181,13 @@
 				496E1ECF413DE30438F53035 /* Frameworks */,
 				29C2B450102427629CC507A6 /* Products */,
 			);
+			sourceTree = "<group>";
+		};
+		"TEMP_DAE00B12-D019-4361-97F7-14D8E506ECC0" /* x86_64 */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = x86_64;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -216,6 +254,7 @@
 				47FFB2AC1753F83E37F77358 /* Assets.xcassets in Resources */,
 				1E98AB23741E5529B48792C4 /* LaunchScreen.storyboard in Resources */,
 				521A185D21390F6E0F59A9C7 /* assets in Resources */,
+				643769C85EA75633ACB0A1D3 /* libapp.a in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -241,7 +280,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "cargo tauri ios xcode-script -v --platform ${PLATFORM_DISPLAY_NAME:?} --sdk-root ${SDKROOT:?} --framework-search-paths \"${FRAMEWORK_SEARCH_PATHS:?}\" --header-search-paths \"${HEADER_SEARCH_PATHS:?}\" --gcc-preprocessor-definitions \"${GCC_PREPROCESSOR_DEFINITIONS:-}\" --configuration ${CONFIGURATION:?} ${FORCE_COLOR} ${ARCHS:?}";
+			shellScript = "export ORT_IOS_XCFWK_PATH=\"${SRCROOT}/onnxruntime.xcframework\"\ncargo tauri ios xcode-script -v --platform ${PLATFORM_DISPLAY_NAME:?} --sdk-root ${SDKROOT:?} --framework-search-paths \"${FRAMEWORK_SEARCH_PATHS:?}\" --header-search-paths \"${HEADER_SEARCH_PATHS:?}\" --gcc-preprocessor-definitions \"${GCC_PREPROCESSOR_DEFINITIONS:-}\" --configuration ${CONFIGURATION:?} ${FORCE_COLOR} ${ARCHS:?}\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -281,8 +320,8 @@
 				);
 				"LIBRARY_SEARCH_PATHS[arch=arm64]" = "$(inherited) $(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME) $(TOOLCHAIN_DIR)/usr/lib/swift-5.0/$(PLATFORM_NAME)";
 				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = "$(inherited) $(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME) $(TOOLCHAIN_DIR)/usr/lib/swift-5.0/$(PLATFORM_NAME)";
-				PRODUCT_BUNDLE_IDENTIFIER = com.futo.notes.dev;
-				PRODUCT_NAME = "Stonefruit Dev";
+				PRODUCT_BUNDLE_IDENTIFIER = com.futo.notes;
+				PRODUCT_NAME = "Stonefruit";
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VALID_ARCHS = arm64;
@@ -313,8 +352,8 @@
 				);
 				"LIBRARY_SEARCH_PATHS[arch=arm64]" = "$(inherited) $(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME) $(TOOLCHAIN_DIR)/usr/lib/swift-5.0/$(PLATFORM_NAME)";
 				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = "$(inherited) $(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME) $(TOOLCHAIN_DIR)/usr/lib/swift-5.0/$(PLATFORM_NAME)";
-				PRODUCT_BUNDLE_IDENTIFIER = com.futo.notes.dev;
-				PRODUCT_NAME = "Stonefruit Dev";
+				PRODUCT_BUNDLE_IDENTIFIER = com.futo.notes;
+				PRODUCT_NAME = "Stonefruit";
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VALID_ARCHS = arm64;

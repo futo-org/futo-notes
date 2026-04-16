@@ -43,6 +43,10 @@ stonefruit-inference = { path = "../../../crates/stonefruit-inference" }
 
 [target.'cfg(target_os = "ios")'.dependencies]
 objc2 = "0.6"
+# iOS: ORT statically linked via xcframework fetched by `scripts/fetch-ort-ios.mjs`.
+# ORT_IOS_XCFWK_PATH is set by the Xcode pre-build script in project.yml.
+# CoreML EP enables Neural Engine / GPU acceleration on iPhone.
+stonefruit-inference = { path = "../../../crates/stonefruit-inference", default-features = false, features = ["coreml"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 # Android: ORT ships as a separate .so in gen/android/.../jniLibs/<abi>/,

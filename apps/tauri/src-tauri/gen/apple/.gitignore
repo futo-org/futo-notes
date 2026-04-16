@@ -1,3 +1,6 @@
 xcuserdata/
 build/
 Externals/
+
+# Prebuilt ORT xcframework (fetched by scripts/fetch-ort-ios.mjs)
+onnxruntime.xcframework/
