@@ -1258,6 +1258,127 @@ fn rand_suffix() -> String {
     format!("{n:04}")
 }
 
+// ---------------------------------------------------------------------------
+// On-device inference — dev-only smoke test (Phase 2)
+// ---------------------------------------------------------------------------
+//
+// `inference_test_embed` exists so we can drive the ORT + tokenizer pipeline
+// on a real device without any UI scaffolding. It synchronously downloads the
+// model on first call (~35 MB + tokenizer.json), loads an `Embedder`, and
+// returns a small metrics struct the test hook consumes.
+//
+// Gated on `debug_assertions` so it is compiled out of release builds. The
+// registration in `lib.rs` is likewise gated.
+//
+// iOS is skipped until Phase 3 because the crate isn't linked on iOS targets
+// yet (we haven't set up CoreML framework linking).
+
+// Gated only by `not(target_os = "ios")` — the iOS build doesn't link
+// stonefruit-inference yet (CoreML framework linking is Phase 3), so the
+// module can't compile there. We don't bother with a `debug_assertions`
+// gate because Tauri 2.10's `generate_handler!` doesn't reliably honor
+// `#[cfg]` attributes on individual command identifiers — once the
+// dev-UI lands in Phase 5 we'll remove this smoke-test command entirely.
+#[cfg(not(target_os = "ios"))]
+mod inference_dev {
+    use std::path::PathBuf;
+    use std::time::Instant;
+
+    use serde::Serialize;
+    use tauri::{AppHandle, Manager};
+
+    use stonefruit_inference::{
+        download_to, DownloadTarget, Embedder, NOMIC_V15_DIMS, NOMIC_V15_MODEL_URL,
+        NOMIC_V15_TOKENIZER_URL,
+    };
+
+    #[derive(Debug, Clone, Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct InferenceTestResult {
+        pub load_ms: u64,
+        pub embed_ms: u64,
+        pub dims: usize,
+        /// First 8 components of the output vector. Just enough to eyeball
+        /// that the output isn't all zeros / NaN without flooding the log.
+        pub first_eight: Vec<f32>,
+        pub model_path: String,
+    }
+
+    fn inference_dir(app: &AppHandle) -> Result<PathBuf, String> {
+        // Reuse the notes-dir-override + app_data_dir resolution the rest of
+        // `core.rs` uses, but fall back to the raw app_data_dir because the
+        // inference cache is a per-install concept, not tied to the notes
+        // vault the user may have moved.
+        if let Some(data_dir) = super::env_data_dir() {
+            return Ok(data_dir.join("inference"));
+        }
+        let data = app.path().app_data_dir().map_err(|e| e.to_string())?;
+        Ok(data.join("inference"))
+    }
+
+    /// Synchronously download the model + tokenizer if missing, load an
+    /// Embedder, embed `text`, and return timing + first-8 dims. Blocks the
+    /// caller — that's fine for a dev-only smoke test.
+    #[tauri::command]
+    pub async fn inference_test_embed(
+        app: AppHandle,
+        text: String,
+    ) -> Result<InferenceTestResult, String> {
+        // Offload the whole thing to a blocking thread: synchronous HTTP +
+        // ORT session creation + inference would otherwise pin a tokio
+        // worker for tens of seconds.
+        tauri::async_runtime::spawn_blocking(move || {
+            let dir = inference_dir(&app)?;
+            std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+            let model_path = dir.join("model_quantized.onnx");
+            let tokenizer_path = dir.join("tokenizer.json");
+
+            if !model_path.exists() {
+                download_to(&DownloadTarget {
+                    url: NOMIC_V15_MODEL_URL.into(),
+                    dest: model_path.clone(),
+                    sha256: None,
+                })
+                .map_err(|e| format!("model download: {e}"))?;
+            }
+            if !tokenizer_path.exists() {
+                download_to(&DownloadTarget {
+                    url: NOMIC_V15_TOKENIZER_URL.into(),
+                    dest: tokenizer_path.clone(),
+                    sha256: None,
+                })
+                .map_err(|e| format!("tokenizer download: {e}"))?;
+            }
+
+            let load_start = Instant::now();
+            let mut embedder = Embedder::load(&model_path, &tokenizer_path, NOMIC_V15_DIMS)
+                .map_err(|e| format!("embedder load: {e}"))?;
+            let load_ms = load_start.elapsed().as_millis() as u64;
+
+            let embed_start = Instant::now();
+            let v = embedder
+                .embed(&text)
+                .map_err(|e| format!("embed: {e}"))?;
+            let embed_ms = embed_start.elapsed().as_millis() as u64;
+
+            let first_eight = v.iter().take(8).copied().collect();
+
+            Ok(InferenceTestResult {
+                load_ms,
+                embed_ms,
+                dims: v.len(),
+                first_eight,
+                model_path: model_path.display().to_string(),
+            })
+        })
+        .await
+        .map_err(|e| format!("spawn_blocking join: {e}"))?
+    }
+}
+
+#[cfg(not(target_os = "ios"))]
+pub use inference_dev::inference_test_embed;
+
 #[cfg(test)]
 mod tests {
     use super::*;

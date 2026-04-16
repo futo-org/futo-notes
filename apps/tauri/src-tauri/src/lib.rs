@@ -177,6 +177,10 @@ pub fn run() {
             resolve_default_notes_root,
             core_prepare_sync_payload_v2,
             core_apply_sync_delta_v2,
+            // Phase 2 dev-only smoke test for on-device embedding. Gated at
+            // the module level in core::inference_dev so the command only
+            // exists in debug builds and non-iOS targets.
+            inference_test_embed,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -47,6 +47,46 @@ When switching sync servers in debug builds, prefer the dev-only `window.__testS
 
 For Android emulator runs, use `10.0.2.2` instead of `127.0.0.1` for host services.
 
+### Android emulator — running JS against the webview
+
+Tauri apps enable CSP which blocks ad-hoc inline scripts, so `webview_execute_js` through the MCP bridge fails with *"Resolve-ref helper was not available"*. On Android the webview DevTools socket is exposed and bypasses CSP. Use it via:
+
+```bash
+# Find the socket name for the running com.futo.notes process
+adb shell 'cat /proc/net/unix' | grep webview_devtools_remote
+# → @webview_devtools_remote_<pid>
+
+# Forward and invoke
+adb forward tcp:9228 localabstract:webview_devtools_remote_<pid>
+node scripts/cdp-invoke.mjs "await window.__TAURI__.core.invoke('my_command', { arg: 1 })"
+```
+
+`scripts/cdp-invoke.mjs` wraps the Chrome DevTools Protocol in a tiny wrapper that calls `Runtime.evaluate` with `awaitPromise:true`. Useful for any Tauri command on Android, not just inference.
+
+### Android — ONNX Runtime `.so` for the inference crate
+
+The Android build of `stonefruit-inference` links against `libonnxruntime.so` dynamically (via the `load-dynamic` feature). Tauri's Gradle plugin doesn't fetch it; `scripts/fetch-ort-android.mjs` does. Run before `cargo tauri android build`:
+
+```bash
+# Fetches Microsoft's ONNX Runtime Android AAR from Maven, extracts the per-ABI
+# .so into apps/tauri/src-tauri/gen/android/app/src/main/jniLibs/<abi>/.
+node scripts/fetch-ort-android.mjs                          # default: arm64-v8a
+node scripts/fetch-ort-android.mjs --abis arm64-v8a,x86_64  # + emulator
+```
+
+Version is pinned to `ort-sys 2.0.0-rc.12`'s target (ORT 1.24.2). If you bump the `ort` dep, bump `DEFAULT_VERSION` in the fetch script. The `.so` files are gitignored.
+
+### Android — inference smoke test
+
+With the app launched and the DevTools socket forwarded:
+
+```bash
+node scripts/cdp-invoke.mjs \
+  "await window.__TAURI__.core.invoke('inference_test_embed', { text: 'hello world' })"
+```
+
+First call downloads the model (~35 MB + tokenizer) to the app data dir; returns `{ loadMs, embedMs, dims, firstEight, modelPath }`.
+
 ## Key Constraints
 
 - **The filename IS the title.** `"grocery list.md"` → title is `"grocery list"`. No case changes, no dash-to-space, no transformations. `sanitizeFilename()` only strips filesystem-breaking characters. Never mutate filenames into titles.

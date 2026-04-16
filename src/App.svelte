@@ -14,6 +14,7 @@
   import { flushCrashQueue, setAppVersion, type CrashReport } from '$lib/crashHandler';
   import { sendAllPendingReports, discardAllPendingReports, loadPendingReports } from '$lib/crashReporter';
   import { installTestSync } from '$lib/testSync';
+  import { installTestInference } from '$lib/testInference';
 
   let hash = $state(window.location.hash.slice(1) || '/');
   let initialized = $state(false);
@@ -65,6 +66,7 @@
                 noteExists: (id: string) => fs.noteExists(id),
               };
               installTestSync();
+              installTestInference();
             }
           }) : Promise.resolve(),
           loadPreferences(),

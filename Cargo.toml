@@ -2,5 +2,6 @@
 resolver = "2"
 members = [
   "crates/stonefruit-core",
+  "crates/stonefruit-inference",
   "apps/tauri/src-tauri",
 ]

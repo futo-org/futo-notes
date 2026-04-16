@@ -37,9 +37,20 @@ tauri-plugin-mcp-bridge = "0.10.0"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-single-instance = "2"
+# Desktop: ort downloads and statically links libonnxruntime during `cargo build`.
+# iOS is excluded because we haven't set up CoreML framework linking yet (Phase 3).
+stonefruit-inference = { path = "../../../crates/stonefruit-inference" }
 
 [target.'cfg(target_os = "ios")'.dependencies]
 objc2 = "0.6"
+
+[target.'cfg(target_os = "android")'.dependencies]
+# Android: ORT ships as a separate .so in gen/android/.../jniLibs/<abi>/,
+# fetched by `node scripts/fetch-ort-android.mjs`. XNNPACK EP for SIMD CPU
+# inference on ARM. Opting out of ort's build-time download here because
+# cross-compiling through pyke's CDN isn't set up and load-dynamic is simpler
+# to reason about.
+stonefruit-inference = { path = "../../../crates/stonefruit-inference", default-features = false, features = ["load-dynamic", "xnnpack"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 glib = "0.18"
