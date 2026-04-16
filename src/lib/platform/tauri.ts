@@ -81,6 +81,7 @@ function dateToMs(d: Date | null | undefined): number {
 }
 
 let watcherStarted = false;
+let assetProtocolWorks: boolean | null = null;
 
 async function ensureWatcherStarted(): Promise<void> {
   if (watcherStarted) return;
@@ -272,7 +273,27 @@ export const tauriFS: PlatformFS = {
       throw new Error('invalid filename');
     }
     const root = await getNotesRoot();
-    return convertFileSrc(`${root}/${filename}`);
+    const assetUrl = convertFileSrc(`${root}/${filename}`);
+    // Tauri v2's asset protocol can reject paths even when fs:scope covers
+    // them. Probe once per session — if the asset protocol works, use it for
+    // every image (zero-copy); otherwise fall back to blob URLs.
+    if (assetProtocolWorks === null) {
+      try {
+        const probe = await fetch(assetUrl, { method: 'HEAD' });
+        assetProtocolWorks = probe.ok;
+      } catch {
+        assetProtocolWorks = false;
+      }
+    }
+    if (assetProtocolWorks) return assetUrl;
+
+    const bytes = await readFile(`${root}/${filename}`);
+    const ext = filename.split('.').pop()?.toLowerCase() ?? 'png';
+    const mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg'
+      : ext === 'gif' ? 'image/gif'
+      : ext === 'webp' ? 'image/webp'
+      : 'image/png';
+    return URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: mime }));
   },
 
   async getAppVersion(): Promise<string> {

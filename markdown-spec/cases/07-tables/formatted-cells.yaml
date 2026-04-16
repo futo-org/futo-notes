@@ -7,7 +7,7 @@
   cursor: null
   expect:
     widgets:
-      - class: cm-md-table-wrapper
+      - class: sf-table
         count: 1
 
 - name: table-with-code
@@ -19,7 +19,7 @@
   cursor: null
   expect:
     widgets:
-      - class: cm-md-table-wrapper
+      - class: sf-table
         count: 1
 
 - name: table-with-link
@@ -31,7 +31,7 @@
   cursor: null
   expect:
     widgets:
-      - class: cm-md-table-wrapper
+      - class: sf-table
         count: 1
 
 - name: table-with-strikethrough
@@ -43,7 +43,7 @@
   cursor: null
   expect:
     widgets:
-      - class: cm-md-table-wrapper
+      - class: sf-table
         count: 1
 
 - name: table-escaped-pipe
@@ -55,7 +55,7 @@
   cursor: null
   expect:
     widgets:
-      - class: cm-md-table-wrapper
+      - class: sf-table
         count: 1
 
 - name: table-many-columns
@@ -67,5 +67,5 @@
   cursor: null
   expect:
     widgets:
-      - class: cm-md-table-wrapper
+      - class: sf-table
         count: 1

@@ -1,0 +1,394 @@
+/* Crepe-style editor UX: selection toolbar, slash menu, block handle, table editor.
+ *
+ * IMPORTANT: CM6 injects unlayered CSS, which outranks anything inside @layer(components).
+ * Rules in this file are outside @layer (app.css imports this directly) and we still use
+ * `!important` on rules that compete with CM6's internal styles (backgrounds, borders,
+ * cursors, selection, etc).
+ */
+
+/* === Selection toolbar ========================================================= */
+
+/* CM6 adds `.cm-tooltip` to our dom element itself, so we style both .sf-selection-toolbar
+ * directly (our class) and neutralize CM6's default tooltip chrome. */
+.sf-selection-toolbar {
+  background: var(--color-bg) !important;
+  border: 1px solid var(--color-border) !important;
+  border-radius: 8px !important;
+  padding: 4px !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12) !important;
+  display: flex;
+  gap: 2px;
+  font-family: var(--font-sans);
+}
+
+.sf-selection-toolbar button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  color: var(--color-text);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.sf-selection-toolbar button:hover {
+  background: var(--color-surface);
+  color: var(--color-primary);
+}
+
+.sf-selection-toolbar button svg {
+  width: 16px;
+  height: 16px;
+  stroke-width: 2;
+}
+
+.sf-selection-toolbar .sf-toolbar-separator {
+  width: 1px;
+  align-self: stretch;
+  background: var(--color-border);
+  margin: 4px 2px;
+}
+
+/* === Slash menu ================================================================ */
+
+.sf-slash-menu {
+  position: absolute;
+  z-index: 50;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  min-width: 240px;
+  max-width: 320px;
+  max-height: 320px;
+  overflow-y: auto;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  padding: 4px;
+}
+
+.sf-slash-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--color-text);
+  user-select: none;
+}
+
+.sf-slash-menu__item:hover,
+.sf-slash-menu__item[aria-selected='true'] {
+  background: var(--color-surface);
+}
+
+.sf-slash-menu__item[aria-selected='true'] {
+  outline: 1px solid rgba(var(--primary-rgb), 0.3);
+}
+
+.sf-slash-menu__icon {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-primary);
+  flex-shrink: 0;
+}
+
+.sf-slash-menu__icon svg {
+  width: 18px;
+  height: 18px;
+  stroke-width: 1.75;
+}
+
+.sf-slash-menu__text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+
+.sf-slash-menu__label {
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.sf-slash-menu__hint {
+  font-size: 12px;
+  color: var(--color-muted);
+}
+
+.sf-slash-menu__empty {
+  padding: 12px;
+  color: var(--color-muted);
+  font-size: 13px;
+  text-align: center;
+}
+
+/* === Block handle ============================================================== */
+
+.sf-block-handle {
+  position: fixed;
+  top: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  z-index: 100;
+  transform: translate3d(0, 0, 0);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+  padding: 2px;
+  font-family: var(--font-sans);
+}
+
+.sf-block-handle--visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.sf-block-handle button {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  padding: 0;
+  color: var(--color-muted);
+  cursor: grab;
+}
+
+.sf-block-handle button:hover {
+  background: var(--color-surface);
+  color: var(--color-primary);
+}
+
+.sf-block-handle button svg {
+  width: 16px;
+  height: 16px;
+  stroke-width: 1.75;
+}
+
+.sf-block-handle__drag {
+  cursor: grab;
+}
+
+.sf-block-handle__drag:active {
+  cursor: grabbing;
+}
+
+.sf-block-handle__add {
+  cursor: pointer;
+}
+
+/* Drop indicator — horizontal line between blocks during drag */
+.sf-block-drop-indicator {
+  position: fixed;
+  left: 0;
+  height: 2px;
+  background: var(--color-primary);
+  pointer-events: none;
+  z-index: 99;
+  border-radius: 1px;
+}
+
+/* Dim the source block while a drag is active */
+.cm-editor[data-block-dragging='true'] .cm-line {
+  transition: opacity 100ms ease;
+}
+
+/* === Table editor ============================================================== */
+
+.sf-table {
+  display: block;
+  margin: 8px 0;
+  position: relative;
+  font-family: var(--font-sans);
+}
+
+.sf-table__scroll {
+  display: block;
+  overflow-x: auto;
+  overflow-y: hidden;
+  max-width: min(100%, calc(100vw - 32px));
+  border-radius: 8px;
+}
+
+.sf-table table {
+  border-collapse: collapse;
+  min-width: 100%;
+  font-size: 0.93em;
+  border: 1px solid var(--color-border);
+}
+
+.sf-table th,
+.sf-table td {
+  padding: 10px 14px;
+  border: 1px solid var(--color-border);
+  min-width: 80px;
+  position: relative;
+  vertical-align: top;
+}
+
+.sf-table th {
+  background: var(--color-surface);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.sf-table tbody tr:nth-child(even) {
+  background: rgba(var(--ink-rgb), 0.02);
+}
+
+.sf-table__cell {
+  outline: none;
+  min-height: 1.2em;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.sf-table__cell:focus {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+  background: rgba(var(--primary-rgb), 0.04);
+}
+
+.sf-table__cell[data-align='center'] {
+  text-align: center;
+}
+.sf-table__cell[data-align='right'] {
+  text-align: right;
+}
+.sf-table__cell[data-align='left'] {
+  text-align: left;
+}
+
+/* Row / column control tabs — visible on hover */
+.sf-table__row-controls,
+.sf-table__col-controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+  opacity: 0;
+  transition: opacity 120ms ease;
+  z-index: 5;
+  pointer-events: none;
+}
+
+.sf-table--show-controls .sf-table__row-controls,
+.sf-table--show-controls .sf-table__col-controls {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.sf-table__row-controls {
+  position: absolute;
+  left: -44px;
+  transform: translateY(4px);
+}
+
+.sf-table__col-controls {
+  position: absolute;
+  top: -34px;
+  transform: translateX(4px);
+}
+
+.sf-table__row-controls button,
+.sf-table__col-controls button {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 0;
+  border-radius: 3px;
+  padding: 0;
+  color: var(--color-muted);
+  cursor: pointer;
+}
+
+.sf-table__row-controls button:hover,
+.sf-table__col-controls button:hover {
+  background: var(--color-surface);
+  color: var(--color-primary);
+}
+
+.sf-table__row-controls button svg,
+.sf-table__col-controls button svg {
+  width: 14px;
+  height: 14px;
+  stroke-width: 1.75;
+}
+
+.sf-table__row-controls .sf-table__drag,
+.sf-table__col-controls .sf-table__drag {
+  cursor: grab;
+}
+
+.sf-table__row-controls .sf-table__drag:active,
+.sf-table__col-controls .sf-table__drag:active {
+  cursor: grabbing;
+}
+
+.sf-table__row--drop-before td {
+  box-shadow: inset 0 2px 0 0 var(--color-primary);
+}
+.sf-table__row--drop-after td {
+  box-shadow: inset 0 -2px 0 0 var(--color-primary);
+}
+
+.sf-table__col--drop-before::before,
+.sf-table__col--drop-after::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--color-primary);
+  pointer-events: none;
+}
+.sf-table__col--drop-before::before {
+  left: -1px;
+}
+.sf-table__col--drop-after::before {
+  right: -1px;
+}
+
+/* NOTE: we intentionally do NOT hide the CM6 cursor while a table cell has focus.
+ * Earlier we did `.cm-editor[data-table-focused='true'] .cm-cursor { opacity: 0 }`,
+ * but the attribute could stick (widget destroyed before blur fired), which made
+ * the caret invisible forever. The cell's own contentEditable caret is already
+ * the visible one; CM6's cursor sits wherever state.selection points and doesn't
+ * need to be suppressed. */
+
+/* Mobile: scale down handle sizes */
+@media (max-width: 480px) {
+  .sf-table__row-controls,
+  .sf-table__col-controls {
+    /* Hide on narrow viewports — a long-press menu would be nicer but out of scope */
+    display: none;
+  }
+
+  .sf-block-handle {
+    display: none;
+  }
+}

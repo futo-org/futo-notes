@@ -1,6 +1,7 @@
 @import "tailwindcss" source("../");
 @import "./components.css" layer(components);
 @import "./markdown.css" layer(components);
+@import "./editor-ux.css";
 
 /* === Fonts === */
 
