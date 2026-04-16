@@ -100,14 +100,26 @@ stages:
       - target/
     policy: pull-push
 
-# Separate cache for the release Linux build. It runs on ubuntu:22.04
-# (older glibc for forward-compat), while test jobs run on the kitchensink
-# image. Sharing a target/ cache across base images wastes bandwidth and
-# occasionally invalidates oddly — give each host its own key.
-.cache-cargo-tauri-linux-release:
+# Separate caches for the release Linux builds. Packages (.deb/.rpm) build on
+# ubuntu:22.04 (glibc 2.35, wide forward-compat); AppImage builds on ubuntu:24.04
+# so the bundled WebKitGTK is new enough for Mesa 26 (Arch/Fedora 40+). Test
+# jobs use the kitchensink image. Each base gets its own cache key — sharing a
+# target/ across images wastes bandwidth and invalidates oddly.
+.cache-cargo-tauri-linux-packages:
   cache:
     key:
-      prefix: linux-release
+      prefix: linux-packages
+      files:
+        - Cargo.lock
+    paths:
+      - .cargo-home/
+      - target/
+    policy: pull-push
+
+.cache-cargo-tauri-linux-appimage:
+  cache:
+    key:
+      prefix: linux-appimage
       files:
         - Cargo.lock
     paths:
@@ -272,15 +284,15 @@ test:desktop-smoke:macos:
 # Builds (tags only)
 # ─────────────────────────────────────────────────────────────
 
-build:linux:
+# .deb/.rpm install against the host's webkit2gtk, so building on the oldest
+# Ubuntu that ships libwebkit2gtk-4.1 (22.04, glibc 2.35) gives forward-compat
+# with older distros. Building on rolling/latest would link against a newer
+# glibc and break on anything older.
+build:linux-packages:
   stage: build
   needs: []
-  # Build on the oldest Ubuntu that ships libwebkit2gtk-4.1 (22.04, glibc 2.35)
-  # so the resulting .deb/.rpm/.AppImage are forward-compatible with newer
-  # distros. Building on rolling/latest images links against a newer glibc
-  # and breaks on anything older.
   image: ubuntu:22.04
-  before_script:
+  before_script: &linux-before-script
     - apt-get update
     - DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends curl ca-certificates build-essential git file pkg-config
     - curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
@@ -290,22 +302,53 @@ build:linux:
     - export PATH="$CARGO_HOME/bin:$PATH"
   cache:
     - !reference [.cache-pnpm, cache]
-    - !reference [.cache-cargo-tauri-linux-release, cache]
+    - !reference [.cache-cargo-tauri-linux-packages, cache]
   script:
     - pnpm install --frozen-lockfile
     - !reference [.setup-linux-deps, script]
     - !reference [.setup-rust, script]
     - !reference [.set-version, script]
-    - cd apps/tauri && cargo tauri build --bundles deb,rpm,appimage
+    - cd apps/tauri && cargo tauri build --bundles deb,rpm
   after_script:
     - |
-      echo "=== Linux build artifacts ==="
-      find target/release/bundle -type f \
-        \( -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" \) 2>/dev/null
+      echo "=== Linux package artifacts ==="
+      find target/release/bundle -type f \( -name "*.deb" -o -name "*.rpm" \) 2>/dev/null
   artifacts:
     paths:
       - target/release/bundle/deb/*.deb
       - target/release/bundle/rpm/*.rpm
+    expire_in: 4 weeks
+  rules:
+    - if: $CI_COMMIT_TAG
+
+# AppImage bundles its entire userland (WebKitGTK, GLib, GStreamer, ...) and
+# relies on the *host's* Mesa at runtime. Mesa 26 (Arch/Fedora 40+/CachyOS)
+# tightened EGL default-display detection, so AppImages built on pre-24.04
+# bases abort with "Could not create default EGL display: EGL_BAD_PARAMETER"
+# because their bundled WebKit (<2.44) uses the legacy EGL path. Build on
+# ubuntu:24.04 — ships WebKitGTK 2.44+, GLib 2.80, GStreamer 1.24.
+# Trade-off: raises glibc floor from 2.35 to 2.39. Users on older systems
+# install the .deb/.rpm instead.
+build:linux-appimage:
+  stage: build
+  needs: []
+  image: ubuntu:24.04
+  before_script: *linux-before-script
+  cache:
+    - !reference [.cache-pnpm, cache]
+    - !reference [.cache-cargo-tauri-linux-appimage, cache]
+  script:
+    - pnpm install --frozen-lockfile
+    - !reference [.setup-linux-deps, script]
+    - !reference [.setup-rust, script]
+    - !reference [.set-version, script]
+    - cd apps/tauri && cargo tauri build --bundles appimage
+  after_script:
+    - |
+      echo "=== Linux AppImage artifact ==="
+      find target/release/bundle -type f -name "*.AppImage" 2>/dev/null
+  artifacts:
+    paths:
       - target/release/bundle/appimage/*.AppImage
     expire_in: 4 weeks
   rules:
@@ -646,7 +689,9 @@ release:gate:
   stage: verify
   needs:
     - job: test
-    - job: build:linux
+    - job: build:linux-packages
+      artifacts: true
+    - job: build:linux-appimage
       artifacts: true
     - job: build:android
       artifacts: true
@@ -693,7 +738,9 @@ release:
   interruptible: false
   needs:
     - job: release:gate
-    - job: build:linux
+    - job: build:linux-packages
+      artifacts: true
+    - job: build:linux-appimage
       artifacts: true
     - job: build:android
       artifacts: true
