@@ -395,12 +395,13 @@
 
   // Toolbar height constant (matches .markdown-toolbar height in components.css)
   const TOOLBAR_HEIGHT = 44;
+  void TOOLBAR_HEIGHT; // unused while mobile toolbar is disabled; kept for easy re-enable
 
-  // Total bottom inset: keyboard + toolbar when keyboard visible, just toolbar when editor focused on mobile
-  const keyboardInset = $derived(
-    keyboard.visible ? keyboard.height + TOOLBAR_HEIGHT :
-    isMobile && editorFocused ? TOOLBAR_HEIGHT : 0
-  );
+  // Total bottom inset: just keyboard height (toolbar temporarily disabled).
+  // When re-enabling the mobile toolbar, restore:
+  //   keyboard.visible ? keyboard.height + TOOLBAR_HEIGHT :
+  //   isMobile && editorFocused ? TOOLBAR_HEIGHT : 0
+  const keyboardInset = $derived(keyboard.visible ? keyboard.height : 0);
 
   // Scroll cursor into view when keyboard opens or resizes.
   // CM's scrollIntoView is a no-op here because .cm-scroller has overflow:visible,
@@ -701,6 +702,7 @@
     <SyncStatusBar statusMessage={sync.syncStatusMessage} indicatorVisible={sync.syncIndicatorVisible} offline={sync.syncOffline} />
   </div>
 
+  <!-- Mobile keyboard toolbar — temporarily disabled, may re-enable later
   {#if isMobile && MarkdownToolbar}
     <MarkdownToolbar
       getView={() => editor?.getView() ?? null}
@@ -709,6 +711,8 @@
       ontoolbartouch={(touching) => toolbarTouching = touching}
     />
   {/if}
+  -->
+
 
   <!-- Graph sidebar -->
   <GraphSidebarPanel

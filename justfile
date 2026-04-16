@@ -57,7 +57,17 @@ android-build:
   cd apps/tauri && cargo tauri android build
 
 ios-dev:
-  cd apps/tauri && cargo tauri ios dev --config src-tauri/tauri.ios.dev.conf.json
+  #!/usr/bin/env bash
+  set -euo pipefail
+  # iOS devices can't reach the Mac's 127.0.0.1, so bind vite to the LAN IP.
+  # cargo tauri ios dev doesn't auto-detect — set TAURI_DEV_HOST ourselves.
+  HOST=$(ipconfig getifaddr en0 || ipconfig getifaddr en1 || true)
+  if [ -z "${HOST}" ]; then
+    echo "Error: could not determine Mac's LAN IP from en0/en1. Is Wi-Fi on?"
+    exit 1
+  fi
+  echo "iOS dev host: ${HOST}"
+  cd apps/tauri && TAURI_DEV_HOST="${HOST}" cargo tauri ios dev --host "${HOST}" --config src-tauri/tauri.ios.conf.json --config src-tauri/tauri.ios.dev.conf.json
 
 ios-offline:
   #!/usr/bin/env bash
