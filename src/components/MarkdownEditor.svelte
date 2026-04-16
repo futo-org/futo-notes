@@ -334,13 +334,23 @@
   });
 
   // Place cursor at end-of-line when the user clicks in the empty space past the
-  // last character. Uses `click` (not `mousedown`) so it doesn't block starting a
-  // drag-selection backward from near the end of text.
+  // last character. Split across two events:
+  //   - `mousedown`: measure the rendered line-end (while live-markdown decorations
+  //     are still applied — focusing the editor can drop them via
+  //     `selectionTouchesRange`). Does not preventDefault so drag still works.
+  //   - `click`: if the pointer never moved (no drag) and was past the visible
+  //     right edge, jump the caret to line.to.
+  let lineEndPending: {
+    clientX: number;
+    clientY: number;
+    visibleRight: number;
+    lineTo: number;
+  } | null = null;
+
   const lineEndClickHandler = EditorView.domEventHandlers({
-    click: (event, v) => {
+    mousedown: (event, v) => {
+      lineEndPending = null;
       if (event.button !== 0 || event.detail !== 1) return false;
-      // If the user dragged a selection, don't override it
-      if (!v.state.selection.main.empty) return false;
 
       const targetNode = event.target as Node | null;
       const target =
@@ -366,8 +376,32 @@
       const visibleRight = getRenderedLineRight(lineCandidate);
       if (visibleRight === null || event.clientX <= visibleRight + 1) return false;
 
+      lineEndPending = {
+        clientX: event.clientX,
+        clientY: event.clientY,
+        visibleRight,
+        lineTo: line.to,
+      };
+      return false;
+    },
+    click: (event, v) => {
+      const pending = lineEndPending;
+      lineEndPending = null;
+      if (!pending) return false;
+      if (event.button !== 0 || event.detail !== 1) return false;
+      // If the user dragged a selection, don't override it
+      if (!v.state.selection.main.empty) return false;
+      // If the click point moved significantly from mousedown, treat as a drag
+      // and don't jump the caret.
+      if (
+        Math.abs(event.clientX - pending.clientX) > 2 ||
+        Math.abs(event.clientY - pending.clientY) > 2
+      ) {
+        return false;
+      }
+
       event.preventDefault();
-      v.dispatch({ selection: { anchor: line.to } });
+      v.dispatch({ selection: { anchor: pending.lineTo } });
       return true;
     }
   });
@@ -389,8 +423,29 @@
     }
   });
 
+  // Resolve a click on an external link element to its URL, using the
+  // element itself (not posAtCoords, which is unreliable when the live
+  // markdown decoration has not yet been dropped/re-applied by focus changes).
+  function resolveLinkUrlFromElement(v: EditorView, link: Element): string | null {
+    try {
+      const offsetStart = v.posAtDOM(link, 0);
+      const offsetEnd = v.posAtDOM(link, link.childNodes.length);
+      // Use the midpoint so we're safely inside the rendered link text.
+      const pos = Math.floor((offsetStart + offsetEnd) / 2);
+      return findUrlAtPosition(v, pos);
+    } catch {
+      return null;
+    }
+  }
+
+  // Stash the URL found on mousedown so the click handler can open it even
+  // if focusing the editor drops the live-markdown decoration between the
+  // two events (which would otherwise leave no `.cm-md-link` at the point).
+  let pendingLinkUrl: string | null = null;
+
   const linkClickHandler = EditorView.domEventHandlers({
     mousedown: (event, v) => {
+      pendingLinkUrl = null;
       const targetNode = event.target as Node | null;
       const target =
         targetNode instanceof Element ? targetNode : targetNode?.parentElement ?? null;
@@ -402,28 +457,17 @@
         hit?.closest(EXTERNAL_LINK_SELECTOR) ??
         target?.closest(EXTERNAL_LINK_SELECTOR);
       if (!link) return false;
-      const pos = v.posAtCoords({ x: event.clientX, y: event.clientY });
-      if (pos === null) return false;
-      const url = findUrlAtPosition(v, pos);
+      const url = resolveLinkUrlFromElement(v, link);
       if (!url) return false;
+      pendingLinkUrl = url;
+      // Prevent the default cursor placement so the editor doesn't focus
+      // and drop the live-markdown link decoration before `click` fires.
       event.preventDefault();
       return true;
     },
     click: (event, v) => {
-      const targetNode = event.target as Node | null;
-      const target =
-        targetNode instanceof Element ? targetNode : targetNode?.parentElement ?? null;
-      if (target?.closest('a.cm-md-table-link')) return false;
-      const hit = document.elementFromPoint(event.clientX, event.clientY);
-      const link =
-        findExternalLinkElementAtPoint(hit, event.clientX, event.clientY) ??
-        findExternalLinkElementAtPoint(target, event.clientX, event.clientY) ??
-        hit?.closest(EXTERNAL_LINK_SELECTOR) ??
-        target?.closest(EXTERNAL_LINK_SELECTOR);
-      if (!link) return false;
-      const pos = v.posAtCoords({ x: event.clientX, y: event.clientY });
-      if (pos === null) return false;
-      const url = findUrlAtPosition(v, pos);
+      const url = pendingLinkUrl;
+      pendingLinkUrl = null;
       if (!url) return false;
       event.preventDefault();
       event.stopPropagation();
@@ -471,7 +515,15 @@
     mousedown: (event, v) => {
       if (event.button !== 0) return false;
       clearPointerSelectionSettleTimer();
-      setInlineSelectionDragging(v, true);
+      // Defer flipping the `display:contents` flag until after CM6's native
+      // mousedown handler has run. Flattening inline markdown spans before
+      // CM6 calls `posAtCoords` for the mousedown shifts the anchor — a
+      // backward drag starting next to rendered *italic*/**bold** would
+      // otherwise anchor at the opening marker instead of the clicked char.
+      // The flag is flipped on the next microtask so any following mousemove
+      // sees the flattened layout, which is what the drag-selection fix
+      // originally relied on.
+      queueMicrotask(() => setInlineSelectionDragging(v, true, true));
       return false;
     }
   });
