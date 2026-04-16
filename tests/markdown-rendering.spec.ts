@@ -730,11 +730,11 @@ test.describe('Tables', () => {
     await setupEditor(page, TEST_CONTENT.table + '\n\nMore text');
     await blurEditor(page);
 
-    // Tables render as HTML widgets via StateField
-    const tableWrapper = page.locator('.cm-md-table-wrapper');
-    await expect(tableWrapper).toBeVisible();
+    // Tables render via the interactive editor widget
+    const tableRoot = page.locator('.sf-table');
+    await expect(tableRoot).toBeVisible();
 
-    const table = page.locator('.cm-md-table-rendered');
+    const table = page.locator('.sf-table table');
     await expect(table).toBeVisible();
   });
 
@@ -743,8 +743,8 @@ test.describe('Tables', () => {
     await blurEditor(page);
 
     // Check that table has proper structure
-    const headers = page.locator('.cm-md-table-rendered th');
-    const cells = page.locator('.cm-md-table-rendered td');
+    const headers = page.locator('.sf-table th');
+    const cells = page.locator('.sf-table td');
 
     const headerCount = await headers.count();
     const cellCount = await cells.count();
@@ -757,7 +757,7 @@ test.describe('Tables', () => {
     await setupEditor(page, TEST_CONTENT.table + '\n\nMore text');
     await blurEditor(page);
 
-    const header = page.locator('.cm-md-table-rendered th').first();
+    const header = page.locator('.sf-table th').first();
     const fontWeight = await header.evaluate(el =>
       window.getComputedStyle(el).fontWeight
     );

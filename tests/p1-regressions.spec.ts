@@ -168,7 +168,10 @@ test.describe('P1 Link Clickability Regressions', () => {
     expect(cursor.ch).toBe('Visit https://example.com'.length);
   });
 
-  test('table links render as external anchors', async ({ page }) => {
+  test('table cells surface markdown link source (editable, not rendered)', async ({ page }) => {
+    // Prior behavior: the read-only TableWidget rendered `[text](url)` as an <a>.
+    // Current behavior (interactive editor): cells are contentEditable plain text, so
+    // the raw markdown is visible. Inline rendering in cells would fight the cell caret.
     await openNewNote(page);
 
     const editor = page.locator('.cm-content');
@@ -181,11 +184,11 @@ After table`);
     await page.keyboard.press('Control+End');
     await blurEditor(page);
 
-    const tableLink = page.locator('.cm-md-table-link', { hasText: 'Example' }).first();
-    await expect(tableLink).toBeVisible();
-    await expect(tableLink).toHaveAttribute('href', 'https://example.com');
-    await expect(tableLink).toHaveAttribute('target', '_blank');
-    await expect(tableLink).toHaveAttribute('rel', /noopener/);
+    const cell = page.locator('.sf-table td .sf-table__cell', { hasText: 'Example' }).first();
+    await expect(cell).toBeVisible();
+    await expect(cell).toHaveAttribute('contenteditable', 'true');
+    // Raw markdown is present in the cell text
+    await expect(cell).toContainText('[Example](https://example.com)');
   });
 });
 

@@ -6,9 +6,24 @@ function handleEnter(view: EditorView): boolean {
   const { state } = view;
   const pos = state.selection.main.from;
 
-  // Let default enter behavior handle markdown inside code fences/blocks.
+  // Inside a fenced/indented code block, provide an escape hatch:
+  // if the current line is empty AND the next line is the closing fence,
+  // move the cursor past the fence instead of inserting another \n.
   for (let node = syntaxTree(state).resolve(pos); ; ) {
     if (node.name === 'FencedCode' || node.name === 'CodeBlock') {
+      const currentLine = state.doc.lineAt(pos);
+      const isEmpty = currentLine.text.trim() === '';
+      if (isEmpty && currentLine.number < state.doc.lines) {
+        const nextLine = state.doc.line(currentLine.number + 1);
+        if (/^\s*`{3,}\s*$/.test(nextLine.text)) {
+          // Move past the closing fence, collapse the empty line we're on.
+          view.dispatch({
+            changes: { from: currentLine.from, to: nextLine.to, insert: nextLine.text },
+            selection: EditorSelection.cursor(currentLine.from + nextLine.text.length),
+          });
+          return true;
+        }
+      }
       return false;
     }
     if (!node.parent) break;
@@ -84,10 +99,13 @@ function handleEnter(view: EditorView): boolean {
           selection: EditorSelection.cursor(line.from + newMarkers.length)
         });
       } else {
-        // Level 1 — exit blockquote entirely
+        // Level 1 — exit blockquote entirely. Insert a leading newline so a blank
+        // line sits between the last `>` line and the cursor's paragraph — this
+        // stops the markdown parser from lazy-continuing the blockquote (which
+        // was causing typed text to re-appear as `> text` via insertNewlineContinueMarkup).
         view.dispatch({
-          changes: { from: line.from, to: line.to, insert: '' },
-          selection: EditorSelection.cursor(line.from)
+          changes: { from: line.from, to: line.to, insert: '\n' },
+          selection: EditorSelection.cursor(line.from + 1)
         });
       }
       return true;

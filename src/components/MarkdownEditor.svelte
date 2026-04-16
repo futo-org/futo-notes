@@ -14,7 +14,10 @@
   import { onMount } from 'svelte';
   import { listContinuationKeymap } from '$lib/listContinuation';
   import { cursorMotionKeymap } from '$lib/cursorMotion';
-  import { tableRendering } from '$lib/tableRenderingField';
+  import { interactiveTableEditor } from '$lib/editorUX/tableEditor';
+  import { selectionToolbar } from '$lib/editorUX/selectionToolbar';
+  import { slashMenu } from '$lib/editorUX/slashMenu';
+  import { blockHandle } from '$lib/editorUX/blockHandle';
   import { liveMarkdownTransform, preloadImages, setInlineSelectionDragging } from '$lib/liveMarkdownTransform';
   import { getImageWebPath } from '$lib/fileSystem';
   import { buildSetContentTransaction, type SetEditorContentOptions, type SetContentResult } from '$lib/editorContentSync';
@@ -330,9 +333,14 @@
     }
   });
 
+  // Place cursor at end-of-line when the user clicks in the empty space past the
+  // last character. Uses `click` (not `mousedown`) so it doesn't block starting a
+  // drag-selection backward from near the end of text.
   const lineEndClickHandler = EditorView.domEventHandlers({
-    mousedown: (event, v) => {
-      if (event.button !== 0) return false;
+    click: (event, v) => {
+      if (event.button !== 0 || event.detail !== 1) return false;
+      // If the user dragged a selection, don't override it
+      if (!v.state.selection.main.empty) return false;
 
       const targetNode = event.target as Node | null;
       const target =
@@ -359,11 +367,7 @@
       if (visibleRight === null || event.clientX <= visibleRight + 1) return false;
 
       event.preventDefault();
-      v.focus();
-      requestAnimationFrame(() => {
-        if (!view) return;
-        v.dispatch({ selection: { anchor: line.to } });
-      });
+      v.dispatch({ selection: { anchor: line.to } });
       return true;
     }
   });
@@ -498,7 +502,10 @@
       markdown({ base: markdownLanguage }),
       liveMarkdownTransform,
       autoLinkHighlight,
-      tableRendering,
+      interactiveTableEditor,
+      selectionToolbar,
+      slashMenu,
+      blockHandle,
       wikilinkAutocomplete(),
       imagePasteHandler,
       pointerSelectionTrackingHandler,
@@ -583,6 +590,11 @@
     });
 
     view = v;
+
+    // Focus the editor on mount so the caret is visible immediately.
+    // CM6 only renders `.cm-cursor` when the editor is focused; without this,
+    // a fresh note shows no caret until the user clicks inside.
+    v.focus();
 
     const onGlobalMouseUp = () => {
       schedulePointerSelectionSettle(v);
