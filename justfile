@@ -13,13 +13,6 @@ alias tu := test-unit
 alias ts := test-shared
 alias l := lint
 alias c := check
-alias sd := server-dev
-alias st := server-test
-alias cl := cli
-alias cs := cli-setup
-alias cset := cli-settings
-alias cst := cli-status
-alias cu := cli-update
 alias dd := deploy-deb
 alias dr := deploy-rpm
 alias di := deploy-ios
@@ -60,21 +53,6 @@ ios-offline:
 ios-build:
   pnpm run tauri:ios:build
 
-server-dev:
-  pnpm run server:dev
-
-server-test:
-  pnpm run server:test
-
-server-up:
-  docker compose -f crates/stonefruit-server/docker-compose.yml up --build -d
-
-server-down:
-  docker compose -f crates/stonefruit-server/docker-compose.yml down
-
-server-health:
-  curl -sf http://localhost:3005/health
-
 build:
   pnpm exec tsc --noEmit | head -30
   pnpm run build | tail -20
@@ -103,18 +81,6 @@ test-ui:
 test-desktop-smoke:
   pnpm run test:desktop-smoke
 
-test-cross-platform:
-  cd apps/tauri && VITE_INCLUDE_TEST_HOOKS=true cargo tauri build --debug --no-bundle --config src-tauri/tauri.dev.conf.json && cd ../..
-  cd apps/tauri && VITE_INCLUDE_TEST_HOOKS=true cargo tauri android build --debug --apk --config src-tauri/tauri.android.offline.conf.json && cd ../..
-  cargo build -p stonefruit-server
-  pnpm run test:cross-platform
-  pnpm run test:cross-platform:android
-
-test-cross-platform-android:
-  cd apps/tauri && VITE_INCLUDE_TEST_HOOKS=true cargo tauri android build --debug --apk --config src-tauri/tauri.android.offline.conf.json && cd ../..
-  cargo build -p stonefruit-server
-  pnpm run test:cross-platform:android
-
 test-rust:
   pnpm run tauri:test:rust
 
@@ -126,33 +92,6 @@ check:
 
 ci:
   pnpm run ci
-
-cli-build:
-  cd apps/cli && make build
-
-cli *args:
-  cargo run -p stonefruit-cli -- {{args}}
-
-cli-setup *args:
-  mkdir -p .tmp
-  tmpdir=$(mktemp -d .tmp/cli-setup.XXXXXX) && \
-    port=3005 && \
-    while lsof -nP -iTCP:$port -sTCP:LISTEN >/dev/null 2>&1; do \
-      port=$((port + 1)); \
-    done && \
-    echo "Running CLI setup test in $tmpdir" && \
-    echo "Using port $port" && \
-    cd "$tmpdir" && \
-    cargo run --manifest-path ../../apps/cli/Cargo.toml -- setup --port "$port" {{args}}
-
-cli-settings *args:
-  cargo run -p stonefruit-cli -- settings {{args}}
-
-cli-status *args:
-  cargo run -p stonefruit-cli -- status {{args}}
-
-cli-update *args:
-  cargo run -p stonefruit-cli -- update {{args}}
 
 # Build .deb from current repo state and install it
 deploy-deb:
@@ -271,12 +210,3 @@ deploy-ios:
   # Restore stamped files so git stays clean
   git checkout -- "$CONF" "$INFO_PLIST"
   echo "Done. Installed Stonefruit ${VERSION} on iOS device."
-
-cli-build-all:
-  cd apps/cli && make build-all
-
-cli-test:
-  cd apps/cli && make test
-
-cli-clean:
-  cd apps/cli && make clean

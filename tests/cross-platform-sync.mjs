@@ -14,7 +14,7 @@
  *
  * Requires:
  *   - Debug Tauri binary:  cd apps/tauri && cargo tauri build --debug --no-bundle
- *   - Server binary:       cargo build -p stonefruit-server
+ *   - E2EE server repo:    /home/justin/Developer/stonefruit-server
  *   - Frontend built with: VITE_INCLUDE_TEST_HOOKS=true pnpm run build
  */
 

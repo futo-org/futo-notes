@@ -20,7 +20,7 @@
     deleteNote,
   } from '$lib/notes';
   import { sanitizeFilename } from '$lib/utils';
-  import type { SyncSummary } from '$lib/syncServiceV2';
+  import type { SyncSummary } from '$lib/syncServiceE2ee';
   import { createNoteSession } from '$lib/noteSession.svelte';
   import ForYouPage from './ForYouPage.svelte';
   import NoteTagBar from './NoteTagBar.svelte';
@@ -242,7 +242,7 @@
 
   function refreshNotesList(): void {
     notes = hasFileSystem ? getAllNotes() : [];
-    import('$lib/supersearch/graphData').then(m => m.clearGraphCache());
+    // Graph cache clearing removed — graph visualization is not server-dependent
     graphPanel?.clearGraphData();
   }
 

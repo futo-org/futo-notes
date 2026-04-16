@@ -65,6 +65,28 @@ interface ConflictResponse {
   currentBlobKey: string | null;
 }
 
+interface PullResult {
+  downloaded: number;
+  deleted: number;
+  updatedIds: string[];
+  deletedIds: string[];
+  newMaxVersion: number;
+  /** Filenames added/updated this pull keyed by content hash — used to detect remote renames. */
+  hashToFilename: Map<string, string>;
+  /** Filenames deleted by this pull keyed by their last-known content hash — used to detect remote renames. */
+  deletedHashes: Map<string, string>;
+}
+
+interface PushResult {
+  uploaded: number;
+  deleted: number;
+  conflicts: number;
+  updatedIds: string[];
+  deletedIds: string[];
+  newMaxVersion: number;
+  deletedHashes: Map<string, string>;
+}
+
 interface KeyMaterial {
   key_salt: string;
   key_kdf: {
@@ -131,7 +153,11 @@ async function e2eeJson<T>(url: string, init?: RequestInit): Promise<T> {
   return res.json();
 }
 
-// ── SHA-256 helper ───────────────────────────────────────────────────────
+// ── Helpers ──────────────────────────────────────────────────────────────
+
+function filenameToId(filename: string): string {
+  return filename.replace(/\.md$/i, '');
+}
 
 async function sha256(content: string): Promise<string> {
   const data = new TextEncoder().encode(content);
@@ -497,23 +523,7 @@ export async function syncE2eeAuto(): Promise<SyncSummary> {
     // For now, throw — caller should check isE2eeConfigured() first
     throw new Error('E2EE key not in memory — call connectE2ee first');
   }
-  const pushResult = await pushE2ee(cachedKey);
-  const pullResult = await pullE2ee(cachedKey);
-  const current = getAppState();
-  await saveAppState({
-    ...current,
-    lastSyncedAt: Date.now(),
-    lastSyncError: '',
-  });
-  return {
-    uploaded: pushResult.uploaded,
-    downloaded: pullResult.downloaded,
-    deleted: pullResult.deleted + pushResult.deleted,
-    conflicts: pushResult.conflicts,
-    updatedIds: [],
-    deletedIds: [],
-    renamed: [],
-  };
+  return runFullSync(cachedKey);
 }
 
 export async function disconnectE2ee(): Promise<void> {
@@ -533,24 +543,33 @@ export async function disconnectE2ee(): Promise<void> {
 
 // ── Pull ─────────────────────────────────────────────────────────────────
 
-async function pullE2ee(key: CryptoKey): Promise<{ downloaded: number; deleted: number }> {
+/**
+ * Pull objects newer than `sinceVersion`. The caller is responsible for
+ * computing `sinceVersion` from the *pre-push* state — passing the
+ * post-push max would cause us to skip changes from peers whose
+ * change_seq fell between our last sync and our just-completed push.
+ */
+async function pullE2ee(key: CryptoKey, sinceVersion: number): Promise<PullResult> {
   const { serverUrl, collectionId } = getE2eeConfig();
   const state = getAppState();
-  const maxVersion = state.e2eeMaxVersion ?? 0;
   const objectMap = { ...(state.e2eeObjectMap ?? {}) };
-
-  // Fetch changed objects since our last known version
-  const data = await e2eeJson<{ objects: ServerObject[] }>(
-    `${serverUrl}/api/collections/${collectionId}/objects?sinceVersion=${maxVersion}`,
-  );
-
-  if (data.objects.length === 0) {
-    return { downloaded: 0, deleted: 0 };
+  const filenameByObjectId = new Map<string, string>();
+  for (const [filename, entry] of Object.entries(objectMap)) {
+    filenameByObjectId.set(entry.objectId, filename);
   }
 
+  // Fetch changed objects since the caller-supplied version
+  const data = await e2eeJson<{ objects: ServerObject[] }>(
+    `${serverUrl}/api/collections/${collectionId}/objects?sinceVersion=${sinceVersion}`,
+  );
+
+  let newMaxVersion = Math.max(sinceVersion, state.e2eeMaxVersion ?? 0);
   const updates: Array<{ filename: string; content: string; hash: string; modified_at: number }> = [];
   const deletes: string[] = [];
-  let newMaxVersion = maxVersion;
+  const updatedIds: string[] = [];
+  const deletedIds: string[] = [];
+  const hashToFilename = new Map<string, string>();
+  const deletedHashes = new Map<string, string>();
 
   for (const obj of data.objects) {
     const version = Number(obj.version);
@@ -558,18 +577,30 @@ async function pullE2ee(key: CryptoKey): Promise<{ downloaded: number; deleted: 
     if (changeSeq > newMaxVersion) newMaxVersion = changeSeq;
 
     if (obj.deleted) {
-      // Find the local filename for this object and mark for deletion
-      for (const [filename, entry] of Object.entries(objectMap)) {
-        if (entry.objectId === obj.id) {
-          deletes.push(filename);
-          delete objectMap[filename];
-          break;
-        }
+      const knownFilename = filenameByObjectId.get(obj.id);
+      if (knownFilename) {
+        const existing = objectMap[knownFilename];
+        if (existing?.hash) deletedHashes.set(existing.hash, knownFilename);
+        deletes.push(knownFilename);
+        deletedIds.push(filenameToId(knownFilename));
+        delete objectMap[knownFilename];
+        filenameByObjectId.delete(obj.id);
       }
       continue;
     }
 
     if (!obj.blob_key) continue;
+
+    // Skip objects we already have at this version (e.g. our own pushes
+    // or earlier-pulled state). This avoids double-applying our writes
+    // and keeps the watcher quiet for files we just pushed.
+    const knownFilename = filenameByObjectId.get(obj.id);
+    if (knownFilename) {
+      const existing = objectMap[knownFilename];
+      if (existing && existing.version >= version && existing.blobKey === obj.blob_key) {
+        continue;
+      }
+    }
 
     let note: { filename: string; content: string };
     try {
@@ -582,12 +613,24 @@ async function pullE2ee(key: CryptoKey): Promise<{ downloaded: number; deleted: 
     const { filename, content } = note;
     const hash = await sha256(content);
 
+    // If a different filename was previously holding this objectId, the
+    // remote renamed via in-place update — drop the stale map entry.
+    if (knownFilename && knownFilename !== filename) {
+      const existing = objectMap[knownFilename];
+      if (existing?.hash) deletedHashes.set(existing.hash, knownFilename);
+      delete objectMap[knownFilename];
+      deletes.push(knownFilename);
+      deletedIds.push(filenameToId(knownFilename));
+    }
+
     updates.push({
       filename,
       content,
       hash,
       modified_at: new Date(obj.updated_at).getTime(),
     });
+    updatedIds.push(filenameToId(filename));
+    hashToFilename.set(hash, filename);
 
     objectMap[filename] = {
       objectId: obj.id,
@@ -596,23 +639,28 @@ async function pullE2ee(key: CryptoKey): Promise<{ downloaded: number; deleted: 
       hash,
       baseContent: content,
     };
+    filenameByObjectId.set(obj.id, filename);
   }
 
-  // Apply to disk via Rust core
   if (updates.length > 0 || deletes.length > 0) {
     await applySyncDeltaV2(updates, deletes, [], {});
   }
 
-  // Persist updated state
   const current = getAppState();
   await saveAppState({
     ...current,
     e2eeObjectMap: objectMap,
     e2eeMaxVersion: newMaxVersion,
   });
-
-  console.log(`[e2ee] Pull: ${updates.length} downloaded, ${deletes.length} deleted`);
-  return { downloaded: updates.length, deleted: deletes.length };
+  return {
+    downloaded: updates.length,
+    deleted: deletes.length,
+    updatedIds,
+    deletedIds,
+    newMaxVersion,
+    hashToFilename,
+    deletedHashes,
+  };
 }
 
 // ── Push ─────────────────────────────────────────────────────────────────
@@ -721,7 +769,7 @@ async function resolveUpdateConflict(
   return { uploaded: 1, conflicts: 1, maxVersion };
 }
 
-async function pushE2ee(key: CryptoKey): Promise<{ uploaded: number; deleted: number; conflicts: number }> {
+async function pushE2ee(key: CryptoKey): Promise<PushResult> {
   const { serverUrl, collectionId } = getE2eeConfig();
   const state = getAppState();
   const objectMap = { ...(state.e2eeObjectMap ?? {}) };
@@ -735,6 +783,9 @@ async function pushE2ee(key: CryptoKey): Promise<{ uploaded: number; deleted: nu
   let uploaded = 0;
   let deleted = 0;
   let conflicts = 0;
+  const updatedIds: string[] = [];
+  const deletedIds: string[] = [];
+  const deletedHashes = new Map<string, string>();
 
   for (const file of noteFiles) {
     const filename = file.name;
@@ -742,7 +793,7 @@ async function pushE2ee(key: CryptoKey): Promise<{ uploaded: number; deleted: nu
     localFilenames.add(filename);
 
     // Read content and compute hash
-    const id = filename.replace(/\.md$/i, '');
+    const id = filenameToId(filename);
     let content: string;
     try {
       content = await fs.readNote(id);
@@ -793,6 +844,7 @@ async function pushE2ee(key: CryptoKey): Promise<{ uploaded: number; deleted: nu
           baseContent: content,
         };
         uploaded++;
+        updatedIds.push(id);
       } else if (updateRes.status === 409) {
         const conflictData = await updateRes.json().catch(() => null) as ConflictResponse | null;
         if (conflictData?.currentVersion !== undefined) {
@@ -810,6 +862,7 @@ async function pushE2ee(key: CryptoKey): Promise<{ uploaded: number; deleted: nu
             uploaded += resolution.uploaded;
             conflicts += resolution.conflicts;
             if (resolution.maxVersion > newMaxVersion) newMaxVersion = resolution.maxVersion;
+            if (resolution.uploaded > 0) updatedIds.push(id);
           } catch (err) {
             console.warn(`[e2ee] Failed to resolve version conflict for ${filename}:`, err);
             conflicts++;
@@ -833,6 +886,7 @@ async function pushE2ee(key: CryptoKey): Promise<{ uploaded: number; deleted: nu
           baseContent: content,
         };
         uploaded++;
+        updatedIds.push(id);
       } catch (err) {
         console.warn(`[e2ee] Failed to create object for ${filename}:`, err);
       }
@@ -841,19 +895,69 @@ async function pushE2ee(key: CryptoKey): Promise<{ uploaded: number; deleted: nu
 
   // Handle local deletions: objects in the map but not on disk
   for (const [filename, entry] of Object.entries(objectMap)) {
-    if (!localFilenames.has(filename)) {
-      const deleteRes = await e2eeFetch(
-        `${serverUrl}/api/collections/${collectionId}/objects/${entry.objectId}`,
-        { method: 'DELETE' },
-      );
-      if (deleteRes.ok) {
-        const deleteData = await deleteRes.json().catch(() => null) as ObjectWriteResponse | null;
-        const changeSeq = Number(deleteData?.collectionVersion ?? deleteData?.object.change_seq ?? 0);
-        if (changeSeq > newMaxVersion) newMaxVersion = changeSeq;
-        delete objectMap[filename];
-        deleted++;
-      }
+    if (localFilenames.has(filename)) continue;
+
+    const id = filenameToId(filename);
+    const deleteRes = await e2eeFetch(
+      `${serverUrl}/api/collections/${collectionId}/objects/${entry.objectId}?version=${entry.version}`,
+      { method: 'DELETE' },
+    );
+
+    if (deleteRes.ok) {
+      const deleteData = await deleteRes.json().catch(() => null) as ObjectWriteResponse | null;
+      const changeSeq = Number(deleteData?.collectionVersion ?? deleteData?.object.change_seq ?? 0);
+      if (changeSeq > newMaxVersion) newMaxVersion = changeSeq;
+      delete objectMap[filename];
+      deleted++;
+      deletedIds.push(id);
+      // Remember what we just deleted so the surrounding sync can match it
+      // against a subsequent pull-add of the same content (rename detection).
+      if (entry.hash) deletedHashes.set(entry.hash, filename);
+      continue;
     }
+
+    if (deleteRes.status === 409) {
+      const conflictData = await deleteRes.json().catch(() => null) as ConflictResponse | null;
+      if (!conflictData || !conflictData.currentBlobKey) {
+        console.warn(`[e2ee] Delete conflict for ${filename} had no current blob`);
+        conflicts++;
+        continue;
+      }
+      try {
+        // Edit-wins: a peer updated the note while we were trying to delete
+        // it. Restore the latest content locally so the user keeps the edit.
+        const restored = await downloadNoteByBlobKey(key, conflictData.currentBlobKey);
+        const restoredHash = await sha256(restored.content);
+        await applySyncDeltaV2(
+          [{
+            filename: restored.filename,
+            content: restored.content,
+            hash: restoredHash,
+            modified_at: Date.now(),
+          }],
+          [],
+          [],
+          {},
+        );
+        objectMap[restored.filename] = {
+          objectId: entry.objectId,
+          version: conflictData.currentVersion,
+          blobKey: conflictData.currentBlobKey,
+          hash: restoredHash,
+          baseContent: restored.content,
+        };
+        // Drop the stale entry if the remote rename moved the file.
+        if (restored.filename !== filename) delete objectMap[filename];
+        localFilenames.add(restored.filename);
+        updatedIds.push(filenameToId(restored.filename));
+      } catch (err) {
+        console.warn(`[e2ee] Failed to restore deleted-vs-edit conflict for ${filename}:`, err);
+        conflicts++;
+      }
+      continue;
+    }
+
+    console.warn(`[e2ee] Failed to delete object for ${filename}: HTTP ${deleteRes.status}`);
   }
 
   // Persist updated object map
@@ -865,7 +969,15 @@ async function pushE2ee(key: CryptoKey): Promise<{ uploaded: number; deleted: nu
   });
 
   console.log(`[e2ee] Push: ${uploaded} uploaded, ${deleted} deleted, ${conflicts} conflicts`);
-  return { uploaded, deleted, conflicts };
+  return {
+    uploaded,
+    deleted,
+    conflicts,
+    updatedIds,
+    deletedIds,
+    newMaxVersion,
+    deletedHashes,
+  };
 }
 
 // ── Full sync ────────────────────────────────────────────────────────────
@@ -877,10 +989,73 @@ export async function syncE2ee(password: string): Promise<SyncSummary> {
   const key = await unlockConfiguredVaultKey(password);
   cachedKey = key;
 
+  return runFullSync(key);
+}
+
+/**
+ * Run a single push+pull cycle and reconcile the results into a `SyncSummary`.
+ *
+ * Pull's `sinceVersion` is captured BEFORE push so that peer changes whose
+ * `change_seq` falls between our last sync and our just-completed push are
+ * not skipped. (Push advances `e2eeMaxVersion` for our own writes; pulling
+ * from that newer baseline would miss any peer changes with a smaller seq.)
+ *
+ * Renames are reconstructed by hash-matching files this push deleted against
+ * files this pull added — since each E2EE blob is encrypted independently,
+ * a rename surfaces on the wire as a delete + create with identical bodies.
+ */
+async function runFullSync(key: CryptoKey): Promise<SyncSummary> {
+  const prePushMaxVersion = getAppState().e2eeMaxVersion ?? 0;
+
   // Push first so local stale edits can hit the server's version check and
   // resolve against the common ancestor before pull applies remote content.
   const pushResult = await pushE2ee(key);
-  const pullResult = await pullE2ee(key);
+  const pullResult = await pullE2ee(key, prePushMaxVersion);
+
+  const renamed: Array<{ fromId: string; toId: string }> = [];
+  const renamedFromIds = new Set<string>();
+  const renamedToIds = new Set<string>();
+
+  // Combine push-deleted + pull-deleted hashes so we detect renames whether
+  // the rename happened on this client (push deletes a stale entry) or on
+  // a peer (pull surfaces a tombstone next to a freshly-added blob with the
+  // same body). E2EE makes blobs opaque, so the only signal of "same note,
+  // new name" is content equality.
+  const allDeletedHashes = new Map<string, string>();
+  for (const [hash, fromFilename] of pushResult.deletedHashes) {
+    allDeletedHashes.set(hash, fromFilename);
+  }
+  for (const [hash, fromFilename] of pullResult.deletedHashes) {
+    if (!allDeletedHashes.has(hash)) allDeletedHashes.set(hash, fromFilename);
+  }
+  for (const [hash, fromFilename] of allDeletedHashes) {
+    const toFilename = pullResult.hashToFilename.get(hash);
+    if (!toFilename || toFilename === fromFilename) continue;
+    const fromId = filenameToId(fromFilename);
+    const toId = filenameToId(toFilename);
+    renamed.push({ fromId, toId });
+    renamedFromIds.add(fromId);
+    renamedToIds.add(toId);
+  }
+
+  const seenUpdated = new Set<string>();
+  const updatedIds: string[] = [];
+  for (const id of [...pushResult.updatedIds, ...pullResult.updatedIds]) {
+    if (renamedToIds.has(id) || renamedFromIds.has(id)) continue;
+    if (seenUpdated.has(id)) continue;
+    seenUpdated.add(id);
+    updatedIds.push(id);
+  }
+
+  const seenDeleted = new Set<string>();
+  const deletedIds: string[] = [];
+  for (const id of [...pushResult.deletedIds, ...pullResult.deletedIds]) {
+    if (renamedFromIds.has(id) || renamedToIds.has(id)) continue;
+    if (seenDeleted.has(id)) continue;
+    seenDeleted.add(id);
+    deletedIds.push(id);
+  }
+
   const current = getAppState();
   await saveAppState({
     ...current,
@@ -893,8 +1068,8 @@ export async function syncE2ee(password: string): Promise<SyncSummary> {
     downloaded: pullResult.downloaded,
     deleted: pullResult.deleted + pushResult.deleted,
     conflicts: pushResult.conflicts,
-    updatedIds: [],
-    deletedIds: [],
-    renamed: [],
+    updatedIds,
+    deletedIds,
+    renamed,
   };
 }

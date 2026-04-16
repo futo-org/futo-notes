@@ -22,7 +22,7 @@
     "test:e2e:rest": "playwright test --grep-invert \"Markdown Spec\"",
     "test:unit": "vitest run",
     "test:shared": "pnpm --filter @futo-notes/shared test",
-    "test:all": "pnpm run test:unit && pnpm run test:shared && pnpm run server:test",
+    "test:all": "pnpm run test:unit && pnpm run test:shared",
     "test:unit:watch": "vitest",
     "test:headed": "playwright test --headed",
     "test:ui": "playwright test --ui",
@@ -39,9 +39,7 @@
     "tauri:test:rust": "pnpm --filter @futo-notes/tauri run test:rust",
     "test:desktop-smoke": "node tests/desktop-smoke.mjs",
     "test:cross-platform": "node tests/cross-platform-sync.mjs",
-    "test:cross-platform:android": "node tests/cross-platform-sync.mjs --matrix desktop-android",
-    "server:dev": "PORT=3005 DATA_DIR=./data STONEFRUIT_DEV_PASSWORD=testing123 SEARCH_OLLAMA_MODEL=qwen3-embedding:0.6b SEARCH_EMBED_DIMS=1024 SEARCH_MODEL_ID=qwen3-embedding-0.6b cargo run -p stonefruit-server",
-    "server:test": "cargo test -p stonefruit-server"
+    "test:cross-platform:android": "node tests/cross-platform-sync.mjs --matrix desktop-android"
   },
   "dependencies": {
     "@codemirror/lang-markdown": "6.5.0",

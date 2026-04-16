@@ -1,44 +1,14 @@
 # Stonefruit
 
-Stonefruit is an offline-first markdown notes app with optional self-hosted sync.
+Stonefruit is an offline-first markdown notes app with optional E2EE sync.
 
-## Quick Start: Dockerized Sync Server
+## Sync Server
 
-The main setup path is the Stonefruit CLI.
+The sync server now lives in a separate repo:
 
-The CLI installs and starts the Dockerized sync server for you.
+`/home/justin/Developer/stonefruit-server`
 
-```bash
-curl -fsSL https://gitlab.futo.org/stonefruit/stonefruit/-/raw/main/apps/cli/install.sh | sh
-```
-
-The setup flow prompts for the notes/data directory and defaults to `./stonefruit-data`.
-Use `http://localhost:3005` in Stonefruit and enter your password. On a fresh server, first-time setup completes automatically.
-
-You can check the server later with:
-
-```bash
-stonefruit status
-```
-
-## Other Ways To Run It
-
-### Docker Compose directly
-
-If you do not want to use the CLI, run the published production Compose file. It pulls the pre-built server image from the GitLab Container Registry:
-
-```bash
-curl -O https://gitlab.futo.org/stonefruit/stonefruit/-/raw/main/crates/stonefruit-server/docker-compose.production.yml
-docker compose -f docker-compose.production.yml up -d
-```
-
-The sync server listens on `http://localhost:3005`. To use a different host path for notes/data, set `STONEFRUIT_DATA_PATH`:
-
-```bash
-mkdir -p /srv/stonefruit-data
-STONEFRUIT_DATA_PATH=/srv/stonefruit-data \
-  docker compose -f docker-compose.production.yml up -d
-```
+For local development, start that server and connect Stonefruit to its URL. The current POC stores opaque encrypted blobs; note content is encrypted in the client before upload.
 
 ## Development
 
@@ -50,21 +20,5 @@ pnpm run dev
 pnpm run tauri:dev
 pnpm run build
 ```
-
-### Semantic Search (V2 Server)
-
-Server-side semantic search and graph indexing are enabled when the Rust server has an Ollama embedding model configured.
-
-```bash
-export SEARCH_OLLAMA_MODEL=qwen3-embedding:0.6b
-# Optional if Ollama is not on the default local port:
-export SEARCH_OLLAMA_BASE_URL=http://127.0.0.1:11434
-```
-
-Optional overrides:
-
-- `SEARCH_MODEL_ID` to control the stored model identifier
-- `SEARCH_EMBED_DIMS` if you use a non-1024d embedding model
-- `SEARCH_QUERY_PREFIX` to override the query instruction prefix
 
 If you are working from source, see [AGENTS.md](./AGENTS.md).

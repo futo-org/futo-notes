@@ -5,7 +5,7 @@
  * Assumes a sync server and Tauri instance are already running (the /verify
  * skill owns server/Tauri lifecycle). Discovers the MCP bridge port from the
  * tauri log file, connects via the shared mcp-client helper, and drives
- * window.__testSync through a connect → create note → syncNow → verify cycle.
+ * window.__testSync through a connectE2ee → create note → syncE2ee → verify cycle.
  */
 
 import { connectWs, executeJs, send, sleep } from './lib/mcp-client.mjs';
@@ -37,7 +37,7 @@ async function main() {
   // Connect to the isolated sync server.
   const connected = await executeJs(
     ws,
-    `(async () => { try { return await window.__testSync.connect(${JSON.stringify(SERVER_URL)}, ${JSON.stringify(PASSWORD)}); } catch (e) { return { error: String(e && e.message || e) }; } })()`,
+    `(async () => { try { return await window.__testSync.connectE2ee(${JSON.stringify(SERVER_URL)}, 'verify@test.local', 'Verify', ${JSON.stringify(PASSWORD)}); } catch (e) { return { error: String(e && e.message || e) }; } })()`,
   );
   log('connect', connected);
   if (connected && connected.error) throw new Error(`connect failed: ${connected.error}`);
@@ -53,7 +53,7 @@ async function main() {
   // Trigger sync.
   const syncResult = await executeJs(
     ws,
-    `(async () => { try { return await window.__testSync.syncNow(); } catch (e) { return { error: String(e && e.message || e) }; } })()`,
+    `(async () => { try { return await window.__testSync.syncE2ee(${JSON.stringify(PASSWORD)}); } catch (e) { return { error: String(e && e.message || e) }; } })()`,
   );
   log('syncNow', syncResult);
   if (syncResult && syncResult.error) throw new Error(`syncNow failed: ${syncResult.error}`);
@@ -66,13 +66,13 @@ async function main() {
   const status = await executeJs(ws, 'window.__testSync.status()');
   log('status', {
     lastSyncedAt: status?.preferences?.sync?.lastSyncedAt,
-    serverUrl: status?.preferences?.sync?.serverUrl,
-    hasToken: Boolean(status?.preferences?.sync?.token),
-    fileCount: Object.keys(status?.appState?.v2SyncState?.fileHashes || {}).length,
+    serverUrl: status?.appState?.e2eeServerUrl,
+    hasToken: Boolean(status?.appState?.e2eeAuthToken),
+    objectCount: Object.keys(status?.appState?.e2eeObjectMap || {}).length,
   });
 
   // Disconnect to restore clean state.
-  await executeJs(ws, 'window.__testSync.disconnect()');
+  await executeJs(ws, 'window.__testSync.disconnectE2ee()');
 
   console.log('[verify-sync] PASS');
 

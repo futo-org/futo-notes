@@ -10,13 +10,13 @@ import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 
 /** Send a command over WebSocket and wait for the matching response. */
-export function send(ws, command, cmdArgs = {}) {
+export function send(ws, command, cmdArgs = {}, { timeoutMs = 15_000 } = {}) {
   return new Promise((resolve, reject) => {
     const id = randomUUID();
     const timeout = setTimeout(() => {
       ws.off('message', handler);
       reject(new Error(`Timeout waiting for response to ${command} (id=${id})`));
-    }, 15_000);
+    }, timeoutMs);
 
     function handler(raw) {
       const msg = JSON.parse(raw.toString());
@@ -81,7 +81,7 @@ export function sleep(ms) {
  * Execute JavaScript in the Tauri webview and return the result.
  * Unwraps the nested result/data wrapper that execute_js sometimes returns.
  */
-export async function executeJs(ws, script) {
-  const data = await send(ws, 'execute_js', { script });
+export async function executeJs(ws, script, opts = {}) {
+  const data = await send(ws, 'execute_js', { script }, opts);
   return data?.result ?? data?.data ?? data;
 }
