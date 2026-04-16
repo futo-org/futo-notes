@@ -119,7 +119,7 @@ export function computeBlockMove(
   }
 
   // --- 3. Determine insertion point ---
-  let insertPos = side === 'before' ? tgtFrom : tgtTo;
+  const insertPos = side === 'before' ? tgtFrom : tgtTo;
 
   // --- 4. Compose new doc, preserving original separator style ---
   // Look at what separator existed between the target block and its neighbor
