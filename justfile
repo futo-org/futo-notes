@@ -35,7 +35,11 @@ tauri-prod:
 
 tauri-build:
   pnpm run build
-  cd apps/tauri && cargo tauri build
+  # NO_STRIP=true: linuxdeploy ships an old `strip` that can't read
+  # .relr.dyn sections emitted by newer binutils (Fedora 39+, Arch, etc.),
+  # which breaks AppImage bundling. CI runs on ubuntu:22.04 where stock
+  # strip matches, so this is local-only noise.
+  cd apps/tauri && NO_STRIP=true cargo tauri build
 
 android-dev:
   cd apps/tauri && cargo tauri android dev --config src-tauri/tauri.android.dev-mode.conf.json
