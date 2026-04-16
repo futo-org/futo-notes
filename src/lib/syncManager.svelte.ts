@@ -13,7 +13,7 @@ import { createWriteSuppressor, type WriteSuppressor } from '$lib/writeSuppressi
 import { createWatcherBatch, type WatcherBatch } from '$lib/watcherBatch';
 import { createSyncCoordinator, type SyncCoordinator } from '$lib/syncCoordinator';
 import type { FileChangeEvent } from '$lib/platform/types';
-import type { SyncSummary } from '$lib/syncServiceV2';
+import type { SyncSummary } from '$lib/syncServiceE2ee';
 import {
   readNote,
   getNoteById,

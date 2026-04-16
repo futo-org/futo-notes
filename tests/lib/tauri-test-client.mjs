@@ -72,27 +72,27 @@ export class TauriTestClient {
   }
 
   async writeNote(id, content) {
-    return executeJs(this.ws, `window.__TAURI__.core.invoke('fs_write_note', ${JSON.stringify({ id, content })})`);
+    return executeJs(this.ws, `window.__testNotes.writeNote(${JSON.stringify(id)}, ${JSON.stringify(content)})`);
   }
 
   async readNote(id) {
-    return executeJs(this.ws, `window.__TAURI__.core.invoke('fs_read_note', ${JSON.stringify({ id })})`);
+    return executeJs(this.ws, `window.__testNotes.readNote(${JSON.stringify(id)})`);
   }
 
   async listNotes() {
-    return executeJs(this.ws, `window.__TAURI__.core.invoke('fs_list_note_files')`);
+    return executeJs(this.ws, `window.__testNotes.listNoteFiles()`);
   }
 
   async deleteNote(id) {
-    return executeJs(this.ws, `window.__TAURI__.core.invoke('fs_delete_note_file', ${JSON.stringify({ id })})`);
+    return executeJs(this.ws, `window.__testNotes.deleteNoteFile(${JSON.stringify(id)})`);
   }
 
   async deleteAllNotes() {
-    return executeJs(this.ws, `window.__TAURI__.core.invoke('fs_delete_all_content')`);
+    return executeJs(this.ws, `window.__testNotes.deleteAllContent()`);
   }
 
   async noteExists(id) {
-    return executeJs(this.ws, `window.__TAURI__.core.invoke('fs_note_exists', ${JSON.stringify({ id })})`);
+    return executeJs(this.ws, `window.__testNotes.noteExists(${JSON.stringify(id)})`);
   }
 
   async openNewNote() {
@@ -142,15 +142,49 @@ export class TauriTestClient {
     return executeJs(this.ws, `window.__notesShellTest.getState()`);
   }
 
-  async startSync() {
+  // The MCP bridge (tauri-plugin-mcp-bridge) hard-caps execute_js at 5s.
+  // Sync calls can exceed that (slow-proxy scenarios, 1000-note bulk sync),
+  // so we kick off the promise into a window slot and poll for completion.
+
+  async _kickOffSync(slotRef) {
     await executeJs(this.ws, `(() => {
-      window.__crossPlatformPendingSync = window.__testSync.syncNow();
+      const slot = '__crossPlatformSyncCall_' + Math.random().toString(36).slice(2);
+      window[slot] = { done: false };
+      window.__testSync.syncNow().then(
+        (value) => { window[slot] = { done: true, value }; },
+        (error) => { window[slot] = { done: true, error: String(error && error.message || error) }; },
+      );
+      window[${JSON.stringify(slotRef)}] = slot;
       return 'started';
     })()`);
   }
 
-  async awaitStartedSync() {
-    return executeJs(this.ws, `window.__crossPlatformPendingSync`);
+  async _awaitSyncSlot(slotRef, timeoutMs) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const status = await executeJs(this.ws, `(() => {
+        const slot = window[${JSON.stringify(slotRef)}];
+        if (!slot) return { missing: true };
+        const state = window[slot];
+        if (!state) return { missing: true };
+        if (!state.done) return { pending: true };
+        return state;
+      })()`);
+      if (status?.done) {
+        if (status.error) throw new Error(`syncNow failed: ${status.error}`);
+        return status.value;
+      }
+      await sleep(200);
+    }
+    throw new Error(`${this.name}: syncNow did not complete within ${timeoutMs}ms`);
+  }
+
+  async startSync() {
+    await this._kickOffSync('__startedSyncSlot');
+  }
+
+  async awaitStartedSync({ timeoutMs = 180_000 } = {}) {
+    return this._awaitSyncSlot('__startedSyncSlot', timeoutMs);
   }
 
   async waitForOpenNote(id, timeoutMs = 10_000) {
@@ -189,8 +223,9 @@ export class TauriTestClient {
       `window.__testSync.connect(${JSON.stringify(this.normalizeServerUrl(serverUrl))}, ${JSON.stringify(password)})`);
   }
 
-  async syncNow() {
-    return executeJs(this.ws, `window.__testSync.syncNow()`);
+  async syncNow({ timeoutMs = 180_000 } = {}) {
+    await this._kickOffSync('__lastSyncSlot');
+    return this._awaitSyncSlot('__lastSyncSlot', timeoutMs);
   }
 
   async disconnectSync() {

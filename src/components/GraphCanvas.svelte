@@ -1,5 +1,25 @@
 <script lang="ts">
-  import type { GraphData, GraphNode } from '$lib/supersearch/graphData';
+  // Graph types — inlined since supersearch module was removed
+  interface GraphNode {
+    noteId: string;
+    title: string;
+    x: number;
+    y: number;
+    clusterIndex: number;
+  }
+  interface GraphCluster {
+    index: number;
+    label: string;
+    centerX: number;
+    centerY: number;
+    radius: number;
+    colorIndex: number;
+  }
+  interface GraphData {
+    nodes: GraphNode[];
+    clusters: GraphCluster[];
+    nodeIndex: Map<string, number>;
+  }
   import { untrack } from 'svelte';
   import ForceGraph from 'force-graph';
   import type { NodeObject } from 'force-graph';

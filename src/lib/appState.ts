@@ -48,6 +48,23 @@ export interface AppState {
     serverVersion: number;
     data: ServerGraphLayout;
   };
+
+  // E2EE sync state (alternative backend — POC)
+  e2eeServerUrl?: string;
+  e2eeEmail?: string;
+  e2eeAuthToken?: string;
+  e2eeUserId?: string;
+  e2eeCollectionId?: string;
+  e2eeSalt?: string;
+  e2eeObjectMap?: Record<string, {
+    objectId: string;
+    version: number;
+    blobKey: string;
+    hash?: string;
+    /** Plaintext common ancestor used for client-side three-way conflict merges. */
+    baseContent?: string;
+  }>;
+  e2eeMaxVersion?: number;
 }
 
 /** Raw shape returned by GET /graph/layout on the V2 server. */
@@ -79,12 +96,8 @@ function generateDeviceId(): string {
 }
 
 function defaultState(): AppState {
-  // Dev builds default to the local sync server so first-run developer
-  // experience works without manually configuring a URL. Release builds
-  // start empty and require an explicit server choice.
-  const devServerUrl = import.meta.env.DEV ? 'http://localhost:3005' : '';
   return {
-    serverUrl: devServerUrl,
+    serverUrl: '',
     authToken: '',
     deviceId: generateDeviceId(),
     lastServerVersion: 0,
@@ -173,6 +186,17 @@ function sanitize(raw: unknown): AppState {
     ...(obj.graphLayout && typeof obj.graphLayout === 'object'
       ? { graphLayout: obj.graphLayout as AppState['graphLayout'] }
       : {}),
+    // E2EE state — passthrough with type guards
+    ...(typeof obj.e2eeServerUrl === 'string' ? { e2eeServerUrl: obj.e2eeServerUrl } : {}),
+    ...(typeof obj.e2eeEmail === 'string' ? { e2eeEmail: obj.e2eeEmail } : {}),
+    ...(typeof obj.e2eeAuthToken === 'string' ? { e2eeAuthToken: obj.e2eeAuthToken } : {}),
+    ...(typeof obj.e2eeUserId === 'string' ? { e2eeUserId: obj.e2eeUserId } : {}),
+    ...(typeof obj.e2eeCollectionId === 'string' ? { e2eeCollectionId: obj.e2eeCollectionId } : {}),
+    ...(typeof obj.e2eeSalt === 'string' ? { e2eeSalt: obj.e2eeSalt } : {}),
+    ...(obj.e2eeObjectMap && typeof obj.e2eeObjectMap === 'object'
+      ? { e2eeObjectMap: obj.e2eeObjectMap as AppState['e2eeObjectMap'] }
+      : {}),
+    ...(typeof obj.e2eeMaxVersion === 'number' ? { e2eeMaxVersion: obj.e2eeMaxVersion } : {}),
   };
 }
 
@@ -285,7 +309,7 @@ export async function saveAppState(state: AppState): Promise<void> {
  * Convenience for callers that only need to change a few fields.
  */
 export async function updateAppState(
-  updates: Partial<Pick<AppState, 'serverUrl' | 'authToken' | 'lastSyncedAt' | 'lastSyncError' | 'lastServerVersion' | 'fileHashes' | 'hashCache' | 'preferences' | 'crashReporting' | 'graphLayout'>>,
+  updates: Partial<Pick<AppState, 'serverUrl' | 'authToken' | 'lastSyncedAt' | 'lastSyncError' | 'lastServerVersion' | 'fileHashes' | 'hashCache' | 'preferences' | 'crashReporting' | 'graphLayout' | 'e2eeServerUrl' | 'e2eeEmail' | 'e2eeAuthToken' | 'e2eeUserId' | 'e2eeCollectionId' | 'e2eeSalt' | 'e2eeObjectMap' | 'e2eeMaxVersion'>>,
 ): Promise<void> {
   const current = getAppState();
   const next = { ...current, ...updates };
@@ -316,8 +340,8 @@ function stateToPrefs(): AppPreferences {
     appearance: { theme: s.preferences.theme },
     crashReporting: { ...s.crashReporting },
     sync: {
-      serverUrl: s.serverUrl,
-      token: s.authToken,
+      serverUrl: s.e2eeServerUrl ?? s.serverUrl,
+      token: s.e2eeAuthToken ?? s.authToken,
       lastSyncedAt: s.lastSyncedAt,
       lastError: s.lastSyncError,
     },

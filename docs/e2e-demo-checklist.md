@@ -24,7 +24,7 @@ Use this flow when the user wants a working desktop demo end-to-end.
 7. Build embeddings / search artifacts and verify they finished.
    Confirm `/health`, `/search/status`, and `/search/capabilities` report a completed run with a real `artifact_hash`.
 8. Write or download the local client state the desktop app actually reads.
-   This commonly includes `.preferences.json`, `.sync-state-v1.json`, `.supersearch-state.json`, `.supersearch-manifest.json`, and `.supersearch-vectors.bin` in the active notes dir.
+   This commonly includes `.preferences.json`, `.sync-state-v1.json`, and `.app-state.json` in the active notes dir.
 9. Build and deploy the desktop binary the launcher should open.
    If `/usr/bin` is not writable, use a user-level wrapper in `~/.local/bin` plus a user desktop entry override in `~/.local/share/applications/`.
 10. Eliminate launch-path ambiguity.
@@ -37,6 +37,6 @@ Use this flow when the user wants a working desktop demo end-to-end.
 ## Desktop Demo Notes
 
 - On Tauri desktop, the app reads its operational state from the current notes directory, not just from repo files.
-- For semantic graph / supersearch work, verify both server-side indexing and local artifact presence.
+- For sync work, verify the external E2EE server repo is running and that encrypted blob/object state changes there match client actions.
 - If you need to inspect graph clustering quality, build a script that runs against the real vault data rather than guessing from heuristics in the UI.
 - When verification reveals that the UX is weak, continue tuning and rechecking the real output. Do not stop at "build passes" if the visible experience is still poor.

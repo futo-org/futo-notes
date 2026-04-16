@@ -52,7 +52,18 @@
         const [, prefs] = await Promise.all([
           (hasFileSystem || import.meta.env.DEV) ? initNotes().then(() => {
             if (import.meta.env.DEV || import.meta.env.VITE_INCLUDE_TEST_HOOKS === 'true') {
-              (window as any).__testNotes = { createNote, getAllNotes, _injectTestNote };
+              const fs = getFS();
+              (window as any).__testNotes = {
+                createNote,
+                getAllNotes,
+                _injectTestNote,
+                listNoteFiles: () => fs.listNoteFiles(),
+                readNote: (id: string) => fs.readNote(id),
+                writeNote: (id: string, content: string, modifiedAtMs?: number) => fs.writeNote(id, content, modifiedAtMs),
+                deleteNoteFile: (id: string) => fs.deleteNoteFile(id),
+                deleteAllContent: () => fs.deleteAllContent(),
+                noteExists: (id: string) => fs.noteExists(id),
+              };
               installTestSync();
             }
           }) : Promise.resolve(),

@@ -25,7 +25,6 @@ EXCLUDE_PATTERNS=(
   '\.claude/local-plugins/'
   'docs/V2-MASTERPLAN\.md'    # 33K planning doc, not current code
   'markdown-spec/cases/'       # test fixture YAML files
-  'crates/stonefruit-server/src/routes/dashboard\.html'  # 117K embedded HTML
 )
 
 # Build a single grep -v pattern

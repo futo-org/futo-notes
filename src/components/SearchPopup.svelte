@@ -1,15 +1,6 @@
 <script lang="ts">
   import type { SearchResultItem } from '../types';
-  import { searchKeyword, getAllNotes } from '$lib/notes';
-  import { getSyncConfig } from '$lib/authFetch';
-  import {
-    fetchServerSearchResults,
-    fuseConnectedSearchResults,
-    hasSemanticServerResults,
-    mapServerResults,
-    warmupServerSearch,
-    type ServerSearchResult,
-  } from '$lib/serverSearch';
+  import { searchKeyword } from '$lib/notes';
 
   interface Props {
     onclose: () => void;
@@ -22,113 +13,38 @@
   let inputEl: HTMLInputElement | undefined = $state(undefined);
   let selectedIndex = $state(-1);
   let resultEls: HTMLElement[] = $state([]);
-  let serverSearching = $state(false);
 
-  let keywordResults: SearchResultItem[] = $state([]);
-  let serverResults: ServerSearchResult | null = $state(null);
-  let results: SearchResultItem[] = $derived(
-    !query.trim()
-      ? keywordResults
-      : fuseConnectedSearchResults(keywordResults, serverResults)
-  );
-  let timing = $derived(serverResults?.timing ?? null);
-
-  /** Check if a sync server is configured (has URL + token). */
-  function hasServer(): boolean {
-    try {
-      const { serverUrl, token } = getSyncConfig();
-      return Boolean(serverUrl && token);
-    } catch {
-      return false;
-    }
-  }
+  let results: SearchResultItem[] = $state([]);
 
   let keywordRequestId = 0;
 
-  // Debounced keyword search — instant results (always runs, offline-capable)
+  // Debounced keyword search — instant local results via MiniSearch
   $effect(() => {
     const q = query;
     const requestId = ++keywordRequestId;
 
     if (!q.trim()) {
       searchKeyword('')
-        .then((results) => {
-          if (requestId === keywordRequestId) {
-            keywordResults = results;
-          }
+        .then((r) => {
+          if (requestId === keywordRequestId) results = r;
         })
         .catch(() => {
-          if (requestId === keywordRequestId) {
-            keywordResults = [];
-          }
+          if (requestId === keywordRequestId) results = [];
         });
       return;
     }
 
     const timer = setTimeout(() => {
       searchKeyword(q)
-        .then((results) => {
-          if (requestId === keywordRequestId && q === query) {
-            keywordResults = results;
-          }
+        .then((r) => {
+          if (requestId === keywordRequestId && q === query) results = r;
         })
         .catch(() => {
-          if (requestId === keywordRequestId && q === query) {
-            keywordResults = [];
-          }
+          if (requestId === keywordRequestId && q === query) results = [];
         });
     }, 100);
 
     return () => clearTimeout(timer);
-  });
-
-  // Debounced server search — hybrid keyword+vector results from V2 server
-  let serverDebounceTimer: ReturnType<typeof setTimeout> | undefined;
-  let serverAbortController: AbortController | null = null;
-
-  $effect(() => {
-    const q = query;
-
-    serverSearching = false;
-
-    if (serverDebounceTimer) clearTimeout(serverDebounceTimer);
-    if (serverAbortController) {
-      serverAbortController.abort();
-      serverAbortController = null;
-    }
-
-    if (!q.trim()) {
-      serverResults = null;
-      return;
-    }
-
-    if (!hasServer()) return;
-
-    serverDebounceTimer = setTimeout(async () => {
-      if (q !== query) return;
-
-      const controller = new AbortController();
-      serverAbortController = controller;
-      serverSearching = true;
-
-      try {
-        const { serverUrl, token } = getSyncConfig();
-        const data = await fetchServerSearchResults(serverUrl, token, q, controller.signal);
-
-        if (q === query) {
-          serverResults = mapServerResults(data, getAllNotes());
-        }
-      } catch (e) {
-        if (e instanceof DOMException && e.name === 'AbortError') return;
-        // Server failed — silently keep showing keyword results
-        if (q === query) serverResults = null;
-      } finally {
-        if (serverAbortController === controller) {
-          serverAbortController = null;
-        }
-        if (q === query) serverSearching = false;
-      }
-    }, 150);
   });
 
   // Reset selection when results change
@@ -167,10 +83,6 @@
     }
   }
 
-  function formatMs(ms: number): string {
-    return ms < 1 ? '<1ms' : `${Math.round(ms)}ms`;
-  }
-
   function handleOverlayKeydown(event: KeyboardEvent): void {
     if (event.key === 'Escape') {
       event.preventDefault();
@@ -180,12 +92,6 @@
 
   $effect(() => {
     inputEl?.focus();
-
-    // Warm up Ollama embedding model before the user starts typing
-    try {
-      const { serverUrl, token } = getSyncConfig();
-      if (serverUrl && token) warmupServerSearch(serverUrl, token);
-    } catch {}
   });
 </script>
 
@@ -205,11 +111,6 @@
         placeholder="Search notes..."
         bind:value={query}
       />
-      {#if serverSearching}
-        <span class="search-vector-indicator" title="Searching server..."></span>
-      {:else if hasSemanticServerResults(serverResults) && query}
-        <span class="search-vector-done" title="Server-enhanced results"></span>
-      {/if}
       {#if query}
         <button class="search-clear" aria-label="Clear search" onclick={() => { query = ''; inputEl?.focus(); }}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -219,14 +120,6 @@
         </button>
       {/if}
     </div>
-
-    {#if timing && hasSemanticServerResults(serverResults) && query}
-      <div class="search-timing-row">
-        <span class="search-timing">
-          keyword: {formatMs(timing.keyword)} | vector: {formatMs(timing.vector)} | total: {formatMs(timing.total)}
-        </span>
-      </div>
-    {/if}
 
     <div class="search-results">
       {#each results as result, i (result.note.id)}
@@ -239,13 +132,6 @@
         >
           <div class="search-result-title">
             {result.note.title}
-            {#if result.source === 'keyword'}
-              <span class="source-badge source-keyword" title="Keyword match">K</span>
-            {:else if result.source === 'vector'}
-              <span class="source-badge source-vector" title="Vector match">V</span>
-            {:else if result.source === 'both'}
-              <span class="source-badge source-both" title="Keyword + Vector match">K+V</span>
-            {/if}
           </div>
           {#if result.snippet && result.snippet.length > 0}
             <div class="search-result-preview">

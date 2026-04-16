@@ -23,18 +23,15 @@ npm workspaces. Shared Svelte app at root, platform shells in `apps/`, shared pa
 src/                  ← Shared Svelte 5 app (editor, UI, sync client)
 crates/
   stonefruit-core/    ← Shared Rust crate (hash, sync logic, search, graph)
-  stonefruit-server/  ← Self-hosted Axum sync server (Rust, Docker)
 apps/
   tauri/              ← Tauri v2 desktop + mobile shell (Rust backend)
-  cli/                ← Server setup/management CLI (Rust, Ratatui TUI)
 packages/
   shared/             ← Shared types & utils (sync protocol, filename rules)
 ```
 
 - **Client stack**: Svelte 5 + Tauri v2 + Vite + Tailwind v4 + CodeMirror 6
-- **Server stack**: Axum + rusqlite + sqlite-vec + Docker. Hash-based sync via `POST /sync`. Polling-based sync check. Server-side hybrid search (BM25 + vector) and graph layout.
+- **Sync server**: External E2EE server repo at `/home/justin/Developer/stonefruit-server`. The client uploads opaque encrypted blobs through collection/object/blob APIs.
 - **Shared Rust crate** (`stonefruit-core`): Hash computation, sync logic, search (UMAP + K-Means), graph layout, file operations. Tauri imports core functions directly — do not reimplement logic that exists in `stonefruit-core`.
-- **CLI stack**: Rust + Clap + Ratatui. Deploys and manages the server via Docker Compose.
 - **Shared package** (`@futo-notes/shared`): Filename sanitization (`sanitizeTitle`, `validateTitle`). Consumed as TypeScript source (no build step).
 
 ## Browser Tools
@@ -62,7 +59,7 @@ For Android emulator runs, use `10.0.2.2` instead of `127.0.0.1` for host servic
   - Debug builds default the notes root to **`~/Documents/fake-notes`** (see `default_notes_root` in `apps/tauri/src-tauri/src/core.rs`). Release builds default to `~/Documents/stonefruit`. Do not remove or weaken this guard when refactoring path resolution.
   - The TS resolver (`src/lib/platform/tauriPaths.ts:getDefaultNotesRoot`) must delegate to the Rust `resolve_default_notes_root` command — never resolve the default in JS, because `documentDir()` gives the same path in dev and release.
   - `STONEFRUIT_DATA_DIR` env var overrides both (used by `scripts/tauri-dev.mjs` and cross-platform tests for per-worktree isolation — writes go to `{data_dir}/notes`).
-  - Dev builds also default the sync `serverUrl` preference to `http://localhost:3005` so first-run developer experience pairs with a locally-running server. Release builds start empty.
+  - Dev sync points at the external E2EE server when configured. Release builds start empty.
 
 ## Push Concerns Down, Not Out
 
@@ -71,8 +68,7 @@ When adding cross-cutting behavior (auth, validation, error handling, coordinati
 **Good examples already in this repo:**
 - Filename/path safety is pushed down to `packages/shared/src/filename.ts` and `stonefruit-core` — callers don't think about filesystem rules.
 - Platform-specific I/O is behind `src/lib/platform/index.ts` — components never branch on platform.
-- `src/lib/authFetch.ts` handles Bearer tokens, timeouts, and error parsing — API callers don't attach auth headers.
-- Server middleware in `crates/stonefruit-server/src/middleware.rs` centralizes auth checks — routes don't repeat boilerplate.
+- `src/lib/syncServiceE2ee.ts` centralizes E2EE sync fetches, auth tokens, encryption, and object-map persistence.
 
 **When writing new code:** If you find yourself copying a pattern from another file (auth headers, try/parse/catch, validation checks), stop and check whether a shared helper already exists or should be created. The less each feature has to do, the fewer ways it can go wrong.
 
@@ -86,8 +82,6 @@ Do not report a fix or addition as complete until you verify it. If verification
 |---|---|
 | Frontend / UI / Svelte | `just build` → `pnpm run test -- <spec>` (broaden Playwright coverage if risk is broad) |
 | Unit-testable logic | `just build` → `just test-unit` |
-| Server (sync, auth, API) | `just server-test` (runs `cargo test -p stonefruit-server`) |
-| Server + Docker | Above, then `just server-up` → `just server-health` → `just server-down` |
 | Shared package | `just test-shared` |
 | CSS / Tailwind only | `just build` (catches missing classes) → visual spot-check via Playwright screenshot |
 | Sync client stack (full) | `just test-cross-platform` (boots 2 Tauri instances + server, runs 12 scenarios) |
@@ -127,8 +121,7 @@ Every code change that touches logic must include or update tests. No exceptions
 | What you changed | Required test |
 |---|---|
 | New Tauri `#[tauri::command]` | Rust unit test in `core.rs` for the underlying `_impl` function |
-| Sync logic (client or server) | Rust integration test in `crates/stonefruit-server/tests/` |
-| Sync state transitions | Rust two-client test in `crates/stonefruit-server/tests/e2e_two_client.rs` |
+| Sync logic | Unit tests for client logic here; server tests live in `/home/justin/Developer/stonefruit-server` |
 | Shared package (`@futo-notes/shared`) | Unit test in `packages/shared/` |
 | Bug fix (any layer) | Regression test that reproduces the bug BEFORE the fix, then passes after |
 | New UI interaction or flow | Playwright spec in `tests/` |
@@ -138,11 +131,8 @@ Every code change that touches logic must include or update tests. No exceptions
 ### Where tests live
 
 - **Rust core**: `apps/tauri/src-tauri/src/core.rs` `#[cfg(test)]` module. Test `_impl` functions directly.
-- **Server integration**: `crates/stonefruit-server/tests/`. Rust integration tests with in-process Axum server.
-- **Multi-client sync**: `crates/stonefruit-server/tests/e2e_two_client.rs`. Two-client scenarios with separate vault directories.
 - **Shared package**: `packages/shared/src/*.test.ts`.
 - **Playwright E2E**: `tests/*.spec.ts`.
-- **Property-based sync**: `crates/stonefruit-server/tests/proptest_sync.rs`. Proptest-driven sync convergence tests.
 - **Cross-platform sync**: `tests/cross-platform-sync.mjs`. Two real Tauri instances + server, 12 multi-client scenarios through the full client stack. Shared helpers in `tests/lib/`.
 - **What cross-platform now covers well**: real CodeMirror typing and save flush, real `syncManager` completion handling, open-note remote rename propagation, active-note reload, edit-during-sync draft protection, and native watcher behavior for clean vs dirty open notes.
 
@@ -150,7 +140,6 @@ Every code change that touches logic must include or update tests. No exceptions
 
 | Suite | Command |
 |---|---|
-| All server tests | `just server-test` |
 | Rust tests | `just test-rust` |
 | Shared package | `just test-shared` |
 | Unit tests | `just test-unit` |

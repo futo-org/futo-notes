@@ -1,6 +1,7 @@
 import { hasFileSystem } from './platform';
-import { getCachedPreferences, loadV2SyncState, saveV2SyncState } from './appState';
-import { syncNowV2, checkForChangesV2, type SyncSummary } from './syncServiceV2';
+import { syncE2eeAuto, isE2eeConfigured, type SyncSummary } from './syncServiceE2ee';
+
+export type { SyncSummary } from './syncServiceE2ee';
 
 const POLL_INTERVAL_MS = 15_000;
 const RESUME_COOLDOWN = 10_000;
@@ -36,11 +37,6 @@ function isBackgroundTrigger(trigger: SyncTrigger): boolean {
   return trigger === 'poll' || trigger === 'resume' || trigger === 'initial';
 }
 
-function isSyncConfigured(): boolean {
-  const prefs = getCachedPreferences();
-  return Boolean(prefs.sync.serverUrl && prefs.sync.token);
-}
-
 async function performSync(trigger: SyncTrigger, options: { propagateErrors?: boolean; requireExecution?: boolean } = {}): Promise<SyncSummary | null> {
   const backgroundTrigger = isBackgroundTrigger(trigger);
   if (!navigator.onLine) {
@@ -48,8 +44,8 @@ async function performSync(trigger: SyncTrigger, options: { propagateErrors?: bo
     if (backgroundTrigger) scheduleBackgroundRetry(trigger);
     return null;
   }
-  if (syncing || paused || !callbacks || !isSyncConfigured()) {
-    if (!options.requireExecution && backgroundTrigger && callbacks && isSyncConfigured() && (syncing || paused)) {
+  if (syncing || paused || !callbacks || !isE2eeConfigured()) {
+    if (!options.requireExecution && backgroundTrigger && callbacks && isE2eeConfigured() && (syncing || paused)) {
       scheduleBackgroundRetry(trigger);
     }
     if (syncing && trigger === 'local-save') {
@@ -72,7 +68,7 @@ async function performSync(trigger: SyncTrigger, options: { propagateErrors?: bo
     if (trigger === 'local-save' || trigger === 'manual') {
       await callbacks.flushPendingSave();
     }
-    const summary = await syncNowV2(trigger === 'local-save' ? { skipCheck: true } : undefined);
+    const summary = await syncE2eeAuto();
     lastSyncTime = Date.now();
     cancelInitialRetry();
     cancelBackgroundRetry();
@@ -101,7 +97,7 @@ async function performSync(trigger: SyncTrigger, options: { propagateErrors?: bo
 }
 
 export function notifySavedV2(filename?: string): void {
-  if (!callbacks || !isSyncConfigured()) return;
+  if (!callbacks || !isE2eeConfigured()) return;
   // Write to dirty journal if a specific file was saved
   if (filename) {
     void markDirtyUpsert(filename);
@@ -109,57 +105,12 @@ export function notifySavedV2(filename?: string): void {
   void performSync('local-save');
 }
 
-/** Mark a file as dirty (upserted) in the persisted sync state. */
-async function markDirtyUpsert(filename: string): Promise<void> {
-  try {
-    const state = await loadV2SyncState();
-    const upserts = new Set(state.dirtyUpserts ?? []);
-    upserts.add(filename);
-    // If this file was in dirty_deletes, remove it (upsert overrides delete)
-    const deletes = new Set(state.dirtyDeletes ?? []);
-    deletes.delete(filename);
-    state.dirtyUpserts = [...upserts];
-    state.dirtyDeletes = deletes.size > 0 ? [...deletes] : undefined;
-    await saveV2SyncState(state);
-  } catch {
-    // Non-fatal — worst case we do a full vault scan on next sync
-  }
-}
-
-/** Mark a file as dirty (deleted) in the persisted sync state. */
-export async function markDirtyDelete(filename: string): Promise<void> {
-  try {
-    const state = await loadV2SyncState();
-    const deletes = new Set(state.dirtyDeletes ?? []);
-    deletes.add(filename);
-    // If this file was in dirty_upserts, remove it
-    const upserts = new Set(state.dirtyUpserts ?? []);
-    upserts.delete(filename);
-    state.dirtyDeletes = [...deletes];
-    state.dirtyUpserts = upserts.size > 0 ? [...upserts] : undefined;
-    await saveV2SyncState(state);
-  } catch {
-    // Non-fatal
-  }
-}
-
-/** Mark a rename: delete old + upsert new. */
-export async function markDirtyRename(oldFilename: string, newFilename: string): Promise<void> {
-  try {
-    const state = await loadV2SyncState();
-    const upserts = new Set(state.dirtyUpserts ?? []);
-    const deletes = new Set(state.dirtyDeletes ?? []);
-    deletes.add(oldFilename);
-    upserts.delete(oldFilename);
-    upserts.add(newFilename);
-    deletes.delete(newFilename);
-    state.dirtyUpserts = upserts.size > 0 ? [...upserts] : undefined;
-    state.dirtyDeletes = deletes.size > 0 ? [...deletes] : undefined;
-    await saveV2SyncState(state);
-  } catch {
-    // Non-fatal
-  }
-}
+// Dirty journal stubs — E2EE sync compares local files against the object map
+// directly, so per-file dirty tracking is not needed. These are kept as no-ops
+// to satisfy callers in notes.ts and syncManager.
+async function markDirtyUpsert(_filename: string): Promise<void> {}
+export async function markDirtyDelete(_filename: string): Promise<void> {}
+export async function markDirtyRename(_oldFilename: string, _newFilename: string): Promise<void> {}
 
 export function pauseSyncV2(): void { paused = true; }
 export function resumeSyncV2(): void { paused = false; }
@@ -171,10 +122,10 @@ export async function waitForSyncIdleV2(): Promise<void> {
 }
 
 export async function requestSyncV2(): Promise<SyncSummary> {
-  if (!isSyncConfigured()) throw new Error('Sync not configured');
+  if (!isE2eeConfigured()) throw new Error('Sync not configured');
   if (!callbacks) {
     if (flushPendingSaveFn) await flushPendingSaveFn();
-    return await syncNowV2();
+    return await syncE2eeAuto();
   }
   if (syncing) await waitForSyncIdleV2();
   const summary = await performSync('manual', { propagateErrors: true, requireExecution: true });
@@ -185,7 +136,7 @@ export async function requestSyncV2(): Promise<SyncSummary> {
 }
 
 function handleResume(): void {
-  if (!isSyncConfigured()) return;
+  if (!isE2eeConfigured()) return;
   if (Date.now() - lastSyncTime < RESUME_COOLDOWN) return;
   void performSync('resume');
 }
@@ -194,16 +145,9 @@ function handleResume(): void {
 
 function startPolling(): void {
   stopPolling();
-  pollTimer = window.setInterval(async () => {
-    if (!isSyncConfigured() || syncing || paused) return;
-    try {
-      const hasChanges = await checkForChangesV2();
-      if (hasChanges) {
-        void performSync('poll');
-      }
-    } catch {
-      // Ignore polling errors
-    }
+  pollTimer = window.setInterval(() => {
+    if (!isE2eeConfigured() || syncing || paused) return;
+    void performSync('poll');
   }, POLL_INTERVAL_MS);
 }
 
@@ -231,7 +175,7 @@ function cancelBackgroundRetry(): void {
 }
 
 function scheduleBackgroundRetry(trigger: SyncTrigger): void {
-  if (!callbacks || !isSyncConfigured() || !isBackgroundTrigger(trigger)) return;
+  if (!callbacks || !isE2eeConfigured() || !isBackgroundTrigger(trigger)) return;
   if (backgroundRetryTimer !== null) return;
   backgroundRetryTimer = window.setTimeout(() => {
     backgroundRetryTimer = null;

@@ -1,9 +1,9 @@
 <script lang="ts">
   import { hasFileSystem, isDesktop } from '$lib/platform';
   import { deleteAllNotes } from '$lib/notes';
-  import { getCachedPreferences, savePreferences } from '$lib/appState';
+  import { getAppState, getCachedPreferences, savePreferences } from '$lib/appState';
   import { applyThemePreference, type ThemePreference } from '$lib/theme';
-  import { connectSyncServerV2, syncNowV2, saveSyncServerUrl } from '$lib/syncServiceV2';
+  import { connectE2ee, disconnectE2ee, syncE2ee } from '$lib/syncServiceE2ee';
   import { requestSyncV2 } from '$lib/autoSyncV2';
   import { getAppVersion } from '$lib/crashHandler';
   import { showGlobalToast } from '$lib/toast';
@@ -28,13 +28,15 @@
   let themePreference = $state<ThemePreference>(prefs.appearance.theme);
 
   // Sync MVP preferences
-  let syncUrl = $state(prefs.sync.serverUrl || (import.meta.env.DEV && !prefs.sync.token ? '10.10.51.157:3005' : ''));
+  const appState = getAppState();
+  let syncUrl = $state(appState.e2eeServerUrl || (import.meta.env.DEV && !appState.e2eeAuthToken ? 'http://127.0.0.1:3100' : ''));
+  let syncEmail = $state(appState.e2eeEmail ?? '');
   let syncPassword = $state('');
   let syncBusy = $state(false);
   let syncStatus = $state(prefs.sync.lastError ? `Last error: ${prefs.sync.lastError}` : '');
   let syncLastAt = $state<number | null>(prefs.sync.lastSyncedAt);
-  let hasSyncToken = $state(Boolean(prefs.sync.token));
-  let tokenServerUrl = $state(prefs.sync.serverUrl);
+  let hasSyncToken = $state(Boolean(appState.e2eeAuthToken));
+  let tokenServerUrl = $state(appState.e2eeServerUrl ?? '');
 
   // Connect + sync blocking modal
   let connectSyncing = $state(false);
@@ -92,7 +94,7 @@
   }
 
   async function persistSyncUrl(): Promise<void> {
-    await saveSyncServerUrl(syncUrl);
+    // URL is persisted as part of connectE2ee state
   }
 
   async function handleConnectSync(): Promise<void> {
@@ -102,13 +104,13 @@
     connectSyncPhase = 'Connecting to server...';
     connectSyncError = '';
     try {
-      await connectSyncServerV2(syncUrl, syncPassword);
+      await connectE2ee(syncUrl, syncEmail.trim().toLowerCase(), syncEmail, syncPassword);
       hasSyncToken = true;
-      tokenServerUrl = syncUrl;
-      syncPassword = '';
+      tokenServerUrl = getAppState().e2eeServerUrl ?? syncUrl;
 
       connectSyncPhase = 'Syncing notes...';
-      const summary = await syncNowV2();
+      const summary = await syncE2ee(syncPassword);
+      syncPassword = '';
 
       const updatedPrefs = getCachedPreferences();
       syncLastAt = updatedPrefs.sync.lastSyncedAt;
@@ -143,9 +145,7 @@
     tokenServerUrl = '';
     syncPassword = '';
     syncStatus = '';
-    const p = getCachedPreferences();
-    p.sync.token = '';
-    await savePreferences(p);
+    await disconnectE2ee();
   }
 
   function handleUrlClick(): void {
@@ -160,9 +160,15 @@
     syncStatus = 'Syncing...';
     try {
       await persistSyncUrl();
-      await requestSyncV2();
+      if (syncPassword) {
+        await syncE2ee(syncPassword);
+        syncPassword = '';
+      } else {
+        await requestSyncV2();
+      }
       const updatedPrefs = getCachedPreferences();
-      hasSyncToken = Boolean(updatedPrefs.sync.token);
+      hasSyncToken = Boolean(getAppState().e2eeAuthToken);
+      tokenServerUrl = getAppState().e2eeServerUrl ?? '';
       syncLastAt = updatedPrefs.sync.lastSyncedAt;
       syncStatus = 'Sync complete';
     } catch (e) {
@@ -301,6 +307,18 @@
           />
 
           {#if !hasSyncToken}
+            <label class="settings-input-label" for="sync-email">Email</label>
+            <input
+              id="sync-email"
+              class="settings-input"
+              type="email"
+              bind:value={syncEmail}
+              placeholder="you@example.com"
+              autocapitalize="off"
+              autocomplete="email"
+              spellcheck="false"
+            />
+
             <label class="settings-input-label" for="sync-password">Password</label>
             <input
               id="sync-password"
@@ -313,12 +331,28 @@
               spellcheck="false"
             />
 
+            <p class="settings-btn-desc settings-hint">
+              Sign up at <code>{syncUrl ? syncUrl.replace(/\/+$/, '') : 'your-server'}/start</code> first if you haven't already.
+            </p>
+
             <div class="settings-actions">
               <button class="settings-btn settings-btn-inline" onclick={handleConnectSync} disabled={syncBusy}>
                 {syncBusy ? 'Working...' : 'Connect'}
               </button>
             </div>
           {:else}
+            <label class="settings-input-label" for="sync-password">Vault password</label>
+            <input
+              id="sync-password"
+              class="settings-input"
+              type="password"
+              bind:value={syncPassword}
+              placeholder="Required after restart"
+              autocapitalize="off"
+              autocomplete="current-password"
+              spellcheck="false"
+            />
+
             <div class="settings-actions">
               <button class="settings-btn settings-btn-inline" onclick={handleSyncNow} disabled={syncBusy}>
                 {syncBusy ? 'Working...' : 'Sync now'}

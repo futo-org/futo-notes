@@ -1,12 +1,6 @@
 <script lang="ts">
   import { isMobile, isDesktop } from '$lib/platform';
-  import type { GraphData } from '$lib/supersearch/graphData';
   import type { NotePreview } from '../types';
-  import { getCachedPreferences } from '$lib/appState';
-  import { authFetch } from '$lib/authFetch';
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let GraphCanvas: any = $state(null);
 
   interface Props {
     open: boolean;
@@ -38,73 +32,17 @@
     loading = $bindable(false),
   }: Props = $props();
 
-  let graphData: GraphData | null = $state(null);
   let graphFullscreenOpen = $state(false);
   let resizeStartX = 0;
   let resizeStartWidth = 0;
 
-  interface SearchStatusResponse {
-    phase: 'idle' | 'loading_model' | 'indexing' | 'disabled';
-  }
-
-  export function patchGraphNode(fromId: string, toId: string, newTitle: string): void {
-    if (!graphData) return;
-    const idx = graphData.nodeIndex.get(fromId);
-    if (idx === undefined) return;
-    graphData.nodes[idx].noteId = toId;
-    graphData.nodes[idx].title = newTitle;
-    graphData.nodeIndex.delete(fromId);
-    graphData.nodeIndex.set(toId, idx);
-  }
-
-  export function clearGraphData(): void {
-    if (!open) {
-      graphData = null;
-    }
-  }
-
-  export function hasGraphData(): boolean {
-    return graphData !== null;
-  }
+  export function patchGraphNode(_fromId: string, _toId: string, _newTitle: string): void {}
+  export function clearGraphData(): void {}
+  export function hasGraphData(): boolean { return false; }
 
   export async function openGraph(): Promise<void> {
-    onopen();
-    if (graphData || loading) return;
-    loading = true;
-    try {
-      const [{ computeGraphData }, canvasMod] = await Promise.all([
-        import('$lib/supersearch/graphData'),
-        import('./GraphCanvas.svelte'),
-      ]);
-      GraphCanvas = canvasMod.default;
-      const result = await computeGraphData();
-      if (result.nodes.length === 0) {
-        ontoast('No notes to graph');
-        onclose();
-        return;
-      }
-      graphData = result;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      try {
-        const prefs = getCachedPreferences();
-        if (prefs.sync.serverUrl && prefs.sync.token) {
-          const status = await authFetch<SearchStatusResponse>('/search/status');
-          const phase = status?.phase;
-          if (phase === 'indexing' || phase === 'loading_model') {
-            ontoast('Indexing in progress...');
-            onclose();
-            return;
-          }
-        }
-      } catch {
-        // Fall through to show original error
-      }
-      ontoast(msg);
-      onclose();
-    } finally {
-      loading = false;
-    }
+    ontoast('Graph visualization coming soon');
+    onclose();
   }
 
   function closeGraph(): void {

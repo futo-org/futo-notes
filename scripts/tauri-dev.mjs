@@ -107,77 +107,11 @@ if (!isWorktree) {
     )
   }
 
-  // Start isolated Rust sync server.
-  const serverDataDir = join(dataDir, 'server-data')
-  mkdirSync(serverDataDir, { recursive: true })
-  console.log(`[tauri-dev] Starting isolated server on port ${serverPort}…`)
-  const serverProc = spawn('cargo', ['run', '-p', 'stonefruit-server'], {
-    cwd: repoRoot,
-    env: {
-      ...process.env,
-      PORT: String(serverPort),
-      DATA_DIR: serverDataDir,
-      STONEFRUIT_DEV_PASSWORD: 'testing123',
-    },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  })
-  serverProc.stdout.on('data', (d) => process.stdout.write(`[server] ${d}`))
-  serverProc.stderr.on('data', (d) => process.stderr.write(`[server] ${d}`))
-  serverProc.on('exit', (code) => {
-    if (code !== null) console.error(`[tauri-dev] server exited with code ${code}`)
-  })
-
-  // Kill server when this process exits.
-  process.on('exit', () => serverProc.kill())
+  // Sync server is now a separate repo (stonefruit-server).
+  // Start it manually if you need sync: cd ~/Developer/stonefruit-server && PORT=3100 pnpm start
+  // Then connect via: window.__testSync.connectE2ee('http://127.0.0.1:3100', 'dev@test.com', 'Dev', 'password')
   process.on('SIGINT', () => process.exit(0))
   process.on('SIGTERM', () => process.exit(0))
-
-  async function waitForServer(maxMs = 30_000) {
-    const url = `http://localhost:${serverPort}/health`
-    const deadline = Date.now() + maxMs
-    while (Date.now() < deadline) {
-      try {
-        const r = await fetch(url)
-        if (r.ok) return true
-      } catch {}
-      await new Promise((r) => setTimeout(r, 500))
-    }
-    return false
-  }
-
-  async function loginAndWritePrefs() {
-    console.log(`[tauri-dev] Waiting for server on port ${serverPort}…`)
-    const up = await waitForServer()
-    if (!up) {
-      console.error(`[tauri-dev] Server did not start within 30s — continuing without sync config`)
-      return
-    }
-
-    // Dev server auto-sets password 'testing123' on startup.
-    const loginResp = await fetch(`http://localhost:${serverPort}/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password: 'testing123', device_info: 'worktree-dev' }),
-    })
-    if (!loginResp.ok) {
-      console.error(`[tauri-dev] Login failed (${loginResp.status}) — continuing without sync config`)
-      return
-    }
-    const { token } = await loginResp.json()
-
-    // .preferences.json lives in the notes dir (appdata_read/write use notes_root as base).
-    const prefsPath = join(notesDir, '.preferences.json')
-    const existing = existsSync(prefsPath) ? JSON.parse(readFileSync(prefsPath, 'utf8')) : {}
-    writeFileSync(
-      prefsPath,
-      JSON.stringify(
-        { ...existing, sync: { serverUrl: `http://localhost:${serverPort}`, token, lastSyncedAt: null, lastError: '' } },
-        null,
-        2
-      ) + '\n'
-    )
-    console.log(`[tauri-dev] Server ready — http://localhost:${serverPort} | password: testing123`)
-  }
 
   const configOverride = JSON.stringify({
     identifier,
@@ -191,9 +125,7 @@ if (!isWorktree) {
   console.log(`[tauri-dev] data dir: ${dataDir}`)
 
   // Wait for server + write preferences BEFORE spawning Tauri.
-  // A cached binary starts in ~0.2s — fast enough to race the login. Awaiting here
-  // ensures .preferences.json is on disk before the app's first readAppData call.
-  await loginAndWritePrefs().catch((err) => console.error(`[tauri-dev] sync setup error: ${err.message}`))
+  // Server is external — no sync setup needed for dev
 
   const tauri = spawn(
     'cargo',
