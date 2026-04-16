@@ -51,10 +51,12 @@ node scripts/cdp-invoke.mjs --port 9228 \
 # 1. Fetch ORT xcframework (cached after first run, ~50 MB download)
 node scripts/fetch-ort-ios.mjs
 
-# 2. Build debug IPA (from monorepo root)
-just ios-build
-# Or manually:
-# pnpm run build && cd apps/tauri && cargo tauri ios build --debug
+# 2. Build debug IPA with dev bundle ID (com.futo.notes.dev)
+#    IMPORTANT: always pass the dev config for debug builds to avoid
+#    overwriting the production app on the device.
+pnpm run build
+cd apps/tauri && cargo tauri ios build --debug \
+  --config src-tauri/tauri.ios.dev.conf.json
 
 # 3. Install and launch on connected iPhone
 DEVICE=$(xcrun devicectl list devices --json-output /dev/stdout 2>/dev/null | python3 -c "
@@ -64,7 +66,7 @@ for x in d:
 ")
 xcrun devicectl device install app --device "$DEVICE" \
   apps/tauri/src-tauri/gen/apple/build/arm64/Stonefruit.ipa
-xcrun devicectl device process launch --device "$DEVICE" com.futo.notes
+xcrun devicectl device process launch --device "$DEVICE" com.futo.notes.dev
 ```
 
 ### How iOS linking works

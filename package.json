@@ -34,7 +34,7 @@
     "tauri:android:dev:offline": "pnpm run build && cd apps/tauri && cargo tauri android build --debug --apk --config src-tauri/tauri.android.offline.conf.json && cd src-tauri/gen/android && ./gradlew app:installUniversalDebug && adb shell monkey -p com.futo.notes -c android.intent.category.LAUNCHER 1",
     "tauri:android:build": "cd apps/tauri && cargo tauri android build",
     "tauri:ios:dev": "cd apps/tauri && cargo tauri ios dev --config src-tauri/tauri.ios.dev.conf.json",
-    "tauri:ios:dev:offline": "pnpm run build && cd apps/tauri && cargo tauri ios build --debug && xcrun devicectl device install app --device 00008150-001C70A634F0401C src-tauri/gen/apple/build/arm64/Stonefruit.ipa && xcrun devicectl device process launch --device 00008150-001C70A634F0401C com.futo.notes",
+    "tauri:ios:dev:offline": "pnpm run build && cd apps/tauri && cargo tauri ios build --debug --config src-tauri/tauri.ios.dev.conf.json && xcrun devicectl device install app --device 00008150-001C70A634F0401C src-tauri/gen/apple/build/arm64/Stonefruit.ipa && xcrun devicectl device process launch --device 00008150-001C70A634F0401C com.futo.notes.dev",
     "tauri:ios:build": "cd apps/tauri && cargo tauri ios build",
     "tauri:test:rust": "pnpm --filter @futo-notes/tauri run test:rust",
     "test:desktop-smoke": "node tests/desktop-smoke.mjs",

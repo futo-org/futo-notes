@@ -98,8 +98,9 @@ First call downloads the model (~35 MB + tokenizer) to the app data dir; returns
 - **IMPORTANT**: `pnpm run build` must run from monorepo root. Running from a workspace resolves a different build script — verify output includes `vite build` and `dist/assets/`.
 - **IMPORTANT**: Tauri dev ports are split by target to avoid collisions: desktop `5180`, Android `5181`, iOS `5182`.
 - **IMPORTANT**: `window.confirm()`/`window.alert()` don't block properly in Tauri's webview. Use `ask()`/`message()` from `@tauri-apps/plugin-dialog` instead.
-- **CRITICAL: Dev builds MUST NOT touch the user's production notes folder (`~/Documents/stonefruit`).**
-  - Debug builds default the notes root to **`~/Documents/fake-notes`** (see `default_notes_root` in `apps/tauri/src-tauri/src/core.rs`). Release builds default to `~/Documents/stonefruit`. Do not remove or weaken this guard when refactoring path resolution.
+- **CRITICAL: Dev/debug builds MUST NOT overwrite the user's production app or notes.**
+  - **Bundle ID**: Dev/debug builds must use `com.futo.notes.dev` (product name "Stonefruit Dev"). Pass `--config src-tauri/tauri.ios.dev.conf.json` (iOS) or `--config src-tauri/tauri.dev.conf.json` (desktop) to `cargo tauri build --debug`. Never run `cargo tauri ios build --debug` without the dev config — it installs over the production app. The `just` recipes (`ios-dev`, `ios-offline`, `tauri-dev`) handle this automatically.
+  - **Notes root**: Debug builds default to **`~/Documents/fake-notes`** (see `default_notes_root` in `apps/tauri/src-tauri/src/core.rs`). Release builds default to `~/Documents/stonefruit`. Do not remove or weaken this guard.
   - The TS resolver (`src/lib/platform/tauriPaths.ts:getDefaultNotesRoot`) must delegate to the Rust `resolve_default_notes_root` command — never resolve the default in JS, because `documentDir()` gives the same path in dev and release.
   - `STONEFRUIT_DATA_DIR` env var overrides both (used by `scripts/tauri-dev.mjs` and cross-platform tests for per-worktree isolation — writes go to `{data_dir}/notes`).
   - Dev sync points at the external E2EE server when configured. Release builds start empty.
