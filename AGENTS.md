@@ -22,30 +22,22 @@ npm workspaces. Shared Svelte app at root, platform shells in `apps/`, shared pa
 ```
 src/                  ← Shared Svelte 5 app (editor, UI, sync client)
 crates/
-  stonefruit-core/    ← Shared Rust crate (hash, sync logic, search, graph)
+  stonefruit-core/    ← Rust crate (hashing, sync payload, search vectors, graph layout)
 apps/
   tauri/              ← Tauri v2 desktop + mobile shell (Rust backend)
 packages/
-  shared/             ← Shared types & utils (sync protocol, filename rules)
+  shared/             ← Shared TS types & utils (auth types, filename rules, tag parsing)
 ```
 
 - **Client stack**: Svelte 5 + Tauri v2 + Vite + Tailwind v4 + CodeMirror 6
-- **Sync server**: External E2EE server repo at `/home/justin/Developer/stonefruit-server`. The client uploads opaque encrypted blobs through collection/object/blob APIs.
-- **Shared Rust crate** (`stonefruit-core`): Hash computation, sync logic, search (UMAP + K-Means), graph layout, file operations. Tauri imports core functions directly — do not reimplement logic that exists in `stonefruit-core`.
-- **Shared package** (`@futo-notes/shared`): Filename sanitization (`sanitizeTitle`, `validateTitle`). Consumed as TypeScript source (no build step).
+- **Sync server**: External E2EE server at `/home/justin/Developer/stonefruit-server` ([GitLab](https://gitlab.futo.org/stonefruit/stonefruit-server)). The client uploads opaque encrypted blobs through collection/object/blob APIs.
+- **Rust crate** (`stonefruit-core`): Hashing, sync payload prep/apply, vector search (UMAP + K-Means), graph layout, merge. Imported only by the Tauri app — do not reimplement logic that exists here.
+- **TypeScript layer**: Most file I/O, note indexing, search indexing, app state, and sync coordination are in TypeScript (`src/lib/`) using `@tauri-apps/plugin-fs`. Rust handles the performance-critical paths (sync delta computation, vector math, hashing).
+- **Shared package** (`@futo-notes/shared`): Auth protocol types, filename sanitization (`sanitizeTitle`, `validateTitle`), tag parsing (`extractTags`), image validation. Consumed as TypeScript source (no build step).
 
-## Browser Tools
+## TypeScript First
 
-**Use `agent-browser` over Playwright MCP** for interactive browser tasks — poking around, testing UI, taking screenshots, inspecting state. It's faster, handles CodeMirror typing natively, and supports annotated screenshots with element labels. For the Tauri app (desktop, Android, iOS), use the Tauri MCP bridge tools (`driver_session`, `webview_*`) — the bridge is included in debug builds on all platforms.
-
-When switching sync servers in debug builds, prefer the dev-only `window.__testSync` hook over UI automation. It is exposed in Tauri dev webviews and supports:
-
-- `await window.__testSync.connect(serverUrl, password)`
-- `await window.__testSync.status()`
-- `await window.__testSync.syncNow()`
-- `await window.__testSync.disconnect()`
-
-For Android emulator runs, use `10.0.2.2` instead of `127.0.0.1` for host services.
+**Default to TypeScript for new features and functions.** TS eliminates a Tauri IPC round-trip, is easier to read and reason about, and reduces overall complexity. Only use Rust when the work is genuinely compute-heavy (vector math, sync delta over thousands of files, hashing) or requires OS-level access the TS plugin layer can't provide (filesystem watcher, clipboard image extraction). If in doubt, write it in TypeScript.
 
 ### Android emulator — running JS against the webview
 
@@ -106,11 +98,11 @@ First call downloads the model (~35 MB + tokenizer) to the app data dir; returns
 When adding cross-cutting behavior (auth, validation, error handling, coordination, persistence), make it an infrastructure concern — not something every call site must remember. If an agent (or a human) forgetting to add a line would cause a bug, that line shouldn't need to exist.
 
 **Good examples already in this repo:**
-- Filename/path safety is pushed down to `packages/shared/src/filename.ts` and `stonefruit-core` — callers don't think about filesystem rules.
+- Filename/path safety is pushed down to `packages/shared/src/filename.ts` and `src/lib/platform/pathSafety.ts` — callers don't think about filesystem rules.
 - Platform-specific I/O is behind `src/lib/platform/index.ts` — components never branch on platform.
 - `src/lib/syncServiceE2ee.ts` centralizes E2EE sync fetches, auth tokens, encryption, and object-map persistence.
 
-**When writing new code:** If you find yourself copying a pattern from another file (auth headers, try/parse/catch, validation checks), stop and check whether a shared helper already exists or should be created. The less each feature has to do, the fewer ways it can go wrong.
+**When writing new code:** If you find yourself copying a pattern from another file (auth headers, try/parse/catch, validation checks), stop and check whether a shared helper already exists or should be created.
 
 ## Close The Loop (Required)
 
@@ -133,7 +125,7 @@ In your final response, include: commands run, pass/fail, and key observed behav
 
 ## Own The E2E Experience
 
-For demos, migrations, or “make the whole thing work on my machine” requests — own the full client + server + data + launcher path until the user can open the app and see the result. Do not hand off operational steps you can do yourself.
+For demos, migrations, or "make the whole thing work on my machine" requests — own the full client + server + data + launcher path until the user can open the app and see the result. Do not hand off operational steps you can do yourself.
 
 Full checklist: @docs/e2e-demo-checklist.md
 
@@ -161,20 +153,21 @@ Every code change that touches logic must include or update tests. No exceptions
 | What you changed | Required test |
 |---|---|
 | New Tauri `#[tauri::command]` | Rust unit test in `core.rs` for the underlying `_impl` function |
-| Sync logic | Unit tests for client logic here; server tests live in `/home/justin/Developer/stonefruit-server` |
+| Sync logic (client) | Unit tests in `src/lib/` + cross-platform tests when protocol changes |
 | Shared package (`@futo-notes/shared`) | Unit test in `packages/shared/` |
 | Bug fix (any layer) | Regression test that reproduces the bug BEFORE the fix, then passes after |
 | New UI interaction or flow | Playwright spec in `tests/` |
 | Full-stack sync (client ↔ server) | Cross-platform scenario in `tests/cross-platform-sync.mjs` |
-| Path/filename handling | Both: server test (sanitization) + Rust test (path safety) |
+| Path/filename handling | Shared package test + TS platform test (`pathSafety.test.ts`) |
 
 ### Where tests live
 
-- **Rust core**: `apps/tauri/src-tauri/src/core.rs` `#[cfg(test)]` module. Test `_impl` functions directly.
+- **Rust core**: `crates/stonefruit-core/src/*.rs` `#[cfg(test)]` modules + `crates/stonefruit-core/tests/`.
+- **Tauri commands**: `apps/tauri/src-tauri/src/core.rs` `#[cfg(test)]` module. Test `_impl` functions directly.
 - **Shared package**: `packages/shared/src/*.test.ts`.
 - **Playwright E2E**: `tests/*.spec.ts`.
+- **Unit tests**: `src/lib/*.test.ts` — notes, search index, sync, platform modules.
 - **Cross-platform sync**: `tests/cross-platform-sync.mjs`. Two real Tauri instances + server, 12 multi-client scenarios through the full client stack. Shared helpers in `tests/lib/`.
-- **What cross-platform now covers well**: real CodeMirror typing and save flush, real `syncManager` completion handling, open-note remote rename propagation, active-note reload, edit-during-sync draft protection, and native watcher behavior for clean vs dirty open notes.
 
 ### How to run
 
@@ -186,6 +179,21 @@ Every code change that touches logic must include or update tests. No exceptions
 | Playwright E2E | `just test-e2e` |
 | Cross-platform sync | `just test-cross-platform` |
 | Everything | `just test` then `just test-e2e` |
+
+## Browser Tools
+
+**Use `agent-browser` over Playwright MCP** for interactive browser tasks — poking around, testing UI, taking screenshots, inspecting state. It's faster, handles CodeMirror typing natively, and supports annotated screenshots with element labels. For the Tauri app (desktop, Android, iOS), use the Tauri MCP bridge tools (`driver_session`, `webview_*`) — the bridge is included in debug builds on all platforms.
+
+When switching sync servers in debug builds, prefer the dev-only `window.__testSync` hook over UI automation. It is exposed in Tauri dev webviews and supports:
+
+- `await window.__testSync.connect(serverUrl, password)` — simplified connect (auto-creates test user)
+- `await window.__testSync.connectE2ee(serverUrl, email, name, password)` — explicit E2EE connect
+- `await window.__testSync.status()`
+- `await window.__testSync.syncNow()` — trigger sync (uses stored credentials)
+- `await window.__testSync.syncE2ee(password)` — sync with explicit password
+- `await window.__testSync.disconnect()` / `disconnectE2ee()`
+
+For Android emulator runs, use `10.0.2.2` instead of `127.0.0.1` for host services.
 
 ## Debugging
 

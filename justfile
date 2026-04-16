@@ -69,6 +69,9 @@ test-shared:
 test-e2e:
   pnpm run test
 
+test-cross-platform:
+  pnpm run test:cross-platform
+
 test-markdown-spec:
   pnpm run test:markdown-spec
 

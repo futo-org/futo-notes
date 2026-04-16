@@ -9,15 +9,17 @@ From the monorepo root, prefer `just build`, `just tauri-dev`, `just test-unit`,
 - **`components/NotesShell.svelte`**: Main app shell — note list, sidebar, settings, sync UI, routing.
 - **`components/MarkdownEditor.svelte`**: CodeMirror 6 editor with scroll compensation for external scroll containers. See @docs/devlog.md for the scroll fix deep-dive.
 - **`lib/liveMarkdownTransform.ts`**: CM6 plugin for live markdown rendering — widgets for tables, checkboxes, HR, inline images. Styling in `styles/markdown.css`.
-- **`lib/platform/types.ts`**: `PlatformFS` interface — core file operations go through this. Implementations in `platform/tauri.ts` (native) and `platform/web.ts`.
+- **`lib/platform/`**: Platform abstraction layer. `types.ts` defines `PlatformFS` interface; `tauri.ts` (native) and `web.ts` (dev/test) implement it. `atomicWrite.ts` provides crash-safe temp+rename writes. `pathSafety.ts` validates paths against traversal attacks. `tauriPaths.ts` resolves notes root and overrides.
+- **`lib/notesIndex.ts`**: In-memory note index (filename→hash mappings). Replaced the former Rust note index.
 - **`lib/syncServiceE2ee.ts`** + **`lib/syncManager.svelte.ts`**: E2EE sync client. `syncServiceE2ee` handles encryption and the external server API; `syncManager` coordinates sync lifecycle (auto-sync, idle detection, connectivity).
-- **`lib/autoSyncV2.ts`**: E2EE auto-sync compatibility facade with debounce, idle detection, and manual trigger via `requestSyncV2()`. Rename this when the migration settles.
+- **`lib/autoSyncV2.ts`**: E2EE auto-sync with debounce, idle detection, and manual trigger via `requestSyncV2()`.
+- **`lib/rustCore.ts`**: Bridge to remaining Rust Tauri commands (sync payload prep/apply).
 
 ## Key Constraints
 
 - **IMPORTANT**: Styles in `@layer(components)` lose to CM6's unlayered CSS. Use `!important` on CodeMirror overrides inside layered CSS.
 - **Svelte 5 reactivity**: Use `$state()` runes, not stores. Read `scrollParent` and `onchange` lazily inside callbacks (not in `$effect` body) to avoid tracking them as dependencies — prevents editor destruction/recreation.
-- **Editor responsiveness is sacred.** Never let background operations (sync, search indexing, save) block or delay typing. See memory: `feedback_typing_sacred.md`.
+- **Editor responsiveness is sacred.** Never let background operations (sync, search indexing, save) block or delay typing.
 - **Image preloading**: Editor preloads image dimensions for CM6 widget sizing. Images served via Tauri asset protocol (`asset://`).
 
 ## Common Patterns
@@ -25,14 +27,13 @@ From the monorepo root, prefer `just build`, `just tauri-dev`, `just test-unit`,
 - **Adding markdown elements**: Edit `liveMarkdownTransform.ts` (processing) + `markdown.css` (styling). Test with `tests/gfm-test-note.md`.
 - **Theme tokens**: `src/styles/app.css` → `@theme` block (primary, text, border, surface, muted, bg).
 - **Platform-specific behavior**: Implement in `PlatformFS` interface, never branch on platform in components.
-- **Search**: Client-side keyword search (MiniSearch, always available).
-- **Debug sync automation**: In dev builds and `VITE_INCLUDE_TEST_HOOKS=true` builds, `window.__testSync` is available for MCP-driven server switching and sync control. Prefer it over clicking through Settings when testing Tauri apps.
+- **Search**: Client-side keyword search (MiniSearch) always available. Vector similarity search via Rust supersearch commands when artifacts are downloaded.
 
 ## Tauri MCP Shortcuts
 
 Use `webview-execute-js` against the live app and call:
 
-- `await window.__testSync.connectE2ee('http://127.0.0.1:3100', 'dev@test.com', 'Dev', 'testing123')` on desktop
+- `await window.__testSync.connect('http://127.0.0.1:3100', 'testing123')` on desktop
 - `await window.__testSync.connectE2ee('http://10.0.2.2:3100', 'dev@test.com', 'Dev', 'testing123')` on Android emulator
 - `await window.__testSync.status()`
 - `await window.__testSync.syncNow()`
@@ -42,7 +43,7 @@ Use `webview-execute-js` against the live app and call:
 
 - **Playwright E2E**: `tests/*.spec.ts` — covers markdown rendering, wikilinks, image paste, search, sync.
 - **Markdown spec + cursor movement**: `tests/markdown-spec.spec.ts` reads `markdown-spec/cases/**`; use it for cursor-reveal and wrapped-line navigation regressions.
-- **Unit tests**: `src/lib/*.test.ts` — notes, search index, table widget, editor content sync.
+- **Unit tests**: `src/lib/*.test.ts` — notes, search index, sync, platform modules, table widget, editor content sync.
 - **Regression tests**: `tests/p0-regressions.spec.ts` (crash/IME), `tests/p1-regressions.spec.ts` (links), `tests/p2-regressions.spec.ts` (title/formatting).
 
 ## Verification (Required)

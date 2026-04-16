@@ -1,24 +1,26 @@
 # AGENTS.md - Stonefruit Tauri App
 
-Tauri v2 desktop + mobile shell. Rust backend with file I/O, local search helpers, and platform integration. Svelte frontend served from monorepo root `src/`.
+Tauri v2 desktop + mobile shell. Thin Rust backend for performance-critical operations; most app logic is in the shared Svelte/TS layer (`src/`).
 
-**Stack**: Rust + Tauri v2 + serde. Plugins: dialog, process, clipboard-manager, opener, single-instance (desktop), mcp-bridge (debug).
+**Stack**: Rust + Tauri v2 + serde. Plugins: dialog, process, clipboard-manager, opener, fs, single-instance (desktop), mcp-bridge (debug).
 
-From the monorepo root, prefer the `just` wrappers for the common Tauri flows: `just tauri-dev`, `just tauri-prod`, `just tauri-build`, `just android-dev`, `just ios-dev`, and `just test-rust`.
+From the monorepo root, prefer the `just` wrappers: `just tauri-dev`, `just tauri-prod`, `just tauri-build`, `just android-dev`, `just ios-dev`, and `just test-rust`.
 
 ## Architecture
 
-- **`core.rs`**: Native business logic — file I/O, sync delta apply helpers, keyword search, engagement tracking. Every public Tauri command wraps an `_impl` function for testability. Imports file operations and hashing directly from `stonefruit-core` — do not add wrapper functions.
+**New features should be in TypeScript unless they are compute-heavy or need OS-level access** (see root AGENTS.md "TypeScript First"). The Rust-to-TypeScript migration moved most file I/O, note indexing, app config, and engagement tracking to TypeScript (`src/lib/`). What remains in Rust is what benefits from native performance or OS-level access:
+
+- **`core.rs`**: 14 Tauri commands — sync payload prep/apply (wraps `stonefruit-core`), filesystem watcher (`notify` crate), supersearch vector operations (download, query, per-note vectors), image save/paste, notes-dir override, and default path resolution. Every public command wraps an `_impl` function for testability.
 - **`lib.rs`**: App setup — plugin registration, platform-specific init (iOS safe-area, Linux GTK decorations, fd limit bump).
 - **`main.rs`**: Entry point. Disables WebKitGTK DMA-BUF renderer on Linux for Wayland stability.
 
-Graph/server semantic search is disabled during the E2EE server migration.
+TypeScript handles: note CRUD (`src/lib/notes.ts`), note index (`src/lib/notesIndex.ts`), app state/preferences (`src/lib/appState.ts`), search indexing (`src/lib/searchIndex.ts`), sync coordination (`src/lib/syncManager.svelte.ts`), and all file I/O via `@tauri-apps/plugin-fs` with atomic writes (`src/lib/platform/atomicWrite.ts`).
 
 ## Key Patterns
 
-- **Atomic writes**: All note writes go through `write_atomic_text()` (temp file + rename) for crash safety.
-- **Path safety**: `ensure_safe_note_id()` (from `stonefruit_core::files`) blocks `..`, `.`, `/`, `\` — never bypass this for user-supplied paths.
-- **Filesystem watcher**: `notify` crate watches notes dir for external edits, emits `note_changed` events. Sync writes suppress watcher events for 5s to avoid loops.
+- **Atomic writes**: Both Rust (`write_atomic_text()` in core.rs) and TypeScript (`atomicWrite.ts`) use temp file + rename for crash safety. New file I/O should use the TS path unless there's a performance reason for Rust.
+- **Path safety**: Rust has `ensure_safe_note_id()` (from `stonefruit_core::files`); TypeScript has `pathSafety.ts`. Both block `..`, `.`, `/`, `\` — never bypass for user-supplied paths.
+- **Filesystem watcher**: `notify` crate in Rust watches notes dir for external edits, emits `note_changed` events. Sync writes suppress watcher events for 5s to avoid loops.
 - **Platform configs**: `#[cfg(target_os = "...")]` and `#[cfg(debug_assertions)]` for platform/build-specific behavior.
 
 ## Dev Ports (avoid collisions)
@@ -35,15 +37,16 @@ Debug builds include the MCP bridge. Prefer `webview-execute-js` for determinist
 
 For sync server switching, use the dev-only webview hook:
 
-- `await window.__testSync.connectE2ee(serverUrl, email, name, password)`
+- `await window.__testSync.connect(serverUrl, password)` — simplified (auto-creates test user)
+- `await window.__testSync.connectE2ee(serverUrl, email, name, password)` — explicit
 - `await window.__testSync.status()`
-- `await window.__testSync.syncE2ee(password)`
-- `await window.__testSync.disconnectE2ee()`
+- `await window.__testSync.syncNow()` / `syncE2ee(password)`
+- `await window.__testSync.disconnect()` / `disconnectE2ee()`
 
 Notes:
 - Desktop dev server URLs use `127.0.0.1`
 - Android emulator must use `10.0.2.2` for host services
-- `connectE2ee()` clears E2EE cached state first so sync state does not bleed across backend switches
+- `connect()` and `connectE2ee()` clear cached E2EE state first so sync state does not bleed across backend switches
 - The same test hooks are available in debug builds created with `VITE_INCLUDE_TEST_HOOKS=true`, which is how `just test-cross-platform` drives the app
 
 ## Building & Testing
@@ -63,7 +66,7 @@ just ios-dev         # iOS dev
 
 | What changed | Run |
 |---|---|
-| Rust logic (`core.rs`, graph) | `just test-rust` |
+| Rust logic (`core.rs`) | `just test-rust` |
 | New `#[tauri::command]` | Add unit test for `_impl` function, then `just test-rust` |
 | Tauri config / capabilities | `just tauri-dev` → manual smoke test |
 | Mobile-specific code | Build + deploy to device, check `adb logcat` (Android) or Xcode logs (iOS) |
