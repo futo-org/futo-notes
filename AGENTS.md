@@ -139,8 +139,6 @@ In your final response, include: commands run, pass/fail, and key observed behav
 
 For demos, migrations, or "make the whole thing work on my machine" requests — own the full client + server + data + launcher path until the user can open the app and see the result. Do not hand off operational steps you can do yourself.
 
-Full checklist: @docs/e2e-demo-checklist.md
-
 ## GitLab CI
 
 `$GITLAB_TOKEN` available in shell (from `~/.zshrc`):
@@ -194,7 +192,7 @@ Every code change that touches logic must include or update tests. No exceptions
 
 ## Browser Tools
 
-**Use `agent-browser` over Playwright MCP** for interactive browser tasks — poking around, testing UI, taking screenshots, inspecting state. It's faster, handles CodeMirror typing natively, and supports annotated screenshots with element labels. For the Tauri app (desktop, Android, iOS), use the Tauri MCP bridge tools (`driver_session`, `webview_*`) — the bridge is included in debug builds on all platforms.
+**Use `agent-browser` over Playwright MCP** for interactive browser tasks — poking around, testing UI, taking screenshots, inspecting state. It's faster, handles CodeMirror typing natively, and supports annotated screenshots with element labels. Run `agent-browser` with no args to see the full command reference and tips. For the Tauri app (desktop, Android, iOS), use the Tauri MCP bridge tools (`driver_session`, `webview_*`) — the bridge is included in debug builds on all platforms.
 
 When switching sync servers in debug builds, prefer the dev-only `window.__testSync` hook over UI automation. It is exposed in Tauri dev webviews and supports:
 
@@ -225,8 +223,3 @@ When the user pastes an error, stack trace, or log output — act immediately:
 5. Run the appropriate verification chain (see table above)
 
 Do not ask clarifying questions unless the error is genuinely ambiguous (e.g., it could originate from multiple unrelated systems). Bias toward action.
-
-## Resources
-
-- Engineering log: `docs/devlog.md`
-- E2E demo flow: @docs/e2e-demo-checklist.md
