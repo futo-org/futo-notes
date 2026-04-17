@@ -3,7 +3,7 @@
  */
 
 import { spawn, spawnSync } from 'node:child_process';
-import { accessSync, openSync, readdirSync } from 'node:fs';
+import { accessSync, openSync, readdirSync, statSync } from 'node:fs';
 import net from 'node:net';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -63,13 +63,23 @@ function findDebugApk(repoRoot, serial) {
   const apkDir = join(repoRoot, 'apps', 'tauri', 'src-tauri', 'gen', 'android', 'app', 'build', 'outputs', 'apk');
   accessSync(apkDir);
   const candidates = collectFiles(apkDir).filter((path) => path.endsWith('.apk') && path.includes('debug'));
-  const abi = getDeviceAbi(serial);
-  const preferred = candidates.find((path) => path.includes(`/${abi}/`) || path.includes(`-${abi}-`))
-    ?? candidates.find((path) => path.includes('universal'))
-    ?? candidates[0];
-  if (!preferred) {
-    throw new Error('Android debug APK not found. Run: cd apps/tauri && VITE_INCLUDE_TEST_HOOKS=true cargo tauri android build --debug --apk');
+  if (candidates.length === 0) {
+    throw new Error('Android debug APK not found. Run: cd apps/tauri && VITE_INCLUDE_TEST_HOOKS=true cargo tauri android build --debug --apk --config src-tauri/tauri.android.dev-mode.conf.json');
   }
+  const abi = getDeviceAbi(serial);
+  // Pick newest APK within each preference bucket so that stale per-ABI builds
+  // don't shadow a just-rebuilt universal APK (or vice versa).
+  const byMtime = (paths) => paths
+    .map((p) => ({ p, mtime: statSync(p).mtimeMs }))
+    .sort((a, b) => b.mtime - a.mtime)
+    .map((x) => x.p);
+  const abiMatches = byMtime(candidates.filter((p) => p.includes(`/${abi}/`) || p.includes(`-${abi}-`)));
+  const universalMatches = byMtime(candidates.filter((p) => p.includes('universal')));
+  const rest = byMtime(candidates);
+  // Prefer whichever bucket has a newer APK — avoids installing a stale per-ABI
+  // APK when the user just rebuilt universal (or vice versa).
+  const picks = [abiMatches[0], universalMatches[0], rest[0]].filter(Boolean);
+  const preferred = byMtime(picks)[0];
   return preferred;
 }
 
@@ -221,6 +231,10 @@ async function ensureAndroidPreviewServer(repoRoot) {
     return previewServer;
   }
 
+  // Kill any stale process still holding the preview port. The harness should
+  // bootstrap cleanly even if a previous run was interrupted.
+  killPortHolders(ANDROID_PREVIEW_PORT);
+
   const logFile = join(tmpdir(), `android-preview-${Date.now()}.log`);
   const logFd = openSync(logFile, 'w');
   const proc = spawn('pnpm', ['exec', 'vite', 'preview', '--host', '127.0.0.1', '--port', String(ANDROID_PREVIEW_PORT), '--strictPort'], {
@@ -263,6 +277,25 @@ async function waitForPreviewServer(timeoutMs = 30_000) {
 
 function removePortForward(serial, localPort) {
   runChecked('adb', ['-s', serial, 'forward', '--remove', `tcp:${localPort}`], { allowFailure: true });
+}
+
+function killPortHolders(port) {
+  const lsof = spawnSync('lsof', ['-ti', `tcp:${port}`], { encoding: 'utf8' });
+  const pids = (lsof.stdout || '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+  for (const pid of pids) {
+    try { process.kill(Number(pid), 'SIGTERM'); } catch { /* already gone */ }
+  }
+  if (pids.length > 0) {
+    // Give kernels a beat to release the socket.
+    const start = Date.now();
+    while (Date.now() - start < 2_000) {
+      const recheck = spawnSync('lsof', ['-ti', `tcp:${port}`], { encoding: 'utf8' });
+      if (!recheck.stdout?.trim()) return;
+    }
+  }
 }
 
 function findFreePort() {

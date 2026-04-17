@@ -18,7 +18,8 @@
  *   - Frontend built with: VITE_INCLUDE_TEST_HOOKS=true pnpm run build
  */
 
-import { writeFileSync, mkdirSync } from 'node:fs';
+import { writeFileSync, mkdirSync, existsSync, readdirSync, readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
@@ -568,13 +569,24 @@ async function largeSync(a, b, server) {
     a.externalWriteNote(id, content);
   }
 
-  // A syncs
+  // A syncs (auto-sync may have handled some already)
   const aResult = await a.syncNow();
-  assert(aResult.summary.uploaded === COUNT, `A uploaded=${aResult.summary.uploaded}, expected ${COUNT}`);
+  assert(aResult.summary.uploaded <= COUNT, `A uploaded=${aResult.summary.uploaded}, expected ≤${COUNT}`);
 
-  // B syncs — gets all 1000
-  const bResult = await b.syncNow();
-  assert(bResult.summary.downloaded === COUNT, `B downloaded=${bResult.summary.downloaded}, expected ${COUNT}`);
+  // B syncs — may need multiple passes because auto-sync and manual sync can
+  // race on who fetches first, and the server may batch-deliver across passes.
+  const bFiles = new Set();
+  for (let attempt = 0; attempt < 5; attempt++) {
+    await b.syncNow();
+    const listed = await b.listNotes();
+    for (const f of listed) {
+      const name = f.filename || f.name || f;
+      if (typeof name === 'string' && name.startsWith('bulk ')) bFiles.add(name.replace(/\.md$/, ''));
+    }
+    if (bFiles.size >= COUNT) break;
+    await sleep(500);
+  }
+  assert(bFiles.size === COUNT, `B ended with ${bFiles.size} bulk notes on disk, expected ${COUNT}`);
 
   // Spot check a few — verify full content round-tripped correctly
   for (const i of [0, 499, 999]) {
@@ -671,6 +683,112 @@ process.on('exit', cleanup);
 process.on('SIGINT', () => process.exit(1));
 process.on('SIGTERM', () => process.exit(1));
 
+// ── Bootstrap: ensure test-hook-enabled artifacts exist ────────
+//
+// The harness is meant to be run ad-hoc — user can invoke it regardless of
+// whether the app is open, the server is up, or the emulator is running.
+// We verify/rebuild artifacts here so a stale production build doesn't
+// silently break test-hook detection.
+
+function ensureDesktopDebugBinary() {
+  const binPath = join(REPO_ROOT, 'target', 'debug', 'futo-notes-tauri');
+  if (!existsSync(binPath)) {
+    console.log('Desktop debug binary missing — building with test hooks…');
+    rebuildDesktopBinary();
+    return;
+  }
+  // If dist/ lacks __testSync, the last `cargo tauri build` (or any
+  // `npm run build`) produced a hooks-free bundle. Rebuild — the Rust
+  // codegen embeds whatever dist/ currently contains.
+  const distJs = findDistIndexJs();
+  if (!distJs || !fileContains(distJs, '__testSync')) {
+    console.log('dist/ was built without VITE_INCLUDE_TEST_HOOKS — rebuilding desktop binary…');
+    rebuildDesktopBinary();
+  }
+}
+
+function rebuildDesktopBinary() {
+  runOrThrow('cargo', ['tauri', 'build', '--debug', '--no-bundle'], {
+    cwd: join(REPO_ROOT, 'apps', 'tauri'),
+    env: { ...process.env, VITE_INCLUDE_TEST_HOOKS: 'true' },
+  });
+}
+
+function ensureAndroidApk() {
+  const apkPath = join(REPO_ROOT, 'apps', 'tauri', 'src-tauri', 'gen', 'android', 'app',
+    'build', 'outputs', 'apk', 'universal', 'debug', 'app-universal-debug.apk');
+  if (!existsSync(apkPath)) {
+    console.log('Android APK missing — building with test hooks…');
+    rebuildAndroidApk();
+    return;
+  }
+  const distJs = findDistIndexJs();
+  if (!distJs || !fileContains(distJs, '__testSync')) {
+    console.log('dist/ missing test hooks — rebuilding Android APK…');
+    rebuildAndroidApk();
+  }
+}
+
+function rebuildAndroidApk() {
+  // Ensure x86_64 ORT for emulator + arm64 for devices.
+  runOrThrow('node', ['scripts/fetch-ort-android.mjs', '--abis', 'arm64-v8a,x86_64'], {
+    cwd: REPO_ROOT,
+  });
+  runOrThrow('cargo', [
+    'tauri', 'android', 'build', '--debug', '--apk',
+    '--config', 'src-tauri/tauri.android.dev-mode.conf.json',
+  ], {
+    cwd: join(REPO_ROOT, 'apps', 'tauri'),
+    env: { ...process.env, VITE_INCLUDE_TEST_HOOKS: 'true' },
+  });
+}
+
+function findDistIndexJs() {
+  const assetsDir = join(REPO_ROOT, 'dist', 'assets');
+  if (!existsSync(assetsDir)) return null;
+  const files = readdirSync(assetsDir).filter((n) => /^index-.*\.js$/.test(n));
+  if (files.length === 0) return null;
+  return join(assetsDir, files[0]);
+}
+
+function fileContains(path, needle) {
+  try {
+    return readFileSync(path, 'utf8').includes(needle);
+  } catch { return false; }
+}
+
+function runOrThrow(cmd, argv, opts) {
+  const res = spawnSync(cmd, argv, { stdio: 'inherit', ...opts });
+  if (res.status !== 0) {
+    throw new Error(`${cmd} ${argv.join(' ')} failed with exit ${res.status}`);
+  }
+}
+
+function killStalePreviewAndClients() {
+  // A vite preview left behind by an interrupted previous run will keep port
+  // 5181 busy; a leftover debug binary will hold an MCP port. Clear them so
+  // the harness boots cleanly every time.
+  const lsofOut = spawnSync('lsof', ['-ti', 'tcp:5181'], { encoding: 'utf8' });
+  const pids = (lsofOut.stdout || '').split('\n').map((s) => s.trim()).filter(Boolean);
+  for (const pid of pids) {
+    try { process.kill(Number(pid), 'SIGTERM'); } catch { /* already gone */ }
+  }
+  // Only kill debug binaries spawned with the multi-instance flag — that's
+  // how the harness launches them, so this won't touch a user's open app.
+  const ps = spawnSync('pgrep', ['-af', 'futo-notes-tauri'], { encoding: 'utf8' });
+  const lines = (ps.stdout || '').split('\n').map((s) => s.trim()).filter(Boolean);
+  for (const line of lines) {
+    const match = line.match(/^(\d+)\s+(.*)$/);
+    if (!match) continue;
+    const [_, pidStr, cmdline] = match;
+    // Only kill binaries from this repo's target/debug — a conservative check
+    // that excludes the user's installed Stonefruit.
+    if (cmdline.includes(`${REPO_ROOT}/target/debug/futo-notes-tauri`)) {
+      try { process.kill(Number(pidStr), 'SIGTERM'); } catch { /* ignore */ }
+    }
+  }
+}
+
 async function main() {
   console.log('Cross-platform sync integration tests\n');
 
@@ -679,6 +797,13 @@ async function main() {
     throw new Error(`Unknown matrix "${args.matrix}". Expected one of: ${Object.keys(matrixLaunchers).join(', ')}`);
   }
   console.log(`Matrix: ${matrix.label}\n`);
+
+  // Bootstrap artifacts and clean up stale state from a prior run.
+  killStalePreviewAndClients();
+  ensureDesktopDebugBinary();
+  if (args.matrix === 'desktop-android') {
+    ensureAndroidApk();
+  }
 
   // Filter scenarios if --scenario is set
   const selected = args.scenario

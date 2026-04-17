@@ -130,6 +130,9 @@ test-e2e:
 test-cross-platform:
   pnpm run test:cross-platform
 
+test-cross-platform-android:
+  pnpm -w run test:cross-platform:android
+
 test-markdown-spec:
   pnpm run test:markdown-spec
 
