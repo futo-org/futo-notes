@@ -9,87 +9,11 @@ export function hasRustCore(): boolean {
   return platformName === 'tauri';
 }
 
-// ── V2 Sync (filename-based, no UUIDs) ─────────────────────
-
-interface RustV2HashCacheEntry {
-  modifiedAt: number;
-  hash: string;
-}
-
-interface RustV2SyncState {
-  deviceId: string;
-  lastServerVersion: number;
-  fileHashes: Record<string, string>;
-  hashCache?: Record<string, RustV2HashCacheEntry>;
-  dirtyUpserts?: string[];
-  dirtyDeletes?: string[];
-}
-
-interface RustV2SyncPrepareOutput {
-  state: RustV2SyncState;
-  inventory: { filename: string; hash: string }[] | null;
-  changed: { filename: string; content: string; hash: string; baselineHash?: string }[];
-  new: { filename: string; content: string; hash: string }[];
-  deleted: string[];
-  lastVersion: number | null;
-  deletedBaselines: Record<string, string>;
-  elapsedMs: number;
-}
-
 interface RustV2SyncApplyOutput {
   updatedFilenames: string[];
   deletedFilenames: string[];
   conflictFilenames: string[];
   elapsedMs: number;
-}
-
-export type { RustV2SyncState };
-
-export async function prepareSyncPayloadV2(state: import('./appState').V2SyncState): Promise<{
-  nextState: import('./appState').V2SyncState;
-  inventory: { filename: string; hash: string }[] | null;
-  changed: { filename: string; content: string; hash: string; baseline_hash?: string }[];
-  new: { filename: string; content: string; hash: string }[];
-  deleted: string[];
-  lastVersion: number | null;
-  deletedBaselines: Record<string, string>;
-  elapsedMs: number;
-}> {
-  const rustState: RustV2SyncState = {
-    deviceId: state.deviceId,
-    lastServerVersion: state.lastServerVersion,
-    fileHashes: { ...state.fileHashes },
-    ...(state.hashCache ? { hashCache: state.hashCache } : {}),
-    ...(state.dirtyUpserts?.length ? { dirtyUpserts: state.dirtyUpserts } : {}),
-    ...(state.dirtyDeletes?.length ? { dirtyDeletes: state.dirtyDeletes } : {}),
-  };
-
-  const payload = await tauriInvoke<RustV2SyncPrepareOutput>('core_prepare_sync_payload_v2', {
-    input: { state: rustState },
-  });
-
-  return {
-    nextState: {
-      deviceId: payload.state.deviceId,
-      lastServerVersion: payload.state.lastServerVersion,
-      fileHashes: payload.state.fileHashes,
-      ...(payload.state.hashCache ? { hashCache: payload.state.hashCache } : {}),
-      ...(payload.state.dirtyUpserts?.length ? { dirtyUpserts: payload.state.dirtyUpserts } : {}),
-      ...(payload.state.dirtyDeletes?.length ? { dirtyDeletes: payload.state.dirtyDeletes } : {}),
-    },
-    inventory: payload.inventory,
-    changed: payload.changed.map((c) => ({
-      filename: c.filename,
-      content: c.content,
-      hash: c.hash,
-      ...(c.baselineHash ? { baseline_hash: c.baselineHash } : {}),
-    })),
-    new: payload.new,
-    deleted: payload.deleted,
-    lastVersion: payload.lastVersion,
-    deletedBaselines: payload.deletedBaselines,
-    elapsedMs: payload.elapsedMs,
-  };
 }
 
 export async function applySyncDeltaV2(
@@ -107,4 +31,3 @@ export async function applySyncDeltaV2(
     input: { update: updates, delete: deletes, conflicts, timestamps },
   });
 }
-

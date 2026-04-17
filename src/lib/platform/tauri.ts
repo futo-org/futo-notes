@@ -48,15 +48,6 @@ interface AppConfigFile {
   graphSidebarWidth?: number | null;
 }
 
-interface SupersearchRow {
-  chunkId: number;
-  uuid: string;
-  chunkText: string;
-  startOffset: number;
-  endOffset: number;
-  score: number;
-}
-
 // ── Cached notes root path ──────────────────────────────────────────────
 
 let cachedNotesRoot: string | null = null;
@@ -311,26 +302,6 @@ export const tauriFS: PlatformFS = {
       filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'] }],
     });
     return typeof picked === 'string' ? picked : null;
-  },
-
-  async supersearchDownload(serverUrl: string, token: string): Promise<void> {
-    await invoke('supersearch_download', { serverUrl, token });
-  },
-
-  async supersearchHasArtifacts(): Promise<boolean> {
-    return invoke<boolean>('supersearch_has_artifacts');
-  },
-
-  async supersearchQuery(queryVector: number[], topK: number): Promise<SupersearchRow[]> {
-    return invoke<SupersearchRow[]>('supersearch_query', { queryVector, topK });
-  },
-
-  async supersearchNoteVector(uuid: string): Promise<number[]> {
-    return invoke<number[]>('supersearch_note_vector', { uuid });
-  },
-
-  async supersearchAllNoteVectors(): Promise<Array<{ uuid: string; vector: number[] }>> {
-    return invoke<Array<{ uuid: string; vector: number[] }>>('supersearch_all_note_vectors');
   },
 
 };

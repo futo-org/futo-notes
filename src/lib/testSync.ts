@@ -30,14 +30,8 @@ async function clearServerScopedState(): Promise<void> {
   const current = getAppState();
   await saveAppState({
     ...current,
-    serverUrl: '',
-    authToken: '',
     lastSyncedAt: null,
     lastSyncError: '',
-    lastServerVersion: 0,
-    fileHashes: {},
-    hashCache: undefined,
-    graphLayout: undefined,
   });
 }
 

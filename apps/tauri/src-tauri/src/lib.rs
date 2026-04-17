@@ -164,18 +164,12 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             fs_set_mtime,
-            supersearch_has_artifacts,
-            supersearch_download,
-            supersearch_query,
-            supersearch_note_vector,
-            supersearch_all_note_vectors,
             fs_save_image,
             fs_paste_clipboard_image,
             fs_start_watcher,
             notes_dir_override_load,
             notes_dir_override_save,
             resolve_default_notes_root,
-            core_prepare_sync_payload_v2,
             core_apply_sync_delta_v2,
             // Phase 2 dev-only smoke test for on-device embedding. Gated at
             // the module level in core::inference_dev so the command only

@@ -50,15 +50,6 @@ export interface NativeCapabilities {
   readBinaryAppData?(path: string): Promise<ArrayBuffer | null>;
   writeBinaryAppData?(path: string, data: ArrayBuffer): Promise<void>;
 
-  supersearchDownload?(serverUrl: string, token: string): Promise<void>;
-  supersearchHasArtifacts?(): Promise<boolean>;
-  supersearchQuery?(
-    queryVector: number[],
-    topK: number,
-  ): Promise<Array<{ chunkId: number; uuid: string; chunkText: string; startOffset: number; endOffset: number; score: number }>>;
-  supersearchNoteVector?(uuid: string): Promise<number[]>;
-  supersearchAllNoteVectors?(): Promise<Array<{ uuid: string; vector: number[] }>>;
-
   pickImage?(): Promise<string | null>;
 }
 

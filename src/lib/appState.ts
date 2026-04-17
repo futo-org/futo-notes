@@ -1,11 +1,9 @@
 /**
  * Unified app state — single `.app-state.json` in the app data directory.
  *
- * Combines sync credentials (previously in .preferences.json), sync state
- * (previously in .sync-state-v2.json), and user preferences into one file.
- *
- * On first load, migrates from the legacy files if `.app-state.json`
- * doesn't exist. Legacy files are left in place for safety.
+ * Combines sync credentials, device identity, and user preferences into one
+ * file. On first load, migrates from a legacy `.preferences.json` if it
+ * exists. The legacy file is left in place for safety.
  */
 
 import { getPlatformFS, hasFileSystem } from './platform';
@@ -13,43 +11,22 @@ import { getPlatformFS, hasFileSystem } from './platform';
 // ── Types ──────────────────────────────────────────────────────────────
 
 export interface AppState {
-  // Sync credentials
-  serverUrl: string;
-  authToken: string;
-
-  // Sync state
   deviceId: string;
-  lastServerVersion: number;
-  fileHashes: Record<string, string>;
 
-  // User preferences
   preferences: {
     theme: 'auto' | 'dark' | 'light';
     sortOrder: string;
   };
 
-  // Crash reporting
   crashReporting: {
     enabled: boolean;
     alwaysSend: boolean;
   };
 
-  // Ephemeral sync metadata (not critical — rebuilt on next sync)
   lastSyncedAt: number | null;
   lastSyncError: string;
-  hashCache?: Record<string, { modifiedAt: number; hash: string }>;
 
-  // Dirty journal: files changed/deleted locally since last successful sync
-  dirtyUpserts?: string[];
-  dirtyDeletes?: string[];
-
-  // Cached graph layout from server
-  graphLayout?: {
-    serverVersion: number;
-    data: ServerGraphLayout;
-  };
-
-  // E2EE sync state (alternative backend — POC)
+  // E2EE sync state
   e2eeServerUrl?: string;
   e2eeEmail?: string;
   e2eeAuthToken?: string;
@@ -67,25 +44,8 @@ export interface AppState {
   e2eeMaxVersion?: number;
 }
 
-/** Raw shape returned by GET /graph/layout on the V2 server. */
-export interface ServerGraphLayout {
-  nodes: Array<{ filename: string; x: number; y: number; cluster_index: number }>;
-  clusters: Array<{
-    index: number;
-    label: string;
-    center_x: number;
-    center_y: number;
-    radius: number;
-    color_index: number;
-    filenames: string[];
-  }>;
-  note_count: number;
-  indexed_count: number;
-}
-
 const APP_STATE_PATH = '.app-state.json';
 const LEGACY_PREFS_PATH = '.preferences.json';
-const LEGACY_SYNC_STATE_PATH = '.sync-state-v2.json';
 
 // ── Defaults ───────────────────────────────────────────────────────────
 
@@ -97,11 +57,7 @@ function generateDeviceId(): string {
 
 function defaultState(): AppState {
   return {
-    serverUrl: '',
-    authToken: '',
     deviceId: generateDeviceId(),
-    lastServerVersion: 0,
-    fileHashes: {},
     preferences: {
       theme: 'auto',
       sortOrder: 'modified',
@@ -131,30 +87,6 @@ function sanitize(raw: unknown): AppState {
       ? obj.deviceId
       : defaults.deviceId;
 
-  const fileHashes =
-    obj.fileHashes && typeof obj.fileHashes === 'object'
-      ? (Object.fromEntries(
-          Object.entries(obj.fileHashes as Record<string, unknown>).filter(
-            ([, v]) => typeof v === 'string',
-          ),
-        ) as Record<string, string>)
-      : {};
-
-  let hashCache: AppState['hashCache'];
-  if (obj.hashCache && typeof obj.hashCache === 'object') {
-    const entries = Object.entries(obj.hashCache as Record<string, unknown>)
-      .filter(([, v]) => {
-        if (!v || typeof v !== 'object') return false;
-        const entry = v as Record<string, unknown>;
-        return typeof entry.modifiedAt === 'number' && typeof entry.hash === 'string';
-      })
-      .map(([k, v]) => {
-        const entry = v as { modifiedAt: number; hash: string };
-        return [k, { modifiedAt: entry.modifiedAt, hash: entry.hash }] as const;
-      });
-    if (entries.length > 0) hashCache = Object.fromEntries(entries);
-  }
-
   const rawPrefs = (obj.preferences && typeof obj.preferences === 'object'
     ? obj.preferences
     : {}) as Record<string, unknown>;
@@ -164,12 +96,7 @@ function sanitize(raw: unknown): AppState {
     : {}) as Record<string, unknown>;
 
   return {
-    serverUrl: typeof obj.serverUrl === 'string' ? obj.serverUrl : '',
-    authToken: typeof obj.authToken === 'string' ? obj.authToken : '',
     deviceId,
-    lastServerVersion:
-      typeof obj.lastServerVersion === 'number' ? obj.lastServerVersion : 0,
-    fileHashes,
     preferences: {
       theme: ['auto', 'dark', 'light'].includes(rawPrefs.theme as string)
         ? (rawPrefs.theme as 'auto' | 'dark' | 'light')
@@ -182,10 +109,6 @@ function sanitize(raw: unknown): AppState {
     },
     lastSyncedAt: typeof obj.lastSyncedAt === 'number' ? obj.lastSyncedAt : null,
     lastSyncError: typeof obj.lastSyncError === 'string' ? obj.lastSyncError : '',
-    ...(hashCache ? { hashCache } : {}),
-    ...(obj.graphLayout && typeof obj.graphLayout === 'object'
-      ? { graphLayout: obj.graphLayout as AppState['graphLayout'] }
-      : {}),
     // E2EE state — passthrough with type guards
     ...(typeof obj.e2eeServerUrl === 'string' ? { e2eeServerUrl: obj.e2eeServerUrl } : {}),
     ...(typeof obj.e2eeEmail === 'string' ? { e2eeEmail: obj.e2eeEmail } : {}),
@@ -206,10 +129,9 @@ async function migrateFromLegacy(): Promise<AppState | null> {
   if (!hasFileSystem) return null;
   const fs = await getPlatformFS();
 
-  let migrated = false;
   const state = defaultState();
+  let migrated = false;
 
-  // Try legacy preferences
   try {
     const prefsData = await fs.readAppData(LEGACY_PREFS_PATH);
     if (prefsData) {
@@ -222,30 +144,9 @@ async function migrateFromLegacy(): Promise<AppState | null> {
           state.crashReporting.alwaysSend = prefs.crashReporting.alwaysSend;
       }
       if (prefs.sync) {
-        if (typeof prefs.sync.serverUrl === 'string') state.serverUrl = prefs.sync.serverUrl;
-        if (typeof prefs.sync.token === 'string') state.authToken = prefs.sync.token;
         if (typeof prefs.sync.lastSyncedAt === 'number') state.lastSyncedAt = prefs.sync.lastSyncedAt;
         if (typeof prefs.sync.lastError === 'string') state.lastSyncError = prefs.sync.lastError;
       }
-      migrated = true;
-    }
-  } catch {
-    // Ignore
-  }
-
-  // Try legacy sync state
-  try {
-    const syncData = await fs.readAppData(LEGACY_SYNC_STATE_PATH);
-    if (syncData) {
-      const syncState = JSON.parse(syncData);
-      if (typeof syncState.deviceId === 'string' && syncState.deviceId.length > 0)
-        state.deviceId = syncState.deviceId;
-      if (typeof syncState.lastServerVersion === 'number')
-        state.lastServerVersion = syncState.lastServerVersion;
-      if (syncState.fileHashes && typeof syncState.fileHashes === 'object')
-        state.fileHashes = syncState.fileHashes;
-      if (syncState.hashCache && typeof syncState.hashCache === 'object')
-        state.hashCache = syncState.hashCache;
       migrated = true;
     }
   } catch {
@@ -267,7 +168,6 @@ export async function loadAppState(): Promise<AppState> {
 
   const fs = await getPlatformFS();
 
-  // Try the new unified file
   try {
     const data = await fs.readAppData(APP_STATE_PATH);
     if (data) {
@@ -278,16 +178,13 @@ export async function loadAppState(): Promise<AppState> {
     // File corrupt or missing — try migration
   }
 
-  // Try migrating from legacy files
   const migrated = await migrateFromLegacy();
   if (migrated) {
     cached = migrated;
-    // Persist the migrated state to the new file
     await saveAppState(migrated);
     return cached;
   }
 
-  // Fresh install
   cached = defaultState();
   return cached;
 }
@@ -304,19 +201,15 @@ export async function saveAppState(state: AppState): Promise<void> {
   await fs.writeAppData(APP_STATE_PATH, JSON.stringify(state, null, 2));
 }
 
-/**
- * Update specific fields of app state (shallow merge at top level).
- * Convenience for callers that only need to change a few fields.
- */
 export async function updateAppState(
-  updates: Partial<Pick<AppState, 'serverUrl' | 'authToken' | 'lastSyncedAt' | 'lastSyncError' | 'lastServerVersion' | 'fileHashes' | 'hashCache' | 'preferences' | 'crashReporting' | 'graphLayout' | 'e2eeServerUrl' | 'e2eeEmail' | 'e2eeAuthToken' | 'e2eeUserId' | 'e2eeCollectionId' | 'e2eeSalt' | 'e2eeObjectMap' | 'e2eeMaxVersion'>>,
+  updates: Partial<Pick<AppState, 'lastSyncedAt' | 'lastSyncError' | 'preferences' | 'crashReporting' | 'e2eeServerUrl' | 'e2eeEmail' | 'e2eeAuthToken' | 'e2eeUserId' | 'e2eeCollectionId' | 'e2eeSalt' | 'e2eeObjectMap' | 'e2eeMaxVersion'>>,
 ): Promise<void> {
   const current = getAppState();
   const next = { ...current, ...updates };
   await saveAppState(next);
 }
 
-// ── Preferences (formerly preferences.ts facade) ──────────────────────
+// ── Preferences facade ────────────────────────────────────────────────
 
 export interface AppPreferences {
   appearance: {
@@ -340,8 +233,8 @@ function stateToPrefs(): AppPreferences {
     appearance: { theme: s.preferences.theme },
     crashReporting: { ...s.crashReporting },
     sync: {
-      serverUrl: s.e2eeServerUrl ?? s.serverUrl,
-      token: s.e2eeAuthToken ?? s.authToken,
+      serverUrl: s.e2eeServerUrl ?? '',
+      token: s.e2eeAuthToken ?? '',
       lastSyncedAt: s.lastSyncedAt,
       lastError: s.lastSyncError,
     },
@@ -361,56 +254,7 @@ export async function savePreferences(prefs: AppPreferences): Promise<void> {
   await updateAppState({
     preferences: { ...getAppState().preferences, theme: prefs.appearance.theme },
     crashReporting: prefs.crashReporting,
-    serverUrl: prefs.sync.serverUrl,
-    authToken: prefs.sync.token,
     lastSyncedAt: prefs.sync.lastSyncedAt,
     lastSyncError: prefs.sync.lastError,
-  });
-}
-
-// ── V2 Sync State (formerly v2SyncState.ts facade) ────────────────────
-
-export interface V2SyncState {
-  deviceId: string;
-  lastServerVersion: number;
-  fileHashes: Record<string, string>;
-  hashCache?: Record<string, { modifiedAt: number; hash: string }>;
-  /** Dirty journal: filenames upserted locally since last sync. */
-  dirtyUpserts?: string[];
-  /** Dirty journal: filenames deleted locally since last sync. */
-  dirtyDeletes?: string[];
-}
-
-export async function loadV2SyncState(): Promise<V2SyncState> {
-  await loadAppState();
-  const s = getAppState();
-  return {
-    deviceId: s.deviceId,
-    lastServerVersion: s.lastServerVersion,
-    fileHashes: s.fileHashes,
-    ...(s.hashCache ? { hashCache: s.hashCache } : {}),
-    ...(s.dirtyUpserts?.length ? { dirtyUpserts: s.dirtyUpserts } : {}),
-    ...(s.dirtyDeletes?.length ? { dirtyDeletes: s.dirtyDeletes } : {}),
-  };
-}
-
-export async function saveV2SyncState(state: V2SyncState): Promise<void> {
-  const current = getAppState();
-  await saveAppState({
-    ...current,
-    deviceId: state.deviceId,
-    lastServerVersion: state.lastServerVersion,
-    fileHashes: state.fileHashes,
-    hashCache: state.hashCache,
-    dirtyUpserts: state.dirtyUpserts?.length ? state.dirtyUpserts : undefined,
-    dirtyDeletes: state.dirtyDeletes?.length ? state.dirtyDeletes : undefined,
-  });
-}
-
-export async function clearV2SyncState(): Promise<void> {
-  await updateAppState({
-    lastServerVersion: 0,
-    fileHashes: {},
-    hashCache: undefined,
   });
 }

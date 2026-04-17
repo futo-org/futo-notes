@@ -8,7 +8,6 @@ import {
 } from './fileSystem';
 import { ensureNotesFolder, getFS, getPlatformFS } from './platform';
 import { loadEngagement, trackEdit, removeEngagement, renameEngagement } from './engagement';
-import { clearV2SyncState } from './appState';
 import { pauseSyncV2, resumeSyncV2, waitForSyncIdleV2 } from './autoSyncV2';
 import { extractTags } from '@futo-notes/shared';
 import { scanNotePreviews, scanNotes, makePreview } from './notesIndex';
@@ -179,7 +178,6 @@ export async function deleteAllNotes(): Promise<void> {
   try {
     await waitForSyncIdleV2();
     await deleteAllContent();
-    await clearV2SyncState();
     notesCache = [];
     clearSearchIndex();
     void persistIndex();
