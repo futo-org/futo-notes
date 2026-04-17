@@ -10,7 +10,8 @@ test_rust_macos_task:
     - corepack enable
     - corepack prepare pnpm@10.29.2 --activate
     - pnpm install --frozen-lockfile
-    - pnpm run tauri:test:rust
+    - mkdir -p dist
+    - cd apps/tauri/src-tauri && cargo test
 
 test_desktop_smoke_macos_task:
   name: testDesktopSmokeMacOS
@@ -92,6 +93,9 @@ build_ios_task:
     # Initialize and build iOS
     - cd apps/tauri
     - cargo tauri ios init --config src-tauri/tauri.ios.conf.json
+    # Fetch ORT xcframework — project.yml's pre-build script reads it via
+    # ORT_IOS_XCFWK_PATH from apps/tauri/src-tauri/gen/apple/.
+    - node ../../scripts/fetch-ort-ios.mjs
     - cargo tauri icon src-tauri/icons/icon-1024-rgba8.png --ios-color '#f0f0f0'
 
     # Patch Xcode project for manual signing, deployment target, and Swift compat shims
@@ -180,10 +184,11 @@ build_macos_task:
     - corepack enable
     - corepack prepare pnpm@10.29.2 --activate
 
-    # Install Rust with universal macOS targets
+    # Install Rust. Apple Silicon only — ort-sys has no prebuilt for
+    # x86_64-apple-darwin, and Intel Macs are EOL on our support matrix.
     - curl https://sh.rustup.rs -sSf | sh -s -- -y
     - export PATH="$HOME/.cargo/bin:$PATH"
-    - rustup target add x86_64-apple-darwin aarch64-apple-darwin
+    - rustup target add aarch64-apple-darwin
     - cargo install tauri-cli --locked
 
     # Derive version from git tag
@@ -203,12 +208,12 @@ build_macos_task:
         fs.writeFileSync(f, JSON.stringify(c, null, 2) + '\n');
       " "$VERSION"
 
-    # Build universal macOS DMG (Tauri handles signing + notarization)
+    # Build aarch64 macOS DMG (Tauri handles signing + notarization)
     - cd apps/tauri
-    - cargo tauri build --target universal-apple-darwin
+    - cargo tauri build --target aarch64-apple-darwin
     - cd ../..
 
     # Copy DMG to artifacts location
-    - cp target/universal-apple-darwin/release/bundle/dmg/*.dmg ./
+    - cp target/aarch64-apple-darwin/release/bundle/dmg/*.dmg ./
   binary_artifacts:
     path: "*.dmg"

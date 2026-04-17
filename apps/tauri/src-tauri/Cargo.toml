@@ -35,11 +35,21 @@ png = "0.17"
 libc = "0.2"
 tauri-plugin-mcp-bridge = "0.10.0"
 
-[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+# macOS + Windows: ort downloads and statically links libonnxruntime during
+# `cargo build`. pyke's prebuilts for these targets link cleanly.
+[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
 tauri-plugin-single-instance = "2"
-# Desktop: ort downloads and statically links libonnxruntime during `cargo build`.
-# iOS is excluded because we haven't set up CoreML framework linking yet (Phase 3).
 stonefruit-inference = { path = "../../../crates/stonefruit-inference" }
+
+# Linux: ORT ships as a separate libonnxruntime.so in
+# apps/tauri/src-tauri/gen/linux/, fetched by `scripts/fetch-ort-linux.mjs`
+# from Microsoft's official tarball (glibc 2.17 floor, no __isoc23_* symbols).
+# The .so is bundled as a Tauri resource; init_ort_dylib_path() in lib.rs sets
+# ORT_DYLIB_PATH at startup so `ort::init` finds it.
+[target.'cfg(target_os = "linux")'.dependencies]
+tauri-plugin-single-instance = "2"
+stonefruit-inference = { path = "../../../crates/stonefruit-inference", default-features = false, features = ["load-dynamic"] }
+glib = "0.18"
 
 [target.'cfg(target_os = "ios")'.dependencies]
 objc2 = "0.6"
@@ -55,9 +65,6 @@ stonefruit-inference = { path = "../../../crates/stonefruit-inference", default-
 # cross-compiling through pyke's CDN isn't set up and load-dynamic is simpler
 # to reason about.
 stonefruit-inference = { path = "../../../crates/stonefruit-inference", default-features = false, features = ["load-dynamic", "xnnpack"] }
-
-[target.'cfg(target_os = "linux")'.dependencies]
-glib = "0.18"
 
 [lints.clippy]
 too_many_lines = "warn"

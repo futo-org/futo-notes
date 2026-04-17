@@ -71,6 +71,37 @@ fn linux_color_scheme_watcher(app: tauri::AppHandle) {
     let _ = child.kill();
 }
 
+/// Point ORT at the libonnxruntime.so we ship alongside the binary. Called
+/// from the Tauri setup hook before any `Session::builder()` call, so
+/// `ort::init` dlopens the right .so. Checks, in order:
+///   1. Sibling of the current exe — covers AppImage (`usr/bin/` next to the
+///      binary) and dev (`target/{debug,release}/` via fetch-ort-linux.mjs).
+///   2. `<exe_dir>/../lib/stonefruit/libonnxruntime.so` — .deb/.rpm install
+///      layout (`/usr/bin/futo-notes-tauri` → `/usr/lib/stonefruit/...`).
+///
+/// Respects ORT_DYLIB_PATH if the user has already set it.
+#[cfg(target_os = "linux")]
+fn init_ort_dylib_path() {
+    if std::env::var_os("ORT_DYLIB_PATH").is_some() {
+        return;
+    }
+    let Ok(exe) = std::env::current_exe() else {
+        return;
+    };
+    let Some(dir) = exe.parent() else {
+        return;
+    };
+    for cand in [
+        dir.join("libonnxruntime.so"),
+        dir.join("../lib/stonefruit/libonnxruntime.so"),
+    ] {
+        if cand.exists() {
+            std::env::set_var("ORT_DYLIB_PATH", cand);
+            return;
+        }
+    }
+}
+
 /// Raise the file-descriptor soft limit. iOS defaults to 256 which is too low
 /// for a WebView app that also reads/writes thousands of note files during sync.
 #[cfg(unix)]
@@ -149,6 +180,7 @@ pub fn run() {
             // render its own Breeze-style titlebar consistently across DEs.
             #[cfg(target_os = "linux")]
             {
+                init_ort_dylib_path();
                 if let Some(w) = _app.get_webview_window("main") {
                     w.set_decorations(false)?;
                 }

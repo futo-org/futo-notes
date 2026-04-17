@@ -59,6 +59,7 @@ stages:
           libayatana-appindicator3-dev \
           librsvg2-dev \
           libfuse2 \
+          libssl-dev \
           patchelf \
           xdg-utils
       fi
@@ -170,7 +171,9 @@ test:rust:
     - pnpm install --frozen-lockfile
     - !reference [.setup-linux-deps, script]
     - !reference [.setup-rust, script]
-    - pnpm run tauri:test:rust
+    - node scripts/fetch-ort-linux.mjs
+    - mkdir -p dist
+    - cd apps/tauri/src-tauri && cargo test
   rules:
     - if: $CI_COMMIT_TAG
     - if: $CI_MERGE_REQUEST_IID
@@ -198,6 +201,7 @@ test:desktop-smoke:
     - !reference [.setup-linux-deps, script]
     - !reference [.setup-rust, script]
     - DEBIAN_FRONTEND=noninteractive apt-get install -y xvfb
+    - node scripts/fetch-ort-linux.mjs
     # Build frontend + debug binary
     - pnpm run build
     - cd apps/tauri && cargo tauri build --debug --no-bundle && cd ../..
@@ -240,6 +244,7 @@ test:cross-platform-sync:
     - !reference [.setup-linux-deps, script]
     - !reference [.setup-rust, script]
     - DEBIAN_FRONTEND=noninteractive apt-get install -y xvfb
+    - node scripts/fetch-ort-linux.mjs
     # Build debug Tauri binary. The E2EE sync server lives in a separate repo.
     - cd apps/tauri && VITE_INCLUDE_TEST_HOOKS=true cargo tauri build --debug --no-bundle && cd ../..
     # Run cross-platform sync tests under xvfb
@@ -308,6 +313,7 @@ build:linux-packages:
     - !reference [.setup-linux-deps, script]
     - !reference [.setup-rust, script]
     - !reference [.set-version, script]
+    - node scripts/fetch-ort-linux.mjs
     - cd apps/tauri && cargo tauri build --bundles deb,rpm
   after_script:
     - |
@@ -342,6 +348,7 @@ build:linux-appimage:
     - !reference [.setup-linux-deps, script]
     - !reference [.setup-rust, script]
     - !reference [.set-version, script]
+    - node scripts/fetch-ort-linux.mjs
     - cd apps/tauri && cargo tauri build --bundles appimage
   after_script:
     - |
@@ -795,7 +802,7 @@ release:
     - |
       DMG=$(find buildFutoNotesMacOS -name "*.dmg" -type f 2>/dev/null | head -1)
       if [ -n "$DMG" ]; then
-        NAME="Stonefruit-${VERSION}-universal.dmg"
+        NAME="Stonefruit-${VERSION}-aarch64.dmg"
         echo "Uploading $NAME"
         curl --fail -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$DMG" "${REGISTRY_URL}/${NAME}"
       fi
@@ -821,7 +828,7 @@ release:
         --assets-link "{\"name\":\"Stonefruit-${VERSION}-x86_64.AppImage\",\"url\":\"${REGISTRY_URL}/Stonefruit-${VERSION}-x86_64.AppImage\",\"link_type\":\"package\"}" \
         --assets-link "{\"name\":\"stonefruit-${VERSION}.apk\",\"url\":\"${REGISTRY_URL}/stonefruit-${VERSION}.apk\",\"link_type\":\"package\"}" \
         --assets-link "{\"name\":\"Stonefruit-${VERSION}.ipa\",\"url\":\"${REGISTRY_URL}/Stonefruit-${VERSION}.ipa\",\"link_type\":\"package\"}" \
-        --assets-link "{\"name\":\"Stonefruit-${VERSION}-universal.dmg\",\"url\":\"${REGISTRY_URL}/Stonefruit-${VERSION}-universal.dmg\",\"link_type\":\"package\"}" \
+        --assets-link "{\"name\":\"Stonefruit-${VERSION}-aarch64.dmg\",\"url\":\"${REGISTRY_URL}/Stonefruit-${VERSION}-aarch64.dmg\",\"link_type\":\"package\"}" \
         --assets-link "{\"name\":\"Stonefruit-${VERSION}-x64-setup.exe\",\"url\":\"${REGISTRY_URL}/Stonefruit-${VERSION}-x64-setup.exe\",\"link_type\":\"package\"}"
   rules:
     - if: $CI_COMMIT_TAG

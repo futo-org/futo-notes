@@ -68,6 +68,28 @@ node scripts/fetch-ort-android.mjs --abis arm64-v8a,x86_64  # + emulator
 
 Version is pinned to `ort-sys 2.0.0-rc.12`'s target (ORT 1.24.2). If you bump the `ort` dep, bump `DEFAULT_VERSION` in the fetch script. The `.so` files are gitignored.
 
+### Linux — ONNX Runtime `.so` for the inference crate
+
+On Linux the `stonefruit-inference` crate uses ORT's `load-dynamic` feature:
+ORT is NOT statically linked at build time. Instead, `scripts/fetch-ort-linux.mjs`
+downloads Microsoft's official `onnxruntime-linux-x64-${ver}.tgz` (glibc 2.17
+floor, no `__isoc23_*` symbols — so it links on any distro the `.deb`/`.rpm`
+targets) and drops `libonnxruntime.so` into `apps/tauri/src-tauri/gen/linux/`
+plus `target/{debug,release}/`.
+
+```bash
+# Fetches to apps/tauri/src-tauri/gen/linux/libonnxruntime.so.
+node scripts/fetch-ort-linux.mjs
+```
+
+`init_ort_dylib_path()` in `lib.rs` sets `ORT_DYLIB_PATH` at app startup by
+looking for the `.so` next to the exe (AppImage, dev) or in
+`../lib/stonefruit/` (`.deb`/`.rpm` install layout). `tauri.conf.json`'s
+`bundle.linux.{deb,rpm,appimage}.files` maps the `.so` into the right place
+in each package. Version is pinned to `ort-sys 2.0.0-rc.12`'s target (ORT
+1.24.2). If you bump the `ort` dep, bump `DEFAULT_VERSION` in the fetch
+script in lockstep with the Android and iOS scripts.
+
 ### iOS — ONNX Runtime xcframework for the inference crate
 
 The iOS build of `stonefruit-inference` links ORT statically via an xcframework with CoreML EP. `scripts/fetch-ort-ios.mjs` downloads Microsoft's prebuilt pod-archive and extracts the xcframework. Run before `cargo tauri ios build`:
