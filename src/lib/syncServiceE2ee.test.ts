@@ -49,7 +49,13 @@ function installFetchMock(state: MockServerState): void {
     const url = new URL(String(input));
     const method = init?.method ?? 'GET';
 
-    if (url.pathname === '/api/auth/login' && method === 'POST') {
+    if (url.pathname === '/' && method === 'GET') {
+      return Response.json({ auth_mode: 'password' });
+    }
+
+    if (url.pathname === '/api/auth/password/login' && method === 'POST') {
+      const body = JSON.parse(String(init?.body)) as { password?: string };
+      if (!body.password) return Response.json({ error: 'password is required' }, { status: 400 });
       return Response.json({ user: { id: 'user-1' }, token: 'token-1' });
     }
 
@@ -158,7 +164,7 @@ describe('syncServiceE2ee key bootstrap', () => {
     const { appState, syncService } = await freshModules();
     await appState.loadAppState();
 
-    await syncService.connectE2ee('http://server.test', 'user@test.local', 'User', 'correct horse');
+    await syncService.connectE2ee('http://server.test', 'correct horse');
 
     expect(state.putKeyCount).toBe(1);
     expect(state.key).toMatchObject({
@@ -167,7 +173,7 @@ describe('syncServiceE2ee key bootstrap', () => {
     expect(appState.getAppState().e2eeSalt).toBe((state.key as { key_salt: string }).key_salt);
 
     await syncService.disconnectE2ee();
-    await syncService.connectE2ee('http://server.test', 'user@test.local', 'User', 'correct horse');
+    await syncService.connectE2ee('http://server.test', 'correct horse');
 
     expect(state.putKeyCount).toBe(1);
     expect(appState.getAppState().e2eeCollectionId).toBe('collection-1');
@@ -179,13 +185,13 @@ describe('syncServiceE2ee key bootstrap', () => {
 
     let modules = await freshModules();
     await modules.appState.loadAppState();
-    await modules.syncService.connectE2ee('http://server.test', 'user@test.local', 'User', 'right-password');
+    await modules.syncService.connectE2ee('http://server.test', 'right-password');
     await modules.syncService.disconnectE2ee();
 
     modules = await freshModules();
     await modules.appState.loadAppState();
     await expect(
-      modules.syncService.connectE2ee('http://server.test', 'user@test.local', 'User', 'wrong-password'),
+      modules.syncService.connectE2ee('http://server.test', 'wrong-password'),
     ).rejects.toThrow('Could not unlock vault key');
   });
 });
@@ -211,7 +217,7 @@ describe('syncServiceE2ee conflict resolution', () => {
     const fsB = createNodeFS();
 
     const clientA = await loadClient(fsA);
-    await clientA.syncService.connectE2ee('http://server.test', 'user@test.local', 'User', 'password');
+    await clientA.syncService.connectE2ee('http://server.test', 'password');
     const base = [
       '# Plan',
       '',
@@ -225,7 +231,7 @@ describe('syncServiceE2ee conflict resolution', () => {
     await clientA.syncService.syncE2ee('password');
 
     const clientB = await loadClient(fsB);
-    await clientB.syncService.connectE2ee('http://server.test', 'user@test.local', 'User', 'password');
+    await clientB.syncService.connectE2ee('http://server.test', 'password');
     await clientB.syncService.syncE2ee('password');
     expect(await fsB.readNote('shared')).toBe(base);
 
@@ -256,12 +262,12 @@ describe('syncServiceE2ee conflict resolution', () => {
     const fsB = createNodeFS();
 
     const clientA = await loadClient(fsA);
-    await clientA.syncService.connectE2ee('http://server.test', 'user@test.local', 'User', 'password');
+    await clientA.syncService.connectE2ee('http://server.test', 'password');
     await fsA.writeNote('shared', '# Original');
     await clientA.syncService.syncE2ee('password');
 
     const clientB = await loadClient(fsB);
-    await clientB.syncService.connectE2ee('http://server.test', 'user@test.local', 'User', 'password');
+    await clientB.syncService.connectE2ee('http://server.test', 'password');
     await clientB.syncService.syncE2ee('password');
 
     await fsA.writeNote('shared', "# A's version");

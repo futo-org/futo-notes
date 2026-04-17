@@ -13,7 +13,7 @@ export interface TestSyncApi {
   status(): TestSyncStatus;
   syncNow(): Promise<{ summary: SyncSummary; status: TestSyncStatus }>;
   disconnect(): Promise<TestSyncStatus>;
-  connectE2ee(serverUrl: string, email: string, name: string, password: string): Promise<TestSyncStatus>;
+  connectE2ee(serverUrl: string, password: string): Promise<TestSyncStatus>;
   syncE2ee(password: string): Promise<{ summary: SyncSummary; status: TestSyncStatus }>;
   disconnectE2ee(): Promise<TestSyncStatus>;
 }
@@ -47,33 +47,8 @@ export async function testConnectSync(
   password: string,
 ): Promise<TestSyncStatus> {
   await clearServerScopedState();
-  // Legacy V2 connect signature — delegate to E2EE with default email
-  await autoSignupForTest(serverUrl, 'dev@test.com', 'Dev', password);
-  await connectE2ee(serverUrl, 'dev@test.com', 'Dev', password);
+  await connectE2ee(serverUrl, password);
   return getTestSyncStatus();
-}
-
-/**
- * Test-only: ensure the given user exists on the server before login.
- * In production, users sign up at <server>/start in the browser.
- */
-async function autoSignupForTest(
-  serverUrl: string,
-  email: string,
-  name: string,
-  password: string,
-): Promise<void> {
-  const baseUrl = serverUrl.replace(/\/+$/, '');
-  try {
-    await fetch(`${baseUrl}/api/auth/signup`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password, name }),
-    });
-    // 201 = created, 409 = already exists — either way proceed to login.
-  } catch {
-    // Network error — let connectE2ee surface it.
-  }
 }
 
 export async function testSyncNow(): Promise<{
@@ -92,19 +67,12 @@ export async function testDisconnectSync(): Promise<TestSyncStatus> {
   return getTestSyncStatus();
 }
 
-async function clearE2eeState(): Promise<void> {
-  await disconnectE2ee();
-}
-
 export async function testConnectE2ee(
   serverUrl: string,
-  email: string,
-  name: string,
   password: string,
 ): Promise<TestSyncStatus> {
-  await clearE2eeState();
-  await autoSignupForTest(serverUrl, email, name, password);
-  await connectE2ee(serverUrl, email, name, password);
+  await disconnectE2ee();
+  await connectE2ee(serverUrl, password);
   return getTestSyncStatus();
 }
 
@@ -117,7 +85,7 @@ export async function testSyncE2ee(password: string): Promise<{
 }
 
 export async function testDisconnectE2ee(): Promise<TestSyncStatus> {
-  await clearE2eeState();
+  await disconnectE2ee();
   return getTestSyncStatus();
 }
 

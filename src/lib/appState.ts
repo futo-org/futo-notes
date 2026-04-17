@@ -28,7 +28,6 @@ export interface AppState {
 
   // E2EE sync state
   e2eeServerUrl?: string;
-  e2eeEmail?: string;
   e2eeAuthToken?: string;
   e2eeUserId?: string;
   e2eeCollectionId?: string;
@@ -111,7 +110,6 @@ function sanitize(raw: unknown): AppState {
     lastSyncError: typeof obj.lastSyncError === 'string' ? obj.lastSyncError : '',
     // E2EE state — passthrough with type guards
     ...(typeof obj.e2eeServerUrl === 'string' ? { e2eeServerUrl: obj.e2eeServerUrl } : {}),
-    ...(typeof obj.e2eeEmail === 'string' ? { e2eeEmail: obj.e2eeEmail } : {}),
     ...(typeof obj.e2eeAuthToken === 'string' ? { e2eeAuthToken: obj.e2eeAuthToken } : {}),
     ...(typeof obj.e2eeUserId === 'string' ? { e2eeUserId: obj.e2eeUserId } : {}),
     ...(typeof obj.e2eeCollectionId === 'string' ? { e2eeCollectionId: obj.e2eeCollectionId } : {}),
@@ -202,7 +200,7 @@ export async function saveAppState(state: AppState): Promise<void> {
 }
 
 export async function updateAppState(
-  updates: Partial<Pick<AppState, 'lastSyncedAt' | 'lastSyncError' | 'preferences' | 'crashReporting' | 'e2eeServerUrl' | 'e2eeEmail' | 'e2eeAuthToken' | 'e2eeUserId' | 'e2eeCollectionId' | 'e2eeSalt' | 'e2eeObjectMap' | 'e2eeMaxVersion'>>,
+  updates: Partial<Pick<AppState, 'lastSyncedAt' | 'lastSyncError' | 'preferences' | 'crashReporting' | 'e2eeServerUrl' | 'e2eeAuthToken' | 'e2eeUserId' | 'e2eeCollectionId' | 'e2eeSalt' | 'e2eeObjectMap' | 'e2eeMaxVersion'>>,
 ): Promise<void> {
   const current = getAppState();
   const next = { ...current, ...updates };

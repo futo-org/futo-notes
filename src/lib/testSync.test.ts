@@ -47,8 +47,6 @@ describe('testSync', () => {
 
     expect(e2eeMocks.connectE2ee).toHaveBeenCalledWith(
       'http://new-server',
-      'dev@test.com',
-      'Dev',
       'testing123',
     );
     expect(typeof status.preferences).toBe('object');

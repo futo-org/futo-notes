@@ -439,30 +439,66 @@ async function unlockConfiguredVaultKey(password: string): Promise<CryptoKey> {
 
 // ── Connect ──────────────────────────────────────────────────────────────
 
+interface ServerCapabilities {
+  auth_mode: 'password' | 'dev';
+}
+
+/**
+ * Probe `GET /` so one client binary can speak to dev (passwordless, test-only)
+ * and password (single-user self-host) servers without a config switch. Failure
+ * to probe falls back to password mode — the 99% case in production. Extra
+ * auth_mode values (e.g. future 'oidc') fall through to password so the UI
+ * surfaces a clear auth error instead of silently doing the wrong thing.
+ */
+async function probeAuthMode(baseUrl: string): Promise<'password' | 'dev'> {
+  try {
+    const res = await fetch(`${baseUrl}/`, { signal: AbortSignal.timeout(5_000) });
+    if (!res.ok) return 'password';
+    const caps = await res.json() as Partial<ServerCapabilities>;
+    return caps.auth_mode === 'dev' ? 'dev' : 'password';
+  } catch {
+    return 'password';
+  }
+}
+
+async function login(baseUrl: string, password: string): Promise<{ token: string; userId: string }> {
+  const authMode = await probeAuthMode(baseUrl);
+
+  if (authMode === 'dev') {
+    const res = await fetch(`${baseUrl}/api/auth/dev/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'local@stonefruit.local', name: 'Stonefruit' }),
+    });
+    if (!res.ok) {
+      throw new Error(`Dev login failed: HTTP ${res.status}`);
+    }
+    const data = await res.json() as { user: { id: string }; token: string };
+    return { token: data.token, userId: data.user.id };
+  }
+
+  const res = await fetch(`${baseUrl}/api/auth/password/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password }),
+  });
+  if (res.status === 401) {
+    throw new Error('Invalid password');
+  }
+  if (!res.ok) {
+    throw new Error(`Login failed: HTTP ${res.status}`);
+  }
+  const data = await res.json() as { user: { id: string }; token: string };
+  return { token: data.token, userId: data.user.id };
+}
+
 export async function connectE2ee(
   serverUrl: string,
-  email: string,
-  name: string,
   password: string,
 ): Promise<void> {
   const baseUrl = serverUrl.replace(/\/+$/, '');
 
-  // 1. Log in with email + password (account must be created via ${baseUrl}/start first).
-  void name;
-  const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password }),
-  });
-  if (loginRes.status === 401) {
-    throw new Error(`Login failed. Did you sign up at ${baseUrl}/start yet?`);
-  }
-  if (!loginRes.ok) {
-    throw new Error(`Login failed: HTTP ${loginRes.status}`);
-  }
-  const loginData = await loginRes.json() as { user: { id: string }; token: string };
-  const token = loginData.token;
-  const userId = loginData.user.id;
+  const { token, userId } = await login(baseUrl, password);
 
   // 2. Find or create a collection (vault)
   const headers = { Authorization: `Bearer ${token}` };
@@ -496,7 +532,6 @@ export async function connectE2ee(
   await saveAppState({
     ...current,
     e2eeServerUrl: baseUrl,
-    e2eeEmail: email,
     e2eeAuthToken: token,
     e2eeUserId: userId,
     e2eeCollectionId: collectionId,

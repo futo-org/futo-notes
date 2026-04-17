@@ -37,8 +37,8 @@ Debug builds include the MCP bridge. Prefer `webview-execute-js` for determinist
 
 For sync server switching, use the dev-only webview hook:
 
-- `await window.__testSync.connect(serverUrl, password)` — simplified (auto-creates test user)
-- `await window.__testSync.connectE2ee(serverUrl, email, name, password)` — explicit
+- `await window.__testSync.connect(serverUrl, password)` — password-mode login
+- `await window.__testSync.connectE2ee(serverUrl, password)` — alias, same behavior
 - `await window.__testSync.status()`
 - `await window.__testSync.syncNow()` / `syncE2ee(password)`
 - `await window.__testSync.disconnect()` / `disconnectE2ee()`

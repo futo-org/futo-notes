@@ -34,7 +34,7 @@ From the monorepo root, prefer `just build`, `just tauri-dev`, `just test-unit`,
 Use `webview-execute-js` against the live app and call:
 
 - `await window.__testSync.connect('http://127.0.0.1:3100', 'testing123')` on desktop
-- `await window.__testSync.connectE2ee('http://10.0.2.2:3100', 'dev@test.com', 'Dev', 'testing123')` on Android emulator
+- `await window.__testSync.connect('http://10.0.2.2:3100', 'testing123')` on Android emulator
 - `await window.__testSync.status()`
 - `await window.__testSync.syncNow()`
 - `await window.__testSync.disconnect()`

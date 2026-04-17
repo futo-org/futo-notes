@@ -37,7 +37,7 @@ async function main() {
   // Connect to the isolated sync server.
   const connected = await executeJs(
     ws,
-    `(async () => { try { return await window.__testSync.connectE2ee(${JSON.stringify(SERVER_URL)}, 'verify@test.local', 'Verify', ${JSON.stringify(PASSWORD)}); } catch (e) { return { error: String(e && e.message || e) }; } })()`,
+    `(async () => { try { return await window.__testSync.connectE2ee(${JSON.stringify(SERVER_URL)}, ${JSON.stringify(PASSWORD)}); } catch (e) { return { error: String(e && e.message || e) }; } })()`,
   );
   log('connect', connected);
   if (connected && connected.error) throw new Error(`connect failed: ${connected.error}`);

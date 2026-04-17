@@ -108,8 +108,8 @@ if (!isWorktree) {
   }
 
   // Sync server is now a separate repo (stonefruit-server).
-  // Start it manually if you need sync: cd ~/Developer/stonefruit-server && PORT=3100 pnpm start
-  // Then connect via: window.__testSync.connectE2ee('http://127.0.0.1:3100', 'dev@test.com', 'Dev', 'password')
+  // Start it with the helper: ./scripts/start-test-server.sh (password mode, default "testing123")
+  // Then connect via: window.__testSync.connect('http://127.0.0.1:3100', 'testing123')
   process.on('SIGINT', () => process.exit(0))
   process.on('SIGTERM', () => process.exit(0))
 

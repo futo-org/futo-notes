@@ -32,13 +32,11 @@
   // Sync MVP preferences
   const appState = getAppState();
   let syncUrl = $state(appState.e2eeServerUrl || (import.meta.env.DEV && !appState.e2eeAuthToken ? 'http://127.0.0.1:3100' : ''));
-  let syncEmail = $state(appState.e2eeEmail ?? '');
   let syncPassword = $state('');
   let syncBusy = $state(false);
   let syncStatus = $state(prefs.sync.lastError ? `Last error: ${prefs.sync.lastError}` : '');
   let syncLastAt = $state<number | null>(prefs.sync.lastSyncedAt);
   let hasSyncToken = $state(Boolean(appState.e2eeAuthToken));
-  let tokenServerUrl = $state(appState.e2eeServerUrl ?? '');
 
   // Connect + sync blocking modal
   let connectSyncing = $state(false);
@@ -106,9 +104,8 @@
     connectSyncPhase = 'Connecting to server...';
     connectSyncError = '';
     try {
-      await connectE2ee(syncUrl, syncEmail.trim().toLowerCase(), syncEmail, syncPassword);
+      await connectE2ee(syncUrl, syncPassword);
       hasSyncToken = true;
-      tokenServerUrl = getAppState().e2eeServerUrl ?? syncUrl;
 
       connectSyncPhase = 'Syncing notes...';
       const summary = await syncE2ee(syncPassword);
@@ -144,7 +141,6 @@
     const confirmed = await ask('Are you sure you want to reset the connection?', { title: 'Reset connection', kind: 'warning' });
     if (!confirmed) return;
     hasSyncToken = false;
-    tokenServerUrl = '';
     syncPassword = '';
     syncStatus = '';
     await disconnectE2ee();
@@ -170,7 +166,6 @@
       }
       const updatedPrefs = getCachedPreferences();
       hasSyncToken = Boolean(getAppState().e2eeAuthToken);
-      tokenServerUrl = getAppState().e2eeServerUrl ?? '';
       syncLastAt = updatedPrefs.sync.lastSyncedAt;
       syncStatus = 'Sync complete';
     } catch (e) {
@@ -355,32 +350,20 @@
           />
 
           {#if !hasSyncToken}
-            <label class="settings-input-label" for="sync-email">Email</label>
-            <input
-              id="sync-email"
-              class="settings-input"
-              type="email"
-              bind:value={syncEmail}
-              placeholder="you@example.com"
-              autocapitalize="off"
-              autocomplete="email"
-              spellcheck="false"
-            />
-
             <label class="settings-input-label" for="sync-password">Password</label>
             <input
               id="sync-password"
               class="settings-input"
               type="password"
               bind:value={syncPassword}
-              placeholder="At least 8 characters"
+              placeholder="Server password"
               autocapitalize="off"
               autocomplete="current-password"
               spellcheck="false"
             />
 
             <p class="settings-btn-desc settings-hint">
-              Sign up at <code>{syncUrl ? syncUrl.replace(/\/+$/, '') : 'your-server'}/start</code> first if you haven't already.
+              Use the password you configured when installing your Stonefruit server.
             </p>
 
             <div class="settings-actions">

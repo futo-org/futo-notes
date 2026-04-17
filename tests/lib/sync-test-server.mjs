@@ -13,6 +13,24 @@ import { tmpdir } from 'node:os';
 
 const PASSWORD = 'testing123';
 
+const hashCache = new Map();
+
+function hashPassword(serverRepo, password) {
+  const cacheKey = `${serverRepo}\0${password}`;
+  const cached = hashCache.get(cacheKey);
+  if (cached) return cached;
+  const result = spawnSync('pnpm', ['exec', 'tsx', 'src/index.ts', 'hash', password], {
+    cwd: serverRepo,
+    encoding: 'utf8',
+  });
+  if (result.status !== 0) {
+    throw new Error(`Failed to hash test server password:\n${result.stderr || result.stdout}`);
+  }
+  const hash = result.stdout.trim();
+  hashCache.set(cacheKey, hash);
+  return hash;
+}
+
 /**
  * Start a fresh sync server on the given port.
  *
@@ -44,13 +62,16 @@ export async function startServer(port, repoRoot, options = {}) {
     throw new Error(`Failed to start E2EE server Postgres:\n${compose.stderr || compose.stdout}`);
   }
 
+  const passwordHash = hashPassword(serverRepo, PASSWORD);
+
   const env = {
     ...process.env,
     PORT: String(serverPort),
     BLOB_DIR: blobDir,
     DATABASE_URL: process.env.STONEFRUIT_E2EE_DATABASE_URL
       || 'postgres://stonefruit:stonefruit@localhost:5433/stonefruit',
-    STONEFRUIT_DEV_PASSWORD: PASSWORD,
+    AUTH_MODE: 'password',
+    STONEFRUIT_PASSWORD_HASH: passwordHash,
   };
 
   const proc = spawn('pnpm', ['start'], {
