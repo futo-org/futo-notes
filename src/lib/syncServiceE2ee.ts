@@ -123,6 +123,12 @@ const TIMEOUT_MS = 30_000;
 const PUSH_CONCURRENCY = 8;
 
 /**
+ * How many blob downloads run concurrently during pull. Same reasoning
+ * as PUSH_CONCURRENCY — each is one GET /api/blobs/:key round-trip.
+ */
+const PULL_CONCURRENCY = 8;
+
+/**
  * Persist the object map after every N completed push operations. On
  * first-sync of a large vault this turns a crash-or-quit-midway into a
  * "pick up where we left off" instead of "start all 2,000 uploads over."
@@ -683,6 +689,10 @@ async function pullE2ee(key: CryptoKey, sinceVersion: number): Promise<PullResul
   const hashToFilename = new Map<string, string>();
   const deletedHashes = new Map<string, string>();
 
+  // First pass (synchronous, no I/O): apply tombstones and skip objects
+  // we already have at this version. Whatever remains needs a blob
+  // download, which is the part worth parallelizing.
+  const toDownload: ServerObject[] = [];
   for (const obj of data.objects) {
     const version = Number(obj.version);
     const changeSeq = Number(obj.change_seq);
@@ -714,19 +724,29 @@ async function pullE2ee(key: CryptoKey, sinceVersion: number): Promise<PullResul
       }
     }
 
+    toDownload.push(obj);
+  }
+
+  // Second pass: download blobs in parallel. Each worker mutates the
+  // shared arrays/maps synchronously after its own await, so no cross-
+  // worker races under JS single-threading. applySyncDeltaV2 still runs
+  // once at the end with the fully-populated update/delete lists.
+  await runPool(toDownload, PULL_CONCURRENCY, async (obj) => {
     let note: { filename: string; content: string };
     try {
-      note = await downloadNoteByBlobKey(key, obj.blob_key);
+      note = await downloadNoteByBlobKey(key, obj.blob_key!);
     } catch (err) {
       console.warn(`[e2ee] Failed to download/decrypt blob ${obj.blob_key}:`, err);
-      continue;
+      return;
     }
 
     const { filename, content } = note;
     const hash = await sha256(content);
+    const version = Number(obj.version);
 
     // If a different filename was previously holding this objectId, the
     // remote renamed via in-place update — drop the stale map entry.
+    const knownFilename = filenameByObjectId.get(obj.id);
     if (knownFilename && knownFilename !== filename) {
       const existing = objectMap[knownFilename];
       if (existing?.hash) deletedHashes.set(existing.hash, knownFilename);
@@ -747,12 +767,12 @@ async function pullE2ee(key: CryptoKey, sinceVersion: number): Promise<PullResul
     objectMap[filename] = {
       objectId: obj.id,
       version,
-      blobKey: obj.blob_key,
+      blobKey: obj.blob_key!,
       hash,
       baseContent: content,
     };
     filenameByObjectId.set(obj.id, filename);
-  }
+  });
 
   if (updates.length > 0 || deletes.length > 0) {
     await applySyncDeltaV2(updates, deletes, [], {});
