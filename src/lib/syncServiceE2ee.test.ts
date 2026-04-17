@@ -293,3 +293,43 @@ describe('syncServiceE2ee conflict resolution', () => {
     expect(aFiles.some((file) => file.name.includes('conflict'))).toBe(true);
   });
 });
+
+describe('syncServiceE2ee mtime sync', () => {
+  beforeEach(() => {
+    resetActiveFS();
+    testFS._reset();
+    vi.unstubAllGlobals();
+  });
+
+  it('sets local mtime to server updated_at after push so every device sorts alike', async () => {
+    const server: MockServerState = { key: null, putKeyCount: 0 };
+    installFetchMock(server);
+    const fsA = createNodeFS();
+    const fsB = createNodeFS();
+
+    const clientA = await loadClient(fsA);
+    await clientA.syncService.connectE2ee('http://server.test', 'password');
+
+    // Write a note on A with a local mtime far in the past, so if push does
+    // nothing to the local mtime we'd see the ancient value below.
+    await fsA.writeNote('old-note', '# old', 1_000_000);
+    const preA = (await fsA.listNoteFiles()).find((f: { name: string; mtime: number }) => f.name === 'old-note.md');
+    expect(preA?.mtime).toBeLessThan(1_000_001);
+
+    await clientA.syncService.syncE2ee('password');
+
+    // After push, A's local mtime should match the server's updated_at for
+    // this note — mock server stamps updated_at as 2026-04-14T12:mm:00Z.
+    const postA = (await fsA.listNoteFiles()).find((f: { name: string; mtime: number }) => f.name === 'old-note.md');
+    expect(postA?.mtime).toBeGreaterThan(new Date('2026-01-01').getTime());
+
+    // B pulls it. B's mtime is also derived from server updated_at (via
+    // Rust's `modified_at` application in the pull path, which the mock
+    // honors via writeNote). A and B should agree.
+    const clientB = await loadClient(fsB);
+    await clientB.syncService.connectE2ee('http://server.test', 'password');
+    await clientB.syncService.syncE2ee('password');
+    const postB = (await fsB.listNoteFiles()).find((f: { name: string; mtime: number }) => f.name === 'old-note.md');
+    expect(postB?.mtime).toBe(postA?.mtime);
+  });
+});

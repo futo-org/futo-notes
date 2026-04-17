@@ -55,6 +55,7 @@ interface ObjectWriteResponse {
     id: string;
     version: string | number;
     change_seq?: string | number;
+    updated_at?: string;
   };
   collectionVersion?: number;
 }
@@ -363,7 +364,7 @@ async function createObjectInline(
   key: CryptoKey,
   filename: string,
   content: string,
-): Promise<{ objectId: string; version: number; blobKey: string; hash: string; changeSeq: number }> {
+): Promise<{ objectId: string; version: number; blobKey: string; hash: string; changeSeq: number; updatedAt: number }> {
   const { serverUrl, collectionId } = getE2eeConfig();
   const packed = packNote(filename, content);
   const ciphertext = await encrypt(key, packed);
@@ -385,11 +386,12 @@ async function createObjectInline(
     blobKey: data.object.blob_key,
     hash: await sha256(content),
     changeSeq: Number(data.collectionVersion ?? data.object.change_seq ?? 0),
+    updatedAt: data.object.updated_at ? new Date(data.object.updated_at).getTime() : Date.now(),
   };
 }
 
 type InlineUpdateResult =
-  | { kind: 'ok'; version: number; blobKey: string; changeSeq: number }
+  | { kind: 'ok'; version: number; blobKey: string; changeSeq: number; updatedAt: number }
   | { kind: 'conflict'; conflict: ConflictResponse }
   | { kind: 'error'; status: number };
 
@@ -424,6 +426,7 @@ async function updateObjectInline(
       version: Number(data.object.version),
       blobKey: data.object.blob_key,
       changeSeq: Number(data.collectionVersion ?? data.object.change_seq ?? 0),
+      updatedAt: data.object.updated_at ? new Date(data.object.updated_at).getTime() : Date.now(),
     };
   }
   if (res.status === 409) {
@@ -840,7 +843,7 @@ async function resolveUpdateConflict(
       if (result.kind === 'ok') {
         maxVersion = result.changeSeq;
         await applySyncDeltaV2(
-          [{ filename, content: merge.content, hash: mergedHash, modified_at: Date.now() }],
+          [{ filename, content: merge.content, hash: mergedHash, modified_at: result.updatedAt }],
           [],
           [],
           {},
@@ -869,11 +872,14 @@ async function resolveUpdateConflict(
   const copyObject = await createObjectInline(key, copyFilename, localContent);
   maxVersion = copyObject.changeSeq;
 
+  // Copy filename goes through the `conflicts` channel (no mtime slot), so
+  // route its server `updated_at` through `timestamps` — Rust applies that
+  // after the conflict write, overriding the OS's just-now mtime.
   await applySyncDeltaV2(
     [{ filename, content: remote.content, hash: remoteHash, modified_at: Date.now() }],
     [],
     [{ filename: copyFilename, content: localContent }],
-    {},
+    { [copyFilename]: copyObject.updatedAt },
   );
 
   objectMap[filename] = {
@@ -916,6 +922,11 @@ async function pushE2ee(key: CryptoKey): Promise<PushResult> {
   const updatedIds: string[] = [];
   const deletedIds: string[] = [];
   const deletedHashes = new Map<string, string>();
+  // Server-authoritative mtimes for files we successfully pushed this cycle.
+  // Applied in one shot after the push loop so every device sorts the note
+  // list by the same canonical timestamp. (The conflict-resolution path
+  // handles its own files inline — we only track the happy-path pushes.)
+  const pushedTimestamps: Record<string, number> = {};
 
   // Periodic checkpoint: persist the object map mid-sync so a crash on
   // note #1800 doesn't force re-uploading notes #1-1799. JS is single-
@@ -969,6 +980,7 @@ async function pushE2ee(key: CryptoKey): Promise<PushResult> {
           hash,
           baseContent: content,
         };
+        pushedTimestamps[filename] = result.updatedAt;
         uploaded++;
         updatedIds.push(id);
       } else if (result.kind === 'conflict') {
@@ -1005,6 +1017,7 @@ async function pushE2ee(key: CryptoKey): Promise<PushResult> {
           hash: created.hash,
           baseContent: content,
         };
+        pushedTimestamps[filename] = created.updatedAt;
         uploaded++;
         updatedIds.push(id);
       } catch (err) {
@@ -1014,6 +1027,13 @@ async function pushE2ee(key: CryptoKey): Promise<PushResult> {
 
     await maybeCheckpoint();
   });
+
+  // Sync local mtimes to server `updated_at` so desktop and iPhone sort
+  // notes by the same canonical timestamp. Pull already does this per-file
+  // in the Rust apply; here we do it once for the push side.
+  if (Object.keys(pushedTimestamps).length > 0) {
+    await applySyncDeltaV2([], [], [], pushedTimestamps);
+  }
 
   // Delete loop — objects that were in the map but aren't on disk.
   // Snapshot entries first because workers mutate objectMap as they run.

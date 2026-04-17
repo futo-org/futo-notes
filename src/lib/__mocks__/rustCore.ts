@@ -16,7 +16,7 @@ export async function applySyncDeltaV2(
   updates: { filename: string; content: string; hash: string; modified_at: number }[],
   deletes: string[],
   conflicts: { filename: string; content: string }[],
-  _timestamps: Record<string, number> = {},
+  timestamps: Record<string, number> = {},
 ): Promise<{
   updatedFilenames: string[];
   deletedFilenames: string[];
@@ -42,6 +42,16 @@ export async function applySyncDeltaV2(
     const id = conflict.filename.replace(/\.md$/i, '');
     await fs.writeNote(id, conflict.content);
     conflictFilenames.push(conflict.filename);
+  }
+  // Mirror the Rust apply's `timestamps` correction: rewrite each existing
+  // file's mtime to the server-authoritative value without touching content.
+  for (const [filename, mtimeMs] of Object.entries(timestamps)) {
+    if (!mtimeMs) continue;
+    const id = filename.replace(/\.md$/i, '');
+    try {
+      const existing = await fs.readNote(id);
+      await fs.writeNote(id, existing, mtimeMs);
+    } catch { /* file gone — matches Rust behavior */ }
   }
 
   return { updatedFilenames, deletedFilenames, conflictFilenames, elapsedMs: 0 };
