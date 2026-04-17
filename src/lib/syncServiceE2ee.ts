@@ -113,6 +113,48 @@ type MergeAttempt =
 
 const TIMEOUT_MS = 30_000;
 
+/**
+ * How many push operations run concurrently. Each operation is one HTTP
+ * request against the server's `blob-objects` endpoint, so this is the
+ * effective in-flight request count during a bulk sync. Set low enough
+ * to stay within WebKit's per-host HTTP/1.1 connection limit (6) while
+ * benefiting from HTTP/2 multiplexing when the server supports it.
+ */
+const PUSH_CONCURRENCY = 8;
+
+/**
+ * Persist the object map after every N completed push operations. On
+ * first-sync of a large vault this turns a crash-or-quit-midway into a
+ * "pick up where we left off" instead of "start all 2,000 uploads over."
+ */
+const CHECKPOINT_EVERY = 100;
+
+/**
+ * Pull-driven bounded-concurrency pool. `worker` is invoked once per
+ * item; `concurrency` workers race to claim the next index. Errors in a
+ * worker reject the outer promise — callers that need per-item error
+ * handling should try/catch inside `worker`.
+ */
+async function runPool<T>(
+  items: readonly T[],
+  concurrency: number,
+  worker: (item: T, index: number) => Promise<void>,
+): Promise<void> {
+  let nextIndex = 0;
+  const poolSize = Math.max(1, Math.min(concurrency, items.length));
+  const runners: Promise<void>[] = [];
+  for (let i = 0; i < poolSize; i++) {
+    runners.push((async () => {
+      while (true) {
+        const idx = nextIndex++;
+        if (idx >= items.length) return;
+        await worker(items[idx], idx);
+      }
+    })());
+  }
+  await Promise.all(runners);
+}
+
 function getE2eeConfig(): { serverUrl: string; token: string; userId: string; collectionId: string } {
   const s = getAppState();
   if (!s.e2eeServerUrl || !s.e2eeAuthToken || !s.e2eeCollectionId || !s.e2eeUserId) {
@@ -305,51 +347,86 @@ async function downloadNoteByBlobKey(key: CryptoKey, blobKey: string): Promise<{
   return unpackNote(plaintext);
 }
 
-async function uploadNoteBlob(key: CryptoKey, filename: string, content: string): Promise<{ blobKey: string; sizeBytes: number }> {
-  const { serverUrl } = getE2eeConfig();
-  const packed = packNote(filename, content);
-  const ciphertext = await encrypt(key, packed);
-  const blobRes = await e2eeFetch(`${serverUrl}/api/blobs`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/octet-stream' },
-    body: ciphertext as BodyInit,
-  });
-  if (!blobRes.ok) {
-    throw new Error(`Failed to upload blob for ${filename}: HTTP ${blobRes.status}`);
-  }
-  const blobData = await blobRes.json() as { key: string };
-  return { blobKey: blobData.key, sizeBytes: ciphertext.byteLength };
-}
-
-async function createObjectForNote(
+/**
+ * Encrypt + upload + object-create in one HTTP round-trip via the
+ * server's `blob-objects` endpoint. Replaces the old POST-blob-then-
+ * POST-object pair. Server mints the blob key and returns the full
+ * object record.
+ */
+async function createObjectInline(
   key: CryptoKey,
   filename: string,
   content: string,
 ): Promise<{ objectId: string; version: number; blobKey: string; hash: string; changeSeq: number }> {
   const { serverUrl, collectionId } = getE2eeConfig();
-  const uploaded = await uploadNoteBlob(key, filename, content);
-  const createRes = await e2eeFetch(
-    `${serverUrl}/api/collections/${collectionId}/objects`,
+  const packed = packNote(filename, content);
+  const ciphertext = await encrypt(key, packed);
+  const res = await e2eeFetch(
+    `${serverUrl}/api/collections/${collectionId}/blob-objects`,
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        blob_key: uploaded.blobKey,
-        size_bytes: uploaded.sizeBytes,
-      }),
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: ciphertext as BodyInit,
     },
   );
-  if (!createRes.ok) {
-    throw new Error(`Failed to create object for ${filename}: HTTP ${createRes.status}`);
+  if (!res.ok) {
+    throw new Error(`Failed to create object for ${filename}: HTTP ${res.status}`);
   }
-  const createData = await createRes.json() as ObjectWriteResponse;
+  const data = await res.json() as ObjectWriteResponse & { object: { blob_key: string } };
   return {
-    objectId: createData.object.id,
-    version: Number(createData.object.version),
-    blobKey: uploaded.blobKey,
+    objectId: data.object.id,
+    version: Number(data.object.version),
+    blobKey: data.object.blob_key,
     hash: await sha256(content),
-    changeSeq: Number(createData.collectionVersion ?? createData.object.change_seq ?? 0),
+    changeSeq: Number(data.collectionVersion ?? data.object.change_seq ?? 0),
   };
+}
+
+type InlineUpdateResult =
+  | { kind: 'ok'; version: number; blobKey: string; changeSeq: number }
+  | { kind: 'conflict'; conflict: ConflictResponse }
+  | { kind: 'error'; status: number };
+
+/**
+ * Encrypt + upload + object-update in one HTTP round-trip. Matches the
+ * old PUT's version-check semantics: `expectedVersion` is the version
+ * we're writing (i.e. server's current + 1). 409 surfaces the server's
+ * current state so the caller's merge path works unchanged.
+ */
+async function updateObjectInline(
+  key: CryptoKey,
+  filename: string,
+  content: string,
+  objectId: string,
+  expectedVersion: number,
+): Promise<InlineUpdateResult> {
+  const { serverUrl, collectionId } = getE2eeConfig();
+  const packed = packNote(filename, content);
+  const ciphertext = await encrypt(key, packed);
+  const res = await e2eeFetch(
+    `${serverUrl}/api/collections/${collectionId}/blob-objects/${objectId}?version=${expectedVersion}`,
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: ciphertext as BodyInit,
+    },
+  );
+  if (res.ok) {
+    const data = await res.json() as ObjectWriteResponse & { object: { blob_key: string } };
+    return {
+      kind: 'ok',
+      version: Number(data.object.version),
+      blobKey: data.object.blob_key,
+      changeSeq: Number(data.collectionVersion ?? data.object.change_seq ?? 0),
+    };
+  }
+  if (res.status === 409) {
+    const conflict = await res.json().catch(() => null) as ConflictResponse | null;
+    if (conflict?.currentVersion !== undefined) {
+      return { kind: 'conflict', conflict };
+    }
+  }
+  return { kind: 'error', status: res.status };
 }
 
 async function fetchKeyMaterial(
@@ -715,7 +792,6 @@ async function resolveUpdateConflict(
     return { uploaded: 0, conflicts: 1, maxVersion: 0 };
   }
 
-  const { serverUrl, collectionId } = getE2eeConfig();
   const remote = await downloadNoteByBlobKey(key, conflict.currentBlobKey);
   const remoteHash = await sha256(remote.content);
   let maxVersion = 0;
@@ -733,24 +809,16 @@ async function resolveUpdateConflict(
     const merge = threeWayMergeText(baseContent, remote.content, localContent);
     if (merge.clean) {
       const mergedHash = await sha256(merge.content);
-      const uploaded = await uploadNoteBlob(key, filename, merge.content);
-      const updateRes = await e2eeFetch(
-        `${serverUrl}/api/collections/${collectionId}/objects/${existing.objectId}`,
-        {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            version: conflict.currentVersion + 1,
-            blob_key: uploaded.blobKey,
-            size_bytes: uploaded.sizeBytes,
-          }),
-        },
+      const result = await updateObjectInline(
+        key,
+        filename,
+        merge.content,
+        existing.objectId,
+        conflict.currentVersion + 1,
       );
 
-      if (updateRes.ok) {
-        const updateData = await updateRes.json() as ObjectWriteResponse;
-        const serverVersion = Number(updateData.object.version);
-        maxVersion = Number(updateData.collectionVersion ?? updateData.object.change_seq ?? 0);
+      if (result.kind === 'ok') {
+        maxVersion = result.changeSeq;
         await applySyncDeltaV2(
           [{ filename, content: merge.content, hash: mergedHash, modified_at: Date.now() }],
           [],
@@ -759,22 +827,26 @@ async function resolveUpdateConflict(
         );
         objectMap[filename] = {
           objectId: existing.objectId,
-          version: serverVersion,
-          blobKey: uploaded.blobKey,
+          version: result.version,
+          blobKey: result.blobKey,
           hash: mergedHash,
           baseContent: merge.content,
         };
         return { uploaded: 1, conflicts: 0, maxVersion };
       }
 
-      console.warn(`[e2ee] Failed to upload merged conflict resolution for ${filename}: HTTP ${updateRes.status}`);
+      console.warn(
+        `[e2ee] Failed to upload merged conflict resolution for ${filename}: ${
+          result.kind === 'error' ? `HTTP ${result.status}` : 'version conflict'
+        }`,
+      );
       return { uploaded: 0, conflicts: 1, maxVersion };
     }
   }
 
   const existingFilenames = new Set([...localFilenames, ...Object.keys(objectMap)]);
   const copyFilename = conflictFilename(filename, existingFilenames);
-  const copyObject = await createObjectForNote(key, copyFilename, localContent);
+  const copyObject = await createObjectInline(key, copyFilename, localContent);
   maxVersion = copyObject.changeSeq;
 
   await applySyncDeltaV2(
@@ -810,10 +882,13 @@ async function pushE2ee(key: CryptoKey): Promise<PushResult> {
   const objectMap = { ...(state.e2eeObjectMap ?? {}) };
   let newMaxVersion = state.e2eeMaxVersion ?? 0;
 
-  // List all local notes
   const fs = await getPlatformFS();
   const noteFiles = await fs.listNoteFiles();
-  const localFilenames = new Set<string>();
+  const mdFiles = noteFiles.filter((f) => f.name.endsWith('.md'));
+  // Populate synchronously so the delete-loop below sees a complete set
+  // regardless of worker ordering. (Entries stay even if a later read
+  // fails — matches the original "listed, assume present" semantic.)
+  const localFilenames = new Set<string>(mdFiles.map((f) => f.name));
 
   let uploaded = 0;
   let deleted = 0;
@@ -822,96 +897,86 @@ async function pushE2ee(key: CryptoKey): Promise<PushResult> {
   const deletedIds: string[] = [];
   const deletedHashes = new Map<string, string>();
 
-  for (const file of noteFiles) {
-    const filename = file.name;
-    if (!filename.endsWith('.md')) continue;
-    localFilenames.add(filename);
+  // Periodic checkpoint: persist the object map mid-sync so a crash on
+  // note #1800 doesn't force re-uploading notes #1-1799. JS is single-
+  // threaded so only one checkpoint can be in flight; the inFlight flag
+  // coalesces overlapping triggers. `{ ...objectMap }` snapshots the
+  // map at the call site (before any await) so concurrent worker writes
+  // after the snapshot don't corrupt the in-progress save.
+  let completedSinceCheckpoint = 0;
+  let checkpointInFlight = false;
+  async function maybeCheckpoint(force = false): Promise<void> {
+    completedSinceCheckpoint++;
+    if (!force && completedSinceCheckpoint < CHECKPOINT_EVERY) return;
+    if (checkpointInFlight) return;
+    checkpointInFlight = true;
+    completedSinceCheckpoint = 0;
+    try {
+      const current = getAppState();
+      await saveAppState({
+        ...current,
+        e2eeObjectMap: { ...objectMap },
+        e2eeMaxVersion: newMaxVersion,
+      });
+    } finally {
+      checkpointInFlight = false;
+    }
+  }
 
-    // Read content and compute hash
+  await runPool(mdFiles, PUSH_CONCURRENCY, async (file) => {
+    const filename = file.name;
     const id = filenameToId(filename);
+
     let content: string;
     try {
       content = await fs.readNote(id);
     } catch {
-      continue; // File may have been deleted between list and read
+      return; // file removed between list and read
     }
     const existing = objectMap[filename];
     const hash = await sha256(content);
 
-    if (existing?.hash === hash) {
-      continue;
-    }
+    if (existing?.hash === hash) return;
 
     if (existing) {
-      let uploadedBlob: { blobKey: string; sizeBytes: number };
-      try {
-        uploadedBlob = await uploadNoteBlob(key, filename, content);
-      } catch (err) {
-        console.warn(`[e2ee] Failed to upload blob for ${filename}:`, err);
-        continue;
-      }
-
-      // Update existing object
-      const nextVersion = existing.version + 1;
-      const updateRes = await e2eeFetch(
-        `${serverUrl}/api/collections/${collectionId}/objects/${existing.objectId}`,
-        {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            version: nextVersion,
-            blob_key: uploadedBlob.blobKey,
-            size_bytes: uploadedBlob.sizeBytes,
-          }),
-        },
-      );
-
-      if (updateRes.ok) {
-        const updateData = await updateRes.json() as ObjectWriteResponse;
-        const serverVersion = Number(updateData.object.version);
-        const changeSeq = Number(updateData.collectionVersion ?? updateData.object.change_seq ?? 0);
-        if (changeSeq > newMaxVersion) newMaxVersion = changeSeq;
+      const result = await updateObjectInline(key, filename, content, existing.objectId, existing.version + 1);
+      if (result.kind === 'ok') {
+        if (result.changeSeq > newMaxVersion) newMaxVersion = result.changeSeq;
         objectMap[filename] = {
           objectId: existing.objectId,
-          version: serverVersion,
-          blobKey: uploadedBlob.blobKey,
+          version: result.version,
+          blobKey: result.blobKey,
           hash,
           baseContent: content,
         };
         uploaded++;
         updatedIds.push(id);
-      } else if (updateRes.status === 409) {
-        const conflictData = await updateRes.json().catch(() => null) as ConflictResponse | null;
-        if (conflictData?.currentVersion !== undefined) {
-          try {
-            const resolution = await resolveUpdateConflict(
-              key,
-              filename,
-              existing,
-              content,
-              hash,
-              conflictData,
-              objectMap,
-              localFilenames,
-            );
-            uploaded += resolution.uploaded;
-            conflicts += resolution.conflicts;
-            if (resolution.maxVersion > newMaxVersion) newMaxVersion = resolution.maxVersion;
-            if (resolution.uploaded > 0) updatedIds.push(id);
-          } catch (err) {
-            console.warn(`[e2ee] Failed to resolve version conflict for ${filename}:`, err);
-            conflicts++;
-          }
-        } else {
-          console.warn(`[e2ee] Version conflict for ${filename} had an invalid response`);
+      } else if (result.kind === 'conflict') {
+        try {
+          const resolution = await resolveUpdateConflict(
+            key,
+            filename,
+            existing,
+            content,
+            hash,
+            result.conflict,
+            objectMap,
+            localFilenames,
+          );
+          uploaded += resolution.uploaded;
+          conflicts += resolution.conflicts;
+          if (resolution.maxVersion > newMaxVersion) newMaxVersion = resolution.maxVersion;
+          if (resolution.uploaded > 0) updatedIds.push(id);
+        } catch (err) {
+          console.warn(`[e2ee] Failed to resolve version conflict for ${filename}:`, err);
           conflicts++;
         }
       } else {
-        console.warn(`[e2ee] Failed to update object for ${filename}: HTTP ${updateRes.status}`);
+        console.warn(`[e2ee] Failed to update object for ${filename}: HTTP ${result.status}`);
       }
     } else {
       try {
-        const created = await createObjectForNote(key, filename, content);
+        const created = await createObjectInline(key, filename, content);
         if (created.changeSeq > newMaxVersion) newMaxVersion = created.changeSeq;
         objectMap[filename] = {
           objectId: created.objectId,
@@ -926,12 +991,17 @@ async function pushE2ee(key: CryptoKey): Promise<PushResult> {
         console.warn(`[e2ee] Failed to create object for ${filename}:`, err);
       }
     }
-  }
 
-  // Handle local deletions: objects in the map but not on disk
-  for (const [filename, entry] of Object.entries(objectMap)) {
-    if (localFilenames.has(filename)) continue;
+    await maybeCheckpoint();
+  });
 
+  // Delete loop — objects that were in the map but aren't on disk.
+  // Snapshot entries first because workers mutate objectMap as they run.
+  const deleteTargets = Object.entries(objectMap)
+    .filter(([filename]) => !localFilenames.has(filename))
+    .map(([filename, entry]) => ({ filename, entry }));
+
+  await runPool(deleteTargets, PUSH_CONCURRENCY, async ({ filename, entry }) => {
     const id = filenameToId(filename);
     const deleteRes = await e2eeFetch(
       `${serverUrl}/api/collections/${collectionId}/objects/${entry.objectId}?version=${entry.version}`,
@@ -945,10 +1015,9 @@ async function pushE2ee(key: CryptoKey): Promise<PushResult> {
       delete objectMap[filename];
       deleted++;
       deletedIds.push(id);
-      // Remember what we just deleted so the surrounding sync can match it
-      // against a subsequent pull-add of the same content (rename detection).
       if (entry.hash) deletedHashes.set(entry.hash, filename);
-      continue;
+      await maybeCheckpoint();
+      return;
     }
 
     if (deleteRes.status === 409) {
@@ -956,7 +1025,7 @@ async function pushE2ee(key: CryptoKey): Promise<PushResult> {
       if (!conflictData || !conflictData.currentBlobKey) {
         console.warn(`[e2ee] Delete conflict for ${filename} had no current blob`);
         conflicts++;
-        continue;
+        return;
       }
       try {
         // Edit-wins: a peer updated the note while we were trying to delete
@@ -981,7 +1050,6 @@ async function pushE2ee(key: CryptoKey): Promise<PushResult> {
           hash: restoredHash,
           baseContent: restored.content,
         };
-        // Drop the stale entry if the remote rename moved the file.
         if (restored.filename !== filename) delete objectMap[filename];
         localFilenames.add(restored.filename);
         updatedIds.push(filenameToId(restored.filename));
@@ -989,19 +1057,15 @@ async function pushE2ee(key: CryptoKey): Promise<PushResult> {
         console.warn(`[e2ee] Failed to restore deleted-vs-edit conflict for ${filename}:`, err);
         conflicts++;
       }
-      continue;
+      return;
     }
 
     console.warn(`[e2ee] Failed to delete object for ${filename}: HTTP ${deleteRes.status}`);
-  }
-
-  // Persist updated object map
-  const current = getAppState();
-  await saveAppState({
-    ...current,
-    e2eeObjectMap: objectMap,
-    e2eeMaxVersion: newMaxVersion,
   });
+
+  // Final flush so the tail of completions (and any work since the last
+  // periodic save) lands before pull runs.
+  await maybeCheckpoint(true);
 
   console.log(`[e2ee] Push: ${uploaded} uploaded, ${deleted} deleted, ${conflicts} conflicts`);
   return {

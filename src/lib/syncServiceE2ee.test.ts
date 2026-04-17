@@ -77,13 +77,6 @@ function installFetchMock(state: MockServerState): void {
       return Response.json({ key: state.key });
     }
 
-    if (url.pathname === '/api/blobs' && method === 'POST') {
-      const key = nextBlobKey();
-      const body = new Uint8Array(await new Response(init?.body).arrayBuffer());
-      state.blobs!.set(key, body);
-      return Response.json({ key }, { status: 201 });
-    }
-
     if (url.pathname.startsWith('/api/blobs/') && method === 'GET') {
       const key = decodeURIComponent(url.pathname.slice('/api/blobs/'.length));
       const data = state.blobs!.get(key);
@@ -100,15 +93,18 @@ function installFetchMock(state: MockServerState): void {
       return Response.json({ objects });
     }
 
-    if (url.pathname === '/api/collections/collection-1/objects' && method === 'POST') {
-      const body = JSON.parse(String(init?.body)) as { blob_key: string; size_bytes: number };
+    // Single-round-trip create: body is raw ciphertext; server mints blob key.
+    if (url.pathname === '/api/collections/collection-1/blob-objects' && method === 'POST') {
+      const body = new Uint8Array(await new Response(init?.body).arrayBuffer());
+      const blobKey = nextBlobKey();
+      state.blobs!.set(blobKey, body);
       const now = new Date(Date.UTC(2026, 3, 14, 12, state.collectionVersion)).toISOString();
       const object = {
         id: nextObjectId(),
         version: 1,
         changeSeq: ++state.collectionVersion!,
-        blobKey: body.blob_key,
-        sizeBytes: body.size_bytes,
+        blobKey,
+        sizeBytes: body.byteLength,
         deleted: false,
         createdAt: now,
         updatedAt: now,
@@ -120,21 +116,27 @@ function installFetchMock(state: MockServerState): void {
       );
     }
 
-    const objectMatch = url.pathname.match(/^\/api\/collections\/collection-1\/objects\/([^/]+)$/);
-    if (objectMatch && method === 'PUT') {
-      const object = state.objects!.get(objectMatch[1]);
+    const blobObjectMatch = url.pathname.match(/^\/api\/collections\/collection-1\/blob-objects\/([^/]+)$/);
+    if (blobObjectMatch && method === 'PUT') {
+      const object = state.objects!.get(blobObjectMatch[1]);
       if (!object) return Response.json({ error: 'not found' }, { status: 404 });
-      const body = JSON.parse(String(init?.body)) as { version: number; blob_key: string; size_bytes: number };
-      if (body.version !== object.version + 1) {
+      const version = Number(url.searchParams.get('version'));
+      if (!Number.isSafeInteger(version) || version < 1) {
+        return Response.json({ error: 'valid ?version required' }, { status: 400 });
+      }
+      if (version !== object.version + 1) {
         return Response.json(
           { error: 'version conflict', currentVersion: object.version, currentBlobKey: object.blobKey },
           { status: 409 },
         );
       }
-      object.version = body.version;
+      const body = new Uint8Array(await new Response(init?.body).arrayBuffer());
+      const blobKey = nextBlobKey();
+      state.blobs!.set(blobKey, body);
+      object.version = version;
       object.changeSeq = ++state.collectionVersion!;
-      object.blobKey = body.blob_key;
-      object.sizeBytes = body.size_bytes;
+      object.blobKey = blobKey;
+      object.sizeBytes = body.byteLength;
       object.updatedAt = new Date(Date.UTC(2026, 3, 14, 12, state.collectionVersion)).toISOString();
       return Response.json({ object: objectResponse(object), collectionVersion: state.collectionVersion });
     }
