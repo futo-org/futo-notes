@@ -183,6 +183,11 @@ test:rust:macos:
   tags:
     - macscript
   allow_failure: true
+  # Force a clean clone each run — the macscript runner's incremental fetch
+  # kept hitting `missing blob object / remote did not send all necessary
+  # objects` on a stale local .git.
+  variables:
+    GIT_STRATEGY: clone
   before_script:
     - env | grep -E '^(CI_)' > .cienv
   script:
@@ -260,8 +265,9 @@ test:cross-platform-sync:
       - test-screenshots/sync-results.json
     expire_in: 1 week
   timeout: 20m
+  # Tag pipelines excluded for now — the test requires a sibling
+  # stonefruit-server checkout that isn't wired up in CI yet.
   rules:
-    - if: $CI_COMMIT_TAG
     - if: $CI_MERGE_REQUEST_IID
       changes:
         - apps/tauri/**/*
@@ -274,6 +280,8 @@ test:desktop-smoke:macos:
   tags:
     - macscript
   allow_failure: true
+  variables:
+    GIT_STRATEGY: clone
   before_script:
     - env | grep -E '^(CI_)' > .cienv
   script:
@@ -412,6 +420,8 @@ build:ios:
   needs: []
   tags:
     - macscript
+  variables:
+    GIT_STRATEGY: clone
   before_script:
     - env | grep -E '^(CI_|IOS_|ASC_)' > .cienv
   script:
@@ -428,6 +438,8 @@ build:macos:
   needs: []
   tags:
     - macscript
+  variables:
+    GIT_STRATEGY: clone
   before_script:
     - env | grep -E '^(CI_|MACOS_|ASC_)' > .cienv
   script:
