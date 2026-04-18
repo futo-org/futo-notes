@@ -21,7 +21,7 @@
   import { liveMarkdownTransform, preloadImages, setInlineSelectionDragging } from '$lib/liveMarkdownTransform';
   import { getImageWebPath } from '$lib/fileSystem';
   import { buildSetContentTransaction, type SetEditorContentOptions, type SetContentResult } from '$lib/editorContentSync';
-  import { hasFileSystem, isTauri } from '$lib/platform';
+  import { hasFileSystem, isTauri, isDesktop } from '$lib/platform';
   import { toggleBold, toggleItalic, toggleStrikethrough, isListLine } from '$lib/markdownToolbar';
   import { imagePasteHandler } from '$lib/imagePaste';
   import { openUrl } from '$lib/openUrl';
@@ -557,7 +557,11 @@
       interactiveTableEditor,
       selectionToolbar,
       slashMenu,
-      blockHandle,
+      // Desktop-only: attaches a document-wide pointermove listener that calls
+      // posAtCoords + getBoundingClientRect on every move. On touch devices
+      // the hover-to-reveal UX is unreachable anyway and every scroll-drag
+      // pointermove triggers forced layout — was a major source of mobile jank.
+      ...(isDesktop ? [blockHandle] : []),
       wikilinkAutocomplete(),
       imagePasteHandler,
       pointerSelectionTrackingHandler,
