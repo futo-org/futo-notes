@@ -898,9 +898,11 @@ async function main() {
   clientA.stop();
   clientB.stop();
 
-  if (failed > 0) {
-    process.exit(1);
-  }
+  // Explicit exit: WebSocket + child-process handles from the Tauri/emulator
+  // clients can linger past stop() (TCP CLOSE_WAIT, SIGTERM grace) and keep
+  // the Node event loop alive indefinitely — GitLab then waits for the job
+  // timeout instead of noticing tests already passed.
+  process.exit(failed > 0 ? 1 : 0);
 }
 
 main().catch((err) => {
