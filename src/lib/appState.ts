@@ -35,10 +35,13 @@ export interface AppState {
   e2eeObjectMap?: Record<string, {
     objectId: string;
     version: number;
+    /**
+     * blobKey of the last version we observed (pulled or pushed). Three-way
+     * merge fetches this blob on conflict to use as the common ancestor —
+     * the server retains orphaned blobs for 1 year specifically for this.
+     */
     blobKey: string;
     hash?: string;
-    /** Plaintext common ancestor used for client-side three-way conflict merges. */
-    baseContent?: string;
     /**
      * On-disk mtime+size at the time of the last successful push. Used as
      * a fast pre-filter in pushE2ee: if both match the current file, skip
@@ -85,6 +88,46 @@ let cached: AppState | null = null;
 
 // ── Sanitization ───────────────────────────────────────────────────────
 
+// One-shot migration: drop `baseContent` from every object-map entry on
+// load. Older builds stored the full plaintext of each note as the 3-way
+// merge ancestor; that bloated .app-state.json to 8 MB+ on vaults with a
+// few thousand notes and serialized on every sync checkpoint. We now fetch
+// the ancestor from the server (stonefruit-server retains orphaned blobs
+// for 1 year), so this field is dead weight.
+function stripBaseContent(
+  raw: Record<string, Record<string, unknown>>,
+): AppState['e2eeObjectMap'] {
+  const out: NonNullable<AppState['e2eeObjectMap']> = {};
+  for (const [filename, entry] of Object.entries(raw)) {
+    if (!entry || typeof entry !== 'object') continue;
+    const {
+      objectId,
+      version,
+      blobKey,
+      hash,
+      mtimeMs,
+      sizeBytes,
+    } = entry as {
+      objectId?: string;
+      version?: number;
+      blobKey?: string;
+      hash?: string;
+      mtimeMs?: number;
+      sizeBytes?: number;
+    };
+    if (typeof objectId !== 'string' || typeof version !== 'number' || typeof blobKey !== 'string') continue;
+    out[filename] = {
+      objectId,
+      version,
+      blobKey,
+      ...(typeof hash === 'string' ? { hash } : {}),
+      ...(typeof mtimeMs === 'number' ? { mtimeMs } : {}),
+      ...(typeof sizeBytes === 'number' ? { sizeBytes } : {}),
+    };
+  }
+  return out;
+}
+
 function sanitize(raw: unknown): AppState {
   const defaults = defaultState();
   if (!raw || typeof raw !== 'object') return defaults;
@@ -124,7 +167,7 @@ function sanitize(raw: unknown): AppState {
     ...(typeof obj.e2eeCollectionId === 'string' ? { e2eeCollectionId: obj.e2eeCollectionId } : {}),
     ...(typeof obj.e2eeSalt === 'string' ? { e2eeSalt: obj.e2eeSalt } : {}),
     ...(obj.e2eeObjectMap && typeof obj.e2eeObjectMap === 'object'
-      ? { e2eeObjectMap: obj.e2eeObjectMap as AppState['e2eeObjectMap'] }
+      ? { e2eeObjectMap: stripBaseContent(obj.e2eeObjectMap as Record<string, Record<string, unknown>>) }
       : {}),
     ...(typeof obj.e2eeMaxVersion === 'number' ? { e2eeMaxVersion: obj.e2eeMaxVersion } : {}),
   };

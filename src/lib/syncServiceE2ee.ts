@@ -747,7 +747,6 @@ async function pullE2ee(key: CryptoKey, sinceVersion: number): Promise<PullResul
       version,
       blobKey: obj.blob_key!,
       hash,
-      baseContent: content,
     };
     filenameByObjectId.set(obj.id, filename);
   });
@@ -794,8 +793,12 @@ async function resolveUpdateConflict(
   const remoteHash = await sha256(remote.content);
   let maxVersion = 0;
 
-  let baseContent = existing.baseContent;
-  if (baseContent === undefined && existing.blobKey) {
+  // Common ancestor for three-way merge: the blob we last pulled or pushed.
+  // The server retains orphaned blobs for 1 year (see stonefruit-server
+  // orphaned_blobs + maintenance/blobGc.ts), so this normally succeeds. On
+  // 404 (blob GC'd, or very old map entry) we fall through to conflict copy.
+  let baseContent: string | undefined;
+  if (existing.blobKey) {
     try {
       baseContent = (await downloadNoteByBlobKey(key, existing.blobKey)).content;
     } catch (err) {
@@ -828,7 +831,6 @@ async function resolveUpdateConflict(
           version: result.version,
           blobKey: result.blobKey,
           hash: mergedHash,
-          baseContent: merge.content,
         };
         return { uploaded: 1, conflicts: 0, maxVersion };
       }
@@ -862,14 +864,12 @@ async function resolveUpdateConflict(
     version: conflict.currentVersion,
     blobKey: conflict.currentBlobKey,
     hash: remoteHash,
-    baseContent: remote.content,
   };
   objectMap[copyFilename] = {
     objectId: copyObject.objectId,
     version: copyObject.version,
     blobKey: copyObject.blobKey,
     hash: localHash,
-    baseContent: localContent,
   };
   localFilenames.add(filename);
   localFilenames.add(copyFilename);
@@ -971,7 +971,6 @@ async function pushE2ee(key: CryptoKey): Promise<PushResult> {
           version: result.version,
           blobKey: result.blobKey,
           hash,
-          baseContent: content,
           // Stamp with the server-canonical timestamp that applySyncDeltaV2
           // is about to write onto the local file. If we stamped with the
           // pre-push on-disk mtime, the post-push mtime sync would make
@@ -1014,7 +1013,6 @@ async function pushE2ee(key: CryptoKey): Promise<PushResult> {
           version: created.version,
           blobKey: created.blobKey,
           hash: created.hash,
-          baseContent: content,
           // See comment on the update path: stamp with the server-canonical
           // timestamp that applySyncDeltaV2 writes onto the local file.
           mtimeMs: created.updatedAt,
@@ -1091,7 +1089,6 @@ async function pushE2ee(key: CryptoKey): Promise<PushResult> {
           version: conflictData.currentVersion,
           blobKey: conflictData.currentBlobKey,
           hash: restoredHash,
-          baseContent: restored.content,
         };
         if (restored.filename !== filename) delete objectMap[filename];
         localFilenames.add(restored.filename);

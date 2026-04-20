@@ -106,7 +106,7 @@ export async function startServer(port, repoRoot, options = {}) {
     '-d',
     'stonefruit',
     '-c',
-    'TRUNCATE objects, collections, sessions, users CASCADE;',
+    'TRUNCATE orphaned_blobs, objects, collections, sessions, users CASCADE;',
   ], {
     cwd: serverRepo,
     encoding: 'utf8',

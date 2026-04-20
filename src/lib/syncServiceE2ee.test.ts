@@ -257,6 +257,48 @@ describe('syncServiceE2ee conflict resolution', () => {
     expect(await fsA.readNote('shared')).toBe(await fsB.readNote('shared'));
   });
 
+  it('falls back to a conflict copy when the merge ancestor is no longer on the server', async () => {
+    // Simulates the server having GC'd the ancestor blob past the 1-year
+    // retention window. Without the ancestor, 3-way merge is impossible; the
+    // client must fall back to a conflict copy rather than surface a hard
+    // error.
+    const server: MockServerState = { key: null, putKeyCount: 0 };
+    installFetchMock(server);
+    const fsA = createNodeFS();
+    const fsB = createNodeFS();
+
+    const clientA = await loadClient(fsA);
+    await clientA.syncService.connectE2ee('http://server.test', 'password');
+    const base = '# Shared\n\nline one\n\nline two\n';
+    await fsA.writeNote('shared', base);
+    await clientA.syncService.syncE2ee('password');
+
+    const clientB = await loadClient(fsB);
+    await clientB.syncService.connectE2ee('http://server.test', 'password');
+    await clientB.syncService.syncE2ee('password');
+
+    // Non-overlapping edits — in the normal path this would merge cleanly.
+    await fsA.writeNote('shared', base.replace('line one', 'line one edited by A'));
+    await fsB.writeNote('shared', base.replace('line two', 'line two edited by B'));
+
+    setActiveFS(fsA);
+    await clientA.syncService.syncE2ee('password');
+
+    // Wipe the ancestor blob from the server — simulate GC. B's objectMap
+    // still references the blob it last pulled; resolveUpdateConflict will
+    // get 404 when it tries to fetch the ancestor.
+    const allKeys = [...server.blobs!.keys()];
+    const liveKey = allKeys[allKeys.length - 1];
+    for (const k of allKeys) if (k !== liveKey) server.blobs!.delete(k);
+
+    setActiveFS(fsB);
+    const bResult = await clientB.syncService.syncE2ee('password');
+    // No ancestor → fall through to conflict copy.
+    expect(bResult.conflicts).toBe(1);
+    const bFiles = await fsB.listNoteFiles();
+    expect(bFiles.some((f) => f.name.includes('conflict'))).toBe(true);
+  });
+
   it('falls back to a conflict copy for overlapping edits', async () => {
     const server: MockServerState = { key: null, putKeyCount: 0 };
     installFetchMock(server);
