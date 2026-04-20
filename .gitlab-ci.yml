@@ -326,6 +326,7 @@ test:cross-platform-sync:android:
   script:
     - test -e /dev/kvm || { echo "FATAL:/dev/kvm missing — runner not KVM-enabled"; exit 1; }
     - export PATH="$JAVA_HOME/bin:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
+    - apt-get update
     - DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends postgresql-client
     - pnpm install --frozen-lockfile
     - !reference [.setup-rust, script]
@@ -345,17 +346,23 @@ test:cross-platform-sync:android:
       xvfb-run -a --server-args="-screen 0 1280x800x24"
       node tests/cross-platform-sync.mjs --matrix desktop-android
   after_script:
-    - adb logcat -d > logcat.txt 2>/dev/null || true
-    - adb exec-out screencap -p > final-screen.png 2>/dev/null || true
-    - adb emu kill 2>/dev/null || true
+    # Wrap each adb call with `timeout` — when the emulator never started
+    # (e.g. step failed early) adb blocks forever trying to connect, and the
+    # GitLab after_script cap (5m) is the only thing that eventually kills it.
+    - timeout 10 adb logcat -d > logcat.txt 2>/dev/null || true
+    - timeout 10 adb exec-out screencap -p > final-screen.png 2>/dev/null || true
+    - timeout 10 adb emu kill 2>/dev/null || true
     - kill $(pgrep -f futo-notes-tauri) 2>/dev/null || true
+    # Stage the Tauri logs under the project dir so the artifacts step can
+    # upload them (GitLab rejects paths outside $CI_PROJECT_DIR).
+    - mkdir -p tauri-logs && cp /tmp/tauri-*.log tauri-logs/ 2>/dev/null || true
   artifacts:
     when: always
     paths:
       - test-screenshots/sync-results.json
       - logcat.txt
       - final-screen.png
-      - /tmp/tauri-*.log
+      - tauri-logs/
     expire_in: 1 week
   timeout: 45m
   # Manual trigger while we validate the android_kvm runner. Once it's proven
