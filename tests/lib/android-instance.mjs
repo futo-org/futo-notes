@@ -340,7 +340,10 @@ function resolveEmulatorBinary() {
 }
 
 function ensureCommandExists(command, message) {
-  const result = spawnSync('sh', ['-lc', `command -v ${command}`], { stdio: 'ignore' });
+  // Non-login shell so we inherit PATH from the caller instead of re-reading
+  // /etc/profile. CI exports PATH with Android SDK dirs before running the
+  // harness; a login shell would wipe that and report false negatives.
+  const result = spawnSync('sh', ['-c', `command -v ${command}`], { stdio: 'ignore' });
   if (result.status !== 0) {
     throw new Error(message);
   }
