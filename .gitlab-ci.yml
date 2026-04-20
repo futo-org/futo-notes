@@ -335,18 +335,25 @@ build:linux-packages:
   rules:
     - if: $CI_COMMIT_TAG
 
-# AppImage bundles its entire userland (WebKitGTK, GLib, GStreamer, ...) and
-# relies on the *host's* Mesa at runtime. Mesa 26 (Arch/Fedora 40+/CachyOS)
-# tightened EGL default-display detection, so AppImages built on pre-24.04
-# bases abort with "Could not create default EGL display: EGL_BAD_PARAMETER"
-# because their bundled WebKit (<2.44) uses the legacy EGL path. Build on
-# ubuntu:24.04 — ships WebKitGTK 2.44+, GLib 2.80, GStreamer 1.24.
-# Trade-off: raises glibc floor from 2.35 to 2.39. Users on older systems
-# install the .deb/.rpm instead.
+# AppImage bundles its entire userland (WebKitGTK, GLib, GStreamer, libwayland,
+# ...) and relies on the *host's* Mesa at runtime. The failure mode we hit on
+# Mesa 26 (CachyOS / Arch / Fedora 40+): linuxdeploy bundles the build base's
+# libwayland-client.so.0 into the AppImage, and that bundled copy mismatches
+# the host's libEGL — eglGetPlatformDisplay(EGL_PLATFORM_WAYLAND_KHR, …) fails
+# with "Could not create default EGL display: EGL_BAD_PARAMETER. Aborting…"
+# and WebKit exits before rendering. Confirmed reproducible on v1.2.0 against
+# CachyOS (Mesa 26.0.5). Fix: delete libwayland-client.so.0 from the AppImage
+# via scripts/patch-appimage-mesa26.mjs so the host's copy is used instead —
+# host libwayland and host libEGL always match because they ship together.
+#
+# Base is ubuntu:22.04 for the widest glibc floor (2.35). jammy-security
+# already ships WebKitGTK 2.50 (libwebkit2gtk-4.1 2.50.4-0ubuntu0.22.04.1),
+# which is new enough to use the EGL platform API — so noble buys us nothing
+# extra here and costs us glibc compat on older target distros.
 build:linux-appimage:
   stage: build
   needs: []
-  image: ubuntu:24.04
+  image: ubuntu:22.04
   before_script: *linux-before-script
   cache:
     - !reference [.cache-pnpm, cache]
@@ -357,7 +364,10 @@ build:linux-appimage:
     - !reference [.setup-rust, script]
     - !reference [.set-version, script]
     - node scripts/fetch-ort-linux.mjs
-    - cd apps/tauri && cargo tauri build --bundles appimage
+    - cd apps/tauri && cargo tauri build --bundles appimage && cd ../..
+    # Strip the bundled libwayland-client.so.0 so the AppImage boots on Mesa 26.
+    # Script auto-downloads appimagetool if it isn't already on PATH.
+    - node scripts/patch-appimage-mesa26.mjs --dir target/release/bundle/appimage
   after_script:
     - |
       echo "=== Linux AppImage artifact ==="
