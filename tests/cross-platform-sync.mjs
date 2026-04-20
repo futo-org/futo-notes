@@ -385,7 +385,9 @@ async function externalWatcherReloadsCleanNote(a, _b, _server) {
 
   await externalWriteNote(a, 'watch clean', '# Changed externally');
 
-  const state = await waitForEditorContent(a, '# Changed externally');
+  // Longer timeout than the 10s default: under Docker/xvfb the inotify
+  // notification arrives slower than on a dev machine.
+  const state = await waitForEditorContent(a, '# Changed externally', 30_000);
   assertEqual(state.originalId, 'watch clean', 'clean external change should keep the same note open');
   assertEqual(state.hash, `#/note/${encodeURIComponent('watch clean')}`, 'clean external change should keep the same route');
   assertEqual(state.toastMessage, '', 'clean external change should not show a draft-preservation toast');
@@ -414,7 +416,7 @@ async function externalWatcherKeepsDirtyDraft(a, _b, _server) {
 
   await externalWriteNote(a, 'watch dirty', '# Changed on disk');
 
-  const protectedState = await waitForToastMessage(a, 'Open note changed externally; keeping local draft');
+  const protectedState = await waitForToastMessage(a, 'Open note changed externally; keeping local draft', 30_000);
   assertEqual(protectedState.originalId, 'watch dirty', 'dirty external change should keep the original note open');
   assertEqual(protectedState.hash, `#/note/${encodeURIComponent('watch dirty')}`, 'dirty external change should keep the same route');
   assertEqual(protectedState.title, 'taken title', 'dirty external change should keep the unsaved title draft');
