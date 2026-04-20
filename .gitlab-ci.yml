@@ -338,6 +338,9 @@ test:cross-platform-sync:android:
       - /tmp/tauri-*.log
     expire_in: 1 week
   timeout: 45m
+  # Manual trigger until a kvm-tagged runner is provisioned. Without one the
+  # job is unschedulable and sits in "pending" forever, blocking merges. Once
+  # the runner exists, flip this back to auto-run on relevant changes.
   rules:
     - if: $CI_MERGE_REQUEST_IID
       changes:
@@ -347,6 +350,8 @@ test:cross-platform-sync:android:
         - packages/shared/**/*
         - tests/cross-platform-sync.mjs
         - tests/lib/**
+      when: manual
+      allow_failure: true
 
 test:desktop-smoke:macos:
   stage: test
