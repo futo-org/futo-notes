@@ -3,7 +3,7 @@
   import { deleteAllNotes } from '$lib/notes';
   import { getAppState, getCachedPreferences, savePreferences } from '$lib/appState';
   import { applyThemePreference, type ThemePreference } from '$lib/theme';
-  import { connectE2ee, disconnectE2ee, syncE2ee } from '$lib/syncServiceE2ee';
+  import { connectE2ee, disconnectE2ee, syncE2ee, hasStoredSyncPassword, forgetStoredSyncPassword } from '$lib/syncServiceE2ee';
   import { requestSyncV2 } from '$lib/autoSyncV2';
   import { getAppVersion } from '$lib/crashHandler';
   import { showGlobalToast } from '$lib/toast';
@@ -37,6 +37,7 @@
   let syncStatus = $state(prefs.sync.lastError ? `Last error: ${prefs.sync.lastError}` : '');
   let syncLastAt = $state<number | null>(prefs.sync.lastSyncedAt);
   let hasSyncToken = $state(Boolean(appState.e2eeAuthToken));
+  let passwordSaved = $state(hasStoredSyncPassword());
 
   // Connect + sync blocking modal
   let connectSyncing = $state(false);
@@ -106,6 +107,7 @@
     try {
       await connectE2ee(syncUrl, syncPassword);
       hasSyncToken = true;
+      passwordSaved = hasStoredSyncPassword();
 
       connectSyncPhase = 'Syncing notes...';
       const summary = await syncE2ee(syncPassword);
@@ -145,6 +147,17 @@
     syncPassword = '';
     syncStatus = '';
     await disconnectE2ee();
+    passwordSaved = false;
+  }
+
+  async function handleForgetPassword(): Promise<void> {
+    const confirmed = await ask(
+      'Forget the saved sync password? You will be asked to re-enter it to sync after the next restart.',
+      { title: 'Forget password', kind: 'warning' }
+    );
+    if (!confirmed) return;
+    await forgetStoredSyncPassword();
+    passwordSaved = false;
   }
 
   function handleUrlClick(): void {
@@ -375,17 +388,21 @@
               </button>
             </div>
           {:else}
-            <label class="settings-input-label" for="sync-password">Vault password</label>
-            <input
-              id="sync-password"
-              class="settings-input"
-              type="password"
-              bind:value={syncPassword}
-              placeholder="Required after restart"
-              autocapitalize="off"
-              autocomplete="current-password"
-              spellcheck="false"
-            />
+            {#if !passwordSaved}
+              <label class="settings-input-label" for="sync-password">Vault password</label>
+              <input
+                id="sync-password"
+                class="settings-input"
+                type="password"
+                bind:value={syncPassword}
+                placeholder="Required after restart"
+                autocapitalize="off"
+                autocomplete="current-password"
+                spellcheck="false"
+              />
+            {:else}
+              <p class="settings-btn-desc settings-hint">Password saved on this device.</p>
+            {/if}
 
             <div class="settings-actions">
               <button class="settings-btn settings-btn-inline" onclick={handleSyncNow} disabled={syncBusy}>
@@ -393,6 +410,9 @@
               </button>
             </div>
 
+            {#if passwordSaved}
+              <button class="settings-link-btn" onclick={() => void handleForgetPassword()}>Forget password</button>
+            {/if}
             <button class="settings-link-btn" onclick={() => void confirmResetConnection()}>Reset connection</button>
           {/if}
 

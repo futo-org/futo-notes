@@ -27,6 +27,14 @@ import {
 
 let cachedKey: CryptoKey | null = null;
 
+export function hasStoredSyncPassword(): boolean {
+  return getAppState().e2eePassword != null;
+}
+
+export async function forgetStoredSyncPassword(): Promise<void> {
+  await saveAppState({ ...getAppState(), e2eePassword: undefined });
+}
+
 // ── Types ────────────────────────────────────────────────────────────────
 
 export interface SyncSummary {
@@ -597,6 +605,7 @@ export async function connectE2ee(
     e2eeUserId: userId,
     e2eeCollectionId: collectionId,
     e2eeSalt: material.key_salt,
+    e2eePassword: password,
     e2eeObjectMap: current.e2eeObjectMap ?? {},
     e2eeMaxVersion: current.e2eeMaxVersion ?? 0,
   });
@@ -606,18 +615,18 @@ export async function connectE2ee(
 
 // ── Disconnect ───────────────────────────────────────────────────────────
 
-/** Check whether E2EE sync is configured and the key is in memory. */
+/** Check whether E2EE sync is configured and we can (or already did) unlock. */
 export function isE2eeConfigured(): boolean {
   const s = getAppState();
-  return Boolean(s.e2eeServerUrl && s.e2eeAuthToken && s.e2eeCollectionId && cachedKey);
+  return Boolean(s.e2eeServerUrl && s.e2eeAuthToken && s.e2eeCollectionId && (cachedKey || s.e2eePassword));
 }
 
 /** Sync using the in-memory key (for auto-sync). Throws if not connected. */
 export async function syncE2eeAuto(): Promise<SyncSummary> {
   if (!cachedKey) {
-    // Try to re-derive from stored salt if we have a password prompt mechanism
-    // For now, throw — caller should check isE2eeConfigured() first
-    throw new Error('E2EE key not in memory — call connectE2ee first');
+    const stored = getAppState().e2eePassword;
+    if (!stored) throw new Error('E2EE key not in memory — call connectE2ee first');
+    cachedKey = await unlockConfiguredVaultKey(stored);
   }
   return runFullSync(cachedKey);
 }
@@ -632,6 +641,7 @@ export async function disconnectE2ee(): Promise<void> {
     e2eeUserId: undefined,
     e2eeCollectionId: undefined,
     e2eeSalt: undefined,
+    e2eePassword: undefined,
     e2eeObjectMap: undefined,
     e2eeMaxVersion: undefined,
   });
@@ -1127,6 +1137,9 @@ export async function syncE2ee(password: string): Promise<SyncSummary> {
 
   const key = await unlockConfiguredVaultKey(password);
   cachedKey = key;
+  if (state.e2eePassword !== password) {
+    await saveAppState({ ...state, e2eePassword: password });
+  }
 
   return runFullSync(key);
 }

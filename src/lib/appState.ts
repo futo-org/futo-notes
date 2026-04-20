@@ -32,6 +32,13 @@ export interface AppState {
   e2eeUserId?: string;
   e2eeCollectionId?: string;
   e2eeSalt?: string;
+  /**
+   * Remembered vault password (plaintext). Stored so auto-sync can re-derive
+   * the vault key after an app restart without prompting. Lives in the app
+   * data file — anyone with disk access to the profile directory can read
+   * it. Cleared on disconnect or via "Forget password" in Settings.
+   */
+  e2eePassword?: string;
   e2eeObjectMap?: Record<string, {
     objectId: string;
     version: number;
@@ -166,6 +173,7 @@ function sanitize(raw: unknown): AppState {
     ...(typeof obj.e2eeUserId === 'string' ? { e2eeUserId: obj.e2eeUserId } : {}),
     ...(typeof obj.e2eeCollectionId === 'string' ? { e2eeCollectionId: obj.e2eeCollectionId } : {}),
     ...(typeof obj.e2eeSalt === 'string' ? { e2eeSalt: obj.e2eeSalt } : {}),
+    ...(typeof obj.e2eePassword === 'string' ? { e2eePassword: obj.e2eePassword } : {}),
     ...(obj.e2eeObjectMap && typeof obj.e2eeObjectMap === 'object'
       ? { e2eeObjectMap: stripBaseContent(obj.e2eeObjectMap as Record<string, Record<string, unknown>>) }
       : {}),
@@ -252,7 +260,7 @@ export async function saveAppState(state: AppState): Promise<void> {
 }
 
 export async function updateAppState(
-  updates: Partial<Pick<AppState, 'lastSyncedAt' | 'lastSyncError' | 'preferences' | 'crashReporting' | 'e2eeServerUrl' | 'e2eeAuthToken' | 'e2eeUserId' | 'e2eeCollectionId' | 'e2eeSalt' | 'e2eeObjectMap' | 'e2eeMaxVersion'>>,
+  updates: Partial<Pick<AppState, 'lastSyncedAt' | 'lastSyncError' | 'preferences' | 'crashReporting' | 'e2eeServerUrl' | 'e2eeAuthToken' | 'e2eeUserId' | 'e2eeCollectionId' | 'e2eeSalt' | 'e2eePassword' | 'e2eeObjectMap' | 'e2eeMaxVersion'>>,
 ): Promise<void> {
   const current = getAppState();
   const next = { ...current, ...updates };
