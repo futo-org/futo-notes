@@ -27,3 +27,63 @@ RUN mkdir -p "$ANDROID_HOME/cmdline-tools" && \
 # Rust Android targets
 RUN . "$HOME/.cargo/env" 2>/dev/null || true && \
     rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android i686-linux-android
+
+# ─────────────────────────────────────────────────────────────
+# Emulator + desktop-client layers (for the cross-platform sync
+# test job; release APK builds don't use them but still pull the
+# image).
+#
+# Keep these layers LAST so `build:android` stays cache-hot: when
+# the base layers (JDK/SDK/NDK/Rust) are unchanged, the Docker
+# daemon pulls only the deltas it needs and release builds don't
+# pay for emulator-specific churn. Bumping the SDK platform
+# version up top will invalidate everything below, which is fine
+# because you'd want to rebuild the test layers in that case too.
+# ─────────────────────────────────────────────────────────────
+
+ENV ANDROID_SDK_ROOT=/opt/android-sdk
+
+# Emulator + x86_64 system image (no Play Services — the app doesn't need them).
+RUN "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+      "emulator" \
+      "system-images;android-34;default;x86_64"
+
+# Baked AVD named "ci" — the harness picks it up via SF_ANDROID_AVD=ci.
+# --force so the image rebuild is idempotent.
+RUN echo "no" | "$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager" create avd \
+      --name ci \
+      --package "system-images;android-34;default;x86_64" \
+      --device "pixel_6" \
+      --force
+
+# Desktop Tauri deps — the sync test harness runs a Linux debug build
+# alongside the emulator, which needs xvfb + WebKitGTK 4.1.
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      libwebkit2gtk-4.1-dev \
+      libgtk-3-dev \
+      libayatana-appindicator3-dev \
+      librsvg2-dev \
+      libfuse2 \
+      libssl-dev \
+      patchelf \
+      xdg-utils \
+      xvfb \
+      ca-certificates \
+      curl && \
+    rm -rf /var/lib/apt/lists/*
+
+# Docker CLI + compose v2 — tests/lib/sync-test-server.mjs runs
+# `docker compose up -d postgres` inside the stonefruit-server repo.
+# The Docker socket must be mounted into the job container at runtime
+# (configured on the GitLab runner, not here).
+RUN install -m 0755 -d /etc/apt/keyrings && \
+    curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc && \
+    chmod a+r /etc/apt/keyrings/docker.asc && \
+    . /etc/os-release && \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/${ID} ${VERSION_CODENAME} stable" \
+      > /etc/apt/sources.list.d/docker.list && \
+    apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      docker-ce-cli docker-compose-plugin && \
+    rm -rf /var/lib/apt/lists/*

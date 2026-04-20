@@ -142,17 +142,39 @@ build_ios_task:
         -exportPath src-tauri/gen/apple/build/export
     - cd ../..
 
-    # Upload to TestFlight
-    - mkdir -p ~/.private_keys
-    - cp .secure_files/AuthKey*.p8 ~/.private_keys/
+    # Copy IPA to artifacts location. TestFlight upload is gated by the
+    # release:gate stage and handled by the publishFutoNotesIOS task.
     - IPA_PATH=$(find apps/tauri/src-tauri/gen/apple/build -name "*.ipa" -type f | head -1)
-    - echo "Uploading $IPA_PATH to TestFlight"
-    - xcrun altool --upload-app --type ios --file "$IPA_PATH" --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
-
-    # Copy IPA to artifacts location
     - cp "$IPA_PATH" ./
   binary_artifacts:
     path: "*.ipa"
+
+publish_ios_task:
+  name: publishFutoNotesIOS
+  macos_instance:
+    image: ghcr.io/cirruslabs/macos-sequoia-xcode:26.2
+  publishFutoNotesIOS_script:
+    # Fetch the ASC API key from GitLab secure files
+    - curl --silent "https://gitlab.com/gitlab-org/incubation-engineering/mobile-devops/download-secure-files/-/raw/main/installer" | bash
+    - mkdir -p ~/.private_keys
+    - cp .secure_files/AuthKey*.p8 ~/.private_keys/
+
+    # Download the IPA built by the build:ios GitLab job in this pipeline.
+    # CI_JOB_TOKEN is scoped to the current pipeline and is passed via .cienv.
+    - |
+      curl --fail --silent --show-error \
+        --header "JOB-TOKEN: $CI_JOB_TOKEN" \
+        --output build-ios.zip \
+        "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/jobs/artifacts/${CI_COMMIT_TAG}/download?job=build:ios"
+      unzip -q -o build-ios.zip
+    - |
+      IPA=$(find buildFutoNotesIOS/binary -name "*.ipa" -type f | head -1)
+      if [ -z "$IPA" ]; then
+        echo "ERROR: No IPA found after artifact download"
+        exit 1
+      fi
+      echo "Uploading $IPA to TestFlight"
+      xcrun altool --upload-app --type ios --file "$IPA" --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
 
 build_macos_task:
   name: buildFutoNotesMacOS

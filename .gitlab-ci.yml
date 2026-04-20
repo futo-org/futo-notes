@@ -78,6 +78,18 @@ stages:
         fs.writeFileSync(f, JSON.stringify(c, null, 2) + '\n');
       "
 
+# Clone the E2EE sync server (separate repo, public) and install its deps.
+# tests/lib/sync-test-server.mjs reads STONEFRUIT_E2EE_SERVER_REPO to locate it.
+.setup-stonefruit-server:
+  script:
+    - |
+      SERVER_DIR="$CI_PROJECT_DIR/.stonefruit-server"
+      git clone --depth 1 \
+        https://gitlab.futo.org/stonefruit/stonefruit-server.git \
+        "$SERVER_DIR"
+      (cd "$SERVER_DIR" && pnpm install --frozen-lockfile)
+      export STONEFRUIT_E2EE_SERVER_REPO="$SERVER_DIR"
+
 # ─────────────────────────────────────────────────────────────
 # Cache templates
 # ─────────────────────────────────────────────────────────────
@@ -249,6 +261,7 @@ test:cross-platform-sync:
     - !reference [.setup-linux-deps, script]
     - !reference [.setup-rust, script]
     - DEBIAN_FRONTEND=noninteractive apt-get install -y xvfb
+    - !reference [.setup-stonefruit-server, script]
     - node scripts/fetch-ort-linux.mjs
     # Build debug Tauri binary. The E2EE sync server lives in a separate repo.
     - cd apps/tauri && VITE_INCLUDE_TEST_HOOKS=true cargo tauri build --debug --no-bundle && cd ../..
@@ -265,8 +278,6 @@ test:cross-platform-sync:
       - test-screenshots/sync-results.json
     expire_in: 1 week
   timeout: 20m
-  # Tag pipelines excluded for now — the test requires a sibling
-  # stonefruit-server checkout that isn't wired up in CI yet.
   rules:
     - if: $CI_MERGE_REQUEST_IID
       changes:
@@ -274,6 +285,68 @@ test:cross-platform-sync:
         - src/**/*
         - crates/**/*
         - packages/shared/**/*
+        - tests/cross-platform-sync.mjs
+        - tests/lib/**
+
+test:cross-platform-sync:android:
+  stage: test
+  tags:
+    - kvm
+  image: gitlab.futo.org:5050/stonefruit/stonefruit/ci/android:latest
+  cache:
+    - !reference [.cache-pnpm, cache]
+    - !reference [.cache-cargo-tauri, cache]
+  variables:
+    ANDROID_HOME: /opt/android-sdk
+    ANDROID_SDK_ROOT: /opt/android-sdk
+    JAVA_HOME: /opt/jdk-21
+    NDK_HOME: /opt/android-sdk/ndk/27.0.12077973
+    SF_ANDROID_AVD: ci
+    SF_ANDROID_KVM: "1"
+    CI: "1"
+  script:
+    - test -e /dev/kvm || { echo "FATAL:/dev/kvm missing — runner not KVM-enabled"; exit 1; }
+    - export PATH="$JAVA_HOME/bin:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
+    - pnpm install --frozen-lockfile
+    - !reference [.setup-rust, script]
+    - !reference [.setup-stonefruit-server, script]
+    - node scripts/fetch-ort-linux.mjs
+    - node scripts/fetch-ort-android.mjs --abis x86_64,arm64-v8a
+    # Build desktop debug binary + APK, both with test hooks
+    - cd apps/tauri && VITE_INCLUDE_TEST_HOOKS=true cargo tauri build --debug --no-bundle && cd ../..
+    - >-
+      cd apps/tauri &&
+      VITE_INCLUDE_TEST_HOOKS=true cargo tauri android build --debug --apk
+      --config src-tauri/tauri.android.dev-mode.conf.json &&
+      cd ../..
+    # Desktop client needs a display; emulator runs headless via -no-window.
+    - >-
+      WEBKIT_DISABLE_DMABUF_RENDERER=1
+      xvfb-run -a --server-args="-screen 0 1280x800x24"
+      node tests/cross-platform-sync.mjs --matrix desktop-android
+  after_script:
+    - adb logcat -d > logcat.txt 2>/dev/null || true
+    - adb exec-out screencap -p > final-screen.png 2>/dev/null || true
+    - adb emu kill 2>/dev/null || true
+    - kill $(pgrep -f futo-notes-tauri) 2>/dev/null || true
+  artifacts:
+    when: always
+    paths:
+      - test-screenshots/sync-results.json
+      - logcat.txt
+      - final-screen.png
+      - /tmp/tauri-*.log
+    expire_in: 1 week
+  timeout: 45m
+  rules:
+    - if: $CI_MERGE_REQUEST_IID
+      changes:
+        - apps/tauri/**/*
+        - src/**/*
+        - crates/**/*
+        - packages/shared/**/*
+        - tests/cross-platform-sync.mjs
+        - tests/lib/**
 
 test:desktop-smoke:macos:
   stage: test
@@ -303,7 +376,8 @@ test:desktop-smoke:macos:
 # glibc and break on anything older.
 build:linux-packages:
   stage: build
-  needs: []
+  needs:
+    - job: test
   image: ubuntu:22.04
   before_script: &linux-before-script
     - apt-get update
@@ -352,7 +426,8 @@ build:linux-packages:
 # extra here and costs us glibc compat on older target distros.
 build:linux-appimage:
   stage: build
-  needs: []
+  needs:
+    - job: test
   image: ubuntu:22.04
   before_script: *linux-before-script
   cache:
@@ -379,9 +454,38 @@ build:linux-appimage:
   rules:
     - if: $CI_COMMIT_TAG
 
-build:android:
+# Rebuild the pre-baked Android CI image (JDK + SDK/NDK + Rust targets +
+# emulator + system image + desktop Tauri deps). Manual trigger only —
+# click "Run" on this job when ci/android.Dockerfile changes. Runs as
+# docker-in-docker so registry auth uses the runner's CI_JOB_TOKEN and no
+# laptop push is needed.
+build:ci-android-image:
   stage: build
   needs: []
+  image: docker:27
+  services:
+    - docker:27-dind
+  before_script: []
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_TLS_CERTDIR: ""
+  script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+    - docker build -f ci/android.Dockerfile -t "$CI_REGISTRY_IMAGE/ci/android:latest" .
+    - docker push "$CI_REGISTRY_IMAGE/ci/android:latest"
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "web"
+      when: manual
+    - if: $CI_MERGE_REQUEST_IID
+      changes:
+        - ci/android.Dockerfile
+      when: manual
+      allow_failure: true
+
+build:android:
+  stage: build
+  needs:
+    - job: test
   image: gitlab.futo.org:5050/stonefruit/stonefruit/ci/android:latest
   cache:
     - !reference [.cache-pnpm, cache]
@@ -427,7 +531,8 @@ build:android:
 
 build:ios:
   stage: build
-  needs: []
+  needs:
+    - job: test
   tags:
     - macscript
   variables:
@@ -445,7 +550,8 @@ build:ios:
 
 build:macos:
   stage: build
-  needs: []
+  needs:
+    - job: test
   tags:
     - macscript
   variables:
@@ -476,7 +582,8 @@ build:macos:
 
 windows:provision:
   stage: build
-  needs: []
+  needs:
+    - job: test
   tags:
     - proxmoxshell
   before_script:
@@ -761,6 +868,26 @@ release:gate:
 # ─────────────────────────────────────────────────────────────
 # Publish + create GitLab release
 # ─────────────────────────────────────────────────────────────
+
+# Upload the iOS IPA to TestFlight. Gated by release:gate so a failing
+# test job blocks the upload. The Cirrus task pulls the IPA artifact
+# built in build:ios, so we don't rebuild from scratch.
+publish:ios:
+  stage: release
+  interruptible: false
+  tags:
+    - macscript
+  needs:
+    - job: release:gate
+    - job: build:ios
+  variables:
+    GIT_STRATEGY: clone
+  before_script:
+    - env | grep -E '^(CI_|IOS_|ASC_)' > .cienv
+  script:
+    - cirrus run publishFutoNotesIOS --artifacts-dir . --env-file .cienv
+  rules:
+    - if: $CI_COMMIT_TAG
 
 release:
   stage: release

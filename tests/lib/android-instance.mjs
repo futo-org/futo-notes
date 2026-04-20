@@ -117,7 +117,8 @@ async function pickOrStartEmulator(name, emulatorBinary) {
   const logFd = openSync(logFile, 'w');
   const args = ['-avd', avdName, '-no-snapshot-load', '-no-boot-anim'];
   if (process.env.CI) {
-    args.push('-no-window', '-gpu', 'swiftshader_indirect', '-no-audio');
+    const gpu = process.env.SF_ANDROID_KVM ? 'auto' : 'swiftshader_indirect';
+    args.push('-no-window', '-gpu', gpu, '-no-audio');
   }
   const proc = spawn(emulatorBinary, args, {
     stdio: ['ignore', logFd, logFd],
