@@ -19,6 +19,7 @@
   display: flex;
   gap: 2px;
   font-family: var(--font-sans);
+  z-index: 200 !important;
 }
 
 .sf-selection-toolbar button {

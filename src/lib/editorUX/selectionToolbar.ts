@@ -1,4 +1,4 @@
-import { EditorView, showTooltip } from '@codemirror/view';
+import { EditorView, showTooltip, tooltips } from '@codemirror/view';
 import type { Tooltip } from '@codemirror/view';
 import { StateEffect, StateField } from '@codemirror/state';
 import type { EditorState } from '@codemirror/state';
@@ -113,4 +113,12 @@ const selectionToolbarField = StateField.define<Tooltip | null>({
   provide: (f) => showTooltip.from(f),
 });
 
-export const selectionToolbar = [tableFocusField, selectionToolbarField];
+// Render tooltips in a body-level container using fixed positioning so they
+// escape the editor's overflow-hidden scroll ancestors (.editor-container,
+// .note-body). Without this, a selection in the first visible line clips
+// the floating toolbar behind the note title / tag bar above the editor.
+export const selectionToolbar = [
+  tableFocusField,
+  selectionToolbarField,
+  tooltips({ parent: document.body, position: 'fixed' }),
+];
