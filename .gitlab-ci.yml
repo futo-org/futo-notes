@@ -365,9 +365,6 @@ test:cross-platform-sync:android:
       - tauri-logs/
     expire_in: 1 week
   timeout: 45m
-  # Manual trigger while we validate the android_kvm runner. Once it's proven
-  # stable across a handful of MRs, drop `when: manual` / `allow_failure` so
-  # the job runs automatically on relevant changes.
   rules:
     - if: $CI_MERGE_REQUEST_IID
       changes:
@@ -377,8 +374,6 @@ test:cross-platform-sync:android:
         - packages/shared/**/*
         - tests/cross-platform-sync.mjs
         - tests/lib/**
-      when: manual
-      allow_failure: true
 
 test:desktop-smoke:macos:
   stage: test
