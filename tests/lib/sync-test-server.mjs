@@ -54,12 +54,18 @@ export async function startServer(port, repoRoot, options = {}) {
     );
   }
 
-  const compose = spawnSync('docker', ['compose', 'up', '-d', 'postgres'], {
-    cwd: serverRepo,
-    encoding: 'utf8',
-  });
-  if (compose.status !== 0) {
-    throw new Error(`Failed to start E2EE server Postgres:\n${compose.stderr || compose.stdout}`);
+  // If the caller provides a DATABASE_URL (e.g. CI with a services: postgres
+  // sidecar), trust it and skip docker compose — the dind runner can't reach
+  // a host-level compose container at localhost:5433 anyway.
+  const externalDb = !!process.env.STONEFRUIT_E2EE_DATABASE_URL;
+  if (!externalDb) {
+    const compose = spawnSync('docker', ['compose', 'up', '-d', 'postgres'], {
+      cwd: serverRepo,
+      encoding: 'utf8',
+    });
+    if (compose.status !== 0) {
+      throw new Error(`Failed to start E2EE server Postgres:\n${compose.stderr || compose.stdout}`);
+    }
   }
 
   const passwordHash = hashPassword(serverRepo, PASSWORD);
@@ -95,22 +101,15 @@ export async function startServer(port, repoRoot, options = {}) {
     );
   });
 
-  const reset = spawnSync('docker', [
-    'compose',
-    'exec',
-    '-T',
-    'postgres',
-    'psql',
-    '-U',
-    'stonefruit',
-    '-d',
-    'stonefruit',
-    '-c',
-    'TRUNCATE orphaned_blobs, objects, collections, sessions, users CASCADE;',
-  ], {
-    cwd: serverRepo,
-    encoding: 'utf8',
-  });
+  const truncateSql = 'TRUNCATE orphaned_blobs, objects, collections, sessions, users CASCADE;';
+  const reset = externalDb
+    ? spawnSync('psql', [process.env.STONEFRUIT_E2EE_DATABASE_URL, '-c', truncateSql], {
+        encoding: 'utf8',
+      })
+    : spawnSync('docker', [
+        'compose', 'exec', '-T', 'postgres', 'psql',
+        '-U', 'stonefruit', '-d', 'stonefruit', '-c', truncateSql,
+      ], { cwd: serverRepo, encoding: 'utf8' });
   if (reset.status !== 0) {
     proc.kill('SIGKILL');
     throw new Error(`Failed to reset E2EE server database:\n${reset.stderr || reset.stdout}`);
