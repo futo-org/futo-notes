@@ -272,8 +272,8 @@ test:cross-platform-sync:
     - DEBIAN_FRONTEND=noninteractive apt-get install -y xvfb postgresql-client
     - !reference [.setup-stonefruit-server, script]
     - node scripts/fetch-ort-linux.mjs
-    # Build debug Tauri binary. The E2EE sync server lives in a separate repo.
-    - cd apps/tauri && VITE_INCLUDE_TEST_HOOKS=true cargo tauri build --debug --no-bundle && cd ../..
+    # Build debug Tauri binary. Subshell isolates cwd on failure.
+    - (cd apps/tauri && VITE_INCLUDE_TEST_HOOKS=true cargo tauri build --debug --no-bundle)
     # Run cross-platform sync tests under xvfb
     - >-
       WEBKIT_DISABLE_DMABUF_RENDERER=1
@@ -317,7 +317,6 @@ test:cross-platform-sync:android:
     NDK_HOME: /opt/android-sdk/ndk/27.0.12077973
     SF_ANDROID_AVD: ci
     SF_ANDROID_KVM: "1"
-    CI: "1"
     POSTGRES_DB: stonefruit
     POSTGRES_USER: stonefruit
     POSTGRES_PASSWORD: stonefruit
@@ -333,13 +332,13 @@ test:cross-platform-sync:android:
     - !reference [.setup-stonefruit-server, script]
     - node scripts/fetch-ort-linux.mjs
     - node scripts/fetch-ort-android.mjs --abis x86_64,arm64-v8a
-    # Build desktop debug binary + APK, both with test hooks
-    - cd apps/tauri && VITE_INCLUDE_TEST_HOOKS=true cargo tauri build --debug --no-bundle && cd ../..
+    # Build desktop debug binary + APK, both with test hooks. Subshells so a
+    # failure inside the build doesn't strand us in apps/tauri/ for later cmds.
+    - (cd apps/tauri && VITE_INCLUDE_TEST_HOOKS=true cargo tauri build --debug --no-bundle)
     - >-
-      cd apps/tauri &&
+      (cd apps/tauri &&
       VITE_INCLUDE_TEST_HOOKS=true cargo tauri android build --debug --apk
-      --config src-tauri/tauri.android.dev-mode.conf.json &&
-      cd ../..
+      --config src-tauri/tauri.android.dev-mode.conf.json)
     # Desktop client needs a display; emulator runs headless via -no-window.
     - >-
       WEBKIT_DISABLE_DMABUF_RENDERER=1
