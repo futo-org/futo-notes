@@ -286,7 +286,9 @@ test:cross-platform-sync:
     paths:
       - test-screenshots/sync-results.json
     expire_in: 1 week
-  timeout: 20m
+  # Cold Rust compile alone burns ~5min; bump to give warm runs a comfortable
+  # margin and cold runs (cache miss) enough headroom to finish.
+  timeout: 30m
   rules:
     - if: $CI_MERGE_REQUEST_IID
       changes:
