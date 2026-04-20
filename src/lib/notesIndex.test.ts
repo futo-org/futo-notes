@@ -7,6 +7,7 @@ import {
   makePreview,
   buildIndexedNote,
   scanNotePreviews,
+  scanNotePreviewsWithBodies,
   scanNotes,
   convertTxtToMd,
 } from './notesIndex';
@@ -135,6 +136,58 @@ describe('scanNotePreviews', () => {
   });
 });
 
+// ── scanNotePreviewsWithBodies ────────────────────────────────────────
+
+describe('scanNotePreviewsWithBodies', () => {
+  it('returns fresh bodies for cache-miss entries', async () => {
+    await testFS.writeNote('a', 'body a');
+    await testFS.writeNote('b', 'body b');
+
+    const { previews, freshBodies } = await scanNotePreviewsWithBodies(testFS);
+    expect(previews).toHaveLength(2);
+    expect(freshBodies.get('a')).toBe('body a');
+    expect(freshBodies.get('b')).toBe('body b');
+  });
+
+  it('omits bodies for cache hits', async () => {
+    await testFS.writeNote('cached', 'original', 1000000000000);
+
+    // Populate cache
+    await scanNotePreviewsWithBodies(testFS);
+
+    // Second scan: cache hit, no body read
+    const { previews, freshBodies } = await scanNotePreviewsWithBodies(testFS);
+    expect(previews).toHaveLength(1);
+    expect(freshBodies.has('cached')).toBe(false);
+  });
+
+  it('preserves mtime-desc sort order across hits and misses', async () => {
+    // Seed cache with two notes
+    await testFS.writeNote('old', 'old', 1000000000000);
+    await testFS.writeNote('mid', 'mid', 2000000000000);
+    await scanNotePreviewsWithBodies(testFS);
+
+    // Add a fresh note that should sort first
+    await testFS.writeNote('new', 'new', 3000000000000);
+
+    const { previews, freshBodies } = await scanNotePreviewsWithBodies(testFS);
+    expect(previews.map((p) => p.id)).toEqual(['new', 'mid', 'old']);
+    expect(freshBodies.get('new')).toBe('new');
+    expect(freshBodies.has('mid')).toBe(false);
+    expect(freshBodies.has('old')).toBe(false);
+  });
+
+  it('includes newly-changed notes in freshBodies', async () => {
+    await testFS.writeNote('note', 'v1', 1000000000000);
+    await scanNotePreviewsWithBodies(testFS);
+
+    // Rewrite with a new mtime — should invalidate the cache entry
+    await testFS.writeNote('note', 'v2', 2000000000000);
+    const { freshBodies } = await scanNotePreviewsWithBodies(testFS);
+    expect(freshBodies.get('note')).toBe('v2');
+  });
+});
+
 // ── scanNotes (full scan) ─────────────────────────────────────────────
 
 describe('scanNotes', () => {
@@ -208,6 +261,25 @@ describe('convertTxtToMd', () => {
 
     const files = await testFS.listAppData('.');
     expect(files).toContain('existing.md');
-    expect(files).toHaveLength(1);
+    // After the migration runs once we also write a sentinel file so the
+    // next session can short-circuit without another full-dir scan.
+    expect(files).toContain('.txt-migration-done');
+  });
+
+  it('writes a sentinel that short-circuits subsequent calls', async () => {
+    // First run: writes the sentinel
+    await convertTxtToMd(testFS);
+    const afterFirst = await testFS.listAppData('.');
+    expect(afterFirst).toContain('.txt-migration-done');
+
+    // Second run should see the sentinel and skip the dir scan entirely.
+    // We verify by planting a .txt file *after* the sentinel is written —
+    // if the second call still scans, it would migrate this file; the
+    // sentinel guard must keep it untouched.
+    await testFS.writeAppData('late.txt', 'late content');
+    await convertTxtToMd(testFS);
+    const afterSecond = await testFS.listAppData('.');
+    expect(afterSecond).toContain('late.txt');
+    expect(afterSecond).not.toContain('late.md');
   });
 });

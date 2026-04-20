@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
-use stonefruit_core::files::{file_mtime_ms, set_file_mtime_ms};
+use stonefruit_core::files::{file_mtime_ms, safe_note_path, set_file_mtime_ms};
 #[cfg(test)]
 use stonefruit_core::hash::hash_sha256_bytes;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -253,6 +253,97 @@ fn map_notify_event(event: &Event) -> Option<&'static str> {
         EventKind::Remove(_) => Some("unlink"),
         _ => None,
     }
+}
+
+/// One-shot readdir+stat for `.md` files, sorted by mtime desc.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteFileMeta {
+    pub name: String,
+    pub mtime_ms: i64,
+    pub size_bytes: u64,
+}
+
+fn fs_list_notes_with_meta_impl(base: &Path) -> Result<Vec<NoteFileMeta>, String> {
+    let mut entries: Vec<NoteFileMeta> = Vec::new();
+
+    let read_dir = match fs::read_dir(base) {
+        Ok(rd) => rd,
+        Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(entries),
+        Err(err) => return Err(io_err_to_string(err)),
+    };
+
+    for entry in read_dir.flatten() {
+        let file_type = match entry.file_type() {
+            Ok(t) => t,
+            Err(_) => continue,
+        };
+        if !file_type.is_file() {
+            continue;
+        }
+        let name = match entry.file_name().into_string() {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+        if !name.ends_with(".md") {
+            continue;
+        }
+        let meta = match entry.metadata() {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+        entries.push(NoteFileMeta {
+            name,
+            mtime_ms: file_mtime_ms(&meta),
+            size_bytes: meta.len(),
+        });
+    }
+
+    entries.sort_by(|a, b| b.mtime_ms.cmp(&a.mtime_ms));
+    Ok(entries)
+}
+
+#[tauri::command]
+pub async fn fs_list_notes_with_meta(app: AppHandle) -> Result<Vec<NoteFileMeta>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = notes_root(&app)?;
+        fs_list_notes_with_meta_impl(&base)
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
+/// Atomic write + optional mtime override + post-write mtime readback, in one IPC.
+fn fs_write_note_atomic_impl(
+    base: &Path,
+    id: &str,
+    content: &str,
+    modified_at_ms: Option<i64>,
+) -> Result<i64, String> {
+    let path = safe_note_path(base, id)?;
+    write_atomic_text(&path, content)?;
+    if let Some(ms) = modified_at_ms {
+        if ms >= 0 {
+            let _ = set_file_mtime_ms(&path, ms);
+        }
+    }
+    let meta = fs::metadata(&path).map_err(io_err_to_string)?;
+    Ok(file_mtime_ms(&meta))
+}
+
+#[tauri::command]
+pub async fn fs_write_note_atomic(
+    app: AppHandle,
+    id: String,
+    content: String,
+    modified_at_ms: Option<i64>,
+) -> Result<i64, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = notes_root(&app)?;
+        fs_write_note_atomic_impl(&base, &id, &content, modified_at_ms)
+    })
+    .await
+    .map_err(task_join_err)?
 }
 
 /// Thin command to set file mtime — plugin-fs does not support setting mtime,
@@ -626,6 +717,106 @@ mod tests {
 
     // ── F. Rust Chaos Tests ─────────────────────────────────────────────
     // (V1-dependent chaos tests removed; non-V1 tests preserved below)
+
+    // ── fs_list_notes_with_meta ─────────────────────────────────────
+
+    #[test]
+    fn fs_list_notes_with_meta_returns_empty_when_dir_missing() {
+        let dir = temp_notes_dir();
+        cleanup_temp_dir(&dir); // Remove it so the path doesn't exist
+        let result = fs_list_notes_with_meta_impl(&dir).unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn fs_list_notes_with_meta_returns_only_md_files() {
+        let dir = temp_notes_dir();
+        fs::write(dir.join("note1.md"), "a").unwrap();
+        fs::write(dir.join("note2.md"), "b").unwrap();
+        fs::write(dir.join("image.png"), b"\x89PNG").unwrap();
+        fs::write(dir.join(".hidden"), "x").unwrap();
+
+        let result = fs_list_notes_with_meta_impl(&dir).unwrap();
+        let names: Vec<&str> = result.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(names.len(), 2);
+        assert!(names.contains(&"note1.md"));
+        assert!(names.contains(&"note2.md"));
+        cleanup_temp_dir(&dir);
+    }
+
+    // ── fs_write_note_atomic ────────────────────────────────────────
+
+    #[test]
+    fn fs_write_note_atomic_writes_and_returns_mtime() {
+        let dir = temp_notes_dir();
+        let mtime = fs_write_note_atomic_impl(&dir, "hello", "body text", None).unwrap();
+        let path = dir.join("hello.md");
+        assert!(path.exists());
+        assert_eq!(fs::read_to_string(&path).unwrap(), "body text");
+        let disk_mtime = file_mtime_ms(&fs::metadata(&path).unwrap());
+        assert_eq!(mtime, disk_mtime);
+        cleanup_temp_dir(&dir);
+    }
+
+    #[test]
+    fn fs_write_note_atomic_honors_modified_at_override() {
+        let dir = temp_notes_dir();
+        let target_ms = 1_700_000_000_000_i64;
+        let mtime = fs_write_note_atomic_impl(&dir, "stamped", "x", Some(target_ms)).unwrap();
+        assert_eq!(mtime, target_ms);
+        cleanup_temp_dir(&dir);
+    }
+
+    #[test]
+    fn fs_write_note_atomic_rejects_path_traversal() {
+        let dir = temp_notes_dir();
+        let err = fs_write_note_atomic_impl(&dir, "../escape", "nope", None);
+        assert!(err.is_err());
+        cleanup_temp_dir(&dir);
+    }
+
+    #[test]
+    fn fs_list_notes_with_meta_reports_size() {
+        let dir = temp_notes_dir();
+        fs::write(dir.join("short.md"), "hi").unwrap();
+        fs::write(dir.join("long.md"), "a".repeat(1024)).unwrap();
+
+        let result = fs_list_notes_with_meta_impl(&dir).unwrap();
+        let by_name: std::collections::HashMap<&str, u64> =
+            result.iter().map(|e| (e.name.as_str(), e.size_bytes)).collect();
+        assert_eq!(by_name["short.md"], 2);
+        assert_eq!(by_name["long.md"], 1024);
+        cleanup_temp_dir(&dir);
+    }
+
+    #[test]
+    fn fs_list_notes_with_meta_sorts_by_mtime_desc() {
+        let dir = temp_notes_dir();
+        fs::write(dir.join("older.md"), "x").unwrap();
+        fs::write(dir.join("newer.md"), "x").unwrap();
+        set_file_mtime_ms(&dir.join("older.md"), 1_000_000_000_000).unwrap();
+        set_file_mtime_ms(&dir.join("newer.md"), 2_000_000_000_000).unwrap();
+
+        let result = fs_list_notes_with_meta_impl(&dir).unwrap();
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].name, "newer.md");
+        assert_eq!(result[1].name, "older.md");
+        assert!(result[0].mtime_ms > result[1].mtime_ms);
+        cleanup_temp_dir(&dir);
+    }
+
+    #[test]
+    fn fs_list_notes_with_meta_skips_subdirectories() {
+        let dir = temp_notes_dir();
+        fs::write(dir.join("note.md"), "x").unwrap();
+        fs::create_dir_all(dir.join("subfolder")).unwrap();
+        fs::write(dir.join("subfolder").join("nested.md"), "x").unwrap();
+
+        let result = fs_list_notes_with_meta_impl(&dir).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].name, "note.md");
+        cleanup_temp_dir(&dir);
+    }
 
     // ── Image extension validation ──────────────────────────────────
 

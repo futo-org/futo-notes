@@ -10,7 +10,7 @@ import { ensureNotesFolder, getFS, getPlatformFS } from './platform';
 import { loadEngagement, trackEdit, removeEngagement, renameEngagement } from './engagement';
 import { pauseSyncV2, resumeSyncV2, waitForSyncIdleV2 } from './autoSyncV2';
 import { extractTags } from '@futo-notes/shared';
-import { scanNotePreviews, scanNotes, makePreview } from './notesIndex';
+import { scanNotePreviewsWithBodies, makePreview } from './notesIndex';
 import {
   searchNotes,
   extractSnippet,
@@ -22,6 +22,10 @@ import {
   getMtimeMap,
   clearSearchIndex,
 } from './searchIndex';
+import { runPool } from './util/pool';
+
+// Matches notesIndex.ts READ_POOL_CONCURRENCY.
+const RECONCILE_CONCURRENCY = 8;
 
 // In-memory cache of notes metadata
 let notesCache: NotePreview[] = [];
@@ -38,9 +42,10 @@ export async function initNotes(): Promise<void> {
   await getPlatformFS(); // Initialize platform FS before any file operations
   await ensureNotesFolder();
 
-  notesCache = await scanNotePreviews(getFS());
+  const { previews, freshBodies } = await scanNotePreviewsWithBodies(getFS());
+  notesCache = previews;
   await loadEngagement();
-  await bootstrapSearchIndex();
+  await bootstrapSearchIndex(freshBodies);
   initialized = true;
 }
 
@@ -50,20 +55,17 @@ export async function initNotes(): Promise<void> {
  *
  * Strategy: try to load the persisted index, then reconcile against the current
  * file mtimes — re-read bodies only for notes that are new or changed. If no
- * persisted index exists, do a full body scan and build the index from scratch.
+ * persisted index exists, build from scratch, reusing any bodies we already
+ * have in hand from `scanNotePreviewsWithBodies`.
  */
-async function bootstrapSearchIndex(): Promise<void> {
-  const fs = getFS();
+async function bootstrapSearchIndex(freshBodies?: Map<string, string>): Promise<void> {
   const loaded = await loadPersistedIndex();
 
   if (loaded) {
-    await reconcileSearchIndex();
+    await reconcileSearchIndex(freshBodies);
   } else {
     initSearchIndex();
-    const indexed = await scanNotes(fs);
-    for (const note of indexed) {
-      addToSearchIndex({ id: note.id, title: note.title, body: note.body, mtime: note.mtime });
-    }
+    await buildSearchIndexFromScratch(freshBodies);
   }
 
   // Persist in the background — don't block startup on disk I/O.
@@ -71,10 +73,44 @@ async function bootstrapSearchIndex(): Promise<void> {
 }
 
 /**
+ * Build the search index from every note in `notesCache`, reusing bodies
+ * already read during `scanNotePreviewsWithBodies` (cold preview cache)
+ * and only hitting disk for anything that's still missing. Reads run
+ * through a bounded pool.
+ */
+async function buildSearchIndexFromScratch(
+  freshBodies?: Map<string, string>,
+): Promise<void> {
+  const fs = getFS();
+  const stillNeeded: NotePreview[] = [];
+
+  for (const note of notesCache) {
+    const body = freshBodies?.get(note.id);
+    if (body !== undefined) {
+      addToSearchIndex({ id: note.id, title: note.id, body, mtime: note.modificationTime });
+    } else {
+      stillNeeded.push(note);
+    }
+  }
+
+  if (stillNeeded.length === 0) return;
+
+  await runPool(stillNeeded, RECONCILE_CONCURRENCY, async (note) => {
+    try {
+      const body = await fs.readNote(note.id);
+      addToSearchIndex({ id: note.id, title: note.id, body, mtime: note.modificationTime });
+    } catch {
+      // Skip unreadable files
+    }
+  });
+}
+
+/**
  * Reconcile the search index against the current notesCache: remove entries
  * for deleted notes, and re-read bodies for notes with new/changed mtimes.
+ * Reuses `freshBodies` when available to skip redundant IPC.
  */
-async function reconcileSearchIndex(): Promise<void> {
+async function reconcileSearchIndex(freshBodies?: Map<string, string>): Promise<void> {
   const fs = getFS();
   const mtimes = getMtimeMap();
   const currentIds = new Set(notesCache.map((n) => n.id));
@@ -83,21 +119,32 @@ async function reconcileSearchIndex(): Promise<void> {
     if (!currentIds.has(id)) removeFromSearchIndex(id);
   }
 
+  const toRead: NotePreview[] = [];
   for (const note of notesCache) {
-    if (mtimes[note.id] !== note.modificationTime) {
-      try {
-        const body = await fs.readNote(note.id);
-        addToSearchIndex({ id: note.id, title: note.id, body, mtime: note.modificationTime });
-      } catch {
-        // Skip unreadable files
-      }
+    if (mtimes[note.id] === note.modificationTime) continue;
+    const cachedBody = freshBodies?.get(note.id);
+    if (cachedBody !== undefined) {
+      addToSearchIndex({ id: note.id, title: note.id, body: cachedBody, mtime: note.modificationTime });
+    } else {
+      toRead.push(note);
     }
   }
+
+  if (toRead.length === 0) return;
+  await runPool(toRead, RECONCILE_CONCURRENCY, async (note) => {
+    try {
+      const body = await fs.readNote(note.id);
+      addToSearchIndex({ id: note.id, title: note.id, body, mtime: note.modificationTime });
+    } catch {
+      // Skip unreadable files
+    }
+  });
 }
 
 export async function refreshNotesFromStorage(): Promise<void> {
-  notesCache = await scanNotePreviews(getFS());
-  await reconcileSearchIndex();
+  const { previews, freshBodies } = await scanNotePreviewsWithBodies(getFS());
+  notesCache = previews;
+  await reconcileSearchIndex(freshBodies);
   void persistIndex();
 }
 

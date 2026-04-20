@@ -71,7 +71,14 @@ export async function loadPersistedIndex(): Promise<boolean> {
   }
 }
 
-export async function persistIndex(): Promise<void> {
+// Trailing-edge debounce. Safe to drop the last write: next launch
+// rebuilds the index from file mtimes.
+const PERSIST_DEBOUNCE_MS = 1_000;
+let persistTimer: ReturnType<typeof setTimeout> | null = null;
+let persistInFlight = false;
+let persistQueued = false;
+
+async function writeIndexNow(): Promise<void> {
   if (!searchIndex) return;
   try {
     const payload = JSON.stringify({
@@ -83,6 +90,41 @@ export async function persistIndex(): Promise<void> {
   } catch (e) {
     console.warn('Failed to persist search index:', e);
   }
+}
+
+async function drainPersist(): Promise<void> {
+  if (persistInFlight) {
+    persistQueued = true;
+    return;
+  }
+  persistInFlight = true;
+  try {
+    await writeIndexNow();
+  } finally {
+    persistInFlight = false;
+    if (persistQueued) {
+      persistQueued = false;
+      void drainPersist();
+    }
+  }
+}
+
+export function persistIndex(): void {
+  if (!searchIndex) return;
+  if (persistTimer !== null) clearTimeout(persistTimer);
+  persistTimer = setTimeout(() => {
+    persistTimer = null;
+    void drainPersist();
+  }, PERSIST_DEBOUNCE_MS);
+}
+
+/** Force-flush any pending persist. Use before app exit / test teardown. */
+export async function flushPersistIndex(): Promise<void> {
+  if (persistTimer !== null) {
+    clearTimeout(persistTimer);
+    persistTimer = null;
+  }
+  await drainPersist();
 }
 
 export function getMtimeMap(): Record<string, number> {

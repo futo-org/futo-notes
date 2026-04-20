@@ -8,6 +8,7 @@
 import { getAppState, saveAppState } from './appState';
 import { applySyncDeltaV2 } from './rustCore';
 import { getPlatformFS } from './platform';
+import { runPool } from './util/pool';
 import {
   PBKDF2_ITERATIONS,
   deriveKey,
@@ -135,32 +136,6 @@ const PULL_CONCURRENCY = 8;
  * "pick up where we left off" instead of "start all 2,000 uploads over."
  */
 const CHECKPOINT_EVERY = 100;
-
-/**
- * Pull-driven bounded-concurrency pool. `worker` is invoked once per
- * item; `concurrency` workers race to claim the next index. Errors in a
- * worker reject the outer promise — callers that need per-item error
- * handling should try/catch inside `worker`.
- */
-async function runPool<T>(
-  items: readonly T[],
-  concurrency: number,
-  worker: (item: T, index: number) => Promise<void>,
-): Promise<void> {
-  let nextIndex = 0;
-  const poolSize = Math.max(1, Math.min(concurrency, items.length));
-  const runners: Promise<void>[] = [];
-  for (let i = 0; i < poolSize; i++) {
-    runners.push((async () => {
-      while (true) {
-        const idx = nextIndex++;
-        if (idx >= items.length) return;
-        await worker(items[idx], idx);
-      }
-    })());
-  }
-  await Promise.all(runners);
-}
 
 function getE2eeConfig(): { serverUrl: string; token: string; userId: string; collectionId: string } {
   const s = getAppState();
@@ -958,16 +933,34 @@ async function pushE2ee(key: CryptoKey): Promise<PushResult> {
     const filename = file.name;
     const id = filenameToId(filename);
 
+    // Same on-disk mtime+size as last push → content unchanged, hash still valid.
+    const existing = objectMap[filename];
+    if (
+      existing?.hash !== undefined &&
+      existing.mtimeMs === file.mtime &&
+      existing.sizeBytes === file.size
+    ) {
+      return;
+    }
+
     let content: string;
     try {
       content = await fs.readNote(id);
     } catch {
       return; // file removed between list and read
     }
-    const existing = objectMap[filename];
     const hash = await sha256(content);
 
-    if (existing?.hash === hash) return;
+    if (existing?.hash === hash) {
+      // Content unchanged despite mtime/size mismatch — stamp the
+      // mtime/size so the next push takes the fast path.
+      objectMap[filename] = {
+        ...existing,
+        mtimeMs: file.mtime,
+        sizeBytes: file.size,
+      };
+      return;
+    }
 
     if (existing) {
       const result = await updateObjectInline(key, filename, content, existing.objectId, existing.version + 1);
@@ -979,6 +972,12 @@ async function pushE2ee(key: CryptoKey): Promise<PushResult> {
           blobKey: result.blobKey,
           hash,
           baseContent: content,
+          // Stamp with the server-canonical timestamp that applySyncDeltaV2
+          // is about to write onto the local file. If we stamped with the
+          // pre-push on-disk mtime, the post-push mtime sync would make
+          // the stamp stale and force a re-hash on the next push.
+          mtimeMs: result.updatedAt,
+          sizeBytes: file.size,
         };
         pushedTimestamps[filename] = result.updatedAt;
         uploaded++;
@@ -1016,6 +1015,10 @@ async function pushE2ee(key: CryptoKey): Promise<PushResult> {
           blobKey: created.blobKey,
           hash: created.hash,
           baseContent: content,
+          // See comment on the update path: stamp with the server-canonical
+          // timestamp that applySyncDeltaV2 writes onto the local file.
+          mtimeMs: created.updatedAt,
+          sizeBytes: file.size,
         };
         pushedTimestamps[filename] = created.updatedAt;
         uploaded++;

@@ -20,7 +20,8 @@ export interface AppContext {
 
 export function createAppContext(): AppContext {
   let activeNoteId = $state<string | null>(null);
-  let notes = $state<NotePreview[]>([]);
+  // Raw: refreshed by reassignment, never mutated in place.
+  let notes = $state.raw<NotePreview[]>([]);
   let syncActive = $state(false);
 
   return {

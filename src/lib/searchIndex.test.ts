@@ -13,6 +13,7 @@ import {
   getStoredBody,
   loadPersistedIndex,
   persistIndex,
+  flushPersistIndex,
   getMtimeMap,
 } from './searchIndex';
 
@@ -209,7 +210,8 @@ describe('persistence', () => {
     addToSearchIndex({ id: 'note1', title: 'note1', body: 'persisted content hello', mtime: 1000 });
     addToSearchIndex({ id: 'note2', title: 'note2', body: 'other persisted data', mtime: 2000 });
 
-    await persistIndex();
+    persistIndex();
+    await flushPersistIndex();
 
     // Reinitialize and load from persisted data
     initSearchIndex();
@@ -242,7 +244,8 @@ describe('persistence', () => {
 
   it('stored body is accessible after load', async () => {
     addToSearchIndex({ id: 'bodytest', title: 'bodytest', body: 'the stored body content', mtime: 1000 });
-    await persistIndex();
+    persistIndex();
+    await flushPersistIndex();
 
     initSearchIndex();
     await loadPersistedIndex();

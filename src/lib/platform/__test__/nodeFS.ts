@@ -26,7 +26,7 @@ export function createNodeFS(): TestPlatformFS {
         .filter((name) => name.endsWith('.md'))
         .map((name) => {
           const stat = fs.statSync(path.join(tmpDir, name));
-          return { name, mtime: stat.mtimeMs };
+          return { name, mtime: stat.mtimeMs, size: stat.size };
         });
     },
 

@@ -7,9 +7,10 @@ const noteStore = new Map<string, { content: string; mtime: number }>();
 // This allows the UI to render in a plain browser and supports dev/test workflows.
 export const webFS: PlatformFS = {
   async listNoteFiles(): Promise<NoteFile[]> {
-    return Array.from(noteStore.entries()).map(([id, { mtime }]) => ({
+    return Array.from(noteStore.entries()).map(([id, { content, mtime }]) => ({
       name: id,
       mtime,
+      size: content.length,
     }));
   },
 

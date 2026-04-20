@@ -1,6 +1,8 @@
 export interface NoteFile {
   name: string;
   mtime: number;
+  /** File size in bytes. Used by sync push-path to short-circuit unchanged files. */
+  size: number;
 }
 
 export interface FileChangeEvent {

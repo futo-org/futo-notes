@@ -60,7 +60,7 @@ function schedulePersist(): void {
 
 async function writeEngagement(): Promise<void> {
   if (!hasFileSystem || !cached) return;
-  await getFS().writeAppData(ENGAGEMENT_PATH, JSON.stringify(cached, null, 2));
+  await getFS().writeAppData(ENGAGEMENT_PATH, JSON.stringify(cached));
 }
 
 export function trackOpen(noteId: string): void {

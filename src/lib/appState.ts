@@ -39,6 +39,15 @@ export interface AppState {
     hash?: string;
     /** Plaintext common ancestor used for client-side three-way conflict merges. */
     baseContent?: string;
+    /**
+     * On-disk mtime+size at the time of the last successful push. Used as
+     * a fast pre-filter in pushE2ee: if both match the current file, skip
+     * the read + sha256 entirely. Missing on old entries written before
+     * this field was introduced — those fall through to the full
+     * read-and-hash path, which restamps them on their next push.
+     */
+    mtimeMs?: number;
+    sizeBytes?: number;
   }>;
   e2eeMaxVersion?: number;
 }
@@ -196,7 +205,7 @@ export async function saveAppState(state: AppState): Promise<void> {
   cached = state;
   if (!hasFileSystem) return;
   const fs = await getPlatformFS();
-  await fs.writeAppData(APP_STATE_PATH, JSON.stringify(state, null, 2));
+  await fs.writeAppData(APP_STATE_PATH, JSON.stringify(state));
 }
 
 export async function updateAppState(

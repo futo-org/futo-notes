@@ -211,8 +211,10 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
   }
 
   async function handleBulkWatcherRefresh(events: FileChangeEvent[]): Promise<void> {
-    await refreshNotesFromStorage();
-    deps.refreshNotesList();
+    scheduleExternalRescan(250);
+
+    // Replay the active-note event synchronously so the open editor
+    // picks up the change without waiting for the rescan window.
     const originalId = deps.getOriginalId();
     const activeFilename = originalId ? `${originalId}.md` : null;
     if (activeFilename) {

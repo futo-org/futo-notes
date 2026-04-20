@@ -2,6 +2,12 @@ import type { NotePreview } from '../types';
 import type { FileSystem } from './platform/types';
 import { extractTags } from '@futo-notes/shared';
 import { extractHeadings } from './searchIndex';
+import { runPool } from './util/pool';
+
+// Concurrency for parallel body reads during startup scans. Matches the
+// existing E2EE push/pull pool size — on iOS Tauri IPC serializes enough
+// that going higher hasn't shown a measurable win.
+const READ_POOL_CONCURRENCY = 8;
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -30,7 +36,8 @@ interface NotePreviewCache {
 const CACHE_PATH = '.note-preview-cache.json';
 const CACHE_VERSION = 1;
 
-// Guard: txt migration only needs to run once per session
+const TXT_MIGRATION_SENTINEL = '.txt-migration-done';
+
 let txtMigrationDone = false;
 
 // ── Preview ───────────────────────────────────────────────────────────
@@ -44,13 +51,19 @@ export function makePreview(content: string): string {
 
 /** One-way migration: rename .txt files to .md in the notes directory. */
 export async function convertTxtToMd(fs: FileSystem): Promise<void> {
+  const sentinel = await fs.readAppData(TXT_MIGRATION_SENTINEL).catch(() => null);
+  if (sentinel !== null) return;
+
   // Use listDirFiles (notes-root flat listing) rather than listAppData('.'),
   // which would pass a `.` component through plugin-fs scope checks and can
   // be rejected as a forbidden path on Tauri.
   const allEntries = await fs.listDirFiles();
   const allNames = allEntries.map((e) => e.name);
   const txtFiles = allNames.filter((f) => f.toLowerCase().endsWith('.txt'));
-  if (txtFiles.length === 0) return;
+  if (txtFiles.length === 0) {
+    await markTxtMigrationDone(fs);
+    return;
+  }
 
   const mdSet = new Set(
     allNames.filter((f) => f.toLowerCase().endsWith('.md')).map((f) => f.toLowerCase()),
@@ -83,6 +96,16 @@ export async function convertTxtToMd(fs: FileSystem): Promise<void> {
     } catch {
       // Skip files that can't be read/written
     }
+  }
+
+  await markTxtMigrationDone(fs);
+}
+
+async function markTxtMigrationDone(fs: FileSystem): Promise<void> {
+  try {
+    await fs.writeAppData(TXT_MIGRATION_SENTINEL, '1');
+  } catch {
+    // Non-fatal: we'll just re-check next session.
   }
 }
 
@@ -125,11 +148,24 @@ export function buildIndexedNote(id: string, content: string, mtime: number): In
 // ── Scanning ──────────────────────────────────────────────────────────
 
 /**
- * Fast startup scan: returns NotePreview[] sorted by mtime desc.
- * Uses a preview cache to avoid reading unchanged files.
- * Does NOT load full bodies (search index builds lazily).
+ * Fresh bodies captured during a cache-miss pass. Consumers (e.g. the
+ * cold search-index bootstrap) can reuse these instead of reading every
+ * file a second time.
  */
-export async function scanNotePreviews(fs: FileSystem): Promise<NotePreview[]> {
+export interface ScanResult {
+  previews: NotePreview[];
+  /** Bodies read from disk during this scan, keyed by note id. Cache hits are absent. */
+  freshBodies: Map<string, string>;
+}
+
+/**
+ * Fast startup scan: returns NotePreview[] sorted by mtime desc and the
+ * bodies read during cache misses (so callers can feed them to the search
+ * index without re-reading).
+ * Uses a preview cache to avoid reading unchanged files. Cache misses run
+ * through a bounded-concurrency pool so 2000 serial IPCs don't block startup.
+ */
+export async function scanNotePreviewsWithBodies(fs: FileSystem): Promise<ScanResult> {
   if (!txtMigrationDone) {
     await convertTxtToMd(fs);
     txtMigrationDone = true;
@@ -137,45 +173,53 @@ export async function scanNotePreviews(fs: FileSystem): Promise<NotePreview[]> {
   const cache = await loadPreviewCache(fs);
   const files = await fs.listNoteFiles();
 
-  const previews: NotePreview[] = [];
+  const previews: (NotePreview | null)[] = new Array(files.length).fill(null);
   const newEntries: Record<string, CachedNoteMeta> = {};
+  const freshBodies = new Map<string, string>();
   let cacheChanged = false;
 
-  for (const file of files) {
+  type Miss = { id: string; mtime: number; index: number };
+  const misses: Miss[] = [];
+
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
     const id = file.name.replace(/\.md$/, '');
     const cached = cache.entries[id];
-
     if (cached && cached.mtime === file.mtime) {
-      // Cache hit
-      previews.push({
+      previews[i] = {
         id,
         title: id,
         preview: cached.preview,
         modificationTime: file.mtime,
         tags: cached.tags,
-      });
+      };
       newEntries[id] = cached;
     } else {
-      // Cache miss: read file to extract metadata
-      cacheChanged = true;
+      misses.push({ id, mtime: file.mtime, index: i });
+    }
+  }
+
+  if (misses.length > 0) {
+    cacheChanged = true;
+    await runPool(misses, READ_POOL_CONCURRENCY, async ({ id, mtime, index }) => {
       try {
         const content = await fs.readNote(id);
         const preview = makePreview(content);
         const tags = extractTags(content);
         const headings = extractHeadings(content);
-
-        previews.push({
+        previews[index] = {
           id,
           title: id,
           preview,
-          modificationTime: file.mtime,
+          modificationTime: mtime,
           tags,
-        });
-        newEntries[id] = { mtime: file.mtime, preview, tags, headings };
+        };
+        newEntries[id] = { mtime, preview, tags, headings };
+        freshBodies.set(id, content);
       } catch {
-        // Skip unreadable files
+        // Slot stays null; filtered below.
       }
-    }
+    });
   }
 
   // Detect deletions (cache had entries not in current files)
@@ -187,17 +231,32 @@ export async function scanNotePreviews(fs: FileSystem): Promise<NotePreview[]> {
     await savePreviewCache(fs, { version: CACHE_VERSION, entries: newEntries });
   }
 
+  const finalPreviews = previews.filter((p): p is NotePreview => p !== null);
   // Sort by mtime desc, then id asc as tiebreaker
-  previews.sort((a, b) =>
+  finalPreviews.sort((a, b) =>
     b.modificationTime - a.modificationTime || a.id.localeCompare(b.id),
   );
 
+  return { previews: finalPreviews, freshBodies };
+}
+
+/**
+ * Back-compat wrapper: returns only the previews. Prefer
+ * `scanNotePreviewsWithBodies` in new code when you also need the bodies
+ * that were read during cache misses.
+ */
+export async function scanNotePreviews(fs: FileSystem): Promise<NotePreview[]> {
+  const { previews } = await scanNotePreviewsWithBodies(fs);
   return previews;
 }
 
 /**
- * Full scan for search index rebuild.
- * Reads all file bodies and builds IndexedNote[] suitable for MiniSearch.
+ * Full scan for search index rebuild. Reads all file bodies and builds
+ * IndexedNote[] suitable for MiniSearch. Reads run through a bounded pool.
+ *
+ * Prefer `scanNotePreviewsWithBodies` → feed `freshBodies` directly to the
+ * index when possible; this function is for the rare fallback where the
+ * search index is missing but the preview cache is warm.
  */
 export async function scanNotes(fs: FileSystem): Promise<IndexedNote[]> {
   if (!txtMigrationDone) {
@@ -207,11 +266,11 @@ export async function scanNotes(fs: FileSystem): Promise<IndexedNote[]> {
   const cache = await loadPreviewCache(fs);
   const files = await fs.listNoteFiles();
 
-  const notes: IndexedNote[] = [];
+  const notes: (IndexedNote | null)[] = new Array(files.length).fill(null);
   const newEntries: Record<string, CachedNoteMeta> = {};
   let cacheChanged = false;
 
-  for (const file of files) {
+  await runPool(files, READ_POOL_CONCURRENCY, async (file, index) => {
     const id = file.name.replace(/\.md$/, '');
     try {
       const content = await fs.readNote(id);
@@ -222,7 +281,6 @@ export async function scanNotes(fs: FileSystem): Promise<IndexedNote[]> {
       let headings: string;
 
       if (cached && cached.mtime === file.mtime) {
-        // Reuse cached metadata, but we still need the body for search
         preview = cached.preview;
         tags = cached.tags;
         headings = cached.headings;
@@ -233,12 +291,12 @@ export async function scanNotes(fs: FileSystem): Promise<IndexedNote[]> {
         headings = extractHeadings(content);
       }
 
-      notes.push({ id, title: id, preview, tags, headings, body: content, mtime: file.mtime });
+      notes[index] = { id, title: id, preview, tags, headings, body: content, mtime: file.mtime };
       newEntries[id] = { mtime: file.mtime, preview, tags, headings };
     } catch {
-      // Skip unreadable files
+      // Slot stays null; filtered below.
     }
-  }
+  });
 
   if (!cacheChanged && Object.keys(cache.entries).length !== Object.keys(newEntries).length) {
     cacheChanged = true;
@@ -248,5 +306,5 @@ export async function scanNotes(fs: FileSystem): Promise<IndexedNote[]> {
     await savePreviewCache(fs, { version: CACHE_VERSION, entries: newEntries });
   }
 
-  return notes;
+  return notes.filter((n): n is IndexedNote => n !== null);
 }

@@ -3,7 +3,10 @@ import { syncE2eeAuto, isE2eeConfigured, type SyncSummary } from './syncServiceE
 
 export type { SyncSummary } from './syncServiceE2ee';
 
-const POLL_INTERVAL_MS = 15_000;
+// Pull-only interval — local edits push via notifySavedV2, so this only
+// covers cross-device propagation.
+const POLL_INTERVAL_MS = 300_000;
+const INITIAL_SYNC_DELAY_MS = 8_000;
 const RESUME_COOLDOWN = 10_000;
 const BACKGROUND_SYNC_RETRY_DELAY = 1_000;
 const INITIAL_RETRY_DELAYS = [4_000, 8_000, 16_000, 30_000, 30_000];
@@ -84,9 +87,6 @@ async function performSync(trigger: SyncTrigger, options: { propagateErrors?: bo
     callbacks.onSyncStateChange?.(false);
     if (pendingLocalSave) {
       pendingLocalSave = false;
-      // Delay retry so the spinner hides between cycles. If the user keeps
-      // typing, the next natural save→sync will fire first and this becomes
-      // a harmless no-op (performSync guards against double-sync).
       cancelPendingLocalSaveRetry();
       pendingLocalSaveTimer = window.setTimeout(() => {
         pendingLocalSaveTimer = null;
@@ -96,13 +96,22 @@ async function performSync(trigger: SyncTrigger, options: { propagateErrors?: bo
   }
 }
 
+/** Trailing debounce — coalesces an edit burst into one sync.
+ */
+const NOTIFY_DEBOUNCE_MS = 2_000;
+let notifyDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+
 export function notifySavedV2(filename?: string): void {
   if (!callbacks || !isE2eeConfigured()) return;
   // Write to dirty journal if a specific file was saved
   if (filename) {
     void markDirtyUpsert(filename);
   }
-  void performSync('local-save');
+  if (notifyDebounceTimer !== null) clearTimeout(notifyDebounceTimer);
+  notifyDebounceTimer = setTimeout(() => {
+    notifyDebounceTimer = null;
+    void performSync('local-save');
+  }, NOTIFY_DEBOUNCE_MS);
 }
 
 // Dirty journal stubs — E2EE sync compares local files against the object map
@@ -230,16 +239,14 @@ export function startAutoSyncV2(cb: AutoSyncCallbacks): void {
     window.removeEventListener('online', onlineHandler);
   });
 
-  // Start polling (replaces SSE)
   startPolling();
 
-  // Initial sync after a short delay to let preferences load from disk
   initialSyncTimer = window.setTimeout(() => {
     initialSyncTimer = null;
     performSync('initial').then(summary => {
       if (!summary) scheduleInitialRetry();
     });
-  }, 2_000);
+  }, INITIAL_SYNC_DELAY_MS);
 
   // App resume / visibility
   const handler = () => {

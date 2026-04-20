@@ -19,6 +19,7 @@ import { safeNotePath, safeAppdataPath } from './pathSafety';
 import { writeAtomicText } from './atomicWrite';
 import type { AtomicWriteFS } from './atomicWrite';
 import { isNotFound } from './fsErrors';
+import { isMobile } from './index';
 import { generateImageFilename, isImageFilename } from '$lib/images';
 import {
   getNotesRoot as resolveNotesRoot,
@@ -76,6 +77,12 @@ let assetProtocolWorks: boolean | null = null;
 
 async function ensureWatcherStarted(): Promise<void> {
   if (watcherStarted) return;
+  // Mobile: app is the sole writer; kqueue rescan on every appdata write
+  // (.engagement / .app-state live in the notes dir) pinned a tokio worker.
+  if (isMobile) {
+    watcherStarted = true;
+    return;
+  }
   await invoke('fs_start_watcher');
   watcherStarted = true;
 }
@@ -90,17 +97,15 @@ const pluginFS: AtomicWriteFS = {
 
 export const tauriFS: PlatformFS = {
   async listNoteFiles(): Promise<NoteFile[]> {
-    const root = await getNotesRoot();
-    const entries = await readDir(root);
-    const mdEntries = entries.filter((e) => e.name?.endsWith('.md') && e.isFile);
-    const noteFiles = await Promise.all(
-      mdEntries.map(async (entry) => {
-        const meta = await stat(`${root}/${entry.name}`);
-        return { name: entry.name!, mtime: dateToMs(meta.mtime) };
-      }),
+    // Single IPC hop: the Rust side does one `read_dir + metadata` pass
+    // and returns [{name, mtimeMs, sizeBytes}] sorted desc. Collapses what
+    // used to be 1 + 2N round-trips (readDir + N stat) into one — on iOS
+    // with 2000 notes this drops startup wall time by ~1s per call. Size
+    // is used by sync to skip unchanged files without reading them.
+    const entries = await invoke<Array<{ name: string; mtimeMs: number; sizeBytes: number }>>(
+      'fs_list_notes_with_meta',
     );
-    noteFiles.sort((a, b) => b.mtime - a.mtime);
-    return noteFiles;
+    return entries.map((e) => ({ name: e.name, mtime: e.mtimeMs, size: e.sizeBytes }));
   },
 
   async readNote(id: string): Promise<string> {
@@ -109,21 +114,20 @@ export const tauriFS: PlatformFS = {
   },
 
   async writeNote(id: string, content: string, modifiedAtMs?: number): Promise<number> {
-    const root = await getNotesRoot();
-    const path = safeNotePath(root, id);
-    // Atomic write: write to temp file, then rename into place
-    const tmpPath = `${root}/.sf-tmp-${Date.now()}`;
-    await writeTextFile(tmpPath, content);
-    await rename(tmpPath, path);
-
-    // Set mtime if provided (plugin-fs cannot set mtime, use Rust command)
-    if (typeof modifiedAtMs === 'number' && Number.isFinite(modifiedAtMs) && modifiedAtMs >= 0) {
-      await invoke('fs_set_mtime', { path, mtimeMs: Math.trunc(modifiedAtMs) });
-    }
-
-    // Return actual mtime from disk
-    const meta = await stat(path);
-    return dateToMs(meta.mtime);
+    // Single IPC: Rust does the atomic write (temp + rename), optional
+    // mtime override, and mtime read-back in one blocking call. Replaces
+    // the plugin-fs writeTextFile + rename + fs_set_mtime + stat chain —
+    // on iOS that was four separate round-trips per save-debounce tick
+    // and noticeably stole main-thread time while typing.
+    const modifiedAt =
+      typeof modifiedAtMs === 'number' && Number.isFinite(modifiedAtMs) && modifiedAtMs >= 0
+        ? Math.trunc(modifiedAtMs)
+        : null;
+    return await invoke<number>('fs_write_note_atomic', {
+      id,
+      content,
+      modifiedAtMs: modifiedAt,
+    });
   },
 
   async deleteNoteFile(id: string): Promise<void> {

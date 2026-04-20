@@ -45,9 +45,8 @@
 
   let drawerOpen = $state(!isMobile);
   let drawerProgress = $state(!isMobile ? 1 : 0);
-  let notes: NotePreview[] = $state([]);
+  let notes: NotePreview[] = $state.raw([]);
 
-  // Keep AppContext in sync with local state
   $effect(() => { appCtx.activeNoteId = noteId; });
   $effect(() => { appCtx.notes = notes; });
 

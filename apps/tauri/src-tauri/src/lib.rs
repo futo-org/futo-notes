@@ -196,6 +196,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             fs_set_mtime,
+            fs_list_notes_with_meta,
+            fs_write_note_atomic,
             fs_save_image,
             fs_paste_clipboard_image,
             fs_start_watcher,
