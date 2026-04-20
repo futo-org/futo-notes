@@ -121,6 +121,7 @@
       if (summary.uploaded) parts.push(`${summary.uploaded} uploaded`);
       showGlobalToast(parts.length ? `Synced: ${parts.join(', ')}` : 'Sync complete — everything up to date');
     } catch (e) {
+      console.error('[e2ee] connect/sync failed:', e);
       connectSyncError = getErrorMessage(e);
       if (!hasSyncToken) {
         syncStatus = `Connect failed: ${connectSyncError}`;
@@ -214,7 +215,9 @@
     nukeError = '';
     try {
       await deleteAllNotes();
-      onimported(0);
+      // Reload flushes every in-memory cache; disk state was cleared by
+      // deleteAllContent(), so the fresh boot starts from defaults.
+      window.location.reload();
     } catch (e) {
       nukeError = getErrorMessage(e);
     }

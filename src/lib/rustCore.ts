@@ -27,7 +27,26 @@ export async function applySyncDeltaV2(
   conflictFilenames: string[];
   elapsedMs: number;
 }> {
-  return tauriInvoke<RustV2SyncApplyOutput>('core_apply_sync_delta_v2', {
-    input: { update: updates, delete: deletes, conflicts, timestamps },
-  });
+  try {
+    return await tauriInvoke<RustV2SyncApplyOutput>('core_apply_sync_delta_v2', {
+      input: { update: updates, delete: deletes, conflicts, timestamps },
+    });
+  } catch (e) {
+    // Rust returns opaque error strings (e.g. "No such file or directory (os
+    // error 2)") with no filename context. Log the batch so we can correlate
+    // the failure to a specific file.
+    const sample = (xs: { filename: string }[] | string[], n = 3) =>
+      xs.slice(0, n).map((x) => (typeof x === 'string' ? x : x.filename));
+    console.error('[rustCore] applySyncDeltaV2 failed', {
+      error: e instanceof Error ? e.message : String(e),
+      updates: updates.length,
+      deletes: deletes.length,
+      conflicts: conflicts.length,
+      timestamps: Object.keys(timestamps).length,
+      sampleUpdates: sample(updates),
+      sampleDeletes: sample(deletes),
+      sampleConflicts: sample(conflicts),
+    });
+    throw e;
+  }
 }
