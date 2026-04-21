@@ -272,7 +272,11 @@ test:cross-platform-sync:
     - DEBIAN_FRONTEND=noninteractive apt-get install -y xvfb postgresql-client
     - !reference [.setup-stonefruit-server, script]
     - node scripts/fetch-ort-linux.mjs
-    # Build debug Tauri binary. Subshell isolates cwd on failure.
+    # cargo clean -p so the tauri build script re-runs and re-embeds dist/
+    # with hooks — .cache-cargo-tauri is shared with test:desktop-smoke
+    # which builds without VITE_INCLUDE_TEST_HOOKS, and the cached crate can
+    # otherwise re-link a hooks-free binary.
+    - (cd apps/tauri && cargo clean -p futo-notes-tauri 2>/dev/null || true)
     - (cd apps/tauri && VITE_INCLUDE_TEST_HOOKS=true cargo tauri build --debug --no-bundle)
     # Run cross-platform sync tests under xvfb
     - >-
