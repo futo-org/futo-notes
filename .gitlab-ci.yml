@@ -329,7 +329,11 @@ test:cross-platform-sync:android:
     # but hasn't been rebuilt since we added them — keep the inline install
     # until build:ci-android-image ships the new layers.
     - !reference [.setup-linux-deps, script]
-    - DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends xvfb postgresql-client
+    # xvfb for the desktop client display, postgresql-client for the truncate
+    # path in sync-test-server.mjs, mesa-drivers so WebKitGTK's GL fallback
+    # actually works under xvfb (kitchensink image has these baked in; the
+    # android image doesn't yet).
+    - DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends xvfb postgresql-client libgl1-mesa-dri libegl1-mesa libglu1-mesa
     - pnpm install --frozen-lockfile
     - !reference [.setup-rust, script]
     - !reference [.setup-stonefruit-server, script]
@@ -343,8 +347,11 @@ test:cross-platform-sync:android:
       VITE_INCLUDE_TEST_HOOKS=true cargo tauri android build --debug --apk
       --config src-tauri/tauri.android.dev-mode.conf.json)
     # Desktop client needs a display; emulator runs headless via -no-window.
+    # LIBGL_ALWAYS_SOFTWARE forces Mesa software rendering — xvfb doesn't
+    # expose a real GPU and WebKitGTK sits silent without any GL path.
     - >-
       WEBKIT_DISABLE_DMABUF_RENDERER=1
+      LIBGL_ALWAYS_SOFTWARE=1
       xvfb-run -a --server-args="-screen 0 1280x800x24"
       node tests/cross-platform-sync.mjs --matrix desktop-android
   after_script:
