@@ -339,12 +339,12 @@ test:cross-platform-sync:android:
     - !reference [.setup-stonefruit-server, script]
     - node scripts/fetch-ort-linux.mjs
     - node scripts/fetch-ort-android.mjs --abis x86_64,arm64-v8a
-    # Build desktop debug binary + APK, both with test hooks. Subshells so a
-    # failure inside the build doesn't strand us in apps/tauri/ for later cmds.
-    # Also nuke the cached binary so tauri's asset-embed build script re-runs
-    # — incremental cargo will otherwise keep a binary whose embedded dist/
-    # was built without VITE_INCLUDE_TEST_HOOKS.
-    - rm -f target/debug/futo-notes-tauri
+    # cargo clean so the tauri build script re-runs and re-embeds dist/ with
+    # test hooks. The .cache-cargo-tauri cache is shared with desktop-smoke
+    # which builds without VITE_INCLUDE_TEST_HOOKS — if it saved the cache
+    # most recently, we'd otherwise re-link a hooks-free binary and silently
+    # fail webview startup.
+    - (cd apps/tauri && cargo clean -p futo-notes-tauri 2>/dev/null || true)
     - (cd apps/tauri && VITE_INCLUDE_TEST_HOOKS=true cargo tauri build --debug --no-bundle)
     - |
       if command -v strings >/dev/null && ! strings target/debug/futo-notes-tauri | grep -q '__testSync'; then
