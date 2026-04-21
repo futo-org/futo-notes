@@ -315,7 +315,10 @@ test:cross-platform-sync:android:
     ANDROID_SDK_ROOT: /opt/android-sdk
     JAVA_HOME: /opt/jdk-21
     NDK_HOME: /opt/android-sdk/ndk/27.0.12077973
-    SF_ANDROID_AVD: ci
+    # Devops baked an AVD called "runner_phone" on futocoredebianrunner1;
+    # once build:ci-android-image is rebuilt from the current Dockerfile it
+    # will also carry "ci", so either name will work.
+    SF_ANDROID_AVD: runner_phone
     SF_ANDROID_KVM: "1"
     POSTGRES_DB: stonefruit
     POSTGRES_USER: stonefruit
