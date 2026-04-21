@@ -341,7 +341,16 @@ test:cross-platform-sync:android:
     - node scripts/fetch-ort-android.mjs --abis x86_64,arm64-v8a
     # Build desktop debug binary + APK, both with test hooks. Subshells so a
     # failure inside the build doesn't strand us in apps/tauri/ for later cmds.
+    # Also nuke the cached binary so tauri's asset-embed build script re-runs
+    # — incremental cargo will otherwise keep a binary whose embedded dist/
+    # was built without VITE_INCLUDE_TEST_HOOKS.
+    - rm -f target/debug/futo-notes-tauri
     - (cd apps/tauri && VITE_INCLUDE_TEST_HOOKS=true cargo tauri build --debug --no-bundle)
+    - |
+      if command -v strings >/dev/null && ! strings target/debug/futo-notes-tauri | grep -q '__testSync'; then
+        echo "FATAL: binary missing __testSync — test hooks didn't embed."
+        exit 1
+      fi
     - >-
       (cd apps/tauri &&
       VITE_INCLUDE_TEST_HOOKS=true cargo tauri android build --debug --apk
