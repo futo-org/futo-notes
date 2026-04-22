@@ -17,7 +17,6 @@
   import { interactiveTableEditor } from '$lib/editorUX/tableEditor';
   import { selectionToolbar } from '$lib/editorUX/selectionToolbar';
   import { slashMenu } from '$lib/editorUX/slashMenu';
-  import { blockHandle } from '$lib/editorUX/blockHandle';
   import { liveMarkdownTransform, preloadImages, setInlineSelectionDragging } from '$lib/liveMarkdownTransform';
   import { getImageWebPath } from '$lib/fileSystem';
   import { buildSetContentTransaction, type SetEditorContentOptions, type SetContentResult } from '$lib/editorContentSync';
@@ -557,15 +556,6 @@
       interactiveTableEditor,
       selectionToolbar,
       slashMenu,
-      // Fine-pointer only: attaches a document-wide pointermove listener that
-      // calls posAtCoords + getBoundingClientRect on every move. On touch
-      // devices the hover-to-reveal UX is unreachable anyway and every
-      // scroll-drag pointermove triggers forced layout — a major source of
-      // mobile jank. `(pointer: fine)` is true for mouse/trackpad (desktop,
-      // Playwright) and false for touch-only Android/iOS.
-      ...(typeof window !== 'undefined' && window.matchMedia?.('(pointer: fine)').matches
-        ? [blockHandle]
-        : []),
       wikilinkAutocomplete(),
       imagePasteHandler,
       pointerSelectionTrackingHandler,
