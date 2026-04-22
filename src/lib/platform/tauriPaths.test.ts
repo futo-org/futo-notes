@@ -50,17 +50,17 @@ describe('saveNotesDirOverride', () => {
 });
 
 describe('getDefaultNotesRoot', () => {
-  it('delegates to Rust (honors STONEFRUIT_DATA_DIR)', async () => {
+  it('delegates to Rust (honors FUTO_NOTES_DATA_DIR)', async () => {
     mockInvoke.mockResolvedValueOnce('/tmp/wt-test-data/notes');
     const result = await getDefaultNotesRoot();
     expect(result).toBe('/tmp/wt-test-data/notes');
     expect(mockInvoke).toHaveBeenCalledWith('resolve_default_notes_root');
   });
 
-  it('returns the Documents/stonefruit path in production', async () => {
-    mockInvoke.mockResolvedValueOnce('/home/user/Documents/stonefruit');
+  it('returns the Documents/futo-notes path in production', async () => {
+    mockInvoke.mockResolvedValueOnce('/home/user/Documents/futo-notes');
     const result = await getDefaultNotesRoot();
-    expect(result).toBe('/home/user/Documents/stonefruit');
+    expect(result).toBe('/home/user/Documents/futo-notes');
   });
 });
 
@@ -79,16 +79,16 @@ describe('getNotesRoot', () => {
   it('returns Rust-resolved default dir when no override and creates it', async () => {
     mockInvoke.mockImplementation(async (cmd: string) => {
       if (cmd === 'notes_dir_override_load') return null;
-      if (cmd === 'resolve_default_notes_root') return '/home/user/Documents/stonefruit';
+      if (cmd === 'resolve_default_notes_root') return '/home/user/Documents/futo-notes';
       throw new Error(`unexpected invoke: ${cmd}`);
     });
     mockMkdir.mockResolvedValueOnce(undefined);
     const result = await getNotesRoot();
-    expect(result).toBe('/home/user/Documents/stonefruit');
-    expect(mockMkdir).toHaveBeenCalledWith('/home/user/Documents/stonefruit', { recursive: true });
+    expect(result).toBe('/home/user/Documents/futo-notes');
+    expect(mockMkdir).toHaveBeenCalledWith('/home/user/Documents/futo-notes', { recursive: true });
   });
 
-  it('honors env-derived root from Rust (e.g. STONEFRUIT_DATA_DIR for dev/test isolation)', async () => {
+  it('honors env-derived root from Rust (e.g. FUTO_NOTES_DATA_DIR for dev/test isolation)', async () => {
     mockInvoke.mockImplementation(async (cmd: string) => {
       if (cmd === 'notes_dir_override_load') return null;
       if (cmd === 'resolve_default_notes_root') return '/tmp/wt-abc/data/notes';

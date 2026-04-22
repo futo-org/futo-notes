@@ -80,17 +80,17 @@ $env:npm_config_python = $pythonExe
 [System.Environment]::SetEnvironmentVariable("npm_config_python", $pythonExe, "Process")
 & $pythonExe --version
 
-if (Test-Path C:\build\stonefruit) {
-    Remove-Item -Recurse -Force C:\build\stonefruit
+if (Test-Path C:\build\futo-notes) {
+    Remove-Item -Recurse -Force C:\build\futo-notes
 }
 
 Invoke-Step "Cloning repo (branch: $Branch)" {
     # Disable credential manager to avoid wincredman errors
     git config --global credential.helper ""
-    git clone --depth 1 --branch $Branch $RepoUrl C:\build\stonefruit
+    git clone --depth 1 --branch $Branch $RepoUrl C:\build\futo-notes
 }
 
-Set-Location C:\build\stonefruit
+Set-Location C:\build\futo-notes
 
 Write-Host "=== Setting version to $Version ==="
 $conf = Get-Content apps\tauri\src-tauri\tauri.conf.json | ConvertFrom-Json

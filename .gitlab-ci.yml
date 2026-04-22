@@ -639,7 +639,7 @@ windows:provision:
     PROXMOX_HOST: "127.0.0.1"
     PROXMOX_NODE: "green"
     TEMPLATE_VMID: "101"
-    VM_NAME: "stonefruit-win-${CI_PIPELINE_ID}"
+    VM_NAME: "futo-notes-win-${CI_PIPELINE_ID}"
     CLONE_TYPE: "1"
   script:
     # Get next available VMID
@@ -766,7 +766,7 @@ build:windows:
     - mkdir -p windows-artifacts
     - |
       sshpass -p "${PROXMOX_WIN_PASSWORD}" scp -o StrictHostKeyChecking=no -r \
-        "${PROXMOX_WIN_USER}@${VM_IP}:C:/build/stonefruit/target/release/bundle/nsis/*" \
+        "${PROXMOX_WIN_USER}@${VM_IP}:C:/build/futo-notes/target/release/bundle/nsis/*" \
         windows-artifacts/
     - |
       echo "=== Windows build artifacts ==="
@@ -955,26 +955,26 @@ release:
       artifacts: true
   script:
     - VERSION="${CI_COMMIT_TAG#v}"
-    - REGISTRY_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/stonefruit/${CI_COMMIT_TAG}"
+    - REGISTRY_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/futo-notes/${CI_COMMIT_TAG}"
     # Linux
     - |
       for f in target/release/bundle/deb/*.deb; do
         [ -f "$f" ] || continue
-        NAME="stonefruit_${VERSION}_amd64.deb"
+        NAME="futo-notes_${VERSION}_amd64.deb"
         echo "Uploading $NAME"
         curl --fail -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$f" "${REGISTRY_URL}/${NAME}"
       done
     - |
       for f in target/release/bundle/rpm/*.rpm; do
         [ -f "$f" ] || continue
-        NAME="stonefruit-${VERSION}-1.x86_64.rpm"
+        NAME="futo-notes-${VERSION}-1.x86_64.rpm"
         echo "Uploading $NAME"
         curl --fail -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$f" "${REGISTRY_URL}/${NAME}"
       done
     - |
       for f in target/release/bundle/appimage/*.AppImage; do
         [ -f "$f" ] || continue
-        NAME="Stonefruit-${VERSION}-x86_64.AppImage"
+        NAME="FUTO-Notes-${VERSION}-x86_64.AppImage"
         echo "Uploading $NAME"
         curl --fail -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$f" "${REGISTRY_URL}/${NAME}"
       done
@@ -982,7 +982,7 @@ release:
     - |
       APK=$(find apps/tauri/src-tauri/gen/android -name "*release*.apk" -type f 2>/dev/null | head -1)
       if [ -n "$APK" ]; then
-        NAME="stonefruit-${VERSION}.apk"
+        NAME="futo-notes-${VERSION}.apk"
         echo "Uploading $NAME"
         curl --fail -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$APK" "${REGISTRY_URL}/${NAME}"
       fi
@@ -990,7 +990,7 @@ release:
     - |
       IPA=$(find buildFutoNotesIOS -name "*.ipa" -type f 2>/dev/null | head -1)
       if [ -n "$IPA" ]; then
-        NAME="Stonefruit-${VERSION}.ipa"
+        NAME="FUTO-Notes-${VERSION}.ipa"
         echo "Uploading $NAME"
         curl --fail -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$IPA" "${REGISTRY_URL}/${NAME}"
       fi
@@ -998,7 +998,7 @@ release:
     - |
       DMG=$(find buildFutoNotesMacOS -name "*.dmg" -type f 2>/dev/null | head -1)
       if [ -n "$DMG" ]; then
-        NAME="Stonefruit-${VERSION}-aarch64.dmg"
+        NAME="FUTO-Notes-${VERSION}-aarch64.dmg"
         echo "Uploading $NAME"
         curl --fail -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$DMG" "${REGISTRY_URL}/${NAME}"
       fi
@@ -1006,7 +1006,7 @@ release:
     - |
       NSIS=$(find windows-artifacts -name "*.exe" -type f 2>/dev/null | head -1)
       if [ -n "$NSIS" ]; then
-        NAME="Stonefruit-${VERSION}-x64-setup.exe"
+        NAME="FUTO-Notes-${VERSION}-x64-setup.exe"
         echo "Uploading $NAME"
         curl --fail -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$NSIS" "${REGISTRY_URL}/${NAME}"
       fi
@@ -1016,15 +1016,15 @@ release:
         -o /usr/local/bin/release-cli && chmod +x /usr/local/bin/release-cli
     - |
       release-cli create \
-        --name "Stonefruit ${CI_COMMIT_TAG}" \
+        --name "FUTO Notes ${CI_COMMIT_TAG}" \
         --tag-name "${CI_COMMIT_TAG}" \
-        --description "Stonefruit release ${CI_COMMIT_TAG}" \
-        --assets-link "{\"name\":\"stonefruit_${VERSION}_amd64.deb\",\"url\":\"${REGISTRY_URL}/stonefruit_${VERSION}_amd64.deb\",\"link_type\":\"package\"}" \
-        --assets-link "{\"name\":\"stonefruit-${VERSION}-1.x86_64.rpm\",\"url\":\"${REGISTRY_URL}/stonefruit-${VERSION}-1.x86_64.rpm\",\"link_type\":\"package\"}" \
-        --assets-link "{\"name\":\"Stonefruit-${VERSION}-x86_64.AppImage\",\"url\":\"${REGISTRY_URL}/Stonefruit-${VERSION}-x86_64.AppImage\",\"link_type\":\"package\"}" \
-        --assets-link "{\"name\":\"stonefruit-${VERSION}.apk\",\"url\":\"${REGISTRY_URL}/stonefruit-${VERSION}.apk\",\"link_type\":\"package\"}" \
-        --assets-link "{\"name\":\"Stonefruit-${VERSION}.ipa\",\"url\":\"${REGISTRY_URL}/Stonefruit-${VERSION}.ipa\",\"link_type\":\"package\"}" \
-        --assets-link "{\"name\":\"Stonefruit-${VERSION}-aarch64.dmg\",\"url\":\"${REGISTRY_URL}/Stonefruit-${VERSION}-aarch64.dmg\",\"link_type\":\"package\"}" \
-        --assets-link "{\"name\":\"Stonefruit-${VERSION}-x64-setup.exe\",\"url\":\"${REGISTRY_URL}/Stonefruit-${VERSION}-x64-setup.exe\",\"link_type\":\"package\"}"
+        --description "FUTO Notes release ${CI_COMMIT_TAG}" \
+        --assets-link "{\"name\":\"futo-notes_${VERSION}_amd64.deb\",\"url\":\"${REGISTRY_URL}/futo-notes_${VERSION}_amd64.deb\",\"link_type\":\"package\"}" \
+        --assets-link "{\"name\":\"futo-notes-${VERSION}-1.x86_64.rpm\",\"url\":\"${REGISTRY_URL}/futo-notes-${VERSION}-1.x86_64.rpm\",\"link_type\":\"package\"}" \
+        --assets-link "{\"name\":\"FUTO-Notes-${VERSION}-x86_64.AppImage\",\"url\":\"${REGISTRY_URL}/FUTO-Notes-${VERSION}-x86_64.AppImage\",\"link_type\":\"package\"}" \
+        --assets-link "{\"name\":\"futo-notes-${VERSION}.apk\",\"url\":\"${REGISTRY_URL}/futo-notes-${VERSION}.apk\",\"link_type\":\"package\"}" \
+        --assets-link "{\"name\":\"FUTO-Notes-${VERSION}.ipa\",\"url\":\"${REGISTRY_URL}/FUTO-Notes-${VERSION}.ipa\",\"link_type\":\"package\"}" \
+        --assets-link "{\"name\":\"FUTO-Notes-${VERSION}-aarch64.dmg\",\"url\":\"${REGISTRY_URL}/FUTO-Notes-${VERSION}-aarch64.dmg\",\"link_type\":\"package\"}" \
+        --assets-link "{\"name\":\"FUTO-Notes-${VERSION}-x64-setup.exe\",\"url\":\"${REGISTRY_URL}/FUTO-Notes-${VERSION}-x64-setup.exe\",\"link_type\":\"package\"}"
   rules:
     - if: $CI_COMMIT_TAG

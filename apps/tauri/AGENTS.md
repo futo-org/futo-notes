@@ -1,4 +1,4 @@
-# AGENTS.md - Stonefruit Tauri App
+# AGENTS.md - FUTO Notes Tauri App
 
 Tauri v2 desktop + mobile shell. Thin Rust backend for performance-critical operations; most app logic is in the shared Svelte/TS layer (`src/`).
 
@@ -10,7 +10,7 @@ From the monorepo root, prefer the `just` wrappers: `just tauri-dev`, `just taur
 
 **New features should be in TypeScript unless they are compute-heavy or need OS-level access** (see root AGENTS.md "TypeScript First"). The Rust-to-TypeScript migration moved most file I/O, note indexing, app config, and engagement tracking to TypeScript (`src/lib/`). What remains in Rust is what benefits from native performance or OS-level access:
 
-- **`core.rs`**: 14 Tauri commands — sync payload prep/apply (wraps `stonefruit-core`), filesystem watcher (`notify` crate), supersearch vector operations (download, query, per-note vectors), image save/paste, notes-dir override, and default path resolution. Every public command wraps an `_impl` function for testability.
+- **`core.rs`**: 14 Tauri commands — sync payload prep/apply (wraps `futo-notes-core`), filesystem watcher (`notify` crate), supersearch vector operations (download, query, per-note vectors), image save/paste, notes-dir override, and default path resolution. Every public command wraps an `_impl` function for testability.
 - **`lib.rs`**: App setup — plugin registration, platform-specific init (iOS safe-area, Linux GTK decorations, fd limit bump).
 - **`main.rs`**: Entry point. Disables WebKitGTK DMA-BUF renderer on Linux for Wayland stability.
 
@@ -19,7 +19,7 @@ TypeScript handles: note CRUD (`src/lib/notes.ts`), note index (`src/lib/notesIn
 ## Key Patterns
 
 - **Atomic writes**: Both Rust (`write_atomic_text()` in core.rs) and TypeScript (`atomicWrite.ts`) use temp file + rename for crash safety. New file I/O should use the TS path unless there's a performance reason for Rust.
-- **Path safety**: Rust has `ensure_safe_note_id()` (from `stonefruit_core::files`); TypeScript has `pathSafety.ts`. Both block `..`, `.`, `/`, `\` — never bypass for user-supplied paths.
+- **Path safety**: Rust has `ensure_safe_note_id()` (from `futo_notes_core::files`); TypeScript has `pathSafety.ts`. Both block `..`, `.`, `/`, `\` — never bypass for user-supplied paths.
 - **Filesystem watcher**: `notify` crate in Rust watches notes dir for external edits, emits `note_changed` events. Sync writes suppress watcher events for 5s to avoid loops.
 - **Platform configs**: `#[cfg(target_os = "...")]` and `#[cfg(debug_assertions)]` for platform/build-specific behavior.
 

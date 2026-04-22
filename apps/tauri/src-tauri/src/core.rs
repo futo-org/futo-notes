@@ -10,12 +10,12 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
-use stonefruit_core::files::{file_mtime_ms, safe_note_path, set_file_mtime_ms};
+use futo_notes_core::files::{file_mtime_ms, safe_note_path, set_file_mtime_ms};
 #[cfg(test)]
-use stonefruit_core::hash::hash_sha256_bytes;
+use futo_notes_core::hash::hash_sha256_bytes;
 use tauri::{AppHandle, Emitter, Manager, State};
 
-pub(crate) use stonefruit_core::files::{now_ms, write_atomic_text};
+pub(crate) use futo_notes_core::files::{now_ms, write_atomic_text};
 
 #[derive(Default)]
 pub struct CoreState {
@@ -34,10 +34,10 @@ struct NotesDirOverride {
     notes_dir: Option<String>,
 }
 
-/// Returns the custom data directory set via STONEFRUIT_DATA_DIR env var, if present.
+/// Returns the custom data directory set via FUTO_NOTES_DATA_DIR env var, if present.
 /// Used to redirect app data to a per-worktree isolated directory during development.
 fn env_data_dir() -> Option<PathBuf> {
-    std::env::var("STONEFRUIT_DATA_DIR").ok().map(PathBuf::from)
+    std::env::var("FUTO_NOTES_DATA_DIR").ok().map(PathBuf::from)
 }
 
 fn override_file_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -83,7 +83,7 @@ fn default_notes_root(app: &AppHandle) -> Result<PathBuf, String> {
     //    They default to ~/Documents/fake-notes so developers can point any
     //    local sync server at the same folder. A dev build can still be
     //    pointed elsewhere via Settings (writes `notes-dir-override.json`)
-    //    or via `STONEFRUIT_DATA_DIR` for per-worktree test isolation.
+    //    or via `FUTO_NOTES_DATA_DIR` for per-worktree test isolation.
     #[cfg(debug_assertions)]
     {
         let docs = app
@@ -94,7 +94,8 @@ fn default_notes_root(app: &AppHandle) -> Result<PathBuf, String> {
         return Ok(docs.join("fake-notes"));
     }
 
-    // 3. Release default: ~/Documents/stonefruit (or app-data fallback).
+    // 3. Release default: ~/Documents/futo-notes, with one-shot migration
+    //    from the old "stonefruit" directory if it exists.
     #[cfg(not(debug_assertions))]
     {
         let docs = app
@@ -102,8 +103,39 @@ fn default_notes_root(app: &AppHandle) -> Result<PathBuf, String> {
             .document_dir()
             .or_else(|_| app.path().app_data_dir())
             .map_err(|e| e.to_string())?;
-        Ok(docs.join("stonefruit"))
+        Ok(release_default_notes_root(&docs))
     }
+}
+
+/// Returns the release-build default notes directory under `docs`, performing
+/// a one-shot rename of `stonefruit` → `futo-notes` when the new path doesn't
+/// yet exist. On rename failure the old path is kept so the user never loses
+/// access to their notes; migration errors are logged but non-fatal.
+#[cfg_attr(debug_assertions, allow(dead_code))]
+fn release_default_notes_root(docs: &Path) -> PathBuf {
+    let new_path = docs.join("futo-notes");
+    let old_path = docs.join("stonefruit");
+    if !new_path.exists() && old_path.exists() {
+        match fs::rename(&old_path, &new_path) {
+            Ok(_) => {
+                eprintln!(
+                    "Migrated notes directory: {} -> {}",
+                    old_path.display(),
+                    new_path.display()
+                );
+            }
+            Err(err) => {
+                eprintln!(
+                    "Notes dir migration {} -> {} failed: {}; using old path",
+                    old_path.display(),
+                    new_path.display(),
+                    err
+                );
+                return old_path;
+            }
+        }
+    }
+    new_path
 }
 
 pub(crate) fn notes_root(app: &AppHandle) -> Result<PathBuf, String> {
@@ -522,7 +554,7 @@ pub async fn notes_dir_override_save(app: AppHandle, dir: Option<String>) -> Res
     .map_err(task_join_err)?
 }
 
-/// Resolves the default notes root, honoring the STONEFRUIT_DATA_DIR env var
+/// Resolves the default notes root, honoring the FUTO_NOTES_DATA_DIR env var
 /// used to isolate per-worktree dev and cross-platform test runs. The webview
 /// cannot read process env, so the TypeScript path layer delegates here.
 #[tauri::command]
@@ -562,7 +594,7 @@ mod inference_dev {
     use serde::Serialize;
     use tauri::{AppHandle, Manager};
 
-    use stonefruit_inference::{
+    use futo_notes_inference::{
         download_to, DownloadTarget, Embedder, NOMIC_V15_DIMS, NOMIC_V15_MODEL_URL,
         NOMIC_V15_TOKENIZER_URL,
     };
@@ -678,37 +710,83 @@ mod tests {
     #[test]
     fn env_data_dir_returns_none_when_unset() {
         let _guard = ENV_MUTEX.lock().unwrap();
-        std::env::remove_var("STONEFRUIT_DATA_DIR");
+        std::env::remove_var("FUTO_NOTES_DATA_DIR");
         assert_eq!(env_data_dir(), None);
     }
 
     #[test]
     fn env_data_dir_returns_path_when_set() {
         let _guard = ENV_MUTEX.lock().unwrap();
-        std::env::set_var("STONEFRUIT_DATA_DIR", "/tmp/wt-test-data");
+        std::env::set_var("FUTO_NOTES_DATA_DIR", "/tmp/wt-test-data");
         let result = env_data_dir();
-        std::env::remove_var("STONEFRUIT_DATA_DIR");
+        std::env::remove_var("FUTO_NOTES_DATA_DIR");
         assert_eq!(result, Some(PathBuf::from("/tmp/wt-test-data")));
     }
 
     #[test]
     fn override_file_resolves_to_env_data_dir() {
         let _guard = ENV_MUTEX.lock().unwrap();
-        std::env::set_var("STONEFRUIT_DATA_DIR", "/tmp/wt-test-data");
+        std::env::set_var("FUTO_NOTES_DATA_DIR", "/tmp/wt-test-data");
         let expected = PathBuf::from("/tmp/wt-test-data").join(NOTES_DIR_OVERRIDE_FILE);
         let actual = env_data_dir().map(|d| d.join(NOTES_DIR_OVERRIDE_FILE));
-        std::env::remove_var("STONEFRUIT_DATA_DIR");
+        std::env::remove_var("FUTO_NOTES_DATA_DIR");
         assert_eq!(actual, Some(expected));
     }
 
     #[test]
     fn default_notes_dir_resolves_to_env_data_dir_notes() {
         let _guard = ENV_MUTEX.lock().unwrap();
-        std::env::set_var("STONEFRUIT_DATA_DIR", "/tmp/wt-test-data");
+        std::env::set_var("FUTO_NOTES_DATA_DIR", "/tmp/wt-test-data");
         let expected = PathBuf::from("/tmp/wt-test-data").join("notes");
         let actual = env_data_dir().map(|d| d.join("notes"));
-        std::env::remove_var("STONEFRUIT_DATA_DIR");
+        std::env::remove_var("FUTO_NOTES_DATA_DIR");
         assert_eq!(actual, Some(expected));
+    }
+
+    #[test]
+    fn release_default_notes_root_migrates_old_stonefruit_dir() {
+        let docs = temp_notes_dir();
+        let old = docs.join("stonefruit");
+        let new = docs.join("futo-notes");
+        fs::create_dir_all(&old).unwrap();
+        fs::write(old.join("note.md"), "hello").unwrap();
+
+        let resolved = release_default_notes_root(&docs);
+
+        assert_eq!(resolved, new);
+        assert!(new.exists(), "new path should exist after migration");
+        assert!(!old.exists(), "old path should be gone after migration");
+        assert_eq!(fs::read_to_string(new.join("note.md")).unwrap(), "hello");
+        cleanup_temp_dir(&docs);
+    }
+
+    #[test]
+    fn release_default_notes_root_leaves_existing_futo_notes_alone() {
+        let docs = temp_notes_dir();
+        let old = docs.join("stonefruit");
+        let new = docs.join("futo-notes");
+        fs::create_dir_all(&old).unwrap();
+        fs::create_dir_all(&new).unwrap();
+        fs::write(new.join("current.md"), "new").unwrap();
+
+        let resolved = release_default_notes_root(&docs);
+
+        assert_eq!(resolved, new);
+        assert!(old.exists(), "old path should be preserved when new exists");
+        assert_eq!(fs::read_to_string(new.join("current.md")).unwrap(), "new");
+        cleanup_temp_dir(&docs);
+    }
+
+    #[test]
+    fn release_default_notes_root_fresh_install_returns_new_path() {
+        let docs = temp_notes_dir();
+        let new = docs.join("futo-notes");
+
+        let resolved = release_default_notes_root(&docs);
+
+        assert_eq!(resolved, new);
+        assert!(!new.exists(), "nothing to migrate, nothing created");
+        cleanup_temp_dir(&docs);
     }
 
 

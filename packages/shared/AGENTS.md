@@ -1,6 +1,6 @@
-# AGENTS.md - @futo-notes/shared (Stonefruit)
+# AGENTS.md - @futo-notes/shared
 
-Shared TypeScript types and utilities consumed by both the Stonefruit client and the external E2EE sync server (`/home/justin/Developer/stonefruit-server`).
+Shared TypeScript types and utilities consumed by both the FUTO Notes client and the external E2EE sync server (`/home/justin/Developer/stonefruit-server`).
 
 From the monorepo root, prefer `just test-shared` for shared-package coverage, then broaden to `just test` or `just check` when consumer integration risk is higher.
 

@@ -191,7 +191,7 @@ deploy-deb:
   sudo dpkg -i "$DEB"
   # Restore tauri.conf.json so git stays clean
   git checkout -- "$CONF"
-  echo "Done. Installed Stonefruit ${VERSION}."
+  echo "Done. Installed FUTO Notes ${VERSION}."
 
 # Build .rpm from current repo state and install it
 deploy-rpm:
@@ -223,7 +223,7 @@ deploy-rpm:
   sudo dnf install -y "$RPM" || sudo rpm -Uvh --force "$RPM"
   # Restore tauri.conf.json so git stays clean
   git checkout -- "$CONF"
-  echo "Done. Installed Stonefruit ${VERSION}."
+  echo "Done. Installed FUTO Notes ${VERSION}."
 
 # Build iOS .ipa from current repo state and install on connected iPhone
 deploy-ios:
@@ -231,7 +231,7 @@ deploy-ios:
   set -euo pipefail
   CONF="apps/tauri/src-tauri/tauri.conf.json"
   INFO_PLIST="apps/tauri/src-tauri/gen/apple/futo-notes-tauri_iOS/Info.plist"
-  IPA="apps/tauri/src-tauri/gen/apple/build/arm64/Stonefruit.ipa"
+  IPA="apps/tauri/src-tauri/gen/apple/build/arm64/FUTO Notes.ipa"
   BUNDLE_ID="com.futo.notes"
   # Auto-detect connected device
   DEVFILE=$(mktemp /tmp/devices.XXXXXX.json)
@@ -281,4 +281,4 @@ deploy-ios:
   xcrun devicectl device process launch --device "$DEVICE" "$BUNDLE_ID"
   # Restore stamped files so git stays clean
   git checkout -- "$CONF" "$INFO_PLIST"
-  echo "Done. Installed Stonefruit ${VERSION} on iOS device."
+  echo "Done. Installed FUTO Notes ${VERSION} on iOS device."

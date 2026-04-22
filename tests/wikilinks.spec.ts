@@ -141,7 +141,7 @@ test.describe('Wikilink Navigation', () => {
   });
 
   test('clicking to the right of a single-line wikilink places the cursor at line end', async ({ page }) => {
-    await setupEditor(page, '[[Stonefruit bugs]]');
+    await setupEditor(page, '[[FUTO Notes bugs]]');
     await setCursorPosition(page, 0);
     await blurEditor(page);
 
@@ -154,15 +154,15 @@ test.describe('Wikilink Navigation', () => {
     await page.waitForTimeout(150);
 
     const cursor = await getCursorState(page);
-    expect(cursor.lineText).toBe('[[Stonefruit bugs]]');
+    expect(cursor.lineText).toBe('[[FUTO Notes bugs]]');
     expect(cursor.line).toBe(0);
-    expect(cursor.ch).toBe('[[Stonefruit bugs]]'.length);
+    expect(cursor.ch).toBe('[[FUTO Notes bugs]]'.length);
     await expect(page.locator('.cm-md-wikilink')).toHaveCount(0);
-    await expect(page.locator('.cm-line').first()).toContainText('[[Stonefruit bugs]]');
+    await expect(page.locator('.cm-line').first()).toContainText('[[FUTO Notes bugs]]');
   });
 
   test('clicking to the right of a line ending in a wikilink places the cursor at line end', async ({ page }) => {
-    await setupEditor(page, 'write more of [[Visions of Stonefruit]]');
+    await setupEditor(page, 'write more of [[Visions of FUTO Notes]]');
     await setCursorPosition(page, 0);
     await blurEditor(page);
 
@@ -175,15 +175,15 @@ test.describe('Wikilink Navigation', () => {
     await page.waitForTimeout(150);
 
     const cursor = await getCursorState(page);
-    expect(cursor.lineText).toBe('write more of [[Visions of Stonefruit]]');
+    expect(cursor.lineText).toBe('write more of [[Visions of FUTO Notes]]');
     expect(cursor.line).toBe(0);
-    expect(cursor.ch).toBe('write more of [[Visions of Stonefruit]]'.length);
+    expect(cursor.ch).toBe('write more of [[Visions of FUTO Notes]]'.length);
     await expect(page.locator('.cm-md-wikilink')).toHaveCount(0);
-    await expect(page.locator('.cm-line').first()).toContainText('write more of [[Visions of Stonefruit]]');
+    await expect(page.locator('.cm-line').first()).toContainText('write more of [[Visions of FUTO Notes]]');
   });
 
   test('triple clicking a plain line above a wikilink selects only that line', async ({ page }) => {
-    await setupEditor(page, 'dark mode auto activate\n[[Stonefruit bugs]]\nafter');
+    await setupEditor(page, 'dark mode auto activate\n[[FUTO Notes bugs]]\nafter');
     await setCursorPosition(page, 0);
     await blurEditor(page);
 

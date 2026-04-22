@@ -11,7 +11,7 @@ let counter = 0;
 
 /**
  * Atomically write text to a file by writing to a temp file then renaming.
- * Mirrors Rust `write_atomic_text` in `stonefruit-core/src/files.rs`.
+ * Mirrors Rust `write_atomic_text` in `futo-notes-core/src/files.rs`.
  */
 export async function writeAtomicText(
   path: string,

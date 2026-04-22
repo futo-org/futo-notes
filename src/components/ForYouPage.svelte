@@ -54,7 +54,7 @@
       </div>
     {:else}
       <div class="for-you-empty">
-        <div class="for-you-empty-title">Stonefruit</div>
+        <div class="for-you-empty-title">FUTO Notes</div>
         {#if isMobile}
           <div class="for-you-empty-subtitle">Create your first note to get started.</div>
           <button class="for-you-browse-btn" onclick={(e: MouseEvent) => { e.stopPropagation(); onbrowse?.(); }}>Browse notes</button>

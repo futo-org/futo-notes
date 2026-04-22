@@ -30,7 +30,7 @@ const DEFAULT_VERSION = '1.24.2';
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(SCRIPT_DIR, '..');
-const CACHE_DIR = join(tmpdir(), 'stonefruit-ort-ios-cache');
+const CACHE_DIR = join(tmpdir(), 'futo-notes-ort-ios-cache');
 // Store the extracted xcframework alongside the Xcode project so it's easy
 // to reference and gitignore.
 const XCFWK_DIR = join(REPO_ROOT, 'apps/tauri/src-tauri/gen/apple');

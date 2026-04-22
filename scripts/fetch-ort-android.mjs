@@ -35,7 +35,7 @@ const JNI_LIBS = join(
   REPO_ROOT,
   'apps/tauri/src-tauri/gen/android/app/src/main/jniLibs',
 );
-const CACHE_DIR = join(tmpdir(), 'stonefruit-ort-android-cache');
+const CACHE_DIR = join(tmpdir(), 'futo-notes-ort-android-cache');
 
 function parseArgs() {
   const args = { version: process.env.ORT_VERSION || DEFAULT_VERSION, abis: null };

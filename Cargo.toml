@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
-  "crates/stonefruit-core",
-  "crates/stonefruit-inference",
+  "crates/futo-notes-core",
+  "crates/futo-notes-inference",
   "apps/tauri/src-tauri",
 ]

@@ -379,7 +379,7 @@
             />
 
             <p class="settings-btn-desc settings-hint">
-              Use the password you configured when installing your Stonefruit server.
+              Use the password you configured when installing your FUTO Notes server.
             </p>
 
             <div class="settings-actions">
@@ -429,7 +429,7 @@
         <div class="settings-toggle-row" onclick={toggleCrashEnabled} role="button" tabindex="0" onkeydown={(e) => e.key === 'Enter' && toggleCrashEnabled()}>
           <span class="settings-toggle-text">
             <span class="settings-btn-label">Share crash reports</span>
-            <span class="settings-btn-desc">Help improve Stonefruit by sharing anonymous crash logs when they occur</span>
+            <span class="settings-btn-desc">Help improve FUTO Notes by sharing anonymous crash logs when they occur</span>
           </span>
           <div class="settings-switch" class:on={crashEnabled}>
             <div class="settings-switch-thumb"></div>
@@ -521,7 +521,7 @@
         {/if}
       </section>
 
-      <p class="settings-version">Stonefruit v{getAppVersion()}</p>
+      <p class="settings-version">FUTO Notes v{getAppVersion()}</p>
     </div>
 
     {#if connectSyncing}

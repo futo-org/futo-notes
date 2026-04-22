@@ -8,7 +8,7 @@
 //! Run:
 //!
 //! ```ignore
-//! cargo run -p stonefruit-inference --example embed_hello
+//! cargo run -p futo-notes-inference --example embed_hello
 //! ```
 //!
 //! Override the cache location with `MODEL_DIR=/path/to/dir`.
@@ -17,7 +17,7 @@ use std::env;
 use std::path::PathBuf;
 use std::time::Instant;
 
-use stonefruit_inference::{
+use futo_notes_inference::{
     download_to, DownloadTarget, Embedder, NOMIC_V15_DIMS, NOMIC_V15_MODEL_URL,
     NOMIC_V15_TOKENIZER_URL,
 };
@@ -25,7 +25,7 @@ use stonefruit_inference::{
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let model_dir: PathBuf = env::var("MODEL_DIR")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| env::temp_dir().join("stonefruit-inference-demo"));
+        .unwrap_or_else(|_| env::temp_dir().join("futo-notes-inference-demo"));
     std::fs::create_dir_all(&model_dir)?;
 
     let model_path = model_dir.join("model_quantized.onnx");

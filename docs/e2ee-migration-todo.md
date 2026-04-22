@@ -48,7 +48,7 @@ Comprehensive list of remaining work after removing the Rust server and switchin
 - [x] **Hash-based change detection** — currently re-uploads all files every sync. Store content hashes in `e2eeObjectMap` and skip unchanged files
 - [x] **Multi-device vault unlock** — server stores password-wrapped vault key material so another logged-in device can unlock the same vault without device-to-device transfer
 - [ ] **Conflict handling** — currently ignores 409 conflicts. Implement: download server version, create conflict copy (`"note (conflict 2026-04-14).md"`), let user resolve
-- [ ] **Three-way merge** — `stonefruit-core` has merge support. Wire it up for compatible (non-overlapping) edits before falling back to conflict copies
+- [ ] **Three-way merge** — `futo-notes-core` has merge support. Wire it up for compatible (non-overlapping) edits before falling back to conflict copies
 - [ ] **Rename detection** — when a file is renamed locally, detect same-hash delete+create and update the object instead of creating a new one
 - [x] **Incremental push** — only upload files that changed since last sync (track last-sync hashes or mtimes)
 - [ ] **Password-in-memory UX** — on app restart, the encryption key is lost. Either: prompt for password on startup, integrate with OS keyring, or derive key from a stored secret

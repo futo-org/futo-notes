@@ -1,4 +1,4 @@
-# AGENTS.md - Stonefruit Core
+# AGENTS.md - FUTO Notes Core
 
 Shared Rust crate imported by the Tauri app (`apps/tauri`). Contains performance-critical, platform-agnostic logic — hashing, sync payload computation, vector search, graph layout, and text merge.
 
@@ -16,10 +16,10 @@ Shared Rust crate imported by the Tauri app (`apps/tauri`). Contains performance
 
 ## Testing
 
-Each module has inline `#[cfg(test)]` tests. Integration tests in `crates/stonefruit-core/tests/`. Run:
+Each module has inline `#[cfg(test)]` tests. Integration tests in `crates/futo-notes-core/tests/`. Run:
 
 ```bash
-just test-rust    # or: cargo test -p stonefruit-core
+just test-rust    # or: cargo test -p futo-notes-core
 ```
 
 ## Verification (Required)

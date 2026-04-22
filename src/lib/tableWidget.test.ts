@@ -11,7 +11,7 @@ describe('sanitizeUrl', () => {
   });
 
   it('allows custom deep link schemes', () => {
-    expect(sanitizeUrl('stonefruit://open')).toBe('stonefruit://open');
+    expect(sanitizeUrl('futo-notes://open')).toBe('futo-notes://open');
     expect(sanitizeUrl('obsidian://open?vault=test')).toBe('obsidian://open?vault=test');
   });
 

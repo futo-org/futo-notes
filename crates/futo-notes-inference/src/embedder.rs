@@ -25,7 +25,7 @@ use tokenizers::{PaddingParams, Tokenizer, TruncationDirection, TruncationParams
 
 use crate::{NOMIC_DOCUMENT_PREFIX, NOMIC_QUERY_PREFIX};
 
-/// Maximum sequence length we feed the model. `stonefruit-core::search` chunks
+/// Maximum sequence length we feed the model. `futo-notes-core::search` chunks
 /// around 900 estimated tokens, so 512 truncation is a defensive upper bound
 /// and keeps mobile latency predictable.
 const MAX_SEQ_LEN: usize = 512;

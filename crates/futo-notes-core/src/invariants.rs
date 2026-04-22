@@ -222,7 +222,7 @@ mod tests {
         static COUNTER: AtomicU32 = AtomicU32::new(0);
         let n = COUNTER.fetch_add(1, Ordering::Relaxed);
         let dir =
-            std::env::temp_dir().join(format!("stonefruit-core-inv-test-{}-{n}", files::now_ms()));
+            std::env::temp_dir().join(format!("futo-notes-core-inv-test-{}-{n}", files::now_ms()));
         fs::create_dir_all(&dir).expect("create temp test dir");
         dir
     }

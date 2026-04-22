@@ -1,22 +1,22 @@
 //! Integration tests that exercise a real loaded model.
 //!
-//! These tests are skipped when `STONEFRUIT_INFERENCE_TEST_MODEL` is unset, so
+//! These tests are skipped when `FUTO_NOTES_INFERENCE_TEST_MODEL` is unset, so
 //! CI can run `cargo test` without a ~35MB model on disk. To run locally:
 //!
 //! ```sh
 //! # First, populate a cache dir with model + tokenizer:
-//! cargo run -p stonefruit-inference --example embed_hello
+//! cargo run -p futo-notes-inference --example embed_hello
 //! # Then:
-//! STONEFRUIT_INFERENCE_TEST_MODEL=/tmp/stonefruit-inference-demo \
-//!     cargo test -p stonefruit-inference --tests
+//! FUTO_NOTES_INFERENCE_TEST_MODEL=/tmp/futo-notes-inference-demo \
+//!     cargo test -p futo-notes-inference --tests
 //! ```
 
 use std::path::{Path, PathBuf};
 
-use stonefruit_inference::{Embedder, NOMIC_V15_DIMS};
+use futo_notes_inference::{Embedder, NOMIC_V15_DIMS};
 
 fn model_dir() -> Option<PathBuf> {
-    std::env::var("STONEFRUIT_INFERENCE_TEST_MODEL")
+    std::env::var("FUTO_NOTES_INFERENCE_TEST_MODEL")
         .ok()
         .map(PathBuf::from)
         .filter(|p| {
@@ -36,7 +36,7 @@ fn load_embedder(dir: &Path) -> Embedder {
 #[test]
 fn embed_produces_expected_dims() {
     let Some(dir) = model_dir() else {
-        eprintln!("skipping: STONEFRUIT_INFERENCE_TEST_MODEL not set or model missing");
+        eprintln!("skipping: FUTO_NOTES_INFERENCE_TEST_MODEL not set or model missing");
         return;
     };
     let mut embedder = load_embedder(&dir);

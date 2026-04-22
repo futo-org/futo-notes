@@ -51,7 +51,7 @@ function setupInvokeMock(overrides: Partial<Record<string, unknown>> = {}) {
   const defaults: Record<string, unknown> = {
     notes_dir_override_load: null,
     notes_dir_override_save: undefined,
-    resolve_default_notes_root: '/home/user/Documents/stonefruit',
+    resolve_default_notes_root: '/home/user/Documents/futo-notes',
     appdata_read: null,
     appdata_write: undefined,
     ...overrides,
@@ -66,9 +66,9 @@ describe('getConfig', () => {
   it('returns default config when no override and no config file', async () => {
     setupInvokeMock();
     const cfg = await getConfig();
-    expect(cfg.notesDir).toBe('/home/user/Documents/stonefruit');
+    expect(cfg.notesDir).toBe('/home/user/Documents/futo-notes');
     expect(cfg.isCustomDir).toBe(false);
-    expect(cfg.defaultNotesDir).toBe('/home/user/Documents/stonefruit');
+    expect(cfg.defaultNotesDir).toBe('/home/user/Documents/futo-notes');
     expect(cfg.sidebarWidth).toBeUndefined();
     expect(cfg.graphSidebarWidth).toBeUndefined();
   });
@@ -78,7 +78,7 @@ describe('getConfig', () => {
     const cfg = await getConfig();
     expect(cfg.notesDir).toBe('/custom/notes');
     expect(cfg.isCustomDir).toBe(true);
-    expect(cfg.defaultNotesDir).toBe('/home/user/Documents/stonefruit');
+    expect(cfg.defaultNotesDir).toBe('/home/user/Documents/futo-notes');
   });
 
   it('reads sidebar widths from config file', async () => {

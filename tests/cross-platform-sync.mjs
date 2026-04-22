@@ -790,7 +790,7 @@ function killStalePreviewAndClients() {
     if (!match) continue;
     const [_, pidStr, cmdline] = match;
     // Only kill binaries from this repo's target/debug — a conservative check
-    // that excludes the user's installed Stonefruit.
+    // that excludes the user's installed FUTO Notes.
     if (cmdline.includes(`${REPO_ROOT}/target/debug/futo-notes-tauri`)) {
       try { process.kill(Number(pidStr), 'SIGTERM'); } catch { /* ignore */ }
     }

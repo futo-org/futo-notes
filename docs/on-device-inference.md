@@ -5,7 +5,7 @@ Client-side semantic search via ONNX Runtime. Embedding model runs entirely on-d
 ## Current state (Phase 3 complete)
 
 **What works now:**
-- `crates/stonefruit-inference/` — Rust crate with `Embedder` struct (ORT session + HuggingFace tokenizer), resumable HTTP model download, SHA-256 verify.
+- `crates/futo-notes-inference/` — Rust crate with `Embedder` struct (ORT session + HuggingFace tokenizer), resumable HTTP model download, SHA-256 verify.
 - Model: `nomic-embed-text-v1.5` INT8 quantized (~35 MB ONNX + tokenizer.json). 768-dim output, Matryoshka-capable.
 - Desktop Linux: embed in ~10 ms (release), session load ~223 ms.
 - Android emulator (x86_64): embed in ~16 ms, session load ~275 ms.
@@ -19,8 +19,8 @@ Client-side semantic search via ONNX Runtime. Embedding model runs entirely on-d
 
 ```bash
 # From monorepo root:
-cargo run -p stonefruit-inference --example embed_hello
-# Downloads model to /tmp/stonefruit-inference-demo/, embeds a test string, prints timings.
+cargo run -p futo-notes-inference --example embed_hello
+# Downloads model to /tmp/futo-notes-inference-demo/, embeds a test string, prints timings.
 ```
 
 ## Quick start — Android
@@ -65,7 +65,7 @@ for x in d:
   if x.get('connectionProperties',{}).get('transportType'): print(x['identifier']); break
 ")
 xcrun devicectl device install app --device "$DEVICE" \
-  apps/tauri/src-tauri/gen/apple/build/arm64/Stonefruit.ipa
+  "apps/tauri/src-tauri/gen/apple/build/arm64/FUTO Notes.ipa"
 xcrun devicectl device process launch --device "$DEVICE" com.futo.notes.dev
 ```
 
@@ -94,7 +94,7 @@ xcrun devicectl device process launch --device "$DEVICE" com.futo.notes.dev
 ## Architecture
 
 ```
-crates/stonefruit-inference/
+crates/futo-notes-inference/
 ├── src/lib.rs           Constants, re-exports, model URLs
 ├── src/embedder.rs      Embedder struct (ORT session + tokenizer)
 ├── src/download.rs      Resumable HTTP download + SHA-256 verify
@@ -102,7 +102,7 @@ crates/stonefruit-inference/
 └── tests/embedder.rs    Integration tests (need model on disk)
 
 apps/tauri/src-tauri/
-├── Cargo.toml           Per-platform stonefruit-inference dep
+├── Cargo.toml           Per-platform futo-notes-inference dep
 ├── src/core.rs          inference_test_embed command (inference_dev module)
 └── src/lib.rs           Command registration
 
@@ -117,7 +117,7 @@ scripts/fetch-ort-ios.mjs      ORT xcframework fetcher for iOS
 scripts/cdp-invoke.mjs    CDP client for webview command invocation
 ```
 
-### Feature flags (stonefruit-inference)
+### Feature flags (futo-notes-inference)
 
 | Feature | What it does | Used by |
 |---|---|---|

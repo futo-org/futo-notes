@@ -1,4 +1,4 @@
-# AGENTS.md - Stonefruit
+# AGENTS.md - FUTO Notes
 
 @README.md for project overview. @justfile for all commands.
 
@@ -22,7 +22,7 @@ npm workspaces. Shared Svelte app at root, platform shells in `apps/`, shared pa
 ```
 src/                  ← Shared Svelte 5 app (editor, UI, sync client)
 crates/
-  stonefruit-core/    ← Rust crate (hashing, sync payload, search vectors, graph layout)
+  futo-notes-core/    ← Rust crate (hashing, sync payload, search vectors, graph layout)
 apps/
   tauri/              ← Tauri v2 desktop + mobile shell (Rust backend)
 packages/
@@ -31,7 +31,7 @@ packages/
 
 - **Client stack**: Svelte 5 + Tauri v2 + Vite + Tailwind v4 + CodeMirror 6
 - **Sync server**: External E2EE server at `/home/justin/Developer/stonefruit-server` ([GitLab](https://gitlab.futo.org/stonefruit/stonefruit-server)). The client uploads opaque encrypted blobs through collection/object/blob APIs.
-- **Rust crate** (`stonefruit-core`): Hashing, sync payload prep/apply, vector search (UMAP + K-Means), graph layout, merge. Imported only by the Tauri app — do not reimplement logic that exists here.
+- **Rust crate** (`futo-notes-core`): Hashing, sync payload prep/apply, vector search (UMAP + K-Means), graph layout, merge. Imported only by the Tauri app — do not reimplement logic that exists here.
 - **TypeScript layer**: Most file I/O, note indexing, search indexing, app state, and sync coordination are in TypeScript (`src/lib/`) using `@tauri-apps/plugin-fs`. Rust handles the performance-critical paths (sync delta computation, vector math, hashing).
 - **Shared package** (`@futo-notes/shared`): Auth protocol types, filename sanitization (`sanitizeTitle`, `validateTitle`), tag parsing (`extractTags`), image validation. Consumed as TypeScript source (no build step).
 
@@ -57,7 +57,7 @@ node scripts/cdp-invoke.mjs "await window.__TAURI__.core.invoke('my_command', { 
 
 ### Android — ONNX Runtime `.so` for the inference crate
 
-The Android build of `stonefruit-inference` links against `libonnxruntime.so` dynamically (via the `load-dynamic` feature). Tauri's Gradle plugin doesn't fetch it; `scripts/fetch-ort-android.mjs` does. Run before `cargo tauri android build`:
+The Android build of `futo-notes-inference` links against `libonnxruntime.so` dynamically (via the `load-dynamic` feature). Tauri's Gradle plugin doesn't fetch it; `scripts/fetch-ort-android.mjs` does. Run before `cargo tauri android build`:
 
 ```bash
 # Fetches Microsoft's ONNX Runtime Android AAR from Maven, extracts the per-ABI
@@ -70,7 +70,7 @@ Version is pinned to `ort-sys 2.0.0-rc.12`'s target (ORT 1.24.2). If you bump th
 
 ### Linux — ONNX Runtime `.so` for the inference crate
 
-On Linux the `stonefruit-inference` crate uses ORT's `load-dynamic` feature:
+On Linux the `futo-notes-inference` crate uses ORT's `load-dynamic` feature:
 ORT is NOT statically linked at build time. Instead, `scripts/fetch-ort-linux.mjs`
 downloads Microsoft's official `onnxruntime-linux-x64-${ver}.tgz` (glibc 2.17
 floor, no `__isoc23_*` symbols — so it links on any distro the `.deb`/`.rpm`
@@ -84,7 +84,7 @@ node scripts/fetch-ort-linux.mjs
 
 `init_ort_dylib_path()` in `lib.rs` sets `ORT_DYLIB_PATH` at app startup by
 looking for the `.so` next to the exe (AppImage, dev) or in
-`../lib/stonefruit/` (`.deb`/`.rpm` install layout). `tauri.conf.json`'s
+`../lib/futo-notes/` (`.deb`/`.rpm` install layout). `tauri.conf.json`'s
 `bundle.linux.{deb,rpm,appimage}.files` maps the `.so` into the right place
 in each package. Version is pinned to `ort-sys 2.0.0-rc.12`'s target (ORT
 1.24.2). If you bump the `ort` dep, bump `DEFAULT_VERSION` in the fetch
@@ -92,7 +92,7 @@ script in lockstep with the Android and iOS scripts.
 
 ### iOS — ONNX Runtime xcframework for the inference crate
 
-The iOS build of `stonefruit-inference` links ORT statically via an xcframework with CoreML EP. `scripts/fetch-ort-ios.mjs` downloads Microsoft's prebuilt pod-archive and extracts the xcframework. Run before `cargo tauri ios build`:
+The iOS build of `futo-notes-inference` links ORT statically via an xcframework with CoreML EP. `scripts/fetch-ort-ios.mjs` downloads Microsoft's prebuilt pod-archive and extracts the xcframework. Run before `cargo tauri ios build`:
 
 ```bash
 # Downloads ~50 MB, extracts to apps/tauri/src-tauri/gen/apple/onnxruntime.xcframework/
@@ -121,10 +121,10 @@ First call downloads the model (~35 MB + tokenizer) to the app data dir; returns
 - **IMPORTANT**: Tauri dev ports are split by target to avoid collisions: desktop `5180`, Android `5181`, iOS `5182`.
 - **IMPORTANT**: `window.confirm()`/`window.alert()` don't block properly in Tauri's webview. Use `ask()`/`message()` from `@tauri-apps/plugin-dialog` instead.
 - **CRITICAL: Dev/debug builds MUST NOT overwrite the user's production app or notes.**
-  - **Bundle ID**: Dev/debug builds must use `com.futo.notes.dev` (product name "Stonefruit Dev"). Pass `--config src-tauri/tauri.ios.dev.conf.json` (iOS) or `--config src-tauri/tauri.dev.conf.json` (desktop) to `cargo tauri build --debug`. Never run `cargo tauri ios build --debug` without the dev config — it installs over the production app. The `just` recipes (`ios-dev`, `ios-offline`, `tauri-dev`) handle this automatically.
-  - **Notes root**: Debug builds default to **`~/Documents/fake-notes`** (see `default_notes_root` in `apps/tauri/src-tauri/src/core.rs`). Release builds default to `~/Documents/stonefruit`. Do not remove or weaken this guard.
+  - **Bundle ID**: Dev/debug builds must use `com.futo.notes.dev` (product name "FUTO Notes Dev"). Pass `--config src-tauri/tauri.ios.dev.conf.json` (iOS) or `--config src-tauri/tauri.dev.conf.json` (desktop) to `cargo tauri build --debug`. Never run `cargo tauri ios build --debug` without the dev config — it installs over the production app. The `just` recipes (`ios-dev`, `ios-offline`, `tauri-dev`) handle this automatically.
+  - **Notes root**: Debug builds default to **`~/Documents/fake-notes`** (see `default_notes_root` in `apps/tauri/src-tauri/src/core.rs`). Release builds default to `~/Documents/futo-notes` (with one-shot migration from the legacy `~/Documents/stonefruit` location). Do not remove or weaken this guard.
   - The TS resolver (`src/lib/platform/tauriPaths.ts:getDefaultNotesRoot`) must delegate to the Rust `resolve_default_notes_root` command — never resolve the default in JS, because `documentDir()` gives the same path in dev and release.
-  - `STONEFRUIT_DATA_DIR` env var overrides both (used by `scripts/tauri-dev.mjs` and cross-platform tests for per-worktree isolation — writes go to `{data_dir}/notes`).
+  - `FUTO_NOTES_DATA_DIR` env var overrides both (used by `scripts/tauri-dev.mjs` and cross-platform tests for per-worktree isolation — writes go to `{data_dir}/notes`).
   - Dev sync points at the external E2EE server when configured. Release builds start empty.
 
 ## Push Concerns Down, Not Out
@@ -194,7 +194,7 @@ Every code change that touches logic must include or update tests. No exceptions
 
 ### Where tests live
 
-- **Rust core**: `crates/stonefruit-core/src/*.rs` `#[cfg(test)]` modules + `crates/stonefruit-core/tests/`.
+- **Rust core**: `crates/futo-notes-core/src/*.rs` `#[cfg(test)]` modules + `crates/futo-notes-core/tests/`.
 - **Tauri commands**: `apps/tauri/src-tauri/src/core.rs` `#[cfg(test)]` module. Test `_impl` functions directly.
 - **Shared package**: `packages/shared/src/*.test.ts`.
 - **Playwright E2E**: `tests/*.spec.ts`.

@@ -20,7 +20,7 @@
 // webkit2gtk + libwayland and never had this problem.
 //
 // Usage:
-//   node scripts/patch-appimage-mesa26.mjs <path/to/Stonefruit-x.y.z-x86_64.AppImage>
+//   node scripts/patch-appimage-mesa26.mjs <path/to/FUTO-Notes-x.y.z-x86_64.AppImage>
 //   node scripts/patch-appimage-mesa26.mjs --dir target/release/bundle/appimage
 
 import { spawnSync } from 'node:child_process';
@@ -67,7 +67,7 @@ async function downloadAppimagetool() {
   // Ubuntu doesn't package appimagetool; fetch the upstream continuous build.
   const url =
     'https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage';
-  const cacheDir = join(tmpdir(), 'stonefruit-appimagetool');
+  const cacheDir = join(tmpdir(), 'futo-notes-appimagetool');
   await mkdir(cacheDir, { recursive: true });
   const target = join(cacheDir, 'appimagetool');
   if (existsSync(target)) return target;

@@ -7,7 +7,7 @@
 
 <header class="titlebar">
   <div class="titlebar-drag" data-tauri-drag-region>
-    <span class="titlebar-title" data-tauri-drag-region>Stonefruit</span>
+    <span class="titlebar-title" data-tauri-drag-region>FUTO Notes</span>
   </div>
   <div class="titlebar-controls">
     <button

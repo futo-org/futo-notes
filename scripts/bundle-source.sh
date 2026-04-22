@@ -46,7 +46,7 @@ FILES=$(git ls-files -z \
 FILE_COUNT=$(echo "$FILES" | wc -l)
 
 # Output bundle to stdout
-echo "# Stonefruit Source Bundle"
+echo "# FUTO Notes Source Bundle"
 echo "# Generated: $(date -Iseconds)"
 echo "# Files: $FILE_COUNT (estimated)"
 echo ""

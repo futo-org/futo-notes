@@ -44,14 +44,27 @@
 
   // Brand fruit
   const stoneFruits = ['🥑', '🍑', '🍒', '🥥', '🥭', '🫒'];
-  let brandFruit = $state(
-    (typeof localStorage !== 'undefined' && localStorage.getItem('stonefruit-emoji')) ?? stoneFruits[0]
-  );
+  const BRAND_EMOJI_KEY = 'futo-notes:emoji';
+  let brandFruit = $state(readBrandEmoji());
+
+  function readBrandEmoji(): string {
+    if (typeof localStorage === 'undefined') return stoneFruits[0];
+    const current = localStorage.getItem(BRAND_EMOJI_KEY);
+    if (current !== null) return current;
+    // One-shot migration from the legacy 'stonefruit-emoji' key.
+    const legacy = localStorage.getItem('stonefruit-emoji');
+    if (legacy !== null) {
+      localStorage.setItem(BRAND_EMOJI_KEY, legacy);
+      localStorage.removeItem('stonefruit-emoji');
+      return legacy;
+    }
+    return stoneFruits[0];
+  }
 
   function cycleFruit(): void {
     const idx = stoneFruits.indexOf(brandFruit);
     brandFruit = stoneFruits[(idx + 1) % stoneFruits.length];
-    localStorage.setItem('stonefruit-emoji', brandFruit);
+    localStorage.setItem(BRAND_EMOJI_KEY, brandFruit);
   }
 
   function handleBrandClick(): void {
@@ -136,7 +149,7 @@
   <div class="sidebar-header">
     <div class="sidebar-brand">
       <button class="brand-emoji" onclick={cycleFruit}>{brandFruit}</button>
-      <button class="brand-text" onclick={handleBrandClick}>Stonefruit{#if import.meta.env.DEV}<span class="dev-badge">DEV</span>{/if}</button>
+      <button class="brand-text" onclick={handleBrandClick}>FUTO Notes{#if import.meta.env.DEV}<span class="dev-badge">DEV</span>{/if}</button>
     </div>
     <div class="sidebar-header-actions">
       <button

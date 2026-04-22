@@ -1,8 +1,8 @@
 [package]
-name = "stonefruit-inference"
+name = "futo-notes-inference"
 version = "0.1.0"
 edition = "2021"
-description = "On-device text embedding inference via ONNX Runtime for Stonefruit."
+description = "On-device text embedding inference via ONNX Runtime for FUTO Notes."
 license = "MIT OR Apache-2.0"
 
 [dependencies]

@@ -1,10 +1,10 @@
 {
   "identifier": "com.futo.notes.dev",
-  "productName": "Stonefruit Dev",
+  "productName": "FUTO Notes Dev",
   "app": {
     "windows": [
       {
-        "title": "Stonefruit (Dev)"
+        "title": "FUTO Notes (Dev)"
       }
     ],
     "security": {

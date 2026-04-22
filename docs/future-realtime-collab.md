@@ -4,7 +4,7 @@
 
 - Share a link from your phone; anyone can open it in a browser
 - Allow lightweight collaboration without requiring the full app
-- Keep Stonefruit's offline-first, filesystem-first model intact unless collaboration proves important enough to justify a rewrite
+- Keep FUTO Notes's offline-first, filesystem-first model intact unless collaboration proves important enough to justify a rewrite
 - Leave room for permanent shared notes and future multi-source vaults
 
 ## The Core Decision
@@ -15,11 +15,11 @@ There are really three different features that are easy to blur together:
 2. **Editable sharing** — someone can edit a shared note in the browser
 3. **True real-time collaboration** — multiple people type at once, see each other live, and merge at character granularity
 
-Stonefruit can ship value at each layer. A CRDT rewrite is only needed for the third layer, and only if we decide that real-time collaboration is important enough to change the storage and sync model.
+FUTO Notes can ship value at each layer. A CRDT rewrite is only needed for the third layer, and only if we decide that real-time collaboration is important enough to change the storage and sync model.
 
 ## Current Constraints
 
-Stonefruit today is built around:
+FUTO Notes today is built around:
 
 - Plain `.md` files as the durable note format
 - A hash-based sync engine where each note is a whole string
@@ -49,7 +49,7 @@ This is **not** CRDT-based. It uses a central-authority model:
 - Clients send local updates tagged with a version
 - Clients receive remote updates and rebase as needed
 
-This is a good middle ground if we want **real-time editing** without rewriting Stonefruit around Yjs:
+This is a good middle ground if we want **real-time editing** without rewriting FUTO Notes around Yjs:
 
 - Durable storage can remain plain markdown
 - The server can remain authoritative for the live session
@@ -76,7 +76,7 @@ Important point: Yjs data is **not** plain text in its native form.
 
 - Plain text is still easy to derive from a `Y.Text` via `toString()`
 - But the synced/persisted form is CRDT state and binary updates, not a human-readable `.md` file
-- If Yjs becomes the real source of truth, Stonefruit would need to export or materialize plaintext for filesystem interop
+- If Yjs becomes the real source of truth, FUTO Notes would need to export or materialize plaintext for filesystem interop
 
 ## What a Yjs Rewrite Would Entail
 
@@ -124,7 +124,7 @@ If live collaboration exists, the authority boundary needs to be explicit:
 
 ## Future: Permanent Shares and Multi-Source Vaults
 
-Longer term, Stonefruit may want a vault that can contain notes from multiple sources:
+Longer term, FUTO Notes may want a vault that can contain notes from multiple sources:
 
 - local notes
 - owned synced notes

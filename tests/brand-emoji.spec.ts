@@ -1,10 +1,12 @@
 import { test, expect } from '@playwright/test';
 
-test.describe('Stonefruit emoji cycling', () => {
+test.describe('Brand emoji cycling', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
-    // Clear persisted emoji state
-    await page.evaluate(() => localStorage.removeItem('stonefruit-emoji'));
+    await page.evaluate(() => {
+      localStorage.removeItem('futo-notes:emoji');
+      localStorage.removeItem('stonefruit-emoji');
+    });
     await page.reload();
   });
 
@@ -32,6 +34,21 @@ test.describe('Stonefruit emoji cycling', () => {
     await expect(emoji).toHaveText('🍑');
     await page.reload();
     await expect(page.locator('.brand-emoji')).toHaveText('🍑');
+  });
+
+  test('migrates the legacy stonefruit-emoji localStorage key', async ({ page }) => {
+    await page.evaluate(() => {
+      localStorage.removeItem('futo-notes:emoji');
+      localStorage.setItem('stonefruit-emoji', '🍒');
+    });
+    await page.reload();
+    await expect(page.locator('.brand-emoji')).toHaveText('🍒');
+    const [legacy, current] = await page.evaluate(() => [
+      localStorage.getItem('stonefruit-emoji'),
+      localStorage.getItem('futo-notes:emoji'),
+    ]);
+    expect(legacy).toBeNull();
+    expect(current).toBe('🍒');
   });
 
   test('brand text navigates home', async ({ page }) => {

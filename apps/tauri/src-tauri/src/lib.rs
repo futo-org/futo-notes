@@ -76,8 +76,8 @@ fn linux_color_scheme_watcher(app: tauri::AppHandle) {
 /// `ort::init` dlopens the right .so. Checks, in order:
 ///   1. Sibling of the current exe — covers AppImage (`usr/bin/` next to the
 ///      binary) and dev (`target/{debug,release}/` via fetch-ort-linux.mjs).
-///   2. `<exe_dir>/../lib/stonefruit/libonnxruntime.so` — .deb/.rpm install
-///      layout (`/usr/bin/futo-notes-tauri` → `/usr/lib/stonefruit/...`).
+///   2. `<exe_dir>/../lib/futo-notes/libonnxruntime.so` — .deb/.rpm install
+///      layout (`/usr/bin/futo-notes-tauri` → `/usr/lib/futo-notes/...`).
 ///
 /// Respects ORT_DYLIB_PATH if the user has already set it.
 #[cfg(target_os = "linux")]
@@ -93,7 +93,7 @@ fn init_ort_dylib_path() {
     };
     for cand in [
         dir.join("libonnxruntime.so"),
-        dir.join("../lib/stonefruit/libonnxruntime.so"),
+        dir.join("../lib/futo-notes/libonnxruntime.so"),
     ] {
         if cand.exists() {
             std::env::set_var("ORT_DYLIB_PATH", cand);
@@ -139,7 +139,7 @@ pub fn run() {
         .setup(|_app| {
             #[cfg(desktop)]
             {
-                if std::env::var("STONEFRUIT_MULTI_INSTANCE").is_err() {
+                if std::env::var("FUTO_NOTES_MULTI_INSTANCE").is_err() {
                     _app.handle().plugin(tauri_plugin_single_instance::init(
                         |app, _args, _cwd| {
                             if let Some(w) = app.get_webview_window("main") {

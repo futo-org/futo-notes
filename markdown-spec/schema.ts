@@ -1,5 +1,5 @@
 /**
- * Stonefruit Markdown Spec — Test Case Schema
+ * FUTO Notes Markdown Spec — Test Case Schema
  *
  * Each YAML file contains an array of SpecCase objects.
  * Cases are run by both Playwright (decoration/visible text checks)

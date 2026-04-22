@@ -36,8 +36,8 @@ export async function startDesktopTauriInstance(name, repoRoot) {
   const proc = spawn(binaryPath, [], {
     env: {
       ...process.env,
-      STONEFRUIT_DATA_DIR: dataDir,
-      STONEFRUIT_MULTI_INSTANCE: '1',
+      FUTO_NOTES_DATA_DIR: dataDir,
+      FUTO_NOTES_MULTI_INSTANCE: '1',
       WEBKIT_DISABLE_DMABUF_RENDERER: '1',
     },
     stdio: ['ignore', logFd, logFd],

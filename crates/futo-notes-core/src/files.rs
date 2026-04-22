@@ -254,7 +254,7 @@ mod tests {
     fn temp_dir() -> PathBuf {
         static COUNTER: AtomicU32 = AtomicU32::new(0);
         let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!("stonefruit-core-files-test-{}-{n}", now_ms()));
+        let dir = std::env::temp_dir().join(format!("futo-notes-core-files-test-{}-{n}", now_ms()));
         fs::create_dir_all(&dir).expect("create temp test dir");
         dir
     }

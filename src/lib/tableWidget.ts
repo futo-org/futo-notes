@@ -107,7 +107,7 @@ function escapeHtml(text: string): string {
 
 /**
  * Blocks dangerous URL schemes (javascript:, data:, vbscript:) while allowing
- * all others including custom deep link schemes (stonefruit://, obsidian://, etc.).
+ * all others including custom deep link schemes (futo-notes://, obsidian://, etc.).
  * Must decode HTML entities before checking since escapeHtml runs first.
  */
 export function sanitizeUrl(url: string): string {

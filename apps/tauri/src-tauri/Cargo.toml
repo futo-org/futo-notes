@@ -23,7 +23,7 @@ tauri-plugin-process = "2"
 tauri-plugin-clipboard-manager = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-fs = "2"
-stonefruit-core = { path = "../../../crates/stonefruit-core" }
+futo-notes-core = { path = "../../../crates/futo-notes-core" }
 rand = "0.9"
 rand_chacha = "0.9"
 rayon = "1.11.0"
@@ -39,7 +39,7 @@ tauri-plugin-mcp-bridge = "0.10.0"
 # `cargo build`. pyke's prebuilts for these targets link cleanly.
 [target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
 tauri-plugin-single-instance = "2"
-stonefruit-inference = { path = "../../../crates/stonefruit-inference" }
+futo-notes-inference = { path = "../../../crates/futo-notes-inference" }
 
 # Linux: ORT ships as a separate libonnxruntime.so in
 # apps/tauri/src-tauri/gen/linux/, fetched by `scripts/fetch-ort-linux.mjs`
@@ -48,7 +48,7 @@ stonefruit-inference = { path = "../../../crates/stonefruit-inference" }
 # ORT_DYLIB_PATH at startup so `ort::init` finds it.
 [target.'cfg(target_os = "linux")'.dependencies]
 tauri-plugin-single-instance = "2"
-stonefruit-inference = { path = "../../../crates/stonefruit-inference", default-features = false, features = ["load-dynamic"] }
+futo-notes-inference = { path = "../../../crates/futo-notes-inference", default-features = false, features = ["load-dynamic"] }
 glib = "0.18"
 
 [target.'cfg(target_os = "ios")'.dependencies]
@@ -56,7 +56,7 @@ objc2 = "0.6"
 # iOS: ORT statically linked via xcframework fetched by `scripts/fetch-ort-ios.mjs`.
 # ORT_IOS_XCFWK_PATH is set by the Xcode pre-build script in project.yml.
 # CoreML EP enables Neural Engine / GPU acceleration on iPhone.
-stonefruit-inference = { path = "../../../crates/stonefruit-inference", default-features = false, features = ["coreml"] }
+futo-notes-inference = { path = "../../../crates/futo-notes-inference", default-features = false, features = ["coreml"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 # Android: ORT ships as a separate .so in gen/android/.../jniLibs/<abi>/,
@@ -64,7 +64,7 @@ stonefruit-inference = { path = "../../../crates/stonefruit-inference", default-
 # inference on ARM. Opting out of ort's build-time download here because
 # cross-compiling through pyke's CDN isn't set up and load-dynamic is simpler
 # to reason about.
-stonefruit-inference = { path = "../../../crates/stonefruit-inference", default-features = false, features = ["load-dynamic", "xnnpack"] }
+futo-notes-inference = { path = "../../../crates/futo-notes-inference", default-features = false, features = ["load-dynamic", "xnnpack"] }
 
 [lints.clippy]
 too_many_lines = "warn"

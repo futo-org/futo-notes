@@ -1,7 +1,7 @@
 /**
  * Path safety utilities — TypeScript port of `ensure_safe_note_id`,
  * `safe_note_path`, `safe_appdata_path`, and `note_id_from_filename`
- * from `crates/stonefruit-core/src/files.rs`.
+ * from `crates/futo-notes-core/src/files.rs`.
  *
  * Character set reuses the same forbidden pattern as `@futo-notes/shared`
  * (`< > : " / \ | ? *` plus control chars 0x00-0x1F and 0x7F).

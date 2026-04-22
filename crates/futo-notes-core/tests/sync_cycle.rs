@@ -6,10 +6,10 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use stonefruit_core::files;
-use stonefruit_core::hash;
-use stonefruit_core::invariants::{self, NoteRecord};
-use stonefruit_core::sync;
+use futo_notes_core::files;
+use futo_notes_core::hash;
+use futo_notes_core::invariants::{self, NoteRecord};
+use futo_notes_core::sync;
 
 fn temp_dir() -> PathBuf {
     static COUNTER: AtomicU32 = AtomicU32::new(0);
@@ -18,7 +18,7 @@ fn temp_dir() -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis())
         .unwrap_or(0);
-    let dir = std::env::temp_dir().join(format!("stonefruit-core-integ-{ms}-{n}"));
+    let dir = std::env::temp_dir().join(format!("futo-notes-core-integ-{ms}-{n}"));
     fs::create_dir_all(&dir).expect("create temp dir");
     dir
 }

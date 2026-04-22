@@ -537,7 +537,7 @@ async function login(baseUrl: string, password: string): Promise<{ token: string
     const res = await fetch(`${baseUrl}/api/auth/dev/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: 'local@stonefruit.local', name: 'Stonefruit' }),
+      body: JSON.stringify({ email: 'local@futo-notes.local', name: 'FUTO Notes' }),
     });
     if (!res.ok) {
       throw new Error(`Dev login failed: HTTP ${res.status}`);

@@ -1353,10 +1353,41 @@ dependencies = [
 ]
 
 [[package]]
+name = "futo-notes-core"
+version = "0.1.0"
+dependencies = [
+ "diffy",
+ "filetime",
+ "proptest",
+ "rand 0.8.5",
+ "rand_chacha 0.3.1",
+ "rayon",
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
+name = "futo-notes-inference"
+version = "0.1.0"
+dependencies = [
+ "ort",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.18",
+ "tokenizers",
+ "tracing",
+]
+
+[[package]]
 name = "futo-notes-tauri"
 version = "0.1.0"
 dependencies = [
  "filetime",
+ "futo-notes-core",
+ "futo-notes-inference",
  "glib",
  "libc",
  "notify",
@@ -1369,8 +1400,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "stonefruit-core",
- "stonefruit-inference",
  "tauri",
  "tauri-build",
  "tauri-plugin-clipboard-manager",
@@ -4845,35 +4874,6 @@ name = "static_assertions"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
-
-[[package]]
-name = "stonefruit-core"
-version = "0.1.0"
-dependencies = [
- "diffy",
- "filetime",
- "proptest",
- "rand 0.8.5",
- "rand_chacha 0.3.1",
- "rayon",
- "serde",
- "serde_json",
- "sha2",
-]
-
-[[package]]
-name = "stonefruit-inference"
-version = "0.1.0"
-dependencies = [
- "ort",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "sha2",
- "thiserror 2.0.18",
- "tokenizers",
- "tracing",
-]
 
 [[package]]
 name = "string_cache"

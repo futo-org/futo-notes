@@ -1,6 +1,6 @@
 # E2EE Sync Server
 
-Stonefruit's hosted sync service. The server stores and serves encrypted blobs. It cannot read filenames, content, or metadata. If a user loses their password, their data is unrecoverable.
+FUTO Notes' hosted sync service. The server stores and serves encrypted blobs. It cannot read filenames, content, or metadata. If a user loses their password, their data is unrecoverable.
 
 ## Context
 

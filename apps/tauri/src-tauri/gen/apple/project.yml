@@ -10,7 +10,7 @@ configs:
 settingGroups:
   app:
     base:
-      PRODUCT_NAME: Stonefruit
+      PRODUCT_NAME: FUTO Notes
       PRODUCT_BUNDLE_IDENTIFIER: com.futo.notes
       DEVELOPMENT_TEAM: 2W7AC6T8T5
 targetTemplates:

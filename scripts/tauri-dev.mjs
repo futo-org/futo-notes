@@ -3,7 +3,7 @@
  * Worktree-aware wrapper for `pnpm run tauri:dev`.
  *
  * When run from the main repo:
- *   - Points notes to ~/Documents/fake-notes (never touches ~/Documents/stonefruit)
+ *   - Points notes to ~/Documents/fake-notes (never touches ~/Documents/futo-notes)
  *   - Seeds fake-notes with test notes on first launch
  *
  * When run from a git worktree it automatically:
@@ -48,7 +48,7 @@ if (!isWorktree) {
 
   // Seed test notes if none exist yet.
   if (readdirSync(notesDir).filter((f) => f.endsWith('.md')).length === 0) {
-    writeFileSync(join(notesDir, 'welcome.md'), '# Welcome\n\nThis is the dev notes vault. Your real vault is in `~/Documents/stonefruit`.\n')
+    writeFileSync(join(notesDir, 'welcome.md'), '# Welcome\n\nThis is the dev notes vault. Your real vault is in `~/Documents/futo-notes`.\n')
     writeFileSync(join(notesDir, 'test note.md'), '# Test Note\n\nA sample note for development testing.\n')
     writeFileSync(join(notesDir, 'another note.md'), '# Another Note\n\nUseful for testing [[test note]] links and search.\n')
   }
@@ -60,7 +60,7 @@ if (!isWorktree) {
     ['tauri', 'dev', '--config', 'src-tauri/tauri.dev.conf.json'],
     {
       cwd: join(repoRoot, 'apps/tauri'),
-      env: { ...process.env, ...WAYLAND_ENV, STONEFRUIT_DATA_DIR: dataDir },
+      env: { ...process.env, ...WAYLAND_ENV, FUTO_NOTES_DATA_DIR: dataDir },
       stdio: 'inherit',
     }
   )
@@ -95,7 +95,7 @@ if (!isWorktree) {
   if (readdirSync(notesDir).filter((f) => f.endsWith('.md')).length === 0) {
     writeFileSync(
       join(notesDir, 'welcome.md'),
-      '# Welcome\n\nThis is a worktree dev instance of Stonefruit.\n\nNotes here are isolated from your real vault.\n'
+      '# Welcome\n\nThis is a worktree dev instance of FUTO Notes.\n\nNotes here are isolated from your real vault.\n'
     )
     writeFileSync(
       join(notesDir, 'test note.md'),
@@ -139,7 +139,7 @@ if (!isWorktree) {
       env: {
         ...process.env,
         ...WAYLAND_ENV,
-        STONEFRUIT_DATA_DIR: dataDir,
+        FUTO_NOTES_DATA_DIR: dataDir,
       },
       stdio: 'inherit',
     }

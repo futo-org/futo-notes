@@ -1,8 +1,8 @@
-# Stonefruit Markdown Specification
+# FUTO Notes Markdown Specification
 
-This document defines every markdown feature Stonefruit supports, how it renders in the editor, and how the server processes it. It serves as the authoritative reference for contributors, AI agents, and test authors.
+This document defines every markdown feature FUTO Notes supports, how it renders in the editor, and how the server processes it. It serves as the authoritative reference for contributors, AI agents, and test authors.
 
-Stonefruit uses CodeMirror 6's `@codemirror/lang-markdown` for parsing. The custom rendering layer (`liveMarkdownTransform.ts`) decorates the parsed syntax tree with CSS classes, hides syntax markers, and renders widgets. This spec documents the **decoration behavior**, not the parsing rules (which are CM6's responsibility).
+FUTO Notes uses CodeMirror 6's `@codemirror/lang-markdown` for parsing. The custom rendering layer (`liveMarkdownTransform.ts`) decorates the parsed syntax tree with CSS classes, hides syntax markers, and renders widgets. This spec documents the **decoration behavior**, not the parsing rules (which are CM6's responsibility).
 
 ## Core Concept: Cursor-Reveal
 
@@ -276,7 +276,7 @@ Autolinks are detected via regex matching (not part of CM6 markdown AST). They r
 
 ---
 
-## 11. Wikilinks (Stonefruit Extension)
+## 11. Wikilinks (FUTO Notes Extension)
 
 **Syntax**: `[[note title]]`
 
@@ -299,7 +299,7 @@ Wikilinks are NOT part of the CM6 markdown syntax tree. They are processed separ
 
 ---
 
-## 12. Hashtags (Stonefruit Extension)
+## 12. Hashtags (FUTO Notes Extension)
 
 **Syntax**: `#tagname`
 

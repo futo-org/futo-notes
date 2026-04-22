@@ -33,7 +33,7 @@ const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(SCRIPT_DIR, '..');
 const GEN_DIR = join(REPO_ROOT, 'apps/tauri/src-tauri/gen/linux');
 const SO_PATH = join(GEN_DIR, 'libonnxruntime.so');
-const CACHE_DIR = join(tmpdir(), 'stonefruit-ort-linux-cache');
+const CACHE_DIR = join(tmpdir(), 'futo-notes-ort-linux-cache');
 
 // Also mirror into target/{debug,release}/ when those exist so `cargo tauri
 // dev`, `cargo test`, and un-bundled cargo builds can resolve it via the

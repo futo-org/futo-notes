@@ -6,7 +6,7 @@ import './styles/app.css';
 installGlobalHandlers();
 
 if (import.meta.env.DEV) {
-  document.title = 'Stonefruit (dev)';
+  document.title = 'FUTO Notes (dev)';
 }
 
 const app = mount(App, {

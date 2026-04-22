@@ -1,4 +1,4 @@
-//! Integration-level adversarial tests for stonefruit-core.
+//! Integration-level adversarial tests for futo-notes-core.
 //!
 //! These tests exercise cross-module interactions and end-to-end scenarios
 //! that span hash, files, sync, and invariants.
@@ -8,23 +8,23 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use stonefruit_core::files::{
+use futo_notes_core::files::{
     get_unique_note_id, note_id_from_filename, now_ms, safe_appdata_path, safe_note_path,
     sanitize_title, validate_title, write_atomic_text, MAX_TITLE_LENGTH,
 };
-use stonefruit_core::hash::{hash_sha256, hash_sha256_bytes};
-use stonefruit_core::invariants::{
+use futo_notes_core::hash::{hash_sha256, hash_sha256_bytes};
+use futo_notes_core::invariants::{
     check_content_hash_parity, check_duplicate_filenames, run_all_invariants, InvariantViolation,
     NoteRecord,
 };
-use stonefruit_core::sync::{
+use futo_notes_core::sync::{
     check_convergence, determine_sync_direction, is_rename_match, SyncDirection,
 };
 
 fn temp_dir() -> PathBuf {
     static COUNTER: AtomicU32 = AtomicU32::new(0);
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-    let dir = std::env::temp_dir().join(format!("stonefruit-core-adversarial-{}-{n}", now_ms()));
+    let dir = std::env::temp_dir().join(format!("futo-notes-core-adversarial-{}-{n}", now_ms()));
     fs::create_dir_all(&dir).expect("create temp test dir");
     dir
 }

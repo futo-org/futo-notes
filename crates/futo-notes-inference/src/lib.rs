@@ -1,4 +1,4 @@
-//! On-device text embedding for Stonefruit.
+//! On-device text embedding for FUTO Notes.
 //!
 //! This crate wraps an ONNX Runtime session and a HuggingFace tokenizer behind
 //! a concrete [`Embedder`] struct. It is the building block for client-side

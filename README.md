@@ -1,6 +1,6 @@
-# Stonefruit
+# FUTO Notes
 
-Stonefruit is an offline-first markdown notes app with optional E2EE sync.
+FUTO Notes is an offline-first markdown notes app with optional E2EE sync.
 
 ## Sync Server
 
@@ -8,7 +8,7 @@ The sync server now lives in a separate repo:
 
 `/home/justin/Developer/stonefruit-server`
 
-For local development, start that server and connect Stonefruit to its URL. The current POC stores opaque encrypted blobs; note content is encrypted in the client before upload.
+For local development, start that server and connect FUTO Notes to its URL. The current POC stores opaque encrypted blobs; note content is encrypted in the client before upload.
 
 ## Development
 
