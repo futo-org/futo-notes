@@ -1,14 +1,4 @@
-import type { NotePreview } from '../types';
-
 export { sanitizeTitle as sanitizeFilename } from '@futo-notes/shared';
-
-/** Sort by mtime desc, then id asc as tiebreaker. Mutates and returns. */
-export function sortNotePreviews(previews: NotePreview[]): NotePreview[] {
-  return previews.sort(
-    (a, b) =>
-      b.modificationTime - a.modificationTime || a.id.localeCompare(b.id),
-  );
-}
 
 export function escapeHtml(text: string): string {
   const div = document.createElement('div');

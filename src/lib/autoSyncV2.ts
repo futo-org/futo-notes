@@ -116,7 +116,7 @@ export function notifySavedV2(filename?: string): void {
 
 // Dirty journal stubs — E2EE sync compares local files against the object map
 // directly, so per-file dirty tracking is not needed. These are kept as no-ops
-// to satisfy callers in notes.ts and syncManager.
+// to satisfy callers in notes.svelte.ts and syncManager.
 async function markDirtyUpsert(_filename: string): Promise<void> {}
 export async function markDirtyDelete(_filename: string): Promise<void> {}
 export async function markDirtyRename(_oldFilename: string, _newFilename: string): Promise<void> {}

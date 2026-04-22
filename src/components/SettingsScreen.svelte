@@ -1,6 +1,6 @@
 <script lang="ts">
   import { hasFileSystem, isDesktop } from '$lib/platform';
-  import { deleteAllNotes } from '$lib/notes';
+  import { deleteAllNotes } from '$lib/notes.svelte';
   import { getAppState, getCachedPreferences, savePreferences } from '$lib/appState';
   import { applyThemePreference, type ThemePreference } from '$lib/theme';
   import { connectE2ee, disconnectE2ee, syncE2ee, hasStoredSyncPassword, forgetStoredSyncPassword } from '$lib/syncServiceE2ee';

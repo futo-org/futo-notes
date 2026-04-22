@@ -23,14 +23,20 @@ import {
   clearSearchIndex,
 } from './searchIndex';
 import { runPool } from './util/pool';
-import { sortNotePreviews } from './utils';
 
 // Matches notesIndex.ts READ_POOL_CONCURRENCY.
 const RECONCILE_CONCURRENCY = 8;
 
-// In-memory cache of notes metadata
-let notesCache: NotePreview[] = [];
+// Reactive in-memory cache of notes metadata. Mutations propagate through
+// `$derived(sortedNotes)` and every `$effect` that reads `getAllNotes()`.
+let notesCache = $state<NotePreview[]>([]);
 let initialized = false;
+
+const sortedNotes = $derived.by(() =>
+  [...notesCache].sort(
+    (a, b) => b.modificationTime - a.modificationTime || a.id.localeCompare(b.id),
+  ),
+);
 
 /** Test-only: inject a note into the cache without filesystem access. */
 export function _injectTestNote(id: string, title: string): void {
@@ -154,7 +160,7 @@ export async function refreshNotesAfterSync(_updatedIds: string[], _deletedIds: 
 }
 
 export function getAllNotes(): NotePreview[] {
-  return sortNotePreviews([...notesCache]);
+  return sortedNotes;
 }
 
 export function getNoteById(id: string): NotePreview | undefined {

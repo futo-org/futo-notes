@@ -5,10 +5,10 @@ vi.mock('./rustCore');
 
 import { testFS } from '$lib/platform';
 
-// notes.ts has module-level state (initialized, notesCache). Use resetModules to get fresh state.
+// notes.svelte.ts has module-level state (initialized, notesCache). Use resetModules to get fresh state.
 async function freshNotes() {
   vi.resetModules();
-  return import('./notes');
+  return import('./notes.svelte');
 }
 
 beforeEach(() => {

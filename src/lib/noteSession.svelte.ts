@@ -11,7 +11,7 @@ import {
   readNote,
   createNote,
   getNoteById,
-} from '$lib/notes';
+} from '$lib/notes.svelte';
 import { sanitizeFilename } from '$lib/utils';
 import { FORBIDDEN_CHARS_RE, validateTitle } from '@futo-notes/shared';
 import { trackOpen } from '$lib/engagement';
@@ -32,8 +32,6 @@ export interface NoteSessionDeps {
   focusEditor: () => void;
   /** Returns the current notes list. */
   getNotes: () => NotePreview[];
-  /** Refreshes the notes list from storage. */
-  refreshNotesList: () => void;
   /** Write‑suppression instance (shared with watcher/sync). */
   writeSuppressor: WriteSuppressor;
   /** Patches graph node after rename. */
@@ -276,8 +274,6 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
         deps.patchGraphNode(savedOriginalId, result.id, newTitle);
       }
 
-      deps.refreshNotesList();
-
       // Only update URL if user is still viewing this note
       const currentPath = window.location.hash.slice(1) || '/';
       const stillOnThisNote = savedOriginalId
@@ -355,7 +351,6 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
           savedTitle = id;
           originalId = result.id;
           deps.setEditorContent('');
-          deps.refreshNotesList();
           loading = false;
           requestAnimationFrame(() => {
             if (loadVersion !== noteLoadVersion) return;

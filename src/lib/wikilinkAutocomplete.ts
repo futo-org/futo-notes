@@ -1,7 +1,7 @@
 import { autocompletion, startCompletion } from '@codemirror/autocomplete';
 import type { CompletionContext, CompletionResult, Completion } from '@codemirror/autocomplete';
 import { EditorView } from '@codemirror/view';
-import { getAllNotes } from '$lib/notes';
+import { getAllNotes } from '$lib/notes.svelte';
 import { searchNotes } from '$lib/searchIndex';
 
 function makeApply(title: string) {

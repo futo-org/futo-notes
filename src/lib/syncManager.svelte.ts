@@ -19,7 +19,7 @@ import {
   getNoteById,
   handleExternalFileChange,
   refreshNotesFromStorage,
-} from '$lib/notes';
+} from '$lib/notes.svelte';
 import { startAutoSyncV2, stopAutoSyncV2, notifySavedV2 } from '$lib/autoSyncV2';
 
 // ── Dependency interface ─────────────────────────────────────────────────
@@ -40,9 +40,6 @@ export interface SyncManagerDeps {
   // Editor
   getEditorContent: () => string | undefined;
   isComposing: () => boolean;
-
-  // Notes
-  refreshNotesList: () => void;
 
   // Graph
   patchGraphNode: (from: string, to: string, title: string) => void;
@@ -139,7 +136,6 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
     externalRescanInFlight = true;
     try {
       await refreshNotesFromStorage();
-      deps.refreshNotesList();
     } catch (e) {
       console.warn('External rescan failed:', e);
     } finally {
@@ -181,7 +177,6 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
           : 'Open note changed externally; keeping local draft',
       );
       await refreshNotesFromStorage();
-      deps.refreshNotesList();
       if (type === 'change') {
         scheduleExternalRescan(250);
       }
@@ -201,7 +196,6 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
     }
 
     await handleExternalFileChange(filename);
-    deps.refreshNotesList();
     if (type === 'add' || type === 'change') {
       scheduleExternalRescan();
     }

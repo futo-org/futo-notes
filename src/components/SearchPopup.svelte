@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { SearchResultItem } from '../types';
-  import { searchKeyword } from '$lib/notes';
+  import { searchKeyword } from '$lib/notes.svelte';
 
   interface Props {
     onclose: () => void;

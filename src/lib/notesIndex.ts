@@ -2,7 +2,6 @@ import type { NotePreview } from "../types";
 import type { FileSystem } from "./platform/types";
 import { extractTags } from "@futo-notes/shared";
 import { extractHeadings } from "./searchIndex";
-import { sortNotePreviews } from "./utils";
 import { runPool } from "./util/pool";
 
 // Concurrency for parallel body reads during startup scans. Matches the
@@ -253,9 +252,11 @@ export async function scanNotePreviewsWithBodies(
     await savePreviewCache(fs, { version: CACHE_VERSION, entries: newEntries });
   }
 
-  const finalPreviews = sortNotePreviews(
-    previews.filter((p): p is NotePreview => p !== null),
-  );
+  const finalPreviews = previews
+    .filter((p): p is NotePreview => p !== null)
+    .sort(
+      (a, b) => b.modificationTime - a.modificationTime || a.id.localeCompare(b.id),
+    );
 
   return { previews: finalPreviews, freshBodies };
 }

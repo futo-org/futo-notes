@@ -8,7 +8,7 @@
   if (showTitlebar) {
     document.documentElement.style.setProperty('--titlebar-height', '36px');
   }
-  import { initNotes, createNote, getAllNotes, _injectTestNote } from '$lib/notes';
+  import { initNotes, createNote, getAllNotes, _injectTestNote } from '$lib/notes.svelte';
   import { loadPreferences, getCachedPreferences, savePreferences } from '$lib/appState';
   import { applyThemePreference, watchSystemThemeTauri } from '$lib/theme';
   import { flushCrashQueue, setAppVersion, type CrashReport } from '$lib/crashHandler';

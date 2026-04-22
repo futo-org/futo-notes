@@ -13,12 +13,11 @@
   // Lazy-loaded: SearchPopup only needed when user opens search (Ctrl+P or button)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let SearchPopup: any = $state(null);
-  import type { NotePreview } from '../types';
   import {
     getAllNotes,
     createNote,
     deleteNote,
-  } from '$lib/notes';
+  } from '$lib/notes.svelte';
   import { sanitizeFilename } from '$lib/utils';
   import type { SyncSummary } from '$lib/syncServiceE2ee';
   import { createNoteSession } from '$lib/noteSession.svelte';
@@ -45,10 +44,13 @@
 
   let drawerOpen = $state(!isMobile);
   let drawerProgress = $state(!isMobile ? 1 : 0);
-  let notes: NotePreview[] = $state.raw([]);
 
   $effect(() => { appCtx.activeNoteId = noteId; });
-  $effect(() => { appCtx.notes = notes; });
+
+  $effect(() => {
+    appCtx.notes = hasFileSystem ? getAllNotes() : [];
+    graphPanel?.clearGraphData();
+  });
 
   let editor: ReturnType<typeof MarkdownEditor> | null = $state(null);
   let graphPanel: ReturnType<typeof GraphSidebarPanel> | null = $state(null);
@@ -61,7 +63,6 @@
   let titleTextarea: HTMLTextAreaElement | undefined = $state(undefined);
 
   let drawerWidth = $state(0);
-  let notesLoaded = false;
 
   // Desktop sidebar
   let sidebarWidth = $state(280);
@@ -156,8 +157,6 @@
     getEditorContent: () => editor?.getContent(),
     isComposing: () => Boolean(editor?.isComposing?.()),
 
-    refreshNotesList,
-
     patchGraphNode: (from, to, title) => graphPanel?.patchGraphNode(from, to, title),
     clearGraphData: () => graphPanel?.clearGraphData(),
 
@@ -173,8 +172,7 @@
     getEditorContent: () => editor?.getContent(),
     setEditorContent: (text, opts) => editor?.setContent(text, opts),
     focusEditor: () => editor?.focus(),
-    getNotes: () => notes,
-    refreshNotesList,
+    getNotes: () => appCtx.notes,
     writeSuppressor: sync.writeSuppressor,
     patchGraphNode: (from, to, t) => graphPanel?.patchGraphNode(from, to, t),
     showToast,
@@ -204,7 +202,6 @@
     if (count === 0) {
       session.cancelAndClear();
     }
-    refreshNotesList();
     settingsOpen = false;
     showToast(count > 0 ? `Imported ${count} notes` : 'All notes deleted');
   }
@@ -237,12 +234,6 @@
 
   async function updateNativeDrawerState(open: boolean): Promise<void> {
     void open;
-  }
-
-  function refreshNotesList(): void {
-    notes = hasFileSystem ? getAllNotes() : [];
-    // Graph cache clearing removed — graph visualization is not server-dependent
-    graphPanel?.clearGraphData();
   }
 
   function handleNoteSelect(id: string): void {
@@ -283,7 +274,6 @@
     for (const note of SCROLL_TEST_NOTES) {
       await createNote(sanitizeFilename(note.title), note.content);
     }
-    refreshNotesList();
   }
 
   function handleEditorFocusOut(): void {
@@ -320,7 +310,6 @@
     sync.writeSuppressor.recordWrite(`${idToDelete}.md`);
     session.cancelAndClear();
     await deleteNote(idToDelete);
-    refreshNotesList();
     sync.notifySaved();
     showToast('Note deleted');
   }
@@ -430,10 +419,6 @@
     if (isMobile && !MarkdownToolbar) {
       import('./MarkdownToolbar.svelte').then(m => { MarkdownToolbar = m.default; });
     }
-    if (hasFileSystem && !notesLoaded) {
-      refreshNotesList();
-      notesLoaded = true;
-    }
     registerBackSwipeHandler();
     updateDrawerMetrics();
 
@@ -531,7 +516,6 @@
         handleFileChange: (event: { type: 'add' | 'change' | 'unlink'; filename: string }) => Promise<void>;
         seedOpenNote: (id: string, body: string) => void;
         flushSave: () => Promise<void>;
-        refreshNotes: () => void;
         getState: () => {
           originalId: string | null;
           title: string;
@@ -549,7 +533,6 @@
         session.seedOpenNote(id, body);
       },
       flushSave: () => session.flushSave(),
-      refreshNotes: refreshNotesList,
       getState: () => ({
         originalId: session.originalId,
         title: session.title,
@@ -683,7 +666,7 @@
         <NoteTagBar
           content={session.content}
           getEditorView={() => editor?.getView() ?? null}
-          {notes}
+          notes={appCtx.notes}
         />
         <div class="editor-container">
           <MarkdownEditor
@@ -719,7 +702,7 @@
     open={graphSidebarOpen}
     currentNoteId={noteId}
     bind:graphSidebarWidth={graphSidebarWidth}
-    {notes}
+    notes={appCtx.notes}
     onclose={closeGraphSidebar}
     onnavigate={handleGraphNavigate}
     onopen={() => { graphSidebarOpen = true; }}
