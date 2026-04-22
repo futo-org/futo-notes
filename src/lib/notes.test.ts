@@ -154,6 +154,40 @@ describe('getAllNotes / getNoteById', () => {
 
     expect(getNoteById('nonexistent')).toBeUndefined();
   });
+
+  it('newly created note appears at position 0', async () => {
+    await testFS.writeNote('existing-a', 'content a', 1000000000000);
+    await testFS.writeNote('existing-b', 'content b', 1500000000000);
+
+    const { initNotes, createNote, getAllNotes } = await freshNotes();
+    await initNotes();
+
+    await createNote('brand-new', 'fresh content');
+
+    const notes = getAllNotes();
+    expect(notes[0].id).toBe('brand-new');
+  });
+
+  it('editing a note not at position 0 moves it to position 0', async () => {
+    await testFS.writeNote('oldest', 'oldest content', 1000000000000);
+    await testFS.writeNote('middle', 'middle content', 1400000000000);
+    await testFS.writeNote('newest', 'newest content', 1700000000000);
+
+    const { initNotes, updateNote, getAllNotes } = await freshNotes();
+    await initNotes();
+
+    const before = getAllNotes();
+    const originalIndex = before.findIndex((n) => n.id === 'oldest');
+    expect(originalIndex).not.toBe(0);
+
+    await updateNote('oldest', 'Oldest', 'updated content', 'oldest');
+
+    const after = getAllNotes();
+    const newIndex = after.findIndex((n) => n.id === 'oldest');
+    expect(newIndex).toBe(0);
+    expect(newIndex).not.toBe(originalIndex);
+    expect(newIndex).not.toBe(originalIndex + 1);
+  });
 });
 
 describe('search', () => {

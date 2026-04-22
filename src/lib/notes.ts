@@ -23,6 +23,7 @@ import {
   clearSearchIndex,
 } from './searchIndex';
 import { runPool } from './util/pool';
+import { sortNotePreviews } from './utils';
 
 // Matches notesIndex.ts READ_POOL_CONCURRENCY.
 const RECONCILE_CONCURRENCY = 8;
@@ -153,7 +154,7 @@ export async function refreshNotesAfterSync(_updatedIds: string[], _deletedIds: 
 }
 
 export function getAllNotes(): NotePreview[] {
-  return [...notesCache];
+  return sortNotePreviews([...notesCache]);
 }
 
 export function getNoteById(id: string): NotePreview | undefined {
