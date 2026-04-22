@@ -88,15 +88,11 @@ export interface NoteSession {
 }
 
 export function shouldWriteNoteToDisk(params: {
-  originalId: string | null;
   savedTitle: string;
   newTitle: string;
   content: string;
   newContent: string;
 }): boolean {
-  if (!params.originalId) {
-    return true;
-  }
   return !(params.newTitle === params.savedTitle && params.newContent === params.content);
 }
 
@@ -236,7 +232,6 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
       const newContent = editorContent;
 
       if (!shouldWriteNoteToDisk({
-        originalId,
         savedTitle,
         newTitle,
         content,
