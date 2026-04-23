@@ -13,26 +13,6 @@ import { TAG_REGEX } from '@futo-notes/shared';
 
 export const imageCacheUpdated = StateEffect.define<null>();
 export const liveMarkdownRefresh = StateEffect.define<null>();
-const INLINE_SELECTION_DRAGGING_ATTR = 'inlineSelectionDragging';
-
-export function setInlineSelectionDragging(
-  view: EditorView,
-  dragging: boolean,
-  refresh = false
-): void {
-  const current = view.dom.dataset[INLINE_SELECTION_DRAGGING_ATTR] === 'true';
-  if (current === dragging) return;
-
-  if (dragging) {
-    view.dom.dataset[INLINE_SELECTION_DRAGGING_ATTR] = 'true';
-  } else {
-    delete view.dom.dataset[INLINE_SELECTION_DRAGGING_ATTR];
-  }
-
-  if (refresh) {
-    view.dispatch({ effects: liveMarkdownRefresh.of(null) });
-  }
-}
 
 // Widget Classes
 class HorizontalRuleWidget extends WidgetType {
@@ -407,12 +387,7 @@ export function shouldRevealInlineMarkers(
   from: number,
   to: number
 ): boolean {
-  if (!selectionTouchesRange(view.hasFocus, view.state.selection.ranges, from, to)) {
-    return false;
-  }
-
-  // Keep the rendered DOM stable while the pointer is still held down.
-  return view.dom.dataset[INLINE_SELECTION_DRAGGING_ATTR] !== 'true';
+  return selectionTouchesRange(view.hasFocus, view.state.selection.ranges, from, to);
 }
 
 export function shouldSkipBlockDecorations(

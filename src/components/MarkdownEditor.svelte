@@ -18,7 +18,7 @@
   import { interactiveTableEditor } from '$lib/editorUX/tableEditor';
   import { selectionToolbar } from '$lib/editorUX/selectionToolbar';
   import { slashMenu } from '$lib/editorUX/slashMenu';
-  import { liveMarkdownTransform, preloadImages, setInlineSelectionDragging } from '$lib/liveMarkdownTransform';
+  import { liveMarkdownTransform, preloadImages } from '$lib/liveMarkdownTransform';
   import { getImageWebPath } from '$lib/fileSystem';
   import { buildSetContentTransaction, type SetEditorContentOptions, type SetContentResult } from '$lib/editorContentSync';
   import { hasFileSystem, isTauri } from '$lib/platform';
@@ -135,52 +135,6 @@
     '.cm-md-image-wrapper'
   ].join(', ');
 
-  function getFirstTextNode(root: Node): Text | null {
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-    let current = walker.nextNode();
-    while (current) {
-      if (current.textContent && current.textContent.length > 0) {
-        return current as Text;
-      }
-      current = walker.nextNode();
-    }
-    return null;
-  }
-
-  function getTextOffsetAtPoint(textNode: Text, x: number): number {
-    const textLength = textNode.textContent?.length ?? 0;
-    let bestOffset = 0;
-    let bestDistance = Number.POSITIVE_INFINITY;
-
-    for (let offset = 0; offset <= textLength; offset += 1) {
-      const range = document.createRange();
-      range.setStart(textNode, offset);
-      range.setEnd(textNode, offset);
-      const rect = range.getClientRects()[0] ?? range.getBoundingClientRect();
-      const distance = Math.abs(rect.left - x);
-      if (distance < bestDistance) {
-        bestDistance = distance;
-        bestOffset = offset;
-      }
-    }
-
-    return bestOffset;
-  }
-
-  function findInlineStyledElementAtPoint(target: Element | null, x: number, y: number): Element | null {
-    const line = target?.closest('.cm-line');
-    if (!line) return null;
-
-    for (const candidate of line.querySelectorAll(INLINE_STYLED_SELECTOR)) {
-      const rect = candidate.getBoundingClientRect();
-      if (x >= rect.left - 1 && x <= rect.right + 1 && y >= rect.top - 1 && y <= rect.bottom + 1) {
-        return candidate;
-      }
-    }
-
-    return null;
-  }
-
   function findExternalLinkElementAtPoint(target: Element | null, x: number, y: number): Element | null {
     const line = target?.closest('.cm-line');
     if (!line) return null;
@@ -193,34 +147,6 @@
     }
 
     return null;
-  }
-
-  function getInlineStyledPosition(v: EditorView, event: MouseEvent): number | null {
-    const targetNode = event.target as Node | null;
-    const target =
-      targetNode instanceof Element ? targetNode : targetNode?.parentElement ?? null;
-    if (!target || target.closest('.cm-md-link')) return null;
-
-    const hit = document.elementFromPoint(event.clientX, event.clientY);
-    const inline =
-      findInlineStyledElementAtPoint(hit, event.clientX, event.clientY) ??
-      findInlineStyledElementAtPoint(target, event.clientX, event.clientY) ??
-      hit?.closest(INLINE_STYLED_SELECTOR) ??
-      target.closest(INLINE_STYLED_SELECTOR);
-    if (!inline) return null;
-
-    const textNode = getFirstTextNode(inline);
-    if (!textNode) return null;
-
-    const visibleLength = textNode.textContent?.length ?? 0;
-    const rawStart = v.posAtDOM(textNode, 0);
-    const rawEnd = v.posAtDOM(textNode, visibleLength);
-    const hiddenMarkerChars = Math.max(0, rawEnd - rawStart - visibleLength);
-    const contentStart = rawStart + Math.floor(hiddenMarkerChars / 2);
-    const contentEnd = rawEnd - Math.ceil(hiddenMarkerChars / 2);
-    const offset = getTextOffsetAtPoint(textNode, event.clientX);
-
-    return Math.min(contentStart + offset, contentEnd);
   }
 
   function getRenderedLineRight(line: HTMLElement): number | null {
@@ -406,23 +332,6 @@
     }
   });
 
-  const inlineStyledClickHandler = EditorView.domEventHandlers({
-    click: (event, v) => {
-      if (event.detail !== 1 || !v.state.selection.main.empty) return false;
-      const pos = getInlineStyledPosition(v, event);
-      if (pos === null) return false;
-
-      event.preventDefault();
-      event.stopPropagation();
-      requestAnimationFrame(() => {
-        if (!view) return;
-        v.focus();
-        v.dispatch({ selection: { anchor: pos } });
-      });
-      return true;
-    }
-  });
-
   // Resolve a click on an external link element to its URL, using the
   // element itself (not posAtCoords, which is unreliable when the live
   // markdown decoration has not yet been dropped/re-applied by focus changes).
@@ -570,26 +479,8 @@
     pointerSelectionSettleTimer = window.setTimeout(() => {
       pointerSelectionSettleTimer = null;
       snapSelectionPastInlineMarkers(v);
-      setInlineSelectionDragging(v, false, true);
     }, 0);
   }
-
-  const pointerSelectionTrackingHandler = EditorView.domEventHandlers({
-    mousedown: (event, v) => {
-      if (event.button !== 0) return false;
-      clearPointerSelectionSettleTimer();
-      // Defer flipping the `display:contents` flag until after CM6's native
-      // mousedown handler has run. Flattening inline markdown spans before
-      // CM6 calls `posAtCoords` for the mousedown shifts the anchor — a
-      // backward drag starting next to rendered *italic*/**bold** would
-      // otherwise anchor at the opening marker instead of the clicked char.
-      // The flag is flipped on the next microtask so any following mousemove
-      // sees the flattened layout, which is what the drag-selection fix
-      // originally relied on.
-      queueMicrotask(() => setInlineSelectionDragging(v, true, true));
-      return false;
-    }
-  });
 
   onMount(() => {
     preloadImages(content, hasFileSystem ? getImageWebPath : undefined, () => view);
@@ -622,9 +513,7 @@
       slashMenu,
       wikilinkAutocomplete(),
       imagePasteHandler,
-      pointerSelectionTrackingHandler,
       tripleClickLineSelectionHandler,
-      inlineStyledClickHandler,
       lineEndClickHandler,
       wikilinkClickHandler,
       linkClickHandler,
@@ -715,7 +604,6 @@
     };
     const onGlobalBlur = () => {
       clearPointerSelectionSettleTimer();
-      setInlineSelectionDragging(v, false, true);
     };
     window.addEventListener('mouseup', onGlobalMouseUp, true);
     window.addEventListener('blur', onGlobalBlur);
