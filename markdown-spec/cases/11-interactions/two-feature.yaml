@@ -119,4 +119,4 @@
   expect:
     decorations:
       - class: cm-md-code-block
-        count: 1
+        count: 3

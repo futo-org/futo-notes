@@ -8,8 +8,10 @@
   expect:
     decorations:
       - class: cm-md-code-block
+        count: 3
+      - class: cm-md-code-block-first
         count: 1
-      - class: cm-md-code-block-single
+      - class: cm-md-code-block-last
         count: 1
 
 - name: fenced-code-with-language
@@ -24,7 +26,7 @@
   expect:
     decorations:
       - class: cm-md-code-block
-        count: 3
+        count: 5
       - class: cm-md-code-block-first
         count: 1
       - class: cm-md-code-block-last
@@ -40,7 +42,7 @@
   expect:
     decorations:
       - class: cm-md-code-block
-        count: 1
+        count: 3
 
 - name: fenced-code-wikilink-not-decorated
   complexity: 70

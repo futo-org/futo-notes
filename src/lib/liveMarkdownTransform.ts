@@ -858,77 +858,38 @@ class LiveMarkdownPlugin implements PluginValue {
         value: { class: 'cm-md-code' }
       });
     } else {
-      // FencedCode or CodeBlock - apply line decorations for unified block
+      // FencedCode or CodeBlock — every line in the block gets the styled
+      // container; fence chars are only hidden when the caret is outside.
       const doc = view.state.doc;
       const startLine = doc.lineAt(from);
       const endLine = doc.lineAt(to);
-
-      // Collect content lines (excluding fence lines)
-      const contentLines: number[] = [];
+      const totalLines = endLine.number - startLine.number + 1;
+      const cursorInBlock = selectionTouchesRange(
+        view.hasFocus,
+        view.state.selection.ranges,
+        from,
+        to
+      );
 
       for (let lineNum = startLine.number; lineNum <= endLine.number; lineNum++) {
         const line = doc.line(lineNum);
-        const lineText = line.text;
+        const isOpening = lineNum === startLine.number && /^\s*(`{3,}|~{3,})/.test(line.text);
+        const isClosing = lineNum === endLine.number && lineNum !== startLine.number && /^\s*(`{3,}|~{3,})\s*$/.test(line.text);
 
-        // First line: hide the opening fence (```lang) - allow indentation
-        if (lineNum === startLine.number) {
-          const fenceMatch = lineText.match(/^\s*(`{3,}|~{3,}).*$/);
-          if (fenceMatch) {
-            if (line.from < line.to) {
-              decorations.push({
-                from: line.from,
-                to: line.to,
-                value: { replace: true }
-              });
-            }
-            decorations.push({
-              from: line.from,
-              to: line.from,
-              value: { class: 'cm-md-fence-line-hidden', startSide: 0, endSide: 0 }
-            });
-          }
+        if ((isOpening || isClosing) && !cursorInBlock && line.from < line.to) {
+          decorations.push({
+            from: line.from,
+            to: line.to,
+            value: { replace: true }
+          });
         }
-        // Last line: hide the closing fence (```) - allow indentation
-        else if (lineNum === endLine.number) {
-          const closingMatch = lineText.match(/^\s*(`{3,}|~{3,})\s*$/);
-          if (closingMatch) {
-            if (line.from < line.to) {
-              decorations.push({
-                from: line.from,
-                to: line.to,
-                value: { replace: true }
-              });
-            }
-            decorations.push({
-              from: line.from,
-              to: line.from,
-              value: { class: 'cm-md-fence-line-hidden', startSide: 0, endSide: 0 }
-            });
-          }
-        }
-        // Content lines
-        else {
-          contentLines.push(lineNum);
-        }
-      }
-
-      // Apply position-aware classes to content lines
-      for (let i = 0; i < contentLines.length; i++) {
-        const lineNum = contentLines[i];
-        const line = doc.line(lineNum);
 
         let posClass = 'cm-md-code-block';
-        if (contentLines.length === 1) {
-          posClass += ' cm-md-code-block-single';
-        } else if (i === 0) {
-          posClass += ' cm-md-code-block-first';
-        } else if (i === contentLines.length - 1) {
-          posClass += ' cm-md-code-block-last';
-        } else {
-          posClass += ' cm-md-code-block-middle';
-        }
+        if (totalLines === 1) posClass += ' cm-md-code-block-single';
+        else if (lineNum === startLine.number) posClass += ' cm-md-code-block-first';
+        else if (lineNum === endLine.number) posClass += ' cm-md-code-block-last';
+        else posClass += ' cm-md-code-block-middle';
 
-        // Use line decoration for unified styling
         decorations.push({
           from: line.from,
           to: line.from,

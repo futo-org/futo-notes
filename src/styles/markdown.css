@@ -329,15 +329,6 @@
   color: var(--color-muted);
 }
 
-/* Collapse the empty .cm-line that remains after Decoration.replace removes
-   a fenced-code opening/closing fence's content. */
-.cm-md-fence-line-hidden {
-  /*padding: 0 !important;
-  line-height: 0 !important;
-  min-height: 0 !important;
-  height: 0;
-  overflow: hidden;*/
-}
 
 /* Focus state — show hidden elements when editing */
 .cm-editor:focus-within .cm-md-h1 .cm-md-h1-marker,
