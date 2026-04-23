@@ -1,6 +1,9 @@
 import { keymap, EditorView } from '@codemirror/view';
 import { EditorSelection, Prec } from '@codemirror/state';
+import type { ChangeSpec } from '@codemirror/state';
 import { syntaxTree } from '@codemirror/language';
+
+const QUOTE_RE = /^((?:>\s*)+)(.*)$/;
 
 function handleEnter(view: EditorView): boolean {
   const { state } = view;
@@ -79,7 +82,7 @@ function handleEnter(view: EditorView): boolean {
   }
 
   // Blockquote continuation
-  const quoteMatch = text.match(/^((?:>\s*)+)(.*)/);
+  const quoteMatch = text.match(QUOTE_RE);
   if (quoteMatch) {
     const [, markers, content] = quoteMatch;
     const level = (markers.match(/>/g) || []).length;
@@ -119,8 +122,55 @@ function handleEnter(view: EditorView): boolean {
   return false;
 }
 
+function getSelectedLineNumbers(view: EditorView): number[] {
+  const lines = new Set<number>();
+  for (const range of view.state.selection.ranges) {
+    const fromLine = view.state.doc.lineAt(range.from).number;
+    const toPos = range.empty ? range.to : Math.max(range.from, range.to - 1);
+    const toLine = view.state.doc.lineAt(toPos).number;
+    for (let line = fromLine; line <= toLine; line += 1) {
+      lines.add(line);
+    }
+  }
+  return [...lines].sort((a, b) => a - b);
+}
+
+function changeQuoteDepth(view: EditorView, delta: 1 | -1): boolean {
+  const { state } = view;
+  const changes: ChangeSpec[] = [];
+
+  for (const lineNumber of getSelectedLineNumbers(view)) {
+    const line = state.doc.line(lineNumber);
+    const match = line.text.match(QUOTE_RE);
+    if (!match) continue;
+
+    const markers = match[1];
+    const level = markers.match(/>/g)?.length ?? 0;
+    if (level === 0) continue;
+
+    const nextLevel = level + delta;
+    const nextMarkers = nextLevel > 0 ? '> '.repeat(nextLevel) : '';
+    changes.push({
+      from: line.from,
+      to: line.from + markers.length,
+      insert: nextMarkers
+    });
+  }
+
+  if (changes.length === 0) return false;
+
+  const changeSet = state.changes(changes);
+  view.dispatch({
+    changes: changeSet,
+    selection: state.selection.map(changeSet)
+  });
+  return true;
+}
+
 // Prec.highest so this runs before @codemirror/lang-markdown's
 // built-in insertNewlineContinueMarkup (which is Prec.high)
 export const listContinuationKeymap = Prec.highest(keymap.of([
-  { key: 'Enter', run: handleEnter }
+  { key: 'Enter', run: handleEnter },
+  { key: 'Tab', run: (view) => changeQuoteDepth(view, 1) },
+  { key: 'Shift-Tab', run: (view) => changeQuoteDepth(view, -1) }
 ]));

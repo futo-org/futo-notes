@@ -1,9 +1,12 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import {
+  clearSelectionRevealFreeze,
+  freezeSelectionReveal,
   getCursorLinesForReveal,
   isBlockRevealSensitive,
   isInlineRevealSensitive,
   selectionTouchesRange,
+  setSuppressSelectionReveal,
   shouldHideHeaderTagBlock,
   shouldSkipBlockDecorations,
   shouldSkipInlineDecorations,
@@ -18,6 +21,11 @@ const mockDoc = {
 };
 
 describe('liveMarkdownTransform reveal helpers', () => {
+  afterEach(() => {
+    clearSelectionRevealFreeze();
+    setSuppressSelectionReveal(false);
+  });
+
   it('computes active cursor lines only when focused', () => {
     expect(getCursorLinesForReveal(false, [{ from: 1, to: 1 }], mockDoc)).toEqual(new Set());
     expect(getCursorLinesForReveal(true, [{ from: 1, to: 1 }, { from: 6, to: 6 }], mockDoc))
@@ -40,6 +48,14 @@ describe('liveMarkdownTransform reveal helpers', () => {
     expect(selectionTouchesRange(true, [{ from: 3, to: 3 }], 2, 4)).toBe(true);
     expect(selectionTouchesRange(true, [{ from: 1, to: 7 }], 5, 8)).toBe(true);
     expect(selectionTouchesRange(true, [{ from: 1, to: 1 }], 5, 8)).toBe(false);
+  });
+
+  it('keeps pointer-down reveal state stable during drag suppression', () => {
+    freezeSelectionReveal(true, [{ from: 3, to: 3 }]);
+    setSuppressSelectionReveal(true);
+
+    expect(selectionTouchesRange(true, [{ from: 8, to: 10 }], 2, 4)).toBe(true);
+    expect(selectionTouchesRange(true, [{ from: 8, to: 10 }], 8, 10)).toBe(false);
   });
 
   it('skips block and inline decorations only for active cursor context', () => {

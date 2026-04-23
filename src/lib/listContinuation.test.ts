@@ -27,6 +27,11 @@ function pressEnter(view: EditorView): void {
   runScopeHandlers(view, ev, 'editor');
 }
 
+function pressTab(view: EditorView, shiftKey = false): void {
+  const ev = new KeyboardEvent('keydown', { key: 'Tab', shiftKey });
+  runScopeHandlers(view, ev, 'editor');
+}
+
 describe('blockquote exit', () => {
   it('replaces `> ` with a leading newline so the quote is terminated', () => {
     // Scenario: user is on `> ` (empty content) and hits Enter
@@ -52,6 +57,51 @@ describe('blockquote exit', () => {
     // Our handler returns false (no quote/list match). Whatever default runs,
     // it must NOT inject a `> ` — that's the regression we're guarding against.
     expect(v.state.doc.toString()).not.toContain('b\n>');
+  });
+});
+
+describe('blockquote nesting', () => {
+  it('Tab on a blockquote line increases quote depth', () => {
+    const doc = '> hello';
+    const v = setup(doc, doc.length);
+    pressTab(v);
+
+    expect(v.state.doc.toString()).toBe('> > hello');
+    expect(v.state.selection.main.head).toBe('> > hello'.length);
+  });
+
+  it('Tab normalizes compact nested markers while increasing depth', () => {
+    const doc = '>> hello';
+    const v = setup(doc, doc.length);
+    pressTab(v);
+
+    expect(v.state.doc.toString()).toBe('> > > hello');
+  });
+
+  it('Shift-Tab on a nested blockquote decreases quote depth', () => {
+    const doc = '> > hello';
+    const v = setup(doc, doc.length);
+    pressTab(v, true);
+
+    expect(v.state.doc.toString()).toBe('> hello');
+    expect(v.state.selection.main.head).toBe('> hello'.length);
+  });
+
+  it('Shift-Tab on a level-1 blockquote removes the quote marker', () => {
+    const doc = '> hello';
+    const v = setup(doc, doc.length);
+    pressTab(v, true);
+
+    expect(v.state.doc.toString()).toBe('hello');
+    expect(v.state.selection.main.head).toBe('hello'.length);
+  });
+
+  it('Tab leaves non-quote lines to the default keymaps', () => {
+    const doc = 'hello';
+    const v = setup(doc, doc.length);
+    pressTab(v);
+
+    expect(v.state.doc.toString()).toBe(doc);
   });
 });
 

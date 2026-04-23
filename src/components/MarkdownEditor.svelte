@@ -18,7 +18,14 @@
   import { interactiveTableEditor } from '$lib/editorUX/tableEditor';
   import { selectionToolbar } from '$lib/editorUX/selectionToolbar';
   import { slashMenu } from '$lib/editorUX/slashMenu';
-  import { liveMarkdownTransform, preloadImages } from '$lib/liveMarkdownTransform';
+  import {
+    liveMarkdownTransform,
+    preloadImages,
+    clearSelectionRevealFreeze,
+    freezeSelectionReveal,
+    liveMarkdownRefresh,
+    setSuppressSelectionReveal
+  } from '$lib/liveMarkdownTransform';
   import { getImageWebPath } from '$lib/fileSystem';
   import { buildSetContentTransaction, type SetEditorContentOptions, type SetContentResult } from '$lib/editorContentSync';
   import { hasFileSystem, isTauri } from '$lib/platform';
@@ -213,38 +220,48 @@
     }
   });
 
-  const tripleClickLineSelectionHandler = EditorView.domEventHandlers({
-    mousedown: (event, v) => {
-      if (event.button !== 0 || event.detail !== 3) return false;
+  function getLineAtMouseEvent(event: MouseEvent, v: EditorView) {
+    const targetNode = event.target as Node | null;
+    const target =
+      targetNode instanceof Element ? targetNode : targetNode?.parentElement ?? null;
+    const hit = document.elementFromPoint(event.clientX, event.clientY);
+    const lineCandidate = (hit?.closest('.cm-line') ?? target?.closest('.cm-line')) as HTMLElement | null;
+    if (!lineCandidate) return null;
 
-      const targetNode = event.target as Node | null;
-      const target =
-        targetNode instanceof Element ? targetNode : targetNode?.parentElement ?? null;
-      const hit = document.elementFromPoint(event.clientX, event.clientY);
-      const lineCandidate = (hit?.closest('.cm-line') ?? target?.closest('.cm-line')) as HTMLElement | null;
-      if (!lineCandidate) return false;
-
-      let linePos: number | null = null;
+    let linePos: number | null = null;
+    try {
+      linePos = v.posAtDOM(lineCandidate, 0);
+    } catch {
       try {
-        linePos = v.posAtDOM(lineCandidate, 0);
+        linePos = v.posAtCoords({ x: event.clientX, y: event.clientY });
       } catch {
-        try {
-          linePos = v.posAtCoords({ x: event.clientX, y: event.clientY });
-        } catch {
-          linePos = null;
-        }
+        linePos = null;
       }
-      if (linePos === null) return false;
-
-      const line = v.state.doc.lineAt(linePos);
-      event.preventDefault();
-      v.focus();
-      requestAnimationFrame(() => {
-        if (!view) return;
-        v.dispatch({ selection: { anchor: line.from, head: line.to } });
-      });
-      return true;
     }
+    if (linePos === null) return null;
+
+    return v.state.doc.lineAt(linePos);
+  }
+
+  function selectLineFromMouseEvent(event: MouseEvent, v: EditorView): boolean {
+    if (event.button !== 0 || event.detail !== 3) return false;
+
+    const line = getLineAtMouseEvent(event, v);
+    if (!line) return false;
+
+    event.preventDefault();
+    event.stopPropagation();
+    v.focus();
+    window.setTimeout(() => {
+      if (!view) return;
+      v.dispatch({ selection: { anchor: line.from, head: line.to } });
+    }, 0);
+    return true;
+  }
+
+  const tripleClickLineSelectionHandler = EditorView.domEventHandlers({
+    mousedown: selectLineFromMouseEvent,
+    click: selectLineFromMouseEvent
   });
 
   // Place cursor at end-of-line when the user clicks in the empty space past the
@@ -394,12 +411,10 @@
     }
   }
 
-  // After a drag, if the selection covers the full inner content of an inline
-  // markdown element (bold / italic / strikethrough / inline code) and already
-  // includes one of its decorator markers, extend through the other marker so
-  // both sides are balanced. A selection that lands exactly on both inner
-  // edges (e.g. a double-click on `word` inside `**word**`) is left alone.
-  function snapSelectionPastInlineMarkers(v: EditorView): void {
+  // After a drag, if the selection covers the full rendered content of a
+  // markdown element whose syntax was hidden during the drag, extend through
+  // the hidden source markers so copy/delete operations include valid markdown.
+  function snapSelectionPastMarkdownMarkers(v: EditorView, wasDragging: boolean): void {
     const main = v.state.selection.main;
     if (main.empty) return;
 
@@ -414,9 +429,21 @@
     let to = origTo;
 
     tree.iterate({
-      from: origFrom,
-      to: origTo,
       enter: (node) => {
+        if (node.to < origFrom || node.from > origTo) return;
+
+        if (/^ATXHeading[1-6]$/.test(node.name)) {
+          if (!wasDragging) return;
+          const head = doc.sliceString(node.from, Math.min(node.to, node.from + 8));
+          const marker = head.match(/^#+ ?/)?.[0] ?? '';
+          if (!marker) return;
+          const markerEnd = node.from + marker.length;
+          if (origFrom === markerEnd && origTo > markerEnd) {
+            from = Math.min(from, node.from);
+          }
+          return;
+        }
+
         let markerLen = 0;
         if (node.name === 'StrongEmphasis' || node.name === 'Strikethrough') markerLen = 2;
         else if (node.name === 'Emphasis') markerLen = 1;
@@ -446,6 +473,12 @@
         if (origTo >= outerTo && origFrom === innerFrom) {
           from = Math.min(from, outerFrom);
         }
+        // Drag-select that landed exactly on both inner edges: extend through
+        // both markers since the user couldn't see them to target past.
+        if (wasDragging && origFrom === innerFrom && origTo === innerTo) {
+          from = Math.min(from, outerFrom);
+          to = Math.max(to, outerTo);
+        }
       }
     });
 
@@ -456,12 +489,17 @@
     });
   }
 
-  function schedulePointerSelectionSettle(v: EditorView): void {
+  function schedulePointerSelectionSettle(v: EditorView, wasDragging: boolean): void {
     clearPointerSelectionSettleTimer();
     pointerSelectionSettleTimer = window.setTimeout(() => {
       pointerSelectionSettleTimer = null;
-      snapSelectionPastInlineMarkers(v);
+      snapSelectionPastMarkdownMarkers(v, wasDragging);
     }, 0);
+  }
+
+  function setPointerSelectionRevealSuppressed(v: EditorView, suppressed: boolean): void {
+    setSuppressSelectionReveal(suppressed);
+    v.dom.toggleAttribute('data-selection-reveal-suppressed', suppressed);
   }
 
   onMount(() => {
@@ -581,12 +619,50 @@
     // a fresh note shows no caret until the user clicks inside.
     v.focus();
 
+    // Suppress marker reveal only after a real pointer drag starts. Plain
+    // clicks/double-clicks should not make already-revealed markers blink.
+    let mouseDownInEditor = false;
+    let dragMoved = false;
+    let mouseDownX = 0;
+    let mouseDownY = 0;
+    const onEditorMouseDown = (event: MouseEvent) => {
+      if (event.button !== 0) return;
+      mouseDownInEditor = true;
+      dragMoved = false;
+      mouseDownX = event.clientX;
+      mouseDownY = event.clientY;
+      freezeSelectionReveal(v.hasFocus, v.state.selection.ranges);
+      setPointerSelectionRevealSuppressed(v, false);
+    };
+    const onGlobalPointerMove = (event: MouseEvent) => {
+      if (!mouseDownInEditor) return;
+      if (!dragMoved) {
+        const dx = event.clientX - mouseDownX;
+        const dy = event.clientY - mouseDownY;
+        if ((dx * dx) + (dy * dy) < 9) return;
+      }
+      dragMoved = true;
+      setPointerSelectionRevealSuppressed(v, true);
+    };
     const onGlobalMouseUp = () => {
-      schedulePointerSelectionSettle(v);
+      if (!mouseDownInEditor) return;
+      const wasDragging = mouseDownInEditor && dragMoved;
+      mouseDownInEditor = false;
+      dragMoved = false;
+      clearSelectionRevealFreeze();
+      setPointerSelectionRevealSuppressed(v, false);
+      v.dispatch({ effects: liveMarkdownRefresh.of(null) });
+      schedulePointerSelectionSettle(v, wasDragging);
     };
     const onGlobalBlur = () => {
+      mouseDownInEditor = false;
+      dragMoved = false;
+      clearSelectionRevealFreeze();
+      setPointerSelectionRevealSuppressed(v, false);
       clearPointerSelectionSettleTimer();
     };
+    v.dom.addEventListener('mousedown', onEditorMouseDown, true);
+    window.addEventListener('mousemove', onGlobalPointerMove, true);
     window.addEventListener('mouseup', onGlobalMouseUp, true);
     window.addEventListener('blur', onGlobalBlur);
 
@@ -602,8 +678,12 @@
     return () => {
       if (onchangeRafId) { cancelAnimationFrame(onchangeRafId); onchangeRafId = 0; }
       clearPointerSelectionSettleTimer();
+      v.dom.removeEventListener('mousedown', onEditorMouseDown, true);
+      window.removeEventListener('mousemove', onGlobalPointerMove, true);
       window.removeEventListener('mouseup', onGlobalMouseUp, true);
       window.removeEventListener('blur', onGlobalBlur);
+      clearSelectionRevealFreeze();
+      setPointerSelectionRevealSuppressed(v, false);
       view?.destroy();
       view = null;
     };

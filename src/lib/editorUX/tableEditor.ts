@@ -4,6 +4,7 @@ import { StateField, RangeSet } from '@codemirror/state';
 import type { EditorState } from '@codemirror/state';
 import { syntaxTree } from '@codemirror/language';
 import { parseMarkdownTable } from '$lib/tableWidget';
+import { isMarkdownSelectionRevealSuppressed, liveMarkdownRefresh, selectionTouchesRange } from '$lib/liveMarkdownTransform';
 import type { ParsedTable } from '$lib/tableWidget';
 import {
   addColumn,
@@ -715,7 +716,7 @@ function buildTableDecorations(state: EditorState): DecorationSet {
 
       // Keep the source visible when the cursor is inside it — otherwise the
       // live-markdown decorations lose ground to the replacement widget.
-      if (cursorInRange(state, from, to)) return;
+      if (selectionRevealsRange(state, from, to)) return;
 
       const text = doc.sliceString(from, to);
       const widget = new TableEditorWidget(text, from, to);
@@ -728,11 +729,8 @@ function buildTableDecorations(state: EditorState): DecorationSet {
   return RangeSet.of(decos.map((d) => d.deco.range(d.from, d.to)));
 }
 
-function cursorInRange(state: EditorState, from: number, to: number): boolean {
-  for (const r of state.selection.ranges) {
-    if (r.from <= to && r.to >= from) return true;
-  }
-  return false;
+function selectionRevealsRange(state: EditorState, from: number, to: number): boolean {
+  return selectionTouchesRange(true, state.selection.ranges, from, to);
 }
 
 const tableEditorField = StateField.define<TableFieldValue>({
@@ -743,7 +741,9 @@ const tableEditorField = StateField.define<TableFieldValue>({
   update(value, tr): TableFieldValue {
     const tree = syntaxTree(tr.state);
     const treeGrew = tree.length > value.treeLength;
-    if (tr.docChanged || tr.selection || treeGrew) {
+    const refreshRequested = tr.effects.some((e) => e.is(liveMarkdownRefresh));
+    const selectionNeedsRebuild = tr.selection && !isMarkdownSelectionRevealSuppressed();
+    if (tr.docChanged || selectionNeedsRebuild || treeGrew || refreshRequested) {
       return { decorations: buildTableDecorations(tr.state), treeLength: tree.length };
     }
     return value;

@@ -204,10 +204,20 @@
   background-repeat: no-repeat;
 }
 
-/* Dimmed quote markers when cursor is on the line */
+/* Dimmed quote markers when cursor/selection is on the line */
 .cm-md-quote-marker {
   color: var(--color-border);
   font-style: normal;
+}
+
+/* Keep quote source markers out of layout without using replace decorations.
+   WebKit selection can flicker when dragging across a hidden start-of-line
+   replacement range, while display:none breaks CM's coordinate mapping. */
+.cm-md-quote-marker-hidden {
+  color: transparent !important;
+  font-size: 0 !important;
+  letter-spacing: 0 !important;
+  pointer-events: none !important;
 }
 
 /* List item line */

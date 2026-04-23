@@ -14,6 +14,36 @@ import { TAG_REGEX } from '@futo-notes/shared';
 export const imageCacheUpdated = StateEffect.define<null>();
 export const liveMarkdownRefresh = StateEffect.define<null>();
 
+// When true, non-empty selection ranges do not reveal inline markdown
+// decorators. Set during an active mouse drag so markers only reveal on
+// mouseup, not incrementally as the selection grows.
+let suppressSelectionReveal = false;
+export function setSuppressSelectionReveal(v: boolean): void {
+  suppressSelectionReveal = v;
+}
+
+export function isMarkdownSelectionRevealSuppressed(): boolean {
+  return suppressSelectionReveal;
+}
+
+let frozenSelectionReveal:
+  | { hasFocus: boolean; ranges: readonly SelectionRangeLike[] }
+  | null = null;
+
+export function freezeSelectionReveal(
+  hasFocus: boolean,
+  ranges: readonly SelectionRangeLike[]
+): void {
+  frozenSelectionReveal = {
+    hasFocus,
+    ranges: ranges.map(({ from, to }) => ({ from, to }))
+  };
+}
+
+export function clearSelectionRevealFreeze(): void {
+  frozenSelectionReveal = null;
+}
+
 // Widget Classes
 class HorizontalRuleWidget extends WidgetType {
   toDOM(): HTMLElement {
@@ -333,7 +363,7 @@ const NUMBER_MARKER_W = 24;  // "N." + margin-right
 const CHECKBOX_MARKER_W = 32; // checkbox wrapper + margin-right
 const ORDERED_TASK_MARKER_W = 56; // number widget + checkbox widget
 
-interface SelectionRangeLike {
+export interface SelectionRangeLike {
   from: number;
   to: number;
 }
@@ -369,7 +399,20 @@ export function selectionTouchesRange(
   from: number,
   to: number
 ): boolean {
+  if (frozenSelectionReveal) {
+    if (!frozenSelectionReveal.hasFocus) return false;
+    return selectionIntersectsRange(frozenSelectionReveal.ranges, from, to);
+  }
+  if (suppressSelectionReveal) return false;
   if (!hasFocus) return false;
+  return selectionIntersectsRange(ranges, from, to);
+}
+
+export function selectionIntersectsRange(
+  ranges: readonly SelectionRangeLike[],
+  from: number,
+  to: number
+): boolean {
   for (const range of ranges) {
     if (range.from === range.to) {
       // Treat a caret at the exact end of inline markdown as touching the range
@@ -380,6 +423,15 @@ export function selectionTouchesRange(
     if (range.from < to && range.to > from) return true;
   }
   return false;
+}
+
+export function shouldRevealMarkdownSyntax(
+  hasFocus: boolean,
+  ranges: readonly SelectionRangeLike[],
+  from: number,
+  to: number
+): boolean {
+  return selectionTouchesRange(hasFocus, ranges, from, to);
 }
 
 export function shouldRevealInlineMarkers(
@@ -394,8 +446,30 @@ export function shouldSkipBlockDecorations(
   nodeName: string,
   line: number,
   cursorLines: Set<number>
+): boolean;
+export function shouldSkipBlockDecorations(
+  nodeName: string,
+  from: number,
+  to: number,
+  hasFocus: boolean,
+  ranges: readonly SelectionRangeLike[]
+): boolean;
+export function shouldSkipBlockDecorations(
+  nodeName: string,
+  fromOrLine: number,
+  toOrCursorLines: number | Set<number>,
+  hasFocus?: boolean,
+  ranges?: readonly SelectionRangeLike[]
 ): boolean {
-  return isBlockRevealSensitive(nodeName) && cursorLines.has(line);
+  if (!isBlockRevealSensitive(nodeName)) return false;
+
+  // Backward-compatible path for older helper tests/callers that pass a line
+  // number plus a cursor-line set.
+  if (toOrCursorLines instanceof Set) {
+    return toOrCursorLines.has(fromOrLine);
+  }
+
+  return shouldRevealMarkdownSyntax(hasFocus ?? false, ranges ?? [], fromOrLine, toOrCursorLines);
 }
 
 export function shouldSkipInlineDecorations(
@@ -567,7 +641,7 @@ class LiveMarkdownPlugin implements PluginValue {
     }
 
     const decorations: Array<{ from: number; to: number; value: any }> = [];
-    const cursorLines = this.getCursorLines(view);
+    const selectionRanges = view.state.selection.ranges;
 
     // Compute header tag block offset for skipping overlapping decorations
     const headerEndOffset = this.getHeaderEndOffset(view.state.doc);
@@ -585,10 +659,13 @@ class LiveMarkdownPlugin implements PluginValue {
         // Skip syntax nodes within the header tag block to avoid overlapping decorations
         if (headerEndOffset > 0 && from < headerEndOffset) return;
 
-        const line = view.state.doc.lineAt(from).number;
+        // Skip if selection/caret reveals this block element. The shared
+        // predicate handles active mouse-drag suppression and works by source
+        // range intersection, so forward/backward selections behave the same.
+        const blockSyntaxRevealed = this.isBlockElement(nodeName) &&
+          shouldSkipBlockDecorations(nodeName, from, to, view.hasFocus, selectionRanges);
 
-        // Skip if cursor is in this line for block elements
-        if (this.isBlockElement(nodeName) && cursorLines.has(line)) {
+        if (blockSyntaxRevealed && !MarkdownParser.isHeading(nodeName)) {
           // For ListItem on cursor lines, still apply indent padding
           // so indentation doesn't visually jump when cursor enters/leaves
           if (nodeName === 'ListItem') {
@@ -603,7 +680,7 @@ class LiveMarkdownPlugin implements PluginValue {
         }
 
         // Process element
-        this.processElement(nodeName, from, to, view, decorations, cursorLines);
+        this.processElement(nodeName, from, to, view, decorations);
       }
     });
 
@@ -649,8 +726,8 @@ class LiveMarkdownPlugin implements PluginValue {
     // Add header tag block line decorations to hide tag lines
     if (headerEndOffset > 0) {
       const doc = view.state.doc;
-      const blockLastLine = doc.lineAt(Math.max(0, Math.min(headerEndOffset - 1, doc.length))).number;
-      if (shouldHideHeaderTagBlock(blockLastLine, cursorLines)) {
+      if (!shouldRevealMarkdownSyntax(view.hasFocus, selectionRanges, 0, headerEndOffset)) {
+        const blockLastLine = doc.lineAt(Math.max(0, Math.min(headerEndOffset - 1, doc.length))).number;
         for (let l = 1; l <= blockLastLine; l++) {
           const line = doc.line(l);
           ranges.push(Decoration.line({ class: 'cm-header-tag-hidden' }).range(line.from));
@@ -682,10 +759,6 @@ class LiveMarkdownPlugin implements PluginValue {
     }, 16);
   }
 
-  private getCursorLines(view: EditorView): Set<number> {
-    return getCursorLinesForReveal(view.hasFocus, view.state.selection.ranges, view.state.doc);
-  }
-
   private isBlockElement(nodeName: string): boolean {
     return isBlockRevealSensitive(nodeName);
   }
@@ -703,14 +776,13 @@ class LiveMarkdownPlugin implements PluginValue {
     from: number,
     to: number,
     view: EditorView,
-    decorations: Array<{ from: number; to: number; value: any }>,
-    cursorLines: Set<number>
+    decorations: Array<{ from: number; to: number; value: any }>
   ): void {
     const doc = view.state.doc;
     const text = doc.sliceString(from, to);
 
     if (MarkdownParser.isHeading(nodeName)) {
-      this.processHeading(nodeName, from, to, text, decorations);
+      this.processHeading(nodeName, from, to, text, view, decorations);
     } else if (MarkdownParser.isEmphasis(nodeName)) {
       this.processEmphasis(nodeName, from, to, text, view, decorations);
     } else if (MarkdownParser.isCode(nodeName)) {
@@ -722,7 +794,7 @@ class LiveMarkdownPlugin implements PluginValue {
     } else if (MarkdownParser.isImage(nodeName)) {
       this.processImage(from, to, text, decorations);
     } else if (MarkdownParser.isBlockQuote(nodeName)) {
-      this.processBlockQuote(from, to, view, decorations, cursorLines);
+      this.processBlockQuote(from, to, view, decorations);
     } else if (MarkdownParser.isListItem(nodeName)) {
       this.processListItem(from, to, text, view, decorations);
     } else if (MarkdownParser.isHorizontalRule(nodeName)) {
@@ -735,6 +807,7 @@ class LiveMarkdownPlugin implements PluginValue {
     from: number,
     to: number,
     text: string,
+    view: EditorView,
     decorations: Array<{ from: number; to: number; value: any }>
   ): void {
     const level = MarkdownParser.getHeadingLevel(nodeName);
@@ -744,15 +817,23 @@ class LiveMarkdownPlugin implements PluginValue {
       const markerLength = markerMatch[0].length;
       const hasSpace = text[markerLength] === ' ';
       const markerEnd = from + markerLength + (hasSpace ? 1 : 0);
+      const revealMarkers = shouldRevealMarkdownSyntax(view.hasFocus, view.state.selection.ranges, from, to);
 
-      // Hide markdown markers (mark decoration — no widget buffers)
-      decorations.push({
-        from,
-        to: markerEnd,
-        value: { replace: true }
-      });
+      if (!revealMarkers) {
+        decorations.push({
+          from,
+          to: markerEnd,
+          value: { replace: true }
+        });
+      } else {
+        decorations.push({
+          from,
+          to: markerEnd,
+          value: { class: 'cm-md-inline-marker' }
+        });
+      }
 
-      // Add className to content (from marker end to end of line)
+      // Keep heading styling active even when the marker is revealed.
       decorations.push({
         from: markerEnd,
         to: to,
@@ -1008,12 +1089,12 @@ class LiveMarkdownPlugin implements PluginValue {
     from: number,
     to: number,
     view: EditorView,
-    decorations: Array<{ from: number; to: number; value: any }>,
-    cursorLines: Set<number>
+    decorations: Array<{ from: number; to: number; value: any }>
   ): void {
     const doc = view.state.doc;
     const startLine = doc.lineAt(from).number;
     const endLine = doc.lineAt(to).number;
+    const selectionRanges = view.state.selection.ranges;
 
     // Collect all quote lines for position-aware styling
     const quoteLines: { lineNum: number; nestLevel: number }[] = [];
@@ -1038,21 +1119,12 @@ class LiveMarkdownPlugin implements PluginValue {
 
       if (nestLevel > 0) {
         if (pos > 0) {
-          if (cursorLines.has(i)) {
-            // Cursor on this line — show markers dimmed
-            decorations.push({
-              from: line.from,
-              to: line.from + pos,
-              value: { class: 'cm-md-quote-marker' }
-            });
-          } else {
-            // Cursor not on this line — hide markers
-            decorations.push({
-              from: line.from,
-              to: line.from + pos,
-              value: { replace: true }
-            });
-          }
+          const revealMarker = shouldRevealMarkdownSyntax(view.hasFocus, selectionRanges, line.from, line.to);
+          decorations.push({
+            from: line.from,
+            to: line.from + pos,
+            value: { class: revealMarker ? 'cm-md-quote-marker' : 'cm-md-quote-marker-hidden' }
+          });
         }
 
         quoteLines.push({ lineNum: i, nestLevel });

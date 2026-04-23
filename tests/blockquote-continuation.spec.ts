@@ -125,6 +125,30 @@ test.describe('Blockquote Continuation', () => {
     expect(curLine).toBe('> > > ');
   });
 
+  // ===== TAB NESTING =====
+
+  test('Tab on a blockquote line nests it one level deeper', async ({ page }) => {
+    await openNewNote(page);
+    await typeInEditor(page, '> hello');
+    await page.keyboard.press('Tab');
+
+    const curLine = await getCursorLine(page);
+    const offset = await getCursorOffset(page);
+    expect(curLine).toBe('> > hello');
+    expect(offset).toBe('> > hello'.length);
+  });
+
+  test('Shift+Tab on a nested blockquote line steps it back one level', async ({ page }) => {
+    await openNewNote(page);
+    await typeInEditor(page, '> > hello');
+    await page.keyboard.press('Shift+Tab');
+
+    const curLine = await getCursorLine(page);
+    const offset = await getCursorOffset(page);
+    expect(curLine).toBe('> hello');
+    expect(offset).toBe('> hello'.length);
+  });
+
   // ===== EXIT VIA DOUBLE-ENTER (LEVEL 1) =====
 
   test('Enter twice on level-1 exits blockquote — line becomes empty', async ({ page }) => {
