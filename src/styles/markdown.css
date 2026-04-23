@@ -59,6 +59,16 @@
   color: inherit;
 }
 
+/* Revealed inline markers (*, **, ~~) — dim so the styled text pops
+   and strip the style from the marker itself. */
+.cm-md-inline-marker {
+  color: var(--color-muted) !important;
+  opacity: 0.55;
+  font-weight: 400 !important;
+  font-style: normal !important;
+  text-decoration: none !important;
+}
+
 /* Code */
 .cm-md-code {
   background: rgba(var(--ink-rgb), 0.05);

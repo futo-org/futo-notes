@@ -817,6 +817,18 @@ class LiveMarkdownPlugin implements PluginValue {
           to,
           value: { replace: true }
         });
+      } else {
+        // Dim the revealed markers so the emphasized text stands out.
+        decorations.push({
+          from,
+          to: from + markerLength,
+          value: { class: 'cm-md-inline-marker' }
+        });
+        decorations.push({
+          from: to - markerLength,
+          to,
+          value: { class: 'cm-md-inline-marker' }
+        });
       }
 
       // Keep emphasis styling active even when markers are revealed.
@@ -938,18 +950,29 @@ class LiveMarkdownPlugin implements PluginValue {
     const revealMarkers = shouldRevealInlineMarkers(view, from, to);
 
     if (!revealMarkers) {
-      // Hide start ~~
+      // Remove markers from the DOM via Decoration.replace so CM6's native
+      // coordinate mapping matches the visible text (no hidden-char offsets).
       decorations.push({
         from,
         to: from + 2,
-        value: { class: 'cm-md-marker-hidden' }
+        value: { replace: true }
       });
 
-      // Hide end ~~
       decorations.push({
         from: to - 2,
         to,
-        value: { class: 'cm-md-marker-hidden' }
+        value: { replace: true }
+      });
+    } else {
+      decorations.push({
+        from,
+        to: from + 2,
+        value: { class: 'cm-md-inline-marker' }
+      });
+      decorations.push({
+        from: to - 2,
+        to,
+        value: { class: 'cm-md-inline-marker' }
       });
     }
 
