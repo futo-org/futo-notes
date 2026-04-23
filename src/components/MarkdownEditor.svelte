@@ -11,6 +11,7 @@
   import { EditorState, EditorSelection, Transaction } from '@codemirror/state';
   import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
   import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
+  import { syntaxTree } from '@codemirror/language';
   import { onMount } from 'svelte';
   import { listContinuationKeymap } from '$lib/listContinuation';
   import { cursorMotionKeymap } from '$lib/cursorMotion';
@@ -502,28 +503,62 @@
     }
   }
 
-  // After a drag, if a selection endpoint sits right next to a hidden emphasis
-  // marker (**, *, ~~), extend it outward through the marker so the visible
-  // selection includes it once reveal re-inserts the chars.
-  function snapSelectionPastEmphasisMarkers(v: EditorView): void {
+  // After a drag, if the selection covers the full inner content of an inline
+  // markdown element (bold / italic / strikethrough / inline code) and already
+  // includes one of its decorator markers, extend through the other marker so
+  // both sides are balanced. A selection that lands exactly on both inner
+  // edges (e.g. a double-click on `word` inside `**word**`) is left alone.
+  function snapSelectionPastInlineMarkers(v: EditorView): void {
     const main = v.state.selection.main;
     if (main.empty) return;
 
-    const doc = v.state.doc;
     const forward = main.anchor <= main.head;
-    let from = forward ? main.anchor : main.head;
-    let to = forward ? main.head : main.anchor;
+    const origFrom = forward ? main.anchor : main.head;
+    const origTo = forward ? main.head : main.anchor;
 
-    const before2 = doc.sliceString(Math.max(0, from - 2), from);
-    const after2 = doc.sliceString(to, Math.min(doc.length, to + 2));
+    const doc = v.state.doc;
+    const tree = syntaxTree(v.state);
 
-    if (before2 === '**' || before2 === '~~') from -= 2;
-    else if (before2.endsWith('*')) from -= 1;
+    let from = origFrom;
+    let to = origTo;
 
-    if (after2 === '**' || after2 === '~~') to += 2;
-    else if (after2.startsWith('*')) to += 1;
+    tree.iterate({
+      from: origFrom,
+      to: origTo,
+      enter: (node) => {
+        let markerLen = 0;
+        if (node.name === 'StrongEmphasis' || node.name === 'Strikethrough') markerLen = 2;
+        else if (node.name === 'Emphasis') markerLen = 1;
+        else if (node.name === 'InlineCode') {
+          const head = doc.sliceString(node.from, Math.min(node.to, node.from + 10));
+          markerLen = head.match(/^`+/)?.[0].length ?? 0;
+        } else {
+          return;
+        }
+        if (markerLen === 0) return;
 
-    if (from === (forward ? main.anchor : main.head) && to === (forward ? main.head : main.anchor)) return;
+        const outerFrom = node.from;
+        const outerTo = node.to;
+        const innerFrom = outerFrom + markerLen;
+        const innerTo = outerTo - markerLen;
+        if (innerFrom >= innerTo) return;
+
+        // Only consider elements whose inner content is fully selected.
+        if (origFrom > innerFrom || origTo < innerTo) return;
+
+        // If the selection already includes the opening marker and stops at
+        // the inner edge of the closing marker, extend through the closer.
+        if (origFrom <= outerFrom && origTo === innerTo) {
+          to = Math.max(to, outerTo);
+        }
+        // Symmetric case for a selection anchored at the inner opening edge.
+        if (origTo >= outerTo && origFrom === innerFrom) {
+          from = Math.min(from, outerFrom);
+        }
+      }
+    });
+
+    if (from === origFrom && to === origTo) return;
 
     v.dispatch({
       selection: EditorSelection.single(forward ? from : to, forward ? to : from)
@@ -534,7 +569,7 @@
     clearPointerSelectionSettleTimer();
     pointerSelectionSettleTimer = window.setTimeout(() => {
       pointerSelectionSettleTimer = null;
-      snapSelectionPastEmphasisMarkers(v);
+      snapSelectionPastInlineMarkers(v);
       setInlineSelectionDragging(v, false, true);
     }, 0);
   }
