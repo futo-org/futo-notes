@@ -4,8 +4,6 @@
   cursor: null
   expect:
     decorations:
-      - class: cm-md-marker-hidden
-        count: 1
       - class: cm-md-h1
         text: "Hello World"
         attrs:
@@ -18,8 +16,6 @@
   cursor: null
   expect:
     decorations:
-      - class: cm-md-marker-hidden
-        count: 1
       - class: cm-md-h2
         text: "Second Level"
     visible_text: "Second Level"
@@ -80,8 +76,6 @@
   cursor: null
   expect:
     decorations:
-      - class: cm-md-marker-hidden
-        count: 6
       - class: cm-md-h1
         count: 1
       - class: cm-md-h2

@@ -176,8 +176,12 @@
   background-image:
     linear-gradient(var(--color-primary), var(--color-primary)),
     linear-gradient(var(--color-primary), var(--color-primary));
-  background-size: 2px 100%, 2px 100%;
-  background-position: 0 0, 15px 0;
+  background-size:
+    2px 100%,
+    2px 100%;
+  background-position:
+    0 0,
+    15px 0;
   background-repeat: no-repeat;
 }
 
@@ -189,8 +193,14 @@
     linear-gradient(var(--color-primary), var(--color-primary)),
     linear-gradient(var(--color-primary), var(--color-primary)),
     linear-gradient(var(--color-primary), var(--color-primary));
-  background-size: 2px 100%, 2px 100%, 2px 100%;
-  background-position: 0 0, 15px 0, 30px 0;
+  background-size:
+    2px 100%,
+    2px 100%,
+    2px 100%;
+  background-position:
+    0 0,
+    15px 0,
+    30px 0;
   background-repeat: no-repeat;
 }
 
@@ -319,19 +329,14 @@
   color: var(--color-muted);
 }
 
-/* Decorative markers — zero-width inline-block keeps the element in the
-   layout flow (so CodeMirror's coordsAtPos works for cursor movement)
-   while visibility:hidden excludes it from innerText.
-   IMPORTANT: font-size and line-height MUST be >0 — otherwise coordsAtPos
-   returns null for positions inside this span, crashing CM6's tooltip
-   positioning. We use 1px so the marker doesn't inflate heading lines. */
-.cm-md-marker-hidden {
-  visibility: hidden !important;
-  display: inline-block !important;
-  width: 0 !important;
-  font-size: 1px !important;
-  line-height: 1px !important;
-  overflow: hidden !important;
+/* Collapse the empty .cm-line that remains after Decoration.replace removes
+   a fenced-code opening/closing fence's content. */
+.cm-md-fence-line-hidden {
+  /*padding: 0 !important;
+  line-height: 0 !important;
+  min-height: 0 !important;
+  height: 0;
+  overflow: hidden;*/
 }
 
 /* Focus state — show hidden elements when editing */

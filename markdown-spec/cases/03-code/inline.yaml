@@ -4,8 +4,6 @@
   cursor: null
   expect:
     decorations:
-      - class: cm-md-marker-hidden
-        count: 2
       - class: cm-md-code
     visible_text: "Use inline code for snippets."
 
@@ -33,6 +31,4 @@
     decorations:
       - class: cm-md-code
         count: 3
-      - class: cm-md-marker-hidden
-        count: 6
     visible_text: "one and two and three"

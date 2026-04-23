@@ -19,7 +19,7 @@ All markdown syntax markers are hidden when the editor is **blurred** (no focus)
 **Syntax**: `# ` through `###### ` (ATX headings, 1-6 levels)
 
 **Decoration behavior**:
-- Marker (`# ` including trailing space) gets class `cm-md-marker-hidden` (hidden via `display: none`)
+- Marker (`# ` including trailing space) gets class `Decoration.replace` (hidden via `display: none`)
 - Content text gets class `cm-md-h{N}` where N is the heading level (1-6)
 - Content also gets `data-heading-level="{N}"` attribute
 
@@ -46,8 +46,8 @@ All markdown syntax markers are hidden when the editor is **blurred** (no focus)
 **Syntax**: `*text*`
 
 **Decoration behavior**:
-- Opening `*` → `cm-md-marker-hidden`
-- Closing `*` → `cm-md-marker-hidden`
+- Opening `*` → `Decoration.replace`
+- Closing `*` → `Decoration.replace`
 - Content → `cm-md-emphasis`
 
 **Styling**: `font-style: italic; color: inherit`
@@ -57,8 +57,8 @@ All markdown syntax markers are hidden when the editor is **blurred** (no focus)
 **Syntax**: `**text**`
 
 **Decoration behavior**:
-- Opening `**` → `cm-md-marker-hidden`
-- Closing `**` → `cm-md-marker-hidden`
+- Opening `**` → `Decoration.replace`
+- Closing `**` → `Decoration.replace`
 - Content → `cm-md-strong`
 
 **Styling**: `font-weight: 700; color: inherit`
@@ -78,8 +78,8 @@ CM6 parses this as nested `StrongEmphasis` + `Emphasis`. Both sets of markers ar
 **Syntax**: `~~text~~` (GFM extension)
 
 **Decoration behavior**:
-- Opening `~~` → `cm-md-marker-hidden`
-- Closing `~~` → `cm-md-marker-hidden`
+- Opening `~~` → `Decoration.replace`
+- Closing `~~` → `Decoration.replace`
 - Content → `cm-md-strikethrough`
 
 **Styling**: `text-decoration: line-through; color: --color-muted`
@@ -95,8 +95,8 @@ CM6 parses this as nested `StrongEmphasis` + `Emphasis`. Both sets of markers ar
 **Syntax**: `` `text` `` or ` ``text`` ` (double backticks for backtick-containing code)
 
 **Decoration behavior**:
-- Opening backtick(s) → `cm-md-marker-hidden`
-- Closing backtick(s) → `cm-md-marker-hidden`
+- Opening backtick(s) → `Decoration.replace`
+- Closing backtick(s) → `Decoration.replace`
 - Entire span (including hidden markers) → `cm-md-code`
 
 **Styling**: Monospace font, 0.88em size, `--color-primary-hover` text, subtle background, 4px border-radius, 2px 6px padding.
@@ -108,8 +108,8 @@ CM6 parses this as nested `StrongEmphasis` + `Emphasis`. Both sets of markers ar
 **Syntax**: ` ``` ` or `~~~` with optional language identifier
 
 **Decoration behavior**:
-- Opening fence line (`` ```javascript ``) → `cm-md-marker-hidden`
-- Closing fence line (` ``` `) → `cm-md-marker-hidden`
+- Opening fence line (`` ```javascript ``) → `Decoration.replace`
+- Closing fence line (` ``` `) → `Decoration.replace`
 - Content lines → line decoration with class `cm-md-code-block` plus position class:
   - Single content line: `cm-md-code-block-single`
   - First content line: `cm-md-code-block-first`
@@ -127,8 +127,8 @@ CM6 parses this as nested `StrongEmphasis` + `Emphasis`. Both sets of markers ar
 **Syntax**: `[text](url)`
 
 **Decoration behavior**:
-- Opening `[` → `cm-md-marker-hidden`
-- Closing `](url)` → `cm-md-marker-hidden`
+- Opening `[` → `Decoration.replace`
+- Closing `](url)` → `Decoration.replace`
 - Link text → `cm-md-link`
 
 **Styling**: `--color-primary` color, solid underline at 35% opacity, 2px offset, pointer cursor. Hover: `--color-primary-hover`, 50% opacity underline.
@@ -168,7 +168,7 @@ Autolinks are detected via regex matching (not part of CM6 markdown AST). They r
 **Syntax**: `> text` (up to 3 nesting levels)
 
 **Decoration behavior**:
-- Quote markers (`> `, `> > `, etc.) → `cm-md-marker-hidden` when cursor is NOT on the line
+- Quote markers (`> `, `> > `, etc.) → `Decoration.replace` when cursor is NOT on the line
 - Quote markers → `cm-md-quote-marker` (dimmed, `--color-border`) when cursor IS on the line
 - Each line gets a line decoration with classes:
   - `cm-md-quote` (always)
@@ -191,7 +191,7 @@ Autolinks are detected via regex matching (not part of CM6 markdown AST). They r
 **Syntax**: `- item`, `* item`, or `+ item`
 
 **Decoration behavior**:
-- Bullet marker + space → `cm-md-marker-hidden`
+- Bullet marker + space → `Decoration.replace`
 - `BulletWidget` inserted at marker position (side: -1)
 - Content text → `cm-md-ul-item`
 - Line gets `cm-md-list-line` with computed `padding-left` and negative `text-indent` for hanging indent
@@ -205,7 +205,7 @@ Autolinks are detected via regex matching (not part of CM6 markdown AST). They r
 **Syntax**: `1. item`, `2. item`, etc.
 
 **Decoration behavior**:
-- Number + dot + space → `cm-md-marker-hidden`
+- Number + dot + space → `Decoration.replace`
 - `NumberWidget` inserted showing `{N}.` (preserves original numbering)
 - Content text → `cm-md-ol-item`
 - Line gets `cm-md-list-line` with hanging indent (number marker width: 24px)
@@ -215,7 +215,7 @@ Autolinks are detected via regex matching (not part of CM6 markdown AST). They r
 **Syntax**: `- [ ] unchecked` or `- [x] completed`
 
 **Decoration behavior**:
-- Bullet + space + `[x]` + space → `cm-md-marker-hidden`
+- Bullet + space + `[x]` + space → `Decoration.replace`
 - `TaskCheckboxWidget` inserted (interactive checkbox, 18x18px)
 - Content text → `cm-md-task`
 - Line gets `cm-md-list-line` (checkbox marker width: 32px)
@@ -227,7 +227,7 @@ Autolinks are detected via regex matching (not part of CM6 markdown AST). They r
 **Syntax**: `1. [ ] unchecked` or `1. [x] completed`
 
 **Decoration behavior**:
-- Number + dot + space + `[x]` + space → `cm-md-marker-hidden`
+- Number + dot + space + `[x]` + space → `Decoration.replace`
 - `NumberWidget` + `TaskCheckboxWidget` both inserted
 - Content text → `cm-md-task`
 - Line gets `cm-md-list-line` (ordered task marker width: 56px)
@@ -283,8 +283,8 @@ Autolinks are detected via regex matching (not part of CM6 markdown AST). They r
 Wikilinks are NOT part of the CM6 markdown syntax tree. They are processed separately via regex: `/\[\[([^\]\n]+)\]\]/g`
 
 **Decoration behavior**:
-- Opening `[[` → `cm-md-marker-hidden`
-- Closing `]]` → `cm-md-marker-hidden`
+- Opening `[[` → `Decoration.replace`
+- Closing `]]` → `Decoration.replace`
 - Title text → `cm-md-link cm-md-wikilink` with `data-wikilink="{title}"` attribute
 
 **Styling**: Same as links but with `text-decoration-style: dashed` (dashed underline distinguishes from regular links).

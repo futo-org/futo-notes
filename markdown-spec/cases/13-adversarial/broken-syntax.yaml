@@ -267,9 +267,8 @@
   cursor: null
   expect:
     # CM6 parses this as a valid link with empty text.
-    # processLink hides all markers — nothing visible remains.
-    decorations:
-      - class: cm-md-marker-hidden
+    # processLink replaces all markers — nothing visible remains.
+    visible_text: ""
 
 - name: empty-wikilink
   complexity: 130
@@ -293,8 +292,6 @@
   cursor: null
   expect:
     decorations:
-      - class: cm-md-marker-hidden
-        count: 2
 
 - name: only-whitespace
   complexity: 100

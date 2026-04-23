@@ -4,8 +4,6 @@
   cursor: null
   expect:
     decorations:
-      - class: cm-md-marker-hidden
-        count: 1
       - class: cm-md-task
         text: "Incomplete task"
     widgets:

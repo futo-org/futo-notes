@@ -165,11 +165,7 @@
 
     while (current) {
       if (current instanceof HTMLElement) {
-        if (
-          current === line ||
-          current.classList.contains('cm-md-marker-hidden') ||
-          current.classList.contains('cm-md-marker-widget')
-        ) {
+        if (current === line || current.classList.contains('cm-md-marker-widget')) {
           current = walker.nextNode();
           continue;
         }
@@ -180,11 +176,7 @@
         }
       } else if (current instanceof Text) {
         const parent = current.parentElement;
-        if (
-          current.textContent &&
-          parent &&
-          !parent.closest('.cm-md-marker-hidden, .cm-md-marker-widget')
-        ) {
+        if (current.textContent && parent && !parent.closest('.cm-md-marker-widget')) {
           const range = document.createRange();
           range.selectNodeContents(current);
           for (const rect of range.getClientRects()) {
@@ -212,16 +204,12 @@
     click: (event) => {
       const target = event.target as HTMLElement | null;
       const wikilink = target?.closest('.cm-md-wikilink') as HTMLElement | null;
-      if (wikilink) {
-        const title = wikilink.getAttribute('data-wikilink');
-        if (title) {
-          event.preventDefault();
-          event.stopPropagation();
-          navigate('/note/' + encodeURIComponent(title));
-          return true;
-        }
-      }
-      return false;
+      const title = wikilink?.getAttribute('data-wikilink');
+      if (!title) return false;
+      event.preventDefault();
+      event.stopPropagation();
+      navigate('/note/' + encodeURIComponent(title));
+      return true;
     }
   });
 
@@ -315,10 +303,7 @@
       lineEndPending = null;
       if (!pending) return false;
       if (event.button !== 0 || event.detail !== 1) return false;
-      // If the user dragged a selection, don't override it
       if (!v.state.selection.main.empty) return false;
-      // If the click point moved significantly from mousedown, treat as a drag
-      // and don't jump the caret.
       if (
         Math.abs(event.clientX - pending.clientX) > 2 ||
         Math.abs(event.clientY - pending.clientY) > 2
@@ -332,14 +317,13 @@
     }
   });
 
-  // Resolve a click on an external link element to its URL, using the
-  // element itself (not posAtCoords, which is unreliable when the live
-  // markdown decoration has not yet been dropped/re-applied by focus changes).
+  // Resolve a click on an external link element to its URL via the element
+  // itself — posAtCoords is unreliable when the live-markdown decoration
+  // hasn't yet been dropped/re-applied by focus changes.
   function resolveLinkUrlFromElement(v: EditorView, link: Element): string | null {
     try {
       const offsetStart = v.posAtDOM(link, 0);
       const offsetEnd = v.posAtDOM(link, link.childNodes.length);
-      // Use the midpoint so we're safely inside the rendered link text.
       const pos = Math.floor((offsetStart + offsetEnd) / 2);
       return findUrlAtPosition(v, pos);
     } catch {
@@ -348,8 +332,8 @@
   }
 
   // Stash the URL found on mousedown so the click handler can open it even
-  // if focusing the editor drops the live-markdown decoration between the
-  // two events (which would otherwise leave no `.cm-md-link` at the point).
+  // when focusing the editor drops the live-markdown link decoration between
+  // mousedown and click (which would leave no `.cm-md-link` to target).
   let pendingLinkUrl: string | null = null;
 
   const linkClickHandler = EditorView.domEventHandlers({
@@ -369,12 +353,10 @@
       const url = resolveLinkUrlFromElement(v, link);
       if (!url) return false;
       pendingLinkUrl = url;
-      // Prevent the default cursor placement so the editor doesn't focus
-      // and drop the live-markdown link decoration before `click` fires.
       event.preventDefault();
       return true;
     },
-    click: (event, v) => {
+    click: (event) => {
       const url = pendingLinkUrl;
       pendingLinkUrl = null;
       if (!url) return false;

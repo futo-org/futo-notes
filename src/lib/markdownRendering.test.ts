@@ -20,7 +20,7 @@ import { EditorView, drawSelection, keymap } from '@codemirror/view';
 import { EditorState } from '@codemirror/state';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
-import { ensureSyntaxTree, syntaxTree, Language } from '@codemirror/language';
+import { ensureSyntaxTree, Language } from '@codemirror/language';
 import { liveMarkdownTransform } from './liveMarkdownTransform';
 
 /**
@@ -106,10 +106,7 @@ describe('Markdown rendering (liveMarkdownTransform decorations)', () => {
     const h1 = container.querySelector('.cm-md-h1');
     expect(h1, 'Expected .cm-md-h1 decoration for "# Heading 1"').toBeTruthy();
     expect(h1!.textContent).toContain('Heading 1');
-
-    // The # marker should be hidden
-    const hidden = container.querySelector('.cm-md-marker-hidden');
-    expect(hidden, 'Expected .cm-md-marker-hidden for heading marker').toBeTruthy();
+    expect(h1!.textContent, 'Expected `#` marker to be replaced out of DOM').not.toContain('#');
   });
 
   it('renders bold decorations', () => {

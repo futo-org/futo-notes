@@ -4,8 +4,6 @@
   cursor: null
   expect:
     decorations:
-      - class: cm-md-marker-hidden
-        count: 2
       - class: cm-md-wikilink
         text: "my note"
         attrs:
@@ -27,8 +25,6 @@
     decorations:
       - class: cm-md-wikilink
         count: 2
-      - class: cm-md-marker-hidden
-        count: 4
     visible_text: "See note one and note two."
 
 - name: wikilink-with-spaces

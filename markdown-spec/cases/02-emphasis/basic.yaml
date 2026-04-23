@@ -4,8 +4,6 @@
   cursor: null
   expect:
     decorations:
-      - class: cm-md-marker-hidden
-        count: 2
       - class: cm-md-emphasis
         text: "italic text"
     visible_text: "This is italic text here."
@@ -16,8 +14,6 @@
   cursor: null
   expect:
     decorations:
-      - class: cm-md-marker-hidden
-        count: 2
       - class: cm-md-strong
         text: "bold text"
     visible_text: "This is bold text here."

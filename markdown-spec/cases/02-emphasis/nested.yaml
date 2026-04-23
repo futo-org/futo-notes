@@ -24,8 +24,6 @@
     decorations:
       - class: cm-md-emphasis
         count: 2
-      - class: cm-md-marker-hidden
-        count: 4
     visible_text: "first and second"
 
 - name: emphasis-with-punctuation
@@ -45,8 +43,6 @@
   cursor: null
   expect:
     decorations:
-      - class: cm-md-marker-hidden
-        count: 2
       - class: cm-md-strikethrough
         text: "strikethrough"
     visible_text: "This is strikethrough text."

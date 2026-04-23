@@ -7,8 +7,6 @@
   cursor: null
   expect:
     decorations:
-      - class: cm-md-marker-hidden
-        count: 2
       - class: cm-md-code-block
         count: 1
       - class: cm-md-code-block-single
@@ -25,8 +23,6 @@
   cursor: null
   expect:
     decorations:
-      - class: cm-md-marker-hidden
-        count: 2
       - class: cm-md-code-block
         count: 3
       - class: cm-md-code-block-first

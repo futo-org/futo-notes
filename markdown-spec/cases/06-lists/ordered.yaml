@@ -7,8 +7,6 @@
   cursor: null
   expect:
     decorations:
-      - class: cm-md-marker-hidden
-        count: 3
       - class: cm-md-ol-item
         count: 3
     widgets:

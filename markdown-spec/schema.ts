@@ -105,7 +105,7 @@ export interface Expectations {
 }
 
 export interface DecorationExpectation {
-  /** CSS class to look for (e.g., "cm-md-wikilink", "cm-md-marker-hidden") */
+  /** CSS class to look for (e.g., "cm-md-wikilink", "Decoration.replace") */
   class: string;
 
   /** Expected text content of the decorated element */

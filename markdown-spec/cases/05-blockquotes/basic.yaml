@@ -4,8 +4,6 @@
   cursor: null
   expect:
     decorations:
-      - class: cm-md-marker-hidden
-        count: 1
       - class: cm-md-quote
         count: 1
     visible_text: "This is a quote."
@@ -20,8 +18,6 @@
     decorations:
       - class: cm-md-quote
         count: 2
-      - class: cm-md-marker-hidden
-        count: 2
 
 - name: blockquote-cursor-dimmed-marker
   complexity: 30
@@ -32,6 +28,4 @@
   expect:
     decorations:
       - class: cm-md-quote-marker
-        count: 1
-      - class: cm-md-marker-hidden
         count: 1

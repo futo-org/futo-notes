@@ -749,7 +749,7 @@ class LiveMarkdownPlugin implements PluginValue {
       decorations.push({
         from,
         to: markerEnd,
-        value: { class: 'cm-md-marker-hidden' }
+        value: { replace: true }
       });
 
       // Add className to content (from marker end to end of line)
@@ -828,25 +828,33 @@ class LiveMarkdownPlugin implements PluginValue {
       const revealMarkers = shouldRevealInlineMarkers(view, from, to);
 
       if (!revealMarkers) {
-        // Hide start backticks
         decorations.push({
           from,
           to: from + backticks,
-          value: { class: 'cm-md-marker-hidden' }
+          value: { replace: true }
         });
 
-        // Hide end backticks
         decorations.push({
           from: to - backticks,
           to,
-          value: { class: 'cm-md-marker-hidden' }
+          value: { replace: true }
+        });
+      } else {
+        decorations.push({
+          from,
+          to: from + backticks,
+          value: { class: 'cm-md-inline-marker' }
+        });
+        decorations.push({
+          from: to - backticks,
+          to,
+          value: { class: 'cm-md-inline-marker' }
         });
       }
 
-      // Add className
       decorations.push({
-        from,
-        to,
+        from: revealMarkers ? from : from + backticks,
+        to: revealMarkers ? to : to - backticks,
         value: { class: 'cm-md-code' }
       });
     } else {
@@ -866,10 +874,17 @@ class LiveMarkdownPlugin implements PluginValue {
         if (lineNum === startLine.number) {
           const fenceMatch = lineText.match(/^\s*(`{3,}|~{3,}).*$/);
           if (fenceMatch) {
+            if (line.from < line.to) {
+              decorations.push({
+                from: line.from,
+                to: line.to,
+                value: { replace: true }
+              });
+            }
             decorations.push({
               from: line.from,
-              to: line.to,
-              value: { class: 'cm-md-marker-hidden' }
+              to: line.from,
+              value: { class: 'cm-md-fence-line-hidden', startSide: 0, endSide: 0 }
             });
           }
         }
@@ -877,10 +892,17 @@ class LiveMarkdownPlugin implements PluginValue {
         else if (lineNum === endLine.number) {
           const closingMatch = lineText.match(/^\s*(`{3,}|~{3,})\s*$/);
           if (closingMatch) {
+            if (line.from < line.to) {
+              decorations.push({
+                from: line.from,
+                to: line.to,
+                value: { replace: true }
+              });
+            }
             decorations.push({
               from: line.from,
-              to: line.to,
-              value: { class: 'cm-md-marker-hidden' }
+              to: line.from,
+              value: { class: 'cm-md-fence-line-hidden', startSide: 0, endSide: 0 }
             });
           }
         }
@@ -978,14 +1000,14 @@ class LiveMarkdownPlugin implements PluginValue {
     decorations.push({
       from,
       to: from + 1,
-      value: { class: 'cm-md-marker-hidden' }
+      value: { replace: true }
     });
 
     // Hide closing bracket and URL (everything from ]( to end)
     decorations.push({
       from: textEnd,
       to,
-      value: { class: 'cm-md-marker-hidden' }
+      value: { replace: true }
     });
 
     // Add className to link text
@@ -1067,7 +1089,7 @@ class LiveMarkdownPlugin implements PluginValue {
             decorations.push({
               from: line.from,
               to: line.from + pos,
-              value: { class: 'cm-md-marker-hidden' }
+              value: { replace: true }
             });
           }
         }
@@ -1163,7 +1185,7 @@ class LiveMarkdownPlugin implements PluginValue {
       decorations.push({
         from,
         to: contentStart,
-        value: { class: 'cm-md-marker-hidden' }
+        value: { replace: true }
       });
 
       // Add checkbox widget
@@ -1208,7 +1230,7 @@ class LiveMarkdownPlugin implements PluginValue {
       decorations.push({
         from,
         to: contentStart,
-        value: { class: 'cm-md-marker-hidden' }
+        value: { replace: true }
       });
 
       // Add number widget
@@ -1261,7 +1283,7 @@ class LiveMarkdownPlugin implements PluginValue {
       decorations.push({
         from,
         to: contentStart,
-        value: { class: 'cm-md-marker-hidden' }
+        value: { replace: true }
       });
 
       // Add bullet widget
@@ -1304,7 +1326,7 @@ class LiveMarkdownPlugin implements PluginValue {
       decorations.push({
         from,
         to: contentStart,
-        value: { class: 'cm-md-marker-hidden' }
+        value: { replace: true }
       });
 
       // Add number widget
@@ -1369,14 +1391,14 @@ class LiveMarkdownPlugin implements PluginValue {
         decorations.push({
           from,
           to: from + 2,
-          value: { class: 'cm-md-marker-hidden' }
+          value: { replace: true }
         });
 
         // Hide ]]
         decorations.push({
           from: to - 2,
           to,
-          value: { class: 'cm-md-marker-hidden' }
+          value: { replace: true }
         });
 
         // Style title as wikilink

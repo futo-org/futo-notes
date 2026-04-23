@@ -70,10 +70,12 @@ describe('liveMarkdownTransform decorations', () => {
       const view = setup('text [[foo]] more');
       const all = collectDecos(view);
 
-      // [[ hidden at 5-7, ]] hidden at 10-12
-      const hidden = withClass(all, 'cm-md-marker-hidden');
-      expect(hidden).toContainEqual(expect.objectContaining({ from: 5, to: 7 }));
-      expect(hidden).toContainEqual(expect.objectContaining({ from: 10, to: 12 }));
+      // [[ and ]] are removed from the DOM via Decoration.replace, so no
+      // class-bearing decoration should cover those ranges.
+      const classDecosOverBrackets = all.filter(
+        (d) => d.class && ((d.from === 5 && d.to === 7) || (d.from === 10 && d.to === 12))
+      );
+      expect(classDecosOverBrackets).toEqual([]);
 
       // styled content at 7-10
       const wikilinks = withClass(all, 'cm-md-wikilink');
