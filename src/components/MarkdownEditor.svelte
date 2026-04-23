@@ -8,7 +8,7 @@
     ViewPlugin
   } from '@codemirror/view';
   import type { DecorationSet, ViewUpdate } from '@codemirror/view';
-  import { EditorState, Transaction } from '@codemirror/state';
+  import { EditorState, EditorSelection, Transaction } from '@codemirror/state';
   import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
   import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
   import { onMount } from 'svelte';
@@ -502,10 +502,39 @@
     }
   }
 
+  // After a drag, if a selection endpoint sits right next to a hidden emphasis
+  // marker (**, *, ~~), extend it outward through the marker so the visible
+  // selection includes it once reveal re-inserts the chars.
+  function snapSelectionPastEmphasisMarkers(v: EditorView): void {
+    const main = v.state.selection.main;
+    if (main.empty) return;
+
+    const doc = v.state.doc;
+    const forward = main.anchor <= main.head;
+    let from = forward ? main.anchor : main.head;
+    let to = forward ? main.head : main.anchor;
+
+    const before2 = doc.sliceString(Math.max(0, from - 2), from);
+    const after2 = doc.sliceString(to, Math.min(doc.length, to + 2));
+
+    if (before2 === '**' || before2 === '~~') from -= 2;
+    else if (before2.endsWith('*')) from -= 1;
+
+    if (after2 === '**' || after2 === '~~') to += 2;
+    else if (after2.startsWith('*')) to += 1;
+
+    if (from === (forward ? main.anchor : main.head) && to === (forward ? main.head : main.anchor)) return;
+
+    v.dispatch({
+      selection: EditorSelection.single(forward ? from : to, forward ? to : from)
+    });
+  }
+
   function schedulePointerSelectionSettle(v: EditorView): void {
     clearPointerSelectionSettleTimer();
     pointerSelectionSettleTimer = window.setTimeout(() => {
       pointerSelectionSettleTimer = null;
+      snapSelectionPastEmphasisMarkers(v);
       setInlineSelectionDragging(v, false, true);
     }, 0);
   }

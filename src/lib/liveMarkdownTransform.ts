@@ -645,6 +645,12 @@ class LiveMarkdownPlugin implements PluginValue {
         if (d.value.startSide !== undefined || d.value.endSide !== undefined) {
           // Line decoration
           ranges.push(Decoration.line(d.value).range(d.from));
+        } else if (d.value.replace === true && d.value.widget === undefined) {
+          // Replace decoration without widget: removes the range from the DOM
+          // entirely so CM6 coordinate mapping matches the visible text.
+          if (d.from !== d.to) {
+            ranges.push(Decoration.replace({}).range(d.from, d.to));
+          }
         } else if (d.value.class !== undefined && d.value.widget === undefined) {
           // Mark decoration - skip if empty (from === to)
           if (d.from !== d.to) {
@@ -798,18 +804,18 @@ class LiveMarkdownPlugin implements PluginValue {
 
     if (text.length >= markerLength * 2) {
       if (!revealMarkers) {
-        // Hide start marker
+        // Remove markers from the DOM via Decoration.replace so CM6's native
+        // coordinate mapping matches the visible text (no hidden-char offsets).
         decorations.push({
           from,
           to: from + markerLength,
-          value: { class: 'cm-md-marker-hidden' }
+          value: { replace: true }
         });
 
-        // Hide end marker
         decorations.push({
           from: to - markerLength,
           to,
-          value: { class: 'cm-md-marker-hidden' }
+          value: { replace: true }
         });
       }
 

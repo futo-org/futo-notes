@@ -324,13 +324,6 @@
   overflow: hidden !important;
 }
 
-/* Keep inline selection on rendered markdown working by flattening styled spans
-   while the pointer is down, without rebuilding the editor DOM mid-drag. */
-.cm-editor[data-inline-selection-dragging="true"] .cm-md-emphasis,
-.cm-editor[data-inline-selection-dragging="true"] .cm-md-strong {
-  display: contents !important;
-}
-
 /* Focus state — show hidden elements when editing */
 .cm-editor:focus-within .cm-md-h1 .cm-md-h1-marker,
 .cm-editor:focus-within .cm-md-h2 .cm-md-h2-marker,
