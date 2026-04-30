@@ -4,7 +4,6 @@
     keymap,
     drawSelection,
     Decoration,
-    MatchDecorator,
     ViewPlugin
   } from '@codemirror/view';
   import type { DecorationSet, ViewUpdate } from '@codemirror/view';
@@ -13,7 +12,7 @@
   import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
   import { syntaxTree } from '@codemirror/language';
   import { onMount } from 'svelte';
-  import { listContinuationKeymap } from '$lib/listContinuation';
+  import { listContinuationKeymap, orderedListRenumber } from '$lib/listContinuation';
   import { cursorMotionKeymap } from '$lib/cursorMotion';
   import { interactiveTableEditor } from '$lib/editorUX/tableEditor';
   import { selectionToolbar } from '$lib/editorUX/selectionToolbar';
@@ -74,18 +73,65 @@
   const PLAIN_URL_REGEX = /\b(?:https?:\/\/|www\.)[^\s<>()]+[^\s<>().,!?;:]/g;
   const MARKDOWN_LINK_REGEX = /\[([^\]]+)\]\(((?:https?:\/\/|www\.)[^()\s]*(?:\([^)]*\)[^()\s]*)*)(?:\s+"[^"]*")?\)/g;
 
-  const autoLinkMatcher = new MatchDecorator({
-    regexp: PLAIN_URL_REGEX,
-    decoration: Decoration.mark({ class: 'cm-md-link cm-md-autolink' })
-  });
+  // Decorate bare URLs as autolinks — but skip URLs that are the target
+  // of a markdown link (`[text](url)`) or that sit inside an inline
+  // code span (`` `https://x.com` ``) or a fenced/indented code block.
+  function buildAutolinkDecorations(view: EditorView): DecorationSet {
+    const ranges: Array<{ from: number; to: number }> = [];
+    const tree = syntaxTree(view.state);
+    for (const { from, to } of view.visibleRanges) {
+      const text = view.state.doc.sliceString(from, to);
+      // Mark out byte ranges occupied by markdown-link URLs so we can
+      // skip plain-URL matches that fall inside them.
+      const linkUrlRanges: Array<[number, number]> = [];
+      const mdRe = new RegExp(MARKDOWN_LINK_REGEX.source, 'g');
+      let mdMatch: RegExpExecArray | null;
+      while ((mdMatch = mdRe.exec(text)) !== null) {
+        const urlStart = mdMatch.index + mdMatch[0].indexOf('](') + 2;
+        const urlEnd = mdMatch.index + mdMatch[0].length - 1;
+        linkUrlRanges.push([from + urlStart, from + urlEnd]);
+      }
+      const inMdLink = (pos: number) =>
+        linkUrlRanges.some(([s, e]) => pos >= s && pos < e);
+      // A URL that falls inside a CodeBlock / FencedCode / InlineCode
+      // syntax node isn't a link — it's source text.
+      const inCode = (pos: number) => {
+        let hit = false;
+        tree.iterate({
+          from: pos, to: pos + 1,
+          enter: (node) => {
+            if (/^(InlineCode|FencedCode|CodeBlock)$/.test(node.name)) hit = true;
+          },
+        });
+        return hit;
+      };
+      const plainRe = new RegExp(PLAIN_URL_REGEX.source, 'g');
+      let m: RegExpExecArray | null;
+      while ((m = plainRe.exec(text)) !== null) {
+        const matchFrom = from + m.index;
+        const matchTo = matchFrom + m[0].length;
+        if (inMdLink(matchFrom)) continue;
+        if (inCode(matchFrom)) continue;
+        ranges.push({ from: matchFrom, to: matchTo });
+      }
+    }
+    return Decoration.set(
+      ranges.map((r) =>
+        Decoration.mark({ class: 'cm-md-link cm-md-autolink' }).range(r.from, r.to),
+      ),
+      true,
+    );
+  }
 
   const autoLinkHighlight = ViewPlugin.fromClass(class {
     decorations: DecorationSet;
     constructor(v: EditorView) {
-      this.decorations = autoLinkMatcher.createDeco(v);
+      this.decorations = buildAutolinkDecorations(v);
     }
     update(update: ViewUpdate) {
-      this.decorations = autoLinkMatcher.updateDeco(update, this.decorations);
+      if (update.docChanged || update.viewportChanged) {
+        this.decorations = buildAutolinkDecorations(update.view);
+      }
     }
   }, {
     decorations: (v) => v.decorations
@@ -159,14 +205,19 @@
   function getRenderedLineRight(line: HTMLElement): number | null {
     let right: number | null = null;
 
+    // Inline-styled and widget-like spans (links, bold, images, etc.) still
+    // need explicit rect lookups because some — image/checkbox wrappers — have
+    // no text node the walker can range over.
     for (const candidate of line.querySelectorAll(VISIBLE_LINE_EDGE_SELECTOR)) {
       const rect = (candidate as HTMLElement).getBoundingClientRect();
       if (rect.width <= 0 && rect.height <= 0) continue;
       right = right === null ? rect.right : Math.max(right, rect.right);
     }
 
-    if (right !== null) return right;
-
+    // Always walk the full line for plain text after styled spans (e.g.
+    // `**bold** trailing text` — the styled span's right edge is mid-line,
+    // so without walking text we'd treat clicks on "trailing text" as past
+    // line-end and snap the caret to line.to.
     const walker = document.createTreeWalker(line, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
     let current = walker.nextNode();
 
@@ -514,6 +565,7 @@
       drawSelection(),
       cursorMotionKeymap,
       listContinuationKeymap,
+      orderedListRenumber,
       history(),
       keymap.of([
         { key: 'Mod-b', run: (v) => { toggleBold(v); return true; } },
@@ -673,6 +725,11 @@
         fns[name]?.(v);
       };
       w.__cmGetView = () => view;
+      // Factory driver: window.__driver, used by factory/judge to compare
+      // stonefruit's editor state against Obsidian's.
+      import('../../factory/driver/stonefruit').then(({ installDriver }) => {
+        if (view) installDriver(view);
+      });
     }
 
     return () => {

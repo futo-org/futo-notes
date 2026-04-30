@@ -24,7 +24,7 @@ export default defineConfig({
   webServer: {
     command: 'npm run dev',
     url: 'http://localhost:5173',
-    reuseExistingServer: false,
+    reuseExistingServer: !!process.env.PLAYWRIGHT_REUSE_DEV_SERVER,
     timeout: 30000,
   },
 });

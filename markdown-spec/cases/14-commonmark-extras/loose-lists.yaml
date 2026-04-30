@@ -1,0 +1,47 @@
+- name: ul-loose-with-blank-lines
+  complexity: 25
+  markdown: |
+    - First item
+
+    - Second item
+
+    - Third item
+  cursor: null
+  expect:
+    visible_text_contains: "Second item"
+
+- name: ol-loose-with-blank-lines
+  complexity: 25
+  markdown: |
+    1. First
+
+    2. Second
+
+    3. Third
+  cursor: null
+  expect:
+    visible_text_contains: "First"
+
+- name: list-with-paragraph-continuation
+  complexity: 30
+  markdown: |
+    - First item
+
+      Second paragraph of first item.
+
+    - Second item
+  cursor: null
+  expect:
+    visible_text_contains: "Second paragraph"
+
+- name: list-with-nested-blockquote
+  complexity: 35
+  markdown: |
+    - List item
+
+      > A quote inside a list.
+
+    - Another list item
+  cursor: null
+  expect:
+    visible_text_contains: "A quote inside a list"

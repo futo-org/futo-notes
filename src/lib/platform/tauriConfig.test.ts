@@ -83,7 +83,8 @@ describe('getConfig', () => {
 
   it('reads sidebar widths from config file', async () => {
     setupInvokeMock();
-    const { readTextFile } = await import('@tauri-apps/plugin-fs');
+    const { readTextFile, exists } = await import('@tauri-apps/plugin-fs');
+    vi.mocked(exists).mockResolvedValueOnce(true);
     vi.mocked(readTextFile).mockResolvedValueOnce(
       JSON.stringify({ sidebarWidth: 300, graphSidebarWidth: 400 }),
     );
@@ -94,7 +95,8 @@ describe('getConfig', () => {
 
   it('handles invalid JSON in config file gracefully', async () => {
     setupInvokeMock();
-    const { readTextFile } = await import('@tauri-apps/plugin-fs');
+    const { readTextFile, exists } = await import('@tauri-apps/plugin-fs');
+    vi.mocked(exists).mockResolvedValueOnce(true);
     vi.mocked(readTextFile).mockResolvedValueOnce('not valid json{');
     const cfg = await getConfig();
     expect(cfg.sidebarWidth).toBeUndefined();
@@ -106,10 +108,11 @@ describe('saveConfig', () => {
   it('merges sidebarWidth into existing config', async () => {
     setupInvokeMock();
     // Mock plugin-fs readTextFile to return existing config
-    const { readTextFile, writeTextFile, rename } = await import('@tauri-apps/plugin-fs');
+    const { readTextFile, writeTextFile, rename, exists } = await import('@tauri-apps/plugin-fs');
     const mockReadTextFile = vi.mocked(readTextFile);
     const mockWriteTextFile = vi.mocked(writeTextFile);
     const mockRename = vi.mocked(rename);
+    vi.mocked(exists).mockResolvedValueOnce(true);
     mockReadTextFile.mockResolvedValueOnce(JSON.stringify({ sidebarWidth: 280, graphSidebarWidth: 320 }));
 
     await saveConfig({ sidebarWidth: 350 });
@@ -124,9 +127,10 @@ describe('saveConfig', () => {
 
   it('can set a width to null', async () => {
     setupInvokeMock();
-    const { readTextFile, writeTextFile } = await import('@tauri-apps/plugin-fs');
+    const { readTextFile, writeTextFile, exists } = await import('@tauri-apps/plugin-fs');
     const mockReadTextFile = vi.mocked(readTextFile);
     const mockWriteTextFile = vi.mocked(writeTextFile);
+    vi.mocked(exists).mockResolvedValueOnce(true);
     mockReadTextFile.mockResolvedValueOnce(JSON.stringify({ sidebarWidth: 280 }));
 
     await saveConfig({ sidebarWidth: null });

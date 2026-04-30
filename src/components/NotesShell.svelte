@@ -516,6 +516,7 @@
         handleFileChange: (event: { type: 'add' | 'change' | 'unlink'; filename: string }) => Promise<void>;
         seedOpenNote: (id: string, body: string) => void;
         flushSave: () => Promise<void>;
+        typeInEditor: (text: string) => string;
         getState: () => {
           originalId: string | null;
           title: string;
@@ -533,6 +534,19 @@
         session.seedOpenNote(id, body);
       },
       flushSave: () => session.flushSave(),
+      typeInEditor: (text: string) => {
+        const view = editor?.getView();
+        if (!view) throw new Error('editor view not ready');
+        view.focus();
+        const { main } = view.state.selection;
+        view.dispatch({
+          changes: { from: main.from, to: main.to, insert: text },
+          selection: { anchor: main.from + text.length },
+          scrollIntoView: true,
+          userEvent: 'input.type',
+        });
+        return view.state.doc.toString();
+      },
       getState: () => ({
         originalId: session.originalId,
         title: session.title,

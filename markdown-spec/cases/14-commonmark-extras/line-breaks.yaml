@@ -1,0 +1,24 @@
+- name: hard-break-trailing-spaces
+  complexity: 25
+  markdown: "First line.  \nSecond line."
+  cursor: null
+  expect:
+    visible_text_contains: "First line"
+
+- name: hard-break-backslash
+  complexity: 25
+  markdown: |
+    First line.\
+    Second line.
+  cursor: null
+  expect:
+    visible_text_contains: "First line"
+
+- name: soft-break-no-marker
+  complexity: 20
+  markdown: |
+    First line.
+    Second line.
+  cursor: null
+  expect:
+    visible_text_contains: "Second line"

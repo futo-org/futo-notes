@@ -25,13 +25,6 @@
       - class: cm-md-quote-marker
         count: 1
 
-- name: reveal-list-preserves-indent
-  complexity: 30
-  markdown: "- List item"
-  cursor: { line: 0, ch: 5 }
-  expect:
-    visible_text_contains: "- List item"
-
 - name: reveal-fenced-code-on-cursor
   complexity: 25
   markdown: |

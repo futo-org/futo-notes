@@ -72,13 +72,37 @@ function dateToMs(d: Date | null | undefined): number {
   return Date.now();
 }
 
+/**
+ * Race a promise against a timeout. iOS plugin-fs (`readTextFile`, `exists`)
+ * has been observed to hang indefinitely on certain paths instead of
+ * returning or rejecting — this wraps the call so background loaders can
+ * recover with a sentinel instead of stalling the app forever.
+ */
+function withTimeout<T>(label: string, ms: number, p: Promise<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+    p.then(
+      (v) => {
+        clearTimeout(t);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(t);
+        reject(e);
+      },
+    );
+  });
+}
+
+const FS_READ_TIMEOUT_MS = 8_000;
+
 let watcherStarted = false;
 let assetProtocolWorks: boolean | null = null;
 
 async function ensureWatcherStarted(): Promise<void> {
   if (watcherStarted) return;
   // Mobile: app is the sole writer; kqueue rescan on every appdata write
-  // (.engagement / .app-state live in the notes dir) pinned a tokio worker.
+  // (.app-state lives in the notes dir) pinned a tokio worker.
   if (isMobile) {
     watcherStarted = true;
     return;
@@ -110,7 +134,7 @@ export const tauriFS: PlatformFS = {
 
   async readNote(id: string): Promise<string> {
     const root = await getNotesRoot();
-    return readTextFile(safeNotePath(root, id));
+    return withTimeout(`readNote(${id})`, FS_READ_TIMEOUT_MS, readTextFile(safeNotePath(root, id)));
   },
 
   async writeNote(id: string, content: string, modifiedAtMs?: number): Promise<number> {
@@ -161,10 +185,17 @@ export const tauriFS: PlatformFS = {
   async readAppData(path: string): Promise<string | null> {
     const root = await getNotesRoot();
     const fullPath = safeAppdataPath(root, path);
+    // iOS plugin-fs has been observed to hang on both readTextFile and
+    // (rarely) exists() — the timeout below is a hard backstop so a
+    // single bad read can't trap the app on the loading screen forever.
     try {
-      return await readTextFile(fullPath);
+      const present = await withTimeout(`exists(${path})`, FS_READ_TIMEOUT_MS, fsExists(fullPath));
+      if (!present) return null;
+      return await withTimeout(`readAppData(${path})`, FS_READ_TIMEOUT_MS, readTextFile(fullPath));
     } catch (err) {
       if (isNotFound(err)) return null;
+      // Surface the error to callers so they can fall back to defaults
+      // rather than caching a partial result.
       throw err;
     }
   },
@@ -200,6 +231,7 @@ export const tauriFS: PlatformFS = {
   async readBinaryAppData(path: string): Promise<ArrayBuffer | null> {
     const root = await getNotesRoot();
     const fullPath = safeAppdataPath(root, path);
+    if (!(await fsExists(fullPath))) return null;
     try {
       const bytes = await readFile(fullPath);
       return bytes.buffer as ArrayBuffer;

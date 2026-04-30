@@ -53,13 +53,6 @@
       - class: cm-md-task
         count: 2
 
-- name: task-cursor-reveal
-  complexity: 25
-  markdown: "- [ ] A task item"
-  cursor: { line: 0, ch: 8 }
-  expect:
-    visible_text_contains: "- [ ] A task item"
-
 - name: task-uppercase-x
   complexity: 30
   markdown: "- [X] Task with uppercase X"

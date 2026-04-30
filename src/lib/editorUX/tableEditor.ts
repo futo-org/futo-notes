@@ -1,6 +1,6 @@
 import { WidgetType, EditorView, Decoration } from '@codemirror/view';
 import type { DecorationSet } from '@codemirror/view';
-import { StateField, RangeSet } from '@codemirror/state';
+import { StateField, RangeSet, StateEffect } from '@codemirror/state';
 import type { EditorState } from '@codemirror/state';
 import { syntaxTree } from '@codemirror/language';
 import { parseMarkdownTable } from '$lib/tableWidget';
@@ -701,9 +701,17 @@ function isCaretAtStart(el: HTMLElement): boolean {
 interface TableFieldValue {
   decorations: DecorationSet;
   treeLength: number;
+  hasFocus: boolean;
 }
 
-function buildTableDecorations(state: EditorState): DecorationSet {
+// Tracks the editor's focus state inside the StateField so the
+// reveal-source-on-cursor logic can ignore the default selection
+// (cursor at 0,0 right after `setDoc`) when the editor isn't actually
+// focused. Without this, a doc that starts with a table renders as
+// raw markdown until the user clicks somewhere else.
+const setTableFocus = StateEffect.define<boolean>();
+
+function buildTableDecorations(state: EditorState, hasFocus: boolean): DecorationSet {
   const decos: Array<{ from: number; to: number; deco: Decoration }> = [];
   const tree = syntaxTree(state);
   const doc = state.doc;
@@ -716,7 +724,7 @@ function buildTableDecorations(state: EditorState): DecorationSet {
 
       // Keep the source visible when the cursor is inside it — otherwise the
       // live-markdown decorations lose ground to the replacement widget.
-      if (selectionRevealsRange(state, from, to)) return;
+      if (selectionRevealsRange(state, from, to, hasFocus)) return;
 
       const text = doc.sliceString(from, to);
       const widget = new TableEditorWidget(text, from, to);
@@ -729,28 +737,38 @@ function buildTableDecorations(state: EditorState): DecorationSet {
   return RangeSet.of(decos.map((d) => d.deco.range(d.from, d.to)));
 }
 
-function selectionRevealsRange(state: EditorState, from: number, to: number): boolean {
-  return selectionTouchesRange(true, state.selection.ranges, from, to);
+function selectionRevealsRange(state: EditorState, from: number, to: number, hasFocus: boolean): boolean {
+  return selectionTouchesRange(hasFocus, state.selection.ranges, from, to);
 }
 
 const tableEditorField = StateField.define<TableFieldValue>({
   create(state): TableFieldValue {
     const tree = syntaxTree(state);
-    return { decorations: buildTableDecorations(state), treeLength: tree.length };
+    return { decorations: buildTableDecorations(state, false), treeLength: tree.length, hasFocus: false };
   },
   update(value, tr): TableFieldValue {
     const tree = syntaxTree(tr.state);
     const treeGrew = tree.length > value.treeLength;
     const refreshRequested = tr.effects.some((e) => e.is(liveMarkdownRefresh));
     const selectionNeedsRebuild = tr.selection && !isMarkdownSelectionRevealSuppressed();
-    if (tr.docChanged || selectionNeedsRebuild || treeGrew || refreshRequested) {
-      return { decorations: buildTableDecorations(tr.state), treeLength: tree.length };
+    let hasFocus = value.hasFocus;
+    let focusChanged = false;
+    for (const ef of tr.effects) {
+      if (ef.is(setTableFocus)) {
+        if (ef.value !== hasFocus) focusChanged = true;
+        hasFocus = ef.value;
+      }
     }
-    return value;
+    if (tr.docChanged || selectionNeedsRebuild || treeGrew || refreshRequested || focusChanged) {
+      return { decorations: buildTableDecorations(tr.state, hasFocus), treeLength: tree.length, hasFocus };
+    }
+    return { ...value, hasFocus };
   },
   provide(field) {
     return EditorView.decorations.from(field, (v) => v.decorations);
   },
 });
 
-export const interactiveTableEditor = [tableEditorField];
+const tableFocusTracker = EditorView.focusChangeEffect.of((_state, focusing) => setTableFocus.of(focusing));
+
+export const interactiveTableEditor = [tableEditorField, tableFocusTracker];

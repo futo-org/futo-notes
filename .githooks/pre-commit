@@ -1,6 +1,21 @@
 #!/bin/sh
-# Pre-commit hook: run ESLint on staged .ts files
+# Pre-commit hook: run ESLint on staged .ts files, and ensure every
+# AGENTS.md has a sibling CLAUDE.md.
 # Installed via: git config core.hooksPath .githooks
+
+REPO_ROOT=$(git rev-parse --show-toplevel)
+
+# Ensure a CLAUDE.md exists next to every AGENTS.md tracked in the repo.
+created=0
+git ls-files -z -- '**/AGENTS.md' 'AGENTS.md' | while IFS= read -r -d '' agents; do
+  claude="$(dirname "$agents")/CLAUDE.md"
+  if [ ! -e "$REPO_ROOT/$claude" ]; then
+    printf '@AGENTS.md\n' > "$REPO_ROOT/$claude"
+    git add -- "$claude"
+    echo "Created $claude"
+    created=1
+  fi
+done
 
 STAGED_TS=$(git diff --cached --name-only --diff-filter=ACM -- '*.ts' '*.tsx')
 

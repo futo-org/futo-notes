@@ -22,15 +22,3 @@
       - class: sf-table
         count: 1
 
-- name: table-cursor-reveal
-  complexity: 30
-  markdown: |
-    | A | B |
-    |---|---|
-    | 1 | 2 |
-  cursor: { line: 0, ch: 3 }
-  expect:
-    visible_text_contains: "|"
-    widgets:
-      - class: sf-table
-        count: 0

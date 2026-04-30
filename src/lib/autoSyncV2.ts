@@ -5,7 +5,7 @@ export type { SyncSummary } from './syncServiceE2ee';
 
 // Pull-only interval — local edits push via notifySavedV2, so this only
 // covers cross-device propagation.
-const POLL_INTERVAL_MS = 300_000;
+const POLL_INTERVAL_MS = 15_000;
 const INITIAL_SYNC_DELAY_MS = 8_000;
 const RESUME_COOLDOWN = 10_000;
 const BACKGROUND_SYNC_RETRY_DELAY = 1_000;

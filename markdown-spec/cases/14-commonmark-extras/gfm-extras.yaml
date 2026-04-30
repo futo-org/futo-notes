@@ -1,0 +1,46 @@
+- name: gfm-disallowed-html-script
+  complexity: 35
+  markdown: "Try this: <script>alert('xss')</script> here."
+  cursor: null
+  expect:
+    visible_text_contains: "Try this"
+
+- name: gfm-disallowed-html-style
+  complexity: 35
+  markdown: "Look: <style>body{display:none}</style> styled."
+  cursor: null
+  expect:
+    visible_text_contains: "Look"
+
+- name: gfm-disallowed-html-iframe
+  complexity: 35
+  markdown: "Frame: <iframe src='evil.com'></iframe> here."
+  cursor: null
+  expect:
+    visible_text_contains: "Frame"
+
+- name: gfm-table-with-alignment
+  complexity: 35
+  markdown: |
+    | Left | Center | Right |
+    |:-----|:------:|------:|
+    | 1    | 2      | 3     |
+  cursor: null
+  expect:
+    visible_text_contains: "Left"
+
+- name: gfm-task-with-strikethrough
+  complexity: 30
+  markdown: "- [x] ~~done old~~ replaced"
+  cursor: null
+  expect:
+    visible_text_contains: "replaced"
+
+- name: gfm-strikethrough-in-list
+  complexity: 25
+  markdown: |
+    - ~~old item~~
+    - new item
+  cursor: null
+  expect:
+    visible_text_contains: "new item"

@@ -1,6 +1,6 @@
-import { keymap, EditorView } from '@codemirror/view';
-import { EditorSelection, Prec } from '@codemirror/state';
-import type { ChangeSpec } from '@codemirror/state';
+import { keymap, EditorView, ViewPlugin } from '@codemirror/view';
+import { Annotation, EditorSelection, Prec } from '@codemirror/state';
+import type { ChangeSpec, Text } from '@codemirror/state';
 import { syntaxTree } from '@codemirror/language';
 
 const QUOTE_RE = /^((?:>\s*)+)(.*)$/;
@@ -167,10 +167,132 @@ function changeQuoteDepth(view: EditorView, delta: 1 | -1): boolean {
   return true;
 }
 
-// Prec.highest so this runs before @codemirror/lang-markdown's
-// built-in insertNewlineContinueMarkup (which is Prec.high)
-export const listContinuationKeymap = Prec.highest(keymap.of([
-  { key: 'Enter', run: handleEnter },
+// Tab/Shift-Tab go through the normal keymap — those don't have iOS issues.
+// Prec.highest so they run before @codemirror/lang-markdown's defaults.
+const tabKeymap = Prec.highest(keymap.of([
   { key: 'Tab', run: (view) => changeQuoteDepth(view, 1) },
   { key: 'Shift-Tab', run: (view) => changeQuoteDepth(view, -1) }
 ]));
+
+// Enter is handled at document-capture phase, NOT via the CM6 keymap. iOS's
+// WKWebView intercepts Enter on certain cursor positions (e.g., when the
+// cursor sits right after a contenteditable=false widget like a rendered
+// list marker) and applies its own native newline insertion without ever
+// firing `beforeinput`. CM6's keymap only runs when CM6 sees beforeinput
+// and synthesizes a keydown; since beforeinput never arrives in that case,
+// the keymap silently doesn't fire and the empty list marker survives.
+//
+// By listening at document capture phase we get the keydown before iOS
+// applies its default, run handleEnter directly, and preventDefault to
+// stop the native insertion when we handle the event ourselves.
+const enterCaptureHandler = ViewPlugin.fromClass(class {
+  listener: (e: KeyboardEvent) => void;
+  constructor(view: EditorView) {
+    this.listener = (e: KeyboardEvent) => {
+      if (e.key !== 'Enter' || e.isComposing) return;
+      if (!view.contentDOM.contains(e.target as Node)) return;
+      if (handleEnter(view)) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+    document.addEventListener('keydown', this.listener as EventListener, true);
+  }
+  destroy() {
+    document.removeEventListener('keydown', this.listener as EventListener, true);
+  }
+});
+
+export const listContinuationKeymap = [tabKeymap, enterCaptureHandler];
+
+const ORDERED_LINE_RE = /^(\s*)(\d+)\.\s/;
+
+function findOrderedBlockStart(doc: Text, lineNumber: number, indent: string): number {
+  let start = lineNumber;
+  while (start > 1) {
+    const prev = doc.line(start - 1).text.match(ORDERED_LINE_RE);
+    if (!prev || prev[1] !== indent) break;
+    start -= 1;
+  }
+  return start;
+}
+
+export function computeOrderedRenumberChanges(
+  doc: Text,
+  affectedLines: Iterable<number>
+): ChangeSpec[] {
+  const blockStarts = new Set<number>();
+  for (const ln of affectedLines) {
+    if (ln < 1 || ln > doc.lines) continue;
+    let probe = ln;
+    let m = doc.line(probe).text.match(ORDERED_LINE_RE);
+    if (!m && probe > 1) {
+      // Line itself isn't an ordered item (e.g. it was just deleted into) —
+      // probe the previous line so a list above the deletion still gets fixed.
+      probe -= 1;
+      m = doc.line(probe).text.match(ORDERED_LINE_RE);
+    }
+    if (!m) continue;
+    blockStarts.add(findOrderedBlockStart(doc, probe, m[1]));
+  }
+
+  const changes: ChangeSpec[] = [];
+  for (const startLn of blockStarts) {
+    const startLine = doc.line(startLn);
+    const startMatch = startLine.text.match(ORDERED_LINE_RE);
+    if (!startMatch) continue;
+    const indent = startMatch[1];
+    const startNum = parseInt(startMatch[2], 10);
+
+    let offset = 0;
+    let lineNum = startLn;
+    while (lineNum <= doc.lines) {
+      const line = doc.line(lineNum);
+      const m = line.text.match(ORDERED_LINE_RE);
+      if (!m || m[1] !== indent) break;
+      const expected = String(startNum + offset);
+      if (m[2] !== expected) {
+        const numStart = line.from + indent.length;
+        changes.push({ from: numStart, to: numStart + m[2].length, insert: expected });
+      }
+      offset += 1;
+      lineNum += 1;
+    }
+  }
+  return changes;
+}
+
+const renumberAnnotation = Annotation.define<true>();
+
+// Auto-renumber contiguous ordered-list blocks after edits. Implemented as an
+// update listener so we can dispatch a follow-up transaction with the
+// renumber changes — `transactionExtender` only accepts effects/annotations,
+// not changes.
+export const orderedListRenumber = EditorView.updateListener.of((update) => {
+  if (!update.docChanged) return;
+  // Skip our own auto-renumber dispatches to avoid loops.
+  if (update.transactions.some((t) => t.annotation(renumberAnnotation))) return;
+
+  const affected = new Set<number>();
+  const newDoc = update.state.doc;
+  for (const tr of update.transactions) {
+    tr.changes.iterChanges((_fromA, _toA, fromB, toB) => {
+      const startLn = newDoc.lineAt(fromB).number;
+      const endLn = newDoc.lineAt(toB).number;
+      for (let i = startLn; i <= endLn; i++) affected.add(i);
+      // Peek the line above — a backspace at the start of a list line joins
+      // it onto the previous, and the merged block also wants fixing.
+      if (startLn > 1) affected.add(startLn - 1);
+    });
+  }
+
+  const changes = computeOrderedRenumberChanges(newDoc, affected);
+  if (changes.length === 0) return;
+  update.view.dispatch({
+    changes,
+    annotations: renumberAnnotation.of(true),
+    // Don't push the renumber onto the undo stack on its own — make undo of
+    // the user's edit also undo the renumber by joining them.
+    userEvent: 'input.renumber'
+  });
+});

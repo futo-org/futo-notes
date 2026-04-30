@@ -1,8 +1,13 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from 'vitest';
 import { EditorView, runScopeHandlers } from '@codemirror/view';
+import { Text } from '@codemirror/state';
 import { markdown } from '@codemirror/lang-markdown';
-import { listContinuationKeymap } from './listContinuation';
+import {
+  computeOrderedRenumberChanges,
+  listContinuationKeymap,
+  orderedListRenumber,
+} from './listContinuation';
 
 const views: EditorView[] = [];
 
@@ -23,8 +28,16 @@ function setup(doc: string, anchor: number): EditorView {
 }
 
 function pressEnter(view: EditorView): void {
-  const ev = new KeyboardEvent('keydown', { key: 'Enter' });
-  runScopeHandlers(view, ev, 'editor');
+  // Dispatch a real DOM keydown so the document-capture listener (where
+  // Enter handling now lives — see iOS bypass note in listContinuation.ts)
+  // picks it up. The event must originate inside view.contentDOM so the
+  // listener's "in this editor" check passes.
+  const ev = new KeyboardEvent('keydown', {
+    key: 'Enter',
+    bubbles: true,
+    cancelable: true
+  });
+  view.contentDOM.dispatchEvent(ev);
 }
 
 function pressTab(view: EditorView, shiftKey = false): void {
@@ -102,6 +115,79 @@ describe('blockquote nesting', () => {
     pressTab(v);
 
     expect(v.state.doc.toString()).toBe(doc);
+  });
+});
+
+describe('computeOrderedRenumberChanges', () => {
+  function applyChanges(doc: string, changes: ReturnType<typeof computeOrderedRenumberChanges>): string {
+    // Apply right-to-left so earlier offsets stay valid.
+    const sorted = [...changes].sort((a, b) =>
+      ((b as any).from ?? 0) - ((a as any).from ?? 0)
+    );
+    let out = doc;
+    for (const c of sorted as Array<{ from: number; to: number; insert: string }>) {
+      out = out.slice(0, c.from) + c.insert + out.slice(c.to);
+    }
+    return out;
+  }
+
+  it('renumbers contiguous ordered list when a middle item was deleted', () => {
+    // After the user deleted line 3 (the original `3. thing3`), `4. thing4`
+    // is now the third line and should become `3. thing4`.
+    const doc = '1. thing\n2. thing2\n4. thing4';
+    const changes = computeOrderedRenumberChanges(Text.of(doc.split('\n')), [3]);
+    expect(applyChanges(doc, changes)).toBe('1. thing\n2. thing2\n3. thing4');
+  });
+
+  it('preserves the starting number of a list', () => {
+    const doc = '5. five\n7. seven';
+    const changes = computeOrderedRenumberChanges(Text.of(doc.split('\n')), [2]);
+    expect(applyChanges(doc, changes)).toBe('5. five\n6. seven');
+  });
+
+  it('does not cross indent boundaries', () => {
+    const doc = '1. outer\n  1. inner\n  3. inner3\n2. outer2';
+    // Touch the inner sublist only.
+    const changes = computeOrderedRenumberChanges(Text.of(doc.split('\n')), [3]);
+    expect(applyChanges(doc, changes)).toBe('1. outer\n  1. inner\n  2. inner3\n2. outer2');
+  });
+
+  it('returns no changes when numbering is already correct', () => {
+    const doc = '1. a\n2. b\n3. c';
+    const changes = computeOrderedRenumberChanges(Text.of(doc.split('\n')), [2]);
+    expect(changes).toEqual([]);
+  });
+});
+
+describe('orderedListRenumber extension', () => {
+  it('fixes numbering after a delete of a middle line', () => {
+    const view = new EditorView({
+      doc: '1. thing\n2. thing2\n3. thing3\n4. thing4',
+      extensions: [markdown(), orderedListRenumber],
+      parent: document.body,
+    });
+    views.push(view);
+
+    const line3 = view.state.doc.line(3);
+    view.dispatch({
+      changes: { from: line3.from, to: line3.to + 1, insert: '' },
+      selection: { anchor: line3.from },
+    });
+
+    expect(view.state.doc.toString()).toBe('1. thing\n2. thing2\n3. thing4');
+  });
+
+  it('does not act on selection-only transactions', () => {
+    const doc = '1. a\n3. b';
+    const view = new EditorView({
+      doc,
+      extensions: [markdown(), orderedListRenumber],
+      parent: document.body,
+    });
+    views.push(view);
+
+    view.dispatch({ selection: { anchor: 0 } });
+    expect(view.state.doc.toString()).toBe(doc);
   });
 });
 

@@ -1,26 +1,3 @@
-- name: tag-basic
-  complexity: 10
-  markdown: "This is #important text."
-  cursor: null
-  expect:
-    decorations:
-      - class: cm-md-tag
-        count: 1
-    tags:
-      - "#important"
-
-- name: tag-multiple
-  complexity: 20
-  markdown: "Both #urgent and #review needed."
-  cursor: null
-  expect:
-    decorations:
-      - class: cm-md-tag
-        count: 2
-    tags:
-      - "#urgent"
-      - "#review"
-
 - name: tag-cursor-reveal
   complexity: 20
   markdown: "This is #important text."

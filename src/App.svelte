@@ -2,7 +2,7 @@
   import NotesShell from './components/NotesShell.svelte';
   import TitleBar from './components/TitleBar.svelte';
   import CrashReportDialog from './components/CrashReportDialog.svelte';
-  import { hasFileSystem, getFS, isDesktop, isLinux } from '$lib/platform';
+  import { hasFileSystem, getFS, getPlatformFS, isDesktop, isLinux } from '$lib/platform';
 
   const showTitlebar = isDesktop && isLinux;
   if (showTitlebar) {
@@ -19,6 +19,10 @@
   let hash = $state(window.location.hash.slice(1) || '/');
   let initialized = $state(false);
   let error: string | null = $state(null);
+  // Visible step-by-step trace for diagnosing init hangs on real devices
+  // where attaching Web Inspector is impractical. Surfaced in the loading
+  // screen overlay until `initialized = true`.
+  let initStep = $state('booting');
 
   let pendingCrashReports: CrashReport[] = $state([]);
   let showCrashDialog = $state(false);
@@ -48,49 +52,85 @@
     }
     window.addEventListener('hashchange', onHashChange);
 
-    async function init(): Promise<void> {
+    let currentLabel = '';
+    let labelStartedAt = 0;
+    function setStep(label: string): void {
+      currentLabel = label;
+      labelStartedAt = Date.now();
+      initStep = label;
+    }
+    const watchdog = window.setInterval(() => {
+      if (!currentLabel) return;
+      const elapsed = ((Date.now() - labelStartedAt) / 1000).toFixed(1);
+      initStep = `${currentLabel} (${elapsed}s)`;
+    }, 500);
+    async function trace<T>(label: string, p: Promise<T>): Promise<T> {
+      setStep(label);
       try {
-        const [, prefs] = await Promise.all([
-          (hasFileSystem || import.meta.env.DEV) ? initNotes().then(() => {
-            if (import.meta.env.DEV || import.meta.env.VITE_INCLUDE_TEST_HOOKS === 'true') {
-              const fs = getFS();
-              (window as any).__testNotes = {
-                createNote,
-                getAllNotes,
-                _injectTestNote,
-                listNoteFiles: () => fs.listNoteFiles(),
-                readNote: (id: string) => fs.readNote(id),
-                writeNote: (id: string, content: string, modifiedAtMs?: number) => fs.writeNote(id, content, modifiedAtMs),
-                deleteNoteFile: (id: string) => fs.deleteNoteFile(id),
-                deleteAllContent: () => fs.deleteAllContent(),
-                noteExists: (id: string) => fs.noteExists(id),
-              };
-              installTestSync();
-              installTestInference();
+        return await p;
+      } finally {
+        if (currentLabel === label) currentLabel = '';
+      }
+    }
+
+    async function init(): Promise<void> {
+      // CRITICAL: render the shell synchronously. Anything else — even
+      // a dynamic import for the platform FS module — runs in the
+      // background. Past hangs accumulated whenever something was
+      // awaited before `initialized = true`: bootstrapSearchIndex,
+      // scanNotePreviewsWithBodies, loadPreferences, getPlatformFS.
+      initialized = true;
+      clearInterval(watchdog);
+
+      void getPlatformFS().catch((e) => console.warn('getPlatformFS failed:', e));
+
+      // ── Background work — none of these block the UI ─────────────
+      void (async () => {
+        try {
+          const prefs = await loadPreferences();
+          await applyThemePreference(prefs.appearance.theme);
+          stopWatchingSystemTheme?.();
+          stopWatchingSystemTheme = watchSystemThemeTauri((tauriTheme) => {
+            const latestPrefs = getCachedPreferences();
+            if (latestPrefs.appearance.theme === 'auto') {
+              void applyThemePreference('auto', tauriTheme);
             }
-          }) : Promise.resolve(),
-          loadPreferences(),
-        ]);
-        await applyThemePreference(prefs.appearance.theme);
-        stopWatchingSystemTheme?.();
-        stopWatchingSystemTheme = watchSystemThemeTauri((tauriTheme) => {
-          const latestPrefs = getCachedPreferences();
-          if (latestPrefs.appearance.theme === 'auto') {
-            void applyThemePreference('auto', tauriTheme);
+          });
+        } catch (e) {
+          console.warn('Theme/prefs init failed:', e);
+        }
+      })();
+
+      if (hasFileSystem || import.meta.env.DEV) {
+        initNotes((label) => { initStep = label; }).then(() => {
+          if (import.meta.env.DEV || import.meta.env.VITE_INCLUDE_TEST_HOOKS === 'true') {
+            const fs = getFS();
+            (window as any).__testNotes = {
+              createNote,
+              getAllNotes,
+              _injectTestNote,
+              listNoteFiles: () => fs.listNoteFiles(),
+              readNote: (id: string) => fs.readNote(id),
+              writeNote: (id: string, content: string, modifiedAtMs?: number) => fs.writeNote(id, content, modifiedAtMs),
+              deleteNoteFile: (id: string) => fs.deleteNoteFile(id),
+              deleteAllContent: () => fs.deleteAllContent(),
+              noteExists: (id: string) => fs.noteExists(id),
+            };
+            installTestSync();
+            installTestInference();
           }
+        }).catch((e) => {
+          console.warn('initNotes failed:', e);
         });
+      }
 
-        initialized = true;
-
-        // Crash reporting init (runs after notes init so filesystem is ready)
+      void (async () => {
         try {
           await initCrashReporting();
         } catch (e) {
           console.warn('Crash reporting init failed:', e);
         }
-      } catch (e) {
-        error = e instanceof Error ? e.message : String(e);
-      }
+      })();
     }
     init();
 
@@ -181,6 +221,7 @@
 {:else}
   <div class="loading-screen">
     <div class="loading-spinner"></div>
+    <div class="loading-step">{initStep}</div>
   </div>
 {/if}
 
@@ -197,8 +238,10 @@
     position: fixed;
     inset: 0;
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
+    gap: 12px;
     background: var(--color-bg);
   }
 
@@ -209,6 +252,16 @@
     border-top-color: var(--color-primary);
     border-radius: 50%;
     animation: loading-spin 0.8s linear infinite;
+  }
+
+  .loading-step {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11px;
+    color: var(--color-muted, #888);
+    text-align: center;
+    padding: 0 16px;
+    max-width: 90vw;
+    word-break: break-word;
   }
 
   @keyframes loading-spin {
