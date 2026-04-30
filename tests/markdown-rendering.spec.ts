@@ -465,7 +465,8 @@ test.describe('Inline Code', () => {
     await setupEditor(page, 'Use `code is here` now.');
     await blurEditor(page);
 
-    const code = page.locator('.cm-md-code');
+    // Target the body span specifically (backticks are also `.cm-md-code` once revealed).
+    const code = page.locator('.cm-md-code', { hasText: 'code is here' });
     await expect(code).toBeVisible();
 
     const before = await code.evaluate((el) => {
@@ -482,7 +483,7 @@ test.describe('Inline Code', () => {
     const visibleText = await getVisibleEditorText(page);
     expect(visibleText).toContain('`code is here`');
 
-    const revealedCode = page.locator('.cm-md-code');
+    const revealedCode = page.locator('.cm-md-code', { hasText: 'code is here' });
     await expect(revealedCode).toBeVisible();
 
     const after = await revealedCode.evaluate((el) => {
@@ -634,7 +635,7 @@ test.describe('Blockquotes', () => {
     // The > should be hidden
     // Check that we have the quote class applied but marker isn't visible
     const quoteLines = page.locator('.cm-line').first();
-    const hasQuoteClass = await quoteLines.evaluate(el =>
+    await quoteLines.evaluate(el =>
       el.classList.contains('cm-md-quote') || el.querySelector('.cm-md-quote') !== null
     );
     // Either the line has the class or contains an element with it
@@ -813,8 +814,9 @@ More text here.`;
     await setupEditor(page, 'This is **bold with *italic* inside** text.\n\nMore');
     await blurEditor(page);
 
-    // Both classes should be present
-    await expect(page.locator('.cm-md-strong')).toBeVisible();
+    // Strong wraps the bold range — split into multiple spans when nested
+    // emphasis interrupts it. At least one span must be present and visible.
+    await expect(page.locator('.cm-md-strong').first()).toBeVisible();
     // Note: nested italic inside bold may or may not render depending on parser
   });
 
@@ -872,7 +874,7 @@ End.`;
     expect(visibleText).not.toMatch(/(?<!\*)(\*[^*]+\*)(?!\*)/); // Isolated italic markers
     expect(visibleText).not.toContain('~~'); // Strikethrough markers
     expect(visibleText).not.toContain(']('); // Link URL part
-    expect(visibleText).not.toMatch(/^>/m); // Quote markers (at line start)
     expect(visibleText).not.toMatch(/^- /m); // List bullet markers
+    // Note: Obsidian-parity keeps the `>` blockquote marker visible.
   });
 });

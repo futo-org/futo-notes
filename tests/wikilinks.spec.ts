@@ -90,8 +90,10 @@ test.describe('Wikilink Decorations', () => {
 
   test('wikilink shows raw syntax when cursor is on the line', async ({ page }) => {
     await setupEditor(page, '[[my note]]');
-    const wikilink = page.locator('.cm-md-wikilink');
-    await expect(wikilink).toHaveCount(0);
+    const visibleText = await page.locator('.cm-content').evaluate(
+      (el) => (el as HTMLElement).innerText
+    );
+    expect(visibleText).toContain('[[my note]]');
   });
 
   test('wikilink has data-wikilink attribute', async ({ page }) => {
@@ -157,7 +159,6 @@ test.describe('Wikilink Navigation', () => {
     expect(cursor.lineText).toBe('[[FUTO Notes bugs]]');
     expect(cursor.line).toBe(0);
     expect(cursor.ch).toBe('[[FUTO Notes bugs]]'.length);
-    await expect(page.locator('.cm-md-wikilink')).toHaveCount(0);
     await expect(page.locator('.cm-line').first()).toContainText('[[FUTO Notes bugs]]');
   });
 
@@ -178,7 +179,6 @@ test.describe('Wikilink Navigation', () => {
     expect(cursor.lineText).toBe('write more of [[Visions of FUTO Notes]]');
     expect(cursor.line).toBe(0);
     expect(cursor.ch).toBe('write more of [[Visions of FUTO Notes]]'.length);
-    await expect(page.locator('.cm-md-wikilink')).toHaveCount(0);
     await expect(page.locator('.cm-line').first()).toContainText('write more of [[Visions of FUTO Notes]]');
   });
 

@@ -206,24 +206,9 @@ const revealCases: SelectionRevealCase[] = [
     drag: { kind: 'text', startText: 'Quote', endText: 'text' },
     assertVisibleTextSyntax: false,
   },
-  {
-    name: 'unordered list',
-    markdown: '- List item',
-    rawSyntax: '- List item',
-    drag: { kind: 'text', startText: 'List', endText: 'item' },
-  },
-  {
-    name: 'ordered list',
-    markdown: '1. Ordered item',
-    rawSyntax: '1. Ordered item',
-    drag: { kind: 'text', startText: 'Ordered', endText: 'item' },
-  },
-  {
-    name: 'task list',
-    markdown: '- [x] Task done',
-    rawSyntax: '- [x] Task done',
-    drag: { kind: 'text', startText: 'Task', endText: 'done' },
-  },
+  // List items deliberately excluded: Obsidian-parity keeps the bullet/number
+  // widget rendered even on the cursor line / during selection. See
+  // src/lib/liveMarkdownTransform.ts (`ListItem deliberately excluded`).
   {
     name: 'fenced code block',
     markdown: '```ts\nconst value = 1;\n```',
@@ -583,10 +568,12 @@ test.describe('Markdown selection reveal timing', () => {
   });
 
   for (const direction of ['forward', 'backward'] as const) {
-    test(`inline tag decoration stays during ${direction} drag and drops after mouseup`, async ({ page }) => {
+    test(`inline tag decoration is preserved through ${direction} selection`, async ({ page }) => {
       await setupEditor(page, 'Remember #project today.');
 
-      await expect(page.locator('.cm-md-tag')).toHaveCount(1);
+      // One tag emits two `cm-md-tag` decorations: marker (`#`) + text (`project`).
+      // Obsidian-parity keeps tag styling even when the selection covers it.
+      await expect(page.locator('.cm-md-tag')).toHaveCount(2);
 
       const points = await getDragPoints(
         page,
@@ -610,8 +597,8 @@ test.describe('Markdown selection reveal timing', () => {
 
       expect.soft(duringSelection.empty, `inline tag should create a ${direction} selection while dragging`).toBe(false);
       expect.soft(afterSelection.empty, `inline tag should keep a ${direction} selection after mouseup`).toBe(false);
-      expect.soft(duringTagCount, `inline tag should keep the tag decoration before ${direction} mouseup`).toBe(1);
-      expect.soft(afterTagCount, `inline tag should drop the tag decoration after ${direction} mouseup`).toBe(0);
+      expect.soft(duringTagCount, `inline tag should keep the tag decoration during ${direction} drag`).toBe(2);
+      expect.soft(afterTagCount, `inline tag should keep the tag decoration after ${direction} mouseup`).toBe(2);
     });
   }
 });

@@ -171,10 +171,13 @@ test.describe('Tag System', () => {
     await seedNote(page, 'inline tags', 'This note has an #inline tag in it.');
     await blurEditor(page);
 
-    // The inline tag should have the cm-md-tag class
-    const tagElement = page.locator('.cm-md-tag');
-    await expect(tagElement).toBeVisible({ timeout: 5000 });
-    await expect(tagElement).toContainText('#inline');
+    // Each tag emits two `cm-md-tag` decorations: marker (`#`) + text.
+    const marker = page.locator('.cm-md-tag.cm-md-tag-marker');
+    const textPart = page.locator('.cm-md-tag.cm-md-tag-text');
+    await expect(marker).toBeVisible({ timeout: 5000 });
+    await expect(textPart).toBeVisible({ timeout: 5000 });
+    await expect(marker).toHaveText('#');
+    await expect(textPart).toHaveText('inline');
   });
 
   test('Sidebar tag view shows tags and notes', async ({ page }) => {
