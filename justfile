@@ -62,15 +62,42 @@ android-build:
 ios-dev:
   #!/usr/bin/env bash
   set -euo pipefail
-  # iOS devices can't reach the Mac's 127.0.0.1, so bind vite to the LAN IP.
-  # cargo tauri ios dev doesn't auto-detect — set TAURI_DEV_HOST ourselves.
-  HOST=$(ipconfig getifaddr en0 || ipconfig getifaddr en1 || true)
-  if [ -z "${HOST}" ]; then
-    echo "Error: could not determine Mac's LAN IP from en0/en1. Is Wi-Fi on?"
-    exit 1
+  # Prefer a connected physical iPhone; fall back to a booted simulator.
+  # Devices need the Mac's LAN IP for the dev server (127.0.0.1 isn't reachable
+  # from the device); simulators reach 127.0.0.1 directly and skip code signing.
+  DEVFILE=$(mktemp /tmp/devices.XXXXXX.json)
+  xcrun devicectl list devices --json-output "$DEVFILE" >/dev/null 2>&1 || true
+  PHYSICAL=$(python3 -c "
+  import json, sys
+  try:
+      data = json.load(open('$DEVFILE'))
+  except Exception:
+      sys.exit(0)
+  for d in data.get('result', {}).get('devices', []):
+      conn = d.get('connectionProperties', {})
+      if conn.get('transportType'):
+          name = d.get('deviceProperties', {}).get('name', '')
+          print(name)
+          break
+  ")
+  rm -f "$DEVFILE"
+  if [ -n "${PHYSICAL}" ]; then
+    HOST=$(ipconfig getifaddr en0 || ipconfig getifaddr en1 || true)
+    if [ -z "${HOST}" ]; then
+      echo "Error: physical device '${PHYSICAL}' is connected but couldn't determine Mac's LAN IP from en0/en1. Is Wi-Fi on?"
+      exit 1
+    fi
+    echo "iOS dev: physical device '${PHYSICAL}' via ${HOST}"
+    cd apps/tauri && TAURI_DEV_HOST="${HOST}" cargo tauri ios dev "${PHYSICAL}" --host "${HOST}" --config src-tauri/tauri.ios.conf.json --config src-tauri/tauri.ios.dev.conf.json
+  else
+    SIM=$(xcrun simctl list devices booted | awk -F'[()]' '/Booted/ { gsub(/^[[:space:]]+|[[:space:]]+$/, "", $1); print $1; exit }')
+    if [ -z "${SIM}" ]; then
+      echo "No booted iOS simulator. Boot one with: open -a Simulator"
+      exit 1
+    fi
+    echo "iOS dev: simulator '${SIM}'"
+    cd apps/tauri && cargo tauri ios dev "${SIM}" --config src-tauri/tauri.ios.conf.json --config src-tauri/tauri.ios.dev.conf.json
   fi
-  echo "iOS dev host: ${HOST}"
-  cd apps/tauri && TAURI_DEV_HOST="${HOST}" cargo tauri ios dev --host "${HOST}" --config src-tauri/tauri.ios.conf.json --config src-tauri/tauri.ios.dev.conf.json
 
 ios-offline:
   #!/usr/bin/env bash
@@ -151,6 +178,49 @@ test-desktop-smoke:
 test-rust:
   mkdir -p dist
   cd apps/tauri/src-tauri && cargo test
+
+# Factory: compare our editor to Obsidian's, scenario by scenario.
+# See factory/AGENTS.md.
+factory-judge *args:
+  pnpm exec tsx factory/judge/run.ts --no-moves {{args}}
+
+factory-judge-headed *args:
+  pnpm exec tsx factory/judge/run.ts --no-moves --headed {{args}}
+
+# Boot a long-running judge: Obsidian + chromium stay up, listening on
+# factory/captures/daemon.sock. Use `factory-run`, `factory-watch`, and
+# `factory-down` to drive it. Foreground process — Ctrl-C tears down.
+factory-up *args:
+  pnpm exec tsx factory/judge/run.ts daemon {{args}}
+
+# Send a one-shot run to the daemon and stream divergences as they
+# happen. Defaults to --no-moves like factory-judge.
+factory-run *args:
+  pnpm exec tsx factory/judge/run.ts run --no-moves {{args}}
+
+# Re-run on every save of editor source files. Talks to the running
+# daemon and reloads the stonefruit page before each run so HMR drift
+# can't lie to you.
+factory-watch *args:
+  pnpm exec tsx factory/judge/run.ts watch --no-moves {{args}}
+
+factory-down:
+  pnpm exec tsx factory/judge/run.ts down
+
+# Phase-1 visual oracle: inject a neutral theme into both editors,
+# screenshot every scenario in the curated visual set, run a pixel
+# diff, and emit factory/captures/visual-report.html. Pair with
+# `just factory-up` (daemon must be running). After the run, ask
+# Claude Code to "review the visual report" for an LLM-judge pass.
+factory-visual *args:
+  pnpm exec tsx factory/judge/run.ts run --no-moves --visual-only {{args}}
+
+factory-summary:
+  @node -e "const r = require('./factory/captures/last-run.json'); \
+    console.log(JSON.stringify(r.summary, null, 2)); \
+    const fail = r.reports.filter(x => x.divergences.length).sort((a,b) => b.divergences.length - a.divergences.length); \
+    console.log('\\nWorst scenarios:'); \
+    for (const x of fail.slice(0, 15)) console.log(' ', String(x.divergences.length).padStart(3), x.name);"
 
 check:
   pnpm run lint

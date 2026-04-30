@@ -14,7 +14,6 @@ import {
 } from '$lib/notes.svelte';
 import { sanitizeFilename } from '$lib/utils';
 import { FORBIDDEN_CHARS_RE, validateTitle } from '@futo-notes/shared';
-import { trackOpen } from '$lib/engagement';
 import { navigate } from '../router';
 import type { NotePreview } from '../types';
 import type { WriteSuppressor } from '$lib/writeSuppression';
@@ -330,7 +329,6 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
         title = meta?.title || id;
         savedTitle = title;
         deps.setEditorContent(loadedContent);
-        trackOpen(id);
         requestAnimationFrame(() => {
           if (loadVersion !== noteLoadVersion) return;
           autoResizeTitleTextarea();

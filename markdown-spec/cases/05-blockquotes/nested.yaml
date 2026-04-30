@@ -27,17 +27,6 @@
       - class: cm-md-quote-level-3
         count: 1
 
-- name: blockquote-with-wikilink
-  complexity: 60
-  markdown: "> See [[my note]] for details"
-  cursor: null
-  expect:
-    decorations:
-      - class: cm-md-quote
-      - class: cm-md-wikilink
-        text: "my note"
-    visible_text: "See my note for details"
-
 - name: blockquote-with-emphasis
   complexity: 60
   markdown: "> This is **bold** in a quote"

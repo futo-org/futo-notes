@@ -114,23 +114,26 @@ describe('liveMarkdownTransform decorations', () => {
 
   describe('inline tags', () => {
     it('applies cm-md-tag class to hashtags', () => {
-      // #project at positions 6-14
+      // #project at positions 6-14. Each tag emits two cm-md-tag
+      // decorations: the `#` marker (6..7) and the text (7..14), to
+      // mirror Obsidian's `cm-hashtag-begin` / `cm-hashtag-end` split.
       const view = setup('hello #project world');
       const tags = withClass(collectDecos(view), 'cm-md-tag');
-      expect(tags).toHaveLength(1);
-      expect(tags[0]).toMatchObject({ from: 6, to: 14 });
+      expect(tags).toHaveLength(2);
+      expect(tags[0]).toMatchObject({ from: 6, to: 7 });
+      expect(tags[1]).toMatchObject({ from: 7, to: 14 });
     });
 
-    it('skips tags in header block and hides those lines', () => {
-      // Header block: "#tag1 #tag2\n" + empty separator "\n"
-      // endOffset = 13, so #tag1 (0) and #tag2 (6) are skipped
-      // #tag3 at position 19 is after the block
+    it('decorates header-block tags and still hides those lines', () => {
+      // Header block tags get the same cm-md-tag styling as inline tags
+      // — matches Obsidian's behavior. The header block lines get an
+      // additional cm-header-tag-hidden line decoration to hide them.
       const view = setup('#tag1 #tag2\n\nhello #tag3 world');
       const all = collectDecos(view);
 
+      // 3 tags × 2 decorations each (marker + text) = 6 cm-md-tag.
       const tags = withClass(all, 'cm-md-tag');
-      expect(tags).toHaveLength(1);
-      expect(tags[0]).toMatchObject({ from: 19, to: 24 });
+      expect(tags).toHaveLength(6);
 
       // header block lines get cm-header-tag-hidden line decorations
       const hiddenLines = withClass(all, 'cm-header-tag-hidden');
@@ -145,8 +148,9 @@ describe('liveMarkdownTransform decorations', () => {
     });
 
     it('decorates multiple tags on one line', () => {
+      // 2 tags × 2 decorations (marker + text) = 4 cm-md-tag.
       const view = setup('hello #a #bc world');
-      expect(withClass(collectDecos(view), 'cm-md-tag')).toHaveLength(2);
+      expect(withClass(collectDecos(view), 'cm-md-tag')).toHaveLength(4);
     });
   });
 
@@ -189,7 +193,8 @@ describe('liveMarkdownTransform decorations', () => {
 
       const check = () => {
         expect(withClass(collectDecos(view), 'cm-md-wikilink')).toHaveLength(1);
-        expect(withClass(collectDecos(view), 'cm-md-tag')).toHaveLength(1);
+        // 1 tag × (marker + text) = 2 cm-md-tag decorations.
+        expect(withClass(collectDecos(view), 'cm-md-tag')).toHaveLength(2);
       };
 
       check(); // initial

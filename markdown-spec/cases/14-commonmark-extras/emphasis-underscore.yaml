@@ -1,0 +1,43 @@
+- name: italic-underscore-basic
+  complexity: 10
+  markdown: "This is _italic text_ here."
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-emphasis
+        text: "italic text"
+    visible_text: "This is italic text here."
+
+- name: bold-underscore-basic
+  complexity: 10
+  markdown: "This is __bold text__ here."
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-strong
+        text: "bold text"
+    visible_text: "This is bold text here."
+
+- name: bold-italic-underscore-basic
+  complexity: 20
+  markdown: "This is ___bold italic___ here."
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-emphasis
+      - class: cm-md-strong
+    visible_text: "This is bold italic here."
+
+- name: emphasis-mixed-marker-types
+  complexity: 25
+  markdown: "Mix _italic_ and *italic* and **bold** and __bold__."
+  cursor: null
+  expect:
+    visible_text: "Mix italic and italic and bold and bold."
+
+- name: underscore-in-word-not-italic
+  complexity: 30
+  markdown: "snake_case_variable should not italicize."
+  cursor: null
+  expect:
+    visible_text: "snake_case_variable should not italicize."

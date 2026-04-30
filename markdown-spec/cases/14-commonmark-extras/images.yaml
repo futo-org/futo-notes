@@ -1,0 +1,38 @@
+- name: image-basic
+  complexity: 20
+  markdown: "![alt text](https://example.com/cat.png)"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-image-widget
+
+- name: image-with-title
+  complexity: 25
+  markdown: '![alt](https://example.com/x.png "A title")'
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-image-widget
+
+- name: image-empty-alt
+  complexity: 20
+  markdown: "![](https://example.com/cat.png)"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-image-widget
+
+- name: image-relative-path
+  complexity: 25
+  markdown: "![diagram](./images/diagram.png)"
+  cursor: null
+  expect:
+    decorations:
+      - class: cm-md-image-widget
+
+- name: image-alongside-text
+  complexity: 30
+  markdown: "Here is ![cat](https://example.com/cat.png) inline."
+  cursor: null
+  expect:
+    visible_text_contains: "Here is"

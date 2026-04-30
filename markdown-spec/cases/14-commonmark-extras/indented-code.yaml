@@ -1,0 +1,24 @@
+- name: indented-code-basic
+  complexity: 25
+  markdown: |
+    A paragraph.
+
+        const x = 1;
+        const y = 2;
+
+    Back to prose.
+  cursor: null
+  expect:
+    visible_text_contains: "const x = 1"
+
+- name: indented-code-mixed-with-list
+  complexity: 35
+  markdown: |
+    - First item
+
+          code under list
+
+    - Second item
+  cursor: null
+  expect:
+    visible_text_contains: "code under list"

@@ -13,5 +13,7 @@
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>FUTO Notes connects to a sync server on your local network.</string>
 </dict>
 </plist>

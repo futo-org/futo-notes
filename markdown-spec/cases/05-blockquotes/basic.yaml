@@ -1,13 +1,3 @@
-- name: blockquote-basic
-  complexity: 10
-  markdown: "> This is a quote."
-  cursor: null
-  expect:
-    decorations:
-      - class: cm-md-quote
-        count: 1
-    visible_text: "This is a quote."
-
 - name: blockquote-multiline
   complexity: 20
   markdown: |

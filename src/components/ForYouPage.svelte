@@ -1,7 +1,6 @@
 <script lang="ts">
   import { getContext } from 'svelte';
   import { APP_CONTEXT_KEY, type AppContext } from '$lib/appContext.svelte';
-  import { getEngagementData } from '$lib/engagement';
   import { getForYouNotes } from '$lib/forYou';
   import { isMobile } from '$lib/platform';
   import { PenLine } from '@lucide/svelte';
@@ -17,7 +16,7 @@
 
   let { onbrowse, onquickcapture }: Props = $props();
 
-  const forYouNotes = $derived(getForYouNotes(appCtx.notes, getEngagementData()));
+  const forYouNotes = $derived(getForYouNotes(appCtx.notes));
 
   function handleCardClick(id: string): void {
     navigate(`/note/${encodeURIComponent(id)}`);

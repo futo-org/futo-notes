@@ -1,0 +1,20 @@
+- name: entity-named
+  complexity: 20
+  markdown: "AT&amp;T has &lt;markup&gt; in it."
+  cursor: null
+  expect:
+    visible_text_contains: "AT"
+
+- name: entity-numeric-decimal
+  complexity: 20
+  markdown: "&#65;&#66;&#67; spells ABC."
+  cursor: null
+  expect:
+    visible_text_contains: "spells ABC"
+
+- name: entity-numeric-hex
+  complexity: 25
+  markdown: "Snowman: &#x2603; appears."
+  cursor: null
+  expect:
+    visible_text_contains: "Snowman"

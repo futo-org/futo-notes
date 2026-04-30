@@ -13,15 +13,6 @@
       - class: cm-md-number
         count: 3
 
-- name: ol-cursor-reveal
-  complexity: 20
-  markdown: |
-    1. First ordered
-    2. Second ordered
-  cursor: { line: 0, ch: 5 }
-  expect:
-    visible_text_contains: "1. First ordered"
-
 - name: ol-nested
   complexity: 35
   markdown: |

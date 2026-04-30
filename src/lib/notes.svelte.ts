@@ -7,7 +7,6 @@ import {
   getUniqueNoteId
 } from './fileSystem';
 import { ensureNotesFolder, getFS, getPlatformFS } from './platform';
-import { loadEngagement, trackEdit, removeEngagement, renameEngagement } from './engagement';
 import { pauseSyncV2, resumeSyncV2, waitForSyncIdleV2 } from './autoSyncV2';
 import { extractTags } from '@futo-notes/shared';
 import { scanNotePreviewsWithBodies, makePreview } from './notesIndex';
@@ -32,6 +31,12 @@ const RECONCILE_CONCURRENCY = 8;
 let notesCache = $state<NotePreview[]>([]);
 let initialized = false;
 
+// Tracks the in-flight (or completed) search-index bootstrap so search()
+// can wait for it without blocking initNotes() / UI rendering on it.
+// initNotes() returns as soon as notesCache is populated; the index is
+// built in the background. See AGENTS.md "Editor responsiveness is sacred".
+let searchIndexReady: Promise<void> | null = null;
+
 const sortedNotes = $derived.by(() =>
   [...notesCache].sort(
     (a, b) => b.modificationTime - a.modificationTime || a.id.localeCompare(b.id),
@@ -43,17 +48,35 @@ export function _injectTestNote(id: string, title: string): void {
   notesCache.push({ id, title, preview: '', modificationTime: Date.now(), tags: [] });
 }
 
-export async function initNotes(): Promise<void> {
+export async function initNotes(onStep?: (label: string) => void): Promise<void> {
   if (initialized) return;
 
+  onStep?.('initNotes: getPlatformFS');
   await getPlatformFS(); // Initialize platform FS before any file operations
+  onStep?.('initNotes: ensureNotesFolder');
   await ensureNotesFolder();
 
+  onStep?.('initNotes: scanNotePreviewsWithBodies');
   const { previews, freshBodies } = await scanNotePreviewsWithBodies(getFS());
   notesCache = previews;
-  await loadEngagement();
-  await bootstrapSearchIndex(freshBodies);
+
+  // Build the search index in the background. Search awaits
+  // searchIndexReady, but the UI can render the note list immediately.
+  // Past hangs ("stuck on bootstrapSearchIndex") were not a fast-path
+  // bug to optimize away — they were UI gated on background I/O.
+  searchIndexReady = bootstrapSearchIndex(freshBodies).catch((err) => {
+    console.warn('Search index bootstrap failed:', err);
+  });
+
+  onStep?.('initNotes: done');
   initialized = true;
+}
+
+/** Test/diagnostic helper: resolve when the in-flight (or most recent)
+ * bootstrap finishes. Always-defined so tests can `await` regardless
+ * of whether bootstrap is still running. */
+export function whenSearchIndexReady(): Promise<void> {
+  return searchIndexReady ?? Promise.resolve();
 }
 
 /**
@@ -151,7 +174,11 @@ async function reconcileSearchIndex(freshBodies?: Map<string, string>): Promise<
 export async function refreshNotesFromStorage(): Promise<void> {
   const { previews, freshBodies } = await scanNotePreviewsWithBodies(getFS());
   notesCache = previews;
-  await reconcileSearchIndex(freshBodies);
+  // Serialize after any in-flight bootstrap — otherwise the bootstrap
+  // pool and reconcile pool race on the same MiniSearch / mtimeMap.
+  const prior = searchIndexReady ?? Promise.resolve();
+  searchIndexReady = prior.then(() => reconcileSearchIndex(freshBodies));
+  await searchIndexReady;
   void persistIndex();
 }
 
@@ -195,7 +222,6 @@ export async function updateNote(
 
   if (originalId && originalId !== finalId) {
     mtime = await renameNoteFile(originalId, finalId, content, overrideMtime);
-    renameEngagement(originalId, finalId);
     removeFromSearchIndex(originalId);
   } else {
     mtime = await writeNote(finalId, content, overrideMtime);
@@ -212,14 +238,12 @@ export async function updateNote(
   if (idx >= 0) notesCache[idx] = preview; else notesCache.push(preview);
 
   addToSearchIndex({ id: finalId, title: finalId, body: content, mtime });
-  trackEdit(finalId);
 
   return { id: finalId, mtime };
 }
 
 export async function deleteNote(id: string): Promise<void> {
   await deleteNoteFile(id);
-  removeEngagement(id);
   removeFromSearchIndex(id);
   notesCache = notesCache.filter(n => n.id !== id);
   void persistIndex();
@@ -231,9 +255,13 @@ export async function deleteAllNotes(): Promise<void> {
   pauseSyncV2();
   try {
     await waitForSyncIdleV2();
+    // Wait for any in-flight bootstrap to finish before clearing — otherwise
+    // a stale pool read can re-add a deleted doc after clearSearchIndex().
+    if (searchIndexReady) await searchIndexReady;
     await deleteAllContent();
     notesCache = [];
     clearSearchIndex();
+    searchIndexReady = Promise.resolve();
     void persistIndex();
   } finally {
     resumeSyncV2();
@@ -244,7 +272,9 @@ export async function search(query: string): Promise<SearchResultItem[]> {
   if (!query.trim()) {
     return getAllNotes().map((note) => ({ note, snippet: null }));
   }
-  // initNotes() always bootstraps the search index, so trust its results.
+  // Bootstrap runs in the background; wait for it so results are complete
+  // for the first search after launch.
+  if (searchIndexReady) await searchIndexReady;
   const hits = searchNotes(query);
   const results: SearchResultItem[] = [];
   for (const hit of hits) {

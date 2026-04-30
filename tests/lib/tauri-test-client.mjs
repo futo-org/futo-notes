@@ -123,15 +123,7 @@ export class TauriTestClient {
   }
 
   async typeInEditor(text) {
-    return executeJs(this.ws, `(() => {
-      const content = document.querySelector('.cm-content');
-      if (!(content instanceof HTMLElement)) {
-        throw new Error('editor content not found');
-      }
-      content.focus();
-      document.execCommand('insertText', false, ${JSON.stringify(text)});
-      return content.textContent ?? '';
-    })()`);
+    return executeJs(this.ws, `window.__notesShellTest.typeInEditor(${JSON.stringify(text)})`);
   }
 
   async flushSave() {

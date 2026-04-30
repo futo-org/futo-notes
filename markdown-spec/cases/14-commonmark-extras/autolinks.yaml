@@ -1,0 +1,41 @@
+- name: autolink-angle-url
+  complexity: 20
+  markdown: "Visit <https://example.com> please."
+  cursor: null
+  expect:
+    visible_text_contains: "https://example.com"
+
+- name: autolink-angle-email
+  complexity: 25
+  markdown: "Mail <user@example.com> for help."
+  cursor: null
+  expect:
+    visible_text_contains: "user@example.com"
+
+- name: autolink-bare-url-gfm
+  complexity: 25
+  markdown: "Visit https://example.com directly."
+  cursor: null
+  expect:
+    visible_text_contains: "https://example.com"
+
+- name: autolink-bare-www-gfm
+  complexity: 25
+  markdown: "Try www.example.com today."
+  cursor: null
+  expect:
+    visible_text_contains: "www.example.com"
+
+- name: autolink-multiple-urls
+  complexity: 30
+  markdown: "See https://a.com and https://b.com both."
+  cursor: null
+  expect:
+    visible_text_contains: "https://a.com"
+
+- name: autolink-not-in-code
+  complexity: 35
+  markdown: "Source: `https://example.com` should not autolink."
+  cursor: null
+  expect:
+    visible_text_contains: "https://example.com"

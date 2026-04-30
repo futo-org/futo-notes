@@ -1,0 +1,34 @@
+- name: inline-html-span
+  complexity: 30
+  markdown: "Plain text with <span>inline html</span> in it."
+  cursor: null
+  expect:
+    visible_text_contains: "inline html"
+
+- name: inline-html-self-closing
+  complexity: 30
+  markdown: "A line break<br>here."
+  cursor: null
+  expect:
+    visible_text_contains: "here"
+
+- name: inline-html-comment
+  complexity: 30
+  markdown: "Visible <!-- hidden comment --> text."
+  cursor: null
+  expect:
+    visible_text_contains: "Visible"
+
+- name: html-block-div
+  complexity: 35
+  markdown: |
+    Before block.
+
+    <div class="callout">
+      Block-level html
+    </div>
+
+    After block.
+  cursor: null
+  expect:
+    visible_text_contains: "Before block"

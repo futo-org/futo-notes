@@ -17,6 +17,18 @@
   font-weight: 600;
 }
 
+/* Heading line decorations carry font-size + line-height so the
+ * entire line scales with the heading, not just the inner text run.
+ * The `.cm-md-hN` mark below carries family/weight/color for the
+ * text; the line class is what makes wrapped content inside the
+ * heading sit on the correct baseline. */
+.cm-md-h1-line { font-size: 28px !important; line-height: 1.1 !important; }
+.cm-md-h2-line { font-size: 23px !important; line-height: 1.15 !important; }
+.cm-md-h3-line { font-size: 20px !important; line-height: 1.2 !important; }
+.cm-md-h4-line { font-size: 18px !important; line-height: 1.25 !important; }
+.cm-md-h5-line { font-size: 16px !important; line-height: 1.3 !important; }
+.cm-md-h6-line { font-size: 14px !important; line-height: 1.4 !important; }
+
 .cm-md-h1 {
   font-size: 28px;
   line-height: 1.1;
@@ -34,17 +46,34 @@
 
 .cm-md-h4 {
   font-size: 18px;
+  line-height: 1.25;
   color: var(--color-text);
 }
 
 .cm-md-h5 {
   font-size: 16px;
+  line-height: 1.3;
   color: var(--color-muted);
 }
 
 .cm-md-h6 {
   font-size: 14px;
+  line-height: 1.4;
   color: var(--color-muted);
+}
+
+/* Bold inside a heading needs to be heavier than the heading itself
+ * (which is already 700) — otherwise `**bold**` is invisible inside
+ * an h1. CM6 doesn't nest the heading-text mark and the strong mark
+ * (they're siblings on the same .cm-line), so target via the line
+ * class which IS an ancestor. */
+.cm-md-h1-line .cm-md-strong,
+.cm-md-h2-line .cm-md-strong,
+.cm-md-h3-line .cm-md-strong,
+.cm-md-h4-line .cm-md-strong,
+.cm-md-h5-line .cm-md-strong,
+.cm-md-h6-line .cm-md-strong {
+  font-weight: 900;
 }
 
 /* Emphasis */
@@ -210,13 +239,13 @@
   font-style: normal;
 }
 
-/* Keep quote source markers out of layout without using replace decorations.
-   WebKit selection can flicker when dragging across a hidden start-of-line
-   replacement range, while display:none breaks CM's coordinate mapping. */
+/* Keep quote source markers visible-but-transparent. We deliberately
+   *preserve* the inline width (no font-size: 0) so that revealing the
+   marker on cursor doesn't shift the text right. Match Obsidian's
+   `cm-transparent` approach: color goes to rgba(0,0,0,0), the glyph
+   takes layout space but is invisible. */
 .cm-md-quote-marker-hidden {
   color: transparent !important;
-  font-size: 0 !important;
-  letter-spacing: 0 !important;
   pointer-events: none !important;
 }
 

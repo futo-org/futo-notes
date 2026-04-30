@@ -1,0 +1,13 @@
+# Throwaway Obsidian vault recreated each judge run.
+captures/obsidian-vault/
+
+# Daemon IPC socket (created by `factory-up`).
+captures/daemon.sock
+
+# Most-recent run output — overwritten on every `factory-run`.
+captures/last-run.json
+
+# Visual-oracle screenshots and HTML report — regenerated on every
+# `factory-visual` run.
+captures/screenshots/
+captures/visual-report.html

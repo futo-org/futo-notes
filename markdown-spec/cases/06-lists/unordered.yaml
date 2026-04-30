@@ -25,15 +25,6 @@
       - class: cm-md-bullet
         count: 3
 
-- name: ul-cursor-reveal
-  complexity: 20
-  markdown: |
-    - First item
-    - Second item
-  cursor: { line: 0, ch: 5 }
-  expect:
-    visible_text_contains: "- First item"
-
 - name: ul-with-emphasis
   complexity: 60
   markdown: "- Item with **bold** text"

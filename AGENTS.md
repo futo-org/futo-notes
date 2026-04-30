@@ -114,6 +114,7 @@ First call downloads the model (~35 MB + tokenizer) to the app data dir; returns
 
 ## Key Constraints
 
+- **CRITICAL: never gate UI render on filesystem I/O.** `App.svelte` flips `initialized = true` synchronously; theme, prefs, notes, and the search index all load in the background and apply reactively. Past hangs (`bootstrapSearchIndex`, `scanNotePreviewsWithBodies`, `loadPreferences`, even `getPlatformFS`) all came from awaiting something — anything — before flipping `initialized`. iOS `@tauri-apps/plugin-fs` reads (`readTextFile`, `exists`) can hang indefinitely on cold sandboxes; debug builds hit this constantly because they have a separate sandbox (`com.futo.notes.dev` → `~/Documents/fake-notes`) that's frequently fresh/empty. If you find yourself adding `await` before `initialized = true` to "make sure X is ready before render", you are about to reintroduce the bug. Render the shell with empty state; let `$state` updates propagate.
 - **The filename IS the title.** `"grocery list.md"` → title is `"grocery list"`. No case changes, no dash-to-space, no transformations. `sanitizeFilename()` only strips filesystem-breaking characters. Never mutate filenames into titles.
 - **IMPORTANT**: Styles in `@layer(components)` lose to CM6's unlayered CSS. Use `!important` on CodeMirror overrides inside layered CSS.
 - **IMPORTANT**: `pnpm run dev` uses localhost APIs. `pnpm run build` points to production endpoints.

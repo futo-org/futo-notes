@@ -1,0 +1,36 @@
+- name: reference-link-basic
+  complexity: 30
+  markdown: |
+    See [Anthropic][anth] for more.
+
+    [anth]: https://anthropic.com
+  cursor: null
+  expect:
+    visible_text_contains: "Anthropic"
+
+- name: reference-link-collapsed
+  complexity: 30
+  markdown: |
+    Look at [Claude][].
+
+    [Claude]: https://claude.ai
+  cursor: null
+  expect:
+    visible_text_contains: "Claude"
+
+- name: reference-link-shortcut
+  complexity: 30
+  markdown: |
+    Visit [example].
+
+    [example]: https://example.com "Example title"
+  cursor: null
+  expect:
+    visible_text_contains: "example"
+
+- name: reference-link-undefined
+  complexity: 25
+  markdown: "Look at [undefined-ref][nope] please."
+  cursor: null
+  expect:
+    visible_text_contains: "undefined-ref"

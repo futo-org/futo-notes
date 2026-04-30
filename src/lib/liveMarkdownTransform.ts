@@ -45,6 +45,70 @@ export function clearSelectionRevealFreeze(): void {
 }
 
 // Widget Classes
+class ExternalLinkWidget extends WidgetType {
+  // Carries an extra class string so the widget DOM picks up enclosing
+  // emphasis classes (Obsidian's external-link span gets `cm-strong` /
+  // `cm-em` from its parent — SF would otherwise miss bucket parity).
+  constructor(private readonly extraClasses: string = '') {
+    super();
+  }
+
+  toDOM(): HTMLElement {
+    const span = document.createElement('span');
+    span.className = ('cm-md-external-link cm-url ' + this.extraClasses).trim();
+    span.setAttribute('aria-hidden', 'true');
+    return span;
+  }
+
+  eq(other: WidgetType): boolean {
+    return other instanceof ExternalLinkWidget && other.extraClasses === this.extraClasses;
+  }
+
+  ignoreEvent(): boolean {
+    return true;
+  }
+}
+
+// Capitalizes / titlecases known fenced-code language slugs the way
+// Obsidian's live preview labels them ("javascript" → "JavaScript",
+// "python" → "Python"). Falls back to ASCII titlecase for unknown
+// languages so diff coverage is still close to identical.
+const CODE_LANG_LABELS: Record<string, string> = {
+  javascript: 'JavaScript', typescript: 'TypeScript', tsx: 'TypeScript JSX',
+  jsx: 'JavaScript JSX', python: 'Python', ruby: 'Ruby', rust: 'Rust',
+  go: 'Go', java: 'Java', kotlin: 'Kotlin', swift: 'Swift', c: 'C',
+  cpp: 'C++', csharp: 'C#', html: 'HTML', css: 'CSS', json: 'JSON',
+  yaml: 'YAML', xml: 'XML', sql: 'SQL', bash: 'Bash', sh: 'Bash',
+  zsh: 'Zsh', shell: 'Shell', md: 'Markdown', markdown: 'Markdown',
+};
+
+function formatCodeLang(slug: string): string {
+  const key = slug.toLowerCase();
+  if (CODE_LANG_LABELS[key]) return CODE_LANG_LABELS[key];
+  return slug.charAt(0).toUpperCase() + slug.slice(1);
+}
+
+class CodeLanguageLabelWidget extends WidgetType {
+  constructor(private readonly label: string) {
+    super();
+  }
+
+  toDOM(): HTMLElement {
+    const div = document.createElement('div');
+    div.className = 'cm-md-code-lang-label';
+    div.textContent = this.label;
+    return div;
+  }
+
+  eq(other: WidgetType): boolean {
+    return other instanceof CodeLanguageLabelWidget && other.label === this.label;
+  }
+
+  ignoreEvent(): boolean {
+    return false;
+  }
+}
+
 class HorizontalRuleWidget extends WidgetType {
   toDOM(): HTMLElement {
     const hr = document.createElement('div');
@@ -87,7 +151,7 @@ class TaskCheckboxWidget extends WidgetType {
       justify-content: center;
       min-width: 28px;
       min-height: 28px;
-      margin-right: 4px;
+      padding-right: 4px;
       cursor: pointer;
       vertical-align: middle;
     `;
@@ -321,7 +385,11 @@ class BulletWidget extends WidgetType {
     span.className = 'cm-md-bullet';
     const glyphs = ['•', '◦', '▪'];
     span.textContent = glyphs[this.indent % 3];
-    span.style.cssText = `margin-right: 8px; color: #666;`;
+    // padding-right (not margin-right): the caret renders at the
+    // widget's outer box edge, so margin gets ignored visually.
+    // Padding extends the widget's own box, pushing the caret/next
+    // glyph clear of the bullet.
+    span.style.cssText = `padding-right: 8px; color: #666;`;
     return span;
   }
 
@@ -343,7 +411,8 @@ class NumberWidget extends WidgetType {
     const span = document.createElement('span');
     span.className = 'cm-md-number';
     span.textContent = `${this.num}.`;
-    span.style.cssText = `margin-right: 8px; color: #666; font-weight: 500;`;
+    // padding-right, not margin-right — see BulletWidget for rationale.
+    span.style.cssText = `padding-right: 8px; color: #666; font-weight: 500;`;
     return span;
   }
 
@@ -386,7 +455,11 @@ export function getCursorLinesForReveal(
 }
 
 export function isBlockRevealSensitive(nodeName: string): boolean {
-  return /^(ATXHeading|ListItem|FencedCode|CodeBlock|HorizontalRule)/.test(nodeName);
+  // ListItem deliberately excluded: clicking on a bullet should not
+  // reveal the `- `/`1. ` source — Obsidian keeps the styled bullet
+  // widget rendered on cursor lines too. processListItem handles the
+  // cursor-on-line case directly.
+  return /^(ATXHeading|FencedCode|CodeBlock|HorizontalRule)/.test(nodeName);
 }
 
 export function isInlineRevealSensitive(nodeName: string): boolean {
@@ -635,6 +708,17 @@ class LiveMarkdownPlugin implements PluginValue {
     }
   }
 
+  // Reset per buildDecorations() pass — `tree.iterate` visits a nested
+  // Blockquote node once per nest level, so naively emitting markers per
+  // visit duplicates them. Track which lines have already had quote
+  // decorations emitted and skip on subsequent visits.
+  private quoteLinesProcessed: Set<number> = new Set();
+  // Wikilink source ranges — populated up front so `processLink`/etc.
+  // can suppress decorations for inner brackets like `[link](url)`
+  // that fall *inside* a `[[...]]` wikilink (Obsidian folds these into
+  // the wikilink title rather than re-tokenizing them).
+  private wikilinkRanges: Array<{ from: number; to: number }> = [];
+
   private buildDecorations(view: EditorView): DecorationSet {
     if (view.composing || view.compositionStarted) {
       return Decoration.none;
@@ -642,6 +726,8 @@ class LiveMarkdownPlugin implements PluginValue {
 
     const decorations: Array<{ from: number; to: number; value: any }> = [];
     const selectionRanges = view.state.selection.ranges;
+    this.quoteLinesProcessed = new Set();
+    this.wikilinkRanges = this.collectWikilinkRanges(view.state.doc);
 
     // Compute header tag block offset for skipping overlapping decorations
     const headerEndOffset = this.getHeaderEndOffset(view.state.doc);
@@ -658,6 +744,10 @@ class LiveMarkdownPlugin implements PluginValue {
 
         // Skip syntax nodes within the header tag block to avoid overlapping decorations
         if (headerEndOffset > 0 && from < headerEndOffset) return;
+
+        // Skip inline syntax nodes that fall inside a wikilink — the
+        // wikilink title is treated as opaque text by Obsidian.
+        if (nodeName !== 'Document' && this.isInsideWikilink(from, to)) return;
 
         // Skip if selection/caret reveals this block element. The shared
         // predicate handles active mouse-drag suppression and works by source
@@ -690,6 +780,66 @@ class LiveMarkdownPlugin implements PluginValue {
     // Process inline tag styling
     this.processInlineTags(view, decorations, headerEndOffset);
 
+    // Match Obsidian: clip text-class marks around inner replace
+    // ranges. Without this an outer emphasis (e.g., `**heading**` or
+    // `*italic*` wrapping an inner `**bold**`) marks every position in
+    // its range including the inner element's hidden markers, while
+    // Obsidian's spans naturally split when the inner markers are
+    // replaced.
+    const replaceRanges: Array<{ from: number; to: number }> = [];
+    for (const d of decorations) {
+      if (d.value.replace === true && d.value.widget === undefined && d.from < d.to) {
+        // `wrapInsideMark` flags list-marker source hides — they sit
+        // inside their enclosing mark in Obsidian's DOM so don't act
+        // as clip boundaries.
+        if (!d.value.wrapInsideMark) replaceRanges.push({ from: d.from, to: d.to });
+      } else if (d.value.widget !== undefined && d.from < d.to) {
+        // Widgets that *visually replace* their source (bullet `-`,
+        // ordered-list number, task checkbox, HR/image/table) sit
+        // *inside* their enclosing mark span in Obsidian's DOM, so the
+        // mark coverage shouldn't be clipped around them. Wikilink
+        // brackets, in contrast, ARE clip boundaries — Obsidian splits
+        // the surrounding span across the `[[ ]]` markers.
+        const w = d.value.widget;
+        // Match by constructor name rather than `instanceof` — HMR can
+        // reload this module and produce two parallel class identities,
+        // which breaks `instanceof` while leaving the name intact.
+        const wname = w?.constructor?.name ?? '';
+        const wrapInsideMark = (
+          wname === 'BulletWidget' ||
+          wname === 'NumberWidget' ||
+          wname === 'TaskCheckboxWidget' ||
+          wname === 'HorizontalRuleWidget' ||
+          wname === 'ImageWidget' ||
+          wname === 'CodeLanguageLabelWidget' ||
+          wname === 'ExternalLinkWidget'
+        );
+        if (!wrapInsideMark) {
+          replaceRanges.push({ from: d.from, to: d.to });
+        }
+      }
+    }
+    replaceRanges.sort((a, b) => a.from - b.from);
+    const clipMark = (
+      d: { from: number; to: number; value: any },
+    ): Array<{ from: number; to: number; value: any }> => {
+      let pieces: Array<{ from: number; to: number }> = [{ from: d.from, to: d.to }];
+      for (const r of replaceRanges) {
+        if (r.to <= d.from || r.from >= d.to) continue;
+        const next: Array<{ from: number; to: number }> = [];
+        for (const p of pieces) {
+          if (r.to <= p.from || r.from >= p.to) {
+            next.push(p);
+            continue;
+          }
+          if (r.from > p.from) next.push({ from: p.from, to: r.from });
+          if (r.to < p.to) next.push({ from: r.to, to: p.to });
+        }
+        pieces = next;
+      }
+      return pieces.map((p) => ({ from: p.from, to: p.to, value: d.value }));
+    };
+
     // Build decoration ranges
     const ranges: any[] = [];
     for (const d of decorations) {
@@ -704,9 +854,18 @@ class LiveMarkdownPlugin implements PluginValue {
             ranges.push(Decoration.replace({}).range(d.from, d.to));
           }
         } else if (d.value.class !== undefined && d.value.widget === undefined) {
-          // Mark decoration - skip if empty (from === to)
+          // Mark decoration - skip if empty (from === to). Clip the
+          // mark around any inner replace ranges so the rendered span
+          // breaks at the same boundaries as Obsidian's live preview.
+          // Block-level marks (quote-text, heading text, list-task) don't
+          // split around inner widgets in Obsidian — only inline emphasis
+          // and link text do — so target the clip narrowly.
           if (d.from !== d.to) {
-            ranges.push(Decoration.mark(d.value).range(d.from, d.to));
+            for (const piece of clipMark(d)) {
+              if (piece.from < piece.to) {
+                ranges.push(Decoration.mark(piece.value).range(piece.from, piece.to));
+              }
+            }
           }
         } else if (d.value.widget !== undefined && d.from === d.to) {
           // Widget at point - include side if specified
@@ -764,7 +923,13 @@ class LiveMarkdownPlugin implements PluginValue {
   }
 
   private isInlineElement(nodeName: string): boolean {
-    return isInlineRevealSensitive(nodeName);
+    // Drives the early-return in buildDecorations: when the cursor is
+    // inside one of these, skip decoration entirely so the source text
+    // shows through. Links handle cursor reveal inside processLink
+    // (mark decorations + dimmed brackets), so they do *not* belong
+    // here even though `isInlineRevealSensitive(Link)` is still true
+    // for other reveal-aware code paths.
+    return /^(Image|Task)/.test(nodeName);
   }
 
   private isCursorInside(view: EditorView, from: number, to: number): boolean {
@@ -790,7 +955,7 @@ class LiveMarkdownPlugin implements PluginValue {
     } else if (MarkdownParser.isStrikethrough(nodeName)) {
       this.processStrikethrough(from, to, view, decorations);
     } else if (MarkdownParser.isLink(nodeName)) {
-      this.processLink(from, to, text, decorations);
+      this.processLink(from, to, text, view, decorations);
     } else if (MarkdownParser.isImage(nodeName)) {
       this.processImage(from, to, text, decorations);
     } else if (MarkdownParser.isBlockQuote(nodeName)) {
@@ -829,7 +994,15 @@ class LiveMarkdownPlugin implements PluginValue {
         decorations.push({
           from,
           to: markerEnd,
-          value: { class: 'cm-md-inline-marker' }
+          value: { class: `cm-md-inline-marker cm-md-h${level}-marker` }
+        });
+        // Match Obsidian: revealed `#` markers also carry the heading
+        // text class so the styling continues across them (Obsidian's
+        // `cm-header-N` lives on the same span as `cm-formatting-header`).
+        decorations.push({
+          from,
+          to: markerEnd,
+          value: { class: `cm-md-h${level}` }
         });
       }
 
@@ -840,6 +1013,23 @@ class LiveMarkdownPlugin implements PluginValue {
         value: {
           class: `cm-md-h${level}`,
           attributes: { 'data-heading-level': level.toString() }
+        }
+      });
+
+      // Line-level decoration so the WHOLE line (not just the inner
+      // text) gets the heading font-size and line-height. Without it
+      // the line stays at body line-height and the heading text just
+      // overflows or shrinks visually. Mirrors Obsidian's
+      // `HyperMD-header-N` line class.
+      const doc = view.state.doc;
+      const line = doc.lineAt(from);
+      decorations.push({
+        from: line.from,
+        to: line.from,
+        value: {
+          class: `cm-md-h${level}-line`,
+          startSide: 0,
+          endSide: 0,
         }
       });
     }
@@ -875,22 +1065,42 @@ class LiveMarkdownPlugin implements PluginValue {
         });
       } else {
         // Dim the revealed markers so the emphasized text stands out.
+        const markerClass = isStrong
+          ? 'cm-md-inline-marker cm-md-strong-marker'
+          : 'cm-md-inline-marker cm-md-emphasis-marker';
         decorations.push({
           from,
           to: from + markerLength,
-          value: { class: 'cm-md-inline-marker' }
+          value: { class: markerClass }
         });
         decorations.push({
           from: to - markerLength,
           to,
-          value: { class: 'cm-md-inline-marker' }
+          value: { class: markerClass }
+        });
+        // Match Obsidian: when revealed, the marker spans also carry
+        // the emphasis text class so the styling continues visually
+        // across the markers (Obsidian's `cm-em` / `cm-strong` lives
+        // on the same DOM span as `cm-formatting-em`).
+        decorations.push({
+          from,
+          to: from + markerLength,
+          value: { class: cssClass }
+        });
+        decorations.push({
+          from: to - markerLength,
+          to,
+          value: { class: cssClass }
         });
       }
 
-      // Keep emphasis styling active even when markers are revealed.
+      // Emphasis styling spans only the inner text — never the markers
+      // — so the diff against Obsidian (which decorates inner-only)
+      // lines up. The marker decorations above carry the marker classes
+      // and provide the dimming/CSS hooks for the markers themselves.
       decorations.push({
-        from: revealMarkers ? from : from + markerLength,
-        to: revealMarkers ? to : to - markerLength,
+        from: from + markerLength,
+        to: to - markerLength,
         value: { class: cssClass }
       });
     }
@@ -924,18 +1134,30 @@ class LiveMarkdownPlugin implements PluginValue {
         decorations.push({
           from,
           to: from + backticks,
-          value: { class: 'cm-md-inline-marker' }
+          value: { class: 'cm-md-inline-marker cm-md-code-marker' }
         });
         decorations.push({
           from: to - backticks,
           to,
-          value: { class: 'cm-md-inline-marker' }
+          value: { class: 'cm-md-inline-marker cm-md-code-marker' }
+        });
+        // Match Obsidian: revealed code-fence markers also carry the
+        // inline-code text class so the styling continues across them.
+        decorations.push({
+          from,
+          to: from + backticks,
+          value: { class: 'cm-md-code' }
+        });
+        decorations.push({
+          from: to - backticks,
+          to,
+          value: { class: 'cm-md-code' }
         });
       }
 
       decorations.push({
-        from: revealMarkers ? from : from + backticks,
-        to: revealMarkers ? to : to - backticks,
+        from: from + backticks,
+        to: to - backticks,
         value: { class: 'cm-md-code' }
       });
     } else {
@@ -954,15 +1176,27 @@ class LiveMarkdownPlugin implements PluginValue {
 
       for (let lineNum = startLine.number; lineNum <= endLine.number; lineNum++) {
         const line = doc.line(lineNum);
-        const isOpening = lineNum === startLine.number && /^\s*(`{3,}|~{3,})/.test(line.text);
+        const openingMatch = lineNum === startLine.number && line.text.match(/^\s*(`{3,}|~{3,})\s*([A-Za-z0-9_+-]*)\s*$/);
+        const isOpening = !!openingMatch;
         const isClosing = lineNum === endLine.number && lineNum !== startLine.number && /^\s*(`{3,}|~{3,})\s*$/.test(line.text);
 
         if ((isOpening || isClosing) && !cursorInBlock && line.from < line.to) {
-          decorations.push({
-            from: line.from,
-            to: line.to,
-            value: { replace: true }
-          });
+          // Match Obsidian: when the opening fence carries a language
+          // tag, render it as a label widget at the top of the block;
+          // otherwise just hide the fence line.
+          if (isOpening && openingMatch && openingMatch[2]) {
+            decorations.push({
+              from: line.from,
+              to: line.to,
+              value: { widget: new CodeLanguageLabelWidget(formatCodeLang(openingMatch[2])) }
+            });
+          } else {
+            decorations.push({
+              from: line.from,
+              to: line.to,
+              value: { replace: true }
+            });
+          }
         }
 
         let posClass = 'cm-md-code-block';
@@ -1006,19 +1240,32 @@ class LiveMarkdownPlugin implements PluginValue {
       decorations.push({
         from,
         to: from + 2,
-        value: { class: 'cm-md-inline-marker' }
+        value: { class: 'cm-md-inline-marker cm-md-strikethrough-marker' }
       });
       decorations.push({
         from: to - 2,
         to,
-        value: { class: 'cm-md-inline-marker' }
+        value: { class: 'cm-md-inline-marker cm-md-strikethrough-marker' }
+      });
+      // Match Obsidian: revealed `~~` markers also carry the
+      // strikethrough text class so the styling spans them.
+      decorations.push({
+        from,
+        to: from + 2,
+        value: { class: 'cm-md-strikethrough' }
+      });
+      decorations.push({
+        from: to - 2,
+        to,
+        value: { class: 'cm-md-strikethrough' }
       });
     }
 
-    // Keep strikethrough styling active even when markers are revealed.
+    // Strikethrough decoration covers only the inner text (matches
+    // Obsidian's range; markers carry their own decoration above).
     decorations.push({
-      from: revealMarkers ? from : from + 2,
-      to: revealMarkers ? to : to - 2,
+      from: from + 2,
+      to: to - 2,
       value: { class: 'cm-md-strikethrough' }
     });
   }
@@ -1027,6 +1274,7 @@ class LiveMarkdownPlugin implements PluginValue {
     from: number,
     to: number,
     text: string,
+    view: EditorView,
     decorations: Array<{ from: number; to: number; value: any }>
   ): void {
     // Find the ]( boundary. Can't use a simple regex because URLs may
@@ -1037,27 +1285,97 @@ class LiveMarkdownPlugin implements PluginValue {
 
     const textStart = from + 1;
     const textEnd = from + closeBracket;
+    const urlStart = textEnd + 2; // after ](
+    const urlEnd = to - 1;        // before )
+    const reveal = shouldRevealInlineMarkers(view, from, to);
 
-    // Hide opening bracket
-    decorations.push({
-      from,
-      to: from + 1,
-      value: { replace: true }
-    });
+    if (!reveal) {
+      // Default: hide the brackets and URL — show only the link text.
+      decorations.push({
+        from,
+        to: from + 1,
+        value: { replace: true }
+      });
+      decorations.push({
+        from: textEnd,
+        to,
+        value: { replace: true }
+      });
+      decorations.push({
+        from: textStart,
+        to: textEnd,
+        value: { class: 'cm-md-link' }
+      });
+    } else {
+      // Cursor on the link → keep the source visible but style it like
+      // Obsidian's live preview: dim brackets/URL, color the text and URL.
+      // The `[` and `]` brackets carry both the marker class and the
+      // link-text class (Obsidian's `cm-formatting-link cm-link` pair),
+      // and the URL parens carry the link-url class (Obsidian's
+      // `cm-formatting-link-string cm-url` pair).
+      decorations.push({
+        from,
+        to: from + 1,
+        value: { class: 'cm-md-inline-marker cm-md-link-marker cm-md-link' }
+      });
+      decorations.push({
+        from: textStart,
+        to: textEnd,
+        value: { class: 'cm-md-link' }
+      });
+      decorations.push({
+        from: textEnd,
+        to: textEnd + 1,
+        value: { class: 'cm-md-inline-marker cm-md-link-marker cm-md-link' }
+      });
+      decorations.push({
+        from: textEnd + 1,
+        to: urlStart,
+        value: { class: 'cm-md-link-url' }
+      });
+      if (urlStart < urlEnd) {
+        decorations.push({
+          from: urlStart,
+          to: urlEnd,
+          value: { class: 'cm-md-link-url' }
+        });
+      }
+      decorations.push({
+        from: urlEnd,
+        to,
+        value: { class: 'cm-md-link-url' }
+      });
+    }
 
-    // Hide closing bracket and URL (everything from ]( to end)
-    decorations.push({
-      from: textEnd,
-      to,
-      value: { replace: true }
-    });
+    // Match Obsidian: append a zero-width external-link affordance at
+    // the end of every external link, regardless of cursor reveal. The
+    // diff buckets it as `link-url` so it lines up with Obsidian's
+    // formatting-link-string widget.
+    const url = view.state.doc.sliceString(urlStart, urlEnd);
+    if (/^[a-z][a-z0-9+.-]*:/i.test(url)) {
+      // Walk the syntax tree at the widget point to find any
+      // surrounding StrongEmphasis / Emphasis / Strikethrough wrappers
+      // and copy their class onto the widget DOM. Obsidian's
+      // external-link span inherits these classes via its parent span,
+      // so SF widgets need the same to stay in the same diff buckets.
+      const enclosingClasses: string[] = [];
+      const tree = syntaxTree(view.state);
+      const cursor = tree.cursorAt(to);
+      do {
+        if (cursor.name === 'StrongEmphasis' && cursor.from < to && cursor.to > to) enclosingClasses.push('cm-md-strong');
+        else if (cursor.name === 'Emphasis' && cursor.from < to && cursor.to > to) enclosingClasses.push('cm-md-emphasis');
+        else if (cursor.name === 'Strikethrough' && cursor.from < to && cursor.to > to) enclosingClasses.push('cm-md-strikethrough');
+      } while (cursor.parent());
 
-    // Add className to link text
-    decorations.push({
-      from: textStart,
-      to: textEnd,
-      value: { class: 'cm-md-link' }
-    });
+      decorations.push({
+        from: to,
+        to: to,
+        value: {
+          widget: new ExternalLinkWidget(enclosingClasses.join(' ')),
+          side: 1,
+        }
+      });
+    }
   }
 
   private processImage(
@@ -1100,34 +1418,53 @@ class LiveMarkdownPlugin implements PluginValue {
     const quoteLines: { lineNum: number; nestLevel: number }[] = [];
 
     for (let i = startLine; i <= endLine; i++) {
+      // Skip lines we've already decorated (a nested Blockquote node visits
+      // the same line as its outer parent).
+      if (this.quoteLinesProcessed.has(i)) continue;
       const line = doc.line(i);
       const lineText = line.text;
 
-      // Count nesting level and find content start
+      // Walk the marker run, emitting one segment per nesting level.
+      // Each segment covers the `>` AND the optional trailing space —
+      // earlier versions matched Obsidian's tree by leaving the bare
+      // `>` undecorated at level 2+, but SF hides marker segments via
+      // `cm-md-quote-marker-hidden` (color: transparent; font-size: 0)
+      // and an undecorated `>` leaked through visibly on nested lines.
+      // Obsidian renders `>` as visible source (just colored), so the
+      // tree-shape parity didn't matter to them.
+      const segments: { from: number; to: number; level: number }[] = [];
       let nestLevel = 0;
       let pos = 0;
-      while (pos < lineText.length) {
-        if (lineText[pos] === '>') {
-          nestLevel++;
-          pos++;
-          // Skip optional space after >
-          if (lineText[pos] === ' ') pos++;
-        } else {
-          break;
-        }
+      while (pos < lineText.length && lineText[pos] === '>') {
+        nestLevel++;
+        const start = pos;
+        pos++;
+        if (lineText[pos] === ' ') pos++;
+        segments.push({ from: line.from + start, to: line.from + pos, level: nestLevel });
       }
 
       if (nestLevel > 0) {
-        if (pos > 0) {
-          const revealMarker = shouldRevealMarkdownSyntax(view.hasFocus, selectionRanges, line.from, line.to);
+        const revealMarker = shouldRevealMarkdownSyntax(view.hasFocus, selectionRanges, line.from, line.to);
+        for (const seg of segments) {
+          if (seg.from === seg.to) continue;
           decorations.push({
-            from: line.from,
-            to: line.from + pos,
-            value: { class: revealMarker ? 'cm-md-quote-marker' : 'cm-md-quote-marker-hidden' }
+            from: seg.from,
+            to: seg.to,
+            value: { class: revealMarker ? `cm-md-quote-marker cm-md-quote-marker-${seg.level}` : `cm-md-quote-marker-hidden cm-md-quote-marker-${seg.level}` }
+          });
+        }
+        // Match Obsidian: emit a mark decoration over the quote text body
+        // so the factory diff and downstream styling can find the body.
+        if (line.from + pos < line.to) {
+          decorations.push({
+            from: line.from + pos,
+            to: line.to,
+            value: { class: `cm-md-quote-text cm-md-quote-text-${nestLevel}` }
           });
         }
 
         quoteLines.push({ lineNum: i, nestLevel });
+        this.quoteLinesProcessed.add(i);
       }
     }
 
@@ -1173,12 +1510,22 @@ class LiveMarkdownPlugin implements PluginValue {
 
     // Determine marker width based on what kind of list item this is
     let markerW = BULLET_MARKER_W;
-    if (text.match(/^([-*+])\s+\[([ xX])\]/)) {
+    let markerSourceLen = 0;
+    const taskMatch = text.match(/^([-*+])\s+\[([ xX])\]\s*/);
+    const orderedTaskMatch = text.match(/^(\d+)\.\s+\[([ xX])\]\s*/);
+    const orderedMatch = text.match(/^(\d+)\.\s+/);
+    const bulletMatch = text.match(/^([-*+])\s+/);
+    if (taskMatch) {
       markerW = CHECKBOX_MARKER_W;
-    } else if (text.match(/^\d+\.\s+\[([ xX])\]/)) {
+      markerSourceLen = taskMatch[0].length;
+    } else if (orderedTaskMatch) {
       markerW = ORDERED_TASK_MARKER_W;
-    } else if (text.match(/^\d+\.\s+/)) {
+      markerSourceLen = orderedTaskMatch[0].length;
+    } else if (orderedMatch) {
       markerW = NUMBER_MARKER_W;
+      markerSourceLen = orderedMatch[0].length;
+    } else if (bulletMatch) {
+      markerSourceLen = bulletMatch[0].length;
     }
 
     // Apply same padding as the decorated version.
@@ -1189,6 +1536,17 @@ class LiveMarkdownPlugin implements PluginValue {
       to: line.from,
       value: { class: 'cm-md-list-line', attributes: { style: `padding-left: ${pl}px !important; text-indent: -${markerW}px;` }, startSide: 0, endSide: 0 }
     });
+
+    // Match Obsidian: even when the cursor reveals a list line, the
+    // bullet/number range still carries the list-marker class so the
+    // diff and CSS hooks line up with Obsidian's `cm-formatting-list`.
+    if (markerSourceLen > 0) {
+      decorations.push({
+        from,
+        to: from + markerSourceLen,
+        value: { class: 'cm-md-bullet cm-md-list-marker' }
+      });
+    }
   }
 
   private processListItem(
@@ -1214,11 +1572,15 @@ class LiveMarkdownPlugin implements PluginValue {
       const fullMarkerLen = unorderedTaskMatch[0].length;
       const contentStart = from + fullMarkerLen;
 
-      // Hide bullet and checkbox syntax
+      // Hide bullet and checkbox syntax. `wrapInsideMark` flags this
+      // replace as a list-marker hide so the clip-mark pass doesn't
+      // split surrounding mark spans (e.g. the enclosing blockquote
+      // text class) around it — Obsidian's DOM nests the bullet
+      // inside the quote span.
       decorations.push({
         from,
         to: contentStart,
-        value: { replace: true }
+        value: { replace: true, wrapInsideMark: true }
       });
 
       // Add checkbox widget
@@ -1259,11 +1621,12 @@ class LiveMarkdownPlugin implements PluginValue {
       const fullMarkerLen = orderedTaskMatch[0].length;
       const contentStart = from + fullMarkerLen;
 
-      // Hide number, dot, and checkbox syntax
+      // Hide number, dot, and checkbox syntax — see wrapInsideMark
+      // note above; the same nesting logic applies here.
       decorations.push({
         from,
         to: contentStart,
-        value: { replace: true }
+        value: { replace: true, wrapInsideMark: true }
       });
 
       // Add number widget
@@ -1312,20 +1675,16 @@ class LiveMarkdownPlugin implements PluginValue {
       const fullMarkerLen = bulletMatch[0].length;
       const contentStart = from + fullMarkerLen;
 
-      // Hide bullet and space
+      // Replace the `- ` (or `* `, `+ `) marker text with the bullet
+      // widget. Single replace decoration covers the source range so
+      // the widget element maps cleanly to its document positions.
       decorations.push({
         from,
         to: contentStart,
-        value: { replace: true }
-      });
-
-      // Add bullet widget
-      decorations.push({
-        from,
-        to: from,
         value: {
           widget: new BulletWidget(indentLevel),
-          side: -1
+          // Decoration.replace + widget is a point widget; no `side`
+          // override — CM6 places it where the replaced range was.
         }
       });
 
@@ -1355,21 +1714,12 @@ class LiveMarkdownPlugin implements PluginValue {
       const fullMarkerLen = orderedMatch[0].length;
       const contentStart = from + fullMarkerLen;
 
-      // Hide number, dot and space
+      // Replace `N. ` source text with the number widget in a single
+      // decoration so its DOM element maps to from..contentStart.
       decorations.push({
         from,
         to: contentStart,
-        value: { replace: true }
-      });
-
-      // Add number widget
-      decorations.push({
-        from,
-        to: from,
-        value: {
-          widget: new NumberWidget(num, indentLevel),
-          side: -1
-        }
+        value: { widget: new NumberWidget(num, indentLevel) }
       });
 
       // Add className to content
@@ -1391,13 +1741,45 @@ class LiveMarkdownPlugin implements PluginValue {
     }
   }
 
+  // Pre-pass that collects the source ranges of every `[[...]]`
+  // wikilink in the doc. Populated at the top of `buildDecorations`
+  // so other process* methods can skip inner Link/Code/Emphasis nodes
+  // that fall inside a wikilink — Obsidian folds those into the
+  // wikilink title and doesn't re-decorate them.
+  private collectWikilinkRanges(doc: Text): Array<{ from: number; to: number }> {
+    const ranges: Array<{ from: number; to: number }> = [];
+    // Match `[[...]]` where the inner can contain anything except a
+    // newline or a closing `]]`.
+    const regex = /\[\[((?:(?!\]\])[^\n])+)\]\]/g;
+    for (let i = 1; i <= doc.lines; i++) {
+      const line = doc.line(i);
+      regex.lastIndex = 0;
+      let m;
+      while ((m = regex.exec(line.text)) !== null) {
+        ranges.push({ from: line.from + m.index, to: line.from + m.index + m[0].length });
+      }
+    }
+    return ranges;
+  }
+
+  private isInsideWikilink(from: number, to: number): boolean {
+    for (const r of this.wikilinkRanges) {
+      if (r.from <= from && to <= r.to) return true;
+    }
+    return false;
+  }
+
   private processWikilinks(
     view: EditorView,
     decorations: Array<{ from: number; to: number; value: any }>
   ): void {
     const doc = view.state.doc;
     const tree = syntaxTree(view.state);
-    const regex = /\[\[([^\]\n]+)\]\]/g;
+    // Match `[[...]]` where the inner can contain anything except a
+    // newline or a closing `]]`. This is permissive on purpose — it
+    // mirrors Obsidian's parse, which folds `[link](url)` and other
+    // bracket syntax into the wikilink title rather than re-tokenizing.
+    const regex = /\[\[((?:(?!\]\])[^\n])+)\]\]/g;
 
     for (let i = 1; i <= doc.lines; i++) {
       const line = doc.line(i);
@@ -1408,7 +1790,7 @@ class LiveMarkdownPlugin implements PluginValue {
         const from = line.from + match.index;
         const to = from + match[0].length;
         const title = match[1];
-        if (selectionTouchesRange(view.hasFocus, view.state.selection.ranges, from, to)) continue;
+        const reveal = selectionTouchesRange(view.hasFocus, view.state.selection.ranges, from, to);
 
         // Skip if inside code block or inline code
         let inCode = false;
@@ -1420,21 +1802,23 @@ class LiveMarkdownPlugin implements PluginValue {
         });
         if (inCode) continue;
 
-        // Hide [[
-        decorations.push({
-          from,
-          to: from + 2,
-          value: { replace: true }
-        });
+        if (!reveal) {
+          // Hide the brackets when the cursor is elsewhere.
+          decorations.push({
+            from,
+            to: from + 2,
+            value: { replace: true }
+          });
+          decorations.push({
+            from: to - 2,
+            to,
+            value: { replace: true }
+          });
+        }
 
-        // Hide ]]
-        decorations.push({
-          from: to - 2,
-          to,
-          value: { replace: true }
-        });
-
-        // Style title as wikilink
+        // Style title as wikilink — kept on the inner text in both
+        // modes so Obsidian's `cm-hmd-internal-link` and SF stay in
+        // the same diff bucket.
         decorations.push({
           from: from + 2,
           to: to - 2,
@@ -1490,15 +1874,16 @@ class LiveMarkdownPlugin implements PluginValue {
   private processInlineTags(
     view: EditorView,
     decorations: Array<{ from: number; to: number; value: any }>,
-    headerEndOffset: number
+    _headerEndOffset: number
   ): void {
     const doc = view.state.doc;
     const tree = syntaxTree(view.state);
 
-    // Find the first line after the header tag block
-    const startLineNum = headerEndOffset > 0
-      ? doc.lineAt(Math.min(headerEndOffset, doc.length)).number
-      : 1;
+    // Tag-style decorations are emitted across the whole document,
+    // including the header tag block. The header block has its own
+    // line decoration to hide it visually; tag mark decorations don't
+    // affect display, so it's safe to overlap them.
+    const startLineNum = 1;
 
     for (let i = startLineNum; i <= doc.lines; i++) {
       const line = doc.line(i);
@@ -1512,7 +1897,9 @@ class LiveMarkdownPlugin implements PluginValue {
         const from = line.from + match.index;
         const to = from + match[0].length;
 
-        if (selectionTouchesRange(view.hasFocus, view.state.selection.ranges, from, to)) continue;
+        // Tags stay styled regardless of cursor position — no "reveal"
+        // mode like wikilinks/emphasis, since the source text is the
+        // rendered text. Matches Obsidian's behavior in live preview.
 
         // Skip if inside code block or inline code
         let inCode = false;
@@ -1524,11 +1911,21 @@ class LiveMarkdownPlugin implements PluginValue {
         });
         if (inCode) continue;
 
+        // Match Obsidian's structure: split into marker (#) + text (rest).
+        // Obsidian emits two separate decorations; we mirror so the
+        // factory diff lines up. Both classes route to `tag` via classToKind.
         decorations.push({
           from,
-          to,
-          value: { class: 'cm-md-tag' }
+          to: from + 1,
+          value: { class: 'cm-md-tag cm-md-tag-marker' }
         });
+        if (to > from + 1) {
+          decorations.push({
+            from: from + 1,
+            to,
+            value: { class: 'cm-md-tag cm-md-tag-text' }
+          });
+        }
       }
     }
   }
