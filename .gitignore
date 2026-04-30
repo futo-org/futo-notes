@@ -79,9 +79,9 @@ experiments/
 test-screenshots
 
 # Docker testing
-stonefruit-data
+futo-notes-data
 /docker-compose.yml
-/.stonefruit-cli.json
+/.futo-notes-cli.json
 autoresearch-results.tsv
 
 # Rust

@@ -611,7 +611,7 @@ mod tests {
 
     #[test]
     fn orphaned_files_nonexistent_dir() {
-        let dir = Path::new("/tmp/stonefruit-nonexistent-dir-12345");
+        let dir = Path::new("/tmp/futo-notes-nonexistent-dir-12345");
         let v = check_orphaned_files(&[], dir);
         assert!(
             v.is_empty(),

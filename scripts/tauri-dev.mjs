@@ -107,7 +107,7 @@ if (!isWorktree) {
     )
   }
 
-  // Sync server is now a separate repo (stonefruit-server).
+  // Sync server is now a separate repo (futo-notes-server).
   // Start it with the helper: ./scripts/start-test-server.sh (password mode, default "testing123")
   // Then connect via: window.__testSync.connect('http://127.0.0.1:3100', 'testing123')
   process.on('SIGINT', () => process.exit(0))

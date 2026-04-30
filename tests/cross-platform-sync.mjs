@@ -14,7 +14,7 @@
  *
  * Requires:
  *   - Debug Tauri binary:  cd apps/tauri && cargo tauri build --debug --no-bundle
- *   - E2EE server repo:    /home/justin/Developer/stonefruit-server
+ *   - E2EE server repo:    /home/justin/Developer/futo-notes-server
  *   - Frontend built with: VITE_INCLUDE_TEST_HOOKS=true pnpm run build
  */
 
@@ -335,6 +335,12 @@ async function activeNoteReload(a, b, server) {
 async function editDuringSyncKeepsLocalDraft(a, b, server) {
   await a.connectSync(server.url, server.password);
   await b.connectSync(server.url, server.password);
+
+  // Pause B's background auto-sync so the manual sync below deterministically
+  // owns the pull of A's update. Without this, an auto-sync poll firing
+  // during A.syncNow's 1500ms server-delay window can consume the update
+  // before B's explicit startSync() runs.
+  await b.pauseAutoSync();
 
   await a.writeNote('taken sync title', '# Blocking title');
   await a.writeNote('during sync', '# Base');

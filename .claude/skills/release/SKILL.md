@@ -110,7 +110,7 @@ Parse messages. Identify any that requested features or reported bugs addressed 
 
 **Zulip version** — with silent mentions using `@_**Full Name**` format:
 ```
-## Stonefruit <version>
+## FUTO Notes <version>
 
 - Fixed crash when opening large files (reported by @_**Jane Smith**)
 - Added swipe-to-delete on note list
@@ -119,7 +119,7 @@ Parse messages. Identify any that requested features or reported bugs addressed 
 
 **GitLab version** — plain names, no Zulip formatting:
 ```
-## Stonefruit <version>
+## FUTO Notes <version>
 
 - Fixed crash when opening large files (reported by Jane Smith)
 - Added swipe-to-delete on note list

@@ -1,6 +1,6 @@
 # AGENTS.md - Factory
 
-A judge that compares stonefruit's CodeMirror 6 editor to Obsidian's, scenario by scenario, so we can converge on Obsidian-style live-preview behavior without writing assertions by hand.
+A judge that compares FUTO Notes's CodeMirror 6 editor to Obsidian's, scenario by scenario, so we can converge on Obsidian-style live-preview behavior without writing assertions by hand.
 
 ## Why this exists
 
@@ -16,9 +16,9 @@ factory/judge/run.ts                   ← orchestrator: launches everything, ru
        │     ┌─────────────────────────────┐
        │     │ Playwright (chromium)       │
        │     │   ↓ goto localhost:5173     │
-       │     │   ↓ window.__driver         │  ← stonefruit driver
+       │     │   ↓ window.__driver         │  ← futo-notes driver
        │     │     (factory/driver/        │
-       │     │      stonefruit.ts wired    │
+       │     │      futoNotes.ts wired     │
        │     │      from MarkdownEditor)   │
        │     └─────────────────────────────┘
        │     ┌─────────────────────────────┐
@@ -46,7 +46,7 @@ Both editors expose the same `__driver` API on their `window`, so the runner is 
 |---|---|
 | `factory/driver/protocol.ts` | TS types for `Driver`, `DriverState`, `DriverEvent`, `DecoratedRange`, `ElementKind` |
 | `factory/driver/semanticKind.ts` | Maps raw CSS classes → canonical `ElementKind`. Order matters: marker classes (cm-formatting-*, cm-md-inline-marker) win over text classes (cm-em, cm-strong) |
-| `factory/driver/stonefruit.ts` | Installs `window.__driver` against the live CM6 view in dev builds. Wired from `src/components/MarkdownEditor.svelte` inside the existing `if (import.meta.env.DEV)` block |
+| `factory/driver/futoNotes.ts` | Installs `window.__driver` against the live CM6 view in dev builds. Wired from `src/components/MarkdownEditor.svelte` inside the existing `if (import.meta.env.DEV)` block |
 | `factory/judge/run.ts` | The whole show. Mutates Obsidian's vault registry, launches flatpak Obsidian with CDP, connects via Playwright, installs the Obsidian-side `__driver` in-page, runs the scenario loop, restores the registry on exit |
 | `factory/judge/diff.ts` | `diffStates(sf, ob) → Divergence[]` plus `summarize(reports)` |
 | `factory/judge/layoutInvariants.ts` | SF-only geometric / computed-style assertions — runs in one `page.evaluate` per scenario, surfaces `layout-violation` divergences |
@@ -54,7 +54,7 @@ Both editors expose the same `__driver` API on their `window`, so the runner is 
 | `factory/judge/visualReport.ts` | Generates `factory/captures/visual-report.html` — side-by-side SF/OB/diff PNGs sorted by drift |
 | `factory/themes/neutral.css` | Stripped theme injected into both pages so any pixel difference is structural, not chrome |
 | `factory/obsidian-plugin/` | Earlier attempt: an HTTP plugin. Not used (CDP path replaced it). Kept as fallback |
-| `factory/captures/last-run.json` | Most recent report. `{summary: {total, passed, errored, satisfaction, buckets}, reports: [{name, complexity, satisfaction, divergences[], stonefruit, obsidian}]}` |
+| `factory/captures/last-run.json` | Most recent report. `{summary: {total, passed, errored, satisfaction, buckets}, reports: [{name, complexity, satisfaction, divergences[], futoNotes, obsidian}]}` |
 | `factory/captures/screenshots/` | `<name>.{sf,ob,diff}.png` for each scenario in the curated visual set (regenerated each `factory-visual` run, gitignored) |
 | `factory/captures/visual-report.html` | Side-by-side viewer + LLM-judge entry point (gitignored) |
 | `factory/captures/obsidian-vault/` | Throwaway vault Obsidian opens. Recreated each run |
@@ -68,8 +68,8 @@ Both editors expose the same `__driver` API on their `window`, so the runner is 
 5. `flatpak kill md.obsidian.Obsidian` (in case one is up), then `flatpak run md.obsidian.Obsidian --remote-debugging-port=9876 <vault>`.
 6. Wait for CDP, `chromium.connectOverCDP`, find the renderer page whose title matches `Obsidian`, evaluate that `window.app.workspace` exists.
 7. Sanity check: `app.vault.adapter.basePath` ends with the factory vault basename — refuses to continue if Obsidian opened the wrong vault.
-8. `installObsidianDriver(page)` opens `__factory_scratch.md`, then evaluates an in-page script that wires up `window.__driver` mirroring stonefruit's API. Polyfills `window.__name = (fn) => fn` first so tsx/esbuild-transformed callbacks don't `ReferenceError`.
-9. Same Playwright-launched chromium loads `localhost:5173/#/note/new` for stonefruit. Wait for `.cm-editor` and `window.__driver`.
+8. `installObsidianDriver(page)` opens `__factory_scratch.md`, then evaluates an in-page script that wires up `window.__driver` mirroring FUTO Notes's API. Polyfills `window.__name = (fn) => fn` first so tsx/esbuild-transformed callbacks don't `ReferenceError`.
+9. Same Playwright-launched chromium loads `localhost:5173/#/note/new` for FUTO Notes. Wait for `.cm-editor` and `window.__driver`.
 10. For each scenario:
     - `runOnEditor(page, markdown, events)` calls `__driver.setDoc(md)`.
     - **Click `.cm-content` via Playwright** to give the editor real focus. CM6 + Obsidian's live-preview reveal logic checks `cm.contentDOM.contains(document.activeElement)`; programmatic `cm.focus()` doesn't satisfy that, especially when the OS screen is locked. The CDP-level click does.
@@ -84,7 +84,7 @@ In daemon mode, steps 2–9 run once at `factory-up`. Each `factory-run` then re
 
 Both drivers walk `cm.contentDOM` with a `TreeWalker`, collecting `{from, to, kind, replaced, classes, text}` for every element with classes. Position resolution via `view.posAtDOM(node, 0)`. Replaced widgets (HR, table, image, task-checkbox) are detected by class allowlist; their `text` field is empty and `replaced: true`.
 
-`kind` is the canonical `ElementKind` derived from `classes` via `classToKind`. Stonefruit and Obsidian use different raw classes (`cm-md-emphasis` vs `cm-em`, `cm-md-inline-marker` vs `cm-formatting-em`) — the mapping is what makes them comparable.
+`kind` is the canonical `ElementKind` derived from `classes` via `classToKind`. FUTO Notes and Obsidian use different raw classes (`cm-md-emphasis` vs `cm-em`, `cm-md-inline-marker` vs `cm-formatting-em`) — the mapping is what makes them comparable.
 
 ## Diff rules
 
@@ -93,15 +93,15 @@ Both drivers walk `cm.contentDOM` with a `TreeWalker`, collecting `{from, to, ki
 2. `cursor.{line,ch}` match
 3. `selection.head/anchor` match
 4. `visibleText` (`.cm-content` innerText) match
-5. Decorations bucketed by `kind`. Within each bucket, the multiset of `{from.pos..to.pos, replaced}` keys must match. Mismatches surface as `decoration-only-in-stonefruit` / `decoration-only-in-obsidian`.
+5. Decorations bucketed by `kind`. Within each bucket, the multiset of `{from.pos..to.pos, replaced}` keys must match. Mismatches surface as `decoration-only-in-futo-notes` / `decoration-only-in-obsidian`.
 
 `unknown`-kind decorations are dropped from the diff to avoid noise.
 
 ## Known sharp edges
 
 - **Cursor placement and arrow keys go through `page.keyboard`, not the in-page driver.** Programmatic `cm.dispatch({selection})` updates CM's selection state but doesn't trigger Obsidian's live-preview reveal — that logic keys off real, trusted KeyboardEvents (or focus state). The runner sends `Control+Home` + `ArrowDown × line` + `Home` + `ArrowRight × ch` for cursor placement, and `page.keyboard.press(key)` for `moves`. The in-page driver still handles `setDoc`/`type`/`focus`/`blur`. Both editors tag their target `.cm-content` with `data-factory-target="true"` so the runner clicks the right one (Obsidian has multiple sibling editors).
-- **`cm-md-inline-marker` is stonefruit's generic marker class.** It carries no info about whether the marker is bold/italic/heading/code. `semanticKind.ts` maps it to `italic-marker` as a placeholder. Refining this needs a post-process pass that looks at overlapping text decorations to derive the actual kind. Until then, marker buckets are noisy.
-- **Stonefruit's italic-text decoration covers the markers (e.g. 8..21 for `*italic text*`).** Obsidian's covers only the inner range (9..20). This is a real structural divergence — neither the kind mapping nor the diff is wrong, the editors really decorate differently.
+- **`cm-md-inline-marker` is FUTO Notes's generic marker class.** It carries no info about whether the marker is bold/italic/heading/code. `semanticKind.ts` maps it to `italic-marker` as a placeholder. Refining this needs a post-process pass that looks at overlapping text decorations to derive the actual kind. Until then, marker buckets are noisy.
+- **FUTO Notes's italic-text decoration covers the markers (e.g. 8..21 for `*italic text*`).** Obsidian's covers only the inner range (9..20). This is a real structural divergence — neither the kind mapping nor the diff is wrong, the editors really decorate differently.
 - **Obsidian needs a real Playwright click to focus.** `cm.focus()` alone doesn't grant `document.activeElement` to the contentDOM, so live-preview reveal stays off. `runOnEditor` clicks `.cm-content` after `setDoc` to fix this. Cursor placement comes after, via `cm.dispatch`.
 - **Screen lock doesn't break us.** Playwright over CDP synthesizes events at the renderer level — independent of OS-level focus or visibility.
 - **Don't run the judge while the user has Obsidian open.** The launcher will `flatpak kill` it first. The user's main vault is on disk so no data loss, but unsaved work could be at risk in pathological cases.
@@ -141,7 +141,7 @@ pnpm exec tsx factory/judge/run.ts down                  # client shutdown
 --filter <name-substring>   # subset by scenario name
 --max <N>                   # cap count
 --no-moves                  # skip key-sequence scenarios (default in justfile)
---no-obsidian               # stonefruit only — debug the runner itself
+--no-obsidian               # futo-notes only — debug the runner itself
 --headed                    # show Obsidian + chromium windows
 --visual                    # capture screenshots + run pixel diff (slow; opt-in)
 --visual-only               # restrict to VISUAL_SCENARIO_NAMES (implies --visual)
@@ -167,7 +167,7 @@ NDJSON progress events back:
 `factory-watch` chokidars `liveMarkdownTransform.ts`,
 `MarkdownEditor.svelte`, `markdown.css`, and the factory's own driver/
 diff sources. On change it sends a `run` with `reload: true`, which
-makes the daemon refresh the stonefruit page first so HMR drift can't
+makes the daemon refresh the futo-notes page first so HMR drift can't
 lie. Saves while a run is mid-flight queue exactly one re-run.
 
 ### Streaming output
@@ -177,7 +177,7 @@ it completes:
 
 ```
 [  3/60] tag-basic                                OK
-[  4/60] tag-with-emoji                           1 div  — tag 5..12 (mark) — stonefruit has, obsidian missing
+[  4/60] tag-with-emoji                           1 div  — tag 5..12 (mark) — futo-notes has, obsidian missing
 ```
 
 The first divergence's `detail` shows inline so you can Ctrl-C as soon
@@ -196,7 +196,7 @@ for (const rep of r.reports.filter(rr => rr.divergences.length).slice(0,5)) {
 "
 ```
 
-For a single scenario, the full `stonefruit` and `obsidian` `DriverState` is included in the report — useful for understanding *why* something diverged.
+For a single scenario, the full `futoNotes` and `obsidian` `DriverState` is included in the report — useful for understanding *why* something diverged.
 
 ## Oracle layers
 
@@ -262,6 +262,6 @@ const visible =
 
 1. **Inline-link decorations on cursor reveal.** When the cursor is on a markdown link, SF strips all link decorations (showing raw text), Obsidian keeps `link-marker`/`link-text`/`link-url` mark decorations (so brackets are dimmed, URL is colored). Change `processLink` in `liveMarkdownTransform.ts` to emit mark decorations when the link is revealed, mirroring the pattern already used by emphasis/strikethrough.
 2. **External-link affordance.** Obsidian appends a 0-width `external-link` widget after every external markdown link. SF doesn't. Worth adopting regardless — gives users the "this leaves the app" cue.
-3. **Pick the highest-leverage divergence and converge.** After each run, look at `factory/captures/last-run.json`'s `summary.buckets` for the top-line counts, and group `decoration-only-in-*` divergences by their leading kind token to find the biggest sub-buckets — `factory-summary` does the worst-scenarios cut, but a one-liner over `reports[].divergences[].detail` gives you per-kind counts. Pick the biggest, find a representative scenario in the report (full `stonefruit` and `obsidian` `DriverState` are included), and trace it to a code path in `liveMarkdownTransform.ts`.
+3. **Pick the highest-leverage divergence and converge.** After each run, look at `factory/captures/last-run.json`'s `summary.buckets` for the top-line counts, and group `decoration-only-in-*` divergences by their leading kind token to find the biggest sub-buckets — `factory-summary` does the worst-scenarios cut, but a one-liner over `reports[].divergences[].detail` gives you per-kind counts. Pick the biggest, find a representative scenario in the report (full `futoNotes` and `obsidian` `DriverState` are included), and trace it to a code path in `liveMarkdownTransform.ts`.
 4. **Add a holdout corpus.** Today every scenario is open and the agent can read the YAML. Once the worker agent is autonomous, hold back a parallel set in `factory/holdout/` (gitignored) so merges are gated on satisfaction the agent can't peek at.
 5. **Visual diff layer.** Once structural is green, normalize themes and screenshot-diff. Last priority — structural catches ~95%.

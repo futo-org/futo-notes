@@ -99,7 +99,7 @@ let cached: AppState | null = null;
 // load. Older builds stored the full plaintext of each note as the 3-way
 // merge ancestor; that bloated .app-state.json to 8 MB+ on vaults with a
 // few thousand notes and serialized on every sync checkpoint. We now fetch
-// the ancestor from the server (stonefruit-server retains orphaned blobs
+// the ancestor from the server (futo-notes-server retains orphaned blobs
 // for 1 year), so this field is dead weight.
 function stripBaseContent(
   raw: Record<string, Record<string, unknown>>,

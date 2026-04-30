@@ -228,9 +228,19 @@ export class TauriTestClient {
     return executeJs(this.ws, `window.__testSync.status()`);
   }
 
+  async pauseAutoSync() {
+    return executeJs(this.ws, `window.__testSync.pauseAutoSync()`);
+  }
+
+  async resumeAutoSync() {
+    return executeJs(this.ws, `window.__testSync.resumeAutoSync()`);
+  }
+
   async reset() {
     try { await this.disconnectSync(); } catch { /* may not be connected */ }
     try { await this.deleteAllNotes(); } catch { /* may have no notes */ }
+    // A scenario may have paused auto-sync; restore default for the next one.
+    try { await this.resumeAutoSync(); } catch { /* hook may be missing */ }
   }
 
   stop() {

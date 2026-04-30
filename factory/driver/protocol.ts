@@ -1,5 +1,5 @@
 // The contract both editors implement so the judge can compare them.
-// Stonefruit attaches an instance to window.__driver in dev builds.
+// FUTO Notes attaches an instance to window.__driver in dev builds.
 // Obsidian exposes the same shape over an HTTP endpoint via a plugin.
 //
 // Two design constraints:
@@ -40,7 +40,7 @@ export type ElementKind =
   | 'quote-marker' | 'quote-text'
   // Block-level widgets
   | 'hr-widget' | 'image-widget' | 'table-widget'
-  // Stonefruit/Obsidian extras
+  // FUTO Notes / Obsidian extras
   | 'wikilink' | 'tag'
   // Fallback
   | 'unknown';
@@ -82,5 +82,5 @@ export interface Driver {
   dispatch(events: DriverEvent[]): Promise<void>;
   state(): Promise<DriverState>;
   // Implementation hint for the judge: which editor is this?
-  identify(): Promise<{ name: 'stonefruit' | 'obsidian'; version: string }>;
+  identify(): Promise<{ name: 'futo-notes' | 'obsidian'; version: string }>;
 }

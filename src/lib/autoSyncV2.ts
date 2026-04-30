@@ -23,7 +23,12 @@ export interface AutoSyncCallbacks {
 let callbacks: AutoSyncCallbacks | null = null;
 let flushPendingSaveFn: (() => Promise<void>) | null = null;
 let syncing = false;
+// `paused` blocks every trigger (used for bulk operations like deleteAllNotes
+// that need exclusive filesystem access). `autoPaused` only blocks background
+// triggers (poll, resume, initial) so manual/local-save syncs still run —
+// used by tests that need deterministic timing.
 let paused = false;
+let autoPaused = false;
 let lastSyncTime = 0;
 let cleanupFns: Array<() => void> = [];
 let initialSyncTimer: number | null = null;
@@ -47,8 +52,9 @@ async function performSync(trigger: SyncTrigger, options: { propagateErrors?: bo
     if (backgroundTrigger) scheduleBackgroundRetry(trigger);
     return null;
   }
-  if (syncing || paused || !callbacks || !isE2eeConfigured()) {
-    if (!options.requireExecution && backgroundTrigger && callbacks && isE2eeConfigured() && (syncing || paused)) {
+  const blockedByAutoPause = autoPaused && backgroundTrigger;
+  if (syncing || paused || blockedByAutoPause || !callbacks || !isE2eeConfigured()) {
+    if (!options.requireExecution && backgroundTrigger && callbacks && isE2eeConfigured() && (syncing || paused || blockedByAutoPause)) {
       scheduleBackgroundRetry(trigger);
     }
     if (syncing && trigger === 'local-save') {
@@ -124,6 +130,11 @@ export async function markDirtyRename(_oldFilename: string, _newFilename: string
 export function pauseSyncV2(): void { paused = true; }
 export function resumeSyncV2(): void { paused = false; }
 
+/** Test-only: pause background (poll/resume/initial) syncs while still
+ * allowing manual/local-save syncs. Used to make scenario timing deterministic. */
+export function pauseAutoSyncV2(): void { autoPaused = true; }
+export function resumeAutoSyncV2(): void { autoPaused = false; }
+
 export async function waitForSyncIdleV2(): Promise<void> {
   while (syncing) {
     await new Promise(resolve => setTimeout(resolve, 50));
@@ -155,7 +166,7 @@ function handleResume(): void {
 function startPolling(): void {
   stopPolling();
   pollTimer = window.setInterval(() => {
-    if (!isE2eeConfigured() || syncing || paused) return;
+    if (!isE2eeConfigured() || syncing || paused || autoPaused) return;
     void performSync('poll');
   }, POLL_INTERVAL_MS);
 }

@@ -1,7 +1,7 @@
 /**
  * Sync test server launcher.
  *
- * Starts the E2EE stonefruit-server process with isolated blob storage.
+ * Starts the E2EE futo-notes-server process with isolated blob storage.
  * Used by cross-platform sync tests to get a fresh server per scenario.
  */
 
@@ -45,19 +45,19 @@ export async function startServer(port, repoRoot, options = {}) {
   const blobDir = join(dataDir, 'blobs');
   const serverPort = syncDelayMs > 0 ? port + 1000 : port;
   const serverRepo = resolve(
-    process.env.STONEFRUIT_E2EE_SERVER_REPO || '/home/justin/Developer/stonefruit-server',
+    process.env.FUTO_NOTES_E2EE_SERVER_REPO || '/home/justin/Developer/futo-notes-server',
   );
 
   if (!existsSync(join(serverRepo, 'package.json'))) {
     throw new Error(
-      `E2EE server repo not found at ${serverRepo}. Set STONEFRUIT_E2EE_SERVER_REPO to the stonefruit-server checkout.`,
+      `E2EE server repo not found at ${serverRepo}. Set FUTO_NOTES_E2EE_SERVER_REPO to the futo-notes-server checkout.`,
     );
   }
 
   // If the caller provides a DATABASE_URL (e.g. CI with a services: postgres
   // sidecar), trust it and skip docker compose — the dind runner can't reach
   // a host-level compose container at localhost:5433 anyway.
-  const externalDb = !!process.env.STONEFRUIT_E2EE_DATABASE_URL;
+  const externalDb = !!process.env.FUTO_NOTES_E2EE_DATABASE_URL;
   if (!externalDb) {
     const compose = spawnSync('docker', ['compose', 'up', '-d', 'postgres'], {
       cwd: serverRepo,
@@ -74,10 +74,10 @@ export async function startServer(port, repoRoot, options = {}) {
     ...process.env,
     PORT: String(serverPort),
     BLOB_DIR: blobDir,
-    DATABASE_URL: process.env.STONEFRUIT_E2EE_DATABASE_URL
-      || 'postgres://stonefruit:stonefruit@localhost:5433/stonefruit',
+    DATABASE_URL: process.env.FUTO_NOTES_E2EE_DATABASE_URL
+      || 'postgres://futo_notes:futo_notes@localhost:5433/futo_notes',
     AUTH_MODE: 'password',
-    STONEFRUIT_PASSWORD_HASH: passwordHash,
+    FUTO_NOTES_PASSWORD_HASH: passwordHash,
   };
 
   const proc = spawn('pnpm', ['start'], {
@@ -103,12 +103,12 @@ export async function startServer(port, repoRoot, options = {}) {
 
   const truncateSql = 'TRUNCATE orphaned_blobs, objects, collections, sessions, users CASCADE;';
   const reset = externalDb
-    ? spawnSync('psql', [process.env.STONEFRUIT_E2EE_DATABASE_URL, '-c', truncateSql], {
+    ? spawnSync('psql', [process.env.FUTO_NOTES_E2EE_DATABASE_URL, '-c', truncateSql], {
         encoding: 'utf8',
       })
     : spawnSync('docker', [
         'compose', 'exec', '-T', 'postgres', 'psql',
-        '-U', 'stonefruit', '-d', 'stonefruit', '-c', truncateSql,
+        '-U', 'futo_notes', '-d', 'futo_notes', '-c', truncateSql,
       ], { cwd: serverRepo, encoding: 'utf8' });
   if (reset.status !== 0) {
     proc.kill('SIGKILL');

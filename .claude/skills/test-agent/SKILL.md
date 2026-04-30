@@ -60,7 +60,7 @@ Set up what's needed based on scenario categories. Reuse `/verify` infrastructur
 ```bash
 WORKTREE_ROOT="$(git rev-parse --show-toplevel)"
 SLOT=$(( $(printf "%d" "0x$(echo -n "$WORKTREE_ROOT" | md5sum | cut -c1-8)") % 50 ))
-TEST_AGENT_DIR=$(mktemp -d /tmp/stonefruit-test-agent-XXXXXX)
+TEST_AGENT_DIR=$(mktemp -d /tmp/futo-notes-test-agent-XXXXXX)
 echo "Test agent workspace: $TEST_AGENT_DIR"
 ```
 
@@ -82,14 +82,14 @@ mkdir -p "$TEST_AGENT_DIR"/{tests,results,screenshots}
 
 #### Writing ephemeral server tests
 
-Server tests are Rust integration tests in `crates/stonefruit-server/tests/`. To add a new test scenario, write a Rust test file:
+Server tests are Rust integration tests in `crates/futo-notes-server/tests/`. To add a new test scenario, write a Rust test file:
 
 ```bash
 # Run existing server tests
-cd "$WORKTREE_ROOT" && cargo test -p stonefruit-server -- --nocapture 2>&1 | tee "$TEST_AGENT_DIR/results/server-tests.txt"
+cd "$WORKTREE_ROOT" && cargo test -p futo-notes-server -- --nocapture 2>&1 | tee "$TEST_AGENT_DIR/results/server-tests.txt"
 ```
 
-**Existing test coverage** (in `crates/stonefruit-server/tests/`):
+**Existing test coverage** (in `crates/futo-notes-server/tests/`):
 
 | Test file | What it covers |
 |---|---|
@@ -147,7 +147,7 @@ Present the full results table:
 └─────────────────────────────────┴────────────┴─────────────────────────────────────┘
 
 VERDICT: 1 failure, 1 unexpected behavior
-  - FAIL: "Delete during sync" — deleted note reappeared. See /tmp/stonefruit-test-agent-xyz/results/delete-during-sync.txt
+  - FAIL: "Delete during sync" — deleted note reappeared. See /tmp/futo-notes-test-agent-xyz/results/delete-during-sync.txt
   - UNEXPECTED: "10MB note round-trip" — performance concern, not a correctness bug
 ```
 

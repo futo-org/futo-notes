@@ -55,7 +55,7 @@ export function writeVisualReport(results: VisualDiffResult[]): string {
 </div>
 <table>
   <thead>
-    <tr><th>scenario</th><th>diff px</th><th>diff %</th><th>size</th><th>stonefruit</th><th>obsidian</th><th>diff</th></tr>
+    <tr><th>scenario</th><th>diff px</th><th>diff %</th><th>size</th><th>futo-notes</th><th>obsidian</th><th>diff</th></tr>
   </thead>
   <tbody>${rows}</tbody>
 </table>

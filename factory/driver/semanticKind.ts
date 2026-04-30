@@ -6,7 +6,7 @@ import type { ElementKind } from './protocol';
 // for an italicized link), so we return an array — the diff buckets by
 // kind, and one element should contribute to each bucket it belongs to.
 //
-// Stonefruit emits one decoration per concept (a separate bold mark and
+// FUTO Notes emits one decoration per concept (a separate bold mark and
 // a separate italic mark over the same range), so it normally returns a
 // one-element array via the marker/text classes that are exclusive.
 //
@@ -18,7 +18,7 @@ export function classToKinds(classes: string[]): ElementKind[] {
 
   // ---- Markers ----
   // Marker classes win over the text class on the same span; both
-  // editors emit text + marker on overlapping ranges. Stonefruit's
+  // editors emit text + marker on overlapping ranges. FUTO Notes's
   // marker classes are exclusive (one marker per element) so the order
   // here matters less than for the text classes below.
   if (set.has('cm-md-quote-marker-hidden')) out.add('quote-marker');

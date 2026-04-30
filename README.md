@@ -6,7 +6,7 @@ FUTO Notes is an offline-first markdown notes app with optional E2EE sync.
 
 The sync server now lives in a separate repo:
 
-`/home/justin/Developer/stonefruit-server`
+`/home/justin/Developer/futo-notes-server`
 
 For local development, start that server and connect FUTO Notes to its URL. The current POC stores opaque encrypted blobs; note content is encrypted in the client before upload.
 

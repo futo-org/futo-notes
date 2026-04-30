@@ -2,8 +2,8 @@
 # Saves ~10 min per pipeline by pre-installing JDK, Android SDK/NDK, and Rust targets.
 #
 # Build and push:
-#   docker build -f ci/android.Dockerfile -t gitlab.futo.org:5050/stonefruit/stonefruit/ci/android:latest .
-#   docker push gitlab.futo.org:5050/stonefruit/stonefruit/ci/android:latest
+#   docker build -f ci/android.Dockerfile -t gitlab.futo.org:5050/futo-notes/futo-notes/ci/android:latest .
+#   docker push gitlab.futo.org:5050/futo-notes/futo-notes/ci/android:latest
 FROM gitlab.futo.org:5050/futocore/ci/kitchensink:latest
 
 ENV ANDROID_HOME=/opt/android-sdk
@@ -74,7 +74,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Docker CLI + compose v2 — tests/lib/sync-test-server.mjs runs
-# `docker compose up -d postgres` inside the stonefruit-server repo.
+# `docker compose up -d postgres` inside the futo-notes-server repo.
 # The Docker socket must be mounted into the job container at runtime
 # (configured on the GitLab runner, not here).
 RUN install -m 0755 -d /etc/apt/keyrings && \

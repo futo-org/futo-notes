@@ -1,5 +1,5 @@
 // Phase 1 of the visual-similarity oracle: pixel-level diff between
-// stonefruit and Obsidian screenshots, run on a curated subset of
+// FUTO Notes and Obsidian screenshots, run on a curated subset of
 // scenarios after both editors have a shared neutral theme injected.
 //
 // Phase 2 (LLM judge) is *not* this module — it's the workflow where

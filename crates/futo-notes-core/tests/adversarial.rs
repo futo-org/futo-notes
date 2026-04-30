@@ -225,7 +225,7 @@ fn unique_id_stress_200_collisions() {
 
 #[test]
 fn safe_note_path_traversal_blocked() {
-    let base = Path::new("/tmp/stonefruit-test-notes");
+    let base = Path::new("/tmp/futo-notes-test-notes");
     let attacks = [
         "..",
         "../etc/passwd",

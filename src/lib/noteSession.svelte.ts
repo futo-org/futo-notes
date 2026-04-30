@@ -293,6 +293,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     if (loadVersion !== noteLoadVersion) return;
 
     loading = true;
+    clearTitleWarning();
 
     // Reset scroll position
     const noteBody = deps.getNoteBody();
@@ -446,12 +447,14 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
         savedTitle = meta.title;
       }
     }
+    clearTitleWarning();
   }
 
   function applyRemoteRename(toId: string, newTitle: string): void {
     originalId = toId;
     title = newTitle;
     savedTitle = newTitle;
+    clearTitleWarning();
   }
 
   function seedOpenNote(id: string, body: string): void {
@@ -461,6 +464,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     content = body;
     deps.setEditorContent(body);
     deps.setPrevNoteId(id);
+    clearTitleWarning();
     navigate(`/note/${encodeURIComponent(id)}`);
   }
 
@@ -469,6 +473,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
       clearTimeout(saveTimeout);
       saveTimeout = null;
     }
+    clearTitleWarning();
     originalId = null;
     navigate('/');
   }

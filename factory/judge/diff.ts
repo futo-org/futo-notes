@@ -6,12 +6,12 @@ export interface Divergence {
     | 'cursor-drift'
     | 'selection-drift'
     | 'visible-text-drift'
-    | 'decoration-only-in-stonefruit'
+    | 'decoration-only-in-futo-notes'
     | 'decoration-only-in-obsidian'
     | 'decoration-range-mismatch'
     // SF-only geometric/computed-style assertion failed. These don't
     // compare to Obsidian — they're absolute UX guarantees on the
-    // stonefruit editor (cursor must clear the bullet, headings must
+    // FUTO Notes editor (cursor must clear the bullet, headings must
     // shrink monotonically, etc.). See factory/judge/layoutInvariants.ts.
     | 'layout-violation'
     // Pixel diff between SF and OB screenshots exceeded tolerance
@@ -91,32 +91,32 @@ function normalizeVisible(s: string): string {
 }
 
 export function diffStates(
-  stonefruit: DriverState,
+  futoNotes: DriverState,
   obsidian: DriverState,
 ): Divergence[] {
   const out: Divergence[] = [];
 
-  if (stonefruit.doc !== obsidian.doc) {
+  if (futoNotes.doc !== obsidian.doc) {
     out.push({
       kind: 'doc-mismatch',
-      detail: `documents differ (stonefruit=${stonefruit.doc.length}b, obsidian=${obsidian.doc.length}b)`,
+      detail: `documents differ (futoNotes=${futoNotes.doc.length}b, obsidian=${obsidian.doc.length}b)`,
     });
   }
-  if (!posEq(stonefruit.cursor, obsidian.cursor)) {
+  if (!posEq(futoNotes.cursor, obsidian.cursor)) {
     out.push({
       kind: 'cursor-drift',
-      detail: `stonefruit=(${stonefruit.cursor.line},${stonefruit.cursor.ch}) obsidian=(${obsidian.cursor.line},${obsidian.cursor.ch})`,
-      data: { stonefruit: stonefruit.cursor, obsidian: obsidian.cursor },
+      detail: `futoNotes=(${futoNotes.cursor.line},${futoNotes.cursor.ch}) obsidian=(${obsidian.cursor.line},${obsidian.cursor.ch})`,
+      data: { futoNotes: futoNotes.cursor, obsidian: obsidian.cursor },
     });
   }
   if (
-    !posEq(stonefruit.selection.head, obsidian.selection.head) ||
-    !posEq(stonefruit.selection.anchor, obsidian.selection.anchor)
+    !posEq(futoNotes.selection.head, obsidian.selection.head) ||
+    !posEq(futoNotes.selection.anchor, obsidian.selection.anchor)
   ) {
     out.push({
       kind: 'selection-drift',
       detail: 'selection range differs',
-      data: { stonefruit: stonefruit.selection, obsidian: obsidian.selection },
+      data: { futoNotes: futoNotes.selection, obsidian: obsidian.selection },
     });
   }
   // innerText comparison is brittle across editors that decorate the same
@@ -124,12 +124,12 @@ export function diffStates(
   // Obsidian leaves the markdown text and styles via CSS). Both render
   // visually similarly, but the raw innerText diverges. Normalize away
   // the easy false-positives before flagging.
-  if (normalizeVisible(stonefruit.visibleText) !== normalizeVisible(obsidian.visibleText)) {
+  if (normalizeVisible(futoNotes.visibleText) !== normalizeVisible(obsidian.visibleText)) {
     out.push({
       kind: 'visible-text-drift',
       detail: 'visible text (innerText of .cm-content) differs after normalization',
       data: {
-        stonefruit: stonefruit.visibleText,
+        futoNotes: futoNotes.visibleText,
         obsidian: obsidian.visibleText,
       },
     });
@@ -141,7 +141,7 @@ export function diffStates(
   // emitted a single span and the other split it around a nested
   // decoration. This is what matters semantically: same characters,
   // same kind. Range identity is an artifact of decoration emission.
-  const sfByKind = bucketByKind(stonefruit.decorations);
+  const sfByKind = bucketByKind(futoNotes.decorations);
   const obByKind = bucketByKind(obsidian.decorations);
   const allKinds = new Set([...sfByKind.keys(), ...obByKind.keys()]);
   for (const kind of allKinds) {
@@ -151,8 +151,8 @@ export function diffStates(
     const onlyOb = setDiff(obCov, sfCov);
     if (onlySf.size > 0) {
       out.push({
-        kind: 'decoration-only-in-stonefruit',
-        detail: `${kind}: ${onlySf.size} char(s) covered only in stonefruit (e.g. ${describeCoverage(onlySf)})`,
+        kind: 'decoration-only-in-futo-notes',
+        detail: `${kind}: ${onlySf.size} char(s) covered only in futo-notes (e.g. ${describeCoverage(onlySf)})`,
         data: { kind, positions: [...onlySf].sort((a, b) => a - b) },
       });
     }
@@ -173,7 +173,7 @@ export interface ScenarioReport {
   complexity: number;
   satisfaction: number; // 1.0 = exact match, 0 otherwise (binary for now)
   divergences: Divergence[];
-  stonefruit?: DriverState;
+  futoNotes?: DriverState;
   obsidian?: DriverState;
   error?: string;
 }

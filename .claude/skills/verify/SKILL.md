@@ -55,8 +55,8 @@ Categorize changed files into ALL matching categories:
 | `src/**/*.svelte`, `src/**/*.ts` (not test files) | frontend (check if files import `@tauri-apps/*` or `invoke` → also mark as tauri-dependent) |
 | `src/**/*.css`, `src/styles/**` | styles |
 | `src/**/*.test.ts`, `src/**/*.spec.ts` | unit-tests |
-| `crates/stonefruit-server/**` (not Dockerfile/docker-compose) | server |
-| `crates/stonefruit-server/Dockerfile`, `docker-compose*` | server-docker |
+| `crates/futo-notes-server/**` (not Dockerfile/docker-compose) | server |
+| `crates/futo-notes-server/Dockerfile`, `docker-compose*` | server-docker |
 | `apps/tauri/src-tauri/**` | tauri-rust |
 | `apps/cli/**` | cli |
 | `packages/shared/**` | shared |
@@ -99,13 +99,13 @@ pnpm run server:test 2>&1 | tail -30
 ### server-docker:
 After server tests pass:
 ```bash
-docker compose -f crates/stonefruit-server/docker-compose.yml up --build -d 2>&1 | tail -20
+docker compose -f crates/futo-notes-server/docker-compose.yml up --build -d 2>&1 | tail -20
 sleep 3 && curl -sf http://localhost:3005/health && echo "OK" || echo "FAIL"
-docker compose -f crates/stonefruit-server/docker-compose.yml down 2>&1
+docker compose -f crates/futo-notes-server/docker-compose.yml down 2>&1
 ```
 
 ### dashboard:
-After server tests pass, smoke-test the server. Start a temp server (`PORT=3005 DATA_DIR=$(mktemp -d) STONEFRUIT_DEV_PASSWORD=testing123 cargo run -p stonefruit-server &`), run the auth flow via curl (setup → login → authenticated endpoint → verify unauthenticated 401), then kill the process.
+After server tests pass, smoke-test the server. Start a temp server (`PORT=3005 DATA_DIR=$(mktemp -d) FUTO_NOTES_DEV_PASSWORD=testing123 cargo run -p futo-notes-server &`), run the auth flow via curl (setup → login → authenticated endpoint → verify unauthenticated 401), then kill the process.
 
 ### shared:
 ```bash
@@ -420,14 +420,14 @@ Many features require a running sync server with data (graph/indexing, sync dedu
 WORKTREE_ROOT="$(git rev-parse --show-toplevel)"
 SLOT=$(( $(printf "%d" "0x$(echo -n "$WORKTREE_ROOT" | md5sum | cut -c1-8)") % 50 ))
 VERIFY_SERVER_PORT=$(( 3100 + SLOT ))
-VERIFY_SERVER_DIR=$(mktemp -d /tmp/stonefruit-verify-server-XXXXXX)
+VERIFY_SERVER_DIR=$(mktemp -d /tmp/futo-notes-verify-server-XXXXXX)
 
 # Start an isolated Rust server with its own data dir
 cd "$WORKTREE_ROOT"
 PORT=$VERIFY_SERVER_PORT \
   DATA_DIR="$VERIFY_SERVER_DIR" \
-  STONEFRUIT_DEV_PASSWORD=testing123 \
-  cargo run -p stonefruit-server > "$VERIFY_SERVER_DIR/server.log" 2>&1 &
+  FUTO_NOTES_DEV_PASSWORD=testing123 \
+  cargo run -p futo-notes-server > "$VERIFY_SERVER_DIR/server.log" 2>&1 &
 VERIFY_SERVER_PID=$!
 echo $VERIFY_SERVER_PID > "$VERIFY_SERVER_DIR/server.pid"
 sleep 3
@@ -444,7 +444,7 @@ Then in the Tauri app, connect to `http://localhost:$VERIFY_SERVER_PORT` with a 
 
 Clean up the server when done:
 ```bash
-VERIFY_SERVER_DIR=$(ls -d /tmp/stonefruit-verify-server-* 2>/dev/null | head -1)
+VERIFY_SERVER_DIR=$(ls -d /tmp/futo-notes-verify-server-* 2>/dev/null | head -1)
 if [ -n "$VERIFY_SERVER_DIR" ] && [ -f "$VERIFY_SERVER_DIR/server.pid" ]; then
   kill $(cat "$VERIFY_SERVER_DIR/server.pid") 2>/dev/null
   rm -rf "$VERIFY_SERVER_DIR"

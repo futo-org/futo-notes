@@ -1,5 +1,5 @@
 // Cross-editor judge: runs scenarios from markdown-spec/cases/ against
-// stonefruit's editor and Obsidian's, then diffs the captured states.
+// FUTO Notes's editor and Obsidian's, then diffs the captured states.
 //
 // Modes (subcommand as first non-flag arg):
 //
@@ -147,17 +147,17 @@ async function bootEnv({ skipObsidian, headed }: { skipObsidian: boolean; headed
     console.log(`[boot] obsidian driver ready (vault ${path.basename(VAULT_DIR)})`);
   }
 
-  // 3. Browser + stonefruit page
+  // 3. Browser + futo-notes page
   const browser: Browser = await chromium.launch({ headless: !headed });
   cleanups.push(() => browser.close());
   const page: Page = await browser.newPage();
-  await openStonefruitPage(page);
-  console.log(`[boot] stonefruit driver ready`);
+  await openFutoNotesPage(page);
+  console.log(`[boot] futo-notes driver ready`);
 
   return { page, obsidianPage, browser, cleanup };
 }
 
-async function openStonefruitPage(page: Page): Promise<void> {
+async function openFutoNotesPage(page: Page): Promise<void> {
   await page.goto(`${DEV_URL}/#/note/new`);
   await page.waitForSelector('.cm-editor', { timeout: 15_000 });
   await page.waitForFunction(() => !!(window as any).__driver, null, { timeout: 10_000 });
@@ -180,8 +180,8 @@ async function runOneRound(
   onEvent: (e: ProgressEvent) => void,
 ): Promise<{ summary: ReturnType<typeof summarize>; reports: ScenarioReport[] }> {
   if (opts.reload) {
-    onEvent({ type: 'log', message: 'reloading stonefruit page' });
-    await openStonefruitPage(env.page);
+    onEvent({ type: 'log', message: 'reloading futo-notes page' });
+    await openFutoNotesPage(env.page);
   }
 
   let cases = loadAndFilterCases({
@@ -247,8 +247,8 @@ async function runOneRound(
         }
       }
       const report: ScenarioReport = ob
-        ? { name: c.name, complexity: c.complexity, satisfaction: 0, divergences, stonefruit: sf, obsidian: ob }
-        : { name: c.name, complexity: c.complexity, satisfaction: 1, divergences, stonefruit: sf };
+        ? { name: c.name, complexity: c.complexity, satisfaction: 0, divergences, futoNotes: sf, obsidian: ob }
+        : { name: c.name, complexity: c.complexity, satisfaction: 1, divergences, futoNotes: sf };
       report.satisfaction = report.divergences.length === 0 ? 1 : 0;
       reports.push(report);
       onEvent({
@@ -410,7 +410,7 @@ async function clientWatch(): Promise<never> {
     path.join(REPO, 'src/lib/liveMarkdownTransform.ts'),
     path.join(REPO, 'src/components/MarkdownEditor.svelte'),
     path.join(REPO, 'src/styles/markdown.css'),
-    path.join(REPO, 'factory/driver/stonefruit.ts'),
+    path.join(REPO, 'factory/driver/futoNotes.ts'),
     path.join(REPO, 'factory/driver/semanticKind.ts'),
     path.join(REPO, 'factory/judge/diff.ts'),
   ];
@@ -539,13 +539,13 @@ async function runOnEditor(page: Page, markdown: string, events: DriverEvent[], 
   if (wantsFocus && isObsidian) {
     // Real OS-level click so document.activeElement actually lands on
     // contentDOM. Obsidian's live-preview reveal logic checks that —
-    // programmatic cm.focus() doesn't satisfy it. Stonefruit's reveal
+    // programmatic cm.focus() doesn't satisfy it. FUTO Notes's reveal
     // is selection-driven and doesn't need the click; skipping it
     // avoids the click landing on a widget at (4,4) which can move
     // the caret off the requested position.
     await page.locator('.cm-content[data-factory-target="true"]').click({ position: { x: 4, y: 4 }, force: true });
   } else if (wantsFocus) {
-    // Stonefruit just needs the editor to know it's focused.
+    // FUTO Notes just needs the editor to know it's focused.
     await page.evaluate(async () => {
       await (window as any).__driver.dispatch([{ type: 'focus' }]);
     });
@@ -553,7 +553,7 @@ async function runOnEditor(page: Page, markdown: string, events: DriverEvent[], 
 
   // Cursor moves and arrow-key events go through Playwright's keyboard
   // so CM6 receives real, trusted KeyboardEvents — Obsidian's reveal
-  // logic keys off them. Stonefruit's reveal is selection-state-driven
+  // logic keys off them. FUTO Notes's reveal is selection-state-driven
   // and accepts a programmatic `place_cursor` dispatch; using that
   // here avoids surprises when SF redirects the caret out of
   // list-marker source ranges (clicking at col 0 of `- foo` lands at

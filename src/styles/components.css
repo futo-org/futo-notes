@@ -218,7 +218,6 @@
   padding: 0 4px;
 }
 
-.brand-emoji,
 .brand-text {
   font-family: var(--font-serif);
   font-size: 22px;
@@ -229,10 +228,6 @@
   border: none;
   cursor: pointer;
   padding: 0;
-}
-
-.brand-emoji {
-  font-family: initial;
 }
 
 .dev-badge {

@@ -7,7 +7,6 @@ use std::collections::HashMap;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use futo_notes_core::files::{file_mtime_ms, safe_note_path, set_file_mtime_ms};
@@ -21,7 +20,6 @@ pub(crate) use futo_notes_core::files::{now_ms, write_atomic_text};
 pub struct CoreState {
     watcher: Arc<Mutex<Option<RecommendedWatcher>>>,
     suppressed_watcher_events: Arc<Mutex<HashMap<String, i64>>>,
-    sync_writes_until: Arc<AtomicI64>,
 }
 
 const WATCHER_SUPPRESSION_MS: i64 = 5_000;
@@ -94,8 +92,7 @@ fn default_notes_root(app: &AppHandle) -> Result<PathBuf, String> {
         return Ok(docs.join("fake-notes"));
     }
 
-    // 3. Release default: ~/Documents/futo-notes, with one-shot migration
-    //    from the old "stonefruit" directory if it exists.
+    // 3. Release default: ~/Documents/futo-notes.
     #[cfg(not(debug_assertions))]
     {
         let docs = app
@@ -103,39 +100,8 @@ fn default_notes_root(app: &AppHandle) -> Result<PathBuf, String> {
             .document_dir()
             .or_else(|_| app.path().app_data_dir())
             .map_err(|e| e.to_string())?;
-        Ok(release_default_notes_root(&docs))
+        Ok(docs.join("futo-notes"))
     }
-}
-
-/// Returns the release-build default notes directory under `docs`, performing
-/// a one-shot rename of `stonefruit` → `futo-notes` when the new path doesn't
-/// yet exist. On rename failure the old path is kept so the user never loses
-/// access to their notes; migration errors are logged but non-fatal.
-#[cfg_attr(debug_assertions, allow(dead_code))]
-fn release_default_notes_root(docs: &Path) -> PathBuf {
-    let new_path = docs.join("futo-notes");
-    let old_path = docs.join("stonefruit");
-    if !new_path.exists() && old_path.exists() {
-        match fs::rename(&old_path, &new_path) {
-            Ok(_) => {
-                eprintln!(
-                    "Migrated notes directory: {} -> {}",
-                    old_path.display(),
-                    new_path.display()
-                );
-            }
-            Err(err) => {
-                eprintln!(
-                    "Notes dir migration {} -> {} failed: {}; using old path",
-                    old_path.display(),
-                    new_path.display(),
-                    err
-                );
-                return old_path;
-            }
-        }
-    }
-    new_path
 }
 
 pub(crate) fn notes_root(app: &AppHandle) -> Result<PathBuf, String> {
@@ -186,11 +152,9 @@ pub struct V2SyncApplyOutput {
 fn apply_sync_delta_v2_impl(
     base: &Path,
     suppressed_watcher_events: &Arc<Mutex<HashMap<String, i64>>>,
-    sync_writes_until: &Arc<AtomicI64>,
     input: V2SyncApplyInput,
 ) -> Result<V2SyncApplyOutput, String> {
     let started = Instant::now();
-    sync_writes_until.store(now_ms() + WATCHER_SUPPRESSION_MS, Ordering::Release);
 
     let mut updated_filenames = Vec::new();
     let mut deleted_filenames = Vec::new();
@@ -248,8 +212,6 @@ fn apply_sync_delta_v2_impl(
         }
     }
 
-    sync_writes_until.store(now_ms() + WATCHER_SUPPRESSION_MS, Ordering::Release);
-
     Ok(V2SyncApplyOutput {
         updated_filenames,
         deleted_filenames,
@@ -265,10 +227,9 @@ pub async fn core_apply_sync_delta_v2(
     input: V2SyncApplyInput,
 ) -> Result<V2SyncApplyOutput, String> {
     let suppressed = state.suppressed_watcher_events.clone();
-    let sync_until = state.sync_writes_until.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let base = notes_root(&app)?;
-        apply_sync_delta_v2_impl(&base, &suppressed, &sync_until, input)
+        apply_sync_delta_v2_impl(&base, &suppressed, input)
     })
     .await
     .map_err(task_join_err)?
@@ -472,7 +433,6 @@ pub async fn fs_paste_clipboard_image(app: AppHandle) -> Result<String, String> 
 pub async fn fs_start_watcher(app: AppHandle, state: State<'_, CoreState>) -> Result<(), String> {
     let watcher_state = state.watcher.clone();
     let suppressed_watcher_events = state.suppressed_watcher_events.clone();
-    let sync_writes_until = state.sync_writes_until.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let mut guard = watcher_state
             .lock()
@@ -497,9 +457,6 @@ pub async fn fs_start_watcher(app: AppHandle, state: State<'_, CoreState>) -> Re
                     };
                     let lower = filename.to_lowercase();
                     if !lower.ends_with(".md") && !lower.ends_with(".txt") {
-                        continue;
-                    }
-                    if sync_writes_until.load(Ordering::Acquire) > now_ms() {
                         continue;
                     }
                     let should_suppress = if let Ok(mut map) = suppressed_watcher_events.lock() {
@@ -742,53 +699,6 @@ mod tests {
         std::env::remove_var("FUTO_NOTES_DATA_DIR");
         assert_eq!(actual, Some(expected));
     }
-
-    #[test]
-    fn release_default_notes_root_migrates_old_stonefruit_dir() {
-        let docs = temp_notes_dir();
-        let old = docs.join("stonefruit");
-        let new = docs.join("futo-notes");
-        fs::create_dir_all(&old).unwrap();
-        fs::write(old.join("note.md"), "hello").unwrap();
-
-        let resolved = release_default_notes_root(&docs);
-
-        assert_eq!(resolved, new);
-        assert!(new.exists(), "new path should exist after migration");
-        assert!(!old.exists(), "old path should be gone after migration");
-        assert_eq!(fs::read_to_string(new.join("note.md")).unwrap(), "hello");
-        cleanup_temp_dir(&docs);
-    }
-
-    #[test]
-    fn release_default_notes_root_leaves_existing_futo_notes_alone() {
-        let docs = temp_notes_dir();
-        let old = docs.join("stonefruit");
-        let new = docs.join("futo-notes");
-        fs::create_dir_all(&old).unwrap();
-        fs::create_dir_all(&new).unwrap();
-        fs::write(new.join("current.md"), "new").unwrap();
-
-        let resolved = release_default_notes_root(&docs);
-
-        assert_eq!(resolved, new);
-        assert!(old.exists(), "old path should be preserved when new exists");
-        assert_eq!(fs::read_to_string(new.join("current.md")).unwrap(), "new");
-        cleanup_temp_dir(&docs);
-    }
-
-    #[test]
-    fn release_default_notes_root_fresh_install_returns_new_path() {
-        let docs = temp_notes_dir();
-        let new = docs.join("futo-notes");
-
-        let resolved = release_default_notes_root(&docs);
-
-        assert_eq!(resolved, new);
-        assert!(!new.exists(), "nothing to migrate, nothing created");
-        cleanup_temp_dir(&docs);
-    }
-
 
     // V1 sync tests removed — V1 protocol is dead code.
     // See git history for original tests.

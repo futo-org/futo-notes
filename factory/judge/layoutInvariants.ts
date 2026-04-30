@@ -1,6 +1,6 @@
 // Layout invariants — geometric / computed-style assertions that run
 // against the live editor DOM after each scenario finishes dispatching.
-// Independent of Obsidian: these are absolute UX guarantees stonefruit
+// Independent of Obsidian: these are absolute UX guarantees FUTO Notes
 // must hold ("cursor must be visually clear of the bullet glyph", etc.)
 // rather than a parity check.
 //

@@ -804,7 +804,7 @@ async function resolveUpdateConflict(
   let maxVersion = 0;
 
   // Common ancestor for three-way merge: the blob we last pulled or pushed.
-  // The server retains orphaned blobs for 1 year (see stonefruit-server
+  // The server retains orphaned blobs for 1 year (see futo-notes-server
   // orphaned_blobs + maintenance/blobGc.ts), so this normally succeeds. On
   // 404 (blob GC'd, or very old map entry) we fall through to conflict copy.
   let baseContent: string | undefined;

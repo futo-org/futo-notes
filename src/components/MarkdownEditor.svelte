@@ -726,8 +726,8 @@
       };
       w.__cmGetView = () => view;
       // Factory driver: window.__driver, used by factory/judge to compare
-      // stonefruit's editor state against Obsidian's.
-      import('../../factory/driver/stonefruit').then(({ installDriver }) => {
+      // FUTO Notes's editor state against Obsidian's.
+      import('../../factory/driver/futoNotes').then(({ installDriver }) => {
         if (view) installDriver(view);
       });
     }

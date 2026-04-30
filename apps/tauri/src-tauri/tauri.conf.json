@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Stonefruit",
+  "productName": "FUTO Notes",
   "version": "0.1.0",
   "identifier": "com.futo.notes",
   "build": {
@@ -13,7 +13,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "Stonefruit",
+        "title": "FUTO Notes",
         "width": 1200,
         "height": 800,
         "resizable": true
@@ -40,12 +40,12 @@
     "linux": {
       "deb": {
         "files": {
-          "/usr/lib/stonefruit/libonnxruntime.so": "gen/linux/libonnxruntime.so"
+          "/usr/lib/futo-notes/libonnxruntime.so": "gen/linux/libonnxruntime.so"
         }
       },
       "rpm": {
         "files": {
-          "/usr/lib/stonefruit/libonnxruntime.so": "gen/linux/libonnxruntime.so"
+          "/usr/lib/futo-notes/libonnxruntime.so": "gen/linux/libonnxruntime.so"
         }
       },
       "appimage": {

@@ -216,7 +216,7 @@ export function installDriver(view: EditorView): void {
       return extractState(view);
     },
     async identify() {
-      return { name: 'stonefruit', version: 'dev' };
+      return { name: 'futo-notes', version: 'dev' };
     },
   };
   (window as any).__driver = driver;

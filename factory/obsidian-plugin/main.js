@@ -1,6 +1,6 @@
 // FUTO Notes Factory Driver — Obsidian plugin.
 //
-// Exposes the same protocol surface as the stonefruit driver, but over
+// Exposes the same protocol surface as the FUTO Notes driver, but over
 // localhost HTTP since the judge process is external to Obsidian. Runs
 // only on desktop (Node http module is available in Electron).
 //

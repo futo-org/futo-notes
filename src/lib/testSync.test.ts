@@ -20,6 +20,8 @@ vi.mock('./syncServiceE2ee', () => ({
 
 vi.mock('./autoSyncV2', () => ({
   requestSyncV2: autoSyncMocks.requestSyncV2,
+  pauseAutoSyncV2: vi.fn(),
+  resumeAutoSyncV2: vi.fn(),
 }));
 
 async function freshModules() {

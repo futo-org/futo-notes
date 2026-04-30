@@ -1,6 +1,6 @@
 import { getAppState, loadAppState, saveAppState, type AppState } from './appState';
 import { getCachedPreferences, type AppPreferences } from './appState';
-import { requestSyncV2 } from './autoSyncV2';
+import { pauseAutoSyncV2, requestSyncV2, resumeAutoSyncV2 } from './autoSyncV2';
 import { connectE2ee, syncE2ee, disconnectE2ee, type SyncSummary } from './syncServiceE2ee';
 
 export interface TestSyncStatus {
@@ -16,6 +16,8 @@ export interface TestSyncApi {
   connectE2ee(serverUrl: string, password: string): Promise<TestSyncStatus>;
   syncE2ee(password: string): Promise<{ summary: SyncSummary; status: TestSyncStatus }>;
   disconnectE2ee(): Promise<TestSyncStatus>;
+  pauseAutoSync(): void;
+  resumeAutoSync(): void;
 }
 
 declare global {
@@ -98,5 +100,7 @@ export function installTestSync(target: Window = window): void {
     connectE2ee: testConnectE2ee,
     syncE2ee: testSyncE2ee,
     disconnectE2ee: testDisconnectE2ee,
+    pauseAutoSync: pauseAutoSyncV2,
+    resumeAutoSync: resumeAutoSyncV2,
   };
 }

@@ -4,8 +4,7 @@
  * Resolution chain (matches Rust notes_root / default_notes_root exactly):
  * 1. Check notes-dir-override.json in Tauri app data dir
  * 2. Fall back to FUTO_NOTES_DATA_DIR/notes if the env var is set (dev/test)
- * 3. Fall back to documentDir()/futo-notes (or appDataDir()/futo-notes), with
- *    one-shot migration from the legacy ~/Documents/stonefruit location
+ * 3. Fall back to documentDir()/futo-notes (or appDataDir()/futo-notes)
  *
  * The env-var branch is resolved by a Rust command — the webview cannot read
  * process env directly, and without this path, cross-platform tests and

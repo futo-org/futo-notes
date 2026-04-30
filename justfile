@@ -199,7 +199,7 @@ factory-run *args:
   pnpm exec tsx factory/judge/run.ts run --no-moves {{args}}
 
 # Re-run on every save of editor source files. Talks to the running
-# daemon and reloads the stonefruit page before each run so HMR drift
+# daemon and reloads the futo-notes page before each run so HMR drift
 # can't lie to you.
 factory-watch *args:
   pnpm exec tsx factory/judge/run.ts watch --no-moves {{args}}
