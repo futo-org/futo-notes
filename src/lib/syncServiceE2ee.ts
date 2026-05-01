@@ -45,6 +45,17 @@ export interface SyncSummary {
   updatedIds: string[];
   deletedIds: string[];
   renamed: Array<{ fromId: string; toId: string }>;
+  /**
+   * Subset of `updatedIds` whose changes came from pull (peer-driven), not
+   * from our own push echoing back. Use this — not `updatedIds` — to gate
+   * post-sync UI work like full-vault rescans: re-listing 2,400 files and
+   * re-persisting the search index every time we push our own keystrokes
+   * is what made typing stutter. Push-side conflict resolutions still
+   * land here because they materially change local file content.
+   */
+  peerUpdatedIds: string[];
+  /** Pull-driven (peer) deletes; symmetrical to `peerUpdatedIds`. */
+  peerDeletedIds: string[];
 }
 
 interface ServerObject {
@@ -95,6 +106,13 @@ interface PushResult {
   deletedIds: string[];
   newMaxVersion: number;
   deletedHashes: Map<string, string>;
+  /**
+   * Subset of `updatedIds` that came from conflict resolution paths (3-way
+   * merge, conflict-copy, or delete-vs-edit) — i.e. cases where push wrote
+   * new content to the local disk. Pure pushes don't appear here because
+   * they don't change local state in any way the UI cares about.
+   */
+  conflictResolvedIds: string[];
 }
 
 interface KeyMaterial {
@@ -118,6 +136,29 @@ type E2eeObjectMapEntry = E2eeObjectMap[string];
 type MergeAttempt =
   | { clean: true; content: string }
   | { clean: false };
+
+// ── Progress reporting ───────────────────────────────────────────────────
+
+export type SyncProgress = {
+  phase: 'reconciling' | 'pushing' | 'pulling';
+  current: number;
+  total: number;
+};
+
+let progressListener: ((p: SyncProgress) => void) | null = null;
+
+/** Register a listener for sync progress events. Pass null to clear.
+ *  Used by the SettingsScreen connect flow to surface "Reconciling 412/2446".
+ */
+export function setSyncProgressListener(listener: ((p: SyncProgress) => void) | null): void {
+  progressListener = listener;
+}
+
+function reportProgress(phase: SyncProgress['phase'], current: number, total: number): void {
+  if (progressListener) {
+    try { progressListener({ phase, current, total }); } catch { /* listener errors must not break sync */ }
+  }
+}
 
 // ── Fetch helper ─────────────────────────────────────────────────────────
 
@@ -647,6 +688,115 @@ export async function disconnectE2ee(): Promise<void> {
   });
 }
 
+// ── Reconcile (fresh client / reconnect) ─────────────────────────────────
+
+/**
+ * Pull-first reconcile for the case where the local objectMap is empty but
+ * the server already has objects — typical of a reconnect after disconnect,
+ * a restore on a new device, or a server-data-kept reset.
+ *
+ * Without this path, the regular push-first flow would treat every local
+ * file as new and re-upload it, duplicating every object on the server and
+ * triggering a flood of conflict copies on the next pull. Here we instead:
+ *
+ *   1. List every live server object and decrypt each blob.
+ *   2. For each remote note:
+ *      - identical local content → just record the map entry (no I/O).
+ *      - local differs → keep local, record the server's version so the
+ *        next push uploads the local content as an update (3-way merge
+ *        is impossible without a common ancestor, so "trust local" is the
+ *        safest default; the user said the local copy is the real one).
+ *      - no local file → write the remote content to disk.
+ *
+ * After this, runFullSync's push pass sees a fully-populated map and only
+ * uploads genuine differences; pull sees `prePushMaxVersion` already at the
+ * server's tip and does nothing.
+ */
+async function reconcileEmptyMap(key: CryptoKey): Promise<{ peerUpdatedIds: string[] }> {
+  const { serverUrl, collectionId } = getE2eeConfig();
+  const data = await e2eeJson<{ objects: ServerObject[] }>(
+    `${serverUrl}/api/collections/${collectionId}/objects?sinceVersion=0`,
+  );
+  const liveObjects = data.objects.filter((o) => !o.deleted && o.blob_key);
+  if (liveObjects.length === 0) return { peerUpdatedIds: [] };
+
+  const fs = await getPlatformFS();
+  const noteFiles = await fs.listNoteFiles();
+  const localByName = new Map<string, { mtime: number; size: number }>();
+  for (const f of noteFiles) {
+    if (f.name.endsWith('.md')) localByName.set(f.name, { mtime: f.mtime, size: f.size });
+  }
+
+  const objectMap: E2eeObjectMap = {};
+  let newMaxVersion = 0;
+  const updates: Array<{ filename: string; content: string; hash: string; modified_at: number }> = [];
+
+  let completed = 0;
+  reportProgress('reconciling', 0, liveObjects.length);
+
+  await runPool(liveObjects, PULL_CONCURRENCY, async (obj) => {
+    try {
+      const note = await downloadNoteByBlobKey(key, obj.blob_key!);
+      const { filename, content } = note;
+      const remoteHash = await sha256(content);
+      const version = Number(obj.version);
+      const changeSeq = Number(obj.change_seq);
+      if (changeSeq > newMaxVersion) newMaxVersion = changeSeq;
+      const remoteUpdatedAt = new Date(obj.updated_at).getTime();
+      const remoteSize = new TextEncoder().encode(content).length;
+
+      const local = localByName.get(filename);
+      if (!local) {
+        updates.push({ filename, content, hash: remoteHash, modified_at: remoteUpdatedAt });
+        objectMap[filename] = {
+          objectId: obj.id, version, blobKey: obj.blob_key!, hash: remoteHash,
+          mtimeMs: remoteUpdatedAt, sizeBytes: remoteSize,
+        };
+      } else {
+        let localContent: string | null = null;
+        try { localContent = await fs.readNote(filenameToId(filename)); } catch { /* race: gone */ }
+        if (localContent === null) {
+          updates.push({ filename, content, hash: remoteHash, modified_at: remoteUpdatedAt });
+          objectMap[filename] = {
+            objectId: obj.id, version, blobKey: obj.blob_key!, hash: remoteHash,
+            mtimeMs: remoteUpdatedAt, sizeBytes: remoteSize,
+          };
+        } else if ((await sha256(localContent)) === remoteHash) {
+          // Identical: stamp the map so push fast-paths past this file forever.
+          objectMap[filename] = {
+            objectId: obj.id, version, blobKey: obj.blob_key!, hash: remoteHash,
+            mtimeMs: local.mtime, sizeBytes: local.size,
+          };
+        } else {
+          // Diverged: omit mtime/size so the next push re-hashes and uploads
+          // the local content against the recorded server version.
+          objectMap[filename] = {
+            objectId: obj.id, version, blobKey: obj.blob_key!, hash: remoteHash,
+          };
+        }
+      }
+    } catch (err) {
+      console.warn(`[e2ee] reconcile: failed to process ${obj.blob_key}:`, err);
+    } finally {
+      completed++;
+      reportProgress('reconciling', completed, liveObjects.length);
+    }
+  });
+
+  if (updates.length > 0) {
+    await applySyncDeltaV2(updates, [], [], {});
+  }
+
+  const current = getAppState();
+  await saveAppState({
+    ...current,
+    e2eeObjectMap: objectMap,
+    e2eeMaxVersion: newMaxVersion,
+  });
+  console.log(`[e2ee] Reconciled ${liveObjects.length} server objects; wrote ${updates.length} new local files`);
+  return { peerUpdatedIds: updates.map((u) => filenameToId(u.filename)) };
+}
+
 // ── Pull ─────────────────────────────────────────────────────────────────
 
 /**
@@ -719,12 +869,16 @@ async function pullE2ee(key: CryptoKey, sinceVersion: number): Promise<PullResul
   // shared arrays/maps synchronously after its own await, so no cross-
   // worker races under JS single-threading. applySyncDeltaV2 still runs
   // once at the end with the fully-populated update/delete lists.
+  let pullCompleted = 0;
+  if (toDownload.length > 0) reportProgress('pulling', 0, toDownload.length);
   await runPool(toDownload, PULL_CONCURRENCY, async (obj) => {
     let note: { filename: string; content: string };
     try {
       note = await downloadNoteByBlobKey(key, obj.blob_key!);
     } catch (err) {
       console.warn(`[e2ee] Failed to download/decrypt blob ${obj.blob_key}:`, err);
+      pullCompleted++;
+      reportProgress('pulling', pullCompleted, toDownload.length);
       return;
     }
 
@@ -759,6 +913,8 @@ async function pullE2ee(key: CryptoKey, sinceVersion: number): Promise<PullResul
       hash,
     };
     filenameByObjectId.set(obj.id, filename);
+    pullCompleted++;
+    reportProgress('pulling', pullCompleted, toDownload.length);
   });
 
   if (updates.length > 0 || deletes.length > 0) {
@@ -793,10 +949,10 @@ async function resolveUpdateConflict(
   conflict: ConflictResponse,
   objectMap: E2eeObjectMap,
   localFilenames: Set<string>,
-): Promise<{ uploaded: number; conflicts: number; maxVersion: number }> {
+): Promise<{ uploaded: number; conflicts: number; maxVersion: number; conflictCopyIds: string[] }> {
   if (!conflict.currentBlobKey) {
     console.warn(`[e2ee] Version conflict for ${filename} did not include a current blob key`);
-    return { uploaded: 0, conflicts: 1, maxVersion: 0 };
+    return { uploaded: 0, conflicts: 1, maxVersion: 0, conflictCopyIds: [] };
   }
 
   const remote = await downloadNoteByBlobKey(key, conflict.currentBlobKey);
@@ -842,7 +998,7 @@ async function resolveUpdateConflict(
           blobKey: result.blobKey,
           hash: mergedHash,
         };
-        return { uploaded: 1, conflicts: 0, maxVersion };
+        return { uploaded: 1, conflicts: 0, maxVersion, conflictCopyIds: [] };
       }
 
       console.warn(
@@ -850,7 +1006,7 @@ async function resolveUpdateConflict(
           result.kind === 'error' ? `HTTP ${result.status}` : 'version conflict'
         }`,
       );
-      return { uploaded: 0, conflicts: 1, maxVersion };
+      return { uploaded: 0, conflicts: 1, maxVersion, conflictCopyIds: [] };
     }
   }
 
@@ -884,7 +1040,12 @@ async function resolveUpdateConflict(
   localFilenames.add(filename);
   localFilenames.add(copyFilename);
 
-  return { uploaded: 1, conflicts: 1, maxVersion };
+  return {
+    uploaded: 1,
+    conflicts: 1,
+    maxVersion,
+    conflictCopyIds: [filenameToId(copyFilename)],
+  };
 }
 
 async function pushE2ee(key: CryptoKey): Promise<PushResult> {
@@ -907,6 +1068,10 @@ async function pushE2ee(key: CryptoKey): Promise<PushResult> {
   const updatedIds: string[] = [];
   const deletedIds: string[] = [];
   const deletedHashes = new Map<string, string>();
+  // IDs whose local file content was rewritten by a conflict-resolution
+  // path (3-way merge, conflict copy, or delete-vs-edit restore). Reported
+  // as part of the peer-driven change set so post-sync rescans pick them up.
+  const conflictResolvedIds: string[] = [];
   // Server-authoritative mtimes for files we successfully pushed this cycle.
   // Applied in one shot after the push loop so every device sorts the note
   // list by the same canonical timestamp. (The conflict-resolution path
@@ -939,19 +1104,29 @@ async function pushE2ee(key: CryptoKey): Promise<PushResult> {
     }
   }
 
-  await runPool(mdFiles, PUSH_CONCURRENCY, async (file) => {
+  // Pre-filter: anything matching map mtime+size is a guaranteed no-op via
+  // the in-worker fast path. Excluding them up front makes the progress
+  // denominator reflect the count of files we actually plan to touch
+  // (read + hash + maybe upload), instead of the full vault size.
+  const pushCandidates = mdFiles.filter((file) => {
+    const e = objectMap[file.name];
+    return !(e?.hash !== undefined && e.mtimeMs === file.mtime && e.sizeBytes === file.size);
+  });
+
+  console.log(
+    `[e2ee] Push: ${mdFiles.length} local files, ${Object.keys(objectMap).length} known on server, ${pushCandidates.length} candidates`,
+  );
+
+  let pushCompleted = 0;
+  if (pushCandidates.length > 0) reportProgress('pushing', 0, pushCandidates.length);
+  await runPool(pushCandidates, PUSH_CONCURRENCY, async (file) => {
+    try {
     const filename = file.name;
     const id = filenameToId(filename);
 
-    // Same on-disk mtime+size as last push → content unchanged, hash still valid.
+    // The pre-filter guarantees this file isn't a fast-skip — but the
+    // existing entry still informs whether we PUT (update) or POST (create).
     const existing = objectMap[filename];
-    if (
-      existing?.hash !== undefined &&
-      existing.mtimeMs === file.mtime &&
-      existing.sizeBytes === file.size
-    ) {
-      return;
-    }
 
     let content: string;
     try {
@@ -1006,7 +1181,14 @@ async function pushE2ee(key: CryptoKey): Promise<PushResult> {
           uploaded += resolution.uploaded;
           conflicts += resolution.conflicts;
           if (resolution.maxVersion > newMaxVersion) newMaxVersion = resolution.maxVersion;
-          if (resolution.uploaded > 0) updatedIds.push(id);
+          if (resolution.uploaded > 0) {
+            updatedIds.push(id);
+            conflictResolvedIds.push(id);
+          }
+          for (const conflictId of resolution.conflictCopyIds) {
+            updatedIds.push(conflictId);
+            conflictResolvedIds.push(conflictId);
+          }
         } catch (err) {
           console.warn(`[e2ee] Failed to resolve version conflict for ${filename}:`, err);
           conflicts++;
@@ -1037,6 +1219,10 @@ async function pushE2ee(key: CryptoKey): Promise<PushResult> {
     }
 
     await maybeCheckpoint();
+    } finally {
+      pushCompleted++;
+      reportProgress('pushing', pushCompleted, pushCandidates.length);
+    }
   });
 
   // Sync local mtimes to server `updated_at` so desktop and iPhone sort
@@ -1102,7 +1288,9 @@ async function pushE2ee(key: CryptoKey): Promise<PushResult> {
         };
         if (restored.filename !== filename) delete objectMap[filename];
         localFilenames.add(restored.filename);
-        updatedIds.push(filenameToId(restored.filename));
+        const restoredId = filenameToId(restored.filename);
+        updatedIds.push(restoredId);
+        conflictResolvedIds.push(restoredId);
       } catch (err) {
         console.warn(`[e2ee] Failed to restore deleted-vs-edit conflict for ${filename}:`, err);
         conflicts++;
@@ -1124,6 +1312,7 @@ async function pushE2ee(key: CryptoKey): Promise<PushResult> {
     conflicts,
     updatedIds,
     deletedIds,
+    conflictResolvedIds,
     newMaxVersion,
     deletedHashes,
   };
@@ -1157,6 +1346,15 @@ export async function syncE2ee(password: string): Promise<SyncSummary> {
  * a rename surfaces on the wire as a delete + create with identical bodies.
  */
 async function runFullSync(key: CryptoKey): Promise<SyncSummary> {
+  // Reconcile-first when the client has no local map: avoids re-uploading
+  // every note and conflict-copying everything on reconnect/restore.
+  const preReconcileMap = getAppState().e2eeObjectMap ?? {};
+  let reconcilePeerIds: string[] = [];
+  if (Object.keys(preReconcileMap).length === 0) {
+    const reconcile = await reconcileEmptyMap(key);
+    reconcilePeerIds = reconcile.peerUpdatedIds;
+  }
+
   const prePushMaxVersion = getAppState().e2eeMaxVersion ?? 0;
 
   // Push first so local stale edits can hit the server's version check and
@@ -1208,6 +1406,30 @@ async function runFullSync(key: CryptoKey): Promise<SyncSummary> {
     deletedIds.push(id);
   }
 
+  // Peer-driven changes only: pull updates, push-side conflict
+  // resolutions (which materially rewrote local files), and reconcile
+  // writes (the disconnect-reconnect path that pulls server-only files
+  // before push runs). Used by the sync manager to decide whether a
+  // post-sync vault rescan + search-index persist is actually needed —
+  // solo-typing syncs don't qualify.
+  const seenPeerUpdated = new Set<string>();
+  const peerUpdatedIds: string[] = [];
+  for (const id of [...reconcilePeerIds, ...pullResult.updatedIds, ...pushResult.conflictResolvedIds]) {
+    if (renamedToIds.has(id) || renamedFromIds.has(id)) continue;
+    if (seenPeerUpdated.has(id)) continue;
+    seenPeerUpdated.add(id);
+    peerUpdatedIds.push(id);
+  }
+
+  const seenPeerDeleted = new Set<string>();
+  const peerDeletedIds: string[] = [];
+  for (const id of pullResult.deletedIds) {
+    if (renamedFromIds.has(id) || renamedToIds.has(id)) continue;
+    if (seenPeerDeleted.has(id)) continue;
+    seenPeerDeleted.add(id);
+    peerDeletedIds.push(id);
+  }
+
   const current = getAppState();
   await saveAppState({
     ...current,
@@ -1222,6 +1444,8 @@ async function runFullSync(key: CryptoKey): Promise<SyncSummary> {
     conflicts: pushResult.conflicts,
     updatedIds,
     deletedIds,
+    peerUpdatedIds,
+    peerDeletedIds,
     renamed,
   };
 }

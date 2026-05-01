@@ -67,6 +67,8 @@ describe('testSync', () => {
       updatedIds: ['note'],
       deletedIds: [],
       renamed: [],
+      peerUpdatedIds: ['note'],
+      peerDeletedIds: [],
     });
 
     const target = {} as Window;

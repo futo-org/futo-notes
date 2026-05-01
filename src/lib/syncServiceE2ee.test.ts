@@ -375,3 +375,214 @@ describe('syncServiceE2ee mtime sync', () => {
     expect(postB?.mtime).toBe(postA?.mtime);
   });
 });
+
+describe('syncServiceE2ee reconcile on empty objectMap', () => {
+  beforeEach(() => {
+    resetActiveFS();
+    testFS._reset();
+    vi.unstubAllGlobals();
+  });
+
+  it('reconnect with identical local content does not re-upload anything', async () => {
+    // Simulates the user's scenario: server data dir kept across a fresh
+    // server, client disconnect-reconnect on the same filesystem. Without
+    // reconcile-first, every note would be re-uploaded as a new object.
+    const server: MockServerState = { key: null, putKeyCount: 0 };
+    installFetchMock(server);
+    const fs = createNodeFS();
+
+    // First connect: write notes and push them up.
+    const client1 = await loadClient(fs);
+    await client1.syncService.connectE2ee('http://server.test', 'password');
+    for (let i = 0; i < 5; i++) {
+      await fs.writeNote(`note-${i}`, `# note ${i}\n\nbody ${i}\n`);
+    }
+    await client1.syncService.syncE2ee('password');
+    expect(server.objects!.size).toBe(5);
+    const baselineObjectIds = new Set([...server.objects!.keys()]);
+    const baselineBlobCount = server.blobs!.size;
+
+    // Disconnect: clears e2eeObjectMap (the user's "reset connection" path).
+    await client1.syncService.disconnectE2ee();
+
+    // Reconnect with the same FS. objectMap is empty; reconcile must
+    // populate it from server state without uploading anything new.
+    const client2 = await loadClient(fs);
+    await client2.syncService.connectE2ee('http://server.test', 'password');
+    const summary = await client2.syncService.syncE2ee('password');
+
+    // The actual fix: no new objects, no new blobs.
+    expect(server.objects!.size).toBe(5);
+    expect(new Set([...server.objects!.keys()])).toEqual(baselineObjectIds);
+    expect(server.blobs!.size).toBe(baselineBlobCount);
+    expect(summary.uploaded).toBe(0);
+    expect(summary.conflicts).toBe(0);
+
+    // Map should be repopulated so subsequent edit-then-sync uses
+    // updateObjectInline (PUT) rather than createObjectInline (POST).
+    await fs.writeNote('note-0', '# note 0\n\nedited\n');
+    const editSummary = await client2.syncService.syncE2ee('password');
+    expect(editSummary.uploaded).toBe(1);
+    expect(server.objects!.size).toBe(5);
+  });
+
+  it('reconnect with one diverged file uploads only that file', async () => {
+    const server: MockServerState = { key: null, putKeyCount: 0 };
+    installFetchMock(server);
+    const fs = createNodeFS();
+
+    const client1 = await loadClient(fs);
+    await client1.syncService.connectE2ee('http://server.test', 'password');
+    await fs.writeNote('a', '# a\n');
+    await fs.writeNote('b', '# b\n');
+    await fs.writeNote('c', '# c\n');
+    await client1.syncService.syncE2ee('password');
+    await client1.syncService.disconnectE2ee();
+
+    // Diverge one file locally before reconnect.
+    await fs.writeNote('b', '# b — local edit while disconnected\n');
+
+    const client2 = await loadClient(fs);
+    await client2.syncService.connectE2ee('http://server.test', 'password');
+    const summary = await client2.syncService.syncE2ee('password');
+
+    // Only the diverged file should be uploaded as an update; no new
+    // objects created.
+    expect(server.objects!.size).toBe(3);
+    expect(summary.uploaded).toBe(1);
+    expect(summary.conflicts).toBe(0);
+    // Local content for the diverged file is preserved.
+    expect(await fs.readNote('b')).toBe('# b — local edit while disconnected\n');
+  });
+
+  it('reconnect with extra server file writes it locally without re-uploading', async () => {
+    const server: MockServerState = { key: null, putKeyCount: 0 };
+    installFetchMock(server);
+    const fsA = createNodeFS();
+    const fsB = createNodeFS();
+
+    // Client A creates two notes.
+    const clientA = await loadClient(fsA);
+    await clientA.syncService.connectE2ee('http://server.test', 'password');
+    await fsA.writeNote('shared', '# shared\n');
+    await fsA.writeNote('only-a', '# only on A\n');
+    await clientA.syncService.syncE2ee('password');
+    const baselineBlobs = server.blobs!.size;
+
+    // Client B has only the shared note locally, then connects fresh —
+    // reconcile must pull `only-a` and not re-upload `shared`.
+    await fsB.writeNote('shared', '# shared\n');
+    const clientB = await loadClient(fsB);
+    await clientB.syncService.connectE2ee('http://server.test', 'password');
+    const summary = await clientB.syncService.syncE2ee('password');
+
+    expect(server.objects!.size).toBe(2);
+    expect(server.blobs!.size).toBe(baselineBlobs);
+    expect(summary.uploaded).toBe(0);
+    expect(await fsB.readNote('only-a')).toBe('# only on A\n');
+  });
+
+  it('emits reconciling progress events with current/total', async () => {
+    const server: MockServerState = { key: null, putKeyCount: 0 };
+    installFetchMock(server);
+    const fs = createNodeFS();
+
+    const client1 = await loadClient(fs);
+    await client1.syncService.connectE2ee('http://server.test', 'password');
+    for (let i = 0; i < 4; i++) {
+      await fs.writeNote(`n-${i}`, `body ${i}`);
+    }
+    await client1.syncService.syncE2ee('password');
+    await client1.syncService.disconnectE2ee();
+
+    const events: Array<{ phase: string; current: number; total: number }> = [];
+    const client2 = await loadClient(fs);
+    client2.syncService.setSyncProgressListener((p) => events.push({ ...p }));
+    await client2.syncService.connectE2ee('http://server.test', 'password');
+    await client2.syncService.syncE2ee('password');
+    client2.syncService.setSyncProgressListener(null);
+
+    const reconcileEvents = events.filter((e) => e.phase === 'reconciling');
+    expect(reconcileEvents.length).toBeGreaterThan(0);
+    expect(reconcileEvents[0]).toMatchObject({ current: 0, total: 4 });
+    expect(reconcileEvents[reconcileEvents.length - 1]).toMatchObject({ current: 4, total: 4 });
+  });
+});
+
+describe('syncServiceE2ee peer-change classification', () => {
+  beforeEach(() => {
+    resetActiveFS();
+    testFS._reset();
+    vi.unstubAllGlobals();
+  });
+
+  it('omits self-pushed updates from peerUpdatedIds', async () => {
+    // Typing-driven sync: the user wrote a note locally, push uploads it,
+    // pull sees nothing new. peerUpdatedIds should be empty so the sync
+    // manager skips the post-sync rescan + search-index persist.
+    const server: MockServerState = { key: null, putKeyCount: 0 };
+    installFetchMock(server);
+    const fs = createNodeFS();
+
+    const client = await loadClient(fs);
+    await client.syncService.connectE2ee('http://server.test', 'password');
+    await fs.writeNote('typed-note', 'body\n');
+    const summary = await client.syncService.syncE2ee('password');
+
+    expect(summary.updatedIds).toContain('typed-note');
+    expect(summary.peerUpdatedIds).toEqual([]);
+    expect(summary.peerDeletedIds).toEqual([]);
+  });
+
+  it('reports pull-driven updates in peerUpdatedIds', async () => {
+    // Peer-side change: client A pushes, client B pulls. B's summary
+    // should classify the new note as peer-driven so the rescan fires.
+    const server: MockServerState = { key: null, putKeyCount: 0 };
+    installFetchMock(server);
+    const fsA = createNodeFS();
+    const fsB = createNodeFS();
+
+    const clientA = await loadClient(fsA);
+    await clientA.syncService.connectE2ee('http://server.test', 'password');
+    await fsA.writeNote('from-a', '# from a\n');
+    await clientA.syncService.syncE2ee('password');
+
+    setActiveFS(fsB);
+    const clientB = await loadClient(fsB);
+    await clientB.syncService.connectE2ee('http://server.test', 'password');
+    const bSummary = await clientB.syncService.syncE2ee('password');
+
+    expect(bSummary.peerUpdatedIds).toContain('from-a');
+  });
+
+  it('reports conflict-resolved ids in peerUpdatedIds', async () => {
+    // Push-side conflict resolution still rewrites local files, so the
+    // sync manager needs to know to refresh — even though it surfaced
+    // through pushResult.updatedIds, not pullResult.updatedIds.
+    const server: MockServerState = { key: null, putKeyCount: 0 };
+    installFetchMock(server);
+    const fsA = createNodeFS();
+    const fsB = createNodeFS();
+
+    const clientA = await loadClient(fsA);
+    await clientA.syncService.connectE2ee('http://server.test', 'password');
+    const base = '# Plan\n\npara A.\n\npara B.\n';
+    await fsA.writeNote('shared', base);
+    await clientA.syncService.syncE2ee('password');
+
+    const clientB = await loadClient(fsB);
+    await clientB.syncService.connectE2ee('http://server.test', 'password');
+    await clientB.syncService.syncE2ee('password');
+
+    await fsA.writeNote('shared', base.replace('para A.', 'para A edited.'));
+    await fsB.writeNote('shared', base.replace('para B.', 'para B edited.'));
+
+    setActiveFS(fsA);
+    await clientA.syncService.syncE2ee('password');
+
+    setActiveFS(fsB);
+    const bSummary = await clientB.syncService.syncE2ee('password');
+
+    expect(bSummary.peerUpdatedIds).toContain('shared');
+  });
+});

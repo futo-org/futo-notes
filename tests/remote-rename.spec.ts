@@ -52,6 +52,8 @@ test.describe('Remote Rename UX', () => {
             updatedIds: string[];
             deletedIds: string[];
             renamed: Array<{ fromId: string; toId: string }>;
+            peerUpdatedIds: string[];
+            peerDeletedIds: string[];
           }) => Promise<void>;
           handleFileChange: (event: { type: 'add' | 'change' | 'unlink'; filename: string }) => Promise<void>;
         };
@@ -64,6 +66,8 @@ test.describe('Remote Rename UX', () => {
         updatedIds: [],
         deletedIds: [],
         renamed: [{ fromId: 'Old Title', toId: 'Renamed Title' }],
+        peerUpdatedIds: [],
+        peerDeletedIds: [],
       });
       await w.__notesShellTest.handleFileChange({ type: 'unlink', filename: 'Old Title.md' });
     });
@@ -94,6 +98,8 @@ test.describe('Remote Rename UX', () => {
             updatedIds: string[];
             deletedIds: string[];
             renamed: Array<{ fromId: string; toId: string }>;
+            peerUpdatedIds: string[];
+            peerDeletedIds: string[];
           }) => Promise<void>;
         };
       };
@@ -105,6 +111,8 @@ test.describe('Remote Rename UX', () => {
         updatedIds: ['Old Title (2)'],
         deletedIds: ['Old Title'],
         renamed: [],
+        peerUpdatedIds: ['Old Title (2)'],
+        peerDeletedIds: ['Old Title'],
       });
     });
 

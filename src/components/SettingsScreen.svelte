@@ -3,7 +3,7 @@
   import { deleteAllNotes } from '$lib/notes.svelte';
   import { getAppState, getCachedPreferences, savePreferences } from '$lib/appState';
   import { applyThemePreference, type ThemePreference } from '$lib/theme';
-  import { connectE2ee, disconnectE2ee, hasStoredSyncPassword, forgetStoredSyncPassword } from '$lib/syncServiceE2ee';
+  import { connectE2ee, disconnectE2ee, hasStoredSyncPassword, forgetStoredSyncPassword, setSyncProgressListener } from '$lib/syncServiceE2ee';
   import { requestSyncV2 } from '$lib/autoSyncV2';
   import { getAppVersion } from '$lib/crashHandler';
   import { showGlobalToast } from '$lib/toast';
@@ -113,7 +113,18 @@
       // Route through requestSyncV2 so autoSyncV2's onSyncComplete fires —
       // that's what triggers the notes-list refresh after new files land.
       // connectE2ee has already cached the vault key, so no password needed.
-      const summary = await requestSyncV2();
+      setSyncProgressListener((p) => {
+        const label = p.phase === 'reconciling' ? 'Reconciling'
+          : p.phase === 'pushing' ? 'Uploading'
+          : 'Downloading';
+        connectSyncPhase = `${label} ${p.current}/${p.total}…`;
+      });
+      let summary;
+      try {
+        summary = await requestSyncV2();
+      } finally {
+        setSyncProgressListener(null);
+      }
       syncPassword = '';
 
       const updatedPrefs = getCachedPreferences();
@@ -879,6 +890,8 @@
   .connect-sync-phase {
     font-size: 15px;
     color: var(--color-muted);
+    /* Lock digit width so X/Y doesn't shimmy as the counter advances. */
+    font-variant-numeric: tabular-nums;
   }
 
   .connect-sync-error {

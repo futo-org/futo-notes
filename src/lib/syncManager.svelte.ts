@@ -246,7 +246,15 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
       }
     }
 
-    const hasRemoteNoteChanges = summary.updatedIds.length > 0 || summary.deletedIds.length > 0 || summary.renamed.length > 0;
+    // Gate the post-sync rescan on peer-driven changes only. Echoing our
+    // own push back through `summary.updatedIds` was forcing a full vault
+    // scan + 3.5 MB MiniSearch persist on every keystroke-triggered sync,
+    // which is what made typing stutter. Pure pushes leave notesCache and
+    // the search index already correct, so there's nothing to rescan.
+    const hasPeerNoteChanges =
+      summary.peerUpdatedIds.length > 0 ||
+      summary.peerDeletedIds.length > 0 ||
+      summary.renamed.length > 0;
     for (const id of summary.updatedIds) writeSuppressor.recordSyncWrite(`${id}.md`);
     for (const id of summary.deletedIds) writeSuppressor.recordSyncWrite(`${id}.md`);
     for (const rename of summary.renamed) {
@@ -254,7 +262,7 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
       writeSuppressor.recordSyncWrite(`${rename.toId}.md`);
       writeSuppressor.recordRemoteRename(rename.fromId, rename.toId);
     }
-    if (hasRemoteNoteChanges) {
+    if (hasPeerNoteChanges) {
       setTimeout(() => runExternalRescan(), 50);
     }
 
