@@ -742,7 +742,8 @@ async function installObsidianDriver(page: Page): Promise<void> {
       if (set.has('cm-md-strikethrough') || set.has('cm-strikethrough')) out.add('strikethrough-text');
       if (['cm-md-code-block','cm-md-code-block-first','cm-md-code-block-middle','cm-md-code-block-last','cm-md-code-block-single']
             .some((c) => set.has(c))) out.add('code-block');
-      if (set.has('cm-md-code') || set.has('cm-inline-code')) out.add('code-inline');
+      const isCodeMarker = set.has('cm-md-code-marker') || set.has('cm-formatting-code');
+      if (!isCodeMarker && (set.has('cm-md-code') || set.has('cm-inline-code'))) out.add('code-inline');
       const isWikilink = set.has('cm-md-wikilink') || set.has('cm-hmd-internal-link');
       const isBarelink = set.has('cm-hmd-barelink');
       if (isWikilink) out.add('wikilink');

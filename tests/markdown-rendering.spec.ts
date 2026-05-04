@@ -465,7 +465,6 @@ test.describe('Inline Code', () => {
     await setupEditor(page, 'Use `code is here` now.');
     await blurEditor(page);
 
-    // Target the body span specifically (backticks are also `.cm-md-code` once revealed).
     const code = page.locator('.cm-md-code', { hasText: 'code is here' });
     await expect(code).toBeVisible();
 
@@ -497,6 +496,36 @@ test.describe('Inline Code', () => {
     expect(after.fontFamily.toLowerCase()).toMatch(/monaco|menlo|mono/);
     expect(after.fontFamily).toBe(before.fontFamily);
     expect(after.color).toBe(before.color);
+  });
+
+  test('revealed inline code backticks do not get separate code backgrounds', async ({ page }) => {
+    await setupEditor(page, 'Use `code` here.');
+
+    const code = page.locator('.cm-md-code', { hasText: 'code' });
+    await expect(code).toBeVisible();
+    await code.click();
+    await page.waitForTimeout(150);
+
+    await expect(page.locator('.cm-md-code')).toHaveCount(1);
+    await expect(page.locator('.cm-md-code')).toHaveText('code');
+    await expect(page.locator('.cm-md-code-marker')).toHaveCount(2);
+
+    const markerStyles = await page.locator('.cm-md-code-marker').evaluateAll((els) =>
+      els.map((el) => {
+        const style = window.getComputedStyle(el);
+        return {
+          backgroundColor: style.backgroundColor,
+          paddingLeft: style.paddingLeft,
+          paddingRight: style.paddingRight,
+        };
+      }),
+    );
+
+    for (const style of markerStyles) {
+      expect(style.backgroundColor).toBe('rgba(0, 0, 0, 0)');
+      expect(style.paddingLeft).toBe('0px');
+      expect(style.paddingRight).toBe('0px');
+    }
   });
 
   test('holding mouse down on inline code keeps the background visible', async ({ page }) => {
