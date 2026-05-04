@@ -27,7 +27,7 @@
   } from '$lib/liveMarkdownTransform';
   import { getImageWebPath } from '$lib/fileSystem';
   import { buildSetContentTransaction, type SetEditorContentOptions, type SetContentResult } from '$lib/editorContentSync';
-  import { hasFileSystem, isTauri } from '$lib/platform';
+  import { hasFileSystem, isMobile, isTauri } from '$lib/platform';
   import { toggleBold, toggleItalic, toggleStrikethrough, isListLine } from '$lib/markdownToolbar';
   import { imagePasteHandler } from '$lib/imagePaste';
   import { openUrl } from '$lib/openUrl';
@@ -38,11 +38,12 @@
   interface Props {
     content?: string;
     onchange?: (content: string) => void;
+    onfocuschange?: (focused: boolean) => void;
     oncursorcontext?: (ctx: { onListLine: boolean }) => void;
     scrollParent?: HTMLElement | null;
   }
 
-  let { content = '', onchange, oncursorcontext, scrollParent = null }: Props = $props();
+  let { content = '', onchange, onfocuschange, oncursorcontext, scrollParent = null }: Props = $props();
 
   let container: HTMLDivElement;
   let view: EditorView | null = $state(null);
@@ -72,6 +73,11 @@
 
   const PLAIN_URL_REGEX = /\b(?:https?:\/\/|www\.)[^\s<>()]+[^\s<>().,!?;:]/g;
   const MARKDOWN_LINK_REGEX = /\[([^\]]+)\]\(((?:https?:\/\/|www\.)[^()\s]*(?:\([^)]*\)[^()\s]*)*)(?:\s+"[^"]*")?\)/g;
+
+  function editorHasDomFocus(v: EditorView): boolean {
+    const active = document.activeElement;
+    return v.hasFocus || active === v.contentDOM || v.dom.contains(active);
+  }
 
   // Decorate bare URLs as autolinks — but skip URLs that are the target
   // of a markdown link (`[text](url)`) or that sit inside an inline
@@ -581,7 +587,7 @@
       liveMarkdownTransform,
       autoLinkHighlight,
       interactiveTableEditor,
-      selectionToolbar,
+      ...(isMobile ? [] : selectionToolbar),
       slashMenu,
       wikilinkAutocomplete(),
       imagePasteHandler,
@@ -640,6 +646,11 @@
           }
         }
       }),
+      EditorView.updateListener.of(update => {
+        if (update.focusChanged) {
+          onfocuschange?.(editorHasDomFocus(update.view));
+        }
+      }),
       // Cursor context detection for toolbar
       EditorView.updateListener.of((() => {
         let lastOnList = false;
@@ -684,6 +695,7 @@
       if (!view.hasFocus) {
         view.contentDOM.dispatchEvent(new FocusEvent('focus', { bubbles: true }));
       }
+      onfocuschange?.(editorHasDomFocus(view));
     });
 
     // Suppress marker reveal only after a real pointer drag starts. Plain

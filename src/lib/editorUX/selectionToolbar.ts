@@ -7,7 +7,7 @@ import { toggleCodeInline, toggleLink } from './linkCommand';
 import { renderIcon } from './icons';
 
 /**
- * Floating formatting toolbar shown above a non-empty text selection.
+ * Desktop floating formatting toolbar shown above a non-empty text selection.
  *
  * Disclosure rules (matches Milkdown Crepe's Toolbar feature):
  * - selection is non-empty
@@ -116,10 +116,10 @@ const selectionToolbarField = StateField.define<Tooltip | null>({
   provide: (f) => showTooltip.from(f),
 });
 
-// Render tooltips in a body-level container using fixed positioning so they
-// escape the editor's overflow-hidden scroll ancestors (.editor-container,
-// .note-body). Without this, a selection in the first visible line clips
-// the floating toolbar behind the note title / tag bar above the editor.
+// Render desktop tooltips in a body-level container using fixed positioning so
+// they escape the editor's overflow-hidden scroll ancestors (.editor-container,
+// .note-body). Without this, a selection in the first visible line clips the
+// floating toolbar behind the note title / tag bar above the editor.
 //
 // `tooltipSpace` shrinks the available area by the bottom of the .note-tag-bar
 // (when present) so CM6 will auto-flip the toolbar below the line on the

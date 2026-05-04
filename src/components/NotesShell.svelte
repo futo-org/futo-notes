@@ -288,6 +288,14 @@
     editorFocused = false;
   }
 
+  function handleEditorFocusChange(focused: boolean): void {
+    if (focused) {
+      if (noteId) editorFocused = true;
+    } else {
+      handleEditorFocusOut();
+    }
+  }
+
   function handleNoteBodyClick(event: MouseEvent): void {
     if (!editor) return;
     // On mobile, clicking the dimmed area behind the drawer closes it — don't focus
@@ -386,13 +394,14 @@
 
   // Toolbar height constant (matches .markdown-toolbar height in components.css)
   const TOOLBAR_HEIGHT = 44;
-  void TOOLBAR_HEIGHT; // unused while mobile toolbar is disabled; kept for easy re-enable
 
-  // Total bottom inset: just keyboard height (toolbar temporarily disabled).
-  // When re-enabling the mobile toolbar, restore:
-  //   keyboard.visible ? keyboard.height + TOOLBAR_HEIGHT :
-  //   isMobile && editorFocused ? TOOLBAR_HEIGHT : 0
-  const keyboardInset = $derived(keyboard.visible ? keyboard.height : 0);
+  // Total bottom inset: keyboard + toolbar when keyboard is visible, just
+  // toolbar height while the focused mobile editor is waiting on keyboard
+  // metrics.
+  const keyboardInset = $derived(
+    keyboard.visible ? keyboard.height + TOOLBAR_HEIGHT :
+    isMobile && editorFocused ? TOOLBAR_HEIGHT : 0
+  );
 
   // Scroll cursor into view when keyboard opens or resizes.
   // CM's scrollIntoView is a no-op here because .cm-scroller has overflow:visible,
@@ -694,6 +703,7 @@
             bind:this={editor}
             content={session.content}
             onchange={session.debouncedSave}
+            onfocuschange={handleEditorFocusChange}
             oncursorcontext={(ctx) => { cursorOnListLine = ctx.onListLine; }}
             scrollParent={noteBody ?? null}
           />
@@ -705,7 +715,6 @@
     <SyncStatusBar statusMessage={sync.syncStatusMessage} indicatorVisible={sync.syncIndicatorVisible} offline={sync.syncOffline} />
   </div>
 
-  <!-- Mobile keyboard toolbar — temporarily disabled, may re-enable later
   {#if isMobile && MarkdownToolbar}
     <MarkdownToolbar
       getView={() => editor?.getView() ?? null}
@@ -714,7 +723,6 @@
       ontoolbartouch={(touching) => toolbarTouching = touching}
     />
   {/if}
-  -->
 
 
   <!-- Graph sidebar -->

@@ -71,6 +71,19 @@ test.describe('Selection toolbar', () => {
     await expect(toolbar).toBeHidden();
   });
 
+  test('editor focus state follows CodeMirror focus', async ({ page }) => {
+    await setupEditor(page, 'hello world');
+
+    await expect(page.locator('.note-body')).toHaveAttribute('data-editor-focused', '');
+
+    await page.evaluate(() => {
+      const view = (window as any).__cmGetView?.();
+      view?.contentDOM.blur();
+    });
+
+    await expect(page.locator('.note-body')).not.toHaveAttribute('data-editor-focused', '');
+  });
+
   test('bold button wraps selection in **', async ({ page }) => {
     await setupEditor(page, 'hello world');
     await selectRange(page, 0, 5);
