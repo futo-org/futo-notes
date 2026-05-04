@@ -1141,6 +1141,18 @@ class LiveMarkdownPlugin implements PluginValue {
           to,
           value: { class: 'cm-md-inline-marker cm-md-code-marker' }
         });
+        // Match Obsidian: revealed code-fence markers also carry the
+        // inline-code text class so the styling continues across them.
+        decorations.push({
+          from,
+          to: from + backticks,
+          value: { class: 'cm-md-code' }
+        });
+        decorations.push({
+          from: to - backticks,
+          to,
+          value: { class: 'cm-md-code' }
+        });
       }
 
       decorations.push({
@@ -1154,7 +1166,10 @@ class LiveMarkdownPlugin implements PluginValue {
       const doc = view.state.doc;
       const startLine = doc.lineAt(from);
       const endLine = doc.lineAt(to);
-      const totalLines = endLine.number - startLine.number + 1;
+      const hasClosingFence = endLine.number !== startLine.number && /^\s*(`{3,}|~{3,})\s*$/.test(endLine.text);
+      const contentStartLine = nodeName === 'FencedCode' ? startLine.number + 1 : startLine.number;
+      const contentEndLine = nodeName === 'FencedCode' && hasClosingFence ? endLine.number - 1 : endLine.number;
+      const contentLineCount = Math.max(0, contentEndLine - contentStartLine + 1);
       const cursorInBlock = selectionTouchesRange(
         view.hasFocus,
         view.state.selection.ranges,
@@ -1166,7 +1181,7 @@ class LiveMarkdownPlugin implements PluginValue {
         const line = doc.line(lineNum);
         const openingMatch = lineNum === startLine.number && line.text.match(/^\s*(`{3,}|~{3,})\s*([A-Za-z0-9_+-]*)\s*$/);
         const isOpening = !!openingMatch;
-        const isClosing = lineNum === endLine.number && lineNum !== startLine.number && /^\s*(`{3,}|~{3,})\s*$/.test(line.text);
+        const isClosing = lineNum === endLine.number && hasClosingFence;
 
         if ((isOpening || isClosing) && !cursorInBlock && line.from < line.to) {
           // Match Obsidian: when the opening fence carries a language
@@ -1188,10 +1203,19 @@ class LiveMarkdownPlugin implements PluginValue {
         }
 
         let posClass = 'cm-md-code-block';
-        if (totalLines === 1) posClass += ' cm-md-code-block-single';
-        else if (lineNum === startLine.number) posClass += ' cm-md-code-block-first';
-        else if (lineNum === endLine.number) posClass += ' cm-md-code-block-last';
-        else posClass += ' cm-md-code-block-middle';
+        if ((isOpening || isClosing) && !cursorInBlock) {
+          posClass += ' cm-md-code-block-fence';
+          if (isOpening) posClass += ' cm-md-code-block-opening-fence';
+          if (isClosing) posClass += ' cm-md-code-block-closing-fence';
+        } else if (contentLineCount <= 1) {
+          posClass += ' cm-md-code-block-single';
+        } else if (lineNum === contentStartLine) {
+          posClass += ' cm-md-code-block-first';
+        } else if (lineNum === contentEndLine) {
+          posClass += ' cm-md-code-block-last';
+        } else {
+          posClass += ' cm-md-code-block-middle';
+        }
 
         decorations.push({
           from: line.from,

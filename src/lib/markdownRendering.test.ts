@@ -19,9 +19,9 @@ import { describe, expect, it, afterEach } from 'vitest';
 import { EditorView, drawSelection, keymap } from '@codemirror/view';
 import { EditorState } from '@codemirror/state';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
-import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { ensureSyntaxTree, Language } from '@codemirror/language';
 import { liveMarkdownTransform } from './liveMarkdownTransform';
+import { createMarkdownLanguageSupport, markdownEditorLanguageExtensions } from './codeMirrorMarkdown';
 
 /**
  * Create an EditorView with the same extension stack as MarkdownEditor.svelte,
@@ -32,7 +32,7 @@ function createEditorWithRendering(doc: string): { view: EditorView; container: 
     drawSelection(),
     history(),
     keymap.of([...defaultKeymap, ...historyKeymap]),
-    markdown({ base: markdownLanguage }),
+    ...markdownEditorLanguageExtensions(),
     liveMarkdownTransform,
     EditorView.lineWrapping,
     EditorView.theme({
@@ -56,6 +56,15 @@ function createEditorWithRendering(doc: string): { view: EditorView; container: 
   return { view, container };
 }
 
+async function waitForSelector(container: ParentNode, selector: string): Promise<Element> {
+  for (let i = 0; i < 50; i++) {
+    const el = container.querySelector(selector);
+    if (el) return el;
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+  throw new Error(`Timed out waiting for ${selector}`);
+}
+
 describe('Markdown rendering (liveMarkdownTransform decorations)', () => {
   let view: EditorView;
   let container: HTMLDivElement;
@@ -71,11 +80,11 @@ describe('Markdown rendering (liveMarkdownTransform decorations)', () => {
     // This makes syntaxTree() return an empty tree with length 0.
     const state = EditorState.create({
       doc: '# Heading\n\n**bold**',
-      extensions: [markdown({ base: markdownLanguage })],
+      extensions: [createMarkdownLanguageSupport()],
     });
 
     // Verify the LanguageSupport's language is recognized as a Language instance
-    const mdSupport = markdown({ base: markdownLanguage });
+    const mdSupport = createMarkdownLanguageSupport();
     expect(
       mdSupport.language instanceof Language,
       '@codemirror/language is duplicated: markdownLanguage is not instanceof Language. ' +
@@ -98,6 +107,45 @@ describe('Markdown rendering (liveMarkdownTransform decorations)', () => {
     });
     expect(hasHeading, 'Syntax tree has no ATXHeading node').toBe(true);
     expect(hasEmphasis, 'Syntax tree has no StrongEmphasis node').toBe(true);
+  });
+
+  it('syntax highlights Ruby fenced code blocks with CodeMirror language data', async () => {
+    const doc = [
+      '```ruby',
+      "require 'redcarpet'",
+      'markdown = Redcarpet.new("Hello World!")',
+      'puts markdown.to_html',
+      '```',
+    ].join('\n');
+
+    ({ view, container } = createEditorWithRendering(doc));
+
+    const string = await waitForSelector(container, '.cm-md-code-block .tok-string');
+    expect(string.textContent).toContain('redcarpet');
+
+    expect(
+      container.querySelector('.cm-md-code-block .tok-variableName, .cm-md-code-block .tok-propertyName'),
+      'Expected nested Ruby language token classes inside the fenced block',
+    ).toBeTruthy();
+
+    const label = container.querySelector('.cm-md-code-lang-label');
+    expect(label, 'Expected Obsidian-style language label widget').toBeTruthy();
+    expect(label!.textContent).toBe('Ruby');
+  });
+
+  it('leaves unknown fenced code languages unhighlighted', async () => {
+    const doc = [
+      '```doesnotexist',
+      'const value = "plain";',
+      '```',
+    ].join('\n');
+
+    ({ view, container } = createEditorWithRendering(doc));
+
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    expect(container.querySelector('.cm-md-code-block'), 'Expected code block styling to remain').toBeTruthy();
+    expect(container.querySelector('.cm-md-code-block .tok-string')).toBeNull();
   });
 
   it('renders heading decorations', () => {

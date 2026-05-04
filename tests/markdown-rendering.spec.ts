@@ -465,6 +465,7 @@ test.describe('Inline Code', () => {
     await setupEditor(page, 'Use `code is here` now.');
     await blurEditor(page);
 
+    // Target the body span specifically (backticks are also `.cm-md-code` once revealed).
     const code = page.locator('.cm-md-code', { hasText: 'code is here' });
     await expect(code).toBeVisible();
 
@@ -496,36 +497,6 @@ test.describe('Inline Code', () => {
     expect(after.fontFamily.toLowerCase()).toMatch(/monaco|menlo|mono/);
     expect(after.fontFamily).toBe(before.fontFamily);
     expect(after.color).toBe(before.color);
-  });
-
-  test('revealed inline code backticks do not get separate code backgrounds', async ({ page }) => {
-    await setupEditor(page, 'Use `code` here.');
-
-    const code = page.locator('.cm-md-code', { hasText: 'code' });
-    await expect(code).toBeVisible();
-    await code.click();
-    await page.waitForTimeout(150);
-
-    await expect(page.locator('.cm-md-code')).toHaveCount(1);
-    await expect(page.locator('.cm-md-code')).toHaveText('code');
-    await expect(page.locator('.cm-md-code-marker')).toHaveCount(2);
-
-    const markerStyles = await page.locator('.cm-md-code-marker').evaluateAll((els) =>
-      els.map((el) => {
-        const style = window.getComputedStyle(el);
-        return {
-          backgroundColor: style.backgroundColor,
-          paddingLeft: style.paddingLeft,
-          paddingRight: style.paddingRight,
-        };
-      }),
-    );
-
-    for (const style of markerStyles) {
-      expect(style.backgroundColor).toBe('rgba(0, 0, 0, 0)');
-      expect(style.paddingLeft).toBe('0px');
-      expect(style.paddingRight).toBe('0px');
-    }
   });
 
   test('holding mouse down on inline code keeps the background visible', async ({ page }) => {
@@ -582,7 +553,7 @@ test.describe('Code Blocks', () => {
     await blurEditor(page);
 
     // Code blocks are styled per-line
-    const codeBlock = page.locator('.cm-md-code-block').first();
+    const codeBlock = page.locator('.cm-md-code-block:not(.cm-md-code-block-fence)').first();
     await expect(codeBlock).toBeVisible();
 
     const fontFamily = await codeBlock.evaluate(el =>
@@ -605,6 +576,50 @@ test.describe('Code Blocks', () => {
       const text = await codeBlocks.nth(i).textContent();
       expect(text).not.toMatch(/^```/);
     }
+  });
+
+  test('ruby fenced code block uses CodeMirror syntax highlighting', async ({ page }) => {
+    const rubyBlock = [
+      '```ruby',
+      "require 'redcarpet'",
+      'markdown = Redcarpet.new("Hello World!")',
+      'puts markdown.to_html',
+      '```',
+      '',
+      'More text',
+    ].join('\n');
+
+    await setupEditor(page, rubyBlock);
+    await blurEditor(page);
+
+    await expect(page.locator('.cm-md-code-lang-label')).toHaveText('Ruby');
+    await expect(page.locator('.cm-md-code-block .tok-string', { hasText: 'redcarpet' })).toBeVisible();
+    await expect(page.locator('.cm-md-code-block .tok-variableName, .cm-md-code-block .tok-propertyName').first()).toBeVisible();
+
+    const blockBox = await page.locator('.cm-md-code-block:not(.cm-md-code-block-fence)').first().boundingBox();
+    const labelBox = await page.locator('.cm-md-code-lang-label').boundingBox();
+    expect(blockBox).not.toBeNull();
+    expect(labelBox).not.toBeNull();
+    expect(labelBox!.x).toBeGreaterThan(blockBox!.x + blockBox!.width * 0.75);
+    expect(labelBox!.y).toBeLessThan(blockBox!.y + 22);
+  });
+
+  test('clicking into highlighted code reveals the raw fence for editing', async ({ page }) => {
+    const rubyBlock = [
+      '```ruby',
+      "require 'redcarpet'",
+      '```',
+      '',
+      'More text',
+    ].join('\n');
+
+    await setupEditor(page, rubyBlock);
+    await blurEditor(page);
+    await expect(page.locator('.cm-md-code-lang-label')).toHaveText('Ruby');
+
+    await page.locator('.cm-md-code-block .tok-string', { hasText: 'redcarpet' }).click();
+    await expect(page.locator('.cm-md-code-lang-label')).toHaveCount(0);
+    await expect.poll(() => getVisibleEditorText(page)).toContain('```ruby');
   });
 });
 

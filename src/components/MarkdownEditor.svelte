@@ -9,9 +9,9 @@
   import type { DecorationSet, ViewUpdate } from '@codemirror/view';
   import { EditorState, EditorSelection, Transaction } from '@codemirror/state';
   import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
-  import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
   import { syntaxTree } from '@codemirror/language';
   import { onMount } from 'svelte';
+  import { markdownEditorLanguageExtensions } from '$lib/codeMirrorMarkdown';
   import { listContinuationKeymap, orderedListRenumber } from '$lib/listContinuation';
   import { cursorMotionKeymap } from '$lib/cursorMotion';
   import { interactiveTableEditor } from '$lib/editorUX/tableEditor';
@@ -577,7 +577,7 @@
         ...defaultKeymap,
         ...historyKeymap,
       ]),
-      markdown({ base: markdownLanguage }),
+      ...markdownEditorLanguageExtensions(),
       liveMarkdownTransform,
       autoLinkHighlight,
       interactiveTableEditor,

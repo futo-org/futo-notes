@@ -34,7 +34,7 @@ export const VISUAL_SCENARIO_NAMES = new Set([
   'bold-italic-basic',
   'italic-underscore-basic', 'bold-underscore-basic',
   // Code
-  'inline-code-basic', 'fenced-code-basic',
+  'inline-code-basic', 'fenced-code-basic', 'fenced-code-ruby',
   // Links / wikilinks
   'link-basic', 'wikilink-basic',
   // Lists
@@ -71,18 +71,22 @@ export async function captureEditorScreenshot(
   side: 'sf' | 'ob',
 ): Promise<string | null> {
   mkdirSync(SCREENSHOTS_DIR, { recursive: true });
+  // Fenced code languages from @codemirror/language-data are loaded lazily.
+  // Give nested parsers a frame to attach before taking the visual oracle shot.
+  await page.waitForTimeout(250);
   const clip = await page.evaluate(() => {
     const root = document.querySelector('.cm-content[data-factory-target="true"]');
     if (!root) return null;
     const rootRect = root.getBoundingClientRect();
-    const lines = Array.from(root.querySelectorAll('.cm-line')) as HTMLElement[];
-    if (lines.length === 0) return null;
-    let top = Infinity, bottom = -Infinity;
-    for (const l of lines) {
-      const r = l.getBoundingClientRect();
+    const elements = Array.from(root.querySelectorAll('.cm-line, .cm-md-code-lang-label')) as HTMLElement[];
+    if (elements.length === 0) return null;
+    let top = Infinity, right = -Infinity, bottom = -Infinity;
+    for (const el of elements) {
+      const r = el.getBoundingClientRect();
       // Skip empty trailing lines that have no rendered text.
       if (r.height === 0) continue;
       top = Math.min(top, r.top);
+      right = Math.max(right, r.right);
       bottom = Math.max(bottom, r.bottom);
     }
     if (!isFinite(top) || !isFinite(bottom)) return null;
@@ -90,7 +94,7 @@ export async function captureEditorScreenshot(
     // Width: clamp to a fixed comparison width so both editors have
     // the same horizontal canvas, regardless of their wrapper
     // padding. The editor surface is at least this wide in both.
-    const WIDTH = 600;
+    const WIDTH = Math.max(600, Math.ceil(right - rootRect.left) + PAD * 2);
     return {
       x: Math.max(0, Math.floor(rootRect.left) - PAD),
       y: Math.max(0, Math.floor(top) - PAD),

@@ -77,8 +77,7 @@ export function classToKinds(classes: string[]): ElementKind[] {
   if (set.has('cm-md-code-block') || set.has('cm-md-code-block-first') ||
       set.has('cm-md-code-block-middle') || set.has('cm-md-code-block-last') ||
       set.has('cm-md-code-block-single')) out.add('code-block');
-  const isCodeMarker = set.has('cm-md-code-marker') || set.has('cm-formatting-code');
-  if (!isCodeMarker && (set.has('cm-md-code') || set.has('cm-inline-code'))) out.add('code-inline');
+  if (set.has('cm-md-code') || set.has('cm-inline-code')) out.add('code-inline');
 
   // ---- Links / wikilinks ----
   // `cm-hmd-internal-link` is Obsidian's class on the inner text of a

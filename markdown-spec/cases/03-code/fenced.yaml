@@ -32,6 +32,25 @@
       - class: cm-md-code-block-last
         count: 1
 
+- name: fenced-code-ruby
+  complexity: 20
+  markdown: |
+    ```ruby
+    require 'redcarpet'
+    markdown = Redcarpet.new("Hello World!")
+    puts markdown.to_html
+    ```
+  cursor: null
+  expect:
+    visible_text: |
+      Ruby
+      require 'redcarpet'
+      markdown = Redcarpet.new("Hello World!")
+      puts markdown.to_html
+    decorations:
+      - class: cm-md-code-block
+        count: 5
+
 - name: fenced-code-tilde
   complexity: 30
   markdown: |
