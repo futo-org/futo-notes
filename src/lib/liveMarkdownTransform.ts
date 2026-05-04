@@ -1141,18 +1141,6 @@ class LiveMarkdownPlugin implements PluginValue {
           to,
           value: { class: 'cm-md-inline-marker cm-md-code-marker' }
         });
-        // Match Obsidian: revealed code-fence markers also carry the
-        // inline-code text class so the styling continues across them.
-        decorations.push({
-          from,
-          to: from + backticks,
-          value: { class: 'cm-md-code' }
-        });
-        decorations.push({
-          from: to - backticks,
-          to,
-          value: { class: 'cm-md-code' }
-        });
       }
 
       decorations.push({
