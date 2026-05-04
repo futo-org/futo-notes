@@ -83,29 +83,39 @@ async function getVisibleTextPoint(
   side: 'start' | 'end',
 ): Promise<{ x: number; y: number }> {
   return page.evaluate(({ substring, side }) => {
-    const root = document.querySelector('.cm-content');
-    if (!root) throw new Error('CM content not found');
-
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-    let node: Node | null;
-    while ((node = walker.nextNode())) {
-      const text = node.textContent ?? '';
-      const start = text.indexOf(substring);
+    const lines = document.querySelectorAll('.cm-line');
+    for (const line of Array.from(lines)) {
+      const walker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT);
+      const nodes: Text[] = [];
+      let n: Node | null;
+      while ((n = walker.nextNode())) nodes.push(n as Text);
+      const concatenated = nodes.map((t) => t.textContent ?? '').join('');
+      const start = concatenated.indexOf(substring);
       if (start === -1) continue;
 
-      const target = side === 'start'
-        ? start
-        : start + substring.length;
+      const target = side === 'start' ? start : start + substring.length;
       const from = side === 'start'
-        ? Math.min(target, Math.max(0, text.length - 1))
+        ? Math.min(target, Math.max(0, concatenated.length - 1))
         : Math.max(0, target - 1);
       const to = side === 'start'
-        ? Math.min(text.length, from + 1)
-        : Math.min(text.length, target);
+        ? Math.min(concatenated.length, from + 1)
+        : Math.min(concatenated.length, target);
 
+      const locate = (offset: number): { node: Text; offset: number } => {
+        let remaining = offset;
+        for (const t of nodes) {
+          const len = t.textContent?.length ?? 0;
+          if (remaining <= len) return { node: t, offset: remaining };
+          remaining -= len;
+        }
+        const last = nodes[nodes.length - 1];
+        return { node: last, offset: last.textContent?.length ?? 0 };
+      };
+      const a = locate(from);
+      const b = locate(to);
       const range = document.createRange();
-      range.setStart(node, from);
-      range.setEnd(node, to);
+      range.setStart(a.node, a.offset);
+      range.setEnd(b.node, b.offset);
       const rect = Array.from(range.getClientRects()).at(side === 'start' ? 0 : -1)
         ?? range.getBoundingClientRect();
 
