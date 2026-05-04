@@ -172,5 +172,28 @@ test.describe('P2 Header + Formatting Regressions', () => {
       const visibleText = await editor.textContent();
       expect(visibleText).not.toContain(`${tc.marker}tail`);
     });
+
+    test(`${tc.fn} unwraps when rendered selection includes hidden markers`, async ({ page }) => {
+      await openNewNote(page);
+
+      const marked = `${tc.marker}${tc.sample}${tc.marker}`;
+      await page.evaluate(({ text }) => {
+        const w = window as any;
+        const view = w.__cmGetView?.();
+        if (!view) throw new Error('CM EditorView not found');
+        view.dispatch({
+          changes: { from: 0, to: view.state.doc.length, insert: text },
+          selection: { anchor: 0, head: text.length }
+        });
+      }, { text: marked });
+
+      await toggleFormatting(page, tc.fn);
+
+      const raw = await page.evaluate(() => {
+        const w = window as any;
+        return w.__cmGetView?.()?.state.doc.toString() ?? '';
+      });
+      expect(raw).toBe(tc.sample);
+    });
   }
 });

@@ -1,15 +1,25 @@
 import { EditorView } from '@codemirror/view';
+import type { EditorState } from '@codemirror/state';
+import { syntaxTree } from '@codemirror/language';
 import { getFS } from '$lib/platform';
 import { registerLocalImageUrl } from '$lib/liveMarkdownTransform';
 
 interface MarkdownSyntax {
   prefix: string;
   suffix: string;
+  nodeName: string;
 }
 
-const BOLD: MarkdownSyntax = { prefix: '**', suffix: '**' };
-const ITALIC: MarkdownSyntax = { prefix: '*', suffix: '*' };
-const STRIKETHROUGH: MarkdownSyntax = { prefix: '~~', suffix: '~~' };
+interface WrappedSyntaxRange {
+  outerFrom: number;
+  outerTo: number;
+  innerFrom: number;
+  innerTo: number;
+}
+
+const BOLD: MarkdownSyntax = { prefix: '**', suffix: '**', nodeName: 'StrongEmphasis' };
+const ITALIC: MarkdownSyntax = { prefix: '*', suffix: '*', nodeName: 'Emphasis' };
+const STRIKETHROUGH: MarkdownSyntax = { prefix: '~~', suffix: '~~', nodeName: 'Strikethrough' };
 
 function splitSelectionWhitespace(text: string): { leading: number; trailing: number } {
   const leading = text.match(/^\s*/)?.[0].length ?? 0;
@@ -29,7 +39,125 @@ function findOpeningMarkerOnLine(
   return line.from + idx;
 }
 
-function toggleSyntax(view: EditorView, { prefix, suffix }: MarkdownSyntax): void {
+function findWrappedSyntaxRange(
+  view: EditorView,
+  from: number,
+  to: number,
+  { prefix, suffix, nodeName }: MarkdownSyntax
+): WrappedSyntaxRange | null {
+  const tree = syntaxTree(view.state);
+  let found: WrappedSyntaxRange | null = null;
+
+  tree.iterate({
+    from: Math.max(0, from - prefix.length),
+    to: Math.min(view.state.doc.length, to + suffix.length),
+    enter: (node) => {
+      if (found || node.name !== nodeName) return;
+
+      const outerFrom = node.from;
+      const outerTo = node.to;
+      const innerFrom = outerFrom + prefix.length;
+      const innerTo = outerTo - suffix.length;
+      if (innerFrom >= innerTo) return;
+
+      const selectionMatches =
+        (from === innerFrom && to === innerTo) ||
+        (from === outerFrom && to === outerTo) ||
+        (from === outerFrom && to === innerTo) ||
+        (from === innerFrom && to === outerTo);
+
+      if (selectionMatches) {
+        found = { outerFrom, outerTo, innerFrom, innerTo };
+      }
+    }
+  });
+
+  return found;
+}
+
+function isStandaloneMarker(
+  state: EditorState,
+  from: number,
+  to: number,
+  marker: string
+): boolean {
+  if (state.sliceDoc(from, to) !== marker) return false;
+
+  // Single `*` / `_` markers must not be mistaken for one half of `**` / `__`.
+  if (marker.length === 1) {
+    const before = from > 0 ? state.sliceDoc(from - 1, from) : '';
+    const after = to < state.doc.length ? state.sliceDoc(to, to + 1) : '';
+    if (before === marker || after === marker) return false;
+  }
+
+  return true;
+}
+
+function findMarkerWrappedSelectionFallback(
+  view: EditorView,
+  from: number,
+  to: number,
+  { prefix, suffix }: MarkdownSyntax
+): WrappedSyntaxRange | null {
+  const { state } = view;
+
+  if (
+    isStandaloneMarker(state, from, from + prefix.length, prefix) &&
+    isStandaloneMarker(state, to - suffix.length, to, suffix) &&
+    from + prefix.length < to - suffix.length
+  ) {
+    return {
+      outerFrom: from,
+      outerTo: to,
+      innerFrom: from + prefix.length,
+      innerTo: to - suffix.length
+    };
+  }
+
+  const prefixStart = from - prefix.length;
+  const suffixEnd = to + suffix.length;
+  if (
+    prefixStart >= 0 &&
+    suffixEnd <= state.doc.length &&
+    isStandaloneMarker(state, prefixStart, from, prefix) &&
+    isStandaloneMarker(state, to, suffixEnd, suffix)
+  ) {
+    return {
+      outerFrom: prefixStart,
+      outerTo: suffixEnd,
+      innerFrom: from,
+      innerTo: to
+    };
+  }
+
+  return null;
+}
+
+function unwrapSyntaxRange(view: EditorView, range: WrappedSyntaxRange): void {
+  const { state } = view;
+  const { anchor, head } = state.selection.main;
+  const openLen = range.innerFrom - range.outerFrom;
+  const closeLen = range.outerTo - range.innerTo;
+
+  const mapPos = (pos: number): number => {
+    if (pos <= range.outerFrom) return pos;
+    if (pos <= range.innerFrom) return range.outerFrom;
+    if (pos <= range.innerTo) return pos - openLen;
+    if (pos <= range.outerTo) return range.innerTo - openLen;
+    return pos - openLen - closeLen;
+  };
+
+  view.dispatch({
+    changes: [
+      { from: range.outerFrom, to: range.innerFrom, insert: '' },
+      { from: range.innerTo, to: range.outerTo, insert: '' }
+    ],
+    selection: { anchor: mapPos(anchor), head: mapPos(head) }
+  });
+}
+
+function toggleSyntax(view: EditorView, syntax: MarkdownSyntax): void {
+  const { prefix, suffix } = syntax;
   const { state } = view;
   const { from, to } = state.selection.main;
 
@@ -106,21 +234,13 @@ function toggleSyntax(view: EditorView, { prefix, suffix }: MarkdownSyntax): voi
     return;
   }
 
-  // Has selection - check if markers surround non-whitespace core
-  const prefixStart = Math.max(0, coreFrom - prefix.length);
-  const suffixEnd = Math.min(state.doc.length, coreTo + suffix.length);
-  const before = state.sliceDoc(prefixStart, coreFrom);
-  const after = state.sliceDoc(coreTo, suffixEnd);
+  // Has selection - unwrap matching markdown syntax, otherwise wrap the core text.
+  const wrappedRange =
+    findWrappedSyntaxRange(view, coreFrom, coreTo, syntax) ??
+    findMarkerWrappedSelectionFallback(view, coreFrom, coreTo, syntax);
 
-  if (before === prefix && after === suffix) {
-    // Already wrapped - remove surrounding markers
-    view.dispatch({
-      changes: [
-        { from: prefixStart, to: coreFrom, insert: '' },
-        { from: coreTo, to: suffixEnd, insert: '' }
-      ],
-      selection: { anchor: coreFrom - prefix.length, head: coreTo - prefix.length }
-    });
+  if (wrappedRange) {
+    unwrapSyntaxRange(view, wrappedRange);
   } else {
     // Wrap non-whitespace core with markers; keep outer whitespace outside markers.
     view.dispatch({
