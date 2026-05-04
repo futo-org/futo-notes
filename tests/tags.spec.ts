@@ -180,6 +180,38 @@ test.describe('Tag System', () => {
     await expect(textPart).toHaveText('inline');
   });
 
+  test('Tag input shows a Create row when typing a brand-new tag name', async ({ page }) => {
+    await openNewNote(page);
+    await seedNote(page, 'create affordance', 'Some content.');
+
+    await page.locator('.tag-add-btn').click();
+    const input = page.locator('.tag-input');
+    await expect(input).toBeVisible({ timeout: 3000 });
+
+    // Type a name that does not match any existing tag.
+    await input.fill('travel');
+    const createRow = page.locator('.tag-suggestion-create');
+    await expect(createRow).toBeVisible({ timeout: 2000 });
+    await expect(createRow).toContainText('travel');
+  });
+
+  test('Tag input hides the Create row when an existing tag matches exactly', async ({ page }) => {
+    await openNewNote(page);
+    // Create a note with a #workout tag so #workout is in the existing tag set.
+    await createTestNote(page, 'workout seed', '#workout\n\nbody');
+    await refreshNotes(page);
+
+    await seedNote(page, 'create hidden when exact', 'Some content.');
+    await page.locator('.tag-add-btn').click();
+    const input = page.locator('.tag-input');
+    await expect(input).toBeVisible({ timeout: 3000 });
+
+    // Exact match: only the suggestion should appear, no Create row.
+    await input.fill('workout');
+    await expect(page.locator('.tag-suggestion').first()).toBeVisible({ timeout: 2000 });
+    await expect(page.locator('.tag-suggestion-create')).toHaveCount(0);
+  });
+
   test('Sidebar tag view shows tags and notes', async ({ page }) => {
     await openNewNote(page);
 

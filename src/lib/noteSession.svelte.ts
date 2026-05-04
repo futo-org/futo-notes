@@ -5,7 +5,7 @@
  * title‑validation state. MarkdownEditor bindings and scrollParent stay in
  * NotesShell.
  */
-import { hasFileSystem } from '$lib/platform';
+import { hasFileSystem, showSoftKeyboard } from '$lib/platform';
 import {
   updateNote,
   readNote,
@@ -320,6 +320,10 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
         if (loadVersion !== noteLoadVersion) return;
         autoResizeTitleTextarea();
         deps.focusEditor();
+        // Android: programmatic focus on contenteditable doesn't always
+        // raise the IME. Bridge to InputMethodManager so a fresh note
+        // brings the keyboard up immediately.
+        void showSoftKeyboard();
       });
     } else if (hasFileSystem) {
       try {
@@ -350,6 +354,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
             if (loadVersion !== noteLoadVersion) return;
             autoResizeTitleTextarea();
             deps.focusEditor();
+            void showSoftKeyboard();
           });
           return;
         } catch {

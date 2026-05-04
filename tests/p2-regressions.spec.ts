@@ -31,6 +31,32 @@ test.describe('P2 Header + Formatting Regressions', () => {
     await expect(page.locator('.cm-editor')).toBeVisible();
   });
 
+  test('editor mount applies cm-focused class so the caret is visible', async ({ page }) => {
+    // Regression: typing into a freshly-mounted editor used to leave
+    // .cm-content as document.activeElement but .cm-editor without the
+    // `cm-focused` class — CM6 only renders `.cm-cursor` when that class
+    // is present, so the caret was invisible.
+    await openNewNote(page);
+    await page.evaluate(() => {
+      const w = window as typeof window & {
+        __notesShellTest: { typeInEditor: (text: string) => string };
+      };
+      w.__notesShellTest.typeInEditor('- foo');
+    });
+    await page.waitForTimeout(100);
+
+    const focused = await page.locator('.cm-editor').evaluate((el) =>
+      el.classList.contains('cm-focused')
+    );
+    expect(focused).toBe(true);
+
+    const cursorDisplay = await page.evaluate(() => {
+      const c = document.querySelector('.cm-cursor');
+      return c ? window.getComputedStyle(c).display : 'missing';
+    });
+    expect(cursorDisplay).not.toBe('none');
+  });
+
   test('pressing Enter in title moves focus to note body editor', async ({ page }) => {
     await openNewNote(page);
 

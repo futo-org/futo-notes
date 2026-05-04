@@ -669,7 +669,22 @@
     // Focus the editor on mount so the caret is visible immediately.
     // CM6 only renders `.cm-cursor` when the editor is focused; without this,
     // a fresh note shows no caret until the user clicks inside.
-    v.focus();
+    //
+    // Defer to the next frame so CM6 has finished wiring its focus tracker
+    // (the `cm-focused` class on `.cm-editor`) before we focus. Calling
+    // synchronously here can leave activeElement = .cm-content while
+    // `.cm-focused` is still missing, which hides the cursor.
+    requestAnimationFrame(() => {
+      if (!view) return;
+      view.focus();
+      // Belt-and-braces: if CM6 didn't pick up the focus event (can happen
+      // when synthetic events bypass the trusted-event path in tests, or
+      // when the view mounts inside a hidden ancestor that briefly fires
+      // blur), nudge the focus tracker explicitly.
+      if (!view.hasFocus) {
+        view.contentDOM.dispatchEvent(new FocusEvent('focus', { bubbles: true }));
+      }
+    });
 
     // Suppress marker reveal only after a real pointer drag starts. Plain
     // clicks/double-clicks should not make already-revealed markers blink.
@@ -802,7 +817,15 @@
   }
 
   export function focus(): void {
-    view?.focus();
+    if (!view) return;
+    view.focus();
+    // CM6's `cm-focused` class is gated on a focus event reaching the
+    // contentDOM. If the call above didn't trip it (synthetic-event path,
+    // mid-mount race), force the tracker to update so `.cm-cursor` is
+    // visible immediately.
+    if (!view.hasFocus) {
+      view.contentDOM.dispatchEvent(new FocusEvent('focus', { bubbles: true }));
+    }
   }
 
   export function blur(): void {

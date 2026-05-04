@@ -205,6 +205,7 @@ pub fn run() {
             notes_dir_override_save,
             resolve_default_notes_root,
             core_apply_sync_delta_v2,
+            show_soft_keyboard,
             // Phase 2 dev-only smoke test for on-device embedding. Gated at
             // the module level in core::inference_dev so the command only
             // exists in debug builds and non-iOS targets.

@@ -1389,6 +1389,7 @@ dependencies = [
  "futo-notes-core",
  "futo-notes-inference",
  "glib",
+ "jni",
  "libc",
  "notify",
  "objc2 0.6.4",

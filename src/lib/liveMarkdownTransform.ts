@@ -385,11 +385,11 @@ class BulletWidget extends WidgetType {
     span.className = 'cm-md-bullet';
     const glyphs = ['•', '◦', '▪'];
     span.textContent = glyphs[this.indent % 3];
-    // padding-right (not margin-right): the caret renders at the
-    // widget's outer box edge, so margin gets ignored visually.
-    // Padding extends the widget's own box, pushing the caret/next
-    // glyph clear of the bullet.
-    span.style.cssText = `padding-right: 8px; color: #666;`;
+    // Small padding-right (not 8px — the literal space char in the doc
+    // is no longer replaced; see processListItem). Together they keep
+    // the visible gap close to the pre-fix value while leaving Android
+    // Chrome a real text node to position its caret in.
+    span.style.cssText = `padding-right: 4px; color: #666;`;
     return span;
   }
 
@@ -1675,12 +1675,15 @@ class LiveMarkdownPlugin implements PluginValue {
       const fullMarkerLen = bulletMatch[0].length;
       const contentStart = from + fullMarkerLen;
 
-      // Replace the `- ` (or `* `, `+ `) marker text with the bullet
-      // widget. Single replace decoration covers the source range so
-      // the widget element maps cleanly to its document positions.
+      // Replace ONLY the marker character with the bullet widget; leave
+      // the trailing whitespace in the document. Without that real text
+      // node, Android Chrome can't position its DOM selection between
+      // the widget and the bullet text — the caret anchors at the line's
+      // left edge regardless of CM6's actual selection state. (See
+      // bug-f80730c4 from 2026-05-01.)
       decorations.push({
         from,
-        to: contentStart,
+        to: from + 1,
         value: {
           widget: new BulletWidget(indentLevel),
           // Decoration.replace + widget is a point widget; no `side`

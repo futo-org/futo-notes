@@ -642,6 +642,87 @@ mod inference_dev {
 
 pub use inference_dev::inference_test_embed;
 
+/// Raise the soft keyboard / IME for the focused web view.
+///
+/// Mobile webviews don't always raise the IME for a programmatic
+/// `.focus()` on a contenteditable. Both Android Chrome and iOS WKWebView
+/// gate keyboard display on a real user gesture; in-app navigation that
+/// auto-focuses the editor can leave the user staring at a focused field
+/// with no keyboard. This command bridges to the platform IME so the
+/// keyboard appears as soon as we focus the editor (e.g. after "+ New").
+///
+/// - **Android**: calls `InputMethodManager.showSoftInput(view, SHOW_IMPLICIT)`
+///   via JNI.
+/// - **iOS**: makes the WKWebView the first responder; the focused
+///   contenteditable inside it then drives keyboard display.
+/// - **Desktop**: no-op — physical keyboards don't need a hint.
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub fn show_soft_keyboard(window: tauri::WebviewWindow) -> Result<(), String> {
+    use jni::objects::JValue;
+
+    window
+        .with_webview(|webview| {
+            let jni_handle = webview.jni_handle();
+            jni_handle.exec(|env, activity, webview_obj| {
+                let service_name = match env.new_string("input_method") {
+                    Ok(s) => s,
+                    Err(_) => return,
+                };
+                let imm = match env
+                    .call_method(
+                        activity,
+                        "getSystemService",
+                        "(Ljava/lang/String;)Ljava/lang/Object;",
+                        &[JValue::Object(&service_name)],
+                    )
+                    .and_then(|r| r.l())
+                {
+                    Ok(v) => v,
+                    Err(_) => return,
+                };
+                // SHOW_IMPLICIT (1) — same flag the system uses when the
+                // user taps an EditText. SHOW_FORCED can leave the IME up
+                // after navigation, which we don't want.
+                let _ = env.call_method(
+                    &imm,
+                    "showSoftInput",
+                    "(Landroid/view/View;I)Z",
+                    &[JValue::Object(webview_obj), JValue::Int(1)],
+                );
+            });
+        })
+        .map_err(|e| e.to_string())
+}
+
+#[cfg(target_os = "ios")]
+#[tauri::command]
+pub fn show_soft_keyboard(window: tauri::WebviewWindow) -> Result<(), String> {
+    window
+        .with_webview(|wv| {
+            use objc2::msg_send;
+            use objc2::runtime::{AnyObject, Bool};
+            unsafe {
+                let wk: *mut AnyObject = wv.inner().cast();
+                if wk.is_null() {
+                    return;
+                }
+                // becomeFirstResponder() on the WKWebView. The focused
+                // contenteditable inside the webview drives actual keyboard
+                // display — this just makes sure WK is in the responder
+                // chain when JS calls .focus() outside a tap context.
+                let _: Bool = msg_send![wk, becomeFirstResponder];
+            }
+        })
+        .map_err(|e| e.to_string())
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[tauri::command]
+pub fn show_soft_keyboard() -> Result<(), String> {
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

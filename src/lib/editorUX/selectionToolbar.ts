@@ -94,6 +94,9 @@ function buildTooltip(state: EditorState): Tooltip | null {
     pos: sel.from,
     end: sel.to,
     above: true,
+    // strictSide:false plus a tooltipSpace() that excludes the tag bar lets
+    // CM6 itself flip to below when "above" would clip into the title/tag
+    // area on the first body line.
     strictSide: false,
     arrow: false,
     create: (view) => ({ dom: createToolbarDom(view) }),
@@ -117,8 +120,24 @@ const selectionToolbarField = StateField.define<Tooltip | null>({
 // escape the editor's overflow-hidden scroll ancestors (.editor-container,
 // .note-body). Without this, a selection in the first visible line clips
 // the floating toolbar behind the note title / tag bar above the editor.
+//
+// `tooltipSpace` shrinks the available area by the bottom of the .note-tag-bar
+// (when present) so CM6 will auto-flip the toolbar below the line on the
+// first body row instead of laying it on top of the +Tag pill.
 export const selectionToolbar = [
   tableFocusField,
   selectionToolbarField,
-  tooltips({ parent: document.body, position: 'fixed' }),
+  tooltips({
+    parent: document.body,
+    position: 'fixed',
+    tooltipSpace: () => {
+      const top = document.querySelector('.note-tag-bar')?.getBoundingClientRect().bottom ?? 0;
+      return {
+        left: 0,
+        top,
+        right: window.innerWidth,
+        bottom: window.innerHeight,
+      };
+    },
+  }),
 ];

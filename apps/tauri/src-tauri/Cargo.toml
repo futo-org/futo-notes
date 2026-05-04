@@ -65,6 +65,10 @@ futo-notes-inference = { path = "../../../crates/futo-notes-inference", default-
 # cross-compiling through pyke's CDN isn't set up and load-dynamic is simpler
 # to reason about.
 futo-notes-inference = { path = "../../../crates/futo-notes-inference", default-features = false, features = ["load-dynamic", "xnnpack"] }
+# JNI for the soft-keyboard helper (InputMethodManager.showSoftInput). Pinned
+# to the same major as tauri-runtime-wry's transitive jni so the JNIEnv types
+# match across crates.
+jni = "0.21"
 
 [lints.clippy]
 too_many_lines = "warn"

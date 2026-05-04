@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { hasFileSystem, isMobile, isDesktop, isTauri } from '$lib/platform';
+  import { hasFileSystem, isMobile, isDesktop, isTauri, showSoftKeyboard } from '$lib/platform';
   import { setContext } from 'svelte';
   import { createAppContext, APP_CONTEXT_KEY } from '$lib/appContext.svelte';
   import { createTouchSwipe } from '$lib/touchSwipe.svelte';
@@ -298,6 +298,9 @@
     // Don't steal focus from title input or interactive elements
     if (target.closest('.note-title-row, a, button')) return;
     editor.focus();
+    // Android: explicitly raise the IME so the keyboard appears even when
+    // the focus came from JS rather than the system tap-on-EditText path.
+    void showSoftKeyboard();
   }
 
 
@@ -532,6 +535,10 @@
       handleFileChange: sync.handleFileChange,
       seedOpenNote: (id: string, body: string) => {
         session.seedOpenNote(id, body);
+        // Match the user-driven flow: opening a note focuses the editor so
+        // the caret is visible. Done in a microtask so the editor has
+        // applied the new content before we ask for focus.
+        queueMicrotask(() => editor?.focus());
       },
       flushSave: () => session.flushSave(),
       typeInEditor: (text: string) => {

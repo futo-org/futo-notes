@@ -32,6 +32,19 @@
       .slice(0, 8);
   });
 
+  // "Create #foo" row appears when the typed value is a valid tag name
+  // that isn't already attached and isn't an exact (case-insensitive)
+  // match of an existing tag — so the user has a visible way to act.
+  let createName = $derived(inputValue.trim().replace(/^#/, ''));
+  let isCreatable = $derived.by(() => {
+    if (!adding || !createName) return false;
+    if (!isValidTagName(createName)) return false;
+    const lower = createName.toLowerCase();
+    if (tags.some(t => t.toLowerCase().replace(/^#/, '') === lower)) return false;
+    if (allTags.some(t => t.toLowerCase() === lower)) return false;
+    return true;
+  });
+
   function startAdding() {
     adding = true;
     inputValue = '';
@@ -151,10 +164,13 @@
   }
 
   function handleInputKeydown(e: KeyboardEvent) {
+    const optionCount = suggestions.length + (isCreatable ? 1 : 0);
     if (e.key === 'Enter' || e.key === ',') {
       e.preventDefault();
       if (selectedSuggestion >= 0 && selectedSuggestion < suggestions.length) {
         addTag(suggestions[selectedSuggestion]);
+      } else if (selectedSuggestion === suggestions.length && isCreatable) {
+        addTag(createName);
       } else if (inputValue.trim()) {
         addTag(inputValue);
       }
@@ -162,7 +178,7 @@
       cancelAdding();
     } else if (e.key === 'ArrowDown') {
       e.preventDefault();
-      selectedSuggestion = Math.min(selectedSuggestion + 1, suggestions.length - 1);
+      selectedSuggestion = Math.min(selectedSuggestion + 1, optionCount - 1);
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
       selectedSuggestion = Math.max(selectedSuggestion - 1, -1);
@@ -202,7 +218,7 @@
         onblur={() => { setTimeout(cancelAdding, 150); }}
         maxlength={50}
       />
-      {#if suggestions.length > 0}
+      {#if suggestions.length > 0 || isCreatable}
         <div class="tag-suggestions">
           {#each suggestions as suggestion, i}
             <button
@@ -213,6 +229,15 @@
               {suggestion}
             </button>
           {/each}
+          {#if isCreatable}
+            <button
+              class="tag-suggestion tag-suggestion-create"
+              class:selected={selectedSuggestion === suggestions.length}
+              onmousedown={(e) => { e.preventDefault(); addTag(createName); }}
+            >
+              + Create #{createName}
+            </button>
+          {/if}
         </div>
       {/if}
     </div>

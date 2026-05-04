@@ -24,6 +24,33 @@ const tauriMobile = isTauri && detectMobileDevice();
 export const isDesktop = isTauri && !tauriMobile;
 export const isMobile = tauriMobile;
 export const isLinux = typeof navigator !== 'undefined' && /\blinux\b/i.test(navigator.userAgent);
+export const isAndroid =
+  isTauri && typeof navigator !== 'undefined' && /android/i.test(navigator.userAgent);
+export const isIOS =
+  isTauri &&
+  typeof navigator !== 'undefined' &&
+  /iphone|ipad|ipod/i.test(navigator.userAgent);
+
+/**
+ * Raise the soft keyboard / IME for the focused webview. No-op on desktop.
+ * Wraps the `show_soft_keyboard` Tauri command, which on Android calls
+ * `InputMethodManager.showSoftInput` via JNI and on iOS calls
+ * `becomeFirstResponder` on the WKWebView.
+ *
+ * Use after a programmatic `.focus()` on the editor or any contenteditable
+ * — both Android Chrome and iOS WKWebView gate keyboard display on a real
+ * user gesture, so non-gesture focus needs this hint.
+ */
+export async function showSoftKeyboard(): Promise<void> {
+  if (!isAndroid && !isIOS) return;
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    await invoke('show_soft_keyboard');
+  } catch {
+    // Best-effort: a missing or failing native IME call should never break
+    // the calling flow. The user can still tap to bring up the keyboard.
+  }
+}
 
 // Lazy-loaded platform filesystem implementation
 let _fs: PlatformFS | null = null;
