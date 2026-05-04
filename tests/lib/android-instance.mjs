@@ -227,6 +227,16 @@ function installApk(serial, apkPath) {
 }
 
 async function ensureAndroidPreviewServer(repoRoot) {
+  // Embedded-dist test runs (e.g. the futo-notes-scenarios runner, which builds
+  // the APK with the default `frontendDist` config so the WebView never opens
+  // 127.0.0.1:5181) can opt out: starting the preview server is dead overhead
+  // there, and `killPortHolders(5181)` would clobber any sibling worker's
+  // server in a parallel-run setup. The dev-mode test path leaves this unset
+  // so it still gets a preview server.
+  if (process.env.SF_SKIP_ANDROID_PREVIEW === '1') {
+    return { proc: null, refCount: 0, release() { /* no-op */ } };
+  }
+
   if (previewServer) {
     previewServer.refCount += 1;
     return previewServer;

@@ -53,7 +53,7 @@ android-offline:
   pnpm run build
   cd apps/tauri
   cargo tauri android build --debug --apk --config src-tauri/tauri.android.offline.conf.json
-  cd src-tauri/gen/android && ./gradlew app:installUniversalDebug
+  adb install -r src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk
   adb shell monkey -p com.futo.notes -c android.intent.category.LAUNCHER 1
 
 android-build:
