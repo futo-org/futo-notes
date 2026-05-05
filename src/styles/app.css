@@ -78,46 +78,70 @@
   font-style: italic;
 }
 
-/* === Theme: Warm Parchment === */
+/* === Theme: Ambient Precision === */
 @theme {
-  --color-primary: #B07D3B;
-  --color-primary-hover: #9A6C2F;
-  --color-text: #1C1917;
-  --color-border: #DDD8D0;
-  --color-surface: #F0ECE6;
-  --color-muted: #78716C;
-  --color-bg: #FAF9F6;
-  --color-sidebar: #F0ECE6;
-  --color-danger: #B8442A;
-  --color-text-inverse: #FAF9F6;
-  --color-active-line: #E8E3DC;
-  --color-selection: #EDE5D4;
+  --color-primary: #F26B1F;
+  --color-primary-hover: #D9550F;
+  --color-text: #0F0F0F;
+  --color-border: #E5E5E5;
+  --color-surface: #F2F2F2;
+  --color-muted: #737373;
+  --color-bg: #FCFCFC;
+  --color-sidebar: #F4F4F4;
+  --color-danger: #DC2626;
+  --color-text-inverse: #FCFCFC;
+  --color-active-line: #EFEFEF;
+  --color-selection: #FFE4D1;
 
-  --ink-rgb: 28, 25, 23;
-  --paper-rgb: 250, 249, 246;
-  --primary-rgb: 176, 125, 59;
+  --ink-rgb: 15, 15, 15;
+  --paper-rgb: 252, 252, 252;
+  --primary-rgb: 242, 107, 31;
+
+  --syntax-keyword: #C026D3;
+  --syntax-string: #16A34A;
+  --syntax-number: #0891B2;
+  --syntax-variable: #0284C7;
+  --syntax-type: #DC2626;
+  --syntax-property: #F26B1F;
+  --syntax-regexp: #E11D48;
+
+  --badge-keyword: #0284C7;
+  --badge-vector: #9333EA;
+  --badge-both: #16A34A;
 
   --font-sans: 'Plus Jakarta Sans', 'Outfit', 'GeneralSans', system-ui, -apple-system, sans-serif;
   --font-serif: 'Plus Jakarta Sans', Georgia, 'Times New Roman', serif;
 }
 
 [data-theme='dark'] {
-  --color-primary: #C99656;
-  --color-primary-hover: #DEB07C;
-  --color-text: #ECE6DE;
-  --color-border: #3A342F;
-  --color-surface: #231E1A;
-  --color-muted: #A79A8E;
-  --color-bg: #171310;
-  --color-sidebar: #1D1815;
-  --color-danger: #E06A4B;
-  --color-text-inverse: #1A1512;
-  --color-active-line: #2C2520;
-  --color-selection: #3C3228;
+  --color-primary: #FF7A33;
+  --color-primary-hover: #FF9559;
+  --color-text: #FAFAFA;
+  --color-border: #262626;
+  --color-surface: #171717;
+  --color-muted: #A3A3A3;
+  --color-bg: #0A0A0A;
+  --color-sidebar: #131313;
+  --color-danger: #EF4444;
+  --color-text-inverse: #0A0A0A;
+  --color-active-line: #1F1F1F;
+  --color-selection: #3D2210;
 
-  --ink-rgb: 236, 230, 222;
-  --paper-rgb: 23, 19, 16;
-  --primary-rgb: 201, 150, 86;
+  --ink-rgb: 250, 250, 250;
+  --paper-rgb: 10, 10, 10;
+  --primary-rgb: 255, 122, 51;
+
+  --syntax-keyword: #E879F9;
+  --syntax-string: #4ADE80;
+  --syntax-number: #22D3EE;
+  --syntax-variable: #38BDF8;
+  --syntax-type: #F87171;
+  --syntax-property: #FF9559;
+  --syntax-regexp: #FB7185;
+
+  --badge-keyword: #38BDF8;
+  --badge-vector: #C084FC;
+  --badge-both: #4ADE80;
 }
 
 @layer base {

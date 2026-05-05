@@ -291,18 +291,18 @@
   }
 
   .source-keyword {
-    background: rgba(59, 130, 246, 0.12);
-    color: rgb(59, 130, 246);
+    background: color-mix(in srgb, var(--badge-keyword) 12%, transparent);
+    color: var(--badge-keyword);
   }
 
   .source-vector {
-    background: rgba(168, 85, 247, 0.12);
-    color: rgb(168, 85, 247);
+    background: color-mix(in srgb, var(--badge-vector) 12%, transparent);
+    color: var(--badge-vector);
   }
 
   .source-both {
-    background: rgba(34, 197, 94, 0.12);
-    color: rgb(34, 197, 94);
+    background: color-mix(in srgb, var(--badge-both) 12%, transparent);
+    color: var(--badge-both);
   }
 
   .search-result-preview {

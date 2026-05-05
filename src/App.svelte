@@ -211,7 +211,7 @@
 {#if error}
   <div style="padding: 20px; font-family: system-ui;">
     <h1>Init Error</h1>
-    <pre style="white-space: pre-wrap; background: #f0f0f0; padding: 10px; border-radius: 8px;">{error}</pre>
+    <pre style="white-space: pre-wrap; background: #fcfcfc; padding: 10px; border-radius: 8px;">{error}</pre>
   </div>
 {:else if initialized}
   {#if showTitlebar}

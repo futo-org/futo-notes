@@ -173,19 +173,19 @@
 }
 
 .cm-line.cm-md-code-block .tok-keyword {
-  color: #D33682 !important;
+  color: var(--syntax-keyword) !important;
   font-weight: 600;
 }
 
 .cm-line.cm-md-code-block .tok-string {
-  color: #00A65A !important;
+  color: var(--syntax-string) !important;
 }
 
 .cm-line.cm-md-code-block .tok-number,
 .cm-line.cm-md-code-block .tok-literal,
 .cm-line.cm-md-code-block .tok-bool,
 .cm-line.cm-md-code-block .tok-atom {
-  color: #236F63 !important;
+  color: var(--syntax-number) !important;
 }
 
 .cm-line.cm-md-code-block .tok-comment {
@@ -196,35 +196,35 @@
 .cm-line.cm-md-code-block .tok-variableName,
 .cm-line.cm-md-code-block .tok-variableName2,
 .cm-line.cm-md-code-block .tok-labelName {
-  color: #00A8B5 !important;
+  color: var(--syntax-variable) !important;
 }
 
 .cm-line.cm-md-code-block .tok-typeName,
 .cm-line.cm-md-code-block .tok-className,
 .cm-line.cm-md-code-block .tok-namespace,
 .cm-line.cm-md-code-block .tok-macroName {
-  color: #E53935 !important;
+  color: var(--syntax-type) !important;
 }
 
 .cm-line.cm-md-code-block .tok-propertyName {
-  color: #D99A00 !important;
+  color: var(--syntax-property) !important;
 }
 
 .cm-line.cm-md-code-block .tok-definition {
-  color: #D99A00 !important;
+  color: var(--syntax-property) !important;
 }
 
 .cm-line.cm-md-code-block .tok-regexp,
 .cm-line.cm-md-code-block .tok-escape,
 .cm-line.cm-md-code-block .tok-url,
 .cm-line.cm-md-code-block .tok-string2 {
-  color: #A14D55 !important;
+  color: var(--syntax-regexp) !important;
 }
 
 .cm-line.cm-md-code-block .tok-meta,
 .cm-line.cm-md-code-block .tok-punctuation,
 .cm-line.cm-md-code-block .tok-operator {
-  color: #E53935 !important;
+  color: var(--syntax-type) !important;
 }
 
 .cm-line.cm-md-code-block .tok-invalid {
