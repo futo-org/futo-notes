@@ -31,6 +31,67 @@ export const isIOS =
   typeof navigator !== 'undefined' &&
   /iphone|ipad|ipod/i.test(navigator.userAgent);
 
+let softKeyboardPrimer: HTMLInputElement | null = null;
+
+function removeSoftKeyboardPrimer(): void {
+  const primer = softKeyboardPrimer;
+  softKeyboardPrimer = null;
+  if (!primer) return;
+
+  requestAnimationFrame(() => {
+    if (document.activeElement === primer) primer.blur();
+    primer.remove();
+  });
+}
+
+/**
+ * Preserve iOS' tap-triggered keyboard activation across async navigation.
+ *
+ * WKWebView only opens the software keyboard when focus happens during a user
+ * gesture. Creating a new note has to flush/save and route before the editor
+ * exists, so the eventual CodeMirror `.focus()` happens too late. Focusing a
+ * small input synchronously during the tap opens the keyboard; the later
+ * editor focus then inherits that active keyboard session.
+ */
+export function primeSoftKeyboardForProgrammaticFocus(): void {
+  if (!isIOS || typeof document === 'undefined') return;
+  if (softKeyboardPrimer?.isConnected) {
+    softKeyboardPrimer.focus({ preventScroll: true });
+    return;
+  }
+
+  const primer = document.createElement('input');
+  primer.type = 'text';
+  primer.setAttribute('aria-hidden', 'true');
+  primer.setAttribute('data-futo-keyboard-primer', 'true');
+  primer.setAttribute('inputmode', 'text');
+  primer.tabIndex = -1;
+  primer.autocapitalize = 'off';
+  primer.autocomplete = 'off';
+  primer.spellcheck = false;
+  primer.style.cssText = [
+    'position: fixed',
+    'left: 50%',
+    'bottom: 0',
+    'width: 32px',
+    'height: 32px',
+    'opacity: 0.01',
+    'border: 0',
+    'padding: 0',
+    'margin: 0',
+    'font-size: 16px',
+    'background: transparent',
+    'color: transparent',
+    'caret-color: transparent',
+    'transform: translateX(-50%)',
+    'z-index: 2147483647',
+  ].join('; ');
+
+  document.body.appendChild(primer);
+  softKeyboardPrimer = primer;
+  primer.focus({ preventScroll: true });
+}
+
 /**
  * Raise the soft keyboard / IME for the focused webview. No-op on desktop.
  * Wraps the `show_soft_keyboard` Tauri command, which on Android calls
@@ -43,6 +104,7 @@ export const isIOS =
  */
 export async function showSoftKeyboard(): Promise<void> {
   if (!isAndroid && !isIOS) return;
+  removeSoftKeyboardPrimer();
   try {
     const { invoke } = await import('@tauri-apps/api/core');
     await invoke('show_soft_keyboard');

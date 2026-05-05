@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { hasFileSystem, isMobile, isDesktop, isTauri, showSoftKeyboard } from '$lib/platform';
+  import { hasFileSystem, isMobile, isDesktop, isTauri, primeSoftKeyboardForProgrammaticFocus, showSoftKeyboard } from '$lib/platform';
   import { setContext } from 'svelte';
   import { createAppContext, APP_CONTEXT_KEY } from '$lib/appContext.svelte';
   import { createTouchSwipe } from '$lib/touchSwipe.svelte';
@@ -259,6 +259,7 @@
 
 
   async function createNewNote(): Promise<void> {
+    primeSoftKeyboardForProgrammaticFocus();
     if (isMobile) setDrawerOpen(false);
     await session.flushSave();
     navigate('/note/new');
