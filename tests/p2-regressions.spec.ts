@@ -222,4 +222,52 @@ test.describe('P2 Header + Formatting Regressions', () => {
       expect(raw).toBe(tc.sample);
     });
   }
+
+  // Regression: clicking into the body of a tagged note must land the
+  // caret at the click point, not at position 0 (inside the hidden
+  // header tag block). Position-0 caret was reproducible on Android via
+  // a related interaction with the mount-time auto-focus; the desktop
+  // assertion here guards against any future regression that surfaces
+  // when posAtCoords interacts with the hidden header block.
+  test('clicking body of a note with header tags places cursor at the click point', async ({ page }) => {
+    await openNewNote(page);
+
+    const body = 'Body line one\nBody line two\nBody line three\nBody line four';
+    await page.evaluate(({ text }) => {
+      const w = window as typeof window & {
+        __notesShellTest: { seedOpenNote: (id: string, body: string) => void };
+      };
+      w.__notesShellTest.seedOpenNote('tagged regression', `#alpha #beta\n\n${text}`);
+    }, { text: body });
+
+    // Blur so the header tag block hides — this is the state that breaks
+    // coord-to-position mapping in the buggy implementation.
+    await blurEditor(page);
+    await page.waitForTimeout(200);
+
+    // Sanity: tag pill bar is rendered above the editor.
+    await expect(page.locator('.tag-pill').first()).toBeVisible();
+
+    // Click on a known visible line in the body. We pick "Body line three"
+    // so the click is well below the (visually collapsed) tag block.
+    const targetLine = page.locator('.cm-line', { hasText: 'Body line three' }).first();
+    await expect(targetLine).toBeVisible();
+    const box = await targetLine.boundingBox();
+    if (!box) throw new Error('target line has no bounding box');
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    await page.waitForTimeout(100);
+
+    const cursor = await page.evaluate(() => {
+      const view = (window as any).__cmGetView?.();
+      if (!view) throw new Error('CM EditorView not found');
+      const head = view.state.selection.main.head;
+      const line = view.state.doc.lineAt(head);
+      return { head, lineNumber: line.number, lineText: line.text };
+    });
+
+    // The cursor must land on the line we clicked, not at position 0
+    // (which would be inside the hidden `#alpha #beta` tag block).
+    expect(cursor.head).toBeGreaterThan(0);
+    expect(cursor.lineText).toBe('Body line three');
+  });
 });

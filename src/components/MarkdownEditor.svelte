@@ -391,6 +391,40 @@
     }
   });
 
+  // Android Chrome's native tap-to-caret in contenteditable falls back to
+  // position 0 on empty lines and on lines made up of widget-replaced
+  // syntax. posAtCoords lenient-mode returns the nearest doc position but
+  // can still drift to a neighbour when the tap lands in the vertical gap
+  // between a tall paragraph and a short empty line. Resolve the .cm-line
+  // under the tap explicitly, then map x within that exact line.
+  function resolveTapPosition(event: MouseEvent, v: EditorView): number | null {
+    const line = getLineAtMouseEvent(event, v);
+    if (!line) return v.posAtCoords({ x: event.clientX, y: event.clientY }, false);
+    if (line.from === line.to) return line.from;
+    const lineEl =
+      (document.elementFromPoint(event.clientX, event.clientY) as Element | null)
+        ?.closest?.('.cm-line') as HTMLElement | null;
+    if (!lineEl) return line.from;
+    const rect = lineEl.getBoundingClientRect();
+    const x = Math.min(Math.max(event.clientX, rect.left + 1), rect.right - 1);
+    const y = rect.top + rect.height / 2;
+    return v.posAtCoords({ x, y }, false) ?? line.from;
+  }
+  const mobileTapCaretCorrection = isMobile
+    ? [EditorView.domEventHandlers({
+        click: (event, v) => {
+          if (event.button !== 0 || event.detail !== 1) return false;
+          if (pendingLinkUrl !== null || lineEndPending !== null) return false;
+          const sel = v.state.selection.main;
+          if (!sel.empty) return false;
+          const desired = resolveTapPosition(event, v);
+          if (desired === null || desired === sel.head) return false;
+          v.dispatch({ selection: { anchor: desired }, scrollIntoView: false });
+          return false;
+        }
+      })]
+    : [];
+
   // Resolve a click on an external link element to its URL via the element
   // itself — posAtCoords is unreliable when the live-markdown decoration
   // hasn't yet been dropped/re-applied by focus changes.
@@ -593,6 +627,7 @@
       imagePasteHandler,
       tripleClickLineSelectionHandler,
       lineEndClickHandler,
+      ...mobileTapCaretCorrection,
       wikilinkClickHandler,
       linkClickHandler,
       EditorView.contentAttributes.of({
@@ -677,26 +712,30 @@
 
     view = v;
 
-    // Focus the editor on mount so the caret is visible immediately.
-    // CM6 only renders `.cm-cursor` when the editor is focused; without this,
-    // a fresh note shows no caret until the user clicks inside.
+    // Focus the editor on mount so .cm-cursor renders immediately on
+    // desktop. Skip on mobile: programmatic contenteditable focus pops
+    // the soft keyboard, which is unwanted when opening an existing note.
+    // The new-note path in noteSession explicitly calls focusEditor()
+    // when the keyboard is actually wanted.
     //
     // Defer to the next frame so CM6 has finished wiring its focus tracker
     // (the `cm-focused` class on `.cm-editor`) before we focus. Calling
     // synchronously here can leave activeElement = .cm-content while
     // `.cm-focused` is still missing, which hides the cursor.
-    requestAnimationFrame(() => {
-      if (!view) return;
-      view.focus();
-      // Belt-and-braces: if CM6 didn't pick up the focus event (can happen
-      // when synthetic events bypass the trusted-event path in tests, or
-      // when the view mounts inside a hidden ancestor that briefly fires
-      // blur), nudge the focus tracker explicitly.
-      if (!view.hasFocus) {
-        view.contentDOM.dispatchEvent(new FocusEvent('focus', { bubbles: true }));
-      }
-      onfocuschange?.(editorHasDomFocus(view));
-    });
+    if (!isMobile) {
+      requestAnimationFrame(() => {
+        if (!view) return;
+        view.focus();
+        // Belt-and-braces: if CM6 didn't pick up the focus event (can happen
+        // when synthetic events bypass the trusted-event path in tests, or
+        // when the view mounts inside a hidden ancestor that briefly fires
+        // blur), nudge the focus tracker explicitly.
+        if (!view.hasFocus) {
+          view.contentDOM.dispatchEvent(new FocusEvent('focus', { bubbles: true }));
+        }
+        onfocuschange?.(editorHasDomFocus(view));
+      });
+    }
 
     // Suppress marker reveal only after a real pointer drag starts. Plain
     // clicks/double-clicks should not make already-revealed markers blink.
@@ -838,6 +877,14 @@
     if (!view.hasFocus) {
       view.contentDOM.dispatchEvent(new FocusEvent('focus', { bubbles: true }));
     }
+  }
+
+  export function placeCaretAtEnd(): void {
+    if (!view) return;
+    view.dispatch({
+      selection: { anchor: view.state.doc.length },
+      scrollIntoView: true,
+    });
   }
 
   export function blur(): void {

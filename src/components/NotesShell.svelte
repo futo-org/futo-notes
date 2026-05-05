@@ -305,6 +305,14 @@
     if (target.closest('.cm-editor')) return;
     // Don't steal focus from title input or interactive elements
     if (target.closest('.note-title-row, a, button')) return;
+
+    // Tap below the rendered editor → caret at end of doc, otherwise the
+    // caret stays at its previous position (often 0) and the tap looks
+    // like a no-op or a jump to the top.
+    const editorRect = editor.getView()?.dom.getBoundingClientRect();
+    if (editorRect && event.clientY > editorRect.bottom) {
+      editor.placeCaretAtEnd();
+    }
     editor.focus();
     // Android: explicitly raise the IME so the keyboard appears even when
     // the focus came from JS rather than the system tap-on-EditText path.
