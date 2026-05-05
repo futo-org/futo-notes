@@ -39,6 +39,7 @@ describe('keyboard.offsetTop', () => {
   afterEach(() => {
     // @ts-expect-error cleanup
     delete window.visualViewport;
+    vi.restoreAllMocks();
   });
 
   it('starts at 0 before init', async () => {
@@ -70,5 +71,27 @@ describe('keyboard.offsetTop', () => {
     vv.offsetTop = 80;
     vv.__fire('resize');
     expect(kb.offsetTop).toBe(80);
+  });
+
+  it('clamps iOS layout viewport panning while the keyboard is visible', async () => {
+    vi.spyOn(navigator, 'platform', 'get').mockReturnValue('iPhone');
+    const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
+    Object.defineProperty(window, 'innerHeight', { value: 565, configurable: true, writable: true });
+    Object.defineProperty(document.documentElement, 'clientHeight', { value: 800, configurable: true });
+    document.documentElement.scrollTop = 120;
+    document.body.scrollTop = 120;
+
+    const kb = await freshKeyboard();
+    kb.init();
+
+    vv.height = 500;
+    vv.offsetTop = 120;
+    vv.__fire('resize');
+
+    expect(scrollTo).toHaveBeenCalledWith(0, 0);
+    expect(document.documentElement.scrollTop).toBe(0);
+    expect(document.body.scrollTop).toBe(0);
+    expect(kb.height).toBe(300);
+    expect(kb.offsetTop).toBe(0);
   });
 });

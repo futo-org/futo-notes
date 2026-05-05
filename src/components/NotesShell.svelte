@@ -403,12 +403,13 @@
   // Toolbar height constant (matches .markdown-toolbar height in components.css)
   const TOOLBAR_HEIGHT = 44;
 
-  // Total bottom inset: keyboard + toolbar when keyboard is visible, just
-  // toolbar height while the focused mobile editor is waiting on keyboard
-  // metrics.
+  // Total bottom inset for the mobile editor toolbar. Search and other
+  // focused inputs may also raise the keyboard; only move the editor chrome
+  // when the editor itself owns focus.
   const keyboardInset = $derived(
-    keyboard.visible ? keyboard.height + TOOLBAR_HEIGHT :
-    isMobile && editorFocused ? TOOLBAR_HEIGHT : 0
+    isMobile && editorFocused && !searchOpen
+      ? (keyboard.visible ? keyboard.height + TOOLBAR_HEIGHT : TOOLBAR_HEIGHT)
+      : 0
   );
 
   // Scroll cursor into view when keyboard opens or resizes.
@@ -680,7 +681,7 @@
       onclick={() => setDrawerOpen(false)}
     ></div>
     <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-    <div class="note-body" data-editor-focused={editorFocused ? '' : undefined} bind:this={noteBody} onclick={handleNoteBodyClick} onfocusin={() => { if (noteId) editorFocused = true; }} onfocusout={handleEditorFocusOut}>
+    <div class="note-body" data-editor-focused={editorFocused ? '' : undefined} bind:this={noteBody} onclick={handleNoteBodyClick} onfocusin={() => { keyboard.refresh(); if (noteId) editorFocused = true; }} onfocusout={handleEditorFocusOut}>
       {#if noteId}
         <div class="note-title-row">
           <textarea

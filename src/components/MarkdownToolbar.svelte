@@ -33,20 +33,6 @@
   // Show when editor is focused. On mobile, the toolbar sits at the bottom (above keyboard if visible).
   const show = $derived(editorFocused);
 
-  // Compensate for Android WebView's visual viewport scrolling.
-  // When the visual viewport scrolls (e.g. user drags from keyboard area upward),
-  // position:fixed elements drift from their intended screen position.
-  // We track the offset and apply a counter-transform.
-  let vpOffset = $state(0);
-
-  $effect(() => {
-    const vv = window.visualViewport;
-    if (!vv) return;
-    const onScroll = () => { vpOffset = vv.offsetTop; };
-    vv.addEventListener('scroll', onScroll);
-    return () => vv.removeEventListener('scroll', onScroll);
-  });
-
   function handle(fn: (view: EditorView) => void) {
     return () => {
       const view = getView();
@@ -97,7 +83,7 @@
 
 {#if show}
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="markdown-toolbar" style="bottom: {keyboard.height > 0 ? `${keyboard.height}px` : `env(safe-area-inset-bottom, 0px)`}; transform: translateY({vpOffset}px)"
+<div class="markdown-toolbar" style="bottom: {keyboard.height > 0 ? `${keyboard.height}px` : `env(safe-area-inset-bottom, 0px)`}; transform: translateY({keyboard.offsetTop}px)"
   ontouchstart={handleToolbarTouchStart}
   ontouchmove={handleToolbarTouchMove}
   ontouchend={() => ontoolbartouch?.(false)}

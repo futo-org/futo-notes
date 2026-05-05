@@ -3,6 +3,31 @@ let _visible = $state(false);
 let _offsetTop = $state(0);
 
 let initialized = false;
+let refreshImpl: (() => void) | null = null;
+
+function isIOSWebKit(): boolean {
+  return /iP(hone|ad|od)/.test(navigator.platform) || /\biP(hone|ad|od)\b/.test(navigator.userAgent);
+}
+
+function resetLayoutViewportScroll(): void {
+  if (!isIOSWebKit()) return;
+  if (window.scrollY === 0 && document.documentElement.scrollTop === 0 && document.body.scrollTop === 0) return;
+  try {
+    window.scrollTo(0, 0);
+  } catch {
+    // jsdom and some embedded contexts may not implement scrollTo.
+  }
+  document.documentElement.scrollTop = 0;
+  document.body.scrollTop = 0;
+}
+
+function getLayoutViewportHeight(): number {
+  return Math.max(
+    document.documentElement.clientHeight,
+    document.body.clientHeight,
+    window.innerHeight
+  );
+}
 
 function init(): void {
   if (initialized) return;
@@ -12,8 +37,10 @@ function init(): void {
   if (!vv) return;
 
   const sync = () => {
-    const diff = window.innerHeight - vv.height;
-    if (diff > 100) {
+    const diff = getLayoutViewportHeight() - vv.height;
+    const visible = diff > 100;
+    if (visible) {
+      resetLayoutViewportScroll();
       _height = diff;
       _visible = true;
     } else {
@@ -24,11 +51,28 @@ function init(): void {
     // when the software keyboard opens to keep the focused input visible.
     // Absolutely-positioned chrome (menu buttons) then appears to drift off
     // the top of the visible area. Callers compensate with this offset.
-    _offsetTop = vv.offsetTop;
+    _offsetTop = visible && isIOSWebKit() ? 0 : vv.offsetTop;
   };
 
-  vv.addEventListener('resize', sync);
-  vv.addEventListener('scroll', sync);
+  const syncAfterViewportSettles = () => {
+    sync();
+    requestAnimationFrame(sync);
+    for (const delay of [80, 240, 500, 900]) {
+      setTimeout(sync, delay);
+    }
+  };
+
+  refreshImpl = syncAfterViewportSettles;
+  vv.addEventListener('resize', syncAfterViewportSettles);
+  vv.addEventListener('scroll', syncAfterViewportSettles);
+  document.addEventListener('focusin', syncAfterViewportSettles);
+  document.addEventListener('focusout', syncAfterViewportSettles);
+  window.addEventListener('scroll', syncAfterViewportSettles, { passive: true });
+  sync();
+}
+
+function refresh(): void {
+  refreshImpl?.();
 }
 
 function hide(): void {
@@ -40,5 +84,6 @@ export const keyboard = {
   get visible() { return _visible; },
   get offsetTop() { return _offsetTop; },
   init,
+  refresh,
   hide,
 };
