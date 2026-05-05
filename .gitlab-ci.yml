@@ -7,6 +7,7 @@ default:
     - . $HOME/.nvm/nvm.sh
     - corepack enable
     - corepack prepare pnpm@10.29.2 --activate
+    - pnpm config set store-dir "$PNPM_STORE_DIR"
     - export PATH="$CARGO_HOME/bin:$PATH"
 
 variables:
@@ -90,6 +91,34 @@ stages:
       (cd "$SERVER_DIR" && pnpm install --frozen-lockfile)
       export FUTO_NOTES_E2EE_SERVER_REPO="$SERVER_DIR"
 
+.setup-playwright:
+  script:
+    - |
+      playwright_browser_path() {
+        node -e "const fs=require('fs'); const { chromium }=require('@playwright/test'); const p=chromium.executablePath(); if (fs.existsSync(p)) console.log(p)" 2>/dev/null
+        if [ -n "${PLAYWRIGHT_BROWSERS_PATH:-}" ]; then
+          find "$PLAYWRIGHT_BROWSERS_PATH" -type f \( -name chrome-headless-shell -o -path "*/chrome-linux64/chrome" \) -print -quit 2>/dev/null
+        fi
+      }
+
+      playwright_browser_exists() {
+        test -n "$(playwright_browser_path | head -1)"
+      }
+
+      if playwright_browser_exists; then
+        echo "Playwright Chromium already present at $(playwright_browser_path | head -1)"
+      elif [ -d /ms-playwright ]; then
+        export PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+        if playwright_browser_exists; then
+          echo "Using Playwright Chromium baked into kitchensink at $(playwright_browser_path | head -1)"
+        else
+          export PLAYWRIGHT_BROWSERS_PATH="$CI_PROJECT_DIR/.cache-ms-playwright"
+          pnpm exec playwright install --only-shell chromium
+        fi
+      else
+        pnpm exec playwright install --only-shell chromium
+      fi
+
 # ─────────────────────────────────────────────────────────────
 # Cache templates
 # ─────────────────────────────────────────────────────────────
@@ -152,27 +181,68 @@ stages:
 
 # ─────────────────────────────────────────────────────────────
 # Tests
-# On tags, tests run in parallel with builds (builds use needs: [])
+# Cheap checks run on every MR/default/tag pipeline. Browser CI is intentionally
+# small on MRs; exhaustive Playwright coverage runs on release tags, with manual
+# MR jobs available when a change warrants it.
 # ─────────────────────────────────────────────────────────────
 
 test:
   stage: test
   cache:
     - !reference [.cache-pnpm, cache]
-    - !reference [.cache-playwright, cache]
   script:
-    - pnpm install --frozen-lockfile
+    - pnpm install --frozen-lockfile --prefer-offline
     - pnpm run lint
     - pnpm run lint:platform
-    - pnpm run test:unit
-    - pnpm run test:shared
-    - pnpm exec playwright install --with-deps chromium
-    - pnpm run test:markdown-spec
-    - pnpm run test:e2e:rest
+    - pnpm exec vitest run --silent=passed-only
+    - pnpm --filter @futo-notes/shared exec vitest run --silent=passed-only
   rules:
     - if: $CI_COMMIT_TAG
     - if: $CI_MERGE_REQUEST_IID
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+test:e2e:smoke:
+  stage: test
+  cache:
+    - !reference [.cache-pnpm, cache]
+    - !reference [.cache-playwright, cache]
+  script:
+    - pnpm install --frozen-lockfile --prefer-offline
+    - !reference [.setup-playwright, script]
+    - pnpm run test:e2e:smoke
+  rules:
+    - if: $CI_MERGE_REQUEST_IID
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+test:e2e:markdown-spec:
+  stage: test
+  cache:
+    - !reference [.cache-pnpm, cache]
+    - !reference [.cache-playwright, cache]
+  script:
+    - pnpm install --frozen-lockfile --prefer-offline
+    - !reference [.setup-playwright, script]
+    - pnpm run test:markdown-spec
+  rules:
+    - if: $CI_COMMIT_TAG
+    - if: $CI_MERGE_REQUEST_IID
+      when: manual
+      allow_failure: true
+
+test:e2e:rest:
+  stage: test
+  cache:
+    - !reference [.cache-pnpm, cache]
+    - !reference [.cache-playwright, cache]
+  script:
+    - pnpm install --frozen-lockfile --prefer-offline
+    - !reference [.setup-playwright, script]
+    - pnpm run test:e2e:rest
+  rules:
+    - if: $CI_COMMIT_TAG
+    - if: $CI_MERGE_REQUEST_IID
+      when: manual
+      allow_failure: true
 
 test:rust:
   stage: test
@@ -425,6 +495,8 @@ build:linux-packages:
   stage: build
   needs:
     - job: test
+    - job: test:e2e:markdown-spec
+    - job: test:e2e:rest
   image: ubuntu:22.04
   before_script: &linux-before-script
     - apt-get update
@@ -433,6 +505,7 @@ build:linux-packages:
     - DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends nodejs
     - corepack enable
     - corepack prepare pnpm@10.29.2 --activate
+    - pnpm config set store-dir "$PNPM_STORE_DIR"
     - export PATH="$CARGO_HOME/bin:$PATH"
   cache:
     - !reference [.cache-pnpm, cache]
@@ -475,6 +548,8 @@ build:linux-appimage:
   stage: build
   needs:
     - job: test
+    - job: test:e2e:markdown-spec
+    - job: test:e2e:rest
   image: ubuntu:22.04
   before_script: *linux-before-script
   cache:
@@ -533,6 +608,8 @@ build:android:
   stage: build
   needs:
     - job: test
+    - job: test:e2e:markdown-spec
+    - job: test:e2e:rest
   image: gitlab.futo.org:5050/futo-notes/futo-notes/ci/android:latest
   cache:
     - !reference [.cache-pnpm, cache]
@@ -580,6 +657,8 @@ build:ios:
   stage: build
   needs:
     - job: test
+    - job: test:e2e:markdown-spec
+    - job: test:e2e:rest
   tags:
     - macscript
   variables:
@@ -599,6 +678,8 @@ build:macos:
   stage: build
   needs:
     - job: test
+    - job: test:e2e:markdown-spec
+    - job: test:e2e:rest
   tags:
     - macscript
   variables:
@@ -631,6 +712,8 @@ windows:provision:
   stage: build
   needs:
     - job: test
+    - job: test:e2e:markdown-spec
+    - job: test:e2e:rest
   tags:
     - proxmoxshell
   before_script:

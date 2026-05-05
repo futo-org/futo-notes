@@ -1,5 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
+const isCI = !!process.env.CI;
+
 export default defineConfig({
   testDir: './tests',
   fullyParallel: false,
@@ -7,7 +9,7 @@ export default defineConfig({
   retries: 0,
   workers: 1,
   reporter: [
-    ['list'],
+    [isCI ? 'dot' : 'list'],
     ['json', { outputFile: 'test-results/results.json' }]
   ],
   use: {
