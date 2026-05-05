@@ -1148,6 +1148,12 @@ async function pushE2ee(key: CryptoKey): Promise<PushResult> {
     }
 
     if (existing) {
+      // Reconcile-divergent entries are recorded by reconcileEmptyMap with
+      // the remote hash but no mtimeMs slot. Their on-disk mtime is the
+      // user's actual last-edit time — possibly months old. Stomping that
+      // with `result.updatedAt` (server-now) on push pushes every diverged
+      // note above genuinely-recent notes in the mtime-desc sidebar.
+      const fromReconcile = existing.mtimeMs === undefined;
       const result = await updateObjectInline(key, filename, content, existing.objectId, existing.version + 1);
       if (result.kind === 'ok') {
         if (result.changeSeq > newMaxVersion) newMaxVersion = result.changeSeq;
@@ -1160,10 +1166,14 @@ async function pushE2ee(key: CryptoKey): Promise<PushResult> {
           // is about to write onto the local file. If we stamped with the
           // pre-push on-disk mtime, the post-push mtime sync would make
           // the stamp stale and force a re-hash on the next push.
-          mtimeMs: result.updatedAt,
+          // Reconcile-divergent path: keep the local on-disk mtime so the
+          // map agrees with the file we deliberately did not retouch.
+          mtimeMs: fromReconcile ? file.mtime : result.updatedAt,
           sizeBytes: file.size,
         };
-        pushedTimestamps[filename] = result.updatedAt;
+        if (!fromReconcile) {
+          pushedTimestamps[filename] = result.updatedAt;
+        }
         uploaded++;
         updatedIds.push(id);
       } else if (result.kind === 'conflict') {

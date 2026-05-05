@@ -426,6 +426,58 @@ describe('syncServiceE2ee reconcile on empty objectMap', () => {
     expect(server.objects!.size).toBe(5);
   });
 
+  it('preserves local mtime for reconcile-divergent files instead of stomping with server-now', async () => {
+    // User scenario: laptop has pre-existing notes from prior syncs, then
+    // reinstalls the app (or reconnects). The laptop's objectMap is empty.
+    // For each note where local content differs from server, reconcile
+    // records the entry with no mtimeMs slot, so push re-uploads the local
+    // copy. Before the fix, push then stamped the local file's mtime to
+    // the server's freshly-minted updated_at — pushing every diverged note
+    // above genuinely-recent notes (the desktop's "yesterday" daily note)
+    // in the sidebar.
+    const server: MockServerState = { key: null, putKeyCount: 0 };
+    installFetchMock(server);
+    const fsA = createNodeFS();
+    const fsB = createNodeFS();
+
+    // Desktop (A): two older notes, then a fresh "today" note. Mock server
+    // stamps updated_at with the collectionVersion → strictly increasing.
+    const clientA = await loadClient(fsA);
+    await clientA.syncService.connectE2ee('http://server.test', 'password');
+    await fsA.writeNote('old-1', '# old 1 — server version\n');
+    await fsA.writeNote('old-2', '# old 2 — server version\n');
+    await clientA.syncService.syncE2ee('password');
+    await fsA.writeNote('today', '# today\n');
+    await clientA.syncService.syncE2ee('password');
+
+    // Laptop (B): pre-existing local copies of the two older notes with
+    // diverged content and ancient local mtimes. No `today` note locally.
+    // Empty objectMap → reconcile path runs.
+    await fsB.writeNote('old-1', '# old 1 — laptop divergent\n', 1_000_000);
+    await fsB.writeNote('old-2', '# old 2 — laptop divergent\n', 1_000_000);
+
+    const clientB = await loadClient(fsB);
+    await clientB.syncService.connectE2ee('http://server.test', 'password');
+    const summary = await clientB.syncService.syncE2ee('password');
+
+    // Sanity: both diverged files were uploaded (matches user's "Uploading 2 notes").
+    expect(summary.uploaded).toBe(2);
+
+    const files = await fsB.listNoteFiles();
+    const today = files.find((f: { name: string; mtime: number }) => f.name === 'today.md')!;
+    const old1 = files.find((f: { name: string; mtime: number }) => f.name === 'old-1.md')!;
+    const old2 = files.find((f: { name: string; mtime: number }) => f.name === 'old-2.md')!;
+    expect(today).toBeDefined();
+    expect(old1).toBeDefined();
+    expect(old2).toBeDefined();
+
+    // The user's complaint, distilled: the recently-created note must come
+    // out at the top of an mtime-desc sort, not below freshly-pushed-but-
+    // logically-old notes whose mtimes were stomped to "now".
+    expect(today.mtime).toBeGreaterThan(old1.mtime);
+    expect(today.mtime).toBeGreaterThan(old2.mtime);
+  });
+
   it('reconnect with one diverged file uploads only that file', async () => {
     const server: MockServerState = { key: null, putKeyCount: 0 };
     installFetchMock(server);
