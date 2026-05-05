@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { EditorView } from '@codemirror/view';
-  import { extractHeaderTagBlock, isValidTagName } from '@futo-notes/shared';
+  import { extractHeaderTagBlock, isValidTagName, normalizeTagName } from '@futo-notes/shared';
   import { getAllTagNames } from '$lib/tags';
   import type { NotePreview } from '../types';
 
@@ -25,7 +25,7 @@
   let allTags = $derived(getAllTagNames(notes));
   let suggestions = $derived.by(() => {
     if (!adding || !inputValue.trim()) return [];
-    const lower = inputValue.toLowerCase();
+    const lower = normalizeTagName(inputValue);
     const currentLower = new Set(tags.map(t => t.toLowerCase().replace(/^#/, '')));
     return allTags
       .filter(t => t.toLowerCase().includes(lower) && !currentLower.has(t.toLowerCase()))
@@ -35,7 +35,7 @@
   // "Create #foo" row appears when the typed value is a valid tag name
   // that isn't already attached and isn't an exact (case-insensitive)
   // match of an existing tag — so the user has a visible way to act.
-  let createName = $derived(inputValue.trim().replace(/^#/, ''));
+  let createName = $derived(normalizeTagName(inputValue));
   let isCreatable = $derived.by(() => {
     if (!adding || !createName) return false;
     if (!isValidTagName(createName)) return false;
@@ -60,7 +60,7 @@
   }
 
   function addTag(name: string) {
-    name = name.trim().replace(/^#/, '');
+    name = normalizeTagName(name);
     if (!isValidTagName(name)) return;
 
     // Check for duplicate (case-insensitive)
@@ -191,7 +191,7 @@
 </script>
 
 <div class="note-tag-bar">
-  {#each [...tags].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase())) as tag}
+  {#each tags as tag}
     <span class="tag-pill">
       <span class="tag-pill-name">{tag.replace(/^#/, '')}</span>
       <button

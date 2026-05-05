@@ -131,6 +131,58 @@ test.describe('Tag System', () => {
     expect(content).toContain('#recipes');
   });
 
+  test('Tag input normalizes case and spaces before creating', async ({ page }) => {
+    await openNewNote(page);
+    await seedNote(page, 'normalize tag test', '#Whale\n\nSome note content here.');
+
+    await expect(page.locator('.tag-pill-name')).toHaveText(['whale'], { timeout: 5000 });
+
+    await page.locator('.tag-add-btn').click();
+    const input = page.locator('.tag-input');
+    await expect(input).toBeVisible({ timeout: 3000 });
+    await input.fill('dog problems');
+    await expect(page.locator('.tag-suggestion-create')).toContainText('dog_problems');
+    await input.press('Enter');
+
+    await page.evaluate(() => new Promise(requestAnimationFrame));
+
+    await expect(page.locator('.tag-pill-name')).toHaveText(['whale', 'dog_problems']);
+    const content = await getEditorContent(page);
+    expect(content).toContain('#dog_problems');
+    expect(content).not.toContain('#dog problems');
+  });
+
+  test('Tag input focus does not mark the editor focused', async ({ page }) => {
+    await openNewNote(page);
+    await seedNote(page, 'tag focus regression', 'Some note content here.');
+    await blurEditor(page);
+
+    await page.locator('.tag-add-btn').click();
+    const input = page.locator('.tag-input');
+    await expect(input).toBeFocused({ timeout: 3000 });
+
+    await expect(page.locator('.note-body')).not.toHaveAttribute('data-editor-focused', '');
+  });
+
+  test('New tag appears immediately at the add-tag position', async ({ page }) => {
+    await openNewNote(page);
+    await seedNote(page, 'tag order regression', '#zeta\n\nSome note content here.');
+    await blurEditor(page);
+
+    await page.locator('.tag-add-btn').click();
+    const input = page.locator('.tag-input');
+    await expect(input).toBeFocused({ timeout: 3000 });
+    await input.fill('alpha');
+    await input.press('Enter');
+
+    // One animation frame is enough for the local editor->session update.
+    // The debounced disk save is 500ms, so this catches the old disappearance.
+    await page.evaluate(() => new Promise(requestAnimationFrame));
+
+    await expect(page.locator('.tag-input')).toHaveCount(0);
+    expect(await page.locator('.tag-pill-name').allTextContents()).toEqual(['zeta', 'alpha']);
+  });
+
   test('Can remove a tag via the X button', async ({ page }) => {
     await openNewNote(page);
     await seedNote(page, 'remove tag test', '#recipes #cooking\n\nSome content.');

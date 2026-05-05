@@ -25,6 +25,7 @@ export {
   TAG_REGEX,
   MAX_TAG_LENGTH,
   isValidTagName,
+  normalizeTagName,
   extractTags,
   extractHeaderTagBlock,
 } from './tags.js';

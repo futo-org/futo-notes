@@ -63,7 +63,7 @@ export interface NoteSession {
   readonly lastEditTime: number;
   isSavePending: () => boolean;
   hasOpenDraftChanges: () => boolean;
-  debouncedSave: () => void;
+  debouncedSave: (content?: string) => void;
   flushSave: () => Promise<void>;
   loadNote: (id: string | null) => Promise<void>;
   handleTitleInput: (event: Event) => void;
@@ -108,6 +108,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
   let savedTitle = $state('');
   let titleWarning = $state('');
   let loading = $state(false);
+  let savedContent = '';
 
   // --- Non-reactive save‑queue state ---
   let saveTimeout: number | null = null;
@@ -160,8 +161,12 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
 
   // --- Save machinery ---
 
-  function debouncedSave(): void {
-    if (suppressSaveOnChange || loading || !hasFileSystem || deps.getNoteId() === null) return;
+  function debouncedSave(nextContent?: string): void {
+    if (suppressSaveOnChange) return;
+    if (nextContent !== undefined) {
+      content = nextContent;
+    }
+    if (loading || !hasFileSystem || deps.getNoteId() === null) return;
     lastEditTime = Date.now();
     editVersion++;
     if (saveTimeout !== null) {
@@ -233,7 +238,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
       if (!shouldWriteNoteToDisk({
         savedTitle,
         newTitle,
-        content,
+        content: savedContent,
         newContent,
       })) {
         return false;
@@ -261,6 +266,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
       if (deps.getEditorContent() === newContent) {
         content = newContent;
       }
+      savedContent = newContent;
       savedTitle = newTitle;
 
       // Patch graph data in-place so the graph view survives renames
@@ -302,6 +308,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     if (!id) {
       title = '';
       content = '';
+      savedContent = '';
       savedTitle = '';
       originalId = null;
       loading = false;
@@ -313,6 +320,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     if (id === 'new') {
       title = getNextUntitledTitle();
       content = '';
+      savedContent = '';
       savedTitle = title;
       deps.setEditorContent('');
       loading = false;
@@ -330,6 +338,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
         const loadedContent = await readNote(id);
         if (loadVersion !== noteLoadVersion) return;
         content = loadedContent;
+        savedContent = loadedContent;
         const meta = getNoteById(id);
         title = meta?.title || id;
         savedTitle = title;
@@ -346,6 +355,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
           if (loadVersion !== noteLoadVersion) return;
           title = id;
           content = '';
+          savedContent = '';
           savedTitle = id;
           originalId = result.id;
           deps.setEditorContent('');
@@ -442,6 +452,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
 
   function applyExternalContent(freshContent: string): void {
     content = freshContent;
+    savedContent = freshContent;
     suppressSaveOnChange = true;
     deps.setEditorContent(freshContent, { preserveSelection: true });
     suppressSaveOnChange = false;
@@ -467,6 +478,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     title = id;
     savedTitle = id;
     content = body;
+    savedContent = body;
     deps.setEditorContent(body);
     deps.setPrevNoteId(id);
     clearTitleWarning();
@@ -480,6 +492,9 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     }
     clearTitleWarning();
     originalId = null;
+    content = '';
+    savedContent = '';
+    savedTitle = '';
     navigate('/');
   }
 
@@ -506,7 +521,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
       if (!originalId && noteId !== 'new') return false;
       if (saveTimeout !== null || saveInFlight !== null || saveQueued) return true;
       const currentContent = deps.getEditorContent() ?? content;
-      return currentContent !== content || title !== savedTitle;
+      return currentContent !== savedContent || title !== savedTitle;
     },
     debouncedSave,
     flushSave,

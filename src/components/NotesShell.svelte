@@ -297,6 +297,14 @@
     }
   }
 
+  function handleNoteBodyFocusIn(event: FocusEvent): void {
+    keyboard.refresh();
+    const target = event.target as HTMLElement | null;
+    if (target?.closest('.cm-editor') && noteId) {
+      editorFocused = true;
+    }
+  }
+
   function handleNoteBodyClick(event: MouseEvent): void {
     if (!editor) return;
     // On mobile, clicking the dimmed area behind the drawer closes it — don't focus
@@ -304,8 +312,8 @@
     const target = event.target as HTMLElement;
     // Let CodeMirror handle taps within the editor so the cursor lands at tap coordinates.
     if (target.closest('.cm-editor')) return;
-    // Don't steal focus from title input or interactive elements
-    if (target.closest('.note-title-row, a, button')) return;
+    // Don't steal focus from title/tag controls or interactive elements.
+    if (target.closest('.note-title-row, .note-tag-bar, a, button, input, textarea, select')) return;
 
     // Tap below the rendered editor → caret at end of doc, otherwise the
     // caret stays at its previous position (often 0) and the tap looks
@@ -682,7 +690,7 @@
       onclick={() => setDrawerOpen(false)}
     ></div>
     <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-    <div class="note-body" data-editor-focused={editorFocused ? '' : undefined} bind:this={noteBody} onclick={handleNoteBodyClick} onfocusin={() => { keyboard.refresh(); if (noteId) editorFocused = true; }} onfocusout={handleEditorFocusOut}>
+    <div class="note-body" data-editor-focused={editorFocused ? '' : undefined} bind:this={noteBody} onclick={handleNoteBodyClick} onfocusin={handleNoteBodyFocusIn} onfocusout={handleEditorFocusOut}>
       {#if noteId}
         <div class="note-title-row">
           <textarea

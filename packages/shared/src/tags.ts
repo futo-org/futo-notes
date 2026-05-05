@@ -1,8 +1,9 @@
 /**
  * Tag parsing utilities for extracting hashtags from note content.
  *
- * Tag syntax: #[a-zA-Z][a-zA-Z0-9_-]* (max 50 chars after #)
+ * Tag syntax: #[a-z][a-z0-9_-]* (max 50 chars after #)
  * - Must start with a letter after #
+ * - Canonical names are lowercase; user-entered whitespace normalizes to _
  * - Preceded by whitespace or start of line
  * - Not inside code blocks/fences or inline code
  */
@@ -21,7 +22,23 @@ export const TAG_REGEX = /(?:^|(?<=\s))#([a-zA-Z][a-zA-Z0-9_-]{0,49})(?=$|\s|[.,
  */
 export function isValidTagName(name: string): boolean {
   if (name.length === 0 || name.length > MAX_TAG_LENGTH) return false;
-  return /^[a-zA-Z][a-zA-Z0-9_-]*$/.test(name);
+  return /^[a-z][a-z0-9_-]*$/.test(name);
+}
+
+/**
+ * Normalize user-entered tag text to the canonical on-disk name.
+ *
+ * Examples:
+ * - "Whale" -> "whale"
+ * - "dog problems" -> "dog_problems"
+ */
+export function normalizeTagName(name: string): string {
+  return name
+    .trim()
+    .replace(/^#+/, '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '_');
 }
 
 /**
@@ -89,24 +106,24 @@ function stripCodeRegions(content: string): string {
 
 /**
  * Extract all unique tags from note content, excluding tags inside code blocks/fences.
- * Returns tags with the # prefix, preserving original casing.
- * Deduplicated case-insensitively (first occurrence wins).
+ * Returns canonical tags with the # prefix.
  */
 export function extractTags(content: string): string[] {
   const cleaned = stripCodeRegions(content);
-  const seen = new Map<string, string>(); // lowercase → original
+  const seen = new Set<string>();
+  const tags: string[] = [];
   const re = new RegExp(TAG_REGEX.source, TAG_REGEX.flags);
   let match: RegExpExecArray | null;
 
   while ((match = re.exec(cleaned)) !== null) {
-    const tag = '#' + match[1];
-    const lower = tag.toLowerCase();
-    if (!seen.has(lower)) {
-      seen.set(lower, tag);
+    const tag = '#' + normalizeTagName(match[1]);
+    if (!seen.has(tag)) {
+      seen.add(tag);
+      tags.push(tag);
     }
   }
 
-  return Array.from(seen.values());
+  return tags;
 }
 
 /** Regex for a line that consists only of tags and whitespace */
@@ -132,10 +149,9 @@ export function extractHeaderTagBlock(content: string): { tags: string[]; endOff
       const re = new RegExp(TAG_REGEX.source, TAG_REGEX.flags);
       let match: RegExpExecArray | null;
       while ((match = re.exec(line)) !== null) {
-        const tag = '#' + match[1];
-        const lower = tag.toLowerCase();
-        if (!seen.has(lower)) {
-          seen.add(lower);
+        const tag = '#' + normalizeTagName(match[1]);
+        if (!seen.has(tag)) {
+          seen.add(tag);
           tags.push(tag);
         }
       }

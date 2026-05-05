@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   TAG_REGEX,
   isValidTagName,
+  normalizeTagName,
   extractTags,
   extractHeaderTagBlock,
 } from './tags.js';
@@ -49,7 +50,6 @@ describe('isValidTagName', () => {
     expect(isValidTagName('recipes')).toBe(true);
     expect(isValidTagName('meal-prep')).toBe(true);
     expect(isValidTagName('to_do')).toBe(true);
-    expect(isValidTagName('React')).toBe(true);
     expect(isValidTagName('a')).toBe(true);
   });
 
@@ -58,7 +58,17 @@ describe('isValidTagName', () => {
     expect(isValidTagName('123')).toBe(false);
     expect(isValidTagName('-start')).toBe(false);
     expect(isValidTagName('_start')).toBe(false);
+    expect(isValidTagName('React')).toBe(false);
+    expect(isValidTagName('dog problems')).toBe(false);
     expect(isValidTagName('a'.repeat(51))).toBe(false);
+  });
+});
+
+describe('normalizeTagName', () => {
+  it('lowercases tags and replaces whitespace with underscores', () => {
+    expect(normalizeTagName('Whale')).toBe('whale');
+    expect(normalizeTagName('dog problems')).toBe('dog_problems');
+    expect(normalizeTagName('#Dog   Problems')).toBe('dog_problems');
   });
 });
 
@@ -73,9 +83,9 @@ describe('extractTags', () => {
     expect(extractTags(content)).toEqual(['#recipe', '#healthy']);
   });
 
-  it('deduplicates case-insensitively (first wins)', () => {
+  it('normalizes and deduplicates case-insensitively', () => {
     const content = '#Recipe #recipe #RECIPE';
-    expect(extractTags(content)).toEqual(['#Recipe']);
+    expect(extractTags(content)).toEqual(['#recipe']);
   });
 
   it('skips tags inside fenced code blocks', () => {
@@ -90,7 +100,7 @@ describe('extractTags', () => {
 
   it('skips tags inside inline code', () => {
     const content = 'Use `#notATag` but #realTag is fine';
-    expect(extractTags(content)).toEqual(['#realTag']);
+    expect(extractTags(content)).toEqual(['#realtag']);
   });
 
   it('does not match headings', () => {
@@ -155,7 +165,7 @@ describe('extractHeaderTagBlock', () => {
   it('deduplicates header tags case-insensitively', () => {
     const content = '#Tag #tag\n\nContent';
     const result = extractHeaderTagBlock(content);
-    expect(result.tags).toEqual(['#Tag']);
+    expect(result.tags).toEqual(['#tag']);
   });
 
   it('handles multiple tag lines', () => {
