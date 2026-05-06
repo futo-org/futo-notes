@@ -192,9 +192,13 @@ build_macos_task:
     - export APPLE_CERTIFICATE_PASSWORD="$MACOS_CERT_PASSWORD"
     - export APPLE_SIGNING_IDENTITY="Developer ID Application: FUTO Holdings, Inc. (2W7AC6T8T5)"
 
-    # Set Tauri notarization env vars
-    - export APPLE_API_KEY=$(ls .secure_files/AuthKey*.p8 | head -1)
-    - export APPLE_API_KEY_ID="$ASC_KEY_ID"
+    # Set Tauri notarization env vars. Tauri reads APPLE_API_KEY as the
+    # key ID (NOT a path) and APPLE_API_KEY_PATH as the .p8 file path.
+    # Getting these swapped silently disables notarization while codesign
+    # still runs, producing signed-but-unnotarized DMGs that Gatekeeper
+    # rejects with "Apple could not verify…".
+    - export APPLE_API_KEY="$ASC_KEY_ID"
+    - export APPLE_API_KEY_PATH=$(ls .secure_files/AuthKey*.p8 | head -1)
     - export APPLE_API_ISSUER="$ASC_ISSUER_ID"
 
     # Install Node + pnpm
