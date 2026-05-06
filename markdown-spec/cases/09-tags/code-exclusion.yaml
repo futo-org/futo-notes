@@ -85,4 +85,4 @@
   cursor: null
   expect:
     tags:
-      - "#Project"
+      - "#project"

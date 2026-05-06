@@ -42,7 +42,7 @@
   cursor: null
   expect:
     tags:
-      - "#Project"
+      - "#project"
 
 - name: server-tag-with-special-trailing
   complexity: 35

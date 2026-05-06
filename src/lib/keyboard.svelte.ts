@@ -37,6 +37,7 @@ function init(): void {
   if (!vv) return;
 
   const sync = () => {
+    if (typeof document === 'undefined') return;
     const diff = getLayoutViewportHeight() - vv.height;
     const visible = diff > 100;
     if (visible) {
