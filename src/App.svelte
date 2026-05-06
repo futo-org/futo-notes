@@ -147,7 +147,11 @@
     // Set app version from platform
     try {
       if (hasFileSystem) {
-        const version = await getFS().getAppVersion();
+        // Must await getPlatformFS() — getFS() throws if the dynamic
+        // import hasn't resolved yet, and this IIFE races the one in
+        // init() that kicked off the FS load.
+        const fs = await getPlatformFS();
+        const version = await fs.getAppVersion();
         setAppVersion(version);
       } else {
         setAppVersion('0.0.0-web');

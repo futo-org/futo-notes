@@ -290,7 +290,12 @@ deploy-rpm:
   # Kill running instance (comm is truncated to 15 chars, so use -f)
   pkill -f futo-notes-tauri 2>/dev/null && echo "Stopped running instance." && sleep 1 || true
   echo "Installing ${RPM}..."
-  sudo dnf install -y "$RPM" || sudo rpm -Uvh --force "$RPM"
+  # `dnf install` no-ops when the version-release tuple already matches
+  # (common at tag commits where VERSION === BASE_VER), leaving the
+  # on-disk binary stale. Try reinstall first (replaces files when
+  # already installed at the same version), fall back to install for
+  # the fresh-install / upgrade / downgrade cases.
+  sudo dnf reinstall -y "$RPM" 2>/dev/null || sudo dnf install -y "$RPM"
   # Restore tauri.conf.json so git stays clean
   git checkout -- "$CONF"
   echo "Done. Installed FUTO Notes ${VERSION}."
