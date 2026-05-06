@@ -20,6 +20,8 @@ afterAll(() => {
 });
 
 describe('initNotes', () => {
+  // Bumped timeout: this test imports the full notes module (~5s on slow CI
+  // runners under load). Default 5s puts us right at the cliff.
   it('rebuilds cache from files on disk', async () => {
     await testFS.writeNote('hello-world', '# Hello World\nThis is content');
     await testFS.writeNote('second-note', '# Second\nMore content');
@@ -31,7 +33,7 @@ describe('initNotes', () => {
     expect(notes).toHaveLength(2);
     const ids = notes.map((n) => n.id).sort();
     expect(ids).toEqual(['hello-world', 'second-note']);
-  });
+  }, 15000);
 
   it('is idempotent', async () => {
     await testFS.writeNote('test', 'content');
