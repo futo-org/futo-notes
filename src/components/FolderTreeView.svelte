@@ -51,6 +51,56 @@
   const tree = $derived(buildFolderTree(items));
   const flat = $derived(flattenTree(tree));
 
+  // ── Virtualization ─────────────────────────────────────────────────
+  // The vault can hold thousands of notes; rendering them all keeps the
+  // sidebar's keyed each block at O(N) per Svelte diff. During drag,
+  // every dropTarget mutation forces a re-evaluation across all rows
+  // and tanks frame rate. We render only the rows in (and just outside)
+  // the viewport.
+  //
+  // Row height matches `.folder-row`/`.note-row` height (48px) plus 1px
+  // top + 1px bottom margin = 50px. Keep this in sync with the CSS.
+  const ROW_HEIGHT = 50;
+  const ROW_BUFFER = 6;
+  let scrollTop = $state(0);
+  let containerHeight = $state(0);
+  let containerEl: HTMLDivElement | undefined = $state();
+  const visibleRange = $derived.by(() => {
+    if (containerHeight === 0) {
+      // Initial render before ResizeObserver fires — show enough rows to
+      // fill a typical viewport so the user doesn't see a blank list.
+      return { start: 0, end: Math.min(flat.length, 40) };
+    }
+    const start = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - ROW_BUFFER);
+    const end = Math.min(
+      flat.length,
+      Math.ceil((scrollTop + containerHeight) / ROW_HEIGHT) + ROW_BUFFER,
+    );
+    return { start, end };
+  });
+
+  const visibleNodes = $derived(
+    flat.slice(visibleRange.start, visibleRange.end).map((node, i) => ({
+      node,
+      index: visibleRange.start + i,
+    })),
+  );
+
+  $effect(() => {
+    const el = containerEl;
+    if (!el) return;
+    containerHeight = el.clientHeight;
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) containerHeight = entry.contentRect.height;
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  });
+
+  function handleScroll(e: Event): void {
+    scrollTop = (e.currentTarget as HTMLDivElement).scrollTop;
+  }
+
   let hoverTimer: number | null = null;
   let hoveredFolder: string | null = null;
 
@@ -198,10 +248,22 @@
       document.body.appendChild(mirror);
       dragMirror = mirror;
 
+      // rAF-throttle: dragover fires faster than the display refreshes
+      // on hi-DPR / Wayland. Coalesce multiple events per frame into one
+      // transform write so the compositor sees at most one update per
+      // animation frame.
+      let pending = false;
+      let lastEv: DragEvent | null = null;
       const move = (ev: DragEvent) => {
-        // Drop-outside firings have zeroed coords — ignore.
-        if (ev.clientX === 0 && ev.clientY === 0) return;
-        mirror.style.transform = `translate(${ev.clientX - rect.width / 2}px, ${ev.clientY - rect.height / 2}px)`;
+        if (ev.clientX === 0 && ev.clientY === 0) return; // drop-outside firings
+        lastEv = ev;
+        if (pending) return;
+        pending = true;
+        requestAnimationFrame(() => {
+          pending = false;
+          if (!lastEv) return;
+          mirror.style.transform = `translate(${lastEv.clientX - rect.width / 2}px, ${lastEv.clientY - rect.height / 2}px)`;
+        });
       };
       document.addEventListener('dragover', move, { capture: true });
       dragMirrorMove = move;
@@ -371,8 +433,10 @@
      a keyboard-equivalent is not applicable to this element. -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
+  bind:this={containerEl}
   class="folder-tree-scroll"
   class:root-drop-target={dropTarget === ''}
+  onscroll={handleScroll}
   ondragover={handleRootDragOver}
   ondragleave={handleRootDragLeave}
   ondrop={handleRootDrop}
@@ -381,69 +445,69 @@
   {#if flat.length === 0}
     <div class="empty-state">No notes yet. Tap + to create one.</div>
   {:else}
-    {#each flat as node (node.type === 'folder' ? `f:${node.path}` : `n:${node.note.id}`)}
-      {#if node.type === 'folder'}
-        <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <button
-          type="button"
-          class="folder-row"
-          class:dragging={isDragging}
-          class:drop-target={dropTarget === node.path}
-          style="padding-left: {12 + node.depth * 16}px"
-          onclick={() => handleFolderClick(node)}
-          oncontextmenu={(e) => handleFolderContextMenu(e, node.path)}
-          ontouchstart={(e) => handleFolderTouchStart(e, node.path)}
-          ontouchend={clearPressTimer}
-          ontouchcancel={clearPressTimer}
-          ontouchmove={clearPressTimer}
-          draggable={isDesktop}
-          ondragstart={(e) => handleFolderDragStart(e, node.path)}
-          ondragend={handleDragEnd}
-          ondragover={(e) => handleFolderRowDragOver(e, node.path)}
-          ondragleave={handleFolderRowDragLeave}
-          ondrop={(e) => handleRowDrop(e, node.path)}
-          data-folder-path={node.path}
-        >
-          <span class="folder-icon" aria-hidden="true">
-            {#if isFolderOpen(node.path)}
-              <!-- folder-open icon -->
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M6 14l1.45-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2a2 2 0 0 0 1.66.9H18a2 2 0 0 1 2 2v2"/>
-              </svg>
-            {:else}
-              <!-- folder closed icon -->
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>
-              </svg>
-            {/if}
-          </span>
-          <span class="folder-name">{node.name}</span>
-        </button>
-      {:else}
-        <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <button
-          type="button"
-          class="note-row"
-          class:selected={node.note.id === selectedId}
-          class:dragging={isDragging}
-          style="padding-left: {12 + node.depth * 16}px"
-          onclick={() => onselect?.(node.note.id)}
-          oncontextmenu={(e) => handleNoteContextMenu(e, node.note.id)}
-          ontouchstart={(e) => handleNoteTouchStart(e, node.note.id)}
-          ontouchend={clearPressTimer}
-          ontouchcancel={clearPressTimer}
-          ontouchmove={clearPressTimer}
-          draggable={isDesktop}
-          ondragstart={(e) => handleNoteDragStart(e, node.note.id)}
-          ondragend={handleDragEnd}
-          ondragover={(e) => handleNoteRowDragOver(e, node.parentPath)}
-          ondrop={(e) => handleRowDrop(e, node.parentPath)}
-          data-note-id={node.note.id}
-        >
-          <span class="note-title">{idLeaf(node.note.title)}</span>
-        </button>
-      {/if}
-    {/each}
+    <div class="virtual-spacer" style="height: {flat.length * ROW_HEIGHT}px;">
+      {#each visibleNodes as { node, index } (node.type === 'folder' ? `f:${node.path}` : `n:${node.note.id}`)}
+        {#if node.type === 'folder'}
+          <!-- svelte-ignore a11y_click_events_have_key_events -->
+          <button
+            type="button"
+            class="folder-row virtual-row"
+            class:dragging={isDragging}
+            class:drop-target={dropTarget === node.path}
+            style="top: {index * ROW_HEIGHT}px; padding-left: {12 + node.depth * 16}px"
+            onclick={() => handleFolderClick(node)}
+            oncontextmenu={(e) => handleFolderContextMenu(e, node.path)}
+            ontouchstart={(e) => handleFolderTouchStart(e, node.path)}
+            ontouchend={clearPressTimer}
+            ontouchcancel={clearPressTimer}
+            ontouchmove={clearPressTimer}
+            draggable={isDesktop}
+            ondragstart={(e) => handleFolderDragStart(e, node.path)}
+            ondragend={handleDragEnd}
+            ondragover={(e) => handleFolderRowDragOver(e, node.path)}
+            ondragleave={handleFolderRowDragLeave}
+            ondrop={(e) => handleRowDrop(e, node.path)}
+            data-folder-path={node.path}
+          >
+            <span class="folder-icon" aria-hidden="true">
+              {#if isFolderOpen(node.path)}
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M6 14l1.45-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2a2 2 0 0 0 1.66.9H18a2 2 0 0 1 2 2v2"/>
+                </svg>
+              {:else}
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>
+                </svg>
+              {/if}
+            </span>
+            <span class="folder-name">{node.name}</span>
+          </button>
+        {:else}
+          <!-- svelte-ignore a11y_click_events_have_key_events -->
+          <button
+            type="button"
+            class="note-row virtual-row"
+            class:selected={node.note.id === selectedId}
+            class:dragging={isDragging}
+            style="top: {index * ROW_HEIGHT}px; padding-left: {12 + node.depth * 16}px"
+            onclick={() => onselect?.(node.note.id)}
+            oncontextmenu={(e) => handleNoteContextMenu(e, node.note.id)}
+            ontouchstart={(e) => handleNoteTouchStart(e, node.note.id)}
+            ontouchend={clearPressTimer}
+            ontouchcancel={clearPressTimer}
+            ontouchmove={clearPressTimer}
+            draggable={isDesktop}
+            ondragstart={(e) => handleNoteDragStart(e, node.note.id)}
+            ondragend={handleDragEnd}
+            ondragover={(e) => handleNoteRowDragOver(e, node.parentPath)}
+            ondrop={(e) => handleRowDrop(e, node.parentPath)}
+            data-note-id={node.note.id}
+          >
+            <span class="note-title">{idLeaf(node.note.title)}</span>
+          </button>
+        {/if}
+      {/each}
+    </div>
   {/if}
 </div>
 
@@ -452,9 +516,17 @@
     flex: 1 1 auto;
     overflow-y: auto;
     overflow-x: hidden;
-    /* Match the old VirtualList container — 8px horizontal padding so the
-       rounded-rect items have visual space on either side. */
     padding: 8px 8px calc(80px + env(safe-area-inset-bottom, 0));
+  }
+  .virtual-spacer {
+    position: relative;
+    width: 100%;
+  }
+  .virtual-row {
+    position: absolute;
+    left: 0;
+    right: 0;
+    margin: 0;
   }
   .empty-state {
     padding: 32px;
@@ -481,6 +553,10 @@
     user-select: none;
     -webkit-tap-highlight-color: transparent;
     transition: background 0.1s ease, box-shadow 0.1s ease;
+    /* Scope each row's layout/paint to itself so a hover or drop-target
+       outline change doesn't trigger reflow/repaint of siblings. Dropped
+       p95 frame time noticeably during long drags through 2k-row trees. */
+    contain: layout style paint;
   }
   .folder-row:hover,
   .note-row:hover {
