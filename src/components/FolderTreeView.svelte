@@ -474,6 +474,9 @@
             ondrop={(e) => handleRowDrop(e, node.path)}
             data-folder-path={node.path}
           >
+            {#each Array(node.depth) as _, level (level)}
+              <span class="guide-line" aria-hidden="true" style="left: {20 + level * 16}px"></span>
+            {/each}
             <span class="folder-icon" aria-hidden="true">
               {#if isFolderOpen(node.path)}
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -508,6 +511,9 @@
             ondrop={(e) => handleRowDrop(e, node.parentPath)}
             data-note-id={node.note.id}
           >
+            {#each Array(node.depth) as _, level (level)}
+              <span class="guide-line" aria-hidden="true" style="left: {20 + level * 16}px"></span>
+            {/each}
             <span class="note-title">{idLeaf(node.note.title)}</span>
           </button>
         {/if}
@@ -532,6 +538,22 @@
     left: 0;
     right: 0;
     margin: 0;
+  }
+  /* Vertical guide lines that show the indent hierarchy. One per
+     ancestor level, positioned in the parent's indent column. Continuous
+     from row to row because rows abut vertically and the lines extend
+     full row height. */
+  .guide-line {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    /* Slightly darker than --color-border so the line reads against the
+       sidebar's tinted-light background while staying subtle. Hi-DPI
+       anti-aliasing dilutes 1px lines, so we use a higher alpha than
+       the row hover background (0.06). */
+    background: rgba(var(--ink-rgb), 0.18);
+    pointer-events: none;
   }
   .empty-state {
     padding: 32px;
