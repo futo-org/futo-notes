@@ -12,7 +12,6 @@
   } from '$lib/folders.svelte';
   import { isDesktop } from '$lib/platform';
   import { idParent, idLeaf } from '$lib/platform/pathSafety';
-  import { recentMoveState } from '$lib/notes.svelte';
 
   // Custom MIME types used to thread the dragged item's ID through the
   // dataTransfer payload. Drop handlers read these to decide what to move.
@@ -494,7 +493,6 @@
             type="button"
             class="note-row virtual-row"
             class:selected={node.note.id === selectedId}
-            class:just-moved={node.note.id === recentMoveState.id}
             class:dragging={isDragging}
             style="top: {index * ROW_HEIGHT}px; padding-left: {12 + node.depth * 16}px"
             onclick={() => onselect?.(node.note.id)}
@@ -578,25 +576,6 @@
   }
   .note-row.selected:active {
     background: rgba(var(--primary-rgb), 0.18);
-  }
-  /* Brief tint pulse on the row that just moved, so the eye can find
-     where the dragged note landed. The animation runs from a ~25%
-     primary tint down to transparent over 600ms. Selected notes already
-     have a tinted background; the keyframes still feel like a "settle"
-     because they start brighter and ease out. */
-  .note-row.just-moved {
-    animation: just-moved-pulse 600ms ease-out;
-  }
-  @keyframes just-moved-pulse {
-    0% { background: rgba(var(--primary-rgb), 0.28); }
-    100% { background: transparent; }
-  }
-  .note-row.just-moved.selected {
-    animation: just-moved-pulse-selected 600ms ease-out;
-  }
-  @keyframes just-moved-pulse-selected {
-    0% { background: rgba(var(--primary-rgb), 0.32); }
-    100% { background: rgba(var(--primary-rgb), 0.12); }
   }
   /* Drop-target outline shown while a drag hovers a different "home"
      than the dragged item's current parent. The 2px inset outline reads

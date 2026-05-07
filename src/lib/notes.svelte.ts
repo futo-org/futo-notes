@@ -4,6 +4,7 @@ import {
   deleteNoteFile,
   deleteAllContent,
   renameNote as renameNoteFile,
+  moveNoteFile,
   getUniqueNoteId,
   readNote as readNoteFile,
 } from './fileSystem';
@@ -35,21 +36,6 @@ const RECONCILE_CONCURRENCY = 8;
 // `$derived(sortedNotes)` and every `$effect` that reads `getAllNotes()`.
 let notesCache = $state<NotePreview[]>([]);
 let initialized = false;
-
-// `recentMoveState.id` is the ID a note was just moved to (drag-drop or
-// folder move). The sidebar pulses the matching row briefly so the eye
-// can track where the dragged item landed. Plain object so consumers can
-// observe `.id` reactively when imported into another component.
-export const recentMoveState = $state<{ id: string | null }>({ id: null });
-let recentMoveTimer: ReturnType<typeof setTimeout> | null = null;
-function flagRecentMove(id: string): void {
-  recentMoveState.id = id;
-  if (recentMoveTimer !== null) clearTimeout(recentMoveTimer);
-  recentMoveTimer = setTimeout(() => {
-    recentMoveState.id = null;
-    recentMoveTimer = null;
-  }, 700);
-}
 
 // Tracks the in-flight (or completed) search-index bootstrap so search()
 // can wait for it without blocking initNotes() / UI rendering on it.
@@ -331,15 +317,16 @@ export async function rewriteWikilinksForRename(
 }
 
 /**
- * Move a note from `fromId` to `toId`. Renames the file on disk
- * (creating folders as needed) and rewrites every wikilink in every
- * other note that targets `fromId`. Returns the final ID, which may
- * differ from the requested `toId` if a file already exists there.
+ * Move a note from `fromId` to `toId`. Atomically renames the file on
+ * disk so its mtime is preserved (no second sort jump after the
+ * optimistic cache update) and rewrites every wikilink in every other
+ * note that targets `fromId`. Returns the final ID, which may differ
+ * from the requested `toId` if a file already exists there.
  *
  * The cache is updated optimistically — the sidebar reflects the new
  * position the moment this fn is called, without waiting for the
- * read/write/wikilink-rewrite IPC chain. If the disk work fails the
- * cache is reverted before the rejection propagates.
+ * IPC chain. If the disk work fails the cache is reverted before the
+ * rejection propagates.
  */
 export async function moveNote(
   fromId: string,
@@ -353,16 +340,29 @@ export async function moveNote(
   const prev = idx >= 0 ? notesCache[idx] : null;
   if (prev) {
     notesCache[idx] = { ...prev, id: toId, title: noteTitleFromId(toId) };
-    flagRecentMove(toId);
   }
   try {
     const finalId = await getUniqueNoteId(toId);
     if (finalId !== toId && prev) {
       notesCache[idx] = { ...notesCache[idx], id: finalId, title: noteTitleFromId(finalId) };
-      flagRecentMove(finalId);
     }
-    const content = await readNoteFile(fromId);
-    return await updateNote(finalId, finalId, content, fromId);
+    // Atomic rename — preserves the file's mtime, so the cache entry's
+    // existing modificationTime stays accurate. The sidebar doesn't
+    // re-sort after the disk op completes.
+    await moveNoteFile(fromId, finalId);
+    const mtime = prev?.modificationTime ?? Date.now();
+    // Re-key the search index from the moved file's body. Body unchanged,
+    // so we just need fromId removed and finalId added.
+    removeFromSearchIndex(fromId);
+    try {
+      const body = await readNoteFile(finalId);
+      addToSearchIndex({ id: finalId, title: noteTitleFromId(finalId), body, mtime });
+    } catch {
+      // Best-effort — file should be readable after rename.
+    }
+    // Other notes' wikilinks targeting fromId now need to point at finalId.
+    await rewriteWikilinksForRename(fromId, finalId);
+    return { id: finalId, mtime };
   } catch (err) {
     if (prev && idx >= 0) notesCache[idx] = prev;
     throw err;

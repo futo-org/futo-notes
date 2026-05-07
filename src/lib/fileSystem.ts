@@ -56,6 +56,21 @@ export async function renameNote(oldId: string, newId: string, content: string, 
   return mtime;
 }
 
+/**
+ * Atomic rename — used by drag-drop to relocate a note without rewriting
+ * its content. Preserves the file's mtime so the sidebar's mtime-desc
+ * sort doesn't bounce the moved row to the top after the disk operation.
+ * Records both paths so the watcher events the OS emits don't bubble
+ * back as external changes.
+ */
+export async function moveNoteFile(fromId: string, toId: string): Promise<void> {
+  writeSuppressor.recordWrite(`${fromId}.md`);
+  writeSuppressor.recordWrite(`${toId}.md`);
+  const fs = getFS();
+  if (!fs.moveNote) throw new Error('platform does not support atomic note move');
+  await fs.moveNote(fromId, toId);
+}
+
 /** Copy an image from a temp path into the notes folder, return just the filename. */
 export async function saveImageFile(sourcePath: string): Promise<string> {
   return getFS().saveImage(sourcePath);
