@@ -18,9 +18,27 @@ describe('ensureSafeNoteId', () => {
     expect(() => ensureSafeNoteId('..')).toThrow('invalid note id');
   });
 
-  it('rejects path separators', () => {
-    expect(() => ensureSafeNoteId('foo/bar')).toThrow('invalid note id');
+  it('accepts forward slashes between valid components (path-as-ID)', () => {
+    expect(() => ensureSafeNoteId('foo/bar')).not.toThrow();
+    expect(() => ensureSafeNoteId('Specs/folder-support')).not.toThrow();
+    expect(() => ensureSafeNoteId('a/b/c')).not.toThrow();
+  });
+
+  it('rejects backslashes (always invalid)', () => {
     expect(() => ensureSafeNoteId('foo\\bar')).toThrow('invalid note id');
+  });
+
+  it('rejects empty / dot / dotdot components', () => {
+    expect(() => ensureSafeNoteId('foo/')).toThrow('invalid note id');
+    expect(() => ensureSafeNoteId('/foo')).toThrow('invalid note id');
+    expect(() => ensureSafeNoteId('foo//bar')).toThrow('invalid note id');
+    expect(() => ensureSafeNoteId('a/./b')).toThrow('invalid note id');
+    expect(() => ensureSafeNoteId('a/../b')).toThrow('invalid note id');
+  });
+
+  it('rejects depth above MAX_FOLDER_DEPTH', () => {
+    const tooDeep = Array.from({ length: 12 }, (_, i) => `f${i}`).join('/');
+    expect(() => ensureSafeNoteId(tooDeep)).toThrow();
   });
 
   it('rejects forbidden characters', () => {
@@ -93,8 +111,13 @@ describe('safeNotePath', () => {
   it('throws on invalid ID', () => {
     expect(() => safeNotePath('/notes', '')).toThrow();
     expect(() => safeNotePath('/notes', '..')).toThrow();
-    expect(() => safeNotePath('/notes', 'bad/path')).toThrow();
+    expect(() => safeNotePath('/notes', 'a/../b')).toThrow();
     expect(() => safeNotePath('/notes', 'bad<char')).toThrow();
+  });
+
+  it('builds nested path for path-as-ID', () => {
+    expect(safeNotePath('/notes', 'Specs/folder-support')).toBe('/notes/Specs/folder-support.md');
+    expect(safeNotePath('/notes', 'a/b/c')).toBe('/notes/a/b/c.md');
   });
 });
 
@@ -135,6 +158,12 @@ describe('noteIdFromFilename', () => {
   it('strips .md suffix', () => {
     expect(noteIdFromFilename('hello.md')).toBe('hello');
     expect(noteIdFromFilename('my note.md')).toBe('my note');
+  });
+
+  it('handles nested path filenames', () => {
+    expect(noteIdFromFilename('Specs/folder.md')).toBe('Specs/folder');
+    expect(noteIdFromFilename('a/b/c.md')).toBe('a/b/c');
+    expect(noteIdFromFilename('Specs\\folder.md')).toBe('Specs/folder');
   });
 
   it('throws for non-.md files', () => {

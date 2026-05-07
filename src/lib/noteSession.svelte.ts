@@ -16,7 +16,6 @@ import { sanitizeFilename } from '$lib/utils';
 import { FORBIDDEN_CHARS_RE, validateTitle } from '@futo-notes/shared';
 import { navigate } from '../router';
 import type { NotePreview } from '../types';
-import type { WriteSuppressor } from '$lib/writeSuppression';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -31,8 +30,6 @@ export interface NoteSessionDeps {
   focusEditor: () => void;
   /** Returns the current notes list. */
   getNotes: () => NotePreview[];
-  /** Write‑suppression instance (shared with watcher/sync). */
-  writeSuppressor: WriteSuppressor;
   /** Patches graph node after rename. */
   patchGraphNode: (fromId: string, toId: string, newTitle: string) => void;
   /** Shows a toast message. */
@@ -47,6 +44,13 @@ export interface NoteSessionDeps {
   getNoteId: () => string | null;
   /** Update prevNoteId to prevent duplicate loadNote on URL change. */
   setPrevNoteId: (id: string) => void;
+  /** When set, a brand-new note's first save is placed inside this
+   *  folder (e.g. set by `New Note` in a folder context menu). Null/empty
+   *  means "save to root". Cleared by the consumer after the first save. */
+  getPendingFolder?: () => string | null;
+  /** Called once the new-note's first save has consumed the pending
+   *  folder so subsequent edits don't re-prefix it. */
+  clearPendingFolder?: () => void;
 }
 
 export interface NoteSession {
@@ -133,7 +137,17 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
   }
 
   function hasDuplicateTitle(checkTitle: string): boolean {
-    const checkId = sanitizeFilename(checkTitle.trim() || 'Untitled');
+    const leaf = sanitizeFilename(checkTitle.trim() || 'Untitled');
+    // Determine the target folder: keep the existing note's parent
+    // when editing, fall back to the pending-folder when creating.
+    const parentFolder = (() => {
+      if (originalId) {
+        const slash = originalId.lastIndexOf('/');
+        return slash === -1 ? '' : originalId.slice(0, slash);
+      }
+      return deps.getPendingFolder?.() ?? '';
+    })();
+    const checkId = parentFolder ? `${parentFolder}/${leaf}` : leaf;
     const notes = deps.getNotes();
     return notes.some(n => n.id === checkId && n.id !== originalId);
   }
@@ -232,7 +246,25 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
         showTitleWarning(blockingTitleIssue.message, null);
         return false;
       }
-      const newId = sanitizeFilename(newTitle);
+      let newId = sanitizeFilename(newTitle);
+      // The displayed title is the leaf component of the path-ID;
+      // editing it must not relocate the note out of its parent folder.
+      // For an existing note, prefix newId with the original folder
+      // path. For a brand-new note opened via "New Note in <folder>",
+      // prefix with the pending folder instead. The pending folder is
+      // cleared after the first save so subsequent edits don't
+      // re-prefix.
+      if (originalId) {
+        const slash = originalId.lastIndexOf('/');
+        if (slash !== -1) {
+          newId = `${originalId.slice(0, slash + 1)}${newId}`;
+        }
+      } else {
+        const pendingFolder = deps.getPendingFolder?.();
+        if (pendingFolder) {
+          newId = `${pendingFolder}/${newId}`;
+        }
+      }
       const newContent = editorContent;
 
       if (!shouldWriteNoteToDisk({
@@ -248,21 +280,15 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
       if (hasDuplicateTitle(newTitle)) return false;
 
       const savedOriginalId = originalId;
-      if (savedOriginalId) {
-        deps.writeSuppressor.recordWrite(`${savedOriginalId}.md`);
-        if (savedOriginalId !== newId) {
-          deps.writeSuppressor.recordWrite(`${newId}.md`);
-        }
-      }
-
+      // updateNote routes through fileSystem.writeNote / deleteNoteFile /
+      // renameNote which each record their own path — no explicit
+      // suppression needed here.
       const result = await updateNote(newId, newTitle, newContent, savedOriginalId ?? undefined);
 
-      deps.writeSuppressor.recordWrite(`${result.id}.md`);
-      if (savedOriginalId && savedOriginalId !== result.id) {
-        deps.writeSuppressor.recordWrite(`${savedOriginalId}.md`);
-      }
-
       originalId = result.id;
+      // Clear pending-folder so subsequent saves of this same note
+      // don't re-prefix and create infinite folder nesting.
+      deps.clearPendingFolder?.();
       if (deps.getEditorContent() === newContent) {
         content = newContent;
       }
@@ -340,7 +366,13 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
         content = loadedContent;
         savedContent = loadedContent;
         const meta = getNoteById(id);
-        title = meta?.title || id;
+        // Title is the leaf component of the path-ID (the visible
+        // filename without any parent folder). When meta is missing
+        // we fall back to the same leaf-of-id rule rather than
+        // surfacing the full path in the title field.
+        const slash = id.lastIndexOf('/');
+        const fallbackTitle = slash === -1 ? id : id.slice(slash + 1);
+        title = meta?.title || fallbackTitle;
         savedTitle = title;
         deps.setEditorContent(loadedContent);
         requestAnimationFrame(() => {
@@ -353,10 +385,12 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
         try {
           const result = await createNote(id, '');
           if (loadVersion !== noteLoadVersion) return;
-          title = id;
+          const slash = result.id.lastIndexOf('/');
+          const newTitle = slash === -1 ? result.id : result.id.slice(slash + 1);
+          title = newTitle;
           content = '';
           savedContent = '';
-          savedTitle = id;
+          savedTitle = newTitle;
           originalId = result.id;
           deps.setEditorContent('');
           loading = false;

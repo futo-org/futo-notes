@@ -3,44 +3,90 @@
  * `safe_note_path`, `safe_appdata_path`, and `note_id_from_filename`
  * from `crates/futo-notes-core/src/files.rs`.
  *
- * Character set reuses the same forbidden pattern as `@futo-notes/shared`
- * (`< > : " / \ | ? *` plus control chars 0x00-0x1F and 0x7F).
+ * Per-component character set reuses the forbidden pattern from
+ * `@futo-notes/shared` MINUS `/` (path separator) and `\` (always
+ * rejected): `< > : " | ? *` plus control chars 0x00-0x1F and 0x7F.
+ *
+ * Note IDs may contain forward slashes as folder separators following
+ * the move to path-as-ID. Each component is validated as a filename.
  */
 
-// Build a non-global test regex from the same character set as shared.
-// We avoid importing the global FORBIDDEN_CHARS_RE to sidestep lastIndex issues.
+import { MAX_FOLDER_DEPTH } from '@futo-notes/shared';
+
 const CONTROL_CHARS = Array.from({ length: 32 }, (_, i) => String.fromCharCode(i)).join('')
   + String.fromCharCode(127);
-const FORBIDDEN_TEST = new RegExp(`[<>:"/\\\\|?*${CONTROL_CHARS}]`);
+// Per-component forbidden pattern: same as shared minus `/` and `\` since
+// `/` is a legal separator handled at the splitter and `\` is rejected at
+// the top level.
+const FORBIDDEN_COMPONENT_TEST = new RegExp(`[<>:"|?*${CONTROL_CHARS}]`);
+
+function componentInvalid(component: string): boolean {
+  if (component === '' || component === '.' || component === '..') {
+    return true;
+  }
+  return FORBIDDEN_COMPONENT_TEST.test(component);
+}
 
 /**
  * Validate a note ID. Throws if the ID is unsafe.
  *
- * Rejects: empty, `.`, `..`, path separators (`/`, `\`), and
- * forbidden filesystem characters (`< > : " | ? *`, control chars).
+ * A note ID is the relative path from the notes root WITHOUT the `.md`
+ * extension. Forward slashes are allowed between valid components.
  *
- * Allows: whitespace-only IDs (documented Rust behavior),
- * leading/trailing dots (unlike title validation).
+ * Rejects: empty, leading/trailing slash, `.` / `..` / empty components,
+ * backslashes, excessive folder depth, and forbidden filesystem
+ * characters in any component.
  */
 export function ensureSafeNoteId(id: string): void {
   if (id === '') {
     throw new Error('note id cannot be empty');
   }
-  if (id === '.' || id === '..' || id.includes('/') || id.includes('\\')) {
+  if (id.includes('\\')) {
     throw new Error('invalid note id');
   }
-  if (FORBIDDEN_TEST.test(id)) {
+  if (id.startsWith('/') || id.endsWith('/')) {
     throw new Error('invalid note id');
+  }
+  const components = id.split('/');
+  if (components.length - 1 > MAX_FOLDER_DEPTH) {
+    throw new Error('note id exceeds maximum folder depth');
+  }
+  for (const c of components) {
+    if (componentInvalid(c)) {
+      throw new Error('invalid note id');
+    }
   }
 }
 
 /**
  * Build the full `.md` path for a note ID, after safety validation.
- * Returns `${base}/${id}.md`. Throws on invalid ID.
+ * Returns `${base}/${id}.md`. The `id` may contain forward slashes
+ * which become folder separators on disk.
  */
 export function safeNotePath(base: string, id: string): string {
   ensureSafeNoteId(id);
   return `${base}/${id}.md`;
+}
+
+/** Return the parent directory of `safeNotePath(base, id)` — the folder
+ *  the file lives in. For root-level notes this is `base` itself. */
+export function noteParentDir(base: string, id: string): string {
+  ensureSafeNoteId(id);
+  const slash = id.lastIndexOf('/');
+  if (slash === -1) return base;
+  return `${base}/${id.slice(0, slash)}`;
+}
+
+/** Parent folder path of a note/folder ID. `'A/B/C'` → `'A/B'`, `'A'` → `''`. */
+export function idParent(id: string): string {
+  const slash = id.lastIndexOf('/');
+  return slash === -1 ? '' : id.slice(0, slash);
+}
+
+/** Leaf component of a note/folder ID. `'A/B/C'` → `'C'`, `'A'` → `'A'`. */
+export function idLeaf(id: string): string {
+  const slash = id.lastIndexOf('/');
+  return slash === -1 ? id : id.slice(slash + 1);
 }
 
 /**
@@ -67,15 +113,20 @@ export function safeAppdataPath(base: string, relPath: string): string {
 }
 
 /**
- * Extract a note ID from a filename by stripping the `.md` suffix
- * (case-sensitive). Throws if the filename doesn't end with `.md`
- * or if the resulting ID is empty.
+ * Extract a note ID from a filename or relative path by stripping the
+ * `.md` suffix (case-sensitive). Throws if the input doesn't end with
+ * `.md` or if the resulting ID is empty.
+ *
+ * Accepts both flat filenames (`foo.md` → `foo`) and nested paths
+ * (`Specs/folder.md` → `Specs/folder`). Backslashes are normalized to
+ * forward slashes.
  */
 export function noteIdFromFilename(filename: string): string {
-  if (!filename.endsWith('.md')) {
+  const normalized = filename.replace(/\\/g, '/');
+  if (!normalized.endsWith('.md')) {
     throw new Error('filename does not end with .md');
   }
-  const id = filename.slice(0, -3);
+  const id = normalized.slice(0, -3);
   if (id === '') {
     throw new Error('note id cannot be empty');
   }

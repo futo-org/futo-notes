@@ -9,7 +9,7 @@
  */
 
 import { hasFileSystem } from '$lib/platform';
-import { createWriteSuppressor, type WriteSuppressor } from '$lib/writeSuppression';
+import { writeSuppressor as sharedWriteSuppressor, type WriteSuppressor } from '$lib/writeSuppression';
 import { createWatcherBatch, type WatcherBatch } from '$lib/watcherBatch';
 import { createSyncCoordinator, type SyncCoordinator } from '$lib/syncCoordinator';
 import type { FileChangeEvent } from '$lib/platform/types';
@@ -121,7 +121,11 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
   let externalRescanQueued = false;
 
   // ── Write suppressor ──
-  const writeSuppressor = createWriteSuppressor();
+  // Shared module-level singleton — local note ops (drag-drop folder
+  // moves, single-note moves) need to record their own writes so the
+  // watcher doesn't fire "Note deleted externally" on the unlink that
+  // the local rename produced.
+  const writeSuppressor = sharedWriteSuppressor;
 
   const notifySaved = () => { notifySavedV2(); };
 

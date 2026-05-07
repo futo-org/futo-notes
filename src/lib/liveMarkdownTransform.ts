@@ -10,6 +10,8 @@ import {
 import { StateEffect, type Text } from '@codemirror/state';
 import { syntaxTree, ensureSyntaxTree } from '@codemirror/language';
 import { TAG_REGEX } from '@futo-notes/shared';
+import { shortestUniqueSuffix, resolveWikilink, WIKILINK_RE } from './wikilinks';
+import { getAllNotes } from './notes.svelte';
 
 export const imageCacheUpdated = StateEffect.define<null>();
 export const liveMarkdownRefresh = StateEffect.define<null>();
@@ -45,6 +47,50 @@ export function clearSelectionRevealFreeze(): void {
 }
 
 // Widget Classes
+/**
+ * Replaces a wikilink's title with its shortest unique path-suffix when
+ * the cursor isn't inside the link. The raw on-disk text is the full
+ * path; this widget keeps the displayed text short.
+ *
+ * The widget is only inserted when `display !== title` — otherwise the
+ * existing mark decoration handles styling without an intervening DOM
+ * widget (better caret behaviour and no widget-replace surprises).
+ */
+class WikilinkDisplayWidget extends WidgetType {
+  constructor(
+    private readonly display: string,
+    private readonly title: string,
+    private readonly broken: boolean,
+  ) {
+    super();
+  }
+
+  toDOM(): HTMLElement {
+    const span = document.createElement('span');
+    span.className = this.broken
+      ? 'cm-md-link cm-md-wikilink cm-md-wikilink-broken'
+      : 'cm-md-link cm-md-wikilink';
+    span.setAttribute('data-wikilink', this.title);
+    span.textContent = this.display;
+    return span;
+  }
+
+  eq(other: WidgetType): boolean {
+    return (
+      other instanceof WikilinkDisplayWidget &&
+      other.display === this.display &&
+      other.title === this.title &&
+      other.broken === this.broken
+    );
+  }
+
+  ignoreEvent(): boolean {
+    // Allow clicks (the editor's existing wikilink click handler reads
+    // `data-wikilink` from the surrounding span).
+    return false;
+  }
+}
+
 class ExternalLinkWidget extends WidgetType {
   // Carries an extra class string so the widget DOM picks up enclosing
   // emphasis classes (Obsidian's external-link span gets `cm-strong` /
@@ -1751,9 +1797,7 @@ class LiveMarkdownPlugin implements PluginValue {
   // wikilink title and doesn't re-decorate them.
   private collectWikilinkRanges(doc: Text): Array<{ from: number; to: number }> {
     const ranges: Array<{ from: number; to: number }> = [];
-    // Match `[[...]]` where the inner can contain anything except a
-    // newline or a closing `]]`.
-    const regex = /\[\[((?:(?!\]\])[^\n])+)\]\]/g;
+    const regex = new RegExp(WIKILINK_RE.source, 'g');
     for (let i = 1; i <= doc.lines; i++) {
       const line = doc.line(i);
       regex.lastIndex = 0;
@@ -1779,10 +1823,15 @@ class LiveMarkdownPlugin implements PluginValue {
     const doc = view.state.doc;
     const tree = syntaxTree(view.state);
     // Match `[[...]]` where the inner can contain anything except a
-    // newline or a closing `]]`. This is permissive on purpose — it
-    // mirrors Obsidian's parse, which folds `[link](url)` and other
-    // bracket syntax into the wikilink title rather than re-tokenizing.
-    const regex = /\[\[((?:(?!\]\])[^\n])+)\]\]/g;
+    // newline or a closing `]]`. Permissive on purpose — mirrors
+    // Obsidian's parse, which folds `[link](url)` and other bracket
+    // syntax into the wikilink title rather than re-tokenizing.
+    const regex = new RegExp(WIKILINK_RE.source, 'g');
+
+    // Build the resolution context once per pass: the set of all
+    // current note IDs. Used both for shortest-unique-suffix display
+    // and to flag broken links via a CSS class.
+    const allNoteIds = getAllNotes().map((n) => n.id);
 
     for (let i = 1; i <= doc.lines; i++) {
       const line = doc.line(i);
@@ -1805,6 +1854,16 @@ class LiveMarkdownPlugin implements PluginValue {
         });
         if (inCode) continue;
 
+        // Resolve the wikilink to a note ID so we can:
+        //   1. compute the shortest unique suffix to display, and
+        //   2. flag broken links visually.
+        const resolvedId = resolveWikilink(title, allNoteIds);
+        const displayText =
+          resolvedId !== null
+            ? shortestUniqueSuffix(resolvedId, allNoteIds)
+            : title;
+        const isBroken = resolvedId === null;
+
         if (!reveal) {
           // Hide the brackets when the cursor is elsewhere.
           decorations.push({
@@ -1817,16 +1876,34 @@ class LiveMarkdownPlugin implements PluginValue {
             to,
             value: { replace: true }
           });
+
+          // If the on-disk text differs from the displayed shortest-
+          // unique-suffix, replace the title with a widget showing the
+          // suffix. When the cursor enters the link (reveal=true), the
+          // raw text is shown instead so editing stays predictable.
+          if (displayText !== title) {
+            decorations.push({
+              from: from + 2,
+              to: to - 2,
+              value: {
+                widget: new WikilinkDisplayWidget(displayText, title, isBroken),
+              },
+            });
+            continue;
+          }
         }
 
         // Style title as wikilink — kept on the inner text in both
         // modes so Obsidian's `cm-hmd-internal-link` and SF stay in
         // the same diff bucket.
+        const wikilinkClass = isBroken
+          ? 'cm-md-link cm-md-wikilink cm-md-wikilink-broken'
+          : 'cm-md-link cm-md-wikilink';
         decorations.push({
           from: from + 2,
           to: to - 2,
           value: {
-            class: 'cm-md-link cm-md-wikilink',
+            class: wikilinkClass,
             attributes: { 'data-wikilink': title }
           }
         });

@@ -87,12 +87,39 @@ export async function decrypt(key: CryptoKey, data: Uint8Array): Promise<Uint8Ar
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
-/** Pack a note (filename + content) into a single binary blob for encryption. */
-export function packNote(filename: string, content: string): Uint8Array {
+/**
+ * V2 frame: `[1-byte version=2][4-byte path length BE][path UTF-8][content UTF-8]`.
+ *
+ * V1 frame (pre-folder support): `[4-byte filename length BE][filename UTF-8][content UTF-8]`.
+ *
+ * V1 and V2 are distinguished by the first byte: real filenames/paths fit
+ * comfortably under 16 MB, so the high byte of a V1 length prefix is
+ * always 0x00. V2 uses 0x02 as its version byte. Anything else is
+ * rejected as an unknown frame version.
+ */
+export const NOTE_FRAME_V2 = 0x02;
+
+/** Pack a note (relative path + content) into a single binary blob for
+ *  encryption. `path` is the relative path INCLUDING the `.md` extension,
+ *  e.g. `Specs/folder-support.md`. Use `${id}.md` to convert from a note ID. */
+export function packNote(path: string, content: string): Uint8Array {
+  const pathBytes = textEncoder.encode(path);
+  const contentBytes = textEncoder.encode(content);
+  const result = new Uint8Array(1 + 4 + pathBytes.byteLength + contentBytes.byteLength);
+  result[0] = NOTE_FRAME_V2;
+  const view = new DataView(result.buffer);
+  view.setUint32(1, pathBytes.byteLength, false);
+  result.set(pathBytes, 5);
+  result.set(contentBytes, 5 + pathBytes.byteLength);
+  return result;
+}
+
+/** Pack a note using the legacy V1 frame. Test-only — production callers
+ *  should always use `packNote` (V2). */
+export function packNoteV1(filename: string, content: string): Uint8Array {
   const filenameBytes = textEncoder.encode(filename);
   const contentBytes = textEncoder.encode(content);
   const result = new Uint8Array(4 + filenameBytes.byteLength + contentBytes.byteLength);
-  // 4-byte big-endian filename length
   const view = new DataView(result.buffer);
   view.setUint32(0, filenameBytes.byteLength, false);
   result.set(filenameBytes, 4);
@@ -100,10 +127,36 @@ export function packNote(filename: string, content: string): Uint8Array {
   return result;
 }
 
-/** Unpack a note blob produced by `packNote()`. */
+/** Unpack a note blob. Returns `{ filename, content }` where `filename`
+ *  is the relative path with `.md`. Auto-detects V1 vs V2 by first byte. */
 export function unpackNote(data: Uint8Array): { filename: string; content: string } {
+  if (data.length === 0) {
+    throw new Error('empty note blob');
+  }
+  const versionByte = data[0];
+  if (versionByte === NOTE_FRAME_V2) {
+    if (data.length < 5) {
+      throw new Error('truncated v2 note blob');
+    }
+    const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+    const pathLen = view.getUint32(1, false);
+    if (5 + pathLen > data.length) {
+      throw new Error('v2 note blob path length out of bounds');
+    }
+    const filename = textDecoder.decode(data.slice(5, 5 + pathLen));
+    const content = textDecoder.decode(data.slice(5 + pathLen));
+    return { filename, content };
+  }
+  // V1 fallback: first byte is high byte of a 4-byte BE length. For
+  // realistic filenames (< 16 MB) this is always 0x00.
+  if (versionByte !== 0x00) {
+    throw new Error(`unknown note frame version: ${versionByte}`);
+  }
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
   const filenameLen = view.getUint32(0, false);
+  if (4 + filenameLen > data.length) {
+    throw new Error('v1 note blob filename length out of bounds');
+  }
   const filename = textDecoder.decode(data.slice(4, 4 + filenameLen));
   const content = textDecoder.decode(data.slice(4 + filenameLen));
   return { filename, content };

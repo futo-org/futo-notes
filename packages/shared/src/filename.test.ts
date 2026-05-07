@@ -6,6 +6,14 @@ import {
   FORBIDDEN_CHARS_RE,
   MAX_TITLE_LENGTH,
   FALLBACK_TITLE,
+  isWindowsReservedName,
+  validateFolderName,
+  isValidFolderName,
+  hasCaseInsensitiveSiblingCollision,
+  validateFolderPath,
+  isValidFolderPath,
+  pathDepth,
+  MAX_FOLDER_DEPTH,
 } from './filename';
 
 describe('sanitizeTitle', () => {
@@ -135,6 +143,93 @@ describe('isValidTitle', () => {
     expect(isValidTitle('.hidden')).toBe(false);
     expect(isValidTitle('a<b')).toBe(false);
     expect(isValidTitle('')).toBe(false);
+  });
+});
+
+describe('isWindowsReservedName', () => {
+  it('matches CON, PRN, AUX, NUL case-insensitively', () => {
+    for (const name of ['CON', 'con', 'Con', 'PRN', 'prn', 'AUX', 'NUL']) {
+      expect(isWindowsReservedName(name)).toBe(true);
+    }
+  });
+  it('matches COM1-COM9, LPT1-LPT9', () => {
+    for (let i = 1; i <= 9; i++) {
+      expect(isWindowsReservedName(`COM${i}`)).toBe(true);
+      expect(isWindowsReservedName(`lpt${i}`)).toBe(true);
+    }
+  });
+  it('matches stem before extension (CON.md)', () => {
+    expect(isWindowsReservedName('CON.md')).toBe(true);
+    expect(isWindowsReservedName('lpt5.txt')).toBe(true);
+  });
+  it('does not match COM10 or arbitrary names', () => {
+    expect(isWindowsReservedName('COM10')).toBe(false);
+    expect(isWindowsReservedName('hello')).toBe(false);
+    expect(isWindowsReservedName('confidential')).toBe(false);
+  });
+});
+
+describe('validateFolderName', () => {
+  it('accepts a normal name', () => {
+    expect(validateFolderName('Specs')).toEqual([]);
+    expect(isValidFolderName('Specs')).toBe(true);
+  });
+  it('rejects Windows-reserved names', () => {
+    const issues = validateFolderName('CON');
+    expect(issues.some((i) => i.kind === 'reserved_name')).toBe(true);
+    expect(isValidFolderName('CON')).toBe(false);
+    expect(isValidFolderName('lpt9')).toBe(false);
+  });
+  it('rejects leading dot', () => {
+    expect(validateFolderName('.hidden').some((i) => i.kind === 'leading_dots')).toBe(true);
+  });
+  it('rejects forbidden characters', () => {
+    expect(validateFolderName('a/b').some((i) => i.kind === 'forbidden_chars')).toBe(true);
+    expect(validateFolderName('a\\b').some((i) => i.kind === 'forbidden_chars')).toBe(true);
+    expect(validateFolderName('a:b').some((i) => i.kind === 'forbidden_chars')).toBe(true);
+  });
+  it('rejects empty', () => {
+    expect(validateFolderName('').some((i) => i.kind === 'empty')).toBe(true);
+  });
+});
+
+describe('hasCaseInsensitiveSiblingCollision', () => {
+  it('returns true when a sibling matches case-insensitively', () => {
+    expect(hasCaseInsensitiveSiblingCollision('Specs', ['specs'])).toBe(true);
+    expect(hasCaseInsensitiveSiblingCollision('SPECS', ['Specs'])).toBe(true);
+  });
+  it('returns false when no sibling matches', () => {
+    expect(hasCaseInsensitiveSiblingCollision('Specs', ['Other', 'Notes'])).toBe(false);
+  });
+  it('returns false on empty siblings', () => {
+    expect(hasCaseInsensitiveSiblingCollision('Specs', [])).toBe(false);
+  });
+});
+
+describe('validateFolderPath / isValidFolderPath / pathDepth', () => {
+  it('accepts shallow paths', () => {
+    expect(isValidFolderPath('Specs')).toBe(true);
+    expect(isValidFolderPath('Specs/Folder')).toBe(true);
+    expect(isValidFolderPath('a/b/c')).toBe(true);
+  });
+  it('rejects depth > MAX_FOLDER_DEPTH', () => {
+    const tooDeep = Array.from({ length: MAX_FOLDER_DEPTH + 1 }, (_, i) => `f${i}`).join('/');
+    const issues = validateFolderPath(tooDeep);
+    expect(issues.some((i) => i.kind === 'depth_exceeded')).toBe(true);
+  });
+  it('rejects components with reserved names', () => {
+    expect(isValidFolderPath('CON/foo')).toBe(false);
+    expect(isValidFolderPath('a/PRN')).toBe(false);
+  });
+  it('rejects empty/dot/dotdot components', () => {
+    expect(isValidFolderPath('a//b')).toBe(false);
+    expect(isValidFolderPath('a/./b')).toBe(false);
+    expect(isValidFolderPath('a/../b')).toBe(false);
+  });
+  it('pathDepth counts folder components above leaf', () => {
+    expect(pathDepth('foo')).toBe(0);
+    expect(pathDepth('a/foo')).toBe(1);
+    expect(pathDepth('a/b/c/foo')).toBe(3);
   });
 });
 

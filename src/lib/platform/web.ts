@@ -1,14 +1,17 @@
-import type { PlatformFS, NoteFile } from './types';
+import type { PlatformFS, NoteFile, FolderEntry } from './types';
 
 // In-memory note store for web platform (persists within a page session)
 const noteStore = new Map<string, { content: string; mtime: number }>();
+// Locally-tracked empty folders (web mode has no real filesystem). Folders
+// are also implied by note IDs containing `/`.
+const emptyFolders = new Set<string>();
 
 // Web platform: notes stored in memory only (cleared on page reload).
 // This allows the UI to render in a plain browser and supports dev/test workflows.
 export const webFS: PlatformFS = {
   async listNoteFiles(): Promise<NoteFile[]> {
     return Array.from(noteStore.entries()).map(([id, { content, mtime }]) => ({
-      name: id,
+      name: `${id}.md`,
       mtime,
       size: content.length,
     }));
@@ -76,5 +79,78 @@ export const webFS: PlatformFS = {
 
   getPlatformName(): string {
     return 'web';
+  },
+
+  // ── Folder ops (in-memory) ──────────────────────────────────────────
+
+  async listFolders(): Promise<FolderEntry[]> {
+    const set = new Set<string>(emptyFolders);
+    for (const id of noteStore.keys()) {
+      const components = id.split('/');
+      for (let i = 1; i < components.length; i++) {
+        set.add(components.slice(0, i).join('/'));
+      }
+    }
+    return [...set].sort().map((path) => ({ path }));
+  },
+
+  async createFolder(path: string): Promise<void> {
+    if (!path) throw new Error('folder path required');
+    emptyFolders.add(path);
+  },
+
+  async renameFolder(fromPath: string, toPath: string): Promise<void> {
+    if (emptyFolders.has(fromPath)) {
+      emptyFolders.delete(fromPath);
+      emptyFolders.add(toPath);
+    }
+    const prefix = `${fromPath}/`;
+    const moves: Array<[string, string]> = [];
+    for (const id of noteStore.keys()) {
+      if (id === fromPath) continue;
+      if (id.startsWith(prefix)) {
+        moves.push([id, `${toPath}/${id.slice(prefix.length)}`]);
+      }
+    }
+    for (const [oldId, newId] of moves) {
+      const v = noteStore.get(oldId);
+      if (!v) continue;
+      noteStore.set(newId, v);
+      noteStore.delete(oldId);
+    }
+    // Move any sub-folder records too
+    const folderMoves: Array<[string, string]> = [];
+    for (const f of emptyFolders) {
+      if (f === fromPath) continue;
+      if (f.startsWith(prefix)) {
+        folderMoves.push([f, `${toPath}/${f.slice(prefix.length)}`]);
+      }
+    }
+    for (const [oldF, newF] of folderMoves) {
+      emptyFolders.delete(oldF);
+      emptyFolders.add(newF);
+    }
+  },
+
+  async deleteFolder(path: string): Promise<void> {
+    emptyFolders.delete(path);
+    const prefix = `${path}/`;
+    const toRemove: string[] = [];
+    for (const id of noteStore.keys()) {
+      if (id.startsWith(prefix)) toRemove.push(id);
+    }
+    for (const id of toRemove) noteStore.delete(id);
+    const folderRemove: string[] = [];
+    for (const f of emptyFolders) {
+      if (f.startsWith(prefix)) folderRemove.push(f);
+    }
+    for (const f of folderRemove) emptyFolders.delete(f);
+  },
+
+  async moveNote(fromId: string, toId: string): Promise<void> {
+    const v = noteStore.get(fromId);
+    if (!v) return;
+    noteStore.set(toId, v);
+    noteStore.delete(fromId);
   },
 };

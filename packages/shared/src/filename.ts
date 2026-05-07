@@ -30,7 +30,33 @@ export type FilenameIssueKind =
   | 'leading_dots'
   | 'trailing_dots'
   | 'too_long'
-  | 'empty';
+  | 'empty'
+  | 'reserved_name'
+  | 'case_collision'
+  | 'depth_exceeded';
+
+/**
+ * Maximum folder nesting depth from the notes root. Reject create/move
+ * operations that would exceed this. Matches §UI/Sidebar in the spec.
+ */
+export const MAX_FOLDER_DEPTH = 10;
+
+/**
+ * Windows reserved device names. Matched case-insensitively. We enforce
+ * these on every platform so a vault created on macOS or Linux still
+ * syncs cleanly to a Windows client without the OS blocking a write.
+ */
+const WINDOWS_RESERVED_NAMES = new Set<string>([
+  'CON', 'PRN', 'AUX', 'NUL',
+  'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9',
+  'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9',
+]);
+
+/** True if `name` (sans extension) is a Windows-reserved device name. */
+export function isWindowsReservedName(name: string): boolean {
+  const stem = name.includes('.') ? name.slice(0, name.indexOf('.')) : name;
+  return WINDOWS_RESERVED_NAMES.has(stem.toUpperCase());
+}
 
 export interface FilenameIssue {
   kind: FilenameIssueKind;
@@ -94,4 +120,96 @@ export function validateTitle(title: string): FilenameIssue[] {
 /** Convenience: returns true if the title has no validation issues. */
 export function isValidTitle(title: string): boolean {
   return validateTitle(title).length === 0;
+}
+
+/**
+ * Validate a single folder name (one path component). Layered on top of
+ * `validateTitle`: same character/length/dots rules, plus Windows-reserved
+ * name rejection.
+ *
+ * Sibling case-collision and depth checks live separately because they
+ * need context (the parent folder's existing children, the parent's
+ * depth) that this single-name check does not have.
+ */
+export function validateFolderName(name: string): FilenameIssue[] {
+  const issues = validateTitle(name);
+  if (isWindowsReservedName(name)) {
+    issues.push({
+      kind: 'reserved_name',
+      message: `"${name}" is reserved on Windows and cannot be used as a folder name`,
+    });
+  }
+  return issues;
+}
+
+/** Convenience: returns true if the folder name has no validation issues. */
+export function isValidFolderName(name: string): boolean {
+  return validateFolderName(name).length === 0;
+}
+
+/**
+ * Check whether a proposed folder name collides with an existing sibling.
+ * Compares case-insensitively across siblings — refuses to create two
+ * folders at the same level whose names differ only in case. The
+ * underlying filesystem may or may not be case-sensitive; we enforce this
+ * ourselves to keep sync deterministic across mixed environments.
+ */
+export function hasCaseInsensitiveSiblingCollision(
+  name: string,
+  siblings: Iterable<string>,
+): boolean {
+  const lower = name.toLowerCase();
+  for (const sibling of siblings) {
+    if (sibling.toLowerCase() === lower) return true;
+  }
+  return false;
+}
+
+/**
+ * Validate a relative folder path: each component is a valid folder name,
+ * total depth doesn't exceed MAX_FOLDER_DEPTH, no `.` / `..` / empty.
+ */
+export function validateFolderPath(relPath: string): FilenameIssue[] {
+  const issues: FilenameIssue[] = [];
+  const trimmed = relPath.replace(/^\/+|\/+$/g, '');
+  if (!trimmed) {
+    issues.push({ kind: 'empty', message: 'Folder path cannot be empty' });
+    return issues;
+  }
+  const components = trimmed.split('/');
+  if (components.length > MAX_FOLDER_DEPTH) {
+    issues.push({
+      kind: 'depth_exceeded',
+      message: `Folder depth cannot exceed ${MAX_FOLDER_DEPTH}`,
+    });
+  }
+  for (const component of components) {
+    if (component === '' || component === '.' || component === '..') {
+      issues.push({ kind: 'forbidden_chars', message: 'Folder path contains an invalid component' });
+      continue;
+    }
+    for (const issue of validateFolderName(component)) {
+      issues.push(issue);
+    }
+  }
+  return issues;
+}
+
+/** Returns true if a relative folder path is valid. */
+export function isValidFolderPath(relPath: string): boolean {
+  return validateFolderPath(relPath).length === 0;
+}
+
+/**
+ * Compute the folder depth of a relative path (number of folder
+ * components above the leaf — a flat note has depth 0). `relPath` is
+ * the relative path of the note WITHOUT the `.md` extension; the leaf
+ * filename is excluded from the count.
+ */
+export function pathDepth(relPath: string): number {
+  const trimmed = relPath.replace(/^\/+|\/+$/g, '');
+  if (!trimmed) return 0;
+  const components = trimmed.split('/');
+  // depth = number of folders above the leaf
+  return Math.max(0, components.length - 1);
 }

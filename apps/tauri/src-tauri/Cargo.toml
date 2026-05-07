@@ -30,10 +30,17 @@ rayon = "1.11.0"
 sha2 = "0.10.9"
 filetime = "0.2.26"
 notify = "8.2.0"
+walkdir = "2.5"
 reqwest = { version = "0.12.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 png = "0.17"
 libc = "0.2"
 tauri-plugin-mcp-bridge = "0.10.0"
+
+# Desktop-only: route folder/note deletes through the system trash so users
+# can recover from accidental deletes. iOS / Android have no system trash;
+# those builds hard-delete instead.
+[target.'cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))'.dependencies]
+trash = "5"
 
 # macOS + Windows: ort downloads and statically links libonnxruntime during
 # `cargo build`. pyke's prebuilts for these targets link cleanly.

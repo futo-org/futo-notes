@@ -229,11 +229,14 @@ fn safe_note_path_traversal_blocked() {
     let attacks = [
         "..",
         "../etc/passwd",
-        "foo/bar",
+        "foo/..",
+        "foo/../bar",
         "foo\\bar",
         "note\x00evil",
         "note<script>",
         "note:colon",
+        "/abs",
+        "foo/",
     ];
     for attack in &attacks {
         assert!(

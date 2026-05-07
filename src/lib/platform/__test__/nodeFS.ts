@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import type { DirFileEntry, PlatformFS, NoteFile } from '../types';
+import type { DirFileEntry, FolderEntry, PlatformFS, NoteFile } from '../types';
 
 export interface TestPlatformFS extends PlatformFS {
   _cleanup(): void;
@@ -18,16 +18,39 @@ export function createNodeFS(): TestPlatformFS {
     }
   }
 
+  function walkMd(dir: string, base: string, out: NoteFile[]): void {
+    if (!fs.existsSync(dir)) return;
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name.startsWith('.')) continue;
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walkMd(full, base, out);
+      } else if (entry.isFile() && entry.name.endsWith('.md')) {
+        const rel = path.relative(base, full).split(path.sep).join('/');
+        const stat = fs.statSync(full);
+        out.push({ name: rel, mtime: stat.mtimeMs, size: stat.size });
+      }
+    }
+  }
+
+  function walkDirs(dir: string, base: string, out: FolderEntry[]): void {
+    if (!fs.existsSync(dir)) return;
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name.startsWith('.')) continue;
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        const rel = path.relative(base, full).split(path.sep).join('/');
+        out.push({ path: rel });
+        walkDirs(full, base, out);
+      }
+    }
+  }
+
   const nodeFS: TestPlatformFS = {
     async listNoteFiles(): Promise<NoteFile[]> {
-      if (!fs.existsSync(tmpDir)) return [];
-      const entries = fs.readdirSync(tmpDir);
-      return entries
-        .filter((name) => name.endsWith('.md'))
-        .map((name) => {
-          const stat = fs.statSync(path.join(tmpDir, name));
-          return { name, mtime: stat.mtimeMs, size: stat.size };
-        });
+      const out: NoteFile[] = [];
+      walkMd(tmpDir, tmpDir, out);
+      return out;
     },
 
     async readNote(id: string): Promise<string> {
@@ -40,6 +63,7 @@ export function createNodeFS(): TestPlatformFS {
 
     async writeNote(id: string, content: string, modifiedAtMs?: number): Promise<number> {
       const filePath = path.join(tmpDir, `${id}.md`);
+      ensureDir(filePath);
       fs.writeFileSync(filePath, content, 'utf-8');
       if (modifiedAtMs !== undefined) {
         const timeSec = modifiedAtMs / 1000;
@@ -52,6 +76,20 @@ export function createNodeFS(): TestPlatformFS {
       const filePath = path.join(tmpDir, `${id}.md`);
       if (fs.existsSync(filePath)) {
         fs.unlinkSync(filePath);
+      }
+      // Best-effort: prune now-empty parent dirs.
+      let cursor = path.dirname(filePath);
+      while (cursor.startsWith(tmpDir) && cursor !== tmpDir) {
+        try {
+          if (fs.existsSync(cursor) && fs.readdirSync(cursor).length === 0) {
+            fs.rmdirSync(cursor);
+          } else {
+            break;
+          }
+        } catch {
+          break;
+        }
+        cursor = path.dirname(cursor);
       }
     },
 
@@ -127,6 +165,40 @@ export function createNodeFS(): TestPlatformFS {
 
     getPlatformName(): string {
       return 'web';
+    },
+
+    async listFolders(): Promise<FolderEntry[]> {
+      const out: FolderEntry[] = [];
+      walkDirs(tmpDir, tmpDir, out);
+      return out;
+    },
+
+    async createFolder(folderPath: string): Promise<void> {
+      const dir = path.join(tmpDir, folderPath);
+      fs.mkdirSync(dir, { recursive: true });
+    },
+
+    async renameFolder(fromPath: string, toPath: string): Promise<void> {
+      const from = path.join(tmpDir, fromPath);
+      const to = path.join(tmpDir, toPath);
+      if (!fs.existsSync(from)) return;
+      ensureDir(to);
+      fs.renameSync(from, to);
+    },
+
+    async deleteFolder(folderPath: string): Promise<void> {
+      const dir = path.join(tmpDir, folderPath);
+      if (fs.existsSync(dir)) {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    },
+
+    async moveNote(fromId: string, toId: string): Promise<void> {
+      const from = path.join(tmpDir, `${fromId}.md`);
+      const to = path.join(tmpDir, `${toId}.md`);
+      if (!fs.existsSync(from)) return;
+      ensureDir(to);
+      fs.renameSync(from, to);
     },
 
     _cleanup(): void {

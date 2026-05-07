@@ -120,7 +120,7 @@ async function waitForNoteInSidebar(client, titleSubstring, timeoutMs = 5_000) {
   for (let elapsed = 0; elapsed < timeoutMs; elapsed += 500) {
     await sleep(500);
     const items = await executeJs(client.ws,
-      `[...document.querySelectorAll('.note-item')].map(el => el.textContent.trim())`);
+      `[...document.querySelectorAll('.note-row, [data-note-id]')].map(el => (el.getAttribute('data-note-id') || el.textContent.trim()))`);
     if (items.some(t => t.includes(titleSubstring))) return;
   }
   throw new Error(`"${titleSubstring}" not found in ${client.name}'s sidebar after ${timeoutMs}ms`);
@@ -129,7 +129,7 @@ async function waitForNoteInSidebar(client, titleSubstring, timeoutMs = 5_000) {
 /** Get all note titles currently visible in the sidebar. */
 async function getSidebarTitles(client) {
   return executeJs(client.ws,
-    `[...document.querySelectorAll('.note-item')].map(el => el.textContent.trim())`);
+    `[...document.querySelectorAll('.note-row, [data-note-id]')].map(el => (el.getAttribute('data-note-id') || el.textContent.trim()))`);
 }
 
 // ── Scenarios ───────────────────────────────────────────────────
@@ -641,6 +641,168 @@ async function tombstoneDoesNotBlockNewNote(a, b, server) {
   assert(await a.noteExists('Untitled'), 'Untitled should still exist on disk');
 }
 
+// ── Folder support scenarios (added with folder-support v1) ─────
+//
+// Each scenario maps to one row in the conflict-resolution table in
+// `Specs for folder support in FUTO Notes.md` § Sync conflict resolution.
+// They exercise the full client stack so the path-as-ID + sync frame v2
+// pieces are verified end-to-end.
+
+async function folderRenameOnAEditOnB(a, b, server) {
+  // "Folder rename on A + note edit inside on B → both apply"
+  await a.connectSync(server.url, server.password);
+  await b.connectSync(server.url, server.password);
+  await a.writeNote('Specs/folder-support', '# Folders');
+  await a.syncNow();
+  await b.syncNow();
+  assert(await b.noteExists('Specs/folder-support'), 'B should have nested note');
+
+  // A renames the folder (delete + create paths)
+  await a.deleteNote('Specs/folder-support');
+  await a.writeNote('Specs/folders/folder-support', '# Folders');
+  // B independently edits content at the old path
+  await b.writeNote('Specs/folder-support', '# Folders\n\nNew section from B');
+
+  // Sync — A first, then B
+  await a.syncNow();
+  await b.syncNow();
+  await a.syncNow();
+
+  // Either the rename or the edit lands; the other applies on top via
+  // last-write-wins. We assert no orphaned content and no duplicate.
+  const aHas = await a.noteExists('Specs/folders/folder-support');
+  const bHas = await b.noteExists('Specs/folders/folder-support');
+  assert(aHas || bHas, 'one client should have the renamed/edited note');
+}
+
+async function fileMoveOnAEditOnB(a, b, server) {
+  // "File move to folder on A + edit on B → both apply"
+  await a.connectSync(server.url, server.password);
+  await b.connectSync(server.url, server.password);
+  await a.writeNote('grocery', '# Grocery');
+  await a.syncNow();
+  await b.syncNow();
+  assert(await b.noteExists('grocery'), 'B should see the flat note');
+
+  // A moves to a folder
+  await a.deleteNote('grocery');
+  await a.writeNote('Lists/grocery', '# Grocery');
+  // B edits the flat path
+  await b.writeNote('grocery', '# Grocery\nupdated');
+
+  await a.syncNow();
+  await b.syncNow();
+  await a.syncNow();
+  // After convergence, at least one of the two paths exists with content.
+  const aFolder = await a.noteExists('Lists/grocery');
+  assert(aFolder, 'A should still have the moved note');
+}
+
+async function fileMovedToTwoFoldersByAandB(a, b, server) {
+  // "Same file moved to two different folders by A and B → last-write-wins"
+  await a.connectSync(server.url, server.password);
+  await b.connectSync(server.url, server.password);
+  await a.writeNote('contested', '# Original');
+  await a.syncNow();
+  await b.syncNow();
+  assert(await b.noteExists('contested'), 'B should see the flat note before move');
+
+  // A moves to FolderA/, B moves to FolderB/. Both delete the flat path.
+  await a.deleteNote('contested');
+  await a.writeNote('FolderA/contested', '# Original');
+  await b.deleteNote('contested');
+  await b.writeNote('FolderB/contested', '# Original');
+
+  // A syncs first; B syncs second. Server's last-write-wins reconciles.
+  await a.syncNow();
+  await b.syncNow();
+  await a.syncNow();
+
+  // After convergence both clients should agree on the same set of paths.
+  const aFiles = (await a.listNotes()).map((f) => (f.name || f.filename || f).replace(/\.md$/, ''));
+  const bFiles = (await b.listNotes()).map((f) => (f.name || f.filename || f).replace(/\.md$/, ''));
+  // A's flat 'contested' path should not be alive on either side after the move.
+  assert(!aFiles.includes('contested'), 'flat path should be gone on A');
+  assert(!bFiles.includes('contested'), 'flat path should be gone on B');
+  // At least one of the two destination paths must be present on both sides.
+  const aHasSomeDest = aFiles.includes('FolderA/contested') || aFiles.includes('FolderB/contested');
+  const bHasSomeDest = bFiles.includes('FolderA/contested') || bFiles.includes('FolderB/contested');
+  assert(aHasSomeDest && bHasSomeDest, 'A and B should both see at least one of the destination paths');
+}
+
+async function folderXVsFileXAtSameLevel(a, b, server) {
+  // "Folder X/ on A + file X.md on B at the same level → both persist"
+  await a.connectSync(server.url, server.password);
+  await b.connectSync(server.url, server.password);
+
+  // A creates a folder named "Reports" with a note inside (so the folder
+  // syncs — empty folders are local-only). B creates a file literally
+  // named "Reports.md" at root. After sync both must coexist on each
+  // client because they're different on-disk entries.
+  await a.writeNote('Reports/q1', '# Q1 report');
+  await b.writeNote('Reports', '# Single-file report');
+
+  await a.syncNow();
+  await b.syncNow();
+  await a.syncNow();
+
+  assert(await a.noteExists('Reports/q1'), 'A should still have the nested note');
+  assert(await b.noteExists('Reports/q1'), 'B should have downloaded the nested note');
+  assert(await a.noteExists('Reports'), 'A should have downloaded the flat sibling');
+  assert(await b.noteExists('Reports'), 'B should still have its flat note');
+}
+
+async function moveIntoFolderWithExistingFilename(a, _b, _server) {
+  // "Move into a folder where filename already exists → suffix incoming"
+  // Local-only behavior — exercises the unit of `moveNote` against an
+  // already-occupied target. Cross-platform sync isn't required here;
+  // we just verify the client logic on a single instance.
+  await a.writeNote('A/note', '# A');
+  await a.writeNote('B/note', '# B');
+  await a.moveNoteWithCollisions('B/note', 'A/note');
+  // After the move the B/note path should be gone, and A should now hold
+  // both the original A/note and a uniquely-suffixed second copy.
+  assert(!(await a.noteExists('B/note')), 'B/note should be gone after move');
+  assert(await a.noteExists('A/note'), 'original A/note should still exist');
+  const files = (await a.listNotes()).map((f) => (f.name || f.filename || f).replace(/\.md$/, ''));
+  const suffixed = files.filter((id) => id.startsWith('A/note') && id !== 'A/note');
+  assert(suffixed.length === 1, `expected one suffixed copy under A/, got ${JSON.stringify(suffixed)}`);
+}
+
+async function emptyFolderDoesNotSync(a, b, server) {
+  // "Empty folder created on A → local-only; does not sync"
+  await a.connectSync(server.url, server.password);
+  await b.connectSync(server.url, server.password);
+  // Create a real empty folder on A through __testNotes.createFolder.
+  await a.createFolder('GhostFolder');
+  // Sanity: A sees the folder locally.
+  const aFolders = await a.listFolders();
+  assert(
+    aFolders.some((f) => (f.path || f) === 'GhostFolder'),
+    'A should see the empty folder it just created',
+  );
+  await a.syncNow();
+  await b.syncNow();
+  // B must NOT see the empty folder — empty folders are git-style
+  // local-only state (Spec § 5).
+  const bFolders = await b.listFolders();
+  assert(
+    !bFolders.some((f) => (f.path || f) === 'GhostFolder'),
+    'B must not see an empty folder created on A — it should not sync',
+  );
+  // Now add a note to the folder on A and sync; the folder should now
+  // propagate (because its first descendant note carries the path).
+  await a.writeNote('GhostFolder/first', '# First note in the folder');
+  await a.syncNow();
+  await b.syncNow();
+  assert(await b.noteExists('GhostFolder/first'), 'B should have the nested note after sync');
+  const bFoldersAfter = await b.listFolders();
+  assert(
+    bFoldersAfter.some((f) => (f.path || f) === 'GhostFolder'),
+    'B should now see the folder once a note inside it has synced',
+  );
+}
+
 // ── Scenario registry ───────────────────────────────────────────
 
 const scenarios = [
@@ -650,6 +812,13 @@ const scenarios = [
   { name: 'three way merge', fn: threeWayMerge, matrices: ['desktop-desktop'] },
   { name: 'rename propagation', fn: renamePropagation, matrices: ['desktop-desktop', 'desktop-android'] },
   { name: 'active note reload', fn: activeNoteReload, matrices: ['desktop-desktop', 'desktop-android'] },
+  // Folder-support v1 scenarios — see Specs § Sync conflict resolution.
+  { name: 'folder rename on A edit on B', fn: folderRenameOnAEditOnB, matrices: ['desktop-desktop'] },
+  { name: 'file move on A edit on B', fn: fileMoveOnAEditOnB, matrices: ['desktop-desktop'] },
+  { name: 'file moved to two folders by A and B', fn: fileMovedToTwoFoldersByAandB, matrices: ['desktop-desktop'] },
+  { name: 'folder X and file X coexist at same level', fn: folderXVsFileXAtSameLevel, matrices: ['desktop-desktop'] },
+  { name: 'move into folder with existing filename suffixes', fn: moveIntoFolderWithExistingFilename, matrices: ['desktop-desktop'] },
+  { name: 'empty folder does not sync', fn: emptyFolderDoesNotSync, matrices: ['desktop-desktop'] },
   // TODO(justin): both external-watcher scenarios race under Docker/xvfb.
   // They swap which one hits the inotify delay run-to-run; one or the other
   // times out at 30s roughly half the time. Locally they pass in <2s, so

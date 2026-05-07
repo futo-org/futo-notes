@@ -141,6 +141,12 @@ async function savePreviewCache(
 
 // ── Build helpers ─────────────────────────────────────────────────────
 
+/** Display title is the leaf component of the (possibly nested) path-ID. */
+function leafTitle(id: string): string {
+  const slash = id.lastIndexOf('/');
+  return slash === -1 ? id : id.slice(slash + 1);
+}
+
 export function buildIndexedNote(
   id: string,
   content: string,
@@ -148,7 +154,7 @@ export function buildIndexedNote(
 ): IndexedNote {
   return {
     id,
-    title: id,
+    title: leafTitle(id),
     preview: makePreview(content),
     tags: extractTags(content),
     headings: extractHeadings(content),
@@ -202,7 +208,7 @@ export async function scanNotePreviewsWithBodies(
     if (cached && cached.mtime === file.mtime) {
       previews[i] = {
         id,
-        title: id,
+        title: leafTitle(id),
         preview: cached.preview,
         modificationTime: file.mtime,
         tags: cached.tags,
@@ -226,7 +232,7 @@ export async function scanNotePreviewsWithBodies(
           const headings = extractHeadings(content);
           previews[index] = {
             id,
-            title: id,
+            title: leafTitle(id),
             preview,
             modificationTime: mtime,
             tags,
@@ -304,7 +310,7 @@ export async function scanNotes(fs: FileSystem): Promise<IndexedNote[]> {
 
       notes[index] = {
         id,
-        title: id,
+        title: leafTitle(id),
         preview,
         tags,
         headings,

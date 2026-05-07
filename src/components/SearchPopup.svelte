@@ -182,7 +182,11 @@
           onpointerenter={() => { selectedIndex = i; }}
         >
           <div class="search-result-title">
-            {result.note.title}
+            <span class="search-result-leaf">{result.note.title.split('/').pop()}</span>
+            {#if result.note.id.includes('/')}
+              {@const parent = result.note.id.split('/').slice(-2, -1)[0]}
+              <span class="search-result-folder-badge" data-testid="folder-badge">{parent}</span>
+            {/if}
           </div>
           {#if result.snippet && result.snippet.length > 0}
             <div class="search-result-preview">
@@ -335,6 +339,28 @@
     display: flex;
     align-items: center;
     gap: 6px;
+  }
+
+  .search-result-leaf {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /** Folder-membership badge — shows the immediate parent folder of a
+   *  note returned by search. Per spec §UI/Search the older "outside
+   *  the main vault" wording is gone; this is now a flat badge that
+   *  applies to any note inside any folder. */
+  .search-result-folder-badge {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 1px 6px;
+    border-radius: 3px;
+    line-height: 1.2;
+    flex-shrink: 0;
+    background: color-mix(in srgb, var(--color-muted, #888) 15%, transparent);
+    color: var(--color-muted, #555);
+    text-transform: none;
   }
 
   .source-badge {

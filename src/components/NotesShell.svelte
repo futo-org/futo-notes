@@ -25,6 +25,7 @@
   import NoteTagBar from './NoteTagBar.svelte';
   import SyncStatusBar from './SyncStatusBar.svelte';
   import GraphSidebarPanel from './GraphSidebarPanel.svelte';
+  import FolderPickerModal from './FolderPickerModal.svelte';
   import DrawerSidebar from './DrawerSidebar.svelte';
   import { createSyncManager } from '$lib/syncManager.svelte';
   import { keyboard } from '$lib/keyboard.svelte';
@@ -50,6 +51,11 @@
   $effect(() => {
     appCtx.notes = hasFileSystem ? getAllNotes() : [];
     graphPanel?.clearGraphData();
+    // The editor's wikilink display widgets read the full note index
+    // (shortest-unique-suffix rule). When notes are added / removed /
+    // moved, refresh the open editor so the visible decorations track
+    // the new universe.
+    editor?.refreshDecorations?.();
   });
 
   let editor: ReturnType<typeof MarkdownEditor> | null = $state(null);
@@ -173,7 +179,6 @@
     setEditorContent: (text, opts) => editor?.setContent(text, opts),
     focusEditor: () => editor?.focus(),
     getNotes: () => appCtx.notes,
-    writeSuppressor: sync.writeSuppressor,
     patchGraphNode: (from, to, t) => graphPanel?.patchGraphNode(from, to, t),
     showToast,
     notifySaved: () => sync.notifySaved(),
@@ -181,6 +186,8 @@
     getTitleTextarea: () => titleTextarea,
     getNoteId: () => noteId,
     setPrevNoteId: (id) => { prevNoteId = id; },
+    getPendingFolder: () => pendingNoteFolder,
+    clearPendingFolder: () => { pendingNoteFolder = null; },
   });
 
 
@@ -265,6 +272,22 @@
     navigate('/note/new');
   }
 
+  /**
+   * Create a new note inside a specific folder. The flow is identical
+   * to createNewNote, but we stash the target folder so the editor's
+   * first save lands at `${folderPath}/${title}` instead of the root.
+   */
+  async function createNewNoteInFolder(folderPath: string): Promise<void> {
+    primeSoftKeyboardForProgrammaticFocus();
+    if (isMobile) setDrawerOpen(false);
+    await session.flushSave();
+    pendingNoteFolder = folderPath;
+    navigate('/note/new');
+  }
+
+  /** Folder path to use for the next new-note save. Cleared after use. */
+  let pendingNoteFolder: string | null = $state(null);
+
   async function createTestNote(): Promise<void> {
     if (!hasFileSystem) return;
     const [{ GFM_TEST_CONTENT }, { SCROLL_TEST_NOTES }] = await Promise.all([
@@ -335,7 +358,6 @@
     noteMenuOpen = false;
     const idToDelete = session.originalId;
     if (!idToDelete) return;
-    sync.writeSuppressor.recordWrite(`${idToDelete}.md`);
     session.cancelAndClear();
     await deleteNote(idToDelete);
     sync.notifySaved();
@@ -347,6 +369,39 @@
     return Boolean(
       target.closest('.cm-md-table-wrapper, .cm-md-table-rendered, .cm-md-table, .markdown-toolbar, .title-input, .graph-sidebar, .graph-fullscreen')
     );
+  }
+
+  // Move-to-folder for the currently open note. Reuses the FolderPickerModal
+  // already wired in DrawerSidebar by exposing a simple `pickFolderFor` hook.
+  let movePickerOpen = $state(false);
+  let movePickerNoteId = $state<string | null>(null);
+
+  function openMoveCurrentNoteToFolder(): void {
+    if (!noteId || noteId === 'new') return;
+    movePickerNoteId = noteId;
+    movePickerOpen = true;
+  }
+
+  async function handleMovePick(target: string): Promise<void> {
+    const id = movePickerNoteId;
+    movePickerOpen = false;
+    movePickerNoteId = null;
+    if (!id) return;
+    const components = id.split('/');
+    const leaf = components[components.length - 1];
+    const newId = target ? `${target}/${leaf}` : leaf;
+    if (newId === id) return;
+    try {
+      const { moveNote } = await import('$lib/notes.svelte');
+      const result = await moveNote(id, newId);
+      // Keep the user on the moved note: navigate to the new ID.
+      if (result.id !== id) {
+        navigate(`/note/${encodeURIComponent(result.id)}`);
+      }
+      showToast(target ? `Moved to ${target}` : 'Moved to Notes');
+    } catch (err) {
+      showToast((err as Error).message ?? 'Move failed');
+    }
   }
 
   async function copyNotePath(): Promise<void> {
@@ -627,6 +682,7 @@
     onsearch={() => { void openSearch(); }}
     onsettings={handleOpenSettings}
     onnewnote={createNewNote}
+    onnewnoteinfolder={createNewNoteInFolder}
     oncreatetestnote={createTestNote}
     ontogglecollapse={toggleSidebar}
     bind:drawerEl={drawer}
@@ -665,6 +721,9 @@
             {#if isTauri}
               <button onclick={() => { noteMenuOpen = false; void openGraphSidebar(); }}>Graph view</button>
               <button onclick={() => { noteMenuOpen = false; void copyNotePath(); }}>Copy file path</button>
+            {/if}
+            {#if noteId && noteId !== 'new'}
+              <button onclick={() => { noteMenuOpen = false; openMoveCurrentNoteToFolder(); }} data-testid="note-menu-move">Move to folder</button>
             {/if}
             <button class="danger" onclick={() => { noteMenuOpen = false; deleteConfirmOpen = true; }}>Delete note</button>
           </div>
@@ -789,6 +848,15 @@
 
 {#if searchOpen && SearchPopup}
   <SearchPopup onclose={() => { searchOpen = false; }} onselect={handleSearchSelect} />
+{/if}
+
+{#if movePickerOpen}
+  <FolderPickerModal
+    title="Move to folder"
+    notes={appCtx.notes}
+    onpick={handleMovePick}
+    oncancel={() => { movePickerOpen = false; movePickerNoteId = null; }}
+  />
 {/if}
 
 {#if toastMessage}

@@ -95,6 +95,34 @@ export class TauriTestClient {
     return executeJs(this.ws, `window.__testNotes.noteExists(${JSON.stringify(id)})`);
   }
 
+  async listFolders() {
+    return executeJs(this.ws, `window.__testNotes.listFolders()`);
+  }
+
+  async createFolder(path) {
+    return executeJs(this.ws, `window.__testNotes.createFolder(${JSON.stringify(path)})`);
+  }
+
+  async renameFolder(from, to) {
+    return executeJs(this.ws, `window.__testNotes.renameFolder(${JSON.stringify(from)}, ${JSON.stringify(to)})`);
+  }
+
+  async deleteFolder(path) {
+    return executeJs(this.ws, `window.__testNotes.deleteFolder(${JSON.stringify(path)})`);
+  }
+
+  async moveNote(fromId, toId) {
+    return executeJs(this.ws, `window.__testNotes.moveNote(${JSON.stringify(fromId)}, ${JSON.stringify(toId)})`);
+  }
+
+  /** Like moveNote, but if the target ID already exists the incoming
+   *  file is suffixed (`A/note` → `A/note-2`). Mirrors the UI-driven
+   *  `moveNote` flow in `src/lib/notes.svelte.ts`. */
+  async moveNoteWithCollisions(fromId, toId) {
+    return executeJs(this.ws,
+      `window.__testNotes.moveNoteWithCollisions(${JSON.stringify(fromId)}, ${JSON.stringify(toId)})`);
+  }
+
   async openNewNote() {
     await executeJs(this.ws, `window.location.hash = '#/note/new'`);
     await this.waitForRoute('/note/new');

@@ -99,3 +99,9 @@ export function createWriteSuppressor(): WriteSuppressor {
     clearPreSyncWrites,
   };
 }
+
+// Module-level singleton. The sync manager and the local note ops both
+// need to record writes so the watcher can ignore self-caused events;
+// keeping a single suppressor avoids passing it through every call site.
+// Tests that want isolation construct their own via `createWriteSuppressor()`.
+export const writeSuppressor: WriteSuppressor = createWriteSuppressor();

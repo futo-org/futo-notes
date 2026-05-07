@@ -14,8 +14,8 @@ import {
   exists as fsExists,
   stat,
 } from '@tauri-apps/plugin-fs';
-import type { DirFileEntry, FileChangeEvent, PlatformFS, NoteFile } from './types';
-import { safeNotePath, safeAppdataPath } from './pathSafety';
+import type { DirFileEntry, FileChangeEvent, PlatformFS, NoteFile, FolderEntry } from './types';
+import { noteParentDir, safeNotePath, safeAppdataPath } from './pathSafety';
 import { writeAtomicText } from './atomicWrite';
 import type { AtomicWriteFS } from './atomicWrite';
 import { isNotFound } from './fsErrors';
@@ -96,6 +96,30 @@ function withTimeout<T>(label: string, ms: number, p: Promise<T>): Promise<T> {
 
 const FS_READ_TIMEOUT_MS = 8_000;
 
+/**
+ * Walk up from `dir` removing empty directories until reaching `root`
+ * or a non-empty directory. Best-effort: any error stops the walk and
+ * is swallowed because folder pruning is purely a cosmetic cleanup.
+ */
+async function pruneEmptyAncestors(root: string, dir: string): Promise<void> {
+  if (dir === root) return;
+  let cursor = dir;
+  // Cap iterations defensively — the depth limit is enforced elsewhere.
+  for (let i = 0; i < 16; i++) {
+    if (!cursor.startsWith(root) || cursor === root) return;
+    try {
+      const entries = await readDir(cursor);
+      if (entries.length > 0) return;
+      await remove(cursor);
+    } catch {
+      return;
+    }
+    const slash = cursor.lastIndexOf('/');
+    if (slash <= root.length) return;
+    cursor = cursor.slice(0, slash);
+  }
+}
+
 let watcherStarted = false;
 let assetProtocolWorks: boolean | null = null;
 
@@ -139,10 +163,9 @@ export const tauriFS: PlatformFS = {
 
   async writeNote(id: string, content: string, modifiedAtMs?: number): Promise<number> {
     // Single IPC: Rust does the atomic write (temp + rename), optional
-    // mtime override, and mtime read-back in one blocking call. Replaces
-    // the plugin-fs writeTextFile + rename + fs_set_mtime + stat chain —
-    // on iOS that was four separate round-trips per save-debounce tick
-    // and noticeably stole main-thread time while typing.
+    // mtime override, and mtime read-back in one blocking call. The Rust
+    // side calls `write_atomic_text` which calls `create_dir_all(parent)`
+    // — so a nested ID like `Specs/foo` automatically creates its folder.
     const modifiedAt =
       typeof modifiedAtMs === 'number' && Number.isFinite(modifiedAtMs) && modifiedAtMs >= 0
         ? Math.trunc(modifiedAtMs)
@@ -158,6 +181,9 @@ export const tauriFS: PlatformFS = {
     const root = await getNotesRoot();
     try {
       await remove(safeNotePath(root, id));
+      // Best-effort: prune now-empty parent dirs so the sidebar doesn't
+      // keep ghost folders after deleting the only note inside.
+      await pruneEmptyAncestors(root, noteParentDir(root, id));
     } catch (e: unknown) {
       // Swallow NotFound errors — matches Rust behavior
       if (isNotFound(e)) return;
@@ -338,6 +364,32 @@ export const tauriFS: PlatformFS = {
       filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'] }],
     });
     return typeof picked === 'string' ? picked : null;
+  },
+
+  // ── Folder operations ───────────────────────────────────────────────
+
+  async listFolders(): Promise<FolderEntry[]> {
+    return invoke<FolderEntry[]>('fs_list_folders');
+  },
+
+  async createFolder(path: string): Promise<void> {
+    await invoke('fs_create_folder', { path });
+  },
+
+  async renameFolder(fromPath: string, toPath: string): Promise<void> {
+    await invoke('fs_rename_folder', { from: fromPath, to: toPath });
+  },
+
+  async deleteFolder(path: string): Promise<void> {
+    await invoke('fs_delete_folder', { path });
+  },
+
+  async moveNote(fromId: string, toId: string): Promise<void> {
+    await invoke('fs_move_note', { fromId, toId });
+  },
+
+  async deleteNoteToTrash(id: string): Promise<void> {
+    await invoke('fs_delete_note_to_trash', { id });
   },
 
 };

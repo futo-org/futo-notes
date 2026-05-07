@@ -71,6 +71,15 @@ export function createWatcherBatch(options: WatcherBatchOptions): WatcherBatch {
   const pendingDeletes: Map<string, { hash: string; timer: number }> = new Map();
 
   function enqueue(event: FileChangeEvent): void {
+    // OS-level rename pair (from notify-debouncer-full / cookie pairing)
+    // gets surfaced as an explicit `rename` event with both `from` and
+    // `filename`. Decompose into unlink + add so the existing dedupe
+    // and bulk-refresh pipeline downstream stays in one shape.
+    if (event.type === 'rename' && event.from) {
+      enqueue({ type: 'unlink', filename: event.from });
+      enqueue({ type: 'add', filename: event.filename });
+      return;
+    }
     if (syncActive) {
       pendingWatcherEvents.push(event);
       return;

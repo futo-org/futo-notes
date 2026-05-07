@@ -1,5 +1,5 @@
 import type { PlatformFS, PlatformName } from './types';
-export type { NoteFile, FileChangeEvent, PlatformFS, PlatformName, FileSystem, NativeCapabilities, DirFileEntry } from './types';
+export type { NoteFile, FileChangeEvent, PlatformFS, PlatformName, FileSystem, NativeCapabilities, DirFileEntry, FolderEntry } from './types';
 
 function hasTauriRuntime(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;

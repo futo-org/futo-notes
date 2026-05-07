@@ -80,7 +80,10 @@ describe('liveMarkdownTransform decorations', () => {
       // styled content at 7-10
       const wikilinks = withClass(all, 'cm-md-wikilink');
       expect(wikilinks).toHaveLength(1);
-      expect(wikilinks[0]).toMatchObject({ from: 7, to: 10, class: 'cm-md-link cm-md-wikilink' });
+      // The link is broken (no notes are loaded in this isolated test view),
+      // so the class includes the cm-md-wikilink-broken modifier.
+      expect(wikilinks[0]).toMatchObject({ from: 7, to: 10 });
+      expect(wikilinks[0].class).toContain('cm-md-wikilink');
       expect(wikilinks[0].attributes).toEqual({ 'data-wikilink': 'foo' });
     });
 

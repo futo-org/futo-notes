@@ -293,3 +293,126 @@ describe('search', () => {
     expect(results[0].note.id).toBe('new-id');
   });
 });
+
+describe('folder support: path-as-ID', () => {
+  it('treats nested files as path-IDs end-to-end', async () => {
+    await testFS.writeNote('Specs/folder-support', '# Folder support\nbody');
+    await testFS.writeNote('flat', 'flat body');
+
+    const { initNotes, getAllNotes, getNoteById } = await freshNotes();
+    await initNotes();
+
+    const ids = getAllNotes().map((n) => n.id).sort();
+    expect(ids).toEqual(['Specs/folder-support', 'flat']);
+
+    const nested = getNoteById('Specs/folder-support');
+    expect(nested).toBeDefined();
+    expect(nested?.preview).toContain('Folder support');
+  });
+
+  it('moveNote rewrites wikilinks in other notes', async () => {
+    await testFS.writeNote('Specs/folder-support', '# Folder support');
+    await testFS.writeNote('Other/note', 'see [[Specs/folder-support]] for details');
+
+    const { initNotes, moveNote, search, readNote } = await freshNotes();
+    await initNotes();
+
+    await moveNote('Specs/folder-support', 'Specs/folders');
+
+    const body = await readNote('Other/note');
+    expect(body).toBe('see [[Specs/folders]] for details');
+
+    // Search index should still find the relocated note's content
+    const hits = await search('Folder support');
+    expect(hits.some((h) => h.note.id === 'Specs/folders')).toBe(true);
+  });
+
+  it('moveNote rewrites legacy bare-filename wikilinks when unique', async () => {
+    await testFS.writeNote('Specs/folder-support', '# Folder support');
+    await testFS.writeNote('Other/note', 'see [[folder-support]] for details');
+
+    const { initNotes, moveNote, readNote } = await freshNotes();
+    await initNotes();
+
+    await moveNote('Specs/folder-support', 'Specs/folders');
+
+    const body = await readNote('Other/note');
+    expect(body).toBe('see [[Specs/folders]] for details');
+  });
+
+  it('moveNote does not rewrite ambiguous bare-filename wikilinks', async () => {
+    await testFS.writeNote('A/grocery', '# A grocery');
+    await testFS.writeNote('B/grocery', '# B grocery');
+    await testFS.writeNote('top', 'shop [[grocery]] today');
+
+    const { initNotes, moveNote, readNote } = await freshNotes();
+    await initNotes();
+
+    await moveNote('A/grocery', 'A/store');
+
+    const body = await readNote('top');
+    expect(body).toBe('shop [[grocery]] today');
+  });
+
+  it('moveNote suffixes the incoming file when target ID already exists', async () => {
+    // Spec § Sync conflict resolution: "Move into a folder where filename
+    // already exists → reuse `getUniqueNoteId` to suffix the incoming file"
+    await testFS.writeNote('A/note', 'first');
+    await testFS.writeNote('B/note', 'second');
+
+    const { initNotes, moveNote, getAllNotes } = await freshNotes();
+    await initNotes();
+
+    const result = await moveNote('B/note', 'A/note');
+    expect(result.id).not.toBe('A/note'); // would have collided
+    expect(result.id.startsWith('A/')).toBe(true);
+
+    const ids = getAllNotes().map((n) => n.id).sort();
+    expect(ids).toContain('A/note');
+    expect(ids).toContain(result.id);
+  });
+
+  it('moveNotesUnderPrefix relocates every nested note', async () => {
+    await testFS.writeNote('Specs/a', 'a body');
+    await testFS.writeNote('Specs/sub/b', 'b body');
+    await testFS.writeNote('top', 'top body');
+
+    const { initNotes, moveNotesUnderPrefix, getAllNotes } = await freshNotes();
+    await initNotes();
+
+    await moveNotesUnderPrefix('Specs', 'Designs');
+
+    const ids = getAllNotes().map((n) => n.id).sort();
+    expect(ids).toContain('Designs/a');
+    expect(ids).toContain('Designs/sub/b');
+    expect(ids).toContain('top');
+    expect(ids).not.toContain('Specs/a');
+    expect(ids).not.toContain('Specs/sub/b');
+  });
+
+  it('moveNotesUnderPrefix is idempotent when fs.renameFolder ran first', async () => {
+    // Regression: production flow runs `fs.renameFolder` (which atomically
+    // moves every contained file) BEFORE `moveNotesUnderPrefix`. The
+    // earlier impl tried to `moveNote(oldId, newId)` per child and failed
+    // because the source files had already been moved — leaving notesCache
+    // stuck at stale IDs and breaking note-open after drag-drop.
+    await testFS.writeNote('Specs/a', 'a body');
+    await testFS.writeNote('Specs/sub/b', 'see [[Specs/a]]');
+
+    const { initNotes, moveNotesUnderPrefix, getAllNotes, readNote } = await freshNotes();
+    await initNotes();
+
+    // Caller-side rename (DrawerSidebar path).
+    await testFS.renameFolder('Specs', 'Designs');
+    // Now reconcile in-memory state. Must not throw, must end with new IDs.
+    await moveNotesUnderPrefix('Specs', 'Designs');
+
+    const ids = getAllNotes().map((n) => n.id).sort();
+    expect(ids).toEqual(['Designs/a', 'Designs/sub/b']);
+
+    // Wikilink targeting the old ID should have been rewritten.
+    const body = await readNote('Designs/sub/b');
+    expect(body).toContain('[[Designs/a]]');
+    expect(body).not.toContain('[[Specs/a]]');
+  });
+});

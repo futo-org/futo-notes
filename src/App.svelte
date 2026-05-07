@@ -8,7 +8,7 @@
   if (showTitlebar) {
     document.documentElement.style.setProperty('--titlebar-height', '36px');
   }
-  import { initNotes, createNote, getAllNotes, _injectTestNote } from '$lib/notes.svelte';
+  import { initNotes, createNote, getAllNotes, _injectTestNote, moveNote as moveNoteWithCollisionHandling } from '$lib/notes.svelte';
   import { loadPreferences, getCachedPreferences, savePreferences } from '$lib/appState';
   import { applyThemePreference, watchSystemThemeTauri } from '$lib/theme';
   import { flushCrashQueue, setAppVersion, type CrashReport } from '$lib/crashHandler';
@@ -115,6 +115,17 @@
               deleteNoteFile: (id: string) => fs.deleteNoteFile(id),
               deleteAllContent: () => fs.deleteAllContent(),
               noteExists: (id: string) => fs.noteExists(id),
+              // Folder ops — exposed for cross-platform sync tests covering
+              // the conflict-resolution table in the folder-support spec.
+              listFolders: () => fs.listFolders?.(),
+              createFolder: (path: string) => fs.createFolder?.(path),
+              renameFolder: (from: string, to: string) => fs.renameFolder?.(from, to),
+              deleteFolder: (path: string) => fs.deleteFolder?.(path),
+              moveNote: (fromId: string, toId: string) => fs.moveNote?.(fromId, toId),
+              // High-level move that suffixes the incoming file when the
+              // destination already exists (Spec § 4 sync conflict row).
+              moveNoteWithCollisions: (fromId: string, toId: string) =>
+                moveNoteWithCollisionHandling(fromId, toId),
             };
             installTestSync();
             installTestInference();

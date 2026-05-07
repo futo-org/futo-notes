@@ -114,25 +114,69 @@ pub fn is_valid_title(title: &str) -> bool {
 
 // ── Path safety (from core.rs) ──────────────────────────────────────────
 
-/// Validate a note ID: rejects empty, path traversal (`..`, `.`, `/`, `\`),
-/// and forbidden filesystem characters (`< > : " | ? *`, control chars).
+/// Maximum folder depth for note paths. Matches `MAX_FOLDER_DEPTH` in
+/// `packages/shared/src/filename.ts`. A note at the root has depth 0;
+/// `Specs/folder-support` has depth 1; the limit is applied to the
+/// number of folder components above the leaf.
+pub const MAX_FOLDER_DEPTH: usize = 10;
+
+/// Forbidden character set for a single path component. Same as
+/// `is_forbidden_char` but with `/` and `\` excluded — those are valid
+/// path separators in a note ID, so we check them at the splitter
+/// instead of the per-component check.
+fn is_forbidden_in_component(c: char) -> bool {
+    matches!(c, '<' | '>' | ':' | '"' | '|' | '?' | '*') || c.is_control()
+}
+
+/// True if a single path component (one segment between `/`) is invalid.
+fn component_invalid(component: &str) -> bool {
+    if component.is_empty() || component == "." || component == ".." {
+        return true;
+    }
+    component.chars().any(is_forbidden_in_component)
+}
+
+/// Validate a note ID. A note ID is the relative path from the notes
+/// root WITHOUT the `.md` extension. Forward slashes are allowed as
+/// path separators between valid components; backslashes are not.
+///
+/// Rejects: empty, leading/trailing slash, `.` / `..` components,
+/// empty components (double slash), excessive depth, and any component
+/// containing forbidden filesystem characters.
 pub fn ensure_safe_note_id(id: &str) -> Result<(), String> {
     if id.is_empty() {
         return Err("note id cannot be empty".to_string());
     }
-    if id.contains('/') || id.contains('\\') || id == ".." || id == "." {
+    if id.contains('\\') {
         return Err("invalid note id".to_string());
     }
-    if contains_forbidden(id) {
+    if id.starts_with('/') || id.ends_with('/') {
         return Err("invalid note id".to_string());
+    }
+    let components: Vec<&str> = id.split('/').collect();
+    // Folder depth = number of components above the leaf. Reject anything
+    // that would create a folder tree deeper than MAX_FOLDER_DEPTH.
+    if components.len().saturating_sub(1) > MAX_FOLDER_DEPTH {
+        return Err("note id exceeds maximum folder depth".to_string());
+    }
+    for component in &components {
+        if component_invalid(component) {
+            return Err("invalid note id".to_string());
+        }
     }
     Ok(())
 }
 
 /// Build the full `.md` path for a note ID, after safety validation.
+/// Note IDs may contain forward slashes — each segment becomes a folder.
 pub fn safe_note_path(base: &Path, id: &str) -> Result<PathBuf, String> {
     ensure_safe_note_id(id)?;
-    Ok(base.join(format!("{id}.md")))
+    let mut path = base.to_path_buf();
+    for component in id.split('/') {
+        path.push(component);
+    }
+    path.set_extension("md");
+    Ok(path)
 }
 
 /// Build a path under `base` from a relative path, rejecting traversal.
@@ -215,6 +259,25 @@ pub fn note_id_from_filename(name: &str) -> Option<String> {
     Some(id.to_string())
 }
 
+/// Convert a relative path under the notes root (e.g. `Specs/foo.md`)
+/// into a note ID (e.g. `Specs/foo`). Returns `None` for non-`.md` paths
+/// or if the resulting ID would be empty. Paths are normalized to use
+/// forward slashes so the ID format matches across Windows / Unix.
+pub fn note_id_from_relative_path(rel: &str) -> Option<String> {
+    let normalized = rel.replace('\\', "/");
+    let id = normalized.strip_suffix(".md")?;
+    if id.is_empty() {
+        return None;
+    }
+    if id.contains("//") {
+        return None;
+    }
+    if id.starts_with('/') || id.ends_with('/') {
+        return None;
+    }
+    Some(id.to_string())
+}
+
 /// Find a unique note ID by appending `-2`, `-3`, ... if needed.
 /// If `wanted` matches `exclude`, it is returned directly (used for renames).
 pub fn get_unique_note_id(
@@ -274,8 +337,50 @@ mod tests {
     fn safe_id_rejects_traversal() {
         assert!(ensure_safe_note_id("..").is_err());
         assert!(ensure_safe_note_id(".").is_err());
-        assert!(ensure_safe_note_id("foo/bar").is_err());
+        assert!(ensure_safe_note_id("foo/..").is_err());
+        assert!(ensure_safe_note_id("../foo").is_err());
+        assert!(ensure_safe_note_id("foo/./bar").is_err());
         assert!(ensure_safe_note_id("foo\\bar").is_err());
+        assert!(ensure_safe_note_id("/foo").is_err());
+        assert!(ensure_safe_note_id("foo/").is_err());
+        assert!(ensure_safe_note_id("foo//bar").is_err());
+    }
+
+    #[test]
+    fn safe_id_accepts_path_components() {
+        assert!(ensure_safe_note_id("Specs/folder-support").is_ok());
+        assert!(ensure_safe_note_id("a/b/c").is_ok());
+    }
+
+    #[test]
+    fn safe_id_rejects_excessive_depth() {
+        let too_deep = (0..MAX_FOLDER_DEPTH + 2)
+            .map(|i| format!("d{i}"))
+            .collect::<Vec<_>>()
+            .join("/");
+        assert!(ensure_safe_note_id(&too_deep).is_err());
+    }
+
+    #[test]
+    fn safe_note_path_handles_nested_id() {
+        let base = Path::new("/tmp/test");
+        let p = safe_note_path(base, "Specs/folder-support").unwrap();
+        assert_eq!(p, PathBuf::from("/tmp/test/Specs/folder-support.md"));
+    }
+
+    #[test]
+    fn note_id_from_relative_path_works() {
+        assert_eq!(note_id_from_relative_path("foo.md"), Some("foo".into()));
+        assert_eq!(
+            note_id_from_relative_path("Specs/foo.md"),
+            Some("Specs/foo".into()),
+        );
+        assert_eq!(
+            note_id_from_relative_path("Specs\\foo.md"),
+            Some("Specs/foo".into()),
+        );
+        assert_eq!(note_id_from_relative_path(".md"), None);
+        assert_eq!(note_id_from_relative_path("foo.txt"), None);
     }
 
     #[test]
@@ -752,15 +857,20 @@ mod tests {
 
     #[test]
     fn safe_id_rejects_path_traversal_variants() {
+        // Forward-slash separated path components are LEGAL post-folder-support
+        // (a note ID like `Specs/foo` is valid). We still reject backslash,
+        // dot/dotdot components, and absolute or empty boundary cases.
         let attacks = [
             "..",
             ".",
-            "foo/bar",
             "foo\\bar",
             "../etc/passwd",
             "..\\windows\\system32",
             "foo/../bar",
             "foo/./bar",
+            "/foo",
+            "foo/",
+            "foo//bar",
         ];
         for attack in &attacks {
             assert!(

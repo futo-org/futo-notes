@@ -4,9 +4,11 @@ import {
   deleteNoteFile,
   deleteAllContent,
   renameNote as renameNoteFile,
-  getUniqueNoteId
+  getUniqueNoteId,
+  readNote as readNoteFile,
 } from './fileSystem';
 import { ensureNotesFolder, getFS, getPlatformFS } from './platform';
+import { idLeaf } from './platform/pathSafety';
 import { pauseSyncV2, resumeSyncV2, waitForSyncIdleV2 } from './autoSyncV2';
 import { extractTags } from '@futo-notes/shared';
 import { scanNotePreviewsWithBodies, makePreview } from './notesIndex';
@@ -22,6 +24,9 @@ import {
   clearSearchIndex,
 } from './searchIndex';
 import { runPool } from './util/pool';
+import { rewriteWikilinks } from './wikilinks';
+import { refreshEmptyFolders } from './folders.svelte';
+import { writeSuppressor } from './writeSuppression';
 
 // Matches notesIndex.ts READ_POOL_CONCURRENCY.
 const RECONCILE_CONCURRENCY = 8;
@@ -48,6 +53,12 @@ export function _injectTestNote(id: string, title: string): void {
   notesCache.push({ id, title, preview: '', modificationTime: Date.now(), tags: [] });
 }
 
+/** A note's display title is the leaf component of its path-ID — the
+ *  filename without `.md` and without parent folders. */
+export function noteTitleFromId(id: string): string {
+  return idLeaf(id);
+}
+
 export async function initNotes(onStep?: (label: string) => void): Promise<void> {
   if (initialized) return;
 
@@ -59,6 +70,13 @@ export async function initNotes(onStep?: (label: string) => void): Promise<void>
   onStep?.('initNotes: scanNotePreviewsWithBodies');
   const { previews, freshBodies } = await scanNotePreviewsWithBodies(getFS());
   notesCache = previews;
+
+  // Hydrate the empty-folder set from disk so user-created folders that
+  // contain no notes still show up after reload. Background — never
+  // block the UI on this.
+  void refreshEmptyFolders(previews).catch((err) => {
+    console.warn('Empty-folder refresh failed:', err);
+  });
 
   // Build the search index in the background. Search awaits
   // searchIndexReady, but the UI can render the note list immediately.
@@ -117,7 +135,7 @@ async function buildSearchIndexFromScratch(
   for (const note of notesCache) {
     const body = freshBodies?.get(note.id);
     if (body !== undefined) {
-      addToSearchIndex({ id: note.id, title: note.id, body, mtime: note.modificationTime });
+      addToSearchIndex({ id: note.id, title: noteTitleFromId(note.id), body, mtime: note.modificationTime });
     } else {
       stillNeeded.push(note);
     }
@@ -128,7 +146,7 @@ async function buildSearchIndexFromScratch(
   await runPool(stillNeeded, RECONCILE_CONCURRENCY, async (note) => {
     try {
       const body = await fs.readNote(note.id);
-      addToSearchIndex({ id: note.id, title: note.id, body, mtime: note.modificationTime });
+      addToSearchIndex({ id: note.id, title: noteTitleFromId(note.id), body, mtime: note.modificationTime });
     } catch {
       // Skip unreadable files
     }
@@ -154,7 +172,7 @@ async function reconcileSearchIndex(freshBodies?: Map<string, string>): Promise<
     if (mtimes[note.id] === note.modificationTime) continue;
     const cachedBody = freshBodies?.get(note.id);
     if (cachedBody !== undefined) {
-      addToSearchIndex({ id: note.id, title: note.id, body: cachedBody, mtime: note.modificationTime });
+      addToSearchIndex({ id: note.id, title: noteTitleFromId(note.id), body: cachedBody, mtime: note.modificationTime });
     } else {
       toRead.push(note);
     }
@@ -164,7 +182,7 @@ async function reconcileSearchIndex(freshBodies?: Map<string, string>): Promise<
   await runPool(toRead, RECONCILE_CONCURRENCY, async (note) => {
     try {
       const body = await fs.readNote(note.id);
-      addToSearchIndex({ id: note.id, title: note.id, body, mtime: note.modificationTime });
+      addToSearchIndex({ id: note.id, title: noteTitleFromId(note.id), body, mtime: note.modificationTime });
     } catch {
       // Skip unreadable files
     }
@@ -180,6 +198,12 @@ export async function refreshNotesFromStorage(): Promise<void> {
   searchIndexReady = prior.then(() => reconcileSearchIndex(freshBodies));
   await searchIndexReady;
   void persistIndex();
+  // Reconcile the empty-folder set against disk after any bulk refresh
+  // (sync apply, watcher rebuild, folder operation). Background — the
+  // sidebar doesn't gate on this.
+  void refreshEmptyFolders(previews).catch((err) => {
+    console.warn('Empty-folder refresh failed:', err);
+  });
 }
 
 export async function refreshNotesAfterSync(_updatedIds: string[], _deletedIds: string[]): Promise<void> {
@@ -200,12 +224,12 @@ export async function createNote(id: string, content: string, overrideMtime?: nu
 
   notesCache.push({
     id,
-    title: id,
+    title: noteTitleFromId(id),
     preview: makePreview(content),
     modificationTime: mtime,
     tags: extractTags(content),
   });
-  addToSearchIndex({ id, title: id, body: content, mtime });
+  addToSearchIndex({ id, title: noteTitleFromId(id), body: content, mtime });
 
   return { id, mtime };
 }
@@ -223,13 +247,14 @@ export async function updateNote(
   if (originalId && originalId !== finalId) {
     mtime = await renameNoteFile(originalId, finalId, content, overrideMtime);
     removeFromSearchIndex(originalId);
+    await rewriteWikilinksForRename(originalId, finalId);
   } else {
     mtime = await writeNote(finalId, content, overrideMtime);
   }
 
   const preview: NotePreview = {
     id: finalId,
-    title: finalId,
+    title: noteTitleFromId(finalId),
     preview: makePreview(content),
     modificationTime: mtime,
     tags: extractTags(content),
@@ -237,9 +262,130 @@ export async function updateNote(
   const idx = notesCache.findIndex(n => n.id === (originalId ?? finalId));
   if (idx >= 0) notesCache[idx] = preview; else notesCache.push(preview);
 
-  addToSearchIndex({ id: finalId, title: finalId, body: content, mtime });
+  addToSearchIndex({ id: finalId, title: noteTitleFromId(finalId), body: content, mtime });
 
   return { id: finalId, mtime };
+}
+
+/**
+ * Rewrite every wikilink in every other note that targets `oldId` to
+ * point at `newId`. Touches only notes whose body actually contains a
+ * wikilink — we read each note, run `rewriteWikilinks`, and only write
+ * back if the body changed. The rewrites become regular note edits that
+ * sync as content changes.
+ */
+export async function rewriteWikilinksForRename(
+  oldId: string,
+  newId: string,
+): Promise<void> {
+  if (oldId === newId) return;
+  const fs = getFS();
+  const allIds = notesCache.map((n) => n.id);
+  // Read in a bounded pool so a large vault doesn't block on serial IPC.
+  await runPool(notesCache.slice(), RECONCILE_CONCURRENCY, async (note) => {
+    if (note.id === newId || note.id === oldId) return;
+    let body: string;
+    try {
+      body = await readNoteFile(note.id);
+    } catch {
+      return;
+    }
+    if (!body.includes('[[')) return;
+    const result = rewriteWikilinks(body, oldId, newId, allIds);
+    if (result.rewrites === 0 || result.text === body) return;
+    try {
+      const newMtime = await fs.writeNote(note.id, result.text);
+      const idx = notesCache.findIndex((n) => n.id === note.id);
+      if (idx >= 0) {
+        notesCache[idx] = {
+          ...notesCache[idx],
+          preview: makePreview(result.text),
+          modificationTime: newMtime,
+          tags: extractTags(result.text),
+        };
+      }
+      addToSearchIndex({ id: note.id, title: noteTitleFromId(note.id), body: result.text, mtime: newMtime });
+    } catch (err) {
+      console.warn(`[wikilink-rewrite] Failed to update ${note.id}:`, err);
+    }
+  });
+}
+
+/**
+ * Move a note from `fromId` to `toId`. Renames the file on disk
+ * (creating folders as needed) and rewrites every wikilink in every
+ * other note that targets `fromId`. Returns the final ID, which may
+ * differ from the requested `toId` if a file already exists there.
+ */
+export async function moveNote(
+  fromId: string,
+  toId: string,
+): Promise<{ id: string; mtime: number }> {
+  if (fromId === toId) {
+    const note = notesCache.find((n) => n.id === fromId);
+    return { id: fromId, mtime: note?.modificationTime ?? Date.now() };
+  }
+  const finalId = await getUniqueNoteId(toId);
+  const content = await readNoteFile(fromId);
+  return updateNote(finalId, finalId, content, fromId);
+}
+
+/**
+ * Re-base every cached note whose ID lives under `fromPrefix` to live
+ * under `toPrefix`. Idempotent across two starting states:
+ *
+ *   - If the folder still exists on disk at the old prefix, this fn
+ *     issues `fs.renameFolder` to move every file in the subtree
+ *     atomically before reconciling.
+ *   - If the caller already ran `fs.renameFolder` (the typical sidebar
+ *     drag-drop / rename path, which needs to validate before touching
+ *     the file tree), the rename below is skipped.
+ *
+ * In both cases we then refresh notesCache from disk and rewrite every
+ * wikilink in every other note that targets one of the moved IDs.
+ */
+export async function moveNotesUnderPrefix(
+  fromPrefix: string,
+  toPrefix: string,
+): Promise<void> {
+  if (fromPrefix === toPrefix) return;
+  const fs = getFS();
+  // Snapshot (oldId, newId) pairs from the current cache before any
+  // refresh — the refresh replaces cache contents with new-prefix IDs.
+  const pairs: Array<[string, string]> = [];
+  for (const note of notesCache) {
+    if (note.id === fromPrefix || note.id.startsWith(`${fromPrefix}/`)) {
+      const tail = note.id === fromPrefix ? '' : note.id.slice(fromPrefix.length + 1);
+      const newId = tail ? `${toPrefix}/${tail}` : toPrefix;
+      pairs.push([note.id, newId]);
+    }
+  }
+  // Suppress watcher events for every affected path before the FS work.
+  // Without this, an active note under `fromPrefix` sees a watcher unlink
+  // and syncManager fires "Note deleted externally", clobbering session
+  // state. The 1s TTL covers debounce + dispatch latency.
+  for (const [oldId, newId] of pairs) {
+    writeSuppressor.recordWrite(`${oldId}.md`);
+    writeSuppressor.recordWrite(`${newId}.md`);
+  }
+  // Try the FS-level rename. If the caller already moved the folder
+  // (DrawerSidebar's drag-drop path validates and renames before calling
+  // us), fs.renameFolder errors with "source folder does not exist" —
+  // ignore and proceed with cache + wikilink reconciliation.
+  if (fs.renameFolder) {
+    try {
+      await fs.renameFolder(fromPrefix, toPrefix);
+    } catch (err) {
+      const msg = (err as Error).message ?? '';
+      if (!/does not exist/i.test(msg)) {
+        console.warn(`[moveNotesUnderPrefix] renameFolder failed: ${msg}`);
+      }
+    }
+  }
+  await refreshNotesFromStorage();
+  for (const [oldId, newId] of pairs) {
+    await rewriteWikilinksForRename(oldId, newId);
+  }
 }
 
 export async function deleteNote(id: string): Promise<void> {
@@ -293,7 +439,9 @@ export async function searchKeyword(query: string): Promise<SearchResultItem[]> 
 export async function handleExternalFileChange(
   filename: string,
 ): Promise<NotePreview | null> {
-  const id = filename.replace(/\.md$/, '');
+  // Filename is now the relative path under the notes root (e.g.
+  // `Specs/foo.md`); strip `.md` to get the ID.
+  const id = filename.replace(/\\/g, '/').replace(/\.md$/, '');
 
   await refreshNotesFromStorage();
   return getNoteById(id) ?? null;

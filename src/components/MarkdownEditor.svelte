@@ -641,7 +641,7 @@
         '&': { height: 'auto', fontSize: '18px' },
         '.cm-content': {
           padding: '0',
-          fontFamily: "'Outfit', 'GeneralSans', system-ui, sans-serif",
+          fontFamily: "'Barlow', system-ui, sans-serif",
         },
         '.cm-focused': { outline: 'none' }
       }),
@@ -826,6 +826,7 @@
     setContent(c, EXTERNAL_UPDATE_OPTS);
   });
 
+
   $effect(() => {
     const v = view;
     const sp = scrollParent;
@@ -877,6 +878,20 @@
     if (!view.hasFocus) {
       view.contentDOM.dispatchEvent(new FocusEvent('focus', { bubbles: true }));
     }
+  }
+
+  /**
+   * Re-run the live-markdown decoration pass without changing the doc.
+   *
+   * Wikilink display uses the shortest-unique-suffix rule across the
+   * full note index (see Spec § Wikilinks/Display). When a note is
+   * added, removed, or moved elsewhere, the open editor's wikilink
+   * widgets need to recompute. The shell calls this from a $effect on
+   * the notes-cache so the visible doc tracks the new universe.
+   */
+  export function refreshDecorations(): void {
+    if (!view) return;
+    view.dispatch({ effects: liveMarkdownRefresh.of(null) });
   }
 
   export function placeCaretAtEnd(): void {

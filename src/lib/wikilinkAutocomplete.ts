@@ -3,12 +3,15 @@ import type { CompletionContext, CompletionResult, Completion } from '@codemirro
 import { EditorView } from '@codemirror/view';
 import { getAllNotes } from '$lib/notes.svelte';
 import { searchNotes } from '$lib/searchIndex';
+import { shortestUniqueSuffix } from '$lib/wikilinks';
 
-function makeApply(title: string) {
+function makeApply(fullPath: string) {
   return (view: EditorView, _completion: Completion, from: number, to: number) => {
-    // `from` is after [[, `to` is cursor position — replace with title]]
+    // Insert the full path so the on-disk wikilink is unambiguous,
+    // even when the displayed/dropdown text is just the shortest
+    // unique suffix.
     view.dispatch({
-      changes: { from, to, insert: `${title}]]` }
+      changes: { from, to, insert: `${fullPath}]]` }
     });
   };
 }
@@ -18,6 +21,22 @@ function wikilinkCompletions(context: CompletionContext): CompletionResult | nul
   if (!match) return null;
 
   const query = match.text.slice(2); // text after [[
+  const allNotes = getAllNotes();
+  const allIds = allNotes.map((n) => n.id);
+
+  /** Build a Completion entry: label is the shortest unique suffix
+   *  (what the user sees in the dropdown), but `apply` inserts the full
+   *  path so the on-disk wikilink resolves unambiguously. */
+  const buildCompletion = (id: string): Completion => {
+    const display = shortestUniqueSuffix(id, allIds);
+    // `detail` shows the full path next to the label so collisions are
+    // resolvable visually when two suffixes are identical.
+    return {
+      label: display,
+      detail: display === id ? undefined : id,
+      apply: makeApply(id),
+    };
+  };
 
   let options: Completion[];
 
@@ -25,29 +44,21 @@ function wikilinkCompletions(context: CompletionContext): CompletionResult | nul
     // Ranked search via MiniSearch, fallback to substring filter
     const hits = searchNotes(query);
     if (hits.length > 0) {
-      options = hits.slice(0, 20).map(hit => ({
-        label: hit.noteId,
-        apply: makeApply(hit.noteId)
-      }));
+      options = hits.slice(0, 20).map((hit) => buildCompletion(hit.noteId));
     } else {
       const lowerQ = query.toLowerCase();
-      options = getAllNotes()
-        .filter(n => n.title.toLowerCase().includes(lowerQ))
+      options = allNotes
+        .filter((n) => n.id.toLowerCase().includes(lowerQ))
         .slice(0, 20)
-        .map(n => ({
-          label: n.title,
-          apply: makeApply(n.title)
-        }));
+        .map((n) => buildCompletion(n.id));
     }
   } else {
     // No query — show 20 most recent notes
-    options = getAllNotes()
+    options = allNotes
+      .slice()
       .sort((a, b) => b.modificationTime - a.modificationTime)
       .slice(0, 20)
-      .map(n => ({
-        label: n.title,
-        apply: makeApply(n.title)
-      }));
+      .map((n) => buildCompletion(n.id));
   }
 
   if (options.length === 0) return null;

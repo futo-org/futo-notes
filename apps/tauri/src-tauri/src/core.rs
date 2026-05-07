@@ -1,6 +1,6 @@
 use notify::{
-    event::ModifyKind, Config as NotifyConfig, Event, EventKind, RecommendedWatcher, RecursiveMode,
-    Watcher,
+    event::{ModifyKind, RenameMode},
+    Config as NotifyConfig, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -13,6 +13,7 @@ use futo_notes_core::files::{file_mtime_ms, safe_note_path, set_file_mtime_ms};
 #[cfg(test)]
 use futo_notes_core::hash::hash_sha256_bytes;
 use tauri::{AppHandle, Emitter, Manager, State};
+use walkdir::WalkDir;
 
 pub(crate) use futo_notes_core::files::{now_ms, write_atomic_text};
 
@@ -20,7 +21,20 @@ pub(crate) use futo_notes_core::files::{now_ms, write_atomic_text};
 pub struct CoreState {
     watcher: Arc<Mutex<Option<RecommendedWatcher>>>,
     suppressed_watcher_events: Arc<Mutex<HashMap<String, i64>>>,
+    /// Pending rename "From" events keyed by the OS-provided tracker cookie.
+    /// `notify` emits Name(RenameMode::From) and ::To as a pair sharing one
+    /// cookie when an entry is renamed in place. We hold the From for a
+    /// short window and emit a single `rename` event when its To partner
+    /// lands; an unmatched From after the window flushes as a delete.
+    pending_renames: Arc<Mutex<HashMap<u128, PendingRename>>>,
 }
+
+struct PendingRename {
+    from_path: PathBuf,
+    inserted_at: i64,
+}
+
+const RENAME_PAIR_TIMEOUT_MS: i64 = 500;
 
 const WATCHER_SUPPRESSION_MS: i64 = 5_000;
 
@@ -149,6 +163,30 @@ pub struct V2SyncApplyOutput {
     pub elapsed_ms: u128,
 }
 
+/// Validate that `rel` is a safe relative path under the notes root: no
+/// absolute roots, no `..` traversal, no empty components, must end in
+/// `.md`. Returns the validated joined path.
+fn safe_relative_md_path(base: &Path, rel: &str) -> Result<PathBuf, String> {
+    if rel.is_empty() {
+        return Err("empty path".into());
+    }
+    let normalized = rel.replace('\\', "/");
+    if normalized.starts_with('/') || normalized.ends_with('/') {
+        return Err("invalid relative path".into());
+    }
+    let mut path = base.to_path_buf();
+    for component in normalized.split('/') {
+        if component.is_empty() || component == "." || component == ".." {
+            return Err("invalid path component".into());
+        }
+        path.push(component);
+    }
+    if !normalized.ends_with(".md") {
+        return Err("path must end in .md".into());
+    }
+    Ok(path)
+}
+
 fn apply_sync_delta_v2_impl(
     base: &Path,
     suppressed_watcher_events: &Arc<Mutex<HashMap<String, i64>>>,
@@ -171,15 +209,22 @@ fn apply_sync_delta_v2_impl(
     // Delete files
     for filename in &input.delete {
         suppress_filename(filename);
-        let path = base.join(filename);
+        let path = match safe_relative_md_path(base, filename) {
+            Ok(p) => p,
+            Err(_) => continue,
+        };
         let _ = fs::remove_file(&path);
+        // Best-effort: prune now-empty parent folders so the sidebar
+        // doesn't keep ghost folders after a peer-driven note delete.
+        prune_empty_parent_dirs(base, &path);
         deleted_filenames.push(filename.clone());
     }
 
     // Write updates
     for update in &input.update {
         suppress_filename(&update.filename);
-        let path = base.join(&update.filename);
+        let path = safe_relative_md_path(base, &update.filename)?;
+        // write_atomic_text already calls fs::create_dir_all on the parent.
         write_atomic_text(&path, &update.content)?;
 
         // 0 means "no timestamp from server" — keep the filesystem's own mtime
@@ -193,7 +238,7 @@ fn apply_sync_delta_v2_impl(
     // Write conflict copies
     for conflict in &input.conflicts {
         suppress_filename(&conflict.filename);
-        let path = base.join(&conflict.filename);
+        let path = safe_relative_md_path(base, &conflict.filename)?;
         write_atomic_text(&path, &conflict.content)?;
         conflict_filenames.push(conflict.filename.clone());
     }
@@ -202,7 +247,10 @@ fn apply_sync_delta_v2_impl(
     // This fixes files that were already up-to-date (same hash) but had wrong mtimes.
     for (filename, server_mtime) in &input.timestamps {
         if *server_mtime > 0 {
-            let path = base.join(filename);
+            let path = match safe_relative_md_path(base, filename) {
+                Ok(p) => p,
+                Err(_) => continue,
+            };
             if let Ok(meta) = fs::metadata(&path) {
                 if file_mtime_ms(&meta) != *server_mtime {
                     suppress_filename(filename);
@@ -218,6 +266,39 @@ fn apply_sync_delta_v2_impl(
         conflict_filenames,
         elapsed_ms: started.elapsed().as_millis(),
     })
+}
+
+/// Walk up from `path` removing empty directories until we hit `base` or
+/// a non-empty directory. Skips removal of `base` itself.
+fn prune_empty_parent_dirs(base: &Path, path: &Path) {
+    let mut cursor = match path.parent() {
+        Some(p) => p.to_path_buf(),
+        None => return,
+    };
+    loop {
+        if cursor == base {
+            return;
+        }
+        if !cursor.starts_with(base) {
+            return;
+        }
+        match fs::read_dir(&cursor) {
+            Ok(mut iter) => {
+                if iter.next().is_some() {
+                    return;
+                }
+            }
+            Err(_) => return,
+        }
+        if fs::remove_dir(&cursor).is_err() {
+            return;
+        }
+        let parent = match cursor.parent() {
+            Some(p) => p.to_path_buf(),
+            None => return,
+        };
+        cursor = parent;
+    }
 }
 
 #[tauri::command]
@@ -236,19 +317,49 @@ pub async fn core_apply_sync_delta_v2(
 }
 
 
-fn map_notify_event(event: &Event) -> Option<&'static str> {
-    match event.kind {
-        EventKind::Create(_) => Some("add"),
-        // Ignore metadata-only changes (atime, permissions) — they don't affect
-        // note content and on iOS/macOS kqueue fires these spuriously.
+/// Classify a notify event into a UI-facing change type. Rename events
+/// are surfaced separately by the watcher loop using the cookie-pairing
+/// buffer, so we treat them as None here and let the caller dispatch.
+#[derive(Debug, PartialEq, Eq)]
+enum MappedEvent {
+    Add,
+    Change,
+    Unlink,
+    /// Rename From — the watcher should hold this with its cookie.
+    RenameFrom,
+    /// Rename To — the watcher should pair this with a previously-seen From.
+    RenameTo,
+}
+
+fn map_notify_event(event: &Event) -> Option<MappedEvent> {
+    match &event.kind {
+        EventKind::Create(_) => Some(MappedEvent::Add),
         EventKind::Modify(ModifyKind::Metadata(_)) => None,
-        EventKind::Modify(_) => Some("change"),
-        EventKind::Remove(_) => Some("unlink"),
+        EventKind::Modify(ModifyKind::Name(RenameMode::From)) => Some(MappedEvent::RenameFrom),
+        EventKind::Modify(ModifyKind::Name(RenameMode::To)) => Some(MappedEvent::RenameTo),
+        EventKind::Modify(ModifyKind::Name(RenameMode::Both)) => Some(MappedEvent::RenameTo),
+        EventKind::Modify(_) => Some(MappedEvent::Change),
+        EventKind::Remove(_) => Some(MappedEvent::Unlink),
         _ => None,
     }
 }
 
-/// One-shot readdir+stat for `.md` files, sorted by mtime desc.
+/// Convert an absolute path inside `base` to the relative-path identifier
+/// the JS layer uses (forward slashes, .md kept). Returns None if the
+/// path is not under `base` or has no `.md` extension.
+fn relative_md_path(base: &Path, path: &Path) -> Option<String> {
+    let stripped = path.strip_prefix(base).ok()?;
+    let s = stripped.to_str()?;
+    if !s.ends_with(".md") && !s.ends_with(".txt") {
+        return None;
+    }
+    // Normalize `\` to `/` for cross-platform consistency.
+    Some(s.replace('\\', "/"))
+}
+
+/// One-shot recursive readdir+stat for `.md` files, sorted by mtime desc.
+/// `name` is the relative path from the notes root (e.g. `Specs/foo.md`)
+/// using forward slashes on every platform.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NoteFileMeta {
@@ -258,35 +369,42 @@ pub struct NoteFileMeta {
 }
 
 fn fs_list_notes_with_meta_impl(base: &Path) -> Result<Vec<NoteFileMeta>, String> {
+    if !base.exists() {
+        return Ok(Vec::new());
+    }
     let mut entries: Vec<NoteFileMeta> = Vec::new();
 
-    let read_dir = match fs::read_dir(base) {
-        Ok(rd) => rd,
-        Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(entries),
-        Err(err) => return Err(io_err_to_string(err)),
-    };
+    let walker = WalkDir::new(base)
+        // Don't follow symlinks — see Spec §"Out of scope for v1: Symlinks".
+        .follow_links(false)
+        .max_depth(futo_notes_core::files::MAX_FOLDER_DEPTH + 2)
+        .into_iter()
+        .filter_entry(|e| {
+            // Skip hidden directories — keep `.git`, `.obsidian`, etc. out
+            // of the index and out of the watcher.
+            if e.depth() == 0 {
+                return true;
+            }
+            let name = e.file_name().to_string_lossy();
+            !name.starts_with('.')
+        });
 
-    for entry in read_dir.flatten() {
-        let file_type = match entry.file_type() {
-            Ok(t) => t,
-            Err(_) => continue,
-        };
+    for entry in walker.flatten() {
+        let file_type = entry.file_type();
         if !file_type.is_file() {
             continue;
         }
-        let name = match entry.file_name().into_string() {
-            Ok(s) => s,
-            Err(_) => continue,
+        let path = entry.path();
+        let rel = match relative_md_path(base, path) {
+            Some(r) if r.ends_with(".md") => r,
+            _ => continue,
         };
-        if !name.ends_with(".md") {
-            continue;
-        }
         let meta = match entry.metadata() {
             Ok(m) => m,
             Err(_) => continue,
         };
         entries.push(NoteFileMeta {
-            name,
+            name: rel,
             mtime_ms: file_mtime_ms(&meta),
             size_bytes: meta.len(),
         });
@@ -429,10 +547,77 @@ pub async fn fs_paste_clipboard_image(app: AppHandle) -> Result<String, String> 
     .map_err(task_join_err)?
 }
 
+/// Emit a single `fs:change` event for a relative path under the notes
+/// root. `change_type` is one of "add", "change", "unlink".
+fn emit_fs_change(
+    app: &AppHandle,
+    suppressed: &Arc<Mutex<HashMap<String, i64>>>,
+    change_type: &str,
+    rel_path: &str,
+) {
+    if rel_path.is_empty() {
+        return;
+    }
+    let lower = rel_path.to_lowercase();
+    if !lower.ends_with(".md") && !lower.ends_with(".txt") {
+        return;
+    }
+    let should_suppress = if let Ok(mut map) = suppressed.lock() {
+        let now = now_ms();
+        map.retain(|_, expiry| *expiry > now);
+        map.contains_key(rel_path)
+    } else {
+        false
+    };
+    if should_suppress {
+        return;
+    }
+    let _ = app.emit(
+        "fs:change",
+        serde_json::json!({
+            "type": change_type,
+            "filename": rel_path,
+        }),
+    );
+}
+
+/// Emit a `fs:change` rename event with from/to relative paths.
+fn emit_fs_rename(
+    app: &AppHandle,
+    suppressed: &Arc<Mutex<HashMap<String, i64>>>,
+    from: &str,
+    to: &str,
+) {
+    let suppress_from = if let Ok(mut map) = suppressed.lock() {
+        let now = now_ms();
+        map.retain(|_, expiry| *expiry > now);
+        map.contains_key(from)
+    } else {
+        false
+    };
+    let suppress_to = if let Ok(map) = suppressed.lock() {
+        map.contains_key(to)
+    } else {
+        false
+    };
+    if suppress_from && suppress_to {
+        return;
+    }
+    let _ = app.emit(
+        "fs:change",
+        serde_json::json!({
+            "type": "rename",
+            "filename": to,
+            "from": from,
+        }),
+    );
+}
+
 #[tauri::command]
 pub async fn fs_start_watcher(app: AppHandle, state: State<'_, CoreState>) -> Result<(), String> {
     let watcher_state = state.watcher.clone();
     let suppressed_watcher_events = state.suppressed_watcher_events.clone();
+    let pending_renames = state.pending_renames.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let mut guard = watcher_state
             .lock()
@@ -443,39 +628,178 @@ pub async fn fs_start_watcher(app: AppHandle, state: State<'_, CoreState>) -> Re
 
         let base = notes_root(&app)?;
         let app_handle = app.clone();
+        let watch_base = base.clone();
+        let pending_for_handler = pending_renames.clone();
         let mut watcher = RecommendedWatcher::new(
-            move |res| {
+            move |res: Result<Event, _>| {
                 let Ok(event) = res else {
                     return;
                 };
-                let Some(change_type) = map_notify_event(&event) else {
+                let Some(mapped) = map_notify_event(&event) else {
                     return;
                 };
-                for path in event.paths {
-                    let Some(filename) = path.file_name().and_then(|p| p.to_str()) else {
-                        continue;
-                    };
-                    let lower = filename.to_lowercase();
-                    if !lower.ends_with(".md") && !lower.ends_with(".txt") {
-                        continue;
+
+                // Sweep stale pending-renames into deletes so an isolated
+                // From event without a matching To still gets to the UI.
+                if let Ok(mut pending) = pending_for_handler.lock() {
+                    let now = now_ms();
+                    let stale: Vec<u128> = pending
+                        .iter()
+                        .filter_map(|(k, v)| {
+                            if now - v.inserted_at > RENAME_PAIR_TIMEOUT_MS {
+                                Some(*k)
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+                    for cookie in stale {
+                        if let Some(p) = pending.remove(&cookie) {
+                            if let Some(rel) = relative_md_path(&watch_base, &p.from_path) {
+                                emit_fs_change(
+                                    &app_handle,
+                                    &suppressed_watcher_events,
+                                    "unlink",
+                                    &rel,
+                                );
+                            }
+                        }
                     }
-                    let should_suppress = if let Ok(mut map) = suppressed_watcher_events.lock() {
-                        let now = now_ms();
-                        map.retain(|_, expiry| *expiry > now);
-                        map.contains_key(filename)
-                    } else {
-                        false
-                    };
-                    if should_suppress {
-                        continue;
+                }
+
+                match mapped {
+                    MappedEvent::RenameFrom => {
+                        let cookie = event.attrs.tracker();
+                        let mut paths_iter = event.paths.into_iter();
+                        let first = paths_iter.next();
+                        if let (Some(c), Some(path)) = (cookie, first.clone()) {
+                            if let Ok(mut pending) = pending_for_handler.lock() {
+                                pending.insert(
+                                    c as u128,
+                                    PendingRename {
+                                        from_path: path,
+                                        inserted_at: now_ms(),
+                                    },
+                                );
+                            }
+                            return;
+                        }
+                        // No cookie / no path: best-effort treat as delete.
+                        if let Some(path) = first {
+                            if let Some(rel) = relative_md_path(&watch_base, &path) {
+                                emit_fs_change(
+                                    &app_handle,
+                                    &suppressed_watcher_events,
+                                    "unlink",
+                                    &rel,
+                                );
+                            }
+                        }
+                        for path in paths_iter {
+                            if let Some(rel) = relative_md_path(&watch_base, &path) {
+                                emit_fs_change(
+                                    &app_handle,
+                                    &suppressed_watcher_events,
+                                    "unlink",
+                                    &rel,
+                                );
+                            }
+                        }
                     }
-                    let _ = app_handle.emit(
-                        "fs:change",
-                        serde_json::json!({
-                            "type": change_type,
-                            "filename": filename,
-                        }),
-                    );
+                    MappedEvent::RenameTo => {
+                        let cookie = event.attrs.tracker();
+                        let mut paths_iter = event.paths.into_iter();
+                        let to_path = paths_iter.next();
+                        if let (Some(c), Some(to)) = (cookie, to_path.clone()) {
+                            let from_path = if let Ok(mut pending) = pending_for_handler.lock() {
+                                pending.remove(&(c as u128)).map(|p| p.from_path)
+                            } else {
+                                None
+                            };
+                            if let Some(from) = from_path {
+                                let from_rel = relative_md_path(&watch_base, &from);
+                                let to_rel = relative_md_path(&watch_base, &to);
+                                match (from_rel, to_rel) {
+                                    (Some(f), Some(t)) => emit_fs_rename(
+                                        &app_handle,
+                                        &suppressed_watcher_events,
+                                        &f,
+                                        &t,
+                                    ),
+                                    (Some(f), None) => emit_fs_change(
+                                        &app_handle,
+                                        &suppressed_watcher_events,
+                                        "unlink",
+                                        &f,
+                                    ),
+                                    (None, Some(t)) => emit_fs_change(
+                                        &app_handle,
+                                        &suppressed_watcher_events,
+                                        "add",
+                                        &t,
+                                    ),
+                                    _ => {}
+                                }
+                                return;
+                            }
+                        }
+                        if let Some(path) = to_path {
+                            if let Some(rel) = relative_md_path(&watch_base, &path) {
+                                emit_fs_change(
+                                    &app_handle,
+                                    &suppressed_watcher_events,
+                                    "add",
+                                    &rel,
+                                );
+                            }
+                        }
+                        for path in paths_iter {
+                            if let Some(rel) = relative_md_path(&watch_base, &path) {
+                                emit_fs_change(
+                                    &app_handle,
+                                    &suppressed_watcher_events,
+                                    "add",
+                                    &rel,
+                                );
+                            }
+                        }
+                    }
+                    MappedEvent::Add => {
+                        for path in event.paths {
+                            if let Some(rel) = relative_md_path(&watch_base, &path) {
+                                emit_fs_change(
+                                    &app_handle,
+                                    &suppressed_watcher_events,
+                                    "add",
+                                    &rel,
+                                );
+                            }
+                        }
+                    }
+                    MappedEvent::Change => {
+                        for path in event.paths {
+                            if let Some(rel) = relative_md_path(&watch_base, &path) {
+                                emit_fs_change(
+                                    &app_handle,
+                                    &suppressed_watcher_events,
+                                    "change",
+                                    &rel,
+                                );
+                            }
+                        }
+                    }
+                    MappedEvent::Unlink => {
+                        for path in event.paths {
+                            if let Some(rel) = relative_md_path(&watch_base, &path) {
+                                emit_fs_change(
+                                    &app_handle,
+                                    &suppressed_watcher_events,
+                                    "unlink",
+                                    &rel,
+                                );
+                            }
+                        }
+                    }
                 }
             },
             NotifyConfig::default(),
@@ -483,7 +807,7 @@ pub async fn fs_start_watcher(app: AppHandle, state: State<'_, CoreState>) -> Re
         .map_err(|err| err.to_string())?;
 
         watcher
-            .watch(&base, RecursiveMode::NonRecursive)
+            .watch(&base, RecursiveMode::Recursive)
             .map_err(|err| err.to_string())?;
 
         *guard = Some(watcher);
@@ -519,6 +843,216 @@ pub async fn resolve_default_notes_root(app: AppHandle) -> Result<String, String
     tauri::async_runtime::spawn_blocking(move || {
         let root = default_notes_root(&app)?;
         Ok(root.to_string_lossy().to_string())
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
+// ── Folder operations ──────────────────────────────────────────────────
+
+/// Validate a relative folder path: each component is a valid filename,
+/// no `.` / `..` / empty components, depth within the limit. Returns
+/// the joined absolute path under `base`.
+fn safe_folder_path(base: &Path, rel: &str) -> Result<PathBuf, String> {
+    if rel.is_empty() {
+        return Err("empty folder path".into());
+    }
+    let normalized = rel.replace('\\', "/");
+    if normalized.starts_with('/') || normalized.ends_with('/') {
+        return Err("invalid folder path".into());
+    }
+    let components: Vec<&str> = normalized.split('/').collect();
+    if components.len() > futo_notes_core::files::MAX_FOLDER_DEPTH {
+        return Err("folder depth exceeded".into());
+    }
+    let mut path = base.to_path_buf();
+    for c in &components {
+        if c.is_empty() || *c == "." || *c == ".." {
+            return Err("invalid folder component".into());
+        }
+        path.push(c);
+    }
+    Ok(path)
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderEntry {
+    pub path: String,
+}
+
+fn list_folders_impl(base: &Path) -> Result<Vec<FolderEntry>, String> {
+    if !base.exists() {
+        return Ok(Vec::new());
+    }
+    let mut folders: Vec<FolderEntry> = Vec::new();
+    let walker = WalkDir::new(base)
+        .follow_links(false)
+        .max_depth(futo_notes_core::files::MAX_FOLDER_DEPTH + 1)
+        .into_iter()
+        .filter_entry(|e| {
+            if e.depth() == 0 {
+                return true;
+            }
+            let name = e.file_name().to_string_lossy();
+            !name.starts_with('.')
+        });
+    for entry in walker.flatten() {
+        if !entry.file_type().is_dir() || entry.depth() == 0 {
+            continue;
+        }
+        let path = entry.path();
+        let stripped = match path.strip_prefix(base).ok().and_then(|p| p.to_str()) {
+            Some(s) => s.replace('\\', "/"),
+            None => continue,
+        };
+        folders.push(FolderEntry { path: stripped });
+    }
+    folders.sort_by(|a, b| a.path.cmp(&b.path));
+    Ok(folders)
+}
+
+#[tauri::command]
+pub async fn fs_list_folders(app: AppHandle) -> Result<Vec<FolderEntry>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = notes_root(&app)?;
+        list_folders_impl(&base)
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
+#[tauri::command]
+pub async fn fs_create_folder(app: AppHandle, path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = notes_root(&app)?;
+        let target = safe_folder_path(&base, &path)?;
+        // Case-sensitive sibling collision: refuse to create if any sibling
+        // matches case-insensitively.
+        if let (Some(parent), Some(leaf)) = (target.parent(), target.file_name()) {
+            let leaf_lc = leaf.to_string_lossy().to_lowercase();
+            if let Ok(read) = fs::read_dir(parent) {
+                for entry in read.flatten() {
+                    if entry.path() == target {
+                        continue;
+                    }
+                    let n = entry.file_name();
+                    if n.to_string_lossy().to_lowercase() == leaf_lc {
+                        return Err(format!(
+                            "A folder named \"{}\" already exists at this level",
+                            n.to_string_lossy()
+                        ));
+                    }
+                }
+            }
+        }
+        fs::create_dir_all(&target).map_err(io_err_to_string)?;
+        Ok(())
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
+#[tauri::command]
+pub async fn fs_rename_folder(
+    app: AppHandle,
+    from: String,
+    to: String,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = notes_root(&app)?;
+        let from_abs = safe_folder_path(&base, &from)?;
+        let to_abs = safe_folder_path(&base, &to)?;
+        if !from_abs.exists() {
+            return Err("source folder does not exist".into());
+        }
+        if to_abs.exists() {
+            return Err("target folder already exists".into());
+        }
+        fs::rename(&from_abs, &to_abs).map_err(io_err_to_string)?;
+        Ok(())
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
+#[tauri::command]
+pub async fn fs_delete_folder(app: AppHandle, path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = notes_root(&app)?;
+        let target = safe_folder_path(&base, &path)?;
+        if !target.exists() {
+            return Ok(());
+        }
+        // Desktop: route through the system trash so users can recover.
+        // Mobile: hard delete.
+        #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+        {
+            if let Err(err) = trash::delete(&target) {
+                // Fall back to hard delete if trash isn't available
+                // (e.g. headless CI without a desktop environment).
+                eprintln!("[folder-delete] trash::delete failed: {err}; falling back to hard delete");
+                fs::remove_dir_all(&target).map_err(io_err_to_string)?;
+            }
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+        {
+            fs::remove_dir_all(&target).map_err(io_err_to_string)?;
+        }
+        Ok(())
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
+#[tauri::command]
+pub async fn fs_delete_note_to_trash(app: AppHandle, id: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = notes_root(&app)?;
+        let path = safe_note_path(&base, &id)?;
+        if !path.exists() {
+            return Ok(());
+        }
+        #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+        {
+            if let Err(err) = trash::delete(&path) {
+                eprintln!("[note-delete] trash::delete failed: {err}; falling back to hard delete");
+                fs::remove_file(&path).map_err(io_err_to_string)?;
+            }
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+        {
+            fs::remove_file(&path).map_err(io_err_to_string)?;
+        }
+        prune_empty_parent_dirs(&base, &path);
+        Ok(())
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
+#[tauri::command]
+pub async fn fs_move_note(
+    app: AppHandle,
+    from_id: String,
+    to_id: String,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = notes_root(&app)?;
+        let from_abs = safe_note_path(&base, &from_id)?;
+        let to_abs = safe_note_path(&base, &to_id)?;
+        if !from_abs.exists() {
+            return Err("source note does not exist".into());
+        }
+        if to_abs.exists() {
+            return Err("target note already exists".into());
+        }
+        if let Some(parent) = to_abs.parent() {
+            fs::create_dir_all(parent).map_err(io_err_to_string)?;
+        }
+        fs::rename(&from_abs, &to_abs).map_err(io_err_to_string)?;
+        prune_empty_parent_dirs(&base, &from_abs);
+        Ok(())
     })
     .await
     .map_err(task_join_err)?
@@ -875,15 +1409,188 @@ mod tests {
     }
 
     #[test]
-    fn fs_list_notes_with_meta_skips_subdirectories() {
+    fn fs_list_notes_with_meta_recurses_into_subdirectories() {
         let dir = temp_notes_dir();
         fs::write(dir.join("note.md"), "x").unwrap();
         fs::create_dir_all(dir.join("subfolder")).unwrap();
         fs::write(dir.join("subfolder").join("nested.md"), "x").unwrap();
+        fs::create_dir_all(dir.join("a/b/c")).unwrap();
+        fs::write(dir.join("a/b/c/deep.md"), "x").unwrap();
 
         let result = fs_list_notes_with_meta_impl(&dir).unwrap();
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].name, "note.md");
+        let names: std::collections::HashSet<&str> =
+            result.iter().map(|e| e.name.as_str()).collect();
+        assert!(names.contains("note.md"));
+        assert!(names.contains("subfolder/nested.md"));
+        assert!(names.contains("a/b/c/deep.md"));
+        cleanup_temp_dir(&dir);
+    }
+
+    #[test]
+    fn fs_list_notes_with_meta_skips_dotfile_directories() {
+        let dir = temp_notes_dir();
+        fs::write(dir.join("note.md"), "x").unwrap();
+        fs::create_dir_all(dir.join(".git")).unwrap();
+        fs::write(dir.join(".git").join("ignored.md"), "x").unwrap();
+        fs::create_dir_all(dir.join(".obsidian")).unwrap();
+        fs::write(dir.join(".obsidian").join("config.md"), "x").unwrap();
+
+        let result = fs_list_notes_with_meta_impl(&dir).unwrap();
+        let names: std::collections::HashSet<&str> =
+            result.iter().map(|e| e.name.as_str()).collect();
+        assert!(names.contains("note.md"));
+        assert!(!names.iter().any(|n| n.starts_with(".git/")));
+        assert!(!names.iter().any(|n| n.starts_with(".obsidian/")));
+        cleanup_temp_dir(&dir);
+    }
+
+    // ── safe_relative_md_path ─────────────────────────────────────────
+
+    #[test]
+    fn safe_relative_md_path_accepts_nested() {
+        let base = temp_notes_dir();
+        let p = safe_relative_md_path(&base, "Specs/folder.md").unwrap();
+        assert_eq!(p, base.join("Specs/folder.md"));
+        cleanup_temp_dir(&base);
+    }
+
+    #[test]
+    fn safe_relative_md_path_rejects_traversal() {
+        let base = std::path::PathBuf::from("/tmp/test");
+        assert!(safe_relative_md_path(&base, "../escape.md").is_err());
+        assert!(safe_relative_md_path(&base, "a/../b.md").is_err());
+        assert!(safe_relative_md_path(&base, "/abs.md").is_err());
+        assert!(safe_relative_md_path(&base, "a//b.md").is_err());
+    }
+
+    #[test]
+    fn safe_relative_md_path_requires_md() {
+        let base = std::path::PathBuf::from("/tmp/test");
+        assert!(safe_relative_md_path(&base, "foo.txt").is_err());
+        assert!(safe_relative_md_path(&base, "foo").is_err());
+    }
+
+    // ── folder ops ─────────────────────────────────────────────────────
+
+    #[test]
+    fn safe_folder_path_accepts_nested() {
+        let base = std::path::PathBuf::from("/tmp/test");
+        let p = safe_folder_path(&base, "Specs/sub").unwrap();
+        assert_eq!(p, base.join("Specs/sub"));
+    }
+
+    #[test]
+    fn safe_folder_path_rejects_traversal() {
+        let base = std::path::PathBuf::from("/tmp/test");
+        assert!(safe_folder_path(&base, "..").is_err());
+        assert!(safe_folder_path(&base, "a/..").is_err());
+        assert!(safe_folder_path(&base, "/abs").is_err());
+        assert!(safe_folder_path(&base, "a/").is_err());
+    }
+
+    #[test]
+    fn list_folders_lists_directories() {
+        let dir = temp_notes_dir();
+        fs::create_dir_all(dir.join("Specs")).unwrap();
+        fs::create_dir_all(dir.join("Specs/sub")).unwrap();
+        fs::create_dir_all(dir.join("Other")).unwrap();
+        fs::write(dir.join("note.md"), "x").unwrap();
+        fs::write(dir.join("Specs/foo.md"), "x").unwrap();
+
+        let folders = list_folders_impl(&dir).unwrap();
+        let paths: Vec<&str> = folders.iter().map(|f| f.path.as_str()).collect();
+        assert!(paths.contains(&"Specs"));
+        assert!(paths.contains(&"Specs/sub"));
+        assert!(paths.contains(&"Other"));
+        cleanup_temp_dir(&dir);
+    }
+
+    #[test]
+    fn relative_md_path_strips_base() {
+        let base = temp_notes_dir();
+        let p = base.join("Specs").join("foo.md");
+        let rel = relative_md_path(&base, &p).unwrap();
+        assert_eq!(rel, "Specs/foo.md");
+        cleanup_temp_dir(&base);
+    }
+
+    #[test]
+    fn prune_empty_parent_dirs_removes_chain() {
+        let dir = temp_notes_dir();
+        fs::create_dir_all(dir.join("a/b/c")).unwrap();
+        let leaf = dir.join("a/b/c/note.md");
+        fs::write(&leaf, "x").unwrap();
+        fs::remove_file(&leaf).unwrap();
+        prune_empty_parent_dirs(&dir, &leaf);
+        assert!(!dir.join("a/b/c").exists());
+        assert!(!dir.join("a/b").exists());
+        assert!(!dir.join("a").exists());
+        assert!(dir.exists());
+        cleanup_temp_dir(&dir);
+    }
+
+    // ── Watcher event classification ────────────────────────────────
+
+    #[test]
+    fn map_notify_event_classifies_create_as_add() {
+        let ev = Event::new(EventKind::Create(notify::event::CreateKind::File));
+        assert_eq!(map_notify_event(&ev), Some(MappedEvent::Add));
+    }
+
+    #[test]
+    fn map_notify_event_classifies_remove_as_unlink() {
+        let ev = Event::new(EventKind::Remove(notify::event::RemoveKind::File));
+        assert_eq!(map_notify_event(&ev), Some(MappedEvent::Unlink));
+    }
+
+    #[test]
+    fn map_notify_event_classifies_metadata_changes_as_none() {
+        let ev = Event::new(EventKind::Modify(ModifyKind::Metadata(
+            notify::event::MetadataKind::Permissions,
+        )));
+        assert_eq!(map_notify_event(&ev), None);
+    }
+
+    #[test]
+    fn map_notify_event_classifies_modify_as_change() {
+        let ev = Event::new(EventKind::Modify(ModifyKind::Data(
+            notify::event::DataChange::Content,
+        )));
+        assert_eq!(map_notify_event(&ev), Some(MappedEvent::Change));
+    }
+
+    #[test]
+    fn map_notify_event_classifies_rename_from() {
+        let ev = Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::From)));
+        assert_eq!(map_notify_event(&ev), Some(MappedEvent::RenameFrom));
+    }
+
+    #[test]
+    fn map_notify_event_classifies_rename_to() {
+        let ev = Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::To)));
+        assert_eq!(map_notify_event(&ev), Some(MappedEvent::RenameTo));
+    }
+
+    #[test]
+    fn map_notify_event_classifies_rename_both_as_to() {
+        // notify v8 uses Both for atomic rename pairs that fit in one event
+        // (e.g. some Linux kernels). We treat it as the To half of a pair.
+        let ev = Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::Both)));
+        assert_eq!(map_notify_event(&ev), Some(MappedEvent::RenameTo));
+    }
+
+    #[test]
+    fn prune_empty_parent_dirs_stops_at_nonempty() {
+        let dir = temp_notes_dir();
+        fs::create_dir_all(dir.join("a/b")).unwrap();
+        fs::write(dir.join("a/keep.md"), "x").unwrap();
+        let leaf = dir.join("a/b/note.md");
+        fs::write(&leaf, "x").unwrap();
+        fs::remove_file(&leaf).unwrap();
+        prune_empty_parent_dirs(&dir, &leaf);
+        assert!(!dir.join("a/b").exists());
+        assert!(dir.join("a").exists());
+        assert!(dir.join("a/keep.md").exists());
         cleanup_temp_dir(&dir);
     }
 
