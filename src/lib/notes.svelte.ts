@@ -36,6 +36,21 @@ const RECONCILE_CONCURRENCY = 8;
 let notesCache = $state<NotePreview[]>([]);
 let initialized = false;
 
+// `recentMoveState.id` is the ID a note was just moved to (drag-drop or
+// folder move). The sidebar pulses the matching row briefly so the eye
+// can track where the dragged item landed. Plain object so consumers can
+// observe `.id` reactively when imported into another component.
+export const recentMoveState = $state<{ id: string | null }>({ id: null });
+let recentMoveTimer: ReturnType<typeof setTimeout> | null = null;
+function flagRecentMove(id: string): void {
+  recentMoveState.id = id;
+  if (recentMoveTimer !== null) clearTimeout(recentMoveTimer);
+  recentMoveTimer = setTimeout(() => {
+    recentMoveState.id = null;
+    recentMoveTimer = null;
+  }, 700);
+}
+
 // Tracks the in-flight (or completed) search-index bootstrap so search()
 // can wait for it without blocking initNotes() / UI rendering on it.
 // initNotes() returns as soon as notesCache is populated; the index is
@@ -259,7 +274,11 @@ export async function updateNote(
     modificationTime: mtime,
     tags: extractTags(content),
   };
-  const idx = notesCache.findIndex(n => n.id === (originalId ?? finalId));
+  // Prefer the originalId match; if moveNote already optimistically
+  // re-keyed the entry to finalId, find it there instead of pushing a
+  // duplicate.
+  let idx = notesCache.findIndex(n => n.id === (originalId ?? finalId));
+  if (idx < 0 && originalId) idx = notesCache.findIndex(n => n.id === finalId);
   if (idx >= 0) notesCache[idx] = preview; else notesCache.push(preview);
 
   addToSearchIndex({ id: finalId, title: noteTitleFromId(finalId), body: content, mtime });
@@ -316,6 +335,11 @@ export async function rewriteWikilinksForRename(
  * (creating folders as needed) and rewrites every wikilink in every
  * other note that targets `fromId`. Returns the final ID, which may
  * differ from the requested `toId` if a file already exists there.
+ *
+ * The cache is updated optimistically — the sidebar reflects the new
+ * position the moment this fn is called, without waiting for the
+ * read/write/wikilink-rewrite IPC chain. If the disk work fails the
+ * cache is reverted before the rejection propagates.
  */
 export async function moveNote(
   fromId: string,
@@ -325,9 +349,24 @@ export async function moveNote(
     const note = notesCache.find((n) => n.id === fromId);
     return { id: fromId, mtime: note?.modificationTime ?? Date.now() };
   }
-  const finalId = await getUniqueNoteId(toId);
-  const content = await readNoteFile(fromId);
-  return updateNote(finalId, finalId, content, fromId);
+  const idx = notesCache.findIndex((n) => n.id === fromId);
+  const prev = idx >= 0 ? notesCache[idx] : null;
+  if (prev) {
+    notesCache[idx] = { ...prev, id: toId, title: noteTitleFromId(toId) };
+    flagRecentMove(toId);
+  }
+  try {
+    const finalId = await getUniqueNoteId(toId);
+    if (finalId !== toId && prev) {
+      notesCache[idx] = { ...notesCache[idx], id: finalId, title: noteTitleFromId(finalId) };
+      flagRecentMove(finalId);
+    }
+    const content = await readNoteFile(fromId);
+    return await updateNote(finalId, finalId, content, fromId);
+  } catch (err) {
+    if (prev && idx >= 0) notesCache[idx] = prev;
+    throw err;
+  }
 }
 
 /**

@@ -280,7 +280,9 @@
     if (newId === noteId) return;
     try {
       await moveNote(noteId, newId);
-      await refreshEmptyFolders(getAllNotes());
+      // Empty-folder reconcile doesn't gate the visible move — fire and
+      // forget so the toast/animation don't wait on a full listFolders IPC.
+      void refreshEmptyFolders(getAllNotes());
       showToast(`Moved to ${folderPath}`);
     } catch (err) {
       showToast((err as Error).message ?? 'Move failed');
@@ -294,7 +296,7 @@
     if (noteId === leaf) return;
     try {
       await moveNote(noteId, leaf);
-      await refreshEmptyFolders(getAllNotes());
+      void refreshEmptyFolders(getAllNotes());
       showToast('Moved to Notes');
     } catch (err) {
       showToast((err as Error).message ?? 'Move failed');

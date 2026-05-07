@@ -12,6 +12,7 @@
   } from '$lib/folders.svelte';
   import { isDesktop } from '$lib/platform';
   import { idParent, idLeaf } from '$lib/platform/pathSafety';
+  import { recentMoveState } from '$lib/notes.svelte';
 
   // Custom MIME types used to thread the dragged item's ID through the
   // dataTransfer payload. Drop handlers read these to decide what to move.
@@ -474,9 +475,6 @@
             ondrop={(e) => handleRowDrop(e, node.path)}
             data-folder-path={node.path}
           >
-            {#each Array(node.depth) as _, level (level)}
-              <span class="guide-line" aria-hidden="true" style="left: {20 + level * 16}px"></span>
-            {/each}
             <span class="folder-icon" aria-hidden="true">
               {#if isFolderOpen(node.path)}
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -496,6 +494,7 @@
             type="button"
             class="note-row virtual-row"
             class:selected={node.note.id === selectedId}
+            class:just-moved={node.note.id === recentMoveState.id}
             class:dragging={isDragging}
             style="top: {index * ROW_HEIGHT}px; padding-left: {12 + node.depth * 16}px"
             onclick={() => onselect?.(node.note.id)}
@@ -511,9 +510,6 @@
             ondrop={(e) => handleRowDrop(e, node.parentPath)}
             data-note-id={node.note.id}
           >
-            {#each Array(node.depth) as _, level (level)}
-              <span class="guide-line" aria-hidden="true" style="left: {20 + level * 16}px"></span>
-            {/each}
             <span class="note-title">{idLeaf(node.note.title)}</span>
           </button>
         {/if}
@@ -538,22 +534,6 @@
     left: 0;
     right: 0;
     margin: 0;
-  }
-  /* Vertical guide lines that show the indent hierarchy. One per
-     ancestor level, positioned in the parent's indent column. Continuous
-     from row to row because rows abut vertically and the lines extend
-     full row height. */
-  .guide-line {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    width: 1px;
-    /* Slightly darker than --color-border so the line reads against the
-       sidebar's tinted-light background while staying subtle. Hi-DPI
-       anti-aliasing dilutes 1px lines, so we use a higher alpha than
-       the row hover background (0.06). */
-    background: rgba(var(--ink-rgb), 0.18);
-    pointer-events: none;
   }
   .empty-state {
     padding: 32px;
@@ -598,6 +578,25 @@
   }
   .note-row.selected:active {
     background: rgba(var(--primary-rgb), 0.18);
+  }
+  /* Brief tint pulse on the row that just moved, so the eye can find
+     where the dragged note landed. The animation runs from a ~25%
+     primary tint down to transparent over 600ms. Selected notes already
+     have a tinted background; the keyframes still feel like a "settle"
+     because they start brighter and ease out. */
+  .note-row.just-moved {
+    animation: just-moved-pulse 600ms ease-out;
+  }
+  @keyframes just-moved-pulse {
+    0% { background: rgba(var(--primary-rgb), 0.28); }
+    100% { background: transparent; }
+  }
+  .note-row.just-moved.selected {
+    animation: just-moved-pulse-selected 600ms ease-out;
+  }
+  @keyframes just-moved-pulse-selected {
+    0% { background: rgba(var(--primary-rgb), 0.32); }
+    100% { background: rgba(var(--primary-rgb), 0.12); }
   }
   /* Drop-target outline shown while a drag hovers a different "home"
      than the dragged item's current parent. The 2px inset outline reads
