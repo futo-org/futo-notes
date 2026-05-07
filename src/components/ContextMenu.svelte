@@ -6,6 +6,7 @@
    */
 
   import { onMount } from 'svelte';
+  import { portal } from '$lib/util/portal';
 
   export interface MenuItem {
     label: string;
@@ -53,6 +54,7 @@
 
 <div
   bind:this={menuEl}
+  use:portal
   class="context-menu"
   style="left: {x}px; top: {y}px"
   role="menu"

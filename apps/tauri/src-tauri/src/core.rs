@@ -1257,6 +1257,39 @@ pub fn show_soft_keyboard() -> Result<(), String> {
     Ok(())
 }
 
+/// Trigger a tactile feedback "tap" on the device. iOS uses
+/// `UIImpactFeedbackGenerator` (medium style); other platforms rely on
+/// `navigator.vibrate` from the JS side and this command is a no-op so
+/// callers don't have to platform-fork.
+#[cfg(target_os = "ios")]
+#[tauri::command]
+pub fn haptic_impact(app: tauri::AppHandle) -> Result<(), String> {
+    use objc2::msg_send;
+    use objc2::runtime::AnyObject;
+    // UIKit feedback generators must be instantiated and fired on the
+    // main thread — `run_on_main_thread` returns immediately on the
+    // calling thread, so the haptic dispatch doesn't block the IPC
+    // round-trip and the JS caller stays responsive.
+    app.run_on_main_thread(|| unsafe {
+        let cls: *mut AnyObject = msg_send![objc2::class!(UIImpactFeedbackGenerator), alloc];
+        // UIImpactFeedbackStyle.medium = 1
+        let generator: *mut AnyObject = msg_send![cls, initWithStyle: 1isize];
+        if generator.is_null() {
+            return;
+        }
+        let _: () = msg_send![generator, prepare];
+        let _: () = msg_send![generator, impactOccurred];
+        let _: () = msg_send![generator, release];
+    })
+    .map_err(|e| e.to_string())
+}
+
+#[cfg(not(target_os = "ios"))]
+#[tauri::command]
+pub fn haptic_impact() -> Result<(), String> {
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

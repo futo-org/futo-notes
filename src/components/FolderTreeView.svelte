@@ -10,8 +10,9 @@
     type TreeNode,
     type FolderNode,
   } from '$lib/folders.svelte';
-  import { isDesktop } from '$lib/platform';
+  import { isDesktop, isIOS, isTauri } from '$lib/platform';
   import { idParent, idLeaf } from '$lib/platform/pathSafety';
+  import { setItemDragging } from '$lib/dragState';
 
   // Custom MIME types used to thread the dragged item's ID through the
   // dataTransfer payload. Drop handlers read these to decide what to move.
@@ -164,36 +165,349 @@
     onfoldercontextmenu?.(path, e.clientX, e.clientY);
   }
 
-  // Tap-and-hold for mobile context menus
+  // ── Mobile touch drag-and-drop ───────────────────────────────────
+  // Tap-and-hold a row to "grab" it, then drag to a destination
+  // folder. Mirrors the desktop HTML5 drag flow but is driven by
+  // touch events: a long-press starts the drag (with a grab animation
+  // + haptic), subsequent touchmove updates a DOM mirror that follows
+  // the finger, and elementFromPoint resolves the drop target.
+  const LONG_PRESS_MS = 350;
+  const DRAG_THRESHOLD_PX = 8;
+
   let pressTimer: number | null = null;
+  let touchPressStart: { x: number; y: number } | null = null;
+  // Last known touch coords during the active gesture — used to
+  // position the context menu when a folder is held without moving.
+  let lastTouchPoint: { x: number; y: number } = { x: 0, y: 0 };
+  let touchDragKind: 'note' | 'folder' | null = null;
+  let touchDragId: string | null = null;
+  let touchDragMirror: HTMLElement | null = null;
+  let touchDragMirrorRect: DOMRect | null = null;
+  let touchDocMoveListener: ((e: TouchEvent) => void) | null = null;
+  let touchDocEndListener: ((e: TouchEvent) => void) | null = null;
+  let touchDocCancelListener: ((e: TouchEvent) => void) | null = null;
+  let touchAutoScrollRaf: number | null = null;
+  // Suppress the synthetic click that fires after a long-press tap so
+  // a grabbed-then-released note doesn't also get selected.
+  let suppressNextClick = false;
+  let isTouchDragging = $state(false);
+  let pressedRowId = $state<string | null>(null);
 
-  function handleNoteTouchStart(e: TouchEvent, id: string): void {
-    if (isDesktop) return;
-    const t = e.touches[0];
-    const x = t.clientX;
-    const y = t.clientY;
-    pressTimer = window.setTimeout(() => {
-      onnotecontextmenu?.(id, x, y);
-      pressTimer = null;
-    }, 500);
-  }
-
-  function handleFolderTouchStart(e: TouchEvent, path: string): void {
-    if (isDesktop) return;
-    const t = e.touches[0];
-    const x = t.clientX;
-    const y = t.clientY;
-    pressTimer = window.setTimeout(() => {
-      onfoldercontextmenu?.(path, x, y);
-      pressTimer = null;
-    }, 500);
-  }
-
-  function clearPressTimer(): void {
+  function clearLongPressTimer(): void {
     if (pressTimer !== null) {
       clearTimeout(pressTimer);
       pressTimer = null;
     }
+  }
+
+  function triggerHaptic(): void {
+    // Android WebView supports navigator.vibrate; iOS WebKit doesn't
+    // expose it, so we round-trip through a Tauri command that calls
+    // UIImpactFeedbackGenerator. Both paths are best-effort — silent
+    // on simulators and unsupported devices.
+    if (typeof navigator !== 'undefined') {
+      const nav = navigator as Navigator & { vibrate?: (pattern: number | number[]) => boolean };
+      try { nav.vibrate?.(20); } catch { /* unsupported */ }
+    }
+    if (isIOS && isTauri) {
+      void import('@tauri-apps/api/core').then(({ invoke }) => {
+        invoke('haptic_impact').catch(() => { /* silent — best-effort */ });
+      });
+    }
+  }
+
+  function beginTouchDrag(
+    kind: 'note' | 'folder',
+    id: string,
+    srcEl: HTMLElement,
+    x: number,
+    y: number,
+  ): void {
+    touchDragKind = kind;
+    touchDragId = id;
+    sourceParent = idParent(id);
+    sourceFolderPath = kind === 'folder' ? id : null;
+    pressedRowId = id;
+    lastTouchPoint = { x, y };
+    // Tell the drawer swipe handler to stand down — once a note is
+    // grabbed, sideways finger movement is the drag, not a request to
+    // slide the sidebar.
+    setItemDragging(true);
+
+    const rect = srcEl.getBoundingClientRect();
+    touchDragMirrorRect = rect;
+    const computed = getComputedStyle(srcEl);
+    const mirror = srcEl.cloneNode(true) as HTMLElement;
+    // Strip any state classes that would be misleading on a floating
+    // mirror (e.g. .selected, .pressed) so it reads as an in-flight
+    // copy rather than the original row.
+    mirror.classList.remove('selected', 'dragging', 'pressed');
+    mirror.style.position = 'fixed';
+    mirror.style.top = '0';
+    mirror.style.left = '0';
+    mirror.style.width = `${rect.width}px`;
+    mirror.style.height = `${rect.height}px`;
+    mirror.style.margin = '0';
+    mirror.style.pointerEvents = 'none';
+    mirror.style.zIndex = '99999';
+    mirror.style.opacity = '0.96';
+    mirror.style.background = 'var(--color-surface, rgba(0,0,0,0.06))';
+    mirror.style.color = computed.color;
+    mirror.style.font = computed.font;
+    mirror.style.borderRadius = '10px';
+    mirror.style.boxShadow = '0 8px 24px rgba(0, 0, 0, 0.28), 0 0 0 1px var(--color-border, rgba(0,0,0,0.08))';
+    mirror.style.transformOrigin = 'center';
+    mirror.style.transform = `translate(${x - rect.width / 2}px, ${y - rect.height / 2}px) scale(0.96)`;
+    mirror.style.transition = 'transform 140ms cubic-bezier(0.2, 0.9, 0.3, 1.4)';
+    document.body.appendChild(mirror);
+    touchDragMirror = mirror;
+
+    // Animate up to grabbed scale on the next frame so the transition
+    // actually plays (the initial transform is the "settled" pose).
+    requestAnimationFrame(() => {
+      if (touchDragMirror && touchDragMirrorRect) {
+        const w = touchDragMirrorRect.width;
+        const h = touchDragMirrorRect.height;
+        touchDragMirror.style.transform = `translate(${x - w / 2}px, ${y - h / 2}px) scale(1.06)`;
+      }
+    });
+
+    triggerHaptic();
+
+    touchDocMoveListener = (ev: TouchEvent) => {
+      const t = ev.touches[0];
+      if (!t) return;
+      // Suppress browser scrolling so the drag tracks the finger
+      // instead of fighting native pan. Requires passive:false (set
+      // when adding the listener).
+      ev.preventDefault();
+      isTouchDragging = true;
+      moveTouchDrag(t.clientX, t.clientY);
+    };
+    touchDocEndListener = (ev: TouchEvent) => {
+      if (ev.touches.length > 0) return; // multi-touch, wait for last finger
+      finalizeTouchDrag(true);
+    };
+    touchDocCancelListener = () => {
+      finalizeTouchDrag(false);
+    };
+    document.addEventListener('touchmove', touchDocMoveListener, { passive: false });
+    document.addEventListener('touchend', touchDocEndListener);
+    document.addEventListener('touchcancel', touchDocCancelListener);
+  }
+
+  function moveTouchDrag(x: number, y: number): void {
+    lastTouchPoint = { x, y };
+    if (touchDragMirror && touchDragMirrorRect) {
+      const w = touchDragMirrorRect.width;
+      const h = touchDragMirrorRect.height;
+      touchDragMirror.style.transform = `translate(${x - w / 2}px, ${y - h / 2}px) scale(1.06)`;
+    }
+    const el = document.elementFromPoint(x, y) as HTMLElement | null;
+    if (!el) {
+      dropTarget = null;
+      clearHoverTimer();
+    } else {
+      const folderEl = el.closest('[data-folder-path]') as HTMLElement | null;
+      const noteEl = folderEl ? null : (el.closest('[data-note-id]') as HTMLElement | null);
+      if (folderEl) {
+        const path = folderEl.getAttribute('data-folder-path') ?? '';
+        setDropTarget(path);
+        if (hoveredFolder !== path) {
+          clearHoverTimer();
+          hoveredFolder = path;
+          if (!isFolderOpen(path)) {
+            hoverTimer = window.setTimeout(() => {
+              setDragHoverExpanded(path, true);
+              hoverTimer = null;
+            }, 600);
+          }
+        }
+      } else if (noteEl) {
+        // Hovering a note row inside an open folder routes the drop to
+        // its parent folder — same as desktop's handleNoteRowDragOver.
+        // The parent folder row picks up the orange outline because the
+        // dropTarget binding matches its data-folder-path.
+        const noteId = noteEl.getAttribute('data-note-id') ?? '';
+        const parent = idParent(noteId);
+        setDropTarget(parent);
+        clearHoverTimer();
+      } else if (
+        containerEl?.contains(el) ||
+        // Anywhere inside the drawer that isn't a row counts as a
+        // root drop — this lets the user drag a nested folder out
+        // by lifting it above the items (over the search bar /
+        // header / FAB row) without having to hunt for empty space
+        // in the scroll list.
+        containerEl?.closest('.notes-drawer')?.contains(el)
+      ) {
+        setDropTarget('');
+        clearHoverTimer();
+      } else {
+        dropTarget = null;
+        clearHoverTimer();
+      }
+    }
+    scheduleAutoScroll(y);
+  }
+
+  function scheduleAutoScroll(y: number): void {
+    if (touchAutoScrollRaf !== null) return;
+    touchAutoScrollRaf = requestAnimationFrame(() => {
+      touchAutoScrollRaf = null;
+      if (touchDragKind === null || !containerEl) return;
+      const r = containerEl.getBoundingClientRect();
+      const EDGE = 64;
+      if (y < r.top + EDGE) {
+        containerEl.scrollTop -= 10;
+      } else if (y > r.bottom - EDGE) {
+        containerEl.scrollTop += 10;
+      }
+    });
+  }
+
+  function finalizeTouchDrag(performDrop: boolean): void {
+    if (touchDocMoveListener) {
+      document.removeEventListener('touchmove', touchDocMoveListener);
+      touchDocMoveListener = null;
+    }
+    if (touchDocEndListener) {
+      document.removeEventListener('touchend', touchDocEndListener);
+      touchDocEndListener = null;
+    }
+    if (touchDocCancelListener) {
+      document.removeEventListener('touchcancel', touchDocCancelListener);
+      touchDocCancelListener = null;
+    }
+    if (touchAutoScrollRaf !== null) {
+      cancelAnimationFrame(touchAutoScrollRaf);
+      touchAutoScrollRaf = null;
+    }
+
+    const target = performDrop ? dropTarget : null;
+    const kind = touchDragKind;
+    const id = touchDragId;
+    const wasDragging = isTouchDragging;
+
+    if (touchDragMirror) {
+      touchDragMirror.remove();
+      touchDragMirror = null;
+    }
+    touchDragMirrorRect = null;
+    touchDragKind = null;
+    touchDragId = null;
+    isTouchDragging = false;
+    pressedRowId = null;
+    clearDragState();
+    setItemDragging(false);
+
+    if (wasDragging) {
+      // The user lifted after moving — suppress the synthetic click
+      // that some webviews fire on touchend so a dropped row doesn't
+      // also get selected as a side-effect.
+      suppressNextClick = true;
+      window.setTimeout(() => { suppressNextClick = false; }, 350);
+    }
+
+    if (kind && id !== null && target !== null) {
+      if (kind === 'note') {
+        if (target === '') ondropnoteonroot?.(id);
+        else ondropnoteonfolder?.(id, target);
+      } else if (kind === 'folder') {
+        if (id === target || target.startsWith(`${id}/`)) {
+          // invalid — would move folder under itself
+        } else if (target === '') {
+          if (id.includes('/')) ondropfolderonroot?.(id);
+        } else {
+          ondropfolderonfolder?.(id, target);
+        }
+      }
+    } else if (kind === 'folder' && id !== null && touchPressStart) {
+      // Hold-without-move on a folder shows the context menu (rename,
+      // delete, etc.). Notes don't get this fallback — long-press on a
+      // note is a drag-only gesture. We measure displacement from the
+      // initial press point instead of `wasDragging`, because any tiny
+      // finger jitter trips `isTouchDragging`; a held finger commonly
+      // wobbles a pixel or two without the user intending to drag.
+      const dx = lastTouchPoint.x - touchPressStart.x;
+      const dy = lastTouchPoint.y - touchPressStart.y;
+      const stayed = Math.hypot(dx, dy) <= DRAG_THRESHOLD_PX;
+      if (stayed) {
+        onfoldercontextmenu?.(id, lastTouchPoint.x, lastTouchPoint.y);
+      }
+    }
+  }
+
+  function handleNoteTouchStart(e: TouchEvent, id: string): void {
+    if (isDesktop) return;
+    if (e.touches.length !== 1 || touchDragKind !== null) return;
+    const t = e.touches[0];
+    touchPressStart = { x: t.clientX, y: t.clientY };
+    pressedRowId = id;
+    const srcEl = e.currentTarget as HTMLElement;
+    pressTimer = window.setTimeout(() => {
+      pressTimer = null;
+      if (touchPressStart) {
+        beginTouchDrag('note', id, srcEl, touchPressStart.x, touchPressStart.y);
+      }
+    }, LONG_PRESS_MS);
+  }
+
+  function handleFolderTouchStart(e: TouchEvent, path: string): void {
+    if (isDesktop) return;
+    if (e.touches.length !== 1 || touchDragKind !== null) return;
+    const t = e.touches[0];
+    touchPressStart = { x: t.clientX, y: t.clientY };
+    pressedRowId = path;
+    const srcEl = e.currentTarget as HTMLElement;
+    pressTimer = window.setTimeout(() => {
+      pressTimer = null;
+      if (touchPressStart) {
+        beginTouchDrag('folder', path, srcEl, touchPressStart.x, touchPressStart.y);
+      }
+    }, LONG_PRESS_MS);
+  }
+
+  function handleRowTouchMove(e: TouchEvent): void {
+    if (isDesktop) return;
+    // Cancel a pending long-press if the finger drifts beyond the
+    // threshold — that movement is the user starting to scroll, not
+    // settling in for a press.
+    if (pressTimer !== null && touchPressStart) {
+      const t = e.touches[0];
+      if (!t) return;
+      if (
+        Math.abs(t.clientX - touchPressStart.x) > DRAG_THRESHOLD_PX ||
+        Math.abs(t.clientY - touchPressStart.y) > DRAG_THRESHOLD_PX
+      ) {
+        clearLongPressTimer();
+        pressedRowId = null;
+      }
+    }
+    // Once the drag is active, the document-level touchmove handles
+    // tracking — nothing to do here.
+  }
+
+  function handleRowTouchEnd(): void {
+    if (isDesktop) return;
+    if (pressTimer !== null) {
+      clearLongPressTimer();
+      pressedRowId = null;
+    }
+    // If a drag is active, the document-level touchend will finalize
+    // it. We never finalize from here so the two paths can't race.
+  }
+
+  function handleRowTouchCancel(): void {
+    if (isDesktop) return;
+    clearLongPressTimer();
+    pressedRowId = null;
+    // Active drags are torn down by the document-level cancel path.
+  }
+
+  function handleNoteClick(id: string): void {
+    if (suppressNextClick) return;
+    onselect?.(id);
   }
 
   // WebKitGTK rasterizes the OS-supplied drag image at logical pixels and
@@ -423,19 +737,39 @@
 
   onDestroy(() => {
     clearHoverTimer();
-    if (pressTimer !== null) {
-      clearTimeout(pressTimer);
-      pressTimer = null;
-    }
+    clearLongPressTimer();
     teardownDragMirror();
+    // Make sure we don't leave document-level listeners attached if
+    // the component is unmounted mid-drag.
+    if (touchDocMoveListener) {
+      document.removeEventListener('touchmove', touchDocMoveListener);
+      touchDocMoveListener = null;
+    }
+    if (touchDocEndListener) {
+      document.removeEventListener('touchend', touchDocEndListener);
+      touchDocEndListener = null;
+    }
+    if (touchDocCancelListener) {
+      document.removeEventListener('touchcancel', touchDocCancelListener);
+      touchDocCancelListener = null;
+    }
+    if (touchAutoScrollRaf !== null) {
+      cancelAnimationFrame(touchAutoScrollRaf);
+      touchAutoScrollRaf = null;
+    }
+    if (touchDragMirror) {
+      touchDragMirror.remove();
+      touchDragMirror = null;
+    }
+    setItemDragging(false);
   });
 </script>
 
 <!-- The scroll container is the root drop target during a drag. The
      a11y_no_static_element_interactions rule fires because <div> has
-     drag handlers — drag-and-drop is desktop-mouse-only by design (the
-     mobile UX uses the long-press context menu's "Move to folder"), so
-     a keyboard-equivalent is not applicable to this element. -->
+     drag handlers — desktop uses HTML5 drag, mobile uses a touch-driven
+     drag (long-press to grab, drag with finger), so a keyboard-only
+     equivalent is not applicable to this element. -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   bind:this={containerEl}
@@ -459,13 +793,15 @@
             class="folder-row virtual-row"
             class:dragging={isDragging}
             class:drop-target={dropTarget === node.path}
+            class:touch-grabbed={touchDragKind === 'folder' && touchDragId === node.path}
+            class:touch-pressed={pressedRowId === node.path && touchDragKind === null && pressTimer !== null}
             style="top: {index * ROW_HEIGHT}px; padding-left: {12 + node.depth * 16}px"
             onclick={() => handleFolderClick(node)}
             oncontextmenu={(e) => handleFolderContextMenu(e, node.path)}
             ontouchstart={(e) => handleFolderTouchStart(e, node.path)}
-            ontouchend={clearPressTimer}
-            ontouchcancel={clearPressTimer}
-            ontouchmove={clearPressTimer}
+            ontouchend={handleRowTouchEnd}
+            ontouchcancel={handleRowTouchCancel}
+            ontouchmove={handleRowTouchMove}
             draggable={isDesktop}
             ondragstart={(e) => handleFolderDragStart(e, node.path)}
             ondragend={handleDragEnd}
@@ -494,13 +830,15 @@
             class="note-row virtual-row"
             class:selected={node.note.id === selectedId}
             class:dragging={isDragging}
+            class:touch-grabbed={touchDragKind === 'note' && touchDragId === node.note.id}
+            class:touch-pressed={pressedRowId === node.note.id && touchDragKind === null && pressTimer !== null}
             style="top: {index * ROW_HEIGHT}px; padding-left: {12 + node.depth * 16}px"
-            onclick={() => onselect?.(node.note.id)}
+            onclick={() => handleNoteClick(node.note.id)}
             oncontextmenu={(e) => handleNoteContextMenu(e, node.note.id)}
             ontouchstart={(e) => handleNoteTouchStart(e, node.note.id)}
-            ontouchend={clearPressTimer}
-            ontouchcancel={clearPressTimer}
-            ontouchmove={clearPressTimer}
+            ontouchend={handleRowTouchEnd}
+            ontouchcancel={handleRowTouchCancel}
+            ontouchmove={handleRowTouchMove}
             draggable={isDesktop}
             ondragstart={(e) => handleNoteDragStart(e, node.note.id)}
             ondragend={handleDragEnd}
@@ -608,5 +946,22 @@
   .folder-tree-scroll.root-drop-target {
     box-shadow: inset 0 0 0 2px var(--color-primary);
     border-radius: 10px;
+  }
+
+  /* Mobile touch-press feedback. While the long-press timer counts
+     down, the row dims slightly so the user sees their touch is
+     registering. */
+  .folder-row.touch-pressed,
+  .note-row.touch-pressed {
+    background: rgba(var(--ink-rgb), 0.08);
+    transition: background 0.18s ease;
+  }
+
+  /* The source row stays in place during a touch drag but fades out
+     so the floating mirror reads as the live element. */
+  .folder-row.touch-grabbed,
+  .note-row.touch-grabbed {
+    opacity: 0.35;
+    transition: opacity 0.12s ease;
   }
 </style>

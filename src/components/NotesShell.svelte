@@ -554,7 +554,14 @@
             getCurrentWindow().destroy();
           }
         }).then((unlisten) => {
-          cleanupNativeListeners.push(unlisten);
+          // Wrap so a stray double-cleanup doesn't double-unregister
+          // the Tauri event (which throws "listeners[eventId] is undefined").
+          let called = false;
+          cleanupNativeListeners.push(() => {
+            if (called) return;
+            called = true;
+            unlisten();
+          });
         });
       }).catch(() => { /* non-Tauri environment */ });
     }

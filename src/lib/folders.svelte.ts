@@ -10,7 +10,7 @@
  */
 
 import type { NotePreview } from '../types';
-import { getFS } from './platform';
+import { getFS, isTauri } from './platform';
 import {
   hasCaseInsensitiveSiblingCollision,
   isValidFolderName,
@@ -50,12 +50,50 @@ function loadOpenFoldersFromStorage(): Set<string> {
 }
 
 function persistOpenFolders(): void {
-  if (typeof localStorage === 'undefined') return;
-  try {
-    localStorage.setItem(OPEN_FOLDERS_KEY, JSON.stringify([...openFolders]));
-  } catch {
-    // Best-effort; quota errors fall through.
+  const arr = [...openFolders];
+  if (typeof localStorage !== 'undefined') {
+    try {
+      localStorage.setItem(OPEN_FOLDERS_KEY, JSON.stringify(arr));
+    } catch {
+      // Best-effort; quota errors fall through.
+    }
   }
+  // Mirror to .app-config.json so the state survives an iOS WebKit
+  // storage purge or an Android WebView reset (localStorage isn't
+  // guaranteed durable on either platform). Best-effort, async.
+  if (isTauri) {
+    void import('./platform/tauri').then(({ saveConfig }) => {
+      saveConfig({ openFolders: arr }).catch(() => { /* silent */ });
+    }).catch(() => { /* non-Tauri or import failed */ });
+  }
+}
+
+/** Async-load the persisted folder set from the durable app config
+ *  file and apply it on top of the synchronously-loaded localStorage
+ *  value. The file is more durable than localStorage on mobile, so it
+ *  wins when both exist. Runs once per webview load. */
+async function hydrateOpenFoldersFromConfig(): Promise<void> {
+  if (!isTauri) return;
+  try {
+    const { loadOpenFoldersConfig } = await import('./platform/tauri');
+    const stored = await loadOpenFoldersConfig();
+    if (stored === null) {
+      // Nothing on disk yet — seed it from whatever localStorage had,
+      // so the next launch has a durable copy even if WebKit purges.
+      if (openFolders.size > 0) persistOpenFolders();
+      return;
+    }
+    openFolders = new Set(stored);
+    if (typeof localStorage !== 'undefined') {
+      try { localStorage.setItem(OPEN_FOLDERS_KEY, JSON.stringify(stored)); } catch { /* quota */ }
+    }
+  } catch {
+    // Best-effort — fall through to whatever localStorage gave us.
+  }
+}
+
+if (typeof window !== 'undefined') {
+  void hydrateOpenFoldersFromConfig();
 }
 
 export function isFolderOpen(path: string): boolean {

@@ -41,12 +41,17 @@ export interface AppConfig {
 export interface AppConfigUpdates {
   sidebarWidth?: number | null;
   graphSidebarWidth?: number | null;
+  /** Snapshot of which folder paths are expanded in the sidebar
+   *  tree. Persisted here (in addition to localStorage) so the state
+   *  survives iOS WKWebView storage purges and Android WebView resets. */
+  openFolders?: string[] | null;
 }
 
 /** On-disk shape of .app-config.json */
 interface AppConfigFile {
   sidebarWidth?: number | null;
   graphSidebarWidth?: number | null;
+  openFolders?: string[] | null;
 }
 
 // ── Cached notes root path ──────────────────────────────────────────────
@@ -409,8 +414,11 @@ export function onFileChange(callback: (event: FileChangeEvent) => void): () => 
   });
 
   return () => {
+    if (disposed) return;
     disposed = true;
-    unlisten?.();
+    const fn = unlisten;
+    unlisten = null;
+    fn?.();
   };
 }
 
@@ -428,8 +436,11 @@ export function onMenuAction(callback: (action: string) => void): () => void {
   });
 
   return () => {
+    if (disposed) return;
     disposed = true;
-    unlisten?.();
+    const fn = unlisten;
+    unlisten = null;
+    fn?.();
   };
 }
 
@@ -470,7 +481,17 @@ export async function saveConfig(updates: AppConfigUpdates): Promise<void> {
   const cfg = await loadAppConfigFile();
   if ('sidebarWidth' in updates) cfg.sidebarWidth = updates.sidebarWidth;
   if ('graphSidebarWidth' in updates) cfg.graphSidebarWidth = updates.graphSidebarWidth;
+  if ('openFolders' in updates) cfg.openFolders = updates.openFolders;
   await saveAppConfigFile(cfg);
+}
+
+/** Read just the persisted set of expanded folder paths. Returns null
+ *  when the config file has no entry, so callers can distinguish
+ *  "never persisted" from "persisted as empty list". */
+export async function loadOpenFoldersConfig(): Promise<string[] | null> {
+  const cfg = await loadAppConfigFile();
+  if (!Array.isArray(cfg.openFolders)) return null;
+  return cfg.openFolders.filter((s): s is string => typeof s === 'string');
 }
 
 export async function setNotesDir(dir: string | null): Promise<void> {

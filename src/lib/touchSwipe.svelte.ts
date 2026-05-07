@@ -5,6 +5,8 @@
  * and rAF-based direct DOM manipulation during drags.
  */
 
+import { isItemDragging } from './dragState';
+
 export interface TouchSwipeConfig {
   getDrawerWidth: () => number;
   getDrawerOpen: () => boolean;
@@ -110,6 +112,10 @@ export function createTouchSwipe(config: TouchSwipeConfig) {
 
   function handleTouchMove(event: TouchEvent): void {
     if (ignoreSwipe || !tracking || event.touches.length !== 1) return;
+    // A note/folder drag in the sidebar takes ownership of the touch
+    // — don't slide the drawer underneath while the user is dragging
+    // a row sideways into a folder.
+    if (isItemDragging()) return;
     const touch = event.touches[0];
     const deltaX = touch.clientX - startX;
     const deltaY = touch.clientY - startY;

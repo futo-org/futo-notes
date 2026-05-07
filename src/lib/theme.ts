@@ -79,10 +79,14 @@ export function watchSystemThemeTauri(onChange: (theme?: ResolvedTheme) => void)
   });
 
   return () => {
+    if (disposed) return;
     disposed = true;
-    tauriUnlisten?.();
-    portalUnlisten?.();
-    fallbackUnlisten?.();
+    const t = tauriUnlisten; tauriUnlisten = null;
+    const p = portalUnlisten; portalUnlisten = null;
+    const f = fallbackUnlisten; fallbackUnlisten = null;
+    t?.();
+    p?.();
+    f?.();
   };
 }
 

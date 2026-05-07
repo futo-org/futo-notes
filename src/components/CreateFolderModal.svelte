@@ -1,5 +1,7 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte';
+  import { portal } from '$lib/util/portal';
+  import { isMobile } from '$lib/platform';
 
   interface Props {
     /** Pre-filled value (used by the rename modal). */
@@ -61,7 +63,7 @@
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="modal-backdrop" onclick={oncancel}>
+<div use:portal class="modal-backdrop" class:mobile={isMobile} onclick={oncancel}>
   <div class="modal-card" onclick={(e) => e.stopPropagation()}>
     <h2 class="modal-title">{title}</h2>
     <label class="modal-label">
@@ -164,5 +166,24 @@
   .modal-btn-primary:disabled {
     opacity: 0.6;
     cursor: progress;
+  }
+
+  /* Mobile: full-sheet modal that fills the viewport instead of a
+     centered card. */
+  .modal-backdrop.mobile {
+    align-items: stretch;
+    justify-content: stretch;
+  }
+  .modal-backdrop.mobile .modal-card {
+    width: 100%;
+    max-width: 100%;
+    height: 100%;
+    border-radius: 0;
+    padding: max(20px, env(safe-area-inset-top, 0)) 20px max(20px, env(safe-area-inset-bottom, 0));
+    display: flex;
+    flex-direction: column;
+  }
+  .modal-backdrop.mobile .modal-actions {
+    margin-top: auto;
   }
 </style>

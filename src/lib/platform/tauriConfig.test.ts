@@ -35,7 +35,7 @@ vi.mock('@tauri-apps/api/app', () => ({
 }));
 
 import { invoke } from '@tauri-apps/api/core';
-import { getConfig, saveConfig, setNotesDir } from './tauri';
+import { getConfig, saveConfig, setNotesDir, loadOpenFoldersConfig } from './tauri';
 
 const mockInvoke = vi.mocked(invoke);
 
@@ -137,6 +137,61 @@ describe('saveConfig', () => {
     const writtenContent = mockWriteTextFile.mock.calls[0][1] as string;
     const written = JSON.parse(writtenContent);
     expect(written.sidebarWidth).toBeNull();
+  });
+
+  it('persists openFolders alongside other config fields', async () => {
+    setupInvokeMock();
+    const { readTextFile, writeTextFile, exists } = await import('@tauri-apps/plugin-fs');
+    vi.mocked(exists).mockResolvedValueOnce(true);
+    vi.mocked(readTextFile).mockResolvedValueOnce(JSON.stringify({ sidebarWidth: 280 }));
+
+    await saveConfig({ openFolders: ['Projects', 'Projects/2026'] });
+    const writtenContent = vi.mocked(writeTextFile).mock.calls[0][1] as string;
+    const written = JSON.parse(writtenContent);
+    expect(written.openFolders).toEqual(['Projects', 'Projects/2026']);
+    // Doesn't clobber existing fields
+    expect(written.sidebarWidth).toBe(280);
+  });
+});
+
+describe('loadOpenFoldersConfig', () => {
+  it('returns null when the config file has no openFolders entry', async () => {
+    setupInvokeMock();
+    const { readTextFile, exists } = await import('@tauri-apps/plugin-fs');
+    vi.mocked(exists).mockResolvedValueOnce(true);
+    vi.mocked(readTextFile).mockResolvedValueOnce(JSON.stringify({ sidebarWidth: 300 }));
+
+    expect(await loadOpenFoldersConfig()).toBeNull();
+  });
+
+  it('returns null when the config file is missing', async () => {
+    setupInvokeMock();
+    const { exists } = await import('@tauri-apps/plugin-fs');
+    vi.mocked(exists).mockResolvedValueOnce(false);
+
+    expect(await loadOpenFoldersConfig()).toBeNull();
+  });
+
+  it('returns the persisted folder paths and filters non-strings', async () => {
+    setupInvokeMock();
+    const { readTextFile, exists } = await import('@tauri-apps/plugin-fs');
+    vi.mocked(exists).mockResolvedValueOnce(true);
+    // Simulate a file containing junk values to make sure we don't
+    // hand them back to callers as-is.
+    vi.mocked(readTextFile).mockResolvedValueOnce(
+      JSON.stringify({ openFolders: ['Projects', 42, 'Projects/2026', null] }),
+    );
+
+    expect(await loadOpenFoldersConfig()).toEqual(['Projects', 'Projects/2026']);
+  });
+
+  it('returns an empty array when openFolders was persisted as []', async () => {
+    setupInvokeMock();
+    const { readTextFile, exists } = await import('@tauri-apps/plugin-fs');
+    vi.mocked(exists).mockResolvedValueOnce(true);
+    vi.mocked(readTextFile).mockResolvedValueOnce(JSON.stringify({ openFolders: [] }));
+
+    expect(await loadOpenFoldersConfig()).toEqual([]);
   });
 });
 
