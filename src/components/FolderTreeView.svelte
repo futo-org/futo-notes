@@ -389,11 +389,16 @@
 
   function handleRootDragLeave(e: DragEvent): void {
     if (!isDesktop) return;
-    // Only clear if we left the scroll container entirely. Leaving a row
-    // inside the container fires dragleave too, so check relatedTarget.
     const related = e.relatedTarget as Node | null;
+    // WebKitGTK fires dragleave with relatedTarget=null on every
+    // row→row transition during a drag. Treating null as "left
+    // container" caused the outline to flicker on/off at ~60Hz. Only
+    // act on dragleaves whose relatedTarget is genuinely outside;
+    // window-level leaves with null relatedTarget are left to dragend
+    // to clean up.
+    if (!related) return;
     const container = e.currentTarget as Node;
-    if (related && container.contains(related)) return;
+    if (container.contains(related)) return;
     dropTarget = null;
     clearHoverTimer();
   }
