@@ -64,10 +64,12 @@
     {/if}
   </div>
 
-  <button class="quick-capture-btn" aria-label="Quick capture" onclick={handleQuickCapture}>
-    <PenLine size={16} strokeWidth={2.25} />
-    <span>Quick capture</span>
-  </button>
+  {#if isMobile}
+    <button class="quick-capture-btn" aria-label="Quick capture" onclick={handleQuickCapture}>
+      <PenLine size={16} strokeWidth={2.25} />
+      <span>Quick capture</span>
+    </button>
+  {/if}
 </div>
 
 <style>
