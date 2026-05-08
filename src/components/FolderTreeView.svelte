@@ -69,6 +69,7 @@
   // top + 1px bottom margin = 50px. Keep this in sync with the CSS.
   const ROW_HEIGHT = 50;
   const ROW_BUFFER = 6;
+  const DEPTH_INDENT_PX = 16;
   let scrollTop = $state(0);
   let containerHeight = $state(0);
   let containerEl: HTMLDivElement | undefined = $state();
@@ -882,7 +883,7 @@
             class:drop-target={dropTarget === node.path}
             class:touch-grabbed={touchDragKind === 'folder' && touchDragId === node.path}
             class:touch-pressed={pressedRowId === node.path && touchDragKind === null && pressTimer !== null}
-            style="top: {index * ROW_HEIGHT}px; padding-left: {12 + node.depth * 16}px"
+            style="top: {index * ROW_HEIGHT}px; left: {node.depth * DEPTH_INDENT_PX}px"
             onclick={() => handleFolderClick(node)}
             ondblclick={(e) => { e.preventDefault(); e.stopPropagation(); void beginInlineRename(node.path); }}
             onkeydown={(e) => handleFolderKeydown(e, node)}
@@ -933,21 +934,23 @@
             {:else}
               <span class="folder-name">{node.name}</span>
             {/if}
-            <button
-              type="button"
-              class="folder-add-btn"
-              aria-label="New folder in {node.path}"
-              title="New folder"
-              onclick={(e) => { e.preventDefault(); e.stopPropagation(); oncreatefolder?.(node.path); }}
-              onmousedown={(e) => e.stopPropagation()}
-              ontouchstart={(e) => e.stopPropagation()}
-              data-testid="folder-add-subfolder"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="12" y1="5" x2="12" y2="19"/>
-                <line x1="5" y1="12" x2="19" y2="12"/>
-              </svg>
-            </button>
+            {#if isMobile}
+              <button
+                type="button"
+                class="folder-add-btn"
+                aria-label="New folder in {node.path}"
+                title="New folder"
+                onclick={(e) => { e.preventDefault(); e.stopPropagation(); oncreatefolder?.(node.path); }}
+                onmousedown={(e) => e.stopPropagation()}
+                ontouchstart={(e) => e.stopPropagation()}
+                data-testid="folder-add-subfolder"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="12" y1="5" x2="12" y2="19"/>
+                  <line x1="5" y1="12" x2="19" y2="12"/>
+                </svg>
+              </button>
+            {/if}
           </div>
         {:else}
           <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -958,7 +961,7 @@
             class:dragging={isDragging}
             class:touch-grabbed={touchDragKind === 'note' && touchDragId === node.note.id}
             class:touch-pressed={pressedRowId === node.note.id && touchDragKind === null && pressTimer !== null}
-            style="top: {index * ROW_HEIGHT}px; padding-left: {12 + node.depth * 16}px"
+            style="top: {index * ROW_HEIGHT}px; left: {node.depth * DEPTH_INDENT_PX}px"
             onclick={() => handleNoteClick(node.note.id)}
             oncontextmenu={(e) => handleNoteContextMenu(e, node.note.id)}
             ontouchstart={(e) => handleNoteTouchStart(e, node.note.id)}
@@ -1008,7 +1011,6 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    width: 100%;
     height: 48px;
     border: none;
     border-radius: 10px;
@@ -1016,7 +1018,7 @@
     color: inherit;
     text-align: left;
     cursor: pointer;
-    padding-right: 12px;
+    padding: 0 12px;
     margin: 1px 0;
     box-sizing: border-box;
     user-select: none;

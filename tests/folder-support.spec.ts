@@ -53,9 +53,12 @@ test.describe('Folder support', () => {
 
     const actionBox = await actions.boundingBox();
     const inputBox = await input.boundingBox();
+    const confirmBox = await confirm.boundingBox();
     expect(actionBox).not.toBeNull();
     expect(inputBox).not.toBeNull();
+    expect(confirmBox).not.toBeNull();
     expect(actionBox!.y).toBeLessThan(inputBox!.y);
+    expect(confirmBox!.y - actionBox!.y).toBeGreaterThanOrEqual(20);
     expect(actionBox!.y + actionBox!.height).toBeLessThanOrEqual(90);
   });
 
@@ -155,16 +158,11 @@ test.describe('Folder support', () => {
     await page.getByTestId('create-folder-input').fill('Work');
     await page.getByTestId('create-folder-confirm').click();
 
-    const addSubfolder = page.locator('[data-folder-path="Work"] [data-testid="folder-add-subfolder"]').first();
-    await expect(addSubfolder).toBeVisible();
-    await addSubfolder.click();
-    await expect(page.locator('.modal-title')).toHaveText('New folder in "Work"');
-    await page.getByTestId('create-folder-input').fill('Archive');
-    await page.getByTestId('create-folder-confirm').click();
-    await expect(page.locator('[data-folder-path="Work/Archive"]').first()).toBeVisible();
+    await expect(page.locator('[data-folder-path="Work"] [data-testid="folder-add-subfolder"]')).toHaveCount(0);
 
     await page.locator('[data-folder-path="Work"]').first().click({ button: 'right' });
     await page.getByRole('menuitem', { name: 'New Folder' }).click();
+    await expect(page.locator('.modal-title')).toHaveText('New folder in "Work"');
     await page.getByTestId('create-folder-input').fill('Plans');
     await page.getByTestId('create-folder-confirm').click();
     await expect(page.locator('[data-folder-path="Work/Plans"]').first()).toBeVisible();

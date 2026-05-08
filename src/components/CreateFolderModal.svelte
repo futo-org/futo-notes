@@ -193,7 +193,7 @@
     top: 0;
     z-index: 1;
     margin: 0 -20px 16px;
-    padding: max(12px, env(safe-area-inset-top, 0)) 20px 12px;
+    padding: calc(max(12px, env(safe-area-inset-top, 0)) + 10px) 20px 12px;
     justify-content: space-between;
     background: var(--color-bg, #fff);
     border-bottom: 1px solid var(--color-border, #d1d5db);
