@@ -39,6 +39,26 @@ test.describe('Folder support', () => {
     ).toBeVisible();
   });
 
+  test('mobile create-folder modal keeps actions above the input', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 640 });
+    await openSidebar(page);
+    await page.getByTestId('new-folder-btn').click();
+    await page.locator('.modal-backdrop').evaluate((el) => el.classList.add('mobile'));
+
+    const actions = page.locator('.modal-actions');
+    const input = page.getByTestId('create-folder-input');
+    const confirm = page.getByTestId('create-folder-confirm');
+    await expect(actions).toBeVisible();
+    await expect(confirm).toBeVisible();
+
+    const actionBox = await actions.boundingBox();
+    const inputBox = await input.boundingBox();
+    expect(actionBox).not.toBeNull();
+    expect(inputBox).not.toBeNull();
+    expect(actionBox!.y).toBeLessThan(inputBox!.y);
+    expect(actionBox!.y + actionBox!.height).toBeLessThanOrEqual(90);
+  });
+
   test('creating a folder with a Windows-reserved name surfaces an error', async ({ page }) => {
     await openSidebar(page);
     await page.getByTestId('new-folder-btn').click();
@@ -100,6 +120,116 @@ test.describe('Folder support', () => {
     await page.keyboard.press('Escape');
   });
 
+  test('folder rename is inline from double-click, F2, and context menu', async ({ page }) => {
+    await openSidebar(page);
+    await page.getByTestId('new-folder-btn').click();
+    await page.getByTestId('create-folder-input').fill('Work');
+    await page.getByTestId('create-folder-confirm').click();
+
+    const work = page.locator('[data-folder-path="Work"]').first();
+    await work.dblclick();
+    await page.getByTestId('folder-rename-input').fill('Projects');
+    await page.keyboard.press('Enter');
+    await expect(page.locator('[data-folder-path="Projects"]').first()).toBeVisible();
+    await expect(page.getByTestId('create-folder-input')).toBeHidden();
+
+    const projects = page.locator('[data-folder-path="Projects"]').first();
+    await projects.focus();
+    await page.keyboard.press('F2');
+    await page.getByTestId('folder-rename-input').fill('Archive');
+    await page.keyboard.press('Enter');
+    await expect(page.locator('[data-folder-path="Archive"]').first()).toBeVisible();
+
+    const archive = page.locator('[data-folder-path="Archive"]').first();
+    await archive.click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Rename' }).click();
+    await page.getByTestId('folder-rename-input').fill('Done');
+    await page.keyboard.press('Enter');
+    await expect(page.locator('[data-folder-path="Done"]').first()).toBeVisible();
+    await expect(page.getByTestId('create-folder-input')).toBeHidden();
+  });
+
+  test('existing folders expose discoverable subfolder creation', async ({ page }) => {
+    await openSidebar(page);
+    await page.getByTestId('new-folder-btn').click();
+    await page.getByTestId('create-folder-input').fill('Work');
+    await page.getByTestId('create-folder-confirm').click();
+
+    const addSubfolder = page.locator('[data-folder-path="Work"] [data-testid="folder-add-subfolder"]').first();
+    await expect(addSubfolder).toBeVisible();
+    await addSubfolder.click();
+    await expect(page.locator('.modal-title')).toHaveText('New folder in "Work"');
+    await page.getByTestId('create-folder-input').fill('Archive');
+    await page.getByTestId('create-folder-confirm').click();
+    await expect(page.locator('[data-folder-path="Work/Archive"]').first()).toBeVisible();
+
+    await page.locator('[data-folder-path="Work"]').first().click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'New Folder' }).click();
+    await page.getByTestId('create-folder-input').fill('Plans');
+    await page.getByTestId('create-folder-confirm').click();
+    await expect(page.locator('[data-folder-path="Work/Plans"]').first()).toBeVisible();
+  });
+
+  test('deleting a folder keeps contained notes and moves the open note', async ({ page }) => {
+    await openSidebar(page);
+    page.on('dialog', (dialog) => dialog.accept());
+    await page.evaluate(async () => {
+      const win = window as unknown as { __testNotes: { createNote: (id: string, body: string) => Promise<unknown> } };
+      await win.__testNotes.createNote('Work/open-note', 'body');
+    });
+
+    await page.locator('[data-folder-path="Work"]').first().click();
+    await page.locator('[data-note-id="Work/open-note"]').click();
+    await expect(page).toHaveURL(/#\/note\/Work%2Fopen-note/);
+
+    await page.locator('[data-folder-path="Work"]').first().click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Delete' }).click();
+    await expect(page.locator('.toast')).toContainText('Folder deleted; moved 1 note');
+    await expect(page).toHaveURL(/#\/note\/open-note/);
+    await expect(page.locator('[data-note-id="Work/open-note"]')).toHaveCount(0);
+    await expect(page.locator('[data-note-id="open-note"]')).toBeVisible();
+  });
+
+  test('folder drag-drop falls back to tracked source when MIME data is hidden', async ({ page }) => {
+    await openSidebar(page);
+    await page.getByTestId('new-folder-btn').click();
+    await page.getByTestId('create-folder-input').fill('work');
+    await page.getByTestId('create-folder-confirm').click();
+    await page.getByTestId('new-folder-btn').click();
+    await page.getByTestId('create-folder-input').fill('archive');
+    await page.getByTestId('create-folder-confirm').click();
+
+    const moved = await page.evaluate(async () => {
+      const archive = document.querySelector('[data-folder-path="archive"]');
+      const work = document.querySelector('[data-folder-path="work"]');
+      if (!archive || !work) return false;
+
+      archive.dispatchEvent(new DragEvent('dragstart', {
+        bubbles: true,
+        cancelable: true,
+        dataTransfer: new DataTransfer(),
+      }));
+      work.dispatchEvent(new DragEvent('dragover', {
+        bubbles: true,
+        cancelable: true,
+        dataTransfer: new DataTransfer(),
+      }));
+      work.dispatchEvent(new DragEvent('drop', {
+        bubbles: true,
+        cancelable: true,
+        dataTransfer: new DataTransfer(),
+      }));
+      archive.dispatchEvent(new DragEvent('dragend', {
+        bubbles: true,
+        cancelable: true,
+        dataTransfer: new DataTransfer(),
+      }));
+      await new Promise(r => setTimeout(r, 50));
+      return Boolean(document.querySelector('[data-folder-path="work/archive"]'));
+    });
+    expect(moved).toBe(true);
+  });
+
   test('drop-target outline does not flicker when dragging over rows', async ({ page }) => {
     // Regression: WebKitGTK fires `dragleave` with relatedTarget=null
     // on every row→row transition during a drag. The earlier
@@ -126,6 +256,8 @@ test.describe('Folder support', () => {
     });
 
     await expect(page.locator('[data-folder-path="seed-folder"]').first()).toBeVisible();
+    await page.locator('[data-folder-path="seed-folder"]').first().click();
+    await expect(page.locator('[data-note-id="seed-folder/inside"]')).toBeVisible();
 
     const transitions = await page.evaluate(async () => {
       const noteRows = [...document.querySelectorAll('.note-row')];

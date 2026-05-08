@@ -693,9 +693,13 @@ async function fileMoveOnAEditOnB(a, b, server) {
   await a.syncNow();
   await b.syncNow();
   await a.syncNow();
-  // After convergence, at least one of the two paths exists with content.
-  const aFolder = await a.noteExists('Lists/grocery');
-  assert(aFolder, 'A should still have the moved note');
+  // After convergence, the peer edit should land on the moved path only.
+  const aFiles = (await a.listNotes()).map((f) => (f.name || f.filename || f).replace(/\.md$/, '')).sort();
+  const bFiles = (await b.listNotes()).map((f) => (f.name || f.filename || f).replace(/\.md$/, '')).sort();
+  assertEqual(JSON.stringify(aFiles), JSON.stringify(['Lists/grocery']), 'A should keep only the moved path');
+  assertEqual(JSON.stringify(bFiles), JSON.stringify(['Lists/grocery']), 'B should keep only the moved path');
+  assertEqual(await a.readNote('Lists/grocery'), '# Grocery\nupdated', 'A should have B edit at moved path');
+  assertEqual(await b.readNote('Lists/grocery'), '# Grocery\nupdated', 'B should have B edit at moved path');
 }
 
 async function fileMovedToTwoFoldersByAandB(a, b, server) {
@@ -718,16 +722,62 @@ async function fileMovedToTwoFoldersByAandB(a, b, server) {
   await b.syncNow();
   await a.syncNow();
 
-  // After convergence both clients should agree on the same set of paths.
-  const aFiles = (await a.listNotes()).map((f) => (f.name || f.filename || f).replace(/\.md$/, ''));
-  const bFiles = (await b.listNotes()).map((f) => (f.name || f.filename || f).replace(/\.md$/, ''));
-  // A's flat 'contested' path should not be alive on either side after the move.
-  assert(!aFiles.includes('contested'), 'flat path should be gone on A');
-  assert(!bFiles.includes('contested'), 'flat path should be gone on B');
-  // At least one of the two destination paths must be present on both sides.
-  const aHasSomeDest = aFiles.includes('FolderA/contested') || aFiles.includes('FolderB/contested');
-  const bHasSomeDest = bFiles.includes('FolderA/contested') || bFiles.includes('FolderB/contested');
-  assert(aHasSomeDest && bHasSomeDest, 'A and B should both see at least one of the destination paths');
+  // After convergence both clients should agree on the later server write.
+  const aFiles = (await a.listNotes()).map((f) => (f.name || f.filename || f).replace(/\.md$/, '')).sort();
+  const bFiles = (await b.listNotes()).map((f) => (f.name || f.filename || f).replace(/\.md$/, '')).sort();
+  assertEqual(JSON.stringify(aFiles), JSON.stringify(['FolderB/contested']), 'A should converge to B move destination');
+  assertEqual(JSON.stringify(bFiles), JSON.stringify(['FolderB/contested']), 'B should converge to B move destination');
+}
+
+async function concurrentOfflineFolderRename(a, b, server) {
+  await a.connectSync(server.url, server.password);
+  await b.connectSync(server.url, server.password);
+  await a.writeNote('Specs/alpha', '# Alpha');
+  await a.writeNote('Specs/beta', '# Beta');
+  await a.syncNow();
+  await b.syncNow();
+
+  await a.createFolder('Docs');
+  await a.moveNote('Specs/alpha', 'Docs/alpha');
+  await a.moveNote('Specs/beta', 'Docs/beta');
+  await b.createFolder('Archive');
+  await b.moveNote('Specs/alpha', 'Archive/alpha');
+  await b.moveNote('Specs/beta', 'Archive/beta');
+
+  await a.syncNow();
+  await b.syncNow();
+  await a.syncNow();
+
+  const aFiles = (await a.listNotes()).map((f) => (f.name || f.filename || f).replace(/\.md$/, '')).sort();
+  const bFiles = (await b.listNotes()).map((f) => (f.name || f.filename || f).replace(/\.md$/, '')).sort();
+  const expected = ['Archive/alpha', 'Archive/beta'];
+  assertEqual(JSON.stringify(aFiles), JSON.stringify(expected), 'A should converge to the later folder rename');
+  assertEqual(JSON.stringify(bFiles), JSON.stringify(expected), 'B should converge to the later folder rename');
+}
+
+async function moveNoteIntoFolderDeleteFolder(a, b, server) {
+  await a.connectSync(server.url, server.password);
+  await b.connectSync(server.url, server.password);
+  await a.writeNote('draft-note-01', '# Draft');
+  await a.syncNow();
+  await b.syncNow();
+
+  await a.createFolder('X');
+  await a.moveNote('draft-note-01', 'X/draft-note-01');
+  await b.createFolder('X');
+  await b.deleteFolder('X');
+  await b.writeNote('draft-note-01', '# Draft\n\nedited while X was deleted');
+
+  await a.syncNow();
+  await b.syncNow();
+  await a.syncNow();
+
+  const aFiles = (await a.listNotes()).map((f) => (f.name || f.filename || f).replace(/\.md$/, '')).sort();
+  const bFiles = (await b.listNotes()).map((f) => (f.name || f.filename || f).replace(/\.md$/, '')).sort();
+  assertEqual(JSON.stringify(aFiles), JSON.stringify(['X/draft-note-01']), 'A should have one moved draft path');
+  assertEqual(JSON.stringify(bFiles), JSON.stringify(['X/draft-note-01']), 'B should have one moved draft path');
+  assertEqual(await a.readNote('X/draft-note-01'), '# Draft\n\nedited while X was deleted', 'A should have merged edit at moved path');
+  assertEqual(await b.readNote('X/draft-note-01'), '# Draft\n\nedited while X was deleted', 'B should have merged edit at moved path');
 }
 
 async function folderXVsFileXAtSameLevel(a, b, server) {
@@ -816,6 +866,8 @@ const scenarios = [
   { name: 'folder rename on A edit on B', fn: folderRenameOnAEditOnB, matrices: ['desktop-desktop'] },
   { name: 'file move on A edit on B', fn: fileMoveOnAEditOnB, matrices: ['desktop-desktop'] },
   { name: 'file moved to two folders by A and B', fn: fileMovedToTwoFoldersByAandB, matrices: ['desktop-desktop'] },
+  { name: 'concurrent offline folder rename', fn: concurrentOfflineFolderRename, matrices: ['desktop-desktop'] },
+  { name: 'move note into folder delete folder', fn: moveNoteIntoFolderDeleteFolder, matrices: ['desktop-desktop', 'desktop-android'] },
   { name: 'folder X and file X coexist at same level', fn: folderXVsFileXAtSameLevel, matrices: ['desktop-desktop'] },
   { name: 'move into folder with existing filename suffixes', fn: moveIntoFolderWithExistingFilename, matrices: ['desktop-desktop'] },
   { name: 'empty folder does not sync', fn: emptyFolderDoesNotSync, matrices: ['desktop-desktop'] },

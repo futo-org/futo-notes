@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { connectWs, sleep } from './mcp-client.mjs';
 import { TauriTestClient, waitForTestHooks } from './tauri-test-client.mjs';
 
-const APP_ID = 'com.futo.notes';
+const APP_ID = 'com.futo.notes.dev';
 const ANDROID_PREVIEW_PORT = 5181;
 const MCP_PORT_START = 9223;
 const MCP_PORT_END = 9322;

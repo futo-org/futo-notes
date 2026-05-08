@@ -12,13 +12,15 @@ val tauriProperties = Properties().apply {
         propFile.inputStream().use { load(it) }
     }
 }
+val tauriPackageName = System.getenv("TAURI_ANDROID_PACKAGE_UNESCAPED") ?: "com.futo.notes"
+val tauriPackagePath = tauriPackageName.replace('.', '/')
 
 android {
     compileSdk = 36
-    namespace = "com.futo.notes"
+    namespace = tauriPackageName
     defaultConfig {
         manifestPlaceholders["usesCleartextTraffic"] = "false"
-        applicationId = "com.futo.notes"
+        applicationId = tauriPackageName
         minSdk = 24
         targetSdk = 36
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
@@ -50,6 +52,11 @@ android {
     }
     buildFeatures {
         buildConfig = true
+    }
+    sourceSets {
+        getByName("main") {
+            java.setSrcDirs(listOf("src/main/java/$tauriPackagePath"))
+        }
     }
 }
 

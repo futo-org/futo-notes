@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte';
   import { portal } from '$lib/util/portal';
-  import { isMobile } from '$lib/platform';
+  import { isMobile, showSoftKeyboard } from '$lib/platform';
 
   interface Props {
     /** Pre-filled value (used by the rename modal). */
@@ -32,6 +32,7 @@
   onMount(() => {
     inputEl?.focus();
     inputEl?.select();
+    if (isMobile) void showSoftKeyboard();
   });
 
   async function handleSubmit(): Promise<void> {
@@ -75,6 +76,8 @@
         class="modal-input"
         onkeydown={handleKey}
         autocomplete="off"
+        autocapitalize="none"
+        enterkeyhint="done"
         spellcheck="false"
         data-testid="create-folder-input"
       />
@@ -179,11 +182,23 @@
     max-width: 100%;
     height: 100%;
     border-radius: 0;
-    padding: max(20px, env(safe-area-inset-top, 0)) 20px max(20px, env(safe-area-inset-bottom, 0));
+    padding: 0 20px max(20px, env(safe-area-inset-bottom, 0));
     display: flex;
     flex-direction: column;
+    overflow: auto;
   }
   .modal-backdrop.mobile .modal-actions {
-    margin-top: auto;
+    order: -1;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    margin: 0 -20px 16px;
+    padding: max(12px, env(safe-area-inset-top, 0)) 20px 12px;
+    justify-content: space-between;
+    background: var(--color-bg, #fff);
+    border-bottom: 1px solid var(--color-border, #d1d5db);
+  }
+  .modal-backdrop.mobile .modal-title {
+    margin-top: 0;
   }
 </style>

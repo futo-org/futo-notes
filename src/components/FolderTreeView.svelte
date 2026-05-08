@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte';
+  import { onDestroy, tick } from 'svelte';
   import type { NotePreview } from '../types';
   import {
     buildFolderTree,
@@ -10,7 +10,7 @@
     type TreeNode,
     type FolderNode,
   } from '$lib/folders.svelte';
-  import { isDesktop, isIOS, isTauri } from '$lib/platform';
+  import { isIOS, isMobile, isTauri } from '$lib/platform';
   import { idParent, idLeaf } from '$lib/platform/pathSafety';
   import { setItemDragging } from '$lib/dragState';
 
@@ -28,6 +28,9 @@
     onnotecontextmenu?: (id: string, x: number, y: number) => void;
     onnotedragstart?: (id: string, e: DragEvent) => void;
     onfolderdragstart?: (path: string, e: DragEvent) => void;
+    oncreatefolder?: (parentPath: string) => void;
+    onrenamefolder?: (path: string, newName: string) => Promise<string | null> | string | null;
+    renameRequest?: { path: string; nonce: number } | null;
     ondropnoteonfolder?: (noteId: string, folderPath: string) => void;
     ondropfolderonfolder?: (folderPath: string, targetPath: string) => void;
     ondropnoteonroot?: (noteId: string) => void;
@@ -43,6 +46,9 @@
     onnotecontextmenu,
     onnotedragstart,
     onfolderdragstart,
+    oncreatefolder,
+    onrenamefolder,
+    renameRequest = null,
     ondropnoteonfolder,
     ondropfolderonfolder,
     ondropnoteonroot,
@@ -113,6 +119,7 @@
   // template, so they don't need $state reactivity.
   let sourceParent: string | null = null;
   let sourceFolderPath: string | null = null;
+  let sourceNoteId: string | null = null;
 
   function clearHoverTimer(): void {
     if (hoverTimer !== null) {
@@ -127,6 +134,7 @@
     dropTarget = null;
     sourceParent = null;
     sourceFolderPath = null;
+    sourceNoteId = null;
   }
 
   function isValidFolderTarget(targetPath: string): boolean {
@@ -153,14 +161,89 @@
     toggleFolderOpen(node.path);
   }
 
+  let editingFolderPath = $state<string | null>(null);
+  let editingFolderValue = $state('');
+  let editingFolderError = $state<string | null>(null);
+  let submittingFolderRename = $state(false);
+  let inlineRenameInput: HTMLInputElement | undefined = $state();
+  let lastRenameRequestNonce = -1;
+
+  $effect(() => {
+    if (!renameRequest || renameRequest.nonce === lastRenameRequestNonce) return;
+    lastRenameRequestNonce = renameRequest.nonce;
+    beginInlineRename(renameRequest.path);
+  });
+
+  async function beginInlineRename(path: string): Promise<void> {
+    editingFolderPath = path;
+    editingFolderValue = idLeaf(path);
+    editingFolderError = null;
+    await tick();
+    inlineRenameInput?.focus();
+    inlineRenameInput?.select();
+  }
+
+  function cancelInlineRename(): void {
+    editingFolderPath = null;
+    editingFolderValue = '';
+    editingFolderError = null;
+    submittingFolderRename = false;
+  }
+
+  async function submitInlineRename(): Promise<void> {
+    if (!editingFolderPath || submittingFolderRename) return;
+    submittingFolderRename = true;
+    editingFolderError = null;
+    try {
+      const error = await onrenamefolder?.(editingFolderPath, editingFolderValue);
+      if (error) {
+        editingFolderError = error;
+        await tick();
+        inlineRenameInput?.focus();
+        inlineRenameInput?.select();
+        return;
+      }
+      cancelInlineRename();
+    } catch (err) {
+      editingFolderError = (err as Error).message ?? 'Rename failed';
+      await tick();
+      inlineRenameInput?.focus();
+    } finally {
+      submittingFolderRename = false;
+    }
+  }
+
+  function handleFolderKeydown(e: KeyboardEvent, node: FolderNode): void {
+    if (e.key === 'F2') {
+      e.preventDefault();
+      e.stopPropagation();
+      void beginInlineRename(node.path);
+    } else if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      handleFolderClick(node);
+    }
+  }
+
+  function handleInlineRenameKeydown(e: KeyboardEvent): void {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      e.stopPropagation();
+      void submitInlineRename();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      cancelInlineRename();
+    }
+  }
+
   function handleNoteContextMenu(e: MouseEvent, id: string): void {
-    if (!isDesktop) return;
+    if (isMobile) return;
     e.preventDefault();
     onnotecontextmenu?.(id, e.clientX, e.clientY);
   }
 
   function handleFolderContextMenu(e: MouseEvent, path: string): void {
-    if (!isDesktop) return;
+    if (isMobile) return;
     e.preventDefault();
     onfoldercontextmenu?.(path, e.clientX, e.clientY);
   }
@@ -174,13 +257,13 @@
   const LONG_PRESS_MS = 350;
   const DRAG_THRESHOLD_PX = 8;
 
-  let pressTimer: number | null = null;
+  let pressTimer: number | null = $state(null);
   let touchPressStart: { x: number; y: number } | null = null;
   // Last known touch coords during the active gesture — used to
   // position the context menu when a folder is held without moving.
   let lastTouchPoint: { x: number; y: number } = { x: 0, y: 0 };
-  let touchDragKind: 'note' | 'folder' | null = null;
-  let touchDragId: string | null = null;
+  let touchDragKind: 'note' | 'folder' | null = $state(null);
+  let touchDragId: string | null = $state(null);
   let touchDragMirror: HTMLElement | null = null;
   let touchDragMirrorRect: DOMRect | null = null;
   let touchDocMoveListener: ((e: TouchEvent) => void) | null = null;
@@ -439,7 +522,7 @@
   }
 
   function handleNoteTouchStart(e: TouchEvent, id: string): void {
-    if (isDesktop) return;
+    if (!isMobile) return;
     if (e.touches.length !== 1 || touchDragKind !== null) return;
     const t = e.touches[0];
     touchPressStart = { x: t.clientX, y: t.clientY };
@@ -454,7 +537,7 @@
   }
 
   function handleFolderTouchStart(e: TouchEvent, path: string): void {
-    if (isDesktop) return;
+    if (!isMobile) return;
     if (e.touches.length !== 1 || touchDragKind !== null) return;
     const t = e.touches[0];
     touchPressStart = { x: t.clientX, y: t.clientY };
@@ -469,7 +552,7 @@
   }
 
   function handleRowTouchMove(e: TouchEvent): void {
-    if (isDesktop) return;
+    if (!isMobile) return;
     // Cancel a pending long-press if the finger drifts beyond the
     // threshold — that movement is the user starting to scroll, not
     // settling in for a press.
@@ -489,7 +572,7 @@
   }
 
   function handleRowTouchEnd(): void {
-    if (isDesktop) return;
+    if (!isMobile) return;
     if (pressTimer !== null) {
       clearLongPressTimer();
       pressedRowId = null;
@@ -499,7 +582,7 @@
   }
 
   function handleRowTouchCancel(): void {
-    if (isDesktop) return;
+    if (!isMobile) return;
     clearLongPressTimer();
     pressedRowId = null;
     // Active drags are torn down by the document-level cancel path.
@@ -598,21 +681,23 @@
   }
 
   function handleNoteDragStart(e: DragEvent, id: string): void {
-    if (!isDesktop || !e.dataTransfer) return;
+    if (isMobile || !e.dataTransfer) return;
     e.dataTransfer.setData(NOTE_MIME, id);
     e.dataTransfer.effectAllowed = 'move';
     sourceParent = idParent(id);
     sourceFolderPath = null;
+    sourceNoteId = id;
     setControlledDragImage(e);
     onnotedragstart?.(id, e);
   }
 
   function handleFolderDragStart(e: DragEvent, path: string): void {
-    if (!isDesktop || !e.dataTransfer) return;
+    if (isMobile || !e.dataTransfer) return;
     e.dataTransfer.setData(FOLDER_MIME, path);
     e.dataTransfer.effectAllowed = 'move';
     sourceParent = idParent(path);
     sourceFolderPath = path;
+    sourceNoteId = null;
     setControlledDragImage(e);
     onfolderdragstart?.(path, e);
   }
@@ -623,12 +708,13 @@
   }
 
   function dtCarriesNoteOrFolder(dt: DataTransfer | null): boolean {
+    if (sourceNoteId !== null || sourceFolderPath !== null) return true;
     if (!dt) return false;
     return dt.types.includes(NOTE_MIME) || dt.types.includes(FOLDER_MIME);
   }
 
   function handleFolderRowDragOver(e: DragEvent, path: string): void {
-    if (!isDesktop) return;
+    if (isMobile) return;
     const dt = e.dataTransfer;
     if (!dtCarriesNoteOrFolder(dt)) return;
     e.preventDefault();
@@ -652,7 +738,7 @@
   }
 
   function handleNoteRowDragOver(e: DragEvent, parentPath: string): void {
-    if (!isDesktop) return;
+    if (isMobile) return;
     const dt = e.dataTransfer;
     if (!dtCarriesNoteOrFolder(dt)) return;
     e.preventDefault();
@@ -664,13 +750,13 @@
   }
 
   function handleRowDrop(e: DragEvent, target: string): void {
-    if (!isDesktop) return;
+    if (isMobile) return;
     const dt = e.dataTransfer;
     if (!dt) return;
     e.preventDefault();
     e.stopPropagation();
-    const noteId = dt.getData(NOTE_MIME);
-    const folderPath = dt.getData(FOLDER_MIME);
+    const noteId = dt.getData(NOTE_MIME) || sourceNoteId || '';
+    const folderPath = dt.getData(FOLDER_MIME) || sourceFolderPath || '';
     clearDragState();
     teardownDragMirror();
     if (noteId) {
@@ -687,13 +773,13 @@
   }
 
   function handleFolderRowDragLeave(e: DragEvent): void {
-    if (!isDesktop) return;
+    if (isMobile) return;
     void e;
     clearHoverTimer();
   }
 
   function handleRootDragOver(e: DragEvent): void {
-    if (!isDesktop) return;
+    if (isMobile) return;
     const dt = e.dataTransfer;
     if (!dtCarriesNoteOrFolder(dt)) return;
     e.preventDefault();
@@ -702,7 +788,7 @@
   }
 
   function handleRootDragLeave(e: DragEvent): void {
-    if (!isDesktop) return;
+    if (isMobile) return;
     const related = e.relatedTarget as Node | null;
     // WebKitGTK fires dragleave with relatedTarget=null on every
     // row→row transition during a drag. Treating null as "left
@@ -718,12 +804,12 @@
   }
 
   function handleRootDrop(e: DragEvent): void {
-    if (!isDesktop) return;
+    if (isMobile) return;
     const dt = e.dataTransfer;
     if (!dt) return;
     e.preventDefault();
-    const noteId = dt.getData(NOTE_MIME);
-    const folderPath = dt.getData(FOLDER_MIME);
+    const noteId = dt.getData(NOTE_MIME) || sourceNoteId || '';
+    const folderPath = dt.getData(FOLDER_MIME) || sourceFolderPath || '';
     clearDragState();
     teardownDragMirror();
     if (noteId) {
@@ -787,9 +873,10 @@
     <div class="virtual-spacer" style="height: {flat.length * ROW_HEIGHT}px;">
       {#each visibleNodes as { node, index } (node.type === 'folder' ? `f:${node.path}` : `n:${node.note.id}`)}
         {#if node.type === 'folder'}
-          <!-- svelte-ignore a11y_click_events_have_key_events -->
-          <button
-            type="button"
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <div
+            role="button"
+            tabindex="0"
             class="folder-row virtual-row"
             class:dragging={isDragging}
             class:drop-target={dropTarget === node.path}
@@ -797,12 +884,14 @@
             class:touch-pressed={pressedRowId === node.path && touchDragKind === null && pressTimer !== null}
             style="top: {index * ROW_HEIGHT}px; padding-left: {12 + node.depth * 16}px"
             onclick={() => handleFolderClick(node)}
+            ondblclick={(e) => { e.preventDefault(); e.stopPropagation(); void beginInlineRename(node.path); }}
+            onkeydown={(e) => handleFolderKeydown(e, node)}
             oncontextmenu={(e) => handleFolderContextMenu(e, node.path)}
             ontouchstart={(e) => handleFolderTouchStart(e, node.path)}
             ontouchend={handleRowTouchEnd}
             ontouchcancel={handleRowTouchCancel}
             ontouchmove={handleRowTouchMove}
-            draggable={isDesktop}
+            draggable={!isMobile}
             ondragstart={(e) => handleFolderDragStart(e, node.path)}
             ondragend={handleDragEnd}
             ondragover={(e) => handleFolderRowDragOver(e, node.path)}
@@ -821,8 +910,45 @@
                 </svg>
               {/if}
             </span>
-            <span class="folder-name">{node.name}</span>
-          </button>
+            {#if editingFolderPath === node.path}
+              <span
+                class="folder-inline-edit"
+                onclick={(e) => e.stopPropagation()}
+                ondblclick={(e) => e.stopPropagation()}
+                onkeydown={(e) => e.stopPropagation()}
+              >
+                <input
+                  bind:this={inlineRenameInput}
+                  bind:value={editingFolderValue}
+                  class:error={editingFolderError !== null}
+                  disabled={submittingFolderRename}
+                  aria-label="Folder name"
+                  aria-invalid={editingFolderError !== null}
+                  title={editingFolderError ?? 'Folder name'}
+                  onkeydown={handleInlineRenameKeydown}
+                  onblur={() => { if (!submittingFolderRename) void submitInlineRename(); }}
+                  data-testid="folder-rename-input"
+                />
+              </span>
+            {:else}
+              <span class="folder-name">{node.name}</span>
+            {/if}
+            <button
+              type="button"
+              class="folder-add-btn"
+              aria-label="New folder in {node.path}"
+              title="New folder"
+              onclick={(e) => { e.preventDefault(); e.stopPropagation(); oncreatefolder?.(node.path); }}
+              onmousedown={(e) => e.stopPropagation()}
+              ontouchstart={(e) => e.stopPropagation()}
+              data-testid="folder-add-subfolder"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19"/>
+                <line x1="5" y1="12" x2="19" y2="12"/>
+              </svg>
+            </button>
+          </div>
         {:else}
           <!-- svelte-ignore a11y_click_events_have_key_events -->
           <button
@@ -839,7 +965,7 @@
             ontouchend={handleRowTouchEnd}
             ontouchcancel={handleRowTouchCancel}
             ontouchmove={handleRowTouchMove}
-            draggable={isDesktop}
+            draggable={!isMobile}
             ondragstart={(e) => handleNoteDragStart(e, node.note.id)}
             ondragend={handleDragEnd}
             ondragover={(e) => handleNoteRowDragOver(e, node.parentPath)}
@@ -901,6 +1027,11 @@
        p95 frame time noticeably during long drags through 2k-row trees. */
     contain: layout style paint;
   }
+  .folder-row:focus-visible,
+  .note-row:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: -2px;
+  }
   .folder-row:hover,
   .note-row:hover {
     background: rgba(var(--ink-rgb), 0.06);
@@ -940,6 +1071,46 @@
   }
   .folder-name {
     font-weight: 500;
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .folder-inline-edit {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .folder-inline-edit input {
+    width: 100%;
+    height: 30px;
+    border: 1px solid var(--color-primary);
+    border-radius: 6px;
+    padding: 3px 7px;
+    background: var(--color-bg);
+    color: var(--color-text);
+    font: inherit;
+    box-sizing: border-box;
+  }
+  .folder-inline-edit input.error {
+    border-color: #b91c1c;
+  }
+  .folder-add-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 28px;
+    width: 28px;
+    height: 28px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--color-muted, #555);
+    cursor: pointer;
+    opacity: 0.72;
+  }
+  .folder-add-btn:hover,
+  .folder-add-btn:focus-visible {
+    background: rgba(var(--ink-rgb), 0.08);
+    color: var(--color-text);
+    opacity: 1;
   }
   /* Root drop target — when dragging an item out of any folder back to the
      vault root, outline the entire scroll area (only when applicable). */

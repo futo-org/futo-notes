@@ -59,7 +59,7 @@
 
   let showCreateFolder = $state(false);
   let createFolderParent = $state(''); // '' = root
-  let renameModal = $state<{ path: string; name: string } | null>(null);
+  let renameRequest = $state<{ path: string; nonce: number } | null>(null);
   let folderPicker = $state<{
     title: string;
     onpick: (target: string) => void;
@@ -70,6 +70,10 @@
   function openCreateFolder(parent: string): void {
     createFolderParent = parent;
     showCreateFolder = true;
+  }
+
+  function requestInlineRename(path: string): void {
+    renameRequest = { path, nonce: Date.now() };
   }
 
   async function handleCreateFolderSubmit(name: string): Promise<string | null> {
@@ -113,11 +117,10 @@
   function showFolderContextMenu(path: string, x: number, y: number): void {
     const items: MenuItem[] = [
       { label: 'New Note', onclick: () => onnewnoteinfolder?.(path) },
+      { label: 'New Folder', onclick: () => openCreateFolder(path) },
       {
         label: 'Rename',
-        onclick: () => {
-          renameModal = { path, name: idLeaf(path) };
-        },
+        onclick: () => requestInlineRename(path),
       },
     ];
     if (isMobile) {
@@ -149,24 +152,19 @@
     contextMenu = { x, y, items };
   }
 
-  async function handleRenameFolder(newName: string): Promise<string | null> {
-    if (!renameModal) return 'No folder selected';
+  async function handleRenameFolder(path: string, newName: string): Promise<string | null> {
     const trimmed = newName.trim();
-    const components = renameModal.path.split('/');
+    const components = path.split('/');
     const parent = components.slice(0, -1).join('/');
     const newPath = parent ? `${parent}/${trimmed}` : trimmed;
-    if (newPath === renameModal.path) {
-      renameModal = null;
-      return null;
-    }
+    if (newPath === path) return null;
     const siblings = collectSiblings(parent).filter((s) => s !== components[components.length - 1]);
-    const result = await renameOrMoveFolder(renameModal.path, newPath, siblings);
+    const result = await renameOrMoveFolder(path, newPath, siblings);
     if (!result.ok) return result.error ?? 'Failed to rename';
     // Wikilinks in every contained note rewrite themselves via the
     // moveNote → updateNote → rewriteWikilinksForRename path during
     // the bulk move.
-    await moveNotesUnderPrefix(renameModal.path, newPath);
-    renameModal = null;
+    await moveNotesUnderPrefix(path, newPath);
     await refreshEmptyFolders(getAllNotes());
     return null;
   }
@@ -225,33 +223,55 @@
     let confirmed = false;
     try {
       confirmed = await ask(
-        'Are you sure you want to delete this folder? Deleting this folder will erase the folder and all of its contents.',
+        'Delete this folder? Notes inside it will be moved to the parent folder.',
         { title: 'Delete folder', kind: 'warning' },
       );
     } catch {
       // Fallback to window.confirm in non-Tauri/test environments
       confirmed = typeof window !== 'undefined' && window.confirm
-        ? window.confirm(`Delete folder "${path}" and all of its contents?`)
+        ? window.confirm(`Delete folder "${path}"? Notes inside it will be moved to the parent folder.`)
         : true;
     }
     if (!confirmed) return;
-    // Delete every contained note (in parallel — IPC-bound) so they sync
-    // as individual deletions; then trash the folder itself. Aggregate
-    // failures so the user knows if some notes couldn't be deleted.
+    // Folder deletion is non-destructive: remove the path segment and
+    // keep notes by moving them up to the deleted folder's parent. This
+    // turns the sync operation into note moves instead of cascading
+    // tombstones across every connected device.
+    const parent = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
+    const prefix = `${path}/`;
     const noteIds = getAllNotes()
-      .filter((n) => n.id === path || n.id.startsWith(`${path}/`))
+      .filter((n) => n.id.startsWith(prefix))
       .map((n) => n.id);
-    const results = await Promise.all(
-      noteIds.map((id) => deleteNote(id).then(() => true, () => false)),
-    );
-    const failed = results.filter((ok) => !ok).length;
+    const moved = new Map<string, string>();
+    let failed = 0;
+    for (const id of noteIds) {
+      const tail = id.slice(prefix.length);
+      const target = parent ? `${parent}/${tail}` : tail;
+      try {
+        const result = await moveNote(id, target);
+        moved.set(id, result.id);
+      } catch {
+        failed++;
+      }
+    }
     const folderResult = await deleteFolder(path);
     if (!folderResult.ok) {
       showToast(folderResult.error ?? 'Failed to delete folder');
       return;
     }
     await refreshEmptyFolders(getAllNotes());
-    showToast(failed > 0 ? `Folder deleted (${failed} note${failed > 1 ? 's' : ''} failed)` : 'Folder deleted');
+    const activeId = appCtx.activeNoteId;
+    if (activeId && activeId !== 'new' && activeId.startsWith(prefix)) {
+      onselect(moved.get(activeId) ?? '__home__');
+    }
+    const movedCount = moved.size;
+    if (failed > 0) {
+      showToast(`Folder deleted; ${failed} note${failed > 1 ? 's' : ''} failed to move`);
+    } else if (movedCount > 0) {
+      showToast(`Folder deleted; moved ${movedCount} note${movedCount > 1 ? 's' : ''}`);
+    } else {
+      showToast('Folder deleted');
+    }
   }
 
   async function confirmDeleteNote(id: string): Promise<void> {
@@ -491,6 +511,9 @@
       {isDragging}
       onfoldercontextmenu={showFolderContextMenu}
       onnotecontextmenu={showNoteContextMenu}
+      oncreatefolder={openCreateFolder}
+      onrenamefolder={handleRenameFolder}
+      {renameRequest}
       ondropnoteonfolder={handleDropNoteOnFolder}
       ondropfolderonfolder={handleDropFolderOnFolder}
       ondropnoteonroot={handleDropNoteOnRoot}
@@ -530,15 +553,6 @@
       title={createFolderParent ? `New folder in "${createFolderParent}"` : 'New folder'}
       onsubmit={handleCreateFolderSubmit}
       oncancel={() => (showCreateFolder = false)}
-    />
-  {/if}
-  {#if renameModal}
-    <CreateFolderModal
-      title="Rename folder"
-      confirmLabel="Rename"
-      initialValue={renameModal.name}
-      onsubmit={handleRenameFolder}
-      oncancel={() => (renameModal = null)}
     />
   {/if}
   {#if folderPicker}

@@ -50,11 +50,29 @@ android-dev:
 android-offline:
   #!/usr/bin/env bash
   set -euo pipefail
+  if [[ -z "${JAVA_HOME:-}" || ! -x "${JAVA_HOME}/bin/java" ]]; then
+    for candidate in /usr/lib/jvm/temurin-21-jdk /usr/lib/jvm/java-21-temurin-jdk /usr/lib/jvm/java-21-openjdk-*; do
+      if [[ -x "${candidate}/bin/java" ]]; then
+        export JAVA_HOME="$candidate"
+        break
+      fi
+    done
+  fi
   pnpm run build
   cd apps/tauri
   cargo tauri android build --debug --apk --config src-tauri/tauri.android.offline.conf.json
-  adb install -r src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk
-  adb shell monkey -p com.futo.notes -c android.intent.category.LAUNCHER 1
+  if [[ -n "${ANDROID_SERIAL:-}" ]]; then
+    adb_target=(-s "$ANDROID_SERIAL")
+  else
+    mapfile -t devices < <(adb devices | awk 'NR > 1 && $2 == "device" { print $1 }')
+    if [[ "${#devices[@]}" -eq 0 ]]; then
+      echo "No Android device/emulator is online. Start one or set ANDROID_SERIAL." >&2
+      exit 1
+    fi
+    adb_target=(-s "${devices[0]}")
+  fi
+  adb "${adb_target[@]}" install -r src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk
+  adb "${adb_target[@]}" shell monkey -p com.futo.notes.dev -c android.intent.category.LAUNCHER 1
 
 android-build:
   cd apps/tauri && cargo tauri android build

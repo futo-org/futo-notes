@@ -166,11 +166,11 @@ export class TauriTestClient {
   // Sync calls can exceed that (slow-proxy scenarios, 1000-note bulk sync),
   // so we kick off the promise into a window slot and poll for completion.
 
-  async _kickOffSync(slotRef) {
+  async _kickOffAsync(slotRef, expression) {
     await executeJs(this.ws, `(() => {
       const slot = '__crossPlatformSyncCall_' + Math.random().toString(36).slice(2);
       window[slot] = { done: false };
-      window.__testSync.syncNow().then(
+      Promise.resolve(${expression}).then(
         (value) => { window[slot] = { done: true, value }; },
         (error) => { window[slot] = { done: true, error: String(error && error.message || error) }; },
       );
@@ -179,7 +179,11 @@ export class TauriTestClient {
     })()`);
   }
 
-  async _awaitSyncSlot(slotRef, timeoutMs) {
+  async _kickOffSync(slotRef) {
+    await this._kickOffAsync(slotRef, 'window.__testSync.syncNow()');
+  }
+
+  async _awaitAsyncSlot(slotRef, timeoutMs, label) {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
       const status = await executeJs(this.ws, `(() => {
@@ -191,12 +195,16 @@ export class TauriTestClient {
         return state;
       })()`);
       if (status?.done) {
-        if (status.error) throw new Error(`syncNow failed: ${status.error}`);
+        if (status.error) throw new Error(`${label} failed: ${status.error}`);
         return status.value;
       }
       await sleep(200);
     }
-    throw new Error(`${this.name}: syncNow did not complete within ${timeoutMs}ms`);
+    throw new Error(`${this.name}: ${label} did not complete within ${timeoutMs}ms`);
+  }
+
+  async _awaitSyncSlot(slotRef, timeoutMs) {
+    return this._awaitAsyncSlot(slotRef, timeoutMs, 'syncNow');
   }
 
   async startSync() {
@@ -238,9 +246,10 @@ export class TauriTestClient {
     throw new Error(`${this.name}: timed out waiting for ${label}`);
   }
 
-  async connectSync(serverUrl, password) {
-    return executeJs(this.ws,
+  async connectSync(serverUrl, password, { timeoutMs = 180_000 } = {}) {
+    await this._kickOffAsync('__lastConnectSlot',
       `window.__testSync.connect(${JSON.stringify(this.normalizeServerUrl(serverUrl))}, ${JSON.stringify(password)})`);
+    return this._awaitAsyncSlot('__lastConnectSlot', timeoutMs, 'connectSync');
   }
 
   async syncNow({ timeoutMs = 180_000 } = {}) {

@@ -93,7 +93,7 @@ interface PullResult {
   deletedIds: string[];
   newMaxVersion: number;
   /** Filenames added/updated this pull keyed by content hash — used to detect remote renames. */
-  hashToFilename: Map<string, string>;
+  hashToFilenames: Map<string, Array<{ filename: string; changeSeq: number }>>;
   /** Filenames deleted by this pull keyed by their last-known content hash — used to detect remote renames. */
   deletedHashes: Map<string, string>;
 }
@@ -106,6 +106,8 @@ interface PushResult {
   deletedIds: string[];
   newMaxVersion: number;
   deletedHashes: Map<string, string>;
+  /** Filenames added/updated this push keyed by content hash — used to detect concurrent move conflicts. */
+  hashToFilenames: Map<string, Array<{ filename: string; changeSeq: number }>>;
   /**
    * Subset of `updatedIds` that came from conflict resolution paths (3-way
    * merge, conflict-copy, or delete-vs-edit) — i.e. cases where push wrote
@@ -113,6 +115,25 @@ interface PushResult {
    * they don't change local state in any way the UI cares about.
    */
   conflictResolvedIds: string[];
+}
+
+interface LocalMovePairing {
+  /** New local filename -> previous synced filename. */
+  movedFromByTo: Map<string, string>;
+}
+
+function addHashFilename(
+  map: Map<string, Array<{ filename: string; changeSeq: number }>>,
+  hash: string,
+  filename: string,
+  changeSeq: number,
+): void {
+  const existing = map.get(hash);
+  if (existing) {
+    existing.push({ filename, changeSeq });
+  } else {
+    map.set(hash, [{ filename, changeSeq }]);
+  }
 }
 
 interface KeyMaterial {
@@ -230,6 +251,11 @@ async function e2eeJson<T>(url: string, init?: RequestInit): Promise<T> {
 
 function filenameToId(filename: string): string {
   return filename.replace(/\.md$/i, '');
+}
+
+function filenameBasename(filename: string): string {
+  const slash = filename.lastIndexOf('/');
+  return slash === -1 ? filename : filename.slice(slash + 1);
 }
 
 async function sha256(content: string): Promise<string> {
@@ -824,7 +850,7 @@ async function pullE2ee(key: CryptoKey, sinceVersion: number): Promise<PullResul
   const deletes: string[] = [];
   const updatedIds: string[] = [];
   const deletedIds: string[] = [];
-  const hashToFilename = new Map<string, string>();
+  const hashToFilenames = new Map<string, Array<{ filename: string; changeSeq: number }>>();
   const deletedHashes = new Map<string, string>();
 
   // First pass (synchronous, no I/O): apply tombstones and skip objects
@@ -885,6 +911,7 @@ async function pullE2ee(key: CryptoKey, sinceVersion: number): Promise<PullResul
     const { filename, content } = note;
     const hash = await sha256(content);
     const version = Number(obj.version);
+    const changeSeq = Number(obj.change_seq);
 
     // If a different filename was previously holding this objectId, the
     // remote renamed via in-place update — drop the stale map entry.
@@ -904,7 +931,7 @@ async function pullE2ee(key: CryptoKey, sinceVersion: number): Promise<PullResul
       modified_at: new Date(obj.updated_at).getTime(),
     });
     updatedIds.push(filenameToId(filename));
-    hashToFilename.set(hash, filename);
+    addHashFilename(hashToFilenames, hash, filename, changeSeq);
 
     objectMap[filename] = {
       objectId: obj.id,
@@ -933,12 +960,58 @@ async function pullE2ee(key: CryptoKey, sinceVersion: number): Promise<PullResul
     updatedIds,
     deletedIds,
     newMaxVersion,
-    hashToFilename,
+    hashToFilenames,
     deletedHashes,
   };
 }
 
 // ── Push ─────────────────────────────────────────────────────────────────
+
+async function pairLocalMovedObjects(
+  mdFiles: Array<{ name: string; mtime: number; size: number }>,
+  objectMap: E2eeObjectMap,
+  localFilenames: Set<string>,
+): Promise<LocalMovePairing> {
+  const missingByBasename = new Map<string, Array<{ filename: string; entry: E2eeObjectMapEntry }>>();
+  for (const [filename, entry] of Object.entries(objectMap)) {
+    if (localFilenames.has(filename)) continue;
+    const basename = filenameBasename(filename);
+    const existing = missingByBasename.get(basename);
+    if (existing) {
+      existing.push({ filename, entry });
+    } else {
+      missingByBasename.set(basename, [{ filename, entry }]);
+    }
+  }
+
+  const unmappedByBasename = new Map<string, Array<{ name: string; mtime: number; size: number }>>();
+  for (const file of mdFiles) {
+    if (objectMap[file.name]) continue;
+    const basename = filenameBasename(file.name);
+    const existing = unmappedByBasename.get(basename);
+    if (existing) {
+      existing.push(file);
+    } else {
+      unmappedByBasename.set(basename, [file]);
+    }
+  }
+
+  const movedFromByTo = new Map<string, string>();
+  for (const [basename, missing] of missingByBasename) {
+    const unmapped = unmappedByBasename.get(basename) ?? [];
+    if (missing.length !== 1 || unmapped.length !== 1) continue;
+
+    const from = missing[0];
+    const to = unmapped[0];
+    if (from.filename === to.name) continue;
+
+    objectMap[to.name] = { ...from.entry };
+    delete objectMap[from.filename];
+    movedFromByTo.set(to.name, from.filename);
+  }
+
+  return { movedFromByTo };
+}
 
 async function resolveUpdateConflict(
   key: CryptoKey,
@@ -949,15 +1022,20 @@ async function resolveUpdateConflict(
   conflict: ConflictResponse,
   objectMap: E2eeObjectMap,
   localFilenames: Set<string>,
-): Promise<{ uploaded: number; conflicts: number; maxVersion: number; conflictCopyIds: string[] }> {
+  localMoveSource?: string,
+): Promise<{ uploaded: number; conflicts: number; maxVersion: number; conflictCopyIds: string[]; resolvedIds: string[] }> {
   if (!conflict.currentBlobKey) {
     console.warn(`[e2ee] Version conflict for ${filename} did not include a current blob key`);
-    return { uploaded: 0, conflicts: 1, maxVersion: 0, conflictCopyIds: [] };
+    return { uploaded: 0, conflicts: 1, maxVersion: 0, conflictCopyIds: [], resolvedIds: [] };
   }
 
   const remote = await downloadNoteByBlobKey(key, conflict.currentBlobKey);
   const remoteHash = await sha256(remote.content);
   let maxVersion = 0;
+  const targetFilename = remote.filename !== filename && !localMoveSource
+    ? remote.filename
+    : filename;
+  const targetId = filenameToId(targetFilename);
 
   // Common ancestor for three-way merge: the blob we last pulled or pushed.
   // The server retains orphaned blobs for 1 year (see futo-notes-server
@@ -978,7 +1056,7 @@ async function resolveUpdateConflict(
       const mergedHash = await sha256(merge.content);
       const result = await updateObjectInline(
         key,
-        filename,
+        targetFilename,
         merge.content,
         existing.objectId,
         conflict.currentVersion + 1,
@@ -987,18 +1065,23 @@ async function resolveUpdateConflict(
       if (result.kind === 'ok') {
         maxVersion = result.changeSeq;
         await applySyncDeltaV2(
-          [{ filename, content: merge.content, hash: mergedHash, modified_at: result.updatedAt }],
-          [],
+          [{ filename: targetFilename, content: merge.content, hash: mergedHash, modified_at: result.updatedAt }],
+          targetFilename === filename ? [] : [filename],
           [],
           {},
         );
-        objectMap[filename] = {
+        if (targetFilename !== filename) {
+          delete objectMap[filename];
+          localFilenames.delete(filename);
+          localFilenames.add(targetFilename);
+        }
+        objectMap[targetFilename] = {
           objectId: existing.objectId,
           version: result.version,
           blobKey: result.blobKey,
           hash: mergedHash,
         };
-        return { uploaded: 1, conflicts: 0, maxVersion, conflictCopyIds: [] };
+        return { uploaded: 1, conflicts: 0, maxVersion, conflictCopyIds: [], resolvedIds: [targetId] };
       }
 
       console.warn(
@@ -1006,12 +1089,12 @@ async function resolveUpdateConflict(
           result.kind === 'error' ? `HTTP ${result.status}` : 'version conflict'
         }`,
       );
-      return { uploaded: 0, conflicts: 1, maxVersion, conflictCopyIds: [] };
+      return { uploaded: 0, conflicts: 1, maxVersion, conflictCopyIds: [], resolvedIds: [] };
     }
   }
 
   const existingFilenames = new Set([...localFilenames, ...Object.keys(objectMap)]);
-  const copyFilename = conflictFilename(filename, existingFilenames);
+  const copyFilename = conflictFilename(targetFilename, existingFilenames);
   const copyObject = await createObjectInline(key, copyFilename, localContent);
   maxVersion = copyObject.changeSeq;
 
@@ -1019,13 +1102,18 @@ async function resolveUpdateConflict(
   // route its server `updated_at` through `timestamps` — Rust applies that
   // after the conflict write, overriding the OS's just-now mtime.
   await applySyncDeltaV2(
-    [{ filename, content: remote.content, hash: remoteHash, modified_at: Date.now() }],
-    [],
+    [{ filename: targetFilename, content: remote.content, hash: remoteHash, modified_at: Date.now() }],
+    targetFilename === filename ? [] : [filename],
     [{ filename: copyFilename, content: localContent }],
     { [copyFilename]: copyObject.updatedAt },
   );
 
-  objectMap[filename] = {
+  if (targetFilename !== filename) {
+    delete objectMap[filename];
+    localFilenames.delete(filename);
+    localFilenames.add(targetFilename);
+  }
+  objectMap[targetFilename] = {
     objectId: existing.objectId,
     version: conflict.currentVersion,
     blobKey: conflict.currentBlobKey,
@@ -1037,7 +1125,7 @@ async function resolveUpdateConflict(
     blobKey: copyObject.blobKey,
     hash: localHash,
   };
-  localFilenames.add(filename);
+  localFilenames.add(targetFilename);
   localFilenames.add(copyFilename);
 
   return {
@@ -1045,6 +1133,7 @@ async function resolveUpdateConflict(
     conflicts: 1,
     maxVersion,
     conflictCopyIds: [filenameToId(copyFilename)],
+    resolvedIds: [targetId],
   };
 }
 
@@ -1061,6 +1150,7 @@ async function pushE2ee(key: CryptoKey): Promise<PushResult> {
   // regardless of worker ordering. (Entries stay even if a later read
   // fails — matches the original "listed, assume present" semantic.)
   const localFilenames = new Set<string>(mdFiles.map((f) => f.name));
+  const localMovePairing = await pairLocalMovedObjects(mdFiles, objectMap, localFilenames);
 
   let uploaded = 0;
   let deleted = 0;
@@ -1068,6 +1158,7 @@ async function pushE2ee(key: CryptoKey): Promise<PushResult> {
   const updatedIds: string[] = [];
   const deletedIds: string[] = [];
   const deletedHashes = new Map<string, string>();
+  const hashToFilenames = new Map<string, Array<{ filename: string; changeSeq: number }>>();
   // IDs whose local file content was rewritten by a conflict-resolution
   // path (3-way merge, conflict copy, or delete-vs-edit restore). Reported
   // as part of the peer-driven change set so post-sync rescans pick them up.
@@ -1109,6 +1200,7 @@ async function pushE2ee(key: CryptoKey): Promise<PushResult> {
   // denominator reflect the count of files we actually plan to touch
   // (read + hash + maybe upload), instead of the full vault size.
   const pushCandidates = mdFiles.filter((file) => {
+    if (localMovePairing.movedFromByTo.has(file.name)) return true;
     const e = objectMap[file.name];
     return !(e?.hash !== undefined && e.mtimeMs === file.mtime && e.sizeBytes === file.size);
   });
@@ -1136,7 +1228,7 @@ async function pushE2ee(key: CryptoKey): Promise<PushResult> {
     }
     const hash = await sha256(content);
 
-    if (existing?.hash === hash) {
+    if (existing?.hash === hash && !localMovePairing.movedFromByTo.has(filename)) {
       // Content unchanged despite mtime/size mismatch — stamp the
       // mtime/size so the next push takes the fast path.
       objectMap[filename] = {
@@ -1176,6 +1268,7 @@ async function pushE2ee(key: CryptoKey): Promise<PushResult> {
         }
         uploaded++;
         updatedIds.push(id);
+        addHashFilename(hashToFilenames, hash, filename, result.changeSeq);
       } else if (result.kind === 'conflict') {
         try {
           const resolution = await resolveUpdateConflict(
@@ -1187,13 +1280,16 @@ async function pushE2ee(key: CryptoKey): Promise<PushResult> {
             result.conflict,
             objectMap,
             localFilenames,
+            localMovePairing.movedFromByTo.get(filename),
           );
           uploaded += resolution.uploaded;
           conflicts += resolution.conflicts;
           if (resolution.maxVersion > newMaxVersion) newMaxVersion = resolution.maxVersion;
           if (resolution.uploaded > 0) {
-            updatedIds.push(id);
-            conflictResolvedIds.push(id);
+            for (const resolvedId of resolution.resolvedIds.length > 0 ? resolution.resolvedIds : [id]) {
+              updatedIds.push(resolvedId);
+              conflictResolvedIds.push(resolvedId);
+            }
           }
           for (const conflictId of resolution.conflictCopyIds) {
             updatedIds.push(conflictId);
@@ -1223,6 +1319,7 @@ async function pushE2ee(key: CryptoKey): Promise<PushResult> {
         pushedTimestamps[filename] = created.updatedAt;
         uploaded++;
         updatedIds.push(id);
+        addHashFilename(hashToFilenames, hash, filename, created.changeSeq);
       } catch (err) {
         console.warn(`[e2ee] Failed to create object for ${filename}:`, err);
       }
@@ -1325,7 +1422,71 @@ async function pushE2ee(key: CryptoKey): Promise<PushResult> {
     conflictResolvedIds,
     newMaxVersion,
     deletedHashes,
+    hashToFilenames,
   };
+}
+
+async function deleteSyncedFilename(filename: string): Promise<boolean> {
+  const { serverUrl, collectionId } = getE2eeConfig();
+  const state = getAppState();
+  const objectMap = { ...(state.e2eeObjectMap ?? {}) };
+  const entry = objectMap[filename];
+  if (!entry) return false;
+
+  const deleteRes = await e2eeFetch(
+    `${serverUrl}/api/collections/${collectionId}/objects/${entry.objectId}?version=${entry.version}`,
+    { method: 'DELETE' },
+  );
+  if (!deleteRes.ok) {
+    console.warn(`[e2ee] Failed to delete duplicate move loser ${filename}: HTTP ${deleteRes.status}`);
+    return false;
+  }
+
+  delete objectMap[filename];
+  await applySyncDeltaV2([], [filename], [], {});
+  const deleteData = await deleteRes.json().catch(() => null) as ObjectWriteResponse | null;
+  const changeSeq = Number(deleteData?.collectionVersion ?? deleteData?.object.change_seq ?? state.e2eeMaxVersion ?? 0);
+  await saveAppState({
+    ...getAppState(),
+    e2eeObjectMap: objectMap,
+    e2eeMaxVersion: Math.max(state.e2eeMaxVersion ?? 0, changeSeq),
+  });
+  return true;
+}
+
+async function resolveConcurrentMoveDuplicates(
+  deletedHashes: Map<string, string>,
+  pushHashToFilenames: Map<string, Array<{ filename: string; changeSeq: number }>>,
+  pullHashToFilenames: Map<string, Array<{ filename: string; changeSeq: number }>>,
+): Promise<{ conflicts: number; deletedIds: string[] }> {
+  const deletedIds: string[] = [];
+  let conflicts = 0;
+
+  for (const [hash, fromFilename] of deletedHashes) {
+    const candidates = [
+      ...(pushHashToFilenames.get(hash) ?? []),
+      ...(pullHashToFilenames.get(hash) ?? []),
+    ].filter((candidate) =>
+      candidate.filename !== fromFilename &&
+      filenameBasename(candidate.filename) === filenameBasename(fromFilename)
+    );
+    const unique = new Map<string, { filename: string; changeSeq: number }>();
+    for (const candidate of candidates) unique.set(candidate.filename, candidate);
+    if (unique.size <= 1) continue;
+
+    const sorted = [...unique.values()].sort((a, b) =>
+      b.changeSeq - a.changeSeq || a.filename.localeCompare(b.filename),
+    );
+    const losers = sorted.slice(1);
+    for (const loser of losers) {
+      if (await deleteSyncedFilename(loser.filename)) {
+        conflicts++;
+        deletedIds.push(filenameToId(loser.filename));
+      }
+    }
+  }
+
+  return { conflicts, deletedIds };
 }
 
 // ── Full sync ────────────────────────────────────────────────────────────
@@ -1388,8 +1549,23 @@ async function runFullSync(key: CryptoKey): Promise<SyncSummary> {
   for (const [hash, fromFilename] of pullResult.deletedHashes) {
     if (!allDeletedHashes.has(hash)) allDeletedHashes.set(hash, fromFilename);
   }
+
+  const duplicateMoveResolution = await resolveConcurrentMoveDuplicates(
+    allDeletedHashes,
+    pushResult.hashToFilenames,
+    pullResult.hashToFilenames,
+  );
   for (const [hash, fromFilename] of allDeletedHashes) {
-    const toFilename = pullResult.hashToFilename.get(hash);
+    const candidates = [
+      ...(pushResult.hashToFilenames.get(hash) ?? []),
+      ...(pullResult.hashToFilenames.get(hash) ?? []),
+    ]
+      .filter((candidate) =>
+        candidate.filename !== fromFilename &&
+        filenameBasename(candidate.filename) === filenameBasename(fromFilename)
+      )
+      .sort((a, b) => b.changeSeq - a.changeSeq || a.filename.localeCompare(b.filename));
+    const toFilename = candidates[0]?.filename;
     if (!toFilename || toFilename === fromFilename) continue;
     const fromId = filenameToId(fromFilename);
     const toId = filenameToId(toFilename);
@@ -1400,7 +1576,9 @@ async function runFullSync(key: CryptoKey): Promise<SyncSummary> {
 
   const seenUpdated = new Set<string>();
   const updatedIds: string[] = [];
+  const duplicateDeletedIds = new Set(duplicateMoveResolution.deletedIds);
   for (const id of [...pushResult.updatedIds, ...pullResult.updatedIds]) {
+    if (duplicateDeletedIds.has(id)) continue;
     if (renamedToIds.has(id) || renamedFromIds.has(id)) continue;
     if (seenUpdated.has(id)) continue;
     seenUpdated.add(id);
@@ -1409,7 +1587,7 @@ async function runFullSync(key: CryptoKey): Promise<SyncSummary> {
 
   const seenDeleted = new Set<string>();
   const deletedIds: string[] = [];
-  for (const id of [...pushResult.deletedIds, ...pullResult.deletedIds]) {
+  for (const id of [...pushResult.deletedIds, ...pullResult.deletedIds, ...duplicateMoveResolution.deletedIds]) {
     if (renamedFromIds.has(id) || renamedToIds.has(id)) continue;
     if (seenDeleted.has(id)) continue;
     seenDeleted.add(id);
@@ -1425,6 +1603,7 @@ async function runFullSync(key: CryptoKey): Promise<SyncSummary> {
   const seenPeerUpdated = new Set<string>();
   const peerUpdatedIds: string[] = [];
   for (const id of [...reconcilePeerIds, ...pullResult.updatedIds, ...pushResult.conflictResolvedIds]) {
+    if (duplicateDeletedIds.has(id)) continue;
     if (renamedToIds.has(id) || renamedFromIds.has(id)) continue;
     if (seenPeerUpdated.has(id)) continue;
     seenPeerUpdated.add(id);
@@ -1433,7 +1612,7 @@ async function runFullSync(key: CryptoKey): Promise<SyncSummary> {
 
   const seenPeerDeleted = new Set<string>();
   const peerDeletedIds: string[] = [];
-  for (const id of pullResult.deletedIds) {
+  for (const id of [...pullResult.deletedIds, ...duplicateMoveResolution.deletedIds]) {
     if (renamedFromIds.has(id) || renamedToIds.has(id)) continue;
     if (seenPeerDeleted.has(id)) continue;
     seenPeerDeleted.add(id);
@@ -1451,7 +1630,7 @@ async function runFullSync(key: CryptoKey): Promise<SyncSummary> {
     uploaded: pushResult.uploaded,
     downloaded: pullResult.downloaded,
     deleted: pullResult.deleted + pushResult.deleted,
-    conflicts: pushResult.conflicts,
+    conflicts: pushResult.conflicts + duplicateMoveResolution.conflicts,
     updatedIds,
     deletedIds,
     peerUpdatedIds,

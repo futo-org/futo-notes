@@ -117,6 +117,43 @@ export function setFolderOpen(path: string, open: boolean): void {
   persistOpenFolders();
 }
 
+function ancestorFolders(path: string): string[] {
+  const parts = path.split('/').filter(Boolean);
+  const ancestors: string[] = [];
+  for (let i = 1; i <= parts.length; i++) {
+    ancestors.push(parts.slice(0, i).join('/'));
+  }
+  return ancestors;
+}
+
+export function openFolderAndAncestors(path: string): void {
+  if (!path) return;
+  const next = new Set(openFolders);
+  let changed = false;
+  for (const folder of ancestorFolders(path)) {
+    if (next.has(folder)) continue;
+    next.add(folder);
+    changed = true;
+  }
+  if (!changed) return;
+  openFolders = next;
+  persistOpenFolders();
+}
+
+function rebasePathSet(paths: Set<string>, fromPath: string, toPath: string): Set<string> {
+  const next = new Set<string>();
+  for (const path of paths) {
+    if (path === fromPath) {
+      next.add(toPath);
+    } else if (path.startsWith(`${fromPath}/`)) {
+      next.add(`${toPath}/${path.slice(fromPath.length + 1)}`);
+    } else {
+      next.add(path);
+    }
+  }
+  return next;
+}
+
 /** Mark a folder as drag-hover expanded (transient, does not persist). */
 export function setDragHoverExpanded(path: string, expanded: boolean): void {
   if (dragHoverExpanded.has(path) === expanded) return;
@@ -352,7 +389,7 @@ export async function createFolder(
     if (fs.createFolder) {
       await fs.createFolder(fullPath);
     }
-    setFolderOpen(fullPath, true);
+    openFolderAndAncestors(fullPath);
     return { ok: true, path: fullPath };
   } catch (err) {
     return { ok: false, error: (err as Error).message ?? 'Failed to create folder' };
@@ -393,20 +430,14 @@ export async function renameOrMoveFolder(
     if (fs.renameFolder) {
       await fs.renameFolder(fromPath, toPath);
     }
-    // Update folder-state structures: open set, empty set.
-    if (openFolders.has(fromPath)) {
-      const next = new Set(openFolders);
-      next.delete(fromPath);
-      next.add(toPath);
-      openFolders = next;
-      persistOpenFolders();
-    }
-    if (emptyFolders.has(fromPath)) {
-      const next = new Set(emptyFolders);
-      next.delete(fromPath);
-      next.add(toPath);
-      emptyFolders = next;
-    }
+    // Update folder-state structures for the moved subtree, not just
+    // the top-level folder. Without this, moving an open nested tree to
+    // `work/archive` leaves stale `archive/...` open-state behind and
+    // makes mobile navigation look like mixed folders.
+    openFolders = rebasePathSet(openFolders, fromPath, toPath);
+    openFolderAndAncestors(toPath);
+    persistOpenFolders();
+    emptyFolders = rebasePathSet(emptyFolders, fromPath, toPath);
     return { ok: true };
   } catch (err) {
     return { ok: false, error: (err as Error).message ?? 'Failed to rename folder' };
@@ -419,20 +450,17 @@ export async function deleteFolder(path: string): Promise<{ ok: boolean; error?:
     if (fs.deleteFolder) {
       await fs.deleteFolder(path);
     }
-    if (openFolders.has(path)) {
-      const next = new Set(openFolders);
-      next.delete(path);
-      openFolders = next;
+    const nextOpen = new Set([...openFolders].filter((p) => p !== path && !p.startsWith(`${path}/`)));
+    if (nextOpen.size !== openFolders.size) {
+      openFolders = nextOpen;
       persistOpenFolders();
     }
-    if (emptyFolders.has(path)) {
-      const next = new Set(emptyFolders);
-      next.delete(path);
-      emptyFolders = next;
+    const nextEmpty = new Set([...emptyFolders].filter((p) => p !== path && !p.startsWith(`${path}/`)));
+    if (nextEmpty.size !== emptyFolders.size) {
+      emptyFolders = nextEmpty;
     }
     return { ok: true };
   } catch (err) {
     return { ok: false, error: (err as Error).message ?? 'Failed to delete folder' };
   }
 }
-

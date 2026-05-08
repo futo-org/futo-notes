@@ -141,6 +141,27 @@ function installFetchMock(state: MockServerState): void {
       return Response.json({ object: objectResponse(object), collectionVersion: state.collectionVersion });
     }
 
+    const objectMatch = url.pathname.match(/^\/api\/collections\/collection-1\/objects\/([^/]+)$/);
+    if (objectMatch && method === 'DELETE') {
+      const object = state.objects!.get(objectMatch[1]);
+      if (!object) return Response.json({ error: 'not found' }, { status: 404 });
+      const version = Number(url.searchParams.get('version'));
+      if (object.deleted && version <= object.version) {
+        return Response.json({ object: objectResponse(object), collectionVersion: state.collectionVersion });
+      }
+      if (version !== object.version) {
+        return Response.json(
+          { error: 'version conflict', currentVersion: object.version, currentBlobKey: object.blobKey },
+          { status: 409 },
+        );
+      }
+      object.version += 1;
+      object.changeSeq = ++state.collectionVersion!;
+      object.deleted = true;
+      object.updatedAt = new Date(Date.UTC(2026, 3, 14, 12, state.collectionVersion)).toISOString();
+      return Response.json({ object: objectResponse(object), collectionVersion: state.collectionVersion });
+    }
+
     return Response.json({ error: `unexpected ${method} ${url.pathname}` }, { status: 500 });
   }));
 }
@@ -333,6 +354,136 @@ describe('syncServiceE2ee conflict resolution', () => {
     await clientA.syncService.syncE2ee('password');
     const aFiles = await fsA.listNoteFiles();
     expect(aFiles.some((file) => file.name.includes('conflict'))).toBe(true);
+  });
+
+  it('collapses concurrent offline moves of the same unchanged note', async () => {
+    const server: MockServerState = { key: null, putKeyCount: 0 };
+    installFetchMock(server);
+    const fsA = createNodeFS();
+    const fsB = createNodeFS();
+
+    const clientA = await loadClient(fsA);
+    await clientA.syncService.connectE2ee('http://server.test', 'password');
+    await fsA.writeNote('draft', '# Draft');
+    await clientA.syncService.syncE2ee('password');
+
+    const clientB = await loadClient(fsB);
+    await clientB.syncService.connectE2ee('http://server.test', 'password');
+    await clientB.syncService.syncE2ee('password');
+
+    await fsA.createFolder('A');
+    await fsA.moveNote('draft', 'A/draft');
+    await fsB.createFolder('B');
+    await fsB.moveNote('draft', 'B/draft');
+
+    setActiveFS(fsA);
+    await clientA.syncService.syncE2ee('password');
+
+    setActiveFS(fsB);
+    await clientB.syncService.syncE2ee('password');
+    expect((await fsB.listNoteFiles()).map((file) => file.name).sort()).toEqual(['B/draft.md']);
+
+    setActiveFS(fsA);
+    await clientA.syncService.syncE2ee('password');
+    expect((await fsA.listNoteFiles()).map((file) => file.name).sort()).toEqual(['B/draft.md']);
+  });
+
+  it('converges concurrent offline folder renames without duplicate notes', async () => {
+    const server: MockServerState = { key: null, putKeyCount: 0 };
+    installFetchMock(server);
+    const fsA = createNodeFS();
+    const fsB = createNodeFS();
+
+    const clientA = await loadClient(fsA);
+    await clientA.syncService.connectE2ee('http://server.test', 'password');
+    await fsA.writeNote('Specs/alpha', '# Alpha');
+    await fsA.writeNote('Specs/beta', '# Beta');
+    await clientA.syncService.syncE2ee('password');
+
+    const clientB = await loadClient(fsB);
+    await clientB.syncService.connectE2ee('http://server.test', 'password');
+    await clientB.syncService.syncE2ee('password');
+
+    await fsA.createFolder('Docs');
+    await fsA.moveNote('Specs/alpha', 'Docs/alpha');
+    await fsA.moveNote('Specs/beta', 'Docs/beta');
+    await fsB.createFolder('Archive');
+    await fsB.moveNote('Specs/alpha', 'Archive/alpha');
+    await fsB.moveNote('Specs/beta', 'Archive/beta');
+
+    setActiveFS(fsA);
+    await clientA.syncService.syncE2ee('password');
+    setActiveFS(fsB);
+    await clientB.syncService.syncE2ee('password');
+    setActiveFS(fsA);
+    await clientA.syncService.syncE2ee('password');
+
+    const expected = ['Archive/alpha.md', 'Archive/beta.md'];
+    expect((await fsA.listNoteFiles()).map((file) => file.name).sort()).toEqual(expected);
+    expect((await fsB.listNoteFiles()).map((file) => file.name).sort()).toEqual(expected);
+  });
+
+  it('applies an old-path peer edit to the moved path', async () => {
+    const server: MockServerState = { key: null, putKeyCount: 0 };
+    installFetchMock(server);
+    const fsA = createNodeFS();
+    const fsB = createNodeFS();
+
+    const clientA = await loadClient(fsA);
+    await clientA.syncService.connectE2ee('http://server.test', 'password');
+    await fsA.writeNote('grocery', '# Grocery');
+    await clientA.syncService.syncE2ee('password');
+
+    const clientB = await loadClient(fsB);
+    await clientB.syncService.connectE2ee('http://server.test', 'password');
+    await clientB.syncService.syncE2ee('password');
+
+    await fsA.createFolder('Lists');
+    await fsA.moveNote('grocery', 'Lists/grocery');
+    await fsB.writeNote('grocery', '# Grocery\n\nupdated by B');
+
+    setActiveFS(fsA);
+    await clientA.syncService.syncE2ee('password');
+    setActiveFS(fsB);
+    await clientB.syncService.syncE2ee('password');
+    setActiveFS(fsA);
+    await clientA.syncService.syncE2ee('password');
+
+    expect((await fsA.listNoteFiles()).map((file) => file.name).sort()).toEqual(['Lists/grocery.md']);
+    expect((await fsB.listNoteFiles()).map((file) => file.name).sort()).toEqual(['Lists/grocery.md']);
+    expect(await fsA.readNote('Lists/grocery')).toBe('# Grocery\n\nupdated by B');
+    expect(await fsB.readNote('Lists/grocery')).toBe('# Grocery\n\nupdated by B');
+  });
+
+  it('keeps one path when a folder move-to-parent races with a move into that folder', async () => {
+    const server: MockServerState = { key: null, putKeyCount: 0 };
+    installFetchMock(server);
+    const fsA = createNodeFS();
+    const fsB = createNodeFS();
+
+    const clientA = await loadClient(fsA);
+    await clientA.syncService.connectE2ee('http://server.test', 'password');
+    await fsA.writeNote('draft-note-01', '# Draft');
+    await clientA.syncService.syncE2ee('password');
+
+    const clientB = await loadClient(fsB);
+    await clientB.syncService.connectE2ee('http://server.test', 'password');
+    await clientB.syncService.syncE2ee('password');
+
+    await fsA.createFolder('X');
+    await fsA.moveNote('draft-note-01', 'X/draft-note-01');
+    await fsB.writeNote('draft-note-01', '# Draft\n\nkept while X was deleted');
+
+    setActiveFS(fsA);
+    await clientA.syncService.syncE2ee('password');
+    setActiveFS(fsB);
+    await clientB.syncService.syncE2ee('password');
+    setActiveFS(fsA);
+    await clientA.syncService.syncE2ee('password');
+
+    expect((await fsA.listNoteFiles()).map((file) => file.name).sort()).toEqual(['X/draft-note-01.md']);
+    expect((await fsB.listNoteFiles()).map((file) => file.name).sort()).toEqual(['X/draft-note-01.md']);
+    expect(await fsA.readNote('X/draft-note-01')).toBe('# Draft\n\nkept while X was deleted');
   });
 });
 
