@@ -198,7 +198,10 @@ build_macos_task:
     # still runs, producing signed-but-unnotarized DMGs that Gatekeeper
     # rejects with "Apple could not verify…".
     - export APPLE_API_KEY="$ASC_KEY_ID"
-    - export APPLE_API_KEY_PATH=$(ls .secure_files/AuthKey*.p8 | head -1)
+    # Absolute path: the script later cd's into apps/tauri before the build,
+    # and notarytool resolves --key relative to cwd. A relative path here
+    # silently breaks notarization with "file doesn't exist".
+    - export APPLE_API_KEY_PATH="$(pwd)/$(ls .secure_files/AuthKey*.p8 | head -1)"
     - export APPLE_API_ISSUER="$ASC_ISSUER_ID"
 
     # Install Node + pnpm
