@@ -635,7 +635,9 @@ build:android:
     # production CI's Kotlin compile can't resolve it and fails. Strip it
     # here — the IME shield's WRY_RUSTWEBVIEW_CLASS_EXTENSION injection
     # is package-local and still applies via the prod MainActivity.
-    - rm -f apps/tauri/src-tauri/gen/android/app/src/main/java/com/futo/notes/dev/MainActivity.kt
+    # Use $CI_PROJECT_DIR — the previous `cd apps/tauri` persists across
+    # script lines, so a repo-relative path would silently no-op.
+    - rm -f "$CI_PROJECT_DIR/apps/tauri/src-tauri/gen/android/app/src/main/java/com/futo/notes/dev/MainActivity.kt"
     # Configure release signing
     - |
       if [ -n "$KEYSTORE_BASE64" ]; then
