@@ -44,10 +44,86 @@ tauri-build:
   # strip matches, so this is local-only noise.
   cd apps/tauri && NO_STRIP=true cargo tauri build
 
-android-dev:
+# Guard for the IME shield workaround. Fails fast if anyone has
+# stripped the wrapper plumbing. See docs/ime-shield-workaround.md.
+# ALL android-* recipes invoke this. Note that the RustWebView.kt
+# override itself is injected at build time via
+# WRY_RUSTWEBVIEW_CLASS_EXTENSION from apps/tauri/src-tauri/.cargo/config.toml,
+# so we don't grep the generated file pre-build — it gets regenerated each
+# time. Instead we verify config.toml + the Java/Kotlin/JS pieces of the
+# wrapper that are NOT auto-generated.
+verify-ime-shield:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  fail=0
+  check() {
+    local needle="$1" path="$2"
+    if [[ ! -f "$path" ]]; then
+      echo "  MISSING FILE: $path" >&2
+      fail=1
+    elif ! grep -q -- "$needle" "$path"; then
+      echo "  MISSING '$needle' in $path" >&2
+      fail=1
+    fi
+  }
+  check "imeShieldPlugin" "src/components/MarkdownEditor.svelte"
+  check "imeShieldPlugin" "src/lib/imeShield.ts"
+  check "__FutoImeShield__" "apps/tauri/src-tauri/gen/android/app/src/main/java/com/futo/notes/MainActivity.kt"
+  check "__FutoImeShield__" "apps/tauri/src-tauri/gen/android/app/src/main/java/com/futo/notes/dev/MainActivity.kt"
+  check "EditorImeShield" "apps/tauri/src-tauri/gen/android/app/src/main/java/com/futo/notes/EditorImeShield.kt"
+  check "EditorImeShield" "apps/tauri/src-tauri/gen/android/app/src/main/java/com/futo/notes/dev/EditorImeShield.kt"
+  check "class FutoImeConnection" "apps/tauri/src-tauri/gen/android/app/src/main/java/com/futo/notes/FutoImeConnection.kt"
+  check "class FutoImeConnection" "apps/tauri/src-tauri/gen/android/app/src/main/java/com/futo/notes/dev/FutoImeConnection.kt"
+  # The deletion-mutation intercepts added after Colt's "two backspace,
+  # second crashes" repro. Removing these re-opens the renderer crash
+  # via deleteSurroundingText / KEYCODE_DEL paths.
+  check "override fun deleteSurroundingText" "apps/tauri/src-tauri/gen/android/app/src/main/java/com/futo/notes/FutoImeConnection.kt"
+  check "override fun sendKeyEvent" "apps/tauri/src-tauri/gen/android/app/src/main/java/com/futo/notes/FutoImeConnection.kt"
+  check "override fun beginBatchEdit" "apps/tauri/src-tauri/gen/android/app/src/main/java/com/futo/notes/FutoImeConnection.kt"
+  check "override fun finishComposingText" "apps/tauri/src-tauri/gen/android/app/src/main/java/com/futo/notes/FutoImeConnection.kt"
+  check "override fun performPrivateCommand" "apps/tauri/src-tauri/gen/android/app/src/main/java/com/futo/notes/FutoImeConnection.kt"
+  check "override fun deleteSurroundingText" "apps/tauri/src-tauri/gen/android/app/src/main/java/com/futo/notes/dev/FutoImeConnection.kt"
+  check "override fun sendKeyEvent" "apps/tauri/src-tauri/gen/android/app/src/main/java/com/futo/notes/dev/FutoImeConnection.kt"
+  check "override fun beginBatchEdit" "apps/tauri/src-tauri/gen/android/app/src/main/java/com/futo/notes/dev/FutoImeConnection.kt"
+  check "override fun finishComposingText" "apps/tauri/src-tauri/gen/android/app/src/main/java/com/futo/notes/dev/FutoImeConnection.kt"
+  check "override fun performPrivateCommand" "apps/tauri/src-tauri/gen/android/app/src/main/java/com/futo/notes/dev/FutoImeConnection.kt"
+  check "WRY_RUSTWEBVIEW_CLASS_EXTENSION" "apps/tauri/src-tauri/.cargo/config.toml"
+  check "FutoImeConnection" "apps/tauri/src-tauri/.cargo/config.toml"
+  check "onCreateInputConnection" "apps/tauri/src-tauri/.cargo/config.toml"
+  if [[ "$fail" -ne 0 ]]; then
+    echo "" >&2
+    echo "IME shield workaround is broken or missing. See" >&2
+    echo "  docs/ime-shield-workaround.md" >&2
+    echo "Removing this code re-opens the FUTO Keyboard + empty-note" >&2
+    echo "+ backspace renderer crash on Android / Chromium 147." >&2
+    exit 1
+  fi
+  echo "IME shield: all sentinels present ✓"
+
+# Post-build verification: confirms the IME-shield override actually
+# landed in the generated RustWebView.kt after wry expanded the
+# template. If this fails after a build, the
+# WRY_RUSTWEBVIEW_CLASS_EXTENSION env var wasn't honored — check that
+# apps/tauri/src-tauri/.cargo/config.toml still contains the override.
+verify-ime-shield-in-generated:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  for f in apps/tauri/src-tauri/gen/android/app/src/main/java/com/futo/notes/dev/generated/RustWebView.kt; do
+    if [[ ! -f "$f" ]]; then continue; fi
+    if ! grep -q "FutoImeConnection" "$f"; then
+      echo "POST-BUILD CHECK FAILED: $f" >&2
+      echo "  IME-shield override is missing from the generated RustWebView.kt." >&2
+      echo "  wry must not have read WRY_RUSTWEBVIEW_CLASS_EXTENSION. Make sure" >&2
+      echo "  apps/tauri/src-tauri/.cargo/config.toml still contains the override." >&2
+      exit 1
+    fi
+  done
+  echo "IME shield: override present in generated RustWebView.kt ✓"
+
+android-dev: verify-ime-shield
   cd apps/tauri && cargo tauri android dev --config src-tauri/tauri.android.dev-mode.conf.json
 
-android-offline:
+android-offline: verify-ime-shield
   #!/usr/bin/env bash
   set -euo pipefail
   if [[ -z "${JAVA_HOME:-}" || ! -x "${JAVA_HOME}/bin/java" ]]; then
@@ -58,9 +134,15 @@ android-offline:
       fi
     done
   fi
+  # The IME-shield workaround is wired via apps/tauri/src-tauri/.cargo/config.toml
+  # [env] section; cargo picks it up automatically. See
+  # docs/ime-shield-workaround.md.
   pnpm run build
   cd apps/tauri
   cargo tauri android build --debug --apk --config src-tauri/tauri.android.offline.conf.json
+  cd ../..
+  just verify-ime-shield-in-generated
+  cd apps/tauri
   if [[ -n "${ANDROID_SERIAL:-}" ]]; then
     adb_target=(-s "$ANDROID_SERIAL")
   else
@@ -74,8 +156,9 @@ android-offline:
   adb "${adb_target[@]}" install -r src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk
   adb "${adb_target[@]}" shell monkey -p com.futo.notes.dev -c android.intent.category.LAUNCHER 1
 
-android-build:
+android-build: verify-ime-shield
   cd apps/tauri && cargo tauri android build
+  just verify-ime-shield-in-generated
 
 ios-dev:
   #!/usr/bin/env bash
@@ -240,7 +323,7 @@ factory-summary:
     console.log('\\nWorst scenarios:'); \
     for (const x of fail.slice(0, 15)) console.log(' ', String(x.divergences.length).padStart(3), x.name);"
 
-check:
+check: verify-ime-shield
   pnpm run lint
   pnpm run test:all
   pnpm exec tsc --noEmit | head -30

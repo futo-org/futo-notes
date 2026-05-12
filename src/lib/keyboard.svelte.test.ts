@@ -47,29 +47,39 @@ describe('keyboard.offsetTop', () => {
     expect(kb.offsetTop).toBe(0);
   });
 
+  // After the state_unsafe_mutation fix (see keyboard.svelte.ts), all
+  // viewport/scroll/focus listeners defer their $state writes via
+  // queueMicrotask. Tests must flush microtasks before asserting.
+  const flush = () => new Promise<void>((resolve) => queueMicrotask(resolve));
+
   it('reflects visualViewport.offsetTop after init and scroll', async () => {
     const kb = await freshKeyboard();
     kb.init();
+    await flush();
     expect(kb.offsetTop).toBe(0);
 
     vv.offsetTop = 120;
     vv.__fire('scroll');
+    await flush();
     expect(kb.offsetTop).toBe(120);
 
     vv.offsetTop = 0;
     vv.__fire('scroll');
+    await flush();
     expect(kb.offsetTop).toBe(0);
   });
 
   it('also tracks offsetTop changes that arrive via resize (iOS keyboard)', async () => {
     const kb = await freshKeyboard();
     kb.init();
+    await flush();
 
     // On iOS, focusing an input can shift the visual viewport via a resize
     // event without a separate scroll event firing.
     vv.height = 500;
     vv.offsetTop = 80;
     vv.__fire('resize');
+    await flush();
     expect(kb.offsetTop).toBe(80);
   });
 
@@ -83,10 +93,12 @@ describe('keyboard.offsetTop', () => {
 
     const kb = await freshKeyboard();
     kb.init();
+    await flush();
 
     vv.height = 500;
     vv.offsetTop = 120;
     vv.__fire('resize');
+    await flush();
 
     expect(scrollTo).toHaveBeenCalledWith(0, 0);
     expect(document.documentElement.scrollTop).toBe(0);

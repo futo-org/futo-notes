@@ -1,4 +1,6 @@
 pub mod core;
+mod android_logcat;
+mod panic_reporter;
 
 use core::*;
 use tauri::{Emitter, Manager};
@@ -137,6 +139,27 @@ pub fn run() {
 
     builder
         .setup(|_app| {
+            // Install the Rust panic reporter as early as possible so a panic
+            // inside the rest of setup still leaves a report on disk.
+            if let Ok(root) = core::notes_root(_app.handle()) {
+                let crashlogs = root.join(".crashlogs");
+                panic_reporter::install(crashlogs.clone());
+                // On Android, also tail the system logcat for evidence of a
+                // native crash from the previous session and queue it as a
+                // CrashReport. Catches what window.onerror and panic::set_hook
+                // miss: Java FATAL EXCEPTIONs and visible-to-UID native crashes.
+                #[cfg(target_os = "android")]
+                {
+                    let _ = std::thread::Builder::new()
+                        .name("logcat-crash-scan".into())
+                        .spawn(move || {
+                            android_logcat::capture_previous_native_crash(
+                                &crashlogs,
+                                "com.futo.notes",
+                            );
+                        });
+                }
+            }
             #[cfg(desktop)]
             {
                 if std::env::var("FUTO_NOTES_MULTI_INSTANCE").is_err() {

@@ -1410,6 +1410,7 @@ dependencies = [
  "tauri-plugin-opener",
  "tauri-plugin-process",
  "tauri-plugin-single-instance",
+ "time",
  "trash",
  "walkdir",
 ]

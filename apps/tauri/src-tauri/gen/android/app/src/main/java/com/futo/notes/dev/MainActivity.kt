@@ -1,4 +1,4 @@
-package com.futo.notes
+package com.futo.notes.dev
 
 import android.app.ActivityManager
 import android.content.Context

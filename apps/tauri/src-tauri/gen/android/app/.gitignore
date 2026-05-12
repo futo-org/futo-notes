@@ -1,5 +1,8 @@
 /src/main/java/com/futo/notes/generated
-/src/main/java/com/futo/notes/dev/
+/src/main/java/com/futo/notes/dev/*
+!/src/main/java/com/futo/notes/dev/MainActivity.kt
+!/src/main/java/com/futo/notes/dev/EditorImeShield.kt
+!/src/main/java/com/futo/notes/dev/FutoImeConnection.kt
 /src/main/jniLibs/**/*.so
 /src/main/assets/tauri.conf.json
 /tauri.build.gradle.kts

@@ -55,20 +55,28 @@ function init(): void {
     _offsetTop = visible && isIOSWebKit() ? 0 : vv.offsetTop;
   };
 
-  const syncAfterViewportSettles = () => {
-    sync();
+  // Focus AND viewport-resize/scroll events can fire while Svelte is
+  // mid-derivation. Writing $state synchronously from there throws
+  // `state_unsafe_mutation`. The Moto G Power 2021 + FUTO Keyboard +
+  // backspace-on-empty-note repro hits the resize path: FUTO Keyboard
+  // mutates the visual viewport synchronously while CM6 is still
+  // applying the deletion. Defer the first sync to a microtask so it
+  // lands after the current derivation completes, but still before
+  // paint.
+  const syncOutOfDerivation = () => {
+    queueMicrotask(sync);
     requestAnimationFrame(sync);
     for (const delay of [80, 240, 500, 900]) {
       setTimeout(sync, delay);
     }
   };
 
-  refreshImpl = syncAfterViewportSettles;
-  vv.addEventListener('resize', syncAfterViewportSettles);
-  vv.addEventListener('scroll', syncAfterViewportSettles);
-  document.addEventListener('focusin', syncAfterViewportSettles);
-  document.addEventListener('focusout', syncAfterViewportSettles);
-  window.addEventListener('scroll', syncAfterViewportSettles, { passive: true });
+  refreshImpl = syncOutOfDerivation;
+  vv.addEventListener('resize', syncOutOfDerivation);
+  vv.addEventListener('scroll', syncOutOfDerivation);
+  document.addEventListener('focusin', syncOutOfDerivation);
+  document.addEventListener('focusout', syncOutOfDerivation);
+  window.addEventListener('scroll', syncOutOfDerivation, { passive: true });
   sync();
 }
 

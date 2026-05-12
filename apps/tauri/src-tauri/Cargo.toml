@@ -29,6 +29,7 @@ rand_chacha = "0.9"
 rayon = "1.11.0"
 sha2 = "0.10.9"
 filetime = "0.2.26"
+time = { version = "0.3", features = ["formatting"] }
 notify = "8.2.0"
 walkdir = "2.5"
 reqwest = { version = "0.12.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
