@@ -191,6 +191,37 @@ describe('orderedListRenumber extension', () => {
   });
 });
 
+describe('prose indent on Enter', () => {
+  // Regression: pressing Enter on a prose line that starts with spaces
+  // carried the leading spaces onto the next line. Reported by the user:
+  // "if I start a line with a space, then hit enter, the next line i am
+  //  now on is also indented by a space." Spaces in prose should not
+  // propagate; only tab-indent (intentional outline-style indent) should.
+  it('strips leading spaces from the new line', () => {
+    const doc = '  hello';
+    const v = setup(doc, doc.length);
+    pressEnter(v);
+    expect(v.state.doc.toString()).toBe('  hello\n');
+    expect(v.state.selection.main.head).toBe('  hello\n'.length);
+  });
+
+  it('preserves leading tabs on the new line', () => {
+    const doc = '\thello';
+    const v = setup(doc, doc.length);
+    pressEnter(v);
+    expect(v.state.doc.toString()).toBe('\thello\n\t');
+    expect(v.state.selection.main.head).toBe('\thello\n\t'.length);
+  });
+
+  it('preserves only tabs when leading whitespace mixes tabs and spaces', () => {
+    const doc = '\t  hello';
+    const v = setup(doc, doc.length);
+    pressEnter(v);
+    expect(v.state.doc.toString()).toBe('\t  hello\n\t');
+    expect(v.state.selection.main.head).toBe('\t  hello\n\t'.length);
+  });
+});
+
 describe('code block escape', () => {
   it('exits a fenced code block when Enter is pressed on an empty line above the closing fence', () => {
     const doc = '```\nfoo\n\n```';

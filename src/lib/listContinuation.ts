@@ -119,6 +119,17 @@ function handleEnter(view: EditorView): boolean {
     return true;
   }
 
+  // Prose line with leading whitespace. The CM6 default insertNewline
+  // propagates the previous line's indent verbatim, which means a stray
+  // leading space carries onto every new line. Strip spaces and keep only
+  // tabs (intentional outline indent) on the new line.
+  const leadMatch = text.match(/^[ \t]+/);
+  if (leadMatch) {
+    const tabsOnly = leadMatch[0].replace(/ /g, '');
+    view.dispatch(state.replaceSelection(`\n${tabsOnly}`));
+    return true;
+  }
+
   return false;
 }
 
