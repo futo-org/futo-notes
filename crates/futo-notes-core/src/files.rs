@@ -169,13 +169,22 @@ pub fn ensure_safe_note_id(id: &str) -> Result<(), String> {
 
 /// Build the full `.md` path for a note ID, after safety validation.
 /// Note IDs may contain forward slashes — each segment becomes a folder.
+//
+// `PathBuf::set_extension` replaces whatever Rust considers the existing
+// extension (everything after the final dot in the file_name), so for an id
+// like "FUTO Notes 1.4.1 writeup" it would land at "FUTO Notes 1.4.md". Build
+// the leaf with `.md` already appended instead.
 pub fn safe_note_path(base: &Path, id: &str) -> Result<PathBuf, String> {
     ensure_safe_note_id(id)?;
     let mut path = base.to_path_buf();
-    for component in id.split('/') {
-        path.push(component);
+    let mut components = id.split('/').peekable();
+    while let Some(component) = components.next() {
+        if components.peek().is_some() {
+            path.push(component);
+        } else {
+            path.push(format!("{component}.md"));
+        }
     }
-    path.set_extension("md");
     Ok(path)
 }
 
@@ -366,6 +375,29 @@ mod tests {
         let base = Path::new("/tmp/test");
         let p = safe_note_path(base, "Specs/folder-support").unwrap();
         assert_eq!(p, PathBuf::from("/tmp/test/Specs/folder-support.md"));
+    }
+
+    // Regression: titles with interior dots (e.g. version-like "1.4.1") were
+    // being truncated by PathBuf::set_extension because Rust treated the
+    // trailing dotted segment as the extension and replaced it. A note titled
+    // "FUTO Notes 1.4.1 writeup" landed on disk as "FUTO Notes 1.4.md", which
+    // made a single note show up as two entries (one in cache, one from
+    // rescan) and never round-tripped correctly.
+    #[test]
+    fn safe_note_path_preserves_interior_dots() {
+        let base = Path::new("/tmp/test");
+        assert_eq!(
+            safe_note_path(base, "FUTO Notes 1.4.1 writeup").unwrap(),
+            PathBuf::from("/tmp/test/FUTO Notes 1.4.1 writeup.md"),
+        );
+        assert_eq!(
+            safe_note_path(base, "v2.0 notes").unwrap(),
+            PathBuf::from("/tmp/test/v2.0 notes.md"),
+        );
+        assert_eq!(
+            safe_note_path(base, "Specs/v1.2 plan").unwrap(),
+            PathBuf::from("/tmp/test/Specs/v1.2 plan.md"),
+        );
     }
 
     #[test]
