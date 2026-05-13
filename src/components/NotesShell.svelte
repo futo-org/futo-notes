@@ -30,7 +30,7 @@
   import TabsStrip from './TabsStrip.svelte';
   import { createSyncManager } from '$lib/syncManager.svelte';
   import { keyboard } from '$lib/keyboard.svelte';
-  import { navigate } from '../router';
+  import { navigate, noteIdFromHash } from '../router';
   import { tabsStore, type OpenMode } from '$lib/tabsStore.svelte';
   import { onToast } from '$lib/toast';
 
@@ -545,8 +545,12 @@
     // Sync manager lifecycle (autoSync, syncCoord, watcherBatch cleanup)
     const cleanupSync = sync.start();
 
-    // Desktop sidebar: load persisted width + collapsed state, persisted tabs
+    // Desktop sidebar: load persisted width + collapsed state, persisted tabs.
+    // `initialHashNoteId` is read here (not pre-rendered into the store)
+    // so a persisted-tabs snapshot can still hydrate cleanly — see
+    // `tabsStore.hydrate` for the rationale.
     let tabsPersistTimer: number | null = null;
+    const initialHashNoteId = noteIdFromHash(window.location.hash);
     if (isDesktop) {
       if (localStorage.getItem('futo-notes:sidebarCollapsed') === 'true') sidebarCollapsed = true;
       import('$lib/platform/tauri')
@@ -554,13 +558,8 @@
         .then(({ cfg, saveConfig }) => {
           if (cfg.sidebarWidth) sidebarWidth = cfg.sidebarWidth;
           if (cfg.graphSidebarWidth) graphSidebarWidth = cfg.graphSidebarWidth;
-          // Hydrate tabs if the user hasn't navigated yet (pristine boot).
-          if (cfg.openTabs) {
-            const noteIndex = new Map(appCtx.notes.map((n) => [n.id, true] as const));
-            tabsStore.hydrate(cfg.openTabs, (id) => noteIndex.has(id));
-          } else {
-            tabsStore.markHydrated();
-          }
+          const noteIndex = new Map(appCtx.notes.map((n) => [n.id, true] as const));
+          tabsStore.hydrate(cfg.openTabs ?? null, (id) => noteIndex.has(id), initialHashNoteId);
           // Wire the persister with a small debounce — tab edits can burst
           // (drag-reorder fires many moves per second).
           tabsStore.setPersister((snapshot) => {
@@ -576,10 +575,10 @@
           if (stored) sidebarWidth = parseInt(stored, 10) || 280;
           const graphStored = localStorage.getItem('futo-notes:graphSidebarWidth');
           if (graphStored) graphSidebarWidth = parseInt(graphStored, 10) || 320;
-          tabsStore.markHydrated();
+          tabsStore.hydrate(null, () => false, initialHashNoteId);
         });
     } else {
-      tabsStore.markHydrated();
+      tabsStore.hydrate(null, () => false, initialHashNoteId);
     }
 
     // Native menu actions + file watcher

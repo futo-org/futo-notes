@@ -318,6 +318,58 @@ describe('hydrate', () => {
     };
     expect(tabsStore.hydrate(snap, isValid)).toBe(false);
   });
+
+  describe('initialHashNoteId', () => {
+    // Regression: previously the URL hash was applied before hydrate ran,
+    // which left the store non-pristine and silently dropped the
+    // persisted-tabs snapshot on every deep-linked reload. Now hydrate
+    // does both: restore snapshot, then activate or append the hash note.
+
+    it('with snapshot + hash matching a restored tab → restores snapshot and activates that tab', () => {
+      const snap: PersistedTabs = {
+        tabs: [
+          { id: 't1', noteId: 'a' },
+          { id: 't2', noteId: 'b' },
+          { id: 't3', noteId: 'c' },
+        ],
+        activeTabId: 't1',
+      };
+      expect(tabsStore.hydrate(snap, isValid, 'b')).toBe(true);
+      expect(tabsStore.tabs.map((t) => t.noteId)).toEqual(['a', 'b', 'c']);
+      expect(tabsStore.activeNoteId).toBe('b');
+    });
+
+    it('with snapshot + hash for a note not in the snapshot → opens a foreground tab next to active', () => {
+      const validWithExtra = new Set([...validIds, 'fresh']);
+      const isValidWithExtra = (id: string) => validWithExtra.has(id);
+      const snap: PersistedTabs = {
+        tabs: [
+          { id: 't1', noteId: 'a' },
+          { id: 't2', noteId: 'b' },
+        ],
+        activeTabId: 't1',
+      };
+      expect(tabsStore.hydrate(snap, isValidWithExtra, 'fresh')).toBe(true);
+      // 'fresh' lands immediately after the previously-active tab, per the
+      // foreground-open insertion rule. The full snapshot tabs survive.
+      expect(tabsStore.tabs.map((t) => t.noteId)).toEqual(['a', 'fresh', 'b']);
+      expect(tabsStore.activeNoteId).toBe('fresh');
+    });
+
+    it('no snapshot + hash → reuses the lone Home tab', () => {
+      expect(tabsStore.hydrate(null, isValid, 'a')).toBe(false);
+      expect(tabsStore.tabs).toHaveLength(1);
+      expect(tabsStore.activeNoteId).toBe('a');
+      expect(tabsStore.hydrated).toBe(true);
+    });
+
+    it('null snap + null hash is a clean mark-hydrated', () => {
+      expect(tabsStore.hydrate(null, isValid, null)).toBe(false);
+      expect(tabsStore.tabs).toHaveLength(1);
+      expect(tabsStore.activeNoteId).toBeNull();
+      expect(tabsStore.hydrated).toBe(true);
+    });
+  });
 });
 
 describe('persister', () => {

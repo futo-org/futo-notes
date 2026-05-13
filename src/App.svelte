@@ -37,22 +37,19 @@
     toastTimer = window.setTimeout(() => { toastMessage = ''; toastTimer = null; }, 3000);
   }
 
-  // Apply the initial hash to the tab store before paint so the shell
-  // renders the right note on a deep-linked boot. Skips when the URL
-  // is the default (#/ or empty), leaving the store pristine for
-  // later persistence-driven hydration.
-  {
-    const initialParsed = noteIdFromHash(window.location.hash);
-    if (initialParsed !== null) {
-      tabsStore.openNote(initialParsed, 'current');
-    }
-  }
+  // The initial URL hash is applied to the store inside `tabsStore.hydrate()`
+  // (called from NotesShell once persisted tabs have loaded). Mutating the
+  // store synchronously here would mark it non-pristine and silently drop
+  // the persisted snapshot on every deep-linked reload.
 
   const noteId = $derived(tabsStore.activeNoteId);
 
   // Mirror active tab → URL hash. Uses replaceState so we don't refire
   // the hashchange listener (which would loop back into openNote).
+  // Gated on `hydrated`: pre-hydrate, the URL still carries the boot
+  // target we need hydrate() to read, so we mustn't overwrite it.
   $effect(() => {
+    if (!tabsStore.hydrated) return;
     const id = tabsStore.activeNoteId;
     const target = id === null ? '#/' : `#/note/${encodeURIComponent(id)}`;
     if (window.location.hash !== target) {

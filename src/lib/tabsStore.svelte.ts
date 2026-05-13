@@ -113,37 +113,62 @@ export const tabsStore = {
   },
 
   /**
-   * Replace the in-memory state from a persisted snapshot. Refuses if
-   * the user has already mutated state (not pristine single-Home), so
-   * a late persistence load can't clobber live navigation. Returns true
-   * iff state was replaced. Marks the store hydrated either way.
+   * Boot the store: optionally restore from a persisted snapshot, then
+   * apply the initial URL-hash target (a deep-linked or last-active
+   * note). Mutating the store synchronously before hydrate would defeat
+   * the pristine check below, so App.svelte must defer the hash to here.
+   *
+   * The snapshot is only restored when the store is still pristine
+   * single-Home — a late load can't clobber live navigation. The hash
+   * is always applied: it either activates a matching restored tab,
+   * appends a new tab on top of the restored set, or replaces the lone
+   * Home tab when no snapshot existed. Returns true iff the snapshot
+   * was restored. Marks the store hydrated either way.
    */
-  hydrate(snap: PersistedTabs | null, isNoteIdValid: (id: string) => boolean): boolean {
+  hydrate(
+    snap: PersistedTabs | null,
+    isNoteIdValid: (id: string) => boolean,
+    initialHashNoteId: string | null = null,
+  ): boolean {
     if (_hydrated) return false;
     _hydrated = true;
-    if (!snap || !Array.isArray(snap.tabs) || snap.tabs.length === 0) return false;
-    if (!this.isPristineSingleHome) return false;
 
-    const cleaned = snap.tabs
-      .filter(
-        (t) =>
-          t.noteId === null ||
-          (typeof t.noteId === 'string' && t.noteId !== 'new' && isNoteIdValid(t.noteId)),
-      )
-      .map<Tab>((t) => ({
-        id: typeof t.id === 'string' ? t.id : newId(),
-        noteId: t.noteId ?? null,
-        ...(t.pendingFolder ? { pendingFolder: t.pendingFolder } : {}),
-      }));
+    let replaced = false;
+    if (snap && Array.isArray(snap.tabs) && snap.tabs.length > 0 && this.isPristineSingleHome) {
+      const cleaned = snap.tabs
+        .filter(
+          (t) =>
+            t.noteId === null ||
+            (typeof t.noteId === 'string' && t.noteId !== 'new' && isNoteIdValid(t.noteId)),
+        )
+        .map<Tab>((t) => ({
+          id: typeof t.id === 'string' ? t.id : newId(),
+          noteId: t.noteId ?? null,
+          ...(t.pendingFolder ? { pendingFolder: t.pendingFolder } : {}),
+        }));
 
-    if (cleaned.length === 0) return false;
+      if (cleaned.length > 0) {
+        _tabs = cleaned;
+        const activeStillPresent = snap.activeTabId
+          ? cleaned.find((t) => t.id === snap.activeTabId)
+          : null;
+        _activeTabId = activeStillPresent ? snap.activeTabId! : cleaned[0]!.id;
+        replaced = true;
+      }
+    }
 
-    _tabs = cleaned;
-    const activeStillPresent = snap.activeTabId
-      ? cleaned.find((t) => t.id === snap.activeTabId)
-      : null;
-    _activeTabId = activeStillPresent ? snap.activeTabId! : cleaned[0]!.id;
-    return true;
+    if (initialHashNoteId !== null) {
+      const existing = _tabs.find((t) => t.noteId === initialHashNoteId);
+      if (existing) {
+        _activeTabId = existing.id;
+      } else if (replaced) {
+        this.openNote(initialHashNoteId, 'foreground');
+      } else {
+        this.openNote(initialHashNoteId, 'current');
+      }
+    }
+
+    return replaced;
   },
 
   markHydrated(): void {
