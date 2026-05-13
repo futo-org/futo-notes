@@ -381,6 +381,59 @@ fn add_hash_filename(
         .push(HashFilenameEntry { filename, change_seq });
 }
 
+/// Detect 1-to-1 local renames before push. For each basename where the
+/// map has exactly one entry whose filename isn't on disk AND there's
+/// exactly one on-disk file with that basename not yet in the map, pair
+/// them. The result lets push reuse the original `object_id` via a PUT
+/// at the new filename instead of running a DELETE + POST — which would
+/// tombstone the object and break concurrent peer edits.
+///
+/// Returns a `new_filename → old_filename` map. The caller is expected
+/// to rewrite a working copy of the object_map (move the entry from old
+/// to new) and remember the pairing for `resolve_update_conflict`.
+/// Mirrors `pairLocalMovedObjects` from the deleted TS implementation.
+fn pair_local_moved_objects(
+    local_files: &[NoteFileMeta],
+    object_map: &HashMap<String, E2eeObjectMapEntry>,
+) -> HashMap<String, String> {
+    let local_names: HashSet<&str> = local_files.iter().map(|f| f.name.as_str()).collect();
+
+    let mut missing_by_basename: HashMap<&str, Vec<&str>> = HashMap::new();
+    for filename in object_map.keys() {
+        if local_names.contains(filename.as_str()) {
+            continue;
+        }
+        let base = filename_basename(filename);
+        missing_by_basename.entry(base).or_default().push(filename);
+    }
+
+    let mut unmapped_by_basename: HashMap<&str, Vec<&str>> = HashMap::new();
+    for f in local_files {
+        if object_map.contains_key(&f.name) {
+            continue;
+        }
+        let base = filename_basename(&f.name);
+        unmapped_by_basename.entry(base).or_default().push(&f.name);
+    }
+
+    let mut pairings: HashMap<String, String> = HashMap::new();
+    for (base, missing) in &missing_by_basename {
+        let Some(unmapped) = unmapped_by_basename.get(base) else {
+            continue;
+        };
+        if missing.len() != 1 || unmapped.len() != 1 {
+            continue;
+        }
+        let from = missing[0];
+        let to = unmapped[0];
+        if from == to {
+            continue;
+        }
+        pairings.insert(to.to_owned(), from.to_owned());
+    }
+    pairings
+}
+
 fn build_client(snapshot: &ConnectedState) -> Result<E2eeClient, String> {
     let mut c = E2eeClient::new(&snapshot.base_url).map_err(http_err_to_string)?;
     c.set_token(&snapshot.token);
@@ -686,10 +739,28 @@ fn plan_push(
     local_files: &[NoteFileMeta],
     object_map: &HashMap<String, E2eeObjectMapEntry>,
 ) -> PushPlan {
+    plan_push_with_moves(local_files, object_map, &HashSet::new())
+}
+
+/// `plan_push` extended with a set of filenames that are locally-moved
+/// (a former filename's `object_id` was re-pointed at this filename).
+/// Locally-moved files must NEVER be fast-pathed: even if their on-disk
+/// hash matches `existing.hash` (the content didn't change, just the
+/// path), the packed-note `path` field has changed and the server needs
+/// to see the updated blob.
+fn plan_push_with_moves(
+    local_files: &[NoteFileMeta],
+    object_map: &HashMap<String, E2eeObjectMapEntry>,
+    local_move_sources: &HashSet<String>,
+) -> PushPlan {
     let local_names: HashSet<&str> = local_files.iter().map(|f| f.name.as_str()).collect();
 
     let mut candidates = Vec::new();
     for f in local_files {
+        if local_move_sources.contains(&f.name) {
+            candidates.push(f.clone());
+            continue;
+        }
         let stale = match object_map.get(&f.name) {
             Some(entry) => {
                 !(entry.hash.is_some()
@@ -730,17 +801,25 @@ enum PushOutcome {
     },
     /// 409 + clean 3-way merge: the merged content must be written to the
     /// local file too so disk catches up to what we just PUT.
+    /// `previous_filename` is set when the conflict resolver adopted a
+    /// peer rename — the original local filename needs to be removed
+    /// from the map and disk.
     MergedClean {
         filename: String,
+        previous_filename: Option<String>,
         merged_content: String,
         merged_hash: String,
         entry: E2eeObjectMapEntry,
         modified_at: i64,
     },
-    /// 409 + dirty merge: original filename now holds the remote content;
+    /// 409 + dirty merge: target filename now holds the remote content;
     /// our local edits land in a fresh conflict-named file.
+    /// `previous_filename` is set when the conflict resolver adopted a
+    /// peer rename — the original local filename needs to be removed
+    /// from the map and disk.
     ConflictCopy {
         original_filename: String,
+        previous_filename: Option<String>,
         remote_content: String,
         remote_hash: String,
         remote_entry: E2eeObjectMapEntry,
@@ -792,6 +871,7 @@ async fn resolve_update_conflict(
     existing: E2eeObjectMapEntry,
     conflict: ConflictResponse,
     namespace: HashSet<String>,
+    is_local_move: bool,
 ) -> Result<PushOutcome, String> {
     let current_blob_key = match conflict.current_blob_key.clone() {
         Some(k) => k,
@@ -807,6 +887,21 @@ async fn resolve_update_conflict(
     let remote = e2ee::unpack_note(&remote_plain).map_err(e2ee_err_to_string)?;
     let remote_hash = hash_sha256(&remote.content);
 
+    // Target filename: if a peer renamed the note (remote.path differs from
+    // ours) and we're NOT the local renamer, adopt the peer's filename so
+    // the merge lands at the canonical post-rename path. The original
+    // local path will be removed via `previous_filename`.
+    let target_filename: String = if remote.path != filename && !is_local_move {
+        remote.path.clone()
+    } else {
+        filename.to_owned()
+    };
+    let previous_filename: Option<String> = if target_filename != filename {
+        Some(filename.to_owned())
+    } else {
+        None
+    };
+
     // Best-effort fetch of the merge base. The server retains orphaned
     // blobs for ~1 year; missing means "fall through to conflict copy."
     let base_content: Option<String> = match http.get_blob(&existing.blob_key).await {
@@ -821,7 +916,7 @@ async fn resolve_update_conflict(
         if let MergeResult::Clean(merged) = e2ee::three_way_merge_text(&base, &remote.content, &local_content) {
             let merged_hash = hash_sha256(&merged);
             let merged_size = merged.as_bytes().len() as u64;
-            let merged_ct = encrypt_note(&vault_key, filename, &merged).await?;
+            let merged_ct = encrypt_note(&vault_key, &target_filename, &merged).await?;
             match http
                 .put_blob_object(collection_id, &existing.object_id, conflict.current_version + 1, merged_ct)
                 .await
@@ -829,7 +924,8 @@ async fn resolve_update_conflict(
             {
                 PutResult::Ok(resp) => {
                     return Ok(PushOutcome::MergedClean {
-                        filename: filename.to_owned(),
+                        filename: target_filename,
+                        previous_filename,
                         merged_content: merged,
                         merged_hash: merged_hash.clone(),
                         entry: E2eeObjectMapEntry {
@@ -851,10 +947,10 @@ async fn resolve_update_conflict(
         }
     }
 
-    // Conflict-copy path: keep the remote on the original filename and
+    // Conflict-copy path: keep the remote on the target filename and
     // park the user's local edits in `note (conflict YYYY-MM-DD).md`.
     let date = current_date_yyyy_mm_dd();
-    let copy_filename = conflict_filename(filename, &date, &namespace);
+    let copy_filename = conflict_filename(&target_filename, &date, &namespace);
     let copy_ct = encrypt_note(&vault_key, &copy_filename, &local_content).await?;
     let created = http
         .post_blob_object(collection_id, copy_ct)
@@ -882,7 +978,8 @@ async fn resolve_update_conflict(
     };
 
     Ok(PushOutcome::ConflictCopy {
-        original_filename: filename.to_owned(),
+        original_filename: target_filename,
+        previous_filename,
         remote_content: remote.content,
         remote_hash,
         remote_entry,
@@ -899,6 +996,7 @@ fn current_date_yyyy_mm_dd() -> String {
     format!("{:04}-{:02}-{:02}", now.year(), u8::from(now.month()), now.day())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn push_one_file(
     notes_root: PathBuf,
     http: Arc<E2eeClient>,
@@ -907,6 +1005,7 @@ async fn push_one_file(
     file: NoteFileMeta,
     existing: Option<E2eeObjectMapEntry>,
     namespace: HashSet<String>,
+    is_local_move: bool,
 ) -> Result<PushOutcome, String> {
     let filename = file.name.clone();
     let content = match read_local_note(&notes_root, &filename).await {
@@ -921,18 +1020,22 @@ async fn push_one_file(
 
     // Hash matches the recorded entry — content didn't change despite the
     // mtime/size fast-path miss. Stamp the new mtime/size so next push
-    // skips this file entirely.
-    if let Some(e) = &existing {
-        if e.hash.as_deref() == Some(hash.as_str()) {
-            let entry = E2eeObjectMapEntry {
-                object_id: e.object_id.clone(),
-                version: e.version,
-                blob_key: e.blob_key.clone(),
-                hash: Some(hash),
-                mtime_ms: Some(file.mtime_ms),
-                size_bytes: Some(size),
-            };
-            return Ok(PushOutcome::StampOnly { filename, entry });
+    // skips this file entirely. Skip this short-circuit for local moves:
+    // the path changed, so even though the content didn't, the encrypted
+    // blob's packed `path` field needs to update.
+    if !is_local_move {
+        if let Some(e) = &existing {
+            if e.hash.as_deref() == Some(hash.as_str()) {
+                let entry = E2eeObjectMapEntry {
+                    object_id: e.object_id.clone(),
+                    version: e.version,
+                    blob_key: e.blob_key.clone(),
+                    hash: Some(hash),
+                    mtime_ms: Some(file.mtime_ms),
+                    size_bytes: Some(size),
+                };
+                return Ok(PushOutcome::StampOnly { filename, entry });
+            }
         }
     }
 
@@ -1003,6 +1106,7 @@ async fn push_one_file(
                 existing,
                 conflict,
                 namespace,
+                is_local_move,
             )
             .await
         }
@@ -1067,7 +1171,22 @@ async fn run_push(
         .filter(|f| f.name.ends_with(".md"))
         .collect();
 
-    let plan = plan_push(&local_files, &snapshot.object_map);
+    // Detect 1-to-1 local renames before planning. Rewrites a working
+    // copy of the object_map so a "delete grocery + create Lists/grocery"
+    // pair pushes as a single PUT on the same `object_id` rather than
+    // a DELETE + POST. DELETE+POST would tombstone the object and break
+    // a concurrent peer edit (peer's PUT would 409 with no current blob
+    // to merge against).
+    let local_move_pairings = pair_local_moved_objects(&local_files, &snapshot.object_map);
+    let mut effective_map = snapshot.object_map.clone();
+    for (new_name, old_name) in &local_move_pairings {
+        if let Some(entry) = effective_map.remove(old_name) {
+            effective_map.insert(new_name.clone(), entry);
+        }
+    }
+    let local_move_sources: HashSet<String> = local_move_pairings.keys().cloned().collect();
+
+    let plan = plan_push_with_moves(&local_files, &effective_map, &local_move_sources);
 
     // Build the namespace of filenames a conflict-copy must not collide
     // with: union of on-disk + map. Computed once up front; passed to
@@ -1076,7 +1195,7 @@ async fn run_push(
     for f in &local_files {
         namespace.insert(f.name.clone());
     }
-    for k in snapshot.object_map.keys() {
+    for k in effective_map.keys() {
         namespace.insert(k.clone());
     }
 
@@ -1087,7 +1206,8 @@ async fn run_push(
     let semaphore = Arc::new(Semaphore::new(PUSH_CONCURRENCY));
     let mut set: JoinSet<Result<PushOutcome, String>> = JoinSet::new();
     for file in plan.candidates {
-        let existing = snapshot.object_map.get(&file.name).cloned();
+        let existing = effective_map.get(&file.name).cloned();
+        let is_local_move = local_move_sources.contains(&file.name);
         let http = http.clone();
         let vault_key = vault_key.clone();
         let cid = snapshot.collection_id.clone();
@@ -1097,7 +1217,17 @@ async fn run_push(
         let progress = progress.clone();
         set.spawn(async move {
             let _permit = permit_sem.acquire_owned().await.expect("semaphore closed");
-            let r = push_one_file(root, http, vault_key, cid, file, existing, ns).await;
+            let r = push_one_file(
+                root,
+                http,
+                vault_key,
+                cid,
+                file,
+                existing,
+                ns,
+                is_local_move,
+            )
+            .await;
             progress.bump();
             r
         });
@@ -1162,6 +1292,15 @@ async fn run_push(
     let mut upserts: Vec<(String, E2eeObjectMapEntry)> = Vec::new();
     let mut removes: HashSet<String> = HashSet::new();
 
+    // Local-move pairings: the OLD filename's map entry was re-pointed
+    // at the NEW filename inside `effective_map`. The persisted state
+    // still has the OLD entry, so register it for removal here.
+    for (new_name, old_name) in &local_move_pairings {
+        if new_name != old_name {
+            removes.insert(old_name.clone());
+        }
+    }
+
     let mut uploaded = 0usize;
     let mut conflicts = 0usize;
     let mut updated_ids: Vec<String> = Vec::new();
@@ -1214,6 +1353,7 @@ async fn run_push(
             }
             PushOutcome::MergedClean {
                 filename,
+                previous_filename,
                 merged_content,
                 merged_hash,
                 entry,
@@ -1230,12 +1370,19 @@ async fn run_push(
                     hash: merged_hash,
                     modified_at,
                 });
+                if let Some(prev) = previous_filename {
+                    if prev != filename {
+                        deletes_to_apply.insert(prev.clone());
+                        removes.insert(prev);
+                    }
+                }
                 upserts.push((filename.clone(), entry));
                 updated_ids.push(filename_to_id(&filename));
                 peer_updated_ids.push(filename_to_id(&filename));
             }
             PushOutcome::ConflictCopy {
                 original_filename,
+                previous_filename,
                 remote_content,
                 remote_hash,
                 remote_entry,
@@ -1265,6 +1412,12 @@ async fn run_push(
                 });
                 if let Some(ts) = copy_entry.mtime_ms {
                     timestamps.insert(copy_filename.clone(), ts);
+                }
+                if let Some(prev) = previous_filename {
+                    if prev != original_filename {
+                        deletes_to_apply.insert(prev.clone());
+                        removes.insert(prev);
+                    }
                 }
                 upserts.push((original_filename.clone(), remote_entry));
                 upserts.push((copy_filename.clone(), copy_entry));
@@ -2107,6 +2260,103 @@ mod tests {
         pull.insert("hX".to_owned(), vec![h2f("Lists/grocery.md", 4)]);
         let losers = pick_duplicate_move_losers("grocery.md", "hX", &push, &pull);
         assert!(losers.is_empty());
+    }
+
+    fn nfm(name: &str) -> NoteFileMeta {
+        NoteFileMeta {
+            name: name.to_owned(),
+            mtime_ms: 0,
+            size_bytes: 0,
+        }
+    }
+
+    fn simple_entry() -> E2eeObjectMapEntry {
+        E2eeObjectMapEntry {
+            object_id: "o1".into(),
+            version: 1,
+            blob_key: "bk".into(),
+            hash: Some("h".into()),
+            mtime_ms: Some(0),
+            size_bytes: Some(0),
+        }
+    }
+
+    #[test]
+    fn pair_local_moves_detects_rename() {
+        // Map had `grocery.md`; on disk we now have `Lists/grocery.md`
+        // (and `grocery.md` is gone). Pair them so push reuses the same
+        // object_id via PUT instead of DELETE + POST.
+        let mut map = HashMap::new();
+        map.insert("grocery.md".to_owned(), simple_entry());
+        let local = vec![nfm("Lists/grocery.md")];
+        let pairings = pair_local_moved_objects(&local, &map);
+        assert_eq!(pairings.get("Lists/grocery.md").map(String::as_str), Some("grocery.md"));
+        assert_eq!(pairings.len(), 1);
+    }
+
+    #[test]
+    fn pair_local_moves_skips_ambiguous_basenames() {
+        // Two files with the same basename are missing AND two new files
+        // share that basename → can't tell which paired with which.
+        // Don't pair anything.
+        let mut map = HashMap::new();
+        map.insert("A/note.md".to_owned(), simple_entry());
+        map.insert("B/note.md".to_owned(), simple_entry());
+        let local = vec![nfm("C/note.md"), nfm("D/note.md")];
+        let pairings = pair_local_moved_objects(&local, &map);
+        assert!(pairings.is_empty());
+    }
+
+    #[test]
+    fn pair_local_moves_skips_when_file_still_on_disk() {
+        // The map entry's filename is still on disk → not missing. Even
+        // if there's an unmapped same-basename file, no pairing.
+        let mut map = HashMap::new();
+        map.insert("note.md".to_owned(), simple_entry());
+        let local = vec![nfm("note.md"), nfm("Lists/note.md")];
+        let pairings = pair_local_moved_objects(&local, &map);
+        assert!(pairings.is_empty());
+    }
+
+    #[test]
+    fn pair_local_moves_skips_when_basenames_differ() {
+        // Missing file and new file don't share a basename — not a move.
+        let mut map = HashMap::new();
+        map.insert("alpha.md".to_owned(), simple_entry());
+        let local = vec![nfm("beta.md")];
+        let pairings = pair_local_moved_objects(&local, &map);
+        assert!(pairings.is_empty());
+    }
+
+    #[test]
+    fn plan_push_includes_local_moves_even_when_hash_unchanged() {
+        // Local move case: the filename in `effective_map` matches the
+        // on-disk filename and (hash, mtime, size) all match — would be
+        // a fast-path skip without the local-move signal. With it, the
+        // file must be pushed so the encrypted blob's `path` updates.
+        let mut map = HashMap::new();
+        map.insert(
+            "Lists/grocery.md".to_owned(),
+            E2eeObjectMapEntry {
+                object_id: "o1".into(),
+                version: 1,
+                blob_key: "bk".into(),
+                hash: Some("h".into()),
+                mtime_ms: Some(42),
+                size_bytes: Some(7),
+            },
+        );
+        let local = vec![NoteFileMeta {
+            name: "Lists/grocery.md".to_owned(),
+            mtime_ms: 42,
+            size_bytes: 7,
+        }];
+        let mut moves = HashSet::new();
+        moves.insert("Lists/grocery.md".to_owned());
+        let plan = plan_push_with_moves(&local, &map, &moves);
+        assert_eq!(plan.candidates.len(), 1);
+        assert_eq!(plan.candidates[0].name, "Lists/grocery.md");
+        assert!(plan.deletes.is_empty());
     }
 
     #[test]
