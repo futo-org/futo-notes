@@ -338,6 +338,18 @@ pub struct SyncSummary {
     pub deleted_hashes: HashMap<String, String>,
     #[serde(skip)]
     pub created_hashes: HashMap<String, String>,
+    /// hash → all (filename, change_seq) pairs this phase wrote with that
+    /// hash. Used by `resolve_concurrent_move_duplicates` to spot two
+    /// clients moving the same content to two different paths in the same
+    /// cycle. Internal-only — never reaches the JS side.
+    #[serde(skip)]
+    pub hash_to_filenames: HashMap<String, Vec<HashFilenameEntry>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct HashFilenameEntry {
+    pub filename: String,
+    pub change_seq: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -349,6 +361,24 @@ pub struct RenamePair {
 
 fn filename_to_id(filename: &str) -> String {
     filename.strip_suffix(".md").unwrap_or(filename).to_owned()
+}
+
+fn filename_basename(filename: &str) -> &str {
+    match filename.rfind('/') {
+        Some(i) => &filename[i + 1..],
+        None => filename,
+    }
+}
+
+fn add_hash_filename(
+    map: &mut HashMap<String, Vec<HashFilenameEntry>>,
+    hash: String,
+    filename: String,
+    change_seq: u64,
+) {
+    map.entry(hash)
+        .or_default()
+        .push(HashFilenameEntry { filename, change_seq });
 }
 
 fn build_client(snapshot: &ConnectedState) -> Result<E2eeClient, String> {
@@ -425,6 +455,7 @@ fn first_pass(
 struct DownloadedNote {
     object_id: String,
     version: u64,
+    change_seq: u64,
     blob_key: String,
     filename: String,
     content: String,
@@ -448,6 +479,7 @@ async fn download_and_decrypt(
     Ok(DownloadedNote {
         object_id: obj.id,
         version: obj.version,
+        change_seq: obj.change_seq,
         blob_key,
         filename: note.path,
         content: note.content,
@@ -537,6 +569,7 @@ async fn run_pull(
         }
     }
     let mut created_hashes: HashMap<String, String> = HashMap::new();
+    let mut hash_to_filenames: HashMap<String, Vec<HashFilenameEntry>> = HashMap::new();
 
     for note in &downloaded {
         let previous_filename = filename_by_object_id.get(&note.object_id);
@@ -561,6 +594,12 @@ async fn run_pull(
         });
         updated_ids.push(filename_to_id(&note.filename));
         created_hashes.insert(note.hash.clone(), note.filename.clone());
+        add_hash_filename(
+            &mut hash_to_filenames,
+            note.hash.clone(),
+            note.filename.clone(),
+            note.change_seq,
+        );
     }
 
     let apply_input = V2SyncApplyInput {
@@ -623,6 +662,7 @@ async fn run_pull(
         peer_deleted_ids: deleted_ids,
         deleted_hashes,
         created_hashes,
+        hash_to_filenames,
         ..Default::default()
     })
 }
@@ -685,6 +725,7 @@ enum PushOutcome {
         filename: String,
         entry: E2eeObjectMapEntry,
         modified_at: i64,
+        change_seq: u64,
         peer_resolved: bool,
     },
     /// 409 + clean 3-way merge: the merged content must be written to the
@@ -918,6 +959,7 @@ async fn push_one_file(
             filename,
             entry,
             modified_at: created.updated_at,
+            change_seq: created.change_seq,
             peer_resolved: false,
         });
     }
@@ -946,6 +988,7 @@ async fn push_one_file(
                 filename,
                 entry,
                 modified_at: r.updated_at,
+                change_seq: r.change_seq,
                 peer_resolved: false,
             })
         }
@@ -1132,6 +1175,7 @@ async fn run_push(
     // "deleted at old name AND created at new name with same hash."
     let mut deleted_hashes: HashMap<String, String> = HashMap::new();
     let mut created_hashes: HashMap<String, String> = HashMap::new();
+    let mut hash_to_filenames: HashMap<String, Vec<HashFilenameEntry>> = HashMap::new();
 
     for outcome in outcomes {
         match outcome {
@@ -1141,10 +1185,13 @@ async fn run_push(
                     timestamps.insert(filename.clone(), ts);
                 }
             }
-            PushOutcome::Wrote { filename, entry, modified_at, peer_resolved } => {
+            PushOutcome::Wrote { filename, entry, modified_at, change_seq, peer_resolved } => {
                 uploaded += 1;
                 if entry.version > new_max_version {
                     new_max_version = entry.version;
+                }
+                if change_seq > new_max_version {
+                    new_max_version = change_seq;
                 }
                 timestamps.insert(filename.clone(), modified_at);
                 // Brand-new filename (no prior map entry) → record for
@@ -1155,6 +1202,9 @@ async fn run_push(
                     if let Some(h) = entry.hash.clone() {
                         created_hashes.insert(h, filename.clone());
                     }
+                }
+                if let Some(h) = entry.hash.clone() {
+                    add_hash_filename(&mut hash_to_filenames, h, filename.clone(), change_seq);
                 }
                 upserts.push((filename.clone(), entry));
                 updated_ids.push(filename_to_id(&filename));
@@ -1317,6 +1367,7 @@ async fn run_push(
         peer_deleted_ids,
         deleted_hashes,
         created_hashes,
+        hash_to_filenames,
         ..Default::default()
     })
 }
@@ -1339,6 +1390,156 @@ enum DeletePushResult {
 #[allow(dead_code)]
 fn _keep_write_atomic_import(path: &Path, s: &str) -> Result<(), String> {
     write_atomic_text(path, s)
+}
+
+/// Result of a duplicate-move resolution pass. `deleted_ids` are the
+/// note ids whose synced filename we just took down (locally + on the
+/// server); `conflicts` matches the legacy TS counter for the user-
+/// facing "N conflicts resolved" badge.
+#[derive(Debug, Default)]
+struct DuplicateResolution {
+    conflicts: usize,
+    deleted_ids: Vec<String>,
+}
+
+/// Concurrent-move convergence: when two clients in the same cycle move
+/// the same content to two different paths, both creations land on the
+/// server side-by-side and pull happily writes both locally. Mirrors
+/// `resolveConcurrentMoveDuplicates` from the deleted TS implementation.
+///
+/// For each hash that was deleted somewhere in this cycle (push or pull
+/// side), pull the union of pushed + pulled creates with that same hash
+/// whose filename differs from the deleted one AND shares its basename.
+/// If two or more distinct filenames qualify, the highest-`change_seq`
+/// wins (server-side last-write-wins) and the losers are deleted on
+/// both server and local disk.
+async fn resolve_concurrent_move_duplicates(
+    app: &AppHandle,
+    state: &SyncState,
+    notes_root_path: &Path,
+    deleted_hashes: &HashMap<String, String>,
+    push_h2f: &HashMap<String, Vec<HashFilenameEntry>>,
+    pull_h2f: &HashMap<String, Vec<HashFilenameEntry>>,
+) -> Result<DuplicateResolution, String> {
+    let mut out = DuplicateResolution::default();
+
+    let snapshot = match state.snapshot() {
+        Some(s) => s,
+        None => return Ok(out),
+    };
+    let http = Arc::new(build_client(&snapshot)?);
+
+    for (hash, from_filename) in deleted_hashes {
+        let losers = pick_duplicate_move_losers(from_filename, hash, push_h2f, pull_h2f);
+        for loser in losers {
+            if delete_synced_filename(&http, app, state, notes_root_path, &loser.filename).await? {
+                out.conflicts += 1;
+                out.deleted_ids.push(filename_to_id(&loser.filename));
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Pure candidate selection: returns the loser filenames for one
+/// `(hash, from_filename)` deletion. Split out so the resolution logic
+/// is unit-testable without an HTTP client.
+fn pick_duplicate_move_losers(
+    from_filename: &str,
+    hash: &str,
+    push_h2f: &HashMap<String, Vec<HashFilenameEntry>>,
+    pull_h2f: &HashMap<String, Vec<HashFilenameEntry>>,
+) -> Vec<HashFilenameEntry> {
+    let from_base = filename_basename(from_filename);
+    let mut unique: HashMap<String, HashFilenameEntry> = HashMap::new();
+    for src in [push_h2f.get(hash), pull_h2f.get(hash)].into_iter().flatten() {
+        for cand in src {
+            if cand.filename == from_filename {
+                continue;
+            }
+            if filename_basename(&cand.filename) != from_base {
+                continue;
+            }
+            unique.insert(cand.filename.clone(), cand.clone());
+        }
+    }
+    if unique.len() <= 1 {
+        return Vec::new();
+    }
+    let mut sorted: Vec<HashFilenameEntry> = unique.into_values().collect();
+    // Highest change_seq wins; lexicographic filename order breaks ties
+    // (matches `localeCompare` close enough for ASCII paths).
+    sorted.sort_by(|a, b| {
+        b.change_seq
+            .cmp(&a.change_seq)
+            .then_with(|| a.filename.cmp(&b.filename))
+    });
+    sorted.into_iter().skip(1).collect()
+}
+
+/// Delete a single synced file on both the server and locally, updating
+/// the in-memory + persisted object map. Returns true if the delete went
+/// through; false if there was nothing to delete or the server refused.
+/// Mirrors the legacy TS `deleteSyncedFilename`.
+async fn delete_synced_filename(
+    http: &Arc<E2eeClient>,
+    app: &AppHandle,
+    state: &SyncState,
+    notes_root_path: &Path,
+    filename: &str,
+) -> Result<bool, String> {
+    let (collection_id, entry) = match state.snapshot() {
+        Some(s) => match s.object_map.get(filename).cloned() {
+            Some(e) => (s.collection_id.clone(), e),
+            None => return Ok(false),
+        },
+        None => return Ok(false),
+    };
+
+    let change_seq = match http
+        .delete_object(&collection_id, &entry.object_id, entry.version)
+        .await
+    {
+        Ok(DeleteResult::Ok(ok)) => ok.change_seq,
+        Ok(DeleteResult::Conflict(_)) => {
+            eprintln!(
+                "[e2ee] duplicate-move delete refused (409) for {filename}; leaving alone"
+            );
+            return Ok(false);
+        }
+        Err(e) => {
+            eprintln!(
+                "[e2ee] duplicate-move delete failed for {filename}: {}",
+                http_err_to_string(e)
+            );
+            return Ok(false);
+        }
+    };
+
+    let apply_input = V2SyncApplyInput {
+        update: Vec::new(),
+        delete: vec![filename.to_owned()],
+        conflicts: Vec::new(),
+        timestamps: HashMap::new(),
+    };
+    let core_state = app.state::<CoreState>();
+    let suppressed = core_state.suppressed_watcher_events.clone();
+    let base = notes_root_path.to_path_buf();
+    tauri::async_runtime::spawn_blocking(move || {
+        apply_sync_delta_v2_impl(&base, &suppressed, apply_input)
+    })
+    .await
+    .map_err(task_join_err)??;
+
+    let filename_owned = filename.to_owned();
+    state.with_map_mut(|map, ver| {
+        map.remove(&filename_owned);
+        if change_seq > *ver {
+            *ver = change_seq;
+        }
+    });
+    state.persist(notes_root_path).await?;
+    Ok(true)
 }
 
 /// Detect renames by content-hash equality across the union of delete +
@@ -1381,10 +1582,11 @@ fn combine_summaries(
     mut push: SyncSummary,
     pull: SyncSummary,
     renamed: Vec<RenamePair>,
+    dup: DuplicateResolution,
 ) -> SyncSummary {
     push.downloaded += pull.downloaded;
-    push.deleted += pull.deleted;
-    push.conflicts += pull.conflicts;
+    push.deleted += pull.deleted + dup.deleted_ids.len();
+    push.conflicts += pull.conflicts + dup.conflicts;
     push.updated_ids.extend(pull.updated_ids);
     push.deleted_ids.extend(pull.deleted_ids);
     push.peer_updated_ids.extend(pull.peer_updated_ids);
@@ -1393,12 +1595,31 @@ fn combine_summaries(
 
     // Renames replace a (delete + create) pair in the per-id lists so the
     // UI doesn't show ghost deletes for the renamed file's old id.
-    let renamed_from: HashSet<&str> = push.renamed.iter().map(|r| r.from_id.as_str()).collect();
-    let renamed_to: HashSet<&str> = push.renamed.iter().map(|r| r.to_id.as_str()).collect();
-    push.deleted_ids.retain(|id| !renamed_from.contains(id.as_str()));
-    push.peer_deleted_ids.retain(|id| !renamed_from.contains(id.as_str()));
-    push.updated_ids.retain(|id| !renamed_to.contains(id.as_str()));
-    push.peer_updated_ids.retain(|id| !renamed_to.contains(id.as_str()));
+    let renamed_from: HashSet<String> =
+        push.renamed.iter().map(|r| r.from_id.clone()).collect();
+    let renamed_to: HashSet<String> =
+        push.renamed.iter().map(|r| r.to_id.clone()).collect();
+    let dup_deleted: HashSet<String> = dup.deleted_ids.iter().cloned().collect();
+
+    // Duplicate-move losers must not appear as "updated" anywhere — we
+    // just deleted them. They also must appear in deleted/peer_deleted so
+    // the sidebar removes them.
+    push.updated_ids
+        .retain(|id| !dup_deleted.contains(id) && !renamed_to.contains(id));
+    push.peer_updated_ids
+        .retain(|id| !dup_deleted.contains(id) && !renamed_to.contains(id));
+    push.deleted_ids
+        .retain(|id| !renamed_from.contains(id) && !renamed_to.contains(id));
+    push.peer_deleted_ids
+        .retain(|id| !renamed_from.contains(id) && !renamed_to.contains(id));
+    for id in dup.deleted_ids {
+        if !push.deleted_ids.iter().any(|x| x == &id) {
+            push.deleted_ids.push(id.clone());
+        }
+        if !push.peer_deleted_ids.iter().any(|x| x == &id) {
+            push.peer_deleted_ids.push(id);
+        }
+    }
     push
 }
 
@@ -1418,6 +1639,23 @@ pub async fn e2ee_sync_run(
     let push_summary = run_push(&app, &state, &root).await?;
     let pull_summary = run_pull(&app, &state, &root, pre_push_max).await?;
 
+    // Concurrent-move dedup runs BEFORE rename detection so any losers
+    // it deletes don't get paired by `derive_renames` as a phantom rename
+    // (the loser's filename would otherwise appear in `created_hashes`).
+    let all_deleted_hashes = union_deleted_hashes(
+        &push_summary.deleted_hashes,
+        &pull_summary.deleted_hashes,
+    );
+    let dup_resolution = resolve_concurrent_move_duplicates(
+        &app,
+        &state,
+        &root,
+        &all_deleted_hashes,
+        &push_summary.hash_to_filenames,
+        &pull_summary.hash_to_filenames,
+    )
+    .await?;
+
     let renamed = derive_renames(
         &push_summary.deleted_hashes,
         &pull_summary.deleted_hashes,
@@ -1425,7 +1663,23 @@ pub async fn e2ee_sync_run(
         &pull_summary.created_hashes,
     );
 
-    Ok(combine_summaries(push_summary, pull_summary, renamed))
+    Ok(combine_summaries(
+        push_summary,
+        pull_summary,
+        renamed,
+        dup_resolution,
+    ))
+}
+
+fn union_deleted_hashes(
+    push: &HashMap<String, String>,
+    pull: &HashMap<String, String>,
+) -> HashMap<String, String> {
+    let mut out: HashMap<String, String> = push.clone();
+    for (h, f) in pull {
+        out.entry(h.clone()).or_insert_with(|| f.clone());
+    }
+    out
 }
 
 #[tauri::command]
@@ -1743,12 +1997,132 @@ mod tests {
             from_id: "old".into(),
             to_id: "new".into(),
         }];
-        let combined = combine_summaries(push, pull, renamed);
+        let combined = combine_summaries(push, pull, renamed, DuplicateResolution::default());
         assert!(combined.deleted_ids.is_empty());
         assert!(combined.peer_deleted_ids.is_empty());
         assert!(combined.updated_ids.is_empty());
         assert!(combined.peer_updated_ids.is_empty());
         assert_eq!(combined.renamed.len(), 1);
+    }
+
+    #[test]
+    fn combine_summaries_routes_dup_losers_to_deleted_lists() {
+        // Pull surfaced both FolderA/contested and FolderB/contested as
+        // peer updates; the dup resolver picked FolderB as winner and
+        // deleted FolderA. The combined summary must move FolderA out of
+        // updated_ids and into deleted_ids so the sidebar reflects reality.
+        let push = SyncSummary::default();
+        let pull = SyncSummary {
+            updated_ids: vec!["FolderA/contested".into(), "FolderB/contested".into()],
+            peer_updated_ids: vec!["FolderA/contested".into(), "FolderB/contested".into()],
+            ..Default::default()
+        };
+        let dup = DuplicateResolution {
+            conflicts: 1,
+            deleted_ids: vec!["FolderA/contested".into()],
+        };
+        let combined = combine_summaries(push, pull, Vec::new(), dup);
+        assert_eq!(combined.updated_ids, vec!["FolderB/contested".to_string()]);
+        assert_eq!(combined.peer_updated_ids, vec!["FolderB/contested".to_string()]);
+        assert_eq!(combined.deleted_ids, vec!["FolderA/contested".to_string()]);
+        assert_eq!(combined.peer_deleted_ids, vec!["FolderA/contested".to_string()]);
+        assert_eq!(combined.conflicts, 1);
+        assert_eq!(combined.deleted, 1);
+    }
+
+    #[test]
+    fn filename_basename_strips_path_prefix() {
+        assert_eq!(filename_basename("FolderA/contested.md"), "contested.md");
+        assert_eq!(filename_basename("contested.md"), "contested.md");
+        assert_eq!(filename_basename("a/b/c/leaf.md"), "leaf.md");
+    }
+
+    fn h2f(filename: &str, change_seq: u64) -> HashFilenameEntry {
+        HashFilenameEntry {
+            filename: filename.to_owned(),
+            change_seq,
+        }
+    }
+
+    #[test]
+    fn dup_losers_empty_when_only_one_candidate() {
+        // Normal rename: one delete, one create at a different path. No
+        // dup resolution; derive_renames handles this case instead.
+        let mut push = HashMap::new();
+        push.insert("hX".to_owned(), vec![h2f("Lists/grocery.md", 5)]);
+        let losers = pick_duplicate_move_losers("grocery.md", "hX", &push, &HashMap::new());
+        assert!(losers.is_empty());
+    }
+
+    #[test]
+    fn dup_losers_picks_lower_change_seq_when_two_folders_compete() {
+        // A moves contested → FolderA at change_seq=3, B moves it →
+        // FolderB at change_seq=5. B wins; FolderA must lose.
+        let mut push = HashMap::new();
+        push.insert("hX".to_owned(), vec![h2f("FolderB/contested.md", 5)]);
+        let mut pull = HashMap::new();
+        pull.insert("hX".to_owned(), vec![h2f("FolderA/contested.md", 3)]);
+        let losers = pick_duplicate_move_losers("contested.md", "hX", &push, &pull);
+        assert_eq!(losers.len(), 1);
+        assert_eq!(losers[0].filename, "FolderA/contested.md");
+    }
+
+    #[test]
+    fn dup_losers_ignores_basename_mismatch() {
+        // Same hash at a non-matching basename → not a move-collision; skip.
+        // (E.g. two notes that happen to have identical content but
+        // different names — keep both.)
+        let mut push = HashMap::new();
+        push.insert(
+            "hX".to_owned(),
+            vec![h2f("FolderA/foo.md", 5), h2f("FolderB/bar.md", 3)],
+        );
+        let losers = pick_duplicate_move_losers("contested.md", "hX", &push, &HashMap::new());
+        assert!(losers.is_empty());
+    }
+
+    #[test]
+    fn dup_losers_tiebreaks_lexicographically_on_same_change_seq() {
+        // Both creates at the same change_seq → tie-break by filename
+        // (Aaa wins, Bbb loses) so the result is deterministic across
+        // clients.
+        let mut push = HashMap::new();
+        push.insert(
+            "hX".to_owned(),
+            vec![h2f("Bbb/contested.md", 7), h2f("Aaa/contested.md", 7)],
+        );
+        let losers = pick_duplicate_move_losers("contested.md", "hX", &push, &HashMap::new());
+        assert_eq!(losers.len(), 1);
+        assert_eq!(losers[0].filename, "Bbb/contested.md");
+    }
+
+    #[test]
+    fn dup_losers_deduplicates_filename_appearing_in_both_maps() {
+        // A push and a pull both surface the same destination filename
+        // (e.g. self-push followed by pull re-listing it). That's not a
+        // collision — only one unique destination.
+        let mut push = HashMap::new();
+        push.insert("hX".to_owned(), vec![h2f("Lists/grocery.md", 4)]);
+        let mut pull = HashMap::new();
+        pull.insert("hX".to_owned(), vec![h2f("Lists/grocery.md", 4)]);
+        let losers = pick_duplicate_move_losers("grocery.md", "hX", &push, &pull);
+        assert!(losers.is_empty());
+    }
+
+    #[test]
+    fn union_deleted_hashes_prefers_push_over_pull_on_collision() {
+        // If both sides observed the same hash deleted, push's filename
+        // wins (it's the local rename source; pull would just be
+        // applying the same tombstone we just sent).
+        let mut push = HashMap::new();
+        push.insert("hX".to_owned(), "push-name.md".to_owned());
+        let mut pull = HashMap::new();
+        pull.insert("hX".to_owned(), "pull-name.md".to_owned());
+        pull.insert("hY".to_owned(), "pull-only.md".to_owned());
+        let unioned = union_deleted_hashes(&push, &pull);
+        assert_eq!(unioned.get("hX").unwrap(), "push-name.md");
+        assert_eq!(unioned.get("hY").unwrap(), "pull-only.md");
+        assert_eq!(unioned.len(), 2);
     }
 
     #[test]
