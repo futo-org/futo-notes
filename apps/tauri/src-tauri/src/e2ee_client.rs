@@ -183,7 +183,11 @@ struct ObjectWriteObject {
     change_seq: Option<u64>,
     #[serde(default)]
     updated_at: Option<String>,
-    blob_key: String,
+    // DELETE responses don't include `blob_key` (the blob is already
+    // orphaned), so make it optional. POST/PUT paths still require it —
+    // see `wire_to_write_response`.
+    #[serde(default)]
+    blob_key: Option<String>,
 }
 
 /// 409 conflict body returned by PUT / DELETE on version mismatch. The
@@ -578,11 +582,14 @@ fn wire_to_write_response(wire: ObjectWriteWire) -> Result<ObjectWriteResponse, 
         .as_deref()
         .and_then(parse_iso_ms)
         .unwrap_or_else(|| futo_notes_core::files::now_ms());
+    let blob_key = wire.object.blob_key.ok_or_else(|| {
+        E2eeHttpError::InvalidJson("POST/PUT response missing blob_key".to_owned())
+    })?;
     Ok(ObjectWriteResponse {
         object_id: wire.object.id,
         version: wire.object.version,
         change_seq,
-        blob_key: wire.object.blob_key,
+        blob_key,
         updated_at,
     })
 }
@@ -851,6 +858,38 @@ mod tests {
                 assert_eq!(c.current_blob_key.as_deref(), Some("bk-new"));
             }
             PutResult::Ok(_) => panic!("expected conflict"),
+        }
+    }
+
+    #[tokio::test]
+    async fn delete_object_parses_response_without_blob_key() {
+        // The server omits `blob_key` on DELETE — the blob is already
+        // orphaned. The wire decoder must accept that.
+        let server = MockServer::start().await;
+        Mock::given(method("DELETE"))
+            .and(path("/api/collections/c1/objects/o1"))
+            .and(query_param("version", "1"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "object": {
+                    "id": "o1",
+                    "version": "2",
+                    "change_seq": "3",
+                    "deleted": true
+                },
+                "collectionVersion": 3
+            })))
+            .mount(&server)
+            .await;
+        let res = client_for(&server)
+            .delete_object("c1", "o1", 1)
+            .await
+            .unwrap();
+        match res {
+            DeleteResult::Ok(ok) => {
+                assert_eq!(ok.version, 2);
+                assert_eq!(ok.change_seq, 3);
+            }
+            DeleteResult::Conflict(_) => panic!("expected ok"),
         }
     }
 

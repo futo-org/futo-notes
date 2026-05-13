@@ -1429,42 +1429,12 @@ async fn resolve_concurrent_move_duplicates(
     };
     let http = Arc::new(build_client(&snapshot)?);
 
-    eprintln!(
-        "[e2ee][dup-resolve] entered: deleted_hashes={} push_h2f={} pull_h2f={}",
-        deleted_hashes.len(),
-        push_h2f.len(),
-        pull_h2f.len(),
-    );
-    for (h, f) in deleted_hashes {
-        eprintln!("[e2ee][dup-resolve]   deleted_hash entry: {} -> {}", h, f);
-    }
-    for (h, v) in push_h2f {
-        eprintln!(
-            "[e2ee][dup-resolve]   push h2f {} -> {:?}",
-            h,
-            v.iter().map(|e| (e.filename.as_str(), e.change_seq)).collect::<Vec<_>>(),
-        );
-    }
-    for (h, v) in pull_h2f {
-        eprintln!(
-            "[e2ee][dup-resolve]   pull h2f {} -> {:?}",
-            h,
-            v.iter().map(|e| (e.filename.as_str(), e.change_seq)).collect::<Vec<_>>(),
-        );
-    }
     for (hash, from_filename) in deleted_hashes {
         let losers = pick_duplicate_move_losers(from_filename, hash, push_h2f, pull_h2f);
-        eprintln!(
-            "[e2ee][dup-resolve]   for ({}, {}) losers={:?}",
-            from_filename,
-            hash,
-            losers.iter().map(|e| e.filename.as_str()).collect::<Vec<_>>(),
-        );
         for loser in losers {
             if delete_synced_filename(&http, app, state, notes_root_path, &loser.filename).await? {
                 out.conflicts += 1;
                 out.deleted_ids.push(filename_to_id(&loser.filename));
-                eprintln!("[e2ee][dup-resolve]   deleted loser {}", loser.filename);
             }
         }
     }
