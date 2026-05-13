@@ -922,9 +922,12 @@
 .notes-shell.sidebar-resizing .notes-drawer { transition: none; }
 .notes-shell.sidebar-resizing .note-main { pointer-events: none; user-select: none; }
 
-/* Desktop sidebar — no safe-area insets */
+/* Desktop sidebar — no safe-area insets. On macOS the
+   `--macos-titlebar-inset` var (set in App.svelte) reserves room at the
+   top of the sidebar for the system traffic lights; everywhere else the
+   var is 0 so the layout is unchanged. */
 .notes-shell.desktop-layout .sidebar-header {
-  padding: 16px 16px 0;
+  padding: calc(16px + var(--macos-titlebar-inset, 0px)) 16px 0;
 }
 
 .notes-shell.desktop-layout .drawer-search-area {

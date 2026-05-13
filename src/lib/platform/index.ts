@@ -30,6 +30,9 @@ export const isIOS =
   isTauri &&
   typeof navigator !== 'undefined' &&
   /iphone|ipad|ipod/i.test(navigator.userAgent);
+// "Apple platform" — true on macOS desktop and on iOS hardware keyboards.
+// Used to route ⌘ vs Ctrl in keyboard shortcuts. For desktop-only checks
+// (titlebar styling, traffic-light insets) gate on `isDesktop && isMac`.
 export const isMac =
   typeof navigator !== 'undefined' && /Mac|iPhone|iPad/i.test(navigator.userAgent);
 

@@ -2,13 +2,22 @@
   import NotesShell from './components/NotesShell.svelte';
   import TitleBar from './components/TitleBar.svelte';
   import CrashReportDialog from './components/CrashReportDialog.svelte';
-  import { hasFileSystem, getFS, getPlatformFS, isDesktop, isLinux } from '$lib/platform';
+  import { hasFileSystem, getFS, getPlatformFS, isDesktop, isLinux, isMac } from '$lib/platform';
   import { tabsStore } from '$lib/tabsStore.svelte';
   import { noteIdFromHash } from './router';
 
   const showTitlebar = isDesktop && isLinux;
   if (showTitlebar) {
     document.documentElement.style.setProperty('--titlebar-height', '36px');
+  }
+  // macOS uses the system traffic lights over a transparent titlebar
+  // (configured in tauri.conf.json via "titleBarStyle": "Overlay"). The
+  // sidebar paints up to y=0, so we reserve space at the top of the
+  // sidebar header for the lights. Other platforms get 0.
+  if (isDesktop && isMac) {
+    document.documentElement.style.setProperty('--macos-titlebar-inset', '28px');
+  } else {
+    document.documentElement.style.setProperty('--macos-titlebar-inset', '0px');
   }
   import { initNotes, createNote, getAllNotes, _injectTestNote, moveNote as moveNoteWithCollisionHandling } from '$lib/notes.svelte';
   import { loadPreferences, getCachedPreferences, savePreferences } from '$lib/appState';
@@ -246,6 +255,13 @@
   {#if showTitlebar}
     <TitleBar />
   {/if}
+  {#if isDesktop && isMac}
+    <!-- Transparent strip across the top edge so the user can drag the
+         window from anywhere in the system titlebar zone (the area
+         macOS reserves for the traffic lights). Clicks on the lights
+         themselves go to macOS, not this div. -->
+    <div class="macos-titlebar-drag" data-tauri-drag-region></div>
+  {/if}
   <NotesShell {noteId} />
 {:else}
   <div class="loading-screen">
@@ -295,5 +311,14 @@
 
   @keyframes loading-spin {
     to { transform: rotate(360deg); }
+  }
+
+  .macos-titlebar-drag {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: var(--macos-titlebar-inset, 28px);
+    z-index: 100;
   }
 </style>
