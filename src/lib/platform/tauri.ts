@@ -30,10 +30,22 @@ import {
 } from './tauriPaths';
 
 
+export interface PersistedTab {
+  id: string;
+  noteId: string | null;
+  pendingFolder?: string;
+}
+
+export interface PersistedTabs {
+  tabs: PersistedTab[];
+  activeTabId: string | null;
+}
+
 export interface AppConfig {
   notesDir: string;
   sidebarWidth?: number;
   graphSidebarWidth?: number;
+  openTabs?: PersistedTabs;
   isCustomDir: boolean;
   defaultNotesDir: string;
 }
@@ -45,6 +57,8 @@ export interface AppConfigUpdates {
    *  tree. Persisted here (in addition to localStorage) so the state
    *  survives iOS WKWebView storage purges and Android WebView resets. */
   openFolders?: string[] | null;
+  /** Desktop-only: serialized state of the tab strip. */
+  openTabs?: PersistedTabs | null;
 }
 
 /** On-disk shape of .app-config.json */
@@ -52,6 +66,7 @@ interface AppConfigFile {
   sidebarWidth?: number | null;
   graphSidebarWidth?: number | null;
   openFolders?: string[] | null;
+  openTabs?: PersistedTabs | null;
 }
 
 // ── Cached notes root path ──────────────────────────────────────────────
@@ -472,6 +487,7 @@ export async function getConfig(): Promise<AppConfig> {
     notesDir,
     sidebarWidth: cfg.sidebarWidth ?? undefined,
     graphSidebarWidth: cfg.graphSidebarWidth ?? undefined,
+    openTabs: cfg.openTabs ?? undefined,
     isCustomDir: override !== null,
     defaultNotesDir,
   };
@@ -482,6 +498,7 @@ export async function saveConfig(updates: AppConfigUpdates): Promise<void> {
   if ('sidebarWidth' in updates) cfg.sidebarWidth = updates.sidebarWidth;
   if ('graphSidebarWidth' in updates) cfg.graphSidebarWidth = updates.graphSidebarWidth;
   if ('openFolders' in updates) cfg.openFolders = updates.openFolders;
+  if ('openTabs' in updates) cfg.openTabs = updates.openTabs;
   await saveAppConfigFile(cfg);
 }
 

@@ -8,7 +8,7 @@
     graphSidebarWidth: number;
     notes: NotePreview[];
     onclose: () => void;
-    onnavigate: (noteId: string) => void;
+    onnavigate: (noteId: string, event?: MouseEvent) => void;
     onopen: () => void;
     ontoast: (message: string) => void;
     graphSidebarEl?: HTMLElement | undefined;

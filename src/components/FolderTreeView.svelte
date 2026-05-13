@@ -23,7 +23,7 @@
     items: NotePreview[];
     selectedId?: string | null;
     isDragging?: boolean;
-    onselect?: (id: string) => void;
+    onselect?: (id: string, event?: MouseEvent) => void;
     onfoldercontextmenu?: (path: string, x: number, y: number) => void;
     onnotecontextmenu?: (id: string, x: number, y: number) => void;
     onnotedragstart?: (id: string, e: DragEvent) => void;
@@ -589,9 +589,9 @@
     // Active drags are torn down by the document-level cancel path.
   }
 
-  function handleNoteClick(id: string): void {
+  function handleNoteClick(id: string, event?: MouseEvent): void {
     if (suppressNextClick) return;
-    onselect?.(id);
+    onselect?.(id, event);
   }
 
   // WebKitGTK rasterizes the OS-supplied drag image at logical pixels and
@@ -962,7 +962,8 @@
             class:touch-grabbed={touchDragKind === 'note' && touchDragId === node.note.id}
             class:touch-pressed={pressedRowId === node.note.id && touchDragKind === null && pressTimer !== null}
             style="top: {index * ROW_HEIGHT}px; left: {node.depth * DEPTH_INDENT_PX}px"
-            onclick={() => handleNoteClick(node.note.id)}
+            onclick={(e) => handleNoteClick(node.note.id, e)}
+            onauxclick={(e) => { if (e.button === 1) { e.preventDefault(); handleNoteClick(node.note.id, e); } }}
             oncontextmenu={(e) => handleNoteContextMenu(e, node.note.id)}
             ontouchstart={(e) => handleNoteTouchStart(e, node.note.id)}
             ontouchend={handleRowTouchEnd}

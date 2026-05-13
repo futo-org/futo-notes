@@ -1189,10 +1189,11 @@
   }
 }
 
-/* Desktop: position note menu relative to note-main, not viewport */
+/* Desktop: position note menu relative to note-main, not viewport.
+   Bumped down by the tabs strip height so it doesn't sit on top of tabs. */
 .notes-shell.desktop-layout .note-menu-anchor {
   position: absolute;
-  top: 12px;
+  top: 46px;
   right: 12px;
   transform: none;
   transition: none;

@@ -5,7 +5,7 @@
 
   interface Props {
     onclose: () => void;
-    onselect: (id: string) => void;
+    onselect: (id: string, event?: MouseEvent) => void;
   }
 
   let { onclose, onselect }: Props = $props();
@@ -178,7 +178,8 @@
           class="search-result-item"
           class:selected={i === selectedIndex}
           bind:this={resultEls[i]}
-          onclick={() => onselect(result.note.id)}
+          onclick={(e) => onselect(result.note.id, e)}
+          onauxclick={(e) => { if (e.button === 1) { e.preventDefault(); onselect(result.note.id, e); } }}
           onpointerenter={() => { selectedIndex = i; }}
         >
           <div class="search-result-title">

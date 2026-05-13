@@ -3,6 +3,8 @@
   import TitleBar from './components/TitleBar.svelte';
   import CrashReportDialog from './components/CrashReportDialog.svelte';
   import { hasFileSystem, getFS, getPlatformFS, isDesktop, isLinux } from '$lib/platform';
+  import { tabsStore } from '$lib/tabsStore.svelte';
+  import { noteIdFromHash } from './router';
 
   const showTitlebar = isDesktop && isLinux;
   if (showTitlebar) {
@@ -16,7 +18,6 @@
   import { installTestSync } from '$lib/testSync';
   import { installTestInference } from '$lib/testInference';
 
-  let hash = $state(window.location.hash.slice(1) || '/');
   let initialized = $state(false);
   let error: string | null = $state(null);
   // Visible step-by-step trace for diagnosing init hangs on real devices
@@ -36,19 +37,35 @@
     toastTimer = window.setTimeout(() => { toastMessage = ''; toastTimer = null; }, 3000);
   }
 
-  const noteId = $derived.by(() => {
-    if (hash === '/' || hash === '') return null;
-    const match = hash.match(/^\/note\/(.+)$/);
-    if (match) {
-      const id = match[1];
-      return id === 'new' ? 'new' : decodeURIComponent(id);
+  // Apply the initial hash to the tab store before paint so the shell
+  // renders the right note on a deep-linked boot. Skips when the URL
+  // is the default (#/ or empty), leaving the store pristine for
+  // later persistence-driven hydration.
+  {
+    const initialParsed = noteIdFromHash(window.location.hash);
+    if (initialParsed !== null) {
+      tabsStore.openNote(initialParsed, 'current');
     }
-    return null;
+  }
+
+  const noteId = $derived(tabsStore.activeNoteId);
+
+  // Mirror active tab → URL hash. Uses replaceState so we don't refire
+  // the hashchange listener (which would loop back into openNote).
+  $effect(() => {
+    const id = tabsStore.activeNoteId;
+    const target = id === null ? '#/' : `#/note/${encodeURIComponent(id)}`;
+    if (window.location.hash !== target) {
+      history.replaceState(history.state, '', target);
+    }
   });
 
   $effect(() => {
     function onHashChange(): void {
-      hash = window.location.hash.slice(1) || '/';
+      const parsed = noteIdFromHash(window.location.hash);
+      if (parsed !== tabsStore.activeNoteId) {
+        tabsStore.openNote(parsed, 'current');
+      }
     }
     window.addEventListener('hashchange', onHashChange);
 

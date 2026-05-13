@@ -42,9 +42,15 @@
     onfocuschange?: (focused: boolean) => void;
     oncursorcontext?: (ctx: { onListLine: boolean }) => void;
     scrollParent?: HTMLElement | null;
+    /**
+     * Called when the user clicks a wikilink. The shell decides whether
+     * to navigate in-place or open in a new tab based on the event's
+     * modifier / button state. If omitted, falls back to in-place navigation.
+     */
+    onopenlink?: (title: string, event: MouseEvent) => void;
   }
 
-  let { content = '', onchange, onfocuschange, oncursorcontext, scrollParent = null }: Props = $props();
+  let { content = '', onchange, onfocuschange, oncursorcontext, scrollParent = null, onopenlink }: Props = $props();
 
   let container: HTMLDivElement;
   let view: EditorView | null = $state(null);
@@ -257,6 +263,14 @@
     return right;
   }
 
+  function dispatchWikilinkOpen(title: string, event: MouseEvent): void {
+    if (onopenlink) {
+      onopenlink(title, event);
+    } else {
+      navigate('/note/' + encodeURIComponent(title));
+    }
+  }
+
   const wikilinkClickHandler = EditorView.domEventHandlers({
     mousedown: (event) => {
       const target = event.target as HTMLElement | null;
@@ -273,7 +287,20 @@
       if (!title) return false;
       event.preventDefault();
       event.stopPropagation();
-      navigate('/note/' + encodeURIComponent(title));
+      dispatchWikilinkOpen(title, event);
+      return true;
+    },
+    // CodeMirror's `click` event does not fire for middle-click. Catch it
+    // separately so middle-click on a wikilink opens in a new tab.
+    auxclick: (event) => {
+      if (event.button !== 1) return false;
+      const target = event.target as HTMLElement | null;
+      const wikilink = target?.closest('.cm-md-wikilink') as HTMLElement | null;
+      const title = wikilink?.getAttribute('data-wikilink');
+      if (!title) return false;
+      event.preventDefault();
+      event.stopPropagation();
+      dispatchWikilinkOpen(title, event);
       return true;
     }
   });
@@ -930,6 +957,27 @@
 
   export function getView(): EditorView | null {
     return view;
+  }
+
+  export function getSelection(): { from: number; to: number } | null {
+    if (!view) return null;
+    const sel = view.state.selection.main;
+    return { from: sel.from, to: sel.to };
+  }
+
+  /**
+   * Set the editor's primary selection. Out-of-range positions are
+   * clamped to the document length so a restored selection from a
+   * previous (longer) version of the doc doesn't throw.
+   */
+  export function setSelection(from: number, to: number): void {
+    if (!view) return;
+    const len = view.state.doc.length;
+    const clampedFrom = Math.max(0, Math.min(from, len));
+    const clampedTo = Math.max(0, Math.min(to, len));
+    view.dispatch({
+      selection: { anchor: clampedFrom, head: clampedTo },
+    });
   }
 </script>
 

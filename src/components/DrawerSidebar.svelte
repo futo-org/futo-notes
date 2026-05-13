@@ -28,7 +28,7 @@
     sidebarCollapsed: boolean;
     sidebarWidth: number;
     isDragging: boolean;
-    onselect: (id: string) => void;
+    onselect: (id: string, event?: MouseEvent) => void;
     onsearch: () => void;
     onsettings: () => void;
     onnewnote: () => void;

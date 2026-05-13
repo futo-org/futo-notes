@@ -30,6 +30,8 @@ export const isIOS =
   isTauri &&
   typeof navigator !== 'undefined' &&
   /iphone|ipad|ipod/i.test(navigator.userAgent);
+export const isMac =
+  typeof navigator !== 'undefined' && /Mac|iPhone|iPad/i.test(navigator.userAgent);
 
 let softKeyboardPrimer: HTMLInputElement | null = null;
 

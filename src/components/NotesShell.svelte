@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { hasFileSystem, isMobile, isDesktop, isTauri, primeSoftKeyboardForProgrammaticFocus, showSoftKeyboard } from '$lib/platform';
+  import { hasFileSystem, isMobile, isDesktop, isTauri, isMac, primeSoftKeyboardForProgrammaticFocus, showSoftKeyboard } from '$lib/platform';
   import { setContext } from 'svelte';
   import { createAppContext, APP_CONTEXT_KEY } from '$lib/appContext.svelte';
   import { createTouchSwipe } from '$lib/touchSwipe.svelte';
@@ -27,9 +27,11 @@
   import GraphSidebarPanel from './GraphSidebarPanel.svelte';
   import FolderPickerModal from './FolderPickerModal.svelte';
   import DrawerSidebar from './DrawerSidebar.svelte';
+  import TabsStrip from './TabsStrip.svelte';
   import { createSyncManager } from '$lib/syncManager.svelte';
   import { keyboard } from '$lib/keyboard.svelte';
   import { navigate } from '../router';
+  import { tabsStore, type OpenMode } from '$lib/tabsStore.svelte';
   import { onToast } from '$lib/toast';
 
 
@@ -95,10 +97,18 @@
     searchOpen = true;
   }
 
-  function handleSearchSelect(id: string): void {
-    searchOpen = false;
+  // Resolve the click's intent: on desktop honor modifier/middle-click for
+  // tab semantics; on mobile a click always replaces the current view.
+  function openFromEvent(id: string | null, event?: MouseEvent): OpenMode {
+    const mode = isDesktop ? tabsStore.modeFromEvent(event) : 'current';
+    tabsStore.openNote(id, mode);
+    return mode;
+  }
+
+  function handleSearchSelect(id: string, event?: MouseEvent): void {
+    const mode = openFromEvent(id, event);
+    if (mode === 'current') searchOpen = false;
     if (isMobile) setDrawerOpen(false);
-    navigate(`/note/${encodeURIComponent(id)}`);
   }
 
   // Note menu
@@ -145,6 +155,9 @@
   // prevNoteId is tracked here because the $effect that calls session.loadNote
   // compares it against the current noteId prop to detect real transitions.
   let prevNoteId: string | null | undefined = undefined;
+  // prevTabId is tracked so we can snapshot scroll+cursor onto the OUTGOING
+  // tab when the user switches tabs, then restore those on tab return.
+  let prevTabId: string | null = null;
 
   // Sync manager — owns writeSuppressor, watcherBatch, syncCoord, and all
   // sync coordination state. Extracted from this component for testability.
@@ -171,6 +184,9 @@
     getNoteId: () => noteId,
     getPrevNoteId: () => prevNoteId,
     setPrevNoteId: (id) => { prevNoteId = id; },
+    onAnySyncRename: (fromId, toId) => {
+      tabsStore.applyRename(fromId, toId);
+    },
   });
 
   // Note session controller — owns title, content, save queue, title validation
@@ -186,8 +202,24 @@
     getTitleTextarea: () => titleTextarea,
     getNoteId: () => noteId,
     setPrevNoteId: (id) => { prevNoteId = id; },
-    getPendingFolder: () => pendingNoteFolder,
-    clearPendingFolder: () => { pendingNoteFolder = null; },
+    getPendingFolder: () => tabsStore.activeTab.pendingFolder ?? null,
+    clearPendingFolder: () => { tabsStore.setPendingFolder(tabsStore.activeTabId, null); },
+    onNoteRenamed: (savedOriginalId, realId) => {
+      // The 'new' sentinel is what brand-new tabs carry until first save.
+      const oldKey = savedOriginalId ?? 'new';
+      const activeTab = tabsStore.activeTab;
+      if (activeTab.noteId === oldKey) {
+        // Bypass the noteId-change effect: it'd otherwise re-load the
+        // just-saved content from disk and clobber the cursor.
+        prevNoteId = realId;
+        prevTabId = activeTab.id;
+      }
+      for (const t of tabsStore.tabs) {
+        if (t.noteId === oldKey) {
+          tabsStore.replaceTabNoteId(t.id, realId);
+        }
+      }
+    },
   });
 
 
@@ -243,17 +275,17 @@
     void open;
   }
 
-  function handleNoteSelect(id: string): void {
-    if (isMobile) setDrawerOpen(false);
-    navigate(`/note/${encodeURIComponent(id)}`);
+  function handleNoteSelect(id: string, event?: MouseEvent): void {
+    const mode = openFromEvent(id, event);
+    if (isMobile && mode === 'current') setDrawerOpen(false);
   }
 
-  function handleDrawerSelect(id: string): void {
+  function handleDrawerSelect(id: string, event?: MouseEvent): void {
     if (id === '__home__') {
-      if (isMobile) setDrawerOpen(false);
-      navigate('/');
+      const mode = openFromEvent(null, event);
+      if (isMobile && mode === 'current') setDrawerOpen(false);
     } else {
-      handleNoteSelect(id);
+      handleNoteSelect(id, event);
     }
   }
 
@@ -269,24 +301,22 @@
     primeSoftKeyboardForProgrammaticFocus();
     if (isMobile) setDrawerOpen(false);
     await session.flushSave();
-    navigate('/note/new');
+    tabsStore.openNote('new', 'current');
   }
 
   /**
    * Create a new note inside a specific folder. The flow is identical
-   * to createNewNote, but we stash the target folder so the editor's
-   * first save lands at `${folderPath}/${title}` instead of the root.
+   * to createNewNote, but we stash the target folder on the resulting
+   * tab so the editor's first save lands at `${folderPath}/${title}`
+   * instead of the root.
    */
   async function createNewNoteInFolder(folderPath: string): Promise<void> {
     primeSoftKeyboardForProgrammaticFocus();
     if (isMobile) setDrawerOpen(false);
     await session.flushSave();
-    pendingNoteFolder = folderPath;
-    navigate('/note/new');
+    const tab = tabsStore.openNote('new', 'current');
+    tabsStore.setPendingFolder(tab.id, folderPath);
   }
-
-  /** Folder path to use for the next new-note save. Cleared after use. */
-  let pendingNoteFolder: string | null = $state(null);
 
   async function createTestNote(): Promise<void> {
     if (!hasFileSystem) return;
@@ -394,9 +424,10 @@
     try {
       const { moveNote } = await import('$lib/notes.svelte');
       const result = await moveNote(id, newId);
-      // Keep the user on the moved note: navigate to the new ID.
+      // Keep the user on the moved note: update any tab pointing at the
+      // old id to the new one (active tab tracks the live note).
       if (result.id !== id) {
-        navigate(`/note/${encodeURIComponent(result.id)}`);
+        tabsStore.applyRename(id, result.id);
       }
       showToast(target ? `Moved to ${target}` : 'Moved to Notes');
     } catch (err) {
@@ -428,8 +459,12 @@
     graphSidebarOpen = false;
   }
 
-  function handleGraphNavigate(targetNoteId: string): void {
-    navigate(`/note/${encodeURIComponent(targetNoteId)}`);
+  function handleGraphNavigate(targetNoteId: string, event?: MouseEvent): void {
+    openFromEvent(targetNoteId, event);
+  }
+
+  function handleWikilinkOpen(title: string, event: MouseEvent): void {
+    openFromEvent(title, event);
   }
 
   function handleDismissWindowKeydown(event: KeyboardEvent, dismiss: () => void): void {
@@ -510,21 +545,41 @@
     // Sync manager lifecycle (autoSync, syncCoord, watcherBatch cleanup)
     const cleanupSync = sync.start();
 
-    // Desktop sidebar: load persisted width + collapsed state
+    // Desktop sidebar: load persisted width + collapsed state, persisted tabs
+    let tabsPersistTimer: number | null = null;
     if (isDesktop) {
       if (localStorage.getItem('futo-notes:sidebarCollapsed') === 'true') sidebarCollapsed = true;
       import('$lib/platform/tauri')
-        .then(({ getConfig }) => getConfig())
-        .then((cfg) => {
+        .then(({ getConfig, saveConfig }) => getConfig().then((cfg) => ({ cfg, saveConfig })))
+        .then(({ cfg, saveConfig }) => {
           if (cfg.sidebarWidth) sidebarWidth = cfg.sidebarWidth;
           if (cfg.graphSidebarWidth) graphSidebarWidth = cfg.graphSidebarWidth;
+          // Hydrate tabs if the user hasn't navigated yet (pristine boot).
+          if (cfg.openTabs) {
+            const noteIndex = new Map(appCtx.notes.map((n) => [n.id, true] as const));
+            tabsStore.hydrate(cfg.openTabs, (id) => noteIndex.has(id));
+          } else {
+            tabsStore.markHydrated();
+          }
+          // Wire the persister with a small debounce — tab edits can burst
+          // (drag-reorder fires many moves per second).
+          tabsStore.setPersister((snapshot) => {
+            if (tabsPersistTimer !== null) clearTimeout(tabsPersistTimer);
+            tabsPersistTimer = window.setTimeout(() => {
+              tabsPersistTimer = null;
+              void saveConfig({ openTabs: snapshot });
+            }, 250);
+          });
         })
         .catch(() => {
           const stored = localStorage.getItem('futo-notes:sidebarWidth');
           if (stored) sidebarWidth = parseInt(stored, 10) || 280;
           const graphStored = localStorage.getItem('futo-notes:graphSidebarWidth');
           if (graphStored) graphSidebarWidth = parseInt(graphStored, 10) || 320;
+          tabsStore.markHydrated();
         });
+    } else {
+      tabsStore.markHydrated();
     }
 
     // Native menu actions + file watcher
@@ -567,11 +622,66 @@
     }
 
     // Global keyboard shortcuts
-    const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
     function handleGlobalShortcut(e: KeyboardEvent) {
       const mod = isMac ? e.metaKey : e.ctrlKey;
-      if (!mod) return;
 
+      // ── Tab shortcuts (desktop only) ────────────────────────────────
+      if (isDesktop) {
+        // Next/prev via Ctrl+PageDown/PageUp — works on all platforms and
+        // is the documented fallback when Ctrl+Tab is swallowed by the
+        // webview (GTK WebKit on Linux has historically eaten it).
+        if (e.ctrlKey && !e.shiftKey && e.key === 'PageDown') {
+          e.preventDefault();
+          tabsStore.nextTab();
+          return;
+        }
+        if (e.ctrlKey && !e.shiftKey && e.key === 'PageUp') {
+          e.preventDefault();
+          tabsStore.prevTab();
+          return;
+        }
+        // Ctrl+Tab / Ctrl+Shift+Tab cycle when delivered (Windows/macOS).
+        if (e.ctrlKey && e.key === 'Tab') {
+          e.preventDefault();
+          if (e.shiftKey) tabsStore.prevTab();
+          else tabsStore.nextTab();
+          return;
+        }
+        // macOS extras (Cmd+Tab is OS-owned): match Safari/Chrome.
+        if (isMac && e.metaKey && e.altKey && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) {
+          e.preventDefault();
+          if (e.key === 'ArrowRight') tabsStore.nextTab();
+          else tabsStore.prevTab();
+          return;
+        }
+
+        if (mod) {
+          if (e.key === 't' && !e.shiftKey) {
+            e.preventDefault();
+            tabsStore.newTab();
+            return;
+          }
+          if (e.key === 'w') {
+            e.preventDefault();
+            tabsStore.closeActive();
+            return;
+          }
+          if (e.key === 'T' || (e.shiftKey && e.key === 't')) {
+            e.preventDefault();
+            tabsStore.reopenLastClosed();
+            return;
+          }
+          if (e.key >= '1' && e.key <= '9') {
+            e.preventDefault();
+            const n = Number(e.key);
+            if (n === 9) tabsStore.activateLast();
+            else tabsStore.activateByIndex(n - 1);
+            return;
+          }
+        }
+      }
+
+      if (!mod) return;
       if (e.key === 'p') {
         e.preventDefault();
         void openSearch();
@@ -587,15 +697,46 @@
       session.flushSave();
       cleanupNativeListeners.forEach((cleanup) => cleanup());
       window.removeEventListener('keydown', handleGlobalShortcut);
+      if (tabsPersistTimer !== null) clearTimeout(tabsPersistTimer);
+      tabsStore.setPersister(null);
     };
   });
 
   $effect(() => {
     const currentNoteId = noteId;
-    if (prevNoteId !== currentNoteId) {
-      prevNoteId = currentNoteId;
-      void loadNoteAndResetUI(currentNoteId);
+    const currentTabId = tabsStore.activeTabId;
+    if (prevNoteId === currentNoteId && prevTabId === currentTabId) return;
+
+    // Snapshot the outgoing tab's editor state when leaving it.
+    if (prevTabId && prevTabId !== currentTabId && editor) {
+      const sel = editor.getSelection?.();
+      const scroll = noteBody?.scrollTop ?? 0;
+      tabsStore.setTabState(
+        prevTabId,
+        sel ? { scroll, selFrom: sel.from, selTo: sel.to } : undefined,
+      );
     }
+
+    const incomingTabId = currentTabId;
+    const incomingState = tabsStore.tabs.find((t) => t.id === incomingTabId)?.state;
+    const incomingNoteId = currentNoteId;
+
+    prevNoteId = currentNoteId;
+    prevTabId = currentTabId;
+
+    void loadNoteAndResetUI(currentNoteId).then(() => {
+      // Restore only if the user hasn't switched tabs or notes since the load began.
+      if (!incomingState) return;
+      if (tabsStore.activeTabId !== incomingTabId) return;
+      if (incomingNoteId !== noteId) return;
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
+          if (tabsStore.activeTabId !== incomingTabId) return;
+          editor?.setSelection?.(incomingState.selFrom, incomingState.selTo);
+          if (noteBody) noteBody.scrollTop = incomingState.scroll;
+        }),
+      );
+    });
   });
 
   const drawerOffset = $derived(drawerProgress * drawerWidth);
@@ -755,6 +896,9 @@
       style="opacity: {overlayOpacity}"
       onclick={() => setDrawerOpen(false)}
     ></div>
+    {#if isDesktop}
+      <TabsStrip />
+    {/if}
     <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
     <div class="note-body" data-editor-focused={editorFocused ? '' : undefined} bind:this={noteBody} onclick={handleNoteBodyClick} onfocusin={handleNoteBodyFocusIn} onfocusout={handleEditorFocusOut}>
       {#if noteId}
@@ -790,6 +934,7 @@
             onfocuschange={handleEditorFocusChange}
             oncursorcontext={(ctx) => { cursorOnListLine = ctx.onListLine; }}
             scrollParent={noteBody ?? null}
+            onopenlink={handleWikilinkOpen}
           />
         </div>
       {:else}

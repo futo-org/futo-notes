@@ -51,6 +51,12 @@ export interface NoteSessionDeps {
   /** Called once the new-note's first save has consumed the pending
    *  folder so subsequent edits don't re-prefix it. */
   clearPendingFolder?: () => void;
+  /** Called whenever a save results in an id rename: either a brand-new
+   *  note getting its first real id (savedOriginalId === null) or an
+   *  existing note's title being edited (savedOriginalId !== realId).
+   *  The shell uses this to update which tab(s) point at the renamed note
+   *  and to suppress the noteId-change effect's reload. */
+  onNoteRenamed: (savedOriginalId: string | null, realId: string) => void;
 }
 
 export interface NoteSession {
@@ -300,15 +306,8 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
         deps.patchGraphNode(savedOriginalId, result.id, newTitle);
       }
 
-      // Only update URL if user is still viewing this note
-      const currentPath = window.location.hash.slice(1) || '/';
-      const stillOnThisNote = savedOriginalId
-        ? currentPath === `/note/${encodeURIComponent(savedOriginalId)}`
-        : currentPath === '/note/new';
-
-      if (stillOnThisNote && currentPath !== `/note/${encodeURIComponent(result.id)}`) {
-        deps.setPrevNoteId(result.id);
-        navigate(`/note/${encodeURIComponent(result.id)}`);
+      if (savedOriginalId !== result.id) {
+        deps.onNoteRenamed(savedOriginalId, result.id);
       }
       return true;
     } catch (e) {

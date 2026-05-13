@@ -51,6 +51,9 @@ export interface SyncManagerDeps {
   getNoteId: () => string | null;
   getPrevNoteId: () => string | null | undefined;
   setPrevNoteId: (id: string | null | undefined) => void;
+  /** Called once per remote-driven rename so the tabs store (and any
+   *  other consumer) can patch references that aren't the active note. */
+  onAnySyncRename?: (fromId: string, toId: string) => void;
 }
 
 // ── Return type ──────────────────────────────────────────────────────────
@@ -265,6 +268,7 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
       writeSuppressor.recordSyncWrite(`${rename.fromId}.md`);
       writeSuppressor.recordSyncWrite(`${rename.toId}.md`);
       writeSuppressor.recordRemoteRename(rename.fromId, rename.toId);
+      deps.onAnySyncRename?.(rename.fromId, rename.toId);
     }
     if (hasPeerNoteChanges) {
       setTimeout(() => runExternalRescan(), 50);
