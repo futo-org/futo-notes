@@ -20,7 +20,7 @@ pub(crate) use futo_notes_core::files::{now_ms, write_atomic_text};
 #[derive(Default)]
 pub struct CoreState {
     watcher: Arc<Mutex<Option<RecommendedWatcher>>>,
-    suppressed_watcher_events: Arc<Mutex<HashMap<String, i64>>>,
+    pub(crate) suppressed_watcher_events: Arc<Mutex<HashMap<String, i64>>>,
     /// Pending rename "From" events keyed by the OS-provided tracker cookie.
     /// `notify` emits Name(RenameMode::From) and ::To as a pair sharing one
     /// cookie when an entry is renamed in place. We hold the From for a
@@ -187,7 +187,7 @@ fn safe_relative_md_path(base: &Path, rel: &str) -> Result<PathBuf, String> {
     Ok(path)
 }
 
-fn apply_sync_delta_v2_impl(
+pub(crate) fn apply_sync_delta_v2_impl(
     base: &Path,
     suppressed_watcher_events: &Arc<Mutex<HashMap<String, i64>>>,
     input: V2SyncApplyInput,
@@ -368,7 +368,7 @@ pub struct NoteFileMeta {
     pub size_bytes: u64,
 }
 
-fn fs_list_notes_with_meta_impl(base: &Path) -> Result<Vec<NoteFileMeta>, String> {
+pub(crate) fn fs_list_notes_with_meta_impl(base: &Path) -> Result<Vec<NoteFileMeta>, String> {
     if !base.exists() {
         return Ok(Vec::new());
     }

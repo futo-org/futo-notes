@@ -32,10 +32,16 @@ filetime = "0.2.26"
 time = { version = "0.3", features = ["formatting"] }
 notify = "8.2.0"
 walkdir = "2.5"
-reqwest = { version = "0.12.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+reqwest = { version = "0.12.12", default-features = false, features = ["json", "rustls-tls"] }
 png = "0.17"
 libc = "0.2"
 tauri-plugin-mcp-bridge = "0.10.0"
+url = "2.5"
+thiserror = "1"
+tokio = { version = "1", features = ["sync", "macros", "rt-multi-thread", "time"] }
+
+[dev-dependencies]
+wiremock = "0.6"
 
 # Desktop-only: route folder/note deletes through the system trash so users
 # can recover from accidental deletes. iOS / Android have no system trash;

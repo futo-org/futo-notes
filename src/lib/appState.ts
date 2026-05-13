@@ -39,27 +39,10 @@ export interface AppState {
    * it. Cleared on disconnect or via "Forget password" in Settings.
    */
   e2eePassword?: string;
-  e2eeObjectMap?: Record<string, {
-    objectId: string;
-    version: number;
-    /**
-     * blobKey of the last version we observed (pulled or pushed). Three-way
-     * merge fetches this blob on conflict to use as the common ancestor —
-     * the server retains orphaned blobs for 1 year specifically for this.
-     */
-    blobKey: string;
-    hash?: string;
-    /**
-     * On-disk mtime+size at the time of the last successful push. Used as
-     * a fast pre-filter in pushE2ee: if both match the current file, skip
-     * the read + sha256 entirely. Missing on old entries written before
-     * this field was introduced — those fall through to the full
-     * read-and-hash path, which restamps them on their next push.
-     */
-    mtimeMs?: number;
-    sizeBytes?: number;
-  }>;
-  e2eeMaxVersion?: number;
+  // E2EE bookkeeping (`e2eeObjectMap`, `e2eeMaxVersion`) lives in
+  // `.e2ee-state.json` owned by Rust now. Legacy values in
+  // `.app-state.json` are migrated on first sync (see Rust
+  // `sync_state::load_or_migrate`) and dropped on the next save.
 }
 
 const APP_STATE_PATH = '.app-state.json';
@@ -94,46 +77,6 @@ function defaultState(): AppState {
 let cached: AppState | null = null;
 
 // ── Sanitization ───────────────────────────────────────────────────────
-
-// One-shot migration: drop `baseContent` from every object-map entry on
-// load. Older builds stored the full plaintext of each note as the 3-way
-// merge ancestor; that bloated .app-state.json to 8 MB+ on vaults with a
-// few thousand notes and serialized on every sync checkpoint. We now fetch
-// the ancestor from the server (futo-notes-server retains orphaned blobs
-// for 1 year), so this field is dead weight.
-function stripBaseContent(
-  raw: Record<string, Record<string, unknown>>,
-): AppState['e2eeObjectMap'] {
-  const out: NonNullable<AppState['e2eeObjectMap']> = {};
-  for (const [filename, entry] of Object.entries(raw)) {
-    if (!entry || typeof entry !== 'object') continue;
-    const {
-      objectId,
-      version,
-      blobKey,
-      hash,
-      mtimeMs,
-      sizeBytes,
-    } = entry as {
-      objectId?: string;
-      version?: number;
-      blobKey?: string;
-      hash?: string;
-      mtimeMs?: number;
-      sizeBytes?: number;
-    };
-    if (typeof objectId !== 'string' || typeof version !== 'number' || typeof blobKey !== 'string') continue;
-    out[filename] = {
-      objectId,
-      version,
-      blobKey,
-      ...(typeof hash === 'string' ? { hash } : {}),
-      ...(typeof mtimeMs === 'number' ? { mtimeMs } : {}),
-      ...(typeof sizeBytes === 'number' ? { sizeBytes } : {}),
-    };
-  }
-  return out;
-}
 
 function sanitize(raw: unknown): AppState {
   const defaults = defaultState();
@@ -174,10 +117,9 @@ function sanitize(raw: unknown): AppState {
     ...(typeof obj.e2eeCollectionId === 'string' ? { e2eeCollectionId: obj.e2eeCollectionId } : {}),
     ...(typeof obj.e2eeSalt === 'string' ? { e2eeSalt: obj.e2eeSalt } : {}),
     ...(typeof obj.e2eePassword === 'string' ? { e2eePassword: obj.e2eePassword } : {}),
-    ...(obj.e2eeObjectMap && typeof obj.e2eeObjectMap === 'object'
-      ? { e2eeObjectMap: stripBaseContent(obj.e2eeObjectMap as Record<string, Record<string, unknown>>) }
-      : {}),
-    ...(typeof obj.e2eeMaxVersion === 'number' ? { e2eeMaxVersion: obj.e2eeMaxVersion } : {}),
+    // `e2eeObjectMap` / `e2eeMaxVersion` from old builds: Rust migrates
+    // them on first connect (see `sync_state::load_or_migrate`) and the
+    // next saveAppState() drops them by not reading them back here.
   };
 }
 
@@ -260,7 +202,7 @@ export async function saveAppState(state: AppState): Promise<void> {
 }
 
 export async function updateAppState(
-  updates: Partial<Pick<AppState, 'lastSyncedAt' | 'lastSyncError' | 'preferences' | 'crashReporting' | 'e2eeServerUrl' | 'e2eeAuthToken' | 'e2eeUserId' | 'e2eeCollectionId' | 'e2eeSalt' | 'e2eePassword' | 'e2eeObjectMap' | 'e2eeMaxVersion'>>,
+  updates: Partial<Pick<AppState, 'lastSyncedAt' | 'lastSyncError' | 'preferences' | 'crashReporting' | 'e2eeServerUrl' | 'e2eeAuthToken' | 'e2eeUserId' | 'e2eeCollectionId' | 'e2eeSalt' | 'e2eePassword'>>,
 ): Promise<void> {
   const current = getAppState();
   const next = { ...current, ...updates };

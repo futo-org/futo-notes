@@ -780,6 +780,97 @@ async function moveNoteIntoFolderDeleteFolder(a, b, server) {
   assertEqual(await b.readNote('X/draft-note-01'), '# Draft\n\nedited while X was deleted', 'B should have merged edit at moved path');
 }
 
+async function localRenameAndEditInSameSync(a, b, server) {
+  // Single client renames a note AND edits its content before syncing.
+  // Exercises pair_local_moved_objects: the rename must collapse into
+  // a single PUT at the new filename (preserving object_id), and the
+  // edit must land in the same blob — not a DELETE + POST that would
+  // tombstone the object and lose the peer-visible history.
+  await a.connectSync(server.url, server.password);
+  await b.connectSync(server.url, server.password);
+  await a.writeNote('grocery', '# Grocery');
+  await a.syncNow();
+  await b.syncNow();
+  assert(await b.noteExists('grocery'), 'B should see the flat note before A renames');
+
+  // A renames AND edits in one local transaction (no sync between).
+  await a.deleteNote('grocery');
+  await a.writeNote('Lists/grocery', '# Grocery\n\nMilk, eggs, bread');
+
+  await a.syncNow();
+  await b.syncNow();
+
+  const aFiles = (await a.listNotes()).map((f) => (f.name || f.filename || f).replace(/\.md$/, '')).sort();
+  const bFiles = (await b.listNotes()).map((f) => (f.name || f.filename || f).replace(/\.md$/, '')).sort();
+  assertEqual(JSON.stringify(aFiles), JSON.stringify(['Lists/grocery']), 'A should have only the renamed path');
+  assertEqual(JSON.stringify(bFiles), JSON.stringify(['Lists/grocery']), 'B should pick up the rename');
+  assertEqual(await a.readNote('Lists/grocery'), '# Grocery\n\nMilk, eggs, bread', 'A should see the edited content');
+  assertEqual(await b.readNote('Lists/grocery'), '# Grocery\n\nMilk, eggs, bread', 'B should see the edited content');
+}
+
+async function multipleLocalMovesInOneSync(a, b, server) {
+  // Single client renames THREE notes simultaneously before syncing.
+  // pair_local_moved_objects must pair all three independently by
+  // basename — and B's pull side must see three in-place renames, not
+  // tombstone+create pairs.
+  await a.connectSync(server.url, server.password);
+  await b.connectSync(server.url, server.password);
+  await a.writeNote('apple', '# Apple');
+  await a.writeNote('banana', '# Banana');
+  await a.writeNote('cherry', '# Cherry');
+  await a.syncNow();
+  await b.syncNow();
+
+  // Move all three from root into Fruit/.
+  await a.deleteNote('apple');
+  await a.writeNote('Fruit/apple', '# Apple');
+  await a.deleteNote('banana');
+  await a.writeNote('Fruit/banana', '# Banana');
+  await a.deleteNote('cherry');
+  await a.writeNote('Fruit/cherry', '# Cherry');
+
+  await a.syncNow();
+  await b.syncNow();
+
+  const expected = ['Fruit/apple', 'Fruit/banana', 'Fruit/cherry'];
+  const aFiles = (await a.listNotes()).map((f) => (f.name || f.filename || f).replace(/\.md$/, '')).sort();
+  const bFiles = (await b.listNotes()).map((f) => (f.name || f.filename || f).replace(/\.md$/, '')).sort();
+  assertEqual(JSON.stringify(aFiles), JSON.stringify(expected), 'A should have all three moved paths');
+  assertEqual(JSON.stringify(bFiles), JSON.stringify(expected), 'B should converge to all three moved paths');
+}
+
+async function bothClientsRenameToSameDestination(a, b, server) {
+  // Two clients independently make the SAME rename (same source, same
+  // destination). With pair_local_moved_objects on both sides, each
+  // pushes a PUT at the new filename; the second client's PUT 409s,
+  // resolve_update_conflict sees remote.path matches its own filename
+  // (target_filename == filename branch), 3-way merges (clean — both
+  // have identical content), and converges without producing a copy.
+  await a.connectSync(server.url, server.password);
+  await b.connectSync(server.url, server.password);
+  await a.writeNote('shared', '# Shared');
+  await a.syncNow();
+  await b.syncNow();
+  assert(await b.noteExists('shared'), 'B should see the flat note before both rename');
+
+  // Both clients move shared → Docs/shared with identical content.
+  await a.deleteNote('shared');
+  await a.writeNote('Docs/shared', '# Shared');
+  await b.deleteNote('shared');
+  await b.writeNote('Docs/shared', '# Shared');
+
+  await a.syncNow();
+  await b.syncNow();
+  await a.syncNow();
+
+  const aFiles = (await a.listNotes()).map((f) => (f.name || f.filename || f).replace(/\.md$/, '')).sort();
+  const bFiles = (await b.listNotes()).map((f) => (f.name || f.filename || f).replace(/\.md$/, '')).sort();
+  assertEqual(JSON.stringify(aFiles), JSON.stringify(['Docs/shared']), 'A should have only the moved path');
+  assertEqual(JSON.stringify(bFiles), JSON.stringify(['Docs/shared']), 'B should have only the moved path');
+  assertEqual(await a.readNote('Docs/shared'), '# Shared', 'A content unchanged');
+  assertEqual(await b.readNote('Docs/shared'), '# Shared', 'B content unchanged');
+}
+
 async function folderXVsFileXAtSameLevel(a, b, server) {
   // "Folder X/ on A + file X.md on B at the same level → both persist"
   await a.connectSync(server.url, server.password);
@@ -868,6 +959,10 @@ const scenarios = [
   { name: 'file moved to two folders by A and B', fn: fileMovedToTwoFoldersByAandB, matrices: ['desktop-desktop'] },
   { name: 'concurrent offline folder rename', fn: concurrentOfflineFolderRename, matrices: ['desktop-desktop'] },
   { name: 'move note into folder delete folder', fn: moveNoteIntoFolderDeleteFolder, matrices: ['desktop-desktop', 'desktop-android'] },
+  // Adversarial scenarios targeting pair_local_moved_objects edge cases.
+  { name: 'local rename and edit in same sync', fn: localRenameAndEditInSameSync, matrices: ['desktop-desktop', 'desktop-android'] },
+  { name: 'multiple local moves in one sync', fn: multipleLocalMovesInOneSync, matrices: ['desktop-desktop'] },
+  { name: 'both clients rename to same destination', fn: bothClientsRenameToSameDestination, matrices: ['desktop-desktop'] },
   { name: 'folder X and file X coexist at same level', fn: folderXVsFileXAtSameLevel, matrices: ['desktop-desktop'] },
   { name: 'move into folder with existing filename suffixes', fn: moveIntoFolderWithExistingFilename, matrices: ['desktop-desktop'] },
   { name: 'empty folder does not sync', fn: emptyFolderDoesNotSync, matrices: ['desktop-desktop'] },
