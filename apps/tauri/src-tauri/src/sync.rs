@@ -317,6 +317,10 @@ pub async fn e2ee_disconnect(
 /// Result of a single pull (or reconcile) phase. Shape mirrors today's TS
 /// `SyncSummary` fields so the JS side keeps the existing UI wiring once
 /// step 8 chains push + pull together.
+///
+/// `deleted_hashes` / `created_hashes` are internal-only bookkeeping used
+/// by `derive_renames` after both phases finish; they're `#[serde(skip)]`
+/// so they never reach the JS side.
 #[derive(Debug, Default, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncSummary {
@@ -329,6 +333,11 @@ pub struct SyncSummary {
     pub peer_updated_ids: Vec<String>,
     pub peer_deleted_ids: Vec<String>,
     pub renamed: Vec<RenamePair>,
+
+    #[serde(skip)]
+    pub deleted_hashes: HashMap<String, String>,
+    #[serde(skip)]
+    pub created_hashes: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -514,12 +523,34 @@ async fn run_pull(
     let mut updated_ids: Vec<String> = Vec::with_capacity(downloaded.len());
     let mut deleted_ids: Vec<String> = immediate_deletes.iter().map(|f| filename_to_id(f)).collect();
 
+    // Rename detection for the pull side. `deleted_hashes` covers
+    // tombstones we just observed (look up the soon-to-be-removed map
+    // entry's hash) and `created_hashes` covers everything we just
+    // downloaded — if any pull-deleted hash matches a pull-or-push
+    // create hash, `derive_renames` pairs them.
+    let mut deleted_hashes: HashMap<String, String> = HashMap::new();
+    for filename in &immediate_deletes {
+        if let Some(entry) = snapshot.object_map.get(filename) {
+            if let Some(h) = entry.hash.clone() {
+                deleted_hashes.insert(h, filename.clone());
+            }
+        }
+    }
+    let mut created_hashes: HashMap<String, String> = HashMap::new();
+
     for note in &downloaded {
         let previous_filename = filename_by_object_id.get(&note.object_id);
         if let Some(prev) = previous_filename {
             if prev != &note.filename {
                 deletes.insert(prev.clone());
                 deleted_ids.push(filename_to_id(prev));
+                // In-place rename (same objectId, new filename): record
+                // the previous filename's hash as the rename source.
+                if let Some(entry) = snapshot.object_map.get(prev) {
+                    if let Some(h) = entry.hash.clone() {
+                        deleted_hashes.insert(h, prev.clone());
+                    }
+                }
             }
         }
         updates.push(V2IncomingUpdate {
@@ -529,6 +560,7 @@ async fn run_pull(
             modified_at: note.modified_at_ms,
         });
         updated_ids.push(filename_to_id(&note.filename));
+        created_hashes.insert(note.hash.clone(), note.filename.clone());
     }
 
     let apply_input = V2SyncApplyInput {
@@ -589,6 +621,8 @@ async fn run_pull(
         deleted_ids: deleted_ids.clone(),
         peer_updated_ids: updated_ids,
         peer_deleted_ids: deleted_ids,
+        deleted_hashes,
+        created_hashes,
         ..Default::default()
     })
 }
@@ -1092,6 +1126,12 @@ async fn run_push(
     let mut peer_updated_ids: Vec<String> = Vec::new();
     let mut peer_deleted_ids: Vec<String> = Vec::new();
     let mut new_max_version = snapshot.max_version;
+    // Rename detection: record every (hash, filename) pair we delete or
+    // create. After both push and pull run, `derive_renames` looks for
+    // hashes that appear on both sides — a local rename surfaces as
+    // "deleted at old name AND created at new name with same hash."
+    let mut deleted_hashes: HashMap<String, String> = HashMap::new();
+    let mut created_hashes: HashMap<String, String> = HashMap::new();
 
     for outcome in outcomes {
         match outcome {
@@ -1107,6 +1147,15 @@ async fn run_push(
                     new_max_version = entry.version;
                 }
                 timestamps.insert(filename.clone(), modified_at);
+                // Brand-new filename (no prior map entry) → record for
+                // rename detection. In-place updates of an existing
+                // filename don't contribute — the hash is fresh content,
+                // not a moved-from-elsewhere blob.
+                if !snapshot.object_map.contains_key(&filename) {
+                    if let Some(h) = entry.hash.clone() {
+                        created_hashes.insert(h, filename.clone());
+                    }
+                }
                 upserts.push((filename.clone(), entry));
                 updated_ids.push(filename_to_id(&filename));
                 if peer_resolved {
@@ -1188,6 +1237,13 @@ async fn run_push(
                 if change_seq > new_max_version {
                     new_max_version = change_seq;
                 }
+                // Record the hash of the entry we just deleted so
+                // `derive_renames` can pair it with a same-hash create.
+                if let Some(entry) = snapshot.object_map.get(&filename) {
+                    if let Some(h) = entry.hash.clone() {
+                        deleted_hashes.insert(h, filename.clone());
+                    }
+                }
                 deletes_to_apply.insert(filename.clone());
                 removes.insert(filename.clone());
                 deleted_ids.push(filename_to_id(&filename));
@@ -1259,6 +1315,8 @@ async fn run_push(
         deleted_ids,
         peer_updated_ids,
         peer_deleted_ids,
+        deleted_hashes,
+        created_hashes,
         ..Default::default()
     })
 }
@@ -1360,16 +1418,11 @@ pub async fn e2ee_sync_run(
     let push_summary = run_push(&app, &state, &root).await?;
     let pull_summary = run_pull(&app, &state, &root, pre_push_max).await?;
 
-    // Rename detection placeholder — full hash-tracking requires push +
-    // pull to surface deleted+created hashes, which is a larger lift.
-    // For now we emit an empty rename list; the cross-platform suite
-    // surfaces any scenarios that depend on it and we can extend the
-    // hash maps then.
     let renamed = derive_renames(
-        &HashMap::new(),
-        &HashMap::new(),
-        &HashMap::new(),
-        &HashMap::new(),
+        &push_summary.deleted_hashes,
+        &pull_summary.deleted_hashes,
+        &push_summary.created_hashes,
+        &pull_summary.created_hashes,
     );
 
     Ok(combine_summaries(push_summary, pull_summary, renamed))
