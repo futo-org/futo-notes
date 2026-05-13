@@ -1,6 +1,9 @@
 pub mod core;
 mod android_logcat;
+mod e2ee_client;
 mod panic_reporter;
+mod sync;
+mod sync_state;
 
 use core::*;
 use tauri::{Emitter, Manager};
@@ -132,7 +135,8 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_fs::init())
-        .manage(CoreState::default());
+        .manage(CoreState::default())
+        .manage(sync_state::SyncState::default());
 
     #[cfg(debug_assertions)]
     let builder = builder.plugin(tauri_plugin_mcp_bridge::init());
@@ -234,6 +238,11 @@ pub fn run() {
             notes_dir_override_save,
             resolve_default_notes_root,
             core_apply_sync_delta_v2,
+            sync::e2ee_connect,
+            sync::e2ee_resume,
+            sync::e2ee_disconnect,
+            sync::e2ee_status,
+            sync::e2ee_sync_run,
             show_soft_keyboard,
             haptic_impact,
             // Phase 2 dev-only smoke test for on-device embedding. Gated at

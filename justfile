@@ -279,6 +279,7 @@ test-desktop-smoke:
 test-rust:
   mkdir -p dist
   cd apps/tauri/src-tauri && cargo test
+  cargo test -p futo-notes-core
 
 # Factory: compare our editor to Obsidian's, scenario by scenario.
 # See factory/AGENTS.md.

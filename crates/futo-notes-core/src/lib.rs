@@ -1,3 +1,4 @@
+pub mod e2ee;
 pub mod files;
 pub mod graph;
 pub mod hash;
