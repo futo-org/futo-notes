@@ -23,6 +23,7 @@ function handleEnter(view: EditorView): boolean {
           view.dispatch({
             changes: { from: currentLine.from, to: nextLine.to, insert: nextLine.text },
             selection: EditorSelection.cursor(currentLine.from + nextLine.text.length),
+            scrollIntoView: true,
           });
           return true;
         }
@@ -43,11 +44,12 @@ function handleEnter(view: EditorView): boolean {
     if (!content.trim()) {
       view.dispatch({
         changes: { from: line.from, to: line.to, insert: '' },
-        selection: EditorSelection.cursor(line.from)
+        selection: EditorSelection.cursor(line.from),
+        scrollIntoView: true
       });
       return true;
     }
-    view.dispatch(state.replaceSelection(`\n${indent}${bullet} [ ] `));
+    view.dispatch({ ...state.replaceSelection(`\n${indent}${bullet} [ ] `), scrollIntoView: true });
     return true;
   }
 
@@ -58,11 +60,12 @@ function handleEnter(view: EditorView): boolean {
     if (!content.trim()) {
       view.dispatch({
         changes: { from: line.from, to: line.to, insert: '' },
-        selection: EditorSelection.cursor(line.from)
+        selection: EditorSelection.cursor(line.from),
+        scrollIntoView: true
       });
       return true;
     }
-    view.dispatch(state.replaceSelection(`\n${indent}${parseInt(num) + 1}. `));
+    view.dispatch({ ...state.replaceSelection(`\n${indent}${parseInt(num) + 1}. `), scrollIntoView: true });
     return true;
   }
 
@@ -73,11 +76,12 @@ function handleEnter(view: EditorView): boolean {
     if (!content.trim()) {
       view.dispatch({
         changes: { from: line.from, to: line.to, insert: '' },
-        selection: EditorSelection.cursor(line.from)
+        selection: EditorSelection.cursor(line.from),
+        scrollIntoView: true
       });
       return true;
     }
-    view.dispatch(state.replaceSelection(`\n${indent}${bullet} `));
+    view.dispatch({ ...state.replaceSelection(`\n${indent}${bullet} `), scrollIntoView: true });
     return true;
   }
 
@@ -99,7 +103,8 @@ function handleEnter(view: EditorView): boolean {
         const newMarkers = '> '.repeat(level - 1);
         view.dispatch({
           changes: { from: line.from, to: line.to, insert: newMarkers },
-          selection: EditorSelection.cursor(line.from + newMarkers.length)
+          selection: EditorSelection.cursor(line.from + newMarkers.length),
+          scrollIntoView: true
         });
       } else {
         // Level 1 — exit blockquote entirely. Insert a leading newline so a blank
@@ -108,14 +113,15 @@ function handleEnter(view: EditorView): boolean {
         // was causing typed text to re-appear as `> text` via insertNewlineContinueMarkup).
         view.dispatch({
           changes: { from: line.from, to: line.to, insert: '\n' },
-          selection: EditorSelection.cursor(line.from + 1)
+          selection: EditorSelection.cursor(line.from + 1),
+          scrollIntoView: true
         });
       }
       return true;
     }
     // Continue blockquote — normalize to `> ` per level for consistent spacing
     const normalizedMarkers = '> '.repeat(level);
-    view.dispatch(state.replaceSelection(`\n${normalizedMarkers}`));
+    view.dispatch({ ...state.replaceSelection(`\n${normalizedMarkers}`), scrollIntoView: true });
     return true;
   }
 
@@ -126,7 +132,7 @@ function handleEnter(view: EditorView): boolean {
   const leadMatch = text.match(/^[ \t]+/);
   if (leadMatch) {
     const tabsOnly = leadMatch[0].replace(/ /g, '');
-    view.dispatch(state.replaceSelection(`\n${tabsOnly}`));
+    view.dispatch({ ...state.replaceSelection(`\n${tabsOnly}`), scrollIntoView: true });
     return true;
   }
 
