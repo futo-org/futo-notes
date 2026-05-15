@@ -1,6 +1,6 @@
 {
   "identifier": "com.futo.notes.dev",
-  "productName": "FUTO Notes Dev",
+  "productName": "FUTO Notes (Dev)",
   "build": {
     "beforeDevCommand": "",
     "devUrl": null
