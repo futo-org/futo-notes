@@ -17,13 +17,28 @@ const CRASH_BATCH_API_URL = import.meta.env.DEV
   ? `http://${getDevHost()}:5100/api/crashes`
   : 'https://notes-crashlog.futo.org/api/crashes';
 
-async function post(url: string, data: unknown): Promise<{ ok: boolean; status: number }> {
+/** Last reason a send failed — surfaced to the user via toast so we can
+ *  diagnose why crash reports aren't reaching the server. */
+let lastSendError: string | null = null;
+
+export function getLastSendError(): string | null {
+  return lastSendError;
+}
+
+async function post(url: string, data: unknown): Promise<{ ok: boolean; status: number; bodyText?: string }> {
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
-  return { ok: res.ok, status: res.status };
+  // Pull the response body when we got a non-2xx — server validation
+  // errors arrive as `{ "error": "..." }` and are the most useful single
+  // piece of diagnostic info we can show.
+  let bodyText: string | undefined;
+  if (!res.ok) {
+    try { bodyText = (await res.text()).slice(0, 300); } catch { /* ignore */ }
+  }
+  return { ok: res.ok, status: res.status, bodyText };
 }
 
 export async function sendCrashReport(
@@ -34,8 +49,10 @@ export async function sendCrashReport(
     const body: Record<string, unknown> = { ...report };
     if (userDescription) body.user_description = userDescription;
     const res = await post(CRASH_API_URL, body);
+    if (!res.ok) lastSendError = `HTTP ${res.status}${res.bodyText ? `: ${res.bodyText}` : ''}`;
     return res.ok;
-  } catch {
+  } catch (e) {
+    lastSendError = `network: ${(e as Error)?.message ?? String(e)}`;
     return false;
   }
 }
@@ -43,6 +60,7 @@ export async function sendCrashReport(
 export async function sendAllPendingReports(
   userDescription?: string,
 ): Promise<{ sent: number; failed: number }> {
+  lastSendError = null;
   const filenames = await listPendingCrashLogs();
   let sent = 0;
   let failed = 0;
@@ -67,8 +85,9 @@ export async function sendAllPendingReports(
       }
       return { sent: filenames.length, failed: 0 };
     }
-  } catch {
-    // Batch failed, fall through to individual sends
+    lastSendError = `batch HTTP ${res.status}${res.bodyText ? `: ${res.bodyText}` : ''}`;
+  } catch (e) {
+    lastSendError = `batch network: ${(e as Error)?.message ?? String(e)}`;
   }
 
   // Fallback: send individually
@@ -82,7 +101,8 @@ export async function sendAllPendingReports(
       } else {
         failed++;
       }
-    } catch {
+    } catch (e) {
+      lastSendError = `read ${filename}: ${(e as Error)?.message ?? String(e)}`;
       failed++;
     }
   }

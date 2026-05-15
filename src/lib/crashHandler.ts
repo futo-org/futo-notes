@@ -10,7 +10,7 @@ export interface CrashReport {
   platform: string;
   device_info: string;
   timestamp: string;
-  type: 'js_error' | 'unhandled_rejection';
+  type: 'js_error' | 'unhandled_rejection' | 'rust_panic';
   route?: string;
   os_version?: string;
   session_id?: string;

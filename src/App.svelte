@@ -23,7 +23,7 @@
   import { loadPreferences, getCachedPreferences, savePreferences } from '$lib/appState';
   import { applyThemePreference, watchSystemThemeTauri } from '$lib/theme';
   import { flushCrashQueue, setAppVersion, type CrashReport } from '$lib/crashHandler';
-  import { sendAllPendingReports, discardAllPendingReports, loadPendingReports } from '$lib/crashReporter';
+  import { sendAllPendingReports, discardAllPendingReports, loadPendingReports, getLastSendError } from '$lib/crashReporter';
   import { installTestSync } from '$lib/testSync';
   import { installTestInference } from '$lib/testInference';
 
@@ -208,6 +208,11 @@
       const result = await sendAllPendingReports();
       if (result.sent > 0) {
         showToast(`Sent ${result.sent} crash report${result.sent > 1 ? 's' : ''}`);
+      } else if (result.failed > 0) {
+        const reason = getLastSendError();
+        showToast(reason
+          ? `Auto-send failed: ${reason}`
+          : 'Auto-send failed — reports saved locally');
       }
     } else {
       // Show dialog — dismiss keyboard so toolbar hides
@@ -231,7 +236,10 @@
       if (sendResult.sent > 0) {
         showToast(`Sent ${sendResult.sent} crash report${sendResult.sent > 1 ? 's' : ''}`);
       } else if (sendResult.failed > 0 && sendResult.sent === 0) {
-        showToast('Failed to send — reports saved locally');
+        const reason = getLastSendError();
+        showToast(reason
+          ? `Failed to send: ${reason}`
+          : 'Failed to send — reports saved locally');
       }
     } else {
       // User chose "Don't Send" — permanent opt-out
