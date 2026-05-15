@@ -47,7 +47,7 @@ backspace no-ops.
   is focused.
 - The shield is explicitly gated by CM6 `focusin` / `focusout` so title fields
   and other inputs delegate to Chromium normally.
-- `docs/ime-shield-workaround.md` documents the workaround and the build-time
+- `docs/learnings/ime-shield-workaround.md` documents the workaround and the build-time
   guard that keeps wry's generated `RustWebView.kt` override from disappearing.
 
 ## Lessons

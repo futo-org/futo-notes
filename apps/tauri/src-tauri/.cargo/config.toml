@@ -10,7 +10,7 @@
 #
 # Removing this re-opens the renderer crash:
 #   FUTO Keyboard + empty note + backspace → Chromium SIGTRAP.
-# See docs/ime-shield-workaround.md for the full rationale.
+# See docs/learnings/ime-shield-workaround.md for the full rationale.
 # `just verify-ime-shield-in-generated` runs after every android-*
 # build to confirm the override actually landed in the regenerated
 # RustWebView.kt.
@@ -24,7 +24,7 @@ WRY_RUSTWEBVIEW_CLASS_EXTENSION = '''
     // ──────────────────────────────────────────────────────────────────
     // IME SHIELD — injected via WRY_RUSTWEBVIEW_CLASS_EXTENSION at
     // build time. Source of truth: apps/tauri/src-tauri/.cargo/config.toml.
-    // See docs/ime-shield-workaround.md.
+    // See docs/learnings/ime-shield-workaround.md.
     //
     // Removing this override re-opens the FUTO Keyboard + empty-note
     // + backspace renderer crash on Android / Chromium 147.

@@ -45,7 +45,7 @@ tauri-build:
   cd apps/tauri && NO_STRIP=true cargo tauri build
 
 # Guard for the IME shield workaround. Fails fast if anyone has
-# stripped the wrapper plumbing. See docs/ime-shield-workaround.md.
+# stripped the wrapper plumbing. See docs/learnings/ime-shield-workaround.md.
 # ALL android-* recipes invoke this. Note that the RustWebView.kt
 # override itself is injected at build time via
 # WRY_RUSTWEBVIEW_CLASS_EXTENSION from apps/tauri/src-tauri/.cargo/config.toml,
@@ -93,7 +93,7 @@ verify-ime-shield:
   if [[ "$fail" -ne 0 ]]; then
     echo "" >&2
     echo "IME shield workaround is broken or missing. See" >&2
-    echo "  docs/ime-shield-workaround.md" >&2
+    echo "  docs/learnings/ime-shield-workaround.md" >&2
     echo "Removing this code re-opens the FUTO Keyboard + empty-note" >&2
     echo "+ backspace renderer crash on Android / Chromium 147." >&2
     exit 1
@@ -136,7 +136,7 @@ android-offline: verify-ime-shield
   fi
   # The IME-shield workaround is wired via apps/tauri/src-tauri/.cargo/config.toml
   # [env] section; cargo picks it up automatically. See
-  # docs/ime-shield-workaround.md.
+  # docs/learnings/ime-shield-workaround.md.
   pnpm run build
   cd apps/tauri
   cargo tauri android build --debug --apk --config src-tauri/tauri.android.offline.conf.json

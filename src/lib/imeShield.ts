@@ -6,7 +6,7 @@
  * (FutoImeConnection) reads from instead of round-tripping to
  * Chromium's renderer.
  *
- * Why: see `docs/ime-shield-workaround.md`. DO NOT REMOVE the
+ * Why: see `docs/learnings/ime-shield-workaround.md`. DO NOT REMOVE the
  * `imeShieldPlugin` import / extension wire-up in MarkdownEditor.svelte
  * without reading that doc — pulling this plugin re-opens the
  * FUTO-Keyboard + empty-note + backspace renderer crash.

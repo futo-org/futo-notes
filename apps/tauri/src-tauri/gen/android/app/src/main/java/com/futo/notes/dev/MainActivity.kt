@@ -29,7 +29,7 @@ class MainActivity : TauriActivity() {
     // window.__FutoImeShield__. This must be installed BEFORE the
     // editor mounts so the first updates are captured. The bridge is
     // safe to set synchronously — wry doesn't touch it.
-    // See docs/ime-shield-workaround.md.
+    // See docs/learnings/ime-shield-workaround.md.
     webView.addJavascriptInterface(EditorImeShield, "__FutoImeShield__")
 
     // Wry's main_pipe calls setWebView (which fires onWebViewCreate here)

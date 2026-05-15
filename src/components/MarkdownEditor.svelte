@@ -638,7 +638,7 @@
       // FUTO Keyboard backspace-on-empty renderer crash. Pushes doc
       // text + selection to a Kotlin shadow that answers
       // InputConnection queries locally. Removing this re-opens the
-      // crash. See docs/ime-shield-workaround.md.
+      // crash. See docs/learnings/ime-shield-workaround.md.
       imeShieldPlugin,
       history(),
       keymap.of([

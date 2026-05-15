@@ -13,7 +13,7 @@ import android.view.inputmethod.SurroundingText
 
 /**
  * IME-shield InputConnection wrapper. DO NOT REMOVE without reading
- * docs/ime-shield-workaround.md.
+ * docs/learnings/ime-shield-workaround.md.
  *
  * # Why this exists
  *

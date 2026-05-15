@@ -8,7 +8,7 @@ import java.util.concurrent.atomic.AtomicReference
  * Shadow of the editor's text + selection, read by [FutoImeConnection]
  * to answer IME queries without round-tripping to Chromium's renderer.
  *
- * See `FutoImeConnection.kt` and `docs/ime-shield-workaround.md`. DO
+ * See `FutoImeConnection.kt` and `docs/learnings/ime-shield-workaround.md`. DO
  * NOT REMOVE without understanding why this exists.
  *
  * # Sync model
