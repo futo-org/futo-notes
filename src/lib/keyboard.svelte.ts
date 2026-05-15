@@ -52,7 +52,10 @@ function init(): void {
     // when the software keyboard opens to keep the focused input visible.
     // Absolutely-positioned chrome (menu buttons) then appears to drift off
     // the top of the visible area. Callers compensate with this offset.
-    _offsetTop = visible && isIOSWebKit() ? 0 : vv.offsetTop;
+    // On iOS, ignore transient offsetTop spikes while the keyboard opens.
+    // WKWebView reports them before `visible` crosses the threshold, which
+    // otherwise briefly pushes the floating chrome down.
+    _offsetTop = isIOSWebKit() ? 0 : vv.offsetTop;
   };
 
   // Focus AND viewport-resize/scroll events can fire while Svelte is

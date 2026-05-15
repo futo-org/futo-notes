@@ -28,11 +28,12 @@
   } from '$lib/liveMarkdownTransform';
   import { getImageWebPath } from '$lib/fileSystem';
   import { buildSetContentTransaction, type SetEditorContentOptions, type SetContentResult } from '$lib/editorContentSync';
-  import { hasFileSystem, isMobile, isTauri } from '$lib/platform';
+  import { hasFileSystem, isIOS, isMobile } from '$lib/platform';
   import { toggleBold, toggleItalic, toggleStrikethrough, isListLine } from '$lib/markdownToolbar';
   import { imagePasteHandler } from '$lib/imagePaste';
   import { openUrl } from '$lib/openUrl';
   import { wikilinkAutocomplete } from '$lib/wikilinkAutocomplete';
+  import { iosTapFocus } from '$lib/iosTapFocus';
   import { acceptCompletion, completionKeymap } from '@codemirror/autocomplete';
   import { navigate } from '../router';
 
@@ -305,11 +306,10 @@
     }
   });
 
-  function getLineAtMouseEvent(event: MouseEvent, v: EditorView) {
-    const targetNode = event.target as Node | null;
+  function getLineHitAtPoint(clientX: number, clientY: number, v: EditorView, targetNode?: Node | null) {
     const target =
       targetNode instanceof Element ? targetNode : targetNode?.parentElement ?? null;
-    const hit = document.elementFromPoint(event.clientX, event.clientY);
+    const hit = document.elementFromPoint(clientX, clientY);
     const lineCandidate = (hit?.closest('.cm-line') ?? target?.closest('.cm-line')) as HTMLElement | null;
     if (!lineCandidate) return null;
 
@@ -318,14 +318,22 @@
       linePos = v.posAtDOM(lineCandidate, 0);
     } catch {
       try {
-        linePos = v.posAtCoords({ x: event.clientX, y: event.clientY });
+        linePos = v.posAtCoords({ x: clientX, y: clientY });
       } catch {
         linePos = null;
       }
     }
     if (linePos === null) return null;
 
-    return v.state.doc.lineAt(linePos);
+    return { line: v.state.doc.lineAt(linePos), lineEl: lineCandidate };
+  }
+
+  function getLineAtPoint(clientX: number, clientY: number, v: EditorView, targetNode?: Node | null) {
+    return getLineHitAtPoint(clientX, clientY, v, targetNode)?.line ?? null;
+  }
+
+  function getLineAtMouseEvent(event: MouseEvent, v: EditorView) {
+    return getLineAtPoint(event.clientX, event.clientY, v, event.target as Node | null);
   }
 
   function selectLineFromMouseEvent(event: MouseEvent, v: EditorView): boolean {
@@ -425,19 +433,32 @@
   // can still drift to a neighbour when the tap lands in the vertical gap
   // between a tall paragraph and a short empty line. Resolve the .cm-line
   // under the tap explicitly, then map x within that exact line.
-  function resolveTapPosition(event: MouseEvent, v: EditorView): number | null {
-    const line = getLineAtMouseEvent(event, v);
-    if (!line) return v.posAtCoords({ x: event.clientX, y: event.clientY }, false);
+  function resolveTapPositionAt(
+    clientX: number,
+    clientY: number,
+    v: EditorView,
+    targetNode?: Node | null,
+    requireLine = false,
+  ): number | null {
+    const hit = getLineHitAtPoint(clientX, clientY, v, targetNode);
+    if (!hit) return requireLine ? null : v.posAtCoords({ x: clientX, y: clientY }, false);
+    const { line, lineEl } = hit;
     if (line.from === line.to) return line.from;
-    const lineEl =
-      (document.elementFromPoint(event.clientX, event.clientY) as Element | null)
-        ?.closest?.('.cm-line') as HTMLElement | null;
-    if (!lineEl) return line.from;
     const rect = lineEl.getBoundingClientRect();
-    const x = Math.min(Math.max(event.clientX, rect.left + 1), rect.right - 1);
+    const x = Math.min(Math.max(clientX, rect.left + 1), rect.right - 1);
     const y = rect.top + rect.height / 2;
-    return v.posAtCoords({ x, y }, false) ?? line.from;
+    const pos = v.posAtCoords({ x, y }, false);
+    if (pos !== null && pos >= line.from && pos <= line.to) return pos;
+
+    const visibleRight = getRenderedLineRight(lineEl);
+    if (visibleRight !== null && clientX > visibleRight + 1) return line.to;
+    return line.from;
   }
+
+  function resolveTapPosition(event: MouseEvent, v: EditorView): number | null {
+    return resolveTapPositionAt(event.clientX, event.clientY, v, event.target as Node | null);
+  }
+
   const mobileTapCaretCorrection = isMobile
     ? [EditorView.domEventHandlers({
         click: (event, v) => {
@@ -661,6 +682,16 @@
       imagePasteHandler,
       tripleClickLineSelectionHandler,
       lineEndClickHandler,
+      ...iosTapFocus({
+        enabled: isIOS,
+        resolveTapPosition: ({ clientX, clientY, target }, v) => resolveTapPositionAt(
+          clientX,
+          clientY,
+          v,
+          target instanceof Node ? target : null,
+          true,
+        ),
+      }),
       ...mobileTapCaretCorrection,
       wikilinkClickHandler,
       linkClickHandler,
