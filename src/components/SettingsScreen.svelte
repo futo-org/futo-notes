@@ -592,6 +592,7 @@
     padding: 20px 20px 12px;
     position: sticky;
     top: 0;
+    z-index: 1;
     background: var(--color-bg);
   }
 
@@ -609,6 +610,8 @@
     background: var(--color-surface);
     border-radius: 10px;
     font-size: 22px;
+    line-height: 1;
+    padding: 0 0 4px;
     color: var(--color-muted);
     cursor: pointer;
     display: flex;
