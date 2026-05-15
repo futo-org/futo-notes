@@ -1339,12 +1339,14 @@
 }
 
 .sidebar-view-toggle button {
+  flex: 1;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   background: none;
   border: none;
-  padding: 4px 8px;
+  padding: 8px;
+  min-height: 36px;
   border-radius: 6px;
   cursor: pointer;
   color: var(--color-muted);
