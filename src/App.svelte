@@ -26,6 +26,7 @@
   import { sendAllPendingReports, discardAllPendingReports, loadPendingReports, getLastSendError } from '$lib/crashReporter';
   import { installTestSync } from '$lib/testSync';
   import { installTestInference } from '$lib/testInference';
+  import { searchNotes, isSearchIndexPopulated } from '$lib/searchIndex';
 
   let initialized = $state(false);
   let error: string | null = $state(null);
@@ -152,6 +153,10 @@
             };
             installTestSync();
             installTestInference();
+            (window as any).__testSearch = {
+              search: (query: string) => searchNotes(query),
+              isPopulated: () => isSearchIndexPopulated(),
+            };
           }
         }).catch((e) => {
           console.warn('initNotes failed:', e);

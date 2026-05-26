@@ -264,6 +264,15 @@ test-cross-platform:
 test-cross-platform-android:
   pnpm -w run test:cross-platform:android
 
+# Mac ↔ iOS regression suite. Boots a macOS Tauri instance and an iOS
+# simulator-backed Tauri instance, then runs note CRUD, basic markdown,
+# folder ops, multi-tab, search, and bidirectional sync scenarios. Requires
+# Xcode + an iOS simulator. The sync portion also requires Docker
+# (futo-notes-server uses Postgres) — pass --skip-sync to bypass.
+test-mac-ios *args:
+  FUTO_NOTES_E2EE_SERVER_REPO="${FUTO_NOTES_E2EE_SERVER_REPO:-/Users/$USER/Developer/futo-notes-server}" \
+    node tests/mac-ios-regression.mjs {{args}}
+
 test-markdown-spec:
   pnpm run test:markdown-spec
 
