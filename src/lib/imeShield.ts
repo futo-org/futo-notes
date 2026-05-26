@@ -84,6 +84,16 @@ function push(text: string, selStart: number, selEnd: number): void {
   }
 }
 
+// Convenience: skip the full-doc `doc.toString()` allocation when there
+// is no bridge (iOS / desktop / web). The plugin runs on every platform
+// so callers don't branch on isAndroid, but `doc.toString()` on a long
+// note is O(N) and was being thrown away on those platforms.
+function pushFromView(view: EditorView): void {
+  if (!getBridge()) return;
+  const s = view.state;
+  push(s.doc.toString(), s.selection.main.from, s.selection.main.to);
+}
+
 function setActive(active: boolean): void {
   const bridge = getBridge();
   if (!bridge) return;
@@ -103,15 +113,13 @@ export const imeShieldPlugin = ViewPlugin.fromClass(
       // Initial sync so the shadow is correct before the IME first
       // queries it (mount → focus → IME asks within a couple of
       // frames, sometimes before our first update fires).
-      const s = view.state;
-      push(s.doc.toString(), s.selection.main.from, s.selection.main.to);
+      pushFromView(view);
       if (view.hasFocus) setActive(true);
     }
 
     update(update: ViewUpdate) {
       if (!update.docChanged && !update.selectionSet && !update.viewportChanged) return;
-      const s = update.state;
-      push(s.doc.toString(), s.selection.main.from, s.selection.main.to);
+      pushFromView(update.view);
     }
 
     destroy() {
@@ -130,8 +138,7 @@ export const imeShieldPlugin = ViewPlugin.fromClass(
   , {
     eventHandlers: {
       focusin(_event, view) {
-        const s = view.state;
-        push(s.doc.toString(), s.selection.main.from, s.selection.main.to);
+        pushFromView(view);
         setActive(true);
       },
       focusout() {

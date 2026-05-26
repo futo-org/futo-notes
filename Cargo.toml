@@ -5,3 +5,22 @@ members = [
   "crates/futo-notes-inference",
   "apps/tauri/src-tauri",
 ]
+
+# Tighten release builds. `lto = "thin"` keeps link times tolerable while
+# still letting LLVM see across crate boundaries; `codegen-units = 1` lets
+# the optimizer reason about the whole crate; `panic = "abort"` removes
+# the unwinding tables we'll never read. `strip = "debuginfo"` keeps the
+# .deb/.rpm/.AppImage smaller without losing panic backtraces (kept by
+# Rust's runtime). The Tauri Android/iOS builds inherit from this.
+[profile.release]
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+strip = "debuginfo"
+
+# Dev profile: keep the default opt-level for our crates (faster compile),
+# but bump optimization for dependencies so e.g. ort, sha2, rayon, regex
+# are still fast in `just tauri-dev`. Saves seconds per keystroke when
+# the search index or sync touches a hot dep.
+[profile.dev.package."*"]
+opt-level = 2

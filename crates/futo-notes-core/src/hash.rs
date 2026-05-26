@@ -8,10 +8,18 @@ pub fn hash_sha256(content: &str) -> String {
 /// Compute SHA-256 hash of raw bytes, returned as lowercase hex.
 pub fn hash_sha256_bytes(data: &[u8]) -> String {
     let digest = Sha256::digest(data);
-    digest
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect::<String>()
+    // Encode 32 digest bytes into a single 64-byte String. The previous
+    // `iter().map(|b| format!("{b:02x}")).collect()` allocated 32 tiny
+    // Strings per call (one per byte) plus the final concat — sync hashes
+    // every changed note, so this matters when a vault is dirty.
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut buf = vec![0u8; digest.len() * 2];
+    for (i, byte) in digest.iter().enumerate() {
+        buf[i * 2] = HEX[(byte >> 4) as usize];
+        buf[i * 2 + 1] = HEX[(byte & 0x0f) as usize];
+    }
+    // SAFETY: buf was constructed exclusively from ASCII hex digits.
+    unsafe { String::from_utf8_unchecked(buf) }
 }
 
 #[cfg(test)]
@@ -143,6 +151,64 @@ mod tests {
         assert_ne!(spaces, tabs);
         assert_ne!(spaces, newlines);
         assert_ne!(spaces, empty);
+    }
+
+    // Old implementation, kept as a baseline for the bench tests below.
+    // 32 small String allocations per call + a concat into a final String.
+    fn hash_sha256_bytes_old(data: &[u8]) -> String {
+        let digest = Sha256::digest(data);
+        digest
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>()
+    }
+
+    // Run with: cargo test -p futo-notes-core --release bench_hash -- --ignored --nocapture
+    // Prints wall-clock for 100k hash calls so we can see allocation cost.
+    fn time_hash<F: Fn(&[u8]) -> String>(label: &str, data: &[u8], iters: usize, f: F) {
+        // Warmup
+        for _ in 0..(iters / 10).max(1) {
+            std::hint::black_box(f(data));
+        }
+        let start = std::time::Instant::now();
+        let mut sink = 0u64;
+        for _ in 0..iters {
+            let h = f(data);
+            sink = sink.wrapping_add(h.as_bytes()[0] as u64);
+        }
+        let elapsed = start.elapsed();
+        eprintln!(
+            "{label:25} {iters} iters in {:.3}ms ({:.2}ns/op) sink={sink}",
+            elapsed.as_secs_f64() * 1000.0,
+            elapsed.as_nanos() as f64 / iters as f64,
+        );
+    }
+
+    #[test]
+    #[ignore = "perf benchmark - run with --release --nocapture"]
+    fn bench_hash_small() {
+        let content = b"a short note line\nwith a couple paragraphs\nand a wikilink [[foo]]";
+        let iters = 200_000;
+        time_hash("hash_sha256_old   small", content, iters, hash_sha256_bytes_old);
+        time_hash("hash_sha256       small", content, iters, hash_sha256_bytes);
+    }
+
+    #[test]
+    #[ignore = "perf benchmark - run with --release --nocapture"]
+    fn bench_hash_4kb() {
+        let content = vec![b'x'; 4096];
+        let iters = 50_000;
+        time_hash("hash_sha256_old   4KB  ", &content, iters, hash_sha256_bytes_old);
+        time_hash("hash_sha256       4KB  ", &content, iters, hash_sha256_bytes);
+    }
+
+    #[test]
+    #[ignore = "perf benchmark - run with --release --nocapture"]
+    fn bench_hash_64kb() {
+        let content = vec![b'x'; 64 * 1024];
+        let iters = 5_000;
+        time_hash("hash_sha256_old   64KB ", &content, iters, hash_sha256_bytes_old);
+        time_hash("hash_sha256       64KB ", &content, iters, hash_sha256_bytes);
     }
 
     #[test]

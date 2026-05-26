@@ -50,13 +50,26 @@
 
   $effect(() => { appCtx.activeNoteId = noteId; });
 
+  // Mirror notes to appCtx on every change. This fans out to ForYouPage,
+  // the tag sidebar, the note list, etc.
   $effect(() => {
     appCtx.notes = hasFileSystem ? getAllNotes() : [];
+  });
+
+  // Refreshing editor decorations is expensive — it forces a full
+  // re-decoration pass (wikilink resolution, shortest-unique-suffix, tag
+  // scans). Only do it when the *set of note IDs* changes, which is
+  // what wikilink resolution actually depends on. Content edits and
+  // mtime bumps don't change the ID set, so we don't pay this cost on
+  // every keystroke-triggered save.
+  let lastIdSignature = '';
+  $effect(() => {
+    const notes = appCtx.notes;
+    // Sort to canonicalize so insertion order doesn't false-positive.
+    const sig = notes.map((n) => n.id).sort().join('\n');
+    if (sig === lastIdSignature) return;
+    lastIdSignature = sig;
     graphPanel?.clearGraphData();
-    // The editor's wikilink display widgets read the full note index
-    // (shortest-unique-suffix rule). When notes are added / removed /
-    // moved, refresh the open editor so the visible decorations track
-    // the new universe.
     editor?.refreshDecorations?.();
   });
 

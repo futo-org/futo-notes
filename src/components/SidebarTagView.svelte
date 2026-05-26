@@ -14,6 +14,20 @@
 
   let sortedTags = $derived(getSortedTags(notes));
 
+  // getNotesForTag + sort is O(n log n) per call. Without a cache,
+  // {#each getTagNotes(tag)} reran on every reactive cycle (which
+  // includes every save). Cache results keyed by the current `notes`
+  // array identity so opening one tag doesn't re-cost others, and so
+  // typing in an unrelated note doesn't redo the sort.
+  let tagNotesCache = new Map<string, NotePreview[]>();
+  let cacheKey = notes;
+  $effect(() => {
+    if (cacheKey !== notes) {
+      tagNotesCache = new Map();
+      cacheKey = notes;
+    }
+  });
+
   function toggleTag(tag: string) {
     const next = new Set(openTags);
     if (next.has(tag)) {
@@ -25,8 +39,12 @@
   }
 
   function getTagNotes(tag: string): NotePreview[] {
-    return getNotesForTag(notes, tag)
+    const cached = tagNotesCache.get(tag);
+    if (cached) return cached;
+    const computed = getNotesForTag(notes, tag)
       .sort((a, b) => a.title.toLowerCase().localeCompare(b.title.toLowerCase()));
+    tagNotesCache.set(tag, computed);
+    return computed;
   }
 </script>
 
