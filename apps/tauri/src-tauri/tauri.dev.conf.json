@@ -5,7 +5,8 @@
     "windows": [
       {
         "title": "FUTO Notes (Dev)",
-        "titleBarStyle": "Overlay"
+        "titleBarStyle": "Overlay",
+        "trafficLightPosition": { "x": 19, "y": 14 }
       }
     ],
     "security": {

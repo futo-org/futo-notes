@@ -206,7 +206,19 @@
   }
 </script>
 
-<div class="tabs-strip" bind:this={stripEl} role="tablist" aria-label="Tabs">
+<!-- The strip itself is a `data-tauri-drag-region` so users can drag the
+     window by its empty area (next to / between tabs). Tauri's drag
+     region only applies to the element that has the attribute directly,
+     so child buttons (tab pills, "+") still receive clicks normally.
+     This replaces the previous separate full-width drag overlay that
+     was hiding the upper rim of every tab. -->
+<div
+  class="tabs-strip"
+  bind:this={stripEl}
+  role="tablist"
+  aria-label="Tabs"
+  data-tauri-drag-region
+>
   {#each tabsStore.tabs as tab, idx (tab.id)}
     <button
       type="button"
@@ -249,38 +261,47 @@
 </div>
 
 <style>
+  /* The strip is the same height as the macOS traffic-light row
+     (`trafficLightPosition.y` + light diameter ≈ 14+12=26; round up
+     with breathing room) so on Mac the lights vertically center inside
+     it and live in the same band as the tabs — Obsidian-style. On
+     other platforms the strip simply caps the top of the editor. */
   .tabs-strip {
     flex: 0 0 auto;
     display: flex;
-    align-items: center;
-    gap: 4px;
-    /* macOS: leave room for the fixed data-tauri-drag-region overlay
-       (top:0 / z-index:100) so Tauri doesn't swallow mousedown on the "+"
-       and the upper edge of the tab pills for window-drag. Elsewhere this
-       var is 0. */
-    margin-top: var(--macos-titlebar-inset, 0px);
-    height: 36px;
-    padding: 0 6px;
+    align-items: flex-end;
+    gap: 2px;
+    height: 40px;
+    padding: 0 8px;
     background: var(--color-surface, var(--color-bg));
-    border-bottom: 1px solid var(--color-border);
     overflow-x: auto;
     overflow-y: hidden;
     user-select: none;
     -webkit-user-select: none;
     scrollbar-width: thin;
+    /* macOS: clear the traffic lights (~x 19-97) when the sidebar is
+       collapsed (otherwise the sidebar provides the left clearance). */
+    padding-left: 8px;
   }
 
+  /* Tabs sit at the bottom of the strip with rounded-top corners and a
+     1px bottom margin trick that lets the active tab merge into the
+     editor surface below: the active tab's background is `--color-bg`
+     (matches the editor) and its `margin-bottom: -1px` covers the
+     hairline between strip and editor, so the active tab visually
+     "becomes" the top of the editor card. */
   .tab-pill {
     display: inline-flex;
     align-items: center;
     flex: 0 1 200px;
     min-width: 96px;
     max-width: 220px;
-    height: 26px;
-    margin: 0;
+    height: 32px;
+    margin: 0 0 -1px 0;
     padding: 0 6px 0 12px;
     border: 1px solid transparent;
-    border-radius: 13px;
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
     background: transparent;
     color: var(--color-muted, #888);
     font: inherit;
@@ -292,15 +313,18 @@
     white-space: nowrap;
   }
 
-  .tab-pill:hover {
-    background: color-mix(in srgb, var(--color-bg) 60%, transparent);
+  .tab-pill:hover:not(.active) {
+    background: color-mix(in srgb, var(--color-bg) 50%, transparent);
     color: var(--color-text);
   }
 
   .tab-pill.active {
+    /* Same background as the editor body — looks like the editor
+       surface "extends up" through this tab. */
     background: var(--color-bg);
     color: var(--color-text);
     border-color: var(--color-border);
+    font-weight: 500;
   }
 
   .tab-pill.dragging {
@@ -340,12 +364,14 @@
     color: var(--color-text);
   }
 
+  /* "+" button — sits at the same baseline as tab pills, smaller and
+     icon-like (not styled as a tab itself). */
   .tab-new-btn {
     flex: 0 0 auto;
-    width: 26px;
-    height: 26px;
-    margin: 0 0 0 2px;
-    border-radius: 13px;
+    width: 28px;
+    height: 28px;
+    margin: 0 0 2px 4px;
+    border-radius: 8px;
     border: none;
     background: transparent;
     color: var(--color-muted, #888);
@@ -355,7 +381,7 @@
   }
 
   .tab-new-btn:hover {
-    background: var(--color-surface);
+    background: color-mix(in srgb, var(--color-bg) 70%, transparent);
     color: var(--color-text);
   }
 </style>
