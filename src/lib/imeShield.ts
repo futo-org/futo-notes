@@ -25,9 +25,9 @@
  *
  * No-op on every platform except Android (the bridge object only
  * exists there). The plugin still installs on desktop/iOS so the
- * editor extensions list stays platform-agnostic — it just runs
- * `if (bridge) bridge.update(...)`, which short-circuits when bridge
- * is undefined.
+ * editor extensions list stays platform-agnostic — `pushFromView()`
+ * short-circuits before allocating the full document text when no
+ * bridge is present.
  */
 
 import { ViewPlugin, type ViewUpdate } from '@codemirror/view';
@@ -94,6 +94,17 @@ export const imeShieldPlugin = ViewPlugin.fromClass(
       }
     }
 
+    // Gate the full-doc `doc.toString()` allocation on bridge presence.
+    // The plugin installs on every platform so the editor extension
+    // list stays platform-agnostic, but only Android has a bridge —
+    // iOS / desktop / web were paying an O(N) string allocation per
+    // editor update only to discard the result inside `push()`.
+    pushFromView(view: EditorView): void {
+      if (!getBridge()) return;
+      const s = view.state;
+      this.push(s.doc.toString(), s.selection.main.from, s.selection.main.to);
+    }
+
     setActive(active: boolean): void {
       const bridge = getBridge();
       if (!bridge) return;
@@ -110,15 +121,13 @@ export const imeShieldPlugin = ViewPlugin.fromClass(
       // Initial sync so the shadow is correct before the IME first
       // queries it (mount → focus → IME asks within a couple of
       // frames, sometimes before our first update fires).
-      const s = view.state;
-      this.push(s.doc.toString(), s.selection.main.from, s.selection.main.to);
+      this.pushFromView(view);
       if (view.hasFocus) this.setActive(true);
     }
 
     update(update: ViewUpdate) {
       if (!update.docChanged && !update.selectionSet && !update.viewportChanged) return;
-      const s = update.state;
-      this.push(s.doc.toString(), s.selection.main.from, s.selection.main.to);
+      this.pushFromView(update.view);
     }
 
     destroy() {
@@ -134,10 +143,9 @@ export const imeShieldPlugin = ViewPlugin.fromClass(
   , {
     eventHandlers: {
       focusin(_event, view) {
-        const s = view.state;
         const plugin = view.plugin(imeShieldPlugin);
         if (!plugin) return;
-        plugin.push(s.doc.toString(), s.selection.main.from, s.selection.main.to);
+        plugin.pushFromView(view);
         plugin.setActive(true);
       },
       focusout(_event, view) {

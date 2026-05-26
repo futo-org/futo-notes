@@ -137,49 +137,59 @@ const TAG_LINE_RE = /^\s*#[a-zA-Z][a-zA-Z0-9_-]{0,49}(\s+#[a-zA-Z][a-zA-Z0-9_-]{
  * (including any trailing blank line separator).
  */
 export function extractHeaderTagBlock(content: string): { tags: string[]; endOffset: number } {
-  const lines = content.split('\n');
+  // Walk lines via `indexOf('\n')` rather than `content.split('\n')`.
+  // The previous split allocated one String per line of the *entire*
+  // note even when the tag block is the first few lines — `NoteTagBar`
+  // reads this on every keystroke, so the old O(doc-length) allocation
+  // was paid per frame.
   const tags: string[] = [];
   const seen = new Set<string>();
-  let endLine = 0;
+  let offset = 0;
+  let cursor = 0;
+  const len = content.length;
+  const tagRe = new RegExp(TAG_REGEX.source, TAG_REGEX.flags);
 
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (TAG_LINE_RE.test(line)) {
-      // Extract tags from this line
-      const re = new RegExp(TAG_REGEX.source, TAG_REGEX.flags);
-      let match: RegExpExecArray | null;
-      while ((match = re.exec(line)) !== null) {
-        const tag = '#' + normalizeTagName(match[1]);
-        if (!seen.has(tag)) {
-          seen.add(tag);
-          tags.push(tag);
-        }
+  while (cursor <= len) {
+    const nlIdx = content.indexOf('\n', cursor);
+    const lineEnd = nlIdx === -1 ? len : nlIdx;
+    const line = content.slice(cursor, lineEnd);
+    if (!TAG_LINE_RE.test(line)) break;
+    tagRe.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = tagRe.exec(line)) !== null) {
+      const tag = '#' + normalizeTagName(match[1]);
+      if (!seen.has(tag)) {
+        seen.add(tag);
+        tags.push(tag);
       }
-      endLine = i + 1;
-    } else {
-      break;
     }
+    offset = nlIdx === -1 ? len : nlIdx + 1;
+    if (nlIdx === -1) break;
+    cursor = offset;
   }
 
-  if (endLine === 0) {
+  if (offset === 0) {
     return { tags: [], endOffset: 0 };
   }
 
-  // Calculate byte offset: sum of all tag lines + their newlines
-  let offset = 0;
-  for (let i = 0; i < endLine; i++) {
-    offset += lines[i].length + 1; // +1 for \n
+  // Include a trailing blank line if present (the block is conceptually
+  // terminated by an empty line separator, not by a content line).
+  if (offset < len) {
+    const nextNl = content.indexOf('\n', offset);
+    const trailEnd = nextNl === -1 ? len : nextNl;
+    let onlyBlank = true;
+    for (let i = offset; i < trailEnd; i++) {
+      const ch = content.charCodeAt(i);
+      if (ch !== 0x20 && ch !== 0x09 && ch !== 0x0d) {
+        onlyBlank = false;
+        break;
+      }
+    }
+    if (onlyBlank) {
+      offset = nextNl === -1 ? len : nextNl + 1;
+    }
   }
 
-  // Include trailing blank line if present
-  if (endLine < lines.length && lines[endLine].trim() === '') {
-    offset += lines[endLine].length + 1;
-  }
-
-  // Don't exceed content length (handles missing final newline)
-  if (offset > content.length) {
-    offset = content.length;
-  }
-
+  if (offset > len) offset = len;
   return { tags, endOffset: offset };
 }
