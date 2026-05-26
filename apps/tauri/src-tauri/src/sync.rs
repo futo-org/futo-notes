@@ -25,7 +25,7 @@ use crate::e2ee_client::{
     ServerObject,
 };
 use crate::sync_state::{
-    delete_state_file, load_or_migrate, ConnectedState, E2eeObjectMapEntry, SyncState,
+    load_or_migrate, ConnectedState, E2eeObjectMapEntry, SyncState,
 };
 
 const PULL_CONCURRENCY: usize = 8;
@@ -304,12 +304,11 @@ pub async fn e2ee_disconnect(
     app: AppHandle,
     state: State<'_, SyncState>,
 ) -> Result<(), String> {
-    state.clear();
     let root = root_for(&app)?;
-    tauri::async_runtime::spawn_blocking(move || delete_state_file(&root))
-        .await
-        .map_err(task_join_err)??;
-    Ok(())
+    // disconnect_and_delete holds persist_lock across clear + delete so
+    // a concurrent in-flight e2ee_sync_run's state.persist() can't race
+    // and rewrite the file with the about-to-be-deleted ConnectedState.
+    state.disconnect_and_delete(&root).await
 }
 
 // ── Pull / reconcile orchestrator ────────────────────────────────────────
@@ -1233,12 +1232,66 @@ async fn run_push(
         });
     }
 
+    // Checkpoint every N completed uploads. Without this, a single
+    // process crash partway through a large first-sync re-uploads
+    // everything next time — the blob is on the server, but the local
+    // object_map doesn't reflect it, so the next push sees the file as
+    // brand-new and POSTs a duplicate. We only checkpoint the simple
+    // outcomes (StampOnly + Wrote) — MergedClean and ConflictCopy carry
+    // local file writes that must stay in the batched post-loop apply.
+    const PUSH_CHECKPOINT_EVERY: usize = 50;
     let mut outcomes: Vec<PushOutcome> = Vec::new();
+    let mut pending_ckpt_upserts: Vec<(String, E2eeObjectMapEntry)> = Vec::new();
+    let mut pending_ckpt_max_version: u64 = snapshot.max_version;
+    let mut since_ckpt: usize = 0;
     while let Some(joined) = set.join_next().await {
         match joined {
-            Ok(Ok(out)) => outcomes.push(out),
+            Ok(Ok(out)) => {
+                if let Some((fname, entry, change_seq)) = checkpointable_upsert(&out) {
+                    if entry.version > pending_ckpt_max_version {
+                        pending_ckpt_max_version = entry.version;
+                    }
+                    if change_seq > pending_ckpt_max_version {
+                        pending_ckpt_max_version = change_seq;
+                    }
+                    pending_ckpt_upserts.push((fname, entry));
+                    since_ckpt += 1;
+                }
+                outcomes.push(out);
+                if since_ckpt >= PUSH_CHECKPOINT_EVERY {
+                    let upserts_now = std::mem::take(&mut pending_ckpt_upserts);
+                    let max_now = pending_ckpt_max_version;
+                    state.with_map_mut(|map, ver| {
+                        for (k, v) in upserts_now {
+                            map.insert(k, v);
+                        }
+                        *ver = (*ver).max(max_now);
+                    });
+                    if let Err(e) = state.persist(notes_root_path).await {
+                        eprintln!("[e2ee] push checkpoint persist failed: {e}");
+                    }
+                    since_ckpt = 0;
+                }
+            }
             Ok(Err(e)) => eprintln!("[e2ee] push task errored: {e}"),
             Err(e) => eprintln!("[e2ee] push task panicked: {e}"),
+        }
+    }
+    // Final partial flush for any unpersisted upserts. The post-loop
+    // pass below re-applies the same upserts under one with_map_mut
+    // (insert is idempotent), so doing this here is purely defensive
+    // against a crash between here and line ~1511.
+    if !pending_ckpt_upserts.is_empty() {
+        let upserts_tail = std::mem::take(&mut pending_ckpt_upserts);
+        let max_tail = pending_ckpt_max_version;
+        state.with_map_mut(|map, ver| {
+            for (k, v) in upserts_tail {
+                map.insert(k, v);
+            }
+            *ver = (*ver).max(max_tail);
+        });
+        if let Err(e) = state.persist(notes_root_path).await {
+            eprintln!("[e2ee] push final checkpoint persist failed: {e}");
         }
     }
 
@@ -1545,6 +1598,22 @@ fn _keep_write_atomic_import(path: &Path, s: &str) -> Result<(), String> {
     write_atomic_text(path, s)
 }
 
+/// Return the (filename, entry, change_seq) tuple to persist for a
+/// PushOutcome that is safe to checkpoint mid-loop. Outcomes that
+/// involve LOCAL file writes (MergedClean, ConflictCopy) must stay in
+/// the batched post-loop apply, so we skip them here.
+fn checkpointable_upsert(out: &PushOutcome) -> Option<(String, E2eeObjectMapEntry, u64)> {
+    match out {
+        PushOutcome::StampOnly { filename, entry } => {
+            Some((filename.clone(), entry.clone(), 0))
+        }
+        PushOutcome::Wrote { filename, entry, change_seq, .. } => {
+            Some((filename.clone(), entry.clone(), *change_seq))
+        }
+        _ => None,
+    }
+}
+
 /// Result of a duplicate-move resolution pass. `deleted_ids` are the
 /// note ids whose synced filename we just took down (locally + on the
 /// server); `conflicts` matches the legacy TS counter for the user-
@@ -1776,12 +1845,224 @@ fn combine_summaries(
     push
 }
 
+/// Pre-pass that populates an empty object map from existing server data
+/// without blindly re-uploading every local note. Mirrors the deleted TS
+/// `reconcileEmptyMap`. Runs when (and only when) `object_map.is_empty()
+/// && max_version == 0` — i.e. the very first connect, a post-disconnect
+/// reconnect, or any path where `import_legacy_state` returned an empty
+/// map. Without this, run_push runs first and uploads every local file
+/// as a fresh blob, duplicating everything already on the server and
+/// triggering a flood of conflict copies on the next pull.
+///
+/// Algorithm:
+///   1. List every live server object (skip tombstones).
+///   2. Decrypt + unpack each blob in parallel.
+///   3. For each remote (filename, content):
+///        - no local file → write to disk, record entry.
+///        - local content matches → just record entry (no write).
+///        - local content differs → record entry WITHOUT mtime/size so
+///          the next push uploads the local content as an update. We
+///          trust local when we have no common ancestor for a 3-way
+///          merge.
+///   4. Persist the map + advance max_version.
+async fn reconcile_empty_map(
+    app: &AppHandle,
+    state: &SyncState,
+    notes_root_path: &Path,
+) -> Result<usize, String> {
+    let snapshot = state.snapshot().ok_or("E2EE not connected")?;
+    let http = Arc::new(build_client(&snapshot)?);
+    let vault_key = Arc::new(snapshot.vault_key);
+
+    let server_objects = http
+        .list_objects(&snapshot.collection_id, 0)
+        .await
+        .map_err(http_err_to_string)?;
+
+    // Live objects only (deleted tombstones contribute no blob to reconcile).
+    let live: Vec<ServerObject> = server_objects
+        .into_iter()
+        .filter(|o| !o.deleted && o.blob_key.is_some())
+        .collect();
+    if live.is_empty() {
+        return Ok(0);
+    }
+
+    // Index local files by name so we can compare without re-walking
+    // disk per object. fs_list_notes_with_meta_impl already filters to
+    // `.md` and skips dotfile dirs.
+    let root_for_walk = notes_root_path.to_path_buf();
+    let local_files = tauri::async_runtime::spawn_blocking(move || {
+        fs_list_notes_with_meta_impl(&root_for_walk)
+    })
+    .await
+    .map_err(task_join_err)??;
+    let local_by_name: HashMap<String, (i64, u64)> = local_files
+        .iter()
+        .filter(|f| f.name.ends_with(".md"))
+        .map(|f| (f.name.clone(), (f.mtime_ms, f.size_bytes)))
+        .collect();
+
+    let total = live.len();
+    let progress = Arc::new(ProgressEmitter::new(app.clone(), "reconciling", total));
+    let semaphore = Arc::new(Semaphore::new(PULL_CONCURRENCY));
+    let mut set: JoinSet<Result<DownloadedNote, String>> = JoinSet::new();
+    for obj in live {
+        let http = http.clone();
+        let vault_key = vault_key.clone();
+        let permit_sem = semaphore.clone();
+        let progress = progress.clone();
+        set.spawn(async move {
+            let _permit = permit_sem.acquire_owned().await.expect("semaphore closed");
+            let r = download_and_decrypt(http, vault_key, obj).await;
+            progress.bump();
+            r
+        });
+    }
+
+    let mut downloaded: Vec<DownloadedNote> = Vec::with_capacity(total);
+    while let Some(joined) = set.join_next().await {
+        match joined {
+            Ok(Ok(d)) => downloaded.push(d),
+            Ok(Err(e)) => eprintln!("[e2ee] reconcile: download failed: {e}"),
+            Err(e) => eprintln!("[e2ee] reconcile: task panicked: {e}"),
+        }
+    }
+
+    // For each remote note: compare to local (if any) and decide
+    // whether to write, skip, or omit mtime/size to flag divergence.
+    let mut updates: Vec<V2IncomingUpdate> = Vec::new();
+    let mut upserts: Vec<(String, E2eeObjectMapEntry)> = Vec::new();
+    let mut new_max_version: u64 = 0;
+    for note in downloaded {
+        if note.change_seq > new_max_version {
+            new_max_version = note.change_seq;
+        }
+        let remote_size = note.content.as_bytes().len() as u64;
+        let entry_common = |mtime: Option<i64>, size: Option<u64>| E2eeObjectMapEntry {
+            object_id: note.object_id.clone(),
+            version: note.version,
+            blob_key: note.blob_key.clone(),
+            hash: Some(note.hash.clone()),
+            mtime_ms: mtime,
+            size_bytes: size,
+        };
+
+        match local_by_name.get(&note.filename) {
+            None => {
+                // No local file → adopt the remote.
+                updates.push(V2IncomingUpdate {
+                    filename: note.filename.clone(),
+                    content: note.content.clone(),
+                    hash: note.hash.clone(),
+                    modified_at: note.modified_at_ms,
+                });
+                upserts.push((
+                    note.filename.clone(),
+                    entry_common(Some(note.modified_at_ms), Some(remote_size)),
+                ));
+            }
+            Some(&(local_mtime, local_size)) => {
+                // Local file present — read its content to compare.
+                let path = notes_root_path.join(&note.filename);
+                let local_content = tauri::async_runtime::spawn_blocking(move || {
+                    std::fs::read_to_string(&path).ok()
+                })
+                .await
+                .map_err(task_join_err)?;
+                match local_content {
+                    Some(content) if hash_sha256(&content) == note.hash => {
+                        // Identical content — stamp the map so push fast-paths
+                        // past this file forever. Local mtime/size win
+                        // (they reflect the on-disk truth).
+                        upserts.push((
+                            note.filename.clone(),
+                            entry_common(Some(local_mtime), Some(local_size)),
+                        ));
+                    }
+                    Some(_) => {
+                        // Diverged — record the entry but omit mtime/size so
+                        // the next push re-hashes and uploads local as an
+                        // update against the server's recorded version.
+                        upserts.push((
+                            note.filename.clone(),
+                            entry_common(None, None),
+                        ));
+                    }
+                    None => {
+                        // Local file disappeared between the dir scan and
+                        // the read (deleted concurrently). Treat as "no
+                        // local" and adopt the remote.
+                        updates.push(V2IncomingUpdate {
+                            filename: note.filename.clone(),
+                            content: note.content.clone(),
+                            hash: note.hash.clone(),
+                            modified_at: note.modified_at_ms,
+                        });
+                        upserts.push((
+                            note.filename.clone(),
+                            entry_common(Some(note.modified_at_ms), Some(remote_size)),
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    // Apply file writes for remote-only adoptions via the shared
+    // apply path so watcher suppressions are recorded.
+    if !updates.is_empty() {
+        let apply_input = V2SyncApplyInput {
+            update: updates,
+            delete: Vec::new(),
+            conflicts: Vec::new(),
+            timestamps: HashMap::new(),
+        };
+        let core_state = app.state::<CoreState>();
+        let suppressed = core_state.suppressed_watcher_events.clone();
+        let base = notes_root_path.to_path_buf();
+        tauri::async_runtime::spawn_blocking(move || {
+            apply_sync_delta_v2_impl(&base, &suppressed, apply_input)
+        })
+        .await
+        .map_err(task_join_err)??;
+    }
+
+    // Populate the map and advance max_version, then persist.
+    state.with_map_mut(|map, ver| {
+        for (filename, entry) in upserts {
+            map.insert(filename, entry);
+        }
+        *ver = (*ver).max(new_max_version);
+    });
+    state.persist(notes_root_path).await?;
+    Ok(total)
+}
+
 #[tauri::command]
 pub async fn e2ee_sync_run(
     app: AppHandle,
     state: State<'_, SyncState>,
 ) -> Result<SyncSummary, String> {
     let root = root_for(&app)?;
+
+    // First-connect / post-disconnect reconcile: if the object_map is
+    // empty AND max_version is 0, run a pre-pass that matches existing
+    // server data against the local vault before any push runs. Without
+    // this, push would treat every local file as new and POST duplicates
+    // of every blob already on the server. See `reconcile_empty_map`.
+    let needs_reconcile = state
+        .snapshot()
+        .map(|s| s.object_map.is_empty() && s.max_version == 0)
+        .unwrap_or(false);
+    if needs_reconcile {
+        if let Err(e) = reconcile_empty_map(&app, &state, &root).await {
+            // Reconcile failure must NOT silently fall through to push
+            // — that's the exact data-duplication path we're guarding
+            // against. Surface the error and let the user retry.
+            return Err(format!("reconcile failed: {e}"));
+        }
+    }
 
     // Capture the pre-push cursor BEFORE push runs. Push advances
     // `max_version` for our own writes; using the post-push value for

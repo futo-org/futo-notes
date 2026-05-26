@@ -60,6 +60,25 @@ describe('openNote', () => {
     expect(tabsStore.tabs.filter((t) => t.noteId === 'new')).toHaveLength(1);
     expect(tabsStore.activeTabId).toBe(first.id);
   });
+
+  it("'background' open of 'new' when one already exists leaves the active tab alone", () => {
+    tabsStore.openNote('a', 'current');
+    const newTab = tabsStore.openNote('new', 'background');
+    // Active should still be 'a' since 'new' was opened in background.
+    expect(tabsStore.activeNoteId).toBe('a');
+    // Re-open in background while 'new' already exists — must NOT steal focus.
+    const second = tabsStore.openNote('new', 'background');
+    expect(second.id).toBe(newTab.id);
+    expect(tabsStore.activeNoteId).toBe('a');
+  });
+
+  it("'current' replace clears stale pendingFolder on the active tab", () => {
+    tabsStore.openNote('a', 'current');
+    tabsStore.setPendingFolder(tabsStore.activeTabId, 'Projects/2026');
+    expect(tabsStore.activeTab.pendingFolder).toBe('Projects/2026');
+    tabsStore.openNote('b', 'current');
+    expect(tabsStore.activeTab.pendingFolder).toBeUndefined();
+  });
 });
 
 describe('closeTab', () => {
@@ -77,6 +96,15 @@ describe('closeTab', () => {
     tabsStore.openNote('a', 'foreground');
     tabsStore.closeTab(home);
     expect(tabsStore.recentlyClosed).toHaveLength(0);
+  });
+
+  it("does not push 'new' tab onto recentlyClosed (would dup on reopen)", () => {
+    tabsStore.openNote('a', 'current');
+    const newTab = tabsStore.openNote('new', 'foreground');
+    tabsStore.closeTab(newTab.id);
+    expect(tabsStore.recentlyClosed).toHaveLength(0);
+    // Reopen should be a no-op for the 'new' tab.
+    expect(tabsStore.reopenLastClosed()).toBeNull();
   });
 
   it('collapses the last tab to a fresh Home instead of removing it', () => {
@@ -408,12 +436,29 @@ describe('replaceTabNoteId and applyRename', () => {
     expect(ids).toContain('b');
   });
 
+  it("applyRename also rewrites recentlyClosed entries", () => {
+    // Close 'a' so it's in the reopen queue, then a peer rename arrives.
+    const t = tabsStore.openNote('a', 'foreground');
+    tabsStore.closeTab(t.id);
+    expect(tabsStore.recentlyClosed[0]?.noteId).toBe('a');
+    tabsStore.applyRename('a', 'a-renamed');
+    expect(tabsStore.recentlyClosed[0]?.noteId).toBe('a-renamed');
+  });
+
   it("pruneMissingNoteIds nulls out tabs whose note no longer exists", () => {
     tabsStore.openNote('a', 'current');
     tabsStore.openNote('gone', 'background');
     tabsStore.pruneMissingNoteIds((id) => id === 'a');
     const ids = tabsStore.tabs.map((t) => t.noteId);
     expect(ids).toEqual(['a', null]);
+  });
+
+  it("pruneMissingNoteIds also drops dead entries from recentlyClosed", () => {
+    const t = tabsStore.openNote('gone', 'foreground');
+    tabsStore.closeTab(t.id);
+    expect(tabsStore.recentlyClosed[0]?.noteId).toBe('gone');
+    tabsStore.pruneMissingNoteIds((id) => id !== 'gone');
+    expect(tabsStore.recentlyClosed).toHaveLength(0);
   });
 });
 

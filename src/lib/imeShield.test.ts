@@ -95,10 +95,18 @@ describe('imeShieldPlugin', () => {
     view.destroy();
   });
 
-  it('calls bridge.reset on destroy', () => {
+  it('does NOT call bridge.reset on destroy (would clobber sibling editor)', () => {
+    // Regression: previously destroy() called bridge.reset() AND cleared
+    // module-level state. During a tab switch two editors briefly coexist
+    // — the outgoing editor's destroy would wipe the incoming editor's
+    // shadow. Now destroy only emits setActive(false); shadow text and
+    // selection survive for any sibling editor still live.
     const { view, bridge } = makeEditor('hi');
+    view.contentDOM.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    expect(bridge.setActive).toHaveBeenLastCalledWith(true);
     view.destroy();
-    expect(bridge.reset).toHaveBeenCalled();
+    expect(bridge.setActive).toHaveBeenLastCalledWith(false);
+    expect(bridge.reset).not.toHaveBeenCalled();
   });
 
   it('marks the shield active only while the editor body is focused', () => {

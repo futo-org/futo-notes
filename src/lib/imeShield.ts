@@ -52,90 +52,97 @@ function getBridge(): FutoImeShieldBridge | undefined {
 }
 
 /**
- * Monotonic serial. Shared across editor instances — the Kotlin side
- * ignores stale serials, so even if two editors briefly coexist (route
- * transition), the later one wins.
+ * Monotonic serial. Module-scoped so any two coexisting plugin instances
+ * (e.g. brief overlap during a tab switch) can't issue the same serial —
+ * the Kotlin side compare-and-sets against highWater, so the later
+ * serial always wins on the shadow.
  */
-let serial = 0;
-
-/**
- * Last values we pushed. Skip redundant updates so we don't thrash the
- * JNI bridge on every cursor blink / focus change.
- */
-let lastText = '';
-let lastSelStart = -1;
-let lastSelEnd = -1;
-let lastActive = false;
-
-function push(text: string, selStart: number, selEnd: number): void {
-  const bridge = getBridge();
-  if (!bridge) return;
-  if (text === lastText && selStart === lastSelStart && selEnd === lastSelEnd) return;
-  serial += 1;
-  lastText = text;
-  lastSelStart = selStart;
-  lastSelEnd = selEnd;
-  try {
-    bridge.update(text, selStart, selEnd, serial);
-  } catch {
-    // Bridge invocations cross JNI. Throwing back into JS is rare but
-    // possible (e.g., the WebView is mid-teardown). Swallow — a missed
-    // update just means the next one supersedes.
-  }
-}
-
-function setActive(active: boolean): void {
-  const bridge = getBridge();
-  if (!bridge) return;
-  if (active === lastActive) return;
-  lastActive = active;
-  try {
-    bridge.setActive(active);
-  } catch {
-    // Same failure mode as update(): during WebView teardown the JNI
-    // bridge can disappear. The next focus/update supersedes this.
-  }
+let nextSerial = 0;
+function takeSerial(): number {
+  nextSerial += 1;
+  return nextSerial;
 }
 
 export const imeShieldPlugin = ViewPlugin.fromClass(
   class {
+    // Per-view dedup cache. Module-level state would let one editor's
+    // destroy() clobber another's "last pushed" markers — during tab
+    // switches two MarkdownEditor instances can briefly coexist, and
+    // their pushes must NOT see each other's shadow.
+    lastText = '';
+    lastSelStart = -1;
+    lastSelEnd = -1;
+    lastActive = false;
+
+    push(text: string, selStart: number, selEnd: number): void {
+      const bridge = getBridge();
+      if (!bridge) return;
+      if (
+        text === this.lastText &&
+        selStart === this.lastSelStart &&
+        selEnd === this.lastSelEnd
+      ) return;
+      this.lastText = text;
+      this.lastSelStart = selStart;
+      this.lastSelEnd = selEnd;
+      try {
+        bridge.update(text, selStart, selEnd, takeSerial());
+      } catch {
+        // Bridge invocations cross JNI. Throwing back into JS is rare
+        // but possible (e.g. WebView mid-teardown). Swallow — the next
+        // update supersedes.
+      }
+    }
+
+    setActive(active: boolean): void {
+      const bridge = getBridge();
+      if (!bridge) return;
+      if (active === this.lastActive) return;
+      this.lastActive = active;
+      try {
+        bridge.setActive(active);
+      } catch {
+        // Same failure mode as push().
+      }
+    }
+
     constructor(view: EditorView) {
       // Initial sync so the shadow is correct before the IME first
       // queries it (mount → focus → IME asks within a couple of
       // frames, sometimes before our first update fires).
       const s = view.state;
-      push(s.doc.toString(), s.selection.main.from, s.selection.main.to);
-      if (view.hasFocus) setActive(true);
+      this.push(s.doc.toString(), s.selection.main.from, s.selection.main.to);
+      if (view.hasFocus) this.setActive(true);
     }
 
     update(update: ViewUpdate) {
       if (!update.docChanged && !update.selectionSet && !update.viewportChanged) return;
       const s = update.state;
-      push(s.doc.toString(), s.selection.main.from, s.selection.main.to);
+      this.push(s.doc.toString(), s.selection.main.from, s.selection.main.to);
     }
 
     destroy() {
-      // Tell the shadow the editable is gone. Next focus into a new
-      // editable will push again.
-      const bridge = getBridge();
-      if (bridge) {
-        try { bridge.reset(); } catch { /* see push() */ }
-      }
-      lastActive = false;
-      lastText = '';
-      lastSelStart = -1;
-      lastSelEnd = -1;
+      // We can't safely call bridge.reset() here — during a tab switch
+      // another live MarkdownEditor's shadow may already own the bridge,
+      // and reset would wipe its state. Instead just mark ourselves
+      // inactive; the new editor's mount or focus push will overwrite
+      // text/selection. If we were the last editor, the IME going
+      // active=false is the correct signal that the editable is gone.
+      this.setActive(false);
     }
   }
   , {
     eventHandlers: {
       focusin(_event, view) {
         const s = view.state;
-        push(s.doc.toString(), s.selection.main.from, s.selection.main.to);
-        setActive(true);
+        const plugin = view.plugin(imeShieldPlugin);
+        if (!plugin) return;
+        plugin.push(s.doc.toString(), s.selection.main.from, s.selection.main.to);
+        plugin.setActive(true);
       },
-      focusout() {
-        setActive(false);
+      focusout(_event, view) {
+        const plugin = view.plugin(imeShieldPlugin);
+        plugin?.setActive(false);
       },
     },
   }

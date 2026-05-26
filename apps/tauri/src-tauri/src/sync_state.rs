@@ -175,6 +175,18 @@ impl SyncState {
         let path = state_file_path(notes_root);
         write_atomic_text(&path, &json)
     }
+
+    /// Disconnect atomically: clear the in-memory state AND delete the
+    /// persisted file, both under `persist_lock` so a concurrent
+    /// `persist()` can't resurrect the file with stale data after the
+    /// delete (TOCTOU between snapshot-take and atomic-rename).
+    pub async fn disconnect_and_delete(&self, notes_root: &Path) -> Result<(), String> {
+        let _guard = self.persist_lock.lock().await;
+        // Order matters: clear in-memory first so any persist() that
+        // wins the lock right after we release sees None and is a no-op.
+        self.clear();
+        delete_state_file(notes_root)
+    }
 }
 
 // ── Disk paths and serialization helpers ─────────────────────────────────
@@ -226,6 +238,15 @@ fn load_persisted_state(notes_root: &Path) -> Option<PersistedState> {
 /// Read the legacy `.app-state.json`, extract just the `e2eeObjectMap` and
 /// `e2eeMaxVersion` keys, and return them as a fresh `PersistedState`.
 /// Returns `None` if the file is missing or the legacy fields are absent.
+///
+/// Per-entry resilience: deserialize each map entry independently and
+/// drop the row if it fails to parse. Otherwise a single corrupt or
+/// pre-2025-shape entry would abort the entire migration and trigger a
+/// full re-upload (sync orchestrator treats an empty map as "new
+/// install" — every local file gets uploaded as duplicates of what's
+/// already on the server). The deleted TS test
+/// "drops map entries that are missing required fields" specifically
+/// covered this contract.
 fn import_legacy_state(notes_root: &Path) -> Option<PersistedState> {
     let raw = std::fs::read_to_string(legacy_app_state_path(notes_root)).ok()?;
     let v: serde_json::Value = serde_json::from_str(&raw).ok()?;
@@ -233,8 +254,25 @@ fn import_legacy_state(notes_root: &Path) -> Option<PersistedState> {
     if map_v.is_null() {
         return None;
     }
-    let object_map: HashMap<String, E2eeObjectMapEntry> =
+    let raw_map: HashMap<String, serde_json::Value> =
         serde_json::from_value(map_v.clone()).ok()?;
+    let mut object_map: HashMap<String, E2eeObjectMapEntry> = HashMap::with_capacity(raw_map.len());
+    let mut dropped = 0usize;
+    for (filename, entry_v) in raw_map {
+        match serde_json::from_value::<E2eeObjectMapEntry>(entry_v) {
+            Ok(entry) => {
+                object_map.insert(filename, entry);
+            }
+            Err(_) => {
+                dropped += 1;
+            }
+        }
+    }
+    if dropped > 0 {
+        eprintln!(
+            "[e2ee] legacy import: dropped {dropped} object_map entries with missing/invalid fields"
+        );
+    }
     let max_version = v
         .get("e2eeMaxVersion")
         .and_then(|x| x.as_u64())
@@ -370,6 +408,49 @@ mod tests {
         // Optional fields gracefully missing.
         assert!(beta.hash.is_none());
         assert!(beta.mtime_ms.is_none());
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn legacy_import_drops_bad_entries_keeps_valid_ones() {
+        // Regression: a single corrupt entry must NOT abort the whole
+        // migration. Before this fix, `serde_json::from_value::<HashMap<…>>`
+        // failed wholesale on one bad row, the migration returned None,
+        // and the Rust client started with an empty object_map — combined
+        // with the missing-reconcile path, every local note got re-
+        // uploaded as a fresh blob on the next sync.
+        let root = temp_root();
+        let legacy = r#"{
+            "e2eeObjectMap": {
+                "good.md": {
+                    "objectId": "oA",
+                    "version": 1,
+                    "blobKey": "bkA"
+                },
+                "missing-blobkey.md": {
+                    "objectId": "oB",
+                    "version": 7
+                },
+                "wrong-type.md": "not-an-object",
+                "another-good.md": {
+                    "objectId": "oC",
+                    "version": 2,
+                    "blobKey": "bkC",
+                    "hash": "h2"
+                }
+            },
+            "e2eeMaxVersion": 50
+        }"#;
+        std::fs::write(legacy_app_state_path(&root), legacy).unwrap();
+        let loaded = load_or_migrate(&root);
+        assert!(loaded.migrated_from_legacy);
+        assert_eq!(loaded.max_version, 50);
+        // Two valid rows survive; two bad rows dropped.
+        assert_eq!(loaded.object_map.len(), 2);
+        assert!(loaded.object_map.contains_key("good.md"));
+        assert!(loaded.object_map.contains_key("another-good.md"));
+        assert!(!loaded.object_map.contains_key("missing-blobkey.md"));
+        assert!(!loaded.object_map.contains_key("wrong-type.md"));
         std::fs::remove_dir_all(&root).ok();
     }
 

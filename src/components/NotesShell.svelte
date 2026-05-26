@@ -17,6 +17,7 @@
     getAllNotes,
     createNote,
     deleteNote,
+    whenNotesReady,
   } from '$lib/notes.svelte';
   import { sanitizeFilename } from '$lib/utils';
   import type { SyncSummary } from '$lib/syncServiceE2ee';
@@ -553,12 +554,24 @@
     const initialHashNoteId = noteIdFromHash(window.location.hash);
     if (isDesktop) {
       if (localStorage.getItem('futo-notes:sidebarCollapsed') === 'true') sidebarCollapsed = true;
-      import('$lib/platform/tauri')
-        .then(({ getConfig, saveConfig }) => getConfig().then((cfg) => ({ cfg, saveConfig })))
-        .then(({ cfg, saveConfig }) => {
+      // Wait for the initial note scan to finish BEFORE we build the
+      // valid-noteIds predicate. Otherwise on a cold sandbox (especially
+      // iOS) `getConfig()` resolves faster than `initNotes()` populates
+      // `appCtx.notes`, every persisted noteId fails the predicate, and
+      // the user silently loses every tab from the prior session.
+      Promise.all([
+        import('$lib/platform/tauri').then(({ getConfig, saveConfig }) =>
+          getConfig().then((cfg) => ({ cfg, saveConfig })),
+        ),
+        whenNotesReady(),
+      ])
+        .then(([{ cfg, saveConfig }]) => {
           if (cfg.sidebarWidth) sidebarWidth = cfg.sidebarWidth;
           if (cfg.graphSidebarWidth) graphSidebarWidth = cfg.graphSidebarWidth;
-          const noteIndex = new Map(appCtx.notes.map((n) => [n.id, true] as const));
+          // Read live notes here (not the captured `appCtx.notes`) so we
+          // catch any updates that landed between the await and now.
+          const live = hasFileSystem ? getAllNotes() : [];
+          const noteIndex = new Set(live.map((n) => n.id));
           tabsStore.hydrate(cfg.openTabs ?? null, (id) => noteIndex.has(id), initialHashNoteId);
           // Wire the persister with a small debounce — tab edits can burst
           // (drag-reorder fires many moves per second).
@@ -570,15 +583,26 @@
             }, 250);
           });
         })
-        .catch(() => {
+        .catch((err) => {
+          // Config or platform-FS dynamic import failed. Do NOT call
+          // `tabsStore.hydrate(null, () => false, …)` — that marks the
+          // store hydrated for the session AND would refuse subsequent
+          // restore attempts. Worse, since we'd also not wire the
+          // persister, the user's persisted tabs on disk would be
+          // intact but the in-memory state would be a single fresh
+          // Home with no path back. Instead, hydrate ONLY for hash
+          // navigation; leave the persisted config on disk untouched.
+          console.warn('[tabs] hydrate path failed, falling back without persister:', err);
           const stored = localStorage.getItem('futo-notes:sidebarWidth');
           if (stored) sidebarWidth = parseInt(stored, 10) || 280;
           const graphStored = localStorage.getItem('futo-notes:graphSidebarWidth');
           if (graphStored) graphSidebarWidth = parseInt(graphStored, 10) || 320;
-          tabsStore.hydrate(null, () => false, initialHashNoteId);
+          // Pristine + hash → reuses the lone Home tab for the deep link;
+          // no persisted-tab destruction.
+          tabsStore.hydrate(null, () => true, initialHashNoteId);
         });
     } else {
-      tabsStore.hydrate(null, () => false, initialHashNoteId);
+      tabsStore.hydrate(null, () => true, initialHashNoteId);
     }
 
     // Native menu actions + file watcher

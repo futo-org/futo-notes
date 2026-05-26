@@ -105,8 +105,17 @@ object EditorImeShield {
         val len = safeText.length
         val s = selStart.coerceAtLeast(0).coerceAtMost(len)
         val e = selEnd.coerceAtLeast(s).coerceAtMost(len)
-        val active = snapshot().active
-        state.set(Snapshot(safeText, s, e, serial, active))
+        // CAS the snapshot atomically so we never clobber a concurrent
+        // setActive(false). Previously this read `snapshot().active` and
+        // then `state.set(...)`, racing with setActive: a JsBridge-thread
+        // setActive(false) landing between the two could be erased,
+        // leaving the shield active after focus moved to the title
+        // input — backspace there would then short-circuit on the empty
+        // CM6 shadow and refuse to delete characters.
+        state.updateAndGet { current ->
+            val active = (current ?: EMPTY).active
+            Snapshot(safeText, s, e, serial, active)
+        }
         updateCount.incrementAndGet()
     }
 

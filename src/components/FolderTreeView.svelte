@@ -7,6 +7,7 @@
     isFolderOpen,
     toggleFolderOpen,
     setDragHoverExpanded,
+    clearDragHoverExpanded,
     type TreeNode,
     type FolderNode,
   } from '$lib/folders.svelte';
@@ -136,6 +137,13 @@
     sourceParent = null;
     sourceFolderPath = null;
     sourceNoteId = null;
+    // Per the dragHoverExpanded spec: the drag must NOT persist this
+    // expand state once the drag ends — including cancels, drops on
+    // invalid targets, and self-drops where no drop handler runs.
+    // Drop handlers in DrawerSidebar also call clearDragHoverExpanded(),
+    // but they only fire on successful drops; this is the unconditional
+    // teardown path.
+    clearDragHoverExpanded();
   }
 
   function isValidFolderTarget(targetPath: string): boolean {

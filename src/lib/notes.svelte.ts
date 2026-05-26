@@ -36,6 +36,19 @@ const RECONCILE_CONCURRENCY = 8;
 // `$derived(sortedNotes)` and every `$effect` that reads `getAllNotes()`.
 let notesCache = $state<NotePreview[]>([]);
 let initialized = false;
+// Resolves once `initNotes()` has populated `notesCache`. Consumers that
+// need an accurate snapshot (e.g. tab-restore predicate) await this so
+// they don't run against an empty-but-not-yet-loaded cache.
+let notesReadyResolve: (() => void) | null = null;
+const notesReadyPromise: Promise<void> = new Promise((resolve) => {
+  notesReadyResolve = resolve;
+});
+
+/** Resolves once `initNotes()` finishes populating notesCache from disk.
+ *  Always-defined so callers can `await` regardless of init state. */
+export function whenNotesReady(): Promise<void> {
+  return notesReadyPromise;
+}
 
 // Tracks the in-flight (or completed) search-index bootstrap so search()
 // can wait for it without blocking initNotes() / UI rendering on it.
@@ -89,6 +102,11 @@ export async function initNotes(onStep?: (label: string) => void): Promise<void>
 
   onStep?.('initNotes: done');
   initialized = true;
+  // Wake any consumers that await whenNotesReady() — typically the tab
+  // restore in NotesShell, which must NOT build its valid-noteIds set
+  // against an empty pre-scan cache.
+  notesReadyResolve?.();
+  notesReadyResolve = null;
 }
 
 /** Test/diagnostic helper: resolve when the in-flight (or most recent)

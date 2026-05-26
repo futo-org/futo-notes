@@ -15,9 +15,17 @@ import {
   hasCaseInsensitiveSiblingCollision,
   isValidFolderName,
   MAX_FOLDER_DEPTH,
-  pathDepth,
   validateFolderName,
 } from '@futo-notes/shared';
+
+/** Count folder components in a relative folder path. Unlike `pathDepth`
+ *  in `@futo-notes/shared` (which is designed for NOTE paths and excludes
+ *  the leaf), every component of a folder path counts toward the depth. */
+function folderPathComponents(relPath: string): number {
+  const trimmed = relPath.replace(/^\/+|\/+$/g, '');
+  if (!trimmed) return 0;
+  return trimmed.split('/').filter(Boolean).length;
+}
 
 // ── Reactive state ────────────────────────────────────────────────────
 
@@ -381,7 +389,7 @@ export async function createFolder(
     };
   }
   const fullPath = parentPath ? `${parentPath}/${name}` : name;
-  if (pathDepth(fullPath) > MAX_FOLDER_DEPTH) {
+  if (folderPathComponents(fullPath) > MAX_FOLDER_DEPTH) {
     return { ok: false, error: `Folder depth cannot exceed ${MAX_FOLDER_DEPTH}` };
   }
   try {
@@ -410,7 +418,7 @@ export async function renameOrMoveFolder(
   if (fromPath === toPath) return { ok: true };
   // Each component of the new path must be valid.
   const components = toPath.split('/');
-  if (pathDepth(toPath) + 1 > MAX_FOLDER_DEPTH + 1) {
+  if (folderPathComponents(toPath) > MAX_FOLDER_DEPTH) {
     return { ok: false, error: `Folder depth cannot exceed ${MAX_FOLDER_DEPTH}` };
   }
   for (const c of components) {

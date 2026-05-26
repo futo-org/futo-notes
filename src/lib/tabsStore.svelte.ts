@@ -180,7 +180,11 @@ export const tabsStore = {
     if (noteId === 'new') {
       const existing = _tabs.find((t) => t.noteId === 'new');
       if (existing) {
-        _activeTabId = existing.id;
+        // 'foreground' and 'current' both want the existing 'new' tab in focus.
+        // 'background' must leave the caller's active tab alone — middle-click
+        // / cmd-click on a "new note" affordance shouldn't steal focus just
+        // because a stale 'new' tab exists.
+        if (mode !== 'background') _activeTabId = existing.id;
         persist();
         return existing;
       }
@@ -190,6 +194,9 @@ export const tabsStore = {
       const tab = findTab(_activeTabId) ?? _tabs[0]!;
       tab.noteId = noteId;
       tab.state = undefined;
+      // Clear stale pendingFolder — the user picked a different note for this
+      // tab, so the previously-armed save target no longer applies.
+      tab.pendingFolder = undefined;
       _activeTabId = tab.id;
       persist();
       return tab;
@@ -218,7 +225,9 @@ export const tabsStore = {
     const idx = findIndex(id);
     if (idx === -1) return;
     const [closed] = _tabs.splice(idx, 1);
-    if (closed && closed.noteId !== null) {
+    // 'new' tabs have no persistable body — reopening one would mint a
+    // duplicate 'new' tab and break the "one 'new' tab at a time" invariant.
+    if (closed && closed.noteId !== null && closed.noteId !== 'new') {
       _recentlyClosed.unshift({ id: closed.id, noteId: closed.noteId });
       if (_recentlyClosed.length > MAX_RECENTLY_CLOSED) {
         _recentlyClosed.length = MAX_RECENTLY_CLOSED;
@@ -349,6 +358,13 @@ export const tabsStore = {
         changed = true;
       }
     }
+    // Drop dead entries from the reopen queue too — reopening a deleted
+    // note would surface a broken tab with no source on disk.
+    const beforeClosed = _recentlyClosed.length;
+    _recentlyClosed = _recentlyClosed.filter(
+      (t) => t.noteId === null || t.noteId === 'new' || isValid(t.noteId),
+    );
+    if (_recentlyClosed.length !== beforeClosed) changed = true;
     if (changed) persist();
   },
 
@@ -357,6 +373,14 @@ export const tabsStore = {
     for (const tab of _tabs) {
       if (tab.noteId === from) {
         tab.noteId = to;
+        changed = true;
+      }
+    }
+    // Keep the reopen queue consistent with on-disk ids so Cmd+Shift+T
+    // restores the renamed note, not a ghost of its old name.
+    for (const t of _recentlyClosed) {
+      if (t.noteId === from) {
+        t.noteId = to;
         changed = true;
       }
     }

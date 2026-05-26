@@ -346,12 +346,23 @@ fn map_notify_event(event: &Event) -> Option<MappedEvent> {
 
 /// Convert an absolute path inside `base` to the relative-path identifier
 /// the JS layer uses (forward slashes, .md kept). Returns None if the
-/// path is not under `base` or has no `.md` extension.
+/// path is not under `base`, has no `.md` extension, or sits inside any
+/// hidden directory (`.git`, `.obsidian`, etc.) — mirrors the
+/// `filter_entry` skip used by `fs_list_notes_with_meta_impl` so the
+/// watcher doesn't emit events for files the indexer ignored.
 fn relative_md_path(base: &Path, path: &Path) -> Option<String> {
     let stripped = path.strip_prefix(base).ok()?;
     let s = stripped.to_str()?;
     if !s.ends_with(".md") && !s.ends_with(".txt") {
         return None;
+    }
+    // Reject anything under a hidden directory (or a hidden file itself).
+    // Each path component is checked: `.git/HEAD.md` → skip,
+    // `Specs/.draft.md` → skip, `Specs/folder.md` → keep.
+    for component in s.split(|c: char| c == '/' || c == '\\') {
+        if component.starts_with('.') {
+            return None;
+        }
     }
     // Normalize `\` to `/` for cross-platform consistency.
     Some(s.replace('\\', "/"))
@@ -588,17 +599,15 @@ fn emit_fs_rename(
     from: &str,
     to: &str,
 ) {
-    let suppress_from = if let Ok(mut map) = suppressed.lock() {
+    // Hold the lock across both checks so a concurrent retain/insert
+    // can't make from/to disagree about whether the rename should be
+    // suppressed (TOCTOU between two separate `lock()` calls).
+    let (suppress_from, suppress_to) = if let Ok(mut map) = suppressed.lock() {
         let now = now_ms();
         map.retain(|_, expiry| *expiry > now);
-        map.contains_key(from)
+        (map.contains_key(from), map.contains_key(to))
     } else {
-        false
-    };
-    let suppress_to = if let Ok(map) = suppressed.lock() {
-        map.contains_key(to)
-    } else {
-        false
+        (false, false)
     };
     if suppress_from && suppress_to {
         return;

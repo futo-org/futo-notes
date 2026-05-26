@@ -220,17 +220,21 @@
   }
 
   async function confirmDeleteFolder(path: string): Promise<void> {
+    // window.confirm doesn't block in Tauri webviews (see AGENTS.md), so
+    // we must NOT fall back to it. If `ask` throws (missing dialog
+    // capability, etc.), treat as "cancel" — silently destroying user
+    // data on a dialog plugin error would be far worse than refusing
+    // to act.
     let confirmed = false;
     try {
       confirmed = await ask(
         'Delete this folder? Notes inside it will be moved to the parent folder.',
         { title: 'Delete folder', kind: 'warning' },
       );
-    } catch {
-      // Fallback to window.confirm in non-Tauri/test environments
-      confirmed = typeof window !== 'undefined' && window.confirm
-        ? window.confirm(`Delete folder "${path}"? Notes inside it will be moved to the parent folder.`)
-        : true;
+    } catch (err) {
+      console.warn('[delete-folder] confirmation dialog failed:', err);
+      showToast('Unable to show confirmation dialog');
+      return;
     }
     if (!confirmed) return;
     // Folder deletion is non-destructive: remove the path segment and
@@ -243,7 +247,7 @@
       .filter((n) => n.id.startsWith(prefix))
       .map((n) => n.id);
     const moved = new Map<string, string>();
-    let failed = 0;
+    const failedIds: string[] = [];
     for (const id of noteIds) {
       const tail = id.slice(prefix.length);
       const target = parent ? `${parent}/${tail}` : tail;
@@ -251,8 +255,20 @@
         const result = await moveNote(id, target);
         moved.set(id, result.id);
       } catch {
-        failed++;
+        failedIds.push(id);
       }
+    }
+    // CRITICAL: never call deleteFolder() while notes inside it still
+    // failed to move out. On mobile fs_delete_folder is a hard
+    // remove_dir_all; on desktop it routes to the system trash. Either
+    // way the orphan notes go with it — silent data loss. Bail and
+    // surface the partial move to the user.
+    if (failedIds.length > 0) {
+      await refreshEmptyFolders(getAllNotes());
+      showToast(
+        `Folder NOT deleted — ${failedIds.length} note${failedIds.length > 1 ? 's' : ''} could not move`,
+      );
+      return;
     }
     const folderResult = await deleteFolder(path);
     if (!folderResult.ok) {
@@ -265,9 +281,7 @@
       onselect(moved.get(activeId) ?? '__home__');
     }
     const movedCount = moved.size;
-    if (failed > 0) {
-      showToast(`Folder deleted; ${failed} note${failed > 1 ? 's' : ''} failed to move`);
-    } else if (movedCount > 0) {
+    if (movedCount > 0) {
       showToast(`Folder deleted; moved ${movedCount} note${movedCount > 1 ? 's' : ''}`);
     } else {
       showToast('Folder deleted');
@@ -275,16 +289,18 @@
   }
 
   async function confirmDeleteNote(id: string): Promise<void> {
+    // Same rule as confirmDeleteFolder: never fall back to window.confirm
+    // in Tauri webviews. A dialog failure is treated as cancel.
     let confirmed = false;
     try {
       confirmed = await ask(`Delete note "${idLeaf(id)}"?`, {
         title: 'Delete note',
         kind: 'warning',
       });
-    } catch {
-      confirmed = typeof window !== 'undefined' && window.confirm
-        ? window.confirm(`Delete note "${id}"?`)
-        : true;
+    } catch (err) {
+      console.warn('[delete-note] confirmation dialog failed:', err);
+      showToast('Unable to show confirmation dialog');
+      return;
     }
     if (!confirmed) return;
     try {
