@@ -1,14 +1,9 @@
 // @vitest-environment jsdom
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, resolve } from 'node:path';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mount, unmount } from 'svelte';
 import TabsStrip from './TabsStrip.svelte';
 import { tabsStore } from '$lib/tabsStore.svelte';
 import { APP_CONTEXT_KEY, createAppContext } from '$lib/appContext.svelte';
-
-const HERE = dirname(fileURLToPath(import.meta.url));
 
 describe('TabsStrip', () => {
   let target: HTMLDivElement;
@@ -37,6 +32,7 @@ describe('TabsStrip', () => {
     }
     target.remove();
     document.documentElement.style.removeProperty('--macos-titlebar-inset');
+    document.documentElement.style.removeProperty('--macos-traffic-lights-width');
   });
 
   it('clicking the "+" button creates a new tab', () => {
@@ -50,24 +46,16 @@ describe('TabsStrip', () => {
     expect(tabsStore.tabs.length).toBe(2);
   });
 
-  it('reserves room for the macOS titlebar drag region so the "+" button is clickable', () => {
-    // App.svelte sets `--macos-titlebar-inset: 28px` on macOS desktop and
-    // overlays a fixed `data-tauri-drag-region` div at top:0 / z-index:100
-    // so the user can drag the window from the system-titlebar zone. The
-    // tabs strip sits at the top of the notes shell — without accounting
-    // for this inset, the drag region overlays the "+" button and Tauri
-    // swallows the mousedown for window-drag, so the click never reaches
-    // the button. Cmd+T still works because it bypasses the overlay.
-    //
-    // jsdom doesn't run vite-plugin-svelte's CSS injection so we read the
-    // source <style> block directly and assert the strip declares a top
-    // offset bound to the inset variable.
-    const src = readFileSync(resolve(HERE, 'TabsStrip.svelte'), 'utf8');
-    const styleBlock = src.match(/<style>([\s\S]+?)<\/style>/);
-    expect(styleBlock, 'expected a <style> block in TabsStrip.svelte').not.toBeNull();
-
-    const tabsStripRule = styleBlock![1].match(/\.tabs-strip\s*\{[\s\S]*?\}/);
-    expect(tabsStripRule, 'expected a .tabs-strip rule').not.toBeNull();
-    expect(tabsStripRule![0]).toMatch(/var\(--macos-titlebar-inset/);
+  it('strip is a Tauri drag region so the user can drag the window from its empty area', () => {
+    // The strip lives at viewport y=0 on Mac (no more drag overlay
+    // pushing tabs down). To keep window-drag possible, the strip
+    // itself carries `data-tauri-drag-region`; per Tauri's docs the
+    // attribute applies only to the element it's on, so child buttons
+    // (tab pills, "+") still receive clicks normally. Removing this
+    // would either kill window-drag from the tab band or, if a wrapper
+    // overlay were re-introduced, re-break the click target.
+    const strip = mountStrip();
+    expect(strip).not.toBeNull();
+    expect(strip.hasAttribute('data-tauri-drag-region')).toBe(true);
   });
 });

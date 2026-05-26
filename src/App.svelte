@@ -11,13 +11,24 @@
     document.documentElement.style.setProperty('--titlebar-height', '36px');
   }
   // macOS uses the system traffic lights over a transparent titlebar
-  // (configured in tauri.conf.json via "titleBarStyle": "Overlay"). The
-  // sidebar paints up to y=0, so we reserve space at the top of the
-  // sidebar header for the lights. Other platforms get 0.
+  // (configured in tauri.conf.json via "titleBarStyle": "Overlay" with
+  // `trafficLightPosition` set to vertically center the lights inside
+  // the tabs strip — Obsidian-style top-of-window tab bar).
+  //
+  // `--macos-titlebar-inset` pushes the sidebar header's content below
+  // where the traffic lights sit so they don't overlap.
+  //
+  // `--macos-traffic-lights-width` is the leading clearance the tabs
+  // strip / sidebar-expand-button need when the sidebar is COLLAPSED:
+  // there's no sidebar to host the lights so they overlap the strip's
+  // left edge directly. Three buttons starting at x≈19 with ~20px
+  // spacing land the rightmost light at ~x=80; 96px gives a small gap.
   if (isDesktop && isMac) {
     document.documentElement.style.setProperty('--macos-titlebar-inset', '28px');
+    document.documentElement.style.setProperty('--macos-traffic-lights-width', '96px');
   } else {
     document.documentElement.style.setProperty('--macos-titlebar-inset', '0px');
+    document.documentElement.style.setProperty('--macos-traffic-lights-width', '0px');
   }
   import { initNotes, createNote, getAllNotes, _injectTestNote, moveNote as moveNoteWithCollisionHandling } from '$lib/notes.svelte';
   import { loadPreferences, getCachedPreferences, savePreferences } from '$lib/appState';
@@ -276,13 +287,10 @@
   {#if showTitlebar}
     <TitleBar />
   {/if}
-  {#if isDesktop && isMac}
-    <!-- Transparent strip across the top edge so the user can drag the
-         window from anywhere in the system titlebar zone (the area
-         macOS reserves for the traffic lights). Clicks on the lights
-         themselves go to macOS, not this div. -->
-    <div class="macos-titlebar-drag" data-tauri-drag-region></div>
-  {/if}
+  <!-- macOS window drag is provided by the tabs strip itself
+       (data-tauri-drag-region on the strip background). Traffic lights
+       are positioned by Tauri via `trafficLightPosition` in
+       tauri.conf.json so they vertically center inside the strip. -->
   <NotesShell {noteId} />
 {:else}
   <div class="loading-screen">
@@ -334,12 +342,4 @@
     to { transform: rotate(360deg); }
   }
 
-  .macos-titlebar-drag {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: var(--macos-titlebar-inset, 28px);
-    z-index: 100;
-  }
 </style>
