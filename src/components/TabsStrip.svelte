@@ -254,6 +254,11 @@
     display: flex;
     align-items: center;
     gap: 4px;
+    /* macOS: leave room for the fixed data-tauri-drag-region overlay
+       (top:0 / z-index:100) so Tauri doesn't swallow mousedown on the "+"
+       and the upper edge of the tab pills for window-drag. Elsewhere this
+       var is 0. */
+    margin-top: var(--macos-titlebar-inset, 0px);
     height: 36px;
     padding: 0 6px;
     background: var(--color-surface, var(--color-bg));
