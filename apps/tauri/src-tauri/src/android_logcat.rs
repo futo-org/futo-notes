@@ -35,7 +35,18 @@ const MAX_STACK_BYTES: usize = 8000;
 
 /// Substrings that flag a logcat line as crash-related. Kept narrow so
 /// we don't blow up the report with unrelated chatter.
-const CRASH_SIGNALS: &[&str] = &[
+///
+/// **Primary** signals indicate an actual crash — a fatal POSIX signal,
+/// a Java FATAL EXCEPTION, a Rust panic, or a tombstone. We require at
+/// least one of these to be present before writing a crash report.
+///
+/// **Secondary** signals are useful as context but also fire on clean
+/// force-quits (the system kills the chromium renderer subprocess
+/// before the main app, so we see "Renderer process gone" / "WebView
+/// crashed" / "Lost connection to chromium" in logcat even when nothing
+/// actually crashed). On their own they don't justify a crash report;
+/// with a primary signal they get included as supporting context.
+const PRIMARY_CRASH_SIGNALS: &[&str] = &[
     "FATAL EXCEPTION",
     "AndroidRuntime: FATAL",
     "SIGSEGV",
@@ -45,14 +56,17 @@ const CRASH_SIGNALS: &[&str] = &[
     "libc    : Fatal",
     "thread '",
     "panicked at",
+    "tombstone_",
+    "Abort message",
+];
+
+const SECONDARY_CRASH_SIGNALS: &[&str] = &[
     "RenderProcessGoneDetail",
     "Renderer process (",
     "WebViewChromium: WebView crashed",
     "SIGTRAP",
     "signal 5",
-    "tombstone_",
     "Lost connection to chromium",
-    "Abort message",
 ];
 
 /// Try to capture a native crash from the previous session into the
@@ -64,6 +78,15 @@ pub fn capture_previous_native_crash(crashlog_dir: &Path, package: &str) -> bool
     };
     let interesting = filter_interesting_lines(&lines, package);
     if interesting.is_empty() {
+        return false;
+    }
+    // Secondary signals (renderer-gone, WebView crashed, lost connection
+    // to chromium, SIGTRAP) also fire on a clean force-quit when the
+    // system kills the chromium renderer before the main app. Bail out
+    // if we don't have at least one primary signal — otherwise every
+    // swipe-away or "Force Stop" surfaces a spurious crash dialog on
+    // next launch.
+    if !contains_primary_signal(&interesting) {
         return false;
     }
     let hash = hash_lines(&interesting);
@@ -148,7 +171,14 @@ fn filter_interesting_lines(lines: &[String], package: &str) -> Vec<String> {
 }
 
 fn is_crash_signal(line: &str) -> bool {
-    CRASH_SIGNALS.iter().any(|s| line.contains(s))
+    PRIMARY_CRASH_SIGNALS.iter().any(|s| line.contains(s))
+        || SECONDARY_CRASH_SIGNALS.iter().any(|s| line.contains(s))
+}
+
+fn contains_primary_signal(lines: &[String]) -> bool {
+    lines
+        .iter()
+        .any(|l| PRIMARY_CRASH_SIGNALS.iter().any(|s| l.contains(s)))
 }
 
 /// True if the logcat line's tag is `crashpad` (any priority). Format is
@@ -326,6 +356,26 @@ mod tests {
         let c = vec!["line one".to_string(), "line three".to_string()];
         assert_eq!(hash_lines(&a), hash_lines(&b));
         assert_ne!(hash_lines(&a), hash_lines(&c));
+    }
+
+    #[test]
+    fn contains_primary_signal_requires_real_crash() {
+        // Renderer-gone / WebView-crashed / Lost-connection-to-chromium /
+        // SIGTRAP can all fire on a clean force-quit. Without a primary
+        // signal alongside them, we should NOT treat the previous
+        // session as crashed.
+        let force_quit = vec![
+            "05-11 15:00:00.000  200  200 W AwContents: RenderProcessGoneDetail{didCrash=true, rendererPriorityAtExit=0}".to_string(),
+            "05-11 15:00:00.001  200  200 W cr_AwContents: Renderer process (pid 1234) crashed or was killed".to_string(),
+            "05-11 15:00:00.002  200  200 E chromium: Lost connection to chromium".to_string(),
+        ];
+        assert!(!contains_primary_signal(&force_quit));
+
+        let real_crash = vec![
+            "05-11 15:00:00.000  200  200 F libc    : Fatal signal 11 (SIGSEGV)".to_string(),
+            "05-11 15:00:00.001  200  200 W AwContents: RenderProcessGoneDetail{didCrash=true}".to_string(),
+        ];
+        assert!(contains_primary_signal(&real_crash));
     }
 
     #[test]

@@ -197,6 +197,14 @@
     // Flush any crashes queued in localStorage to files
     await flushCrashQueue();
 
+    // In dev mode, the crash dialog is mostly noise — force-quits, MCP
+    // kills, and frequent rebuilds produce spurious reports that get in
+    // the way. Discard anything pending and skip the dialog/auto-send.
+    if (import.meta.env.DEV) {
+      await discardAllPendingReports().catch(() => {});
+      return;
+    }
+
     if (!prefs.crashReporting.enabled) return;
 
     // Load pending crash reports
