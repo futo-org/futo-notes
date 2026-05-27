@@ -977,7 +977,7 @@
         <ForYouPage onbrowse={() => setDrawerOpen(true)} onquickcapture={createNewNote} />
       {/if}
     </div>
-    <SyncStatusBar statusMessage={sync.syncStatusMessage} indicatorVisible={sync.syncIndicatorVisible} offline={sync.syncOffline} />
+    <SyncStatusBar statusMessage={sync.syncStatusMessage} indicatorVisible={sync.syncIndicatorVisible} offline={sync.syncOffline} error={sync.syncError} errorMessage={sync.syncErrorMessage} />
   </div>
 
   {#if isMobile && MarkdownToolbar}

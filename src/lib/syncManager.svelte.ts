@@ -21,6 +21,7 @@ import {
   refreshNotesFromStorage,
 } from '$lib/notes.svelte';
 import { startAutoSyncV2, stopAutoSyncV2, notifySavedV2 } from '$lib/autoSyncV2';
+import { getSyncErrorMessage } from '$lib/syncErrorMessage';
 
 // ── Dependency interface ─────────────────────────────────────────────────
 
@@ -65,6 +66,10 @@ export interface SyncManager {
   readonly syncIndicatorVisible: boolean;
   /** Reactive: whether the app is offline. */
   readonly syncOffline: boolean;
+  /** Reactive: whether the last sync attempt failed (cleared on next successful sync). */
+  readonly syncError: boolean;
+  /** Reactive: human-readable message for the last sync error (empty when none). */
+  readonly syncErrorMessage: string;
 
   /** The write suppressor instance — shared with noteSession. */
   readonly writeSuppressor: WriteSuppressor;
@@ -117,6 +122,8 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
   let syncStatusMessage = $state('');
   let syncIndicatorVisible = $state(false);
   let syncOffline = $state(false);
+  let syncError = $state(false);
+  let syncErrorMessage = $state('');
 
   // ── Internal state ──
   let externalRescanTimer: number | null = null;
@@ -239,6 +246,8 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
   // ── Sync complete handler ──
 
   async function handleSyncComplete(summary: SyncSummary): Promise<void> {
+    syncError = false;
+    syncErrorMessage = '';
     function applyActiveRename(fromId: string, toId: string): void {
       const meta = getNoteById(toId);
       const newTitle = meta?.title ?? toId;
@@ -350,7 +359,11 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
     const coord = syncCoord;
     startAutoSyncV2({
       onSyncComplete: handleSyncComplete,
-      onSyncError: (err) => console.warn('Auto-sync error:', err),
+      onSyncError: (err) => {
+        syncError = true;
+        syncErrorMessage = getSyncErrorMessage(err);
+        console.warn('Auto-sync error:', err);
+      },
       flushPendingSave: deps.flushSave,
       shouldDeferSync: coord.shouldDeferSync,
       onOfflineChange: coord.onOfflineChange,
@@ -374,6 +387,8 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
     get syncStatusMessage() { return syncStatusMessage; },
     get syncIndicatorVisible() { return syncIndicatorVisible; },
     get syncOffline() { return syncOffline; },
+    get syncError() { return syncError; },
+    get syncErrorMessage() { return syncErrorMessage; },
 
     writeSuppressor,
     watcherBatch,

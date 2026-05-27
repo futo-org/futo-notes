@@ -3,9 +3,11 @@
     statusMessage: string;
     indicatorVisible: boolean;
     offline: boolean;
+    error: boolean;
+    errorMessage: string;
   }
 
-  let { statusMessage, indicatorVisible, offline }: Props = $props();
+  let { statusMessage, indicatorVisible, offline, error, errorMessage }: Props = $props();
 </script>
 
 {#if offline}
@@ -18,6 +20,13 @@
       <path d="M16.85 11.25a10 10 0 0 1 2.22 1.68"/>
       <path d="M5 12.86a10 10 0 0 1 5.17-2.86"/>
       <line x1="12" x2="12.01" y1="20" y2="20"/>
+    </svg>
+  </div>
+{:else if error}
+  <div class="sync-indicator sync-error" title={errorMessage}>
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <line x1="5" y1="5" x2="19" y2="19"/>
+      <line x1="19" y1="5" x2="5" y2="19"/>
     </svg>
   </div>
 {:else if indicatorVisible}
