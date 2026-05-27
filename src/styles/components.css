@@ -1384,6 +1384,13 @@
   color: var(--color-muted);
 }
 
+.sync-indicator.sync-error {
+  color: var(--color-muted);
+  opacity: 0.7;
+  pointer-events: auto;
+  cursor: help;
+}
+
 /* ===========================
    Sidebar Tag View
    =========================== */

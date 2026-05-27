@@ -5,6 +5,7 @@
   import { applyThemePreference, type ThemePreference } from '$lib/theme';
   import { connectE2ee, disconnectE2ee, hasStoredSyncPassword, forgetStoredSyncPassword, setSyncProgressListener } from '$lib/syncServiceE2ee';
   import { requestSyncV2 } from '$lib/autoSyncV2';
+  import { getSyncErrorMessage } from '$lib/syncErrorMessage';
   import { getAppVersion } from '$lib/crashHandler';
   import { showGlobalToast } from '$lib/toast';
   import { ask } from '@tauri-apps/plugin-dialog';
@@ -85,14 +86,7 @@
     await relaunch();
   }
 
-  function getErrorMessage(error: unknown): string {
-    const msg = error instanceof Error ? error.message : String(error);
-    // fetch throws opaque TypeErrors when the server is unreachable
-    if (error instanceof TypeError && /failed to fetch|load failed|networkerror/i.test(msg)) {
-      return 'Could not reach server — check the URL and make sure it\'s running';
-    }
-    return msg;
-  }
+  const getErrorMessage = getSyncErrorMessage;
 
   async function persistSyncUrl(): Promise<void> {
     // URL is persisted as part of connectE2ee state
