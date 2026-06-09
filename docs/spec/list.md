@@ -85,10 +85,9 @@ new-note affordances.
   live note count; tapping a tag expands an alphabetical list of its notes;
   tapping a note opens it. Tags inside inline code / fenced blocks are not
   counted. → SidebarTagView.svelte
-  > **Gap:** on Android Tauri, rendering the tags tab throws an uncaught
-  > Svelte `effect_update_depth_exceeded` and all UI interactivity dies until
-  > reload (observed 2026-06-09, emulator). Suspect the `$effect` cache-key
-  > write in SidebarTagView. Desktop unverified.
+  (A `$state`-proxy identity bug here used to throw
+  `effect_update_depth_exceeded` on render and brick all UI interactivity —
+  fixed 2026-06-09, regression-locked by SidebarTagView.test.ts.)
 - The images tab lists the vault's images (name, size, date) with a delete
   action; deleting does NOT rewrite notes that reference the image. →
   SidebarImageView.svelte
