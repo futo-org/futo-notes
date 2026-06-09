@@ -9,7 +9,7 @@
  */
 
 import { listen } from '@tauri-apps/api/event';
-import { hasFileSystem } from '$lib/platform';
+import { hasFileSystem, isTauri } from '$lib/platform';
 import { writeSuppressor as sharedWriteSuppressor, type WriteSuppressor } from '$lib/writeSuppression';
 import { createWatcherBatch, type WatcherBatch } from '$lib/watcherBatch';
 import { createSyncCoordinator, type SyncCoordinator } from '$lib/syncCoordinator';
@@ -398,10 +398,11 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
       onSyncStateChange: coord.onSyncStateChange,
     });
 
-    // Live SSE events from the Rust backend. Guarded on hasFileSystem so the
-    // web/test (jsdom) environment never touches the Tauri event bridge.
+    // Live SSE events from the Rust backend. Guarded on isTauri so non-Tauri
+    // environments (web dev, Playwright, jsdom) never touch the Tauri event
+    // bridge — hasFileSystem is true in dev-mode web, where listen() throws.
     let liveUnlisteners: Array<() => void> = [];
-    if (hasFileSystem) {
+    if (isTauri) {
       void listen('sync:live-synced', (e) => { void handleSyncComplete(e.payload as SyncSummary); })
         .then((un) => liveUnlisteners.push(un));
       void listen<{ live: boolean; status: string; message?: string }>('sync:live-state', (e) => { live = e.payload.live; })
