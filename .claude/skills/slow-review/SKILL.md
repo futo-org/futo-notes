@@ -1,0 +1,118 @@
+---
+name: slow-review
+description: Multi-agent slow code review. Runs Claude's code-review, /codex:review, and /codex:adversarial-review against the current diff or a PR, dedupes findings, ranks them critical/high/medium/low, and walks through fixes high-severity first. Inspired by Nolan Lawson's "using AI to write better code more slowly" workflow. Use when the user says "slow review", "deep review", "review with codex", "multi-agent review", "triple review", or wants a thorough cross-checked review before merging — especially before shipping sync, auth, encryption, migration, or other high-stakes changes. Trades speed for catching real bugs and surfacing pre-existing issues. Not for tiny diffs.
+---
+
+# Slow Review
+
+Three independent reviewers, dedupe, rank, fix the important ones. Inspired by Nolan Lawson's *"using AI to write better code more slowly"* — AI is a quality-assurance partner, not a slop cannon. Expect to uncover pre-existing issues; treat the side-quests as the point.
+
+## When this is the right tool
+
+- Before merging anything non-trivial — especially sync, auth, encryption, migrations, anything user-data-touching.
+- After a long coding session where you want a sanity sweep.
+- When the user says "slow review", "deep review", "triple review", "review with codex".
+
+Skip for: formatting-only diffs, fast-iterate-throwaway exploration, single-line fixes that already have a regression test.
+
+## Workflow
+
+### 1. Pin down scope
+
+```bash
+git fetch origin main --quiet 2>/dev/null || true
+git diff --stat origin/main...HEAD
+```
+
+If the user named a PR, branch, or commit range, use that instead. Show the file list and confirm scope in one sentence before starting. If the diff is empty, stop and tell them.
+
+### 2. Fan out three independent reviewers
+
+The point of independence is that each reviewer sees the diff with no shared context. That kills the echo chamber and surfaces findings any single pass would miss.
+
+Track the three reviews with TaskCreate so none get lost.
+
+**Reviewer A — Claude `/code-review` at high effort.** Invoke via the Skill tool with `code-review` and effort `high`. This is your own pass, in-conversation.
+
+**Reviewers B + C — Codex.** These slash commands are user-only (`disable-model-invocation: true`), so you cannot fire them yourself. Hand off cleanly:
+
+> Please run these in parallel in this session and paste each result back when ready:
+>
+> - `/codex:review --background`
+> - `/codex:adversarial-review --background`
+>
+> The adversarial pass is the one that asks "should we be doing this at all?" — it's where design-level findings come from.
+
+While the user runs Codex, you can do Reviewer A in the foreground. When all three are in, move on. Do not skip the adversarial pass unless the user explicitly says so — that's the one Lawson highlights as having outsized value.
+
+### 3. Dedupe, rank, validate
+
+Concatenate all findings. Then:
+
+- **Dedupe.** Collapse near-identical findings into one row. Note which reviewers flagged it — 3/3 carries more weight than 1/3.
+- **Validate.** For each finding, look at the code yourself. Confirm it reproduces. False positives are common, especially from the adversarial pass. Drop or downgrade ones that don't hold up — and note in your summary that you did.
+- **Rank by severity:**
+  - **Critical** — data loss, security hole, crash, encryption break, state-corrupting race.
+  - **High** — wrong behavior on common paths, missing error handling at trust boundaries, obvious perf regression.
+  - **Medium** — wrong behavior on rare paths, missed edge cases, poor UX, missing test for risky logic.
+  - **Low** — style, naming, minor refactor opportunities, doc gaps.
+
+### 4. Present the punch list before fixing
+
+Show the ranked list first. Don't start fixing until the user picks what to address.
+
+```
+CRITICAL (N)
+  1. <finding> — flagged by [A, B, C]
+HIGH (N)
+  ...
+MEDIUM (N) — [user, want any of these?]
+LOW (N) — [skip by default]
+```
+
+Default recommendation: **fix critical + high, skip medium + low** unless cheap. Be willing to say "this PR has a fundamental design problem — consider abandoning or restructuring" if the adversarial pass surfaces one and you agree after looking. Lawson's point is that the brave call is sometimes "throw this away," not "patch it."
+
+### 5. Fix in passes, smallest diff per fix
+
+For each approved fix:
+
+- Apply the minimal change. No neighborhood cleanup — `bugfix` skill rules apply.
+- If the fix exposes a pre-existing bug the PR didn't introduce, **surface it as a side-quest** the user opts into. Don't silently widen the diff.
+- Add a regression test where applicable (see AGENTS.md test requirements table).
+- Commit per logical fix or per severity tier — keeps reviewable history.
+
+### 6. Re-verify and report
+
+Run the project verification chain that matches what you touched (per AGENTS.md). If anything substantial changed, ask the user to run `/codex:review --background` once more on just the new commits.
+
+Final report:
+
+- **Findings** — count by severity, with how many fixed / dropped as false positive / deferred.
+- **Fixes applied** — one line each, with files touched.
+- **Pre-existing issues surfaced** — so the user can file follow-ups.
+- **Verification** — commands run, pass/fail.
+- **Recommendation** — ship / iterate / abandon.
+
+## Custom bug rubric
+
+Beyond standard correctness, flag findings against these (Lawson's expanded definition of "bug"):
+
+- **KISS / DRY violations** — duplicated logic, abstractions invented before second use.
+- **Accessibility** — missing labels, contrast, keyboard traps, ARIA misuse.
+- **SQL / indexing** — full scans, missing indexes, N+1, transaction gaps.
+- **Trust boundaries** — missing validation at user input, external API, deserialization.
+- **Failure modes** — what happens when the network drops, disk fills, peer is malicious, sync conflicts.
+
+If the user wants to add their own rubric items, save them as a project memory and apply them on subsequent runs.
+
+## Why slow is the feature
+
+Lawson's observation: this workflow rarely speeds you up. It surfaces tangential problems that should be fixed. *That* is the value. If the user is in a hurry, suggest plain `/code-review` instead — but tell them what they're trading away.
+
+## Related
+
+- `/code-review` — single-reviewer Claude pass, faster.
+- `/codex:review`, `/codex:adversarial-review` — the two Codex passes this skill orchestrates.
+- `/codex:rescue` — delegate a substantial fix to Codex when one finding turns into a deep investigation.
+- `bugfix` skill — the discipline for applying each individual fix.
+- `verify` skill — the final verification chain after fixes land.
