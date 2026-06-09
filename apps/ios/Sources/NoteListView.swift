@@ -121,6 +121,9 @@ struct FolderContentsView: View {
     /// Note being moved (drives the move sheet).
     @State private var moveTarget: NoteItem?
 
+    /// Subfolder path pending deletion (drives the destructive confirmation).
+    @State private var folderToDelete: String?
+
     private var subfolders: [String] { store.subfolders(of: folder) }
     private var notes: [NoteItem] { store.notes(in: folder) }
 
@@ -179,6 +182,21 @@ struct FolderContentsView: View {
             MoveToFolderSheet(note: note, currentFolder: folder)
                 .environmentObject(store)
         }
+        .alert(
+            "Delete Folder?",
+            isPresented: Binding(
+                get: { folderToDelete != nil },
+                set: { if !$0 { folderToDelete = nil } }
+            ),
+            presenting: folderToDelete
+        ) { path in
+            Button("Delete", role: .destructive) { store.deleteFolder(path) }
+            Button("Cancel", role: .cancel) {}
+        } message: { path in
+            let name = path.split(separator: "/").last.map(String.init) ?? path
+            let n = store.noteCount(under: path)
+            Text("“\(name)” and its \(n) note\(n == 1 ? "" : "s") will be permanently deleted. This can’t be undone.")
+        }
     }
 
     private var list: some View {
@@ -196,6 +214,20 @@ struct FolderContentsView: View {
                             }
                         }
                         .listRowBackground(Theme.surface)
+                        .swipeActions(edge: .trailing) {
+                            Button(role: .destructive) {
+                                folderToDelete = child
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
+                        }
+                        .contextMenu {
+                            Button(role: .destructive) {
+                                folderToDelete = child
+                            } label: {
+                                Label("Delete Folder…", systemImage: "trash")
+                            }
+                        }
                     }
                 }
             }

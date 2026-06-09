@@ -11,7 +11,15 @@ final class SyncManager: ObservableObject {
     @Published private(set) var connected = false
     @Published private(set) var status = "Not connected"
     @Published private(set) var busy = false
+    /// A real pull/push/connect failure — shown in alarming red.
     @Published var lastError: String?
+
+    /// Live-stream (SSE) health, separate from `lastError`. A live-connect/stream
+    /// error is NOT a sync failure: the loop reconnects with backoff and the
+    /// periodic safety poll keeps reconciling. Kept distinct so a server without
+    /// SSE (HTTP 404 on /api/sync/events) or a transient stream drop surfaces as
+    /// a muted "live sync unavailable" hint, not a red "your sync broke" alarm.
+    @Published private(set) var liveError: String?
 
     /// Whether the SSE live stream is currently connected.
     @Published private(set) var live = false
@@ -37,6 +45,7 @@ final class SyncManager: ObservableObject {
     func connectAndSync(notesRoot: String, password: String) async {
         busy = true
         lastError = nil
+        liveError = nil
         status = "Connecting…"
         defer { busy = false }
         UserDefaults.standard.set(serverURL, forKey: "futo.serverURL")
@@ -96,8 +105,10 @@ final class SyncManager: ObservableObject {
         guard let c = client else { return }
         let listener = LiveListener(manager: self)
         liveListener = listener
+        // A live-start failure is a live-stream-health issue, not a sync
+        // failure — route it to the muted `liveError`, never the red `lastError`.
         do { try await c.startLive(listener: listener) }
-        catch { lastError = describe(error) }
+        catch { liveError = describe(error) }
     }
 
     /// Re-open the stream after returning to the foreground. No-op unless we have
@@ -128,13 +139,28 @@ final class SyncManager: ObservableObject {
     func applyLiveSummary(_ s: SyncSummary) {
         status = summarize(s)
         lastError = nil
+        liveError = nil  // a completed live pull means the stream is healthy
         // A live pull wrote to disk — refresh the note list (only when there's
         // an actual change, to skip needless rescans on no-op pulls).
         if s.downloaded > 0 || s.deleted > 0 { onLivePull?() }
     }
 
-    fileprivate func setLive(_ v: Bool) { live = v }
-    fileprivate func setLastError(_ m: String) { lastError = m }
+    fileprivate func setLive(_ v: Bool) {
+        live = v
+        if v { liveError = nil }  // a clean (re)connect clears the live-health hint
+    }
+
+    /// Sink for the Rust live loop's per-reconnect errors. Connect/stream
+    /// failures (`connect:` / `stream:` — the loop is retrying, the safety poll
+    /// still runs) are live-stream health and go to the muted `liveError`.
+    /// Anything else is a genuine failure and gets the red `lastError`.
+    fileprivate func setLastError(_ m: String) {
+        if m.hasPrefix("connect:") || m.hasPrefix("stream:") {
+            liveError = m
+        } else {
+            lastError = m
+        }
+    }
 
     func disconnect() async {
         if let c = client { try? await c.disconnect() }  // Rust stops live internally too
@@ -147,6 +173,7 @@ final class SyncManager: ObservableObject {
         Keychain.syncPassword = nil
         status = "Not connected"
         lastError = nil
+        liveError = nil
     }
 
     private func describe(_ error: Error) -> String {

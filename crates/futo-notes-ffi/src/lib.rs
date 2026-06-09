@@ -142,6 +142,14 @@ impl NoteStore {
     pub fn create_folder(&self, path: String) -> Result<String, NoteError> {
         model::create_folder(&self.root, &path).map_err(NoteError::Io)
     }
+
+    /// Delete a folder and ALL its contents recursively (missing is not an
+    /// error; refuses the root / path traversal). The caller should reload the
+    /// list and fire the local-change signal so a connected sync push tombstones
+    /// the removed notes on the server.
+    pub fn delete_folder(&self, path: String) -> Result<(), NoteError> {
+        model::delete_folder(&self.root, &path).map_err(NoteError::Io)
+    }
 }
 
 // ── Deterministic rule helpers (free functions) ─────────────────────────

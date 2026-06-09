@@ -37,8 +37,8 @@ pub use tags::{
     MAX_TAG_LENGTH,
 };
 pub use crud::{
-    create_folder, create_note, delete_note, make_id, make_preview, move_note, note_exists,
-    note_tags, read_note, rename_note, sanitize_folder_path, scan_folders, scan_notes, split_id,
-    write_note, NoteMetadata,
+    create_folder, create_note, delete_folder, delete_note, make_id, make_preview, move_note,
+    note_exists, note_tags, read_note, rename_note, sanitize_folder_path, scan_folders, scan_notes,
+    split_id, write_note, NoteMetadata,
 };
 pub use wikilinks::extract_wikilinks;

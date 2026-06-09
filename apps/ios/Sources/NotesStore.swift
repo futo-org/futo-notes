@@ -62,6 +62,10 @@ actor NoteVault {
         try core.createFolder(path: path)
     }
 
+    func deleteFolder(_ path: String) throws {
+        try core.deleteFolder(path: path)
+    }
+
     // MARK: - Seeding (runs on the actor, off-main)
 
     private func seedIfEmpty() {
@@ -181,6 +185,11 @@ final class NotesStore: ObservableObject {
 
     init() {
         let root = NotesStore.resolveNotesRoot()
+        // Log the active sandbox root so a "synced but no notes" report is
+        // diagnosable from device logs: distinct app installs (dev/release/custom
+        // bundle ids) use SEPARATE Documents containers, so notes pulled by one
+        // install never appear in another. Surfaced in the UI too (SyncView).
+        NSLog("[NotesStore] notesRoot = \(root.path)")
         self.notesRoot = root
         self.vault = NoteVault(notesRoot: root.path)
         // CRITICAL: do NOT scan/seed synchronously here — that would gate the
@@ -366,6 +375,23 @@ final class NotesStore: ObservableObject {
                 print("createFolder failed for \(path): \(error)")
             }
         }
+    }
+
+    /// Delete a folder and ALL its contents (notes + subfolders) recursively,
+    /// then reload. Fires `onLocalChange` so a connected live session pushes the
+    /// removals — the sync push diffs disk vs the object map and tombstones every
+    /// removed note on the server (same propagation as a single-note delete).
+    func deleteFolder(_ path: String) {
+        Task {
+            do { try await vault.deleteFolder(path); onLocalChange?() }
+            catch { print("deleteFolder failed for \(path): \(error)") }
+            reload()
+        }
+    }
+
+    /// Count of notes at or beneath `folder` (for the delete confirmation).
+    func noteCount(under folder: String) -> Int {
+        notes.filter { $0.folder == folder || $0.folder.hasPrefix(folder + "/") }.count
     }
 
     /// Immediate child folder paths of `folder` ("" = root). Sorted.
