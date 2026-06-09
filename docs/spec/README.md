@@ -19,6 +19,11 @@ satisfy it yet — that's what makes gaps visible.
 - `→ path` points at the code or learning doc that is the authority, or where
   the behavior is load-bearing.
 - `> **Gap:**` marks a known missing or divergent behavior we haven't closed.
+  All gaps roll up into the generated [GAPS.md](GAPS.md) — after adding or
+  closing one, run `just spec-gaps` and commit the result.
+  `just spec-gaps-check` (part of `just check`) fails when the rollup is
+  stale and runs closure probes (scripts/spec-gaps.mjs) that flag gaps the
+  codebase suggests have been implemented.
 
 ## Areas
 

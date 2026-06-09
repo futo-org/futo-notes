@@ -373,7 +373,17 @@ factory-summary:
     console.log('\\nWorst scenarios:'); \
     for (const x of fail.slice(0, 15)) console.log(' ', String(x.divergences.length).padStart(3), x.name);"
 
-check: verify-ime-shield
+# Regenerate docs/spec/GAPS.md from the inline `> **Gap:**` notes in
+# docs/spec/*.md (which remain the source of truth).
+spec-gaps:
+  node scripts/spec-gaps.mjs --write
+
+# Fail if GAPS.md is stale, or if a closure probe finds codebase evidence
+# that a recorded gap has been implemented (= the spec needs updating).
+spec-gaps-check:
+  node scripts/spec-gaps.mjs --check
+
+check: verify-ime-shield spec-gaps-check
   pnpm run lint
   pnpm run test:minimal
   pnpm exec tsc --noEmit | head -30
