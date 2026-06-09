@@ -1,6 +1,6 @@
 # AGENTS.md - FUTO Notes Tauri App
 
-Tauri v2 desktop + mobile shell. Thin Rust backend for performance-critical operations; most app logic is in the shared Svelte/TS layer (`src/`).
+Tauri v2 desktop + mobile shell. This is the **Tauri adapter**: a Rust backend that exposes the shared note domain (CRUD, rules, search, sync) to the Svelte UI via `#[tauri::command]`s, plus OS-level glue. The shared Svelte/TS layer (`src/`) owns the UI and reactive state and calls in.
 
 **Stack**: Rust + Tauri v2 + serde. Plugins: dialog, process, clipboard-manager, opener, fs, single-instance (desktop), mcp-bridge (debug).
 
@@ -8,19 +8,24 @@ From the monorepo root, prefer the `just` wrappers: `just tauri-dev`, `just taur
 
 ## Architecture
 
-**New features should be in TypeScript unless they are compute-heavy or need OS-level access** (see root AGENTS.md "TypeScript First"). The Rust-to-TypeScript migration moved most file I/O, note indexing, app config, and engagement tracking to TypeScript (`src/lib/`). What remains in Rust is what benefits from native performance or OS-level access:
+**The note domain lives in Rust.** CRUD, the note rules (title/tag/id/wikilink/preview), and full-text search are single-sourced in `futo-notes-model` / `futo-notes-core` / `futo-notes-search` — the same crates the native iOS/Android shells consume via the `futo-notes-ffi` UniFFI facade (see root AGENTS.md "Where Logic Lives"). Do not re-implement CRUD or search in TypeScript; call the commands. (The note rules are shared from `futo-notes-model` via the conformance-locked TS copy `src/lib/rules.ts` / the FFI facade rather than a Tauri command — see root AGENTS.md.) **TypeScript owns the UI and reactive state** (Svelte components, `notesCache` in `notes.svelte.ts`, tab/session state, sync coordination, the platform shell). Reserve net-new Rust for the note domain and existing compute-heavy paths.
 
-- **`core.rs`**: 14 Tauri commands — sync payload prep/apply (wraps `futo-notes-core`), filesystem watcher (`notify` crate), supersearch vector operations (download, query, per-note vectors), image save/paste, notes-dir override, and default path resolution. Every public command wraps an `_impl` function for testability.
-- **`lib.rs`**: App setup — plugin registration, platform-specific init (iOS safe-area, Linux GTK decorations, fd limit bump).
+The command surface (registered in `lib.rs` via `tauri::generate_handler!`) is split by module:
+
+- **`notes.rs`**: `notes_*` — note CRUD + scanning over `futo-notes-model::crud` (`notes_scan`, `notes_read`, `notes_write`, `notes_create`, `notes_delete`, `notes_rename`, `notes_move`, folder ops, trash). Mirrors the FFI `NoteStore` 1:1.
+- **`search.rs`**: `search_*` — desktop shim over `futo-notes-search` (Tantivy BM25 + SPLADE, background indexer, RRF fusion). The heavy lifting lives in the crate; this layer resolves paths, emits `search:status`, and exposes the commands. (Supersearch vector ops are gone — replaced by this engine.)
+- **`sync.rs`** / **`sync_state.rs`**: `e2ee_*` — the E2EE sync command surface over `futo-notes-sync`, plus the JS↔Rust state and watcher-suppression map.
+- **`core.rs`**: the remaining `fs_*` / path / device commands — filesystem watcher (`notify` crate, emits `fs:change`), image save/paste, folder ops not yet on the model, notes-dir override, default path resolution, soft-keyboard/haptics. Every public command wraps an `_impl` function for testability.
+- **`lib.rs`**: App setup — plugin registration, the `tauri::generate_handler!` `invoke_handler`, platform-specific init (iOS safe-area, Linux GTK decorations, fd limit bump).
 - **`main.rs`**: Entry point. Disables WebKitGTK DMA-BUF renderer on Linux for Wayland stability.
 
-TypeScript handles: note CRUD (`src/lib/notes.ts`), note index (`src/lib/notesIndex.ts`), app state/preferences (`src/lib/appState.ts`), search indexing (`src/lib/searchIndex.ts`), sync coordination (`src/lib/syncManager.svelte.ts`), and all file I/O via `@tauri-apps/plugin-fs` with atomic writes (`src/lib/platform/atomicWrite.ts`).
+TypeScript handles: reactive note state (`notes.svelte.ts`, `notesCache`), app state/preferences (`src/lib/appState.ts`), sync coordination (`src/lib/syncManager.svelte.ts`), and the search shim (`src/lib/searchEngine.ts`, which prefers the Rust engine and falls back to the live MiniSearch keyword index in `src/lib/searchIndex.ts`). Note I/O goes through the `notes_*` commands rather than `@tauri-apps/plugin-fs`.
 
 ## Key Patterns
 
-- **Atomic writes**: Both Rust (`write_atomic_text()` in core.rs) and TypeScript (`atomicWrite.ts`) use temp file + rename for crash safety. New file I/O should use the TS path unless there's a performance reason for Rust.
-- **Path safety**: Rust has `ensure_safe_note_id()` (from `futo_notes_core::files`); TypeScript has `pathSafety.ts`. Both block `..`, `.`, `/`, `\` — never bypass for user-supplied paths.
-- **Filesystem watcher**: `notify` crate in Rust watches notes dir for external edits, emits `note_changed` events. Sync writes suppress watcher events for 5s to avoid loops.
+- **Atomic writes**: Note writes go through `notes_write`, which uses `write_atomic_text()` (`futo_notes_core::files`) — temp file + rename for crash safety. The TS `atomicWrite.ts` helper remains for the rare non-note file the TS layer still writes directly.
+- **Path safety**: pushed DOWN into the crate — `futo_notes_core::files::safe_note_path` (used by `notes.rs`/`core.rs`) and `futo-notes-model`'s folder-path validation block `..`, `.`, `/`, `\`. TypeScript has `pathSafety.ts` for any path it forms before a command call. Never bypass for user-supplied paths.
+- **Filesystem watcher**: `notify` crate in Rust watches the notes dir for external edits and emits `fs:change` events; the Svelte store re-reads via command. Sync/note writes register the touched filename in the watcher-suppression map for 5s (`WATCHER_SUPPRESSION_MS`) so a Rust-driven write doesn't loop back as an external change.
 - **Platform configs**: `#[cfg(target_os = "...")]` and `#[cfg(debug_assertions)]` for platform/build-specific behavior.
 
 ## Dev Ports (avoid collisions)

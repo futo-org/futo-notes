@@ -282,22 +282,6 @@
     background: rgba(var(--ink-rgb), 0.06);
   }
 
-  .search-timing-row {
-    display: flex;
-    align-items: center;
-    padding: 6px 16px;
-    border-bottom: 1px solid var(--color-border);
-    flex-shrink: 0;
-  }
-
-  .search-timing {
-    margin-left: auto;
-    font-size: 11px;
-    color: var(--color-muted);
-    white-space: nowrap;
-    font-variant-numeric: tabular-nums;
-  }
-
   .search-results {
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
@@ -364,30 +348,6 @@
     text-transform: none;
   }
 
-  .source-badge {
-    font-size: 10px;
-    font-weight: 600;
-    padding: 1px 4px;
-    border-radius: 3px;
-    line-height: 1.2;
-    flex-shrink: 0;
-  }
-
-  .source-keyword {
-    background: color-mix(in srgb, var(--badge-keyword) 12%, transparent);
-    color: var(--badge-keyword);
-  }
-
-  .source-vector {
-    background: color-mix(in srgb, var(--badge-vector) 12%, transparent);
-    color: var(--badge-vector);
-  }
-
-  .source-both {
-    background: color-mix(in srgb, var(--badge-both) 12%, transparent);
-    color: var(--badge-both);
-  }
-
   .search-result-preview {
     font-size: 13px;
     color: var(--color-muted);
@@ -403,30 +363,6 @@
     border-radius: 2px;
     padding: 0 1px;
     color: var(--color-primary-hover);
-  }
-
-  .search-vector-indicator {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--color-primary);
-    opacity: 0.6;
-    flex-shrink: 0;
-    animation: pulse 1s ease-in-out infinite;
-  }
-
-  .search-vector-done {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--color-primary);
-    opacity: 0.4;
-    flex-shrink: 0;
-  }
-
-  @keyframes pulse {
-    0%, 100% { opacity: 0.3; }
-    50% { opacity: 0.8; }
   }
 
   .search-empty {

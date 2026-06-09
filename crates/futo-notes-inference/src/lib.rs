@@ -1,49 +1,32 @@
-//! On-device text embedding for FUTO Notes.
+//! On-device sparse retrieval for FUTO Notes.
 //!
 //! This crate wraps an ONNX Runtime session and a HuggingFace tokenizer behind
-//! a concrete [`Embedder`] struct. It is the building block for client-side
-//! semantic search and, eventually, local LLM features — but the abstraction
-//! stays deliberately thin: no trait between us and `ort::Session` until a
-//! second concrete implementation actually lands.
-//!
-//! # Phase 1 scope
-//!
-//! - Load a `model.onnx` + `tokenizer.json` pair from disk.
-//! - Embed a single string or a batch.
-//! - Resumable HTTP download with SHA-256 verification.
-//!
-//! Progress reporting, cancellation, background indexing, and Tauri wiring live
-//! in later phases.
+//! the SPLADE doc encoder — the building block for client-side semantic search.
+//! The abstraction stays deliberately thin: no trait between us and
+//! `ort::Session` until a second concrete implementation actually lands.
 
-mod download;
-mod embedder;
+mod error;
+mod splade_encoder;
 
-pub use download::{download_to, verify_sha256, DownloadTarget};
-pub use embedder::{Embedder, Error, Result};
+pub use error::{Error, Result};
+pub use splade_encoder::{
+    tokenize_only_query, SpladeDocEncoder, SpladeSparseVec, SPLADE_MAX_SEQ_LEN, SPLADE_VOCAB_SIZE,
+};
 
-/// Identifier of the starter model. Keep this in a central place so UI +
-/// download code + indexer all agree.
-pub const NOMIC_V15_MODEL_ID: &str = "nomic-embed-text-v1.5";
+// ---------------------------------------------------------------------------
+// SPLADE — inference-free learned sparse retrieval (OpenSearch v3-distill)
+// ---------------------------------------------------------------------------
 
-/// Output dimensionality of `nomic-embed-text-v1.5`. The model also supports
-/// Matryoshka truncation to 512/384/256/128 — we default to full 768 for
-/// Phase 1 and revisit on mobile.
-pub const NOMIC_V15_DIMS: usize = 768;
+/// Model identifier for the SPLADE doc encoder. Apache 2.0 license, ~67M
+/// params (DistilBERT base), inference-free at query time.
+pub const SPLADE_V3_DISTILL_MODEL_ID: &str = "opensearch-neural-sparse-encoding-doc-v3-distill";
 
-/// Prefix applied when embedding document text. Nomic models are trained with
-/// these instruction prefixes — omitting them measurably degrades quality.
-pub const NOMIC_DOCUMENT_PREFIX: &str = "search_document: ";
+/// Hugging Face URL for the ONNX export of the SPLADE doc encoder. The repo
+/// ships safetensors by default; the `onnx/` subdirectory contains the
+/// exported ONNX file.
+pub const SPLADE_V3_DISTILL_MODEL_URL: &str =
+    "https://huggingface.co/opensearch-project/opensearch-neural-sparse-encoding-doc-v3-distill/resolve/main/onnx/model.onnx";
 
-/// Prefix applied when embedding a search query.
-pub const NOMIC_QUERY_PREFIX: &str = "search_query: ";
-
-/// Hugging Face URL for the INT8-quantized ONNX file (~35 MB).
-///
-/// `resolve/main` returns the file contents directly (as opposed to `blob/main`
-/// which returns an HTML page).
-pub const NOMIC_V15_MODEL_URL: &str =
-    "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5/resolve/main/onnx/model_quantized.onnx";
-
-/// Hugging Face URL for the matching tokenizer.
-pub const NOMIC_V15_TOKENIZER_URL: &str =
-    "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5/resolve/main/tokenizer.json";
+/// Hugging Face URL for the matching WordPiece tokenizer.
+pub const SPLADE_V3_DISTILL_TOKENIZER_URL: &str =
+    "https://huggingface.co/opensearch-project/opensearch-neural-sparse-encoding-doc-v3-distill/resolve/main/tokenizer.json";

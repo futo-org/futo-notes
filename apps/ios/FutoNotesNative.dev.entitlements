@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- DEBUG-ONLY entitlements. Mirrors FutoNotesNative.entitlements but scopes
+	     the keychain-access-group to the dev bundle id (com.futo.notes.native.dev)
+	     so dev and prod sync credentials never collide. Wired via project.yml's
+	     Debug config (CODE_SIGN_ENTITLEMENTS). Release uses the prod entitlements
+	     file unchanged. -->
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)com.futo.notes.native.dev</string>
+	</array>
+</dict>
+</plist>

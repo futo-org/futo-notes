@@ -21,7 +21,9 @@
     "paths": {
       "$lib/*": ["src/lib/*"],
       "@/*": ["./*"],
-      "@futo-notes/shared": ["packages/shared/src"]
+      "@futo-notes/shared": ["packages/shared/src"],
+      "@futo-notes/editor": ["packages/editor/src"],
+      "@futo-notes/editor/*": ["packages/editor/src/*"]
     },
     "types": ["svelte", "vite/client"]
   },

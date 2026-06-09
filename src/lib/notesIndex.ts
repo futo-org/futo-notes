@@ -1,50 +1,30 @@
-import type { NotePreview } from "../types";
 import type { FileSystem } from "./platform/types";
-import { extractTags } from "@futo-notes/shared";
-import { extractHeadings } from "./searchIndex";
-import { runPool } from "./util/pool";
-
-// Concurrency for parallel body reads during startup scans. Matches the
-// existing E2EE push/pull pool size — on iOS Tauri IPC serializes enough
-// that going higher hasn't shown a measurable win.
-const READ_POOL_CONCURRENCY = 8;
-
-// ── Types ─────────────────────────────────────────────────────────────
-
-export interface IndexedNote {
-  id: string;
-  title: string;
-  preview: string;
-  tags: string[];
-  headings: string;
-  body: string;
-  mtime: number;
-}
-
-interface CachedNoteMeta {
-  mtime: number;
-  preview: string;
-  tags: string[];
-  headings: string;
-}
-
-interface NotePreviewCache {
-  version: number;
-  entries: Record<string, CachedNoteMeta>;
-}
-
-const CACHE_PATH = ".note-preview-cache.json";
-const CACHE_VERSION = 1;
+import { extractTags } from '$lib/rules';
+// `makePreview` is the canonical preview rule, single-sourced in the editor
+// package and kept bit-for-bit identical to Rust `make_preview` by the
+// conformance harness (tests/conformance/preview.json). It is re-exported here
+// so existing `import { makePreview } from "./notesIndex"` call sites and the
+// notesIndex test keep working.
+import { makePreview } from '@futo-notes/editor';
 
 const TXT_MIGRATION_SENTINEL = ".txt-migration-done";
 
-let txtMigrationDone = false;
-
 // ── Preview ───────────────────────────────────────────────────────────
 
-/** First 100 characters, newlines replaced with spaces. Matches Rust `make_preview`. */
-export function makePreview(content: string): string {
-  return content.slice(0, 100).replace(/\n/g, " ");
+// `makePreview` is re-exported from the canonical editor-package rule (single
+// source, kept identical to Rust `make_preview` by the conformance harness).
+// Re-exporting preserves the `import { makePreview } from "./notesIndex"` API
+// used by callers/tests.
+export { makePreview };
+
+/**
+ * Canonical list-level tag names for a note — lowercase, WITHOUT the leading
+ * `#`. Mirrors the Rust `futo-notes-model::note_tags` (and the `NoteMeta.tags`
+ * the `notes_scan` command returns), so optimistic cache updates produce the
+ * same tag shape as a Rust scan. `extractTags` returns `#tag`; strip it.
+ */
+export function noteTags(content: string): string[] {
+  return extractTags(content).map((t) => t.replace(/^#/, ""));
 }
 
 // ── .txt migration ────────────────────────────────────────────────────
@@ -111,228 +91,4 @@ async function markTxtMigrationDone(fs: FileSystem): Promise<void> {
   } catch {
     // Non-fatal: we'll just re-check next session.
   }
-}
-
-// ── Cache I/O ─────────────────────────────────────────────────────────
-
-async function loadPreviewCache(fs: FileSystem): Promise<NotePreviewCache> {
-  try {
-    const raw = await fs.readAppData(CACHE_PATH);
-    if (!raw) return { version: CACHE_VERSION, entries: {} };
-    const cache = JSON.parse(raw) as NotePreviewCache;
-    if (cache.version !== CACHE_VERSION)
-      return { version: CACHE_VERSION, entries: {} };
-    return cache;
-  } catch {
-    return { version: CACHE_VERSION, entries: {} };
-  }
-}
-
-async function savePreviewCache(
-  fs: FileSystem,
-  cache: NotePreviewCache,
-): Promise<void> {
-  try {
-    await fs.writeAppData(CACHE_PATH, JSON.stringify(cache));
-  } catch {
-    // Non-fatal
-  }
-}
-
-// ── Build helpers ─────────────────────────────────────────────────────
-
-/** Display title is the leaf component of the (possibly nested) path-ID. */
-function leafTitle(id: string): string {
-  const slash = id.lastIndexOf('/');
-  return slash === -1 ? id : id.slice(slash + 1);
-}
-
-export function buildIndexedNote(
-  id: string,
-  content: string,
-  mtime: number,
-): IndexedNote {
-  return {
-    id,
-    title: leafTitle(id),
-    preview: makePreview(content),
-    tags: extractTags(content),
-    headings: extractHeadings(content),
-    body: content,
-    mtime,
-  };
-}
-
-// ── Scanning ──────────────────────────────────────────────────────────
-
-/**
- * Fresh bodies captured during a cache-miss pass. Consumers (e.g. the
- * cold search-index bootstrap) can reuse these instead of reading every
- * file a second time.
- */
-export interface ScanResult {
-  previews: NotePreview[];
-  /** Bodies read from disk during this scan, keyed by note id. Cache hits are absent. */
-  freshBodies: Map<string, string>;
-}
-
-/**
- * Fast startup scan: returns NotePreview[] sorted by mtime desc and the
- * bodies read during cache misses (so callers can feed them to the search
- * index without re-reading).
- * Uses a preview cache to avoid reading unchanged files. Cache misses run
- * through a bounded-concurrency pool so 2000 serial IPCs don't block startup.
- */
-export async function scanNotePreviewsWithBodies(
-  fs: FileSystem,
-): Promise<ScanResult> {
-  if (!txtMigrationDone) {
-    await convertTxtToMd(fs);
-    txtMigrationDone = true;
-  }
-  const cache = await loadPreviewCache(fs);
-  const files = await fs.listNoteFiles();
-
-  const previews: (NotePreview | null)[] = new Array(files.length).fill(null);
-  const newEntries: Record<string, CachedNoteMeta> = {};
-  const freshBodies = new Map<string, string>();
-  let cacheChanged = false;
-
-  type Miss = { id: string; mtime: number; index: number };
-  const misses: Miss[] = [];
-
-  for (let i = 0; i < files.length; i++) {
-    const file = files[i];
-    const id = file.name.replace(/\.md$/, "");
-    const cached = cache.entries[id];
-    if (cached && cached.mtime === file.mtime) {
-      previews[i] = {
-        id,
-        title: leafTitle(id),
-        preview: cached.preview,
-        modificationTime: file.mtime,
-        tags: cached.tags,
-      };
-      newEntries[id] = cached;
-    } else {
-      misses.push({ id, mtime: file.mtime, index: i });
-    }
-  }
-
-  if (misses.length > 0) {
-    cacheChanged = true;
-    await runPool(
-      misses,
-      READ_POOL_CONCURRENCY,
-      async ({ id, mtime, index }) => {
-        try {
-          const content = await fs.readNote(id);
-          const preview = makePreview(content);
-          const tags = extractTags(content);
-          const headings = extractHeadings(content);
-          previews[index] = {
-            id,
-            title: leafTitle(id),
-            preview,
-            modificationTime: mtime,
-            tags,
-          };
-          newEntries[id] = { mtime, preview, tags, headings };
-          freshBodies.set(id, content);
-        } catch {
-          // Slot stays null; filtered below.
-        }
-      },
-    );
-  }
-
-  // Detect deletions (cache had entries not in current files)
-  if (
-    !cacheChanged &&
-    Object.keys(cache.entries).length !== Object.keys(newEntries).length
-  ) {
-    cacheChanged = true;
-  }
-
-  if (cacheChanged) {
-    await savePreviewCache(fs, { version: CACHE_VERSION, entries: newEntries });
-  }
-
-  const finalPreviews = previews
-    .filter((p): p is NotePreview => p !== null)
-    .sort(
-      (a, b) => b.modificationTime - a.modificationTime || a.id.localeCompare(b.id),
-    );
-
-  return { previews: finalPreviews, freshBodies };
-}
-
-/**
- * Full scan for search index rebuild. Reads all file bodies and builds
- * IndexedNote[] suitable for MiniSearch. Reads run through a bounded pool.
- *
- * Prefer `scanNotePreviewsWithBodies` → feed `freshBodies` directly to the
- * index when possible; this function is for the rare fallback where the
- * search index is missing but the preview cache is warm.
- */
-export async function scanNotes(fs: FileSystem): Promise<IndexedNote[]> {
-  if (!txtMigrationDone) {
-    await convertTxtToMd(fs);
-    txtMigrationDone = true;
-  }
-  const cache = await loadPreviewCache(fs);
-  const files = await fs.listNoteFiles();
-
-  const notes: (IndexedNote | null)[] = new Array(files.length).fill(null);
-  const newEntries: Record<string, CachedNoteMeta> = {};
-  let cacheChanged = false;
-
-  await runPool(files, READ_POOL_CONCURRENCY, async (file, index) => {
-    const id = file.name.replace(/\.md$/, "");
-    try {
-      const content = await fs.readNote(id);
-      const cached = cache.entries[id];
-
-      let preview: string;
-      let tags: string[];
-      let headings: string;
-
-      if (cached && cached.mtime === file.mtime) {
-        preview = cached.preview;
-        tags = cached.tags;
-        headings = cached.headings;
-      } else {
-        cacheChanged = true;
-        preview = makePreview(content);
-        tags = extractTags(content);
-        headings = extractHeadings(content);
-      }
-
-      notes[index] = {
-        id,
-        title: leafTitle(id),
-        preview,
-        tags,
-        headings,
-        body: content,
-        mtime: file.mtime,
-      };
-      newEntries[id] = { mtime: file.mtime, preview, tags, headings };
-    } catch {
-      // Slot stays null; filtered below.
-    }
-  });
-
-  if (
-    !cacheChanged &&
-    Object.keys(cache.entries).length !== Object.keys(newEntries).length
-  ) {
-    cacheChanged = true;
-  }
-
-  if (cacheChanged) {
-    await savePreviewCache(fs, { version: CACHE_VERSION, entries: newEntries });
-  }
-
-  return notes.filter((n): n is IndexedNote => n !== null);
 }

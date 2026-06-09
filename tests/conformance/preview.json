@@ -1,0 +1,76 @@
+{
+  "_generated": "tests/conformance/generate.mjs",
+  "description": "Note list-preview rule (preview.ts ↔ Rust make_preview).",
+  "groups": [
+    {
+      "op": "makePreview",
+      "fn": "makePreview",
+      "cases": [
+        {
+          "input": "Just a normal note line",
+          "expected": "Just a normal note line"
+        },
+        {
+          "input": "line one\nline two\nline three",
+          "expected": "line one line two line three"
+        },
+        {
+          "input": "col1\tcol2\tcol3",
+          "expected": "col1 col2 col3"
+        },
+        {
+          "input": "windows line one\r\nwindows line two",
+          "expected": "windows line one windows line two"
+        },
+        {
+          "input": "a\r\nb\nc\td",
+          "expected": "a b c d"
+        },
+        {
+          "input": "   padded content here   ",
+          "expected": "padded content here"
+        },
+        {
+          "input": "\n\nactual content after blanks",
+          "expected": "actual content after blanks"
+        },
+        {
+          "input": "   \n\t  ",
+          "expected": ""
+        },
+        {
+          "input": "",
+          "expected": ""
+        },
+        {
+          "input": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\nBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+          "expected": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+        },
+        {
+          "input": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "expected": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        },
+        {
+          "input": "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+          "expected": "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+        },
+        {
+          "input": "🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉",
+          "expected": "🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉"
+        },
+        {
+          "input": "café résumé naïve — a note with accents and an em dash",
+          "expected": "café résumé naïve — a note with accents and an em dash"
+        },
+        {
+          "input": "Ωμέγα Ελληνικά γράμματα",
+          "expected": "Ωμέγα Ελληνικά γράμματα"
+        },
+        {
+          "input": "  🎉\tparty\nover here  ",
+          "expected": "🎉 party over here"
+        }
+      ]
+    }
+  ]
+}

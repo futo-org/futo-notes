@@ -1,0 +1,673 @@
+{
+  "_generated": "tests/conformance/generate.mjs",
+  "description": "Filename / title sanitization + validation rules (filename.ts).",
+  "groups": [
+    {
+      "op": "sanitizeTitle",
+      "fn": "sanitizeTitle",
+      "cases": [
+        {
+          "input": "hello-world",
+          "expected": "hello-world"
+        },
+        {
+          "input": "a<b>c:d",
+          "expected": "abcd"
+        },
+        {
+          "input": "a<b>c:d\"e|f?g*h",
+          "expected": "abcdefgh"
+        },
+        {
+          "input": "..hidden",
+          "expected": "..hidden"
+        },
+        {
+          "input": "file..",
+          "expected": "file.."
+        },
+        {
+          "input": "v2.0 notes",
+          "expected": "v2.0 notes"
+        },
+        {
+          "input": "Dr. Smith",
+          "expected": "Dr. Smith"
+        },
+        {
+          "input": "...",
+          "expected": "Untitled"
+        },
+        {
+          "input": ".",
+          "expected": "Untitled"
+        },
+        {
+          "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "expected": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        {
+          "input": "",
+          "expected": "Untitled"
+        },
+        {
+          "input": "   ",
+          "expected": "Untitled"
+        },
+        {
+          "input": "a\u0000b\u001fc",
+          "expected": "abc"
+        },
+        {
+          "input": "ab",
+          "expected": "ab"
+        },
+        {
+          "input": "  hello  ",
+          "expected": "hello"
+        }
+      ]
+    },
+    {
+      "op": "validateTitle",
+      "fn": "validateTitle",
+      "cases": [
+        {
+          "input": "my note",
+          "expected": []
+        },
+        {
+          "input": "a<b",
+          "expected": [
+            "forbidden_chars"
+          ]
+        },
+        {
+          "input": ".hidden",
+          "expected": [
+            "leading_dots"
+          ]
+        },
+        {
+          "input": "file.",
+          "expected": [
+            "trailing_dots"
+          ]
+        },
+        {
+          "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "expected": [
+            "too_long"
+          ]
+        },
+        {
+          "input": "",
+          "expected": [
+            "empty"
+          ]
+        },
+        {
+          "input": "   ",
+          "expected": [
+            "empty"
+          ]
+        },
+        {
+          "input": ".<bad>.",
+          "expected": [
+            "forbidden_chars",
+            "leading_dots",
+            "trailing_dots"
+          ]
+        },
+        {
+          "input": "v2.0 notes",
+          "expected": []
+        },
+        {
+          "input": "Dr. Smith",
+          "expected": []
+        },
+        {
+          "input": "ab",
+          "expected": [
+            "forbidden_chars"
+          ]
+        }
+      ]
+    },
+    {
+      "op": "isValidTitle",
+      "fn": "isValidTitle",
+      "cases": [
+        {
+          "input": "my note",
+          "expected": true
+        },
+        {
+          "input": ".hidden",
+          "expected": false
+        },
+        {
+          "input": "a<b",
+          "expected": false
+        },
+        {
+          "input": "",
+          "expected": false
+        }
+      ]
+    },
+    {
+      "op": "isWindowsReservedName",
+      "fn": "isWindowsReservedName",
+      "cases": [
+        {
+          "input": "CON",
+          "expected": true
+        },
+        {
+          "input": "con",
+          "expected": true
+        },
+        {
+          "input": "Con",
+          "expected": true
+        },
+        {
+          "input": "PRN",
+          "expected": true
+        },
+        {
+          "input": "prn",
+          "expected": true
+        },
+        {
+          "input": "AUX",
+          "expected": true
+        },
+        {
+          "input": "NUL",
+          "expected": true
+        },
+        {
+          "input": "COM1",
+          "expected": true
+        },
+        {
+          "input": "COM2",
+          "expected": true
+        },
+        {
+          "input": "COM3",
+          "expected": true
+        },
+        {
+          "input": "COM4",
+          "expected": true
+        },
+        {
+          "input": "COM5",
+          "expected": true
+        },
+        {
+          "input": "COM6",
+          "expected": true
+        },
+        {
+          "input": "COM7",
+          "expected": true
+        },
+        {
+          "input": "COM8",
+          "expected": true
+        },
+        {
+          "input": "COM9",
+          "expected": true
+        },
+        {
+          "input": "lpt1",
+          "expected": true
+        },
+        {
+          "input": "lpt2",
+          "expected": true
+        },
+        {
+          "input": "lpt3",
+          "expected": true
+        },
+        {
+          "input": "lpt4",
+          "expected": true
+        },
+        {
+          "input": "lpt5",
+          "expected": true
+        },
+        {
+          "input": "lpt6",
+          "expected": true
+        },
+        {
+          "input": "lpt7",
+          "expected": true
+        },
+        {
+          "input": "lpt8",
+          "expected": true
+        },
+        {
+          "input": "lpt9",
+          "expected": true
+        },
+        {
+          "input": "CON.md",
+          "expected": true
+        },
+        {
+          "input": "lpt5.txt",
+          "expected": true
+        },
+        {
+          "input": "COM10",
+          "expected": false
+        },
+        {
+          "input": "hello",
+          "expected": false
+        },
+        {
+          "input": "confidential",
+          "expected": false
+        }
+      ]
+    },
+    {
+      "op": "validateFolderName",
+      "fn": "validateFolderName",
+      "cases": [
+        {
+          "input": "Specs",
+          "expected": []
+        },
+        {
+          "input": "CON",
+          "expected": [
+            "reserved_name"
+          ]
+        },
+        {
+          "input": ".hidden",
+          "expected": [
+            "leading_dots"
+          ]
+        },
+        {
+          "input": "a/b",
+          "expected": [
+            "forbidden_chars"
+          ]
+        },
+        {
+          "input": "a\\b",
+          "expected": [
+            "forbidden_chars"
+          ]
+        },
+        {
+          "input": "a:b",
+          "expected": [
+            "forbidden_chars"
+          ]
+        },
+        {
+          "input": "",
+          "expected": [
+            "empty"
+          ]
+        }
+      ]
+    },
+    {
+      "op": "isValidFolderName",
+      "fn": "isValidFolderName",
+      "cases": [
+        {
+          "input": "Specs",
+          "expected": true
+        },
+        {
+          "input": "CON",
+          "expected": false
+        },
+        {
+          "input": "lpt9",
+          "expected": false
+        }
+      ]
+    },
+    {
+      "op": "hasCaseInsensitiveSiblingCollision",
+      "fn": "hasCaseInsensitiveSiblingCollision",
+      "cases": [
+        {
+          "input": {
+            "name": "Specs",
+            "siblings": [
+              "specs"
+            ]
+          },
+          "expected": true
+        },
+        {
+          "input": {
+            "name": "SPECS",
+            "siblings": [
+              "Specs"
+            ]
+          },
+          "expected": true
+        },
+        {
+          "input": {
+            "name": "Specs",
+            "siblings": [
+              "Other",
+              "Notes"
+            ]
+          },
+          "expected": false
+        },
+        {
+          "input": {
+            "name": "Specs",
+            "siblings": []
+          },
+          "expected": false
+        }
+      ]
+    },
+    {
+      "op": "validateFolderPath",
+      "fn": "validateFolderPath",
+      "cases": [
+        {
+          "input": "Specs",
+          "expected": []
+        },
+        {
+          "input": "Specs/Folder",
+          "expected": []
+        },
+        {
+          "input": "a/b/c",
+          "expected": []
+        },
+        {
+          "input": "f0/f1/f2/f3/f4/f5/f6/f7/f8/f9/f10",
+          "expected": [
+            "depth_exceeded"
+          ]
+        },
+        {
+          "input": "CON/foo",
+          "expected": [
+            "reserved_name"
+          ]
+        },
+        {
+          "input": "a/PRN",
+          "expected": [
+            "reserved_name"
+          ]
+        },
+        {
+          "input": "a//b",
+          "expected": [
+            "forbidden_chars"
+          ]
+        },
+        {
+          "input": "a/./b",
+          "expected": [
+            "forbidden_chars"
+          ]
+        },
+        {
+          "input": "a/../b",
+          "expected": [
+            "forbidden_chars"
+          ]
+        }
+      ]
+    },
+    {
+      "op": "isValidFolderPath",
+      "fn": "isValidFolderPath",
+      "cases": [
+        {
+          "input": "Specs",
+          "expected": true
+        },
+        {
+          "input": "Specs/Folder",
+          "expected": true
+        },
+        {
+          "input": "a/b/c",
+          "expected": true
+        },
+        {
+          "input": "CON/foo",
+          "expected": false
+        },
+        {
+          "input": "a/PRN",
+          "expected": false
+        },
+        {
+          "input": "a//b",
+          "expected": false
+        },
+        {
+          "input": "a/./b",
+          "expected": false
+        },
+        {
+          "input": "a/../b",
+          "expected": false
+        }
+      ]
+    },
+    {
+      "op": "pathDepth",
+      "fn": "pathDepth",
+      "cases": [
+        {
+          "input": "foo",
+          "expected": 0
+        },
+        {
+          "input": "a/foo",
+          "expected": 1
+        },
+        {
+          "input": "a/b/c/foo",
+          "expected": 3
+        }
+      ]
+    },
+    {
+      "op": "sanitizeTitle",
+      "fn": "sanitizeTitle",
+      "cases": [
+        {
+          "input": "note 🎉👨‍👩‍👧‍👦🇺🇸 title",
+          "expected": "note 🎉👨‍👩‍👧‍👦🇺🇸 title"
+        },
+        {
+          "input": "🎉👨‍👩‍👧‍👦🇺🇸",
+          "expected": "🎉👨‍👩‍👧‍👦🇺🇸"
+        },
+        {
+          "input": "a<b>🎉👨‍👩‍👧‍👦🇺🇸c:d",
+          "expected": "ab🎉👨‍👩‍👧‍👦🇺🇸cd"
+        },
+        {
+          "input": "tab\there\nnewline",
+          "expected": "tabherenewline"
+        },
+        {
+          "input": "café résumé naïve",
+          "expected": "café résumé naïve"
+        },
+        {
+          "input": "Ωμέγα Ελληνικά",
+          "expected": "Ωμέγα Ελληνικά"
+        },
+        {
+          "input": "بسم الله",
+          "expected": "بسم الله"
+        },
+        {
+          "input": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx🎉👨‍👩‍👧‍👦🇺🇸",
+          "expected": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx🎉👨‍👩‍👧‍👦🇺🇸"
+        }
+      ]
+    },
+    {
+      "op": "validateTitle",
+      "fn": "validateTitle",
+      "cases": [
+        {
+          "input": "valid 🎉👨‍👩‍👧‍👦🇺🇸 title",
+          "expected": []
+        },
+        {
+          "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 🎉👨‍👩‍👧‍👦🇺🇸",
+          "expected": [
+            "too_long"
+          ]
+        },
+        {
+          "input": ".🎉👨‍👩‍👧‍👦🇺🇸.",
+          "expected": [
+            "leading_dots",
+            "trailing_dots"
+          ]
+        },
+        {
+          "input": "control\u0007char",
+          "expected": [
+            "forbidden_chars"
+          ]
+        }
+      ]
+    },
+    {
+      "op": "validateFolderPath",
+      "fn": "validateFolderPath",
+      "cases": [
+        {
+          "input": "../../etc/passwd",
+          "expected": [
+            "forbidden_chars",
+            "forbidden_chars"
+          ]
+        },
+        {
+          "input": "a/../b",
+          "expected": [
+            "forbidden_chars"
+          ]
+        },
+        {
+          "input": "a/./b",
+          "expected": [
+            "forbidden_chars"
+          ]
+        },
+        {
+          "input": "good/../../bad",
+          "expected": [
+            "forbidden_chars",
+            "forbidden_chars"
+          ]
+        },
+        {
+          "input": "d0/d1/d2/d3/d4/d5/d6/d7/d8/d9/d10/d11/d12/d13/d14",
+          "expected": [
+            "depth_exceeded"
+          ]
+        },
+        {
+          "input": "CON/sub",
+          "expected": [
+            "reserved_name"
+          ]
+        },
+        {
+          "input": "ok/NUL",
+          "expected": [
+            "reserved_name"
+          ]
+        },
+        {
+          "input": "a//b//c",
+          "expected": [
+            "forbidden_chars",
+            "forbidden_chars"
+          ]
+        },
+        {
+          "input": "Specs/Sub/Deep",
+          "expected": []
+        }
+      ]
+    },
+    {
+      "op": "hasCaseInsensitiveSiblingCollision",
+      "fn": "hasCaseInsensitiveSiblingCollision",
+      "cases": [
+        {
+          "input": {
+            "name": "Notes",
+            "siblings": [
+              "NOTES",
+              "Other"
+            ]
+          },
+          "expected": true
+        },
+        {
+          "input": {
+            "name": "notes",
+            "siblings": [
+              "Other",
+              "Misc"
+            ]
+          },
+          "expected": false
+        },
+        {
+          "input": {
+            "name": "AbC",
+            "siblings": [
+              "aBc"
+            ]
+          },
+          "expected": true
+        },
+        {
+          "input": {
+            "name": "x",
+            "siblings": []
+          },
+          "expected": false
+        }
+      ]
+    }
+  ]
+}

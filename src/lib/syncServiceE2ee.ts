@@ -95,6 +95,31 @@ async function ensureConnected(passwordOverride?: string): Promise<void> {
   });
 }
 
+// ── Live sync (Rust SSE stream) ─────────────────────────────────────────
+
+let liveStarted = false;
+
+/** Idempotently start the Rust SSE live stream once per connected session. */
+export async function ensureLiveSync(): Promise<void> {
+  if (liveStarted || !isE2eeConfigured()) return;
+  liveStarted = true;
+  try { await invoke('e2ee_start_live'); }
+  catch (e) { liveStarted = false; console.warn('start live sync failed:', e); }
+}
+
+export async function stopLiveSync(): Promise<void> {
+  liveStarted = false;
+  try { await invoke('e2ee_stop_live'); } catch { /* ignore */ }
+}
+
+/** Signal the Rust live loop that a local note changed (the write-once
+ * auto-push input). The loop debounces (~1s) and pushes to peers. No-op in
+ * Rust when no live task is running, so it's safe to call unconditionally
+ * after every save. Fire-and-forget. */
+export async function notifyNoteChanged(): Promise<void> {
+  try { await invoke('e2ee_note_changed'); } catch { /* ignore */ }
+}
+
 export async function connectE2ee(serverUrl: string, password: string): Promise<void> {
   const out = await invoke<E2eeConnectOutput>('e2ee_connect', {
     input: { serverUrl, password },
@@ -110,6 +135,9 @@ export async function connectE2ee(serverUrl: string, password: string): Promise<
 }
 
 export async function disconnectE2ee(): Promise<void> {
+  // The Rust `e2ee_disconnect` already stops the live loop internally;
+  // reset the flag so a future reconnect can restart the live stream.
+  liveStarted = false;
   try {
     await invoke('e2ee_disconnect');
   } catch {

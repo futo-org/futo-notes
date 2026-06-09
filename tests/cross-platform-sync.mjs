@@ -18,7 +18,7 @@
  *   - Frontend built with: VITE_INCLUDE_TEST_HOOKS=true pnpm run build
  */
 
-import { writeFileSync, mkdirSync, existsSync, readdirSync, readFileSync } from 'node:fs';
+import { writeFileSync, mkdirSync, existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
@@ -137,6 +137,18 @@ async function getSidebarTitles(client) {
 async function editorRoundtripThroughRealSync(a, b, server) {
   await a.connectSync(server.url, server.password);
   await b.connectSync(server.url, server.password);
+  // Stop BOTH clients' background sync (incl. the SSE live stream) so the
+  // explicit syncNows below deterministically own the push/pull.
+  //  - B: with live sync on, B's SSE stream would fetch A's note first and the
+  //    manual sync would see downloaded=0 / the sidebar would race the live rescan.
+  //  - A: the write-once auto-push now lives in the Rust live loop — a local
+  //    save fires `e2ee_note_changed` and the loop debounces (~1s) and pushes.
+  //    With A's live stream up, that auto-push uploads the note before the
+  //    explicit syncNow, making it observe uploaded=0. Pausing A's auto-sync
+  //    closes the live stream so the explicit syncNow deterministically owns
+  //    the upload. (Auto-push itself is covered by the SSE live-sync tests.)
+  await a.pauseAutoSync();
+  await b.pauseAutoSync();
 
   const noteId = 'editor roundtrip';
   const body = '# Written in CodeMirror\nThis note should sync through the real save pipeline.';
@@ -173,6 +185,10 @@ async function editorRoundtripThroughRealSync(a, b, server) {
 async function concurrentEditConflict(a, b, server) {
   await a.connectSync(server.url, server.password);
   await b.connectSync(server.url, server.password);
+  // Stop B's background sync (incl. SSE) so B's explicit syncNow owns the
+  // conflict-producing pull. With live sync on, B's SSE stream would pull A's
+  // version and resolve the conflict before the manual sync, leaving conflicts=0.
+  await b.pauseAutoSync();
 
   // A creates a shared note and syncs
   await a.writeNote('shared note', '# Original');
@@ -1034,6 +1050,21 @@ function ensureDesktopDebugBinary() {
   if (!distJs || !fileContains(distJs, '__testSync')) {
     console.log('dist/ was built without VITE_INCLUDE_TEST_HOOKS — rebuilding desktop binary…');
     rebuildDesktopBinary();
+    return;
+  }
+  // Provenance check: `cargo tauri dev` (and plain `cargo build`) write the
+  // SAME target/debug/futo-notes-tauri path, but bake a dev config into it —
+  // a dev-server devUrl and a per-worktree identifier. Launched by this
+  // harness, such a binary loads its UI from a live vite dev server and
+  // shares the WebKit data container with any running dev instance, which
+  // silently corrupts scenarios (empty notes dirs, no-op syncs). Rebuild
+  // whenever the binary on disk is not the one rebuildDesktopBinary() last
+  // produced.
+  const stamp = join(REPO_ROOT, 'target', 'debug', '.harness-binary-stamp');
+  const binMtime = String(statSync(binPath).mtimeMs);
+  if (!existsSync(stamp) || readFileSync(stamp, 'utf8').trim() !== binMtime) {
+    console.log('Desktop binary was rebuilt outside the harness (likely `cargo tauri dev`) — rebuilding with harness config…');
+    rebuildDesktopBinary();
   }
 }
 
@@ -1042,6 +1073,11 @@ function rebuildDesktopBinary() {
     cwd: join(REPO_ROOT, 'apps', 'tauri'),
     env: { ...process.env, VITE_INCLUDE_TEST_HOOKS: 'true' },
   });
+  const binPath = join(REPO_ROOT, 'target', 'debug', 'futo-notes-tauri');
+  writeFileSync(
+    join(REPO_ROOT, 'target', 'debug', '.harness-binary-stamp'),
+    String(statSync(binPath).mtimeMs),
+  );
 }
 
 function ensureAndroidApk() {

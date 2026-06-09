@@ -1,5 +1,5 @@
 import { hasFileSystem } from './platform';
-import { syncE2eeAuto, isE2eeConfigured, type SyncSummary } from './syncServiceE2ee';
+import { syncE2eeAuto, isE2eeConfigured, ensureLiveSync, stopLiveSync, notifyNoteChanged, type SyncSummary } from './syncServiceE2ee';
 
 export type { SyncSummary } from './syncServiceE2ee';
 
@@ -82,6 +82,11 @@ async function performSync(trigger: SyncTrigger, options: { propagateErrors?: bo
     cancelInitialRetry();
     cancelBackgroundRetry();
     callbacks.onSyncComplete(summary);
+    // Idempotently open the Rust SSE live stream once a sync has succeeded
+    // (i.e. after the post-connect sync or startup-resume initial sync).
+    // Skip while auto-sync is paused (test-only) so a manual sync doesn't
+    // re-open the stream that pauseAutoSyncV2 just closed for determinism.
+    if (!autoPaused) void ensureLiveSync();
     return summary;
   } catch (e) {
     const error = e instanceof Error ? e : new Error(String(e));
@@ -102,38 +107,46 @@ async function performSync(trigger: SyncTrigger, options: { propagateErrors?: bo
   }
 }
 
-/** Trailing debounce — coalesces an edit burst into one sync.
- */
-const NOTIFY_DEBOUNCE_MS = 2_000;
-let notifyDebounceTimer: ReturnType<typeof setTimeout> | null = null;
-
+/** Signal a local save. The write-once auto-push now lives in Rust: this
+ * fires the `e2ee_note_changed` signal, and the Rust live loop debounces
+ * (~1s) and runs a gated push. No TS-side debounce/`performSync('local-save')`
+ * anymore — the Rust loop is the single push trigger for local edits (no-op
+ * there when the live stream isn't running, with the poll/resume syncs as the
+ * catch-all). */
 export function notifySavedV2(filename?: string): void {
   if (!callbacks || !isE2eeConfigured()) return;
-  // Write to dirty journal if a specific file was saved
   if (filename) {
     void markDirtyUpsert(filename);
   }
-  if (notifyDebounceTimer !== null) clearTimeout(notifyDebounceTimer);
-  notifyDebounceTimer = setTimeout(() => {
-    notifyDebounceTimer = null;
-    void performSync('local-save');
-  }, NOTIFY_DEBOUNCE_MS);
+  // While auto-sync is paused (test-only determinism) don't ping the Rust
+  // note_changed signal: the live loop is (being) torn down, and a ping that
+  // lands on a not-yet-stopped loop schedules a debounced push that races
+  // the scenario's explicit syncNow(). The edit is not lost — the next
+  // explicit sync pushes it.
+  if (!autoPaused) void notifyNoteChanged();
 }
 
-// Dirty journal stubs — E2EE sync compares local files against the object map
-// directly, so per-file dirty tracking is not needed. These are kept as no-ops
-// to satisfy callers in notes.svelte.ts and syncManager.
+// Dirty journal stub — E2EE sync compares local files against the object map
+// directly, so per-file dirty tracking is not needed. Kept as a no-op to
+// satisfy the `notifySavedV2` caller above.
 async function markDirtyUpsert(_filename: string): Promise<void> {}
-export async function markDirtyDelete(_filename: string): Promise<void> {}
-export async function markDirtyRename(_oldFilename: string, _newFilename: string): Promise<void> {}
 
 export function pauseSyncV2(): void { paused = true; }
 export function resumeSyncV2(): void { paused = false; }
 
 /** Test-only: pause background (poll/resume/initial) syncs while still
- * allowing manual/local-save syncs. Used to make scenario timing deterministic. */
-export function pauseAutoSyncV2(): void { autoPaused = true; }
-export function resumeAutoSyncV2(): void { autoPaused = false; }
+ * allowing manual/local-save syncs. Used to make scenario timing deterministic.
+ * Also stops the SSE live stream — otherwise a live pull would fetch a peer's
+ * change before a test's explicit `syncNow()`, defeating the determinism. */
+export async function pauseAutoSyncV2(): Promise<void> {
+  autoPaused = true;
+  // Await the live-stream teardown: the harness's `await pauseAutoSync()`
+  // must guarantee no live loop survives to push/pull behind the scenario's
+  // back. Fire-and-forget here left a window where a still-draining loop
+  // raced the test's explicit syncNow().
+  await stopLiveSync();
+}
+export function resumeAutoSyncV2(): void { autoPaused = false; void ensureLiveSync(); }
 
 export async function waitForSyncIdleV2(): Promise<void> {
   while (syncing) {

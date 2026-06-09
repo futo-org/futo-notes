@@ -5,10 +5,6 @@ vi.mock("$lib/platform");
 import { testFS } from "$lib/platform";
 import {
   makePreview,
-  buildIndexedNote,
-  scanNotePreviews,
-  scanNotePreviewsWithBodies,
-  scanNotes,
   convertTxtToMd,
 } from "./notesIndex";
 
@@ -48,123 +44,53 @@ describe("makePreview", () => {
     const exact = "B".repeat(100);
     expect(makePreview(exact)).toBe(exact);
   });
-});
 
-// ── buildIndexedNote ──────────────────────────────────────────────────
+  // ── F14 regression: parity with Rust make_preview ──────────────────────
+  // The optimistic-cache hot path used to drift from the Rust source of truth
+  // (crates/futo-notes-model/src/crud.rs make_preview): TS skipped CRLF/tab
+  // collapsing + trimming and truncated BEFORE collapsing. Sidebar previews
+  // differed before vs after a rescan/sync. These cases pin TS to Rust exactly.
 
-describe("buildIndexedNote", () => {
-  it("extracts tags from content", () => {
-    const note = buildIndexedNote(
-      "my note",
-      "Hello #world #test content",
-      1000,
-    );
-    expect(note.tags).toContain("#world");
-    expect(note.tags).toContain("#test");
+  it("collapses CRLF to a single space (not two)", () => {
+    expect(makePreview("line one\r\nline two")).toBe("line one line two");
   });
 
-  it("extracts headings from content", () => {
-    const note = buildIndexedNote(
-      "my note",
-      "# Title\nBody\n## Subtitle",
-      1000,
-    );
-    expect(note.headings).toBe("Title Subtitle");
+  it("collapses tabs to spaces", () => {
+    expect(makePreview("col1\tcol2\tcol3")).toBe("col1 col2 col3");
   });
 
-  it("sets title to id (filename IS the title)", () => {
-    const note = buildIndexedNote("grocery list", "eggs, milk", 1000);
-    expect(note.title).toBe("grocery list");
+  it("trims leading and trailing whitespace", () => {
+    expect(makePreview("   padded text   ")).toBe("padded text");
   });
 
-  it("keeps full body", () => {
-    const content = "Full body text here with lots of content";
-    const note = buildIndexedNote("test", content, 1000);
-    expect(note.body).toBe(content);
+  it("trims leading newlines before truncating", () => {
+    // Rust trims after collapsing, so the leading blank line is gone and the
+    // 100-char budget applies to the real content — not consumed by padding.
+    expect(makePreview("\n\nactual content")).toBe("actual content");
   });
 
-  it("builds preview from content", () => {
-    const note = buildIndexedNote("test", "Line one\nLine two", 1000);
-    expect(note.preview).toBe("Line one Line two");
-  });
-});
-
-// ── scanNotePreviewsWithBodies ────────────────────────────────────────
-
-describe("scanNotePreviewsWithBodies", () => {
-  it("returns fresh bodies for cache-miss entries", async () => {
-    await testFS.writeNote("a", "body a");
-    await testFS.writeNote("b", "body b");
-
-    const { previews, freshBodies } = await scanNotePreviewsWithBodies(testFS);
-    expect(previews).toHaveLength(2);
-    expect(freshBodies.get("a")).toBe("body a");
-    expect(freshBodies.get("b")).toBe("body b");
+  it("truncates AFTER collapsing/trimming (100 visible chars)", () => {
+    // 60 'A', a newline, then 60 'B'. After collapse: 60 A + space + 60 B = 121
+    // chars; take 100 → 60 A + space + 39 B. The old code truncated the raw
+    // string at 100 (60 A + \n + 39 B) THEN replaced \n, producing a different
+    // string the moment a rescan recomputed it.
+    const content = "A".repeat(60) + "\n" + "B".repeat(60);
+    const expected = "A".repeat(60) + " " + "B".repeat(39);
+    expect(makePreview(content)).toBe(expected);
+    expect(makePreview(content)).toHaveLength(100);
   });
 
-  it("omits bodies for cache hits", async () => {
-    await testFS.writeNote("cached", "original", 1000000000000);
-
-    // Populate cache
-    await scanNotePreviewsWithBodies(testFS);
-
-    // Second scan: cache hit, no body read
-    const { previews, freshBodies } = await scanNotePreviewsWithBodies(testFS);
-    expect(previews).toHaveLength(1);
-    expect(freshBodies.has("cached")).toBe(false);
+  it("counts unicode by code point (chars), matching Rust .chars().take()", () => {
+    // 100 emoji code points → take 100. JS String.slice counts UTF-16 units,
+    // which would cut an astral pair in half; Rust counts scalar values.
+    const emoji = "🎉".repeat(120);
+    const preview = makePreview(emoji);
+    expect([...preview]).toHaveLength(100);
+    expect(preview).toBe("🎉".repeat(100));
   });
 
-  it("preserves mtime-desc sort order across hits and misses", async () => {
-    // Seed cache with two notes
-    await testFS.writeNote("old", "old", 1000000000000);
-    await testFS.writeNote("mid", "mid", 2000000000000);
-    await scanNotePreviewsWithBodies(testFS);
-
-    // Add a fresh note that should sort first
-    await testFS.writeNote("new", "new", 3000000000000);
-
-    const { previews, freshBodies } = await scanNotePreviewsWithBodies(testFS);
-    expect(previews.map((p) => p.id)).toEqual(["new", "mid", "old"]);
-    expect(freshBodies.get("new")).toBe("new");
-    expect(freshBodies.has("mid")).toBe(false);
-    expect(freshBodies.has("old")).toBe(false);
-  });
-
-  it("includes newly-changed notes in freshBodies", async () => {
-    await testFS.writeNote("note", "v1", 1000000000000);
-    await scanNotePreviewsWithBodies(testFS);
-
-    // Rewrite with a new mtime — should invalidate the cache entry
-    await testFS.writeNote("note", "v2", 2000000000000);
-    const { freshBodies } = await scanNotePreviewsWithBodies(testFS);
-    expect(freshBodies.get("note")).toBe("v2");
-  });
-});
-
-// ── scanNotes (full scan) ─────────────────────────────────────────────
-
-describe("scanNotes", () => {
-  it("returns empty array for empty vault", async () => {
-    const notes = await scanNotes(testFS);
-    expect(notes).toEqual([]);
-  });
-
-  it("reads full bodies", async () => {
-    const content = "Full body content here for search indexing";
-    await testFS.writeNote("full", content);
-    const notes = await scanNotes(testFS);
-    expect(notes).toHaveLength(1);
-    expect(notes[0].body).toBe(content);
-  });
-
-  it("builds indexed notes with all fields", async () => {
-    await testFS.writeNote("test", "# Title\nBody #tag");
-    const notes = await scanNotes(testFS);
-    expect(notes[0].id).toBe("test");
-    expect(notes[0].title).toBe("test");
-    expect(notes[0].headings).toBe("Title");
-    expect(notes[0].tags).toContain("#tag");
-    expect(notes[0].body).toBe("# Title\nBody #tag");
+  it("returns empty string for whitespace-only content", () => {
+    expect(makePreview("   \n\t  ")).toBe("");
   });
 });
 

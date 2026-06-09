@@ -7,7 +7,11 @@ use std::collections::HashMap;
 // Constants
 // ---------------------------------------------------------------------------
 
-/// Target tokens per chunk.
+/// Default target tokens per chunk (used by [`chunk_content`]).
+///
+/// SPLADE callers should use [`chunk_content_with_target`] with ~400 so chunks
+/// fit inside DistilBERT's 512-WordPiece-token cap (word-count × 1.3 ≈ 520
+/// WordPiece tokens worst case).
 const TARGET_TOKENS: usize = 900;
 
 /// Overlap ratio between adjacent chunks.
@@ -81,7 +85,8 @@ struct Section {
     end_offset: usize,
 }
 
-/// Split markdown content into overlapping chunks suitable for embedding.
+/// Split markdown content into overlapping chunks suitable for embedding,
+/// using the default [`TARGET_TOKENS`] (900).
 ///
 /// Algorithm (ported from V1 `chunker.ts`):
 /// 1. Short notes (< 512 estimated tokens) → single chunk
@@ -90,12 +95,24 @@ struct Section {
 /// 4. Split oversized paragraphs by word count
 /// 5. Merge small sections with ~15% overlap
 pub fn chunk_content(content: &str) -> Vec<Chunk> {
+    chunk_content_with_target(content, TARGET_TOKENS)
+}
+
+/// Same as [`chunk_content`] but with a configurable target token count per
+/// chunk. SPLADE callers pass ~400 to keep chunks under DistilBERT's 512-token
+/// position-embedding cap.
+pub fn chunk_content_with_target(content: &str, target_tokens: usize) -> Vec<Chunk> {
     if content.is_empty() {
         return vec![];
     }
 
+    // Short-note threshold is independent of target_tokens — if the whole note
+    // fits in <512 estimated tokens (its own DistilBERT cap), keep it as one
+    // chunk regardless of the target.
+    let short_threshold = SHORT_NOTE_THRESHOLD.min(target_tokens);
+
     let tokens = estimate_tokens(content);
-    if tokens <= SHORT_NOTE_THRESHOLD {
+    if tokens <= short_threshold {
         return vec![Chunk {
             text: content.to_string(),
             start_offset: 0,
@@ -103,14 +120,9 @@ pub fn chunk_content(content: &str) -> Vec<Chunk> {
         }];
     }
 
-    // Step 1: Split at heading boundaries
     let sections = split_at_headings(content);
-
-    // Step 2: Split large sections at paragraph boundaries
-    let sections = split_large_sections(sections);
-
-    // Step 3: Merge sections into overlapping chunks
-    merge_with_overlap(sections)
+    let sections = split_large_sections(sections, target_tokens);
+    merge_with_overlap(sections, target_tokens)
 }
 
 /// Split content at markdown heading boundaries (lines starting with `# `, `## `, etc.).
@@ -150,13 +162,13 @@ fn split_at_headings(content: &str) -> Vec<Section> {
     sections
 }
 
-/// Split sections that exceed TARGET_TOKENS at paragraph boundaries (\n\n+),
+/// Split sections that exceed `target_tokens` at paragraph boundaries (\n\n+),
 /// then by word count as a last resort.
-fn split_large_sections(sections: Vec<Section>) -> Vec<Section> {
+fn split_large_sections(sections: Vec<Section>, target_tokens: usize) -> Vec<Section> {
     let mut result = Vec::new();
 
     for section in sections {
-        if estimate_tokens(&section.text) <= TARGET_TOKENS {
+        if estimate_tokens(&section.text) <= target_tokens {
             result.push(section);
             continue;
         }
@@ -164,11 +176,11 @@ fn split_large_sections(sections: Vec<Section>) -> Vec<Section> {
         // Split at paragraph boundaries
         let paragraphs = split_at_paragraphs(&section);
         for para in paragraphs {
-            if estimate_tokens(&para.text) <= TARGET_TOKENS {
+            if estimate_tokens(&para.text) <= target_tokens {
                 result.push(para);
             } else {
                 // Last resort: split by word count
-                let word_sections = split_by_word_count(&para);
+                let word_sections = split_by_word_count(&para, target_tokens);
                 result.extend(word_sections);
             }
         }
@@ -247,8 +259,8 @@ fn find_paragraph_boundary(text: &str, start: usize) -> Option<usize> {
 }
 
 /// Split an oversized section by word count as a fallback.
-fn split_by_word_count(section: &Section) -> Vec<Section> {
-    let target_words = (TARGET_TOKENS as f64 / 1.3).floor() as usize;
+fn split_by_word_count(section: &Section, target_tokens: usize) -> Vec<Section> {
+    let target_words = (target_tokens as f64 / 1.3).floor() as usize;
     let text = &section.text;
     let mut sections = Vec::new();
     let mut word_count = 0;
@@ -312,12 +324,12 @@ fn split_by_word_count(section: &Section) -> Vec<Section> {
 }
 
 /// Merge sections into chunks with ~15% overlap.
-fn merge_with_overlap(sections: Vec<Section>) -> Vec<Chunk> {
+fn merge_with_overlap(sections: Vec<Section>, target_tokens: usize) -> Vec<Chunk> {
     if sections.is_empty() {
         return vec![];
     }
 
-    let overlap_tokens = (TARGET_TOKENS as f64 * OVERLAP_RATIO).floor() as usize;
+    let overlap_tokens = (target_tokens as f64 * OVERLAP_RATIO).floor() as usize;
     let mut chunks = Vec::new();
     let mut current_text = String::new();
     let mut current_start = sections[0].start_offset;
@@ -325,7 +337,7 @@ fn merge_with_overlap(sections: Vec<Section>) -> Vec<Chunk> {
     for section in &sections {
         let combined_tokens = estimate_tokens(&current_text) + estimate_tokens(&section.text);
 
-        if !current_text.is_empty() && combined_tokens > TARGET_TOKENS {
+        if !current_text.is_empty() && combined_tokens > target_tokens {
             // Emit current chunk
             let end = current_start + current_text.len();
             let overlap = get_overlap_text(&current_text, overlap_tokens);

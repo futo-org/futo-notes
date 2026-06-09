@@ -1,0 +1,381 @@
+{
+  "_generated": "tests/conformance/generate.mjs",
+  "description": "Tag parsing + validation rules (tags.ts).",
+  "groups": [
+    {
+      "op": "tagRegexMatches",
+      "fn": "TAG_REGEX",
+      "cases": [
+        {
+          "input": "#recipes #cooking",
+          "expected": [
+            "recipes",
+            "cooking"
+          ]
+        },
+        {
+          "input": "#123 #a1 #Z",
+          "expected": [
+            "a1",
+            "Z"
+          ]
+        },
+        {
+          "input": "#meal-prep #to_do",
+          "expected": [
+            "meal-prep",
+            "to_do"
+          ]
+        },
+        {
+          "input": "# heading\n## heading2",
+          "expected": []
+        },
+        {
+          "input": "#tag\n#another",
+          "expected": [
+            "tag",
+            "another"
+          ]
+        },
+        {
+          "input": "example.com#section foo#bar",
+          "expected": []
+        }
+      ]
+    },
+    {
+      "op": "isValidTagName",
+      "fn": "isValidTagName",
+      "cases": [
+        {
+          "input": "recipes",
+          "expected": true
+        },
+        {
+          "input": "meal-prep",
+          "expected": true
+        },
+        {
+          "input": "to_do",
+          "expected": true
+        },
+        {
+          "input": "a",
+          "expected": true
+        },
+        {
+          "input": "",
+          "expected": false
+        },
+        {
+          "input": "123",
+          "expected": false
+        },
+        {
+          "input": "-start",
+          "expected": false
+        },
+        {
+          "input": "_start",
+          "expected": false
+        },
+        {
+          "input": "React",
+          "expected": false
+        },
+        {
+          "input": "dog problems",
+          "expected": false
+        },
+        {
+          "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "expected": false
+        }
+      ]
+    },
+    {
+      "op": "normalizeTagName",
+      "fn": "normalizeTagName",
+      "cases": [
+        {
+          "input": "Whale",
+          "expected": "whale"
+        },
+        {
+          "input": "dog problems",
+          "expected": "dog_problems"
+        },
+        {
+          "input": "#Dog   Problems",
+          "expected": "dog_problems"
+        }
+      ]
+    },
+    {
+      "op": "extractTags",
+      "fn": "extractTags",
+      "cases": [
+        {
+          "input": "#recipes #cooking\n\nSome note about food.",
+          "expected": [
+            "#recipes",
+            "#cooking"
+          ]
+        },
+        {
+          "input": "Check out this #recipe for #healthy eating.",
+          "expected": [
+            "#recipe",
+            "#healthy"
+          ]
+        },
+        {
+          "input": "#Recipe #recipe #RECIPE",
+          "expected": [
+            "#recipe"
+          ]
+        },
+        {
+          "input": "#real\n\n```\n#fake\n```\n\n#also-real",
+          "expected": [
+            "#real",
+            "#also-real"
+          ]
+        },
+        {
+          "input": "#real\n\n~~~\n#fake\n~~~\n\n#also-real",
+          "expected": [
+            "#real",
+            "#also-real"
+          ]
+        },
+        {
+          "input": "Use `#notATag` but #realTag is fine",
+          "expected": [
+            "#realtag"
+          ]
+        },
+        {
+          "input": "# Heading\n## Another\n\n#tag",
+          "expected": [
+            "#tag"
+          ]
+        },
+        {
+          "input": "Just some text",
+          "expected": []
+        },
+        {
+          "input": "",
+          "expected": []
+        },
+        {
+          "input": "#before\n```\n#inside",
+          "expected": [
+            "#before"
+          ]
+        },
+        {
+          "input": "#tag1, #tag2. #tag3! #tag4?",
+          "expected": [
+            "#tag1",
+            "#tag2",
+            "#tag3",
+            "#tag4"
+          ]
+        }
+      ]
+    },
+    {
+      "op": "extractHeaderTagBlock",
+      "fn": "extractHeaderTagBlock",
+      "cases": [
+        {
+          "input": "#recipes #cooking\n#healthy\n\nThis is the note content",
+          "expected": {
+            "tags": [
+              "#recipes",
+              "#cooking",
+              "#healthy"
+            ],
+            "endOffset": 28,
+            "remainder": "This is the note content"
+          }
+        },
+        {
+          "input": "This is a note\n#inline-tag",
+          "expected": {
+            "tags": [],
+            "endOffset": 0,
+            "remainder": "This is a note\n#inline-tag"
+          }
+        },
+        {
+          "input": "#recipes some text\nMore content",
+          "expected": {
+            "tags": [],
+            "endOffset": 0,
+            "remainder": "#recipes some text\nMore content"
+          }
+        },
+        {
+          "input": "#tag\n\nContent here",
+          "expected": {
+            "tags": [
+              "#tag"
+            ],
+            "endOffset": 6,
+            "remainder": "Content here"
+          }
+        },
+        {
+          "input": "#only-tags\n#here",
+          "expected": {
+            "tags": [
+              "#only-tags",
+              "#here"
+            ],
+            "endOffset": 16,
+            "remainder": ""
+          }
+        },
+        {
+          "input": "#Tag #tag\n\nContent",
+          "expected": {
+            "tags": [
+              "#tag"
+            ],
+            "endOffset": 11,
+            "remainder": "Content"
+          }
+        },
+        {
+          "input": "#a #b\n#c\n#d\n\nContent",
+          "expected": {
+            "tags": [
+              "#a",
+              "#b",
+              "#c",
+              "#d"
+            ],
+            "endOffset": 13,
+            "remainder": "Content"
+          }
+        }
+      ]
+    },
+    {
+      "op": "extractTags",
+      "fn": "extractTags",
+      "cases": [
+        {
+          "input": "🎉👨‍👩‍👧‍👦🇺🇸 #realtag more 🎉👨‍👩‍👧‍👦🇺🇸",
+          "expected": [
+            "#realtag"
+          ]
+        },
+        {
+          "input": "#outside\n\n```\n~~~\n#hidden\n~~~\n```\n\n#after",
+          "expected": [
+            "#outside",
+            "#after"
+          ]
+        },
+        {
+          "input": "#before\n````\n#hidden\nstill hidden",
+          "expected": [
+            "#before"
+          ]
+        },
+        {
+          "input": "#a\n\n```rust\nlet x = \"#nope\";\n```\n\n#b",
+          "expected": [
+            "#a",
+            "#b"
+          ]
+        },
+        {
+          "input": "text ``#notatag`` and #yestag here",
+          "expected": [
+            "#yestag"
+          ]
+        },
+        {
+          "input": "#tag🎉 but #clean works",
+          "expected": [
+            "#clean"
+          ]
+        },
+        {
+          "input": "#one #two #three #one #two",
+          "expected": [
+            "#one",
+            "#two",
+            "#three"
+          ]
+        }
+      ]
+    },
+    {
+      "op": "extractHeaderTagBlock",
+      "fn": "extractHeaderTagBlock",
+      "cases": [
+        {
+          "input": "#a #b #c\n#d #e\n\nbody",
+          "expected": {
+            "tags": [
+              "#a",
+              "#b",
+              "#c",
+              "#d",
+              "#e"
+            ],
+            "endOffset": 16,
+            "remainder": "body"
+          }
+        },
+        {
+          "input": "#tag\t \n\ncontent",
+          "expected": {
+            "tags": [
+              "#tag"
+            ],
+            "endOffset": 8,
+            "remainder": "content"
+          }
+        },
+        {
+          "input": "#x\n#y\n#z",
+          "expected": {
+            "tags": [
+              "#x",
+              "#y",
+              "#z"
+            ],
+            "endOffset": 8,
+            "remainder": ""
+          }
+        },
+        {
+          "input": "no tags here\n#late",
+          "expected": {
+            "tags": [],
+            "endOffset": 0,
+            "remainder": "no tags here\n#late"
+          }
+        },
+        {
+          "input": "#a\nplain text\n#b",
+          "expected": {
+            "tags": [
+              "#a"
+            ],
+            "endOffset": 3,
+            "remainder": "plain text\n#b"
+          }
+        }
+      ]
+    }
+  ]
+}

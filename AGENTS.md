@@ -31,13 +31,17 @@ packages/
 
 - **Client stack**: Svelte 5 + Tauri v2 + Vite + Tailwind v4 + CodeMirror 6
 - **Sync server**: External E2EE server at `/home/justin/Developer/futo-notes-server` ([GitLab](https://gitlab.futo.org/futo-notes/futo-notes-server)). The client uploads opaque encrypted blobs through collection/object/blob APIs.
-- **Rust crate** (`futo-notes-core`): Hashing, sync payload prep/apply, vector search (UMAP + K-Means), graph layout, merge. Imported only by the Tauri app — do not reimplement logic that exists here.
-- **TypeScript layer**: Most file I/O, note indexing, search indexing, app state, and sync coordination are in TypeScript (`src/lib/`) using `@tauri-apps/plugin-fs`. Rust handles the performance-critical paths (sync delta computation, vector math, hashing).
-- **Shared package** (`@futo-notes/shared`): Auth protocol types, filename sanitization (`sanitizeTitle`, `validateTitle`), tag parsing (`extractTags`), image validation. Consumed as TypeScript source (no build step).
+- **Rust crates**: `futo-notes-model` owns the note domain — CRUD (`scan_notes`, `read_note`, `write_note`, `create_note`, `delete_note`, `rename_note`, `move_note`, `create_folder`), the note rules (`sanitize_title`, `make_id`, `split_id`, `extract_tags`, `extract_wikilinks`, `make_preview`), and full-text search. `futo-notes-core` owns hashing, sync payload prep/apply, vector search (UMAP + K-Means), graph layout, and merge. Both are imported by the Tauri app (via `apps/tauri/src-tauri/src/notes.rs`, `search.rs`) and by the native shells (via the `futo-notes-ffi` UniFFI crate). Do not reimplement logic that exists in these crates — there is one definition of every note rule and CRUD primitive, shared across all three apps.
+- **Tauri ↔ TS boundary**: The note domain lives in Rust and is reached through `#[tauri::command]` wrappers (`notes_*`, `search_notes`) registered with `tauri::generate_handler!`. (The note rules live in `futo-notes-model` but are not behind Tauri commands: desktop calls the conformance-locked TS copy `src/lib/rules.ts` to avoid a per-keystroke IPC hop, and the native shells reach them via the `futo-notes-ffi` facade.) TypeScript (`src/lib/`) owns the Svelte UI, reactive app state (`notesCache` in `notes.svelte.ts`), sync coordination, and the platform shell; it calls the Rust commands rather than touching `@tauri-apps/plugin-fs` for note I/O. The hard never-gate-render constraint is unchanged: the scan that populates `notesCache` runs un-awaited after `initialized = true` (see Key Constraints), so a slow Rust scan can only delay list population, never the shell.
+- **Shared package** (`@futo-notes/shared`): Auth protocol types and image-extension validation (`IMAGE_EXTENSIONS`, `isImageFilename`) consumed by both the client and the external sync server. Filename and tag rules (`sanitizeTitle`, `validateTitle`, `extractTags`) duplicate `futo-notes-model`'s canonical Rust rules; the TS copies are kept deliberately (desktop per-keystroke paths and the sync server) and held bit-for-bit in lockstep via `tests/conformance/*` — there are no `rules_*` Tauri commands. Consumed as TypeScript source (no build step).
 
-## TypeScript First
+## Where Logic Lives
 
-**Default to TypeScript for new features and functions.** TS eliminates a Tauri IPC round-trip, is easier to read and reason about, and reduces overall complexity. Only use Rust when the work is genuinely compute-heavy (vector math, sync delta over thousands of files, hashing) or requires OS-level access the TS plugin layer can't provide (filesystem watcher, clipboard image extraction). If in doubt, write it in TypeScript.
+**The note domain is Rust.** CRUD, note rules (title/tag/id/wikilink/preview), and full-text search live in `futo-notes-model` and are shared verbatim by the Tauri app and the native iOS/Android shells. Do not re-implement any of these in TypeScript — call the `notes_*` / `search_notes` commands. (The note rules are the one exception: they are not exposed as Tauri commands — desktop uses the conformance-locked TS copy `src/lib/rules.ts` to dodge a per-keystroke IPC hop, native uses the FFI facade, both held in lockstep with `futo-notes-model`.) This single-source rule is what keeps the three apps behaviorally identical; a rule that exists in two places will drift.
+
+**TypeScript owns the UI and reactive state.** The Svelte components, `notesCache` and its derived stores, sync coordination, tab/session state, and the platform shell stay in TS — that is where TS's ergonomics and the lack of an IPC round-trip pay off. When adding code that is plainly view/state logic, write it in TS; when it is a note rule or a filesystem mutation on the note tree, route it through Rust. Reserve net-new Rust for the note domain and the existing compute-heavy paths (vector math, sync delta, hashing); ad-hoc OS access the platform layer already covers (filesystem watcher, clipboard image extraction) stays where it is.
+
+## Platform Build & Webview Notes
 
 ### Android emulator — running JS against the webview
 
@@ -101,20 +105,26 @@ node scripts/fetch-ort-ios.mjs
 
 The xcframework path is automatically set via `ORT_IOS_XCFWK_PATH` in the Xcode pre-build script (`project.yml`). The `just deploy-ios` recipe includes this step. The xcframework is gitignored.
 
-### Android — inference smoke test
+## Behavioral Spec — Source of Truth
 
-With the app launched and the DevTools socket forwarded:
+`docs/spec/` is the source of truth for **what the app should do**, by surface
+(editor, list, nav, search, settings, sync, plus cross-cutting `app.md`). It
+spans all three apps — Tauri desktop, native iOS, native Android — so a
+requirement exists in one place even when a platform doesn't satisfy it yet.
 
-```bash
-node scripts/cdp-invoke.mjs \
-  "await window.__TAURI__.core.invoke('inference_test_embed', { text: 'hello world' })"
-```
+- **Before** changing behavior in an area, read `docs/spec/<area>.md` so you
+  don't break an existing requirement.
+- **After** establishing or changing a behavior, add or update the line.
+- A known missing/divergent behavior is recorded as a `> **Gap:**` note — surface
+  these when relevant; don't silently leave them undocumented.
 
-First call downloads the model (~35 MB + tokenizer) to the app data dir; returns `{ loadMs, embedMs, dims, firstEight, modelPath }`.
+This is the behavioral layer. It sits above `tests/conformance/*.json` (TS↔Rust
+rule parity) and `markdown-spec/cases/*.yaml` (editor decoration/cursor
+fixtures) — reference those, don't duplicate them.
 
 ## Key Constraints
 
-- **CRITICAL: never gate UI render on filesystem I/O.** `App.svelte` flips `initialized = true` synchronously; theme, prefs, notes, and the search index all load in the background and apply reactively. Past hangs (`bootstrapSearchIndex`, `scanNotePreviewsWithBodies`, `loadPreferences`, even `getPlatformFS`) all came from awaiting something — anything — before flipping `initialized`. iOS `@tauri-apps/plugin-fs` reads (`readTextFile`, `exists`) can hang indefinitely on cold sandboxes; debug builds hit this constantly because they have a separate sandbox (`com.futo.notes.dev` → `~/Documents/fake-notes`) that's frequently fresh/empty. If you find yourself adding `await` before `initialized = true` to "make sure X is ready before render", you are about to reintroduce the bug. Render the shell with empty state; let `$state` updates propagate.
+- **CRITICAL: never gate UI render on filesystem I/O.** `App.svelte` flips `initialized = true` synchronously; theme, prefs, notes, and the search index all load in the background and apply reactively. Past hangs (`bootstrapSearchIndex`, `scanNotePreviewsWithBodies`, `loadPreferences`, even `getPlatformFS`) all came from awaiting something — anything — before flipping `initialized`. The note scan is now a single Rust command (`invoke('notes_scan')`) fired from inside the already-backgrounded `initNotes()` promise, which does its own `notes_root()` + `create_dir_all` — so the iOS cold-sandbox `@tauri-apps/plugin-fs` hang class no longer sits in front of the scan. The rule is unchanged regardless of data source: do not add any `await` (including `await invoke('notes_scan')`) before `initialized = true`. A hung/slow scan can only delay list population, never the shell. Render the shell with empty state; let `$state` updates propagate.
 - **The filename IS the title.** `"grocery list.md"` → title is `"grocery list"`. No case changes, no dash-to-space, no transformations. `sanitizeFilename()` only strips filesystem-breaking characters. Never mutate filenames into titles.
 - **IMPORTANT**: Styles in `@layer(components)` lose to CM6's unlayered CSS. Use `!important` on CodeMirror overrides inside layered CSS.
 - **IMPORTANT**: `pnpm run dev` uses localhost APIs. `pnpm run build` points to production endpoints.

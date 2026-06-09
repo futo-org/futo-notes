@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { EditorView } from '@codemirror/view';
-  import { extractHeaderTagBlock, isValidTagName, normalizeTagName } from '@futo-notes/shared';
+  import { extractHeaderTagBlock, isValidTagName, normalizeTagName } from '$lib/rules';
   import { getAllTagNames } from '$lib/tags';
   import type { NotePreview } from '../types';
 

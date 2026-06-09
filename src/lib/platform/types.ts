@@ -5,6 +5,17 @@ export interface NoteFile {
   size: number;
 }
 
+/** List-level note metadata. Mirrors the Rust `NoteMeta` command DTO mapped
+ *  into the `NotePreview` shape so the reactive cache feeds with no remapping. */
+export interface NotePreviewMeta {
+  id: string;
+  title: string;
+  preview: string;
+  /** File mtime, ms since epoch (Rust `modifiedMs`). */
+  modificationTime: number;
+  tags: string[];
+}
+
 export interface FileChangeEvent {
   type: 'add' | 'change' | 'unlink' | 'rename';
   /** Relative path under the notes root (forward-slash separated). */
@@ -33,6 +44,10 @@ export interface FolderEntry {
 /** Core file system operations — everything needed for offline-first editing and sync. */
 export interface FileSystem {
   listNoteFiles(): Promise<NoteFile[]>;
+  /** Scan all notes' list-level metadata in one call, sorted by mtime desc.
+   *  Tauri does this in Rust (`notes_scan` over futo-notes-model); the result
+   *  feeds `notesCache` directly. */
+  scanNotes(): Promise<NotePreviewMeta[]>;
   readNote(id: string): Promise<string>;
   writeNote(id: string, content: string, modifiedAtMs?: number): Promise<number>;
   deleteNoteFile(id: string): Promise<void>;

@@ -8,6 +8,21 @@ export interface SetEditorContentOptions {
 }
 
 /**
+ * Read the editor document, or `undefined` when there is no live view.
+ *
+ * The distinction is load-bearing: the save pipeline persists whatever
+ * `getEditorContent()` returns, so a destroyed/not-yet-mounted view that
+ * reads as `''` is indistinguishable from "the user deleted everything".
+ * A stale flushSave firing against a torn-down editor (observed 2026-06-04
+ * via a dev HMR swap) saved '' over the open note and sync propagated the
+ * truncation to every device. Callers must treat `undefined` as "no
+ * editor" and skip the save — never coalesce it to ''.
+ */
+export function readDocContent(view: { state: EditorState } | null): string | undefined {
+  return view ? view.state.doc.toString() : undefined;
+}
+
+/**
  * Check whether the CM6 document matches nextText without materializing
  * the full string. Uses length check + sampled slices (O(log n) each).
  *

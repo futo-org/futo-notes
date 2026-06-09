@@ -160,6 +160,32 @@ android-build: verify-ime-shield
   cd apps/tauri && cargo tauri android build
   just verify-ime-shield-in-generated
 
+# ── Native shells (Compose / SwiftUI, NOT Tauri — same Rust core + editor) ──
+
+# Build futo-notes-ffi for all Android ABIs + generate Kotlin bindings.
+# Requires ANDROID_NDK_HOME + `cargo install cargo-ndk`.
+build-rust-android:
+  bash scripts/build-rust-android.sh
+
+# Build the SAME Rust ffi xcframework for the native iOS spike.
+build-rust-ios:
+  bash scripts/build-rust-ios.sh
+
+# Build + run the native Android Compose app (Rust core + WebView editor).
+# Requires Android SDK + NDK + cargo-ndk + a device/emulator.
+android-native:
+  apps/android/run.sh
+
+# Build + run the native iOS spike (Compose-equivalent SwiftUI) on the booted
+# SIMULATOR (no signing).
+ios-native:
+  apps/ios/run.sh
+
+# Build + run the native iOS spike on a CONNECTED PHYSICAL iPhone (signed).
+# Reuses the Tauri app's dev team; override with FUTO_DEV_TEAM=<team id>.
+ios-native-device:
+  apps/ios/run-device.sh
+
 ios-dev:
   #!/usr/bin/env bash
   set -euo pipefail
@@ -247,16 +273,28 @@ build:
   pnpm run build | tail -20
 
 test:
-  pnpm run test:all
+  pnpm run test:minimal
+
+test-full:
+  pnpm run test:full
 
 test-unit:
   pnpm run test:unit
 
+test-unit-full:
+  pnpm run test:unit:full
+
 test-shared:
   pnpm run test:shared
 
+test-shared-full:
+  pnpm run test:shared:full
+
 test-e2e:
-  pnpm run test
+  pnpm run test:e2e:smoke
+
+test-e2e-full:
+  pnpm run test:e2e:full
 
 test-cross-platform:
   pnpm run test:cross-platform
@@ -286,9 +324,11 @@ test-desktop-smoke:
   node tests/desktop-smoke.mjs
 
 test-rust:
+  cargo test -p futo-notes-model --test conformance
+
+test-rust-full:
   mkdir -p dist
-  cd apps/tauri/src-tauri && cargo test
-  cargo test -p futo-notes-core
+  cargo test --workspace
 
 # Factory: compare our editor to Obsidian's, scenario by scenario.
 # See factory/AGENTS.md.
@@ -335,7 +375,7 @@ factory-summary:
 
 check: verify-ime-shield
   pnpm run lint
-  pnpm run test:all
+  pnpm run test:minimal
   pnpm exec tsc --noEmit | head -30
   pnpm run build | tail -20
 
