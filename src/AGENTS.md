@@ -10,10 +10,9 @@ From the monorepo root, prefer `just build`, `just tauri-dev`, `just test-unit`,
 - **`components/MarkdownEditor.svelte`**: CodeMirror 6 editor with scroll compensation for external scroll containers. See @docs/devlog.md for the scroll fix deep-dive.
 - **`lib/liveMarkdownTransform.ts`**: CM6 plugin for live markdown rendering — widgets for tables, checkboxes, HR, inline images. Styling in `styles/markdown.css`.
 - **`lib/platform/`**: Platform abstraction layer. `types.ts` defines `PlatformFS` interface; `tauri.ts` (native) and `web.ts` (dev/test) implement it. `atomicWrite.ts` provides crash-safe temp+rename writes. `pathSafety.ts` validates paths against traversal attacks. `tauriPaths.ts` resolves notes root and overrides.
-- **`lib/notesIndex.ts`**: In-memory note index (filename→hash mappings). Replaced the former Rust note index.
+- **`lib/notes.svelte.ts`**: Reactive note state. Holds `notesCache` (the single source of truth for the sidebar) and the CRUD wrappers. Reads come from the Rust `notes_scan` command (mapped `NoteMeta[] → NotePreview[]`); mutations update the cache optimistically and write through the `notes_*` commands. The note domain (CRUD, rules, scan, search) lives in the `futo-notes-model` Rust crate, not in TS — see root AGENTS.md "Where Logic Lives".
 - **`lib/syncServiceE2ee.ts`** + **`lib/syncManager.svelte.ts`**: E2EE sync client. `syncServiceE2ee` handles encryption and the external server API; `syncManager` coordinates sync lifecycle (auto-sync, idle detection, connectivity).
 - **`lib/autoSyncV2.ts`**: E2EE auto-sync with debounce, idle detection, and manual trigger via `requestSyncV2()`.
-- **`lib/rustCore.ts`**: Bridge to remaining Rust Tauri commands (sync payload prep/apply).
 
 ## Key Constraints
 
@@ -27,7 +26,7 @@ From the monorepo root, prefer `just build`, `just tauri-dev`, `just test-unit`,
 - **Adding markdown elements**: Edit `liveMarkdownTransform.ts` (processing) + `markdown.css` (styling). Test with `tests/gfm-test-note.md`.
 - **Theme tokens**: `src/styles/app.css` → `@theme` block (primary, text, border, surface, muted, bg).
 - **Platform-specific behavior**: Implement in `PlatformFS` interface, never branch on platform in components.
-- **Search**: Client-side keyword search (MiniSearch) always available. Vector similarity search via Rust supersearch commands when artifacts are downloaded.
+- **Search**: Two paths coexist. The Rust `futo-notes-search` engine (Tantivy BM25 + SPLADE, reached via `search_query`/`search_status`/`search_rebuild`/`search_notify`) is preferred when available and returning hits; the live client-side **MiniSearch** keyword index (`lib/searchIndex.ts`) is the always-available fallback (and powers first-launch results before the engine is ready). `lib/searchEngine.ts` is the shim that prefers the engine and falls back to MiniSearch; `lib/notes.svelte.ts` drives both. MiniSearch is NOT retired.
 
 ## Tauri MCP Shortcuts
 

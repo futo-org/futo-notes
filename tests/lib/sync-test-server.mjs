@@ -10,6 +10,7 @@ import { existsSync, mkdtempSync } from 'node:fs';
 import http from 'node:http';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
+import { Readable } from 'node:stream';
 
 const PASSWORD = 'testing123';
 
@@ -43,7 +44,12 @@ export async function startServer(port, repoRoot, options = {}) {
   const syncDelayMs = options.syncDelayMs ?? 0;
   const dataDir = mkdtempSync(join(tmpdir(), 'sf-test-server-'));
   const blobDir = join(dataDir, 'blobs');
-  const serverPort = syncDelayMs > 0 ? port + 1000 : port;
+  // When a delay proxy is requested, the real server moves to port + 1500 and
+  // the proxy takes `port`. NOT +1000: with the suite's base port 4000 that
+  // lands on 5000, which macOS ControlCenter (AirPlay Receiver) holds —
+  // EADDRINUSE on any solo run of a delayed scenario. 5500+ is clear of
+  // AirPlay's 5000/7000.
+  const serverPort = syncDelayMs > 0 ? port + 1500 : port;
   const serverRepo = resolve(
     process.env.FUTO_NOTES_E2EE_SERVER_REPO || '/home/justin/Developer/futo-notes-server',
   );
@@ -138,11 +144,27 @@ export async function startServer(port, repoRoot, options = {}) {
         });
 
         res.writeHead(upstream.status, Object.fromEntries(upstream.headers.entries()));
-        const responseBody = Buffer.from(await upstream.arrayBuffer());
-        res.end(responseBody);
+        // Stream the body through instead of buffering via arrayBuffer(). The
+        // desktop now opens a long-lived SSE stream (GET /api/sync/events) for
+        // live sync; arrayBuffer() never resolves on a streaming response, which
+        // hangs this proxy (and the catch's second writeHead would crash on
+        // ERR_HTTP_HEADERS_SENT). Piping proxies SSE incrementally + finite
+        // /objects responses alike.
+        if (upstream.body) {
+          const upstreamStream = Readable.fromWeb(upstream.body);
+          upstreamStream.on('error', () => { if (!res.writableEnded) res.end(); });
+          res.on('close', () => upstreamStream.destroy());
+          upstreamStream.pipe(res);
+        } else {
+          res.end();
+        }
       } catch (err) {
-        res.writeHead(502, { 'content-type': 'text/plain' });
-        res.end(`Proxy error: ${err instanceof Error ? err.message : String(err)}`);
+        if (!res.headersSent) {
+          res.writeHead(502, { 'content-type': 'text/plain' });
+        }
+        if (!res.writableEnded) {
+          res.end(`Proxy error: ${err instanceof Error ? err.message : String(err)}`);
+        }
       }
     });
 

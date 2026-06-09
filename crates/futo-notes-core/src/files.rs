@@ -2,7 +2,15 @@ use filetime::{set_file_mtime, FileTime};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+/// Process-wide monotonic counter for unique temp-file names. `now_ms()` alone
+/// collides when two atomic writes land in the same millisecond in the same
+/// directory (common during an initial sync's apply loop), which can surface as
+/// spurious rename failures. Combining it with this counter makes the temp name
+/// unique per call across all threads/tasks.
+static TMP_SEQ: AtomicU64 = AtomicU64::new(0);
 
 // ── Constants ───────────────────────────────────────────────────────────
 
@@ -23,6 +31,30 @@ pub enum FilenameIssueKind {
     TrailingDots,
     TooLong,
     Empty,
+    /// Folder-name only: a Windows reserved device name (CON, PRN, …).
+    ReservedName,
+    /// A case-insensitive sibling collision (used by folder ops, not by the
+    /// single-name validators).
+    CaseCollision,
+    /// Folder-path only: nesting exceeds `MAX_FOLDER_DEPTH`.
+    DepthExceeded,
+}
+
+impl FilenameIssueKind {
+    /// Stable snake_case identifier — matches the TS `FilenameIssueKind`
+    /// string union and the conformance fixtures.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            FilenameIssueKind::ForbiddenChars => "forbidden_chars",
+            FilenameIssueKind::LeadingDots => "leading_dots",
+            FilenameIssueKind::TrailingDots => "trailing_dots",
+            FilenameIssueKind::TooLong => "too_long",
+            FilenameIssueKind::Empty => "empty",
+            FilenameIssueKind::ReservedName => "reserved_name",
+            FilenameIssueKind::CaseCollision => "case_collision",
+            FilenameIssueKind::DepthExceeded => "depth_exceeded",
+        }
+    }
 }
 
 /// A single validation issue found in a title.
@@ -97,7 +129,10 @@ pub fn validate_title(title: &str) -> Vec<FilenameIssue> {
         });
     }
 
-    if title.len() > MAX_TITLE_LENGTH {
+    // Count UTF-16 code units to match the TS reference's `title.length`
+    // (JS strings are UTF-16). Using `.len()` (UTF-8 bytes) would diverge for
+    // non-ASCII titles near the limit and break cross-language conformance.
+    if title.encode_utf16().count() > MAX_TITLE_LENGTH {
         issues.push(FilenameIssue {
             kind: FilenameIssueKind::TooLong,
             message: format!("Title cannot exceed {MAX_TITLE_LENGTH} characters"),
@@ -253,9 +288,129 @@ pub fn write_atomic_text(path: &Path, content: &str) -> Result<(), String> {
 
     // Use a short temp name to avoid exceeding filesystem limits (ext4: 255 bytes).
     // The old pattern `.{filename}.tmp-{ts}` could overflow for long filenames.
-    let tmp = parent.join(format!(".sf-tmp-{}", now_ms()));
-    fs::write(&tmp, content).map_err(|e| e.to_string())?;
-    fs::rename(&tmp, path).map_err(|e| e.to_string())
+    // Include a process-wide counter so two writes in the same millisecond (or
+    // concurrent writers in the same dir) never share a temp path — a shared
+    // temp name could be renamed away under us and surface as a spurious rename
+    // failure mid-sync.
+    let seq = TMP_SEQ.fetch_add(1, Ordering::Relaxed);
+    let tmp = parent.join(format!(".sf-tmp-{}-{}", now_ms(), seq));
+    fs::write(&tmp, content).map_err(|e| format!("{e} (writing temp {})", tmp.display()))?;
+    if let Err(e) = fs::rename(&tmp, path) {
+        // On a case-insensitive filesystem (default APFS on macOS/iOS, NTFS on
+        // Windows) `rename` onto a destination that differs only in case from an
+        // existing entry can fail with `AlreadyExists` (EEXIST) instead of
+        // overwriting — e.g. syncing a note `welcome.md` when the vault already
+        // holds `Welcome.md`. POSIX rename would overwrite; this edge does not.
+        // Recover the intended overwrite semantics: PARK the colliding entry
+        // (exact path, then any case-variant in the same directory) under a
+        // hidden backup name, retry the rename, then drop the backup. Parking
+        // instead of deleting keeps the previous bytes on disk if we crash
+        // between clearing the collision and installing the temp file — the
+        // old delete-then-rename sequence lost them permanently in that
+        // window. On case-sensitive filesystems this branch never triggers
+        // (rename overwrites cleanly), so behavior there is unchanged.
+        if e.kind() == std::io::ErrorKind::AlreadyExists {
+            let parked = park_case_variants(parent, path);
+            if let Err(e2) = fs::rename(&tmp, path) {
+                // Put the collision back — keeping the old note beats
+                // losing both versions.
+                for (original, backup) in parked {
+                    let _ = fs::rename(&backup, &original);
+                }
+                let _ = fs::remove_file(&tmp);
+                return Err(format!(
+                    "{e2} (renaming {} -> {} after case-collision recovery)",
+                    tmp.display(),
+                    path.display()
+                ));
+            }
+            for (_original, backup) in parked {
+                let _ = fs::remove_file(&backup);
+            }
+            return Ok(());
+        }
+        let _ = fs::remove_file(&tmp);
+        return Err(format!(
+            "{e} (renaming {} -> {})",
+            tmp.display(),
+            path.display()
+        ));
+    }
+    Ok(())
+}
+
+/// Remove `path` if it exists, plus any directory entry in `parent` whose name
+/// matches `path`'s filename case-insensitively. Used to recover the overwrite
+/// semantics of `rename` on case-insensitive filesystems, where a destination
+/// differing only in case blocks the rename with EEXIST. Best-effort: errors
+/// are ignored (the retry rename surfaces any real failure).
+/// Park every file in `parent` whose name case-matches `path`'s filename
+/// under a hidden `.sf-bak-…` name (a dotfile with no `.md` suffix, so the
+/// scanner, watcher, and sync inventory all ignore it). Returns
+/// `(original, backup)` pairs so a failed retry can restore them. A
+/// directory that happens to case-match is never parked — only files are
+/// valid note targets.
+fn park_case_variants(parent: &Path, path: &Path) -> Vec<(PathBuf, PathBuf)> {
+    let Some(target) = path.file_name().and_then(|n| n.to_str()) else {
+        return Vec::new();
+    };
+    let mut parked = Vec::new();
+    if let Ok(entries) = fs::read_dir(parent) {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let Some(name) = name.to_str() else {
+                continue;
+            };
+            if !name.eq_ignore_ascii_case(target) {
+                continue;
+            }
+            let p = entry.path();
+            if !p.is_file() {
+                continue;
+            }
+            let seq = TMP_SEQ.fetch_add(1, Ordering::Relaxed);
+            let backup = parent.join(format!(".sf-bak-{}-{}", now_ms(), seq));
+            if fs::rename(&p, &backup).is_ok() {
+                parked.push((p, backup));
+            }
+        }
+    }
+    parked
+}
+
+/// Rename `src` to `dst` via a hidden temporary name (`src` → `.sf-tmp-…` →
+/// `dst`). Used for a case-only / NFC-vs-NFD rename on a case-insensitive,
+/// normalization-insensitive filesystem (default APFS on macOS/iOS, NTFS on
+/// Windows), where `fs::rename(src, dst)` is a no-op or fails because the
+/// kernel treats `dst` as already being `src` — so the stored case/normal
+/// form never changes. The temp hop forces the kernel to drop the old
+/// directory entry and create a fresh one with the requested bytes.
+///
+/// The temp name is a dotfile with no `.md` suffix, so the scanner, watcher,
+/// and sync inventory all ignore it if we crash mid-rename. On a failed
+/// second hop we roll the temp file back to `src` so the note is never lost.
+pub fn rename_through_temp(src: &Path, dst: &Path) -> Result<(), String> {
+    let parent = src
+        .parent()
+        .ok_or_else(|| "invalid source path".to_string())?;
+    if let Some(dparent) = dst.parent() {
+        fs::create_dir_all(dparent).map_err(|e| e.to_string())?;
+    }
+    let seq = TMP_SEQ.fetch_add(1, Ordering::Relaxed);
+    let tmp = parent.join(format!(".sf-tmp-{}-{}", now_ms(), seq));
+    fs::rename(src, &tmp).map_err(|e| {
+        format!("{e} (renaming {} -> temp {})", src.display(), tmp.display())
+    })?;
+    if let Err(e) = fs::rename(&tmp, dst) {
+        // Roll back so the note survives — keeping the source beats losing it.
+        let _ = fs::rename(&tmp, src);
+        return Err(format!(
+            "{e} (renaming temp {} -> {})",
+            tmp.display(),
+            dst.display()
+        ));
+    }
+    Ok(())
 }
 
 /// Extract a note ID from a filename by stripping the `.md` extension.
@@ -398,6 +553,101 @@ mod tests {
             safe_note_path(base, "Specs/v1.2 plan").unwrap(),
             PathBuf::from("/tmp/test/Specs/v1.2 plan.md"),
         );
+    }
+
+    #[test]
+    fn write_atomic_text_basic_roundtrip() {
+        let dir = temp_dir();
+        let path = dir.join("note.md");
+        write_atomic_text(&path, "hello").expect("write");
+        assert_eq!(fs::read_to_string(&path).unwrap(), "hello");
+        // No temp litter left behind.
+        let leftovers: Vec<_> = fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .filter(|e| e.file_name().to_string_lossy().starts_with(".sf-tmp-"))
+            .collect();
+        assert!(leftovers.is_empty(), "temp files left: {leftovers:?}");
+        cleanup(&dir);
+    }
+
+    // Regression: on a case-insensitive filesystem (default APFS on macOS/iOS),
+    // syncing a note whose filename differs only in case from an existing file
+    // (`welcome.md` vs `Welcome.md`) made `fs::rename` fail with EEXIST instead
+    // of overwriting, which aborted the whole sync apply. write_atomic_text must
+    // recover by overwriting the case-variant. On case-sensitive filesystems the
+    // two coexist and this just writes the requested name.
+    #[test]
+    fn write_atomic_text_overwrites_case_variant() {
+        let dir = temp_dir();
+        let existing = dir.join("Welcome.md");
+        fs::write(&existing, "old iOS welcome").unwrap();
+
+        let target = dir.join("welcome.md");
+        write_atomic_text(&target, "new mac welcome").expect("write must not EEXIST");
+
+        // Exactly one welcome entry survives, holding the new content. On a
+        // case-insensitive FS the on-disk name may keep either case; on a
+        // case-sensitive FS both names can exist — assert the new content
+        // landed under the requested name regardless.
+        let welcome_entries: Vec<_> = fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .filter(|e| {
+                e.file_name()
+                    .to_string_lossy()
+                    .eq_ignore_ascii_case("welcome.md")
+            })
+            .collect();
+        assert!(!welcome_entries.is_empty(), "welcome note missing");
+        // The requested path must be readable with the new content.
+        let got = fs::read_to_string(&target).expect("requested path readable");
+        assert_eq!(got, "new mac welcome");
+        // No temp or backup litter. The collision recovery parks the old
+        // entry as `.sf-bak-…` while installing the new file (crash-safety:
+        // the old bytes survive a crash mid-recovery) and must clean the
+        // backup up on success.
+        let leftovers: Vec<_> = fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .filter(|e| {
+                let n = e.file_name();
+                let n = n.to_string_lossy().into_owned();
+                n.starts_with(".sf-tmp-") || n.starts_with(".sf-bak-")
+            })
+            .collect();
+        assert!(leftovers.is_empty(), "temp/backup files left: {leftovers:?}");
+        cleanup(&dir);
+    }
+
+    // F3: rename_through_temp must rewrite the stored bytes of a case-only
+    // rename even on a case-insensitive FS, where a plain fs::rename is a
+    // no-op. After the hop, exactly one entry exists with the requested case
+    // and the original content; no temp litter remains.
+    #[test]
+    fn rename_through_temp_case_only() {
+        let dir = temp_dir();
+        let src = dir.join("note.md");
+        fs::write(&src, "body").unwrap();
+        let dst = dir.join("Note.md");
+        rename_through_temp(&src, &dst).expect("temp-hop rename");
+
+        // Exactly one .md entry remains, readable via the new path.
+        let md: Vec<_> = fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .filter(|e| e.file_name().to_string_lossy().ends_with(".md"))
+            .collect();
+        assert_eq!(md.len(), 1, "case-only rename must not duplicate");
+        assert_eq!(fs::read_to_string(&dst).unwrap(), "body");
+        // No temp litter.
+        let leftover: Vec<_> = fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .filter(|e| e.file_name().to_string_lossy().starts_with(".sf-tmp-"))
+            .collect();
+        assert!(leftover.is_empty(), "temp files left: {leftover:?}");
+        cleanup(&dir);
     }
 
     #[test]

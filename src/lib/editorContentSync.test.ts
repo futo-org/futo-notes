@@ -1,6 +1,27 @@
 import { describe, expect, it } from 'vitest';
 import { EditorState } from '@codemirror/state';
-import { buildSetContentTransaction } from './editorContentSync';
+import { buildSetContentTransaction, readDocContent } from './editorContentSync';
+
+describe('readDocContent', () => {
+  it('reads the live document', () => {
+    const state = EditorState.create({ doc: 'hello' });
+    expect(readDocContent({ state })).toBe('hello');
+  });
+
+  it('reads a genuinely empty document as the empty string', () => {
+    // Select-all-delete must still save: '' from a LIVE view is real.
+    const state = EditorState.create({ doc: '' });
+    expect(readDocContent({ state })).toBe('');
+  });
+
+  it('returns undefined — never empty string — when the view is gone', () => {
+    // Regression: a destroyed/not-yet-mounted view used to read as '',
+    // which the flush-time unseen-changes save interpreted as "the user
+    // deleted everything" and wrote to disk, truncating the open note —
+    // and sync propagated the truncation to every device (2026-06-04).
+    expect(readDocContent(null)).toBeUndefined();
+  });
+});
 
 describe('buildSetContentTransaction', () => {
   it('preserves the cursor location during same-note content refreshes', () => {

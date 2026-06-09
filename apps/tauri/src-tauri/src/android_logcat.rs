@@ -16,13 +16,18 @@
 //! libc tombstones, and chromium renderer logs about *our* process all
 //! qualify; we do NOT need the privileged `READ_LOGS` permission.
 
+#[cfg(target_os = "android")]
 use std::path::{Path, PathBuf};
+#[cfg(target_os = "android")]
 use std::process::Command;
+#[cfg(target_os = "android")]
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use sha2::{Digest, Sha256};
 
+#[cfg(target_os = "android")]
 const LOGCAT_LINE_LIMIT: usize = 2000;
+#[cfg(target_os = "android")]
 const REPORTED_HASH_FILE: &str = "last-native-report.hash";
 const MAX_REPORT_LINES: usize = 200;
 /// Truncate any single logcat line longer than this. Crashpad minidump
@@ -72,6 +77,7 @@ const SECONDARY_CRASH_SIGNALS: &[&str] = &[
 /// Try to capture a native crash from the previous session into the
 /// `.crashlogs/` directory. Best-effort: never panics, swallows all IO
 /// errors. Returns whether a report was written.
+#[cfg(target_os = "android")]
 pub fn capture_previous_native_crash(crashlog_dir: &Path, package: &str) -> bool {
     let Some(lines) = read_logcat() else {
         return false;
@@ -103,6 +109,7 @@ pub fn capture_previous_native_crash(crashlog_dir: &Path, package: &str) -> bool
     written
 }
 
+#[cfg(target_os = "android")]
 fn read_logcat() -> Option<Vec<String>> {
     let out = Command::new("logcat")
         .args([
@@ -225,12 +232,14 @@ fn hash_lines(lines: &[String]) -> String {
     format!("{:x}", h.finalize())
 }
 
+#[cfg(target_os = "android")]
 fn already_reported(crashlog_dir: &Path, hash: &str) -> bool {
     std::fs::read_to_string(crashlog_dir.join(REPORTED_HASH_FILE))
         .map(|s| s.trim() == hash)
         .unwrap_or(false)
 }
 
+#[cfg(target_os = "android")]
 fn write_report(crashlog_dir: &Path, lines: &[String]) -> bool {
     let stack = cap_stack(lines.join("\n"));
     let ts_ms = SystemTime::now()
@@ -279,6 +288,7 @@ fn short_summary(line: &str) -> String {
     s
 }
 
+#[cfg(target_os = "android")]
 fn iso_now() -> String {
     use time::format_description::well_known::Rfc3339;
     use time::OffsetDateTime;

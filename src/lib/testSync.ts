@@ -16,7 +16,9 @@ export interface TestSyncApi {
   connectE2ee(serverUrl: string, password: string): Promise<TestSyncStatus>;
   syncE2ee(password: string): Promise<{ summary: SyncSummary; status: TestSyncStatus }>;
   disconnectE2ee(): Promise<TestSyncStatus>;
-  pauseAutoSync(): void;
+  /** Resolves once the SSE live stream is fully stopped — callers must
+   *  await it so no live loop survives to race their explicit syncNow(). */
+  pauseAutoSync(): Promise<void>;
   resumeAutoSync(): void;
 }
 

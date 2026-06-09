@@ -2,7 +2,20 @@
 
 Client-side semantic search via ONNX Runtime. Embedding model runs entirely on-device — no server needed, nothing leaves the device.
 
-## Current state (Phase 3 complete)
+> **Note (cleanup):** The standalone **dense embedder** (`nomic-embed-text`) was
+> removed — the `Embedder` struct, the `inference_test_embed` command, the resumable
+> model `download.rs`, the Settings "Run benchmarks" button, and the `embed_hello`
+> example/`embedder` test. It only ever fed a dev benchmark yet shipped a ~35 MB
+> model download to production for a feature nothing consumed. The surviving
+> on-device inference is **SPLADE** sparse encoding (`splade_encoder.rs`, consumed by
+> `futo-notes-search`; see `docs/splade-search.md`). The ORT cross-platform linking
+> setup documented below (Android `.so`, iOS xcframework, the feature flags) is still
+> accurate and now serves SPLADE. The dense-embedder sections below — the "Current
+> state" notes, the `inference_test_embed` quick-start/smoke-test steps, and the
+> benchmark tables — are kept only as a historical record of the removed path; the
+> `inference_test_embed` command no longer exists.
+
+## Current state (Phase 3 complete) — dense embedder, since removed
 
 **What works now:**
 - `crates/futo-notes-inference/` — Rust crate with `Embedder` struct (ORT session + HuggingFace tokenizer), resumable HTTP model download, SHA-256 verify.
@@ -19,8 +32,8 @@ Client-side semantic search via ONNX Runtime. Embedding model runs entirely on-d
 
 ```bash
 # From monorepo root:
-cargo run -p futo-notes-inference --example embed_hello
-# Downloads model to /tmp/futo-notes-inference-demo/, embeds a test string, prints timings.
+cargo run -p futo-notes-inference --example splade_hello
+# Encodes a test string with SPLADE and prints the top weighted terms + timings.
 ```
 
 ## Quick start — Android
@@ -95,23 +108,22 @@ xcrun devicectl device process launch --device "$DEVICE" com.futo.notes.dev
 
 ```
 crates/futo-notes-inference/
-├── src/lib.rs           Constants, re-exports, model URLs
-├── src/embedder.rs      Embedder struct (ORT session + tokenizer)
-├── src/download.rs      Resumable HTTP download + SHA-256 verify
-├── examples/embed_hello.rs  Desktop smoke test
-└── tests/embedder.rs    Integration tests (need model on disk)
+├── src/lib.rs              Constants + re-exports
+├── src/splade_encoder.rs   SPLADE doc encoder (ORT session + WordPiece tokenizer)
+├── src/error.rs            Shared Error/Result types
+├── examples/splade_hello.rs  Desktop SPLADE smoke test
+└── examples/splade_bench.rs  SPLADE encode benchmark
+
+crates/futo-notes-search/   Consumes the SPLADE encoder for the sparse index
 
 apps/tauri/src-tauri/
-├── Cargo.toml           Per-platform futo-notes-inference dep
-├── src/core.rs          inference_test_embed command (inference_dev module)
-└── src/lib.rs           Command registration
+├── Cargo.toml           Per-platform ORT linking (futo-notes-inference / -search deps)
+└── src/search.rs        search_* commands over futo-notes-search
 
 apps/tauri/src-tauri/gen/apple/
 ├── project.yml          Xcode project spec (CoreML/Accelerate frameworks, ORT xcfwk)
 └── onnxruntime.xcframework/  Fetched by fetch-ort-ios.mjs (gitignored)
 
-src/components/SettingsScreen.svelte  Benchmark section (Run benchmarks button)
-src/lib/testInference.ts   window.__testInference hook
 scripts/fetch-ort-android.mjs  ORT .so fetcher for Android
 scripts/fetch-ort-ios.mjs      ORT xcframework fetcher for iOS
 scripts/cdp-invoke.mjs    CDP client for webview command invocation

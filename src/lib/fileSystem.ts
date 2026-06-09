@@ -1,6 +1,7 @@
 import { getFS } from './platform';
 import type { NoteFile } from './platform';
 import { writeSuppressor } from './writeSuppression';
+import { engineNotify } from './searchEngine';
 
 export type { NoteFile };
 
@@ -16,12 +17,19 @@ export async function writeNote(id: string, content: string, modifiedAtMs?: numb
   // Record before the write so the OS-emitted watcher event for our own
   // write doesn't bubble back to syncManager as "changed externally".
   writeSuppressor.recordWrite(`${id}.md`);
-  return getFS().writeNote(id, content, modifiedAtMs);
+  const mtime = await getFS().writeNote(id, content, modifiedAtMs);
+  // Our own write is suppressed from the watcher (recordWrite above), so the
+  // watcher-driven engineNotify in NotesShell never fires for it. Notify the
+  // Rust search engine here so its Tantivy index stays as fresh as MiniSearch
+  // (which notes.svelte.ts updates optimistically) — otherwise stale hits.
+  void engineNotify('change', `${id}.md`);
+  return mtime;
 }
 
 export async function deleteNoteFile(id: string): Promise<void> {
   writeSuppressor.recordWrite(`${id}.md`);
-  return getFS().deleteNoteFile(id);
+  await getFS().deleteNoteFile(id);
+  void engineNotify('unlink', `${id}.md`);
 }
 
 export async function deleteAllContent(): Promise<void> {
@@ -69,6 +77,9 @@ export async function moveNoteFile(fromId: string, toId: string): Promise<void> 
   const fs = getFS();
   if (!fs.moveNote) throw new Error('platform does not support atomic note move');
   await fs.moveNote(fromId, toId);
+  // Both paths are suppressed from the watcher; keep the Rust engine fresh by
+  // re-keying the moved note's index entry from old → new path.
+  void engineNotify('rename', `${toId}.md`, `${fromId}.md`);
 }
 
 /** Copy an image from a temp path into the notes folder, return just the filename. */

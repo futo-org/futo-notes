@@ -13,7 +13,7 @@ import {
   getNoteById,
 } from '$lib/notes.svelte';
 import { sanitizeFilename } from '$lib/utils';
-import { FORBIDDEN_CHARS_RE, validateTitle } from '@futo-notes/shared';
+import { FORBIDDEN_CHARS_RE, validateTitle } from '$lib/rules';
 import { navigate } from '../router';
 import type { NotePreview } from '../types';
 
@@ -105,6 +105,44 @@ export function shouldWriteNoteToDisk(params: {
   return !(params.newTitle === params.savedTitle && params.newContent === params.content);
 }
 
+/** Pure core of the flush-time dirty check: does the live editor (or title
+ *  field) hold changes the debounced-save pipeline has not yet observed?
+ *  This happens when the editor's rAF-coalesced onchange stalls — rAF does
+ *  not fire while the window is hidden/occluded (macOS WKWebView), so the
+ *  save timer is never armed for the latest keystrokes. `flushSave` uses
+ *  this so a close/quit/note-switch flush still persists them. */
+export function editorHasUnseenChanges(params: {
+  editorContent: string | undefined;
+  savedContent: string;
+  title: string;
+  savedTitle: string;
+}): boolean {
+  if (params.editorContent === undefined) return false;
+  return params.editorContent !== params.savedContent || params.title !== params.savedTitle;
+}
+
+/** Pure core of the adopt-echo check: is this onchange delivery just the
+ *  editor echoing content the session already applied and saved?
+ *
+ *  `applyExternalContent`/`loadNote` raise `suppressSaveOnChange` around
+ *  their programmatic `setEditorContent`, but the editor's onchange is
+ *  rAF-coalesced — the delivery lands a frame later, after the flag is
+ *  already lowered. Counting that echo as an edit bumped `editVersion`,
+ *  which made `handleSyncComplete`'s edited-during-sync gate silently skip
+ *  every subsequent remote adopt of the open note: the first live-pulled
+ *  edit appeared, later ones didn't until the note was reopened. An echo
+ *  must match BOTH the session content and the saved content — a delivery
+ *  that differs from either is a real edit (or a revert the session state
+ *  still needs to converge on) and flows through. */
+export function isEditorChangeEcho(params: {
+  nextContent: string | undefined;
+  content: string;
+  savedContent: string;
+}): boolean {
+  if (params.nextContent === undefined) return false;
+  return params.nextContent === params.content && params.nextContent === params.savedContent;
+}
+
 // ---------------------------------------------------------------------------
 // Implementation
 // ---------------------------------------------------------------------------
@@ -183,6 +221,10 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
 
   function debouncedSave(nextContent?: string): void {
     if (suppressSaveOnChange) return;
+    // Drop the rAF-deferred echo of programmatic setEditorContent — see
+    // isEditorChangeEcho. Without this, every external adopt counted as a
+    // user edit and blocked the NEXT remote adopt of the open note.
+    if (isEditorChangeEcho({ nextContent, content, savedContent })) return;
     if (nextContent !== undefined) {
       content = nextContent;
     }
@@ -209,10 +251,32 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
         await runQueuedSave();
       } else if (saveInFlight !== null) {
         await saveInFlight;
+      } else if (!loading && hasUnseenEditorChanges()) {
+        // The editor delivers changes through an rAF-coalesced onchange
+        // (MarkdownEditor), and rAF stalls while the window is hidden or
+        // occluded (notably macOS WKWebView). When that happens the save
+        // timer was never armed, so a flush that only honors the timer
+        // silently drops the user's latest keystrokes on close / quit /
+        // note-switch. If the editor holds content the session hasn't seen,
+        // treat it as a pending edit and save it now.
+        await runQueuedSave();
       }
     } catch (e) {
       console.warn('Failed to flush note save:', e);
     }
+  }
+
+  /** True when the live editor (or title field) holds changes that the
+   *  debounced-save pipeline has not yet observed — the rAF-starved
+   *  onchange case. Mirrors the dirty check in `hasOpenDraftChanges`. */
+  function hasUnseenEditorChanges(): boolean {
+    if (!hasFileSystem || deps.getNoteId() === null) return false;
+    return editorHasUnseenChanges({
+      editorContent: deps.getEditorContent(),
+      savedContent,
+      title,
+      savedTitle,
+    });
   }
 
   async function runQueuedSave(): Promise<void> {

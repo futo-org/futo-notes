@@ -11,7 +11,9 @@ test_rust_macos_task:
     - corepack prepare pnpm@10.29.2 --activate
     - pnpm install --frozen-lockfile
     - mkdir -p dist
-    - cd apps/tauri/src-tauri && cargo test
+    # Whole workspace so the new core crates (model/index/sync) are covered on
+    # macOS too; ignored server tests stay skipped (no FUTO_TEST_SERVER).
+    - cargo test --workspace
 
 test_desktop_smoke_macos_task:
   name: testDesktopSmokeMacOS
@@ -244,3 +246,31 @@ build_macos_task:
     - cp target/aarch64-apple-darwin/release/bundle/dmg/*.dmg ./
   binary_artifacts:
     path: "*.dmg"
+
+# Native iOS spike (SwiftUI over the futo-notes-ffi UniFFI core + embedded
+# editor.html). Build-only verification for the simulator — no signing, no
+# secure files. Invoked from .gitlab-ci.yml's build:ios-native job.
+build_ios_native_task:
+  name: buildFutoNotesIOSNative
+  macos_instance:
+    image: ghcr.io/cirruslabs/macos-sequoia-xcode:26.2
+  build_ios_native_script:
+    - brew install node@22 xcodegen
+    - export PATH="$(brew --prefix node@22)/bin:$PATH"
+    - corepack enable
+    - corepack prepare pnpm@10.29.2 --activate
+    - curl https://sh.rustup.rs -sSf | sh -s -- -y
+    - export PATH="$HOME/.cargo/bin:$PATH"
+    - rustup target add aarch64-apple-ios aarch64-apple-ios-sim
+    - pnpm install --frozen-lockfile
+    # Shared Rust FFI -> FutoNotesFfi.xcframework + Swift bindings (uses
+    # xcodebuild -create-xcframework).
+    - bash scripts/build-rust-ios.sh
+    # Embedded editor bundle (single self-contained editor.html).
+    - pnpm exec vite build --config vite.editor.config.ts
+    # Generate the Xcode project and build for the simulator (unsigned).
+    # ARCHS=arm64: the FFI xcframework only ships an arm64 simulator slice
+    # (aarch64-apple-ios-sim); a bare 'generic/platform=iOS Simulator' build
+    # also targets x86_64 and fails to link. Build-only, so host arch is moot.
+    - (cd apps/ios && xcodegen generate)
+    - xcodebuild -project apps/ios/FutoNotesNative.xcodeproj -scheme FutoNotesNative -configuration Debug -destination 'generic/platform=iOS Simulator' -derivedDataPath apps/ios/.build ARCHS=arm64 ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO build | tail -5

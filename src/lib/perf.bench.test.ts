@@ -11,7 +11,7 @@ import { describe, it } from 'vitest';
 import type { NotePreview } from '../types';
 import { getSortedTags, getNotesForTag, buildTagIndex } from './tags';
 import { getForYouNotes } from './forYou';
-import { extractHeaderTagBlock, TAG_REGEX } from '@futo-notes/shared';
+import { extractHeaderTagBlock, TAG_REGEX } from '$lib/rules';
 
 // Old extractHeaderTagBlock kept inline as a baseline.
 function extractHeaderTagBlock_old(content: string): { tags: string[]; endOffset: number } {

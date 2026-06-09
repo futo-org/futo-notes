@@ -23,7 +23,10 @@ use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 
 pub use crate::merge::MergeResult;
-pub use crate::sync::{conflict_filename, is_rename_match, resolve_filename_collision};
+pub use crate::sync::{
+    collides_but_differs, collision_conflict_filename, collision_key, conflict_filename,
+    is_rename_match, resolve_filename_collision,
+};
 
 pub const PBKDF2_ITERATIONS: u32 = 100_000;
 pub const IV_BYTES: usize = 12;

@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach, afterAll, vi } from 'vitest';
 
 vi.mock('$lib/platform');
-vi.mock('./rustCore');
 
 import { testFS } from '$lib/platform';
 
@@ -291,6 +290,112 @@ describe('search', () => {
     const results = await search('phoenixword321');
     expect(results).toHaveLength(1);
     expect(results[0].note.id).toBe('new-id');
+  });
+});
+
+describe('handleExternalFileChange (F18: incremental, no full rescan)', () => {
+  it('updates a single changed note without re-scanning the whole vault', async () => {
+    await testFS.writeNote('alpha', 'alpha original body');
+    await testFS.writeNote('beta', 'beta body untouched');
+
+    const { initNotes, handleExternalFileChange, getNoteById } = await freshNotes();
+    await initNotes();
+
+    // Mutate alpha on disk (simulating an external/sync write), then deliver
+    // the watcher event. Spy on scanNotes AFTER init so we only catch the
+    // change-handling path.
+    await testFS.writeNote('alpha', 'alpha NEW body changed externally');
+    const scanSpy = vi.spyOn(testFS, 'scanNotes');
+
+    const updated = await handleExternalFileChange('alpha.md');
+
+    expect(scanSpy).not.toHaveBeenCalled(); // no full rescan
+    expect(updated?.id).toBe('alpha');
+    expect(getNoteById('alpha')?.preview).toContain('NEW body changed');
+    // Untouched note is left exactly as-is.
+    expect(getNoteById('beta')?.preview).toBe('beta body untouched');
+    scanSpy.mockRestore();
+  });
+
+  it('removes a deleted note incrementally (no full rescan) and drops it from search', async () => {
+    await testFS.writeNote('keep', 'keepword survives');
+    await testFS.writeNote('gone', 'gone has vanishword111');
+
+    const { initNotes, handleExternalFileChange, getNoteById, search } = await freshNotes();
+    await initNotes();
+
+    // Findable before the unlink.
+    expect((await search('vanishword111')).length).toBe(1);
+
+    await testFS.deleteNoteFile('gone');
+    const scanSpy = vi.spyOn(testFS, 'scanNotes');
+
+    const result = await handleExternalFileChange('gone.md');
+
+    expect(scanSpy).not.toHaveBeenCalled();
+    expect(result).toBeNull();
+    expect(getNoteById('gone')).toBeUndefined();
+    expect(getNoteById('keep')).toBeDefined();
+    // No longer in the search index.
+    expect((await search('vanishword111')).length).toBe(0);
+    scanSpy.mockRestore();
+  });
+
+  it('adds a brand-new note that appeared externally, indexing it for search', async () => {
+    await testFS.writeNote('existing', 'existing body');
+
+    const { initNotes, handleExternalFileChange, getNoteById, search } = await freshNotes();
+    await initNotes();
+
+    // A new file lands on disk (external create / sync pull).
+    await testFS.writeNote('appeared', 'appeared has freshword222');
+    const scanSpy = vi.spyOn(testFS, 'scanNotes');
+
+    const added = await handleExternalFileChange('appeared.md');
+
+    expect(scanSpy).not.toHaveBeenCalled();
+    expect(added?.id).toBe('appeared');
+    expect(getNoteById('appeared')).toBeDefined();
+    expect((await search('freshword222')).map((r) => r.note.id)).toContain('appeared');
+    scanSpy.mockRestore();
+  });
+
+  it('re-derives the canonical preview/tags shape on an external change', async () => {
+    await testFS.writeNote('tagnote', 'no tags yet');
+
+    const { initNotes, handleExternalFileChange, getNoteById } = await freshNotes();
+    await initNotes();
+
+    await testFS.writeNote('tagnote', '#alpha #beta body with tags');
+    const updated = await handleExternalFileChange('tagnote.md');
+
+    // Tags match the Rust NoteMeta shape (lowercase, no leading '#').
+    expect(updated?.tags.sort()).toEqual(['alpha', 'beta']);
+    expect(getNoteById('tagnote')?.tags.sort()).toEqual(['alpha', 'beta']);
+  });
+
+  it('falls back to a full rescan when the incremental read throws', async () => {
+    await testFS.writeNote('safe', 'safe body');
+
+    const { initNotes, handleExternalFileChange, getNoteById } = await freshNotes();
+    await initNotes();
+
+    // Force the incremental path to throw on the existence probe, proving the
+    // fallback keeps the cache coherent rather than stranding it.
+    await testFS.writeNote('crashy', 'crashy body');
+    const existsSpy = vi
+      .spyOn(testFS, 'noteExists')
+      .mockRejectedValueOnce(new Error('boom'));
+    const scanSpy = vi.spyOn(testFS, 'scanNotes');
+
+    const result = await handleExternalFileChange('crashy.md');
+
+    expect(existsSpy).toHaveBeenCalled();
+    expect(scanSpy).toHaveBeenCalled(); // fell back to full rescan
+    expect(result?.id).toBe('crashy');
+    expect(getNoteById('crashy')).toBeDefined();
+    existsSpy.mockRestore();
+    scanSpy.mockRestore();
   });
 });
 

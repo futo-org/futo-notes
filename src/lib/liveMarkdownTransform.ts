@@ -9,7 +9,7 @@ import {
 } from '@codemirror/view';
 import { StateEffect, type Text } from '@codemirror/state';
 import { syntaxTree, ensureSyntaxTree } from '@codemirror/language';
-import { TAG_REGEX } from '@futo-notes/shared';
+import { TAG_REGEX } from '$lib/rules';
 import { shortestUniqueSuffix, resolveWikilink, WIKILINK_RE } from './wikilinks';
 import { getAllNotes } from './notes.svelte';
 
@@ -687,9 +687,19 @@ class LiveMarkdownPlugin implements PluginValue {
     // Temporarily suspend live transforms while composing to avoid crashes and
     // preserve native composition highlighting behavior.
     if (update.view.composing || update.view.compositionStarted) {
-      if (!this.compositionSuspended) {
-        this.decorations = Decoration.none;
-        this.compositionSuspended = true;
+      // While the IME is composing, do NOT rebuild decorations: recomputing
+      // mark/replace ranges over the composing text can crash the Android
+      // renderer (see commit a444243). But do NOT blank the whole document
+      // either — keyboards derived from AOSP LatinIME (AOSP Keyboard, FUTO
+      // Keyboard) keep a composing region active during ordinary Latin typing
+      // and even when the caret lands inside a word, so `Decoration.none` made
+      // every decoration in the doc flash to plain text on each keystroke
+      // (fine on Gboard, which composes differently). Instead keep the existing
+      // decorations and just MAP them through the edit so they stay correctly
+      // positioned; the full rebuild happens once composition ends.
+      this.compositionSuspended = true;
+      if (update.docChanged) {
+        this.decorations = this.decorations.map(update.changes);
       }
       return;
     }

@@ -17,8 +17,10 @@
     getAllNotes,
     createNote,
     deleteNote,
+    moveNote,
     whenNotesReady,
   } from '$lib/notes.svelte';
+  import { engineNotify } from '$lib/searchEngine';
   import { sanitizeFilename } from '$lib/utils';
   import type { SyncSummary } from '$lib/syncServiceE2ee';
   import { createNoteSession } from '$lib/noteSession.svelte';
@@ -436,7 +438,6 @@
     const newId = target ? `${target}/${leaf}` : leaf;
     if (newId === id) return;
     try {
-      const { moveNote } = await import('$lib/notes.svelte');
       const result = await moveNote(id, newId);
       // Keep the user on the moved note: update any tab pointing at the
       // old id to the new one (active tab tracks the live note).
@@ -629,6 +630,11 @@
 
         cleanupNativeListeners.push(onFileChange((event) => {
           sync.enqueueFileChange(event);
+          // Keep the Rust search index fresh on external/file changes. The
+          // notify is debounced + mtime-aware in the engine, so this is cheap
+          // on every change (unlike a full rebuild). MiniSearch is kept fresh
+          // independently via the optimistic-cache paths in notes.svelte.ts.
+          void engineNotify(event.type, event.filename, event.from);
         }));
       });
 
@@ -1012,6 +1018,8 @@
   <SettingsScreen
     onclose={() => { settingsOpen = false; }}
     onimported={handleImported}
+    syncError={sync.syncError}
+    syncErrorMessage={sync.syncErrorMessage}
   />
 {/if}
 

@@ -20,11 +20,12 @@
   // array identity so opening one tag doesn't re-cost others, and so
   // typing in an unrelated note doesn't redo the sort.
   let tagNotesCache = new Map<string, NotePreview[]>();
-  let cacheKey = notes;
+  let cacheKey: NotePreview[] | null = $state(null);
   $effect(() => {
-    if (cacheKey !== notes) {
+    const currentNotes = notes;
+    if (cacheKey !== currentNotes) {
       tagNotesCache = new Map();
-      cacheKey = notes;
+      cacheKey = currentNotes;
     }
   });
 

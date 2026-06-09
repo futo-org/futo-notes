@@ -11,7 +11,7 @@
  * the move to path-as-ID. Each component is validated as a filename.
  */
 
-import { MAX_FOLDER_DEPTH } from '@futo-notes/shared';
+import { MAX_FOLDER_DEPTH } from '$lib/rules';
 
 const CONTROL_CHARS = Array.from({ length: 32 }, (_, i) => String.fromCharCode(i)).join('')
   + String.fromCharCode(127);
