@@ -19,14 +19,14 @@
   // includes every save). Cache results keyed by the current `notes`
   // array identity so opening one tag doesn't re-cost others, and so
   // typing in an unrelated note doesn't redo the sort.
-  let tagNotesCache = new Map<string, NotePreview[]>();
-  let cacheKey: NotePreview[] | null = $state(null);
-  $effect(() => {
-    const currentNotes = notes;
-    if (cacheKey !== currentNotes) {
-      tagNotesCache = new Map();
-      cacheKey = currentNotes;
-    }
+  // A fresh Map per `notes` identity. Must NOT be the old $state-cacheKey
+  // + $effect pattern: `notes` is a raw array ($state.raw upstream), and
+  // storing it in deeply-reactive $state proxies it, so the identity guard
+  // never held and the effect re-triggered itself until Svelte threw
+  // effect_update_depth_exceeded (bricking all reactivity until reload).
+  const tagNotesCache = $derived.by(() => {
+    void notes;
+    return new Map<string, NotePreview[]>();
   });
 
   function toggleTag(tag: string) {
