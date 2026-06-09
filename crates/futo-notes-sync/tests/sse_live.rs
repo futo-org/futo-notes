@@ -62,32 +62,7 @@ fn make_handle(
                 Box::pin(async move { state.lock().await.clone() })
             })
         },
-        pull: {
-            let state = state.clone();
-            let vault = vault.clone();
-            Box::new(move || -> LiveFuture<Result<Option<SyncCounts>, String>> {
-                let state = state.clone();
-                let vault = vault.clone();
-                Box::pin(async move {
-                    let snap = match state.lock().await.clone() {
-                        Some(s) => s,
-                        None => return Ok(None),
-                    };
-                    let (summary, after) = futo_notes_sync::run_pull(
-                        &snap,
-                        &vault,
-                        snap.max_version,
-                        &no_progress,
-                        &no_pre_write,
-                    )
-                    .await
-                    .map_err(|e| format!("{e:?}"))?;
-                    *state.lock().await = Some(after);
-                    Ok(Some((&summary).into()))
-                })
-            })
-        },
-        push: {
+        cycle: {
             let state = state.clone();
             let vault = vault.clone();
             Box::new(move || -> LiveFuture<Result<Option<SyncCounts>, String>> {
@@ -99,7 +74,7 @@ fn make_handle(
                         None => return Ok(None),
                     };
                     let (summary, after) =
-                        futo_notes_sync::run_push(&snap, &vault, &no_progress, &no_pre_write)
+                        futo_notes_sync::run_sync(&snap, &vault, &no_progress, &no_pre_write)
                             .await
                             .map_err(|e| format!("{e:?}"))?;
                     *state.lock().await = Some(after);
