@@ -117,6 +117,12 @@ requirement exists in one place even when a platform doesn't satisfy it yet.
 - **After** establishing or changing a behavior, add or update the line.
 - A known missing/divergent behavior is recorded as a `> **Gap:**` note — surface
   these when relevant; don't silently leave them undocumented.
+- All Gap notes roll up into the generated `docs/spec/GAPS.md`. **Adding or
+  closing a gap = update the inline note, then run `just spec-gaps` and commit
+  the regenerated file.** `just spec-gaps-check` (part of `just check`) fails
+  when the rollup is stale and runs closure probes (`scripts/spec-gaps.mjs`)
+  that flag gaps the codebase suggests have been implemented — when one fires,
+  verify the behavior and update the spec rather than ignoring it.
 
 This is the behavioral layer. It sits above `tests/conformance/*.json` (TS↔Rust
 rule parity) and `markdown-spec/cases/*.yaml` (editor decoration/cursor
