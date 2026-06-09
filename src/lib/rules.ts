@@ -38,5 +38,7 @@ export {
   normalizeTagName,
   extractTags,
   extractHeaderTagBlock,
+  scanTags,
+  tagRegexMatches,
 } from '@futo-notes/editor';
-export type { FilenameIssue, FilenameIssueKind } from '@futo-notes/editor';
+export type { FilenameIssue, FilenameIssueKind, TagMatch } from '@futo-notes/editor';
