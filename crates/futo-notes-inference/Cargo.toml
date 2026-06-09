@@ -27,24 +27,19 @@ tokenizers = { version = "0.22", default-features = false, features = ["fancy-re
 # Error plumbing.
 thiserror = "2"
 
-# For download manifests and eventual model metadata.
+# Serde derives for the SPLADE encoder's quantized term-weight structs.
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-
-# Hashing for model-file integrity checks.
-sha2 = "0.10"
-
-# HTTP for model/tokenizer download. Match the Tauri app's reqwest features
-# (blocking + rustls) for build-time dedup.
-reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
 
 # Optional logging — callers can enable a subscriber.
 tracing = "0.1"
 
+# Parallel encoding across multiple ORT sessions.
+rayon = "1.11"
+
 [features]
 # Desktop default: ort downloads and statically links the matching
 # libonnxruntime automatically during `cargo build`. The standalone
-# `embed_hello` example relies on this, so it stays in `default`.
+# `splade_hello` example relies on this, so it stays in `default`.
 default = ["download-binaries"]
 
 # Fetch prebuilt libonnxruntime at build time and statically link it into the
@@ -63,6 +58,16 @@ load-dynamic = ["ort/load-dynamic"]
 coreml = ["ort/coreml"]
 xnnpack = ["ort/xnnpack"]
 
+[dev-dependencies]
+# Used only by the splade_bench example to chunk notes the same way the
+# Tauri migration path does, so bench numbers reflect real workload.
+futo-notes-core = { path = "../futo-notes-core" }
+walkdir = "2.5"
+
 [[example]]
-name = "embed_hello"
-path = "examples/embed_hello.rs"
+name = "splade_hello"
+path = "examples/splade_hello.rs"
+
+[[example]]
+name = "splade_bench"
+path = "examples/splade_bench.rs"

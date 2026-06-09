@@ -1,0 +1,29 @@
+[package]
+name = "futo-notes-ffi"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "futo_notes_ffi"
+# staticlib (iOS xcframework) + cdylib (Android .so) + lib (Rust consumers /
+# uniffi-bindgen). Same pattern the spike's futo-notes-sync used.
+crate-type = ["staticlib", "cdylib", "lib"]
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
+
+# Thin UniFFI facade over `futo-notes-model` + `futo-notes-sync`, generating
+# Swift (iOS) + Kotlin (Android, Phase 4) bindings. Exposes the note domain
+# (NoteStore + rules) and the sync client (SyncClient) as one surface — the
+# spike's single FFI module.
+[dependencies]
+# `tokio` enables `#[uniffi::export(async_runtime = "tokio")]`; `cli` provides
+# `uniffi::uniffi_bindgen_main()` for the bundled bindgen binary. Pure
+# proc-macro scaffolding via `uniffi::setup_scaffolding!()` — no .udl needed.
+uniffi = { version = "0.28", features = ["tokio", "cli"] }
+tokio = { version = "1", features = ["sync", "macros", "rt-multi-thread", "time"] }
+futo-notes-model = { path = "../futo-notes-model" }
+futo-notes-sync = { path = "../futo-notes-sync" }
+futo-notes-core = { path = "../futo-notes-core" }
+thiserror = "1"

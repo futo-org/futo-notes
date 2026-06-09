@@ -1,4 +1,5 @@
-import type { PlatformFS, NoteFile, FolderEntry } from './types';
+import type { PlatformFS, NoteFile, FolderEntry, NotePreviewMeta } from './types';
+import { makePreview, noteTags } from '$lib/notesIndex';
 
 // In-memory note store for web platform (persists within a page session)
 const noteStore = new Map<string, { content: string; mtime: number }>();
@@ -15,6 +16,21 @@ export const webFS: PlatformFS = {
       mtime,
       size: content.length,
     }));
+  },
+
+  async scanNotes(): Promise<NotePreviewMeta[]> {
+    return Array.from(noteStore.entries())
+      .map(([id, { content, mtime }]) => {
+        const slash = id.lastIndexOf('/');
+        return {
+          id,
+          title: slash === -1 ? id : id.slice(slash + 1),
+          preview: makePreview(content),
+          modificationTime: mtime,
+          tags: noteTags(content),
+        };
+      })
+      .sort((a, b) => b.modificationTime - a.modificationTime || a.id.localeCompare(b.id));
   },
 
   async readNote(id: string): Promise<string> {

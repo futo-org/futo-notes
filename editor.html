@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#ffffff" />
+  <title>FUTO Notes Editor</title>
+  <style>
+    /* ------------------------------------------------------------------ *
+     * Embedded editor layout for the native-iOS WKWebView host.
+     *
+     * Goals (all observed on a real iPhone):
+     *  1. Comfortable horizontal margins (+ safe-area insets for notch /
+     *     landscape).
+     *  2. SCROLLING that actually works. We use CodeMirror 6's NATIVE
+     *     fixed-height mode: give .cm-editor a definite (viewport) height and
+     *     let its .cm-scroller scroll internally. (The earlier "let the page
+     *     scroll" approach with height:auto + overflow:visible did NOT scroll
+     *     — CM is built to scroll inside .cm-scroller when the editor has a
+     *     fixed height.)
+     *  3. An empty note must still be tappable: the contenteditable
+     *     (.cm-content) fills the scroller so a tap anywhere focuses the
+     *     editor (popping the keyboard).
+     *
+     * NOTE ON SPECIFICITY: MarkdownEditor.svelte installs an inline
+     * EditorView.theme with `&{height:auto}` and `.cm-content{padding:0}`.
+     * That CSS is unlayered and injected by CodeMirror. The rules below are
+     * also unlayered (plain <style>); we use !important to beat CM's theme.
+     * ------------------------------------------------------------------ */
+
+    :root {
+      --futo-edit-pad-x: 18px;
+      /* Trailing space so the last lines can scroll clear of the keyboard. */
+      --futo-edit-pad-bottom: max(40vh, 280px);
+    }
+
+    html, body {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;          /* the page never scrolls; .cm-scroller does */
+      overscroll-behavior: none;
+    }
+
+    #editor {
+      position: absolute;
+      inset: 0;                  /* fill the web view: a DEFINITE height */
+    }
+
+    /* MarkdownEditor.svelte mounts a single wrapper <div> inside #editor;
+     * carry #editor's definite height down through it so .cm-editor can
+     * resolve a percentage height. */
+    #editor > :first-child {
+      height: 100% !important;
+    }
+
+    /* Fixed height enables CM's internal scroller. We anchor to a definite
+     * height CHAIN (#editor is absolute inset:0) rather than viewport units:
+     * Android System WebView resolves 100dvh/100vh to 0 here (while
+     * innerHeight/clientHeight are correct), collapsing the editor to 0px and
+     * painting blank. 100% off the definite chain works on both WKWebView and
+     * Android WebView. */
+    .cm-editor {
+      height: 100% !important;
+    }
+
+    /* CM's own scroller is the scroll container (vertical), with momentum. */
+    .cm-scroller {
+      overflow-y: auto !important;
+      -webkit-overflow-scrolling: touch !important;
+    }
+
+    /* The contenteditable surface:
+     *  - horizontal gutters (+ safe-area) so text isn't flush to the edge,
+     *  - min-height fills the scroller so an EMPTY note is fully tappable,
+     *  - bottom padding lifts the last lines above the keyboard. */
+    .cm-content {
+      padding-left: calc(var(--futo-edit-pad-x) + env(safe-area-inset-left)) !important;
+      padding-right: calc(var(--futo-edit-pad-x) + env(safe-area-inset-right)) !important;
+      padding-top: 14px !important;
+      padding-bottom: var(--futo-edit-pad-bottom) !important;
+      box-sizing: border-box !important;
+      /* Fill the scroller so an EMPTY note is fully tappable. The definite
+       * height chain above (#editor → wrapper → .cm-editor → .cm-scroller)
+       * gives the scroller a resolvable height, so 100% no longer collapses —
+       * and unlike 100dvh it isn't zeroed by Android WebView. */
+      min-height: 100% !important;
+    }
+  </style>
+</head>
+<body>
+  <div id="editor"></div>
+  <script type="module" src="/src/editor-embed/main.ts"></script>
+</body>
+</html>

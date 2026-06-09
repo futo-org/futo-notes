@@ -12,7 +12,10 @@ export default defineConfig({
     outDir: 'dist',
     emptyOutDir: true,
     sourcemap: false,
-    chunkSizeWarningLimit: 700,
+    // CodeMirror is intentionally isolated as its own large editor chunk.
+    // Keep the warning threshold above that known chunk so new unexpected
+    // growth still shows up in the asset table without noisy CI warnings.
+    chunkSizeWarningLimit: 1700,
     rollupOptions: {
       output: {
         manualChunks(id) {
@@ -35,6 +38,7 @@ export default defineConfig({
       '@': path.resolve(__dirname, './'),
       '/src': path.resolve(__dirname, './src'),
       '@futo-notes/shared': path.resolve(__dirname, './packages/shared/src'),
+      '@futo-notes/editor': path.resolve(__dirname, './packages/editor/src'),
     },
   },
   server: {

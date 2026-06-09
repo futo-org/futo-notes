@@ -8,6 +8,7 @@
  * the template and imperative methods for the watcher and dev hooks.
  */
 
+import { listen } from '@tauri-apps/api/event';
 import { hasFileSystem } from '$lib/platform';
 import { writeSuppressor as sharedWriteSuppressor, type WriteSuppressor } from '$lib/writeSuppression';
 import { createWatcherBatch, type WatcherBatch } from '$lib/watcherBatch';
@@ -65,6 +66,12 @@ export interface SyncManager {
   readonly syncIndicatorVisible: boolean;
   /** Reactive: whether the app is offline. */
   readonly syncOffline: boolean;
+  /** Reactive: whether the last sync attempt failed (cleared on next successful sync). */
+  readonly syncError: boolean;
+  /** Reactive: human-readable message for the last sync error (empty when none). */
+  readonly syncErrorMessage: string;
+  /** Reactive: whether the Rust SSE live stream is currently connected. */
+  readonly live: boolean;
 
   /** The write suppressor instance — shared with noteSession. */
   readonly writeSuppressor: WriteSuppressor;
@@ -89,6 +96,22 @@ export interface SyncManager {
 
 function isCollisionVariantId(sourceId: string, candidateId: string): boolean {
   return candidateId.startsWith(`${sourceId} (`) && /\(\d+\)$/.test(candidateId);
+}
+
+/**
+ * Human-readable message for a sync failure. Auto/background sync errors used
+ * to be swallowed into `console.warn` only (regression F15); this turns the raw
+ * error into the same wording the Settings panel uses for manual-sync failures
+ * so the status-bar indicator and Settings agree. `fetch` throws opaque
+ * `TypeError`s when the server is unreachable — rewrite those to something a
+ * user can act on.
+ */
+export function getSyncErrorMessage(error: unknown): string {
+  const msg = error instanceof Error ? error.message : String(error);
+  if (error instanceof TypeError && /failed to fetch|load failed|networkerror/i.test(msg)) {
+    return "Could not reach server — check the URL and make sure it's running";
+  }
+  return msg;
 }
 
 export function findActiveSyncRename(
@@ -117,6 +140,9 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
   let syncStatusMessage = $state('');
   let syncIndicatorVisible = $state(false);
   let syncOffline = $state(false);
+  let syncError = $state(false);
+  let syncErrorMessage = $state('');
+  let live = $state(false);
 
   // ── Internal state ──
   let externalRescanTimer: number | null = null;
@@ -203,9 +229,9 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
     }
 
     await handleExternalFileChange(filename);
-    if (type === 'add' || type === 'change') {
-      scheduleExternalRescan();
-    }
+    // handleExternalFileChange already applied the single-note cache+index
+    // update (with a full-rescan fallback on error), so a coarse
+    // scheduleExternalRescan() here is redundant double work (F18 follow-up).
     if (type === 'add' || type === 'change') {
       notifySaved();
     }
@@ -239,6 +265,10 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
   // ── Sync complete handler ──
 
   async function handleSyncComplete(summary: SyncSummary): Promise<void> {
+    // A successful sync (auto, manual, or live SSE) clears any prior error so
+    // the status-bar indicator and Settings stop showing a stale failure.
+    syncError = false;
+    syncErrorMessage = '';
     function applyActiveRename(fromId: string, toId: string): void {
       const meta = getNoteById(toId);
       const newTitle = meta?.title ?? toId;
@@ -293,7 +323,11 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
         const freshContent = await readNote(currentOriginalId);
         if (freshContent !== deps.getEditorContent()) {
           const editedDuringSync = deps.getEditVersion() !== (syncCoord?.getSyncStartEditVersion() ?? 0);
-          if (!editedDuringSync) {
+          // hasOpenDraftChanges reads the LIVE editor doc synchronously, so it
+          // also catches a keystroke whose rAF-coalesced onchange hasn't
+          // delivered yet (editVersion not bumped) — without it, the adopt
+          // below would replace the doc and silently swallow that keystroke.
+          if (!editedDuringSync && !deps.hasOpenDraftChanges()) {
             deps.applyExternalContent(freshContent);
           }
         }
@@ -350,12 +384,29 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
     const coord = syncCoord;
     startAutoSyncV2({
       onSyncComplete: handleSyncComplete,
-      onSyncError: (err) => console.warn('Auto-sync error:', err),
+      onSyncError: (err) => {
+        // F15: surface auto/background sync failures in the UI instead of only
+        // console.warn — the status-bar indicator + Settings read this state.
+        // Cleared on the next successful sync (handleSyncComplete).
+        syncError = true;
+        syncErrorMessage = getSyncErrorMessage(err);
+        console.warn('Auto-sync error:', err);
+      },
       flushPendingSave: deps.flushSave,
       shouldDeferSync: coord.shouldDeferSync,
       onOfflineChange: coord.onOfflineChange,
       onSyncStateChange: coord.onSyncStateChange,
     });
+
+    // Live SSE events from the Rust backend. Guarded on hasFileSystem so the
+    // web/test (jsdom) environment never touches the Tauri event bridge.
+    let liveUnlisteners: Array<() => void> = [];
+    if (hasFileSystem) {
+      void listen('sync:live-synced', (e) => { void handleSyncComplete(e.payload as SyncSummary); })
+        .then((un) => liveUnlisteners.push(un));
+      void listen<{ live: boolean; status: string; message?: string }>('sync:live-state', (e) => { live = e.payload.live; })
+        .then((un) => liveUnlisteners.push(un));
+    }
 
     return () => {
       stopAutoSyncV2();
@@ -363,6 +414,8 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
         clearTimeout(externalRescanTimer);
         externalRescanTimer = null;
       }
+      for (const un of liveUnlisteners) un();
+      liveUnlisteners = [];
       watcherBatch.destroy();
       syncCoord?.destroy();
     };
@@ -374,6 +427,9 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
     get syncStatusMessage() { return syncStatusMessage; },
     get syncIndicatorVisible() { return syncIndicatorVisible; },
     get syncOffline() { return syncOffline; },
+    get syncError() { return syncError; },
+    get syncErrorMessage() { return syncErrorMessage; },
+    get live() { return live; },
 
     writeSuppressor,
     watcherBatch,

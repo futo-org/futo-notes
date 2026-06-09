@@ -8,8 +8,9 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
-use futo_notes_core::files::{file_mtime_ms, safe_note_path, set_file_mtime_ms};
+use futo_notes_core::files::{file_mtime_ms, safe_note_path};
+#[cfg(test)]
+use futo_notes_core::files::set_file_mtime_ms;
 #[cfg(test)]
 use futo_notes_core::hash::hash_sha256_bytes;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -80,6 +81,37 @@ pub(crate) fn io_err_to_string(err: io::Error) -> String {
     err.to_string()
 }
 
+/// Register `filename` (a relative path under the notes root, e.g. `Specs/foo.md`)
+/// so the next `fs:change` the watcher sees for it is swallowed by
+/// `emit_fs_change` / `emit_fs_rename`. This is how a Rust-driven write
+/// (sync apply, note CRUD) avoids echoing back to the UI as an "external"
+/// change and double-refreshing the list. Factored out so both the
+/// sync-apply path and `notes.rs` share one definition.
+pub(crate) fn suppress_filename(suppressed: &Arc<Mutex<HashMap<String, i64>>>, filename: &str) {
+    if let Ok(mut map) = suppressed.lock() {
+        let now = now_ms();
+        map.insert(filename.to_string(), now + WATCHER_SUPPRESSION_MS);
+        map.retain(|_, expiry| *expiry > now);
+    }
+}
+
+/// One-shot suppression check for a single watcher echo: drops expired
+/// entries, then if `rel_path` has a live suppression entry, REMOVES it and
+/// returns `true`. This means each registered self-write swallows exactly
+/// ONE echo (our own write's watcher event); a subsequent EXTERNAL change to
+/// the same path is a distinct event that finds no entry and is delivered
+/// normally. Without consuming, a 5s TTL entry would also eat an external
+/// edit that lands inside the window (the external-watcher regression).
+fn consume_suppression(suppressed: &Arc<Mutex<HashMap<String, i64>>>, rel_path: &str) -> bool {
+    if let Ok(mut map) = suppressed.lock() {
+        let now = now_ms();
+        map.retain(|_, expiry| *expiry > now);
+        map.remove(rel_path).is_some()
+    } else {
+        false
+    }
+}
+
 pub(crate) fn task_join_err<E: std::fmt::Display>(err: E) -> String {
     format!("background task failed: {err}")
 }
@@ -128,149 +160,9 @@ pub(crate) fn notes_root(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(root)
 }
 
-// ── V2 Sync apply (write path for E2EE sync) ───────────────────────────
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct V2SyncApplyInput {
-    pub update: Vec<V2IncomingUpdate>,
-    pub delete: Vec<String>,
-    pub conflicts: Vec<V2IncomingConflict>,
-    #[serde(default)]
-    pub timestamps: HashMap<String, i64>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct V2IncomingUpdate {
-    pub filename: String,
-    pub content: String,
-    pub hash: String,
-    pub modified_at: i64,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct V2IncomingConflict {
-    pub filename: String,
-    pub content: String,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct V2SyncApplyOutput {
-    pub updated_filenames: Vec<String>,
-    pub deleted_filenames: Vec<String>,
-    pub conflict_filenames: Vec<String>,
-    pub elapsed_ms: u128,
-}
-
-/// Validate that `rel` is a safe relative path under the notes root: no
-/// absolute roots, no `..` traversal, no empty components, must end in
-/// `.md`. Returns the validated joined path.
-fn safe_relative_md_path(base: &Path, rel: &str) -> Result<PathBuf, String> {
-    if rel.is_empty() {
-        return Err("empty path".into());
-    }
-    let normalized = rel.replace('\\', "/");
-    if normalized.starts_with('/') || normalized.ends_with('/') {
-        return Err("invalid relative path".into());
-    }
-    let mut path = base.to_path_buf();
-    for component in normalized.split('/') {
-        if component.is_empty() || component == "." || component == ".." {
-            return Err("invalid path component".into());
-        }
-        path.push(component);
-    }
-    if !normalized.ends_with(".md") {
-        return Err("path must end in .md".into());
-    }
-    Ok(path)
-}
-
-pub(crate) fn apply_sync_delta_v2_impl(
-    base: &Path,
-    suppressed_watcher_events: &Arc<Mutex<HashMap<String, i64>>>,
-    input: V2SyncApplyInput,
-) -> Result<V2SyncApplyOutput, String> {
-    let started = Instant::now();
-
-    let mut updated_filenames = Vec::new();
-    let mut deleted_filenames = Vec::new();
-    let mut conflict_filenames = Vec::new();
-
-    let suppress_filename = |filename: &str| {
-        if let Ok(mut map) = suppressed_watcher_events.lock() {
-            let expires_at = now_ms() + WATCHER_SUPPRESSION_MS;
-            map.insert(filename.to_string(), expires_at);
-            map.retain(|_, expiry| *expiry > now_ms());
-        }
-    };
-
-    // Delete files
-    for filename in &input.delete {
-        suppress_filename(filename);
-        let path = match safe_relative_md_path(base, filename) {
-            Ok(p) => p,
-            Err(_) => continue,
-        };
-        let _ = fs::remove_file(&path);
-        // Best-effort: prune now-empty parent folders so the sidebar
-        // doesn't keep ghost folders after a peer-driven note delete.
-        prune_empty_parent_dirs(base, &path);
-        deleted_filenames.push(filename.clone());
-    }
-
-    // Write updates
-    for update in &input.update {
-        suppress_filename(&update.filename);
-        let path = safe_relative_md_path(base, &update.filename)?;
-        // write_atomic_text already calls fs::create_dir_all on the parent.
-        write_atomic_text(&path, &update.content)?;
-
-        // 0 means "no timestamp from server" — keep the filesystem's own mtime
-        if update.modified_at > 0 {
-            let _ = set_file_mtime_ms(&path, update.modified_at);
-        }
-
-        updated_filenames.push(update.filename.clone());
-    }
-
-    // Write conflict copies
-    for conflict in &input.conflicts {
-        suppress_filename(&conflict.filename);
-        let path = safe_relative_md_path(base, &conflict.filename)?;
-        write_atomic_text(&path, &conflict.content)?;
-        conflict_filenames.push(conflict.filename.clone());
-    }
-
-    // Correct local file mtimes from server-authoritative timestamps.
-    // This fixes files that were already up-to-date (same hash) but had wrong mtimes.
-    for (filename, server_mtime) in &input.timestamps {
-        if *server_mtime > 0 {
-            let path = match safe_relative_md_path(base, filename) {
-                Ok(p) => p,
-                Err(_) => continue,
-            };
-            if let Ok(meta) = fs::metadata(&path) {
-                if file_mtime_ms(&meta) != *server_mtime {
-                    suppress_filename(filename);
-                    let _ = set_file_mtime_ms(&path, *server_mtime);
-                }
-            }
-        }
-    }
-
-    Ok(V2SyncApplyOutput {
-        updated_filenames,
-        deleted_filenames,
-        conflict_filenames,
-        elapsed_ms: started.elapsed().as_millis(),
-    })
-}
-
 /// Walk up from `path` removing empty directories until we hit `base` or
 /// a non-empty directory. Skips removal of `base` itself.
-fn prune_empty_parent_dirs(base: &Path, path: &Path) {
+pub(crate) fn prune_empty_parent_dirs(base: &Path, path: &Path) {
     let mut cursor = match path.parent() {
         Some(p) => p.to_path_buf(),
         None => return,
@@ -300,22 +192,6 @@ fn prune_empty_parent_dirs(base: &Path, path: &Path) {
         cursor = parent;
     }
 }
-
-#[tauri::command]
-pub async fn core_apply_sync_delta_v2(
-    app: AppHandle,
-    state: State<'_, CoreState>,
-    input: V2SyncApplyInput,
-) -> Result<V2SyncApplyOutput, String> {
-    let suppressed = state.suppressed_watcher_events.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        let base = notes_root(&app)?;
-        apply_sync_delta_v2_impl(&base, &suppressed, input)
-    })
-    .await
-    .map_err(task_join_err)?
-}
-
 
 /// Classify a notify event into a UI-facing change type. Rename events
 /// are surfaced separately by the watcher loop using the cookie-pairing
@@ -352,6 +228,22 @@ fn map_notify_event(event: &Event) -> Option<MappedEvent> {
 /// watcher doesn't emit events for files the indexer ignored.
 fn relative_md_path(base: &Path, path: &Path) -> Option<String> {
     let stripped = path.strip_prefix(base).ok()?;
+    relative_md_path_stripped(stripped)
+}
+
+/// `relative_md_path` against multiple candidate spellings of the watch root,
+/// returning the first that strips. The watcher needs BOTH the canonical and
+/// the raw base: macOS FSEvents reports event paths under the canonical
+/// prefix (`/private/var/...`) regardless of how the dir was registered,
+/// while Linux inotify reports them under the registered (raw, possibly
+/// symlinked) spelling. Stripping against only one of the two silently drops
+/// every event on the other platform when the notes root sits behind a
+/// symlink.
+fn relative_md_path_any(bases: &[PathBuf], path: &Path) -> Option<String> {
+    bases.iter().find_map(|base| relative_md_path(base, path))
+}
+
+fn relative_md_path_stripped(stripped: &Path) -> Option<String> {
     let s = stripped.to_str()?;
     if !s.ends_with(".md") && !s.ends_with(".txt") {
         return None;
@@ -434,59 +326,6 @@ pub async fn fs_list_notes_with_meta(app: AppHandle) -> Result<Vec<NoteFileMeta>
     .await
     .map_err(task_join_err)?
 }
-
-/// Atomic write + optional mtime override + post-write mtime readback, in one IPC.
-fn fs_write_note_atomic_impl(
-    base: &Path,
-    id: &str,
-    content: &str,
-    modified_at_ms: Option<i64>,
-) -> Result<i64, String> {
-    let path = safe_note_path(base, id)?;
-    write_atomic_text(&path, content)?;
-    if let Some(ms) = modified_at_ms {
-        if ms >= 0 {
-            let _ = set_file_mtime_ms(&path, ms);
-        }
-    }
-    let meta = fs::metadata(&path).map_err(io_err_to_string)?;
-    Ok(file_mtime_ms(&meta))
-}
-
-#[tauri::command]
-pub async fn fs_write_note_atomic(
-    app: AppHandle,
-    id: String,
-    content: String,
-    modified_at_ms: Option<i64>,
-) -> Result<i64, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let base = notes_root(&app)?;
-        fs_write_note_atomic_impl(&base, &id, &content, modified_at_ms)
-    })
-    .await
-    .map_err(task_join_err)?
-}
-
-/// Thin command to set file mtime — plugin-fs does not support setting mtime,
-/// so this remains a Rust command used by writeNote and sync.
-#[tauri::command]
-pub async fn fs_set_mtime(app: AppHandle, path: String, mtime_ms: i64) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let base = notes_root(&app)?;
-        let target = std::path::Path::new(&path);
-        // Ensure the target path is under the notes root to prevent arbitrary mtime writes.
-        let canonical_base = base.canonicalize().map_err(io_err_to_string)?;
-        let canonical_target = target.canonicalize().map_err(io_err_to_string)?;
-        if !canonical_target.starts_with(&canonical_base) {
-            return Err("path outside notes directory".to_string());
-        }
-        set_file_mtime_ms(target, mtime_ms)
-    })
-    .await
-    .map_err(task_join_err)?
-}
-
 
 const ALLOWED_IMAGE_EXTS: &[&str] = &[
     "jpg", "jpeg", "png", "gif", "webp", "svg", "bmp", "ico", "avif", "heic",
@@ -573,14 +412,7 @@ fn emit_fs_change(
     if !lower.ends_with(".md") && !lower.ends_with(".txt") {
         return;
     }
-    let should_suppress = if let Ok(mut map) = suppressed.lock() {
-        let now = now_ms();
-        map.retain(|_, expiry| *expiry > now);
-        map.contains_key(rel_path)
-    } else {
-        false
-    };
-    if should_suppress {
+    if consume_suppression(suppressed, rel_path) {
         return;
     }
     let _ = app.emit(
@@ -601,15 +433,25 @@ fn emit_fs_rename(
 ) {
     // Hold the lock across both checks so a concurrent retain/insert
     // can't make from/to disagree about whether the rename should be
-    // suppressed (TOCTOU between two separate `lock()` calls).
-    let (suppress_from, suppress_to) = if let Ok(mut map) = suppressed.lock() {
+    // suppressed (TOCTOU between two separate `lock()` calls). One-shot:
+    // a self-rename's echo consumes BOTH the from and to entries so a
+    // later external edit to either path is delivered normally.
+    let suppress = if let Ok(mut map) = suppressed.lock() {
         let now = now_ms();
         map.retain(|_, expiry| *expiry > now);
-        (map.contains_key(from), map.contains_key(to))
+        let has_from = map.contains_key(from);
+        let has_to = map.contains_key(to);
+        if has_from && has_to {
+            map.remove(from);
+            map.remove(to);
+            true
+        } else {
+            false
+        }
     } else {
-        (false, false)
+        false
     };
-    if suppress_from && suppress_to {
+    if suppress {
         return;
     }
     let _ = app.emit(
@@ -637,7 +479,22 @@ pub async fn fs_start_watcher(app: AppHandle, state: State<'_, CoreState>) -> Re
 
         let base = notes_root(&app)?;
         let app_handle = app.clone();
-        let watch_base = base.clone();
+        // Strip event paths against BOTH spellings of the watch root. macOS
+        // FSEvents reports paths under the canonical prefix (`/private/var/…`)
+        // even when the dir was registered via its symlinked path (`/var/…`);
+        // Linux inotify reports them under the registered raw spelling. Keeping
+        // only one prefix silently drops every event on the other platform
+        // when the notes root sits behind a symlink — see relative_md_path_any.
+        let watch_bases: Vec<PathBuf> = {
+            let mut v = Vec::with_capacity(2);
+            if let Ok(canonical) = base.canonicalize() {
+                v.push(canonical);
+            }
+            if !v.contains(&base) {
+                v.push(base.clone());
+            }
+            v
+        };
         let pending_for_handler = pending_renames.clone();
         let mut watcher = RecommendedWatcher::new(
             move |res: Result<Event, _>| {
@@ -664,7 +521,7 @@ pub async fn fs_start_watcher(app: AppHandle, state: State<'_, CoreState>) -> Re
                         .collect();
                     for cookie in stale {
                         if let Some(p) = pending.remove(&cookie) {
-                            if let Some(rel) = relative_md_path(&watch_base, &p.from_path) {
+                            if let Some(rel) = relative_md_path_any(&watch_bases, &p.from_path) {
                                 emit_fs_change(
                                     &app_handle,
                                     &suppressed_watcher_events,
@@ -695,7 +552,7 @@ pub async fn fs_start_watcher(app: AppHandle, state: State<'_, CoreState>) -> Re
                         }
                         // No cookie / no path: best-effort treat as delete.
                         if let Some(path) = first {
-                            if let Some(rel) = relative_md_path(&watch_base, &path) {
+                            if let Some(rel) = relative_md_path_any(&watch_bases, &path) {
                                 emit_fs_change(
                                     &app_handle,
                                     &suppressed_watcher_events,
@@ -705,7 +562,7 @@ pub async fn fs_start_watcher(app: AppHandle, state: State<'_, CoreState>) -> Re
                             }
                         }
                         for path in paths_iter {
-                            if let Some(rel) = relative_md_path(&watch_base, &path) {
+                            if let Some(rel) = relative_md_path_any(&watch_bases, &path) {
                                 emit_fs_change(
                                     &app_handle,
                                     &suppressed_watcher_events,
@@ -726,8 +583,8 @@ pub async fn fs_start_watcher(app: AppHandle, state: State<'_, CoreState>) -> Re
                                 None
                             };
                             if let Some(from) = from_path {
-                                let from_rel = relative_md_path(&watch_base, &from);
-                                let to_rel = relative_md_path(&watch_base, &to);
+                                let from_rel = relative_md_path_any(&watch_bases, &from);
+                                let to_rel = relative_md_path_any(&watch_bases, &to);
                                 match (from_rel, to_rel) {
                                     (Some(f), Some(t)) => emit_fs_rename(
                                         &app_handle,
@@ -753,7 +610,7 @@ pub async fn fs_start_watcher(app: AppHandle, state: State<'_, CoreState>) -> Re
                             }
                         }
                         if let Some(path) = to_path {
-                            if let Some(rel) = relative_md_path(&watch_base, &path) {
+                            if let Some(rel) = relative_md_path_any(&watch_bases, &path) {
                                 emit_fs_change(
                                     &app_handle,
                                     &suppressed_watcher_events,
@@ -763,7 +620,7 @@ pub async fn fs_start_watcher(app: AppHandle, state: State<'_, CoreState>) -> Re
                             }
                         }
                         for path in paths_iter {
-                            if let Some(rel) = relative_md_path(&watch_base, &path) {
+                            if let Some(rel) = relative_md_path_any(&watch_bases, &path) {
                                 emit_fs_change(
                                     &app_handle,
                                     &suppressed_watcher_events,
@@ -775,7 +632,7 @@ pub async fn fs_start_watcher(app: AppHandle, state: State<'_, CoreState>) -> Re
                     }
                     MappedEvent::Add => {
                         for path in event.paths {
-                            if let Some(rel) = relative_md_path(&watch_base, &path) {
+                            if let Some(rel) = relative_md_path_any(&watch_bases, &path) {
                                 emit_fs_change(
                                     &app_handle,
                                     &suppressed_watcher_events,
@@ -787,7 +644,7 @@ pub async fn fs_start_watcher(app: AppHandle, state: State<'_, CoreState>) -> Re
                     }
                     MappedEvent::Change => {
                         for path in event.paths {
-                            if let Some(rel) = relative_md_path(&watch_base, &path) {
+                            if let Some(rel) = relative_md_path_any(&watch_bases, &path) {
                                 emit_fs_change(
                                     &app_handle,
                                     &suppressed_watcher_events,
@@ -799,7 +656,7 @@ pub async fn fs_start_watcher(app: AppHandle, state: State<'_, CoreState>) -> Re
                     }
                     MappedEvent::Unlink => {
                         for path in event.paths {
-                            if let Some(rel) = relative_md_path(&watch_base, &path) {
+                            if let Some(rel) = relative_md_path_any(&watch_bases, &path) {
                                 emit_fs_change(
                                     &app_handle,
                                     &suppressed_watcher_events,
@@ -932,60 +789,6 @@ pub async fn fs_list_folders(app: AppHandle) -> Result<Vec<FolderEntry>, String>
 }
 
 #[tauri::command]
-pub async fn fs_create_folder(app: AppHandle, path: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let base = notes_root(&app)?;
-        let target = safe_folder_path(&base, &path)?;
-        // Case-sensitive sibling collision: refuse to create if any sibling
-        // matches case-insensitively.
-        if let (Some(parent), Some(leaf)) = (target.parent(), target.file_name()) {
-            let leaf_lc = leaf.to_string_lossy().to_lowercase();
-            if let Ok(read) = fs::read_dir(parent) {
-                for entry in read.flatten() {
-                    if entry.path() == target {
-                        continue;
-                    }
-                    let n = entry.file_name();
-                    if n.to_string_lossy().to_lowercase() == leaf_lc {
-                        return Err(format!(
-                            "A folder named \"{}\" already exists at this level",
-                            n.to_string_lossy()
-                        ));
-                    }
-                }
-            }
-        }
-        fs::create_dir_all(&target).map_err(io_err_to_string)?;
-        Ok(())
-    })
-    .await
-    .map_err(task_join_err)?
-}
-
-#[tauri::command]
-pub async fn fs_rename_folder(
-    app: AppHandle,
-    from: String,
-    to: String,
-) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let base = notes_root(&app)?;
-        let from_abs = safe_folder_path(&base, &from)?;
-        let to_abs = safe_folder_path(&base, &to)?;
-        if !from_abs.exists() {
-            return Err("source folder does not exist".into());
-        }
-        if to_abs.exists() {
-            return Err("target folder already exists".into());
-        }
-        fs::rename(&from_abs, &to_abs).map_err(io_err_to_string)?;
-        Ok(())
-    })
-    .await
-    .map_err(task_join_err)?
-}
-
-#[tauri::command]
 pub async fn fs_delete_folder(app: AppHandle, path: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         let base = notes_root(&app)?;
@@ -1008,32 +811,6 @@ pub async fn fs_delete_folder(app: AppHandle, path: String) -> Result<(), String
         {
             fs::remove_dir_all(&target).map_err(io_err_to_string)?;
         }
-        Ok(())
-    })
-    .await
-    .map_err(task_join_err)?
-}
-
-#[tauri::command]
-pub async fn fs_delete_note_to_trash(app: AppHandle, id: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let base = notes_root(&app)?;
-        let path = safe_note_path(&base, &id)?;
-        if !path.exists() {
-            return Ok(());
-        }
-        #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
-        {
-            if let Err(err) = trash::delete(&path) {
-                eprintln!("[note-delete] trash::delete failed: {err}; falling back to hard delete");
-                fs::remove_file(&path).map_err(io_err_to_string)?;
-            }
-        }
-        #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
-        {
-            fs::remove_file(&path).map_err(io_err_to_string)?;
-        }
-        prune_empty_parent_dirs(&base, &path);
         Ok(())
     })
     .await
@@ -1071,119 +848,6 @@ fn rand_suffix() -> String {
     let n = now_ms().unsigned_abs() % 10_000;
     format!("{n:04}")
 }
-
-// ---------------------------------------------------------------------------
-// On-device inference — dev-only smoke test
-// ---------------------------------------------------------------------------
-//
-// `inference_test_embed` exists so we can drive the ORT + tokenizer pipeline
-// on a real device without any UI scaffolding. It synchronously downloads the
-// model on first call (~35 MB + tokenizer.json), loads an `Embedder`, and
-// returns a small metrics struct the test hook consumes.
-//
-// Available on all platforms: desktop (download-binaries), Android
-// (load-dynamic + XNNPACK), iOS (xcframework + CoreML).
-// We don't bother with a `debug_assertions` gate because Tauri 2.10's
-// `generate_handler!` doesn't reliably honor `#[cfg]` attributes on
-// individual command identifiers — once the dev-UI lands in Phase 5
-// we'll remove this smoke-test command entirely.
-mod inference_dev {
-    use std::path::PathBuf;
-    use std::time::Instant;
-
-    use serde::Serialize;
-    use tauri::{AppHandle, Manager};
-
-    use futo_notes_inference::{
-        download_to, DownloadTarget, Embedder, NOMIC_V15_DIMS, NOMIC_V15_MODEL_URL,
-        NOMIC_V15_TOKENIZER_URL,
-    };
-
-    #[derive(Debug, Clone, Serialize)]
-    #[serde(rename_all = "camelCase")]
-    pub struct InferenceTestResult {
-        pub load_ms: u64,
-        pub embed_ms: u64,
-        pub dims: usize,
-        /// First 8 components of the output vector. Just enough to eyeball
-        /// that the output isn't all zeros / NaN without flooding the log.
-        pub first_eight: Vec<f32>,
-        pub model_path: String,
-    }
-
-    fn inference_dir(app: &AppHandle) -> Result<PathBuf, String> {
-        // Reuse the notes-dir-override + app_data_dir resolution the rest of
-        // `core.rs` uses, but fall back to the raw app_data_dir because the
-        // inference cache is a per-install concept, not tied to the notes
-        // vault the user may have moved.
-        if let Some(data_dir) = super::env_data_dir() {
-            return Ok(data_dir.join("inference"));
-        }
-        let data = app.path().app_data_dir().map_err(|e| e.to_string())?;
-        Ok(data.join("inference"))
-    }
-
-    /// Synchronously download the model + tokenizer if missing, load an
-    /// Embedder, embed `text`, and return timing + first-8 dims. Blocks the
-    /// caller — that's fine for a dev-only smoke test.
-    #[tauri::command]
-    pub async fn inference_test_embed(
-        app: AppHandle,
-        text: String,
-    ) -> Result<InferenceTestResult, String> {
-        // Offload the whole thing to a blocking thread: synchronous HTTP +
-        // ORT session creation + inference would otherwise pin a tokio
-        // worker for tens of seconds.
-        tauri::async_runtime::spawn_blocking(move || {
-            let dir = inference_dir(&app)?;
-            std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-            let model_path = dir.join("model_quantized.onnx");
-            let tokenizer_path = dir.join("tokenizer.json");
-
-            if !model_path.exists() {
-                download_to(&DownloadTarget {
-                    url: NOMIC_V15_MODEL_URL.into(),
-                    dest: model_path.clone(),
-                    sha256: None,
-                })
-                .map_err(|e| format!("model download: {e}"))?;
-            }
-            if !tokenizer_path.exists() {
-                download_to(&DownloadTarget {
-                    url: NOMIC_V15_TOKENIZER_URL.into(),
-                    dest: tokenizer_path.clone(),
-                    sha256: None,
-                })
-                .map_err(|e| format!("tokenizer download: {e}"))?;
-            }
-
-            let load_start = Instant::now();
-            let mut embedder = Embedder::load(&model_path, &tokenizer_path, NOMIC_V15_DIMS)
-                .map_err(|e| format!("embedder load: {e}"))?;
-            let load_ms = load_start.elapsed().as_millis() as u64;
-
-            let embed_start = Instant::now();
-            let v = embedder
-                .embed(&text)
-                .map_err(|e| format!("embed: {e}"))?;
-            let embed_ms = embed_start.elapsed().as_millis() as u64;
-
-            let first_eight = v.iter().take(8).copied().collect();
-
-            Ok(InferenceTestResult {
-                load_ms,
-                embed_ms,
-                dims: v.len(),
-                first_eight,
-                model_path: model_path.display().to_string(),
-            })
-        })
-        .await
-        .map_err(|e| format!("spawn_blocking join: {e}"))?
-    }
-}
-
-pub use inference_dev::inference_test_embed;
 
 /// Raise the soft keyboard / IME for the focused web view.
 ///
@@ -1357,6 +1021,43 @@ mod tests {
         assert_eq!(actual, Some(expected));
     }
 
+    #[test]
+    fn consume_suppression_is_one_shot() {
+        // A self-write registers one suppression entry. The first matching
+        // watcher echo (our own write) is swallowed; a second event for the
+        // SAME path (an external edit inside the 5s window) is delivered.
+        let suppressed: Arc<Mutex<HashMap<String, i64>>> = Arc::new(Mutex::new(HashMap::new()));
+        suppress_filename(&suppressed, "watch clean.md");
+
+        // First echo: suppressed (consumes the entry).
+        assert!(consume_suppression(&suppressed, "watch clean.md"));
+        // Entry is gone immediately, before TTL expiry.
+        assert!(suppressed.lock().unwrap().is_empty());
+        // Second event for the same path: delivered (not suppressed).
+        assert!(!consume_suppression(&suppressed, "watch clean.md"));
+    }
+
+    #[test]
+    fn consume_suppression_unregistered_path_is_delivered() {
+        let suppressed: Arc<Mutex<HashMap<String, i64>>> = Arc::new(Mutex::new(HashMap::new()));
+        suppress_filename(&suppressed, "mine.md");
+        // An event for a path we never registered is never suppressed,
+        // and it does not consume the unrelated registered entry.
+        assert!(!consume_suppression(&suppressed, "other.md"));
+        assert!(consume_suppression(&suppressed, "mine.md"));
+    }
+
+    #[test]
+    fn consume_suppression_drops_expired_entries() {
+        // Manually insert an already-expired entry; it must not suppress.
+        let suppressed: Arc<Mutex<HashMap<String, i64>>> = Arc::new(Mutex::new(HashMap::new()));
+        suppressed
+            .lock()
+            .unwrap()
+            .insert("stale.md".to_string(), now_ms() - 1);
+        assert!(!consume_suppression(&suppressed, "stale.md"));
+    }
+
     // V1 sync tests removed — V1 protocol is dead code.
     // See git history for original tests.
 
@@ -1386,37 +1087,6 @@ mod tests {
         assert_eq!(names.len(), 2);
         assert!(names.contains(&"note1.md"));
         assert!(names.contains(&"note2.md"));
-        cleanup_temp_dir(&dir);
-    }
-
-    // ── fs_write_note_atomic ────────────────────────────────────────
-
-    #[test]
-    fn fs_write_note_atomic_writes_and_returns_mtime() {
-        let dir = temp_notes_dir();
-        let mtime = fs_write_note_atomic_impl(&dir, "hello", "body text", None).unwrap();
-        let path = dir.join("hello.md");
-        assert!(path.exists());
-        assert_eq!(fs::read_to_string(&path).unwrap(), "body text");
-        let disk_mtime = file_mtime_ms(&fs::metadata(&path).unwrap());
-        assert_eq!(mtime, disk_mtime);
-        cleanup_temp_dir(&dir);
-    }
-
-    #[test]
-    fn fs_write_note_atomic_honors_modified_at_override() {
-        let dir = temp_notes_dir();
-        let target_ms = 1_700_000_000_000_i64;
-        let mtime = fs_write_note_atomic_impl(&dir, "stamped", "x", Some(target_ms)).unwrap();
-        assert_eq!(mtime, target_ms);
-        cleanup_temp_dir(&dir);
-    }
-
-    #[test]
-    fn fs_write_note_atomic_rejects_path_traversal() {
-        let dir = temp_notes_dir();
-        let err = fs_write_note_atomic_impl(&dir, "../escape", "nope", None);
-        assert!(err.is_err());
         cleanup_temp_dir(&dir);
     }
 
@@ -1486,32 +1156,6 @@ mod tests {
         cleanup_temp_dir(&dir);
     }
 
-    // ── safe_relative_md_path ─────────────────────────────────────────
-
-    #[test]
-    fn safe_relative_md_path_accepts_nested() {
-        let base = temp_notes_dir();
-        let p = safe_relative_md_path(&base, "Specs/folder.md").unwrap();
-        assert_eq!(p, base.join("Specs/folder.md"));
-        cleanup_temp_dir(&base);
-    }
-
-    #[test]
-    fn safe_relative_md_path_rejects_traversal() {
-        let base = std::path::PathBuf::from("/tmp/test");
-        assert!(safe_relative_md_path(&base, "../escape.md").is_err());
-        assert!(safe_relative_md_path(&base, "a/../b.md").is_err());
-        assert!(safe_relative_md_path(&base, "/abs.md").is_err());
-        assert!(safe_relative_md_path(&base, "a//b.md").is_err());
-    }
-
-    #[test]
-    fn safe_relative_md_path_requires_md() {
-        let base = std::path::PathBuf::from("/tmp/test");
-        assert!(safe_relative_md_path(&base, "foo.txt").is_err());
-        assert!(safe_relative_md_path(&base, "foo").is_err());
-    }
-
     // ── folder ops ─────────────────────────────────────────────────────
 
     #[test]
@@ -1553,6 +1197,67 @@ mod tests {
         let p = base.join("Specs").join("foo.md");
         let rel = relative_md_path(&base, &p).unwrap();
         assert_eq!(rel, "Specs/foo.md");
+        cleanup_temp_dir(&base);
+    }
+
+    // The watcher canonicalizes its base before stripping event paths because
+    // macOS FSEvents reports paths under the canonical prefix (e.g.
+    // `/private/var/...`) even when the dir was watched via its symlinked form
+    // (`/var/...`). If the base is NOT canonicalized, `strip_prefix` fails for
+    // every event and the watcher silently delivers nothing. This guards that
+    // a canonical base + canonical event path strips, while a symlinked base +
+    // canonical event path does NOT — proving why the canonicalize step matters.
+    #[test]
+    fn relative_md_path_requires_matching_prefix_canonicalization() {
+        let base = temp_notes_dir();
+        let canonical_base = base.canonicalize().unwrap();
+        let event_path = canonical_base.join("note.md");
+
+        // Canonical base vs canonical event path → strips fine.
+        assert_eq!(
+            relative_md_path(&canonical_base, &event_path).as_deref(),
+            Some("note.md")
+        );
+
+        // A base with an extra `foo/..` component that resolves to the same dir
+        // but is NOT byte-identical fails the lexical strip — the watcher must
+        // canonicalize its base so this mismatch never occurs at runtime.
+        let noncanonical_base = base.join("foo").join("..");
+        assert_eq!(relative_md_path(&noncanonical_base, &event_path), None);
+
+        cleanup_temp_dir(&base);
+    }
+
+    // The watcher strips against BOTH the canonical and the raw base spelling:
+    // macOS FSEvents reports event paths under the canonical prefix, but Linux
+    // inotify reports them under the registered (raw) spelling. With only the
+    // canonical base, a symlinked notes root on Linux drops every event; with
+    // only the raw base, macOS does. relative_md_path_any must accept either.
+    #[test]
+    fn relative_md_path_any_accepts_canonical_and_raw_spellings() {
+        let base = temp_notes_dir();
+        let canonical_base = base.canonicalize().unwrap();
+        // A raw spelling that resolves to the same dir but is not
+        // byte-identical (stands in for a symlinked root).
+        let raw_base = base.join("foo").join("..");
+        let bases = vec![canonical_base.clone(), raw_base.clone()];
+
+        // Event reported under the canonical prefix (macOS FSEvents).
+        assert_eq!(
+            relative_md_path_any(&bases, &canonical_base.join("note.md")).as_deref(),
+            Some("note.md")
+        );
+        // Event reported under the raw prefix (Linux inotify).
+        assert_eq!(
+            relative_md_path_any(&bases, &raw_base.join("note.md")).as_deref(),
+            Some("note.md")
+        );
+        // Unrelated path still rejected.
+        assert_eq!(
+            relative_md_path_any(&bases, Path::new("/elsewhere/note.md")),
+            None
+        );
+
         cleanup_temp_dir(&base);
     }
 
@@ -1713,4 +1418,3 @@ mod tests {
 
 
 }
-

@@ -1,7 +1,18 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import type { DirFileEntry, FolderEntry, PlatformFS, NoteFile } from '../types';
+import type { DirFileEntry, FolderEntry, PlatformFS, NoteFile, NotePreviewMeta } from '../types';
+import { extractTags } from '$lib/rules';
+
+// Mirror futo-notes-model::{make_preview, note_tags} inline rather than
+// importing from $lib/notesIndex — that module pulls in searchIndex, which
+// imports `./platform` and forms an init cycle under `vi.mock('$lib/platform')`.
+function makePreview(content: string): string {
+  return content.slice(0, 100).replace(/\n/g, ' ');
+}
+function noteTags(content: string): string[] {
+  return extractTags(content).map((t) => t.replace(/^#/, ''));
+}
 
 export interface TestPlatformFS extends PlatformFS {
   _cleanup(): void;
@@ -51,6 +62,25 @@ export function createNodeFS(): TestPlatformFS {
       const out: NoteFile[] = [];
       walkMd(tmpDir, tmpDir, out);
       return out;
+    },
+
+    async scanNotes(): Promise<NotePreviewMeta[]> {
+      const files: NoteFile[] = [];
+      walkMd(tmpDir, tmpDir, files);
+      return files
+        .map((f) => {
+          const id = f.name.replace(/\.md$/, '');
+          const slash = id.lastIndexOf('/');
+          const content = fs.readFileSync(path.join(tmpDir, f.name), 'utf-8');
+          return {
+            id,
+            title: slash === -1 ? id : id.slice(slash + 1),
+            preview: makePreview(content),
+            modificationTime: f.mtime,
+            tags: noteTags(content),
+          };
+        })
+        .sort((a, b) => b.modificationTime - a.modificationTime || a.id.localeCompare(b.id));
     },
 
     async readNote(id: string): Promise<string> {

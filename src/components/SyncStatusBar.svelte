@@ -3,9 +3,19 @@
     statusMessage: string;
     indicatorVisible: boolean;
     offline: boolean;
+    /** F15: last auto/background sync attempt failed (cleared on next success). */
+    error?: boolean;
+    /** Human-readable error shown in the indicator's hover tooltip. */
+    errorMessage?: string;
   }
 
-  let { statusMessage, indicatorVisible, offline }: Props = $props();
+  let {
+    statusMessage,
+    indicatorVisible,
+    offline,
+    error = false,
+    errorMessage = '',
+  }: Props = $props();
 </script>
 
 {#if offline}
@@ -20,6 +30,13 @@
       <line x1="12" x2="12.01" y1="20" y2="20"/>
     </svg>
   </div>
+{:else if error}
+  <div class="sync-indicator sync-error" title={errorMessage} role="status" aria-label={`Sync error: ${errorMessage}`}>
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <line x1="5" y1="5" x2="19" y2="19"/>
+      <line x1="19" y1="5" x2="5" y2="19"/>
+    </svg>
+  </div>
 {:else if indicatorVisible}
   <div class="sync-indicator">
     <svg class="sync-spinner" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -27,3 +44,15 @@
     </svg>
   </div>
 {/if}
+
+<style>
+  /* Base .sync-indicator / .sync-offline positioning + color lives in
+     src/styles/components.css. Only the error modifier is scoped here so the
+     status bar carries its own restored-after-F15 styling. */
+  .sync-indicator.sync-error {
+    color: var(--color-muted);
+    opacity: 0.7;
+    pointer-events: auto;
+    cursor: help;
+  }
+</style>

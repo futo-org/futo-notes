@@ -16,7 +16,7 @@ import {
   isValidFolderName,
   MAX_FOLDER_DEPTH,
   validateFolderName,
-} from '@futo-notes/shared';
+} from '$lib/rules';
 
 /** Count folder components in a relative folder path. Unlike `pathDepth`
  *  in `@futo-notes/shared` (which is designed for NOTE paths and excludes

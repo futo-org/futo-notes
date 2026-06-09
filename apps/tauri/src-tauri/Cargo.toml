@@ -24,6 +24,20 @@ tauri-plugin-clipboard-manager = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-fs = "2"
 futo-notes-core = { path = "../../../crates/futo-notes-core" }
+# Shared E2EE sync orchestrator + state + SSE live loop. The desktop sync
+# commands are thin wrappers that delegate to this crate (same source of
+# truth as the native iOS/Android shells via futo-notes-ffi).
+futo-notes-sync = { path = "../../../crates/futo-notes-sync" }
+# The canonical note rules (filename/tag/title) + note CRUD. Exposed as
+# #[tauri::command] wrappers so desktop consumes the SAME Rust as native.
+futo-notes-model = { path = "../../../crates/futo-notes-model" }
+# Platform-agnostic on-device search engine (Tantivy BM25 + SPLADE). Thin
+# Tauri shim in src/search.rs over this; ORT linking selected per-target by
+# the futo-notes-inference feature flags below. default-features = false is
+# load-bearing: Cargo UNIONS features across declarations, so leaving the
+# default (download-binaries) on here would force it onto every target,
+# including the ones that pick the mutually-exclusive load-dynamic below.
+futo-notes-search = { path = "../../../crates/futo-notes-search", default-features = false }
 rand = "0.9"
 rand_chacha = "0.9"
 rayon = "1.11.0"
@@ -40,9 +54,6 @@ url = "2.5"
 thiserror = "1"
 tokio = { version = "1", features = ["sync", "macros", "rt-multi-thread", "time"] }
 
-[dev-dependencies]
-wiremock = "0.6"
-
 # Desktop-only: route folder/note deletes through the system trash so users
 # can recover from accidental deletes. iOS / Android have no system trash;
 # those builds hard-delete instead.
@@ -54,6 +65,9 @@ trash = "5"
 [target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
 tauri-plugin-single-instance = "2"
 futo-notes-inference = { path = "../../../crates/futo-notes-inference" }
+# Match the inference ORT linking mode for the search engine's encoder (the
+# base declaration is default-features = false, so each target picks here).
+futo-notes-search = { path = "../../../crates/futo-notes-search", features = ["download-binaries"] }
 
 # Linux: ORT ships as a separate libonnxruntime.so in
 # apps/tauri/src-tauri/gen/linux/, fetched by `scripts/fetch-ort-linux.mjs`
@@ -63,6 +77,9 @@ futo-notes-inference = { path = "../../../crates/futo-notes-inference" }
 [target.'cfg(target_os = "linux")'.dependencies]
 tauri-plugin-single-instance = "2"
 futo-notes-inference = { path = "../../../crates/futo-notes-inference", default-features = false, features = ["load-dynamic"] }
+# Match the inference ORT linking mode so the search engine's encoder links the
+# same libonnxruntime.so (no build-time download on Linux).
+futo-notes-search = { path = "../../../crates/futo-notes-search", default-features = false, features = ["load-dynamic"] }
 glib = "0.18"
 
 [target.'cfg(target_os = "ios")'.dependencies]
@@ -71,6 +88,8 @@ objc2 = "0.6"
 # ORT_IOS_XCFWK_PATH is set by the Xcode pre-build script in project.yml.
 # CoreML EP enables Neural Engine / GPU acceleration on iPhone.
 futo-notes-inference = { path = "../../../crates/futo-notes-inference", default-features = false, features = ["coreml"] }
+# CoreML EP for the SPLADE encoder's ANE path on iPhone.
+futo-notes-search = { path = "../../../crates/futo-notes-search", default-features = false, features = ["coreml"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 # Android: ORT ships as a separate .so in gen/android/.../jniLibs/<abi>/,
@@ -79,6 +98,8 @@ futo-notes-inference = { path = "../../../crates/futo-notes-inference", default-
 # cross-compiling through pyke's CDN isn't set up and load-dynamic is simpler
 # to reason about.
 futo-notes-inference = { path = "../../../crates/futo-notes-inference", default-features = false, features = ["load-dynamic", "xnnpack"] }
+# Match the inference ORT linking mode + EP for the search engine's encoder.
+futo-notes-search = { path = "../../../crates/futo-notes-search", default-features = false, features = ["load-dynamic", "xnnpack"] }
 # JNI for the soft-keyboard helper (InputMethodManager.showSoftInput). Pinned
 # to the same major as tauri-runtime-wry's transitive jni so the JNIEnv types
 # match across crates.

@@ -1,0 +1,121 @@
+{
+  "_generated": "tests/conformance/generate.mjs",
+  "description": "Image filename detection (sync.ts).",
+  "groups": [
+    {
+      "op": "isImageFilename",
+      "fn": "isImageFilename",
+      "cases": [
+        {
+          "input": "photo.jpg",
+          "expected": true
+        },
+        {
+          "input": "photo.jpeg",
+          "expected": true
+        },
+        {
+          "input": "image.png",
+          "expected": true
+        },
+        {
+          "input": "animation.gif",
+          "expected": true
+        },
+        {
+          "input": "modern.webp",
+          "expected": true
+        },
+        {
+          "input": "vector.svg",
+          "expected": true
+        },
+        {
+          "input": "bitmap.bmp",
+          "expected": true
+        },
+        {
+          "input": "icon.ico",
+          "expected": true
+        },
+        {
+          "input": "next-gen.avif",
+          "expected": true
+        },
+        {
+          "input": "apple.heic",
+          "expected": true
+        },
+        {
+          "input": "photo.JPG",
+          "expected": true
+        },
+        {
+          "input": "photo.Png",
+          "expected": true
+        },
+        {
+          "input": "photo.WEBP",
+          "expected": true
+        },
+        {
+          "input": "note.md",
+          "expected": false
+        },
+        {
+          "input": "file.txt",
+          "expected": false
+        },
+        {
+          "input": "script.js",
+          "expected": false
+        },
+        {
+          "input": "style.css",
+          "expected": false
+        },
+        {
+          "input": "archive.zip",
+          "expected": false
+        },
+        {
+          "input": "noextension",
+          "expected": false
+        },
+        {
+          "input": ".hidden",
+          "expected": false
+        },
+        {
+          "input": "1234567890-abc.jpg",
+          "expected": true
+        },
+        {
+          "input": "1742345678901-xk7.png",
+          "expected": true
+        }
+      ]
+    },
+    {
+      "op": "imageExtensions",
+      "fn": "IMAGE_EXTENSIONS",
+      "cases": [
+        {
+          "input": null,
+          "expected": [
+            "jpg",
+            "jpeg",
+            "png",
+            "gif",
+            "webp",
+            "svg",
+            "bmp",
+            "ico",
+            "avif",
+            "heic"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { loadSpecCases, getCasesDir } from './loader.js';
-import { extractTags, extractHeaderTagBlock } from '@futo-notes/shared';
+import { extractTags, extractHeaderTagBlock } from '@futo-notes/editor';
 
 /**
  * Server-side conformance runner. Catches client/server drift —

@@ -36,7 +36,6 @@
   import { flushCrashQueue, setAppVersion, type CrashReport } from '$lib/crashHandler';
   import { sendAllPendingReports, discardAllPendingReports, loadPendingReports, getLastSendError } from '$lib/crashReporter';
   import { installTestSync } from '$lib/testSync';
-  import { installTestInference } from '$lib/testInference';
   import { searchNotes, isSearchIndexPopulated } from '$lib/searchIndex';
 
   let initialized = $state(false);
@@ -163,7 +162,6 @@
                 moveNoteWithCollisionHandling(fromId, toId),
             };
             installTestSync();
-            installTestInference();
             (window as any).__testSearch = {
               search: (query: string) => searchNotes(query),
               isPopulated: () => isSearchIndexPopulated(),

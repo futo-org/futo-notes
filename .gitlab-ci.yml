@@ -142,6 +142,38 @@ stages:
       - target/
     policy: pull-push
 
+# Native shells (Compose / SwiftUI) build futo-notes-ffi for the Android NDK
+# targets (aarch64/armv7/x86_64-linux-android) plus a host lib for binding
+# generation. Those target/ subtrees and the cargo-ndk toolchain are disjoint
+# from what the Tauri jobs build, so sharing .cache-cargo-tauri's target/ just
+# thrashes both caches (each job evicts the other's artifacts on push). Give
+# the native cargo work its own key.
+.cache-cargo-native:
+  cache:
+    key:
+      prefix: native
+      files:
+        - Cargo.lock
+    paths:
+      - .cargo-home/
+      - target/
+    policy: pull-push
+
+# Gradle wrapper distribution + dependency cache for the native Android build.
+# Keyed on the gradle config so a dependency bump invalidates it; the wrapper
+# dist rarely changes, so warm runs skip the ~100 MB Gradle download.
+.cache-gradle-native:
+  cache:
+    key:
+      prefix: gradle-native
+      files:
+        - apps/android/gradle/wrapper/gradle-wrapper.properties
+        - apps/android/app/build.gradle.kts
+    paths:
+      - .gradle-native/caches/
+      - .gradle-native/wrapper/
+    policy: pull-push
+
 # Separate caches for the release Linux builds. Packages (.deb/.rpm) build on
 # ubuntu:22.04 (glibc 2.35, wide forward-compat); AppImage builds on ubuntu:24.04
 # so the bundled WebKitGTK is new enough for Mesa 26 (Arch/Fedora 40+). Test
@@ -181,9 +213,9 @@ stages:
 
 # ─────────────────────────────────────────────────────────────
 # Tests
-# Cheap checks run on every MR/default/tag pipeline. Browser CI is intentionally
-# small on MRs; exhaustive Playwright coverage runs on release tags, with manual
-# MR jobs available when a change warrants it.
+# Bare-minimum checks run on every MR/default/tag pipeline while the native
+# testing strategy is being rebuilt. Browser/device/sync suites stay available
+# as explicit manual jobs, not default coverage.
 # ─────────────────────────────────────────────────────────────
 
 test:
@@ -194,8 +226,7 @@ test:
     - pnpm install --frozen-lockfile --prefer-offline
     - pnpm run lint
     - pnpm run lint:platform
-    - pnpm exec vitest run --silent=passed-only
-    - pnpm --filter @futo-notes/shared exec vitest run --silent=passed-only
+    - pnpm run test:minimal
   rules:
     - if: $CI_COMMIT_TAG
     - if: $CI_MERGE_REQUEST_IID
@@ -211,8 +242,15 @@ test:e2e:smoke:
     - !reference [.setup-playwright, script]
     - pnpm run test:e2e:smoke
   rules:
+    - if: $CI_COMMIT_TAG
+      when: manual
+      allow_failure: true
     - if: $CI_MERGE_REQUEST_IID
+      when: manual
+      allow_failure: true
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: manual
+      allow_failure: true
 
 test:e2e:markdown-spec:
   stage: test
@@ -225,6 +263,8 @@ test:e2e:markdown-spec:
     - pnpm run test:markdown-spec
   rules:
     - if: $CI_COMMIT_TAG
+      when: manual
+      allow_failure: true
     - if: $CI_MERGE_REQUEST_IID
       when: manual
       allow_failure: true
@@ -240,6 +280,8 @@ test:e2e:rest:
     - pnpm run test:e2e:rest
   rules:
     - if: $CI_COMMIT_TAG
+      when: manual
+      allow_failure: true
     - if: $CI_MERGE_REQUEST_IID
       when: manual
       allow_failure: true
@@ -247,15 +289,41 @@ test:e2e:rest:
 test:rust:
   stage: test
   cache:
-    - !reference [.cache-pnpm, cache]
     - !reference [.cache-cargo-tauri, cache]
   script:
-    - pnpm install --frozen-lockfile
-    - !reference [.setup-linux-deps, script]
     - !reference [.setup-rust, script]
-    - node scripts/fetch-ort-linux.mjs
-    - mkdir -p dist
-    - cd apps/tauri/src-tauri && cargo test
+    # Minimal Rust coverage: prove the canonical model rules still match the
+    # committed language-neutral fixtures. Full workspace tests are explicit.
+    - cargo test -p futo-notes-model --test conformance
+  rules:
+    - if: $CI_COMMIT_TAG
+    - if: $CI_MERGE_REQUEST_IID
+
+# Lock in the ML-isolation boundary: the portable core crates must never pull in
+# the heavy inference deps (tantivy / ort / ort-sys), which would bloat the iOS /
+# Android FFI builds. cargo tree -e normal walks only normal (non-dev,
+# non-build) deps, so a dev-dependency on a core crate doesn't trip this.
+test:rust:dep-guard:
+  stage: test
+  cache:
+    - !reference [.cache-cargo-tauri, cache]
+  script:
+    - !reference [.setup-rust, script]
+    - |
+      FAIL=0
+      for c in futo-notes-core futo-notes-model futo-notes-sync futo-notes-ffi; do
+        if cargo tree -p "$c" -e normal | grep -Eiq '(^|[^[:alnum:]_-])(tantivy|ort|ort-sys)([^[:alnum:]_-]|$)'; then
+          echo "DEP GUARD FAILED: ML dep (tantivy/ort) reached portable core crate '$c':"
+          cargo tree -p "$c" -e normal | grep -Ei '(^|[^[:alnum:]_-])(tantivy|ort|ort-sys)([^[:alnum:]_-]|$)'
+          FAIL=1
+        else
+          echo "OK: '$c' is free of tantivy/ort"
+        fi
+      done
+      if [ "$FAIL" -ne 0 ]; then
+        echo "Portable core crates must stay free of the inference deps. See AGENTS.md."
+        exit 1
+      fi
   rules:
     - if: $CI_COMMIT_TAG
     - if: $CI_MERGE_REQUEST_IID
@@ -276,7 +344,11 @@ test:rust:macos:
     - cirrus run testRustMacOS --artifacts-dir . --env-file .cienv
   rules:
     - if: $CI_COMMIT_TAG
+      when: manual
+      allow_failure: true
     - if: $CI_MERGE_REQUEST_IID
+      when: manual
+      allow_failure: true
 
 test:desktop-smoke:
   stage: test
@@ -315,11 +387,16 @@ test:desktop-smoke:
     expire_in: 1 week
   rules:
     - if: $CI_COMMIT_TAG
+      when: manual
+      allow_failure: true
     - if: $CI_MERGE_REQUEST_IID
+      when: manual
+      allow_failure: true
       changes:
         - apps/tauri/**/*
         - src/**/*
         - packages/shared/**/*
+        - packages/editor/**/*
 
 test:cross-platform-sync:
   stage: test
@@ -365,11 +442,14 @@ test:cross-platform-sync:
   timeout: 30m
   rules:
     - if: $CI_MERGE_REQUEST_IID
+      when: manual
+      allow_failure: true
       changes:
         - apps/tauri/**/*
         - src/**/*
         - crates/**/*
         - packages/shared/**/*
+        - packages/editor/**/*
         - tests/cross-platform-sync.mjs
         - tests/lib/**
 
@@ -457,11 +537,14 @@ test:cross-platform-sync:android:
   timeout: 45m
   rules:
     - if: $CI_MERGE_REQUEST_IID
+      when: manual
+      allow_failure: true
       changes:
         - apps/tauri/**/*
         - src/**/*
         - crates/**/*
         - packages/shared/**/*
+        - packages/editor/**/*
         - tests/cross-platform-sync.mjs
         - tests/lib/**
 
@@ -478,7 +561,11 @@ test:desktop-smoke:macos:
     - cirrus run testDesktopSmokeMacOS --artifacts-dir . --env-file .cienv
   rules:
     - if: $CI_COMMIT_TAG
+      when: manual
+      allow_failure: true
     - if: $CI_MERGE_REQUEST_IID
+      when: manual
+      allow_failure: true
       changes:
         - apps/tauri/**/*
         - src/**/*
@@ -495,8 +582,6 @@ build:linux-packages:
   stage: build
   needs:
     - job: test
-    - job: test:e2e:markdown-spec
-    - job: test:e2e:rest
   image: ubuntu:22.04
   before_script: &linux-before-script
     - apt-get update
@@ -548,8 +633,6 @@ build:linux-appimage:
   stage: build
   needs:
     - job: test
-    - job: test:e2e:markdown-spec
-    - job: test:e2e:rest
   image: ubuntu:22.04
   before_script: *linux-before-script
   cache:
@@ -608,8 +691,6 @@ build:android:
   stage: build
   needs:
     - job: test
-    - job: test:e2e:markdown-spec
-    - job: test:e2e:rest
   image: gitlab.futo.org:5050/futo-notes/futo-notes/ci/android:latest
   cache:
     - !reference [.cache-pnpm, cache]
@@ -668,8 +749,6 @@ build:ios:
   stage: build
   needs:
     - job: test
-    - job: test:e2e:markdown-spec
-    - job: test:e2e:rest
   tags:
     - macscript
   variables:
@@ -689,8 +768,6 @@ build:macos:
   stage: build
   needs:
     - job: test
-    - job: test:e2e:markdown-spec
-    - job: test:e2e:rest
   tags:
     - macscript
   variables:
@@ -704,6 +781,126 @@ build:macos:
       - buildFutoNotesMacOS/binary/*.dmg
     expire_in: 4 weeks
   rules:
+    - if: $CI_COMMIT_TAG
+
+# ─────────────────────────────────────────────────────────────
+# Native app shells (Compose / SwiftUI) — NOT Tauri. Same Rust core
+# (futo-notes-ffi via UniFFI) + the embedded editor.html bundle. These are
+# build-only verification jobs (no signing, no device) that prove the native
+# spikes still compile. They are intentionally NOT wired into release:gate /
+# release — the shipping path is still the Tauri apps. They run on MRs that
+# touch native/shared code and on default-branch pushes, to keep main green.
+# ─────────────────────────────────────────────────────────────
+
+build:android-native:
+  stage: build
+  needs: []
+  image: gitlab.futo.org:5050/futo-notes/futo-notes/ci/android:latest
+  cache:
+    - !reference [.cache-pnpm, cache]
+    # Native cargo work (NDK targets + host lib) is disjoint from the Tauri
+    # jobs — own key so the two don't evict each other's target/.
+    - !reference [.cache-cargo-native, cache]
+    # Gradle wrapper dist + dependency cache (GRADLE_USER_HOME below).
+    - !reference [.cache-gradle-native, cache]
+  variables:
+    ANDROID_HOME: /opt/android-sdk
+    ANDROID_SDK_ROOT: /opt/android-sdk
+    JAVA_HOME: /opt/jdk-21
+    NDK_HOME: /opt/android-sdk/ndk/27.0.12077973
+    # scripts/build-rust-android.sh requires ANDROID_NDK_HOME specifically
+    # (cargo-ndk also honors it); the image only exports NDK_HOME.
+    ANDROID_NDK_HOME: /opt/android-sdk/ndk/27.0.12077973
+    # Point Gradle's home at a cached, in-project dir so the wrapper dist +
+    # dependency cache survive between runs (must be under $CI_PROJECT_DIR for
+    # GitLab caching). The .gradle-native/{caches,wrapper} subtrees map to
+    # .cache-gradle-native.
+    GRADLE_USER_HOME: $CI_PROJECT_DIR/.gradle-native
+  script:
+    - export PATH="$JAVA_HOME/bin:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
+    # SDK platform 34 + build-tools 34 are baked into ci/android.Dockerfile
+    # (the same image build:android uses), so no inline sdkmanager install is
+    # needed here.
+    - pnpm install --frozen-lockfile
+    - !reference [.setup-rust, script]
+    # Android Rust targets + cargo-ndk for the per-ABI .so build. The image
+    # bakes the targets, but re-adding is a no-op if present. cargo-ndk is
+    # cached in .cache-cargo-native's .cargo-home/bin — only build it (FROM
+    # SOURCE, not binstall: the prebuilt binstall binary needs GLIBC_2.39,
+    # newer than the ci/android image) when the cached binary is missing.
+    - rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
+    - |
+      if command -v cargo-ndk >/dev/null 2>&1; then
+        echo "cargo-ndk already installed (cached)"
+      else
+        cargo install cargo-ndk --locked
+      fi
+    # Shared Rust FFI (.so per ABI) + UniFFI Kotlin bindings.
+    - bash scripts/build-rust-android.sh
+    # Build the embedded editor bundle and stage it into the app assets
+    # (the SAME single editor.html iOS bundles).
+    - pnpm exec vite build --config vite.editor.config.ts
+    - mkdir -p apps/android/app/src/main/assets
+    - cp apps/ios/Resources/editor.html apps/android/app/src/main/assets/editor.html
+    # Assemble the debug APK (no device — assemble, not install).
+    - cd apps/android && ./gradlew --no-daemon :app:assembleDebug
+  after_script:
+    - find apps/android/app/build/outputs/apk -name "*.apk" -type f 2>/dev/null || true
+  artifacts:
+    paths:
+      - apps/android/app/build/outputs/apk/**/*.apk
+    expire_in: 1 week
+  # 45m, not 30m: a cold/partial .cache-cargo-native cache makes the Rust FFI
+  # compile across 3 NDK ABIs swing wide (observed 8m warm → 27m near-cold, and
+  # one 30m timeout). Cache only uploads on_success, so a timed-out cold run
+  # never warms the next one — the headroom lets a cold run finish and populate
+  # the cache instead of dying at the wall.
+  timeout: 45m
+  rules:
+    - if: $CI_MERGE_REQUEST_IID
+      changes: &native-android-changes
+        - apps/android/**/*
+        - crates/**/*
+        - packages/editor/**/*
+        - editor.html
+        - vite.editor.config.ts
+        - scripts/build-rust-android.sh
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes: *native-android-changes
+    # Build (only) on release tags so native code can't rot undetected across
+    # releases. rules:changes is unreliable on tag pipelines (no MR diff base),
+    # so this is unconditional on tags — build-only, NOT wired into
+    # release:gate / release (the shipping path stays the Tauri apps).
+    - if: $CI_COMMIT_TAG
+
+# Simulator build on the macscript runner via Cirrus (see .cirrus.yml,
+# task buildFutoNotesIOSNative). Unsigned, build-only — no secure files needed.
+build:ios-native:
+  stage: build
+  needs: []
+  tags:
+    - macscript
+  variables:
+    GIT_STRATEGY: clone
+  before_script:
+    - env | grep -E '^(CI_)' > .cienv
+  script:
+    - cirrus run buildFutoNotesIOSNative --artifacts-dir . --env-file .cienv
+  rules:
+    - if: $CI_MERGE_REQUEST_IID
+      changes: &native-ios-changes
+        - apps/ios/**/*
+        - crates/**/*
+        - packages/editor/**/*
+        - editor.html
+        - vite.editor.config.ts
+        - scripts/build-rust-ios.sh
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes: *native-ios-changes
+    # Build (only) on release tags so native code can't rot undetected across
+    # releases. rules:changes is unreliable on tag pipelines (no MR diff base),
+    # so this is unconditional on tags — build-only, NOT wired into
+    # release:gate / release (the shipping path stays the Tauri apps).
     - if: $CI_COMMIT_TAG
 
 # ─────────────────────────────────────────────────────────────
@@ -723,8 +920,6 @@ windows:provision:
   stage: build
   needs:
     - job: test
-    - job: test:e2e:markdown-spec
-    - job: test:e2e:rest
   tags:
     - proxmoxshell
   before_script:

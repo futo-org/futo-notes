@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Grants Keychain access (the sync password is stored here so live sync
+	     survives a force-quit). Without a keychain-access-group entitlement the
+	     iOS Simulator returns errSecMissingEntitlement (-34018) for unsigned/
+	     ad-hoc builds. $(AppIdentifierPrefix) resolves to the team prefix on a
+	     signed device build and to the bundle id alone on the ad-hoc simulator
+	     build. -->
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)com.futo.notes.native</string>
+	</array>
+</dict>
+</plist>

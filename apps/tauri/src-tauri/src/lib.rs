@@ -1,6 +1,8 @@
 pub mod core;
+pub mod notes;
+pub mod search;
+#[cfg(any(target_os = "android", test))]
 mod android_logcat;
-mod e2ee_client;
 mod panic_reporter;
 mod sync;
 mod sync_state;
@@ -136,7 +138,8 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_fs::init())
         .manage(CoreState::default())
-        .manage(sync_state::SyncState::default());
+        .manage(sync_state::SyncState::default())
+        .manage(search::SearchState::default());
 
     #[cfg(debug_assertions)]
     let builder = builder.plugin(tauri_plugin_mcp_bridge::init());
@@ -219,36 +222,54 @@ pub fn run() {
                     linux_color_scheme_watcher(app_handle);
                 });
             }
+            // Start the on-device search engine. Spawns its own background
+            // thread to open the Tantivy indices + reconcile, so this returns
+            // immediately and never gates app setup.
+            search::init_on_startup(_app.handle());
             Ok(())
         })
+        // `show_soft_keyboard` / `haptic_impact` resolve to their per-target
+        // `#[cfg]` variant.
         .invoke_handler(tauri::generate_handler![
-            fs_set_mtime,
             fs_list_notes_with_meta,
-            fs_write_note_atomic,
             fs_save_image,
             fs_paste_clipboard_image,
             fs_start_watcher,
             fs_list_folders,
-            fs_create_folder,
-            fs_rename_folder,
             fs_delete_folder,
-            fs_delete_note_to_trash,
             fs_move_note,
             notes_dir_override_load,
             notes_dir_override_save,
             resolve_default_notes_root,
-            core_apply_sync_delta_v2,
             sync::e2ee_connect,
             sync::e2ee_resume,
             sync::e2ee_disconnect,
             sync::e2ee_status,
             sync::e2ee_sync_run,
+            sync::e2ee_start_live,
+            sync::e2ee_stop_live,
+            sync::e2ee_note_changed,
             show_soft_keyboard,
             haptic_impact,
-            // Phase 2 dev-only smoke test for on-device embedding. Gated at
-            // the module level in core::inference_dev so the command only
-            // exists in debug builds and non-iOS targets.
-            inference_test_embed,
+            // ── Note CRUD (futo-notes-model::crud, Phase 1) ──
+            notes::notes_scan,
+            notes::notes_scan_folders,
+            notes::notes_read,
+            notes::notes_exists,
+            notes::notes_write,
+            notes::notes_create,
+            notes::notes_delete,
+            notes::notes_rename,
+            notes::notes_move,
+            notes::notes_create_folder,
+            notes::notes_delete_to_trash,
+            notes::notes_rename_folder,
+            notes::notes_delete_folder,
+            // ── Shared full-text search: Tantivy BM25 + SPLADE (Phase 2) ──
+            search::search_query,
+            search::search_status,
+            search::search_rebuild,
+            search::search_notify,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -27,7 +27,7 @@
     setSuppressSelectionReveal
   } from '$lib/liveMarkdownTransform';
   import { getImageWebPath } from '$lib/fileSystem';
-  import { buildSetContentTransaction, type SetEditorContentOptions, type SetContentResult } from '$lib/editorContentSync';
+  import { buildSetContentTransaction, readDocContent, type SetEditorContentOptions, type SetContentResult } from '$lib/editorContentSync';
   import { hasFileSystem, isIOS, isMobile } from '$lib/platform';
   import { toggleBold, toggleItalic, toggleStrikethrough, isListLine } from '$lib/markdownToolbar';
   import { imagePasteHandler } from '$lib/imagePaste';
@@ -738,7 +738,20 @@
           // Paste, IME composition, and multi-cursor edits can fire multiple
           // docChanged updates in the same frame — this avoids O(n) string
           // allocation for each intermediate state.
-          if (!onchangeRafId) {
+          //
+          // Hidden documents get the change synchronously instead: rAF does
+          // not fire while the window is hidden/occluded (macOS WKWebView
+          // freezes it entirely), so a coalesced change would never reach the
+          // save pipeline — typed/dictated/automated edits in a hidden window
+          // were silently unsaveable. With no rendering happening, the
+          // coalescing buys nothing there anyway.
+          if (document.visibilityState === 'hidden') {
+            if (onchangeRafId) {
+              cancelAnimationFrame(onchangeRafId);
+              onchangeRafId = 0;
+            }
+            onchange(update.state.doc.toString());
+          } else if (!onchangeRafId) {
             onchangeRafId = requestAnimationFrame(() => {
               onchangeRafId = 0;
               if (view) onchange(view.state.doc.toString());
@@ -974,8 +987,10 @@
     }
   }
 
-  export function getContent(): string {
-    return view?.state.doc.toString() ?? '';
+  export function getContent(): string | undefined {
+    // undefined — NOT '' — when the view is gone; see readDocContent for
+    // why coalescing to '' truncated the open note across all devices.
+    return readDocContent(view);
   }
 
   export function hasFocus(): boolean {

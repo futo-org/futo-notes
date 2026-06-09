@@ -18,6 +18,7 @@ hmac = "0.12"
 base64 = "0.22"
 hex = "0.4"
 thiserror = "1"
+unicode-normalization = "0.1.25"
 
 [dev-dependencies]
 proptest = "1"

@@ -1,4 +1,4 @@
-export { sanitizeTitle as sanitizeFilename } from '@futo-notes/shared';
+export { sanitizeTitle as sanitizeFilename } from '$lib/rules';
 
 export function escapeHtml(text: string): string {
   const div = document.createElement('div');

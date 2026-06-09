@@ -1,5 +1,70 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use unicode_normalization::UnicodeNormalization;
+
+// ── Path-collision detection (case- and normalization-insensitive) ───────
+
+/// Canonical key for detecting when two filenames refer to the SAME on-disk
+/// entry on a case-insensitive, Unicode-normalization-insensitive filesystem
+/// (default APFS on macOS/iOS, NTFS on Windows). Two filenames collide iff
+/// their `collision_key`s are equal.
+///
+/// The key folds away the two collapses that lose notes on a fresh pull
+/// (F4 / F5): `welcome.md` vs `Welcome.md` (case) and an NFC vs NFD spelling
+/// of the same accented name (e.g. `café.md` composed vs decomposed). We
+/// normalize to NFC first, then ASCII-and-Unicode-lowercase. NFC (not NFD) is
+/// chosen so the key is stable regardless of which form the server object or
+/// the local file happens to carry.
+pub fn collision_key(filename: &str) -> String {
+    filename.nfc().collect::<String>().to_lowercase()
+}
+
+/// True when `a` and `b` would resolve to the same directory entry on a
+/// case/normalization-insensitive filesystem but are NOT byte-identical — i.e.
+/// a pure case-only or NFC-vs-NFD difference. Used to route a rename through a
+/// temp hop (F3) so the kernel actually rewrites the stored bytes instead of
+/// no-op'ing.
+pub fn collides_but_differs(a: &str, b: &str) -> bool {
+    a != b && collision_key(a) == collision_key(b)
+}
+
+/// Conflict-copy filename for a path-collision loser, derived PURELY from the
+/// loser's stable, globally-unique `object_id` — `base (conflict <oid8>).ext`,
+/// where `<oid8>` is the first 8 hex chars of the object_id.
+///
+/// Unlike [`conflict_filename`] (which appends a per-client date + namespace
+/// counter, so two clients independently resolving the same collision can mint
+/// DIFFERENT names and each push a duplicate object), this name is a pure
+/// function of `(canonical_name, object_id)`: every client computes the
+/// identical name for the identical loser object, so the whole fleet converges
+/// to exactly `{canonical, base (conflict <oid8>).ext}` and the loser
+/// round-trips on its own preserved object_id. `<oid8>` is independent of any
+/// per-cycle name set, so it never differs between a client that resolved last
+/// cycle and one resolving this cycle.
+pub fn collision_conflict_filename(canonical_name: &str, loser_object_id: &str) -> String {
+    let (base, ext) = split_conflict_name_parts(canonical_name);
+    let short = object_id_short(loser_object_id);
+    format!("{base} (conflict {short}){ext}")
+}
+
+/// First 8 chars of an object id, lowercased and restricted to a safe filename
+/// charset. Object ids are server-assigned and globally unique, so an 8-char
+/// prefix is effectively collision-free among the handful of objects that can
+/// share one canonical name within a vault. The value is a pure function of
+/// the object id alone — never of any per-cycle / per-client state — so all
+/// clients agree on it (mitigates the cross-client divergence objection).
+fn object_id_short(object_id: &str) -> String {
+    let cleaned: String = object_id
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .take(8)
+        .collect();
+    if cleaned.is_empty() {
+        "object".to_string()
+    } else {
+        cleaned
+    }
+}
 
 // ── V2 Protocol Types ──────────────────────────────────────────────────
 
@@ -640,6 +705,78 @@ mod tests {
         assert_eq!(
             conflict_filename("image.png", "2026-03-28", &existing),
             "image (conflict 2026-03-28).png"
+        );
+    }
+
+    // ── collision_key / collides_but_differs (F3/F4/F5) ────────────────
+
+    #[test]
+    fn collision_key_folds_case() {
+        assert_eq!(collision_key("welcome.md"), collision_key("Welcome.md"));
+        assert_eq!(collision_key("README"), collision_key("readme"));
+        assert_ne!(collision_key("note-a.md"), collision_key("note-b.md"));
+    }
+
+    #[test]
+    fn collision_key_folds_nfc_nfd() {
+        // "café" composed (U+00E9) vs decomposed (e + U+0301) must map equal.
+        let nfc = "caf\u{00E9}.md";
+        let nfd = "cafe\u{0301}.md";
+        assert_ne!(nfc, nfd, "inputs must be byte-distinct for the test to matter");
+        assert_eq!(collision_key(nfc), collision_key(nfd));
+    }
+
+    #[test]
+    fn collides_but_differs_detects_case_and_norm_only() {
+        assert!(collides_but_differs("note", "Note"));
+        assert!(collides_but_differs("caf\u{00E9}", "cafe\u{0301}"));
+        // Byte-identical → not a "differs" case.
+        assert!(!collides_but_differs("Note", "Note"));
+        // Genuinely different names don't collide.
+        assert!(!collides_but_differs("note", "other"));
+    }
+
+    // ── collision_conflict_filename (F4/F5) — pure function of object_id ─
+
+    #[test]
+    fn collision_conflict_filename_is_pure_function_of_object_id() {
+        let a = collision_conflict_filename("welcome.md", "abcdef0123456789-objectid");
+        let b = collision_conflict_filename("welcome.md", "abcdef0123456789-objectid");
+        assert_eq!(a, b, "same inputs must always yield the same name");
+        assert_eq!(a, "welcome (conflict abcdef01).md");
+    }
+
+    #[test]
+    fn collision_conflict_filename_independent_of_namespace_set() {
+        // Contrast with conflict_filename, which depends on the `existing` set.
+        // This helper takes no name set at all, so two clients with different
+        // local state compute the identical loser name (OBJ-2 convergence).
+        let from_client_x = collision_conflict_filename("note.md", "OID-1234abcd-zz");
+        let from_client_y = collision_conflict_filename("note.md", "OID-1234abcd-zz");
+        assert_eq!(from_client_x, from_client_y);
+        assert_eq!(from_client_x, "note (conflict OID1234a).md");
+    }
+
+    #[test]
+    fn collision_conflict_filename_preserves_extension() {
+        assert_eq!(
+            collision_conflict_filename("image.png", "deadbeefcafe"),
+            "image (conflict deadbeef).png"
+        );
+        // Bare name (no extension) defaults to .md, matching conflict_filename.
+        assert_eq!(
+            collision_conflict_filename("readme", "0011223344"),
+            "readme (conflict 00112233).md"
+        );
+    }
+
+    #[test]
+    fn collision_conflict_filename_handles_degenerate_object_id() {
+        // An object id with no alphanumerics falls back to a literal so the
+        // name stays valid and deterministic.
+        assert_eq!(
+            collision_conflict_filename("note.md", "----"),
+            "note (conflict object).md"
         );
     }
 
