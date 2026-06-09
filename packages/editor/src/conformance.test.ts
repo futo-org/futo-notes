@@ -30,7 +30,7 @@ import {
   pathDepth,
 } from './filename';
 import {
-  TAG_REGEX,
+  tagRegexMatches,
   isValidTagName,
   normalizeTagName,
   extractTags,
@@ -42,14 +42,6 @@ import { isImageFilename, IMAGE_EXTENSIONS } from '@futo-notes/shared';
 const CONFORMANCE_DIR = join(dirname(fileURLToPath(import.meta.url)), '../../../tests/conformance');
 
 const kinds = (issues: { kind: string }[]) => issues.map((i) => i.kind);
-
-function tagRegexMatches(content: string): string[] {
-  const re = new RegExp(TAG_REGEX.source, TAG_REGEX.flags);
-  const out: string[] = [];
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(content)) !== null) out.push(m[1]);
-  return out;
-}
 
 // Dispatch a language-neutral op name → the actual TS computation.
 const OPS: Record<string, (input: unknown) => unknown> = {

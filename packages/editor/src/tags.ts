@@ -6,6 +6,22 @@
  * - Canonical names are lowercase; user-entered whitespace normalizes to _
  * - Preceded by whitespace or start of line
  * - Not inside code blocks/fences or inline code
+ *
+ * This is a DELIBERATE TS copy of the canonical Rust rule
+ * (`crates/futo-notes-model/src/tags.rs`), kept in lockstep via
+ * `tests/conformance/tags.json`. The copy exists so the editor's per-keystroke
+ * paths (live tag decorations, the header tag bar) compute synchronously in the
+ * webview without an async IPC/FFI round-trip to Rust on every keystroke — a
+ * hop that would lag decorations a frame behind the cursor. The note-list scan,
+ * by contrast, runs in Rust (no copy needed). Tradeoff accepted; the catch is
+ * conformance locks *behavior*, NOT performance.
+ *
+ * INVARIANT: tag matching MUST be linear (`scanTags`), never a backtracking
+ * regex over note content. `TAG_REGEX` below is the canonical *spec* of the
+ * rule, but executing it via the (backtracking) JS engine over a large note
+ * catastrophically backtracks — a ~900 KB note hung the scan for minutes. So
+ * production code scans with `scanTags`; `TAG_REGEX` is documentation + a
+ * small-input test reference only. The Rust side has the identical invariant.
  */
 
 /** Maximum length of a tag name (after the #) */
@@ -104,6 +120,97 @@ function stripCodeRegions(content: string): string {
   });
 }
 
+/** A `TAG_REGEX` match: the captured name (group 1) and its byte offsets in the
+ * source. `start` points at the `#`; `end` is just past the name. */
+export interface TagMatch {
+  /** Offset of the `#`. */
+  start: number;
+  /** Offset just past the last name char (exclusive). */
+  end: number;
+  /** Captured name WITHOUT the `#` (regex group 1). */
+  name: string;
+}
+
+const TAG_TERMINATORS = new Set(['.', ',', ';', ':', '!', '?', ')', '}', ']']);
+
+function isTagNameCode(code: number): boolean {
+  // [A-Za-z0-9_-]
+  return (
+    (code >= 0x30 && code <= 0x39) || // 0-9
+    (code >= 0x41 && code <= 0x5a) || // A-Z
+    (code >= 0x61 && code <= 0x7a) || // a-z
+    code === 0x5f || // _
+    code === 0x2d // -
+  );
+}
+
+function isAsciiAlphaCode(code: number): boolean {
+  return (code >= 0x41 && code <= 0x5a) || (code >= 0x61 && code <= 0x7a);
+}
+
+/**
+ * Find every `TAG_REGEX` match — name + position — in document order. This is a
+ * LINEAR hand-scan, NOT a regex. It is byte-for-byte equivalent to `TAG_REGEX`
+ * (locked by the `tagRegexMatches`/`extractTags` conformance fixtures) and the
+ * matching Rust `tag_regex_matches` (crates/futo-notes-model/src/tags.rs), but
+ * O(n): it cannot catastrophically backtrack.
+ *
+ * `TAG_REGEX` needs a lookbehind, which only a *backtracking* engine
+ * (`fancy-regex` in Rust, the JS engine here) supports — and on a large note
+ * that backtracking pegged a core for minutes (the note scan never finished,
+ * the list stayed empty). The pattern admits no *real* backtracking, though:
+ * the name class `[A-Za-z0-9_-]` is disjoint from the terminator set (`\s` and
+ * `[.,;:!?)}\]]`), so the greedy `{0,49}` can only satisfy the look-ahead at the
+ * natural end of the name run. So we scan it directly. A match requires, at a
+ * `#`: (1) left boundary — start-of-string or the preceding char is `\s`
+ * (`(?m)^` after a newline is subsumed); (2) a name `[A-Za-z][A-Za-z0-9_-]{0,49}`
+ * (1..=50 chars); (3) right boundary — EOS / `\s` / a terminator (zero-width).
+ * `\s` is tested with `/\s/` so it matches the JS regex's `\s` exactly.
+ */
+export function scanTags(content: string): TagMatch[] {
+  const out: TagMatch[] = [];
+  const n = content.length;
+  let i = 0;
+  while (i < n) {
+    if (content.charCodeAt(i) !== 0x23 /* # */) {
+      i++;
+      continue;
+    }
+    // (1) left boundary: start-of-string or preceded by a whitespace char.
+    if (!(i === 0 || /\s/.test(content[i - 1]))) {
+      i++;
+      continue;
+    }
+    // (2) name: first char [A-Za-z], then up to 49 of [A-Za-z0-9_-].
+    const nameStart = i + 1;
+    if (nameStart >= n || !isAsciiAlphaCode(content.charCodeAt(nameStart))) {
+      i++;
+      continue;
+    }
+    let j = nameStart + 1;
+    while (j < n && isTagNameCode(content.charCodeAt(j))) j++;
+    // (3) length 1..=50 AND right boundary is EOS / \s / terminator punct.
+    if (j - nameStart <= MAX_TAG_LENGTH && (j >= n || /\s/.test(content[j]) || TAG_TERMINATORS.has(content[j]))) {
+      out.push({ start: i, end: j, name: content.slice(nameStart, j) });
+    }
+    // No `#` lives inside a name run, and the `#` at `i` is handled, so resuming
+    // at `j` (always > `i`) skips no candidate — the zero-width look-ahead isn't
+    // consumed, so this is exactly where the regex would resume.
+    i = j;
+  }
+  return out;
+}
+
+/**
+ * Raw `TAG_REGEX` capture-group-1 values (names without `#`) in document order,
+ * with duplicates (callers dedup). The linear equivalent of iterating
+ * `TAG_REGEX` — exposed for conformance and reused by the editor's tag
+ * decorations.
+ */
+export function tagRegexMatches(content: string): string[] {
+  return scanTags(content).map((m) => m.name);
+}
+
 /**
  * Extract all unique tags from note content, excluding tags inside code blocks/fences.
  * Returns canonical tags with the # prefix.
@@ -112,11 +219,9 @@ export function extractTags(content: string): string[] {
   const cleaned = stripCodeRegions(content);
   const seen = new Set<string>();
   const tags: string[] = [];
-  const re = new RegExp(TAG_REGEX.source, TAG_REGEX.flags);
-  let match: RegExpExecArray | null;
 
-  while ((match = re.exec(cleaned)) !== null) {
-    const tag = '#' + normalizeTagName(match[1]);
+  for (const { name } of scanTags(cleaned)) {
+    const tag = '#' + normalizeTagName(name);
     if (!seen.has(tag)) {
       seen.add(tag);
       tags.push(tag);
@@ -147,17 +252,14 @@ export function extractHeaderTagBlock(content: string): { tags: string[]; endOff
   let offset = 0;
   let cursor = 0;
   const len = content.length;
-  const tagRe = new RegExp(TAG_REGEX.source, TAG_REGEX.flags);
 
   while (cursor <= len) {
     const nlIdx = content.indexOf('\n', cursor);
     const lineEnd = nlIdx === -1 ? len : nlIdx;
     const line = content.slice(cursor, lineEnd);
     if (!TAG_LINE_RE.test(line)) break;
-    tagRe.lastIndex = 0;
-    let match: RegExpExecArray | null;
-    while ((match = tagRe.exec(line)) !== null) {
-      const tag = '#' + normalizeTagName(match[1]);
+    for (const { name } of scanTags(line)) {
+      const tag = '#' + normalizeTagName(name);
       if (!seen.has(tag)) {
         seen.add(tag);
         tags.push(tag);

@@ -9,7 +9,7 @@ import {
 } from '@codemirror/view';
 import { StateEffect, type Text } from '@codemirror/state';
 import { syntaxTree, ensureSyntaxTree } from '@codemirror/language';
-import { TAG_REGEX } from '$lib/rules';
+import { scanTags } from '$lib/rules';
 import { shortestUniqueSuffix, resolveWikilink, WIKILINK_RE } from './wikilinks';
 import { getAllNotes } from './notes.svelte';
 
@@ -1995,12 +1995,12 @@ class LiveMarkdownPlugin implements PluginValue {
       // Fast-path: skip lines that can't contain a tag
       if (!line.text.includes('#')) continue;
 
-      const regex = new RegExp(TAG_REGEX.source, TAG_REGEX.flags);
-      let match;
-
-      while ((match = regex.exec(line.text)) !== null) {
-        const from = line.from + match.index;
-        const to = from + match[0].length;
+      // Linear scan (not the backtracking TAG_REGEX) — runs per-keystroke over
+      // each line, so it must not be able to ReDoS. `m.end - m.start` == the
+      // old `match[0].length` (`#` + name; the look-around is zero-width).
+      for (const m of scanTags(line.text)) {
+        const from = line.from + m.start;
+        const to = line.from + m.end;
 
         // Tags stay styled regardless of cursor position — no "reveal"
         // mode like wikilinks/emphasis, since the source text is the

@@ -19,18 +19,6 @@ use fancy_regex::Regex;
 /// Maximum length of a tag name (after the `#`). Matches TS `MAX_TAG_LENGTH`.
 pub const MAX_TAG_LENGTH: usize = 50;
 
-/// `TAG_REGEX` equivalent: start-of-line or after whitespace, `#`, a name
-/// starting with a letter, terminated by end-of-line / whitespace / one of a
-/// small punctuation set. `(?m)` makes `^`/`$` line-anchored like the JS `m`
-/// flag.
-fn tag_regex() -> &'static Regex {
-    static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| {
-        Regex::new(r"(?m)(?:^|(?<=\s))#([a-zA-Z][a-zA-Z0-9_-]{0,49})(?=$|\s|[.,;:!?)}\]])")
-            .expect("TAG_REGEX must compile")
-    })
-}
-
 /// A line consisting only of tags and whitespace. Matches TS `TAG_LINE_RE`.
 fn tag_line_regex() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
@@ -54,18 +42,99 @@ fn fence_line_regex() -> &'static Regex {
     RE.get_or_init(|| Regex::new(r"(?m)^( {0,3})(`{3,}|~{3,})(.*)$").expect("fence regex must compile"))
 }
 
-/// Raw `TAG_REGEX` capture-group-1 values in document order (with whatever
-/// duplicates the regex itself yields — `extract_tags` dedups afterward).
-/// Exposed for conformance; also the per-line scan used internally.
+/// Raw `TAG_REGEX` capture-group-1 values (tag names without `#`) in document
+/// order, with whatever duplicates the pattern yields (`extract_tags` dedups
+/// afterward). Exposed for conformance; also the per-line scan used internally.
+///
+/// LINEAR hand-scan, NOT a regex. It replaces the previous `fancy-regex`
+/// pattern `(?m)(?:^|(?<=\s))#([a-zA-Z][a-zA-Z0-9_-]{0,49})(?=$|\s|[.,;:!?)}\]])`,
+/// which — run through fancy-regex's backtracking VM via `captures_iter` —
+/// was pathologically slow on large notes (a ~900 KB note pegged a core for
+/// minutes), so the off-main note scan never finished and the list stayed
+/// empty. This scan visits each byte O(1).
+///
+/// It is byte-for-byte equivalent to the pattern (locked by the
+/// `tagRegexMatches` conformance fixtures) because the pattern admits NO
+/// genuine backtracking: the name class `[a-zA-Z0-9_-]` is disjoint from the
+/// terminator set (`\s` and `[.,;:!?)}\]]`), so the greedy `{0,49}` can only
+/// satisfy the look-ahead at the natural end of the name run — a shorter name
+/// is never valid when the maximal one isn't, and a run longer than 50 name
+/// chars can never match (the char after any ≤50 prefix is itself a name
+/// char, never a terminator). A match requires, at a `#`:
+///   1. left boundary `(?:^|(?<=\s))`: start-of-string, or the preceding char
+///      is `\s` (`(?m)^` after a newline is subsumed — `\n` is `\s`);
+///   2. a name `[a-zA-Z][a-zA-Z0-9_-]{0,49}` (1..=50 chars);
+///   3. right boundary `(?=$|\s|[.,;:!?)}\]])` (zero-width — not consumed).
+/// `\s` is Unicode White_Space (`char::is_whitespace()`), which is what the
+/// `regex`/`fancy-regex` `\s` resolved to.
 pub fn tag_regex_matches(content: &str) -> Vec<String> {
-    let re = tag_regex();
+    let bytes = content.as_bytes();
+    let n = bytes.len();
     let mut out = Vec::new();
-    for caps in re.captures_iter(content).flatten() {
-        if let Some(m) = caps.get(1) {
-            out.push(m.as_str().to_string());
+    let mut i = 0;
+    while i < n {
+        if bytes[i] != b'#' {
+            i += 1;
+            continue;
         }
+        // (1) left boundary: start-of-string, or preceded by a whitespace char.
+        if !(i == 0 || prev_char_is_whitespace(content, i)) {
+            i += 1;
+            continue;
+        }
+        // (2) name: first char [a-zA-Z], then up to 49 of [a-zA-Z0-9_-].
+        let name_start = i + 1;
+        if name_start >= n || !bytes[name_start].is_ascii_alphabetic() {
+            i += 1;
+            continue;
+        }
+        let mut j = name_start + 1;
+        while j < n && is_tag_name_byte(bytes[j]) {
+            j += 1;
+        }
+        // (3) length 1..=50 AND right boundary is EOS / \s / terminator punct.
+        if (j - name_start) <= MAX_TAG_LENGTH && tag_right_boundary_ok(content, j) {
+            // Names are ASCII, so `content[name_start..j]` is a valid str slice.
+            out.push(content[name_start..j].to_string());
+        }
+        // No `#` lives inside a name run and the `#` at `i` is handled, so
+        // resuming at `j` (the first non-name byte, always > `i`) skips no
+        // candidate. On a match this is exactly where `captures_iter` would
+        // resume — the zero-width look-ahead is not consumed.
+        i = j;
     }
     out
+}
+
+/// True if the char ending immediately before byte index `i` is Unicode
+/// whitespace — the `\s` in the tag pattern's `(?<=\s)`. `i` points at an
+/// ASCII `#`, so it is a char boundary; we step back over any UTF-8
+/// continuation bytes to the start of the preceding char. Caller guarantees
+/// `i >= 1`.
+fn prev_char_is_whitespace(s: &str, i: usize) -> bool {
+    let bytes = s.as_bytes();
+    let mut k = i - 1;
+    while k > 0 && (bytes[k] & 0xC0) == 0x80 {
+        k -= 1;
+    }
+    s[k..i].chars().next().is_some_and(char::is_whitespace)
+}
+
+/// A `[a-zA-Z0-9_-]` byte (a tag-name continuation char).
+fn is_tag_name_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_' || b == b'-'
+}
+
+/// The tag terminator look-ahead `(?=$|\s|[.,;:!?)}\]])` evaluated at byte
+/// index `j` (a char boundary — the bytes before it are ASCII name chars).
+fn tag_right_boundary_ok(s: &str, j: usize) -> bool {
+    match s[j..].chars().next() {
+        None => true, // end-of-string ($)
+        Some(c) => {
+            c.is_whitespace()
+                || matches!(c, '.' | ',' | ';' | ':' | '!' | '?' | ')' | '}' | ']')
+        }
+    }
 }
 
 /// True if `name` (without `#`) is a valid tag name. Matches TS
@@ -319,5 +388,108 @@ pub fn extract_header_tag_block(content: &str) -> HeaderTagBlock {
     HeaderTagBlock {
         tags,
         end_offset: offset,
+    }
+}
+
+#[cfg(test)]
+mod tag_scan_tests {
+    use super::*;
+    use std::time::Instant;
+
+    fn names(s: &str) -> Vec<String> {
+        tag_regex_matches(s)
+    }
+
+    #[test]
+    fn matches_basic_and_adjacent() {
+        assert_eq!(names("#hello"), vec!["hello"]);
+        // start-of-string and after-whitespace; adjacency must both match (the
+        // boundaries are zero-width, so the shared space isn't consumed).
+        assert_eq!(names("#a #b"), vec!["a", "b"]);
+        // start-of-line via (?m)^ (subsumed by "preceded by \n").
+        assert_eq!(names("x\n#tag"), vec!["tag"]);
+        // not preceded by whitespace ⇒ no match.
+        assert!(names("word#tag").is_empty());
+        assert!(names("##tag").is_empty());
+    }
+
+    #[test]
+    fn terminators_and_punctuation() {
+        // Right-boundary terminators. Each `#` has a valid LEFT boundary (a
+        // leading space) so we isolate the terminator behavior.
+        for (input, want) in [
+            ("#tag.", "tag"),
+            ("#tag,", "tag"),
+            (" #tag)", "tag"),
+            ("#tag!", "tag"),
+            ("#tag?", "tag"),
+            ("#tag]", "tag"),
+            ("#tag}", "tag"),
+        ] {
+            assert_eq!(names(input), vec![want], "input={input:?}");
+        }
+        // The `#` must follow whitespace or line-start: `(#tag)` has `#` after
+        // `(`, so per `(?:^|(?<=\s))` it does NOT match (matches the TS rule).
+        assert!(names("(#tag)").is_empty());
+        // a non-terminator, non-name char right after the name ⇒ no match
+        // (the look-ahead fails and no shorter name is valid).
+        assert!(names("#tag@x").is_empty());
+        assert!(names("#tag/x").is_empty());
+        // hyphen/underscore/digits are name chars.
+        assert_eq!(names("#a-b_c1 "), vec!["a-b_c1"]);
+    }
+
+    #[test]
+    fn length_cap_50() {
+        let n50: String = format!("#{}", "a".repeat(50));
+        assert_eq!(names(&n50), vec!["a".repeat(50)]);
+        // 51 name chars: greedy matches 50, char #51 is a name char (not a
+        // terminator) ⇒ look-ahead fails for every length ⇒ no match.
+        let n51: String = format!("#{} ", "a".repeat(51));
+        assert!(names(&n51).is_empty(), "51-char run must not match");
+    }
+
+    #[test]
+    fn first_char_must_be_letter() {
+        assert!(names("#1tag").is_empty());
+        assert!(names("#-tag").is_empty());
+        assert!(names("#_tag").is_empty());
+    }
+
+    #[test]
+    fn unicode_whitespace_boundary() {
+        // U+00A0 NBSP is Unicode White_Space, so it satisfies both (?<=\s)
+        // (left) and the look-ahead (right).
+        assert_eq!(names("a\u{00a0}#tag\u{00a0}b"), vec!["tag"]);
+    }
+
+    // Regression for the catastrophic-backtracking hang: a ~1 MB note must
+    // extract in well under a second. The old fancy-regex `captures_iter`
+    // pegged a core for MINUTES on the real ~900 KB note, which left the
+    // off-main iOS note scan permanently incomplete (list stuck empty).
+    #[test]
+    fn large_note_extracts_fast_and_correct() {
+        // Markdown-ish block: headers, prose with `#`, punctuation, and one
+        // real tag — the kind of content that triggered the blow-up.
+        let block = "### A Heading With Words\n\nSome prose, with punctuation; \
+            and the #realtag here. More text: see section #3 and item #b? Yes.\n\n";
+        let big = block.repeat(10_000); // ~1.2 MB (larger than the real culprit)
+        assert!(big.len() > 1_000_000);
+
+        let t = Instant::now();
+        let tags = extract_tags(&big);
+        let elapsed = t.elapsed();
+
+        assert!(
+            tags.contains(&"#realtag".to_string()),
+            "should still find the real tag"
+        );
+        // `#3` (digit-led) and `#b?` are valid/invalid per the rules; the point
+        // is it COMPLETES. Linear scan ⇒ a few ms; the old code ⇒ minutes.
+        assert!(
+            elapsed.as_secs() < 3,
+            "tag extraction on a ~1 MB note must be fast (was {elapsed:?}); \
+             a regression here means catastrophic backtracking is back"
+        );
     }
 }
