@@ -26,8 +26,9 @@ satisfy it yet — that's what makes gaps visible.
 |---|---|
 | [app.md](app.md) | Cross-cutting: render lifecycle, data safety, where logic lives |
 | [editor.md](editor.md) | The Markdown editor (shared CodeMirror 6 WebView) |
-| [list.md](list.md) | Note list + folder drawer |
-| [nav.md](nav.md) | Navigation / screen stack |
+| [list.md](list.md) | Note list, home feed, folder drawer, note/folder ops |
+| [nav.md](nav.md) | Navigation / screen stack / drawer |
+| [tabs.md](tabs.md) | Desktop multi-tab + keyboard shortcuts |
 | [search.md](search.md) | Search |
 | [settings.md](settings.md) | Settings (behavior) |
 | [settings-visual.md](settings-visual.md) | Settings (visual recreation spec, from desktop/Tauri) |

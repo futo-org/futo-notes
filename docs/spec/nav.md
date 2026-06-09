@@ -1,7 +1,7 @@
 # Navigation — Spec
 
-How screens stack and transition. *(Native shells; the desktop Tauri app uses
-the Svelte router and is not described here.)*
+How screens stack and transition. Native-shell stack first; Tauri-shell
+navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
 
 - Screens: **List** (root) → Editor / Search / Settings; **Settings** → Sync. →
   MainActivity.kt
@@ -19,3 +19,22 @@ the Svelte router and is not described here.)*
   pre-warmed WebView and swap content via `setContent` on open. →
   MainActivity.kt / EditorHost *(Android)*; FutoNotesApp
   `EditorHost.prewarm()` / EditorWebView `EditorHost.shared` *(iOS)*
+
+## Tauri mobile shell
+
+- The drawer opens from the hamburger button or a left-edge swipe; tapping the
+  dimmed overlay (or swiping back) closes it; it slides proportionally with
+  the finger. → DrawerSidebar.svelte, touchSwipe.svelte.ts
+- System Back closes the topmost overlay first (search popup, settings sheet,
+  drawer), then the open note (back to the For You home), and on the home
+  screen leaves the app. Verified on Android Tauri 2026-06-09.
+- Settings opens as a bottom sheet over the current screen (not a pushed
+  screen). → SettingsScreen.svelte
+- The top chrome (hamburger, note menu) floats over the editor; content
+  scrolls beneath it. *(Android Tauri)*
+
+## Desktop shell *(desktop)*
+
+- The sidebar is persistent and resizable (drag the divider, min 200px); a
+  collapse toggle hides it to an expand button. Width and collapsed state
+  persist across sessions. → DrawerSidebar.svelte, NotesShell.svelte

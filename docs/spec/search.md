@@ -20,6 +20,17 @@ Implementation and perf details live in `docs/splade-search.md`.
   compiles (~45 s on Apple CoreML; cached afterward), then an "N / total"
   indexing progress. → SearchIndexIndicator.svelte *(splade-merge)*
 
+## Search UI *(Tauri)*
+
+- The drawer/sidebar search bar (or Ctrl/Cmd+P) opens a search popup with the
+  input autofocused; queries debounce ~100 ms. → SearchPopup.svelte
+- Results show title, a folder badge when the note is foldered, and a preview
+  snippet; matches include note **body** text, not just titles. Verified on
+  Android Tauri 2026-06-09.
+- An empty query shows the 8 most-recent notes; ✕ clears; Escape closes.
+- Arrow keys navigate results, Enter opens; Ctrl/Cmd+click or Shift+click
+  opens the result in a new tab. *(desktop)*
+
 ## Model
 
 - A **doc-side SPLADE encoder** (distilbert backbone, BERT MLM head) from the
@@ -40,8 +51,11 @@ Implementation and perf details live in `docs/splade-search.md`.
   (`search_status`), and `search_notify` at the TS mutation chokepoint keeps the
   index fresh. → docs/splade-search.md
 - Native shells (today): substring-only filtering over title / preview / tags.
-  Empty query → recent 8; non-empty → result count + matches; ✕ clears; tapping
-  a result opens it. → SearchScreen.kt *(Android)*, NoteListView.swift *(iOS)*
+  **Body text beyond the stored preview does not match** (verified 2026-06-09:
+  "blockquote" deep in a note body → NO MATCHES on Android native; same query
+  matches via BM25 on Tauri). Empty query → recent 8; non-empty → result count
+  + matches with folder label; ✕ clears; tapping a result opens it. →
+  SearchScreen.kt *(Android)*, NoteListView.swift *(iOS)*
 
 > **Gap:** the hybrid search crate is reachable only via Tauri commands — it is
 > NOT exposed through `futo-notes-ffi` (the generated Swift/Kotlin bindings have
@@ -49,3 +63,9 @@ Implementation and perf details live in `docs/splade-search.md`.
 > (`apps/ios`) and Compose (`apps/android`) shells stay substring-only. Wiring
 > `futo-notes-search` into the FFI facade is the remaining work for the native
 > apps.
+
+> **Gap:** the Android **Tauri** debug/offline APK does not bundle the SPLADE
+> model file — `search_status` reports `splade.fallbackReason:
+> "model_file_missing"` and search runs BM25-only (observed 2026-06-09,
+> emulator). Keyword search still covers note bodies; only the semantic
+> upgrade is missing.

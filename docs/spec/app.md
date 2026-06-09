@@ -47,3 +47,15 @@ Behaviors and constraints that hold across every surface and platform.
 
 - `window.confirm()` / `window.alert()` don't block in Tauri's webview — use
   `ask()` / `message()` from `@tauri-apps/plugin-dialog`. → CLAUDE.md
+
+## Feedback & crash reporting *(Tauri)*
+
+- Action feedback uses transient toasts (~3 s, one at a time, auto-dismiss):
+  "Note deleted", "Moved to {folder}", "Path copied", etc. → toast.ts
+- An uncaught error/crash is queued; the **next launch** shows a Crash Report
+  dialog: expandable "View report", an optional "What were you doing?" field,
+  an "Always send crash reports" checkbox, and Send / Don't Send. "Always
+  send" (also a Settings toggle) auto-sends future reports without the
+  dialog. Verified on Android Tauri 2026-06-09. → CrashReportDialog.svelte,
+  crashHandler.ts
+  > **Gap:** the native shells have no crash capture/report pipeline.
