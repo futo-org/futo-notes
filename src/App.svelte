@@ -3,6 +3,7 @@
   import TitleBar from './components/TitleBar.svelte';
   import CrashReportDialog from './components/CrashReportDialog.svelte';
   import { hasFileSystem, getFS, getPlatformFS, isDesktop, isLinux, isMac } from '$lib/platform';
+  import { installExternalFileDropGuard } from '$lib/externalFileDropGuard';
   import { tabsStore } from '$lib/tabsStore.svelte';
   import { noteIdFromHash } from './router';
 
@@ -37,6 +38,11 @@
   import { sendAllPendingReports, discardAllPendingReports, loadPendingReports, getLastSendError } from '$lib/crashReporter';
   import { installTestSync } from '$lib/testSync';
   import { searchNotes, isSearchIndexPopulated } from '$lib/searchIndex';
+
+  // Synchronous listener install — keeps OS file drops from navigating the
+  // webview away from the app (required on Windows where dragDropEnabled is
+  // off; see tauri.windows.conf.json and externalFileDropGuard.ts).
+  installExternalFileDropGuard();
 
   let initialized = $state(false);
   let error: string | null = $state(null);
