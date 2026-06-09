@@ -4,7 +4,12 @@ How screens stack and transition. Native-shell stack first; Tauri-shell
 navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
 
 - Screens: **List** (root) → Editor / Search / Settings; **Settings** → Sync. →
-  MainActivity.kt
+  MainActivity.kt *(Android)*
+- iOS native: **List** (root) → Editor / folder screen (tapping a folder row
+  pushes a filtered list titled with the folder name); search is an inline
+  bottom search bar on the list, and the nav-bar cloud button presents the
+  Sync sheet. There is no Settings screen (see settings.md gap). →
+  NoteListView.swift *(iOS)*
 - A typed nav stack holds entries. Note ids and folders contain `/`, which would
   break string-based routes, so the stack holds typed `Screen` values, not path
   strings. → MainActivity.kt

@@ -59,11 +59,23 @@ new-note affordances.
   but no UI calls it)
 - A note row in the folder tree offers the same Move/Delete via context menu
   (desktop right-click / mobile long-press). → FolderTreeView.svelte
-  > **Gap:** the native Android editor menu has **only** "Delete note", and it
-  > deletes **immediately with no confirmation** (verified 2026-06-09) — no
-  > move, no copy-path. iOS native exposes folder delete but the note menu is
-  > similarly thin. The no-confirm delete is a data-safety divergence from
-  > the Tauri confirm dialog.
+  > **Gap:** the native Android editor menu has **only** "Delete note" — no
+  > move, no copy-path. iOS native's editor menu is thinner still (Rename
+  > only; share/delete/move live on the list rows). **Both native shells
+  > delete immediately with no confirmation** (verified on emulator + sim
+  > 2026-06-09) — a data-safety divergence from the Tauri confirm dialog.
+- **iOS native** note rows expose **Move to Folder…** and **Delete** via
+  long-press context menu / swipe actions; the move sheet lists Root, every
+  folder, and an inline "New Folder…" option, and the move is applied on
+  disk immediately (verified 2026-06-09). → NoteListView.swift
+  > **Gap:** Android native has no move UI at all (`store.moveNote()` exists,
+  > nothing calls it).
+- **iOS native** creates notes via a title dialog (prefilled "Untitled",
+  Cancel/Create) from a "+" menu offering New Note / New Folder; the editor
+  then opens with the **body** focused. Android native opens the editor with
+  the title focused instead; the title-dialog flow is iOS-only. →
+  NoteListView.swift
+  > **Gap:** Android native has no New Folder affordance.
 
 ## Sidebar tabs *(Tauri)*
 

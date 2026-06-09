@@ -10,6 +10,12 @@
 
 ## Native shells
 
+> **Gap:** the native **iOS** app has no Settings surface at all — the
+> nav-bar cloud button opens the Sync sheet directly (server, password,
+> Connect & Sync, status, plus a notes-folder path readout), so there is no
+> theme control, account header, or about section (verified on simulator
+> 2026-06-09). The lines below currently describe Android only.
+
 - The account header shows connected vs. local state with a SYNCED / LOCAL
   badge; tapping it opens the Sync screen. → SettingsScreen.kt
 - **Sync** group: hosted-sync status and server URL, both routing to the Sync
