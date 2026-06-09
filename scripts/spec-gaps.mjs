@@ -97,6 +97,12 @@ const PROBES = [
     hint: 'an Android screen now references folder creation.',
   },
   {
+    match: /Android native has no folder-delete UI/,
+    closed: () =>
+      ktScreenFiles().some((f) => /\.deleteFolder\(|Delete folder/i.test(fs.readFileSync(f, 'utf8'))),
+    hint: 'an Android screen now references folder deletion.',
+  },
+  {
     match: /iOS.* app has no Settings surface/,
     closed: () =>
       fs.existsSync(path.join(ROOT, 'apps/ios/Sources')) &&

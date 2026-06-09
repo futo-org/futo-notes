@@ -105,15 +105,19 @@ new-note affordances.
   folder → folder, folder → root). A name collision on move resolves with a
   `-2`/`-3` suffix. Hovering a folder while dragging auto-expands it. →
   FolderTreeView.svelte *(desktop)*
-- A folder can be **deleted**, which **recursively removes the folder and all of
-  its contents** (every note and subfolder beneath it). The action requires a
-  destructive confirmation that states how many notes will be deleted, and it
-  cannot be undone. → core `delete_folder` (rejects the vault root and path
-  traversal; a missing folder is a no-op).
-- A folder delete propagates over sync like a multi-note delete: the removed
-  files are gone from disk, and the next push tombstones each of them on the
-  server (the push diffs disk vs the object map — see [sync.md](sync.md)).
-- **iOS native:** swipe-to-delete or a long-press "Delete Folder…" context menu
-  on a subfolder row in the folder browser. → NoteListView.swift
-  > **Gap:** desktop (Tauri) and Android do not yet expose a folder-delete UI;
-  > the shared core `delete_folder` is available for them to wire up.
+- A folder can be **deleted**, behind a destructive confirmation. The two
+  shipped UIs have **different semantics** today:
+  - **Tauri** (folder context menu → Delete; re-verified in code 2026-06-09 —
+    an earlier Gap note claiming desktop had no folder-delete UI was wrong):
+    non-destructive — contained notes are **moved up to the parent folder**,
+    then the empty folder is removed. Sync sees note moves, not tombstones.
+    If any note fails to move, the delete bails and nothing is removed. →
+    DrawerSidebar.svelte `confirmDeleteFolder`
+  - **iOS native** (swipe-to-delete or long-press "Delete Folder…"):
+    **recursively destroys** the folder and every note/subfolder beneath it,
+    stating the note count; the next push tombstones each removed note. →
+    NoteListView.swift, core `delete_folder` (rejects the vault root and
+    path traversal; a missing folder is a no-op)
+  > **Gap:** the two semantics should converge (move-up vs recursive
+  > destroy is a surprising cross-device difference), and Android native
+  > has no folder-delete UI at all.

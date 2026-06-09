@@ -64,8 +64,9 @@ Implementation and perf details live in `docs/splade-search.md`.
 > `futo-notes-search` into the FFI facade is the remaining work for the native
 > apps.
 
-> **Gap:** the Android **Tauri** debug/offline APK does not bundle the SPLADE
-> model file — `search_status` reports `splade.fallbackReason:
-> "model_file_missing"` and search runs BM25-only (observed 2026-06-09,
-> emulator). Keyword search still covers note bodies; only the semantic
-> upgrade is missing.
+- **Decision (2026-06-09): shipping the SPLADE model in the Android Tauri
+  binary is on hold.** The APK does not bundle the model file
+  (`search_status` reports `splade.fallbackReason: "model_file_missing"`),
+  so Android Tauri runs BM25-only. Keyword search still covers note bodies —
+  only the semantic upgrade is absent. Revisit when binary-size/packaging is
+  decided; not a gap to close today.

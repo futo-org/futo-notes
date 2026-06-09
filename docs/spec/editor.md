@@ -51,19 +51,21 @@ this file states the behaviors a human cares about.
 - Tags dedup case-insensitively (`#Project` + `#project` → one `#project`).
 - A leading header tag block is recognized and hidden when the cursor is away.
 
-## Tag bar *(Tauri)*
+## Tag bar *(desktop)*
+
+The tag bar is a **desktop-only surface by decision (2026-06-09)** — mobile
+(native shells; the legacy Tauri mobile shell still happens to render it)
+edits tags as text in the body, which is not a gap.
 
 - A tag bar sits between the title and the editor: one chip per current tag,
   plus a "+ Tag" affordance. → NoteTagBar.svelte
 - "+ Tag" opens an inline input with autocomplete over the vault's existing
   tags (case-insensitive); a non-matching entry shows a "Create #name" option.
-  Enter or comma commits; verified on Android Tauri 2026-06-09.
+  Enter or comma commits.
 - Committing a tag writes it into the note's **leading header tag block**
   (creating the block when absent) — the tag is note content, not metadata.
 - Removing a chip removes the tag; removing the last tag removes the entire
   header block.
-  > **Gap:** the native shells have no tag bar — tags can only be edited as
-  > text in the body. → NoteEditorScreen.kt / NoteEditorView.swift
 
 ## Wikilinks — navigation & integrity
 
