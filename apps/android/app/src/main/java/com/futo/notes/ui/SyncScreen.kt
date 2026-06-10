@@ -28,6 +28,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.futo.notes.NotesStore
 import com.futo.notes.SyncManager
@@ -81,6 +82,7 @@ fun SyncScreen(store: NotesStore, sync: SyncManager, onBack: () -> Unit) {
                     onValueChange = { password = it },
                     label = { Text("Password") },
                     singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
                     shape = RoundedCornerShape(FutoRadius.md),
                     modifier = Modifier.fillMaxWidth(),
                 )

@@ -10,6 +10,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import uniffi.futo_notes_ffi.NoteStore
 import uniffi.futo_notes_ffi.NoteMetadata
+import uniffi.futo_notes_ffi.SearchEngine
 import java.io.File
 
 /** A single note for the UI. Mirrors the iOS `NoteItem`; `tags` are canonical
@@ -42,6 +43,17 @@ class NotesStore(notesRoot: File) {
      *  [SyncManager.noteChanged] so a connected live session debounces and
      *  auto-pushes the edit to peers. Mirrors the iOS `NotesStore.onLocalChange`. */
     var onLocalChange: (() -> Unit)? = null
+
+    /** When true, mutations do NOT signal [onLocalChange] — set by the full-
+     *  reset flow so the bulk wipe can't trigger an auto-push mid-delete
+     *  [settings.md:43]. Mirrors desktop `deleteAllNotes` pausing auto-sync. */
+    var suppressAutoPush = false
+
+    /** The BM25 keyword search engine [search.md:60]. Set once by the Activity
+     *  after off-main construction (the Tantivy index open does disk I/O and
+     *  must never gate render); null until then — SearchScreen falls back to
+     *  substring filtering. Mutations below feed it incremental notify calls. */
+    var engine: SearchEngine? = null
 
     /** The Rust-owned vault — the single source of truth for the rules.
      *
@@ -129,7 +141,8 @@ class NotesStore(notesRoot: File) {
             } else {
                 reload()
             }
-            onLocalChange?.invoke()
+            signalLocalChange()
+            notifyEngine { it.notifyChanged("$id.md") }
         } catch (e: Exception) {
             android.util.Log.e("NotesStore", "write failed for $id", e)
         }
@@ -138,7 +151,8 @@ class NotesStore(notesRoot: File) {
     suspend fun createNote(title: String, folder: String = ""): String? = try {
         val id = withContext(Dispatchers.IO) { core.createNote(title, folder) }
         reload()
-        onLocalChange?.invoke()
+        signalLocalChange()
+        notifyEngine { it.notifyChanged("$id.md") }
         id
     } catch (e: Exception) {
         android.util.Log.e("NotesStore", "createNote failed", e); null
@@ -147,21 +161,26 @@ class NotesStore(notesRoot: File) {
     suspend fun delete(id: String) {
         try {
             withContext(Dispatchers.IO) { core.delete(id) }
-            onLocalChange?.invoke()
+            signalLocalChange()
+            notifyEngine { it.notifyRemoved("$id.md") }
         } catch (e: Exception) { android.util.Log.e("NotesStore", "delete failed", e) }
         reload()
     }
 
     suspend fun rename(oldId: String, newId: String): String = try {
         val finalId = withContext(Dispatchers.IO) { core.rename(oldId, newId) }
-        reload(); onLocalChange?.invoke(); finalId
+        reload(); signalLocalChange()
+        notifyEngine { it.notifyRenamed("$oldId.md", "$finalId.md") }
+        finalId
     } catch (e: Exception) {
         android.util.Log.e("NotesStore", "rename failed", e); oldId
     }
 
     suspend fun moveNote(id: String, toFolder: String): String = try {
         val finalId = withContext(Dispatchers.IO) { core.moveNote(id, toFolder) }
-        reload(); onLocalChange?.invoke(); finalId
+        reload(); signalLocalChange()
+        notifyEngine { it.notifyRenamed("$id.md", "$finalId.md") }
+        finalId
     } catch (e: Exception) {
         android.util.Log.e("NotesStore", "moveNote failed", e); id
     }
@@ -169,9 +188,77 @@ class NotesStore(notesRoot: File) {
     suspend fun createFolder(path: String) {
         try {
             withContext(Dispatchers.IO) { core.createFolder(path) }
-            reload(); onLocalChange?.invoke()
+            reload(); signalLocalChange()
         } catch (e: Exception) {
             android.util.Log.e("NotesStore", "createFolder failed", e)
+        }
+    }
+
+    /** Vault-wide wikilink rewrite after a rename/move [editor.md:88]: every
+     *  link that resolved to [oldId] is repointed at [newId]. Fire-and-forget
+     *  on the store's scope — the rewrite touches many files and may outlive
+     *  the editor screen that triggered it. Rewritten bodies belong to ids the
+     *  Rust side doesn't enumerate, so the engine gets a full rescan. */
+    fun relink(oldId: String, newId: String) {
+        if (oldId == newId) return
+        scope.launch {
+            try {
+                val rewritten = withContext(Dispatchers.IO) { core.relink(oldId, newId) }
+                if (rewritten > 0u) {
+                    reload()
+                    signalLocalChange()
+                    notifyEngine { it.rescan() }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("NotesStore", "relink failed $oldId -> $newId", e)
+            }
+        }
+    }
+
+    /** MOVE-UP folder delete (Tauri parity, [list.md:121]): notes under
+     *  [path] move to the parent (Rust bails atomically — if ANY move fails
+     *  nothing is deleted), wikilinks are relinked, then the folder tree goes.
+     *  Returns the moved-note count, or null when the FFI rejected the delete
+     *  (the folder is left intact). */
+    suspend fun deleteFolder(path: String): UInt? = try {
+        val moved = withContext(Dispatchers.IO) { core.deleteFolder(path) }
+        reload(); signalLocalChange()
+        // The moved notes' new ids aren't enumerated across the FFI — rescan.
+        notifyEngine { it.rescan() }
+        moved
+    } catch (e: Exception) {
+        android.util.Log.e("NotesStore", "deleteFolder failed for $path", e); null
+    }
+
+    /** Full reset [settings.md:43]: delete every note, folder, and `.crashlogs`
+     *  under the vault root. Parity model: desktop `deleteAllNotes`
+     *  (src/lib/notes.svelte.ts). Callers pause sync + set [suppressAutoPush]
+     *  for the duration and disconnect sync afterwards. */
+    suspend fun deleteAll() {
+        withContext(Dispatchers.IO) {
+            File(rootPath).listFiles()?.forEach { it.deleteRecursively() }
+        }
+        reload()
+        notifyEngine { it.rescan() }
+    }
+
+    /** Full engine rescan for bulk disk changes whose affected ids aren't
+     *  enumerable — wired to [SyncManager.onLivePull] by the Activity. */
+    fun engineRescanAsync() {
+        notifyEngine { it.rescan() }
+    }
+
+    private fun signalLocalChange() {
+        if (!suppressAutoPush) onLocalChange?.invoke()
+    }
+
+    /** Engine notifications are FFI calls (index I/O) — always off-main, and
+     *  never allowed to break the mutation that triggered them. */
+    private fun notifyEngine(block: (SearchEngine) -> Unit) {
+        val e = engine ?: return
+        scope.launch(Dispatchers.IO) {
+            runCatching { block(e) }
+                .onFailure { android.util.Log.e("NotesStore", "search engine notify failed", it) }
         }
     }
 

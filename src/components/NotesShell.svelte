@@ -210,6 +210,19 @@
     getEditorContent: () => editor?.getContent(),
     setEditorContent: (text, opts) => editor?.setContent(text, opts),
     focusEditor: () => editor?.focus(),
+    // Re-assert across two frames: on a new-note load the rAF that requests
+    // title focus can fire before the textarea has bound (route just
+    // changed), and the editor's same-frame setContent can contend for
+    // focus — a single focus() call can lose to either.
+    focusTitle: () => {
+      const attempt = (retries: number) => {
+        if (titleTextarea && document.activeElement !== titleTextarea) {
+          titleTextarea.focus();
+        }
+        if (retries > 0) requestAnimationFrame(() => attempt(retries - 1));
+      };
+      attempt(2);
+    },
     getNotes: () => appCtx.notes,
     patchGraphNode: (from, to, t) => graphPanel?.patchGraphNode(from, to, t),
     showToast,

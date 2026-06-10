@@ -73,23 +73,42 @@ edits tags as text in the body, which is not a gap.
   Cmd/Ctrl+click opens it in a new tab). Verified on Android Tauri 2026-06-09.
   → NotesShell.svelte onopenlink
 - A wikilink displays the **shortest unique path suffix** (`[[Projects/Roadmap]]`
-  renders as "Roadmap" while unambiguous). → wikilinks.ts
-  > **Gap:** the native shells show the full path — the suffix resolver needs
-  > the vault note list, which only the Tauri shell feeds to the editor
-  > (observed Android native 2026-06-09).
+  renders as "Roadmap" while unambiguous). The native shells feed the vault
+  note list into the shared editor WebView over the bridge (`setNotes`), so
+  the same resolver runs there (verified Android native + iOS simulator
+  2026-06-09). → wikilinks.ts, packages/editor bridge v2,
+  EditorWebView.kt / EditorWebView.swift
 - Typing `[[` opens autocomplete over all note ids; selecting inserts the full
-  path. → wikilinkAutocomplete.ts *(Tauri)*
+  path. Works on Tauri and both native shells (same embed; verified on
+  emulator + simulator 2026-06-09). → wikilinkAutocomplete.ts
 - A broken or ambiguous wikilink renders undecorated (not a live link).
+- On the native shells, tapping a resolved wikilink navigates: the embed
+  resolves the raw target against the pushed note list and posts `openNote`
+  to the host, which swaps the open editor in place (Back returns to the
+  list); a broken link posts nothing. Taps navigate via a dedicated
+  `touchend` path — WebKit cancels the synthetic `click` after the handler's
+  prevented `mousedown`, so a click-only handler dead-ends on iOS while
+  Chromium double-fires; the touchend path covers both (verified Android
+  native + iOS simulator 2026-06-09). On iOS the replaced nav entry needs an
+  explicit `.id(noteId)` identity or SwiftUI reuses the editor view's @State
+  from the previous note. → MarkdownEditor.svelte `wikilinkClickHandler`,
+  NoteEditorScreen.kt / NoteEditorView.swift `openLinkedNote`
 - **Renaming or moving a note rewrites every wikilink that points at it,
   across all notes** — including folder moves (`[[Markdown demo]]` →
   `[[Archive/Markdown demo]]`). Verified end-to-end on Android Tauri
   2026-06-09. → wikilinks.ts rewrite rules, notes.svelte.ts
   `rewriteWikilinksForRename`
-  > **Gap:** the native shells render wikilinks but do not navigate on tap
-  > (the tap just places the cursor; verified Android native 2026-06-09),
-  > have no autocomplete, and do not relink on rename/move — the relink logic
-  > lives in TS (`rewriteWikilinksForRename`), not in the shared Rust crates,
-  > so a rename on a native device silently breaks backlinks vault-wide.
+- The relink rules also live in the shared Rust crate
+  (futo-notes-model `wikilinks::{resolve_wikilink, shortest_unique_suffix,
+  rewrite_wikilinks}` + `relink_note_references`), conformance-locked
+  bit-for-bit against wikilinks.ts (tests/conformance/wikilinks.json). The
+  native shells call `NoteStore.relink(old_id, new_id)` after every rename
+  and move, so a rename on a native device rewrites backlinks vault-wide
+  (verified on emulator + simulator 2026-06-09: bare-leaf and full-path
+  links in other notes rewrote on disk). `[[target|alias]]` links are not
+  rewritten — the TS rules treat the whole inner text as the target, and the
+  Rust port pins that behavior. → futo-notes-model wikilinks.rs,
+  futo-notes-ffi `NoteStore::relink`
 
 ## Interactive elements
 
@@ -109,26 +128,41 @@ edits tags as text in the body, which is not a gap.
   (headings, lists, tasks, quote, code, table, HR); a `+` block handle in the
   margin opens the same menu. → editorUX/slashMenu.ts *(desktop)*
 
-## Markdown toolbar *(Tauri mobile)*
+## Markdown toolbar *(Tauri mobile + native shells)*
 
 - When the editor body is focused, a formatting toolbar docks above the soft
   keyboard: Bold, Italic, Strikethrough, Heading, Quote, Bullet/Ordered/Task
-  list, Indent/Dedent, Camera, Image — horizontally scrollable, with a
-  collapse chevron. It hides when the editor blurs. Verified on Android Tauri
-  2026-06-09. → MarkdownToolbar.svelte
+  list, Indent/Dedent (shown when the cursor is on a list line), Camera,
+  Image — horizontally scrollable, with a collapse chevron. It hides when the
+  editor blurs. Verified on Android Tauri 2026-06-09. → MarkdownToolbar.svelte
+- The native shells get the same toolbar from the shared embed: it reuses the
+  markdownToolbar.ts commands and docks above the keyboard via
+  `visualViewport` (covers iOS overlay keyboards and Android adjustResize
+  with one implementation); the chevron blurs the editor, which drops both
+  the keyboard and the toolbar (verified Android native + iOS simulator
+  2026-06-09). → src/editor-embed/EmbedToolbar.svelte
 - Camera inserts a photo from the device camera or photo library; Image opens
   a file picker. Both save the image into the vault and insert `![](file)`.
-  > **Gap:** the native shells have no markdown toolbar — formatting is
-  > typed by hand.
+  On the native shells the toolbar's Camera/Image buttons post `pickImage`
+  to the host, which presents the native picker (Photo Picker / camera intent
+  on Android; PHPicker on iOS, camera falling back to the library on the
+  simulator), saves the bytes into the vault root under a generated
+  space-free name, and calls `insertImage` back into the embed.
 
-## Images *(Tauri)*
+## Images
 
 - Pasting an image into the editor (desktop) saves it to the notes directory
   and inserts `![](filename)`; supported types follow
   `@futo-notes/shared` `IMAGE_EXTENSIONS`. → imagePaste.ts
-- Images render inline in live preview via the Tauri asset protocol.
-  > **Gap:** the native shells do not render local images in the editor
-  > WebView and have no insert/paste path.
+- Images render inline in live preview via the Tauri asset protocol. *(Tauri)*
+- The native shells render local images inline through a host-registered
+  image base URL (`setImageBaseUrl`): iOS serves the vault root through a
+  `futo-asset://` WKURLSchemeHandler (path-traversal- and image-extension-
+  guarded); Android serves `file://<vault root>/` directly. Insert path is
+  the toolbar Camera/Image flow above; picked images save into the vault and
+  render inline (verified end-to-end on emulator + simulator 2026-06-09).
+  → EditorImages.swift `FutoAssetSchemeHandler`, ImagePicker.kt,
+  liveMarkdownTransform.ts `setLocalImageBaseUrl`
 
 ## Code / fence isolation
 

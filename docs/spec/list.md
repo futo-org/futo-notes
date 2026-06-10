@@ -39,8 +39,12 @@ new-note affordances.
 - The FAB creates an "Untitled" note in the current folder (the vault root when
   "All notes" is selected) and opens it with the title autofocused. →
   NoteListScreen.kt
-  > **Gap:** the Tauri mobile shell focuses the **body**, not the title, for
-  > both "+ New" and Quick capture (observed Android Tauri 2026-06-09).
+- The Tauri mobile shell matches: both "+ New" and Quick capture open the new
+  note with the **title** focused and "Untitled" select-all'd so typing
+  replaces it immediately (desktop keeps body focus; the wikilink-to-missing-
+  note create path keeps body focus everywhere). Verified on Android Tauri
+  2026-06-09. → noteSession.svelte.ts `loadNote('new')`, NotesShell.svelte
+  `focusTitle`
 
 ## Note actions (menu)
 
@@ -59,23 +63,33 @@ new-note affordances.
   but no UI calls it)
 - A note row in the folder tree offers the same Move/Delete via context menu
   (desktop right-click / mobile long-press). → FolderTreeView.svelte
-  > **Gap:** the native Android editor menu has **only** "Delete note" — no
-  > move, no copy-path. iOS native's editor menu is thinner still (Rename
-  > only; share/delete/move live on the list rows). **Both native shells
-  > delete immediately with no confirmation** (verified on emulator + sim
-  > 2026-06-09) — a data-safety divergence from the Tauri confirm dialog.
+- The native editor menus reach parity: **Android** ⋮ offers Move to
+  folder… / Copy file path / Delete note (Share is a dedicated top-bar
+  action); **iOS** ⋯ offers Rename / Move to Folder… / Copy File Path /
+  Share / Delete Note. A move keeps the note open under its new id and
+  relinks backlinks (`NoteStore.relink`). **Every destructive delete on the
+  native shells asks for confirmation** ("Delete this note? This action
+  cannot be undone.") — editor menus, list rows, swipe actions, and search
+  results alike (verified on emulator + simulator 2026-06-09). →
+  NoteEditorScreen.kt, NoteEditorView.swift, ConfirmDialog.kt
 - **iOS native** note rows expose **Move to Folder…** and **Delete** via
   long-press context menu / swipe actions; the move sheet lists Root, every
   folder, and an inline "New Folder…" option, and the move is applied on
   disk immediately (verified 2026-06-09). → NoteListView.swift
-  > **Gap:** Android native has no move UI at all (`store.moveNote()` exists,
-  > nothing calls it).
+- **Android native** note rows expose the same Move to Folder… / Delete via
+  long-press; the move sheet matches iOS (Root, every folder, inline "New
+  Folder…") and applies the move + backlink relink immediately, with a
+  "Moved to {folder}" toast (verified on emulator 2026-06-09). →
+  NoteListScreen.kt, FolderPickerSheet.kt
 - **iOS native** creates notes via a title dialog (prefilled "Untitled",
   Cancel/Create) from a "+" menu offering New Note / New Folder; the editor
   then opens with the **body** focused. Android native opens the editor with
   the title focused instead; the title-dialog flow is iOS-only. →
   NoteListView.swift
-  > **Gap:** Android native has no New Folder affordance.
+- **Android native**'s FAB opens a New note / New folder menu; New folder
+  shows a name dialog that sanitizes via the shared rules and rejects
+  case-insensitive sibling duplicates inline (verified on emulator
+  2026-06-09). → NoteListScreen.kt, NewFolderDialog.kt
 
 ## Sidebar tabs *(Tauri)*
 
@@ -105,19 +119,24 @@ new-note affordances.
   folder → folder, folder → root). A name collision on move resolves with a
   `-2`/`-3` suffix. Hovering a folder while dragging auto-expands it. →
   FolderTreeView.svelte *(desktop)*
-- A folder can be **deleted**, behind a destructive confirmation. The two
-  shipped UIs have **different semantics** today:
-  - **Tauri** (folder context menu → Delete; re-verified in code 2026-06-09 —
-    an earlier Gap note claiming desktop had no folder-delete UI was wrong):
-    non-destructive — contained notes are **moved up to the parent folder**,
-    then the empty folder is removed. Sync sees note moves, not tombstones.
-    If any note fails to move, the delete bails and nothing is removed. →
-    DrawerSidebar.svelte `confirmDeleteFolder`
-  - **iOS native** (swipe-to-delete or long-press "Delete Folder…"):
-    **recursively destroys** the folder and every note/subfolder beneath it,
-    stating the note count; the next push tombstones each removed note. →
-    NoteListView.swift, core `delete_folder` (rejects the vault root and
-    path traversal; a missing folder is a no-op)
-  > **Gap:** the two semantics should converge (move-up vs recursive
-  > destroy is a surprising cross-device difference), and Android native
-  > has no folder-delete UI at all.
+- A folder can be **deleted**, behind a destructive confirmation ("Delete
+  this folder? Notes inside it will be moved to the parent folder."), with
+  **one converged semantic on every surface**: non-destructive move-up —
+  contained notes move to the parent folder (the deleted path segment is
+  removed, deeper structure shifts up; name collisions resolve with the
+  `-2`/`-3` suffix), wikilinks pointing at moved notes are rewritten, and
+  only then is the empty folder removed. Sync sees note moves, not
+  tombstones. If any note fails to move, the delete bails and nothing is
+  removed. (An earlier note here describing an iOS-native recursive-destroy
+  delete was stale — no native folder delete existed in code until this
+  one.) Verified on emulator + simulator 2026-06-09.
+  - **Tauri**: folder context menu → Delete. → DrawerSidebar.svelte
+    `confirmDeleteFolder`
+  - **iOS native**: folder row swipe or long-press "Delete Folder…". →
+    NoteListView.swift
+  - **Android native**: drawer folder row long-press → "Delete folder",
+    with a "Folder deleted; moved N notes" toast. → NoteListScreen.kt
+  - The native shells share the Rust primitive (rejects the vault root and
+    path traversal; a missing folder is a no-op; relinks each moved note).
+    → futo-notes-model `crud::delete_folder_move_up`, futo-notes-ffi
+    `NoteStore::delete_folder`

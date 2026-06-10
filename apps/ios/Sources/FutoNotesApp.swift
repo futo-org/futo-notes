@@ -4,7 +4,20 @@ import SwiftUI
 struct FutoNotesApp: App {
     @StateObject private var store = NotesStore()
     @StateObject private var sync = SyncManager()
+    @ObservedObject private var crash = CrashReporter.shared
     @Environment(\.scenePhase) private var scenePhase
+
+    /// "light" | "dark" | "auto" — set from Settings (futo.themeMode), applied
+    /// app-wide here. The editor WebView follows automatically: NoteEditorView
+    /// derives its pushed theme from @Environment(\.colorScheme), which
+    /// preferredColorScheme overrides.
+    @AppStorage("futo.themeMode") private var themeMode = "auto"
+
+    init() {
+        // Install the crash hooks before ANY other work — a crash during app
+        // init must still be captured for the next launch.
+        CrashReporter.install()
+    }
 
     var body: some Scene {
         WindowGroup {
@@ -12,12 +25,25 @@ struct FutoNotesApp: App {
                 .environmentObject(store)
                 .environmentObject(sync)
                 .tint(Theme.primary)
+                .preferredColorScheme(
+                    themeMode == "light" ? .light : themeMode == "dark" ? .dark : nil)
+                // Crash Report sheet for reports found by the launch scan (only
+                // when reporting is enabled and Always-send is off).
+                .sheet(isPresented: Binding(
+                    get: { !crash.pendingReports.isEmpty },
+                    set: { if !$0 { crash.pendingReports = [] } }
+                )) {
+                    CrashReportSheet(reporter: crash)
+                }
                 // Refresh the note list when a live pull brings in remote
                 // changes (sync + note store are separate objects), then
                 // cold-launch auto-reconnect from the stored password so live
                 // sync resumes after a force-quit without re-entering it.
                 .task {
-                    sync.onLivePull = { store.reload() }
+                    // A live pull rewrote the vault: reload the list AND rescan
+                    // the search index (remote edits bypass the per-mutation
+                    // notify* calls).
+                    sync.onLivePull = { store.liveDataChanged() }
                     // Auto-push local edits: every NotesStore mutation signals
                     // the live loop, which debounces and pushes to peers (no-op
                     // when not connected). Mirrors Android's MainActivity wiring.
@@ -27,6 +53,9 @@ struct FutoNotesApp: App {
                     // cost on the navigation critical path (F11). Mirrors
                     // Android's EditorHost.prewarm in MainActivity.
                     EditorHost.prewarm()
+                    // Crash logs from the previous run — before restoreSession so
+                    // a slow/offline server can't delay the crash dialog.
+                    await crash.processPendingReports()
                     await sync.restoreSession(notesRoot: store.notesRoot.path)
                 }
         }

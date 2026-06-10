@@ -15,10 +15,18 @@ struct NoteListView: View {
     @State private var search = ""
     @State private var navPath: [Route] = []
     @State private var showSync = false
+    @State private var showSettings = false
+    /// Note ids pending the search-results delete confirmation.
+    @State private var searchDeleteIds: [String] = []
+    @State private var showSearchDelete = false
+    /// Rust BM25 results for the current query, or nil while the engine warms /
+    /// the query is blank — then the substring fallback below applies.
+    @State private var engineHits: [NoteItem]?
 
     private var filtered: [NoteItem] {
         let q = search.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !q.isEmpty else { return store.notes }
+        if let engineHits { return engineHits }
         return store.notes.filter { note in
             note.title.lowercased().contains(q)
                 || note.preview.lowercased().contains(q)
@@ -41,7 +49,21 @@ struct NoteListView: View {
             .background(Theme.background)
             .navigationTitle("Notes")
             .searchable(text: $search, prompt: "Search notes")
+            .task(id: search) {
+                // Engine-backed search (Rust BM25, off-main). Re-runs per query
+                // edit; .task(id:) cancels the stale run. Substring stays the
+                // fallback while the index warms; blank queries never hit it.
+                await runEngineSearch()
+            }
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        showSettings = true
+                    } label: {
+                        Image(systemName: "gearshape")
+                    }
+                    .tint(Theme.primary)
+                }
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
                         showSync = true
@@ -56,20 +78,64 @@ struct NoteListView: View {
                     .environmentObject(sync)
                     .environmentObject(store)
             }
+            .sheet(isPresented: $showSettings) {
+                SettingsView()
+                    .environmentObject(sync)
+                    .environmentObject(store)
+            }
+            .confirmationDialog(
+                "Delete this note? This action cannot be undone.",
+                isPresented: $showSearchDelete, titleVisibility: .visible
+            ) {
+                Button("Delete Note", role: .destructive) {
+                    for id in searchDeleteIds { store.delete(id) }
+                    searchDeleteIds = []
+                }
+                Button("Cancel", role: .cancel) { searchDeleteIds = [] }
+            }
             .navigationDestination(for: Route.self) { route in
                 switch route {
                 case .folder(let path):
                     FolderContentsView(folder: path, navPath: $navPath)
                         .environmentObject(store)
                 case .note(let id):
-                    NoteEditorView(noteId: id, autoFocus: false)
+                    // .id(id): a wikilink tap REPLACES the top path entry in
+                    // place (openLinkedNote), and without an explicit identity
+                    // SwiftUI reuses the destination view — @State (title,
+                    // content, loaded) would survive from the previous note.
+                    NoteEditorView(noteId: id, autoFocus: false, navPath: $navPath)
                         .environmentObject(store)
+                        .id(id)
                 case .newNote(let id):
-                    NoteEditorView(noteId: id, autoFocus: true)
+                    NoteEditorView(noteId: id, autoFocus: true, navPath: $navPath)
                         .environmentObject(store)
+                        .id(id)
                 }
             }
         }
+    }
+
+    /// Query the Rust engine when it's warm; otherwise leave `engineHits` nil so
+    /// `filtered` falls back to the in-memory substring scan.
+    private func runEngineSearch() async {
+        let q = search.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty else {
+            engineHits = nil
+            return
+        }
+        guard await store.search.keywordReady() else {
+            engineHits = nil
+            return
+        }
+        let hits = await store.search.query(q, limit: 50)
+        // Map hits back to live NoteItems; drop ids the store doesn't know
+        // (stale index entries disappear instead of rendering ghosts).
+        let byId = Dictionary(store.notes.map { ($0.id, $0) }) { first, _ in first }
+        let items = hits.compactMap { byId[$0.noteId] }
+        // The query may have moved on while we were off-main — don't show stale
+        // hits (.task(id:) cancellation usually catches this; belt-and-braces).
+        guard q == search.trimmingCharacters(in: .whitespacesAndNewlines) else { return }
+        engineHits = items
     }
 
     private var searchResults: some View {
@@ -100,8 +166,9 @@ struct NoteListView: View {
     }
 
     private func deleteSearchRows(_ offsets: IndexSet) {
-        let ids = offsets.map { filtered[$0].id }
-        for id in ids { store.delete(id) }
+        // Destructive: stash the ids and confirm before deleting (list.md).
+        searchDeleteIds = offsets.map { filtered[$0].id }
+        showSearchDelete = true
     }
 }
 
@@ -120,6 +187,10 @@ struct FolderContentsView: View {
 
     /// Note being moved (drives the move sheet).
     @State private var moveTarget: NoteItem?
+    /// Note pending the delete confirmation (swipe / context menu).
+    @State private var deleteTarget: NoteItem?
+    /// Subfolder pending the delete-folder confirmation.
+    @State private var folderDeleteTarget: String?
 
     private var subfolders: [String] { store.subfolders(of: folder) }
     private var notes: [NoteItem] { store.notes(in: folder) }
@@ -179,6 +250,32 @@ struct FolderContentsView: View {
             MoveToFolderSheet(note: note, currentFolder: folder)
                 .environmentObject(store)
         }
+        .confirmationDialog(
+            "Delete this note? This action cannot be undone.",
+            isPresented: Binding(
+                get: { deleteTarget != nil },
+                set: { if !$0 { deleteTarget = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button("Delete Note", role: .destructive) {
+                if let note = deleteTarget { store.delete(note.id) }
+                deleteTarget = nil
+            }
+            Button("Cancel", role: .cancel) { deleteTarget = nil }
+        }
+        .confirmationDialog(
+            "Delete this folder? Notes inside it will be moved to the parent folder.",
+            isPresented: Binding(
+                get: { folderDeleteTarget != nil },
+                set: { if !$0 { folderDeleteTarget = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button("Delete Folder", role: .destructive) {
+                if let target = folderDeleteTarget { store.deleteFolder(target) }
+                folderDeleteTarget = nil
+            }
+            Button("Cancel", role: .cancel) { folderDeleteTarget = nil }
+        }
     }
 
     private var list: some View {
@@ -196,6 +293,22 @@ struct FolderContentsView: View {
                             }
                         }
                         .listRowBackground(Theme.surface)
+                        // allowsFullSwipe off: a destructive full swipe animates
+                        // the row away even though we only show a confirmation.
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            Button(role: .destructive) {
+                                folderDeleteTarget = child
+                            } label: {
+                                Label("Delete Folder…", systemImage: "trash")
+                            }
+                        }
+                        .contextMenu {
+                            Button(role: .destructive) {
+                                folderDeleteTarget = child
+                            } label: {
+                                Label("Delete Folder…", systemImage: "trash")
+                            }
+                        }
                     }
                 }
             }
@@ -206,9 +319,10 @@ struct FolderContentsView: View {
                             NoteRow(note: note, showFolder: false)
                         }
                         .listRowBackground(Theme.surface)
-                        .swipeActions(edge: .trailing) {
+                        // allowsFullSwipe off — see the folder rows above.
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             Button(role: .destructive) {
-                                store.delete(note.id)
+                                deleteTarget = note
                             } label: {
                                 Label("Delete", systemImage: "trash")
                             }
@@ -226,7 +340,7 @@ struct FolderContentsView: View {
                                 Label("Move to Folder…", systemImage: "folder")
                             }
                             Button(role: .destructive) {
-                                store.delete(note.id)
+                                deleteTarget = note
                             } label: {
                                 Label("Delete", systemImage: "trash")
                             }
@@ -279,6 +393,9 @@ struct MoveToFolderSheet: View {
     /// Folder currently being browsed — used as the parent for a brand-new
     /// folder created from this sheet.
     let currentFolder: String
+    /// Invoked with the note's FINAL id once the move lands (a move changes the
+    /// id). The open editor uses this to keep the note open under its new id.
+    var onMoved: ((String) -> Void)? = nil
 
     @State private var showingNewFolder = false
     @State private var newFolderName = ""
@@ -351,7 +468,10 @@ struct MoveToFolderSheet: View {
     }
 
     private func move(to folder: String) {
-        Task { await store.moveNote(note.id, toFolder: folder) }
+        Task {
+            let finalId = await store.moveNote(note.id, toFolder: folder)
+            onMoved?(finalId)
+        }
         dismiss()
     }
 
@@ -363,7 +483,8 @@ struct MoveToFolderSheet: View {
         // exists before the move. createFolder is fire-and-forget (Task-wrapped
         // internally); the move must observe its result, so chain explicitly.
         Task {
-            _ = await store.moveNoteCreatingFolder(note.id, folder: dest)
+            let finalId = await store.moveNoteCreatingFolder(note.id, folder: dest)
+            onMoved?(finalId)
         }
         dismiss()
     }

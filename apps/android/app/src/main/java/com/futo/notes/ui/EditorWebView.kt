@@ -22,9 +22,11 @@ import org.json.JSONObject
  * into assets) and speaks the identical `futoBridge` contract:
  *
  *   - editor → host: messages posted to `window.futoBridge.postMessage(json)`
- *     (the injected `@JavascriptInterface`) — `ready` / `change` / `focus`.
- *   - host → editor: `window.FutoEditor.setContent/getContent/focus/setTheme`
- *     via `evaluateJavascript`.
+ *     (the injected `@JavascriptInterface`) — `ready` / `change` / `focus` /
+ *     `openNote` / `pickImage` (bridge v2).
+ *   - host → editor: `window.FutoEditor.setContent/getContent/focus/setTheme/
+ *     setNotes/applyExternalContent/insertImage/setImageBaseUrl` via
+ *     `evaluateJavascript`.
  *
  * The WebView is NOT created per note-open. A cold WebView boot (Chromium
  * renderer start + parse/exec of the ~2 MB editor bundle + CodeMirror mount)
@@ -45,23 +47,29 @@ fun EditorWebView(
     autoFocus: Boolean,
     onChange: (String) -> Unit,
     modifier: Modifier = Modifier,
+    notesJson: String? = null,
+    imageBaseUrl: String? = null,
+    onOpenNote: (String) -> Unit = {},
+    onPickImage: (String) -> Unit = {},
     onReady: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val host = remember { EditorHost.get(context) }
 
-    // Push the latest content/theme on every (re)composition. Both are
-    // deduped + ready-gated inside the host, so this is cheap and won't
+    // Push the latest content/theme/notes/image-base on every (re)composition.
+    // All are deduped + ready-gated inside the host, so this is cheap and won't
     // re-push our own change echoes (the editor swallows setContent echoes).
     host.setTheme(theme)
     host.setContent(content)
+    if (notesJson != null) host.setNotes(notesJson)
+    if (imageBaseUrl != null) host.setImageBaseUrl(imageBaseUrl)
 
     // Bind this note's callbacks for the lifetime of this composition. The
     // generation token guards against a future nav change attaching a new
     // note before this one's onDispose runs (it would otherwise clobber the
     // newer binding).
     DisposableEffect(Unit) {
-        val token = host.attach(autoFocus, onChange, onReady)
+        val token = host.attach(autoFocus, onChange, onReady, onOpenNote, onPickImage)
         onDispose { host.detach(token) }
     }
 
@@ -89,6 +97,8 @@ fun EditorWebView(
 class EditorHost private constructor(appContext: Context) {
     private var onChange: (String) -> Unit = {}
     private var onReady: () -> Unit = {}
+    private var onOpenNote: (String) -> Unit = {}
+    private var onPickImage: (String) -> Unit = {}
     private var autoFocus = false
 
     private var isReady = false
@@ -96,6 +106,12 @@ class EditorHost private constructor(appContext: Context) {
     private var lastPushedContent: String? = null
     private var desiredTheme: String = "light"
     private var desiredContent: String = ""
+    // Note universe + image base (bridge v2). The notes JSON can be large, so
+    // dedupe holds only its hash, not the string.
+    private var desiredNotesJson: String? = null
+    private var lastNotesJsonHash: Int? = null
+    private var desiredImageBaseUrl: String? = null
+    private var currentImageBaseUrl: String? = null
 
     // Incremented per attach; detach only clears if its token is still current.
     private var generation = 0
@@ -114,6 +130,9 @@ class EditorHost private constructor(appContext: Context) {
     val webView: WebView = WebView(appContext).apply {
         settings.javaScriptEnabled = true
         settings.domStorageEnabled = true
+        // Required twice over: editor.html itself is a file:// asset, and local
+        // note images render from file://<notesRoot>/ (setImageBaseUrl). Do not
+        // remove [editor.md:121].
         settings.allowFileAccess = true
         setBackgroundColor(android.graphics.Color.TRANSPARENT)
         WebView.setWebContentsDebuggingEnabled(true)
@@ -128,6 +147,8 @@ class EditorHost private constructor(appContext: Context) {
                 isReady = true
                 pushTheme(desiredTheme)
                 pushContent(desiredContent)
+                desiredImageBaseUrl?.let { pushImageBaseUrl(it) }
+                desiredNotesJson?.let { pushNotes(it) }
                 onReady()
                 if (autoFocus) focusEditor()
             }
@@ -137,15 +158,29 @@ class EditorHost private constructor(appContext: Context) {
                 onChange(c)
             }
             "focus" -> { /* keyboard handled natively by adjustResize */ }
+            // User tapped a RESOLVED wikilink — id is the target note's id
+            // (vault-relative path sans .md) [editor.md:77].
+            "openNote" -> onOpenNote(msg.optString("id"))
+            // User tapped a toolbar image button; the host runs the native
+            // picker and calls back via insertImage [editor.md:121].
+            "pickImage" -> onPickImage(msg.optString("source"))
         }
     }
 
     /** Bind a note's callbacks. Returns a token for the matching [detach].
      *  If the editor is already warm, fires [onReady] (and focuses) now so the
      *  "ready for this note" contract holds for reused opens too. */
-    fun attach(autoFocus: Boolean, onChange: (String) -> Unit, onReady: () -> Unit): Int {
+    fun attach(
+        autoFocus: Boolean,
+        onChange: (String) -> Unit,
+        onReady: () -> Unit,
+        onOpenNote: (String) -> Unit = {},
+        onPickImage: (String) -> Unit = {},
+    ): Int {
         this.onChange = onChange
         this.onReady = onReady
+        this.onOpenNote = onOpenNote
+        this.onPickImage = onPickImage
         this.autoFocus = autoFocus
         if (isReady) {
             onReady()
@@ -159,6 +194,8 @@ class EditorHost private constructor(appContext: Context) {
         if (token != generation) return
         onChange = {}
         onReady = {}
+        onOpenNote = {}
+        onPickImage = {}
         autoFocus = false
     }
 
@@ -172,6 +209,35 @@ class EditorHost private constructor(appContext: Context) {
         if (isReady && theme != currentTheme) pushTheme(theme)
     }
 
+    /** Feed the note universe (wikilink resolution/autocomplete) — a JSON
+     *  Array<{id,title,modifiedMs,tags?}> string [editor.md:77]. */
+    fun setNotes(notesJson: String) {
+        desiredNotesJson = notesJson
+        if (isReady) pushNotes(notesJson)
+    }
+
+    /** Register the base URL local `![](f)` images resolve against —
+     *  Android passes `file://<notesRoot>/` [editor.md:121]. */
+    fun setImageBaseUrl(base: String) {
+        desiredImageBaseUrl = base
+        if (isReady && base != currentImageBaseUrl) pushImageBaseUrl(base)
+    }
+
+    /** Adopt a remote sync update of the open note: selection/scroll-
+     *  preserving, history-suppressed (contrast [setContent]) [sync.md:239].
+     *  Updates the dedupe state so the adopted text isn't re-pushed. */
+    fun applyExternalContent(markdown: String) {
+        desiredContent = markdown
+        lastPushedContent = markdown
+        eval("window.FutoEditor && window.FutoEditor.applyExternalContent(${JSONObject.quote(markdown)});")
+    }
+
+    /** Insert `![](filename)` at the cursor — called after a pickImage
+     *  round-trip saves the image into the vault root. */
+    fun insertImage(filename: String) {
+        eval("window.FutoEditor && window.FutoEditor.insertImage(${JSONObject.quote(filename)});")
+    }
+
     private fun pushContent(content: String) {
         lastPushedContent = content
         eval("window.FutoEditor && window.FutoEditor.setContent(${JSONObject.quote(content)});")
@@ -180,6 +246,18 @@ class EditorHost private constructor(appContext: Context) {
     private fun pushTheme(theme: String) {
         currentTheme = theme
         eval("window.FutoEditor && window.FutoEditor.setTheme(${JSONObject.quote(theme)});")
+    }
+
+    private fun pushNotes(notesJson: String) {
+        val hash = notesJson.hashCode()
+        if (hash == lastNotesJsonHash) return
+        lastNotesJsonHash = hash
+        eval("window.FutoEditor && window.FutoEditor.setNotes(${JSONObject.quote(notesJson)});")
+    }
+
+    private fun pushImageBaseUrl(base: String) {
+        currentImageBaseUrl = base
+        eval("window.FutoEditor && window.FutoEditor.setImageBaseUrl(${JSONObject.quote(base)});")
     }
 
     private fun focusEditor() = eval("window.FutoEditor && window.FutoEditor.focus();")

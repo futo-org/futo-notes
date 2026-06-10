@@ -19,11 +19,15 @@ import os
 /// two editors at once (List/Search ↔ Editor only), so exactly one note binds
 /// the shared WebView at a time.
 ///
-/// The page exposes `window.FutoEditor` (setContent/getContent/focus/setTheme)
-/// and posts messages to the native handler named exactly "futoBridge":
+/// The page exposes `window.FutoEditor` (setContent/getContent/focus/setTheme
+/// plus the v2 additions setNotes/applyExternalContent/insertImage/
+/// setImageBaseUrl) and posts messages to the native handler named exactly
+/// "futoBridge":
 ///   { type: 'ready' }
 ///   { type: 'change', content: <markdown> }
 ///   { type: 'focus', focused: <bool> }
+///   { type: 'openNote', id: <resolved note id> }
+///   { type: 'pickImage', source: 'camera' | 'library' }
 struct EditorWebView: UIViewRepresentable {
     /// Markdown to push into the editor once it is ready.
     let content: String
@@ -35,6 +39,9 @@ struct EditorWebView: UIViewRepresentable {
     let onChange: (String) -> Void
     /// Called once when the editor signals 'ready'.
     var onReady: (() -> Void)? = nil
+    /// Called when the user taps a RESOLVED wikilink (bridge 'openNote');
+    /// receives the resolved note id (path sans .md).
+    var onOpenNote: ((String) -> Void)? = nil
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -46,7 +53,8 @@ struct EditorWebView: UIViewRepresentable {
         // view. A generation token guards against a future nav change attaching a
         // new note before this view's dismantle runs.
         context.coordinator.token = host.attach(
-            autoFocus: autoFocus, onChange: onChange, onReady: onReady)
+            autoFocus: autoFocus, onChange: onChange, onReady: onReady,
+            onOpenNote: onOpenNote)
         // Detach the shared WebView from any previous holder, then adopt it.
         host.webView.removeFromSuperview()
         return host.webView
@@ -83,6 +91,7 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
 
     private var onChange: (String) -> Void = { _ in }
     private var onReady: (() -> Void)? = nil
+    private var onOpenNote: ((String) -> Void)? = nil
     private var autoFocus = false
 
     private var isReady = false
@@ -91,6 +100,10 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     private var desiredContent = ""
     /// The last content we pushed in, so we don't re-push our own echoes.
     private var lastPushedContent: String?
+    /// The note universe JSON (setNotes) to (re)push when ready. The JSON string
+    /// doubles as the dedupe signature — identical pushes are skipped.
+    private var desiredNotesJson: String?
+    private var lastPushedNotesJson: String?
 
     /// Incremented per attach; detach only clears if its token is still current.
     private var generation = 0
@@ -105,6 +118,12 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         let controller = WKUserContentController()
         let config = WKWebViewConfiguration()
         config.userContentController = controller
+        // Local images: ![](photo.png) resolves through the custom futo-asset
+        // scheme, served from the vault root (path-traversal- and image-
+        // extension-guarded — see FutoAssetSchemeHandler). Must be registered
+        // BEFORE the WKWebView is created.
+        config.setURLSchemeHandler(
+            FutoAssetSchemeHandler(), forURLScheme: FutoAssetSchemeHandler.scheme)
 
         let wv = WKWebView(frame: .zero, configuration: config)
         wv.isOpaque = false
@@ -158,10 +177,12 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     func attach(
         autoFocus: Bool,
         onChange: @escaping (String) -> Void,
-        onReady: (() -> Void)?
+        onReady: (() -> Void)?,
+        onOpenNote: ((String) -> Void)? = nil
     ) -> Int {
         self.onChange = onChange
         self.onReady = onReady
+        self.onOpenNote = onOpenNote
         self.autoFocus = autoFocus
         // A reused (already-ready) WebView still holds the PREVIOUS note's text;
         // force a fresh push by clearing the dedup marker so the new note's
@@ -182,6 +203,7 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         guard token == generation else { return }
         onChange = { _ in }
         onReady = nil
+        onOpenNote = nil
         autoFocus = false
     }
 
@@ -191,6 +213,36 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         guard isReady else { return }
         if theme != currentTheme { pushTheme(theme) }
         if content != lastPushedContent { pushContent(content) }
+    }
+
+    /// Host → editor: the note universe ([{id,title,modifiedMs,tags}] JSON) for
+    /// suffix-resolution, wikilink autocomplete, and decoration refresh. Deduped
+    /// on the JSON string so repeated `$notes` publishes don't spam
+    /// evaluateJavaScript; the page persists across note-opens, so the universe
+    /// only needs re-pushing when it actually changes (or after a fresh ready).
+    func setNotes(_ json: String) {
+        desiredNotesJson = json
+        guard isReady, json != lastPushedNotesJson else { return }
+        pushNotes(json)
+    }
+
+    /// Selection/scroll-preserving, history-suppressed adopt of an external
+    /// (remote-sync) update of the OPEN note. Sets the dedupe marker FIRST so
+    /// the SwiftUI state change that follows (updateDesired with the same
+    /// content) is a no-op instead of a caret-resetting setContent.
+    func applyExternal(content: String) {
+        desiredContent = content
+        guard isReady else { return }
+        lastPushedContent = content
+        let js = "window.FutoEditor && window.FutoEditor.applyExternalContent(\(jsLiteral(content)));"
+        webView.evaluateJavaScript(js, completionHandler: nil)
+    }
+
+    /// Host → editor: insert `![](filename)\n` at the cursor. Called after a
+    /// picked image has been saved into the vault root.
+    func insertImage(_ filename: String) {
+        let js = "window.FutoEditor && window.FutoEditor.insertImage(\(jsLiteral(filename)));"
+        webView.evaluateJavaScript(js, completionHandler: nil)
     }
 
     // MARK: WKScriptMessageHandler
@@ -206,7 +258,11 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         case "ready":
             isReady = true
             pushTheme(desiredTheme)
+            // Local image filenames in ![](f) resolve through the native
+            // futo-asset scheme (served from the vault root).
+            pushImageBaseUrl()
             pushContent(desiredContent)
+            if let json = desiredNotesJson { pushNotes(json) }
             onReady?()
             if autoFocus { startAutoFocus() }
         case "change":
@@ -220,8 +276,31 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             if (body["focused"] as? Bool) == true {
                 webView.futo_removeInputAccessoryView()
             }
+        case "openNote":
+            // User tapped a RESOLVED wikilink — the bound note view navigates.
+            if let id = body["id"] as? String {
+                onOpenNote?(id)
+            }
+        case "pickImage":
+            // Toolbar image button: open the native picker, save the bytes into
+            // the vault root, then hand the filename back via insertImage.
+            presentImagePicker(source: (body["source"] as? String) ?? "library")
         default:
             break
+        }
+    }
+
+    /// Bridge 'pickImage': camera or library picker (camera falls back to the
+    /// library on devices/simulators without one), save into the vault root
+    /// honoring the shared image-extension rules, then insertImage(filename).
+    private func presentImagePicker(source: String) {
+        ImagePicker.present(source: source) { [weak self] data, ext in
+            guard let self, let data else { return }
+            Task { @MainActor in
+                guard let filename = await VaultImages.save(
+                    data: data, preferredExtension: ext) else { return }
+                self.insertImage(filename)
+            }
         }
     }
 
@@ -266,6 +345,17 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     private func pushTheme(_ theme: String) {
         currentTheme = theme
         let js = "window.FutoEditor && window.FutoEditor.setTheme(\(jsLiteral(theme)));"
+        webView.evaluateJavaScript(js, completionHandler: nil)
+    }
+
+    private func pushNotes(_ json: String) {
+        lastPushedNotesJson = json
+        let js = "window.FutoEditor && window.FutoEditor.setNotes(\(jsLiteral(json)));"
+        webView.evaluateJavaScript(js, completionHandler: nil)
+    }
+
+    private func pushImageBaseUrl() {
+        let js = "window.FutoEditor && window.FutoEditor.setImageBaseUrl(\(jsLiteral("futo-asset:///")));"
         webView.evaluateJavaScript(js, completionHandler: nil)
     }
 }

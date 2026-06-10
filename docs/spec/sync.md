@@ -88,14 +88,18 @@ client uploads opaque encrypted blobs — note content is encrypted before uploa
     Fire-and-forget and a no-op when not connected. → `NotesStore.onLocalChange`
     (wired in iOS `FutoNotesApp` / Android `MainActivity`), `SyncClient::note_changed`,
     futo-notes-sync `live::watch` (debounced push branch)
-> **Gap:** The native session (auth token + vault key) is held in memory only.
-> On **iOS** the password is persisted in the Keychain
-> (`kSecAttrAccessibleWhenUnlocked`) and the app auto-reconnects on a cold launch
-> (`SyncManager.restoreSession`), so live sync survives a force-quit — at the cost
-> of storing the password on-device (device compromise → password → vault key).
-> It is cleared on explicit disconnect. On **Android** the session is still
-> in-memory only, so process death / Activity recreation drops it and the user
-> must reconnect; a normal background→foreground resume keeps it.
+- The native session (auth token + vault key) is in-memory, but **both native
+  shells persist the sync password securely and auto-reconnect on a cold
+  launch** (`SyncManager.restoreSession` on both), so live sync survives a
+  force-quit / process death: iOS stores it in the Keychain
+  (`kSecAttrAccessibleWhenUnlocked`); Android encrypts it with an Android
+  Keystore AES-GCM key (alias `futo.sync`, ciphertext in SharedPreferences).
+  The tradeoff is shared and deliberate: storing the password on-device means
+  device compromise → password → vault key. The stored password is cleared
+  on explicit disconnect (after which a relaunch stays local) and by Full
+  reset. Verified on the emulator 2026-06-09: connect → `am force-stop` →
+  relaunch reconnects silently (SYNCED); disconnect → relaunch stays LOCAL.
+  → Keychain.swift *(iOS)*, SecureStore.kt *(Android)*
 
 ## Conflict & data safety
 
@@ -236,8 +240,21 @@ client uploads opaque encrypted blobs — note content is encrypted before uploa
   never be clobbered by the adopt. → noteSession `isEditorChangeEcho`,
   syncManager `handleSyncComplete`
 
-> **Gap:** the native clean-adopt resets the editor caret (the embed's
-> `FutoEditor.setContent` does a full replacement). The desktop's
-> `applyExternalContent` preserves the selection and parks dirty drafts as
-> conflict copies; the native shells adopt-when-clean / keep-draft-when-dirty
-> without selection preservation or conflict-copy minting.
+- The native clean-adopt **preserves the caret/selection and scroll**: the
+  shells push remote content through the embed's `applyExternalContent`
+  (bridge v2), which applies a minimal diff with history suppressed — the
+  same editorContentSync path as the desktop's `applyExternalContent` —
+  instead of the full-replacement `setContent`. Works for consecutive remote
+  edits. Verified cross-device (simulator ↔ emulator) 2026-06-09: with the
+  caret parked mid-document, a peer edit appeared in the open editor and the
+  selection/caret held on both platforms. → packages/editor bridge v2,
+  NoteEditorScreen.kt / NoteEditorView.swift
+- A **dirty draft against a real remote change** (draft still inside the
+  save debounce when the pull rewrites the file) is parked, not kept: the
+  pending save is cancelled, the draft is written to a
+  `<title> (conflict YYYY-MM-DD)` copy (uniqued like every create), the
+  remote content is adopted into the editor, and a "Conflicting edits saved
+  to a copy" toast fires. A draft that already reached disk is covered by
+  the push-first 409 machinery above instead. Verified on the emulator
+  2026-06-09 (held-dirty draft + peer edit → copy contained the draft,
+  editor showed the remote). → NoteEditorScreen.kt / NoteEditorView.swift

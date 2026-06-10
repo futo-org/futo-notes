@@ -1,14 +1,17 @@
 package com.futo.notes.ui
 
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -22,6 +25,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.NorthEast
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -31,10 +35,18 @@ import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -44,11 +56,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.futo.notes.BuildConfig
 import com.futo.notes.NotesStore
+import com.futo.notes.Prefs
 import com.futo.notes.SyncManager
 import com.futo.notes.ui.components.MicroLabel
 import com.futo.notes.ui.theme.FutoRadius
 import com.futo.notes.ui.theme.FutoTheme
 import com.futo.notes.ui.theme.FutoType
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 enum class ThemeMode { LIGHT, DARK, AUTO }
 
@@ -66,6 +81,22 @@ fun SettingsScreen(
 ) {
     val c = FutoTheme.colors
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    // Same prefs file the Activity already loaded — getSharedPreferences is a
+    // cached lookup by now, no disk hit.
+    val prefs = remember { context.getSharedPreferences(Prefs.FILE, Context.MODE_PRIVATE) }
+    var crashEnabled by remember { mutableStateOf(prefs.getBoolean(Prefs.CRASH_ENABLED, true)) }
+    var crashAlwaysSend by remember { mutableStateOf(prefs.getBoolean(Prefs.CRASH_ALWAYS_SEND, false)) }
+    var resetArmed by remember { mutableStateOf(false) }
+    var resetting by remember { mutableStateOf(false) }
+
+    // Two-tap full reset [settings.md:43]: disarm automatically if the user
+    // walks away after the first tap.
+    LaunchedEffect(resetArmed) {
+        if (resetArmed) { delay(5000); resetArmed = false }
+    }
+
+    Box {
     Scaffold(
         containerColor = c.surface,
         topBar = {
@@ -119,6 +150,39 @@ fun SettingsScreen(
                 )
             }
 
+            // Crash reporting [settings.md:43]. Reports never leave the device
+            // without the toggle being on (and either a per-crash OK or the
+            // always-send opt-in).
+            SettingsGroup("Crash reporting") {
+                SettingsRow(title = "Share crash reports", subtitle = "Reports are saved locally first") {
+                    Switch(
+                        checked = crashEnabled,
+                        onCheckedChange = {
+                            crashEnabled = it
+                            prefs.edit().putBoolean(Prefs.CRASH_ENABLED, it).apply()
+                        },
+                        colors = SwitchDefaults.colors(checkedTrackColor = c.accent),
+                    )
+                }
+                if (crashEnabled) {
+                    Divider()
+                    SettingsRow(title = "Always send automatically", subtitle = "Skip the crash dialog") {
+                        Switch(
+                            checked = crashAlwaysSend,
+                            onCheckedChange = {
+                                crashAlwaysSend = it
+                                prefs.edit().putBoolean(Prefs.CRASH_ALWAYS_SEND, it).apply()
+                            },
+                            colors = SwitchDefaults.colors(checkedTrackColor = c.accent),
+                        )
+                    }
+                }
+            }
+
+            SettingsGroup("Storage") {
+                SettingsRow(title = "Notes directory", subtitle = store.rootPath)
+            }
+
             SettingsGroup("About") {
                 SettingsRow(
                     title = "Open source",
@@ -135,8 +199,71 @@ fun SettingsScreen(
                     )
                 }
             }
+
+            SettingsGroup("Danger zone") {
+                SettingsRow(
+                    title = if (resetArmed) "Tap again to confirm" else "Full reset",
+                    subtitle = if (resetArmed) "This cannot be undone!" else "Delete every note, folder, and crash log",
+                    titleColor = c.danger,
+                    onClick = {
+                        if (!resetArmed) {
+                            resetArmed = true
+                        } else {
+                            resetArmed = false
+                            resetting = true
+                            scope.launch {
+                                // Pause live sync + auto-push so the wipe can't
+                                // race a push, wipe the vault, then drop the
+                                // session (also clears the stored password)
+                                // [settings.md:43]. Parity model: desktop
+                                // deleteAllNotes (src/lib/notes.svelte.ts).
+                                sync.pauseLive()
+                                store.suppressAutoPush = true
+                                try {
+                                    store.deleteAll()
+                                    sync.disconnect()
+                                } finally {
+                                    store.suppressAutoPush = false
+                                    resetting = false
+                                }
+                            }
+                        }
+                    },
+                )
+            }
+
+            if (BuildConfig.DEBUG) {
+                SettingsGroup("Debug") {
+                    SettingsRow(
+                        title = "Test crash",
+                        subtitle = "Throws RuntimeException to exercise the crash pipeline",
+                        titleColor = c.danger,
+                        onClick = { throw RuntimeException("Test crash from Settings (debug)") },
+                    )
+                }
+            }
             Spacer(Modifier.height(32.dp))
         }
+    }
+
+    if (resetting) {
+        // Blocking overlay — swallow every tap while the vault is wiped.
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(c.surfaceInverse.copy(alpha = 0.45f))
+                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {},
+            contentAlignment = Alignment.Center,
+        ) {
+            Surface(color = c.surface, shape = RoundedCornerShape(FutoRadius.md)) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(20.dp)) {
+                    CircularProgressIndicator(color = c.accent, strokeWidth = 2.5.dp, modifier = Modifier.size(22.dp))
+                    Spacer(Modifier.width(14.dp))
+                    Text("Deleting all notes…", style = FutoType.body, color = c.textPrimary)
+                }
+            }
+        }
+    }
     }
 }
 
@@ -194,6 +321,7 @@ private fun SettingsRow(
     title: String,
     subtitle: String? = null,
     onClick: (() -> Unit)? = null,
+    titleColor: Color? = null,
     trailing: @Composable (() -> Unit)? = null,
 ) {
     val c = FutoTheme.colors
@@ -205,7 +333,7 @@ private fun SettingsRow(
             .padding(horizontal = 16.dp, vertical = 14.dp),
     ) {
         Column(Modifier.weight(1f)) {
-            Text(title, style = FutoType.body, color = c.textPrimary)
+            Text(title, style = FutoType.body, color = titleColor ?: c.textPrimary)
             if (subtitle != null) Text(subtitle, style = FutoType.caption, color = c.textMuted)
         }
         if (trailing != null) {

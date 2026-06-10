@@ -12,6 +12,12 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
+# Rust's aarch64-apple-ios target defaults to a 10.0 minimum, but C objects
+# built by cc-rs deps (zstd-sys via tantivy in futo-notes-search) reference
+# ___chkstk_darwin, which the 10.0 libSystem stubs lack. Pin the deployment
+# target to match the app's floor so device links succeed.
+export IPHONEOS_DEPLOYMENT_TARGET="${IPHONEOS_DEPLOYMENT_TARGET:-14.0}"
+
 APP="apps/ios"
 GEN="$APP/Sources/Generated"
 XCF="$APP/FutoNotesFfi.xcframework"

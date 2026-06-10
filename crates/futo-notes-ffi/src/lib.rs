@@ -11,9 +11,10 @@
 //! methods are marshalled onto a tokio runtime. No build.rs / .udl required.
 
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use futo_notes_model as model;
+use futo_notes_search as engine;
 use futo_notes_sync as sync;
 use futo_notes_sync::{
     live::{LiveHandle, LiveFuture, SyncSessionListener},
@@ -142,6 +143,25 @@ impl NoteStore {
     pub fn create_folder(&self, path: String) -> Result<String, NoteError> {
         model::create_folder(&self.root, &path).map_err(NoteError::Io)
     }
+
+    /// Rewrite every wikilink vault-wide that resolves to `old_id` so it
+    /// points at `new_id` — the relink pass the shell runs after a rename or
+    /// move (the desktop `rewriteWikilinksForRename` equivalent). Returns the
+    /// count of notes rewritten.
+    pub fn relink(&self, old_id: String, new_id: String) -> Result<u32, NoteError> {
+        model::relink_note_references(&self.root, &old_id, &new_id).map_err(NoteError::Io)
+    }
+
+    /// Delete a folder with move-up semantics (Tauri parity): every note
+    /// under `folder/` moves to the parent with the deleted segment removed
+    /// (deeper structure preserved, collisions `-2`-suffixed), wikilinks to
+    /// each moved note are rewritten, then the note-empty folder tree is
+    /// removed. If ANY move fails, nothing is deleted and an error is
+    /// returned (already-moved notes stay moved). A missing folder is a
+    /// no-op `Ok(0)`. Returns the moved-note count.
+    pub fn delete_folder(&self, folder: String) -> Result<u32, NoteError> {
+        model::delete_folder_move_up(&self.root, &folder).map_err(NoteError::Io)
+    }
 }
 
 // ── Deterministic rule helpers (free functions) ─────────────────────────
@@ -182,6 +202,120 @@ pub fn make_preview(content: String) -> String {
 #[uniffi::export]
 pub fn extract_wikilinks(content: String) -> Vec<String> {
     model::extract_wikilinks(&content)
+}
+
+// ════════════════════════════════════════════════════════════════════════
+//  Search (keyword/BM25 — the SPLADE/semantic half is compiled out here)
+// ════════════════════════════════════════════════════════════════════════
+
+/// A ranked search hit. `source` is always `"bm25"` through this facade —
+/// the native builds compile `futo-notes-search` without the `semantic`
+/// feature, so there is no SPLADE model and no hybrid fusion.
+#[derive(uniffi::Record)]
+pub struct SearchHit {
+    pub note_id: String,
+    pub score: f64,
+    /// "bm25" (keyword-only build).
+    pub source: String,
+}
+
+#[derive(Debug, uniffi::Error, thiserror::Error)]
+pub enum SearchError {
+    #[error("{0}")]
+    Engine(String),
+}
+
+/// The on-device full-text search engine (Tantivy BM25). Constructing it
+/// opens/creates the index and spawns the background indexer, which
+/// reconciles the vault against the index and then services the `notify_*`
+/// change stream. Queries are synchronous Tantivy reads — call them off the
+/// UI thread (Dispatchers.IO / a background DispatchQueue); they typically
+/// take single-digit milliseconds but must never sit on the main thread.
+#[derive(uniffi::Object)]
+pub struct SearchEngine {
+    inner: engine::SearchEngine,
+    /// Latest status snapshot, written by the engine's observer callback
+    /// (invoked from the indexer's background threads).
+    status: Arc<Mutex<engine::SearchStatus>>,
+}
+
+#[uniffi::export]
+impl SearchEngine {
+    /// Open (or create) the search index at `index_dir` — keep it OUTSIDE the
+    /// vault — for the notes at `notes_root`, and start the background
+    /// indexer. Returns immediately; poll [`SearchEngine::keyword_ready`] for
+    /// reconcile completion (queries before that serve the previous launch's
+    /// committed index).
+    #[uniffi::constructor]
+    pub fn new(notes_root: String, index_dir: String) -> Result<Arc<Self>, SearchError> {
+        let status = Arc::new(Mutex::new(engine::SearchStatus::default()));
+        let observer_status = status.clone();
+        let config = engine::SearchConfig {
+            notes_root: PathBuf::from(notes_root),
+            index_dir: PathBuf::from(index_dir),
+            // BM25-only: no SPLADE model/tokenizer on native; the variant is
+            // a required field but unused without them.
+            model_path: None,
+            tokenizer_path: None,
+            model_variant: engine::SpladeModelVariant::Int8Dynamic,
+        };
+        let inner = engine::SearchEngine::start(
+            config,
+            Arc::new(move |s: &engine::SearchStatus| {
+                if let Ok(mut snapshot) = observer_status.lock() {
+                    *snapshot = s.clone();
+                }
+            }),
+        )
+        .map_err(SearchError::Engine)?;
+        Ok(Arc::new(Self { inner, status }))
+    }
+
+    /// Run a query, returning up to `limit` ranked hits. Synchronous — call
+    /// off the UI thread.
+    pub fn query(&self, query: String, limit: u32) -> Result<Vec<SearchHit>, SearchError> {
+        let hits = self
+            .inner
+            .query(&query, limit as usize)
+            .map_err(SearchError::Engine)?;
+        Ok(hits
+            .into_iter()
+            .map(|h| SearchHit {
+                note_id: h.note_id,
+                score: h.score as f64,
+                source: h.source,
+            })
+            .collect())
+    }
+
+    /// Whether the keyword index has finished its startup reconcile against
+    /// the vault.
+    pub fn keyword_ready(&self) -> bool {
+        self.status.lock().map(|s| s.keyword.ready).unwrap_or(false)
+    }
+
+    /// Force a full corpus rescan (re-runs the reconcile).
+    pub fn rescan(&self) {
+        self.inner.rescan();
+    }
+
+    /// Notify the indexer that a note was added or modified at `rel_path`
+    /// (relative to the vault root, WITH extension — e.g. `Specs/note.md`).
+    /// The shell's write/create paths should call this; changes are coalesced
+    /// and debounced engine-side.
+    pub fn notify_changed(&self, rel_path: String) {
+        self.inner.notify_changed(rel_path);
+    }
+
+    /// Notify the indexer that the note at `rel_path` was removed.
+    pub fn notify_removed(&self, rel_path: String) {
+        self.inner.notify_removed(rel_path);
+    }
+
+    /// Notify the indexer of an atomic rename.
+    pub fn notify_renamed(&self, from: String, to: String) {
+        self.inner.notify_renamed(from, to);
+    }
 }
 
 // ════════════════════════════════════════════════════════════════════════

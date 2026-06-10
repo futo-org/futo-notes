@@ -28,3 +28,25 @@ strip = "debuginfo"
 # the search index or sync touches a hot dep.
 [profile.dev.package."*"]
 opt-level = 2
+
+# Tantivy is the hottest dependency on the dev-profile FFI path (native-shell
+# debug builds run the BM25 reconcile + queries through it), so bump it and
+# its hot sub-crates from the blanket 2 up to full optimization.
+[profile.dev.package.tantivy]
+opt-level = 3
+[profile.dev.package.tantivy-bitpacker]
+opt-level = 3
+[profile.dev.package.tantivy-columnar]
+opt-level = 3
+[profile.dev.package.tantivy-common]
+opt-level = 3
+[profile.dev.package.tantivy-fst]
+opt-level = 3
+[profile.dev.package.tantivy-query-grammar]
+opt-level = 3
+[profile.dev.package.tantivy-sstable]
+opt-level = 3
+[profile.dev.package.tantivy-stacker]
+opt-level = 3
+[profile.dev.package.tantivy-tokenizer-api]
+opt-level = 3

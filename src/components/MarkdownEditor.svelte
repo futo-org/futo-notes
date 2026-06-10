@@ -272,7 +272,41 @@
     }
   }
 
+  // Touch taps need their own path: WebKit (iOS WKWebView/Safari) cancels the
+  // synthetic mouse sequence — including `click` — when `mousedown` is
+  // preventDefault'ed, so the click handler below never fires for a finger
+  // tap there. Navigating on `touchend` (with a small movement guard so
+  // scrolls don't navigate) covers WebKit; preventDefault on the touchend
+  // suppresses the synthetic click on engines that would still send it
+  // (Chromium), so the tap navigates exactly once everywhere.
+  let wikilinkTouch: { x: number; y: number } | null = null;
+
   const wikilinkClickHandler = EditorView.domEventHandlers({
+    touchstart: (event) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('.cm-md-wikilink')) {
+        const t = event.touches[0];
+        wikilinkTouch = t ? { x: t.clientX, y: t.clientY } : null;
+      } else {
+        wikilinkTouch = null;
+      }
+      return false;
+    },
+    touchend: (event) => {
+      const start = wikilinkTouch;
+      wikilinkTouch = null;
+      if (!start) return false;
+      const t = event.changedTouches[0];
+      if (!t || Math.hypot(t.clientX - start.x, t.clientY - start.y) > 8) return false;
+      const target = event.target as HTMLElement | null;
+      const wikilink = target?.closest('.cm-md-wikilink') as HTMLElement | null;
+      const title = wikilink?.getAttribute('data-wikilink');
+      if (!title) return false;
+      event.preventDefault();
+      event.stopPropagation();
+      dispatchWikilinkOpen(title, event as unknown as MouseEvent);
+      return true;
+    },
     mousedown: (event) => {
       const target = event.target as HTMLElement | null;
       if (target?.closest('.cm-md-wikilink')) {

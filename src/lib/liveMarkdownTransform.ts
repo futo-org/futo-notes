@@ -275,15 +275,27 @@ function isRemoteSrc(src: string): boolean {
   return src.startsWith('http://') || src.startsWith('https://') || src.startsWith('data:');
 }
 
+// Base URL local image filenames resolve against when the per-file cache
+// misses. Set only by the native-embed host (FutoEditor.setImageBaseUrl) —
+// empty on desktop, where getImageWebPath populates the cache instead.
+let localImageBaseUrl = '';
+
 /** Resolve an image src to a displayable URL. Local filenames use the cache. */
 export function resolveImageSrc(src: string): string {
   if (isRemoteSrc(src)) return src;
-  return localImageUrlCache.get(src) ?? '';
+  const cached = localImageUrlCache.get(src);
+  if (cached !== undefined) return cached;
+  return localImageBaseUrl ? localImageBaseUrl + encodeURIComponent(src) : '';
 }
 
 /** Register a local image filename → web URL mapping so it renders immediately. */
 export function registerLocalImageUrl(filename: string, webUrl: string): void {
   localImageUrlCache.set(filename, webUrl);
+}
+
+/** Register the cache-miss base URL for local images (native-embed host). */
+export function setLocalImageBaseUrl(base: string): void {
+  localImageBaseUrl = base;
 }
 
 /** Matches a line that consists only of tags and whitespace (header tag block detection). */
@@ -322,6 +334,9 @@ export function preloadImages(
         }).catch(() => { /* file missing — ignore */ });
       } else if (localImageUrlCache.has(src)) {
         preloadSingleImage(localImageUrlCache.get(src)!);
+      } else if (localImageBaseUrl) {
+        // Native embed: no getImageWebPath, resolve against the host base.
+        preloadSingleImage(localImageBaseUrl + encodeURIComponent(src));
       }
       continue;
     }

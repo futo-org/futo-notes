@@ -1,6 +1,8 @@
 package com.futo.notes.ui
 
 import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -12,7 +14,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.automirrored.filled.DriveFileMove
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.DropdownMenu
@@ -37,21 +41,35 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.futo.notes.ImagePicker
 import com.futo.notes.NotesStore
+import com.futo.notes.saveImageIntoVault
+import com.futo.notes.ui.components.ConfirmDialog
+import com.futo.notes.ui.components.FolderPickerSheet
 import com.futo.notes.ui.theme.FutoType
 import com.futo.notes.ui.theme.FutoTheme
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
 import uniffi.futo_notes_ffi.makeId
 import uniffi.futo_notes_ffi.sanitizeTitle
 import uniffi.futo_notes_ffi.splitId
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class, FlowPreview::class)
 @Composable
@@ -61,10 +79,17 @@ fun NoteEditorScreen(
     autoFocus: Boolean,
     darkTheme: Boolean,
     onBack: () -> Unit,
+    onOpenNote: (String) -> Unit = {},
+    imagePicker: ImagePicker? = null,
 ) {
     val c = FutoTheme.colors
     val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
+    // The shared pre-warmed editor host — needed directly (beyond the
+    // EditorWebView props) for the bridge-v2 imperative calls:
+    // applyExternalContent (sync adopt) and insertImage (picker round-trip).
+    val host = remember { EditorHost.get(context) }
 
     var noteId by remember(initialNoteId) { mutableStateOf(initialNoteId) }
     var title by remember(initialNoteId) { mutableStateOf(splitId(initialNoteId).title) }
@@ -75,8 +100,26 @@ fun NoteEditorScreen(
     var savedContent by remember(initialNoteId) { mutableStateOf("") }
     var loaded by remember(initialNoteId) { mutableStateOf(false) }
     var saveJob by remember { mutableStateOf<Job?>(null) }
+    var confirmDelete by remember { mutableStateOf(false) }
+    var showMoveSheet by remember { mutableStateOf(false) }
     val theme = if (darkTheme) "dark" else "light"
     val wordCount = remember(content) { content.split(Regex("\\s+")).count { it.isNotBlank() } }
+
+    // The editor's note universe [editor.md:77]: id/title/modifiedMs/tags JSON
+    // for the wikilink suffix resolver + autocomplete. Rebuilt only when the
+    // list actually changes; the host dedupes pushes by content hash.
+    val notesJson = remember(store.notes) {
+        JSONArray().apply {
+            store.notes.forEach { n ->
+                put(JSONObject().apply {
+                    put("id", n.id)
+                    put("title", n.title)
+                    put("modifiedMs", n.modifiedMs)
+                    put("tags", JSONArray(n.tags))
+                })
+            }
+        }.toString()
+    }
 
     // Off-main initial load of the note body. Until it lands, `loaded` is false,
     // which gates the live-sync adopt + onChange save so an empty placeholder is
@@ -98,18 +141,42 @@ fun NoteEditorScreen(
         }
     }
 
-    // Live-sync refresh for the OPEN note. A live pull rewrites the file and
-    // reloads the store; without this, the open editor keeps showing (and on
-    // exit, SAVES BACK) a stale base — silently clobbering the remote edit.
-    // Adopt the on-disk content only when the local draft is clean; a dirty
-    // draft still wins. Mirrors the iOS NoteEditorView behavior.
+    // Live-sync refresh for the OPEN note [sync.md:239]. A live pull rewrites
+    // the file and reloads the store; without this, the open editor keeps
+    // showing (and on exit, SAVES BACK) a stale base. Clean drafts adopt the
+    // remote content in place via applyExternalContent (selection/scroll
+    // preserved, history suppressed); a dirty draft against a REAL remote
+    // change is parked as a conflict copy first — neither side's edit is lost.
     LaunchedEffect(initialNoteId) {
         snapshotFlow { store.notes }.collect {
-            if (content == savedContent && store.exists(noteId)) {
-                val disk = store.read(noteId)
-                if (disk != savedContent) {
+            if (!loaded || !store.exists(noteId)) return@collect
+            val disk = store.read(noteId)
+            when {
+                content == savedContent -> {
+                    if (disk != savedContent) {
+                        host.applyExternalContent(disk)
+                        content = disk
+                        savedContent = disk
+                    }
+                }
+                disk == content -> {
+                    // Our own save echoed back through the rescan — mark clean.
+                    savedContent = disk
+                }
+                disk != savedContent -> {
+                    // Dirty draft + a real remote change: cancel the pending
+                    // save, park the draft as a conflict copy (Rust uniques the
+                    // title), then adopt the remote content.
+                    saveJob?.cancel()
+                    val date = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+                    val parts = splitId(noteId)
+                    store.createNote("${parts.title} (conflict $date)", parts.folder)?.let { copyId ->
+                        store.write(copyId, content)
+                    }
+                    host.applyExternalContent(disk)
                     content = disk
                     savedContent = disk
+                    Toast.makeText(context, "Conflicting edits saved to a copy", Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -127,7 +194,11 @@ fun NoteEditorScreen(
                 // would recreate a ghost note at the old id (data loss).
                 saveJob?.cancel()
                 if (content != savedContent) { store.write(noteId, content); savedContent = content }
+                val oldId = noteId
                 noteId = store.rename(noteId, makeId(parts.folder, clean))
+                // Repoint every wikilink at the renamed note [editor.md:88] —
+                // fire-and-forget on the store's scope (vault-wide rewrite).
+                if (noteId != oldId) store.relink(oldId, noteId)
             }
         }
     }
@@ -163,19 +234,26 @@ fun NoteEditorScreen(
                     IconButton(onClick = { menu = true }) {
                         Icon(Icons.Filled.MoreVert, contentDescription = "More", tint = c.textSecondary)
                     }
+                    // Overflow parity with the list rows [list.md:62].
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                        DropdownMenuItem(
+                            text = { Text("Move to folder…") },
+                            leadingIcon = { Icon(Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = null, tint = c.textSecondary) },
+                            onClick = { menu = false; showMoveSheet = true },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Copy file path") },
+                            leadingIcon = { Icon(Icons.Filled.ContentCopy, contentDescription = null, tint = c.textSecondary) },
+                            onClick = {
+                                menu = false
+                                clipboard.setText(AnnotatedString("${store.rootPath}/$noteId.md"))
+                                Toast.makeText(context, "Path copied", Toast.LENGTH_SHORT).show()
+                            },
+                        )
                         DropdownMenuItem(
                             text = { Text("Delete note") },
                             leadingIcon = { Icon(Icons.Filled.Delete, contentDescription = null, tint = c.danger) },
-                            onClick = {
-                                menu = false
-                                saveJob?.cancel()
-                                // `delete` is suspend (FFI on IO); fire it on the
-                                // store's scope so the file removal can't block the
-                                // UI thread, then pop back immediately.
-                                scope.launch { store.delete(noteId) }
-                                onBack()
-                            },
+                            onClick = { menu = false; confirmDelete = true },
                         )
                     }
                 },
@@ -212,7 +290,35 @@ fun NoteEditorScreen(
                     content = content,
                     theme = theme,
                     autoFocus = false,
+                    notesJson = notesJson,
+                    // Local ![](image.png) resolves against the vault root
+                    // [editor.md:121] (allowFileAccess stays on, see EditorHost).
+                    imageBaseUrl = "file://${store.rootPath}/",
                     modifier = Modifier.fillMaxSize(),
+                    onOpenNote = onOpenNote,
+                    onPickImage = { source ->
+                        // Picker round-trip [editor.md:121+130]: native pick →
+                        // copy into the vault root (IMAGE_EXTENSIONS only) →
+                        // insertImage back into the editor.
+                        val handle: (Uri?) -> Unit = { uri ->
+                            if (uri != null) {
+                                scope.launch {
+                                    val name = withContext(Dispatchers.IO) {
+                                        saveImageIntoVault(context.contentResolver, File(store.rootPath), uri)
+                                    }
+                                    if (name != null) {
+                                        host.insertImage(name)
+                                    } else {
+                                        Toast.makeText(context, "Unsupported image type", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            }
+                        }
+                        when (source) {
+                            "camera" -> imagePicker?.captureCamera(handle)
+                            else -> imagePicker?.pickLibrary(handle)
+                        }
+                    },
                     onChange = { newContent ->
                         // Data-loss guard: ignore editor change events until the
                         // off-main initial read has landed (`loaded`). The WebView
@@ -235,5 +341,48 @@ fun NoteEditorScreen(
                 )
             }
         }
+    }
+
+    if (confirmDelete) {
+        ConfirmDialog(
+            title = "Delete this note?",
+            body = "This action cannot be undone.",
+            confirmLabel = "Delete",
+            onConfirm = {
+                confirmDelete = false
+                saveJob?.cancel()
+                // Mark clean so the onDispose flush can't resurrect the note,
+                // then fire the suspend delete on the composable scope (FFI on
+                // IO) and pop back immediately.
+                savedContent = content
+                scope.launch { store.delete(noteId) }
+                onBack()
+            },
+            onDismiss = { confirmDelete = false },
+        )
+    }
+
+    if (showMoveSheet) {
+        FolderPickerSheet(
+            store = store,
+            onDismiss = { showMoveSheet = false },
+            onPick = { folder, isNew ->
+                showMoveSheet = false
+                scope.launch {
+                    // Flush the draft to the CURRENT id before the file moves —
+                    // a stale save would recreate a ghost at the old id.
+                    saveJob?.cancel()
+                    if (content != savedContent) { store.write(noteId, content); savedContent = content }
+                    if (isNew) store.createFolder(folder)
+                    val oldId = noteId
+                    val moved = store.moveNote(noteId, folder)
+                    if (moved != oldId) {
+                        noteId = moved
+                        store.relink(oldId, moved)
+                    }
+                    Toast.makeText(context, "Moved to ${folder.ifEmpty { "Root" }}", Toast.LENGTH_SHORT).show()
+                }
+            },
+        )
     }
 }

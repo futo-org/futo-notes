@@ -5,7 +5,7 @@
  * title‑validation state. MarkdownEditor bindings and scrollParent stay in
  * NotesShell.
  */
-import { hasFileSystem, showSoftKeyboard } from '$lib/platform';
+import { hasFileSystem, isMobile, showSoftKeyboard } from '$lib/platform';
 import {
   updateNote,
   readNote,
@@ -28,6 +28,8 @@ export interface NoteSessionDeps {
   setEditorContent: (text: string, opts?: { preserveSelection?: boolean }) => void;
   /** Focuses the editor. */
   focusEditor: () => void;
+  /** Focuses the title textarea (mobile new-note flow). */
+  focusTitle: () => void;
   /** Returns the current notes list. */
   getNotes: () => NotePreview[];
   /** Patches graph node after rename. */
@@ -416,10 +418,19 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
       requestAnimationFrame(() => {
         if (loadVersion !== noteLoadVersion) return;
         autoResizeTitleTextarea();
-        deps.focusEditor();
-        // Android: programmatic focus on contenteditable doesn't always
-        // raise the IME. Bridge to InputMethodManager so a fresh note
-        // brings the keyboard up immediately.
+        if (isMobile) {
+          // Mobile '+ New' / quick capture: land focus on the title so the
+          // select-all-on-focus behavior (handleTitleFocus) lets typing
+          // replace "Untitled" immediately. Desktop keeps body focus.
+          deps.focusTitle();
+        } else {
+          deps.focusEditor();
+        }
+        // Android: programmatic focus doesn't always raise the IME. Bridge
+        // to InputMethodManager so a fresh note brings the keyboard up
+        // immediately. (On iOS this also retires the keyboard primer from
+        // primeSoftKeyboardForProgrammaticFocus — the focused field
+        // inherits its active keyboard session.)
         void showSoftKeyboard();
       });
     } else if (hasFileSystem) {

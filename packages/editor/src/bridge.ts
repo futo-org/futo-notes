@@ -3,7 +3,7 @@
  * CodeMirror editor (`editor.html`, built from `src/editor-embed/main.ts`) and
  * the two native WebView hosts that load it:
  *
- *   - iOS    — WKWebView, `loadHTMLString(editor.html)`, calls `window.FutoEditor`
+ *   - iOS    — WKWebView, `loadFileURL(editor.html)`, calls `window.FutoEditor`
  *              via `evaluateJavaScript`, receives messages on the
  *              `futoBridge` `WKScriptMessageHandler`.
  *   - Android — Android WebView hosting the same `editor.html`, calls
@@ -27,11 +27,25 @@
  *
  * - 1: initial contract (setContent/getContent/focus/setTheme;
  *      ready/change/focus outbound messages).
+ * - 2: note universe + sync + images (setNotes/applyExternalContent/
+ *      insertImage/setImageBaseUrl; openNote/pickImage outbound messages).
  */
-export const BRIDGE_VERSION = 1 as const;
+export const BRIDGE_VERSION = 2 as const;
 
 /** Editor color theme. */
 export type EditorTheme = 'light' | 'dark';
+
+/**
+ * One entry of the note universe the host feeds the editor via
+ * {@link FutoEditorApi.setNotes}. Mirrors the list metadata the native shells
+ * already hold (id = vault-relative path sans `.md`).
+ */
+export interface BridgeNote {
+  id: string;
+  title: string;
+  modifiedMs: number;
+  tags?: string[];
+}
 
 /**
  * Host → editor surface, installed on `window.FutoEditor` by the editor
@@ -46,6 +60,31 @@ export interface FutoEditorApi {
   focus(): void;
   /** Switch the editor theme. */
   setTheme(theme: EditorTheme): void;
+  /**
+   * Populate the editor's note universe — a JSON-serialized
+   * {@link BridgeNote}`[]` (JS↔native can only pass strings). Feeds the
+   * wikilink suffix resolver, autocomplete, and resolution, then refreshes
+   * decorations. Malformed JSON is warned about and ignored.
+   */
+  setNotes(notesJson: string): void;
+  /**
+   * Adopt a remote sync update of the OPEN note: selection- and
+   * scroll-preserving, history-suppressed — a sync, not a load (contrast
+   * {@link setContent}).
+   */
+  applyExternalContent(markdown: string): void;
+  /**
+   * Insert `![](filename)\n` at the cursor. The host calls this after a
+   * `pickImage` round-trip, once the picked image bytes are saved into the
+   * vault root.
+   */
+  insertImage(filename: string): void;
+  /**
+   * Register the base URL local image filenames resolve against: `f` in
+   * `![](f)` renders from `base + encodeURIComponent(f)`. iOS passes
+   * `futo-asset:///`, Android passes `file://<notesRoot>/`.
+   */
+  setImageBaseUrl(base: string): void;
 }
 
 /** Emitted once, after the editor mounts and is ready to receive content. */
@@ -68,10 +107,36 @@ export interface FocusMessage {
 }
 
 /**
+ * Emitted when the user taps a RESOLVED wikilink. `id` is the resolved note
+ * id (vault-relative path sans `.md`) from the universe fed via
+ * {@link FutoEditorApi.setNotes}; taps on broken links post nothing.
+ */
+export interface OpenNoteMessage {
+  type: 'openNote';
+  id: string;
+}
+
+/**
+ * Emitted when the user taps a toolbar image button. The host opens the
+ * native picker, saves the image bytes into the vault root (honoring
+ * `@futo-notes/shared` IMAGE_EXTENSIONS), then calls
+ * {@link FutoEditorApi.insertImage} with the saved filename.
+ */
+export interface PickImageMessage {
+  type: 'pickImage';
+  source: 'camera' | 'library';
+}
+
+/**
  * Editor → host messages, posted to the host's `futoBridge` message handler.
  * Discriminated on `type`.
  */
-export type FutoEditorOutboundMessage = ReadyMessage | ChangeMessage | FocusMessage;
+export type FutoEditorOutboundMessage =
+  | ReadyMessage
+  | ChangeMessage
+  | FocusMessage
+  | OpenNoteMessage
+  | PickImageMessage;
 
 /**
  * The iOS host message sink: `window.webkit.messageHandlers.futoBridge`, a

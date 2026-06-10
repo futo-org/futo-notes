@@ -40,6 +40,11 @@ import {
 } from '../../packages/editor/src/tags.ts';
 import { makePreview } from '../../packages/editor/src/preview.ts';
 import { isImageFilename, IMAGE_EXTENSIONS } from '../../packages/shared/src/sync.ts';
+import {
+  resolveWikilink,
+  shortestUniqueSuffix,
+  rewriteWikilinks,
+} from '../../src/lib/wikilinks.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -227,6 +232,188 @@ const preview = {
   ],
 };
 
+// ── Wikilink rules (src/lib/wikilinks.ts ↔ Rust wikilinks.rs ports) ─────
+//
+// Curated id universe: nested folders, ambiguous leaves (`pasta`,
+// `folder-support`, `notes`), unicode + emoji ids, and a deep path for the
+// suffix-resolution cases. Every expected value is computed by the canonical
+// TS, so a Rust divergence fails the model crate's conformance test.
+const WIKI_IDS = [
+  'grocery list',
+  'notes',
+  'Projects/notes',
+  'Specs/folder-support',
+  'Specs/Drafts/folder-support',
+  'Recipes/pasta',
+  'Recipes/Dinner/pasta',
+  'Journal/2026/June/pasta night',
+  'Unicode/café résumé',
+  'Emoji/🎉 party',
+  'Deep/a/b/c/leaf',
+];
+
+const wikilinks = {
+  description: 'Wikilink resolution / display-suffix / rewrite rules (wikilinks.ts).',
+  groups: [
+    {
+      op: 'resolveWikilink',
+      fn: 'resolveWikilink',
+      cases: [
+        'grocery list', // exact root-level id
+        'Specs/folder-support', // exact full path
+        'pasta night', // bare leaf, unique
+        'pasta', // bare leaf, ambiguous → null
+        'folder-support', // bare leaf, ambiguous → null
+        'notes', // exact id wins over leaf ambiguity
+        'leaf', // bare leaf, unique (deep path)
+        'Dinner/pasta', // multi-component unique suffix
+        'Drafts/folder-support', // multi-component unique suffix
+        'b/c/leaf', // deeper unique suffix
+        'June/pasta night',
+        'missing', // absent → null
+        'Nope/pasta', // multi-component, no tail match → null
+        '', // empty → null
+        'Specs/folder-support|alias', // pipe alias is PART of the target → null
+        'café résumé', // unicode bare leaf
+        '🎉 party', // emoji bare leaf
+        '/pasta', // leading slash → empty first component → null
+      ].map((target) => ({
+        input: { target, allIds: WIKI_IDS },
+        expected: resolveWikilink(target, WIKI_IDS),
+      })),
+    },
+    {
+      op: 'shortestUniqueSuffix',
+      fn: 'shortestUniqueSuffix',
+      cases: [
+        { targetId: 'grocery list', allIds: WIKI_IDS }, // unique leaf
+        { targetId: 'Specs/folder-support', allIds: WIKI_IDS }, // leaf collides → 2 components
+        { targetId: 'Specs/Drafts/folder-support', allIds: WIKI_IDS },
+        { targetId: 'Recipes/pasta', allIds: WIKI_IDS },
+        { targetId: 'Recipes/Dinner/pasta', allIds: WIKI_IDS },
+        { targetId: 'Journal/2026/June/pasta night', allIds: WIKI_IDS },
+        { targetId: 'notes', allIds: WIKI_IDS }, // no unique suffix exists → full id
+        { targetId: 'Projects/notes', allIds: WIKI_IDS },
+        { targetId: 'Emoji/🎉 party', allIds: WIKI_IDS },
+        { targetId: 'Brand/new note', allIds: WIKI_IDS }, // target not in universe
+        { targetId: 'a/x', allIds: ['a/x', 'b/a/x'] }, // total collision → full id
+        { targetId: 'dup/x', allIds: ['dup/x', 'dup/x'] }, // duplicates excluded → leaf
+      ].map(({ targetId, allIds }) => ({
+        input: { targetId, allIds },
+        expected: shortestUniqueSuffix(targetId, allIds),
+      })),
+    },
+    {
+      op: 'rewriteWikilinks',
+      fn: 'rewriteWikilinks',
+      cases: [
+        // Full-path link, single rewrite.
+        {
+          text: 'See [[Specs/folder-support]] for details',
+          oldId: 'Specs/folder-support',
+          newId: 'Specs/folder-support-v2',
+          allIds: WIKI_IDS,
+        },
+        // Legacy bare link against the POST-rename universe — the resolution
+        // ctx re-includes oldId, so the bare leaf still resolves.
+        {
+          text: 'buy [[grocery list]] and again [[grocery list]]',
+          oldId: 'grocery list',
+          newId: 'Lists/grocery list',
+          allIds: ['Lists/grocery list', ...WIKI_IDS.filter((id) => id !== 'grocery list')],
+        },
+        // Pipe alias is part of the target per WIKILINK_RE → unresolvable → kept.
+        {
+          text: 'see [[Specs/folder-support|the spec]]',
+          oldId: 'Specs/folder-support',
+          newId: 'Specs/renamed',
+          allIds: WIKI_IDS,
+        },
+        // Ambiguous bare leaf never resolves to oldId → kept.
+        {
+          text: 'tonight: [[pasta]]',
+          oldId: 'Recipes/pasta',
+          newId: 'Recipes/spaghetti',
+          allIds: WIKI_IDS,
+        },
+        // Unique path-suffix link IS rewritten (resolution, not string match).
+        {
+          text: 'see [[Dinner/pasta]]',
+          oldId: 'Recipes/Dinner/pasta',
+          newId: 'Recipes/Dinner/lasagna',
+          allIds: WIKI_IDS,
+        },
+        // Link to a DIFFERENT note whose leaf matches oldId's leaf → kept.
+        {
+          text: 'see [[notes]]',
+          oldId: 'Projects/notes',
+          newId: 'Projects/notes-v2',
+          allIds: WIKI_IDS,
+        },
+        // Code fences get rewritten too — the rule is text-level.
+        {
+          text: '```\n[[grocery list]]\n```',
+          oldId: 'grocery list',
+          newId: 'Lists/grocery list',
+          allIds: WIKI_IDS,
+        },
+        // Unicode + emoji targets.
+        {
+          text: 'voir [[café résumé]]',
+          oldId: 'Unicode/café résumé',
+          newId: 'Unicode/CV',
+          allIds: WIKI_IDS,
+        },
+        {
+          text: 'allons [[🎉 party]] !',
+          oldId: 'Emoji/🎉 party',
+          newId: 'Emoji/🎊 fiesta',
+          allIds: WIKI_IDS,
+        },
+        // Newline inside the brackets is not a link.
+        {
+          text: '[[grocery\nlist]]',
+          oldId: 'grocery list',
+          newId: 'Lists/grocery list',
+          allIds: WIKI_IDS,
+        },
+        // WIKILINK_RE swallows a nested `[[` → whole inner is the (broken) target.
+        {
+          text: 'weird [[a[[grocery list]] end',
+          oldId: 'grocery list',
+          newId: 'Lists/grocery list',
+          allIds: WIKI_IDS,
+        },
+        // `[[a]]]` closes at the FIRST `]]`.
+        {
+          text: '[[grocery list]]] tail',
+          oldId: 'grocery list',
+          newId: 'Lists/grocery list',
+          allIds: WIKI_IDS,
+        },
+        // No links at all → zero rewrites.
+        {
+          text: 'plain text, no links',
+          oldId: 'grocery list',
+          newId: 'Lists/grocery list',
+          allIds: WIKI_IDS,
+        },
+        // oldId === newId still COUNTS rewrites (text is unchanged) — pins
+        // the TS behavior that counting happens before any change check.
+        {
+          text: '[[notes]]',
+          oldId: 'notes',
+          newId: 'notes',
+          allIds: WIKI_IDS,
+        },
+      ].map(({ text, oldId, newId, allIds }) => ({
+        input: { text, oldId, newId, allIds },
+        expected: rewriteWikilinks(text, oldId, newId, allIds),
+      })),
+    },
+  ],
+};
+
 // ── Fuzz / adversarial inputs (plan §Phase 1) ───────────────────────────
 //
 // These exercise the JS↔Rust landmines: emoji + control chars, nested /
@@ -338,7 +525,7 @@ const fuzzHeaderBlock = {
 filename.groups.push(fuzzFilename, fuzzValidateTitle, fuzzFolderPath, fuzzCaseCollision);
 tags.groups.push(fuzzTags, fuzzHeaderBlock);
 
-const FIXTURES = { filename, tags, image, preview };
+const FIXTURES = { filename, tags, image, preview, wikilinks };
 
 const banner =
   '// GENERATED by tests/conformance/generate.mjs — do not edit by hand.\n' +

@@ -1,7 +1,10 @@
 package com.futo.notes.ui
 
+import android.widget.Toast
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -10,6 +13,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -20,13 +24,18 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CreateNewFolder
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.automirrored.filled.DriveFileMove
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
@@ -37,6 +46,7 @@ import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.NavigationDrawerItemDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -50,12 +60,18 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.futo.notes.NotesStore
+import com.futo.notes.ui.components.ConfirmDialog
+import com.futo.notes.ui.components.FolderPickerSheet
 import com.futo.notes.ui.components.MicroLabel
+import com.futo.notes.ui.components.NewFolderDialog
 import com.futo.notes.ui.components.NoteCard
 import com.futo.notes.ui.components.pressScale
 import com.futo.notes.ui.theme.FutoRadius
@@ -75,10 +91,18 @@ fun NoteListScreen(
     onOpenSettings: () -> Unit,
 ) {
     val c = FutoTheme.colors
+    val context = LocalContext.current
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
     var currentFolder by remember { mutableStateOf(ALL) } // ALL = all notes
+
+    // Row actions [list.md:62 + 71]: long-press targets, hoisted so the
+    // dialogs/sheet live outside the LazyColumn items.
+    var deleteTarget by remember { mutableStateOf<String?>(null) }
+    var moveTarget by remember { mutableStateOf<String?>(null) }
+    var newFolderDialog by remember { mutableStateOf(false) }
+    var confirmDeleteFolder by remember { mutableStateOf<String?>(null) }
 
     val scrolled by remember {
         derivedStateOf {
@@ -100,6 +124,7 @@ fun NoteListScreen(
                     currentFolder = it
                     scope.launch { drawerState.close() }
                 },
+                onDeleteFolder = { confirmDeleteFolder = it },
                 onSettings = {
                     scope.launch { drawerState.close() }
                     onOpenSettings()
@@ -130,23 +155,43 @@ fun NoteListScreen(
                 )
             },
             floatingActionButton = {
+                // Expandable create menu [list.md:78]: New note / New folder.
+                var fabMenu by remember { mutableStateOf(false) }
                 val interaction = remember { MutableInteractionSource() }
                 val scale = pressScale(interaction, 0.97f)
-                FloatingActionButton(
-                    onClick = {
-                        val folder = if (currentFolder == ALL) "" else currentFolder
-                        // `createNote` is suspend (FFI write on IO). Launch on the
-                        // composable's main scope; the navigate callback runs after
-                        // it returns (resumes on Main, safe for Compose state).
-                        scope.launch { store.createNote("Untitled", folder)?.let(onCreate) }
-                    },
-                    interactionSource = interaction,
-                    containerColor = c.accent,
-                    contentColor = Color.White,
-                    shape = RoundedCornerShape(FutoRadius.lg),
-                    modifier = Modifier.padding(2.dp).graphicsLayer { scaleX = scale; scaleY = scale },
-                ) {
-                    Icon(Icons.Filled.Add, contentDescription = "New note")
+                Box {
+                    FloatingActionButton(
+                        onClick = { fabMenu = true },
+                        interactionSource = interaction,
+                        containerColor = c.accent,
+                        contentColor = Color.White,
+                        shape = RoundedCornerShape(FutoRadius.lg),
+                        modifier = Modifier.padding(2.dp).graphicsLayer { scaleX = scale; scaleY = scale },
+                    ) {
+                        Icon(Icons.Filled.Add, contentDescription = "Create")
+                    }
+                    DropdownMenu(expanded = fabMenu, onDismissRequest = { fabMenu = false }) {
+                        DropdownMenuItem(
+                            text = { Text("New note") },
+                            leadingIcon = { Icon(Icons.Filled.Description, contentDescription = null, tint = c.textSecondary) },
+                            onClick = {
+                                fabMenu = false
+                                val folder = if (currentFolder == ALL) "" else currentFolder
+                                // `createNote` is suspend (FFI write on IO). Launch on the
+                                // composable's main scope; the navigate callback runs after
+                                // it returns (resumes on Main, safe for Compose state).
+                                scope.launch { store.createNote("Untitled", folder)?.let(onCreate) }
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("New folder") },
+                            leadingIcon = { Icon(Icons.Filled.CreateNewFolder, contentDescription = null, tint = c.textSecondary) },
+                            onClick = {
+                                fabMenu = false
+                                newFolderDialog = true
+                            },
+                        )
+                    }
                 }
             },
         ) { padding ->
@@ -164,11 +209,97 @@ fun NoteListScreen(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     items(notes, key = { it.id }) { note ->
-                        NoteCard(note, onClick = { onOpenNote(note.id) })
+                        // Long-press actions menu on each card [list.md:62].
+                        var menu by remember { mutableStateOf(false) }
+                        Box {
+                            NoteCard(
+                                note,
+                                onClick = { onOpenNote(note.id) },
+                                onLongClick = { menu = true },
+                            )
+                            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                                DropdownMenuItem(
+                                    text = { Text("Move to Folder…") },
+                                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = null, tint = c.textSecondary) },
+                                    onClick = { menu = false; moveTarget = note.id },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Delete") },
+                                    leadingIcon = { Icon(Icons.Filled.Delete, contentDescription = null, tint = c.danger) },
+                                    onClick = { menu = false; deleteTarget = note.id },
+                                )
+                            }
+                        }
                     }
                 }
             }
         }
+    }
+
+    deleteTarget?.let { id ->
+        ConfirmDialog(
+            title = "Delete this note?",
+            body = "This action cannot be undone.",
+            confirmLabel = "Delete",
+            onConfirm = {
+                deleteTarget = null
+                scope.launch { store.delete(id) }
+            },
+            onDismiss = { deleteTarget = null },
+        )
+    }
+
+    if (moveTarget != null) {
+        FolderPickerSheet(
+            store = store,
+            onDismiss = { moveTarget = null },
+            onPick = { folder, isNew ->
+                val id = moveTarget ?: return@FolderPickerSheet
+                moveTarget = null
+                scope.launch {
+                    if (isNew) store.createFolder(folder)
+                    val newId = store.moveNote(id, folder)
+                    // Repoint wikilinks at the moved note [editor.md:88].
+                    if (newId != id) store.relink(id, newId)
+                    Toast.makeText(context, "Moved to ${folder.ifEmpty { "Root" }}", Toast.LENGTH_SHORT).show()
+                }
+            },
+        )
+    }
+
+    if (newFolderDialog) {
+        NewFolderDialog(
+            parent = if (currentFolder == ALL) "" else currentFolder,
+            store = store,
+            onCreate = { path ->
+                newFolderDialog = false
+                scope.launch { store.createFolder(path) }
+            },
+            onDismiss = { newFolderDialog = false },
+        )
+    }
+
+    confirmDeleteFolder?.let { folder ->
+        ConfirmDialog(
+            title = "Delete this folder?",
+            body = "Notes inside it will be moved to the parent folder.",
+            confirmLabel = "Delete",
+            onConfirm = {
+                confirmDeleteFolder = null
+                scope.launch {
+                    // MOVE-UP delete [list.md:121]: Rust bails atomically, so a
+                    // null here means the folder (and its notes) are untouched.
+                    val moved = store.deleteFolder(folder)
+                    if (moved != null) {
+                        if (currentFolder == folder || currentFolder.startsWith("$folder/")) currentFolder = ALL
+                        Toast.makeText(context, "Folder deleted; moved $moved notes", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(context, "Couldn't delete folder — nothing was changed", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            },
+            onDismiss = { confirmDeleteFolder = null },
+        )
     }
 }
 
@@ -177,9 +308,11 @@ private fun LibraryDrawer(
     store: NotesStore,
     currentFolder: String,
     onSelectFolder: (String) -> Unit,
+    onDeleteFolder: (String) -> Unit,
     onSettings: () -> Unit,
 ) {
     val c = FutoTheme.colors
+    var folderMenu by remember { mutableStateOf<String?>(null) }
     ModalDrawerSheet(
         drawerContainerColor = c.surface,
         modifier = Modifier.width(300.dp),
@@ -209,13 +342,26 @@ private fun LibraryDrawer(
             onClick = { onSelectFolder(ALL) },
         )
         store.folders.forEach { folder ->
-            FolderRow(
-                label = folder,
-                icon = Icons.Filled.Folder,
-                count = store.notesIn(folder).size,
-                selected = currentFolder == folder,
-                onClick = { onSelectFolder(folder) },
-            )
+            Box {
+                FolderRow(
+                    label = folder,
+                    icon = Icons.Filled.Folder,
+                    count = store.notesIn(folder).size,
+                    selected = currentFolder == folder,
+                    onClick = { onSelectFolder(folder) },
+                    onLongClick = { folderMenu = folder },
+                )
+                DropdownMenu(expanded = folderMenu == folder, onDismissRequest = { folderMenu = null }) {
+                    DropdownMenuItem(
+                        text = { Text("Delete folder", color = c.danger) },
+                        leadingIcon = { Icon(Icons.Filled.Delete, contentDescription = null, tint = c.danger) },
+                        onClick = {
+                            folderMenu = null
+                            onDeleteFolder(folder)
+                        },
+                    )
+                }
+            }
         }
 
         Spacer(Modifier.weight(1f))
@@ -234,6 +380,12 @@ private fun LibraryDrawer(
     }
 }
 
+/**
+ * Drawer folder row. NavigationDrawerItem exposes no long-press, and folder
+ * rows need one (Delete folder [list.md:121]) — so this is a visual clone of
+ * it built on combinedClickable, using the same selected/unselected colors.
+ */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun FolderRow(
     label: String,
@@ -241,30 +393,41 @@ private fun FolderRow(
     count: Int,
     selected: Boolean,
     onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null,
 ) {
     val c = FutoTheme.colors
-    NavigationDrawerItem(
-        icon = { Icon(icon, contentDescription = null) },
-        label = {
+    Surface(
+        color = if (selected) c.surfaceSelected else Color.Transparent,
+        shape = RoundedCornerShape(FutoRadius.pill),
+        modifier = Modifier
+            .padding(horizontal = 12.dp)
+            .fillMaxWidth()
+            .height(56.dp)
+            .clip(RoundedCornerShape(FutoRadius.pill))
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+        ) {
+            Icon(icon, contentDescription = null, tint = if (selected) c.accent else c.textMuted)
+            Spacer(Modifier.width(12.dp))
             Text(
                 label,
                 style = FutoType.body.copy(fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal),
+                color = if (selected) c.textAccent else c.textSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
             )
-        },
-        badge = { Text(count.toString(), style = FutoType.caption) },
-        selected = selected,
-        onClick = onClick,
-        colors = NavigationDrawerItemDefaults.colors(
-            selectedContainerColor = c.surfaceSelected,
-            selectedIconColor = c.accent,
-            selectedTextColor = c.textAccent,
-            selectedBadgeColor = c.textAccent,
-            unselectedIconColor = c.textMuted,
-            unselectedTextColor = c.textSecondary,
-            unselectedBadgeColor = c.textMuted,
-        ),
-        modifier = Modifier.padding(horizontal = 12.dp),
-    )
+            Spacer(Modifier.width(12.dp))
+            Text(
+                count.toString(),
+                style = FutoType.caption,
+                color = if (selected) c.textAccent else c.textMuted,
+            )
+        }
+    }
 }
 
 @Composable

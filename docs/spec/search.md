@@ -50,19 +50,29 @@ Implementation and perf details live in `docs/splade-search.md`.
   `97b6a14`. On desktop it coexists with MiniSearch behind a status-ready gate
   (`search_status`), and `search_notify` at the TS mutation chokepoint keeps the
   index fresh. → docs/splade-search.md
-- Native shells (today): substring-only filtering over title / preview / tags.
-  **Body text beyond the stored preview does not match** (verified 2026-06-09:
-  "blockquote" deep in a note body → NO MATCHES on Android native; same query
-  matches via BM25 on Tauri). Empty query → recent 8; non-empty → result count
-  + matches with folder label; ✕ clears; tapping a result opens it. →
-  SearchScreen.kt *(Android)*, NoteListView.swift *(iOS)*
-
-> **Gap:** the hybrid search crate is reachable only via Tauri commands — it is
-> NOT exposed through `futo-notes-ffi` (the generated Swift/Kotlin bindings have
-> no search symbol; verified on-device 2026-06-04). So the native SwiftUI
-> (`apps/ios`) and Compose (`apps/android`) shells stay substring-only. Wiring
-> `futo-notes-search` into the FFI facade is the remaining work for the native
-> apps.
+- Native shells: the shared `futo-notes-search` crate is exposed through the
+  `futo-notes-ffi` facade as a `SearchEngine` object (constructor takes the
+  notes root + an index dir; `query`/`keyword_ready`/`rescan`/`notify_*`),
+  and both native shells query it — **body text beyond the stored preview
+  matches** (verified 2026-06-09 on emulator + simulator: a word past the
+  100-char preview window returns its note). Empty query → recent 8;
+  non-empty → result count + matches with folder label; ✕ clears; tapping a
+  result opens it. The substring filter remains only as the warm-up fallback
+  until the keyword index is ready. Store mutations feed
+  `notify_changed/removed/renamed`; a live pull triggers a `rescan`. On
+  Android the engine is a **process singleton** — Tantivy's IndexWriter
+  holds an exclusive directory lock, so a second construction on Activity
+  recreation fails LockBusy. → futo-notes-ffi `SearchEngine`,
+  SearchScreen.kt + `SearchEngineHolder` *(Android)*, SearchService.swift +
+  NoteListView.swift *(iOS)*
+- **Native shells run BM25-only by the same decision as Android Tauri
+  below**: the FFI is built with `futo-notes-search` `default-features =
+  false`, which omits the new `semantic` feature (it gates the
+  `futo-notes-inference` dependency), so no ORT linkage and no model assets
+  ship in the native apps. Keyword search covers note bodies; the splade
+  status reports `fallbackReason: "semantic_disabled"`. Revisit alongside
+  the model-packaging decision. → crates/futo-notes-search `semantic`
+  feature
 
 - **Decision (2026-06-09): shipping the SPLADE model in the Android Tauri
   binary is on hold.** The APK does not bundle the model file

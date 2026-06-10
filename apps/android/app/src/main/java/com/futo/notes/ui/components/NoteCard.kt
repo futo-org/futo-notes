@@ -2,6 +2,9 @@ package com.futo.notes.ui.components
 
 import android.text.format.DateUtils
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -20,6 +23,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -36,24 +40,37 @@ import com.futo.notes.ui.theme.FutoType
  * (small/tertiary, 2 lines); Row 3 tag pills. Press → scale 0.99f.
  *
  * Backed by the FFI-derived [NoteItem] (no pin: the Rust model carries no
- * pinned flag).
+ * pinned flag). Long-press (when wired) opens the row actions menu
+ * [list.md:62] — Surface's own onClick overload has no long-press, so the
+ * card uses combinedClickable on the modifier instead.
  */
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
-fun NoteCard(note: NoteItem, onClick: () -> Unit, showFolder: Boolean = false, modifier: Modifier = Modifier) {
+fun NoteCard(
+    note: NoteItem,
+    onClick: () -> Unit,
+    showFolder: Boolean = false,
+    modifier: Modifier = Modifier,
+    onLongClick: (() -> Unit)? = null,
+) {
     val c = FutoTheme.colors
     val interaction = remember { MutableInteractionSource() }
     val scale = pressScale(interaction, pressedScale = 0.99f)
 
     Surface(
-        onClick = onClick,
-        interactionSource = interaction,
         shape = RoundedCornerShape(FutoRadius.md),
         color = c.surface,
         border = BorderStroke(1.dp, c.border),
         modifier = modifier
             .fillMaxWidth()
-            .graphicsLayer { scaleX = scale; scaleY = scale },
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .clip(RoundedCornerShape(FutoRadius.md))
+            .combinedClickable(
+                interactionSource = interaction,
+                indication = LocalIndication.current,
+                onClick = onClick,
+                onLongClick = onLongClick,
+            ),
     ) {
         Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 15.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {

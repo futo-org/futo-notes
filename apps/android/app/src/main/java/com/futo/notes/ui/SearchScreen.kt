@@ -25,28 +25,39 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.unit.dp
+import com.futo.notes.NoteItem
 import com.futo.notes.NotesStore
 import com.futo.notes.ui.components.MicroLabel
 import com.futo.notes.ui.components.NoteCard
 import com.futo.notes.ui.theme.FutoRadius
 import com.futo.notes.ui.theme.FutoType
 import com.futo.notes.ui.theme.FutoTheme
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.withContext
 
 /**
- * Search over the real note set (FFI). Filtering is a case-insensitive
- * substring match on title/preview/tags — NOTE: not the ranked BM25 engine
- * (`futo-notes-index`), which is not exposed via FFI. The mock "Ask your notes"
- * answer card from the design is intentionally omitted (no semantic engine on
- * native).
+ * Search over the real note set [search.md:60]. Ranked BM25 via the Rust
+ * `SearchEngine` (FFI, keyword-only — no SPLADE model on native) once its
+ * index is warm; until then — and whenever the engine is absent or errors — a
+ * case-insensitive substring match on title/preview/tags keeps results
+ * flowing. Queries are debounced 100 ms and run off-main. The mock "Ask your
+ * notes" answer card from the design is intentionally omitted (no semantic
+ * engine on native).
  */
+@OptIn(FlowPreview::class)
 @Composable
 fun SearchScreen(
     store: NotesStore,
@@ -55,14 +66,44 @@ fun SearchScreen(
 ) {
     val c = FutoTheme.colors
     var query by remember { mutableStateOf("") }
-    val q = query.trim().lowercase()
-
-    val results = if (q.isBlank()) emptyList() else store.notes.filter {
-        it.title.lowercase().contains(q) ||
-            it.preview.lowercase().contains(q) ||
-            it.tags.any { t -> t.lowercase().contains(q) }
-    }
+    var results by remember { mutableStateOf<List<NoteItem>>(emptyList()) }
+    val q = query.trim()
     val recent = store.notes.take(8)
+
+    LaunchedEffect(Unit) {
+        snapshotFlow { query.trim() to store.notes }
+            .debounce(100)
+            .collectLatest { (raw, notes) ->
+                if (raw.isBlank()) {
+                    results = emptyList()
+                    return@collectLatest
+                }
+                // Engine path: BM25, top 50, mapped back onto the live list by
+                // id. Hits for notes the list hasn't caught up with yet are
+                // dropped (they reappear on the next keystroke/reload).
+                val engine = store.engine
+                val hits = if (engine != null) {
+                    withContext(Dispatchers.IO) {
+                        runCatching {
+                            if (engine.keywordReady()) engine.query(raw, 50u) else null
+                        }.getOrNull()
+                    }
+                } else null
+                results = if (hits != null) {
+                    val byId = notes.associateBy { it.id }
+                    hits.mapNotNull { byId[it.noteId] }
+                } else {
+                    // Fallback while the engine warms (or failed): substring
+                    // match on title/preview/tags.
+                    val needle = raw.lowercase()
+                    notes.filter {
+                        it.title.lowercase().contains(needle) ||
+                            it.preview.lowercase().contains(needle) ||
+                            it.tags.any { t -> t.lowercase().contains(needle) }
+                    }
+                }
+            }
+    }
 
     Column(modifier = Modifier.fillMaxWidth().statusBarsPadding()) {
         Row(

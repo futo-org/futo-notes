@@ -104,6 +104,9 @@ futo-notes-search = { path = "../../../crates/futo-notes-search", default-featur
 # to the same major as tauri-runtime-wry's transitive jni so the JNIEnv types
 # match across crates.
 jni = "0.21"
+# Resolves the JavaVM/Activity for the SPLADE APK-asset extraction
+# (search.rs ensure_splade_assets_for_android).
+ndk-context = "0.1"
 
 [lints.clippy]
 too_many_lines = "warn"

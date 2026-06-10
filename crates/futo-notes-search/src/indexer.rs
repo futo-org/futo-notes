@@ -16,14 +16,19 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
-use tantivy::collector::{Collector, TopDocs};
+use tantivy::collector::Collector;
+#[cfg(feature = "semantic")]
+use tantivy::collector::TopDocs;
 use tokenizers::Tokenizer;
 use tokio::sync::mpsc::UnboundedReceiver;
 use walkdir::WalkDir;
 
+#[cfg(feature = "semantic")]
 use futo_notes_core::search::{build_embedding_text, chunk_content_with_target};
+#[cfg(feature = "semantic")]
 use futo_notes_inference::{tokenize_only_query, SpladeDocEncoder, SpladeSparseVec};
 
+#[cfg(feature = "semantic")]
 use crate::splade_scorer::{dedupe_by_note, WeightedSpladeQuery};
 use crate::tantivy_indices::TantivyIndices;
 use crate::{
@@ -50,13 +55,19 @@ pub(crate) struct Ctx {
     /// goes.
     on_status: StatusObserver,
     /// Resolved SPLADE model path, or `None` for BM25-only (no encoder load).
+    /// Only read by the semantic encoder path; carried (but unused) in a
+    /// keyword-only build so `Ctx::new`'s signature is feature-independent.
+    #[cfg_attr(not(feature = "semantic"), allow(dead_code))]
     model_path: Option<PathBuf>,
     /// Resolved SPLADE WordPiece `tokenizer.json` path, or `None`.
+    #[cfg_attr(not(feature = "semantic"), allow(dead_code))]
     tokenizer_path: Option<PathBuf>,
     /// Which model file we resolved — drives env knobs + chunker target.
+    #[cfg_attr(not(feature = "semantic"), allow(dead_code))]
     variant: SpladeModelVariant,
     /// Loaded encoder, cached for the lifetime of the engine instance. Replaces
     /// the Tauri version's process-wide `OnceLock`.
+    #[cfg(feature = "semantic")]
     encoder: Arc<OnceLock<Arc<Mutex<SpladeDocEncoder>>>>,
 }
 
@@ -72,6 +83,7 @@ impl Ctx {
             model_path,
             tokenizer_path,
             variant,
+            #[cfg(feature = "semantic")]
             encoder: Arc::new(OnceLock::new()),
         }
     }
@@ -90,12 +102,15 @@ fn splade_trace<S: AsRef<[u8]>>(msg: S) {
     tracing::trace!(target: "futo_notes_search", "{}", s.trim_end());
 }
 
+#[cfg(feature = "semantic")]
 pub const SPLADE_TARGET_TOKENS: usize = 400;
 /// Notes per encode_batch call. 16 matches the splade_bench default and
 /// gives ORT enough work to amortize session-call overhead.
+#[cfg(feature = "semantic")]
 const SPLADE_BATCH_SIZE: usize = 16;
 /// Inter-batch yield. Small enough not to noticeably slow the backfill,
 /// large enough to give the OS scheduler a chance to switch context.
+#[cfg(feature = "semantic")]
 const INTER_BATCH_YIELD: Duration = Duration::from_millis(5);
 
 /// On-disk sidecar that tracks the last successfully-encoded mtime per note.
@@ -137,6 +152,9 @@ impl Progress {
         }
     }
 
+    // Only the semantic backfill consults/records encode progress; keyword
+    // builds keep the sidecar (forget/save on deletes) but never gate on it.
+    #[cfg(feature = "semantic")]
     fn should_skip(&self, note_id: &str, file_mtime_ms: i64) -> bool {
         match self.map.get(note_id) {
             Some(stored) => *stored >= file_mtime_ms && file_mtime_ms > 0,
@@ -144,6 +162,7 @@ impl Progress {
         }
     }
 
+    #[cfg(feature = "semantic")]
     fn record(&mut self, note_id: String, mtime_ms: i64) {
         self.map.insert(note_id, mtime_ms);
         self.dirty = true;
@@ -194,18 +213,25 @@ pub enum IndexerMsg {
 #[derive(Clone)]
 pub struct IndexerHandle {
     indices: Arc<Mutex<TantivyIndices>>,
+    /// Read by the hybrid query path to check `splade.ready`; carried (but
+    /// unread) in a keyword-only build.
+    #[cfg_attr(not(feature = "semantic"), allow(dead_code))]
     status: Arc<Mutex<SearchStatus>>,
     /// Query-time WordPiece tokenizer path (the inference-free query encoder).
-    /// `None` when no SPLADE tokenizer was configured.
+    /// `None` when no SPLADE tokenizer was configured. Only read by the
+    /// semantic hybrid-query path.
+    #[cfg_attr(not(feature = "semantic"), allow(dead_code))]
     tokenizer_path: Option<PathBuf>,
     /// Lazily-loaded tokenizer, cached per handle (was a process-wide static in
     /// the Tauri version). Loaded on first hybrid query.
+    #[cfg_attr(not(feature = "semantic"), allow(dead_code))]
     tokenizer_cell: Arc<OnceLock<Option<Arc<Tokenizer>>>>,
 }
 
 impl IndexerHandle {
     /// Load + cache the query tokenizer. Returns `None` if no path was
     /// configured or the file failed to parse (the query then degrades to BM25).
+    #[cfg(feature = "semantic")]
     fn query_tokenizer(&self) -> Option<Arc<Tokenizer>> {
         self.tokenizer_cell
             .get_or_init(|| {
@@ -229,60 +255,56 @@ impl IndexerHandle {
         let indices = self.indices.lock().map_err(|_| "index mutex poisoned".to_string())?;
 
         let bm25 = indices.search_bm25(trimmed, DEFAULT_PER_INDEX_TOPK)?;
-        let status = self
-            .status
-            .lock()
-            .map(|s| s.clone())
-            .unwrap_or_default();
 
-        if !status.splade.ready {
-            let mut out = Vec::with_capacity(bm25.len().min(limit));
-            for (id, score) in bm25.into_iter().take(limit) {
-                out.push(SearchHit {
-                    note_id: id,
-                    score,
-                    source: "bm25".to_string(),
-                });
+        // Hybrid path: SPLADE backfill ready AND the query tokenizer loads
+        // (lazily; cached per handle so we don't reload tokenizer.json on
+        // every search). Compiled out entirely in a keyword-only build — the
+        // engine then always serves the BM25 fallthrough below.
+        #[cfg(feature = "semantic")]
+        {
+            let status = self
+                .status
+                .lock()
+                .map(|s| s.clone())
+                .unwrap_or_default();
+            if status.splade.ready {
+                if let Some(tokenizer) = self.query_tokenizer() {
+                    let splade =
+                        search_splade(&indices, &tokenizer, trimmed, DEFAULT_PER_INDEX_TOPK)?;
+                    // rrf_fuse takes (String, f64); upgrade the f32 scores at
+                    // the boundary.
+                    let bm25_64: Vec<(String, f64)> =
+                        bm25.iter().map(|(s, v)| (s.clone(), *v as f64)).collect();
+                    let splade_64: Vec<(String, f64)> =
+                        splade.iter().map(|(s, v)| (s.clone(), *v as f64)).collect();
+                    let fused = futo_notes_core::search::rrf_fuse(&bm25_64, &splade_64, None);
+                    let mut out = Vec::with_capacity(fused.len().min(limit));
+                    for (id, score) in fused.into_iter().take(limit) {
+                        out.push(SearchHit {
+                            note_id: id,
+                            score: score as f32,
+                            source: "hybrid".to_string(),
+                        });
+                    }
+                    return Ok(out);
+                }
+                // Tokenizer unavailable; degrade to BM25 silently.
             }
-            return Ok(out);
         }
 
-        // Load the query tokenizer lazily; cached per handle so we don't reload
-        // tokenizer.json on every search.
-        let tokenizer = match self.query_tokenizer() {
-            Some(t) => t,
-            None => {
-                // Tokenizer unavailable; degrade to BM25 silently.
-                let mut out = Vec::with_capacity(bm25.len().min(limit));
-                for (id, score) in bm25.into_iter().take(limit) {
-                    out.push(SearchHit {
-                        note_id: id,
-                        score,
-                        source: "bm25".to_string(),
-                    });
-                }
-                return Ok(out);
-            }
-        };
-        let splade = search_splade(&indices, &tokenizer, trimmed, DEFAULT_PER_INDEX_TOPK)?;
-        // rrf_fuse takes (String, f64); upgrade the f32 scores at the boundary.
-        let bm25_64: Vec<(String, f64)> =
-            bm25.iter().map(|(s, v)| (s.clone(), *v as f64)).collect();
-        let splade_64: Vec<(String, f64)> =
-            splade.iter().map(|(s, v)| (s.clone(), *v as f64)).collect();
-        let fused = futo_notes_core::search::rrf_fuse(&bm25_64, &splade_64, None);
-        let mut out = Vec::with_capacity(fused.len().min(limit));
-        for (id, score) in fused.into_iter().take(limit) {
+        let mut out = Vec::with_capacity(bm25.len().min(limit));
+        for (id, score) in bm25.into_iter().take(limit) {
             out.push(SearchHit {
                 note_id: id,
-                score: score as f32,
-                source: "hybrid".to_string(),
+                score,
+                source: "bm25".to_string(),
             });
         }
         Ok(out)
     }
 }
 
+#[cfg(feature = "semantic")]
 fn search_splade(
     indices: &TantivyIndices,
     tokenizer: &Tokenizer,
@@ -568,62 +590,75 @@ fn apply_pending(
     }
     emit_keyword_ready(ctx, status);
 
+    // Keyword-only build: no encoder, nothing to upsert into the SPLADE index.
+    // Just flush the SPLADE tombstones buffered by the removes above.
+    #[cfg(not(feature = "semantic"))]
+    {
+        let _ = splade_upserts;
+        if let Ok(mut idx) = indices.lock() {
+            let _ = idx.commit_splade();
+        }
+    }
+
     // SPLADE encoding may need the encoder; do it outside the mutex so reads
     // can proceed while encoding runs.
-    if splade_upserts.is_empty() {
-        let mut idx = match indices.lock() {
-            Ok(g) => g,
-            Err(_) => return,
-        };
-        let _ = idx.commit_splade();
-        return;
-    }
-
-    let snapshot = status.lock().map(|s| s.clone()).unwrap_or_default();
-    if !snapshot.splade.ready && snapshot.splade.fallback_reason.is_some() {
-        // SPLADE permanently failed earlier; skip.
-        return;
-    }
-
-    let encoder = match load_encoder(ctx, status) {
-        Some(e) => e,
-        None => return,
-    };
-
-    let mut encoded: Vec<(String, Vec<SpladeSparseVec>, i64)> = Vec::new();
-    for (note_id, body, mtime_ms) in splade_upserts {
-        let title = note_title(&note_id);
-        let chunks = chunk_content_with_target(&body, chunker_target_tokens());
-        let texts: Vec<String> = chunks
-            .iter()
-            .map(|c| build_embedding_text(&title, &c.text))
-            .collect();
-        let refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
-        match encoder.lock() {
-            Ok(mut enc) => match enc.encode_batch(&refs) {
-                Ok(vecs) => encoded.push((note_id, vecs, mtime_ms)),
-                Err(e) => {
-                    eprintln!("[search/indexer] encode_batch failed: {e}");
-                }
-            },
-            Err(_) => return,
-        }
-    }
+    #[cfg(feature = "semantic")]
     {
-        let mut idx = match indices.lock() {
-            Ok(g) => g,
-            Err(_) => return,
+        if splade_upserts.is_empty() {
+            let mut idx = match indices.lock() {
+                Ok(g) => g,
+                Err(_) => return,
+            };
+            let _ = idx.commit_splade();
+            return;
+        }
+
+        let snapshot = status.lock().map(|s| s.clone()).unwrap_or_default();
+        if !snapshot.splade.ready && snapshot.splade.fallback_reason.is_some() {
+            // SPLADE permanently failed earlier; skip.
+            return;
+        }
+
+        let encoder = match load_encoder(ctx, status) {
+            Some(e) => e,
+            None => return,
         };
-        for (note_id, vecs, _) in &encoded {
-            idx.upsert_note_splade(note_id, vecs);
+
+        let mut encoded: Vec<(String, Vec<SpladeSparseVec>, i64)> = Vec::new();
+        for (note_id, body, mtime_ms) in splade_upserts {
+            let title = note_title(&note_id);
+            let chunks = chunk_content_with_target(&body, chunker_target_tokens());
+            let texts: Vec<String> = chunks
+                .iter()
+                .map(|c| build_embedding_text(&title, &c.text))
+                .collect();
+            let refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
+            match encoder.lock() {
+                Ok(mut enc) => match enc.encode_batch(&refs) {
+                    Ok(vecs) => encoded.push((note_id, vecs, mtime_ms)),
+                    Err(e) => {
+                        eprintln!("[search/indexer] encode_batch failed: {e}");
+                    }
+                },
+                Err(_) => return,
+            }
         }
-        let _ = idx.commit_splade();
-    }
-    if let Ok(mut p) = progress.lock() {
-        for (note_id, _, mtime_ms) in encoded {
-            p.record(note_id, mtime_ms);
+        {
+            let mut idx = match indices.lock() {
+                Ok(g) => g,
+                Err(_) => return,
+            };
+            for (note_id, vecs, _) in &encoded {
+                idx.upsert_note_splade(note_id, vecs);
+            }
+            let _ = idx.commit_splade();
         }
-        p.save();
+        if let Ok(mut p) = progress.lock() {
+            for (note_id, _, mtime_ms) in encoded {
+                p.record(note_id, mtime_ms);
+            }
+            p.save();
+        }
     }
 }
 
@@ -738,6 +773,32 @@ fn reconcile_bm25(
     reindexed
 }
 
+/// Keyword-only stand-in for the SPLADE backfill: the semantic half (doc
+/// encoder + futo-notes-inference + ORT) is compiled out, so report that as a
+/// permanent fallback. `ready` stays false → `IndexerHandle::query` always
+/// serves `"bm25"` hits; hosts read `fallback_reason = "semantic_disabled"`
+/// to distinguish "disabled by build" from "still indexing".
+#[cfg(not(feature = "semantic"))]
+fn backfill_splade(
+    ctx: &Ctx,
+    notes_root: &Path,
+    _indices: &Arc<Mutex<TantivyIndices>>,
+    _progress: &Arc<Mutex<Progress>>,
+    status: &Arc<Mutex<SearchStatus>>,
+) {
+    let total = walk_md_files(notes_root).len() as u32;
+    if let Ok(mut s) = status.lock() {
+        s.splade.total = total;
+        s.splade.indexed = 0;
+        s.splade.ready = false;
+        s.splade.compiling = false;
+        s.splade.fallback_reason = Some("semantic_disabled".to_string());
+    }
+    let snap = status.lock().map(|s| s.clone()).unwrap_or_default();
+    ctx.emit_status(&snap);
+}
+
+#[cfg(feature = "semantic")]
 fn backfill_splade(
     ctx: &Ctx,
     notes_root: &Path,
@@ -981,6 +1042,7 @@ fn backfill_splade(
     ctx.emit_status(&snap);
 }
 
+#[cfg(feature = "semantic")]
 #[cfg_attr(target_arch = "arm", allow(unreachable_code))]
 fn load_encoder(
     ctx: &Ctx,
@@ -1119,6 +1181,7 @@ fn load_encoder(
 /// tokens, so chunks larger than that get truncated and we lose information
 /// from the tail. With ~1.3× WordPiece-to-word ratio, ~96 estimated tokens
 /// is the right target to avoid truncation.
+#[cfg(feature = "semantic")]
 fn chunker_target_tokens() -> usize {
     // Match the model variant we *actually* loaded if possible. We don't
     // know it inside this fn without plumbing it through, so use a static
@@ -1129,9 +1192,12 @@ fn chunker_target_tokens() -> usize {
         .unwrap_or(SPLADE_TARGET_TOKENS)
 }
 
+#[cfg(feature = "semantic")]
 use std::sync::OnceLock as ChunkOnceLock;
+#[cfg(feature = "semantic")]
 static SPLADE_TARGET_TOKENS_RUNTIME: ChunkOnceLock<usize> = ChunkOnceLock::new();
 
+#[cfg(feature = "semantic")]
 fn set_chunker_target_for_variant(variant: crate::SpladeModelVariant) {
     let target = match variant {
         crate::SpladeModelVariant::Fp16Static128 => 96,

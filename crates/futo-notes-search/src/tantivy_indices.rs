@@ -14,6 +14,7 @@ use tantivy::schema::{
     Field, IndexRecordOption, Schema, TextFieldIndexing, TextOptions, FAST, INDEXED, STORED,
     STRING,
 };
+#[cfg(feature = "semantic")]
 use tantivy::tokenizer::PreTokenizedString;
 use tantivy::{Index, IndexReader, IndexWriter, ReloadPolicy, TantivyDocument, Term};
 
@@ -22,8 +23,10 @@ use tantivy::{Index, IndexReader, IndexWriter, ReloadPolicy, TantivyDocument, Te
 #[allow(dead_code)]
 fn _collector_in_scope<C: Collector>() {}
 
+#[cfg(feature = "semantic")]
 use futo_notes_inference::SpladeSparseVec;
 
+#[cfg(feature = "semantic")]
 use crate::SPLADE_SCALE;
 
 /// Schema field handles for the BM25 index.
@@ -71,7 +74,10 @@ impl Bm25Schema {
 pub struct SpladeSchema {
     pub schema: Schema,
     pub note_id: Field,
+    /// Written only by the semantic upsert path.
+    #[cfg_attr(not(feature = "semantic"), allow(dead_code))]
     pub chunk_idx: Field,
+    #[cfg_attr(not(feature = "semantic"), allow(dead_code))]
     pub terms: Field,
 }
 
@@ -257,6 +263,9 @@ impl TantivyIndices {
     }
 
     /// Replace all SPLADE docs for a note with the provided chunk vectors.
+    /// Semantic-only: keyword builds never produce chunk vectors (the SPLADE
+    /// index still exists so `delete_note` tombstones stay symmetric).
+    #[cfg(feature = "semantic")]
     pub fn upsert_note_splade(&mut self, note_id: &str, chunks: &[SpladeSparseVec]) {
         let term = Term::from_field_text(self.splade_schema.note_id, note_id);
         let _ = self.splade_writer.delete_term(term);
@@ -412,6 +421,7 @@ impl TantivyIndices {
 /// SCALE=32. Keep this loop tight — no offset bookkeeping (we don't do
 /// positional queries or highlighting on SPLADE terms) and a single
 /// pre-allocated `Vec`.
+#[cfg(feature = "semantic")]
 fn build_splade_pretokenized(vec: &SpladeSparseVec) -> PreTokenizedString {
     use tantivy::tokenizer::Token;
     let est = vec.indices.len() * (SPLADE_SCALE as usize / 2);

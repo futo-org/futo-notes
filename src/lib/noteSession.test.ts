@@ -1,6 +1,25 @@
-import { describe, expect, it } from 'vitest';
+// @vitest-environment jsdom
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { editorHasUnseenChanges, isEditorChangeEcho, shouldWriteNoteToDisk } from './noteSession.svelte.ts';
+// loadNote's focus routing branches on isMobile, which $lib/platform exports
+// as a const — expose it through a hoisted getter so each test can flip it.
+const platformState = vi.hoisted(() => ({ isMobile: false }));
+
+vi.mock('$lib/platform', () => ({
+  hasFileSystem: true,
+  get isMobile() { return platformState.isMobile; },
+  showSoftKeyboard: vi.fn(async () => {}),
+}));
+
+vi.mock('$lib/notes.svelte', () => ({
+  updateNote: vi.fn(),
+  readNote: vi.fn(async () => { throw new Error('note does not exist'); }),
+  createNote: vi.fn(async (id: string) => ({ id, mtime: 0 })),
+  getNoteById: vi.fn(() => undefined),
+}));
+
+import { createNoteSession, editorHasUnseenChanges, isEditorChangeEcho, shouldWriteNoteToDisk } from './noteSession.svelte.ts';
+import type { NoteSessionDeps } from './noteSession.svelte.ts';
 
 describe('shouldWriteNoteToDisk', () => {
   it('persists a new note when the title was changed', () => {
@@ -140,5 +159,64 @@ describe('isEditorChangeEcho', () => {
         savedContent: 'body',
       }),
     ).toBe(false);
+  });
+});
+
+describe('loadNote focus routing', () => {
+  function makeDeps(noteId: string = 'new') {
+    return {
+      getEditorContent: () => '',
+      setEditorContent: vi.fn(),
+      focusEditor: vi.fn(),
+      focusTitle: vi.fn(),
+      getNotes: () => [],
+      patchGraphNode: vi.fn(),
+      showToast: vi.fn(),
+      notifySaved: vi.fn(),
+      getNoteBody: () => undefined,
+      getTitleTextarea: () => undefined,
+      getNoteId: () => noteId,
+      setPrevNoteId: vi.fn(),
+      onNoteRenamed: vi.fn(),
+    } satisfies NoteSessionDeps;
+  }
+
+  beforeEach(() => {
+    // loadNote defers focus to the next frame; run it synchronously so the
+    // assertions don't need to wait out a real rAF tick.
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { cb(0); return 0; });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    platformState.isMobile = false;
+  });
+
+  it("focuses the title for '+ New' / quick capture on mobile", async () => {
+    // Spec gap (list.md): on Tauri mobile a fresh note should land focus on
+    // the title — handleTitleFocus select-alls "Untitled" so typing replaces
+    // it — instead of dropping the user into the body.
+    platformState.isMobile = true;
+    const deps = makeDeps();
+    await createNoteSession(deps).loadNote('new');
+    expect(deps.focusTitle).toHaveBeenCalledOnce();
+    expect(deps.focusEditor).not.toHaveBeenCalled();
+  });
+
+  it("keeps body focus for '+ New' on desktop", async () => {
+    const deps = makeDeps();
+    await createNoteSession(deps).loadNote('new');
+    expect(deps.focusEditor).toHaveBeenCalledOnce();
+    expect(deps.focusTitle).not.toHaveBeenCalled();
+  });
+
+  it('keeps body focus when a wikilink creates a missing note, even on mobile', async () => {
+    // Following [[missing note]] already names the note — the user's next
+    // keystroke belongs in the body on every platform.
+    platformState.isMobile = true;
+    const deps = makeDeps('missing note');
+    await createNoteSession(deps).loadNote('missing note');
+    expect(deps.focusEditor).toHaveBeenCalledOnce();
+    expect(deps.focusTitle).not.toHaveBeenCalled();
   });
 });

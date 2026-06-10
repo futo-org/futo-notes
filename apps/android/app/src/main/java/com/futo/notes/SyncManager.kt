@@ -1,5 +1,6 @@
 package com.futo.notes
 
+import android.content.SharedPreferences
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -7,6 +8,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import uniffi.futo_notes_ffi.SyncClient
 import uniffi.futo_notes_ffi.SyncEventListener
 import uniffi.futo_notes_ffi.SyncException
@@ -22,9 +24,19 @@ import uniffi.futo_notes_ffi.SyncSummary
  * (plus a safety poll), reconnecting with backoff. It reports back through
  * [SyncEventListener], whose callbacks fire on a tokio worker thread — so each
  * hops to the main thread via [scope] before touching Compose state.
+ *
+ * Session persistence [sync.md:91]: a successful connect stores the server URL
+ * in plain prefs and the password Keystore-encrypted via [SecureStore];
+ * [restoreSession] reconnects silently at startup. Only an explicit
+ * [disconnect] wipes the stored password — transient failures keep it.
  */
-class SyncManager {
-    var serverUrl by mutableStateOf("http://10.0.2.2:3005") // emulator → host loopback
+class SyncManager(
+    private val secure: SecureStore? = null,
+    private val prefs: SharedPreferences? = null,
+) {
+    var serverUrl by mutableStateOf(
+        prefs?.getString(Prefs.SYNC_SERVER_URL, DEFAULT_SERVER) ?: DEFAULT_SERVER,
+    )
     var connected by mutableStateOf(false)
         private set
     var status by mutableStateOf("Not connected")
@@ -80,6 +92,12 @@ class SyncManager {
             val info = c.connect(password)
             client = c
             connected = true
+            // Persist the session so the next launch reconnects silently
+            // [sync.md:91]. Keystore + prefs I/O — off the main thread.
+            withContext(Dispatchers.IO) {
+                secure?.storePassword(password)
+                prefs?.edit()?.putString(Prefs.SYNC_SERVER_URL, serverUrl)?.apply()
+            }
             status = "Connected (${info.authMode}) · syncing…"
             val initial = c.syncNow()
             status = summarize(initial)
@@ -136,6 +154,20 @@ class SyncManager {
         live = false
     }
 
+    /** Silent reconnect with the persisted session at startup [sync.md:91].
+     *  Fire-and-forget, off-main — never gates render. Failures surface via
+     *  [status]/[lastError] but do NOT wipe the stored password (the server
+     *  may simply be unreachable); only [disconnect] clears it. */
+    fun restoreSession(notesRoot: String) {
+        scope.launch {
+            if (connected) return@launch
+            val password = withContext(Dispatchers.IO) {
+                runCatching { secure?.loadPassword() }.getOrNull()
+            } ?: return@launch
+            connectAndSync(notesRoot, password)
+        }
+    }
+
     suspend fun disconnect() {
         try { client?.disconnect() } catch (_: Exception) {} // also stops live in Rust
         client = null
@@ -143,6 +175,8 @@ class SyncManager {
         live = false
         status = "Not connected"
         lastError = null
+        // Explicit disconnect is the ONLY place the stored password is wiped.
+        withContext(Dispatchers.IO) { runCatching { secure?.clearPassword() } }
     }
 
     private fun describe(e: Exception): String = when (e) {
@@ -152,5 +186,9 @@ class SyncManager {
         is SyncException.Auth -> "Auth: ${e.message}"
         is SyncException.NotConnected -> "Not connected"
         else -> e.message ?: e.toString()
+    }
+
+    private companion object {
+        const val DEFAULT_SERVER = "http://10.0.2.2:3005" // emulator → host loopback
     }
 }

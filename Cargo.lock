@@ -1740,6 +1740,7 @@ version = "0.1.0"
 dependencies = [
  "futo-notes-core",
  "futo-notes-model",
+ "futo-notes-search",
  "futo-notes-sync",
  "thiserror 1.0.69",
  "tokio",
@@ -1817,6 +1818,7 @@ dependencies = [
  "glib",
  "jni",
  "libc",
+ "ndk-context",
  "notify",
  "objc2 0.6.4",
  "png 0.17.16",

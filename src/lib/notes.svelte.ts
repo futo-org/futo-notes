@@ -67,6 +67,17 @@ export function _injectTestNote(id: string, title: string): void {
   notesCache.push({ id, title, preview: '', modificationTime: Date.now(), tags: [] });
 }
 
+/**
+ * Native-embed feed: replace the note universe wholesale, no filesystem
+ * scan or search-index side effects. The embedded editor (editor.html in
+ * the iOS/Android WebView shells) has no Tauri backend, so the host pushes
+ * its note list through `FutoEditor.setNotes` → here, giving the wikilink
+ * suffix resolver / autocomplete / resolution something to resolve against.
+ */
+export function setNotesUniverse(previews: NotePreview[]): void {
+  notesCache = previews;
+}
+
 /** A note's display title is the leaf component of its path-ID — the
  *  filename without `.md` and without parent folders. */
 export function noteTitleFromId(id: string): string {

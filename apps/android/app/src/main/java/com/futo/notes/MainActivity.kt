@@ -26,6 +26,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
+import androidx.lifecycle.lifecycleScope
+import com.futo.notes.ui.CrashReportDialog
 import com.futo.notes.ui.EditorHost
 import com.futo.notes.ui.NoteEditorScreen
 import com.futo.notes.ui.NoteListScreen
@@ -35,7 +37,32 @@ import com.futo.notes.ui.SyncScreen
 import com.futo.notes.ui.ThemeMode
 import com.futo.notes.ui.theme.FutoNotesTheme
 import com.futo.notes.ui.theme.FutoMotion
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import uniffi.futo_notes_ffi.SearchEngine
 import java.io.File
+
+/**
+ * Process-wide search-engine singleton [search.md:60]. The engine owns
+ * Tantivy's exclusive IndexWriter lock on the index directory, so it must be
+ * created at most once per process — Activity recreation re-runs onCreate in
+ * the same process and a second `SearchEngine(...)` fails with LockBusy.
+ */
+object SearchEngineHolder {
+    @Volatile private var engine: SearchEngine? = null
+
+    fun get(notesRoot: String, indexDir: String): SearchEngine? {
+        engine?.let { return it }
+        synchronized(this) {
+            engine?.let { return it }
+            return runCatching { SearchEngine(notesRoot, indexDir) }
+                .onFailure { android.util.Log.e("FutoSearch", "search engine init failed", it) }
+                .getOrNull()
+                ?.also { engine = it }
+        }
+    }
+}
 
 /** A screen in the manual nav stack. Note ids/folders contain `/`, which would
  *  break Navigation-Compose string routes, so the stack holds typed entries. */
@@ -47,14 +74,19 @@ sealed interface Screen {
     data object Sync : Screen
 }
 
-private const val PREFS = "futo_prefs"
-private const val KEY_THEME = "theme_mode"
-
 class MainActivity : ComponentActivity() {
     // Hoisted so onStart/onStop can pause/resume the SSE live stream — the
     // stream shouldn't stay open while backgrounded; re-foregrounding gets a
     // fresh `ready` that drives a catch-up pull.
     private lateinit var sync: SyncManager
+
+    // Native image pickers for the editor's pickImage bridge message — must
+    // register their ActivityResult contracts during onCreate.
+    private lateinit var imagePicker: ImagePicker
+
+    // Crash logs found by the startup scan, surfaced as the crash dialog.
+    // Compose state so setContent reacts when the off-main scan lands.
+    private val pendingCrashJson = mutableStateOf<String?>(null)
 
     override fun onStart() {
         super.onStart()
@@ -102,19 +134,62 @@ class MainActivity : ComponentActivity() {
         // slips back onto the UI thread, without false-positive startup noise.
         val (notesRoot, prefs) = android.os.StrictMode.allowThreadDiskReads().let { saved ->
             try {
-                File(filesDir, "futo-notes") to getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                File(filesDir, "futo-notes") to getSharedPreferences(Prefs.FILE, Context.MODE_PRIVATE)
             } finally {
                 android.os.StrictMode.setThreadPolicy(saved)
             }
         }
+
+        // Crash pipeline [app.md:61]: persist uncaught exceptions to
+        // <vault>/.crashlogs on the way down (then chain to the platform
+        // handler); the scan below offers them for upload NEXT launch.
+        CrashReporter.install(notesRoot, BuildConfig.VERSION_NAME)
+
         val store = NotesStore(notesRoot)
-        sync = SyncManager()
+        sync = SyncManager(SecureStore(prefs), prefs)
         // Refresh the note list when a live pull brings in remote changes (sync +
         // note store are separate objects). Mirrors the iOS FutoNotesApp wiring.
-        sync.onLivePull = { store.reloadAsync() }
+        // A pull rewrites arbitrary files on disk, so the search engine gets a
+        // full rescan alongside the list reload [search.md:60].
+        sync.onLivePull = { store.reloadAsync(); store.engineRescanAsync() }
         // Auto-push local edits: every NotesStore mutation signals the live loop,
         // which debounces and pushes to peers (no-op when not connected).
         store.onLocalChange = { sync.noteChanged() }
+        imagePicker = ImagePicker(this)
+
+        // Silent sync-session restore [sync.md:91] — off-main, fire-and-forget,
+        // never gates render. No-op when no password is stored.
+        sync.restoreSession(store.rootPath)
+
+        // BM25 search engine [search.md:60]. Opening/building the Tantivy index
+        // does disk I/O, so construction runs off-main; SearchScreen falls back
+        // to substring filtering until `store.engine` lands. Process-singleton:
+        // the engine holds Tantivy's exclusive IndexWriter lock, so a second
+        // construction in the same process (Activity recreation) fails LockBusy.
+        lifecycleScope.launch(Dispatchers.IO) {
+            SearchEngineHolder.get(store.rootPath, File(filesDir, "search").absolutePath)
+                ?.let { engine -> withContext(Dispatchers.Main) { store.engine = engine } }
+        }
+
+        // Crash-log scan [settings.md:43] — backgrounded, never gates render.
+        // Mirrors desktop initCrashReporting (App.svelte): reporting disabled →
+        // leave files alone; always-send → upload + delete silently; otherwise
+        // surface the dialog.
+        lifecycleScope.launch(Dispatchers.IO) {
+            val pending = CrashReporter.pending(notesRoot)
+            if (pending.isEmpty()) return@launch
+            if (!prefs.getBoolean(Prefs.CRASH_ENABLED, true)) return@launch
+            if (prefs.getBoolean(Prefs.CRASH_ALWAYS_SEND, false)) {
+                CrashReporter.sendAll(notesRoot, null)
+            } else {
+                val json = pending.joinToString("\n\n") { f ->
+                    runCatching { f.readText() }.getOrDefault("")
+                }.trim()
+                if (json.isNotEmpty()) {
+                    withContext(Dispatchers.Main) { pendingCrashJson.value = json }
+                }
+            }
+        }
 
         // Pre-warm the editor WebView (Chromium renderer + ~2 MB bundle parse +
         // CodeMirror mount) while the list screen is up, so opening a note is a
@@ -126,7 +201,7 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(Unit) { android.util.Log.i("FutoStartup", "first composition reached") }
             }
             var themeMode by remember {
-                mutableStateOf(runCatching { ThemeMode.valueOf(prefs.getString(KEY_THEME, "AUTO")!!) }.getOrDefault(ThemeMode.AUTO))
+                mutableStateOf(runCatching { ThemeMode.valueOf(prefs.getString(Prefs.THEME, "AUTO")!!) }.getOrDefault(ThemeMode.AUTO))
             }
             val dark = when (themeMode) {
                 ThemeMode.LIGHT -> false
@@ -171,6 +246,13 @@ class MainActivity : ComponentActivity() {
                                 autoFocus = top.autoFocus,
                                 darkTheme = dark,
                                 onBack = { pop() },
+                                // Wikilink tap [editor.md:77]: REPLACE the current
+                                // editor entry (pop + push) so Back returns to the
+                                // list, not a chain of editors.
+                                onOpenNote = { id ->
+                                    stack[stack.lastIndex] = Screen.Editor(id, autoFocus = false)
+                                },
+                                imagePicker = imagePicker,
                             )
                             is Screen.Search -> SearchScreen(
                                 store = store,
@@ -183,13 +265,36 @@ class MainActivity : ComponentActivity() {
                                 themeMode = themeMode,
                                 onThemeMode = {
                                     themeMode = it
-                                    prefs.edit().putString(KEY_THEME, it.name).apply()
+                                    prefs.edit().putString(Prefs.THEME, it.name).apply()
                                 },
                                 onOpenSync = { push(Screen.Sync) },
                                 onBack = { pop() },
                             )
                             is Screen.Sync -> SyncScreen(store = store, sync = sync, onBack = { pop() })
                         }
+                    }
+
+                    // Crash Report dialog [app.md:61]: shown when the startup
+                    // scan found reports and always-send is off. "Don't Send"
+                    // is the desktop-parity permanent opt-out.
+                    pendingCrashJson.value?.let { json ->
+                        CrashReportDialog(
+                            reportJson = json,
+                            onSend = { userNote, alwaysSend ->
+                                pendingCrashJson.value = null
+                                if (alwaysSend) prefs.edit().putBoolean(Prefs.CRASH_ALWAYS_SEND, true).apply()
+                                lifecycleScope.launch(Dispatchers.IO) {
+                                    CrashReporter.sendAll(notesRoot, userNote)
+                                }
+                            },
+                            onDontSend = {
+                                pendingCrashJson.value = null
+                                prefs.edit().putBoolean(Prefs.CRASH_ENABLED, false).apply()
+                                lifecycleScope.launch(Dispatchers.IO) {
+                                    CrashReporter.discardAll(notesRoot)
+                                }
+                            },
+                        )
                     }
                 }
             }

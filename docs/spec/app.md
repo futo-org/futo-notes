@@ -48,14 +48,26 @@ Behaviors and constraints that hold across every surface and platform.
 - `window.confirm()` / `window.alert()` don't block in Tauri's webview — use
   `ask()` / `message()` from `@tauri-apps/plugin-dialog`. → CLAUDE.md
 
-## Feedback & crash reporting *(Tauri)*
+## Feedback & crash reporting
 
 - Action feedback uses transient toasts (~3 s, one at a time, auto-dismiss):
-  "Note deleted", "Moved to {folder}", "Path copied", etc. → toast.ts
+  "Note deleted", "Moved to {folder}", "Path copied", etc. *(Tauri; Android
+  native uses platform toasts for the same moments)* → toast.ts
 - An uncaught error/crash is queued; the **next launch** shows a Crash Report
   dialog: expandable "View report", an optional "What were you doing?" field,
   an "Always send crash reports" checkbox, and Send / Don't Send. "Always
   send" (also a Settings toggle) auto-sends future reports without the
   dialog. Verified on Android Tauri 2026-06-09. → CrashReportDialog.svelte,
-  crashHandler.ts
-  > **Gap:** the native shells have no crash capture/report pipeline.
+  crashHandler.ts *(Tauri)*
+- The native shells run the same pipeline: an uncaught-exception handler
+  (Android `Thread.setDefaultUncaughtExceptionHandler`; iOS
+  `NSSetUncaughtExceptionHandler` plus fatal-signal handlers with
+  pre-rendered, write-only signal paths) persists a desktop-schema JSON
+  report to `<vault>/.crashlogs/` on the way down; the next launch scans the
+  folder in the background (never gating render) and shows the same dialog,
+  honoring the Settings toggle and Always-send; Send POSTs to the crash
+  collector (`/api/crashes` batch, `/api/crash` fallback; dev builds target
+  the local collector) and deletes the files. Verified end-to-end on
+  emulator + simulator 2026-06-09 (test crash → relaunch dialog → collector
+  received the POST → files cleared). → CrashReporter.kt +
+  CrashReportDialog.kt *(Android)*, CrashReporter.swift *(iOS)*

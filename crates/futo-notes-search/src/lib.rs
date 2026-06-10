@@ -30,6 +30,7 @@
 //!   [`SearchEngine::status`] are synchronous.
 
 mod indexer;
+#[cfg(feature = "semantic")]
 mod splade_scorer;
 mod tantivy_indices;
 
@@ -76,7 +77,8 @@ pub struct SpladeStatus {
     /// indicator doesn't look frozen at "0 / N".
     pub compiling: bool,
     /// One of: "model_file_missing", "encoder_load_failed",
-    /// "armv7_unsupported", "indexer_crashed", or None.
+    /// "armv7_unsupported", "indexer_crashed", "semantic_disabled" (keyword-
+    /// only build, no `semantic` feature), or None.
     pub fallback_reason: Option<String>,
 }
 
@@ -286,5 +288,45 @@ mod tests {
 
         // Empty query returns nothing.
         assert!(engine.query("   ", 10).unwrap().is_empty());
+    }
+
+    /// Keyword-only build (`--no-default-features`): the SPLADE half is
+    /// compiled out, and the backfill phase reports it as a permanent
+    /// `semantic_disabled` fallback so hosts can distinguish "disabled by
+    /// build" from "still indexing".
+    #[cfg(not(feature = "semantic"))]
+    #[test]
+    fn keyword_only_build_reports_semantic_disabled() {
+        let vault = ScopedTempDir::new();
+        let index = ScopedTempDir::new();
+        std::fs::write(vault.path().join("One.md"), "alpha beta").unwrap();
+
+        let config = SearchConfig {
+            notes_root: vault.path().clone(),
+            index_dir: index.path().clone(),
+            model_path: None,
+            tokenizer_path: None,
+            model_variant: SpladeModelVariant::Int8Dynamic,
+        };
+        let engine = SearchEngine::start(config, Arc::new(|_| {})).expect("engine starts");
+
+        // The fallback is set by the (stub) backfill phase, right after the
+        // keyword reconcile. Poll for it rather than sleeping a fixed time.
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let status = engine.status();
+            if status.splade.fallback_reason.as_deref() == Some("semantic_disabled") {
+                assert!(!status.splade.ready);
+                assert!(status.keyword.ready);
+                break;
+            }
+            assert!(Instant::now() < deadline, "semantic_disabled never reported");
+            std::thread::sleep(Duration::from_millis(25));
+        }
+
+        // Queries still serve BM25 hits.
+        let hits = engine.query("alpha", 10).expect("query ok");
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].source, "bm25");
     }
 }

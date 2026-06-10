@@ -33,6 +33,15 @@ fn kinds(issues: &[model::FilenameIssue]) -> Vec<String> {
     issues.iter().map(|i| i.kind.as_str().to_string()).collect()
 }
 
+/// A JSON string-array field of an input object → `Vec<String>`.
+fn string_vec(input: &Value, key: &str) -> Vec<String> {
+    input
+        .get(key)
+        .and_then(|v| v.as_array())
+        .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .unwrap_or_default()
+}
+
 /// Dispatch a language-neutral op + input → a JSON value comparable to the
 /// fixture's `expected`.
 fn run_op(op: &str, input: &Value) -> Value {
@@ -70,6 +79,27 @@ fn run_op(op: &str, input: &Value) -> Value {
             })
         }
         "makePreview" => Value::from(model::make_preview(&s())),
+        "resolveWikilink" => {
+            let target = input.get("target").and_then(|v| v.as_str()).unwrap_or_default();
+            let all_ids = string_vec(input, "allIds");
+            match model::resolve_wikilink(target, &all_ids) {
+                Some(id) => Value::from(id),
+                None => Value::Null,
+            }
+        }
+        "shortestUniqueSuffix" => {
+            let target_id = input.get("targetId").and_then(|v| v.as_str()).unwrap_or_default();
+            let all_ids = string_vec(input, "allIds");
+            Value::from(model::shortest_unique_suffix(target_id, &all_ids))
+        }
+        "rewriteWikilinks" => {
+            let text = input.get("text").and_then(|v| v.as_str()).unwrap_or_default();
+            let old_id = input.get("oldId").and_then(|v| v.as_str()).unwrap_or_default();
+            let new_id = input.get("newId").and_then(|v| v.as_str()).unwrap_or_default();
+            let all_ids = string_vec(input, "allIds");
+            let (out, rewrites) = model::rewrite_wikilinks(text, old_id, new_id, &all_ids);
+            serde_json::json!({ "text": out, "rewrites": rewrites })
+        }
         "isImageFilename" => Value::from(model::is_image_filename(&s())),
         "imageExtensions" => Value::from(
             model::IMAGE_EXTENSIONS
@@ -145,4 +175,9 @@ fn image_conformance() {
 #[test]
 fn preview_conformance() {
     check_fixture("preview");
+}
+
+#[test]
+fn wikilinks_conformance() {
+    check_fixture("wikilinks");
 }

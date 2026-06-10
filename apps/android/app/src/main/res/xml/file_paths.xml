@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FileProvider paths: only the camera-capture staging dir is shared (the
+     system camera app writes the photo here before we copy it into the vault). -->
+<paths>
+    <cache-path name="camera" path="camera/" />
+</paths>

@@ -385,6 +385,83 @@ pub fn move_note(base: &Path, id: &str, folder: &str) -> Result<String, String> 
     rename_note(base, id, &new_id)
 }
 
+/// Delete a folder non-destructively, mirroring the Tauri sidebar's
+/// `confirmDeleteFolder` (DrawerSidebar.svelte) move-up semantics: every note
+/// under `folder/` moves to the folder's parent with the deleted segment
+/// removed and any deeper structure preserved (`A/B/C/x` → `A/C/x` when
+/// deleting `A/B`), destination collisions resolve with the standard `-2`
+/// suffix via `rename_note`, and wikilinks pointing at each moved note are
+/// rewritten. Only then is the now-note-empty folder tree removed.
+///
+/// If ANY move fails, the folder is NOT deleted and an error is returned —
+/// already-moved notes stay moved, exactly like the desktop flow (deleting
+/// while orphans remain inside would be silent data loss). A missing folder
+/// is a no-op `Ok(0)`. Returns the number of notes moved.
+pub fn delete_folder_move_up(base: &Path, folder: &str) -> Result<u32, String> {
+    // Refuse the vault root and anything that could escape it. The id-level
+    // safety inside `rename_note` would block traversal on the moves too, but
+    // the final `remove_dir_all` operates on the raw folder path, so it gets
+    // its own gate.
+    if folder.is_empty() || folder == "/" {
+        return Err("cannot delete the vault root".to_string());
+    }
+    if folder.contains('\\') || folder.starts_with('/') || folder.ends_with('/') {
+        return Err("invalid folder path".to_string());
+    }
+    for component in folder.split('/') {
+        if component.is_empty() || component == "." || component == ".." {
+            return Err("invalid folder path".to_string());
+        }
+    }
+    let mut abs = base.to_path_buf();
+    for component in folder.split('/') {
+        abs.push(component);
+    }
+    if !abs.exists() {
+        return Ok(0);
+    }
+
+    let parent = match folder.rfind('/') {
+        Some(idx) => &folder[..idx],
+        None => "",
+    };
+    let prefix = format!("{folder}/");
+    let note_ids: Vec<String> = scan_notes(base)
+        .into_iter()
+        .filter(|n| n.id.starts_with(&prefix))
+        .map(|n| n.id)
+        .collect();
+
+    let mut moved = 0u32;
+    let mut failed = 0u32;
+    for id in &note_ids {
+        let tail = &id[prefix.len()..];
+        let target = if parent.is_empty() {
+            tail.to_string()
+        } else {
+            format!("{parent}/{tail}")
+        };
+        match rename_note(base, id, &target) {
+            Ok(final_id) => {
+                // Relink immediately per move, exactly like the desktop
+                // `moveNote → rewriteWikilinksForRename` path.
+                crate::wikilinks::relink_note_references(base, id, &final_id)?;
+                moved += 1;
+            }
+            Err(_) => failed += 1,
+        }
+    }
+    // CRITICAL (Tauri parity): never remove the tree while notes inside it
+    // failed to move out — the orphans would go with it.
+    if failed > 0 {
+        return Err(format!(
+            "folder not deleted — {failed} note(s) could not be moved out"
+        ));
+    }
+    std::fs::remove_dir_all(&abs).map_err(|e| e.to_string())?;
+    Ok(moved)
+}
+
 /// Create a folder (and missing intermediates) on disk. Returns the sanitized
 /// path actually created, or `""` for an effectively-empty input (no-op).
 /// Mirrors `NotesStore.createFolder`.

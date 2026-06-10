@@ -51,11 +51,29 @@ actor NoteVault {
     func delete(_ id: String) throws { try core.delete(id: id) }
 
     func rename(oldId: String, newId: String) throws -> String {
-        try core.rename(oldId: oldId, newId: newId)
+        let finalId = try core.rename(oldId: oldId, newId: newId)
+        // Rewrite every wikilink vault-wide that resolved to the old id so it
+        // points at the new one (Rust relink, same rules as Tauri). Runs inside
+        // the actor so no scan can observe the moved-but-not-relinked window. A
+        // relink failure must not fail the rename — the file already moved;
+        // stale links are the lesser evil.
+        _ = try? core.relink(oldId: oldId, newId: finalId)
+        return finalId
     }
 
     func moveNote(_ id: String, folder: String) throws -> String {
-        try core.moveNote(id: id, folder: folder)
+        let finalId = try core.moveNote(id: id, folder: folder)
+        // Same wikilink rewrite as rename — a move changes the id too.
+        _ = try? core.relink(oldId: id, newId: finalId)
+        return finalId
+    }
+
+    /// Delete a folder with MOVE-UP semantics (Tauri parity): every note under
+    /// it moves to the parent (folder segment removed, wikilinks relinked); the
+    /// now-note-empty folder tree is then removed. All-or-nothing in one Rust
+    /// call. Returns the moved-note count.
+    func deleteFolder(_ folder: String) throws -> UInt32 {
+        try core.deleteFolder(folder: folder)
     }
 
     func createFolder(_ path: String) throws -> String {
@@ -179,10 +197,17 @@ final class NotesStore: ObservableObject {
     /// rules. All FS I/O happens behind this actor.
     private let vault: NoteVault
 
+    /// Off-main owner of the lazy Rust `SearchEngine` (BM25). Store mutations
+    /// feed it incremental notify* calls; live pulls trigger a rescan. The list
+    /// UI queries it directly (NoteListView), falling back to substring search
+    /// while the index warms.
+    let search: SearchService
+
     init() {
         let root = NotesStore.resolveNotesRoot()
         self.notesRoot = root
         self.vault = NoteVault(notesRoot: root.path)
+        self.search = SearchService(notesRoot: root.path)
         // CRITICAL: do NOT scan/seed synchronously here — that would gate the
         // first frame on filesystem I/O. Fire a background bootstrap; the list
         // populates reactively when it lands.
@@ -193,7 +218,10 @@ final class NotesStore: ObservableObject {
     /// data root (Documents/fake-notes) so a dev/debug install can never read or
     /// write the user's real notes — mirrors the Tauri debug guard
     /// (default_notes_root → ~/Documents/fake-notes). Release uses the prod root.
-    private static func resolveNotesRoot() -> URL {
+    /// Internal (not private) and nonisolated: the futo-asset scheme handler
+    /// and the crash reporter resolve the same root without holding a
+    /// `NotesStore` (or hopping to the main actor — no actor state is touched).
+    nonisolated static func resolveNotesRoot() -> URL {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         #if FUTO_DEBUG_BUILD
         return docs.appendingPathComponent("fake-notes", isDirectory: true)
@@ -263,6 +291,7 @@ final class NotesStore: ObservableObject {
             } else {
                 reload()
             }
+            search.noteChanged(id)
             onLocalChange?()
         } catch {
             print("write failed for \(id): \(error)")
@@ -275,6 +304,7 @@ final class NotesStore: ObservableObject {
         do {
             let id = try await vault.createNote(title: title, folder: folder)
             reload()
+            search.noteChanged(id)
             onLocalChange?()
             return id
         } catch {
@@ -285,8 +315,11 @@ final class NotesStore: ObservableObject {
 
     func delete(_ id: String) {
         Task {
-            do { try await vault.delete(id); onLocalChange?() }
-            catch { print("delete failed for \(id): \(error)") }
+            do {
+                try await vault.delete(id)
+                search.noteRemoved(id)
+                onLocalChange?()
+            } catch { print("delete failed for \(id): \(error)") }
             reload()
         }
     }
@@ -297,6 +330,7 @@ final class NotesStore: ObservableObject {
         do {
             let finalId = try await vault.rename(oldId: oldId, newId: newId)
             reload()
+            search.noteRenamed(from: oldId, to: finalId)
             onLocalChange?()
             return finalId
         } catch {
@@ -328,6 +362,7 @@ final class NotesStore: ObservableObject {
         do {
             let finalId = try await vault.moveNote(id, folder: folder)
             reload()
+            search.noteRenamed(from: id, to: finalId)
             onLocalChange?()
             return finalId
         } catch {
@@ -346,11 +381,29 @@ final class NotesStore: ObservableObject {
             _ = try await vault.createFolder(folder)
             let finalId = try await vault.moveNote(id, folder: folder)
             reload()
+            search.noteRenamed(from: id, to: finalId)
             onLocalChange?()
             return finalId
         } catch {
             print("moveNoteCreatingFolder failed \(id) -> \(folder): \(error)")
             return id
+        }
+    }
+
+    /// Delete a folder (MOVE-UP semantics — see `NoteVault.deleteFolder`).
+    /// Notes inside move to the parent folder; nothing is lost. Many ids change
+    /// at once, so the search index takes a full rescan instead of per-note
+    /// notifies.
+    func deleteFolder(_ folder: String) {
+        Task {
+            do {
+                _ = try await vault.deleteFolder(folder)
+                search.rescanAsync()
+                onLocalChange?()
+            } catch {
+                print("deleteFolder failed for \(folder): \(error)")
+            }
+            reload()
         }
     }
 
@@ -382,5 +435,38 @@ final class NotesStore: ObservableObject {
     /// Notes whose parent folder is exactly `folder` ("" = root).
     func notes(in folder: String) -> [NoteItem] {
         notes.filter { $0.folder == folder }
+    }
+
+    // MARK: - Paths / maintenance
+
+    /// Absolute filesystem path of a note's `.md` file (Copy File Path).
+    func notePath(_ id: String) -> String {
+        notesRoot.appendingPathComponent(id + ".md").path
+    }
+
+    /// A live pull rewrote the vault on disk: refresh the list AND rescan the
+    /// search index (remote edits bypass the per-mutation notify* calls). Wired
+    /// to `SyncManager.onLivePull` in FutoNotesApp.
+    func liveDataChanged() {
+        reload()
+        search.rescanAsync()
+    }
+
+    /// Danger-zone full reset (Settings): delete EVERYTHING under the vault
+    /// root — notes, folders, images, `.crashlogs` — then reload to empty.
+    /// The caller (SettingsView) pauses live sync before and disconnects after,
+    /// so the deletions are never pushed to peers. Runs off-main; does NOT
+    /// re-seed (seeding is bootstrap-only).
+    func fullReset() async {
+        let root = notesRoot
+        await Task.detached(priority: .userInitiated) {
+            let fm = FileManager.default
+            let entries = (try? fm.contentsOfDirectory(atPath: root.path)) ?? []
+            for entry in entries {
+                try? fm.removeItem(at: root.appendingPathComponent(entry))
+            }
+        }.value
+        search.rescanAsync()
+        reload()
     }
 }
