@@ -21,13 +21,21 @@ import os
 ///
 /// The page exposes `window.FutoEditor` (setContent/getContent/focus/setTheme
 /// plus the v2 additions setNotes/applyExternalContent/insertImage/
-/// setImageBaseUrl) and posts messages to the native handler named exactly
-/// "futoBridge":
+/// setImageBaseUrl and the v3 additions exec/blur/setNativeToolbar) and posts
+/// messages to the native handler named exactly "futoBridge":
 ///   { type: 'ready' }
 ///   { type: 'change', content: <markdown> }
 ///   { type: 'focus', focused: <bool> }
 ///   { type: 'openNote', id: <resolved note id> }
 ///   { type: 'pickImage', source: 'camera' | 'library' }
+///   { type: 'cursorContext', onListLine: <bool> }
+///
+/// The markdown toolbar is NATIVE on iOS: EditorHost installs
+/// EditorToolbarAccessory as the keyboard's inputAccessoryView (so it docks
+/// and animates with the keyboard), tells the embed to suppress its web
+/// toolbar (setNativeToolbar), and dispatches taps back over the bridge —
+/// `exec(<manifest id>)` runs the SHARED markdownToolbar.ts command, so the
+/// editing behavior is identical to the web/Android toolbar by construction.
 struct EditorWebView: UIViewRepresentable {
     /// Markdown to push into the editor once it is ready.
     let content: String
@@ -107,6 +115,17 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
 
     /// Incremented per attach; detach only clears if its token is still current.
     private var generation = 0
+
+    /// Reactive inputs for the NATIVE markdown toolbar (bridge v3
+    /// cursorContext drives Indent/Outdent visibility).
+    let toolbarState = EditorToolbarState()
+    /// The native toolbar, installed as the keyboard's inputAccessoryView via
+    /// futo_overrideInputAccessoryView. Lazy: the closure captures self.
+    private lazy var toolbarAccessory = EditorToolbarAccessory(
+        state: toolbarState
+    ) { [weak self] item in
+        self?.performToolbarAction(item)
+    }
 
     let webView: WKWebView
 
@@ -261,6 +280,10 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             // Local image filenames in ![](f) resolve through the native
             // futo-asset scheme (served from the vault root).
             pushImageBaseUrl()
+            // The toolbar is native (keyboard accessory) — tell the embed to
+            // keep its web toolbar hidden. Per page load, so re-sent on every
+            // fresh 'ready'.
+            pushNativeToolbar()
             pushContent(desiredContent)
             if let json = desiredNotesJson { pushNotes(json) }
             onReady?()
@@ -271,11 +294,15 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
                 onChange(content)
             }
         case "focus":
-            // The private WKContentView exists once focused; strip its
-            // input-accessory bar again here in case it appeared late.
+            // The private WKContentView exists once focused; re-apply the
+            // accessory override here in case it appeared late.
             if (body["focused"] as? Bool) == true {
-                webView.futo_removeInputAccessoryView()
+                webView.futo_overrideInputAccessoryView(toolbarAccessory)
             }
+        case "cursorContext":
+            // Deduped by the embed — drives Indent/Outdent visibility in the
+            // native toolbar.
+            toolbarState.onListLine = (body["onListLine"] as? Bool) ?? false
         case "openNote":
             // User tapped a RESOLVED wikilink — the bound note view navigates.
             if let id = body["id"] as? String {
@@ -304,12 +331,31 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         }
     }
 
+    /// Native toolbar tap → bridge. `exec` runs the shared markdownToolbar.ts
+    /// command for the item's manifest id; pickImage opens the native picker
+    /// (same path the web toolbar's bridge message takes); dismiss blurs the
+    /// editor through the bridge so the page's focus state stays truthful
+    /// (the resulting keyboard drop hides this accessory too).
+    private func performToolbarAction(_ item: ToolbarItemSpec) {
+        switch item.action {
+        case .exec:
+            let js = "window.FutoEditor && window.FutoEditor.exec(\(jsLiteral(item.id)));"
+            webView.evaluateJavaScript(js, completionHandler: nil)
+        case .pickImage(let source):
+            presentImagePicker(source: source)
+        case .dismiss:
+            webView.evaluateJavaScript(
+                "window.FutoEditor && window.FutoEditor.blur();", completionHandler: nil)
+        }
+    }
+
     // MARK: WKNavigationDelegate
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        // Remove the keyboard's prev/next/Done accessory bar so the plain
-        // keyboard shows. The WKContentView is in the scroll view by now.
-        webView.futo_removeInputAccessoryView()
+        // Replace the keyboard's default prev/next/Done accessory bar with the
+        // native markdown toolbar. The WKContentView is in the scroll view by
+        // now.
+        webView.futo_overrideInputAccessoryView(toolbarAccessory)
     }
 
     // MARK: JS bridge
@@ -358,13 +404,26 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         let js = "window.FutoEditor && window.FutoEditor.setImageBaseUrl(\(jsLiteral("futo-asset:///")));"
         webView.evaluateJavaScript(js, completionHandler: nil)
     }
+
+    private func pushNativeToolbar() {
+        webView.evaluateJavaScript(
+            "window.FutoEditor && window.FutoEditor.setNativeToolbar(true);",
+            completionHandler: nil)
+    }
 }
 
-// MARK: - Input-accessory removal
+// MARK: - Input-accessory override
 
 /// Cache of runtime-generated subclasses, keyed by the base class name, so we
 /// only build each one once. Single-threaded use (main actor / UI) only.
-private nonisolated(unsafe) var futoNoAccessoryClasses: [String: AnyClass] = [:]
+private nonisolated(unsafe) var futoAccessoryClasses: [String: AnyClass] = [:]
+
+/// The view the swizzled `inputAccessoryView` getter returns. nil = no bar at
+/// all (the original behavior of this hack, which only STRIPPED Apple's
+/// prev/next/Done bar); EditorHost sets the native markdown toolbar here.
+/// One global is enough: the app has exactly one editor WKWebView (EditorHost
+/// is a singleton).
+private nonisolated(unsafe) var futoAccessoryOverrideView: UIView?
 
 /// When true, the focus swizzle forces the keyboard up even for programmatic /
 /// empty-contenteditable focus. We only flip it on for the brand-new-note
@@ -372,27 +431,36 @@ private nonisolated(unsafe) var futoNoAccessoryClasses: [String: AnyClass] = [:]
 nonisolated(unsafe) var futoForceKeyboardOnFocus = false
 
 extension WKWebView {
-    /// Removes the keyboard input-accessory bar (the prev / next / Done toolbar
-    /// shown above the keyboard for web content). There is no public API for
-    /// this: the bar belongs to the private `WKContentView` that is the actual
-    /// first responder, not to the `WKWebView`. We give that view a runtime
-    /// subclass whose `inputAccessoryView` getter returns nil.
-    func futo_removeInputAccessoryView() {
+    /// Replaces the keyboard input-accessory bar (the prev / next / Done
+    /// toolbar shown above the keyboard for web content) with `view` — or
+    /// with nothing when `view` is nil. There is no public API for this: the
+    /// bar belongs to the private `WKContentView` that is the actual first
+    /// responder, not to the `WKWebView`. We give that view a runtime
+    /// subclass whose `inputAccessoryView` getter returns our override.
+    func futo_overrideInputAccessoryView(_ view: UIView?) {
+        futoAccessoryOverrideView = view
         guard let contentView = scrollView.subviews.first(where: {
             let name = String(describing: type(of: $0))
             return name.hasPrefix("WKContentView") || name.contains("ContentView")
         }) else { return }
 
-        let baseClass: AnyClass = type(of: contentView)
-        let newName = "FutoNoAccessory_" + NSStringFromClass(baseClass)
+        defer {
+            // If the keyboard is already up, make it re-query the accessory.
+            if contentView.isFirstResponder { contentView.reloadInputViews() }
+        }
 
-        if let cached = futoNoAccessoryClasses[newName] {
+        let baseClass: AnyClass = type(of: contentView)
+        let newName = "FutoAccessoryOverride_" + NSStringFromClass(baseClass)
+
+        if let cached = futoAccessoryClasses[newName] {
             object_setClass(contentView, cached)
             return
         }
         guard let subclass = objc_allocateClassPair(baseClass, newName, 0) else { return }
         let sel = #selector(getter: UIResponder.inputAccessoryView)
-        let block: @convention(block) (AnyObject) -> UIView? = { _ in nil }
+        let block: @convention(block) (AnyObject) -> UIView? = { _ in
+            futoAccessoryOverrideView
+        }
         let imp = imp_implementationWithBlock(block)
         // method_getTypeEncoding returns UnsafePointer<CChar>?; pass it through
         // directly (a Swift String literal auto-bridges for the fallback).
@@ -403,7 +471,7 @@ extension WKWebView {
             class_addMethod(subclass, sel, imp, "@@:")
         }
         objc_registerClassPair(subclass)
-        futoNoAccessoryClasses[newName] = subclass
+        futoAccessoryClasses[newName] = subclass
         object_setClass(contentView, subclass)
     }
 }

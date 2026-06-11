@@ -350,7 +350,12 @@
 
 /* List item line */
 .cm-line.cm-md-list-line {
-  /* padding-left and text-indent are set inline per item */
+  /* A positive first-line-only text-indent is set inline per item
+     (liveMarkdownTransform listLineStyle): only the first visual line
+     carries the nesting indent + marker; wrapped lines start at the left
+     margin — no hanging indent (docs/spec/editor.md). No padding rule on
+     purpose: list lines keep the same base padding as plain .cm-lines in
+     whatever context they render (desktop, native embed, blockquotes). */
 }
 
 /* Unordered list items */

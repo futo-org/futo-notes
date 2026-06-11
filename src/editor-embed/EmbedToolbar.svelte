@@ -14,23 +14,29 @@
   //
   // main.ts is a plain TS module (no runes), so visibility and cursor context
   // are driven through the exported setters below rather than reactive props.
-  import {
-    toggleBold,
-    toggleItalic,
-    toggleStrikethrough,
-    toggleBulletList,
-    toggleOrderedList,
-    toggleTaskList,
-    cycleHeading,
-    toggleBlockquote,
-  } from '$lib/markdownToolbar';
+  //
+  // The toolbar SURFACE (items, order, grouping, labels, visibility) comes
+  // from the @futo-notes/editor manifest — the same source the native shells'
+  // generated ToolbarSpec files render — so the web and native toolbars
+  // cannot drift. Editing behavior comes from the shared TOOLBAR_EXEC
+  // registry (markdownToolbar.ts), the same commands FutoEditor.exec runs.
+  import { TOOLBAR_GROUPS, TOOLBAR_DISMISS, type ToolbarItem } from '@futo-notes/editor';
+  import { TOOLBAR_EXEC } from '$lib/markdownToolbar';
   import type { EditorView } from '@codemirror/view';
-  import { indentMore, indentLess } from '@codemirror/commands';
+  import type { Component } from 'svelte';
   import {
     Bold, Italic, Strikethrough, Heading, TextQuote,
     List, ListOrdered, ListChecks, Camera, ImageIcon, ChevronDown,
     ListIndentDecrease, ListIndentIncrease
   } from '@lucide/svelte';
+
+  // Manifest `lucide` names → components. A manifest item naming an icon
+  // missing here is caught by the icons() check below at mount time.
+  const ICONS: Record<string, Component> = {
+    Bold, Italic, Strikethrough, Heading, TextQuote,
+    List, ListOrdered, ListChecks, Camera, ImageIcon, ChevronDown,
+    ListIndentDecrease, ListIndentIncrease,
+  };
 
   interface Props {
     getView: () => EditorView | null;
@@ -41,6 +47,26 @@
   }
 
   let { getView, onpickimage, ondismiss }: Props = $props();
+
+  function icon(item: ToolbarItem): Component {
+    const c = ICONS[item.lucide];
+    if (!c) throw new Error(`EmbedToolbar: no icon registered for '${item.lucide}'`);
+    return c;
+  }
+
+  const DismissIcon = icon(TOOLBAR_DISMISS);
+
+  function activate(item: ToolbarItem): void {
+    const action = item.action;
+    if (action.kind === 'dismiss') {
+      ondismiss();
+    } else if (action.kind === 'pickImage') {
+      onpickimage(action.source);
+    } else {
+      const view = getView();
+      if (view) TOOLBAR_EXEC[item.id]?.(view);
+    }
+  }
 
   // Show while the editor is focused. Wired from main.ts's onfocuschange.
   let editorFocused = $state(false);
@@ -76,13 +102,6 @@
       vv.removeEventListener('scroll', updateBottomOffset);
     };
   });
-
-  function handle(fn: (view: EditorView) => void) {
-    return () => {
-      const view = getView();
-      if (view) fn(view);
-    };
-  }
 
   // Prevent focus steal from editor
   function preventFocus(e: MouseEvent | TouchEvent) {
@@ -121,109 +140,30 @@
   ontouchmove={handleToolbarTouchMove}
 >
   <div class="toolbar-scroll" bind:this={scrollEl}>
-    <button
-      class="toolbar-btn"
-      onmousedown={preventFocus}
-      ontouchstart={preventFocus}
-      onclick={handle(toggleBold)}
-      aria-label="Bold"
-    ><Bold size={18} strokeWidth={2.5} /></button>
-    <button
-      class="toolbar-btn"
-      onmousedown={preventFocus}
-      ontouchstart={preventFocus}
-      onclick={handle(toggleItalic)}
-      aria-label="Italic"
-    ><Italic size={18} strokeWidth={2.5} /></button>
-    <button
-      class="toolbar-btn"
-      onmousedown={preventFocus}
-      ontouchstart={preventFocus}
-      onclick={handle(toggleStrikethrough)}
-      aria-label="Strikethrough"
-    ><Strikethrough size={18} strokeWidth={2.5} /></button>
-
-    <span class="toolbar-separator"></span>
-
-    <button
-      class="toolbar-btn"
-      onmousedown={preventFocus}
-      ontouchstart={preventFocus}
-      onclick={handle(cycleHeading)}
-      aria-label="Heading"
-    ><Heading size={18} strokeWidth={2.5} /></button>
-    <button
-      class="toolbar-btn"
-      onmousedown={preventFocus}
-      ontouchstart={preventFocus}
-      onclick={handle(toggleBlockquote)}
-      aria-label="Block quote"
-    ><TextQuote size={18} strokeWidth={2.5} /></button>
-
-    <span class="toolbar-separator"></span>
-
-    <button
-      class="toolbar-btn"
-      onmousedown={preventFocus}
-      ontouchstart={preventFocus}
-      onclick={handle(toggleBulletList)}
-      aria-label="Bullet list"
-    ><List size={18} strokeWidth={2.5} /></button>
-    <button
-      class="toolbar-btn"
-      onmousedown={preventFocus}
-      ontouchstart={preventFocus}
-      onclick={handle(toggleOrderedList)}
-      aria-label="Ordered list"
-    ><ListOrdered size={18} strokeWidth={2.5} /></button>
-    <button
-      class="toolbar-btn"
-      onmousedown={preventFocus}
-      ontouchstart={preventFocus}
-      onclick={handle(toggleTaskList)}
-      aria-label="Task list"
-    ><ListChecks size={18} strokeWidth={2.5} /></button>
-
-    {#if cursorOnListLine}
-    <button
-      class="toolbar-btn"
-      onmousedown={preventFocus}
-      ontouchstart={preventFocus}
-      onclick={handle((v) => { indentLess(v); })}
-      aria-label="Outdent"
-    ><ListIndentDecrease size={18} strokeWidth={2.5} /></button>
-    <button
-      class="toolbar-btn"
-      onmousedown={preventFocus}
-      ontouchstart={preventFocus}
-      onclick={handle((v) => { indentMore(v); })}
-      aria-label="Indent"
-    ><ListIndentIncrease size={18} strokeWidth={2.5} /></button>
-    {/if}
-
-    <span class="toolbar-separator"></span>
-
-    <button
-      class="toolbar-btn"
-      onmousedown={preventFocus}
-      ontouchstart={preventFocus}
-      onclick={() => onpickimage('camera')}
-      aria-label="Take photo"
-    ><Camera size={18} strokeWidth={2} /></button>
-    <button
-      class="toolbar-btn"
-      onmousedown={preventFocus}
-      ontouchstart={preventFocus}
-      onclick={() => onpickimage('library')}
-      aria-label="Choose from library"
-    ><ImageIcon size={18} strokeWidth={2} /></button>
+    {#each TOOLBAR_GROUPS as group, groupIndex (groupIndex)}
+      {#if groupIndex > 0}
+        <span class="toolbar-separator"></span>
+      {/if}
+      {#each group as item (item.id)}
+        {#if item.when !== 'onListLine' || cursorOnListLine}
+          {@const Icon = icon(item)}
+          <button
+            class="toolbar-btn"
+            onmousedown={preventFocus}
+            ontouchstart={preventFocus}
+            onclick={() => activate(item)}
+            aria-label={item.label}
+          ><Icon size={18} strokeWidth={item.action.kind === 'pickImage' ? 2 : 2.5} /></button>
+        {/if}
+      {/each}
+    {/each}
   </div>
   <button
     class="toolbar-dismiss"
     onmousedown={preventFocus}
     ontouchstart={preventFocus}
-    onclick={ondismiss}
-    aria-label="Dismiss keyboard"
-  ><ChevronDown size={20} strokeWidth={2.5} /></button>
+    onclick={() => activate(TOOLBAR_DISMISS)}
+    aria-label={TOOLBAR_DISMISS.label}
+  ><DismissIcon size={20} strokeWidth={2.5} /></button>
 </div>
 {/if}

@@ -60,14 +60,13 @@ class SyncManager(
     /** Marshals Rust live-sync callbacks onto the main thread. */
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
-    private fun summarize(s: SyncSummary) =
-        "Synced — ↑${s.uploaded} ↓${s.downloaded} ✕${s.deleted} ⚠${s.conflicts}"
-
     /** Receives live-sync events from Rust (on a tokio thread → hop to main). */
     private inner class LiveListener : SyncEventListener {
         override fun onSynced(summary: SyncSummary) {
             scope.launch {
-                status = summarize(summary)
+                // Success reports just "Sync complete" — never the
+                // uploaded/downloaded/deleted/conflict counts [sync.md].
+                status = "Sync complete"
                 lastError = null
                 // A live pull wrote to disk — refresh the list (skip no-op pulls).
                 if (summary.downloaded > 0u || summary.deleted > 0u) onLivePull?.invoke()
@@ -100,7 +99,7 @@ class SyncManager(
             }
             status = "Connected (${info.authMode}) · syncing…"
             val initial = c.syncNow()
-            status = summarize(initial)
+            status = "Sync complete"
             // Refresh the list if the initial (catch-up) sync pulled changes.
             if (initial.downloaded > 0u || initial.deleted > 0u) onLivePull?.invoke()
             c.startLive(LiveListener()) // onConnected flips `live` when the stream is up
@@ -117,7 +116,8 @@ class SyncManager(
         val c = client ?: return
         busy = true; lastError = null; status = "Syncing…"
         try {
-            status = summarize(c.syncNow())
+            c.syncNow()
+            status = "Sync complete"
         } catch (e: Exception) {
             lastError = describe(e); status = "Error"
         } finally {

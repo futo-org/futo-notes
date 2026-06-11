@@ -121,6 +121,7 @@ verify-ime-shield-in-generated:
   echo "IME shield: override present in generated RustWebView.kt ✓"
 
 android-dev: verify-ime-shield
+  node scripts/fetch-splade-model.mjs --target android
   cd apps/tauri && cargo tauri android dev --config src-tauri/tauri.android.dev-mode.conf.json
 
 android-offline: verify-ime-shield
@@ -138,6 +139,9 @@ android-offline: verify-ime-shield
   # [env] section; cargo picks it up automatically. See
   # docs/learnings/ime-shield-workaround.md.
   pnpm run build
+  # Stage the SPLADE model + tokenizer into gen/android assets (Gradle
+  # auto-bundles them into the APK; extracted to app data on first run).
+  node scripts/fetch-splade-model.mjs --target android
   cd apps/tauri
   cargo tauri android build --debug --apk --config src-tauri/tauri.android.offline.conf.json
   cd ../..
@@ -157,6 +161,7 @@ android-offline: verify-ime-shield
   adb "${adb_target[@]}" shell monkey -p com.futo.notes.dev -c android.intent.category.LAUNCHER 1
 
 android-build: verify-ime-shield
+  node scripts/fetch-splade-model.mjs --target android
   cd apps/tauri && cargo tauri android build
   just verify-ime-shield-in-generated
 
@@ -383,7 +388,17 @@ spec-gaps:
 spec-gaps-check:
   node scripts/spec-gaps.mjs --check
 
-check: verify-ime-shield spec-gaps-check
+# Regenerate the native shells' toolbar specs (apps/ios/Sources/ToolbarSpec.swift)
+# from the @futo-notes/editor toolbar manifest (packages/editor/src/toolbar.ts —
+# the single source of truth for the mobile toolbar surface).
+toolbar-spec:
+  pnpm exec tsx scripts/gen-toolbar-spec.ts --write
+
+# Fail if a generated native toolbar spec has drifted from the manifest.
+toolbar-spec-check:
+  pnpm exec tsx scripts/gen-toolbar-spec.ts --check
+
+check: verify-ime-shield spec-gaps-check toolbar-spec-check
   pnpm run lint
   pnpm run test:minimal
   pnpm exec tsc --noEmit | head -30

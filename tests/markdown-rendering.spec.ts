@@ -764,6 +764,101 @@ test.describe('Lists', () => {
     expect(firstChecked).toBe(true);
   });
 
+  test('wrapped list items do not hanging-indent continuation lines', async ({ page }) => {
+    // Spec (docs/spec/editor.md, decision 2026-06-10): only the first visual
+    // line of a list item carries the nesting indent + marker; wrapped
+    // (continuation) lines start at the left margin — the same x where a
+    // wrapped plain paragraph's continuation line starts.
+    const LONG =
+      'this sentence is deliberately long enough that it has to wrap onto at ' +
+      'least two visual rows inside a pinned four hundred and twenty pixel wide editor view';
+    await setupEditor(
+      page,
+      `- ${LONG}\n  - ${LONG}\n1. ${LONG}\n- [ ] ${LONG}\n\n${LONG}`,
+    );
+    await blurEditor(page);
+
+    // Pin the editor width so every long line wraps deterministically.
+    await page.setViewportSize({ width: 900, height: 900 });
+    await page.evaluate(async () => { await document.fonts.ready; });
+    await page.evaluate(() => {
+      for (const sel of ['.cm-editor', '.cm-scroller', '.cm-content', '.cm-lineWrapping', '.note-main']) {
+        const el = document.querySelector(sel) as HTMLElement | null;
+        if (!el) continue;
+        el.style.width = '420px';
+        el.style.maxWidth = '420px';
+      }
+    });
+    await page.waitForTimeout(200);
+
+    // For a 0-based logical line, the min content x of each visual row.
+    const rowLefts = (lineNumber: number) =>
+      page.evaluate((ln) => {
+        const view = (window as any).__cmGetView?.();
+        if (!view) throw new Error('CM EditorView not found');
+        const lineInfo = view.state.doc.line(ln + 1);
+        const rows = new Map<number, number>();
+        for (let pos = lineInfo.from; pos <= lineInfo.to; pos += 1) {
+          const coords = view.coordsAtPos(pos);
+          if (!coords) continue;
+          const top = Math.round(coords.top);
+          const current = rows.get(top);
+          if (current === undefined || coords.left < current) rows.set(top, coords.left);
+        }
+        return [...rows.entries()].sort((a, b) => a[0] - b[0]).map(([, left]) => left);
+      }, lineNumber);
+
+    // The plain paragraph's continuation row defines the left margin.
+    const plainRows = await rowLefts(5);
+    expect(plainRows.length).toBeGreaterThan(1);
+    const margin = plainRows[1];
+
+    // Bullet, nested bullet, ordered, and task items: every continuation
+    // row starts at the left margin (no hanging indent).
+    for (const line of [0, 1, 2, 3]) {
+      const rows = await rowLefts(line);
+      expect(rows.length, `line ${line} must wrap`).toBeGreaterThan(1);
+      for (const left of rows.slice(1)) {
+        expect(Math.abs(left - margin), `line ${line} continuation row x`).toBeLessThanOrEqual(2);
+      }
+    }
+
+    // First visual lines keep the nesting indent: depth 0 starts at the
+    // margin, depth 1 one INDENT_STEP (24px) further right.
+    const depth0Rows = await rowLefts(0);
+    const depth1Rows = await rowLefts(1);
+    expect(Math.abs(depth0Rows[0] - margin)).toBeLessThanOrEqual(2);
+    expect(Math.abs(depth1Rows[0] - (margin + 24))).toBeLessThanOrEqual(2);
+
+    // Mechanism contract: no padding override (a list line inherits the same
+    // base padding as a plain line in its context — that is what puts
+    // continuation rows at the plain-text margin) plus a non-negative
+    // first-line-only text-indent (negative would re-create the hanging
+    // indent).
+    const lineStyles = await page.evaluate(() => {
+      const view = (window as any).__cmGetView?.();
+      if (!view) throw new Error('CM EditorView not found');
+      return [0, 1, 5].map((ln) => {
+        const lineInfo = view.state.doc.line(ln + 1);
+        const el = (view.domAtPos(lineInfo.from).node as HTMLElement | Text).parentElement
+          ?.closest?.('.cm-line') ?? view.domAtPos(lineInfo.from).node;
+        const cs = window.getComputedStyle(el as HTMLElement);
+        return {
+          inlinePaddingLeft: (el as HTMLElement).style?.paddingLeft ?? '',
+          paddingLeft: cs.paddingLeft,
+          textIndent: cs.textIndent,
+        };
+      });
+    });
+    const plain = lineStyles[2];
+    expect(lineStyles[0].inlinePaddingLeft).toBe('');
+    expect(lineStyles[1].inlinePaddingLeft).toBe('');
+    expect(lineStyles[0].paddingLeft).toBe(plain.paddingLeft);
+    expect(lineStyles[1].paddingLeft).toBe(plain.paddingLeft);
+    expect(lineStyles[0].textIndent).toBe('0px');
+    expect(lineStyles[1].textIndent).toBe('24px');
+  });
+
   test('clicking checkbox toggles the markdown document text', async ({ page }) => {
     await setupEditor(page, '- [ ] Unchecked\n- [x] Checked\n\nMore text');
     await blurEditor(page);

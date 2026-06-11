@@ -23,6 +23,10 @@ new-note affordances.
   top.
 - Tapping a note opens it in the editor (no autofocus). → NoteListScreen.kt /
   MainActivity.kt
+- The list keeps its scroll position while you navigate: scroll, open a note
+  (or Search / Settings), come back — the list is where you left it, not
+  jumped to the top. → MainActivity.kt saved per-screen state *(Android
+  native)*, NoteListView.swift NavigationStack *(iOS native)*
 - An empty folder shows an empty state ("Nothing here yet").
 - The top bar is transparent at rest and gains a surface fill + bottom border
   once the list is scrolled. *(Android)*

@@ -9,12 +9,12 @@ import {
 describe('futoBridge contract', () => {
   it('pins the contract version', () => {
     // Bumping this is a deliberate, breaking change — update all three hosts.
-    expect(BRIDGE_VERSION).toBe(2);
+    expect(BRIDGE_VERSION).toBe(3);
   });
 
   it('ready message carries the version', () => {
     const msg: FutoEditorOutboundMessage = { type: 'ready', version: BRIDGE_VERSION };
-    expect(msg).toEqual({ type: 'ready', version: 2 });
+    expect(msg).toEqual({ type: 'ready', version: 3 });
   });
 
   it('outbound messages are a discriminated union over `type`', () => {
@@ -25,6 +25,7 @@ describe('futoBridge contract', () => {
       { type: 'openNote', id: 'folder/note' },
       { type: 'pickImage', source: 'camera' },
       { type: 'pickImage', source: 'library' },
+      { type: 'cursorContext', onListLine: true },
     ];
     expect(msgs.map((m) => m.type)).toEqual([
       'ready',
@@ -33,29 +34,36 @@ describe('futoBridge contract', () => {
       'openNote',
       'pickImage',
       'pickImage',
+      'cursorContext',
     ]);
   });
 
-  it('FutoEditorApi surface is the eight host-callable methods', () => {
+  it('FutoEditorApi surface is the eleven host-callable methods', () => {
     // A structural stand-in proves the shape compiles; the real impl lives in
     // src/editor-embed/main.ts.
     const api: FutoEditorApi = {
       setContent: () => {},
       getContent: () => '',
       focus: () => {},
+      blur: () => {},
       setTheme: () => {},
       setNotes: () => {},
       applyExternalContent: () => {},
       insertImage: () => {},
       setImageBaseUrl: () => {},
+      exec: () => {},
+      setNativeToolbar: () => {},
     };
     expect(Object.keys(api).sort()).toEqual([
       'applyExternalContent',
+      'blur',
+      'exec',
       'focus',
       'getContent',
       'insertImage',
       'setContent',
       'setImageBaseUrl',
+      'setNativeToolbar',
       'setNotes',
       'setTheme',
     ]);

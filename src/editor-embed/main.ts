@@ -31,6 +31,7 @@ import {
 import { Transaction } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
 import type { SetEditorContentOptions } from '../lib/editorContentSync';
+import { TOOLBAR_EXEC } from '../lib/markdownToolbar';
 import { getAllNotes, setNotesUniverse } from '../lib/notes.svelte';
 import { resolveWikilink } from '../lib/wikilinks';
 import { preloadImages, setLocalImageBaseUrl } from '../lib/liveMarkdownTransform';
@@ -82,6 +83,14 @@ let toolbar: {
   setCursorContext: (onListLine: boolean) => void;
 } | null = null;
 
+// True once the host declares it renders its OWN toolbar (setNativeToolbar):
+// the embed's web toolbar stays hidden and the host drives formatting through
+// exec()/blur(), informed by the cursorContext messages below.
+let nativeToolbar = false;
+
+// cursorContext is deduped — only an actual flip crosses the bridge.
+let lastPostedOnListLine: boolean | null = null;
+
 // mount() returns an object exposing the component's `export function`s
 // (setContent / getContent / focus / ...) plus its props.
 const editor = mount(MarkdownEditor, {
@@ -98,11 +107,15 @@ const editor = mount(MarkdownEditor, {
       post({ type: 'change', content: editor.getContent() });
     },
     onfocuschange: (focused: boolean) => {
-      toolbar?.setFocused(focused);
+      if (!nativeToolbar) toolbar?.setFocused(focused);
       post({ type: 'focus', focused });
     },
     oncursorcontext: (ctx: { onListLine: boolean }) => {
-      toolbar?.setCursorContext(ctx.onListLine);
+      if (!nativeToolbar) toolbar?.setCursorContext(ctx.onListLine);
+      if (ctx.onListLine !== lastPostedOnListLine) {
+        lastPostedOnListLine = ctx.onListLine;
+        post({ type: 'cursorContext', onListLine: ctx.onListLine });
+      }
     },
     onopenlink: (title: string, _event: MouseEvent) => {
       // Resolve the raw wikilink target against the host-fed universe; only
@@ -233,6 +246,23 @@ const futoEditor: FutoEditorApi = {
     // warm their dimension cache.
     preloadImages(editor.getContent() ?? '', undefined, () => editor.getView());
     editor.refreshDecorations();
+  },
+  exec(commandId: string): void {
+    const run = TOOLBAR_EXEC[commandId];
+    if (!run) {
+      console.warn(`FutoEditor.exec: unknown command id '${commandId}', ignoring`);
+      return;
+    }
+    const view = editor.getView();
+    if (view) run(view);
+  },
+  blur(): void {
+    editor.blur();
+  },
+  setNativeToolbar(enabled: boolean): void {
+    nativeToolbar = enabled;
+    // If the web toolbar is currently up (host enabled mid-focus), drop it.
+    if (enabled) toolbar?.setFocused(false);
   },
 };
 window.FutoEditor = futoEditor;

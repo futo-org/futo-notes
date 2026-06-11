@@ -30,7 +30,9 @@ final class SyncManager: ObservableObject {
     var onLivePull: (() -> Void)?
 
     private func summarize(_ s: SyncSummary) -> String {
-        "Synced — ↑\(s.uploaded) ↓\(s.downloaded) ✕\(s.deleted) ⚠\(s.conflicts)"
+        // Spec (docs/spec/sync.md): a successful sync reports just "Sync
+        // complete" — never uploaded/downloaded/deleted/conflict counts.
+        "Sync complete"
     }
 
     /// Connect (login + unwrap vault key) then run an initial sync.

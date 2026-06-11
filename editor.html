@@ -40,6 +40,14 @@
       padding: 0;
       overflow: hidden;          /* the page never scrolls; .cm-scroller does */
       overscroll-behavior: none;
+      /* Both native hosts render this page in a TRANSPARENT web view
+       * (iOS: isOpaque=false + .clear, Android: setBackgroundColor(TRANSPARENT))
+       * and paint the app background behind it (iOS Theme.background, Android
+       * Compose surface). app.css's @layer base would otherwise paint the web
+       * palette's --color-bg over it — dark #0A0A0A vs the hosts' dark
+       * surfaces — so the editor pane visibly mismatches the surrounding
+       * native UI in dark mode. Unlayered, so it beats the layered rule. */
+      background: transparent;
     }
 
     #editor {

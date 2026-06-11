@@ -29,8 +29,10 @@
  *      ready/change/focus outbound messages).
  * - 2: note universe + sync + images (setNotes/applyExternalContent/
  *      insertImage/setImageBaseUrl; openNote/pickImage outbound messages).
+ * - 3: native toolbar (exec/blur/setNativeToolbar; cursorContext outbound
+ *      message). Additive — a v2 host can drive a v3 bundle unchanged.
  */
-export const BRIDGE_VERSION = 2 as const;
+export const BRIDGE_VERSION = 3 as const;
 
 /** Editor color theme. */
 export type EditorTheme = 'light' | 'dark';
@@ -85,6 +87,26 @@ export interface FutoEditorApi {
    * `futo-asset:///`, Android passes `file://<notesRoot>/`.
    */
   setImageBaseUrl(base: string): void;
+  /**
+   * Run a shared toolbar command by manifest id (a NATIVE toolbar button was
+   * tapped). `commandId` is the id of an `exec` item in the toolbar manifest
+   * (`TOOLBAR_EXEC_IDS` in toolbar.ts); the command itself is the same
+   * `markdownToolbar.ts` code every platform's toolbar runs. Unknown ids are
+   * warned about and ignored.
+   */
+  exec(commandId: string): void;
+  /**
+   * Blur the editor — drops the soft keyboard (and any toolbar). The native
+   * dismiss chevron calls this so the editor's focus state stays truthful
+   * (a plain `endEditing` would hide the keyboard behind the editor's back).
+   */
+  blur(): void;
+  /**
+   * The host renders its OWN toolbar (driven by `exec`/`blur` and the
+   * `cursorContext` message): suppress the embed's web toolbar so the user
+   * never sees two. Idempotent; the embed defaults to its web toolbar.
+   */
+  setNativeToolbar(enabled: boolean): void;
 }
 
 /** Emitted once, after the editor mounts and is ready to receive content. */
@@ -128,6 +150,17 @@ export interface PickImageMessage {
 }
 
 /**
+ * Emitted when the cursor's line context changes (deduped — only on actual
+ * change). Drives the visibility of context-dependent NATIVE toolbar items
+ * (Indent/Outdent show only on list lines). Hosts without a native toolbar
+ * can ignore it.
+ */
+export interface CursorContextMessage {
+  type: 'cursorContext';
+  onListLine: boolean;
+}
+
+/**
  * Editor → host messages, posted to the host's `futoBridge` message handler.
  * Discriminated on `type`.
  */
@@ -136,7 +169,8 @@ export type FutoEditorOutboundMessage =
   | ChangeMessage
   | FocusMessage
   | OpenNoteMessage
-  | PickImageMessage;
+  | PickImageMessage
+  | CursorContextMessage;
 
 /**
  * The iOS host message sink: `window.webkit.messageHandlers.futoBridge`, a

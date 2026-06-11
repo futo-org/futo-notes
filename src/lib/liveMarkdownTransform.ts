@@ -486,12 +486,24 @@ class NumberWidget extends WidgetType {
   }
 }
 
-// Hanging indent constants (pixels)
+// List indent constants (pixels)
 const INDENT_STEP = 24;   // extra indent per nesting level
-const BULLET_MARKER_W = 20;  // bullet "•" + margin-right
-const NUMBER_MARKER_W = 24;  // "N." + margin-right
-const CHECKBOX_MARKER_W = 32; // checkbox wrapper + margin-right
-const ORDERED_TASK_MARKER_W = 56; // number widget + checkbox widget
+
+/**
+ * Inline style for a list line. Wrapped list lines are NOT hanging-indented
+ * (docs/spec/editor.md): the nesting indent rides a first-line-only positive
+ * text-indent, so only the first visual line (nesting indent + marker widget
+ * + text) is indented — continuation (wrapped) lines start at the left
+ * margin, the same x where a wrapped plain paragraph's continuation line
+ * starts. Deliberately NO padding override: a list line keeps whatever base
+ * padding plain lines have (0 under the desktop .editor-container, CM6's 6px
+ * default in the native embed, the cm-md-quote padding inside blockquotes),
+ * so continuation alignment with plain text holds in every context by
+ * construction.
+ */
+function listLineStyle(indentLevel: number): string {
+  return `text-indent: ${indentLevel * INDENT_STEP}px;`;
+}
 
 export interface SelectionRangeLike {
   from: number;
@@ -1565,7 +1577,7 @@ class LiveMarkdownPlugin implements PluginValue {
   }
 
   /**
-   * On cursor lines, apply only the indent padding (no marker hiding/widgets)
+   * On cursor lines, apply only the first-line indent (no marker hiding/widgets)
    * so indentation is visually consistent whether the cursor is on the line or not.
    */
   private processListItemIndentOnly(
@@ -1579,33 +1591,29 @@ class LiveMarkdownPlugin implements PluginValue {
     const realIndent = from - line.from;
     const indentLevel = Math.floor(realIndent / 2);
 
-    // Determine marker width based on what kind of list item this is
-    let markerW = BULLET_MARKER_W;
+    // Determine the marker's source length so it can carry the list-marker
+    // class below, matching what kind of list item this is.
     let markerSourceLen = 0;
     const taskMatch = text.match(/^([-*+])\s+\[([ xX])\]\s*/);
     const orderedTaskMatch = text.match(/^(\d+)\.\s+\[([ xX])\]\s*/);
     const orderedMatch = text.match(/^(\d+)\.\s+/);
     const bulletMatch = text.match(/^([-*+])\s+/);
     if (taskMatch) {
-      markerW = CHECKBOX_MARKER_W;
       markerSourceLen = taskMatch[0].length;
     } else if (orderedTaskMatch) {
-      markerW = ORDERED_TASK_MARKER_W;
       markerSourceLen = orderedTaskMatch[0].length;
     } else if (orderedMatch) {
-      markerW = NUMBER_MARKER_W;
       markerSourceLen = orderedMatch[0].length;
     } else if (bulletMatch) {
       markerSourceLen = bulletMatch[0].length;
     }
 
-    // Apply same padding as the decorated version.
+    // Apply the same first-line indent as the decorated version.
     // Leading whitespace stays visible (matching decorated mode where it's also visible).
-    const pl = indentLevel * INDENT_STEP + markerW;
     decorations.push({
       from: line.from,
       to: line.from,
-      value: { class: 'cm-md-list-line', attributes: { style: `padding-left: ${pl}px !important; text-indent: -${markerW}px;` }, startSide: 0, endSide: 0 }
+      value: { class: 'cm-md-list-line', attributes: { style: listLineStyle(indentLevel) }, startSide: 0, endSide: 0 }
     });
 
     // Match Obsidian: even when the cursor reveals a list line, the
@@ -1674,12 +1682,11 @@ class LiveMarkdownPlugin implements PluginValue {
         });
       }
 
-      // Hanging indent line decoration
-      const pl = indentLevel * INDENT_STEP + CHECKBOX_MARKER_W;
+      // First-line-only indent — no hanging indent (see listLineStyle)
       decorations.push({
         from: line.from,
         to: line.from,
-        value: { class: 'cm-md-list-line', attributes: { style: `padding-left: ${pl}px !important; text-indent: -${CHECKBOX_MARKER_W}px;` }, startSide: 0, endSide: 0 }
+        value: { class: 'cm-md-list-line', attributes: { style: listLineStyle(indentLevel) }, startSide: 0, endSide: 0 }
       });
       return;
     }
@@ -1730,12 +1737,11 @@ class LiveMarkdownPlugin implements PluginValue {
         });
       }
 
-      // Hanging indent line decoration
-      const pl = indentLevel * INDENT_STEP + ORDERED_TASK_MARKER_W;
+      // First-line-only indent — no hanging indent (see listLineStyle)
       decorations.push({
         from: line.from,
         to: line.from,
-        value: { class: 'cm-md-list-line', attributes: { style: `padding-left: ${pl}px !important; text-indent: -${ORDERED_TASK_MARKER_W}px;` }, startSide: 0, endSide: 0 }
+        value: { class: 'cm-md-list-line', attributes: { style: listLineStyle(indentLevel) }, startSide: 0, endSide: 0 }
       });
       return;
     }
@@ -1771,12 +1777,11 @@ class LiveMarkdownPlugin implements PluginValue {
         });
       }
 
-      // Hanging indent line decoration
-      const pl = indentLevel * INDENT_STEP + BULLET_MARKER_W;
+      // First-line-only indent — no hanging indent (see listLineStyle)
       decorations.push({
         from: line.from,
         to: line.from,
-        value: { class: 'cm-md-list-line', attributes: { style: `padding-left: ${pl}px !important; text-indent: -${BULLET_MARKER_W}px;` }, startSide: 0, endSide: 0 }
+        value: { class: 'cm-md-list-line', attributes: { style: listLineStyle(indentLevel) }, startSide: 0, endSide: 0 }
       });
       return;
     }
@@ -1805,12 +1810,11 @@ class LiveMarkdownPlugin implements PluginValue {
         });
       }
 
-      // Hanging indent line decoration
-      const pl = indentLevel * INDENT_STEP + NUMBER_MARKER_W;
+      // First-line-only indent — no hanging indent (see listLineStyle)
       decorations.push({
         from: line.from,
         to: line.from,
-        value: { class: 'cm-md-list-line', attributes: { style: `padding-left: ${pl}px !important; text-indent: -${NUMBER_MARKER_W}px;` }, startSide: 0, endSide: 0 }
+        value: { class: 'cm-md-list-line', attributes: { style: listLineStyle(indentLevel) }, startSide: 0, endSide: 0 }
       });
     }
   }

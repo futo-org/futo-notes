@@ -103,6 +103,13 @@ const PROBES = [
     hint: 'an Android screen now references folder deletion.',
   },
   {
+    match: /Tauri desktop still surfaces per-item counts/,
+    closed: () =>
+      !/uploaded/.test(read('src/components/SettingsScreen.svelte')) &&
+      !/Synced \$\{totalChanges\} notes/.test(read('src/lib/syncManager.svelte.ts')),
+    hint: 'desktop sync UI no longer formats per-item counts — the "Sync complete" gap may be closed.',
+  },
+  {
     match: /iOS.* app has no Settings surface/,
     closed: () =>
       fs.existsSync(path.join(ROOT, 'apps/ios/Sources')) &&

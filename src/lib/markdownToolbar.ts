@@ -1,5 +1,6 @@
 import { EditorView } from '@codemirror/view';
 import type { EditorState } from '@codemirror/state';
+import { indentLess, indentMore } from '@codemirror/commands';
 import { syntaxTree } from '@codemirror/language';
 import { getFS } from '$lib/platform';
 import { registerLocalImageUrl } from '$lib/liveMarkdownTransform';
@@ -330,7 +331,9 @@ function toggleLinePrefix(
     }
   }
 
-  const newAnchor = Math.max(0, from + selDelta);
+  // Clamp to the start line's beginning, not 0: a cursor inside a removed
+  // prefix (e.g. '- [ ] ') would otherwise escape into the previous line.
+  const newAnchor = Math.max(startLine.from, from + selDelta);
   view.dispatch({ changes, selection: { anchor: newAnchor } });
   view.focus();
 }
@@ -367,10 +370,12 @@ export function cycleHeading(view: EditorView): void {
         selection: { anchor: from + (newPrefix.length - oldLen) }
       });
     } else {
-      // At ###, remove heading
+      // At ###, remove heading. Clamp: a cursor INSIDE the '### ' prefix
+      // would otherwise map to a negative/previous-line position — CodeMirror
+      // stores invalid selections unvalidated and every later command throws.
       view.dispatch({
         changes: { from: line.from, to: line.from + headingMatch[0].length, insert: '' },
-        selection: { anchor: from - headingMatch[0].length }
+        selection: { anchor: Math.max(line.from, from - headingMatch[0].length) }
       });
     }
   } else {
@@ -378,9 +383,11 @@ export function cycleHeading(view: EditorView): void {
     for (const pat of ALL_LINE_PREFIXES) {
       const m = text.match(pat);
       if (m) {
+        // Same clamp: the replaced prefix can be longer than '# ' with the
+        // cursor inside it.
         view.dispatch({
           changes: { from: line.from, to: line.from + m[0].length, insert: '# ' },
-          selection: { anchor: from + (2 - m[0].length) }
+          selection: { anchor: Math.max(line.from, from + (2 - m[0].length)) }
         });
         view.focus();
         return;
@@ -487,3 +494,29 @@ function insertImageMarkdown(view: EditorView, filename: string): void {
   });
   view.focus();
 }
+
+/**
+ * The toolbar command registry — one entry per `exec` item in the
+ * `@futo-notes/editor` toolbar manifest (`TOOLBAR_EXEC_IDS`). This is the
+ * SINGLE implementation of every toolbar editing command: the embed's web
+ * toolbar dispatches into it directly, and the native shells' toolbars reach
+ * the same entries through `FutoEditor.exec(id)` — no platform reimplements
+ * editing semantics. markdownToolbar.test.ts pins the registry ↔ manifest
+ * bijection.
+ */
+export const TOOLBAR_EXEC: Record<string, (view: EditorView) => void> = {
+  bold: toggleBold,
+  italic: toggleItalic,
+  strikethrough: toggleStrikethrough,
+  heading: cycleHeading,
+  quote: toggleBlockquote,
+  'bullet-list': toggleBulletList,
+  'ordered-list': toggleOrderedList,
+  'task-list': toggleTaskList,
+  outdent: (view) => {
+    indentLess(view);
+  },
+  indent: (view) => {
+    indentMore(view);
+  },
+};

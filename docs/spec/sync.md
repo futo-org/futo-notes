@@ -14,6 +14,15 @@ client uploads opaque encrypted blobs — note content is encrypted before uploa
 - Once connected, the server URL is locked. The user can "Sync now" or
   "Disconnect". → SyncScreen.kt
 - Errors surface inline; a progress indicator shows while a sync is busy.
+- A sync that finishes successfully reports just **"Sync complete"** — the
+  status never shows uploaded/downloaded/deleted/conflict counts (spec
+  decision 2026-06-10; the native shells previously showed
+  `Synced — ↑a ↓b ✕c ⚠d`). → SyncManager.kt / SyncManager.swift `describe`
+
+> **Gap:** Tauri desktop still surfaces per-item counts after a manual sync —
+> the Settings toast (`Synced: N uploaded, …`, SettingsScreen.svelte) and the
+> coordinator status line (`Synced N notes`, syncManager.svelte.ts) both
+> predate the "Sync complete"-only decision (2026-06-10).
 - A failed **auto/background** sync (not just a manual "Sync now") surfaces too,
   not only in the console: the desktop status bar shows a muted error indicator
   (an ✕, distinct from the offline icon, which wins when there's no network)

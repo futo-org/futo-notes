@@ -10,7 +10,10 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
@@ -23,9 +26,10 @@ import org.json.JSONObject
  *
  *   - editor → host: messages posted to `window.futoBridge.postMessage(json)`
  *     (the injected `@JavascriptInterface`) — `ready` / `change` / `focus` /
- *     `openNote` / `pickImage` (bridge v2).
+ *     `openNote` / `pickImage` (bridge v2) / `cursorContext` (bridge v3).
  *   - host → editor: `window.FutoEditor.setContent/getContent/focus/setTheme/
- *     setNotes/applyExternalContent/insertImage/setImageBaseUrl` via
+ *     setNotes/applyExternalContent/insertImage/setImageBaseUrl` plus the
+ *     bridge-v3 native-toolbar calls `exec/blur/setNativeToolbar` via
  *     `evaluateJavascript`.
  *
  * The WebView is NOT created per note-open. A cold WebView boot (Chromium
@@ -101,6 +105,15 @@ class EditorHost private constructor(appContext: Context) {
     private var onPickImage: (String) -> Unit = {}
     private var autoFocus = false
 
+    // Reactive inputs for the NATIVE Compose toolbar (EditorToolbar.kt), fed by
+    // bridge messages — the Android counterpart of iOS's EditorToolbarState.
+    /** Editor has focus (soft keyboard up) — the toolbar shows only then. */
+    var editorFocused by mutableStateOf(false)
+        private set
+    /** Cursor is on a list line — shows the Indent/Outdent items. */
+    var onListLine by mutableStateOf(false)
+        private set
+
     private var isReady = false
     private var currentTheme: String? = null
     private var lastPushedContent: String? = null
@@ -145,6 +158,9 @@ class EditorHost private constructor(appContext: Context) {
         when (msg.optString("type")) {
             "ready" -> {
                 isReady = true
+                // Suppress the embed's web toolbar — this shell renders the
+                // native Compose toolbar (EditorToolbar.kt) [editor.md].
+                eval("window.FutoEditor && window.FutoEditor.setNativeToolbar(true);")
                 pushTheme(desiredTheme)
                 pushContent(desiredContent)
                 desiredImageBaseUrl?.let { pushImageBaseUrl(it) }
@@ -157,7 +173,12 @@ class EditorHost private constructor(appContext: Context) {
                 lastPushedContent = c
                 onChange(c)
             }
-            "focus" -> { /* keyboard handled natively by adjustResize */ }
+            // Keyboard show/hide is handled natively by adjustResize; focus
+            // gates the native toolbar's visibility (bridge v3).
+            "focus" -> editorFocused = msg.optBoolean("focused")
+            // Cursor moved on/off a list line — drives Indent/Outdent
+            // visibility in the native toolbar (deduped editor-side).
+            "cursorContext" -> onListLine = msg.optBoolean("onListLine")
             // User tapped a RESOLVED wikilink — id is the target note's id
             // (vault-relative path sans .md) [editor.md:77].
             "openNote" -> onOpenNote(msg.optString("id"))
@@ -197,6 +218,9 @@ class EditorHost private constructor(appContext: Context) {
         onOpenNote = {}
         onPickImage = {}
         autoFocus = false
+        // Leaving the editor screen detaches the WebView without a blur event;
+        // clear the flag so a reopened note doesn't flash a stale toolbar.
+        editorFocused = false
     }
 
     fun setContent(content: String) {
@@ -236,6 +260,19 @@ class EditorHost private constructor(appContext: Context) {
      *  round-trip saves the image into the vault root. */
     fun insertImage(filename: String) {
         eval("window.FutoEditor && window.FutoEditor.insertImage(${JSONObject.quote(filename)});")
+    }
+
+    /** Run a shared toolbar command (TOOLBAR_EXEC in markdownToolbar.ts) by
+     *  manifest id — how the native toolbar's Exec items dispatch (bridge v3).
+     *  Editing semantics stay single-source in TS; Kotlin never reimplements. */
+    fun exec(commandId: String) {
+        eval("window.FutoEditor && window.FutoEditor.exec(${JSONObject.quote(commandId)});")
+    }
+
+    /** Blur the editor — drops the soft keyboard and (via the resulting focus
+     *  message) hides the native toolbar. The toolbar's dismiss chevron. */
+    fun blur() {
+        eval("window.FutoEditor && window.FutoEditor.blur();")
     }
 
     private fun pushContent(content: String) {

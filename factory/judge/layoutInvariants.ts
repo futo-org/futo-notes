@@ -223,26 +223,33 @@ const INVARIANTS_SOURCE = `
     }
   },
   {
-    name: 'list-line-has-hanging-indent',
-    description: 'List lines must apply hanging indent so wrapped text aligns with the first content character, not the bullet.',
+    name: 'list-line-no-hanging-indent',
+    description: 'List lines must NOT hanging-indent wrapped text: no padding override (a list line keeps the same base padding as a plain .cm-line in its context) and the nesting indent rides a non-negative first-line-only text-indent, so continuation lines start where plain-paragraph text starts (docs/spec/editor.md, decision 2026-06-10). Deliberate divergence from Obsidian, so only the SF class shape is checked.',
     fn: () => {
       const root = document.querySelector('.cm-content[data-factory-target="true"]');
       if (!root) return null;
-      const line = root.querySelector('.cm-line.cm-md-list-line, .cm-line.HyperMD-list-line');
+      const line = root.querySelector('.cm-line.cm-md-list-line:not(.cm-md-quote)');
       if (!line) return null;
-      const cs = getComputedStyle(line);
-      const padLeft = parseFloat(cs.paddingLeft) || 0;
-      const textIndent = parseFloat(cs.textIndent) || 0;
-      // Hanging indent: padding-left positive AND text-indent negative
-      // (or applied via a different mechanism on Obsidian — accept any
-      // padding > 0 as evidence the line's first wrap aligns).
-      if (padLeft <= 0) {
-        return 'padding-left = ' + padLeft + 'px (want > 0 for hanging indent)';
+      if (line.style.paddingLeft) {
+        return 'inline padding-left = ' + line.style.paddingLeft +
+          ' (want none — list lines inherit plain-line padding so wrapped lines start at the left margin)';
       }
-      // Text-indent isn't always negative on Obsidian (uses different
-      // hanging-indent mechanism), so only enforce on SF where we use it.
-      if (line.classList.contains('cm-md-list-line') && textIndent >= 0) {
-        return 'text-indent = ' + textIndent + 'px (want < 0 for hanging indent)';
+      const cs = getComputedStyle(line);
+      const textIndent = parseFloat(cs.textIndent) || 0;
+      if (textIndent < 0) {
+        return 'text-indent = ' + textIndent + 'px (want >= 0 — the nesting indent is first-line-only; negative re-creates the hanging indent)';
+      }
+      const plain = [...root.querySelectorAll('.cm-line')].find(
+        (l) => !l.classList.contains('cm-md-list-line') && !l.classList.contains('cm-md-quote') &&
+          !/cm-md-code-block/.test(l.className)
+      );
+      if (plain) {
+        const plainPad = parseFloat(getComputedStyle(plain).paddingLeft) || 0;
+        const listPad = parseFloat(cs.paddingLeft) || 0;
+        if (Math.abs(listPad - plainPad) > 0.5) {
+          return 'list-line padding-left = ' + listPad + 'px but plain-line padding-left = ' + plainPad +
+            'px (continuation lines must start where plain text starts)';
+        }
       }
       return undefined;
     }

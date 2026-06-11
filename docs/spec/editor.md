@@ -5,6 +5,19 @@ The editor is a shared CodeMirror 6 WebView — the **same `editor.html` /
 preview. Fine-grained decoration/cursor cases live in `markdown-spec/cases/`;
 this file states the behaviors a human cares about.
 
+## Theming
+
+- The editor follows the app theme. Desktop applies `data-theme` directly; the
+  native shells push it over the bridge (`FutoEditor.setTheme`) whenever the
+  host theme changes.
+- On the native shells the embed page paints **no background of its own**:
+  `html`/`body` are transparent (editor.html, overriding app.css's
+  `--color-bg`), and both hosts render the web view transparent (iOS
+  `isOpaque = false` + `.clear`, Android `setBackgroundColor(TRANSPARENT)`),
+  so the native app background (iOS `Theme.background`, Android Compose
+  surface) shows through and the editor pane matches the surrounding UI in
+  both light and dark. → editor.html, EditorWebView.swift, EditorWebView.kt
+
 ## Live preview
 
 - Markdown markers (`*`, `#`, ` ``` `, `[[`, `]]`, …) are hidden on lines that
@@ -40,6 +53,12 @@ this file states the behaviors a human cares about.
   the line.
 - Lists: ordered, unordered, nested, and task checkboxes (checked / unchecked /
   uppercase `X`).
+- A list item that wraps does **not** hanging-indent its continuation lines:
+  wrapped lines start at the left margin — only the first visual line carries
+  the nesting indent + marker. Applies to bullets, ordered items, and task
+  items at every nesting depth, on every platform (spec decision 2026-06-10;
+  wrapped text previously aligned under the first line's text). →
+  liveMarkdownTransform.ts `cm-md-list-line` decorations
 - Tables (GFM), horizontal rules, and images — rendered as block widgets.
 - Wikilinks `[[Title]]`.
 
@@ -132,19 +151,45 @@ edits tags as text in the body, which is not a gap.
 
 - When the editor body is focused, a formatting toolbar docks above the soft
   keyboard: Bold, Italic, Strikethrough, Heading, Quote, Bullet/Ordered/Task
-  list, Indent/Dedent (shown when the cursor is on a list line), Camera,
-  Image — horizontally scrollable, with a collapse chevron. It hides when the
-  editor blurs. Verified on Android Tauri 2026-06-09. → MarkdownToolbar.svelte
-- The native shells get the same toolbar from the shared embed: it reuses the
-  markdownToolbar.ts commands and docks above the keyboard via
-  `visualViewport` (covers iOS overlay keyboards and Android adjustResize
-  with one implementation); the chevron blurs the editor, which drops both
-  the keyboard and the toolbar (verified Android native + iOS simulator
-  2026-06-09). → src/editor-embed/EmbedToolbar.svelte
+  list, Indent/Outdent (shown when the cursor is on a list line), Camera,
+  Image — horizontally scrollable, with a collapse chevron that blurs the
+  editor (dropping both the keyboard and the toolbar). Verified on Android
+  Tauri 2026-06-09. → MarkdownToolbar.svelte
+- The toolbar SURFACE — items, order, grouping, accessibility labels,
+  per-platform icons, visibility rules — is defined once in the
+  `@futo-notes/editor` manifest, and the editing BEHAVIOR behind every
+  button is defined once in markdownToolbar.ts (`TOOLBAR_EXEC`). Toolbars
+  are dumb dispatchers: no platform restates the item list or reimplements
+  a command. → packages/editor/src/toolbar.ts, src/lib/markdownToolbar.ts
+- Native shells, toolbar chrome is NATIVE, commands are shared (bridge v3):
+  the host renders its own toolbar from a GENERATED copy of the manifest and
+  drives the editor over the bridge — `exec(id)` runs the shared command,
+  the `cursorContext` message drives Indent/Outdent visibility, `blur()`
+  backs the dismiss chevron, and `setNativeToolbar(true)` suppresses the
+  embed's web toolbar so two never show. `just toolbar-spec` regenerates the
+  native specs; `just toolbar-spec-check` (part of `just check`) fails when
+  one drifts from the manifest. → packages/editor/src/bridge.ts,
+  scripts/gen-toolbar-spec.ts
+- iOS native: the toolbar is the keyboard's `inputAccessoryView` (generated
+  ToolbarSpec.swift rendered by EditorToolbar.swift), replacing the stripped
+  prev/next/Done bar — the system owns docking/animation with the keyboard.
+  All buttons verified end-to-end on the iOS simulator 2026-06-10 (exec
+  commands mutate the doc and autosave; Indent/Outdent appear only on list
+  lines; pickers open natively; chevron blurs). → EditorToolbar.swift,
+  EditorWebView.swift `futo_overrideInputAccessoryView`
+- Android native: the toolbar is a Compose bar (generated ToolbarSpec.kt
+  rendered by EditorToolbar.kt) docked above the soft keyboard via the editor
+  screen's `imePadding`, shown only while the editor is focused (bridge
+  `focus` message). All buttons verified end-to-end on the emulator
+  2026-06-10 (exec commands mutate the doc and autosave; Indent/Outdent
+  appear only on list lines; pickers open natively; chevron blurs, dropping
+  keyboard + toolbar). → EditorToolbar.kt, NoteEditorScreen.kt,
+  EditorWebView.kt `EditorHost`
 - Camera inserts a photo from the device camera or photo library; Image opens
   a file picker. Both save the image into the vault and insert `![](file)`.
-  On the native shells the toolbar's Camera/Image buttons post `pickImage`
-  to the host, which presents the native picker (Photo Picker / camera intent
+  On the native shells the toolbar's Camera/Image buttons reach the host
+  picker (web toolbar posts `pickImage`; the native iOS/Android toolbars
+  invoke it directly), which presents the native picker (Photo Picker / camera intent
   on Android; PHPicker on iOS, camera falling back to the library on the
   simulator), saves the bytes into the vault root under a generated
   space-free name, and calls `insertImage` back into the embed.
@@ -188,6 +233,10 @@ edits tags as text in the body, which is not a gap.
   `flushPendingEditor` *(iOS)*
 - An empty title shows the placeholder "Untitled"; the title field strips
   newlines.
+- The editor chrome shows **no word count** (or any other document
+  statistic) — just the title and the document (spec decision 2026-06-10;
+  Android native previously rendered an "N words" line under the title, no
+  other platform ever did). → NoteEditorScreen.kt
 - On Tauri the same contract holds via the shared shell: the title is a
   textarea above the tag bar; edits debounce into a file rename and rewrite
   backlinks (see "Wikilinks — navigation & integrity"). Verified on Android

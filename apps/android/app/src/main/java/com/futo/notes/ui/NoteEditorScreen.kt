@@ -8,7 +8,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.text.BasicTextField
@@ -71,7 +75,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-@OptIn(ExperimentalMaterial3Api::class, FlowPreview::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class, FlowPreview::class)
 @Composable
 fun NoteEditorScreen(
     store: NotesStore,
@@ -103,7 +107,6 @@ fun NoteEditorScreen(
     var confirmDelete by remember { mutableStateOf(false) }
     var showMoveSheet by remember { mutableStateOf(false) }
     val theme = if (darkTheme) "dark" else "light"
-    val wordCount = remember(content) { content.split(Regex("\\s+")).count { it.isNotBlank() } }
 
     // The editor's note universe [editor.md:77]: id/title/modifiedMs/tags JSON
     // for the wikilink suffix resolver + autocomplete. Rebuilt only when the
@@ -203,6 +206,31 @@ fun NoteEditorScreen(
         }
     }
 
+    // Picker round-trip [editor.md:121+130]: native pick → copy into the vault
+    // root (IMAGE_EXTENSIONS only) → insertImage back into the editor. Shared
+    // by the native toolbar's camera/image items and the bridge `pickImage`
+    // message (kept for older bundles).
+    val pickImage: (String) -> Unit = { source ->
+        val handle: (Uri?) -> Unit = { uri ->
+            if (uri != null) {
+                scope.launch {
+                    val name = withContext(Dispatchers.IO) {
+                        saveImageIntoVault(context.contentResolver, File(store.rootPath), uri)
+                    }
+                    if (name != null) {
+                        host.insertImage(name)
+                    } else {
+                        Toast.makeText(context, "Unsupported image type", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        }
+        when (source) {
+            "camera" -> imagePicker?.captureCamera(handle)
+            else -> imagePicker?.pickLibrary(handle)
+        }
+    }
+
     // New note → focus the title so the user can name it immediately.
     val titleFocus = remember { FocusRequester() }
     LaunchedEffect(initialNoteId) {
@@ -261,7 +289,17 @@ fun NoteEditorScreen(
             )
         },
     ) { padding ->
-        Column(modifier = Modifier.padding(padding).fillMaxSize().imePadding()) {
+        // consumeWindowInsets(padding): the Scaffold padding already covers the
+        // navigation-bar inset, and imePadding() would otherwise add the FULL
+        // keyboard height on top of it — double-counting the nav-bar portion
+        // as a white band between the toolbar and the keyboard.
+        Column(
+            modifier = Modifier
+                .padding(padding)
+                .consumeWindowInsets(padding)
+                .fillMaxSize()
+                .imePadding(),
+        ) {
             BasicTextField(
                 value = title,
                 onValueChange = { title = it.replace("\n", "") },
@@ -276,13 +314,6 @@ fun NoteEditorScreen(
                     inner()
                 },
             )
-            Spacer(Modifier.size(4.dp))
-            Text(
-                text = "$wordCount words",
-                style = FutoType.caption,
-                color = c.textMuted,
-                modifier = Modifier.padding(horizontal = 22.dp),
-            )
             Spacer(Modifier.size(8.dp))
 
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
@@ -296,29 +327,7 @@ fun NoteEditorScreen(
                     imageBaseUrl = "file://${store.rootPath}/",
                     modifier = Modifier.fillMaxSize(),
                     onOpenNote = onOpenNote,
-                    onPickImage = { source ->
-                        // Picker round-trip [editor.md:121+130]: native pick →
-                        // copy into the vault root (IMAGE_EXTENSIONS only) →
-                        // insertImage back into the editor.
-                        val handle: (Uri?) -> Unit = { uri ->
-                            if (uri != null) {
-                                scope.launch {
-                                    val name = withContext(Dispatchers.IO) {
-                                        saveImageIntoVault(context.contentResolver, File(store.rootPath), uri)
-                                    }
-                                    if (name != null) {
-                                        host.insertImage(name)
-                                    } else {
-                                        Toast.makeText(context, "Unsupported image type", Toast.LENGTH_SHORT).show()
-                                    }
-                                }
-                            }
-                        }
-                        when (source) {
-                            "camera" -> imagePicker?.captureCamera(handle)
-                            else -> imagePicker?.pickLibrary(handle)
-                        }
-                    },
+                    onPickImage = pickImage,
                     onChange = { newContent ->
                         // Data-loss guard: ignore editor change events until the
                         // off-main initial read has landed (`loaded`). The WebView
@@ -336,6 +345,27 @@ fun NoteEditorScreen(
                                 store.write(noteId, newContent)
                                 savedContent = newContent
                             }
+                        }
+                    },
+                )
+            }
+
+            // Native markdown toolbar [editor.md]: rendered from the generated
+            // ToolbarSpec.kt manifest, docked above the soft keyboard by this
+            // Column's imePadding. Gated on focus AND the IME actually being
+            // up — the WebView can report a stale focus without the keyboard
+            // (DOM focus parks on cm-content while the view itself is
+            // unfocused), and the bar should track the keyboard exactly like
+            // iOS's inputAccessoryView. Exec items dispatch into the SHARED
+            // markdownToolbar.ts commands — no editing logic in Kotlin.
+            if (host.editorFocused && WindowInsets.isImeVisible) {
+                EditorToolbar(
+                    onListLine = host.onListLine,
+                    perform = { item ->
+                        when (val action = item.action) {
+                            ToolbarItemAction.Exec -> host.exec(item.id)
+                            is ToolbarItemAction.PickImage -> pickImage(action.source)
+                            ToolbarItemAction.Dismiss -> host.blur()
                         }
                     },
                 )

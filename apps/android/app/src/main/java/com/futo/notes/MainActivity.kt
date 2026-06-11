@@ -15,6 +15,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -216,6 +217,13 @@ class MainActivity : ComponentActivity() {
                     fun push(s: Screen) = stack.add(s)
                     fun pop() { if (stack.size > 1) stack.removeAt(stack.lastIndex) }
 
+                    // List scroll position survives navigation [list.md:26]: the
+                    // list's LazyListState is owned HERE, not in NoteListScreen —
+                    // pushing the editor (or Search/Settings) takes the list out
+                    // of composition, and a screen-local rememberLazyListState
+                    // would be recreated at the top on pop.
+                    val listState = rememberLazyListState()
+
                     BackHandler(enabled = stack.size > 1) { pop() }
 
                     AnimatedContent(
@@ -235,6 +243,7 @@ class MainActivity : ComponentActivity() {
                         when (top) {
                             is Screen.List -> NoteListScreen(
                                 store = store,
+                                listState = listState,
                                 onOpenNote = { push(Screen.Editor(it, autoFocus = false)) },
                                 onCreate = { id -> push(Screen.Editor(id, autoFocus = true)) },
                                 onOpenSearch = { push(Screen.Search) },

@@ -1,6 +1,11 @@
 // The futoBridge contract (editor ↔ host).
 export * from './bridge';
 
+// The mobile markdown-toolbar manifest (items/order/icons/visibility) —
+// rendered by the embed's web toolbar and codegen'd into the native shells
+// (scripts/gen-toolbar-spec.ts).
+export * from './toolbar';
+
 // The canonical TypeScript copy of the deterministic note rules
 // (filename/title + tags). These are the SAME rules implemented in Rust
 // (`futo-notes-model`); the conformance harness (tests/conformance/*.json,

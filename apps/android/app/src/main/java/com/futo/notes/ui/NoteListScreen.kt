@@ -19,8 +19,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -85,6 +85,10 @@ private const val ALL = "__all" // sentinel; real folders are never empty+this
 @Composable
 fun NoteListScreen(
     store: NotesStore,
+    // Hoisted to MainActivity so the scroll position survives navigation
+    // [list.md:26] — this screen leaves composition whenever another screen
+    // is pushed, so a screen-local rememberLazyListState would reset on pop.
+    listState: LazyListState,
     onOpenNote: (String) -> Unit,
     onCreate: (String) -> Unit,
     onOpenSearch: () -> Unit,
@@ -94,7 +98,6 @@ fun NoteListScreen(
     val context = LocalContext.current
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
-    val listState = rememberLazyListState()
     var currentFolder by remember { mutableStateOf(ALL) } // ALL = all notes
 
     // Row actions [list.md:62 + 71]: long-press targets, hoisted so the
