@@ -1349,6 +1349,13 @@ release:
     - |
       curl -sL "https://gitlab.com/api/v4/projects/gitlab-org%2Frelease-cli/packages/generic/release-cli/latest/release-cli-linux-amd64" \
         -o /usr/local/bin/release-cli && chmod +x /usr/local/bin/release-cli
+    # Retag-same-version is the standing release policy (a not-yet-published
+    # tag is deleted and re-pushed at the fix commit). release-cli create is
+    # not idempotent — it 409s when a Release for the tag already exists from
+    # a prior attempt — so drop any existing Release for this tag first.
+    - |
+      curl -s -X DELETE -H "JOB-TOKEN: $CI_JOB_TOKEN" \
+        "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/releases/${CI_COMMIT_TAG}" || true
     - |
       release-cli create \
         --name "FUTO Notes ${CI_COMMIT_TAG}" \

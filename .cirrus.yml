@@ -166,7 +166,17 @@ publish_ios_task:
     # buildFutoNotesIOSNative/binary/*.ipa, and Cirrus rsyncs the working dir
     # into this VM.
     - |
-      IPA=$(find buildFutoNotesIOSNative/binary buildFutoNotesIOS/binary -name "*.ipa" -type f 2>/dev/null | head -1)
+      # Only search dirs that exist — the legacy buildFutoNotesIOS job is
+      # manual on tag pipelines, so its dir is usually absent and a bare
+      # find over both paths exits non-zero (killing the script under
+      # Cirrus's errexit/pipefail before the native IPA is ever used).
+      IPA=""
+      for d in buildFutoNotesIOSNative/binary buildFutoNotesIOS/binary; do
+        if [ -d "$d" ]; then
+          IPA=$(find "$d" -name "*.ipa" -type f | head -1)
+        fi
+        if [ -n "$IPA" ]; then break; fi
+      done
       if [ -z "$IPA" ]; then
         echo "ERROR: No IPA found in working dir — was build:ios-native artifact propagated?"
         exit 1
