@@ -205,6 +205,11 @@ final class NotesStore: ObservableObject {
 
     init() {
         let root = NotesStore.resolveNotesRoot()
+        // Log the active sandbox root so a "synced but no notes" report is
+        // diagnosable from device logs: distinct app installs (dev/release/custom
+        // bundle ids) use SEPARATE Documents containers, so notes pulled by one
+        // install never appear in another. Surfaced in the UI too (SyncView).
+        NSLog("[NotesStore] notesRoot = \(root.path)")
         self.notesRoot = root
         self.vault = NoteVault(notesRoot: root.path)
         self.search = SearchService(notesRoot: root.path)
@@ -419,6 +424,11 @@ final class NotesStore: ObservableObject {
                 print("createFolder failed for \(path): \(error)")
             }
         }
+    }
+
+    /// Count of notes at or beneath `folder` (for the delete confirmation).
+    func noteCount(under folder: String) -> Int {
+        notes.filter { $0.folder == folder || $0.folder.hasPrefix(folder + "/") }.count
     }
 
     /// Immediate child folder paths of `folder` ("" = root). Sorted.

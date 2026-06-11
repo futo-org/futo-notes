@@ -269,3 +269,50 @@ fn wikilink_extraction() {
     assert_eq!(model::extract_wikilinks("[[unterminated"), Vec::<String>::new());
     assert_eq!(model::extract_wikilinks("[[]] [[ |x]]"), Vec::<String>::new());
 }
+
+// ── delete_folder: recursive, leaves siblings, guards root + traversal ───
+#[test]
+fn delete_folder_removes_tree_and_spares_siblings() {
+    let root = temp_root();
+    model::write_note(&root, "RootNote", "keep me").unwrap();
+    model::write_note(&root, "Specs/Spec A", "a").unwrap();
+    model::write_note(&root, "Specs/Spec B", "b").unwrap();
+    model::write_note(&root, "Specs/Drafts/Draft 1", "d").unwrap();
+    model::write_note(&root, "Other/Note", "other").unwrap();
+
+    // Sanity: everything present.
+    assert_eq!(model::scan_notes(&root).len(), 5);
+
+    // Delete the Specs folder (its notes + the Drafts subfolder).
+    model::delete_folder(&root, "Specs").unwrap();
+
+    let ids: Vec<String> = model::scan_notes(&root).into_iter().map(|n| n.id).collect();
+    assert!(!ids.iter().any(|id| id.starts_with("Specs")), "Specs/* must be gone: {ids:?}");
+    assert!(ids.contains(&"RootNote".to_string()), "root note must survive");
+    assert!(ids.contains(&"Other/Note".to_string()), "sibling folder must survive");
+    assert!(!root.join("Specs").exists(), "Specs dir must be removed");
+
+    // Deleting a missing folder is a no-op (not an error), like delete_note.
+    model::delete_folder(&root, "Specs").unwrap();
+
+    // The vault root ("") is refused outright.
+    assert!(model::delete_folder(&root, "").is_err(), "empty path must be rejected");
+
+    // SAFETY: traversal can never escape the vault. `sanitize_folder_path` maps
+    // `..`/`.`/blank components to a fallback name, so these resolve to harmless
+    // non-existent folders INSIDE the root and are no-ops (Ok), never an escape.
+    // Prove it: a sentinel OUTSIDE the root must survive every traversal attempt.
+    let sentinel = root
+        .parent()
+        .unwrap()
+        .join(format!("{}-SENTINEL", root.file_name().unwrap().to_string_lossy()));
+    fs::write(&sentinel, b"do not delete").unwrap();
+    for evil in ["   ", "..", "../{NAME}-SENTINEL", "../../etc"] {
+        model::delete_folder(&root, evil).expect("traversal input must be a safe no-op");
+    }
+    assert!(sentinel.exists(), "delete_folder must NEVER delete outside the vault root");
+    assert!(root.join("Other").exists(), "sibling folder must survive");
+
+    fs::remove_file(&sentinel).ok();
+    fs::remove_dir_all(&root).ok();
+}

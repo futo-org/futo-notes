@@ -22,6 +22,8 @@ targets:
       - path: Sources
       - path: Resources
         buildPhase: resources
+      - path: Assets.xcassets
+        buildPhase: resources
     dependencies:
       # Rust note-domain + sync/auth/E2EE facade (UniFFI). Static lib
       # xcframework — don't embed. Exposes NoteStore + rules + SyncClient.
@@ -35,6 +37,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.futo.notes.native
         PRODUCT_NAME: FutoNotesNative
+        # App icon shared with the Tauri build (Assets.xcassets/AppIcon.appiconset).
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         INFOPLIST_KEY_CFBundleDisplayName: "FUTO Notes Native"
         INFOPLIST_KEY_UILaunchScreen_Generation: "YES"
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: "YES"

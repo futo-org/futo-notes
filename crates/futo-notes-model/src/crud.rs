@@ -478,3 +478,36 @@ pub fn create_folder(base: &Path, path: &str) -> Result<String, String> {
     std::fs::create_dir_all(&abs).map_err(|e| e.to_string())?;
     Ok(clean)
 }
+
+/// Delete a folder and ALL its contents (notes + subfolders), recursively.
+/// `path` is a folder path relative to `base`. A missing folder is NOT an error
+/// (mirrors `delete_note`). Returns `Err` only on a genuine I/O failure or an
+/// unsafe path. Refuses to delete the notes root (`""`).
+///
+/// Sync: this removes note files from disk but does NOT itself touch the sync
+/// object map. The next push diffs disk vs the persisted map and tombstones
+/// every removed note on the server (see `orchestrator::pair_local_moved` /
+/// the push delta) — exactly how a single-note `delete_note` propagates. So the
+/// caller should trigger a reload + the local-change/auto-push signal after.
+pub fn delete_folder(base: &Path, path: &str) -> Result<(), String> {
+    let clean = sanitize_folder_path(path);
+    if clean.is_empty() {
+        return Err("refusing to delete the notes root".to_string());
+    }
+    // `sanitize_folder_path` preserves dots, so a literal `.`/`..` segment could
+    // survive — and `PathBuf::starts_with` is purely lexical (it would accept
+    // `base/..`). Reject traversal explicitly before building the path. This is
+    // a destructive, recursive op, so be conservative.
+    if clean.split('/').any(|c| c == "." || c == "..") {
+        return Err("path traversal blocked".to_string());
+    }
+    let mut abs = base.to_path_buf();
+    for component in clean.split('/') {
+        abs.push(component);
+    }
+    match std::fs::remove_dir_all(&abs) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e.to_string()),
+    }
+}

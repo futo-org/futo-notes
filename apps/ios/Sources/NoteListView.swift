@@ -192,6 +192,8 @@ struct FolderContentsView: View {
     /// Subfolder pending the delete-folder confirmation.
     @State private var folderDeleteTarget: String?
 
+    /// Subfolder path pending deletion (drives the destructive confirmation).
+
     private var subfolders: [String] { store.subfolders(of: folder) }
     private var notes: [NoteItem] { store.notes(in: folder) }
 

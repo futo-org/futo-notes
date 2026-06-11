@@ -38,6 +38,19 @@ new-note affordances.
 - Selecting a folder filters the list and closes the drawer.
 - A Settings entry sits at the bottom of the drawer.
 
+## Sidebar drag & drop *(desktop)*
+
+- Notes and folders can be dragged onto a folder (or the root) in the sidebar
+  to move them. Internal drags carry custom MIME types
+  (`application/futo-note-id`, `application/futo-folder-path`). →
+  FolderTreeView.svelte / DrawerSidebar.svelte
+- Windows builds set `dragDropEnabled: false` (`tauri.windows.conf.json`):
+  WebView2's native drag-drop interception otherwise swallows HTML5 drag
+  events, making sidebar drag & drop inert on Windows. With interception off,
+  OS file drops reach the DOM — a window-level guard
+  (`externalFileDropGuard.ts`) prevents them from navigating the webview, on
+  every platform.
+
 ## New note
 
 - The FAB creates an "Untitled" note in the current folder (the vault root when
