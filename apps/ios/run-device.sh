@@ -15,11 +15,11 @@ cd "$ROOT"
 
 APP_DIR="apps/ios"
 DERIVED="$APP_DIR/.build-device"
-# Debug builds use the dev bundle id (com.futo.notes.native.dev) + a separate
+# Debug builds use the dev bundle id (com.futo.notes.dev) + a separate
 # data root + dev keychain so a dev install can never overwrite the production
 # app or its notes/creds. The actual id is read back from the built bundle
 # below (see project.yml dev config); this is only the fallback.
-BUNDLE_ID="com.futo.notes.native.dev"
+BUNDLE_ID="com.futo.notes.dev"
 
 # ── Detect the connected physical device (CoreDevice UUID) ──
 DEVFILE=$(mktemp /tmp/futo-devices.XXXXXX.json)
@@ -87,4 +87,4 @@ echo "==> Installing $APP"
 xcrun devicectl device install app --device "$UDID" "$APP"
 echo "==> Launching $BUNDLE_ID"
 xcrun devicectl device process launch --device "$UDID" "$BUNDLE_ID"
-echo "==> Done. FUTO Notes Native is running on your iPhone."
+echo "==> Done. FUTO Notes is running on your iPhone."

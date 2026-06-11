@@ -287,13 +287,13 @@ build_ios_native_task:
           NAME=$(/usr/libexec/PlistBuddy -c "Print Name" "$PROFILE_PLIST")
           APP_ID=$(/usr/libexec/PlistBuddy -c "Print Entitlements:application-identifier" "$PROFILE_PLIST" 2>/dev/null || true)
           cp "$PROFILE_PATH" ~/Library/MobileDevice/Provisioning\ Profiles/${PROFILE_UUID}.mobileprovision
-          if [[ "$APP_ID" == *.com.futo.notes.native ]]; then
+          if [[ "$APP_ID" == *.com.futo.notes ]]; then
             PROFILE_NAME="$NAME"
           fi
           rm -f "$PROFILE_PLIST"
         done
         if [ -z "$PROFILE_NAME" ]; then
-          echo "ERROR: No provisioning profile found for com.futo.notes.native"
+          echo "ERROR: No provisioning profile found for com.futo.notes"
           exit 1
         fi
 
@@ -328,7 +328,7 @@ build_ios_native_task:
           <string>manual</string>
           <key>provisioningProfiles</key>
           <dict>
-              <key>com.futo.notes.native</key>
+              <key>com.futo.notes</key>
               <string>${PROFILE_NAME}</string>
           </dict>
       </dict>

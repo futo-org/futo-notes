@@ -18,9 +18,9 @@ enum Keychain {
     // in project.yml) use the .dev service; Release uses the prod string
     // unchanged. Mirrors the dev/prod bundle-id + data-root + entitlement split.
     #if FUTO_DEBUG_BUILD
-    private static let service = "com.futo.notes.native.dev.sync"
+    private static let service = "com.futo.notes.dev.sync"
     #else
-    private static let service = "com.futo.notes.native.sync"
+    private static let service = "com.futo.notes.sync"
     #endif
     private static let account = "syncPassword"
 

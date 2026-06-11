@@ -73,7 +73,8 @@ The web page posts to the native handler named **`futoBridge`**:
   implements the bridge above; loads `editor.html` via `loadFileURL` (a file://
   origin so the inline ES module executes).
 - `Sources/Theme.swift` — brand palette (orange `#F26B1F`).
-- `project.yml` — xcodegen target; bundle id `com.futo.notes.native`.
+- `project.yml` — xcodegen target; release bundle id `com.futo.notes`, debug
+  bundle id `com.futo.notes.dev`.
 
 **Editor web bundle** — built from the existing app:
 - `editor.html` (repo root) — a second Vite entry.

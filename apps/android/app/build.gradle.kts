@@ -19,13 +19,12 @@ android {
     compileSdk = 34
 
     defaultConfig {
-        // Distinct from the Tauri Android app (com.futo.notes) so both can
-        // coexist on a device; matches the iOS native spike's com.futo.notes.native.
-        applicationId = "com.futo.notes.native"
+        applicationId = "com.futo.notes"
         minSdk = 24
         targetSdk = 34
         versionCode = (System.getenv("VERSION_CODE") ?: "1").toInt()
         versionName = System.getenv("VERSION_NAME") ?: "0.1.0"
+        manifestPlaceholders["appLabel"] = "FUTO Notes"
     }
 
     signingConfigs {
@@ -40,6 +39,11 @@ android {
     }
 
     buildTypes {
+        debug {
+            applicationIdSuffix = ".dev"
+            manifestPlaceholders["appLabel"] = "FUTO Notes Dev"
+        }
+
         release {
             isMinifyEnabled = false
             if (hasReleaseKeystore) {

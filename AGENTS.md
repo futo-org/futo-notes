@@ -21,13 +21,13 @@ just android-native     # Native Android (Compose) app on device/emulator
 > recipes (`ios-dev`, `ios-offline`, `deploy-ios`, bundle id `com.futo.notes`)
 > and Android (`android-dev`, `android-offline`) are the **legacy** webview
 > shell; we now ship native SwiftUI/Compose apps on the shared Rust core
-> (`futo-notes-ffi`) with an embedded editor. Native bundle ids are
-> `com.futo.notes.native` (Release) / `com.futo.notes.native.dev` (Debug) —
-> distinct from Tauri's, so they can coexist. Don't run `deploy-ios`/`ios-dev`
+> (`futo-notes-ffi`) with an embedded editor. Native release builds use the
+> production bundle/package id `com.futo.notes`; native debug builds use
+> `com.futo.notes.dev` so they stay separate from production. Don't run `deploy-ios`/`ios-dev`
 > for a "install on my phone" request.
 >
 > **Production native on a physical iPhone:** `just ios-native-device` only
-> builds Debug (`com.futo.notes.native.dev`). For a Release/production install,
+> builds Debug (`com.futo.notes.dev`). For a Release/production install,
 > run that script's pipeline (`build-rust-ios.sh` → `vite build --config
 > vite.editor.config.ts` → `xcodegen generate` in `apps/ios`) then
 > `xcodebuild -scheme FutoNotesNative -configuration Release -destination

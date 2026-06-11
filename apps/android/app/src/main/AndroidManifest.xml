@@ -5,8 +5,10 @@
     <uses-permission android:name="android.permission.INTERNET" />
 
     <application
-        android:label="FUTO Notes"
         android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="${appLabel}"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.Material3.DayNight.NoActionBar"
         android:usesCleartextTraffic="true">

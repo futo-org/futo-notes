@@ -42,6 +42,9 @@ Behaviors and constraints that hold across every surface and platform.
 - Dev/debug builds must never overwrite the production app or notes: a distinct
   bundle id (`com.futo.notes.dev`) and a distinct notes root
   (`~/Documents/fake-notes` on desktop). → CLAUDE.md
+- Production native mobile builds use the production package/bundle id
+  `com.futo.notes`; native debug builds use `com.futo.notes.dev` so local
+  installs keep separate app data and credentials.
 
 ## Dialogs *(desktop)*
 

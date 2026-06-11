@@ -486,7 +486,7 @@ extension WKWebView {
 ///   _elementDidFocus:userIsInteracting:blurPreviousNode:activityStateChanges:userObject:
 extension WKWebView {
     private static let keyboardLog =
-        Logger(subsystem: "com.futo.notes.native", category: "wkwebview-keyboard")
+        Logger(subsystem: "com.futo.notes", category: "wkwebview-keyboard")
 
     /// Runs exactly once per process (replaces the IMP on the shared
     /// WKContentView class, not per instance).

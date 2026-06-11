@@ -50,12 +50,12 @@ xcodebuild -project apps/ios/FutoNotesNative.xcodeproj \
 
 APP=$(find apps/ios/.build/Build/Products/Debug-iphonesimulator \
   -maxdepth 1 -name "*.app" | head -1)
-# Debug builds use the dev bundle id (com.futo.notes.native.dev) + a separate
+# Debug builds use the dev bundle id (com.futo.notes.dev) + a separate
 # data root (Documents/fake-notes) so a dev install can never overwrite the
 # production app or touch the user's real notes (see project.yml dev config).
 # Read the actual id from the built bundle so this stays correct if the id moves.
 BUNDLE_ID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP/Info.plist" 2>/dev/null \
-  || echo "com.futo.notes.native.dev")
+  || echo "com.futo.notes.dev")
 echo "==> Installing $APP"
 xcrun simctl install "$SIM" "$APP"
 xcrun simctl launch "$SIM" "$BUNDLE_ID"

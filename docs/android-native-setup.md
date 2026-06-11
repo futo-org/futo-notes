@@ -34,7 +34,7 @@ just android-native        # == apps/android/run.sh
 
 That script: builds `futo-notes-ffi` per-ABI → `jniLibs/<abi>/libfuto_notes_ffi.so`
 + Kotlin bindings, builds the shared `editor.html`, stages it into the app's
-`assets/`, then `gradle :app:installDebug` and launches `com.futo.notes.native`.
+`assets/`, then `gradle :app:installDebug` and launches `com.futo.notes.dev`.
 
 ## 3. Step by step (if the one-shot fails)
 
@@ -80,8 +80,8 @@ Mirror the iOS smoke test:
   uses an "IME shield" (see `docs/learnings/ime-shield-workaround.md`). The
   native Compose `EditorWebView.kt` does **not** yet have an equivalent — if a
   brand-new note won't accept typing until you tap twice, port the IME approach.
-- **`applicationId` = `com.futo.notes.native`** (distinct from the Tauri app's
-  `com.futo.notes`) so both can coexist on one device.
+- **Release `applicationId` = `com.futo.notes`**. Debug appends `.dev`, so
+  development installs keep separate app data.
 - **`usesCleartextTraffic=true`** is enabled for local-server sync testing;
   tighten before any real distribution.
 - The `futoBridge` contract is already cross-platform (`postToHost()` handles

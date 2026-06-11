@@ -30,5 +30,5 @@ if [ -x ./gradlew ]; then GRADLE=./gradlew; else GRADLE=gradle; fi
 "$GRADLE" :app:installDebug
 
 echo "==> Launching"
-adb shell monkey -p com.futo.notes.native -c android.intent.category.LAUNCHER 1
+adb shell monkey -p com.futo.notes.dev -c android.intent.category.LAUNCHER 1
 echo "==> Done."

@@ -35,11 +35,11 @@ targets:
       - sdk: SystemConfiguration.framework
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.futo.notes.native
+        PRODUCT_BUNDLE_IDENTIFIER: com.futo.notes
         PRODUCT_NAME: FutoNotesNative
         # App icon shared with the Tauri build (Assets.xcassets/AppIcon.appiconset).
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        INFOPLIST_KEY_CFBundleDisplayName: "FUTO Notes Native"
+        INFOPLIST_KEY_CFBundleDisplayName: "FUTO Notes"
         INFOPLIST_KEY_UILaunchScreen_Generation: "YES"
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: "YES"
         # Editor image insertion (bridge 'pickImage'). The library path uses
@@ -70,7 +70,7 @@ targets:
       # exception — it must behave byte-identically to before this change.
       configs:
         Debug:
-          PRODUCT_BUNDLE_IDENTIFIER: com.futo.notes.native.dev
+          PRODUCT_BUNDLE_IDENTIFIER: com.futo.notes.dev
           INFOPLIST_KEY_CFBundleDisplayName: "FUTO Notes Dev"
           # Dev keychain group must match the dev bundle id.
           CODE_SIGN_ENTITLEMENTS: FutoNotesNative.dev.entitlements
@@ -86,4 +86,4 @@ targets:
           # INFOPLIST_FILE → no ATS exception (byte-identical to before).
           INFOPLIST_FILE: Info.debug.plist
         Release:
-          PRODUCT_BUNDLE_IDENTIFIER: com.futo.notes.native
+          PRODUCT_BUNDLE_IDENTIFIER: com.futo.notes
