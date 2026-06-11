@@ -141,6 +141,10 @@ stages:
       - .cargo-home/
       - target/
     policy: pull-push
+    # Upload even on failure/timeout: a cold compile that dies at the job
+    # wall still seeds the cache, so the retry resumes instead of starting
+    # cold again (cargo handles partial target/ dirs fine).
+    when: always
 
 # Native shells (Compose / SwiftUI) build futo-notes-ffi for the Android NDK
 # targets (aarch64/armv7/x86_64-linux-android) plus a host lib for binding
@@ -158,6 +162,9 @@ stages:
       - .cargo-home/
       - target/
     policy: pull-push
+    # when: always — see .cache-cargo-tauri. Critical here: this job only
+    # runs on tags, so without failure uploads every tag retry starts cold.
+    when: always
 
 # Gradle wrapper distribution + dependency cache for the native Android build.
 # Keyed on the gradle config so a dependency bump invalidates it; the wrapper
@@ -173,6 +180,7 @@ stages:
       - .gradle-native/caches/
       - .gradle-native/wrapper/
     policy: pull-push
+    when: always
 
 # Separate caches for the release Linux builds. Packages (.deb/.rpm) build on
 # ubuntu:22.04 (glibc 2.35, wide forward-compat); AppImage builds on ubuntu:24.04
@@ -434,9 +442,10 @@ test:cross-platform-sync:
     paths:
       - test-screenshots/sync-results.json
     expire_in: 1 week
-  # Cold Rust compile alone burns ~5min; bump to give warm runs a comfortable
-  # margin and cold runs (cache miss) enough headroom to finish.
-  timeout: 30m
+  # A fully cold Rust compile of the desktop Tauri app blew past 30m on the
+  # v1.4.0 tag pipeline (this job is tag-only, so its cache is rarely warm).
+  # 60m lets a cold run finish and seed the cache (when: always) for retries.
+  timeout: 60m
   rules:
     - if: $CI_COMMIT_TAG
     - if: $CI_MERGE_REQUEST_IID
@@ -873,12 +882,12 @@ build:android-native:
     paths:
       - apps/android/app/build/outputs/apk/**/*.apk
     expire_in: 4 weeks
-  # 45m, not 30m: a cold/partial .cache-cargo-native cache makes the Rust FFI
-  # compile across 3 NDK ABIs swing wide (observed 8m warm → 27m near-cold, and
-  # one 30m timeout). Cache only uploads on_success, so a timed-out cold run
-  # never warms the next one — the headroom lets a cold run finish and populate
-  # the cache instead of dying at the wall.
-  timeout: 45m
+  # A cold/partial .cache-cargo-native cache makes the Rust FFI compile across
+  # 3 NDK ABIs swing wide (observed 8m warm → 27m near-cold → 45m timeout
+  # fully cold on the v1.4.0 tag pipeline, killed mid-armv7). 90m lets a fully
+  # cold run finish; the caches now upload when: always so even a failed run
+  # warms the next attempt.
+  timeout: 90m
   rules:
     - if: $CI_MERGE_REQUEST_IID
       changes: &native-android-changes
@@ -903,7 +912,10 @@ build:ios-native:
   variables:
     GIT_STRATEGY: clone
   before_script:
-    - env | grep -E '^(CI_)' > .cienv
+    # IOS_ must pass through: the Cirrus task imports Certificates.p12 with
+    # $IOS_CERT_PASSWORD on tag builds. CI_-only here yields an empty
+    # password and "MAC verification failed during PKCS12 import".
+    - env | grep -E '^(CI_|IOS_)' > .cienv
   script:
     - cirrus run buildFutoNotesIOSNative --artifacts-dir . --env-file .cienv
   artifacts:
