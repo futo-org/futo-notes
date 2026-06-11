@@ -933,10 +933,10 @@
         {/if}
       </div>
     {/if}
-    {#if !isMobile && sidebarCollapsed}
-      <button class="sidebar-expand-btn" aria-label="Expand sidebar"
+    {#if !isMobile && !isDesktop && sidebarCollapsed}
+      <button class="sidebar-expand-btn sidebar-expand-fallback-btn" aria-label="Expand sidebar"
         onclick={() => { toggleSidebar(false); }}>
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <rect x="3" y="3" width="18" height="18" rx="2"/>
           <line x1="9" y1="3" x2="9" y2="21"/>
           <polyline points="14 8 17 12 14 16"/>
@@ -952,7 +952,10 @@
       onclick={() => setDrawerOpen(false)}
     ></div>
     {#if isDesktop}
-      <TabsStrip />
+      <TabsStrip
+        {sidebarCollapsed}
+        onExpandSidebar={() => { toggleSidebar(false); }}
+      />
     {/if}
     <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
     <div class="note-body" data-editor-focused={editorFocused ? '' : undefined} bind:this={noteBody} onclick={handleNoteBodyClick} onfocusin={handleNoteBodyFocusIn} onfocusout={handleEditorFocusOut}>

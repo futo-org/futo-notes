@@ -19,6 +19,21 @@ test.describe('Sidebar Collapse/Expand', () => {
     await expect(page.locator('.notes-shell')).toHaveClass(/sidebar-collapsed/);
     await expect(expandBtn).toBeVisible();
 
+    const firstTab = page.locator('.tab-pill').first();
+    if (await firstTab.count()) {
+      const expandBox = await expandBtn.boundingBox();
+      const firstTabBox = await firstTab.boundingBox();
+      expect(expandBox).not.toBeNull();
+      expect(firstTabBox).not.toBeNull();
+      const boxesIntersect = (
+        expandBox!.x < firstTabBox!.x + firstTabBox!.width &&
+        expandBox!.x + expandBox!.width > firstTabBox!.x &&
+        expandBox!.y < firstTabBox!.y + firstTabBox!.height &&
+        expandBox!.y + expandBox!.height > firstTabBox!.y
+      );
+      expect(boxesIntersect).toBe(false);
+    }
+
     // localStorage should reflect collapsed state
     const stored = await page.evaluate(() => localStorage.getItem('futo-notes:sidebarCollapsed'));
     expect(stored).toBe('true');

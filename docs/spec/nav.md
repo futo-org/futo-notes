@@ -41,5 +41,6 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
 ## Desktop shell *(desktop)*
 
 - The sidebar is persistent and resizable (drag the divider, min 200px); a
-  collapse toggle hides it to an expand button. Width and collapsed state
-  persist across sessions. → DrawerSidebar.svelte, NotesShell.svelte
+  collapse toggle hides it to an expand button in the desktop tab strip's
+  leading slot. Width and collapsed state persist across sessions. →
+  DrawerSidebar.svelte, NotesShell.svelte, TabsStrip.svelte

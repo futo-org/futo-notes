@@ -4,6 +4,16 @@
   import { APP_CONTEXT_KEY, type AppContext } from '$lib/appContext.svelte';
   import { idLeaf } from '$lib/platform/pathSafety';
 
+  interface Props {
+    sidebarCollapsed?: boolean;
+    onExpandSidebar?: () => void;
+  }
+
+  let {
+    sidebarCollapsed = false,
+    onExpandSidebar = () => {},
+  }: Props = $props();
+
   const appCtx = getContext<AppContext>(APP_CONTEXT_KEY);
 
   // Build an id→title map once per notes update so the per-pill lookup is O(1).
@@ -219,6 +229,21 @@
   aria-label="Tabs"
   data-tauri-drag-region
 >
+  {#if sidebarCollapsed}
+    <button
+      type="button"
+      class="sidebar-expand-btn"
+      aria-label="Expand sidebar"
+      title="Expand sidebar"
+      onclick={onExpandSidebar}
+    >
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="3" y="3" width="18" height="18" rx="2"/>
+        <line x1="9" y1="3" x2="9" y2="21"/>
+        <polyline points="14 8 17 12 14 16"/>
+      </svg>
+    </button>
+  {/if}
   {#each tabsStore.tabs as tab, idx (tab.id)}
     <button
       type="button"
@@ -282,6 +307,34 @@
     /* macOS: clear the traffic lights (~x 19-97) when the sidebar is
        collapsed (otherwise the sidebar provides the left clearance). */
     padding-left: 8px;
+  }
+
+  :global(.notes-shell.desktop-layout.sidebar-collapsed) .tabs-strip {
+    padding-left: calc(8px + var(--macos-traffic-lights-width, 0px));
+  }
+
+  .sidebar-expand-btn {
+    flex: 0 0 auto;
+    width: 32px;
+    height: 32px;
+    margin: 0 4px 2px 0;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--color-muted, #888);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .sidebar-expand-btn:hover {
+    background: color-mix(in srgb, var(--color-bg) 70%, transparent);
+    color: var(--color-text);
+  }
+
+  .sidebar-expand-btn:active {
+    background: var(--color-bg);
   }
 
   /* Tabs sit at the bottom of the strip with rounded-top corners and a

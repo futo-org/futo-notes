@@ -686,7 +686,7 @@
   background: rgba(var(--ink-rgb), 0.04);
 }
 
-.sidebar-expand-btn {
+.sidebar-expand-fallback-btn {
   position: absolute;
   top: 12px;
   left: 12px;
@@ -708,7 +708,7 @@
   transition: background 0.15s ease;
 }
 
-.sidebar-expand-btn:active {
+.sidebar-expand-fallback-btn:active {
   background: var(--color-surface);
 }
 
@@ -928,20 +928,6 @@
    var is 0 so the layout is unchanged. */
 .notes-shell.desktop-layout .sidebar-header {
   padding: calc(16px + var(--macos-titlebar-inset, 0px)) 16px 0;
-}
-
-/* macOS + sidebar COLLAPSED: the sidebar isn't there to host the traffic
-   lights anymore, so they overlap the tab strip's left edge and the
-   floating expand-sidebar button (which is at left:12px). Reserve the
-   leading clearance for the lights on both. The expanded case is fine
-   without these rules because the sidebar itself occupies the lights'
-   x-range. `--macos-traffic-lights-width` is 0 off Mac, so this is a
-   no-op everywhere else. */
-.notes-shell.desktop-layout.sidebar-collapsed .tabs-strip {
-  padding-left: calc(8px + var(--macos-traffic-lights-width, 0px));
-}
-.notes-shell.desktop-layout.sidebar-collapsed .sidebar-expand-btn {
-  left: calc(12px + var(--macos-traffic-lights-width, 0px));
 }
 
 .notes-shell.desktop-layout .drawer-search-area {

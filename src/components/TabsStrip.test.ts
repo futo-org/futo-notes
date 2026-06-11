@@ -1,9 +1,14 @@
 // @vitest-environment jsdom
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mount, unmount } from 'svelte';
 import TabsStrip from './TabsStrip.svelte';
 import { tabsStore } from '$lib/tabsStore.svelte';
 import { APP_CONTEXT_KEY, createAppContext } from '$lib/appContext.svelte';
+
+type TabsStripProps = {
+  sidebarCollapsed?: boolean;
+  onExpandSidebar?: () => void;
+};
 
 describe('TabsStrip', () => {
   let target: HTMLDivElement;
@@ -11,9 +16,10 @@ describe('TabsStrip', () => {
   // here — just keep a handle so afterEach can unmount.
   let app: ReturnType<typeof mount> | null = null;
 
-  function mountStrip(): HTMLElement {
+  function mountStrip(props: TabsStripProps = {}): HTMLElement {
     app = mount(TabsStrip, {
       target,
+      props,
       context: new Map([[APP_CONTEXT_KEY, createAppContext()]]),
     });
     return target.querySelector('.tabs-strip') as HTMLElement;
@@ -57,5 +63,22 @@ describe('TabsStrip', () => {
     const strip = mountStrip();
     expect(strip).not.toBeNull();
     expect(strip.hasAttribute('data-tauri-drag-region')).toBe(true);
+  });
+
+  it('renders the collapsed-sidebar expand control before tab pills', () => {
+    const onExpandSidebar = vi.fn();
+    const strip = mountStrip({ sidebarCollapsed: true, onExpandSidebar });
+
+    const expandBtn = target.querySelector('.sidebar-expand-btn') as HTMLButtonElement;
+    const firstTab = target.querySelector('.tab-pill') as HTMLButtonElement;
+    expect(expandBtn).not.toBeNull();
+    expect(firstTab).not.toBeNull();
+    expect(strip.firstElementChild).toBe(expandBtn);
+
+    const children = Array.from(strip.children);
+    expect(children.indexOf(expandBtn)).toBeLessThan(children.indexOf(firstTab));
+
+    expandBtn.click();
+    expect(onExpandSidebar).toHaveBeenCalledTimes(1);
   });
 });
