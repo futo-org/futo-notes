@@ -31,7 +31,7 @@
     document.documentElement.style.setProperty('--macos-titlebar-inset', '0px');
     document.documentElement.style.setProperty('--macos-traffic-lights-width', '0px');
   }
-  import { initNotes, createNote, getAllNotes, _injectTestNote, moveNote as moveNoteWithCollisionHandling } from '$lib/notes.svelte';
+  import { initNotes, createNote, getAllNotes, _injectTestNote, deleteNote as deleteNoteApp, moveNote as moveNoteWithCollisionHandling } from '$lib/notes.svelte';
   import { loadPreferences, getCachedPreferences, savePreferences } from '$lib/appState';
   import { applyThemePreference, watchSystemThemeTauri } from '$lib/theme';
   import { flushCrashQueue, setAppVersion, type CrashReport } from '$lib/crashHandler';
@@ -153,6 +153,10 @@
               readNote: (id: string) => fs.readNote(id),
               writeNote: (id: string, content: string, modifiedAtMs?: number) => fs.writeNote(id, content, modifiedAtMs),
               deleteNoteFile: (id: string) => fs.deleteNoteFile(id),
+              // App-level delete: prunes notesCache synchronously like a real
+              // user delete. deleteNoteFile above stays raw-FS for scenarios
+              // that simulate external deletions.
+              deleteNote: (id: string) => deleteNoteApp(id),
               deleteAllContent: () => fs.deleteAllContent(),
               noteExists: (id: string) => fs.noteExists(id),
               // Folder ops — exposed for cross-platform sync tests covering

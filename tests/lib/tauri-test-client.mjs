@@ -87,6 +87,16 @@ export class TauriTestClient {
     return executeJs(this.ws, `window.__testNotes.deleteNoteFile(${JSON.stringify(id)})`);
   }
 
+  // App-level delete: goes through the same path as a user delete, so the
+  // notes cache is pruned synchronously. deleteNote() above is a raw FS
+  // unlink for scenarios simulating EXTERNAL deletions — its watcher echo
+  // can be suppressed when a sync pushes the tombstone first, leaving the
+  // cache stale (which is correct to test for external edits, but races
+  // when the scenario means "the user deleted a note in the app").
+  async deleteNoteInApp(id) {
+    return executeJs(this.ws, `window.__testNotes.deleteNote(${JSON.stringify(id)})`);
+  }
+
   async deleteAllNotes() {
     return executeJs(this.ws, `window.__testNotes.deleteAllContent()`);
   }

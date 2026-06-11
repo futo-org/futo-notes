@@ -626,8 +626,13 @@ async function tombstoneDoesNotBlockNewNote(a, b, server) {
   await a.writeNote('Untitled', '# First');
   await a.syncNow();
 
-  // Delete it and sync — server creates a tombstone
-  await a.deleteNote('Untitled');
+  // Delete it IN THE APP (not a raw FS unlink) and sync — server creates a
+  // tombstone. The app-level delete prunes the notes cache synchronously,
+  // matching what a real user delete does. A raw deleteNote() here races:
+  // the sync push records the deleted id as a sync write, which suppresses
+  // the watcher's unlink event — on slow CI the cache then still holds
+  // 'Untitled' when the new note picks its title, yielding "Untitled (1)".
+  await a.deleteNoteInApp('Untitled');
   await a.syncNow();
   const gone = !(await a.noteExists('Untitled'));
   assert(gone, 'Untitled should be deleted');
