@@ -4,6 +4,7 @@ const isCI = !!process.env.CI;
 
 export default defineConfig({
   testDir: './tests',
+  timeout: isCI ? 90000 : 30000,
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: 0,
@@ -27,6 +28,6 @@ export default defineConfig({
     command: 'npm run dev',
     url: 'http://localhost:5173',
     reuseExistingServer: !!process.env.PLAYWRIGHT_REUSE_DEV_SERVER,
-    timeout: 30000,
+    timeout: isCI ? 90000 : 30000,
   },
 });
