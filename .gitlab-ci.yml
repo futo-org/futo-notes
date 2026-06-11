@@ -743,7 +743,10 @@ build:android:
       - apps/tauri/src-tauri/gen/android/app/build/outputs/apk/**/*.apk
     expire_in: 4 weeks
   rules:
+    # Legacy Tauri Android shell. Native Android is the release mobile app.
     - if: $CI_COMMIT_TAG
+      when: manual
+      allow_failure: true
 
 build:ios:
   stage: build
@@ -762,7 +765,10 @@ build:ios:
       - buildFutoNotesIOS/binary/*.ipa
     expire_in: 4 weeks
   rules:
+    # Legacy Tauri iOS shell. Native iOS is the release mobile app.
     - if: $CI_COMMIT_TAG
+      when: manual
+      allow_failure: true
 
 build:macos:
   stage: build
@@ -785,11 +791,9 @@ build:macos:
 
 # ─────────────────────────────────────────────────────────────
 # Native app shells (Compose / SwiftUI) — NOT Tauri. Same Rust core
-# (futo-notes-ffi via UniFFI) + the embedded editor.html bundle. These are
-# build-only verification jobs (no signing, no device) that prove the native
-# spikes still compile. They are intentionally NOT wired into release:gate /
-# release — the shipping path is still the Tauri apps. They run on MRs that
-# touch native/shared code and on default-branch pushes, to keep main green.
+# (futo-notes-ffi via UniFFI) + the embedded editor.html bundle. These are the
+# release mobile apps on tags; on MRs/default-branch pushes they remain
+# build-only verification jobs with no device install.
 # ─────────────────────────────────────────────────────────────
 
 build:android-native:
@@ -837,19 +841,43 @@ build:android-native:
       fi
     # Shared Rust FFI (.so per ABI) + UniFFI Kotlin bindings.
     - bash scripts/build-rust-android.sh
+    - |
+      if [ -n "$CI_COMMIT_TAG" ]; then
+        VERSION="${CI_COMMIT_TAG#v}"
+        export VERSION_NAME="$VERSION"
+        export VERSION_CODE="${CI_PIPELINE_IID:-1}"
+        echo "Building native Android release versionName=$VERSION_NAME versionCode=$VERSION_CODE"
+      fi
     # Build the embedded editor bundle and stage it into the app assets
     # (the SAME single editor.html iOS bundles).
     - pnpm exec vite build --config vite.editor.config.ts
     - mkdir -p apps/android/app/src/main/assets
     - cp apps/ios/Resources/editor.html apps/android/app/src/main/assets/editor.html
-    # Assemble the debug APK (no device — assemble, not install).
-    - cd apps/android && ./gradlew --no-daemon :app:assembleDebug
+    - |
+      if [ -n "$CI_COMMIT_TAG" ] && [ -n "${KEYSTORE_BASE64:-}" ]; then
+        echo "$KEYSTORE_BASE64" | base64 -d > /tmp/native-release.keystore
+        {
+          echo "keyAlias=${KEY_ALIAS:-upload}"
+          echo "password=${KEYSTORE_PASSWORD}"
+          echo "storeFile=/tmp/native-release.keystore"
+        } > apps/android/keystore.properties
+      elif [ -n "$CI_COMMIT_TAG" ]; then
+        echo "WARNING: No KEYSTORE_BASE64 set — native Android release APK will be unsigned"
+      fi
+    # Assemble a release APK on tags; use debug elsewhere for fast compile
+    # verification with the same native shell.
+    - |
+      if [ -n "$CI_COMMIT_TAG" ]; then
+        cd apps/android && ./gradlew --no-daemon :app:assembleRelease
+      else
+        cd apps/android && ./gradlew --no-daemon :app:assembleDebug
+      fi
   after_script:
     - find apps/android/app/build/outputs/apk -name "*.apk" -type f 2>/dev/null || true
   artifacts:
     paths:
       - apps/android/app/build/outputs/apk/**/*.apk
-    expire_in: 1 week
+    expire_in: 4 weeks
   # 45m, not 30m: a cold/partial .cache-cargo-native cache makes the Rust FFI
   # compile across 3 NDK ABIs swing wide (observed 8m warm → 27m near-cold, and
   # one 30m timeout). Cache only uploads on_success, so a timed-out cold run
@@ -867,14 +895,11 @@ build:android-native:
         - scripts/build-rust-android.sh
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       changes: *native-android-changes
-    # Build (only) on release tags so native code can't rot undetected across
-    # releases. rules:changes is unreliable on tag pipelines (no MR diff base),
-    # so this is unconditional on tags — build-only, NOT wired into
-    # release:gate / release (the shipping path stays the Tauri apps).
     - if: $CI_COMMIT_TAG
 
-# Simulator build on the macscript runner via Cirrus (see .cirrus.yml,
-# task buildFutoNotesIOSNative). Unsigned, build-only — no secure files needed.
+# Native iOS build on the macscript runner via Cirrus (see .cirrus.yml,
+# task buildFutoNotesIOSNative). Tags build a signed Release IPA; branch/MR
+# pipelines run an unsigned simulator compile check.
 build:ios-native:
   stage: build
   needs: []
@@ -886,6 +911,10 @@ build:ios-native:
     - env | grep -E '^(CI_)' > .cienv
   script:
     - cirrus run buildFutoNotesIOSNative --artifacts-dir . --env-file .cienv
+  artifacts:
+    paths:
+      - buildFutoNotesIOSNative/binary/*.ipa
+    expire_in: 4 weeks
   rules:
     - if: $CI_MERGE_REQUEST_IID
       changes: &native-ios-changes
@@ -897,10 +926,6 @@ build:ios-native:
         - scripts/build-rust-ios.sh
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       changes: *native-ios-changes
-    # Build (only) on release tags so native code can't rot undetected across
-    # releases. rules:changes is unreliable on tag pipelines (no MR diff base),
-    # so this is unconditional on tags — build-only, NOT wired into
-    # release:gate / release (the shipping path stays the Tauri apps).
     - if: $CI_COMMIT_TAG
 
 # ─────────────────────────────────────────────────────────────
@@ -1165,9 +1190,9 @@ release:gate:
       artifacts: true
     - job: build:linux-appimage
       artifacts: true
-    - job: build:android
+    - job: build:android-native
       artifacts: true
-    - job: build:ios
+    - job: build:ios-native
       artifacts: true
     - job: build:macos
       artifacts: true
@@ -1184,8 +1209,8 @@ release:gate:
       check "target/release/bundle/deb/*.deb"
       check "target/release/bundle/rpm/*.rpm"
       check "target/release/bundle/appimage/*.AppImage"
-      check_find "apps/tauri/src-tauri/gen/android" "*release*.apk"
-      check "buildFutoNotesIOS/binary/*.ipa"
+      check_find "apps/android/app/build/outputs/apk/release" "*release*.apk"
+      check "buildFutoNotesIOSNative/binary/*.ipa"
       check "buildFutoNotesMacOS/binary/*.dmg"
 
       echo ""
@@ -1207,7 +1232,7 @@ release:gate:
 
 # Upload the iOS IPA to TestFlight. Gated by release:gate so a failing
 # test job blocks the upload. The Cirrus task pulls the IPA artifact
-# built in build:ios, so we don't rebuild from scratch.
+# built in build:ios-native, so we don't rebuild from scratch.
 publish:ios:
   stage: release
   interruptible: false
@@ -1215,7 +1240,7 @@ publish:ios:
     - macscript
   needs:
     - job: release:gate
-    - job: build:ios
+    - job: build:ios-native
   variables:
     GIT_STRATEGY: clone
   before_script:
@@ -1234,9 +1259,9 @@ release:
       artifacts: true
     - job: build:linux-appimage
       artifacts: true
-    - job: build:android
+    - job: build:android-native
       artifacts: true
-    - job: build:ios
+    - job: build:ios-native
       artifacts: true
     - job: build:macos
       artifacts: true
@@ -1269,7 +1294,7 @@ release:
       done
     # Android APK
     - |
-      APK=$(find apps/tauri/src-tauri/gen/android -name "*release*.apk" -type f 2>/dev/null | head -1)
+      APK=$(find apps/android/app/build/outputs/apk/release -name "*release*.apk" -type f 2>/dev/null | head -1)
       if [ -n "$APK" ]; then
         NAME="futo-notes-${VERSION}.apk"
         echo "Uploading $NAME"
@@ -1277,7 +1302,7 @@ release:
       fi
     # iOS IPA
     - |
-      IPA=$(find buildFutoNotesIOS -name "*.ipa" -type f 2>/dev/null | head -1)
+      IPA=$(find buildFutoNotesIOSNative -name "*.ipa" -type f 2>/dev/null | head -1)
       if [ -n "$IPA" ]; then
         NAME="FUTO-Notes-${VERSION}.ipa"
         echo "Uploading $NAME"

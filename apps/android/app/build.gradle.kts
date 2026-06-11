@@ -1,7 +1,17 @@
+import java.io.FileInputStream
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
+}
+
+val releaseKeystorePropertiesFile = rootProject.file("keystore.properties")
+val releaseKeystoreProperties = Properties()
+val hasReleaseKeystore = releaseKeystorePropertiesFile.exists()
+if (hasReleaseKeystore) {
+    releaseKeystoreProperties.load(FileInputStream(releaseKeystorePropertiesFile))
 }
 
 android {
@@ -14,13 +24,27 @@ android {
         applicationId = "com.futo.notes.native"
         minSdk = 24
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = (System.getenv("VERSION_CODE") ?: "1").toInt()
+        versionName = System.getenv("VERSION_NAME") ?: "0.1.0"
+    }
+
+    signingConfigs {
+        if (hasReleaseKeystore) {
+            create("release") {
+                keyAlias = releaseKeystoreProperties["keyAlias"] as String
+                keyPassword = releaseKeystoreProperties["password"] as String
+                storeFile = file(releaseKeystoreProperties["storeFile"] as String)
+                storePassword = releaseKeystoreProperties["password"] as String
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
+            if (hasReleaseKeystore) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 

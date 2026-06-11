@@ -161,16 +161,14 @@ publish_ios_task:
     - mkdir -p ~/.private_keys
     - cp .secure_files/AuthKey*.p8 ~/.private_keys/
 
-    # The IPA is already present: GitLab's `needs: build:ios` (default
+    # The IPA is already present: GitLab's `needs: build:ios-native` (default
     # `artifacts: true`) puts it in the publish:ios working dir at
-    # buildFutoNotesIOS/binary/*.ipa, and Cirrus rsyncs the working dir
-    # into this VM. The previous code re-downloaded via the
-    # `/jobs/artifacts/:ref/download` API, which 404s on this GitLab
-    # instance for tag refs even though the artifact exists.
+    # buildFutoNotesIOSNative/binary/*.ipa, and Cirrus rsyncs the working dir
+    # into this VM.
     - |
-      IPA=$(find buildFutoNotesIOS/binary -name "*.ipa" -type f | head -1)
+      IPA=$(find buildFutoNotesIOSNative/binary buildFutoNotesIOS/binary -name "*.ipa" -type f 2>/dev/null | head -1)
       if [ -z "$IPA" ]; then
-        echo "ERROR: No IPA found in working dir — was build:ios artifact propagated?"
+        echo "ERROR: No IPA found in working dir — was build:ios-native artifact propagated?"
         exit 1
       fi
       echo "Uploading $IPA to TestFlight"
@@ -247,9 +245,9 @@ build_macos_task:
   binary_artifacts:
     path: "*.dmg"
 
-# Native iOS spike (SwiftUI over the futo-notes-ffi UniFFI core + embedded
-# editor.html). Build-only verification for the simulator — no signing, no
-# secure files. Invoked from .gitlab-ci.yml's build:ios-native job.
+# Native iOS app (SwiftUI over the futo-notes-ffi UniFFI core + embedded
+# editor.html). Tag builds produce a signed Release IPA for TestFlight;
+# non-tag builds are unsigned simulator compile checks.
 build_ios_native_task:
   name: buildFutoNotesIOSNative
   macos_instance:
@@ -268,9 +266,96 @@ build_ios_native_task:
     - bash scripts/build-rust-ios.sh
     # Embedded editor bundle (single self-contained editor.html).
     - pnpm exec vite build --config vite.editor.config.ts
-    # Generate the Xcode project and build for the simulator (unsigned).
-    # ARCHS=arm64: the FFI xcframework only ships an arm64 simulator slice
-    # (aarch64-apple-ios-sim); a bare 'generic/platform=iOS Simulator' build
-    # also targets x86_64 and fails to link. Build-only, so host arch is moot.
+    # Generate the Xcode project.
     - (cd apps/ios && xcodegen generate)
-    - xcodebuild -project apps/ios/FutoNotesNative.xcodeproj -scheme FutoNotesNative -configuration Debug -destination 'generic/platform=iOS Simulator' -derivedDataPath apps/ios/.build ARCHS=arm64 ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO build | tail -5
+    - |
+      if [ -n "${CI_COMMIT_TAG:-}" ]; then
+        echo "Building signed native iOS release for $CI_COMMIT_TAG"
+        curl --silent "https://gitlab.com/gitlab-org/incubation-engineering/mobile-devops/download-secure-files/-/raw/main/installer" | bash
+
+        security unlock-keychain -p "admin" ~/Library/Keychains/login.keychain
+        security import ./.secure_files/Certificates.p12 -k ~/Library/Keychains/login.keychain -P "$IOS_CERT_PASSWORD" -T /usr/bin/codesign
+        security set-key-partition-list -S apple-tool:,apple: -s -k admin ~/Library/Keychains/login.keychain
+
+        mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+        PROFILE_NAME=""
+        for PROFILE_PATH in .secure_files/*.mobileprovision; do
+          [ -e "$PROFILE_PATH" ] || continue
+          PROFILE_PLIST=$(mktemp)
+          /usr/bin/security cms -D -i "$PROFILE_PATH" > "$PROFILE_PLIST"
+          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c "Print UUID" "$PROFILE_PLIST")
+          NAME=$(/usr/libexec/PlistBuddy -c "Print Name" "$PROFILE_PLIST")
+          APP_ID=$(/usr/libexec/PlistBuddy -c "Print Entitlements:application-identifier" "$PROFILE_PLIST" 2>/dev/null || true)
+          cp "$PROFILE_PATH" ~/Library/MobileDevice/Provisioning\ Profiles/${PROFILE_UUID}.mobileprovision
+          if [[ "$APP_ID" == *.com.futo.notes.native ]]; then
+            PROFILE_NAME="$NAME"
+          fi
+          rm -f "$PROFILE_PLIST"
+        done
+        if [ -z "$PROFILE_NAME" ]; then
+          echo "ERROR: No provisioning profile found for com.futo.notes.native"
+          exit 1
+        fi
+
+        VERSION="${CI_COMMIT_TAG#v}"
+        BUILD_NUMBER="${CI_PIPELINE_IID:-1}"
+        ARCHIVE="apps/ios/.build-release/FutoNotesNative.xcarchive"
+        xcodebuild -project apps/ios/FutoNotesNative.xcodeproj \
+          -scheme FutoNotesNative -configuration Release \
+          -destination 'generic/platform=iOS' \
+          -derivedDataPath apps/ios/.build-release \
+          -archivePath "$ARCHIVE" \
+          DEVELOPMENT_TEAM=2W7AC6T8T5 \
+          CODE_SIGN_STYLE=Manual \
+          CODE_SIGNING_ALLOWED=YES \
+          CODE_SIGNING_REQUIRED=YES \
+          CODE_SIGN_IDENTITY="Apple Distribution" \
+          PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
+          MARKETING_VERSION="$VERSION" \
+          CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+          archive | tail -5
+
+        cat > /tmp/ExportOptionsNative.plist << PLISTEOF
+      <?xml version="1.0" encoding="UTF-8"?>
+      <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+      <plist version="1.0">
+      <dict>
+          <key>method</key>
+          <string>app-store</string>
+          <key>teamID</key>
+          <string>2W7AC6T8T5</string>
+          <key>signingStyle</key>
+          <string>manual</string>
+          <key>provisioningProfiles</key>
+          <dict>
+              <key>com.futo.notes.native</key>
+              <string>${PROFILE_NAME}</string>
+          </dict>
+      </dict>
+      </plist>
+      PLISTEOF
+        xcodebuild -exportArchive \
+          -archivePath "$ARCHIVE" \
+          -exportOptionsPlist /tmp/ExportOptionsNative.plist \
+          -exportPath apps/ios/.build-release/export
+
+        IPA_PATH=$(find apps/ios/.build-release/export -name "*.ipa" -type f | head -1)
+        if [ -z "$IPA_PATH" ]; then
+          echo "ERROR: native iOS export produced no IPA"
+          exit 1
+        fi
+        cp "$IPA_PATH" ./
+      else
+        # Simulator compile check (unsigned). ARCHS=arm64: the FFI xcframework
+        # only ships an arm64 simulator slice (aarch64-apple-ios-sim); a bare
+        # 'generic/platform=iOS Simulator' build also targets x86_64 and fails
+        # to link. Build-only, so host arch is moot.
+        xcodebuild -project apps/ios/FutoNotesNative.xcodeproj \
+          -scheme FutoNotesNative -configuration Debug \
+          -destination 'generic/platform=iOS Simulator' \
+          -derivedDataPath apps/ios/.build \
+          ARCHS=arm64 ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO \
+          build | tail -5
+      fi
+  binary_artifacts:
+    path: "*.ipa"
