@@ -213,9 +213,9 @@ stages:
 
 # ─────────────────────────────────────────────────────────────
 # Tests
-# Bare-minimum checks run on every MR/default/tag pipeline while the native
-# testing strategy is being rebuilt. Browser/device/sync suites stay available
-# as explicit manual jobs, not default coverage.
+# Release tag pipelines run the full validation set automatically. MR/default
+# branch pipelines keep broader browser/device suites manual unless their
+# per-job rules say otherwise.
 # ─────────────────────────────────────────────────────────────
 
 test:
@@ -243,8 +243,6 @@ test:e2e:smoke:
     - pnpm run test:e2e:smoke
   rules:
     - if: $CI_COMMIT_TAG
-      when: manual
-      allow_failure: true
     - if: $CI_MERGE_REQUEST_IID
       when: manual
       allow_failure: true
@@ -263,8 +261,6 @@ test:e2e:markdown-spec:
     - pnpm run test:markdown-spec
   rules:
     - if: $CI_COMMIT_TAG
-      when: manual
-      allow_failure: true
     - if: $CI_MERGE_REQUEST_IID
       when: manual
       allow_failure: true
@@ -280,8 +276,6 @@ test:e2e:rest:
     - pnpm run test:e2e:rest
   rules:
     - if: $CI_COMMIT_TAG
-      when: manual
-      allow_failure: true
     - if: $CI_MERGE_REQUEST_IID
       when: manual
       allow_failure: true
@@ -340,7 +334,6 @@ test:rust:macos:
   stage: test
   tags:
     - macscript
-  allow_failure: true
   # Force a clean clone each run — the macscript runner's incremental fetch
   # kept hitting `missing blob object / remote did not send all necessary
   # objects` on a stale local .git.
@@ -352,8 +345,6 @@ test:rust:macos:
     - cirrus run testRustMacOS --artifacts-dir . --env-file .cienv
   rules:
     - if: $CI_COMMIT_TAG
-      when: manual
-      allow_failure: true
     - if: $CI_MERGE_REQUEST_IID
       when: manual
       allow_failure: true
@@ -395,8 +386,6 @@ test:desktop-smoke:
     expire_in: 1 week
   rules:
     - if: $CI_COMMIT_TAG
-      when: manual
-      allow_failure: true
     - if: $CI_MERGE_REQUEST_IID
       when: manual
       allow_failure: true
@@ -449,6 +438,7 @@ test:cross-platform-sync:
   # margin and cold runs (cache miss) enough headroom to finish.
   timeout: 30m
   rules:
+    - if: $CI_COMMIT_TAG
     - if: $CI_MERGE_REQUEST_IID
       when: manual
       allow_failure: true
@@ -560,7 +550,6 @@ test:desktop-smoke:macos:
   stage: test
   tags:
     - macscript
-  allow_failure: true
   variables:
     GIT_STRATEGY: clone
   before_script:
@@ -569,8 +558,6 @@ test:desktop-smoke:macos:
     - cirrus run testDesktopSmokeMacOS --artifacts-dir . --env-file .cienv
   rules:
     - if: $CI_COMMIT_TAG
-      when: manual
-      allow_failure: true
     - if: $CI_MERGE_REQUEST_IID
       when: manual
       allow_failure: true
