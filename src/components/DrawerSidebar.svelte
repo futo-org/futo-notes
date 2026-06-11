@@ -18,7 +18,7 @@
   } from '$lib/folders.svelte';
   import { moveNote, moveNotesUnderPrefix, deleteNote, getAllNotes } from '$lib/notes.svelte';
   import { idLeaf } from '$lib/platform/pathSafety';
-  import { ask } from '@tauri-apps/plugin-dialog';
+  import { confirmDialog } from '$lib/confirm';
   import { showGlobalToast as showToast } from '$lib/toast';
 
   const appCtx = getContext<AppContext>(APP_CONTEXT_KEY);
@@ -220,14 +220,14 @@
   }
 
   async function confirmDeleteFolder(path: string): Promise<void> {
-    // window.confirm doesn't block in Tauri webviews (see AGENTS.md), so
-    // we must NOT fall back to it. If `ask` throws (missing dialog
-    // capability, etc.), treat as "cancel" — silently destroying user
-    // data on a dialog plugin error would be far worse than refusing
-    // to act.
+    // confirmDialog uses ask() under Tauri (window.confirm doesn't block
+    // there, see AGENTS.md) and window.confirm in the web shell. If it
+    // throws (missing dialog capability, etc.), treat as "cancel" —
+    // silently destroying user data on a dialog plugin error would be
+    // far worse than refusing to act.
     let confirmed = false;
     try {
-      confirmed = await ask(
+      confirmed = await confirmDialog(
         'Delete this folder? Notes inside it will be moved to the parent folder.',
         { title: 'Delete folder', kind: 'warning' },
       );
@@ -289,11 +289,11 @@
   }
 
   async function confirmDeleteNote(id: string): Promise<void> {
-    // Same rule as confirmDeleteFolder: never fall back to window.confirm
-    // in Tauri webviews. A dialog failure is treated as cancel.
+    // Same rule as confirmDeleteFolder: a dialog failure is treated as
+    // cancel.
     let confirmed = false;
     try {
-      confirmed = await ask(`Delete note "${idLeaf(id)}"?`, {
+      confirmed = await confirmDialog(`Delete note "${idLeaf(id)}"?`, {
         title: 'Delete note',
         kind: 'warning',
       });

@@ -8,7 +8,7 @@
   import { getSyncErrorMessage } from '$lib/syncErrorMessage';
   import { getAppVersion } from '$lib/crashHandler';
   import { showGlobalToast } from '$lib/toast';
-  import { ask } from '@tauri-apps/plugin-dialog';
+  import { confirmDialog } from '$lib/confirm';
   import { formatRelativeTime } from '$lib/utils';
 
   interface Props {
@@ -66,7 +66,7 @@
     const { open } = await import('@tauri-apps/plugin-dialog');
     const picked = await open({ directory: true, multiple: false });
     if (typeof picked !== 'string') return;
-    const confirmed = await ask(
+    const confirmed = await confirmDialog(
       `Move your notes directory to:\n${picked}\n\nExisting notes in the current directory will NOT be moved. The app will restart.`,
       { title: 'Change notes directory', kind: 'warning' }
     );
@@ -78,7 +78,7 @@
   }
 
   async function handleResetDir(): Promise<void> {
-    const confirmed = await ask(
+    const confirmed = await confirmDialog(
       `Reset notes directory to the default location?\n${defaultNotesDir}\n\nThe app will restart.`,
       { title: 'Reset notes directory', kind: 'warning' }
     );
@@ -152,7 +152,7 @@
   }
 
   async function confirmResetConnection(): Promise<void> {
-    const confirmed = await ask('Are you sure you want to reset the connection?', { title: 'Reset connection', kind: 'warning' });
+    const confirmed = await confirmDialog('Are you sure you want to reset the connection?', { title: 'Reset connection', kind: 'warning' });
     if (!confirmed) return;
     hasSyncToken = false;
     syncPassword = '';
@@ -162,7 +162,7 @@
   }
 
   async function handleForgetPassword(): Promise<void> {
-    const confirmed = await ask(
+    const confirmed = await confirmDialog(
       'Forget the saved sync password? You will be asked to re-enter it to sync after the next restart.',
       { title: 'Forget password', kind: 'warning' }
     );

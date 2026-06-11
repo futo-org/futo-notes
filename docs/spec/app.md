@@ -50,6 +50,9 @@ Behaviors and constraints that hold across every surface and platform.
 
 - `window.confirm()` / `window.alert()` don't block in Tauri's webview — use
   `ask()` / `message()` from `@tauri-apps/plugin-dialog`. → CLAUDE.md
+- Confirmation prompts go through `confirmDialog()` (`src/lib/confirm.ts`):
+  `ask()` under Tauri, `window.confirm()` in the plain web shell (dev server,
+  Playwright) where plugin-dialog has no backend and would reject. → confirm.ts
 
 ## Feedback & crash reporting
 
