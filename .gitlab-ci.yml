@@ -1192,7 +1192,21 @@ windows:cleanup:
 release:gate:
   stage: verify
   needs:
+    # EVERY test job that runs on tag pipelines must be listed here. With
+    # DAG `needs`, release/publish:ios run as soon as their needs succeed —
+    # a failed test job NOT in this list does not stop the publish (this
+    # nearly shipped v1.4.0 twice: once past a failed test:e2e:rest, once
+    # past a failed test:cross-platform-sync).
     - job: test
+    - job: test:e2e:smoke
+    - job: test:e2e:markdown-spec
+    - job: test:e2e:rest
+    - job: test:rust
+    - job: test:rust:dep-guard
+    - job: test:rust:macos
+    - job: test:desktop-smoke
+    - job: test:desktop-smoke:macos
+    - job: test:cross-platform-sync
     - job: build:linux-packages
       artifacts: true
     - job: build:linux-appimage
