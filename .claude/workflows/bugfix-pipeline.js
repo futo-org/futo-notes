@@ -1,7 +1,10 @@
 export const meta = {
   name: 'bugfix-pipeline',
   description: 'Per bug: diagnose+write a failing test → fix → independent verify, with a repair loop',
-  whenToUse: 'Fixing one or more reported bugs test-first. Pass bug descriptions as args (string, array of strings, or {bugs:[...]}). Mutates the working tree; bugs are processed one chain at a time.',
+  whenToUse:
+    'Fixing one or more reported bugs test-first. Pass bug descriptions as args (string, array of strings, or {bugs:[...]}). ' +
+    'Give each bug a `cwd` (an isolated git worktree path) to run bugs IN PARALLEL, each pinned to its own worktree/branch — ' +
+    'the caller must create the worktrees first (scripts cannot run git). Without `cwd`, bugs run one chain at a time in the main tree.',
   phases: [
     { title: 'Diagnose', detail: 'reproduce, root-cause, and lock in a failing test' },
     { title: 'Fix', detail: 'apply the minimal root-cause fix against the red test' },
@@ -70,9 +73,22 @@ const REPO_CTX =
   '"Where tests live" / "When to add tests" tables, and the "Close The Loop" verification chains. ' +
   'Use `just` recipes for builds/tests.'
 
+function cwdPreamble(cwd) {
+  if (!cwd) return ''
+  return `
+WORKING DIRECTORY (CRITICAL): every action for this bug MUST happen inside the isolated git worktree at:
+  ${cwd}
+It is on its own branch so parallel bug-fixes never collide. Rules, no exceptions:
+- Start EVERY shell command with \`cd ${cwd} && …\` (shell state does not persist between calls).
+- Use absolute paths under ${cwd} for ALL file reads/edits/writes. NEVER touch files in any other checkout.
+- First thing: run \`git -C ${cwd} rev-parse --show-toplevel\` and confirm it prints exactly ${cwd}.
+- node_modules are already installed in this worktree; run builds/tests from within it.
+`
+}
+
 function diagnosePrompt(desc, bug) {
   return `You are the DIAGNOSE stage of a bug-fix pipeline. ${REPO_CTX}
-
+${cwdPreamble(bug.cwd)}
 BUG REPORT:
 ${desc}
 ${bug.repro ? `\nREPORTED REPRO: ${bug.repro}` : ''}
@@ -89,9 +105,9 @@ If you genuinely cannot reproduce it, set reproduced=false and explain what you 
 Your final output IS structured data consumed by the next stage. Be precise about testPath, testName, rootCause, and affectedFiles.`
 }
 
-function fixPrompt(desc, diag) {
+function fixPrompt(desc, diag, cwd) {
   return `You are the FIX stage of a bug-fix pipeline. ${REPO_CTX}
-
+${cwdPreamble(cwd)}
 BUG REPORT:
 ${desc}
 
@@ -106,9 +122,9 @@ Your job:
 Set testNowPasses honestly (false if you couldn't get it green). Return the structured result.`
 }
 
-function verifyPrompt(desc, diag, fix) {
+function verifyPrompt(desc, diag, fix, cwd) {
   return `You are the VERIFY stage — an INDEPENDENT, skeptical reviewer. You did NOT write the fix. ${REPO_CTX}
-
+${cwdPreamble(cwd)}
 BUG REPORT:
 ${desc}
 
@@ -129,9 +145,9 @@ verdict='pass' ONLY if: the new test passes, no regressions, and it's a real roo
 List the exact commands you ran in commandsRun. Be specific in reasoning.`
 }
 
-function repairPrompt(desc, diag, prevFix, verify) {
+function repairPrompt(desc, diag, prevFix, verify, cwd) {
   return `You are a REPAIR stage. A prior fix did NOT pass independent verification. ${REPO_CTX}
-
+${cwdPreamble(cwd)}
 BUG REPORT:
 ${desc}
 
@@ -150,6 +166,61 @@ Address the verifier's SPECIFIC complaints:
 Re-run the regression test at ${diag.testPath} and confirm it passes. Return the updated structured fix result.`
 }
 
+// ── One bug's full chain: diagnose → fix → verify (+ repair loop) ────────────
+
+async function runChain(bug, i) {
+  const tag = bug.title || `bug-${i + 1}`
+  const desc = bug.description || bug.title || JSON.stringify(bug)
+  const cwd = bug.cwd
+
+  // Stage 1 — diagnose + failing test
+  const diag = await agent(diagnosePrompt(desc, bug), {
+    label: `diagnose:${tag}`,
+    phase: 'Diagnose',
+    schema: DIAGNOSIS_SCHEMA,
+  })
+
+  if (!diag) {
+    log(`✗ ${tag}: diagnosis agent failed.`)
+    return { bug: tag, cwd, status: 'error', stage: 'diagnose', detail: 'diagnosis agent returned nothing' }
+  }
+  if (!diag.reproduced || !diag.confirmedFailing) {
+    log(`⚠︎ ${tag}: could not reproduce / no failing test — skipping fix. Needs human eyes.`)
+    return { bug: tag, cwd, status: 'could-not-reproduce', diagnosis: diag }
+  }
+
+  // Stage 2 — fix
+  let fix = await agent(fixPrompt(desc, diag, cwd), { label: `fix:${tag}`, phase: 'Fix', schema: FIX_SCHEMA })
+
+  // Stage 3 — independent verify
+  let verify = fix
+    ? await agent(verifyPrompt(desc, diag, fix, cwd), { label: `verify:${tag}`, phase: 'Verify', schema: VERIFY_SCHEMA })
+    : null
+
+  // Repair loop — up to 2 rounds if the verifier isn't satisfied
+  let round = 0
+  while (verify && verify.verdict !== 'pass' && round < 2) {
+    round++
+    log(`↻ ${tag}: verdict='${verify.verdict}' (repair round ${round}).`)
+    fix = await agent(repairPrompt(desc, diag, fix, verify, cwd), {
+      label: `repair:${tag}#${round}`,
+      phase: 'Repair',
+      schema: FIX_SCHEMA,
+    })
+    verify = fix
+      ? await agent(verifyPrompt(desc, diag, fix, cwd), {
+          label: `verify:${tag}#${round}`,
+          phase: 'Verify',
+          schema: VERIFY_SCHEMA,
+        })
+      : null
+  }
+
+  const status = verify?.verdict === 'pass' ? 'fixed' : verify?.verdict || 'unverified'
+  log(`${status === 'fixed' ? '✓' : '✗'} ${tag}: ${status}${round ? ` (after ${round} repair round(s))` : ''}`)
+  return { bug: tag, cwd, status, repairRounds: round, diagnosis: diag, fix, verify }
+}
+
 // ── Normalize the bug list from args ────────────────────────────────────────
 
 function asBugs(a) {
@@ -166,74 +237,24 @@ function asBugs(a) {
 const bugs = asBugs(args)
 if (bugs.length === 0) {
   throw new Error(
-    'bugfix-pipeline needs at least one bug. Pass args as a string, an array of strings, or {bugs:[{title,description,repro}]}.'
+    'bugfix-pipeline needs at least one bug. Pass args as a string, an array of strings, or {bugs:[{title,description,repro,cwd}]}.'
   )
 }
 
-log(`Bug-fix pipeline: ${bugs.length} bug(s), one chain at a time (shared working tree — no concurrent mutation).`)
+// Worktree mode: every bug carries its own isolated `cwd` → run in parallel.
+// Otherwise run one chain at a time in the shared main working tree.
+const useWorktrees = bugs.every((b) => b.cwd)
 
-// ── Run each bug through diagnose → fix → verify (+ repair loop) ─────────────
-
-const results = []
-
-for (let i = 0; i < bugs.length; i++) {
-  const bug = bugs[i]
-  const tag = bug.title || `bug-${i + 1}`
-  const desc = bug.description || bug.title || JSON.stringify(bug)
-
-  // Stage 1 — diagnose + failing test
-  const diag = await agent(diagnosePrompt(desc, bug), {
-    label: `diagnose:${tag}`,
-    phase: 'Diagnose',
-    schema: DIAGNOSIS_SCHEMA,
-  })
-
-  if (!diag) {
-    results.push({ bug: tag, status: 'error', stage: 'diagnose', detail: 'diagnosis agent returned nothing' })
-    log(`✗ ${tag}: diagnosis agent failed.`)
-    continue
-  }
-  if (!diag.reproduced || !diag.confirmedFailing) {
-    results.push({ bug: tag, status: 'could-not-reproduce', diagnosis: diag })
-    log(`⚠︎ ${tag}: could not reproduce / no failing test — skipping fix. Needs human eyes.`)
-    continue
-  }
-
-  // Stage 2 — fix
-  let fix = await agent(fixPrompt(desc, diag), {
-    label: `fix:${tag}`,
-    phase: 'Fix',
-    schema: FIX_SCHEMA,
-  })
-
-  // Stage 3 — independent verify
-  let verify = fix
-    ? await agent(verifyPrompt(desc, diag, fix), { label: `verify:${tag}`, phase: 'Verify', schema: VERIFY_SCHEMA })
-    : null
-
-  // Repair loop — up to 2 rounds if the verifier isn't satisfied
-  let round = 0
-  while (verify && verify.verdict !== 'pass' && round < 2) {
-    round++
-    log(`↻ ${tag}: verdict='${verify.verdict}' (repair round ${round}).`)
-    fix = await agent(repairPrompt(desc, diag, fix, verify), {
-      label: `repair:${tag}#${round}`,
-      phase: 'Repair',
-      schema: FIX_SCHEMA,
-    })
-    verify = fix
-      ? await agent(verifyPrompt(desc, diag, fix), {
-          label: `verify:${tag}#${round}`,
-          phase: 'Verify',
-          schema: VERIFY_SCHEMA,
-        })
-      : null
-  }
-
-  const status = verify?.verdict === 'pass' ? 'fixed' : verify?.verdict || 'unverified'
-  results.push({ bug: tag, status, repairRounds: round, diagnosis: diag, fix, verify })
-  log(`${status === 'fixed' ? '✓' : '✗'} ${tag}: ${status}${round ? ` (after ${round} repair round(s))` : ''}`)
+let results
+if (useWorktrees) {
+  log(`Bug-fix pipeline: ${bugs.length} bug(s) in PARALLEL, each in its own git worktree.`)
+  results = await parallel(bugs.map((b, i) => () => runChain(b, i)))
+} else {
+  log(`Bug-fix pipeline: ${bugs.length} bug(s), one chain at a time (shared working tree — no concurrent mutation).`)
+  results = []
+  for (let i = 0; i < bugs.length; i++) results.push(await runChain(bugs[i], i))
 }
+results = results.filter(Boolean)
 
 const summary = {
   total: bugs.length,
