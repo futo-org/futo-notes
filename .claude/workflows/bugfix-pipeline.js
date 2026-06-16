@@ -225,7 +225,19 @@ async function runChain(bug, i) {
 
 function asBugs(a) {
   if (a == null) return []
-  if (typeof a === 'string') return a.trim() ? [{ description: a }] : []
+  if (typeof a === 'string') {
+    const s = a.trim()
+    if (!s) return []
+    // Some hosts stringify the args payload — recover the real object/array.
+    if (s[0] === '{' || s[0] === '[') {
+      try {
+        return asBugs(JSON.parse(s))
+      } catch (_) {
+        /* not JSON — fall through and treat as a single free-text bug */
+      }
+    }
+    return [{ description: a }]
+  }
   if (Array.isArray(a)) return a.map((x) => (typeof x === 'string' ? { description: x } : x))
   if (typeof a === 'object') {
     if (Array.isArray(a.bugs)) return a.bugs.map((x) => (typeof x === 'string' ? { description: x } : x))
