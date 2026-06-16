@@ -22,6 +22,19 @@ codegen-units = 1
 panic = "abort"
 strip = "debuginfo"
 
+# Release profile for the UniFFI native-shell .so (futo-notes-ffi). Same
+# optimization as `release`, but `panic = "unwind"` is REQUIRED: UniFFI wraps
+# every exported function in `catch_unwind` to turn a Rust panic into a Kotlin/
+# Swift exception. Under the parent profile's `panic = "abort"` a panic instead
+# SIGABRTs the whole app, which is why the native build historically shipped the
+# dev profile (unwind, but unoptimized + unstripped → 90–112 MB/ABI). This
+# profile gives optimized + `strip = "symbols"` libs (~10–25 MB) while keeping
+# panic-catching. Used by scripts/build-rust-android.sh (and available to iOS).
+[profile.release-ffi]
+inherits = "release"
+panic = "unwind"
+strip = "symbols"
+
 # Dev profile: keep the default opt-level for our crates (faster compile),
 # but bump optimization for dependencies so e.g. ort, sha2, rayon, regex
 # are still fast in `just tauri-dev`. Saves seconds per keystroke when

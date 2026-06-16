@@ -868,19 +868,22 @@ build:android-native:
       elif [ -n "$CI_COMMIT_TAG" ]; then
         echo "WARNING: No KEYSTORE_BASE64 set — native Android release APK will be unsigned"
       fi
-    # Assemble a release APK on tags; use debug elsewhere for fast compile
-    # verification with the same native shell.
+    # On tags build BOTH: a release APK (GitLab release / sideload) and a
+    # release AAB (Google Play, uploaded by publish:android). Debug elsewhere
+    # for fast compile verification with the same native shell.
     - |
       if [ -n "$CI_COMMIT_TAG" ]; then
-        cd apps/android && ./gradlew --no-daemon :app:assembleRelease
+        cd apps/android && ./gradlew --no-daemon :app:assembleRelease :app:bundleRelease
       else
         cd apps/android && ./gradlew --no-daemon :app:assembleDebug
       fi
   after_script:
     - find apps/android/app/build/outputs/apk -name "*.apk" -type f 2>/dev/null || true
+    - find apps/android/app/build/outputs/bundle -name "*.aab" -type f 2>/dev/null || true
   artifacts:
     paths:
       - apps/android/app/build/outputs/apk/**/*.apk
+      - apps/android/app/build/outputs/bundle/**/*.aab
     expire_in: 4 weeks
   # A cold/partial .cache-cargo-native cache makes the Rust FFI compile across
   # 3 NDK ABIs swing wide (observed 8m warm → 27m near-cold → 45m timeout
@@ -1231,6 +1234,7 @@ release:gate:
       check "target/release/bundle/rpm/*.rpm"
       check "target/release/bundle/appimage/*.AppImage"
       check_find "apps/android/app/build/outputs/apk/release" "*release*.apk"
+      check_find "apps/android/app/build/outputs/bundle/release" "*.aab"
       check "buildFutoNotesIOSNative/binary/*.ipa"
       check "buildFutoNotesMacOS/binary/*.dmg"
 
@@ -1268,6 +1272,42 @@ publish:ios:
     - env | grep -E '^(CI_|IOS_|ASC_)' > .cienv
   script:
     - cirrus run publishFutoNotesIOS --artifacts-dir . --env-file .cienv
+  rules:
+    - if: $CI_COMMIT_TAG
+
+# Upload the signed AAB to Google Play (internal testing track) using FUTO's
+# shared publish_playstore.py (Android Publisher API v3) — the SAME uploader
+# grayjay uses. Gated by release:gate so a failing test blocks the upload.
+# Consumes the AAB built in build:android-native (no rebuild of the Rust .so).
+# Requires:
+#   - PLAY_SERVICE_ACCOUNT_JSON  (CI var, base64 of the Play service-account JSON)
+#   - the app already created in Play Console + that service account granted
+#     "Release to testing tracks" access (the API cannot create the app listing)
+#   - KEYSTORE_BASE64/KEYSTORE_PASSWORD/KEY_ALIAS set so build:android-native
+#     produced a SIGNED AAB (Play rejects unsigned uploads)
+# To go live to production later, change --track internal → --track production
+# (and optionally --status inProgress --rollout 0.1 for a staged rollout).
+publish:android:
+  stage: release
+  interruptible: false
+  image: gitlab.futo.org:5050/futo-notes/futo-notes/ci/android:latest
+  needs:
+    - job: release:gate
+    - job: build:android-native
+      artifacts: true
+  script:
+    - |
+      if [ -z "${PLAY_SERVICE_ACCOUNT_JSON:-}" ]; then
+        echo "PLAY_SERVICE_ACCOUNT_JSON is not set — cannot publish to Google Play." >&2
+        exit 1
+      fi
+    - echo "$PLAY_SERVICE_ACCOUNT_JSON" | base64 -d > /tmp/play-sa.json
+    - AAB=$(find apps/android/app/build/outputs/bundle/release -name "*.aab" -type f | head -1)
+    - test -n "$AAB" || { echo "No release AAB found from build:android-native" >&2; exit 1; }
+    # Build the google-api-python-client venv, then upload the prebuilt signed AAB.
+    - bash scripts/venv-playstore.sh
+    - . .venv-playstore/bin/activate
+    - python scripts/publish_playstore.py --sa /tmp/play-sa.json --package com.futo.notes --aab "$AAB" --track internal --status completed
   rules:
     - if: $CI_COMMIT_TAG
 

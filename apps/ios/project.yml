@@ -37,6 +37,21 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.futo.notes
         PRODUCT_NAME: FutoNotesNative
+        # Version defaults for local archives. CI overrides both on a tag build
+        # (MARKETING_VERSION=${tag#v}, CURRENT_PROJECT_VERSION=$CI_PIPELINE_IID —
+        # see .cirrus.yml). Without these a local Release archive ships no
+        # CFBundleShortVersionString/CFBundleVersion, which App Store Connect
+        # rejects. Keep MARKETING_VERSION in step with the latest release tag.
+        MARKETING_VERSION: "1.5.1"
+        CURRENT_PROJECT_VERSION: "1"
+        # Export compliance (App Store upload). The app uses only standard
+        # cryptography (AES-256-GCM + PBKDF2 for E2EE, TLS for transport) and
+        # claims the exemption, so the upload skips the manual encryption
+        # questionnaire. NOTE: this is an export-control attestation — confirm
+        # FUTO's compliance posture (a self-classification / ERN report to BIS
+        # may be required for non-exempt strong crypto) before the first
+        # production submission.
+        INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: "NO"
         # App icon shared with the Tauri build (Assets.xcassets/AppIcon.appiconset).
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         INFOPLIST_KEY_CFBundleDisplayName: "FUTO Notes"

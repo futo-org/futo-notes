@@ -16,12 +16,14 @@ if (hasReleaseKeystore) {
 
 android {
     namespace = "com.futo.notes"
-    compileSdk = 34
+    // Google Play requires targetSdk 35 (Android 15) for new apps and updates
+    // since 2025-08-31. compileSdk tracks it.
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.futo.notes"
         minSdk = 24
-        targetSdk = 34
+        targetSdk = 35
         versionCode = (System.getenv("VERSION_CODE") ?: "1").toInt()
         versionName = System.getenv("VERSION_NAME") ?: "0.1.0"
         manifestPlaceholders["appLabel"] = "FUTO Notes"
@@ -49,7 +51,21 @@ android {
             if (hasReleaseKeystore) {
                 signingConfig = signingConfigs.getByName("release")
             }
+            // Production ships real-device ABIs only. x86_64 is staged for the
+            // emulator (debug) but excluded here so it doesn't ride along in the
+            // Play AAB. armv7 is kept deliberately for older 32-bit devices.
+            ndk {
+                abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+            }
         }
+    }
+
+    // Play distribution = Android App Bundle (`./gradlew :app:bundleRelease`).
+    // ABI splitting (on by default) makes Play deliver one architecture's
+    // libfuto_notes_ffi.so per device instead of a fat universal APK — the
+    // stripped release-ffi .so per ABI stays well under Play's limits.
+    bundle {
+        abi { enableSplit = true }
     }
 
     compileOptions {

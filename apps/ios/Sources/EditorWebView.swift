@@ -96,6 +96,7 @@ struct EditorWebView: UIViewRepresentable {
 @MainActor
 final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     static let shared = EditorHost()
+    nonisolated static let logger = Logger(subsystem: "com.futo.notes", category: "editor-webview")
 
     private var onChange: (String) -> Void = { _ in }
     private var onReady: (() -> Void)? = nil
@@ -169,15 +170,22 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         controller.add(self, name: "futoBridge")
         wv.navigationDelegate = self
 
-        // Load from a file:// URL (not loadHTMLString with a nil baseURL): the
-        // bundle is a single self-contained file whose JS is an inline
-        // `<script type="module">`. Module scripts refuse to execute under the
-        // opaque/null origin that `baseURL: nil` produces, leaving the editor
-        // blank. A file:// origin is non-opaque, so the inline module runs.
+        loadEditor()
+    }
+
+    /// Load the bundled editor into the WebView. Used at init and again to
+    /// recover after the WebKit content process terminates.
+    ///
+    /// Load from a file:// URL (not loadHTMLString with a nil baseURL): the
+    /// bundle is a single self-contained file whose JS is an inline
+    /// `<script type="module">`. Module scripts refuse to execute under the
+    /// opaque/null origin that `baseURL: nil` produces, leaving the editor
+    /// blank. A file:// origin is non-opaque, so the inline module runs.
+    private func loadEditor() {
         if let url = Bundle.main.url(forResource: "editor", withExtension: "html") {
-            wv.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
+            webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
         } else {
-            wv.loadHTMLString(
+            webView.loadHTMLString(
                 "<html><body><p>editor.html not found in bundle</p></body></html>",
                 baseURL: nil
             )
@@ -356,6 +364,21 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         // native markdown toolbar. The WKContentView is in the scroll view by
         // now.
         webView.futo_overrideInputAccessoryView(toolbarAccessory)
+    }
+
+    /// The WebKit content process died (OOM / jetsam under memory pressure).
+    /// The editor — the app's core surface — is now blank with no automatic
+    /// recovery. Reload it: the fresh 'ready' re-pushes theme/content/notes
+    /// (all retained in `desired*`), so the open note's text is restored
+    /// without the user noticing more than a brief flash. Without this handler
+    /// the editor stays permanently blank after a backgrounded jetsam.
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        EditorHost.logger.error("WebContent process terminated; reloading editor")
+        isReady = false
+        currentTheme = nil
+        lastPushedContent = nil
+        lastPushedNotesJson = nil
+        loadEditor()
     }
 
     // MARK: JS bridge

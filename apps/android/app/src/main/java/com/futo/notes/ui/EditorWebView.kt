@@ -4,13 +4,16 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.view.ViewGroup
 import android.webkit.JavascriptInterface
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -77,15 +80,22 @@ fun EditorWebView(
         onDispose { host.detach(token) }
     }
 
-    AndroidView(
-        modifier = modifier,
-        // The host owns the WebView for the whole app lifetime; detach it from
-        // its previous Compose holder before this composition adopts it.
-        factory = {
-            (host.webView.parent as? ViewGroup)?.removeView(host.webView)
-            host.webView
-        },
-    )
+    // Re-adopt the WebView whenever the host rebuilds it (renderer-process
+    // recovery, below). Reading `recreations` subscribes this composable; the
+    // key() tears down the stale AndroidView and re-runs factory with the new
+    // WebView instance.
+    val recreations = host.recreations
+    key(recreations) {
+        AndroidView(
+            modifier = modifier,
+            // The host owns the WebView for the whole app lifetime; detach it
+            // from its previous Compose holder before this composition adopts it.
+            factory = {
+                (host.webView.parent as? ViewGroup)?.removeView(host.webView)
+                host.webView
+            },
+        )
+    }
 }
 
 /**
@@ -139,8 +149,15 @@ class EditorHost private constructor(appContext: Context) {
         }
     }
 
+    private val appContext = appContext
+
+    /** Bumped each time [webView] is rebuilt after a renderer-process death, so
+     *  the [EditorWebView] composable re-adopts the fresh instance (key()). */
+    var recreations by mutableStateOf(0)
+        private set
+
     @SuppressLint("SetJavaScriptEnabled")
-    val webView: WebView = WebView(appContext).apply {
+    private fun createWebView(): WebView = WebView(appContext).apply {
         settings.javaScriptEnabled = true
         settings.domStorageEnabled = true
         // Required twice over: editor.html itself is a file:// asset, and local
@@ -150,8 +167,47 @@ class EditorHost private constructor(appContext: Context) {
         setBackgroundColor(android.graphics.Color.TRANSPARENT)
         WebView.setWebContentsDebuggingEnabled(true)
         addJavascriptInterface(bridge, "futoBridge")
-        webViewClient = WebViewClient()
+        webViewClient = object : WebViewClient() {
+            // The renderer process died (OOM, or the system reclaimed it while
+            // backgrounded). With no override the default returns false, which
+            // takes the WHOLE app process down with it — and the editor is the
+            // core surface. Return true to keep the app alive, then rebuild the
+            // (now-unusable) WebView. desiredContent/theme/notes are retained on
+            // the host, so the reloaded editor restores the open note.
+            override fun onRenderProcessGone(
+                view: WebView?,
+                detail: RenderProcessGoneDetail?,
+            ): Boolean {
+                Log.e(
+                    "FutoEditor",
+                    "WebView renderer gone (didCrash=${detail?.didCrash()}); rebuilding",
+                )
+                main.post { rebuildWebView() }
+                return true
+            }
+        }
         loadUrl("file:///android_asset/editor.html")
+    }
+
+    var webView: WebView = createWebView()
+        private set
+
+    /** Replace the dead WebView with a fresh one and re-arm the editor state.
+     *  Must run on the main thread. The renderer is gone, so the old instance
+     *  is destroyed; the new one reloads editor.html and re-pushes content on
+     *  its 'ready'. */
+    private fun rebuildWebView() {
+        val dead = webView
+        (dead.parent as? ViewGroup)?.removeView(dead)
+        dead.destroy()
+        // Reset readiness + dedupe so the fresh editor gets a full re-push.
+        isReady = false
+        currentTheme = null
+        lastPushedContent = null
+        lastNotesJsonHash = null
+        currentImageBaseUrl = null
+        webView = createWebView()
+        recreations++
     }
 
     private fun handle(msg: JSONObject) {

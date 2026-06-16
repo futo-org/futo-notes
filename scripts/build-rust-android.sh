@@ -10,8 +10,11 @@
 # targets (`rustup target add aarch64-linux-android armv7-linux-androideabi
 # x86_64-linux-android i686-linux-android`).
 #
-# NOTE: dev profile on purpose — the release profile's panic="abort" breaks
-# UniFFI panic catching.
+# Built with the `release-ffi` profile (Cargo.toml): optimized + stripped but
+# `panic = "unwind"`, so UniFFI's catch_unwind still turns Rust panics into
+# Kotlin exceptions instead of SIGABRT-ing the app. The plain `release` profile
+# can't be used — it sets panic="abort". This keeps each per-ABI .so small
+# enough for a Play AAB (~10–25 MB vs the old dev profile's 90–112 MB).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -37,11 +40,12 @@ KOTLIN_OUT="$APP/app/src/main/java"
 # needed; add "x86" here if you target 32-bit emulators.
 ABIS="${ABIS:-arm64-v8a,armeabi-v7a,x86_64}"
 
-echo "==> Building futo-notes-ffi for Android ABIs: $ABIS"
+echo "==> Building futo-notes-ffi for Android ABIs: $ABIS (profile: release-ffi)"
 # cargo-ndk maps the friendly ABI names to rust targets and drops the per-ABI
-# .so straight into jniLibs/<abi>/libfuto_notes_ffi.so.
+# .so straight into jniLibs/<abi>/libfuto_notes_ffi.so. --profile release-ffi:
+# optimized + stripped, panic="unwind" (UniFFI panic-catching). See Cargo.toml.
 cargo ndk --platform 24 --target "$ABIS" --output-dir "$JNI" \
-  build -p futo-notes-ffi
+  build -p futo-notes-ffi --profile release-ffi
 
 echo "==> Building host lib (for binding generation metadata)"
 cargo build -p futo-notes-ffi
