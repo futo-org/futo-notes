@@ -1304,6 +1304,10 @@ publish:android:
     - echo "$PLAY_SERVICE_ACCOUNT_JSON" | base64 -d > /tmp/play-sa.json
     - AAB=$(find apps/android/app/build/outputs/bundle/release -name "*.aab" -type f | head -1)
     - test -n "$AAB" || { echo "No release AAB found from build:android-native" >&2; exit 1; }
+    # The CI android image ships python3 without the venv module / ensurepip;
+    # install python3-venv (+pip) so scripts/venv-playstore.sh can build the
+    # google-api-python-client venv.
+    - apt-get update -qq && apt-get install -y -qq python3-venv python3-pip
     # Build the google-api-python-client venv, then upload the prebuilt signed AAB.
     - bash scripts/venv-playstore.sh
     - . .venv-playstore/bin/activate
