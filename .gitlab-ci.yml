@@ -849,7 +849,14 @@ build:android-native:
       if [ -n "$CI_COMMIT_TAG" ]; then
         VERSION="${CI_COMMIT_TAG#v}"
         export VERSION_NAME="$VERSION"
-        export VERSION_CODE="${CI_PIPELINE_IID:-1}"
+        # versionCode = MAJOR*1000000 + MINOR*1000 + PATCH, matching the LEGACY
+        # app's scheme (e.g. v1.4.0 = 1004000). The old CI_PIPELINE_IID (~hundreds)
+        # is far below legacy codes, so Android/Obtainium/Play reject it as a
+        # downgrade for anyone with the old app installed. Keep this monotonic
+        # with semver so updates always apply.
+        V_MAJ="${VERSION%%.*}"; V_REST="${VERSION#*.}"
+        V_MIN="${V_REST%%.*}"; V_PAT="${V_REST#*.}"; V_PAT="${V_PAT%%[!0-9]*}"
+        export VERSION_CODE=$(( ${V_MAJ:-0} * 1000000 + ${V_MIN:-0} * 1000 + ${V_PAT:-0} ))
         echo "Building native Android release versionName=$VERSION_NAME versionCode=$VERSION_CODE"
       fi
     # Build the embedded editor bundle and stage it into the app assets
