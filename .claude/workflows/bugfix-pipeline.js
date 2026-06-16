@@ -2,9 +2,7 @@ export const meta = {
   name: 'bugfix-pipeline',
   description: 'Per bug: diagnose+write a failing test → fix → independent verify, with a repair loop',
   whenToUse:
-    'Fixing one or more reported bugs test-first. Pass bug descriptions as args (string, array of strings, or {bugs:[...]}). ' +
-    'Give each bug a `cwd` (an isolated git worktree path) to run bugs IN PARALLEL, each pinned to its own worktree/branch — ' +
-    'the caller must create the worktrees first (scripts cannot run git). Without `cwd`, bugs run one chain at a time in the main tree.',
+    'Fixing one or more reported bugs test-first. Pass bug descriptions as args (string, array of strings, or {bugs:[...]}). Give each bug a `cwd` (an isolated git worktree path) to run bugs IN PARALLEL, each pinned to its own worktree/branch — the caller must create the worktrees first (scripts cannot run git). Without `cwd`, bugs run one chain at a time in the main tree.',
   phases: [
     { title: 'Diagnose', detail: 'reproduce, root-cause, and lock in a failing test' },
     { title: 'Fix', detail: 'apply the minimal root-cause fix against the red test' },
