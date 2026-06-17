@@ -107,6 +107,15 @@ Invoke-Step "Building frontend" {
     pnpm run build
 }
 
+Invoke-Step "Fetching VC++ redistributable (bundled into the NSIS installer)" {
+    # FUTO Notes links the MSVC runtime; a clean Windows lacks it (MSVCP140_1.dll),
+    # so the NSIS POSTINSTALL hook installs this silently. See
+    # apps/tauri/src-tauri/tauri.windows.conf.json + windows/installer-hooks.nsh.
+    $redistDir = "C:\build\futo-notes\apps\tauri\src-tauri\redist"
+    New-Item -ItemType Directory -Force -Path $redistDir | Out-Null
+    Invoke-WebRequest -Uri "https://aka.ms/vs/17/release/vc_redist.x64.exe" -OutFile (Join-Path $redistDir "vc_redist.x64.exe")
+}
+
 Set-Location apps\tauri
 Invoke-Step "Building Tauri (Windows)" {
     cargo tauri build

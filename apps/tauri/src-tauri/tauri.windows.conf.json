@@ -10,5 +10,15 @@
         "dragDropEnabled": false
       }
     ]
+  },
+  "bundle": {
+    "resources": {
+      "redist/vc_redist.x64.exe": "vc_redist.x64.exe"
+    },
+    "windows": {
+      "nsis": {
+        "installerHooks": "windows/installer-hooks.nsh"
+      }
+    }
   }
 }

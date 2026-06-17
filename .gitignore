@@ -93,3 +93,6 @@ target/
 # Codex
 .codex
 .context
+
+# VC++ redistributable, fetched at Windows build time by ci/win-build.ps1
+apps/tauri/src-tauri/redist/
