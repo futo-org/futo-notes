@@ -1063,12 +1063,17 @@ build:windows:
   needs:
     - job: windows:provision
       artifacts: true
+  # Pass the VM password to sshpass via the SSHPASS env var (sshpass -e)
+  # rather than on the command line, so the password never appears in the
+  # process argument list (visible in `ps`) on the runner or VM.
+  variables:
+    SSHPASS: "$PROXMOX_WIN_PASSWORD"
   before_script: []
   script:
     # Wait for SSH to be ready
     - |
       for i in $(seq 1 30); do
-        if sshpass -p "${PROXMOX_WIN_PASSWORD}" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 "${PROXMOX_WIN_USER}@${VM_IP}" "echo ready" 2>/dev/null; then
+        if sshpass -e ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 "${PROXMOX_WIN_USER}@${VM_IP}" "echo ready" 2>/dev/null; then
           echo "SSH is ready!"
           break
         fi
@@ -1078,25 +1083,25 @@ build:windows:
 
     # Upload build scripts to VM
     - |
-      sshpass -p "${PROXMOX_WIN_PASSWORD}" scp -o StrictHostKeyChecking=no \
+      sshpass -e scp -o StrictHostKeyChecking=no \
         ci/win-install-deps.ps1 ci/win-build.ps1 \
         "${PROXMOX_WIN_USER}@${VM_IP}:C:/Users/${PROXMOX_WIN_USER}/"
 
     # Install build dependencies
     - |
-      sshpass -p "${PROXMOX_WIN_PASSWORD}" ssh -o StrictHostKeyChecking=no "${PROXMOX_WIN_USER}@${VM_IP}" \
+      sshpass -e ssh -o StrictHostKeyChecking=no "${PROXMOX_WIN_USER}@${VM_IP}" \
         "powershell -NoProfile -ExecutionPolicy Bypass -File C:\\Users\\${PROXMOX_WIN_USER}\\win-install-deps.ps1"
 
     # Clone repo and build
     - |
       VERSION="${CI_COMMIT_TAG#v}"
-      sshpass -p "${PROXMOX_WIN_PASSWORD}" ssh -o StrictHostKeyChecking=no "${PROXMOX_WIN_USER}@${VM_IP}" \
+      sshpass -e ssh -o StrictHostKeyChecking=no "${PROXMOX_WIN_USER}@${VM_IP}" \
         "powershell -NoProfile -ExecutionPolicy Bypass -File C:\\Users\\${PROXMOX_WIN_USER}\\win-build.ps1 -RepoUrl ${CI_REPOSITORY_URL} -Branch ${CI_COMMIT_TAG} -Version ${VERSION}"
 
     # Retrieve build artifacts
     - mkdir -p windows-artifacts
     - |
-      sshpass -p "${PROXMOX_WIN_PASSWORD}" scp -o StrictHostKeyChecking=no -r \
+      sshpass -e scp -o StrictHostKeyChecking=no -r \
         "${PROXMOX_WIN_USER}@${VM_IP}:C:/build/futo-notes/target/release/bundle/nsis/*" \
         windows-artifacts/
     - |

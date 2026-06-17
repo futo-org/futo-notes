@@ -4,6 +4,12 @@
 # Build and push:
 #   docker build -f ci/android.Dockerfile -t gitlab.futo.org:5050/futo-notes/futo-notes/ci/android:latest .
 #   docker push gitlab.futo.org:5050/futo-notes/futo-notes/ci/android:latest
+#
+# Runs as root by design: this is an ephemeral CI build image (not a deployed
+# service). Every layer needs root (apt, sdkmanager, /opt installs) and the
+# baked "ci" AVD + SDK live under root's home, so a non-root USER would break
+# the pipeline. Accept the "image user should not be root" check accordingly.
+#trivy:ignore:DS-0002
 FROM gitlab.futo.org:5050/futocore/ci/kitchensink:latest
 
 ENV ANDROID_HOME=/opt/android-sdk
