@@ -28,12 +28,19 @@ strip = "debuginfo"
 # Swift exception. Under the parent profile's `panic = "abort"` a panic instead
 # SIGABRTs the whole app, which is why the native build historically shipped the
 # dev profile (unwind, but unoptimized + unstripped → 90–112 MB/ABI). This
-# profile gives optimized + `strip = "symbols"` libs (~10–25 MB) while keeping
-# panic-catching. Used by scripts/build-rust-android.sh (and available to iOS).
+# profile gives optimized libs while keeping panic-catching. Used by
+# scripts/build-rust-android.sh (iOS uses the dev profile, so this profile is
+# Android-only in practice).
+#
+# `strip` is deliberately NOT set here: we keep the symbol table so the Android
+# Gradle build (debugSymbolLevel = "FULL") can extract a native-debug-symbols
+# file into the Play AAB for crash/ANR symbolication. AGP still strips the .so
+# that ships to devices, so on-device size stays small (~10–25 MB/ABI); the
+# symbols travel to Play in a separate file, not to users.
 [profile.release-ffi]
 inherits = "release"
 panic = "unwind"
-strip = "symbols"
+strip = "none"
 
 # Dev profile: keep the default opt-level for our crates (faster compile),
 # but bump optimization for dependencies so e.g. ort, sha2, rayon, regex

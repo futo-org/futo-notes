@@ -20,6 +20,15 @@ android {
     // since 2025-08-31. compileSdk tracks it.
     compileSdk = 35
 
+    // Pin the NDK AGP uses for native lib stripping + debug-symbol extraction
+    // (the release build's debugSymbolLevel below). Without this AGP looks for
+    // its default NDK (26.1.x), which isn't installed, and silently skips
+    // stripping/extraction ("missing strip tool for ABI"). Must match the NDK
+    // CI provisions for the Rust .so build (.gitlab-ci.yml: 27.0.12077973).
+    // NOTE: do not also set ndk.dir in local.properties — a version mismatch
+    // between the two breaks NDK resolution and re-triggers the skip.
+    ndkVersion = "27.0.12077973"
+
     defaultConfig {
         applicationId = "com.futo.notes"
         minSdk = 24
@@ -47,7 +56,14 @@ android {
         }
 
         release {
-            isMinifyEnabled = false
+            // R8 minification: shrinks the app and emits the deobfuscation
+            // mapping file Play wants. Keep rules for JNA, the UniFFI bindings,
+            // and the WebView JS bridge live in proguard-rules.pro.
+            isMinifyEnabled = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
             if (hasReleaseKeystore) {
                 signingConfig = signingConfigs.getByName("release")
             }
@@ -56,6 +72,16 @@ android {
             // Play AAB. armv7 is kept deliberately for older 32-bit devices.
             ndk {
                 abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+                // Extract native debug symbols from libfuto_notes_ffi.so into a
+                // native-debug-symbols file inside the AAB so Play can
+                // symbolicate native crashes/ANRs. SYMBOL_TABLE captures every
+                // function name and is tied to what the Rust release-ffi lib
+                // reliably carries: the symbol table kept by strip = "none"
+                // (the Rust code emits no DWARF, so "FULL" would add only
+                // incidental line info from C deps). AGP strips the symbol
+                // table from the .so delivered to devices (~16MB → ~9.5MB);
+                // the symbols travel to Play only. Requires ndkVersion above.
+                debugSymbolLevel = "SYMBOL_TABLE"
             }
         }
     }

@@ -10,11 +10,13 @@
 # targets (`rustup target add aarch64-linux-android armv7-linux-androideabi
 # x86_64-linux-android i686-linux-android`).
 #
-# Built with the `release-ffi` profile (Cargo.toml): optimized + stripped but
-# `panic = "unwind"`, so UniFFI's catch_unwind still turns Rust panics into
-# Kotlin exceptions instead of SIGABRT-ing the app. The plain `release` profile
-# can't be used — it sets panic="abort". This keeps each per-ABI .so small
-# enough for a Play AAB (~10–25 MB vs the old dev profile's 90–112 MB).
+# Built with the `release-ffi` profile (Cargo.toml): optimized, `panic =
+# "unwind"` (so UniFFI's catch_unwind still turns Rust panics into Kotlin
+# exceptions instead of SIGABRT-ing the app — the plain `release` profile sets
+# panic="abort" and can't be used). The profile keeps the symbol table (no
+# strip); AGP's `debugSymbolLevel = "FULL"` extracts those symbols into the Play
+# AAB for native crash/ANR symbolication and strips the .so that ships to
+# devices, so on-device size stays ~10–25 MB/ABI.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -43,7 +45,8 @@ ABIS="${ABIS:-arm64-v8a,armeabi-v7a,x86_64}"
 echo "==> Building futo-notes-ffi for Android ABIs: $ABIS (profile: release-ffi)"
 # cargo-ndk maps the friendly ABI names to rust targets and drops the per-ABI
 # .so straight into jniLibs/<abi>/libfuto_notes_ffi.so. --profile release-ffi:
-# optimized + stripped, panic="unwind" (UniFFI panic-catching). See Cargo.toml.
+# optimized, symbols retained, panic="unwind" (UniFFI panic-catching). AGP
+# strips + extracts symbols at bundle time. See Cargo.toml.
 cargo ndk --platform 24 --target "$ABIS" --output-dir "$JNI" \
   build -p futo-notes-ffi --profile release-ffi
 
