@@ -261,6 +261,13 @@ const futoEditor: FutoEditorApi = {
   },
   setNativeToolbar(enabled: boolean): void {
     nativeToolbar = enabled;
+    // Native shells render the editor in a full-bleed WebView. On wide screens
+    // (tablet / iPad) that leaves the text left-aligned with large empty space,
+    // so constrain it to a centered reading column (see .futo-native in
+    // editor-ux.css). Phones are narrower than the cap → no-op there. Only the
+    // native shells call setNativeToolbar, so desktop and the markdown-spec
+    // tests keep the original full-width layout.
+    document.documentElement.classList.toggle('futo-native', enabled);
     // If the web toolbar is currently up (host enabled mid-focus), drop it.
     if (enabled) toolbar?.setFocused(false);
   },
