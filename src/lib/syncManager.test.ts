@@ -19,7 +19,16 @@ vi.mock('@tauri-apps/api/event', () => ({
   listen: () => Promise.resolve(() => {}),
 }));
 
+// Spy on appState so the test can assert that a completed sync stamps the
+// "last synced" timestamp, without driving the real persistence layer (which
+// would hit getPlatformFS under vitest's DEV=true hasFileSystem).
+vi.mock('./appState', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./appState')>();
+  return { ...actual, updateAppState: vi.fn(async () => {}) };
+});
+
 import { findActiveSyncRename, createSyncManager, getSyncErrorMessage } from './syncManager.svelte';
+import { updateAppState } from './appState';
 import type { SyncManagerDeps } from './syncManager.svelte';
 import type { SyncSummary } from './syncServiceE2ee';
 
@@ -157,6 +166,28 @@ describe('createSyncManager sync-error state (F15)', () => {
 
     expect(mgr.syncError).toBe(false);
     expect(mgr.syncErrorMessage).toBe('');
+    cleanup();
+  });
+
+  // Regression: Settings showed a frozen "Last sync: 1mo ago" even after a
+  // successful manual "Sync now". Nothing ever wrote a fresh timestamp to
+  // appState.lastSyncedAt — it was declared, loaded, and read by Settings, but
+  // never stamped on sync success. handleSyncComplete is the single hook for
+  // every successful sync (auto, manual, live SSE), so it must record it.
+  it('stamps lastSyncedAt on a successful sync', async () => {
+    vi.mocked(updateAppState).mockClear();
+    const mgr = createSyncManager(makeDeps());
+    const cleanup = mgr.start();
+
+    const before = Date.now();
+    await capturedCallbacks!.onSyncComplete(emptySummary);
+
+    expect(updateAppState).toHaveBeenCalledWith(
+      expect.objectContaining({ lastSyncedAt: expect.any(Number) }),
+    );
+    const calls = vi.mocked(updateAppState).mock.calls;
+    const stamped = calls[calls.length - 1][0].lastSyncedAt as number;
+    expect(stamped).toBeGreaterThanOrEqual(before);
     cleanup();
   });
 });

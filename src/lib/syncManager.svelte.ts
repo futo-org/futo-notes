@@ -22,6 +22,7 @@ import {
   refreshNotesFromStorage,
 } from '$lib/notes.svelte';
 import { startAutoSyncV2, stopAutoSyncV2, notifySavedV2 } from '$lib/autoSyncV2';
+import { updateAppState } from '$lib/appState';
 
 // ── Dependency interface ─────────────────────────────────────────────────
 
@@ -269,6 +270,13 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
     // the status-bar indicator and Settings stop showing a stale failure.
     syncError = false;
     syncErrorMessage = '';
+    // Stamp the "last synced" time. Nothing else writes appState.lastSyncedAt,
+    // so without this the Settings "Last sync" label stayed frozen (e.g.
+    // "1mo ago") even after a successful manual "Sync now". Fire it before the
+    // first await below: saveAppState updates its in-memory cache synchronously,
+    // so handleSyncNow's getCachedPreferences() read (right after the
+    // un-awaited onSyncComplete returns) sees the fresh value.
+    void updateAppState({ lastSyncedAt: Date.now() });
     function applyActiveRename(fromId: string, toId: string): void {
       const meta = getNoteById(toId);
       const newTitle = meta?.title ?? toId;
