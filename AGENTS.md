@@ -193,6 +193,7 @@ Do not report a fix or addition as complete until you verify it. If verification
 | CSS / Tailwind only | `just build` (catches missing classes) → visual spot-check via Playwright screenshot |
 | Sync client stack (full) | `just test-cross-platform` (boots 2 Tauri instances + server, runs 12 scenarios) |
 | CI / pipeline config | Push branch → check pipeline via GitLab API (see GitLab CI section) |
+| Windows-only / WebView2 behavior (native drag-drop, NSIS installer, clean-machine launch) | Qemu Win11 VM — Playwright/agent-browser run WebKit/Chromium, **not** WebView2, so they can't prove it. See the `/verify` skill's "Windows (WebView2 — qemu VM)" section + `~/Developer/win-vm/README-vm.md` |
 
 Always pipe build output through `| tail -20` for readability. Run `pnpm exec tsc --noEmit | head -30` before a full build to catch type errors early.
 
@@ -216,6 +217,7 @@ curl -s --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
 - Regression tests: `tests/p0-regressions.spec.ts` (crash/IME), `tests/p1-regressions.spec.ts` (links), `tests/p2-regressions.spec.ts` (title/formatting)
 - Markdown spec + cursor movement coverage: `tests/markdown-spec.spec.ts` and `markdown-spec/cases/**`. The movement-path editor cases run in CI via `pnpm run test:markdown-spec`.
 - Some Android-native issues (IME, status bar) require device QA even when Playwright passes
+- Windows-only behavior (native drag-drop on WebView2, the NSIS installer, VC++/WebView2 runtime on a clean machine) is invisible to Playwright/agent-browser (they run WebKit/Chromium). Verify in the sudo-free qemu Win11 harness at `~/Developer/win-vm` — full procedure + video-recording steps live in the `/verify` skill ("Windows (WebView2 — qemu VM)")
 
 ## Test Requirements
 

@@ -389,6 +389,46 @@ adb forward --remove tcp:9223 2>/dev/null
 - If the MCP bridge port (9223) is blocked by a stale desktop Tauri process, kill it using the PID file for the current worktree (see cleanup pattern above).
 - For video recording (e.g., animation verification), use `adb shell screenrecord` — the MCP tools don't support video capture.
 
+### Windows (WebView2 — qemu VM)
+
+Use when verifying **Windows-only behavior on real WebView2** that the web/WebKit/Chromium paths and the Linux Tauri build cannot exercise: native drag-and-drop (e.g. dragging a note onto a folder — wry's `dragDropEnabled` swallows HTML5 DnD on WebView2), the NSIS installer, clean-machine launch (VC++/WebView2 runtime), or any `#[cfg(windows)]` path. Playwright/agent-browser run in WebKit/Chromium, **NOT WebView2**, so a green E2E does not prove Windows behavior.
+
+There is a reusable, sudo-free qemu Win11 harness at `~/Developer/win-vm/` (full details in its `README-vm.md`). Raw `qemu-system-x86_64` (world-writable `/dev/kvm`, no libvirt/sudo) with UEFI + emulated TPM 2.0 and a QMP control socket for screenshots/keyboard/mouse/drag.
+
+**Stage the build under test.** CI builds the signed NSIS `.exe` on git tags only (`windows:sign` job in `.gitlab-ci.yml`). Download that tag's artifact and rebuild the app ISO:
+```bash
+cp "FUTO Notes_<ver>_x64-setup.exe" ~/Developer/win-vm/appiso/futo-setup.exe
+genisoimage -quiet -o ~/Developer/win-vm/app.iso -J -r -V FUTOAPP ~/Developer/win-vm/appiso/
+```
+(The Win11 ISO must be fetched once via a **real browser** — `agent-browser` works — because Microsoft IP-blocks scripted ISO downloads. virtio + the quickget `autounattend.xml` are already staged.)
+
+**Run + drive:**
+```bash
+QMP=~/Developer/win-vm/run/qmp.sock
+~/Developer/win-vm/launch-vm.sh > ~/Developer/win-vm/run/qemu.log 2>&1 &   # Bash run_in_background
+for i in $(seq 1 30); do [ -S "$QMP" ] && break; sleep 1; done
+QMP_SOCK="$QMP" python3 ~/Developer/win-vm/vmctl.py key ret   # one-time "press any key to boot from CD"; tap 2-3x
+# Always screenshot first and read pixel coords off it:
+QMP_SOCK="$QMP" python3 ~/Developer/win-vm/vmctl.py shot ~/Developer/win-vm/run/shots/NN.png
+QMP_SOCK="$QMP" python3 ~/Developer/win-vm/vmctl.py key meta_l r                 # Win+R
+QMP_SOCK="$QMP" python3 ~/Developer/win-vm/vmctl.py type "G:\\futo-setup.exe /S" # silent NSIS install
+QMP_SOCK="$QMP" python3 ~/Developer/win-vm/vmctl.py drag X1 Y1 X2 Y2             # HTML5-DnD-friendly drag
+```
+Watch live via VNC on `localhost:5910` (e.g. `vlc vnc://localhost:5910`).
+
+**Procedure:** boot → unattended install (auto-login `Quickemu`/`quickemu`; the modern 25H2 setup needs one click past the keyboard screen, then `autounattend.xml` takes over — do NOT press keys on later reboots) → silent app install from G: → launch → create a folder + a root note → drag the note onto the folder → screenshot **and** verify on disk (`C:\Users\Quickemu\Documents\futo-notes\<Folder>\<Note>.md`, gone from root).
+
+**Gotchas:** a clean Win11 lacks the MSVC runtime — without the bundled vc_redist the app dies on launch with `MSVCP140_1.dll not found`. Win11 25H2 ships the WebView2 runtime, so the editor renders.
+
+**Video recording** (QMP has no native capture — grab frames, assemble with ffmpeg):
+```bash
+QMP=~/Developer/win-vm/run/qmp.sock; D=~/Developer/win-vm/run/frames; mkdir -p "$D"; touch "$D/.rec"
+# Background recorder (~5fps) while you drive the test in the foreground:
+i=0; while [ -f "$D/.rec" ]; do QMP_SOCK="$QMP" python3 ~/Developer/win-vm/vmctl.py shot "$D/$(printf '%05d' $i).png"; i=$((i+1)); sleep 0.2; done
+# Stop with: rm "$D/.rec" ; then assemble:
+ffmpeg -y -framerate 5 -pattern_type glob -i "$D/*.png" -vf "scale=1280:-2" -pix_fmt yuv420p ~/Developer/win-vm/run/verify.mp4
+```
+
 ### Handling loading/async states in screenshots
 
 After taking a screenshot, inspect it for loading or computing states (spinners, "Computing...", "Loading...", progress indicators). If a loading state is visible:
