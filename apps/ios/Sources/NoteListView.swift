@@ -203,9 +203,16 @@ struct FolderContentsView: View {
 
     private var isEmpty: Bool { subfolders.isEmpty && notes.isEmpty }
 
+    /// Only show the "No notes yet" empty state once the first scan has landed.
+    /// On a cold start the list is momentarily empty just because `bootstrap`
+    /// hasn't completed; flashing the empty state then reads as data loss.
+    /// (Subfolders are only reachable after bootstrap, so this only affects the
+    /// root view's first frames.) See NotesStore.hasBootstrapped.
+    private var showEmptyState: Bool { store.hasBootstrapped && isEmpty }
+
     var body: some View {
         Group {
-            if isEmpty {
+            if showEmptyState {
                 emptyState
             } else {
                 list

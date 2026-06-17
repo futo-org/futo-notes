@@ -69,3 +69,39 @@ Any CM6 **replace widget** (HR, image, table, code-fence label) must report an
 `estimatedHeight` equal to its real rendered footprint, and should render at a
 **definite** height so the two cannot drift. A wrong widget estimate is a
 scroll-jump waiting to happen the next time that element scrolls into view.
+
+## Update (2026-06-17): two more causes of the same jump
+
+The HR fix removed the widget-driven jump, but the note still "jumped around"
+on a physical iPhone. Two more contributors, same mechanism (CM6 measures a
+line whose height differed from its estimate → `scroll.scrollTop += diff` to
+re-pin the scroll anchor → a visible jolt on a touch-momentum scroller):
+
+1. **Font swap (FOUT) — the big one.** The editor uses Barlow with
+   `font-display: swap`. The native editor WebView is **prewarmed empty**, so
+   Barlow only begins decoding when the first note's text renders — then swaps
+   in mid-view, changing every line's metrics at once → one large (~200px)
+   correction during the first scroll. Intermittent: it only bites while the
+   OS/WebKit font cache is cold (a warm cache decodes Barlow before the scroll,
+   so no swap — which is why it reproduced on early launches but not later).
+   **Fix:** `src/editor-embed/main.ts` `warmEditorFonts()` eagerly
+   `document.fonts.load(...)`s every Barlow weight at editor startup (during
+   prewarm, before content), then re-measures on completion. The editor now
+   measures in Barlow from the first frame — no swap, no correction.
+
+2. **Proportional-font wrapped-line estimation — the residual.** CM6 estimates
+   off-screen wrapped-line heights from an average per-char width; for long
+   proportional-font lines (e.g. tab-separated pseudo-tables) the estimate is
+   off, and CM6 **re-creates the gap** once the line scrolls far away, so
+   premeasuring doesn't durably help and there is no facet to widen the 1000px
+   viewport margin or disable the anchor correction. **Mitigation:**
+   `src/lib/scrollJumpGuard.ts` — a mobile-only CM6 ViewPlugin that, while the
+   user is actively scrolling, reverts any single-frame reversal larger than
+   30px against the scroll direction (a genuine touch/momentum frame can't
+   reverse that far in 16ms; `overscroll-behavior` is off so there's no bounce).
+   The height map still updates; only the jarring reposition is dropped. Gated
+   to `isMobile` because desktop scrolls in an external container with its own
+   compensation. Pure decision logic is unit-tested (`scrollJumpGuard.test.ts`).
+
+Don't rely on premeasure / oracle calibration for proportional wrapping — it was
+measured to NOT durably help (CM6 re-gaps far-away lines).

@@ -72,10 +72,15 @@
       height: 100% !important;
     }
 
-    /* CM's own scroller is the scroll container (vertical), with momentum. */
+    /* CM's own scroller is the scroll container (vertical), with momentum.
+     * overscroll-behavior:none disables rubber-band bounce at the top/bottom —
+     * both so the page never chains scroll to the host, and so the scroll-jump
+     * guard's "a big single-frame reversal must be a CM correction" premise
+     * holds without bounce frames to confuse it. */
     .cm-scroller {
       overflow-y: auto !important;
       -webkit-overflow-scrolling: touch !important;
+      overscroll-behavior: none !important;
     }
 
     /* The contenteditable surface:

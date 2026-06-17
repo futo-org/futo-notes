@@ -97,6 +97,10 @@ const editor = mount(MarkdownEditor, {
   target,
   props: {
     content: '',
+    // This is the native shell's WebView (no Tauri runtime → `isMobile` is
+    // false here); tell the editor so it enables mobile-only behavior such as
+    // the scroll-jump guard.
+    nativeShell: true,
     onchange: (_content: string) => {
       // The editor already coalesces doc changes via requestAnimationFrame
       // before invoking onchange, so we post directly.
@@ -277,6 +281,32 @@ window.FutoEditor = futoEditor;
 // NOTE: the empty-note keyboard (WKWebView refuses to raise the keyboard for an
 // empty contenteditable) is handled NATIVELY in EditorWebView.swift by forcing
 // WebKit's keyboardDisplayRequiresUserAction off — no JS primer hack needed.
+
+// Eagerly decode Barlow now, before any note text renders. The native editor
+// WebView is PREWARMED EMPTY, so with `font-display: swap` Barlow would
+// otherwise only begin decoding when the first note's content renders — and
+// swap in mid-view, changing every line's metrics. CM6 then re-measures and
+// jerks the scroll position (a visible "jump" while scrolling). Decoding all
+// weights up front (during prewarm, before content) means the editor measures
+// in Barlow from the first frame; the re-measure when the loads settle covers
+// the race where content arrived first. See docs/learnings/hr-scroll-jank.md.
+function warmEditorFonts(): void {
+  const fonts = (document as unknown as { fonts?: FontFaceSet }).fonts;
+  if (!fonts?.load) return;
+  const weights = ['400', '500', '600', '700'];
+  const specs = [
+    ...weights.map((w) => `${w} 18px Barlow`),
+    'italic 400 18px Barlow',
+    'italic 700 18px Barlow',
+  ];
+  Promise.allSettled(specs.map((s) => fonts.load(s))).then(() => {
+    // If content was already pushed and measured against the fallback metrics,
+    // re-measure now that Barlow is decoded so the height map is correct before
+    // the user scrolls.
+    editor.getView()?.requestMeasure();
+  });
+}
+warmEditorFonts();
 
 // Signal readiness after the editor is mounted. requestAnimationFrame gives
 // the CodeMirror view a frame to attach before native pushes initial content.

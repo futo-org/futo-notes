@@ -15,6 +15,7 @@
   import { listContinuationKeymap, orderedListRenumber } from '$lib/listContinuation';
   import { imeShieldPlugin } from '$lib/imeShield';
   import { cursorMotionKeymap } from '$lib/cursorMotion';
+  import { scrollJumpGuard } from '$lib/scrollJumpGuard';
   import { interactiveTableEditor } from '$lib/editorUX/tableEditor';
   import { selectionToolbar } from '$lib/editorUX/selectionToolbar';
   import { slashMenu } from '$lib/editorUX/slashMenu';
@@ -44,6 +45,14 @@
     oncursorcontext?: (ctx: { onListLine: boolean }) => void;
     scrollParent?: HTMLElement | null;
     /**
+     * True when hosted inside a native shell's WebView (iOS/Android), where CM6
+     * owns its own scroller. The native WebView has no Tauri runtime, so the
+     * `isMobile` flag (which is `isTauri && …`) is FALSE there — components must
+     * use this prop, not `isMobile`, to detect the native embed. Enables the
+     * mobile scroll-jump guard. See docs/learnings/hr-scroll-jank.md.
+     */
+    nativeShell?: boolean;
+    /**
      * Called when the user clicks a wikilink. The shell decides whether
      * to navigate in-place or open in a new tab based on the event's
      * modifier / button state. If omitted, falls back to in-place navigation.
@@ -51,7 +60,7 @@
     onopenlink?: (title: string, event: MouseEvent) => void;
   }
 
-  let { content = '', onchange, onfocuschange, oncursorcontext, scrollParent = null, onopenlink }: Props = $props();
+  let { content = '', onchange, onfocuschange, oncursorcontext, scrollParent = null, nativeShell = false, onopenlink }: Props = $props();
 
   let container: HTMLDivElement;
   let view: EditorView | null = $state(null);
@@ -710,6 +719,12 @@
       liveMarkdownTransform,
       autoLinkHighlight,
       interactiveTableEditor,
+      // Native shells (and Tauri-mobile) scroll inside CM6's own scroller;
+      // guard against CM6's mid-scroll height-correction "jumps" there. Desktop
+      // scrolls in an external container with its own compensation, so it's not
+      // needed. NOTE: gate on `nativeShell`, NOT `isMobile` — the native WebView
+      // has no Tauri runtime so `isMobile` is false there.
+      ...(nativeShell || isMobile ? [scrollJumpGuard] : []),
       ...(isMobile ? [] : selectionToolbar),
       slashMenu,
       wikilinkAutocomplete(),

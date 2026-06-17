@@ -154,6 +154,15 @@ final class NotesStore: ObservableObject {
     /// including empty folders on disk + folders implied by note ids. Sorted.
     @Published private(set) var folders: [String] = []
 
+    /// False until the first background scan (`bootstrap`) lands. The list must
+    /// NOT show its "No notes yet" empty state while this is false — on a cold
+    /// start `notes` is `[]` purely because the scan hasn't completed, and
+    /// flashing the empty state before the notes appear reads as data loss.
+    /// (We deliberately render with an empty list rather than gate the first
+    /// frame on I/O — see `init` — so this flag is how the UI tells "still
+    /// loading" apart from "genuinely empty".)
+    @Published private(set) var hasBootstrapped: Bool = false
+
     /// The notes root, created on first vault access (NOT in init — init must
     /// not touch disk).
     let notesRoot: URL
@@ -239,6 +248,8 @@ final class NotesStore: ObservableObject {
         let (metas, folders) = await vault.bootstrap(notesRoot: notesRoot.path)
         self.notes = metas.map(Self.item(from:))
         self.folders = folders
+        // First scan has landed: the empty state may now be trusted.
+        self.hasBootstrapped = true
     }
 
     // MARK: - Scan / reload (delegates to the off-main vault)
