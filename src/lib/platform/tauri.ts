@@ -143,6 +143,30 @@ async function pruneEmptyAncestors(root: string, dir: string): Promise<void> {
 let watcherStarted = false;
 let assetProtocolWorks: boolean | null = null;
 
+/**
+ * Does an <img> actually DECODE this URL? A HEAD/GET 200 from the asset
+ * protocol does NOT guarantee the webview will paint it — macOS WKWebView and
+ * Linux WebKitGTK can answer an asset:// request while an <img> renders a blank
+ * (pure-white) box at the reserved size. So probe the one thing that matters: a
+ * real image decode. Resolves false on any failure — including environments
+ * with no Image constructor — so callers fall back to the reliable blob path
+ * when in doubt.
+ */
+async function assetUrlDecodes(url: string): Promise<boolean> {
+  if (typeof Image !== 'function') return false;
+  try {
+    const img = new Image();
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve();
+      img.onerror = () => reject(new Error('asset decode failed'));
+      img.src = url;
+    });
+    return img.naturalWidth > 0;
+  } catch {
+    return false;
+  }
+}
+
 async function ensureWatcherStarted(): Promise<void> {
   if (watcherStarted) return;
   // Mobile: app is the sole writer; kqueue rescan on every appdata write
@@ -367,14 +391,12 @@ export const tauriFS: PlatformFS = {
     const assetUrl = convertFileSrc(`${root}/${filename}`);
     // Tauri v2's asset protocol can reject paths even when fs:scope covers
     // them. Probe once per session — if the asset protocol works, use it for
-    // every image (zero-copy); otherwise fall back to blob URLs.
+    // every image (zero-copy); otherwise fall back to blob URLs. The probe must
+    // verify an <img> actually DECODES the URL (a HEAD/GET 200 from the custom
+    // scheme is not enough: WKWebView/WebKitGTK answer the request but paint a
+    // blank white box), so an undecodable asset URL falls back to the blob path.
     if (assetProtocolWorks === null) {
-      try {
-        const probe = await fetch(assetUrl, { method: 'HEAD' });
-        assetProtocolWorks = probe.ok;
-      } catch {
-        assetProtocolWorks = false;
-      }
+      assetProtocolWorks = await assetUrlDecodes(assetUrl);
     }
     if (assetProtocolWorks) return assetUrl;
 
