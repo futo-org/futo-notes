@@ -199,7 +199,11 @@ edits tags as text in the body, which is not a gap.
 - Pasting an image into the editor (desktop) saves it to the notes directory
   and inserts `![](filename)`; supported types follow
   `@futo-notes/shared` `IMAGE_EXTENSIONS`. → imagePaste.ts
-- Images render inline in live preview via the Tauri asset protocol. *(Tauri)*
+- Images render inline in live preview via the Tauri asset protocol, with a
+  `readFile`→blob-URL fallback when the asset protocol can't actually decode an
+  `<img>` (macOS WKWebView / Linux WebKitGTK answer the request but paint a
+  blank white box; the gate is a real image-decode probe, not a HEAD probe).
+  → tauri.ts `getImageUrl` / `assetUrlDecodes`. *(Tauri)*
 - The native shells render local images inline through a host-registered
   image base URL (`setImageBaseUrl`): iOS serves the vault root through a
   `futo-asset://` WKURLSchemeHandler (path-traversal- and image-extension-
