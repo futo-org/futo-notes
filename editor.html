@@ -73,14 +73,16 @@
     }
 
     /* CM's own scroller is the scroll container (vertical), with momentum.
-     * overscroll-behavior:none disables rubber-band bounce at the top/bottom —
-     * both so the page never chains scroll to the host, and so the scroll-jump
-     * guard's "a big single-frame reversal must be a CM correction" premise
-     * holds without bounce frames to confuse it. */
+     * overscroll-behavior:contain keeps the native rubber-band BOUNCE at the
+     * top/bottom (iOS users expect it; its absence reads as "stuck") while still
+     * preventing scroll from chaining out to the host web view. (We previously
+     * used `none` to suppress bounce for a scroll-jump guard that wrote scrollTop
+     * mid-scroll; that guard is gone — the height map is warmed up front instead,
+     * see $lib/heightMapWarm.ts — so bounce is back.) */
     .cm-scroller {
       overflow-y: auto !important;
       -webkit-overflow-scrolling: touch !important;
-      overscroll-behavior: none !important;
+      overscroll-behavior: contain !important;
     }
 
     /* The contenteditable surface:

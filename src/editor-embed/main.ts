@@ -98,8 +98,8 @@ const editor = mount(MarkdownEditor, {
   props: {
     content: '',
     // This is the native shell's WebView (no Tauri runtime → `isMobile` is
-    // false here); tell the editor so it enables mobile-only behavior such as
-    // the scroll-jump guard.
+    // false here); tell the editor so it enables behavior for the case where CM6
+    // owns its own scroller, such as height-map warming.
     nativeShell: true,
     onchange: (_content: string) => {
       // The editor already coalesces doc changes via requestAnimationFrame
@@ -137,6 +137,7 @@ const editor = mount(MarkdownEditor, {
   blur: () => void;
   refreshDecorations: () => void;
   getView: () => EditorView | null;
+  warmScroll: () => { grew: number; steps: number } | null;
 };
 
 // ---------------------------------------------------------------------------
@@ -301,12 +302,21 @@ function warmEditorFonts(): void {
   ];
   Promise.allSettled(specs.map((s) => fonts.load(s))).then(() => {
     // If content was already pushed and measured against the fallback metrics,
-    // re-measure now that Barlow is decoded so the height map is correct before
-    // the user scrolls.
-    editor.getView()?.requestMeasure();
+    // re-warm now that Barlow is decoded: the swap changes every line's height,
+    // which would otherwise re-introduce the anchor-correction jank on first
+    // scroll. warmScroll re-measures the whole doc so the map is correct up front.
+    editor.warmScroll();
   });
 }
 warmEditorFonts();
+
+// Diagnostic hook: force a height-map warm and report how far the height map was
+// off (grew = px of estimation error eliminated = the scroll-jank magnitude that
+// would otherwise surface as a momentum-killing anchor correction). A second
+// call should return grew≈0, confirming the map stays warm. Used by the iOS
+// scroll-jank probe (see /tmp/build-scroll-probe.mjs).
+(window as unknown as { __scrollDiag?: () => unknown }).__scrollDiag = () =>
+  editor.warmScroll();
 
 // Signal readiness after the editor is mounted. requestAnimationFrame gives
 // the CodeMirror view a frame to attach before native pushes initial content.

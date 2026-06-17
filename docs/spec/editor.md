@@ -64,6 +64,14 @@ this file states the behaviors a human cares about.
   footprint (and the widget should render at a definite height) — otherwise
   CM6 re-sizes the off-screen gap when the element scrolls back into view and
   jerks the scroll position on iOS momentum scrolling. → docs/learnings/hr-scroll-jank.md
+- On the native shells (iOS **and** Android — CM6 owns its own scroller), the
+  editor warms CM6's height map on note load (and after font load / width change)
+  by measuring every line's real height up front. Off-screen wrapped lines are
+  otherwise estimated too short; the first scroll past them triggers a `scrollTop`
+  anchor correction that cancels native touch momentum — the note "jumps forward
+  and stops, no bounce" (measured up to 1436px on Android). Native overscroll
+  affordance (`overscroll-behavior: contain` — iOS bounce / Android stretch) must
+  be preserved. → src/lib/heightMapWarm.ts, docs/learnings/hr-scroll-jank.md
 - Wikilinks `[[Title]]`.
 
 ## Tags

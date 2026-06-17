@@ -15,7 +15,7 @@
   import { listContinuationKeymap, orderedListRenumber } from '$lib/listContinuation';
   import { imeShieldPlugin } from '$lib/imeShield';
   import { cursorMotionKeymap } from '$lib/cursorMotion';
-  import { scrollJumpGuard } from '$lib/scrollJumpGuard';
+  import { warmHeightMap } from '$lib/heightMapWarm';
   import { interactiveTableEditor } from '$lib/editorUX/tableEditor';
   import { selectionToolbar } from '$lib/editorUX/selectionToolbar';
   import { slashMenu } from '$lib/editorUX/slashMenu';
@@ -48,8 +48,9 @@
      * True when hosted inside a native shell's WebView (iOS/Android), where CM6
      * owns its own scroller. The native WebView has no Tauri runtime, so the
      * `isMobile` flag (which is `isTauri && …`) is FALSE there — components must
-     * use this prop, not `isMobile`, to detect the native embed. Enables the
-     * mobile scroll-jump guard. See docs/learnings/hr-scroll-jank.md.
+     * use this prop, not `isMobile`, to detect the native embed. Enables
+     * height-map warming (CM6 owns its scroller here). See
+     * docs/learnings/hr-scroll-jank.md.
      */
     nativeShell?: boolean;
     /**
@@ -685,6 +686,30 @@
     v.dom.toggleAttribute('data-selection-reveal-suppressed', suppressed);
   }
 
+  // True when CM6 owns its own scroller (native iOS/Android WebView, or the
+  // legacy Tauri-mobile shell). Desktop scrolls inside an external `scrollParent`
+  // with its own compensation, so height-map warming is neither needed nor wired
+  // there. The native WebView has no Tauri runtime → `isMobile` is false there,
+  // hence the explicit `nativeShell` term.
+  const cmOwnsScroller = nativeShell || isMobile;
+
+  // Coalesce height-map warming to one rAF. Warming walks the viewport across
+  // the whole doc so every off-screen line gets a REAL measured height (instead
+  // of CM6's wrap-blind estimate); this stops the mid-scroll anchor corrections
+  // that cancel iOS touch momentum ("jumps forward and stops"). See
+  // $lib/heightMapWarm.ts and docs/learnings/hr-scroll-jank.md.
+  let warmRafId = 0;
+  function scheduleWarm(): void {
+    if (!cmOwnsScroller || warmRafId) return;
+    // Escape hatch for diagnostics: lets a probe measure the un-warmed baseline.
+    if (typeof window !== 'undefined' &&
+        (window as { __futoDisableScrollWarm?: boolean }).__futoDisableScrollWarm) return;
+    warmRafId = requestAnimationFrame(() => {
+      warmRafId = 0;
+      if (view) warmHeightMap(view);
+    });
+  }
+
   onMount(() => {
     preloadImages(content, hasFileSystem ? getImageWebPath : undefined, () => view);
 
@@ -719,12 +744,6 @@
       liveMarkdownTransform,
       autoLinkHighlight,
       interactiveTableEditor,
-      // Native shells (and Tauri-mobile) scroll inside CM6's own scroller;
-      // guard against CM6's mid-scroll height-correction "jumps" there. Desktop
-      // scrolls in an external container with its own compensation, so it's not
-      // needed. NOTE: gate on `nativeShell`, NOT `isMobile` — the native WebView
-      // has no Tauri runtime so `isMobile` is false there.
-      ...(nativeShell || isMobile ? [scrollJumpGuard] : []),
       ...(isMobile ? [] : selectionToolbar),
       slashMenu,
       wikilinkAutocomplete(),
@@ -839,6 +858,25 @@
 
     view = v;
 
+    // Warm the height map for the content present at mount, and re-warm whenever
+    // the scroller's WIDTH changes (rotation / window resize / iPad split view) —
+    // a width change re-flows wrapping, which is the only thing besides an edit
+    // that invalidates measured line heights. Height-only changes (soft keyboard
+    // show/hide) don't affect wrapping, so we ignore them.
+    let warmResizeObserver: ResizeObserver | null = null;
+    if (cmOwnsScroller) {
+      scheduleWarm();
+      let lastWarmWidth = v.scrollDOM.clientWidth;
+      warmResizeObserver = new ResizeObserver(() => {
+        const w = v.scrollDOM.clientWidth;
+        if (w !== lastWarmWidth) {
+          lastWarmWidth = w;
+          scheduleWarm();
+        }
+      });
+      warmResizeObserver.observe(v.scrollDOM);
+    }
+
     // Focus the editor on mount so .cm-cursor renders immediately on
     // desktop. Skip on mobile: programmatic contenteditable focus pops
     // the soft keyboard, which is unwanted when opening an existing note.
@@ -927,6 +965,8 @@
 
     return () => {
       if (onchangeRafId) { cancelAnimationFrame(onchangeRafId); onchangeRafId = 0; }
+      if (warmRafId) { cancelAnimationFrame(warmRafId); warmRafId = 0; }
+      warmResizeObserver?.disconnect();
       clearPointerSelectionSettleTimer();
       v.dom.removeEventListener('mousedown', onEditorMouseDown, true);
       window.removeEventListener('mousemove', onGlobalPointerMove, true);
@@ -985,6 +1025,11 @@
       compensating = false;
     }
     view.dispatch(result.spec);
+    // A full load (note switch) replaces the whole doc → every off-screen line
+    // is freshly estimated. Warm the height map so the first scroll doesn't
+    // trigger CM6's momentum-killing anchor corrections. Skipped for
+    // preserveSelection sync updates (the map is already warm for that doc).
+    if (!options.preserveSelection) scheduleWarm();
     // Defer image preloading — only scan the inserted text (not the full doc)
     // so incremental sync updates don't re-scan the entire document.
     const preloadText = result.insertedText;
@@ -1052,6 +1097,18 @@
 
   export function getView(): EditorView | null {
     return view;
+  }
+
+  /**
+   * Force a height-map warm now and report how much the document's scrollHeight
+   * grew (= the estimation error that would otherwise have surfaced as scroll
+   * jank). Returns null when there's no view. Used by the dev scroll diagnostic
+   * and by tests to verify warming converges the height map.
+   */
+  export function warmScroll(): { grew: number; steps: number } | null {
+    if (!view) return null;
+    view.measure();
+    return warmHeightMap(view);
   }
 
   export function getSelection(): { from: number; to: number } | null {

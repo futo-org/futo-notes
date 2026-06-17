@@ -90,18 +90,108 @@ re-pin the scroll anchor → a visible jolt on a touch-momentum scroller):
    measures in Barlow from the first frame — no swap, no correction.
 
 2. **Proportional-font wrapped-line estimation — the residual.** CM6 estimates
-   off-screen wrapped-line heights from an average per-char width; for long
-   proportional-font lines (e.g. tab-separated pseudo-tables) the estimate is
-   off, and CM6 **re-creates the gap** once the line scrolls far away, so
-   premeasuring doesn't durably help and there is no facet to widen the 1000px
-   viewport margin or disable the anchor correction. **Mitigation:**
-   `src/lib/scrollJumpGuard.ts` — a mobile-only CM6 ViewPlugin that, while the
-   user is actively scrolling, reverts any single-frame reversal larger than
-   30px against the scroll direction (a genuine touch/momentum frame can't
-   reverse that far in 16ms; `overscroll-behavior` is off so there's no bounce).
-   The height map still updates; only the jarring reposition is dropped. Gated
-   to `isMobile` because desktop scrolls in an external container with its own
-   compensation. Pure decision logic is unit-tested (`scrollJumpGuard.test.ts`).
+   each off-screen line at ~1 line-height; a paragraph that **wraps** to N visual
+   lines in a proportional font is under-estimated by ~(N-1) line-heights. When
+   it scrolls into the measured range CM6 measures it taller, grows the height
+   map, and writes `scrollDOM.scrollTop += diff` to re-pin its anchor.
 
-Don't rely on premeasure / oracle calibration for proportional wrapping — it was
-measured to NOT durably help (CM6 re-gaps far-away lines).
+The earlier `scrollJumpGuard` mitigation for #2 was **wrong twice over** and has
+been removed:
+
+- It only reverted *reversals* (`nd !== dir`). The actual user-reported jank is a
+  **forward** correction — a long paragraph above/at the fold measures taller, so
+  the anchor moves *down* and `diff > 0` *while scrolling down*. Same direction as
+  the scroll → the guard never fired.
+- Worse, the guard *itself* wrote `scrollTop` mid-scroll. On iOS, **any**
+  programmatic `scrollTop` write cancels the in-flight touch momentum — so the
+  guard (and CM6's own correction) made the scroll "jump forward and **stop**,"
+  with no bounce. That exact triple — jump forward, dead-stop, no bounce, worse
+  on harder flicks — is the signature of a momentum-killing scroll write.
+
+## Update (2026-06-17, later): the real fix — warm the height map
+
+The premise "CM6 re-gaps far-away lines so premeasure doesn't help" was **false**.
+Reading `@codemirror/view` source: a measured line (`HeightMapText`) keeps its
+height and is *only* reverted to an estimate when the **document** changes that
+range (`HeightMapText.updateHeight` re-estimates only if `force || outdated`;
+`applyChanges` rebuilds only edited ranges). Scrolling away never re-gaps. So the
+height map is **monotonically accurate** once measured — and there is no facet to
+disable the anchor correction (the `scroll.scrollTop += diff` write is gated only
+on a touch within the last 100ms, always true mid-flick).
+
+**Fix:** `src/lib/heightMapWarm.ts` `warmHeightMap(view)` walks the viewport
+across the whole doc once, measuring every line's real height up front. It moves
+the viewport with CM6's OWN `EditorView.scrollIntoView(pos, {y:'start'})` (NOT a
+raw `scrollDOM.scrollTop` write) and forces a synchronous `view.measure()` after
+each step. Using `scrollIntoView` matters: a fresh load pins the scroll anchor
+near the top, so a raw `scrollTop` write is reverted on the next measure (the very
+anchor correction we're fighting) and the viewport never actually moves —
+`scrollIntoView` re-targets the anchor so it sticks. Because measured heights
+persist, the anchor `diff` is then ~0 forever after and the momentum-killing write
+never executes. `MarkdownEditor.svelte` runs it (gated on `nativeShell || isMobile`,
+i.e. whenever CM6 owns its scroller) after every full-load `setContent`, after
+Barlow finishes decoding (font swap re-flows metrics), and on any scroller
+**width** change (rotation / resize re-flows wrapping — the only non-edit
+invalidation). `MarkdownEditor.warmScroll()` exposes it, and the editor embed
+exposes `window.__scrollDiag()` for probes.
+
+Bounce restored too: `.cm-scroller` went from `overscroll-behavior: none` (only
+there to keep the deleted guard's "a big reversal must be a correction" premise
+clean) back to `contain` — native overscroll affordance (iOS rubber-band bounce /
+Android edge stretch), no scroll-chaining to the host. Unit-tested in
+`src/lib/heightMapWarm.test.ts`.
+
+## This bug is CROSS-PLATFORM (iOS **and** Android) — confirmed 2026-06-17
+
+iOS and Android native shells run the **same** `editor.html` bundle in a
+prewarmed, app-lifetime WebView where **CM6 owns its own scroller**. So the bug,
+and the fix, are identical on both — there is no platform-specific scroll code to
+write. Only the *magnitude* differs, because it's driven by each engine's font
+metrics. Measured with a real-fling correction counter (hook the scroller's
+`scrollTop` SETTER — native momentum updates scrollTop internally and bypasses the
+JS setter, so any JS write *during* a fling is necessarily a CM6 correction):
+
+| Platform | warm OFF (baseline) | warm ON (fixed) |
+|---|---|---|
+| iOS simulator | 2 corrections, max ~200px | **0** |
+| Android emulator (Chromium WebView) | **7 corrections, max 1436px** | **0** |
+
+On Android the cold height map under-estimated the doc by ~700px (9525 → 10247px
+after warming), producing a single **1436px** correction mid-fling — a violent
+jump. Warming drove it to **zero corrections across the whole doc** on both.
+
+The fix reaches Android automatically because `apps/android/run.sh` rebuilds the
+editor bundle and `cp`s it into `app/src/main/assets/editor.html` (gitignored).
+A STALE staged asset will silently ship the old behavior — if Android still janks
+after an editor change, confirm the asset was re-staged.
+
+## For future models: triaging "the editor scrolls janky on mobile"
+
+This is a recurring trap. Internalize these:
+
+1. **It's the WebView editor (CM6), not native scroll code.** Both mobile shells
+   embed the shared web editor; native scroll containers aren't involved.
+2. **"Jumps and stops, no bounce, worse on harder flicks" == a programmatic
+   `scrollTop` write killing native momentum.** On iOS *and* Android Chromium
+   WebView, ANY JS write to a scroller's `scrollTop` during an active touch/fling
+   cancels the in-flight momentum. Never write `scrollTop` mid-scroll. The dead
+   `scrollJumpGuard` violated this — don't reintroduce that pattern.
+3. **The root trigger is CM6's height-map ESTIMATE for off-screen wrapped lines.**
+   It under-estimates proportional-font wrapped paragraphs; on first scroll-in CM6
+   re-measures and writes `scrollTop += diff` to keep its anchor. There is no facet
+   to disable that write.
+4. **The fix is to make the estimate moot: warm the whole height map up front.**
+   Measured heights persist (CM6 only re-gaps on a *document edit*), so one walk
+   per load/width-change/font-load is durable. Move the viewport with
+   `scrollIntoView`, not `scrollTop`. Re-warm on anything that re-flows wrap width.
+5. **Measure with the `scrollTop`-setter hook + real flings**, not `grew` (total
+   scrollHeight delta). Corrections are driven by *local* re-measurement near the
+   scroll position and can be huge (1436px) even when the whole-doc total nets to
+   ~0 — so a "grew ≈ 0" reading does NOT mean "no jank." Count the setter writes
+   during an actual fling.
+6. **Android can run JS in the WebView via CDP; the iOS simulator cannot.** On
+   Android: forward `webview_devtools_remote_<pid>` and use `scripts/cdp-invoke.mjs`.
+   On the iOS sim: hot-swap an instrumented `editor.html` into the installed `.app`
+   and read a DOM overlay via screenshots (see
+   docs/learnings/ios-editor-hotswap-and-scroll-probe, memory). Drive real flings
+   with `adb shell input swipe` / the simulator's `ui_swipe`.
