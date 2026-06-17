@@ -149,6 +149,17 @@ export function isEditorChangeEcho(params: {
 // Implementation
 // ---------------------------------------------------------------------------
 
+/** Body/content edits save after a short pause — long enough to coalesce a
+ *  burst of typing, short enough that content reaches disk quickly. */
+const BODY_SAVE_DEBOUNCE_MS = 500;
+/** Title-only edits save (and RENAME the file) on a much longer pause. A
+ *  title save round-trips through updateNote → onNoteRenamed → tab noteId
+ *  swap, which clobbers keystrokes still in flight; firing it at 500ms during
+ *  a natural inter-word pause lost characters mid-typing. The aggressive
+ *  delay holds the rename until the user is truly done with the name; moving
+ *  focus into the editor body flushes it early (NotesShell). */
+const TITLE_SAVE_DEBOUNCE_MS = 10_000;
+
 // eslint-disable-next-line max-lines-per-function -- Svelte 5 rune factory keeps reactive state, save queue, and note lifecycle colocated.
 export function createNoteSession(deps: NoteSessionDeps): NoteSession {
   // --- Reactive state (Svelte 5 runes) ---
@@ -236,10 +247,13 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     if (saveTimeout !== null) {
       clearTimeout(saveTimeout);
     }
+    // Title-only edits (no content payload) get the aggressive 10s debounce so
+    // a rename round-trip never fires mid-typing; body edits keep 500ms.
+    const debounceMs = nextContent === undefined ? TITLE_SAVE_DEBOUNCE_MS : BODY_SAVE_DEBOUNCE_MS;
     saveTimeout = window.setTimeout(() => {
       saveTimeout = null;
       void runQueuedSave();
-    }, 500);
+    }, debounceMs);
   }
 
   async function flushSave(): Promise<void> {
