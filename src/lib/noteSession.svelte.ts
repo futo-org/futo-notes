@@ -463,6 +463,21 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
         title = meta?.title || fallbackTitle;
         savedTitle = title;
         deps.setEditorContent(loadedContent);
+        // CM6 has no lineSeparator facet, so it collapses CR/CRLF line endings
+        // to LF as the document loads. Re-seed content/savedContent from what
+        // the editor ACTUALLY holds (not the raw disk bytes) so the
+        // rAF-coalesced onchange that echoes this load isn't mistaken for a
+        // user edit. Otherwise opening a CRLF note autosaves it — bumping its
+        // mtime (which re-sorts it to the top of the list) and pushing a
+        // whole-file change that conflict-copies during sync. Opening a note
+        // must be read-only. (suppressSaveOnChange can't cover this: the echo
+        // lands a frame later, after the flag is lowered — see
+        // isEditorChangeEcho.)
+        const editorContent = deps.getEditorContent();
+        if (editorContent !== undefined && editorContent !== loadedContent) {
+          content = editorContent;
+          savedContent = editorContent;
+        }
         requestAnimationFrame(() => {
           if (loadVersion !== noteLoadVersion) return;
           autoResizeTitleTextarea();

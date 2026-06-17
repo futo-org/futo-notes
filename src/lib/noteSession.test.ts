@@ -327,3 +327,71 @@ describe('loadNote focus routing', () => {
     expect(deps.focusTitle).not.toHaveBeenCalled();
   });
 });
+
+describe('opening a note is read-only (no autosave on line-ending normalization)', () => {
+  // Regression: a years-old note stored with CRLF endings jumped to the top of
+  // the list and spawned a `… (conflict <date>).md` copy the moment it was
+  // clicked. loadNote seeded savedContent from the raw disk bytes (CRLF) while
+  // CM6 (no lineSeparator facet) handed the content back LF-normalized, so the
+  // rAF-coalesced onchange echo of the load looked like a user edit and
+  // autosaved — bumping mtime (which re-sorts the note to the top) and pushing
+  // a whole-file change that conflict-copied during sync. Opening must be a
+  // pure read.
+  let editorDoc = '';
+
+  function makeDeps() {
+    return {
+      getEditorContent: () => editorDoc,
+      // Mirror CM6: loading a doc with no lineSeparator facet collapses
+      // CR/CRLF to LF.
+      setEditorContent: vi.fn((text: string) => { editorDoc = text.replace(/\r\n?/g, '\n'); }),
+      focusEditor: vi.fn(),
+      focusTitle: vi.fn(),
+      getNotes: () => [],
+      patchGraphNode: vi.fn(),
+      showToast: vi.fn(),
+      notifySaved: vi.fn(),
+      getNoteBody: () => undefined,
+      getTitleTextarea: () => undefined,
+      getNoteId: () => 'old note',
+      setPrevNoteId: vi.fn(),
+      onNoteRenamed: vi.fn(),
+    } satisfies NoteSessionDeps;
+  }
+
+  beforeEach(async () => {
+    editorDoc = '';
+    const { updateNote } = await import('$lib/notes.svelte');
+    vi.mocked(updateNote).mockReset();
+    vi.mocked(updateNote).mockImplementation(async (id: string) => ({ id, mtime: 0 }));
+    vi.useFakeTimers();
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { cb(0); return 0; });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it('does not rewrite a CRLF note to disk just because it was opened', async () => {
+    const deps = makeDeps();
+    const { updateNote, readNote } = await import('$lib/notes.svelte');
+    // mockResolvedValueOnce queues a one-time return ahead of the default
+    // throwing impl, so loadNote's single readNote call gets these bytes.
+    vi.mocked(readNote).mockResolvedValueOnce('line one\r\nline two\r\n');
+
+    const session = createNoteSession(deps);
+    await session.loadNote('old note');
+
+    // The session baseline must match what the editor holds (LF), not the raw
+    // CRLF disk bytes — otherwise the load echo registers as a change.
+    expect(session.content).toBe('line one\nline two\n');
+
+    // The editor's rAF-coalesced onchange now delivers the normalized doc.
+    session.debouncedSave(editorDoc);
+    vi.advanceTimersByTime(600);
+    await vi.runAllTicks();
+
+    expect(updateNote).not.toHaveBeenCalled();
+  });
+});
