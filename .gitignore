@@ -93,3 +93,7 @@ target/
 # Codex
 .codex
 .context
+
+# Python bytecode (e.g. scripts/win-vm tooling)
+__pycache__/
+*.pyc
