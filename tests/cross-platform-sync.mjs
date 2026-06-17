@@ -14,7 +14,7 @@
  *
  * Requires:
  *   - Debug Tauri binary:  cd apps/tauri && cargo tauri build --debug --no-bundle
- *   - E2EE server repo:    /home/justin/Developer/futo-notes-server
+ *   - E2EE server repo:    ~/Developer/futo-notes-server (override: FUTO_NOTES_E2EE_SERVER_REPO)
  *   - Frontend built with: VITE_INCLUDE_TEST_HOOKS=true pnpm run build
  */
 

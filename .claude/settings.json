@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gh api *)",
+      "Bash(cargo clippy *)",
+      "Bash(pkill -f \"target/debug/futo-notes-tauri\")",
+      "Bash(pkill -9 -f \"target/debug/futo-notes-tauri\")"
+    ]
+  }
+}

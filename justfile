@@ -313,7 +313,7 @@ test-cross-platform-android:
 # Xcode + an iOS simulator. The sync portion also requires Docker
 # (futo-notes-server uses Postgres) — pass --skip-sync to bypass.
 test-mac-ios *args:
-  FUTO_NOTES_E2EE_SERVER_REPO="${FUTO_NOTES_E2EE_SERVER_REPO:-/Users/$USER/Developer/futo-notes-server}" \
+  FUTO_NOTES_E2EE_SERVER_REPO="${FUTO_NOTES_E2EE_SERVER_REPO:-$HOME/Developer/futo-notes-server}" \
     node tests/mac-ios-regression.mjs {{args}}
 
 test-markdown-spec:

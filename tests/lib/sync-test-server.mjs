@@ -9,7 +9,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync } from 'node:fs';
 import http from 'node:http';
 import { join, resolve } from 'node:path';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { Readable } from 'node:stream';
 
 const PASSWORD = 'testing123';
@@ -51,7 +51,7 @@ export async function startServer(port, repoRoot, options = {}) {
   // AirPlay's 5000/7000.
   const serverPort = syncDelayMs > 0 ? port + 1500 : port;
   const serverRepo = resolve(
-    process.env.FUTO_NOTES_E2EE_SERVER_REPO || '/home/justin/Developer/futo-notes-server',
+    process.env.FUTO_NOTES_E2EE_SERVER_REPO || join(homedir(), 'Developer', 'futo-notes-server'),
   );
 
   if (!existsSync(join(serverRepo, 'package.json'))) {

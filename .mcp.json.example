@@ -1,0 +1,9 @@
+{
+  "_comment": "Copy this file to .mcp.json (gitignored) to enable project MCP servers. The Tauri bridge is used for driving/debugging the desktop, Android, and iOS app from Claude Code (see AGENTS.md → Browser Tools).",
+  "mcpServers": {
+    "@hypothesi/tauri-mcp-server": {
+      "command": "npx",
+      "args": ["@hypothesi/tauri-mcp-server"]
+    }
+  }
+}

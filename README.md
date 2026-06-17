@@ -6,7 +6,7 @@ FUTO Notes is an offline-first markdown notes app with optional E2EE sync.
 
 The sync server now lives in a separate repo:
 
-`/home/justin/Developer/futo-notes-server`
+<https://gitlab.futo.org/futo-notes/futo-notes-server> (clone to `~/Developer/futo-notes-server`)
 
 For local development, start that server and connect FUTO Notes to its URL. The current POC stores opaque encrypted blobs; note content is encrypted in the client before upload.
 
@@ -21,4 +21,5 @@ pnpm run tauri:dev
 pnpm run build
 ```
 
-If you are working from source, see [AGENTS.md](./AGENTS.md).
+New here? See [CONTRIBUTING.md](./CONTRIBUTING.md) for machine setup, then
+[AGENTS.md](./AGENTS.md) for architecture and conventions.

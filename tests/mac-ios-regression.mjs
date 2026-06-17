@@ -21,7 +21,7 @@
  *   - Xcode + an iOS simulator runtime
  *   - Docker (for the sync server scenarios — futo-notes-server uses Postgres)
  *   - The futo-notes-server checkout: set FUTO_NOTES_E2EE_SERVER_REPO if it
- *     lives somewhere other than /Users/<you>/Developer/futo-notes-server
+ *     lives somewhere other than ~/Developer/futo-notes-server
  */
 
 import { writeFileSync, mkdirSync, existsSync, readdirSync, readFileSync } from 'node:fs';
@@ -77,7 +77,7 @@ Sync scenarios (Mac ↔ iOS):
 
 Environment:
   FUTO_NOTES_E2EE_SERVER_REPO  Path to futo-notes-server checkout
-                               (default: /Users/$USER/Developer/futo-notes-server)
+                               (default: ~/Developer/futo-notes-server)
   SF_IOS_UDID                  Force a specific iOS simulator UDID
                                (default: first booted sim, or newest iPhone)
 `);
