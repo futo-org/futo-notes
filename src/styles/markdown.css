@@ -379,8 +379,13 @@
 }
 
 /* Horizontal rule widget */
+/* Definite height (NOT margins) so the measured line height exactly equals
+ * HorizontalRuleWidget.estimatedHeight (50). Margins can collapse against the
+ * adjacent line, making measured ≠ estimated, which makes CM6 re-estimate the
+ * gap when the rule scrolls back into view and jerk the scroll position on iOS
+ * momentum scrolling. See docs/learnings/hr-scroll-jank.md. */
 .cm-md-hr-widget {
-  margin: 16px 0;
+  height: 50px;
   display: flex;
   align-items: center;
 }
@@ -388,6 +393,7 @@
 .cm-md-hr-widget > div {
   flex: 1;
   border-top: 1px solid var(--color-border);
+  opacity: 0.5;
 }
 
 /* Image widget */

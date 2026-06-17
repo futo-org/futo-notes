@@ -155,22 +155,26 @@ class CodeLanguageLabelWidget extends WidgetType {
   }
 }
 
+// The total vertical footprint of a rendered HR, in px. CM6 uses a widget's
+// `estimatedHeight` to size the height-map GAP for any line that is currently
+// scrolled out of view; the value MUST equal what the widget actually measures
+// once rendered, or CM6 corrects the gap mid-scroll and yanks scrollTop — a
+// visible scroll "jump" on iOS momentum scrolling. The widget is given a
+// definite height (no margins, which could collapse and make measured ≠
+// estimated) so this constant is exact. See docs/learnings/hr-scroll-jank.md.
+const HR_WIDGET_HEIGHT = 50;
+
 class HorizontalRuleWidget extends WidgetType {
   toDOM(): HTMLElement {
     const hr = document.createElement('div');
     hr.className = 'cm-md-hr-widget';
     const line = document.createElement('div');
-    line.style.cssText = `
-      border-top: 2px solid #ccc;
-      margin: 8px 0;
-      opacity: 0.5;
-    `;
     hr.appendChild(line);
     return hr;
   }
 
   get estimatedHeight(): number {
-    return 18; // 2px border + 8px margin top + 8px margin bottom
+    return HR_WIDGET_HEIGHT;
   }
 
   eq(): boolean {

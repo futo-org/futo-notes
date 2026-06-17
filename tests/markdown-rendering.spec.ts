@@ -946,6 +946,27 @@ test.describe('Horizontal Rule', () => {
     const hr = page.locator('.cm-md-hr-widget');
     await expect(hr).toBeVisible();
   });
+
+  // Regression: the HR widget's RENDERED line-block height must equal the
+  // height CM6 uses to size the gap while the rule is scrolled out of view
+  // (HorizontalRuleWidget.estimatedHeight === 50). When they disagreed (the
+  // widget rendered ~50px but estimatedHeight returned 18), CM6 corrected the
+  // gap the moment the rule scrolled back into the measured range and yanked
+  // scrollTop — a visible scroll "jump" on iOS momentum scrolling.
+  // See docs/learnings/hr-scroll-jank.md.
+  test('horizontal rule rendered height matches its CM6 estimate (no scroll jank)', async ({ page }) => {
+    await setupEditor(page, 'Text above\n\n---\n\nText below');
+    await blurEditor(page);
+
+    const height = await page.locator('.cm-md-hr-widget').evaluate(
+      (el) => el.getBoundingClientRect().height,
+    );
+
+    // Must equal HorizontalRuleWidget.estimatedHeight (50). When the rendered
+    // height and the estimate diverged, CM6 corrected the gap as the rule
+    // scrolled into view and yanked scrollTop. A drift here re-opens that bug.
+    expect(height).toBe(50);
+  });
 });
 
 // ============================================================================

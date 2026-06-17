@@ -60,6 +60,10 @@ this file states the behaviors a human cares about.
   wrapped text previously aligned under the first line's text). →
   liveMarkdownTransform.ts `cm-md-list-line` decorations
 - Tables (GFM), horizontal rules, and images — rendered as block widgets.
+  Each replace widget's `estimatedHeight` must equal its real rendered
+  footprint (and the widget should render at a definite height) — otherwise
+  CM6 re-sizes the off-screen gap when the element scrolls back into view and
+  jerks the scroll position on iOS momentum scrolling. → docs/learnings/hr-scroll-jank.md
 - Wikilinks `[[Title]]`.
 
 ## Tags
