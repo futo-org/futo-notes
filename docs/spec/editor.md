@@ -240,7 +240,11 @@ edits tags as text in the body, which is not a gap.
 - On Tauri the same contract holds via the shared shell: the title is a
   textarea above the tag bar; edits debounce into a file rename and rewrite
   backlinks (see "Wikilinks — navigation & integrity"). Verified on Android
-  Tauri 2026-06-09.
+  Tauri 2026-06-09. Title-only edits use an aggressive ~10 s debounce (body
+  edits keep ~500 ms) so a rename round-trip never fires mid-typing and clobbers
+  in-flight keystrokes; moving focus into the editor body flushes the pending
+  title save immediately. → `noteSession.svelte.ts` `debouncedSave`,
+  `NotesShell.svelte` `handleEditorFocusChange`
 
 ## Android — IME
 

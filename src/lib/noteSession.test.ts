@@ -162,6 +162,113 @@ describe('isEditorChangeEcho', () => {
   });
 });
 
+describe('title debounce vs body debounce (character-loss race)', () => {
+  // Regression: while typing a brand-new note's title, every keystroke armed
+  // the same 500ms debouncedSave timer the body uses. A natural ~0.5s pause
+  // mid-typing fired saveNote() → updateNote() (a file RENAME) → onNoteRenamed
+  // → tab noteId swap, all async and mid-keystroke. Keystrokes that landed
+  // during that round-trip got clobbered (the title binding / saved state was
+  // reset to the post-rename value), so characters intermittently vanished.
+  //
+  // Desired behavior: a title-only edit must NOT trigger the rename until the
+  // user has been idle ~10s, OR until focus moves into the editor body. Body
+  // content edits keep their existing 500ms debounce.
+
+  let editorContent = '';
+
+  function makeDeps() {
+    return {
+      getEditorContent: () => editorContent,
+      setEditorContent: vi.fn((text: string) => { editorContent = text; }),
+      focusEditor: vi.fn(),
+      focusTitle: vi.fn(),
+      getNotes: () => [],
+      patchGraphNode: vi.fn(),
+      showToast: vi.fn(),
+      notifySaved: vi.fn(),
+      getNoteBody: () => undefined,
+      getTitleTextarea: () => undefined,
+      getNoteId: () => 'new',
+      setPrevNoteId: vi.fn(),
+      onNoteRenamed: vi.fn(),
+    } satisfies NoteSessionDeps;
+  }
+
+  // Drive handleTitleInput keystroke-by-keystroke against a fake textarea so
+  // it mirrors a real user typing into the title field. In the running app the
+  // `bind:value={session.title}` binding writes session.title before oninput
+  // fires; mirror that here (handleTitleInput's no-issue branch relies on it).
+  function typeTitle(
+    session: ReturnType<typeof createNoteSession>,
+    fullTitle: string,
+  ): void {
+    for (let i = 1; i <= fullTitle.length; i++) {
+      const value = fullTitle.slice(0, i);
+      // `title` is typed readonly on the session API (runtime has a setter for
+      // the `bind:value` binding); mirror that write directly in the test.
+      (session as { title: string }).title = value;
+      const target = { value, selectionStart: value.length, setSelectionRange: vi.fn() };
+      session.handleTitleInput({ target } as unknown as Event);
+    }
+  }
+
+  beforeEach(async () => {
+    editorContent = '';
+    const { updateNote } = await import('$lib/notes.svelte');
+    vi.mocked(updateNote).mockReset();
+    vi.mocked(updateNote).mockImplementation(async (id: string) => ({ id, mtime: 0 }));
+    vi.useFakeTimers();
+    // The session's first save can re-arm via runQueuedSave microtasks; keep
+    // requestAnimationFrame synchronous so handleTitleInput's caret restore
+    // doesn't leak real timers into the fake-timer world.
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { cb(0); return 0; });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it('does NOT rename mid-typing: a title-only edit holds for ~10s, not 500ms', async () => {
+    const deps = makeDeps();
+    const session = createNoteSession(deps);
+    const { updateNote } = await import('$lib/notes.svelte');
+
+    typeTitle(session, 'Grocery list');
+
+    // The old 500ms body-debounce would already fire the rename here — that
+    // is exactly the round-trip that clobbers in-flight keystrokes.
+    vi.advanceTimersByTime(500);
+    await vi.runAllTicks();
+    expect(updateNote).not.toHaveBeenCalled();
+
+    // Still nothing well before the 10s aggressive title debounce elapses.
+    vi.advanceTimersByTime(8000);
+    await vi.runAllTicks();
+    expect(updateNote).not.toHaveBeenCalled();
+
+    // Only after the user pauses ~10s does the rename land — once, with the
+    // FULL title intact (no characters lost).
+    vi.advanceTimersByTime(2000);
+    await vi.runAllTicks();
+    expect(updateNote).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(updateNote).mock.calls[0][1]).toBe('Grocery list');
+  });
+
+  it('body content edits keep the existing short (500ms) debounce', async () => {
+    const deps = makeDeps();
+    const session = createNoteSession(deps);
+    const { updateNote } = await import('$lib/notes.svelte');
+
+    // Body change carries content (handleTitleInput passes none).
+    session.debouncedSave('# hello body');
+
+    vi.advanceTimersByTime(500);
+    await vi.runAllTicks();
+    expect(updateNote).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('loadNote focus routing', () => {
   function makeDeps(noteId: string = 'new') {
     return {
