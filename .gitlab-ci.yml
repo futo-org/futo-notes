@@ -81,14 +81,23 @@ stages:
 
 # Clone the E2EE sync server (separate repo, public) and install its deps.
 # tests/lib/sync-test-server.mjs reads FUTO_NOTES_E2EE_SERVER_REPO to locate it.
+# The server migrated to Bun (no pnpm-lock.yaml), so it installs with `bun
+# install` and the harness boots it via `bun src/index.ts`. The kitchensink
+# image has no bun, so install it and put it on PATH for the rest of the job.
 .setup-futo-notes-server:
   script:
     - |
+      if ! command -v bun >/dev/null 2>&1; then
+        curl -fsSL https://bun.sh/install | bash
+      fi
+      export BUN_INSTALL="${BUN_INSTALL:-$HOME/.bun}"
+      export PATH="$BUN_INSTALL/bin:$PATH"
+      bun --version
       SERVER_DIR="$CI_PROJECT_DIR/.futo-notes-server"
       git clone --depth 1 \
         https://gitlab.futo.org/futo-notes/futo-notes-server.git \
         "$SERVER_DIR"
-      (cd "$SERVER_DIR" && pnpm install --frozen-lockfile)
+      (cd "$SERVER_DIR" && bun install)
       export FUTO_NOTES_E2EE_SERVER_REPO="$SERVER_DIR"
 
 .setup-playwright:

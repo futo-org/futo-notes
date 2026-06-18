@@ -20,7 +20,7 @@ function hashPassword(serverRepo, password) {
   const cacheKey = `${serverRepo}\0${password}`;
   const cached = hashCache.get(cacheKey);
   if (cached) return cached;
-  const result = spawnSync('pnpm', ['exec', 'tsx', 'src/index.ts', 'hash', password], {
+  const result = spawnSync('bun', ['src/index.ts', 'hash', password], {
     cwd: serverRepo,
     encoding: 'utf8',
   });
@@ -86,7 +86,7 @@ export async function startServer(port, repoRoot, options = {}) {
     FUTO_NOTES_PASSWORD_HASH: passwordHash,
   };
 
-  const proc = spawn('pnpm', ['start'], {
+  const proc = spawn('bun', ['src/index.ts'], {
     cwd: serverRepo,
     env,
     stdio: ['ignore', 'pipe', 'pipe'],
