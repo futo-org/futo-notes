@@ -1,6 +1,21 @@
 import SwiftUI
 import UIKit
 
+/// Fixed metrics for the keyboard accessory toolbar, in one place so the bar
+/// height can never drift between the SwiftUI view, the UIKit container frame,
+/// and `intrinsicContentSize` (a mismatch there is exactly how a gap creeps
+/// back in). Spec: docs/spec/editor.md → "Markdown toolbar".
+enum ToolbarMetrics {
+    /// The bar docks FLUSH to the top of the keyboard at this exact height —
+    /// no empty band below the icons. (See EditorToolbarAccessory's
+    /// safeAreaRegions note for why that flushness is fragile.)
+    static let barHeight: CGFloat = 44
+    /// Icon button tap target — centers in `barHeight` with ~4pt top/bottom.
+    static let buttonHeight: CGFloat = 36
+    /// Inter-group separator hairline height.
+    static let separatorHeight: CGFloat = 20
+}
+
 /// Reactive inputs the native markdown toolbar renders from. Owned by
 /// EditorHost, which updates it from bridge messages (`cursorContext`).
 @MainActor
@@ -44,10 +59,10 @@ struct EditorToolbarView: View {
             }
             Rectangle()
                 .fill(Color(UIColor.separator))
-                .frame(width: 0.5, height: 44)
+                .frame(width: 0.5, height: ToolbarMetrics.barHeight)
             button(for: ToolbarSpec.dismiss, foreground: .secondary)
         }
-        .frame(height: 44)
+        .frame(height: ToolbarMetrics.barHeight)
         .background(Theme.surface)
         .overlay(alignment: .top) {
             Rectangle().fill(Color(UIColor.separator)).frame(height: 0.5)
@@ -57,7 +72,7 @@ struct EditorToolbarView: View {
     private var separator: some View {
         Rectangle()
             .fill(Color(UIColor.separator))
-            .frame(width: 1, height: 20)
+            .frame(width: 1, height: ToolbarMetrics.separatorHeight)
             .padding(.horizontal, 4)
     }
 
@@ -68,7 +83,7 @@ struct EditorToolbarView: View {
             Image(systemName: item.sfSymbol)
                 .font(.system(size: 17, weight: .medium))
                 .foregroundStyle(foreground)
-                .frame(width: 44, height: 36)
+                .frame(width: 44, height: ToolbarMetrics.buttonHeight)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -89,7 +104,20 @@ final class EditorToolbarAccessory: UIView {
     init(state: EditorToolbarState, perform: @escaping (ToolbarItemSpec) -> Void) {
         hosting = UIHostingController(
             rootView: EditorToolbarView(state: state, perform: perform))
-        super.init(frame: CGRect(x: 0, y: 0, width: 0, height: 44))
+        // CRITICAL — keep the bar FLUSH to the keyboard. As a keyboard
+        // inputAccessoryView this view sits in the keyboard's window, whose
+        // bottom safe-area inset is the home-indicator gap (~34pt). By default
+        // UIHostingController feeds that inset into the hosted SwiftUI content's
+        // Environment.safeAreaInsets, so the 44pt bar lays its icons out in the
+        // TOP portion and leaves a dead band below them — the exact gap that
+        // regressed when the web toolbar (docked inside the webview's
+        // visualViewport, naturally flush) was replaced by this native bar in
+        // 7c43a8e. `safeAreaRegions = []` (iOS 16.4+; our floor is 18.0) makes
+        // the content ignore all safe areas, so it fills the full 44pt and
+        // docks tight to the keyboard. Do not remove without re-checking the
+        // simulator with the soft keyboard up. Spec: docs/spec/editor.md.
+        hosting.safeAreaRegions = []
+        super.init(frame: CGRect(x: 0, y: 0, width: 0, height: ToolbarMetrics.barHeight))
         autoresizingMask = [.flexibleWidth]
         hosting.view.backgroundColor = .clear
         hosting.view.translatesAutoresizingMaskIntoConstraints = false
@@ -108,6 +136,6 @@ final class EditorToolbarAccessory: UIView {
 
     /// The keyboard window sizes the accessory from this (width is imposed).
     override var intrinsicContentSize: CGSize {
-        CGSize(width: UIView.noIntrinsicMetric, height: 44)
+        CGSize(width: UIView.noIntrinsicMetric, height: ToolbarMetrics.barHeight)
     }
 }

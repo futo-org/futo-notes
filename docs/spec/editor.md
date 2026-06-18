@@ -197,6 +197,27 @@ edits tags as text in the body, which is not a gap.
   appear only on list lines; pickers open natively; chevron blurs, dropping
   keyboard + toolbar). → EditorToolbar.kt, NoteEditorScreen.kt,
   EditorWebView.kt `EditorHost`
+- **Toolbar docking + height (both native shells).** The bar is exactly
+  **44 pt** tall on iOS / **44 dp** on Android, its 36 pt/dp icons centered
+  with ~4 pt top/bottom, and it sits **FLUSH against the top of the on-screen
+  keyboard**: there is NO empty band between the toolbar icons and the
+  keyboard's first row. Verified on the iOS simulator with the soft keyboard
+  up 2026-06-18.
+  - iOS is fragile here: as a keyboard `inputAccessoryView` hosted in a
+    `UIHostingController`, the default behavior feeds the keyboard window's
+    bottom safe-area (home-indicator, ~34 pt) inset into the hosted SwiftUI
+    content, which pushes the icons up and opens a dead band below them. The
+    flush dock is held by `ToolbarMetrics.barHeight` (single source for the
+    44 pt across the SwiftUI frame, the container frame, and
+    `intrinsicContentSize`) plus `UIHostingController.safeAreaRegions = []`.
+    Do not remove the `safeAreaRegions` line, and re-check the simulator with
+    the keyboard up after touching the accessory. This gap regressed in
+    7c43a8e (web `visualViewport`-docked toolbar → native bar) and was
+    re-closed 2026-06-18. → EditorToolbar.swift `ToolbarMetrics`,
+    `EditorToolbarAccessory`
+  - Android docks flush by construction: the 44 dp Compose bar is held above
+    the keyboard by the screen's `imePadding`, so the inset tracks the
+    keyboard with no gap. → EditorToolbar.kt, NoteEditorScreen.kt
 - Camera inserts a photo from the device camera or photo library; Image opens
   a file picker. Both save the image into the vault and insert `![](file)`.
   On the native shells the toolbar's Camera/Image buttons reach the host
