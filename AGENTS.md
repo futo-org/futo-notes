@@ -17,25 +17,29 @@ just android-native     # Native Android (Compose) app on device/emulator
 
 > **CRITICAL — mobile is native, not Tauri.** When asked to run, build, or
 > **install the app on a phone (iPhone/Android)**, use the **native shells** in
-> `apps/ios` and `apps/android` — NOT the Tauri mobile recipes. The Tauri iOS
-> recipes (`ios-dev`, `ios-offline`, `deploy-ios`, bundle id `com.futo.notes`)
-> and Android (`android-dev`, `android-offline`) are the **legacy** webview
-> shell; we now ship native SwiftUI/Compose apps on the shared Rust core
+> `apps/ios` and `apps/android`. There is no longer a Tauri mobile shell — the
+> legacy `cargo tauri ios/android` justfile recipes (`ios-dev`, `ios-offline`,
+> `ios-build`, `android-dev`, `android-offline`, `android-build`) have been
+> **removed**. We ship native SwiftUI/Compose apps on the shared Rust core
 > (`futo-notes-ffi`) with an embedded editor. Native release builds use the
 > production bundle/package id `com.futo.notes`; native debug builds use
-> `com.futo.notes.dev` so they stay separate from production. Don't run `deploy-ios`/`ios-dev`
-> for a "install on my phone" request.
+> `com.futo.notes.dev` so they stay separate from production.
 >
-> **Production native on a physical iPhone:** `just ios-native-device` only
-> builds Debug (`com.futo.notes.dev`). For a Release/production install,
-> run that script's pipeline (`build-rust-ios.sh` → `vite build --config
-> vite.editor.config.ts` → `xcodegen generate` in `apps/ios`) then
-> `xcodebuild -scheme FutoNotesNative -configuration Release -destination
-> 'generic/platform=iOS' -allowProvisioningUpdates` and install the resulting
-> `FutoNotesNative.app` with `xcrun devicectl`. If the editor bundle build fails
-> with a missing `vite-plugin-singlefile`, run `pnpm install` first (stale
-> node_modules). A locked iPhone yields `FBSOpenApplicationErrorDomain error 7`
-> on launch — unlock and relaunch.
+> | Goal | Command |
+> | --- | --- |
+> | iOS on the booted simulator | `just ios-native` |
+> | iOS on a connected iPhone (Debug, `com.futo.notes.dev`) | `just ios-native-device` |
+> | iOS **Release** on a connected iPhone (prod `com.futo.notes`) | `just deploy-ios` |
+> | Android (Compose) on a device/emulator | `just android-native` |
+> | compile-only sanity (no install) | `just build-ios-native` / `just build-android-native` |
+>
+> `just deploy-ios` is now the **native** Release device install (it runs
+> `build-rust-ios.sh` → `vite build --config vite.editor.config.ts` →
+> `xcodegen generate` → `xcodebuild -configuration Release
+> -allowProvisioningUpdates` → `xcrun devicectl` install/launch). If the editor
+> bundle build fails with a missing `vite-plugin-singlefile`, run `pnpm install`
+> first (stale node_modules). A locked iPhone yields
+> `FBSOpenApplicationErrorDomain error 7` on launch — unlock and relaunch.
 
 **Always use `just` from the monorepo root.** All Tauri commands (dev, build, deploy) live in the justfile — never call `cargo tauri` directly, because the justfile encodes the correct config overlays (dev bundle IDs, ORT fetch steps, device detection). The package.json only has toolchain scripts (vite, vitest, playwright, eslint).
 

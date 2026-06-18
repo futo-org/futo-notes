@@ -1,27 +1,24 @@
 #!/usr/bin/env bash
-# Build & run the FUTO Notes NATIVE iOS spike on a CONNECTED PHYSICAL iPhone.
+# Build a RELEASE native build and install it on a connected physical iPhone
+# (production bundle id com.futo.notes). This is the native counterpart of the
+# retired Tauri `deploy-ios`; for a DEBUG device install use run-device.sh
+# (`just ios-native-device`), and for the simulator use run.sh (`just ios-native`).
 #
-# Same app as run.sh (simulator), but a physical device requires code signing.
-# Reuses the Apple Developer team the Tauri app signs under (auto-detected from
-# apps/tauri/src-tauri/gen/apple/project.yml); override with FUTO_DEV_TEAM.
+# Reuses the Apple Developer team the Tauri app signs under (auto-detected);
+# override with FUTO_DEV_TEAM=<10-char team id>.
 #
 # Usage:
-#   apps/ios/run-device.sh              # auto-detect device + team
-#   FUTO_DEV_TEAM=XXXXXXXXXX apps/ios/run-device.sh
+#   apps/ios/deploy.sh
+#   FUTO_DEV_TEAM=XXXXXXXXXX apps/ios/deploy.sh
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 
 APP_DIR="apps/ios"
-DERIVED="$APP_DIR/.build-device"
-# Debug builds use the dev bundle id (com.futo.notes.dev) + a separate
-# data root + dev keychain so a dev install can never overwrite the production
-# app or its notes/creds. The actual id is read back from the built bundle
-# below (see project.yml dev config); this is only the fallback.
-BUNDLE_ID="com.futo.notes.dev"
+DERIVED="$APP_DIR/.build-device-release"
 
-# ── Detect the connected physical device (shared with `just deploy-ios`) ──
+# ── Connected device (shared detection with run-device.sh) ──
 UDID=$(node scripts/ios-device-id.mjs)
 echo "==> Device: $UDID"
 
@@ -48,9 +45,9 @@ node_modules/.bin/vite build --config vite.editor.config.ts
 echo "==> Generating Xcode project (xcodegen)"
 ( cd "$APP_DIR" && xcodegen generate )
 
-echo "==> Building signed app for device"
+echo "==> Building signed RELEASE app for device"
 xcodebuild -project "$APP_DIR/FutoNotesNative.xcodeproj" \
-  -scheme FutoNotesNative -configuration Debug \
+  -scheme FutoNotesNative -configuration Release \
   -destination 'generic/platform=iOS' \
   -derivedDataPath "$DERIVED" \
   DEVELOPMENT_TEAM="$TEAM" \
@@ -61,16 +58,15 @@ xcodebuild -project "$APP_DIR/FutoNotesNative.xcodeproj" \
   -allowProvisioningUpdates \
   build | tail -3
 
-APP=$(find "$DERIVED/Build/Products/Debug-iphoneos" -maxdepth 1 -name "*.app" | head -1)
+APP=$(find "$DERIVED/Build/Products/Release-iphoneos" -maxdepth 1 -name "*.app" | head -1)
 if [ -z "$APP" ]; then echo "Build produced no .app" >&2; exit 1; fi
 
-# Read the real bundle id from the built app so install/launch always match the
-# active config (dev for Debug, prod for a future Release build).
+# Read the real bundle id from the built app (prod for Release).
 BUNDLE_ID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP/Info.plist" 2>/dev/null \
-  || echo "$BUNDLE_ID")
+  || echo "com.futo.notes")
 
-echo "==> Installing $APP"
+echo "==> Installing $APP ($BUNDLE_ID)"
 xcrun devicectl device install app --device "$UDID" "$APP"
 echo "==> Launching $BUNDLE_ID"
 xcrun devicectl device process launch --device "$UDID" "$BUNDLE_ID"
-echo "==> Done. FUTO Notes is running on your iPhone."
+echo "==> Done. FUTO Notes (Release) is running on your iPhone."

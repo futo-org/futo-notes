@@ -1,10 +1,10 @@
 # AGENTS.md - FUTO Notes Tauri App
 
-Tauri v2 desktop + mobile shell. This is the **Tauri adapter**: a Rust backend that exposes the shared note domain (CRUD, rules, search, sync) to the Svelte UI via `#[tauri::command]`s, plus OS-level glue. The shared Svelte/TS layer (`src/`) owns the UI and reactive state and calls in.
+Tauri v2 **desktop** shell. This is the **Tauri adapter**: a Rust backend that exposes the shared note domain (CRUD, rules, search, sync) to the Svelte UI via `#[tauri::command]`s, plus OS-level glue. The shared Svelte/TS layer (`src/`) owns the UI and reactive state and calls in. (The Tauri *mobile* shell is retired — mobile ships as native SwiftUI/Compose in `apps/ios` / `apps/android`; see root AGENTS.md. The iOS/Android `cfg` code below still exists in-tree but is no longer built via `just`.)
 
 **Stack**: Rust + Tauri v2 + serde. Plugins: dialog, process, clipboard-manager, opener, fs, single-instance (desktop), mcp-bridge (debug).
 
-From the monorepo root, prefer the `just` wrappers: `just tauri-dev`, `just tauri-prod`, `just tauri-build`, `just android-dev`, `just ios-dev`, and `just test-rust`.
+From the monorepo root, prefer the `just` wrappers: `just tauri-dev`, `just tauri-prod`, `just tauri-build`, and `just test-rust`. (Mobile is native: `just ios-native` / `just android-native` / `just deploy-ios`.)
 
 ## Architecture
 
@@ -28,13 +28,13 @@ TypeScript handles: reactive note state (`notes.svelte.ts`, `notesCache`), app s
 - **Filesystem watcher**: `notify` crate in Rust watches the notes dir for external edits and emits `fs:change` events; the Svelte store re-reads via command. Sync/note writes register the touched filename in the watcher-suppression map for 5s (`WATCHER_SUPPRESSION_MS`) so a Rust-driven write doesn't loop back as an external change.
 - **Platform configs**: `#[cfg(target_os = "...")]` and `#[cfg(debug_assertions)]` for platform/build-specific behavior.
 
-## Dev Ports (avoid collisions)
+## Dev Ports
 
 | Target | Port | Command |
 |---|---|---|
 | Desktop | 5180 | `just tauri-dev` |
-| Android | 5181 | `just android-dev` |
-| iOS | 5182 | `just ios-dev` |
+
+(Mobile is native now — see `apps/ios` / `apps/android` and root AGENTS.md.)
 
 ## Tauri MCP
 
@@ -61,9 +61,9 @@ just tauri-dev       # Desktop dev (Wayland-first)
 just tauri-prod      # Production-config desktop dev
 just tauri-build     # Production desktop build
 just test-rust       # Rust unit tests (creates dist/ first)
-just android-dev     # Android dev
-just ios-dev         # iOS dev
 ```
+
+(Mobile builds are native: `just ios-native` / `just android-native` / `just deploy-ios` — see root AGENTS.md.)
 
 `test:rust` requires `dist/` to exist (Tauri build system expects it). The script creates it automatically.
 

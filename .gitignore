@@ -54,6 +54,9 @@ yarn-error.*
 .vscode
 .idea/
 .*sw*
+# ...but the swift-format config is a real tracked file (the broad .*sw* rule
+# above would otherwise eat it). See `just lint-swift`.
+!apps/ios/.swift-format
 
 app-example
 

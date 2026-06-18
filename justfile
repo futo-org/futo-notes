@@ -5,8 +5,8 @@ alias i := install
 alias td := tauri-dev
 alias tp := tauri-prod
 alias tb := tauri-build
-alias ad := android-dev
-alias id := ios-dev
+alias an := android-native
+alias in := ios-native
 alias b := build
 alias t := test
 alias tu := test-unit
@@ -26,6 +26,15 @@ preview:
 lint:
   pnpm run lint
 
+# Lint the hand-written Swift sources (read-only) with swift-format, which
+# ships with Xcode 16+ (`xcrun swift-format`). The generated UniFFI bindings
+# (Sources/Generated) are excluded — they are not ours to style.
+lint-swift:
+  find apps/ios/Sources -name '*.swift' -not -path '*/Generated/*' -print0 \
+    | xargs -0 xcrun swift-format lint --strict --configuration apps/ios/.swift-format
+
+# ── Desktop (Tauri) ──
+
 tauri-dev:
   node scripts/fetch-ort-linux.mjs
   node scripts/tauri-dev.mjs
@@ -44,135 +53,16 @@ tauri-build:
   # strip matches, so this is local-only noise.
   cd apps/tauri && NO_STRIP=true cargo tauri build
 
-# Guard for the IME shield workaround. Fails fast if anyone has
-# stripped the wrapper plumbing. See docs/learnings/ime-shield-workaround.md.
-# ALL android-* recipes invoke this. Note that the RustWebView.kt
-# override itself is injected at build time via
-# WRY_RUSTWEBVIEW_CLASS_EXTENSION from apps/tauri/src-tauri/.cargo/config.toml,
-# so we don't grep the generated file pre-build — it gets regenerated each
-# time. Instead we verify config.toml + the Java/Kotlin/JS pieces of the
-# wrapper that are NOT auto-generated.
-verify-ime-shield:
-  #!/usr/bin/env bash
-  set -euo pipefail
-  fail=0
-  check() {
-    local needle="$1" path="$2"
-    if [[ ! -f "$path" ]]; then
-      echo "  MISSING FILE: $path" >&2
-      fail=1
-    elif ! grep -q -- "$needle" "$path"; then
-      echo "  MISSING '$needle' in $path" >&2
-      fail=1
-    fi
-  }
-  check "imeShieldPlugin" "src/components/MarkdownEditor.svelte"
-  check "imeShieldPlugin" "src/lib/imeShield.ts"
-  check "__FutoImeShield__" "apps/tauri/src-tauri/gen/android/app/src/main/java/com/futo/notes/MainActivity.kt"
-  check "__FutoImeShield__" "apps/tauri/src-tauri/gen/android/app/src/main/java/com/futo/notes/dev/MainActivity.kt"
-  check "EditorImeShield" "apps/tauri/src-tauri/gen/android/app/src/main/java/com/futo/notes/EditorImeShield.kt"
-  check "EditorImeShield" "apps/tauri/src-tauri/gen/android/app/src/main/java/com/futo/notes/dev/EditorImeShield.kt"
-  check "class FutoImeConnection" "apps/tauri/src-tauri/gen/android/app/src/main/java/com/futo/notes/FutoImeConnection.kt"
-  check "class FutoImeConnection" "apps/tauri/src-tauri/gen/android/app/src/main/java/com/futo/notes/dev/FutoImeConnection.kt"
-  # The deletion-mutation intercepts added after Colt's "two backspace,
-  # second crashes" repro. Removing these re-opens the renderer crash
-  # via deleteSurroundingText / KEYCODE_DEL paths.
-  check "override fun deleteSurroundingText" "apps/tauri/src-tauri/gen/android/app/src/main/java/com/futo/notes/FutoImeConnection.kt"
-  check "override fun sendKeyEvent" "apps/tauri/src-tauri/gen/android/app/src/main/java/com/futo/notes/FutoImeConnection.kt"
-  check "override fun beginBatchEdit" "apps/tauri/src-tauri/gen/android/app/src/main/java/com/futo/notes/FutoImeConnection.kt"
-  check "override fun finishComposingText" "apps/tauri/src-tauri/gen/android/app/src/main/java/com/futo/notes/FutoImeConnection.kt"
-  check "override fun performPrivateCommand" "apps/tauri/src-tauri/gen/android/app/src/main/java/com/futo/notes/FutoImeConnection.kt"
-  check "override fun deleteSurroundingText" "apps/tauri/src-tauri/gen/android/app/src/main/java/com/futo/notes/dev/FutoImeConnection.kt"
-  check "override fun sendKeyEvent" "apps/tauri/src-tauri/gen/android/app/src/main/java/com/futo/notes/dev/FutoImeConnection.kt"
-  check "override fun beginBatchEdit" "apps/tauri/src-tauri/gen/android/app/src/main/java/com/futo/notes/dev/FutoImeConnection.kt"
-  check "override fun finishComposingText" "apps/tauri/src-tauri/gen/android/app/src/main/java/com/futo/notes/dev/FutoImeConnection.kt"
-  check "override fun performPrivateCommand" "apps/tauri/src-tauri/gen/android/app/src/main/java/com/futo/notes/dev/FutoImeConnection.kt"
-  check "WRY_RUSTWEBVIEW_CLASS_EXTENSION" "apps/tauri/src-tauri/.cargo/config.toml"
-  check "FutoImeConnection" "apps/tauri/src-tauri/.cargo/config.toml"
-  check "onCreateInputConnection" "apps/tauri/src-tauri/.cargo/config.toml"
-  if [[ "$fail" -ne 0 ]]; then
-    echo "" >&2
-    echo "IME shield workaround is broken or missing. See" >&2
-    echo "  docs/learnings/ime-shield-workaround.md" >&2
-    echo "Removing this code re-opens the FUTO Keyboard + empty-note" >&2
-    echo "+ backspace renderer crash on Android / Chromium 147." >&2
-    exit 1
-  fi
-  echo "IME shield: all sentinels present ✓"
-
-# Post-build verification: confirms the IME-shield override actually
-# landed in the generated RustWebView.kt after wry expanded the
-# template. If this fails after a build, the
-# WRY_RUSTWEBVIEW_CLASS_EXTENSION env var wasn't honored — check that
-# apps/tauri/src-tauri/.cargo/config.toml still contains the override.
-verify-ime-shield-in-generated:
-  #!/usr/bin/env bash
-  set -euo pipefail
-  for f in apps/tauri/src-tauri/gen/android/app/src/main/java/com/futo/notes/dev/generated/RustWebView.kt; do
-    if [[ ! -f "$f" ]]; then continue; fi
-    if ! grep -q "FutoImeConnection" "$f"; then
-      echo "POST-BUILD CHECK FAILED: $f" >&2
-      echo "  IME-shield override is missing from the generated RustWebView.kt." >&2
-      echo "  wry must not have read WRY_RUSTWEBVIEW_CLASS_EXTENSION. Make sure" >&2
-      echo "  apps/tauri/src-tauri/.cargo/config.toml still contains the override." >&2
-      exit 1
-    fi
-  done
-  echo "IME shield: override present in generated RustWebView.kt ✓"
-
-android-dev: verify-ime-shield
-  node scripts/fetch-splade-model.mjs --target android
-  cd apps/tauri && cargo tauri android dev --config src-tauri/tauri.android.dev-mode.conf.json
-
-android-offline: verify-ime-shield
-  #!/usr/bin/env bash
-  set -euo pipefail
-  if [[ -z "${JAVA_HOME:-}" || ! -x "${JAVA_HOME}/bin/java" ]]; then
-    for candidate in /usr/lib/jvm/temurin-21-jdk /usr/lib/jvm/java-21-temurin-jdk /usr/lib/jvm/java-21-openjdk-*; do
-      if [[ -x "${candidate}/bin/java" ]]; then
-        export JAVA_HOME="$candidate"
-        break
-      fi
-    done
-  fi
-  # The IME-shield workaround is wired via apps/tauri/src-tauri/.cargo/config.toml
-  # [env] section; cargo picks it up automatically. See
-  # docs/learnings/ime-shield-workaround.md.
-  pnpm run build
-  # Stage the SPLADE model + tokenizer into gen/android assets (Gradle
-  # auto-bundles them into the APK; extracted to app data on first run).
-  node scripts/fetch-splade-model.mjs --target android
-  cd apps/tauri
-  cargo tauri android build --debug --apk --config src-tauri/tauri.android.offline.conf.json
-  cd ../..
-  just verify-ime-shield-in-generated
-  cd apps/tauri
-  if [[ -n "${ANDROID_SERIAL:-}" ]]; then
-    adb_target=(-s "$ANDROID_SERIAL")
-  else
-    mapfile -t devices < <(adb devices | awk 'NR > 1 && $2 == "device" { print $1 }')
-    if [[ "${#devices[@]}" -eq 0 ]]; then
-      echo "No Android device/emulator is online. Start one or set ANDROID_SERIAL." >&2
-      exit 1
-    fi
-    adb_target=(-s "${devices[0]}")
-  fi
-  adb "${adb_target[@]}" install -r src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk
-  adb "${adb_target[@]}" shell monkey -p com.futo.notes.dev -c android.intent.category.LAUNCHER 1
-
-android-build: verify-ime-shield
-  node scripts/fetch-splade-model.mjs --target android
-  cd apps/tauri && cargo tauri android build
-  just verify-ime-shield-in-generated
-
-# ── Native shells (Compose / SwiftUI, NOT Tauri — same Rust core + editor) ──
+# ── Native mobile shells (SwiftUI / Compose — the SHIPPING mobile apps) ──
+# These reuse the shared Rust core (futo-notes-ffi) + the embedded web editor.
+# There is no longer a Tauri mobile shell; mobile = native.
 
 # Build futo-notes-ffi for all Android ABIs + generate Kotlin bindings.
 # Requires ANDROID_NDK_HOME + `cargo install cargo-ndk`.
 build-rust-android:
   bash scripts/build-rust-android.sh
 
-# Build the SAME Rust ffi xcframework for the native iOS spike.
+# Build the SAME Rust ffi xcframework for the native iOS app.
 build-rust-ios:
   bash scripts/build-rust-ios.sh
 
@@ -181,97 +71,59 @@ build-rust-ios:
 android-native:
   apps/android/run.sh
 
-# Build + run the native iOS spike (Compose-equivalent SwiftUI) on the booted
-# SIMULATOR (no signing).
+# Build + run the native iOS app on the booted SIMULATOR (no signing).
 ios-native:
   apps/ios/run.sh
 
-# Build + run the native iOS spike on a CONNECTED PHYSICAL iPhone (signed).
+# Build + run the native iOS app on a CONNECTED PHYSICAL iPhone (Debug, signed).
 # Reuses the Tauri app's dev team; override with FUTO_DEV_TEAM=<team id>.
 ios-native-device:
   apps/ios/run-device.sh
 
-ios-dev:
+# Compile-only sanity for the native iOS app (no install); `just ios-native` runs it.
+build-ios-native: build-rust-ios
   #!/usr/bin/env bash
   set -euo pipefail
-  # Prefer a connected physical iPhone; fall back to a booted simulator.
-  # Devices need the Mac's LAN IP for the dev server (127.0.0.1 isn't reachable
-  # from the device); simulators reach 127.0.0.1 directly and skip code signing.
-  DEVFILE=$(mktemp /tmp/devices.XXXXXX.json)
-  xcrun devicectl list devices --json-output "$DEVFILE" >/dev/null 2>&1 || true
-  PHYSICAL=$(python3 -c "
-  import json, sys
-  try:
-      data = json.load(open('$DEVFILE'))
-  except Exception:
-      sys.exit(0)
-  for d in data.get('result', {}).get('devices', []):
-      conn = d.get('connectionProperties', {})
-      if conn.get('transportType'):
-          name = d.get('deviceProperties', {}).get('name', '')
-          print(name)
-          break
-  ")
-  rm -f "$DEVFILE"
-  if [ -n "${PHYSICAL}" ]; then
-    HOST=$(ipconfig getifaddr en0 || ipconfig getifaddr en1 || true)
-    if [ -z "${HOST}" ]; then
-      echo "Error: physical device '${PHYSICAL}' is connected but couldn't determine Mac's LAN IP from en0/en1. Is Wi-Fi on?"
-      exit 1
-    fi
-    echo "iOS dev: physical device '${PHYSICAL}' via ${HOST}"
-    cd apps/tauri && TAURI_DEV_HOST="${HOST}" cargo tauri ios dev "${PHYSICAL}" --host "${HOST}" --config src-tauri/tauri.ios.conf.json --config src-tauri/tauri.ios.dev.conf.json
-  else
-    SIM=$(xcrun simctl list devices booted | awk -F'[()]' '/Booted/ { gsub(/^[[:space:]]+|[[:space:]]+$/, "", $1); print $1; exit }')
-    if [ -z "${SIM}" ]; then
-      echo "No booted iOS simulator. Boot one with: open -a Simulator"
-      exit 1
-    fi
-    echo "iOS dev: simulator '${SIM}'"
-    cd apps/tauri && cargo tauri ios dev "${SIM}" --config src-tauri/tauri.ios.conf.json --config src-tauri/tauri.ios.dev.conf.json
-  fi
+  node_modules/.bin/vite build --config vite.editor.config.ts
+  cd apps/ios
+  xcodegen generate
+  xcodebuild -project FutoNotesNative.xcodeproj \
+    -scheme FutoNotesNative -configuration Debug \
+    -destination 'generic/platform=iOS Simulator' \
+    -derivedDataPath .build \
+    CODE_SIGNING_ALLOWED=NO build | tail -3
 
-ios-offline:
+# Compile-only sanity for the native Android app (assembleDebug, no install).
+build-android-native: build-rust-android
   #!/usr/bin/env bash
   set -euo pipefail
-  IPA_DIR="apps/tauri/src-tauri/gen/apple/build/arm64"
-  pnpm run build
-  node scripts/fetch-ort-ios.mjs >/dev/null
-  # Clean stale IPAs so we always install the freshly built one
-  rm -f "$IPA_DIR"/*.ipa
-  cd apps/tauri
-  cargo tauri ios build --debug --config src-tauri/tauri.ios.dev.conf.json
-  cd ../..
-  # Find the IPA (name depends on productName in the config)
-  IPA=$(ls -t "$IPA_DIR"/*.ipa 2>/dev/null | head -1)
-  if [ -z "$IPA" ]; then
-    echo "Error: No IPA found in ${IPA_DIR}"
-    exit 1
-  fi
-  DEVFILE=$(mktemp /tmp/devices.XXXXXX.json)
-  xcrun devicectl list devices --json-output "$DEVFILE" >/dev/null 2>&1
-  DEVICE=$(python3 -c "
-  import json
-  data = json.load(open('$DEVFILE'))
-  devices = data.get('result', {}).get('devices', [])
-  for d in devices:
-      conn = d.get('connectionProperties', {})
-      if conn.get('transportType'):
-          print(d.get('identifier', ''))
-          break
-  ")
-  rm -f "$DEVFILE"
-  if [ -z "$DEVICE" ]; then
-    echo "Error: No connected iOS device found."
-    exit 1
-  fi
-  echo "Installing ${IPA} on device ${DEVICE}..."
-  xcrun devicectl device install app --device "$DEVICE" "$IPA"
-  echo "Launching..."
-  xcrun devicectl device process launch --device "$DEVICE" com.futo.notes.dev
+  node_modules/.bin/vite build --config vite.editor.config.ts
+  mkdir -p apps/android/app/src/main/assets
+  cp apps/ios/Resources/editor.html apps/android/app/src/main/assets/editor.html
+  cd apps/android
+  ./gradlew :app:assembleDebug
 
-ios-build:
-  cd apps/tauri && cargo tauri ios build
+# ── Native unit tests ──
+
+# Swift Testing for the native iOS app — needs the FutoNotesNativeTests target
+# (apps/ios/MODERNIZATION_PLAN.md, workstream D), not added yet, so until then
+# xcodebuild reports "no test action".
+test-ios-native: build-rust-ios
+  #!/usr/bin/env bash
+  set -euo pipefail
+  node_modules/.bin/vite build --config vite.editor.config.ts
+  cd apps/ios
+  xcodegen generate
+  xcodebuild test -project FutoNotesNative.xcodeproj \
+    -scheme FutoNotesNative \
+    -destination 'generic/platform=iOS Simulator' \
+    -derivedDataPath .build
+
+# JVM unit tests for the native Android app (e.g. SyncManagerDefaultsTest).
+# Depends on build-rust-android so the UniFFI Kotlin bindings (gitignored)
+# exist — compiling the app module needs them.
+test-android-native: build-rust-android
+  cd apps/android && ./gradlew testDebugUnitTest
 
 build:
   pnpm exec tsc --noEmit | head -30
@@ -398,7 +250,14 @@ toolbar-spec:
 toolbar-spec-check:
   pnpm exec tsx scripts/gen-toolbar-spec.ts --check
 
-check: verify-ime-shield spec-gaps-check toolbar-spec-check
+# Remove native build artifacts (Xcode DerivedData + Gradle output + web dist)
+# to reclaim disk. Leaves cargo `target/` alone (expensive to rebuild + shared).
+clean:
+  rm -rf dist
+  rm -rf apps/ios/.build apps/ios/.build-device apps/ios/.build-device-release
+  rm -rf apps/android/app/build apps/android/build
+
+check: spec-gaps-check toolbar-spec-check test-rust
   pnpm run lint
   pnpm run test:minimal
   pnpm exec tsc --noEmit | head -30
@@ -476,60 +335,8 @@ deploy-rpm:
   git checkout -- "$CONF"
   echo "Done. Installed FUTO Notes ${VERSION}."
 
-# Build iOS .ipa from current repo state and install on connected iPhone
+# Build a RELEASE native iOS build and install it on a connected iPhone
+# (production bundle id com.futo.notes). DEBUG device installs go through
+# `just ios-native-device`; the simulator through `just ios-native`.
 deploy-ios:
-  #!/usr/bin/env bash
-  set -euo pipefail
-  CONF="apps/tauri/src-tauri/tauri.conf.json"
-  INFO_PLIST="apps/tauri/src-tauri/gen/apple/futo-notes-tauri_iOS/Info.plist"
-  IPA="apps/tauri/src-tauri/gen/apple/build/arm64/FUTO Notes.ipa"
-  BUNDLE_ID="com.futo.notes"
-  # Auto-detect connected device
-  DEVFILE=$(mktemp /tmp/devices.XXXXXX.json)
-  xcrun devicectl list devices --json-output "$DEVFILE" >/dev/null 2>&1
-  DEVICE=$(python3 -c "
-  import json
-  data = json.load(open('$DEVFILE'))
-  devices = data.get('result', {}).get('devices', [])
-  for d in devices:
-      conn = d.get('connectionProperties', {})
-      if conn.get('transportType'):
-          print(d.get('identifier', ''))
-          break
-  ")
-  rm -f "$DEVFILE"
-  if [ -z "$DEVICE" ]; then
-    echo "Error: No connected iOS device found."
-    exit 1
-  fi
-  echo "Device: ${DEVICE}"
-  # Stamp version from latest git tag + commit distance
-  LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
-  COMMITS_SINCE=$(git rev-list "${LATEST_TAG}..HEAD" --count)
-  BASE_VER="${LATEST_TAG#v}"
-  if [ "$COMMITS_SINCE" -gt 0 ]; then
-    VERSION="${BASE_VER}-dev.${COMMITS_SINCE}"
-  else
-    VERSION="${BASE_VER}"
-  fi
-  echo "Version: ${VERSION}"
-  node -e "const fs=require('fs'),f='${CONF}',c=JSON.parse(fs.readFileSync(f));c.version='${VERSION}';fs.writeFileSync(f,JSON.stringify(c,null,2)+'\n')"
-  # Fetch ORT xcframework for iOS inference (cached after first run)
-  node scripts/fetch-ort-ios.mjs >/dev/null
-  # Clean stale build so we never install an old one
-  rm -f "$IPA"
-  echo "Building iOS .ipa..."
-  cd apps/tauri && cargo tauri ios build
-  cd ../..
-  if [ ! -f "$IPA" ]; then
-    echo "Error: IPA not found at ${IPA}"
-    git checkout -- "$CONF"
-    exit 1
-  fi
-  echo "Installing on device ${DEVICE}..."
-  xcrun devicectl device install app --device "$DEVICE" "$IPA"
-  echo "Launching..."
-  xcrun devicectl device process launch --device "$DEVICE" "$BUNDLE_ID"
-  # Restore stamped files so git stays clean
-  git checkout -- "$CONF" "$INFO_PLIST"
-  echo "Done. Installed FUTO Notes ${VERSION} on iOS device."
+  apps/ios/deploy.sh
