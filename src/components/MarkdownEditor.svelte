@@ -13,7 +13,6 @@
   import { onMount } from 'svelte';
   import { markdownEditorLanguageExtensions } from '$lib/codeMirrorMarkdown';
   import { listContinuationKeymap, orderedListRenumber } from '$lib/listContinuation';
-  import { imeShieldPlugin } from '$lib/imeShield';
   import { cursorMotionKeymap } from '$lib/cursorMotion';
   import { warmHeightMap } from '$lib/heightMapWarm';
   import { interactiveTableEditor } from '$lib/editorUX/tableEditor';
@@ -723,12 +722,6 @@
       cursorMotionKeymap,
       listContinuationKeymap,
       orderedListRenumber,
-      // IME Shield — Android-only workaround for the Chromium 147 +
-      // FUTO Keyboard backspace-on-empty renderer crash. Pushes doc
-      // text + selection to a Kotlin shadow that answers
-      // InputConnection queries locally. Removing this re-opens the
-      // crash. See docs/learnings/ime-shield-workaround.md.
-      imeShieldPlugin,
       history(),
       keymap.of([
         { key: 'Mod-b', run: (v) => { toggleBold(v); return true; } },

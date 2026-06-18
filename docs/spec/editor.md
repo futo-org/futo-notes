@@ -269,7 +269,10 @@ edits tags as text in the body, which is not a gap.
     tripped a `CHECK()` (`SIGTRAP`) when FUTO Keyboard queried it on backspace.
     This was **fixed upstream by a FUTO Keyboard update**, so the in-app IME
     shield is no longer required. → docs/learnings/ime-shield-workaround.md
-  - The IME-shield workaround still exists in the **Tauri** Android build
-    (guarded by `just verify-ime-shield`) but is now dead weight — it can be
-    removed in a separate cleanup. The native Compose app never carried it and
-    is fine without it.
+  - The in-app IME shield has been **removed** from the shared editor
+    (`imeShieldPlugin` / `imeShield.ts`) and the `just verify-ime-shield` guard
+    is gone. The native Compose app never carried it and is fine without it.
+    Inert remnants remain in the legacy **Tauri** Android tree
+    (`FutoImeConnection` / `EditorImeShield` Kotlin + the `.cargo/config.toml`
+    WRY override); they go with the rest of the Tauri-mobile shell when it is
+    deleted.
