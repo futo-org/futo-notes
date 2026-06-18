@@ -7,7 +7,18 @@ import SwiftUI
 @MainActor
 final class SyncManager: ObservableObject {
     @Published var serverURL: String =
-        UserDefaults.standard.string(forKey: "futo.serverURL") ?? "http://localhost:3005"
+        UserDefaults.standard.string(forKey: "futo.serverURL") ?? SyncManager.defaultServerURL()
+
+    /// The server URL fallback used only when the user hasn't persisted one.
+    /// Debug builds default to the local dev server; release builds start
+    /// empty so a shipped app never points at localhost.
+    private static func defaultServerURL() -> String {
+        #if DEBUG
+        return "http://localhost:3005"
+        #else
+        return ""
+        #endif
+    }
     @Published private(set) var connected = false
     @Published private(set) var status = "Not connected"
     @Published private(set) var busy = false

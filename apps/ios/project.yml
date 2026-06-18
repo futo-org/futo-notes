@@ -2,7 +2,7 @@ name: FutoNotesNative
 options:
   bundleIdPrefix: com.futo.notes
   deploymentTarget:
-    iOS: "17.0"
+    iOS: "18.0"
   createIntermediateGroups: true
 
 settings:
@@ -17,7 +17,7 @@ targets:
   FutoNotesNative:
     type: application
     platform: iOS
-    deploymentTarget: "17.0"
+    deploymentTarget: "18.0"
     sources:
       - path: Sources
       - path: Resources
@@ -42,7 +42,7 @@ targets:
         # see .cirrus.yml). Without these a local Release archive ships no
         # CFBundleShortVersionString/CFBundleVersion, which App Store Connect
         # rejects. Keep MARKETING_VERSION in step with the latest release tag.
-        MARKETING_VERSION: "1.5.1"
+        MARKETING_VERSION: "1.5.2"
         CURRENT_PROJECT_VERSION: "1"
         # Export compliance (App Store upload). The app uses only standard
         # cryptography (AES-256-GCM + PBKDF2 for E2EE, TLS for transport) and

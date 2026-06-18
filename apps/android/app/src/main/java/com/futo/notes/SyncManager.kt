@@ -35,7 +35,13 @@ class SyncManager(
     private val prefs: SharedPreferences? = null,
 ) {
     var serverUrl by mutableStateOf(
-        prefs?.getString(Prefs.SYNC_SERVER_URL, DEFAULT_SERVER) ?: DEFAULT_SERVER,
+        // First-launch seed: the emulator dev server in debug, empty in release.
+        // Release builds block cleartext HTTP (AndroidManifest), so a plain-HTTP
+        // dev default would be unusable there anyway — and shipping should start
+        // with no server until the user enters one. Mirrors CrashReporter.kt's
+        // BuildConfig.DEBUG gate. The runtime-editable/persisted value
+        // (SyncScreen + prefs) is unchanged — this only changes the seed.
+        prefs?.getString(Prefs.SYNC_SERVER_URL, defaultServer()) ?: defaultServer(),
     )
     var connected by mutableStateOf(false)
         private set
@@ -188,7 +194,19 @@ class SyncManager(
         else -> e.message ?: e.toString()
     }
 
-    private companion object {
-        const val DEFAULT_SERVER = "http://10.0.2.2:3005" // emulator → host loopback
+    // Visible for testing: the boolean-driven seed selection is pure (no
+    // BuildConfig), so the SyncManagerDefaultsTest unit test can pin both
+    // branches. `defaultServer()` wires in the real BuildConfig.DEBUG.
+    internal companion object {
+        const val DEFAULT_SERVER = "http://10.0.2.2:3005" // emulator → host loopback (debug only)
+
+        /** First-launch seed for [serverUrl]: the emulator dev server in debug,
+         *  empty in release (release blocks cleartext HTTP — see the
+         *  AndroidManifest usesCleartextTraffic gate). */
+        fun defaultServer(): String = defaultServer(BuildConfig.DEBUG)
+
+        /** Pure seed selection — testable without BuildConfig. */
+        internal fun defaultServer(isDebug: Boolean): String =
+            if (isDebug) DEFAULT_SERVER else ""
     }
 }

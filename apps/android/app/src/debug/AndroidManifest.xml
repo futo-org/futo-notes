@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug-only overlay: re-enable cleartext HTTP so the emulator dev server
+     (http://10.0.2.2:3005) keeps working. Release blocks cleartext per the
+     HTTPS-required decision; the main manifest sets it off and this override
+     is scoped to the debug build only. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <application
+        android:usesCleartextTraffic="true"
+        tools:replace="android:usesCleartextTraffic" />
+</manifest>

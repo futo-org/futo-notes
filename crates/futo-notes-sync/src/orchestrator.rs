@@ -1343,6 +1343,7 @@ async fn resolve_update_conflict(
     conflict: ConflictResponse,
     namespace: HashSet<String>,
     is_local_move: bool,
+    mtime_ms: i64,
 ) -> Result<PushOutcome, String> {
     let current_blob_key = match conflict.current_blob_key.clone() {
         Some(k) => k,
@@ -1388,11 +1389,18 @@ async fn resolve_update_conflict(
             let merged_hash = hash_sha256(&merged);
             let merged_size = merged.as_bytes().len() as u64;
             let merged_ct = encrypt_note(&vault_key, &target_filename, &merged).await?;
-            match http
+            let put_result = match http
                 .put_blob_object(collection_id, &existing.object_id, conflict.current_version + 1, merged_ct)
                 .await
-                .map_err(http_err_to_string)?
             {
+                Ok(result) => result,
+                Err(e) if e.is_payload_too_large() => {
+                    eprintln!("[e2ee] {target_filename} exceeds the server blob size limit (413); not synced");
+                    return Ok(PushOutcome::TooLarge { filename: target_filename, mtime_ms });
+                }
+                Err(e) => return Err(http_err_to_string(e)),
+            };
+            match put_result {
                 PutResult::Ok(resp) => {
                     return Ok(PushOutcome::MergedClean {
                         filename: target_filename,
@@ -1423,10 +1431,14 @@ async fn resolve_update_conflict(
     let date = current_date_yyyy_mm_dd();
     let copy_filename = conflict_filename(&target_filename, &date, &namespace);
     let copy_ct = encrypt_note(&vault_key, &copy_filename, &local_content).await?;
-    let created = http
-        .post_blob_object(collection_id, copy_ct)
-        .await
-        .map_err(http_err_to_string)?;
+    let created = match http.post_blob_object(collection_id, copy_ct).await {
+        Ok(result) => result,
+        Err(e) if e.is_payload_too_large() => {
+            eprintln!("[e2ee] {copy_filename} exceeds the server blob size limit (413); not synced");
+            return Ok(PushOutcome::TooLarge { filename: copy_filename, mtime_ms });
+        }
+        Err(e) => return Err(http_err_to_string(e)),
+    };
 
     // Update the original objectId to track the remote content we just
     // accepted. The server's `currentVersion` is already past us so we
@@ -1597,6 +1609,7 @@ async fn push_one_file(
                 conflict,
                 namespace,
                 is_local_move,
+                file.mtime_ms,
             )
             .await
         }
@@ -3661,5 +3674,178 @@ mod tests {
         // The map rival is being deleted, so no collision remains.
         assert!(plan.download_overrides.is_empty());
         assert!(plan.map_renames.is_empty());
+    }
+
+    // ── Oversize blob (HTTP 413) on the CONFLICT-RESOLUTION path ──────────
+    //
+    // Regression for the gap left by commit a9a2c7a: the 413 surface/skip
+    // handling covered only push_one_file's two upload sites and MISSED the
+    // two upload sites inside resolve_update_conflict. An oversize CONFLICTED
+    // note flattened its 413 through `.map_err(http_err_to_string)?` into a
+    // generic Err — never surfaced (conflicts not incremented), never marked
+    // oversize_skip, and so re-encrypted + re-uploaded every cycle forever.
+    //
+    // These drive resolve_update_conflict directly (the function push_one_file
+    // calls on a PUT 409) with a wiremock server that 413s the re-upload, and
+    // assert it returns PushOutcome::TooLarge — the variant run_push's existing
+    // handler turns into `conflicts += 1` + `oversize_skip.insert(...)`.
+
+    use wiremock::matchers::{method as wm_method, path as wm_path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    const TEST_VAULT_KEY: [u8; KEY_BYTES] = [7u8; KEY_BYTES];
+
+    fn test_client(server: &MockServer) -> Arc<E2eeClient> {
+        let mut c = E2eeClient::new(&server.uri()).unwrap();
+        c.set_token("test-token");
+        Arc::new(c)
+    }
+
+    /// Encrypt a note exactly the way the orchestrator does, so the
+    /// conflict-resolution decrypt/unpack round-trips when served as a blob.
+    async fn enc(filename: &str, content: &str) -> Vec<u8> {
+        encrypt_note(&TEST_VAULT_KEY, filename, content).await.unwrap()
+    }
+
+    fn map_entry_for(object_id: &str, version: u64, blob_key: &str) -> E2eeObjectMapEntry {
+        E2eeObjectMapEntry {
+            object_id: object_id.to_owned(),
+            version,
+            blob_key: blob_key.to_owned(),
+            hash: None,
+            mtime_ms: None,
+            size_bytes: None,
+        }
+    }
+
+    // Conflict-copy POST path: the merge base is unavailable (404), so
+    // resolution falls through to a conflict-copy POST. The server rejects
+    // that POST with 413 → must surface as TooLarge, NOT a generic Err.
+    #[tokio::test]
+    async fn resolve_update_conflict_post_413_surfaces_too_large() {
+        let server = MockServer::start().await;
+        let filename = "huge.md";
+        let remote_ct = enc(filename, "remote body\n").await;
+
+        // get_blob(current/remote) → the peer's new content (decryptable).
+        Mock::given(wm_method("GET"))
+            .and(wm_path("/api/blobs/bk-remote"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(remote_ct))
+            .mount(&server)
+            .await;
+        // get_blob(base) → 404, forcing the conflict-copy fallback.
+        Mock::given(wm_method("GET"))
+            .and(wm_path("/api/blobs/bk-base"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+        // The conflict-copy POST is rejected as oversize.
+        Mock::given(wm_method("POST"))
+            .and(wm_path("/api/collections/c1/blob-objects"))
+            .respond_with(ResponseTemplate::new(413).set_body_json(serde_json::json!({
+                "error": "blob too large"
+            })))
+            .mount(&server)
+            .await;
+
+        let http = test_client(&server);
+        let vault_key = Arc::new(TEST_VAULT_KEY);
+        let existing = map_entry_for("o1", 3, "bk-base");
+        let conflict = ConflictResponse {
+            error: "conflict".into(),
+            current_version: 4,
+            current_blob_key: Some("bk-remote".into()),
+        };
+
+        let outcome = resolve_update_conflict(
+            http,
+            vault_key,
+            "c1",
+            filename,
+            "local body\n".to_owned(),
+            hash_sha256("local body\n"),
+            existing,
+            conflict,
+            HashSet::new(),
+            false,
+            12345,
+        )
+        .await
+        .expect("413 must be a non-fatal TooLarge, not a hard error");
+
+        match outcome {
+            PushOutcome::TooLarge { mtime_ms, .. } => {
+                assert_eq!(mtime_ms, 12345, "must carry the on-disk mtime for the skip mark");
+            }
+            other => panic!("expected PushOutcome::TooLarge, got {other:?}"),
+        }
+    }
+
+    // Clean-merge re-PUT path: base + remote are both available and merge
+    // cleanly, so resolution re-PUTs the merged content. The server rejects
+    // that PUT with 413 → must surface as TooLarge, NOT a generic Err.
+    #[tokio::test]
+    async fn resolve_update_conflict_put_413_surfaces_too_large() {
+        let server = MockServer::start().await;
+        let filename = "huge.md";
+        // Non-overlapping edits with unchanged context between them so diffy
+        // produces a Clean merge (mirrors e2ee::tests::merge_clean_non_overlapping).
+        let base = "line 1\nline 2\nline 3\nline 4\nline 5\n";
+        let remote = "LINE ONE\nline 2\nline 3\nline 4\nline 5\n";
+        let local = "line 1\nline 2\nline 3\nline 4\nLINE FIVE\n";
+        let base_ct = enc(filename, base).await;
+        let remote_ct = enc(filename, remote).await;
+
+        Mock::given(wm_method("GET"))
+            .and(wm_path("/api/blobs/bk-remote"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(remote_ct))
+            .mount(&server)
+            .await;
+        Mock::given(wm_method("GET"))
+            .and(wm_path("/api/blobs/bk-base"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(base_ct))
+            .mount(&server)
+            .await;
+        // The merged re-PUT is rejected as oversize.
+        Mock::given(wm_method("PUT"))
+            .and(wm_path("/api/collections/c1/blob-objects/o1"))
+            .respond_with(ResponseTemplate::new(413).set_body_json(serde_json::json!({
+                "error": "blob too large"
+            })))
+            .mount(&server)
+            .await;
+
+        let http = test_client(&server);
+        let vault_key = Arc::new(TEST_VAULT_KEY);
+        let existing = map_entry_for("o1", 3, "bk-base");
+        let conflict = ConflictResponse {
+            error: "conflict".into(),
+            current_version: 4,
+            current_blob_key: Some("bk-remote".into()),
+        };
+
+        let outcome = resolve_update_conflict(
+            http,
+            vault_key,
+            "c1",
+            filename,
+            local.to_owned(),
+            hash_sha256(local),
+            existing,
+            conflict,
+            HashSet::new(),
+            false,
+            67890,
+        )
+        .await
+        .expect("413 must be a non-fatal TooLarge, not a hard error");
+
+        match outcome {
+            PushOutcome::TooLarge { filename: f, mtime_ms } => {
+                assert_eq!(f, filename, "the merged target filename is surfaced");
+                assert_eq!(mtime_ms, 67890, "must carry the on-disk mtime for the skip mark");
+            }
+            other => panic!("expected PushOutcome::TooLarge, got {other:?}"),
+        }
     }
 }

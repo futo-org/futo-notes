@@ -144,6 +144,31 @@ let watcherStarted = false;
 let assetProtocolWorks: boolean | null = null;
 
 /**
+ * Maps a lowercase image file extension to its blob Content-Type. Covers the
+ * full accepted set (see IMAGE_EXTENSIONS in @futo-notes/shared). The MIME is
+ * load-bearing for blob URLs: a wrong type (e.g. SVG served as image/png) is
+ * not content-sniffed and fails to render. Unknown extensions fall back to
+ * image/png.
+ */
+const IMAGE_EXTENSION_MIME: Record<string, string> = {
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  png: 'image/png',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  svg: 'image/svg+xml',
+  bmp: 'image/bmp',
+  ico: 'image/x-icon',
+  avif: 'image/avif',
+  heic: 'image/heic',
+};
+
+/** Blob Content-Type for an image file extension (lowercased), defaulting to image/png. */
+export function imageMimeForExtension(ext: string): string {
+  return IMAGE_EXTENSION_MIME[ext.toLowerCase()] ?? 'image/png';
+}
+
+/**
  * Does an <img> actually DECODE this URL? A HEAD/GET 200 from the asset
  * protocol does NOT guarantee the webview will paint it — macOS WKWebView and
  * Linux WebKitGTK can answer an asset:// request while an <img> renders a blank
@@ -402,10 +427,7 @@ export const tauriFS: PlatformFS = {
 
     const bytes = await readFile(`${root}/${filename}`);
     const ext = filename.split('.').pop()?.toLowerCase() ?? 'png';
-    const mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg'
-      : ext === 'gif' ? 'image/gif'
-      : ext === 'webp' ? 'image/webp'
-      : 'image/png';
+    const mime = imageMimeForExtension(ext);
     return URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: mime }));
   },
 

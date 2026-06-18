@@ -271,6 +271,29 @@ const imageSizeCache = new Map<string, { width: number; height: number }>();
 // Cache resolved web URLs for local image filenames
 const localImageUrlCache = new Map<string, string>();
 
+/**
+ * Set a cache entry, revoking the OUTGOING value first if it was a blob: URL
+ * being replaced with a different one. blob: URLs from URL.createObjectURL leak
+ * until revoked; the cache holds exactly one per filename and reuses it across
+ * widget rebuilds, so we revoke only on replacement/clear — never on img load.
+ * asset:// (and other non-blob) URLs pass through untouched.
+ */
+function setLocalImageUrl(filename: string, webUrl: string): void {
+  const prev = localImageUrlCache.get(filename);
+  if (prev !== undefined && prev !== webUrl && prev.startsWith('blob:')) {
+    URL.revokeObjectURL(prev);
+  }
+  localImageUrlCache.set(filename, webUrl);
+}
+
+/** Drop all cached local-image URLs, revoking any outstanding blob: URLs. */
+export function clearLocalImageUrlCache(): void {
+  for (const url of localImageUrlCache.values()) {
+    if (url.startsWith('blob:')) URL.revokeObjectURL(url);
+  }
+  localImageUrlCache.clear();
+}
+
 // Max display width for images (matches CSS max-width: 100% within editor)
 const MAX_IMAGE_HEIGHT = 300; // matches CSS max-height
 
@@ -294,7 +317,7 @@ export function resolveImageSrc(src: string): string {
 
 /** Register a local image filename → web URL mapping so it renders immediately. */
 export function registerLocalImageUrl(filename: string, webUrl: string): void {
-  localImageUrlCache.set(filename, webUrl);
+  setLocalImageUrl(filename, webUrl);
 }
 
 /** Register the cache-miss base URL for local images (native-embed host). */
@@ -328,7 +351,7 @@ export function preloadImages(
     if (!isRemoteSrc(src)) {
       if (!localImageUrlCache.has(src) && getImageWebPath) {
         getImageWebPath(src).then(webUrl => {
-          localImageUrlCache.set(src, webUrl);
+          setLocalImageUrl(src, webUrl);
           // Now preload the resolved URL for dimension caching
           preloadSingleImage(webUrl);
           const v = getView?.();
