@@ -1,10 +1,9 @@
 import SwiftUI
 
 /// App settings sheet (gear button in the note list). Mirrors the desktop
-/// Settings surface (settings.md): account/sync status, appearance, the
-/// notes-are-files principle, storage readout, crash reporting, about, and the
-/// danger-zone full reset. Sync details/actions stay in SyncView — rows here
-/// just open it.
+/// Settings surface (settings.md): a single "Self-hosted sync" row, appearance,
+/// storage readout, crash reporting, about, and the danger-zone full reset.
+/// Sync details/actions stay in SyncView — the Sync row just opens it.
 struct SettingsView: View {
     @EnvironmentObject private var store: NotesStore
     @EnvironmentObject private var sync: SyncManager
@@ -28,19 +27,31 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
-                accountHeader
-
+                // The whole Sync surface is one "Self-hosted sync" row: cloud
+                // icon, connected-vs-local status, SYNCED/LOCAL badge. No
+                // separate account header, no separate "Server" row
+                // (settings.md). Tapping opens SyncView.
                 Section("Sync") {
                     Button {
                         showSync = true
                     } label: {
-                        row(label: "Hosted sync", system: "arrow.triangle.2.circlepath",
-                            value: sync.connected ? sync.status : "Off")
-                    }
-                    Button {
-                        showSync = true
-                    } label: {
-                        row(label: "Server", system: "server.rack", value: sync.serverURL)
+                        HStack(spacing: 12) {
+                            Image(systemName: sync.connected ? "checkmark.icloud.fill" : "icloud")
+                                .font(.title3)
+                                .foregroundStyle(Theme.primary)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Self-hosted sync")
+                                    .foregroundStyle(.primary)
+                                Text(sync.connected
+                                    ? sync.status
+                                    : "Notes stay on this device until you connect sync.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                            Spacer()
+                            syncBadge
+                        }
                     }
                 }
 
@@ -51,12 +62,6 @@ struct SettingsView: View {
                         Text("Auto").tag("auto")
                     }
                     .pickerStyle(.segmented)
-                }
-
-                Section("Editor") {
-                    Text("Notes are Markdown files — file over app.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
                 }
 
                 Section("Storage") {
@@ -143,56 +148,16 @@ struct SettingsView: View {
         .interactiveDismissDisabled(resetting)
     }
 
-    /// Account header: where the notes live + a SYNCED/LOCAL badge. Tapping
-    /// opens the sync sheet (the iOS account surface).
-    private var accountHeader: some View {
-        Section {
-            Button {
-                showSync = true
-            } label: {
-                HStack(spacing: 12) {
-                    Image(systemName: sync.connected ? "checkmark.icloud.fill" : "iphone")
-                        .font(.title2)
-                        .foregroundStyle(Theme.primary)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(sync.connected ? "Hosted sync" : "This device")
-                            .font(.headline)
-                            .foregroundStyle(.primary)
-                        Text(sync.connected
-                            ? sync.serverURL
-                            : "Notes stay on this device until you connect sync.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                    Spacer()
-                    Text(sync.connected ? "SYNCED" : "LOCAL")
-                        .font(.caption2.bold())
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .foregroundStyle(sync.connected ? Color.green : Color.secondary)
-                        .background(
-                            (sync.connected ? Color.green : Color.secondary).opacity(0.15),
-                            in: Capsule())
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func row(label: String, system: String, value: String) -> some View {
-        HStack {
-            Label {
-                Text(label).foregroundStyle(.primary)
-            } icon: {
-                Image(systemName: system).foregroundStyle(Theme.primary)
-            }
-            Spacer()
-            Text(value)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-        }
+    /// SYNCED / LOCAL pill shown on the single "Self-hosted sync" row.
+    private var syncBadge: some View {
+        Text(sync.connected ? "SYNCED" : "LOCAL")
+            .font(.caption2.bold())
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .foregroundStyle(sync.connected ? Color.green : Color.secondary)
+            .background(
+                (sync.connected ? Color.green : Color.secondary).opacity(0.15),
+                in: Capsule())
     }
 
     private var appVersion: String {

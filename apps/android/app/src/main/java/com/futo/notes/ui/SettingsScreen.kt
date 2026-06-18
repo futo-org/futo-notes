@@ -22,8 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.NorthEast
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -52,7 +51,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.futo.notes.BuildConfig
 import com.futo.notes.NotesStore
@@ -114,21 +112,18 @@ fun SettingsScreen(
         Column(
             modifier = Modifier.padding(padding).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
         ) {
-            AccountHeader(connected = sync.connected, onClick = onOpenSync)
             Spacer(Modifier.height(8.dp))
 
+            // The whole Sync surface is one "Self-hosted sync" row: cloud icon,
+            // connected-vs-local status, SYNCED/LOCAL badge. No separate account
+            // header, no separate "Server" row (settings.md). Routes to SyncScreen.
             SettingsGroup("Sync") {
                 SettingsRow(
-                    title = "Hosted sync",
+                    title = "Self-hosted sync",
                     subtitle = sync.status,
                     onClick = onOpenSync,
-                ) { Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = c.textMuted) }
-                Divider()
-                SettingsRow(
-                    title = "Server",
-                    subtitle = sync.serverUrl,
-                    onClick = onOpenSync,
-                ) { Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = c.textMuted) }
+                    leading = { Icon(Icons.Filled.Cloud, contentDescription = null, tint = c.textAccent) },
+                ) { SyncBadge(connected = sync.connected) }
             }
 
             SettingsGroup("Appearance") {
@@ -139,15 +134,6 @@ fun SettingsScreen(
                         onSelect = { onThemeMode(ThemeMode.entries[it]) },
                     )
                 }
-            }
-
-            SettingsGroup("Editor") {
-                Text(
-                    "Notes are Markdown files — file over app.",
-                    style = FutoType.caption,
-                    color = c.textMuted,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                )
             }
 
             // Crash reporting [settings.md:43]. Reports never leave the device
@@ -267,38 +253,19 @@ fun SettingsScreen(
     }
 }
 
+/// SYNCED / LOCAL pill shown on the single "Self-hosted sync" row.
 @Composable
-private fun AccountHeader(connected: Boolean, onClick: () -> Unit) {
+private fun SyncBadge(connected: Boolean) {
     val c = FutoTheme.colors
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 16.dp),
-    ) {
-        Box(
-            modifier = Modifier.size(50.dp).background(c.surfaceSelected, RoundedCornerShape(FutoRadius.md)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(Icons.Filled.Description, contentDescription = null, tint = c.textAccent, modifier = Modifier.size(24.dp))
-        }
-        Spacer(Modifier.width(14.dp))
-        Column(Modifier.weight(1f)) {
-            Text("FUTO Notes", style = FutoType.title.copy(fontWeight = FontWeight.SemiBold), color = c.textPrimary)
-            Text(
-                if (connected) "Sync enabled" else "Local — tap to set up sync",
-                style = FutoType.small,
-                color = c.textTertiary,
-            )
-        }
-        val badge = if (connected) "SYNCED" else "LOCAL"
-        val badgeColor = if (connected) c.success else c.textMuted
-        Surface(color = badgeColor.copy(alpha = 0.14f), shape = RoundedCornerShape(FutoRadius.pill)) {
-            Text(
-                badge,
-                style = FutoType.micro,
-                color = badgeColor,
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-            )
-        }
+    val badge = if (connected) "SYNCED" else "LOCAL"
+    val badgeColor = if (connected) c.success else c.textMuted
+    Surface(color = badgeColor.copy(alpha = 0.14f), shape = RoundedCornerShape(FutoRadius.pill)) {
+        Text(
+            badge,
+            style = FutoType.micro,
+            color = badgeColor,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+        )
     }
 }
 
@@ -322,6 +289,7 @@ private fun SettingsRow(
     subtitle: String? = null,
     onClick: (() -> Unit)? = null,
     titleColor: Color? = null,
+    leading: @Composable (() -> Unit)? = null,
     trailing: @Composable (() -> Unit)? = null,
 ) {
     val c = FutoTheme.colors
@@ -332,6 +300,10 @@ private fun SettingsRow(
             .let { if (onClick != null) it.clickable(onClick = onClick) else it }
             .padding(horizontal = 16.dp, vertical = 14.dp),
     ) {
+        if (leading != null) {
+            leading()
+            Spacer(Modifier.width(12.dp))
+        }
         Column(Modifier.weight(1f)) {
             Text(title, style = FutoType.body, color = titleColor ?: c.textPrimary)
             if (subtitle != null) Text(subtitle, style = FutoType.caption, color = c.textMuted)

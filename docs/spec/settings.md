@@ -15,10 +15,13 @@ iOS: nav-bar gear → Settings sheet — the cloud button still opens the Sync
 sheet directly). Verified on emulator + simulator 2026-06-09. →
 SettingsScreen.kt *(Android)*, SettingsView.swift *(iOS)*
 
-- The account header shows connected vs. local state with a SYNCED / LOCAL
-  badge; tapping it opens the Sync screen.
-- **Sync** group: hosted-sync status and server URL, both routing to the Sync
-  screen.
+- **Sync** group: a single **"Self-hosted sync"** entry — a cloud icon, the
+  connected-vs-local status, and a SYNCED / LOCAL badge — routes to the Sync
+  screen. This one entry is the whole Sync surface: there is no separate
+  account header above the group, and no separate "Server" row. Tapping it
+  opens the Sync screen; when no server is connected yet, that screen points
+  the user at the FUTO Notes server repo (see sync.md). →
+  SettingsScreen.kt *(Android)*, SettingsView.swift *(iOS)*
 - **Appearance**: the Theme Light/Dark/Auto control from "All platforms"
   applies immediately (iOS: `.preferredColorScheme` + the editor WebView
   theme follows; persisted in UserDefaults `futo.themeMode` / Android
@@ -26,8 +29,6 @@ SettingsScreen.kt *(Android)*, SettingsView.swift *(iOS)*
   crash-test relaunch).
 - **Storage**: a notes-directory path readout.
 - **About**: an open-source link (GitLab) and the app version.
-- The Editor group states the "file over app" principle — notes are Markdown
-  files.
 - **Crash reporting**: "Share crash reports" toggle with a nested "Always
   send automatically" (see app.md for the dialog flow).
 - **Danger zone — Full reset**: same two-tap arm/confirm contract as the

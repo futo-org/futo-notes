@@ -30,10 +30,10 @@ Each shell renders settings with its own native idioms. These differences are
 | Dismissal | Click overlay / `Escape` / `×` close button in the sticky header | Back arrow (and system back) | — |
 | Rendering | HTML/CSS in the WebView; styles from `app.css` tokens | Compose + Material 3 (`SegmentedButton`, `Surface`, `HorizontalDivider`) themed via `FutoTheme` | — |
 | Theme control order | **Auto · Dark · Light** | **Light · Dark · Auto** | — |
-| Account header | None | `AccountHeader` showing SYNCED / LOCAL, taps through to Sync | — |
-| Sync UI | **Inline** in the Sync card (URL, password, Connect / Sync now, links) | A **row that routes to a separate Sync screen** (`onOpenSync`); no inline form | — |
+| Account header | None | None — folded into the single "Self-hosted sync" Sync row (see settings.md) | — |
+| Sync UI | **Inline** in the Sync card (URL, password, Connect / Sync now, links) | A single **"Self-hosted sync" row that routes to a separate Sync screen** (`onOpenSync`); no inline form | — |
 | Storage / notes dir | **Storage** section — shows path, "Change directory" (folder picker + app restart), "Reset to default" | Absent (mobile sandbox; no user-chosen directory) | — |
-| Editor note | Absent | **Editor** group caption: "Notes are Markdown files — file over app." | — |
+| Editor note | Absent | Absent — the "Editor" / "file over app" caption was removed (see settings.md) | — |
 | About / source link | Absent (version footer only) | **Source** row linking to GitLab + version | — |
 | Benchmark | **Benchmark** section (on-device embedding test + results table) | Absent | — |
 | Crash reporting toggles | Present (switch + "always send" sub-row) | Absent | — |

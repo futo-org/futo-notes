@@ -116,9 +116,8 @@
           : 'Downloading';
         connectSyncPhase = `${label} ${p.current}/${p.total}…`;
       });
-      let summary;
       try {
-        summary = await requestSyncV2();
+        await requestSyncV2();
       } finally {
         setSyncProgressListener(null);
       }
@@ -129,10 +128,9 @@
       syncStatus = '';
 
       connectSyncing = false;
-      const parts: string[] = [];
-      if (summary.downloaded) parts.push(`${summary.downloaded} downloaded`);
-      if (summary.uploaded) parts.push(`${summary.uploaded} uploaded`);
-      showGlobalToast(parts.length ? `Synced: ${parts.join(', ')}` : 'Sync complete — everything up to date');
+      // A successful sync reports just "Sync complete" — never per-item
+      // uploaded/downloaded/deleted/conflict counts (sync.md, 2026-06-10).
+      showGlobalToast('Sync complete');
     } catch (e) {
       console.error('[e2ee] connect/sync failed:', e);
       connectSyncError = getErrorMessage(e);

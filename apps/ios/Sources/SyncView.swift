@@ -32,6 +32,19 @@ struct SyncView: View {
                     }
                 }
 
+                // Before connecting, point the user at how to get a server
+                // (sync.md): a link to the FUTO Notes server repo.
+                if !sync.connected {
+                    Section {
+                        Link(destination: URL(
+                            string: "https://gitlab.futo.org/futo-notes/futo-notes-server")!) {
+                            Label("To set up sync, use FUTO Notes server.",
+                                  systemImage: "arrow.up.forward.square")
+                                .font(.subheadline)
+                        }
+                    }
+                }
+
                 Section {
                     Button {
                         Task {

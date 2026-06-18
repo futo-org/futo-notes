@@ -13,16 +13,26 @@ client uploads opaque encrypted blobs — note content is encrypted before uploa
   first sync. → SyncScreen.kt
 - Once connected, the server URL is locked. The user can "Sync now" or
   "Disconnect". → SyncScreen.kt
+- When no server is connected yet, the Sync screen points the user at how to
+  get one: a **bordered link row** — a leading external-link icon (iOS
+  `arrow.up.forward.square` / Android `OpenInNew`) followed by the
+  accent-colored copy **"To set up sync, use FUTO Notes server."** — that opens
+  the FUTO Notes server repo
+  (<https://gitlab.futo.org/futo-notes/futo-notes-server>). Both shells render
+  the row with the same treatment (a tappable card, not loose text).
+- **The link is only shown in the not-connected state.** Once sync is set up
+  (connected to a server), the link is hidden — the Sync screen then shows the
+  locked server URL, "Sync now" / "Disconnect", and status instead. →
+  SyncView.swift *(iOS)*, SyncScreen.kt *(Android)*
 - Errors surface inline; a progress indicator shows while a sync is busy.
 - A sync that finishes successfully reports just **"Sync complete"** — the
   status never shows uploaded/downloaded/deleted/conflict counts (spec
   decision 2026-06-10; the native shells previously showed
-  `Synced — ↑a ↓b ✕c ⚠d`). → SyncManager.kt / SyncManager.swift `describe`
-
-> **Gap:** Tauri desktop still surfaces per-item counts after a manual sync —
-> the Settings toast (`Synced: N uploaded, …`, SettingsScreen.svelte) and the
-> coordinator status line (`Synced N notes`, syncManager.svelte.ts) both
-> predate the "Sync complete"-only decision (2026-06-10).
+  `Synced — ↑a ↓b ✕c ⚠d`, and Tauri desktop previously showed `Synced: N
+  uploaded, …` / `Synced N notes`). This holds on **all three** shells: the
+  desktop Settings toast and coordinator status line report only "Sync
+  complete". → SyncManager.kt / SyncManager.swift `describe`,
+  SettingsScreen.svelte + syncManager.svelte.ts *(desktop)*
 - A failed **auto/background** sync (not just a manual "Sync now") surfaces too,
   not only in the console: the desktop status bar shows a muted error indicator
   (an ✕, distinct from the offline icon, which wins when there's no network)

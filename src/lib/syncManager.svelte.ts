@@ -363,10 +363,12 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
       }
     }
 
-    // Sync status banner
+    // Sync status banner. A successful sync reports just "Sync complete" —
+    // never per-item uploaded/downloaded/deleted/conflict counts (sync.md,
+    // 2026-06-10). Only surfaced for large syncs so routine polls stay quiet.
     const totalChanges = summary.updatedIds.length + summary.deletedIds.length + summary.renamed.length;
     if (totalChanges > 20) {
-      syncCoord?.setStatusWithTimeout(`Synced ${totalChanges} notes`, 3000);
+      syncCoord?.setStatusWithTimeout('Sync complete', 3000);
     } else {
       syncStatusMessage = '';
     }
