@@ -1060,6 +1060,11 @@ windows:provision:
       fi
 
   artifacts:
+    # when: always — publish the dotenv even when this job FAILS. The VM is
+    # created (clone+start) before the IP wait that can time out and `exit 1`;
+    # without this, a failed provision drops the VMID and windows:cleanup can't
+    # find the VM, orphaning it. With it, the VMID reaches cleanup regardless.
+    when: always
     reports:
       dotenv: provision.env
   rules:
@@ -1181,8 +1186,18 @@ windows:cleanup:
     PROXMOX_NODE: "green"
   script:
     - |
+      # Fallback: if the VMID dotenv never reached us (provision failed so early
+      # it didn't publish, or the artifact was lost), find the VM by its
+      # pipeline-scoped name so a failed build/provision can't leave an orphan.
       if [ -z "$VMID" ]; then
-        echo "No VMID found, skipping cleanup."
+        echo "No VMID from provision; looking up VM by name futo-notes-win-${CI_PIPELINE_ID}..."
+        VMID=$(curl -s -k \
+          -H "Authorization: ${PROXMOX_AUTH}" \
+          "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu" \
+          | jq -r ".data[] | select(.name==\"futo-notes-win-${CI_PIPELINE_ID}\") | .vmid" | head -1)
+      fi
+      if [ -z "$VMID" ] || [ "$VMID" = "null" ]; then
+        echo "No VM found for this pipeline, nothing to clean up."
         exit 0
       fi
       echo "Stopping VM $VMID..."
