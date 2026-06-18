@@ -425,6 +425,7 @@ pub async fn connect(
         vault_key,
         object_map: loaded.object_map,
         max_version: loaded.max_version,
+        oversize_skip: HashMap::new(),
     };
 
     // Persist right away so a crash mid-sync recovers the loaded map.
@@ -484,6 +485,7 @@ pub async fn resume(
         vault_key,
         object_map: loaded.object_map,
         max_version: loaded.max_version,
+        oversize_skip: HashMap::new(),
     })
 }
 
@@ -1295,6 +1297,11 @@ enum PushOutcome {
     /// Tried to resolve but couldn't (e.g. merge-base GC'd AND inline
     /// retry failed). Counted toward `conflicts` so the UI can surface it.
     UnresolvedConflict { filename: String },
+    /// Server rejected the blob with HTTP 413 (exceeds `MAX_BLOB_BYTES`).
+    /// Counted toward `conflicts` so the UI surfaces it, and the file's mtime
+    /// is recorded in `oversize_skip` so we don't re-encrypt/re-upload it every
+    /// cycle until the user edits it (changing the mtime).
+    TooLarge { filename: String, mtime_ms: i64 },
     /// HTTP error logged; not surfaced as a hard fail so one bad file
     /// doesn't abort the whole sync.
     Error,
@@ -1470,8 +1477,18 @@ async fn push_one_file(
     existing: Option<E2eeObjectMapEntry>,
     namespace: HashSet<String>,
     is_local_move: bool,
+    oversize_mark: Option<i64>,
 ) -> Result<PushOutcome, String> {
     let filename = file.name.clone();
+
+    // Pre-flight skip: the server already rejected this exact version (same
+    // mtime) as too large (413). Don't re-read/re-encrypt/re-upload it — that
+    // wastes a full-size upload every cycle for a guaranteed 413. The mark is
+    // cleared once the mtime changes (user edited the note again).
+    if oversize_mark == Some(file.mtime_ms) {
+        return Ok(PushOutcome::TooLarge { filename, mtime_ms: file.mtime_ms });
+    }
+
     let content = match read_local_note(&notes_root, &filename).await {
         Ok(c) => c,
         Err(e) => {
@@ -1514,6 +1531,10 @@ async fn push_one_file(
     if existing.is_none() {
         let created = match http.post_blob_object(&collection_id, ciphertext).await {
             Ok(r) => r,
+            Err(e) if e.is_payload_too_large() => {
+                eprintln!("[e2ee] {filename} exceeds the server blob size limit (413); not synced");
+                return Ok(PushOutcome::TooLarge { filename, mtime_ms: file.mtime_ms });
+            }
             Err(e) => {
                 eprintln!("[e2ee] failed to create {filename}: {e}");
                 return Ok(PushOutcome::Error);
@@ -1578,6 +1599,10 @@ async fn push_one_file(
                 is_local_move,
             )
             .await
+        }
+        Err(e) if e.is_payload_too_large() => {
+            eprintln!("[e2ee] {filename} exceeds the server blob size limit (413); not synced");
+            Ok(PushOutcome::TooLarge { filename, mtime_ms: file.mtime_ms })
         }
         Err(e) => {
             eprintln!("[e2ee] failed to update {filename}: {e}");
@@ -1680,6 +1705,7 @@ pub async fn run_push(
     for file in plan.candidates {
         let existing = effective_map.get(&file.name).cloned();
         let is_local_move = local_move_sources.contains(&file.name);
+        let oversize_mark = state_cell.oversize_skip.get(&file.name).copied();
         let http = http.clone();
         let vault_key = vault_key.clone();
         let cid = state_cell.collection_id.clone();
@@ -1697,6 +1723,7 @@ pub async fn run_push(
                 existing,
                 ns,
                 is_local_move,
+                oversize_mark,
             )
             .await
         });
@@ -1851,12 +1878,14 @@ pub async fn run_push(
     for outcome in outcomes {
         match outcome {
             PushOutcome::StampOnly { filename, entry } => {
+                next.oversize_skip.remove(&filename);
                 upserts.push((filename.clone(), entry.clone()));
                 if let Some(ts) = entry.mtime_ms {
                     timestamps.insert(filename.clone(), ts);
                 }
             }
             PushOutcome::Wrote { filename, entry, modified_at, change_seq, peer_resolved } => {
+                next.oversize_skip.remove(&filename);
                 uploaded += 1;
                 if entry.version > new_max_version {
                     new_max_version = entry.version;
@@ -1961,6 +1990,13 @@ pub async fn run_push(
             PushOutcome::UnresolvedConflict { filename } => {
                 conflicts += 1;
                 eprintln!("[e2ee] unresolved conflict on {filename}");
+            }
+            PushOutcome::TooLarge { filename, mtime_ms } => {
+                // Surface to the user via the conflict count (same channel as
+                // UnresolvedConflict) and remember the mtime so we skip the
+                // re-upload next cycle until the user edits the note.
+                conflicts += 1;
+                next.oversize_skip.insert(filename, mtime_ms);
             }
             PushOutcome::Error => {}
         }

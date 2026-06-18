@@ -46,6 +46,14 @@ impl E2eeHttpError {
     pub fn is_unauthorized(&self) -> bool {
         matches!(self, Self::Http { status: 401, .. })
     }
+
+    /// True for an HTTP 413 (Payload Too Large) — the server rejected a blob
+    /// for exceeding its `MAX_BLOB_BYTES` limit. The push path treats this as a
+    /// per-file, non-fatal failure (surface + skip) rather than a transport
+    /// error to retry blindly.
+    pub fn is_payload_too_large(&self) -> bool {
+        matches!(self, Self::Http { status: 413, .. })
+    }
 }
 
 // ── Wire types ───────────────────────────────────────────────────────────
@@ -909,6 +917,52 @@ mod tests {
             }
             PutResult::Ok(_) => panic!("expected conflict"),
         }
+    }
+
+    #[test]
+    fn classifies_413_as_payload_too_large() {
+        let too_large = E2eeHttpError::Http { status: 413, body: "blob too large".into() };
+        assert!(too_large.is_payload_too_large());
+        assert!(!too_large.is_unauthorized());
+        let unauth = E2eeHttpError::Http { status: 401, body: String::new() };
+        assert!(!unauth.is_payload_too_large());
+        let conflict = E2eeHttpError::Http { status: 409, body: String::new() };
+        assert!(!conflict.is_payload_too_large());
+    }
+
+    #[tokio::test]
+    async fn post_blob_object_maps_413_to_payload_too_large() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/api/collections/c1/blob-objects"))
+            .respond_with(ResponseTemplate::new(413).set_body_json(serde_json::json!({
+                "error": "blob too large"
+            })))
+            .mount(&server)
+            .await;
+        let err = client_for(&server)
+            .post_blob_object("c1", vec![9, 8, 7])
+            .await
+            .expect_err("413 should be an error");
+        assert!(err.is_payload_too_large(), "expected payload-too-large, got {err:?}");
+    }
+
+    #[tokio::test]
+    async fn put_blob_object_maps_413_to_payload_too_large() {
+        let server = MockServer::start().await;
+        Mock::given(method("PUT"))
+            .and(path("/api/collections/c1/blob-objects/o1"))
+            .and(query_param("version", "4"))
+            .respond_with(ResponseTemplate::new(413).set_body_json(serde_json::json!({
+                "error": "blob too large"
+            })))
+            .mount(&server)
+            .await;
+        let err = client_for(&server)
+            .put_blob_object("c1", "o1", 4, vec![1, 2, 3])
+            .await
+            .expect_err("413 should be an error");
+        assert!(err.is_payload_too_large(), "expected payload-too-large, got {err:?}");
     }
 
     #[tokio::test]

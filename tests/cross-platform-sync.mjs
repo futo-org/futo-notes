@@ -362,10 +362,20 @@ async function editDuringSyncKeepsLocalDraft(a, b, server) {
   await a.writeNote('during sync', '# Base');
   await a.syncNow();
   await b.syncNow();
+  // The rename below must be BLOCKED by the duplicate-title guard, which checks
+  // B's notes cache. syncNow() resolving doesn't guarantee the pulled note has
+  // propagated into that cache yet — wait for it, otherwise the guard misses
+  // and the rename falls through to the Rust auto-suffix (taken sync title-2).
+  await waitForNoteInSidebar(b, 'taken sync title');
 
   await b.openNote('during sync');
   await waitForEditorContent(b, '# Base');
   await b.setTitle('taken sync title');
+  // Title edits use a deliberate 10s debounce (TITLE_SAVE_DEBOUNCE_MS) so a
+  // rename round-trip never fires mid-typing — longer than waitForSavePending's
+  // 5s budget. Flush so the (duplicate-title-blocked) save settles now, exactly
+  // as this scenario already does before its final savePending check below.
+  await b.flushSave();
   await waitForSavePending(b, false);
 
   await a.writeNote('during sync', '# Remote update');

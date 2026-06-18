@@ -85,6 +85,14 @@ pub struct ConnectedState {
     pub vault_key: [u8; 32],
     pub object_map: HashMap<String, E2eeObjectMapEntry>,
     pub max_version: u64,
+    /// In-session set of files the server rejected as too large (HTTP 413),
+    /// keyed by filename → the on-disk `mtime_ms` of the rejected version. Used
+    /// to skip re-uploading (and re-encrypting) an oversize note every cycle;
+    /// the entry is dropped — and the upload retried — once the file's mtime
+    /// changes (the user edited it again) or it syncs successfully. In-memory
+    /// only (not persisted): a fresh connect/resume starts empty, so a restart
+    /// re-checks once.
+    pub oversize_skip: HashMap<String, i64>,
 }
 
 impl std::fmt::Debug for ConnectedState {
@@ -96,6 +104,7 @@ impl std::fmt::Debug for ConnectedState {
             .field("collection_id", &self.collection_id)
             .field("object_map_size", &self.object_map.len())
             .field("max_version", &self.max_version)
+            .field("oversize_skip", &self.oversize_skip.len())
             .field("token", &"<redacted>")
             .field("vault_key", &"<redacted>")
             .finish()

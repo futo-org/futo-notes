@@ -433,6 +433,7 @@ mod tests {
             vault_key: [1u8; 32],
             object_map: map,
             max_version: 12,
+            oversize_skip: HashMap::new(),
         }
     }
 

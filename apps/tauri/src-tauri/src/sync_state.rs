@@ -68,6 +68,7 @@ mod tests {
             vault_key: [9u8; 32],
             object_map: map,
             max_version: 10,
+            oversize_skip: HashMap::new(),
         }
     }
 
