@@ -329,9 +329,13 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             if let base64 = body["data"] as? String,
                let ext = body["ext"] as? String {
                 Task { @MainActor in
-                    guard let data = await Task.detached(priority: .userInitiated) {
+                    // Decode in a detached task so it runs off the main actor.
+                    // (Kept out of the `guard` condition: a trailing closure
+                    // inside a guard condition fails to parse.)
+                    let decoded = await Task.detached(priority: .userInitiated) {
                         Data(base64Encoded: base64)
-                    }.value else { return }
+                    }.value
+                    guard let data = decoded else { return }
                     guard let filename = await VaultImages.save(
                         data: data, preferredExtension: ext) else { return }
                     self.insertImage(filename)
