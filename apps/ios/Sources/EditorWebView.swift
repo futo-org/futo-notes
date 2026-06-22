@@ -320,6 +320,23 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             // Toolbar image button: open the native picker, save the bytes into
             // the vault root, then hand the filename back via insertImage.
             presentImagePicker(source: (body["source"] as? String) ?? "library")
+        case "saveImageData":
+            // Clipboard image paste: the embed read the pasted bytes (base64).
+            // Decode OFF the main thread — EditorHost is @MainActor, so a
+            // multi-MB base64 string decoded inline would block the UI / risk
+            // the watchdog (Android decodes on Dispatchers.IO). Then save via
+            // the SAME path as the picker and hand the filename back.
+            if let base64 = body["data"] as? String,
+               let ext = body["ext"] as? String {
+                Task { @MainActor in
+                    guard let data = await Task.detached(priority: .userInitiated) {
+                        Data(base64Encoded: base64)
+                    }.value else { return }
+                    guard let filename = await VaultImages.save(
+                        data: data, preferredExtension: ext) else { return }
+                    self.insertImage(filename)
+                }
+            }
         default:
             break
         }

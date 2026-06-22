@@ -231,7 +231,19 @@ edits tags as text in the body, which is not a gap.
 
 - Pasting an image into the editor (desktop) saves it to the notes directory
   and inserts `![](filename)`; supported types follow
-  `@futo-notes/shared` `IMAGE_EXTENSIONS`. → imagePaste.ts
+  `@futo-notes/shared` `IMAGE_EXTENSIONS`. Both clipboard shapes work: a raw
+  bitmap (OS screenshot-to-clipboard) and a browser **Copy Image** (which the
+  source app puts on the clipboard as an `<img>` `text/html` fragment plus a
+  bitmap). When the paste event exposes an image file it is saved directly;
+  otherwise the bitmap is read from the OS clipboard via the
+  `fs_paste_clipboard_image` Tauri command. This native fallback is required on
+  Linux/Wayland, where WebKitGTK hides the clipboard image from the JS paste
+  event — a screenshot arrives with empty `items`, and a Copy Image arrives as
+  a lone `text/html` item — so the gate is "no image file found and no
+  `text/plain` to paste" (plain/rich-text pastes are left untouched).
+  Verified on Linux (WebKitGTK) and Windows (WebView2), both image types,
+  2026-06-22. → imagePaste.ts `handlePasteEvent` / `looksLikeImagePaste` /
+  `pasteFromNativeClipboard`; core.rs `fs_paste_clipboard_image`
 - Images render inline in live preview via the Tauri asset protocol, with a
   `readFile`→blob-URL fallback when the asset protocol can't actually decode an
   `<img>` (macOS WKWebView / Linux WebKitGTK answer the request but paint a
@@ -245,6 +257,30 @@ edits tags as text in the body, which is not a gap.
   render inline (verified end-to-end on emulator + simulator 2026-06-09).
   → EditorImages.swift `FutoAssetSchemeHandler`, ImagePicker.kt,
   liveMarkdownTransform.ts `setLocalImageBaseUrl`
+- The native shells ALSO support clipboard image paste. The native WebView has
+  no `saveImageBytes` (that's a Tauri-desktop FS method), so the embed reads the
+  pasted image bytes and hands them to the host via the `saveImageData` bridge
+  message (base64 + extension); the host decodes and saves them into the vault
+  through the SAME path as the Camera/Image picker, then calls
+  `insertImage(filename)` — so a pasted image is indistinguishable from a picked
+  one (`![](image-…ext)`, stored as a vault blob, no inline base64). Verified
+  end-to-end on the Android emulator 2026-06-22. → editor-embed/main.ts
+  `handleNativeImagePaste`, bridge.ts `SaveImageDataMessage` (contract v4),
+  EditorWebView.kt + ImagePicker.kt `saveImageDataIntoVault` (Android),
+  EditorWebView.swift `saveImageData` + EditorImages.swift `VaultImages.save` (iOS)
+
+> **Gap:** Clipboard image paste is verified on Linux (WebKitGTK), Windows
+> (WebView2), and native Android (emulator, 2026-06-22). Two pieces remain
+> unverified: (1) **macOS** desktop (Tauri/WKWebView) is untested — WKWebView
+> may, like WebKitGTK, hide the bitmap from the JS paste event, in which case
+> the `looksLikeImagePaste` → `fs_paste_clipboard_image` fallback should cover
+> it; (2) **native iOS** has the `saveImageData` host handler implemented
+> (mirrors Android) but is **unverified** (no Mac on hand to build/run). Also,
+> the native paste path only handles an image *file* exposed on the paste event
+> (Android/Chromium exposes one for both screenshot and Copy Image); if iOS
+> WKWebView hides the bitmap the way WebKitGTK does, that shape won't paste
+> until a native clipboard-read bridge is added. To close: test on macOS Tauri
+> and an iOS device/simulator. (recorded 2026-06-22)
 
 ## Code / fence isolation
 

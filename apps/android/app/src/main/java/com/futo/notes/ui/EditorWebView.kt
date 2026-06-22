@@ -58,6 +58,7 @@ fun EditorWebView(
     imageBaseUrl: String? = null,
     onOpenNote: (String) -> Unit = {},
     onPickImage: (String) -> Unit = {},
+    onSaveImageData: (String, String) -> Unit = { _, _ -> },
     onReady: () -> Unit = {},
 ) {
     val context = LocalContext.current
@@ -76,7 +77,8 @@ fun EditorWebView(
     // note before this one's onDispose runs (it would otherwise clobber the
     // newer binding).
     DisposableEffect(Unit) {
-        val token = host.attach(autoFocus, onChange, onReady, onOpenNote, onPickImage)
+        val token =
+            host.attach(autoFocus, onChange, onReady, onOpenNote, onPickImage, onSaveImageData)
         onDispose { host.detach(token) }
     }
 
@@ -113,6 +115,7 @@ class EditorHost private constructor(appContext: Context) {
     private var onReady: () -> Unit = {}
     private var onOpenNote: (String) -> Unit = {}
     private var onPickImage: (String) -> Unit = {}
+    private var onSaveImageData: (String, String) -> Unit = { _, _ -> }
     private var autoFocus = false
 
     // Reactive inputs for the NATIVE Compose toolbar (EditorToolbar.kt), fed by
@@ -241,6 +244,13 @@ class EditorHost private constructor(appContext: Context) {
             // User tapped a toolbar image button; the host runs the native
             // picker and calls back via insertImage [editor.md:121].
             "pickImage" -> onPickImage(msg.optString("source"))
+            // User pasted an image; the embed read the bytes (base64). Decode +
+            // save into the vault off the main thread, then insertImage back.
+            "saveImageData" -> {
+                val data = msg.optString("data")
+                val ext = msg.optString("ext")
+                if (data.isNotEmpty() && ext.isNotEmpty()) onSaveImageData(data, ext)
+            }
         }
     }
 
@@ -253,11 +263,13 @@ class EditorHost private constructor(appContext: Context) {
         onReady: () -> Unit,
         onOpenNote: (String) -> Unit = {},
         onPickImage: (String) -> Unit = {},
+        onSaveImageData: (String, String) -> Unit = { _, _ -> },
     ): Int {
         this.onChange = onChange
         this.onReady = onReady
         this.onOpenNote = onOpenNote
         this.onPickImage = onPickImage
+        this.onSaveImageData = onSaveImageData
         this.autoFocus = autoFocus
         if (isReady) {
             onReady()
@@ -273,6 +285,7 @@ class EditorHost private constructor(appContext: Context) {
         onReady = {}
         onOpenNote = {}
         onPickImage = {}
+        onSaveImageData = { _, _ -> }
         autoFocus = false
         // Leaving the editor screen detaches the WebView without a blur event;
         // clear the flag so a reopened note doesn't flash a stale toolbar.

@@ -35,6 +35,7 @@ import { TOOLBAR_EXEC } from '../lib/markdownToolbar';
 import { getAllNotes, setNotesUniverse } from '../lib/notes.svelte';
 import { resolveWikilink } from '../lib/wikilinks';
 import { preloadImages, setLocalImageBaseUrl } from '../lib/liveMarkdownTransform';
+import { extFromMime, getImageFile } from '../lib/imagePaste';
 import type { NotePreview } from '../types';
 
 // ---------------------------------------------------------------------------
@@ -58,6 +59,45 @@ declare global {
 // Routes to whichever host transport is present (iOS object / Android JSON
 // string); a no-op in a plain browser (Playwright / factory-judge).
 const post = postToHost;
+
+// True when a native host (iOS/Android) is present to service outbound
+// messages. In a plain browser (the marketing-site embed, Playwright,
+// factory-judge) there is none, so pickImage would post into the void and the
+// camera / library toolbar buttons would be dead.
+function hasNativeHost(): boolean {
+  const w = window as unknown as {
+    webkit?: { messageHandlers?: { futoBridge?: unknown } };
+    futoBridge?: unknown;
+  };
+  return Boolean(w.webkit?.messageHandlers?.futoBridge || w.futoBridge);
+}
+
+// Browser fallback for the camera / library buttons when no native host is
+// present: a standard file <input> (the camera variant adds `capture` so
+// phones open the camera directly), reading the chosen file as a data: URL
+// the editor renders inline (resolveImageSrc passes data:/http(s) through).
+function pickImageInBrowser(source: 'camera' | 'library'): void {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/*';
+  if (source === 'camera') input.setAttribute('capture', 'environment');
+  input.style.display = 'none';
+  input.addEventListener('change', () => {
+    const file = input.files?.[0];
+    input.remove();
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        futoEditor.insertImage(reader.result);
+        editor.focus();
+      }
+    };
+    reader.readAsDataURL(file);
+  });
+  document.body.appendChild(input);
+  input.click();
+}
 
 // Initial theme.
 document.documentElement.dataset.theme = 'light';
@@ -151,7 +191,11 @@ toolbar = mount(EmbedToolbar, {
   props: {
     getView: () => editor.getView(),
     onpickimage: (source: 'camera' | 'library') => {
-      post({ type: 'pickImage', source });
+      if (hasNativeHost()) {
+        post({ type: 'pickImage', source });
+      } else {
+        pickImageInBrowser(source);
+      }
     },
     // Collapse chevron: blur the editor so the host's soft keyboard drops;
     // the resulting onfocuschange(false) hides the toolbar.
@@ -161,6 +205,47 @@ toolbar = mount(EmbedToolbar, {
   setFocused: (focused: boolean) => void;
   setCursorContext: (onListLine: boolean) => void;
 };
+
+// ---------------------------------------------------------------------------
+// Clipboard image paste (native shells)
+// ---------------------------------------------------------------------------
+
+// The shared `imagePasteHandler` (inside MarkdownEditor) only fires on Tauri —
+// it needs `getFS().saveImageBytes`, which the native WebView's web FS lacks.
+// So handle paste here: when a native host is present and the paste carries an
+// image file, read its bytes and hand them to the host via `saveImageData`.
+// The host saves into the vault (same path as the Camera/Image picker) and
+// calls `insertImage(filename)` back. Capture phase + stop so CodeMirror's
+// built-in paste doesn't also run. Non-image pastes fall through untouched.
+function handleNativeImagePaste(event: ClipboardEvent): void {
+  if (!hasNativeHost()) return;
+  const clipboardData = event.clipboardData;
+  if (!clipboardData) return;
+  const view = editor.getView();
+  if (!view) return;
+  const target = event.target as Node | null;
+  const inEditor =
+    (target && view.contentDOM.contains(target)) ||
+    view.contentDOM.contains(document.activeElement);
+  if (!inEditor) return;
+
+  const file = getImageFile(clipboardData);
+  if (!file) return;
+
+  event.preventDefault();
+  event.stopImmediatePropagation();
+
+  const reader = new FileReader();
+  reader.onload = () => {
+    if (typeof reader.result !== 'string') return;
+    // readAsDataURL gives "data:<mime>;base64,<bytes>" — strip the prefix.
+    const comma = reader.result.indexOf(',');
+    const data = comma >= 0 ? reader.result.slice(comma + 1) : reader.result;
+    post({ type: 'saveImageData', data, ext: extFromMime(file.type) });
+  };
+  reader.readAsDataURL(file);
+}
+document.addEventListener('paste', handleNativeImagePaste, true);
 
 // ---------------------------------------------------------------------------
 // window.FutoEditor — the surface Swift calls via evaluateJavaScript

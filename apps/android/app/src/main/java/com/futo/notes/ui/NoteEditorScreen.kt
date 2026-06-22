@@ -52,6 +52,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.futo.notes.ImagePicker
 import com.futo.notes.NotesStore
+import com.futo.notes.saveImageDataIntoVault
 import com.futo.notes.saveImageIntoVault
 import com.futo.notes.ui.components.ConfirmDialog
 import com.futo.notes.ui.components.FolderPickerSheet
@@ -231,6 +232,26 @@ fun NoteEditorScreen(
         }
     }
 
+    // Clipboard image paste [editor.md]: the embed posts the pasted bytes
+    // (base64) via the `saveImageData` bridge message → decode + save into the
+    // vault root (IMAGE_EXTENSIONS only) → insertImage back. Same vault
+    // destination as the picker above, so paste and pick are indistinguishable.
+    val saveImageData: (String, String) -> Unit = { base64, ext ->
+        scope.launch {
+            val name = withContext(Dispatchers.IO) {
+                runCatching {
+                    val bytes = android.util.Base64.decode(base64, android.util.Base64.NO_WRAP)
+                    saveImageDataIntoVault(File(store.rootPath), bytes, ext)
+                }.getOrNull()
+            }
+            if (name != null) {
+                host.insertImage(name)
+            } else {
+                Toast.makeText(context, "Couldn't paste image", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     // New note → focus the title so the user can name it immediately.
     val titleFocus = remember { FocusRequester() }
     LaunchedEffect(initialNoteId) {
@@ -328,6 +349,7 @@ fun NoteEditorScreen(
                     modifier = Modifier.fillMaxSize(),
                     onOpenNote = onOpenNote,
                     onPickImage = pickImage,
+                    onSaveImageData = saveImageData,
                     onChange = { newContent ->
                         // Data-loss guard: ignore editor change events until the
                         // off-main initial read has landed (`loaded`). The WebView

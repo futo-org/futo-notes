@@ -1,6 +1,59 @@
 import { describe, expect, it, vi } from 'vitest';
-import { pasteImageIntoView } from './imagePaste';
+import { looksLikeImagePaste, pasteImageIntoView } from './imagePaste';
 import { resolveImageSrc } from './liveMarkdownTransform';
+
+describe('looksLikeImagePaste', () => {
+  const cd = (types: string[], opts: { itemsLen?: number; html?: string } = {}) =>
+    ({
+      types,
+      items: { length: opts.itemsLen ?? types.length },
+      getData: (t: string) => (t === 'text/html' ? (opts.html ?? '') : ''),
+    }) as never;
+
+  it('triggers for a browser "Copy Image" that arrives as a lone text/html <img>', () => {
+    // The reported bug: WebKitGTK/Wayland hands JS only text/html (no file, no
+    // image/* type), so items.length === 1 and the old empty-items gate missed it.
+    expect(
+      looksLikeImagePaste(
+        cd(['text/html'], { itemsLen: 1, html: '<meta charset="utf-8"><img src="https://x/y.jpg">' }),
+      ),
+    ).toBe(true);
+  });
+
+  it('triggers for a screenshot copied to the clipboard (empty items)', () => {
+    expect(looksLikeImagePaste(cd([], { itemsLen: 0 }))).toBe(true);
+  });
+
+  it('triggers when an image/* type is present without a file handle', () => {
+    expect(looksLikeImagePaste(cd(['image/png'], { itemsLen: 1 }))).toBe(true);
+  });
+
+  it('does NOT hijack a plain-text paste', () => {
+    expect(looksLikeImagePaste(cd(['text/plain'], { itemsLen: 1 }))).toBe(false);
+  });
+
+  it('does NOT hijack a rich-text paste (text/plain + text/html)', () => {
+    expect(looksLikeImagePaste(cd(['text/plain', 'text/html'], { itemsLen: 2 }))).toBe(false);
+  });
+
+  it('does NOT hijack a non-image paste with no text/plain (e.g. file uri-list)', () => {
+    expect(looksLikeImagePaste(cd(['text/uri-list'], { itemsLen: 1 }))).toBe(false);
+  });
+
+  it('does NOT hijack a text/html paste with no <img> (rich text without plain text)', () => {
+    expect(
+      looksLikeImagePaste(cd(['text/html'], { itemsLen: 1, html: '<b>bold</b> rich text' })),
+    ).toBe(false);
+  });
+
+  it('does NOT hijack a text/html + text/uri-list paste with no <img>', () => {
+    expect(
+      looksLikeImagePaste(
+        cd(['text/html', 'text/uri-list'], { itemsLen: 2, html: '<a href="file:///x">x</a>' }),
+      ),
+    ).toBe(false);
+  });
+});
 
 describe('pasteImageIntoView', () => {
   it('saves the image, registers the URL, and inserts markdown', async () => {

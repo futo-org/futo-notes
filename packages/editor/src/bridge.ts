@@ -31,8 +31,11 @@
  *      insertImage/setImageBaseUrl; openNote/pickImage outbound messages).
  * - 3: native toolbar (exec/blur/setNativeToolbar; cursorContext outbound
  *      message). Additive — a v2 host can drive a v3 bundle unchanged.
+ * - 4: clipboard image paste (saveImageData outbound message). Additive — a
+ *      host that doesn't handle it just drops the message (paste is a no-op,
+ *      nothing breaks); the toolbar Camera/Image picker is unaffected.
  */
-export const BRIDGE_VERSION = 3 as const;
+export const BRIDGE_VERSION = 4 as const;
 
 /** Editor color theme. */
 export type EditorTheme = 'light' | 'dark';
@@ -161,6 +164,22 @@ export interface CursorContextMessage {
 }
 
 /**
+ * Emitted when the user pastes an image into the editor. The native WebViews
+ * have no `saveImageBytes` of their own (that's a Tauri-desktop FS method), so
+ * the embed reads the pasted image bytes and hands them to the host, which
+ * saves them into the vault root — reusing the SAME save path as the
+ * `pickImage` flow — then calls {@link FutoEditorApi.insertImage} with the
+ * resulting filename. `data` is the image bytes base64-encoded (no `data:`
+ * prefix); `ext` is the lowercased extension from `@futo-notes/shared`
+ * `IMAGE_EXTENSIONS` (e.g. "png", "jpg").
+ */
+export interface SaveImageDataMessage {
+  type: 'saveImageData';
+  data: string;
+  ext: string;
+}
+
+/**
  * Editor → host messages, posted to the host's `futoBridge` message handler.
  * Discriminated on `type`.
  */
@@ -170,7 +189,8 @@ export type FutoEditorOutboundMessage =
   | FocusMessage
   | OpenNoteMessage
   | PickImageMessage
-  | CursorContextMessage;
+  | CursorContextMessage
+  | SaveImageDataMessage;
 
 /**
  * The iOS host message sink: `window.webkit.messageHandlers.futoBridge`, a

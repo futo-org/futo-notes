@@ -9,12 +9,12 @@ import {
 describe('futoBridge contract', () => {
   it('pins the contract version', () => {
     // Bumping this is a deliberate, breaking change — update all three hosts.
-    expect(BRIDGE_VERSION).toBe(3);
+    expect(BRIDGE_VERSION).toBe(4);
   });
 
   it('ready message carries the version', () => {
     const msg: FutoEditorOutboundMessage = { type: 'ready', version: BRIDGE_VERSION };
-    expect(msg).toEqual({ type: 'ready', version: 3 });
+    expect(msg).toEqual({ type: 'ready', version: 4 });
   });
 
   it('outbound messages are a discriminated union over `type`', () => {
@@ -26,6 +26,7 @@ describe('futoBridge contract', () => {
       { type: 'pickImage', source: 'camera' },
       { type: 'pickImage', source: 'library' },
       { type: 'cursorContext', onListLine: true },
+      { type: 'saveImageData', data: 'aGk=', ext: 'png' },
     ];
     expect(msgs.map((m) => m.type)).toEqual([
       'ready',
@@ -35,6 +36,7 @@ describe('futoBridge contract', () => {
       'pickImage',
       'pickImage',
       'cursorContext',
+      'saveImageData',
     ]);
   });
 
@@ -103,6 +105,21 @@ describe('postToHost routing', () => {
     expect(postMessage).toHaveBeenNthCalledWith(
       2,
       JSON.stringify({ type: 'pickImage', source: 'camera' }),
+    );
+  });
+
+  it('serializes a saveImageData (clipboard paste) message for both transports', () => {
+    const ios = vi.fn();
+    g.webkit = { messageHandlers: { futoBridge: { postMessage: ios } } };
+    postToHost({ type: 'saveImageData', data: 'aGk=', ext: 'png' });
+    expect(ios).toHaveBeenCalledWith({ type: 'saveImageData', data: 'aGk=', ext: 'png' });
+    delete g.webkit;
+
+    const android = vi.fn();
+    g.futoBridge = { postMessage: android };
+    postToHost({ type: 'saveImageData', data: 'aGk=', ext: 'png' });
+    expect(android).toHaveBeenCalledWith(
+      JSON.stringify({ type: 'saveImageData', data: 'aGk=', ext: 'png' }),
     );
   });
 

@@ -67,22 +67,61 @@ class ImagePicker(private val activity: ComponentActivity) {
  */
 fun saveImageIntoVault(resolver: ContentResolver, vaultRoot: File, uri: Uri): String? {
     val ext = imageExtension(resolver, uri) ?: return null
-    val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
-    var name = "image-$stamp.$ext"
-    var n = 2
-    while (File(vaultRoot, name).exists()) {
-        name = "image-$stamp-$n.$ext"
-        n++
-    }
+    val dest = reserveImageFile(vaultRoot, ext) ?: return null
     return try {
-        resolver.openInputStream(uri)?.use { input ->
-            File(vaultRoot, name).outputStream().use { input.copyTo(it) }
-        } ?: return null
-        name
+        val input = resolver.openInputStream(uri) ?: run { dest.delete(); return null }
+        input.use { src -> dest.outputStream().use { src.copyTo(it) } }
+        dest.name
     } catch (e: Exception) {
+        dest.delete()
         android.util.Log.e("ImagePicker", "image import failed", e)
         null
     }
+}
+
+/**
+ * Save raw image bytes (from a clipboard paste, decoded from the bridge's
+ * base64 `saveImageData` message) into the vault root under a generated unique
+ * name. Returns the saved filename, or null when [ext] isn't one of
+ * [IMAGE_EXTENSIONS] or the write fails. Blocking I/O — call from Dispatchers.IO.
+ */
+fun saveImageDataIntoVault(vaultRoot: File, data: ByteArray, ext: String): String? {
+    val lowered = ext.lowercase()
+    if (lowered !in IMAGE_EXTENSIONS) return null
+    val dest = reserveImageFile(vaultRoot, lowered) ?: return null
+    return try {
+        dest.writeBytes(data)
+        dest.name
+    } catch (e: Exception) {
+        dest.delete()
+        android.util.Log.e("ImagePicker", "image save failed", e)
+        null
+    }
+}
+
+/**
+ * Atomically reserve a unique `image-<timestamp>[-n].<ext>` file in the vault.
+ * Uses [File.createNewFile] (atomic create-if-absent) so two pastes/picks in
+ * the same second can't pick the same name and clobber each other's bytes.
+ * Returns the reserved (empty) file, or null if it can't be created.
+ */
+private fun reserveImageFile(vaultRoot: File, ext: String): File? {
+    vaultRoot.mkdirs()
+    val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
+    var name = "image-$stamp.$ext"
+    var n = 2
+    repeat(10_000) {
+        val f = File(vaultRoot, name)
+        try {
+            if (f.createNewFile()) return f
+        } catch (e: Exception) {
+            android.util.Log.e("ImagePicker", "reserve image file failed", e)
+            return null
+        }
+        name = "image-$stamp-$n.$ext"
+        n++
+    }
+    return null
 }
 
 private fun imageExtension(resolver: ContentResolver, uri: Uri): String? {
