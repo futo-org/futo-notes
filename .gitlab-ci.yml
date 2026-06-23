@@ -26,6 +26,7 @@ stages:
   - build
   - verify
   - release
+  - trigger
 
 # ─────────────────────────────────────────────────────────────
 # Reusable script fragments
@@ -1448,5 +1449,54 @@ release:
         --assets-link "{\"name\":\"FUTO-Notes-${VERSION}.ipa\",\"url\":\"${REGISTRY_URL}/FUTO-Notes-${VERSION}.ipa\",\"link_type\":\"package\"}" \
         --assets-link "{\"name\":\"FUTO-Notes-${VERSION}-aarch64.dmg\",\"url\":\"${REGISTRY_URL}/FUTO-Notes-${VERSION}-aarch64.dmg\",\"link_type\":\"package\"}" \
         --assets-link "{\"name\":\"FUTO-Notes-${VERSION}-x64-setup.exe\",\"url\":\"${REGISTRY_URL}/FUTO-Notes-${VERSION}-x64-setup.exe\",\"link_type\":\"package\"}"
+  rules:
+    - if: $CI_COMMIT_TAG
+
+# ─────────────────────────────────────────────────────────────
+# Publish to the FUTO Linux package repo (pkg.futoinfra.com)
+# ─────────────────────────────────────────────────────────────
+# After `release` has uploaded the .deb/.rpm to the GitLab generic package
+# registry, hand the same URLs off to the FUTO packaging pipeline so it can
+# ingest them into the apt/yum repo. Two jobs: a prep job that computes the
+# version + the exact registry URLs (matching `release`'s NAME scheme) and
+# emits them as dotenv, and a multi-project trigger that passes them to
+# devops/cloudflare/pkg.futoinfra.com on main. The trigger keyword
+# authenticates via CI_JOB_TOKEN; the target project allowlists this project.
+
+pkg-futoinfra:prep:
+  stage: trigger
+  needs:
+    - job: release
+  before_script: []
+  script:
+    - |
+      VERSION="${CI_COMMIT_TAG#v}"
+      REGISTRY_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/futo-notes/${CI_COMMIT_TAG}"
+      {
+        echo "PKG_VERSION=${VERSION}"
+        echo "PKG_DEB_URLS=${REGISTRY_URL}/futo-notes_${VERSION}_amd64.deb"
+        echo "PKG_RPM_URLS=${REGISTRY_URL}/futo-notes-${VERSION}-1.x86_64.rpm"
+      } > pkg.env
+      echo "=== pkg.futoinfra.com trigger vars ==="
+      cat pkg.env
+  artifacts:
+    reports:
+      dotenv: pkg.env
+  rules:
+    - if: $CI_COMMIT_TAG
+
+pkg-futoinfra:trigger:
+  stage: trigger
+  needs:
+    - job: pkg-futoinfra:prep
+      artifacts: true
+  variables:
+    BINARY: futo-notes
+    VERSION: $PKG_VERSION
+    DEB_URLS: $PKG_DEB_URLS
+    RPM_URLS: $PKG_RPM_URLS
+  trigger:
+    project: devops/cloudflare/pkg.futoinfra.com
+    branch: main
   rules:
     - if: $CI_COMMIT_TAG
