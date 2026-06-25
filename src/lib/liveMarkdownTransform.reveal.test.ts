@@ -6,6 +6,7 @@ import {
   isBlockRevealSensitive,
   isInlineRevealSensitive,
   selectionTouchesRange,
+  selectionWithinMarkerRange,
   setSuppressSelectionReveal,
   shouldHideHeaderTagBlock,
   shouldSkipBlockDecorations,
@@ -71,5 +72,50 @@ describe('liveMarkdownTransform reveal helpers', () => {
   it('hides header tag blocks only when the cursor is outside the block', () => {
     expect(shouldHideHeaderTagBlock(2, new Set([3]))).toBe(true);
     expect(shouldHideHeaderTagBlock(2, new Set([2]))).toBe(false);
+  });
+
+  describe('selectionWithinMarkerRange (list/task marker reveal)', () => {
+    // Marker source range is half-open [markerStart, contentStart): a caret
+    // strictly inside reveals the raw `-`/`- [ ]`/`N.` marker; a caret AT
+    // contentStart re-renders the bullet/checkbox widget. This mirrors
+    // Obsidian's live-preview reveal exactly (ground-truthed via the factory).
+    it('reveals a bullet `- ` marker (range 0..2) only at ch 0 and 1', () => {
+      const within = (ch: number) =>
+        selectionWithinMarkerRange(true, [{ from: ch, to: ch }], 0, 2);
+      expect(within(0)).toBe(true); // on the dash
+      expect(within(1)).toBe(true); // between dash and space
+      expect(within(2)).toBe(false); // content start → render bullet
+      expect(within(7)).toBe(false); // deep in the word → render bullet
+    });
+
+    it('reveals a task `- [ ] ` marker (range 0..6) for ch 0..5, renders at 6+', () => {
+      const within = (ch: number) =>
+        selectionWithinMarkerRange(true, [{ from: ch, to: ch }], 0, 6);
+      for (const ch of [0, 1, 2, 3, 4, 5]) expect(within(ch)).toBe(true);
+      expect(within(6)).toBe(false); // content start → render checkbox
+      expect(within(9)).toBe(false); // in the word → render checkbox
+    });
+
+    it('does not reveal when the editor is unfocused', () => {
+      expect(selectionWithinMarkerRange(false, [{ from: 1, to: 1 }], 0, 2)).toBe(false);
+    });
+
+    it('reveals when a non-empty selection overlaps the marker (half-open)', () => {
+      // selection [3,9) overlaps [0,6) → reveal
+      expect(selectionWithinMarkerRange(true, [{ from: 3, to: 9 }], 0, 6)).toBe(true);
+      // selection [6,9) starts at contentStart, does NOT overlap [0,6) → render
+      expect(selectionWithinMarkerRange(true, [{ from: 6, to: 9 }], 0, 6)).toBe(false);
+    });
+
+    it('suppresses reveal during an active mouse drag', () => {
+      setSuppressSelectionReveal(true);
+      expect(selectionWithinMarkerRange(true, [{ from: 1, to: 1 }], 0, 2)).toBe(false);
+    });
+
+    it('uses frozen selection ranges while frozen', () => {
+      freezeSelectionReveal(true, [{ from: 1, to: 1 }]);
+      // live ranges say content (ch 7), frozen says marker (ch 1) → reveal
+      expect(selectionWithinMarkerRange(true, [{ from: 7, to: 7 }], 0, 2)).toBe(true);
+    });
   });
 });

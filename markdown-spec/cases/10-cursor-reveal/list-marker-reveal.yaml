@@ -1,0 +1,118 @@
+# Obsidian-parity: a list/task marker reveals its raw source while the caret
+# sits WITHIN the marker (`- `, `- [ ] `, `N. `, `N. [ ] `) and re-renders the
+# bullet / number / checkbox widget the moment the caret crosses into the
+# content. Ground-truthed against Obsidian 1.12.7 via the factory.
+
+# ---- Bullet -----------------------------------------------------------------
+- name: bullet-marker-revealed-caret-on-marker
+  complexity: 40
+  markdown: |
+    - Hello world
+    second line
+  cursor: { line: 0, ch: 0 }
+  expect:
+    widgets:
+      - class: cm-md-bullet
+        count: 0
+    visible_text_contains: "- Hello"
+    visible_text_excludes: "•"
+
+- name: bullet-marker-rendered-caret-in-content
+  complexity: 40
+  markdown: |
+    - Hello world
+    second line
+  cursor: { line: 0, ch: 7 }
+  expect:
+    widgets:
+      - class: cm-md-bullet
+        count: 1
+    visible_text_contains: "•"
+    visible_text_excludes: "- Hello"
+
+- name: bullet-marker-rendered-when-unfocused
+  complexity: 30
+  markdown: "- Hello world"
+  cursor: null
+  expect:
+    widgets:
+      - class: cm-md-bullet
+        count: 1
+
+# ---- Task -------------------------------------------------------------------
+- name: task-marker-revealed-caret-in-marker
+  complexity: 45
+  markdown: |
+    - [ ] Buy milk
+    second line
+  cursor: { line: 0, ch: 2 }
+  expect:
+    widgets:
+      - class: cm-md-task-checkbox
+        count: 0
+    visible_text_contains: "[ ]"
+
+- name: task-marker-rendered-caret-in-content
+  complexity: 45
+  markdown: |
+    - [ ] Buy milk
+    second line
+  cursor: { line: 0, ch: 9 }
+  expect:
+    widgets:
+      - class: cm-md-task-checkbox
+        count: 1
+    visible_text_excludes: "[ ]"
+
+- name: task-marker-boundary-renders-at-content-start
+  complexity: 50
+  # Caret exactly at content start (ch 6, the "B") must render the checkbox,
+  # not reveal — the marker range is half-open [0, 6).
+  markdown: |
+    - [ ] Buy milk
+    second line
+  cursor: { line: 0, ch: 6 }
+  expect:
+    widgets:
+      - class: cm-md-task-checkbox
+        count: 1
+    visible_text_excludes: "[ ]"
+
+# ---- Movement path: the user's exact repro --------------------------------
+# Cursor in the word, ArrowLeft repeatedly until it steps onto the marker,
+# at which point the rendered checkbox turns into raw `- [ ] ` text.
+- name: task-arrowleft-into-marker-reveals
+  complexity: 55
+  markdown: |
+    - [ ] Buy milk
+    second line
+  start_cursor: { line: 0, ch: 9 }
+  moves: [ArrowLeft, ArrowLeft, ArrowLeft, ArrowLeft]
+  checkpoints:
+    - after: 1
+      line: 0
+      visible_text_excludes: "[ ]"   # ch 8 — still in content, checkbox shown
+    - after: 4
+      line: 0
+      visible_text_contains: "[ ]"   # ch 5 — inside marker, source revealed
+  expect_final:
+    line: 0
+    ch: 5
+
+- name: bullet-arrowleft-into-marker-reveals
+  complexity: 50
+  markdown: |
+    - Hello world
+    second line
+  start_cursor: { line: 0, ch: 4 }
+  moves: [ArrowLeft, ArrowLeft, ArrowLeft, ArrowLeft]
+  checkpoints:
+    - after: 1
+      line: 0
+      visible_text_contains: "•"     # ch 3 — content, bullet glyph shown
+    - after: 4
+      line: 0
+      visible_text_contains: "- Hello"  # ch 0 — marker revealed
+  expect_final:
+    line: 0
+    ch: 0

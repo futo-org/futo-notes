@@ -566,19 +566,31 @@ export function isInlineRevealSensitive(nodeName: string): boolean {
   return /^(Link|Image|Task)/.test(nodeName);
 }
 
+// The cross-cutting reveal gate: honors the pointer-down frozen-selection
+// override, drag suppression, and the focus requirement. Returns the ranges
+// that should be tested for an intersection, or null when reveal is off
+// regardless of geometry. Single-source so selectionTouchesRange (closed) and
+// selectionWithinMarkerRange (half-open) can't drift on the gate logic.
+function effectiveRevealRanges(
+  hasFocus: boolean,
+  ranges: readonly SelectionRangeLike[]
+): readonly SelectionRangeLike[] | null {
+  if (frozenSelectionReveal) {
+    return frozenSelectionReveal.hasFocus ? frozenSelectionReveal.ranges : null;
+  }
+  if (suppressSelectionReveal) return null;
+  if (!hasFocus) return null;
+  return ranges;
+}
+
 export function selectionTouchesRange(
   hasFocus: boolean,
   ranges: readonly SelectionRangeLike[],
   from: number,
   to: number
 ): boolean {
-  if (frozenSelectionReveal) {
-    if (!frozenSelectionReveal.hasFocus) return false;
-    return selectionIntersectsRange(frozenSelectionReveal.ranges, from, to);
-  }
-  if (suppressSelectionReveal) return false;
-  if (!hasFocus) return false;
-  return selectionIntersectsRange(ranges, from, to);
+  const eff = effectiveRevealRanges(hasFocus, ranges);
+  return eff !== null && selectionIntersectsRange(eff, from, to);
 }
 
 export function selectionIntersectsRange(
@@ -594,6 +606,38 @@ export function selectionIntersectsRange(
       continue;
     }
     if (range.from < to && range.to > from) return true;
+  }
+  return false;
+}
+
+// Obsidian reveals a list/task marker's raw source only while the caret
+// (or a selection) lies *within* the marker range — half-open
+// `[markerStart, contentStart)`. A caret exactly at contentStart renders
+// the bullet/number/checkbox widget again. This is stricter than
+// `selectionTouchesRange` (used for inline `*`/`**` markers), which treats a
+// caret at *either* boundary as touching: a list marker must re-render the
+// moment the caret steps onto the first content character.
+export function selectionWithinMarkerRange(
+  hasFocus: boolean,
+  ranges: readonly SelectionRangeLike[],
+  markerStart: number,
+  contentStart: number
+): boolean {
+  const eff = effectiveRevealRanges(hasFocus, ranges);
+  return eff !== null && rangesIntersectHalfOpen(eff, markerStart, contentStart);
+}
+
+function rangesIntersectHalfOpen(
+  ranges: readonly SelectionRangeLike[],
+  start: number,
+  end: number
+): boolean {
+  for (const range of ranges) {
+    if (range.from === range.to) {
+      if (range.from >= start && range.from < end) return true;
+      continue;
+    }
+    if (range.from < end && range.to > start) return true;
   }
   return false;
 }
@@ -1677,28 +1721,43 @@ class LiveMarkdownPlugin implements PluginValue {
       const checked = unorderedTaskMatch[2];
       const fullMarkerLen = unorderedTaskMatch[0].length;
       const contentStart = from + fullMarkerLen;
+      const revealed = selectionWithinMarkerRange(
+        view.hasFocus, view.state.selection.ranges, from, contentStart
+      );
 
-      // Hide bullet and checkbox syntax. `wrapInsideMark` flags this
-      // replace as a list-marker hide so the clip-mark pass doesn't
-      // split surrounding mark spans (e.g. the enclosing blockquote
-      // text class) around it — Obsidian's DOM nests the bullet
-      // inside the quote span.
-      decorations.push({
-        from,
-        to: contentStart,
-        value: { replace: true, wrapInsideMark: true }
-      });
+      if (revealed) {
+        // Caret/selection is inside the marker: show the raw `- [ ] `
+        // source (dimmed), no checkbox widget — matches Obsidian, which
+        // reveals the marker when the caret steps onto it and re-renders
+        // the checkbox once it crosses into the content.
+        decorations.push({
+          from,
+          to: contentStart,
+          value: { class: 'cm-md-inline-marker' }
+        });
+      } else {
+        // Hide bullet and checkbox syntax. `wrapInsideMark` flags this
+        // replace as a list-marker hide so the clip-mark pass doesn't
+        // split surrounding mark spans (e.g. the enclosing blockquote
+        // text class) around it — Obsidian's DOM nests the bullet
+        // inside the quote span.
+        decorations.push({
+          from,
+          to: contentStart,
+          value: { replace: true, wrapInsideMark: true }
+        });
 
-      // Add checkbox widget
-      const checkbox = new TaskCheckboxWidget(checked === 'x' || checked === 'X');
-      decorations.push({
-        from,
-        to: from,
-        value: {
-          widget: checkbox,
-          side: -1
-        }
-      });
+        // Add checkbox widget
+        const checkbox = new TaskCheckboxWidget(checked === 'x' || checked === 'X');
+        decorations.push({
+          from,
+          to: from,
+          value: {
+            widget: checkbox,
+            side: -1
+          }
+        });
+      }
 
       // Add className to content (not empty range)
       if (contentStart < lineEnd) {
@@ -1725,35 +1784,47 @@ class LiveMarkdownPlugin implements PluginValue {
       const checked = orderedTaskMatch[2];
       const fullMarkerLen = orderedTaskMatch[0].length;
       const contentStart = from + fullMarkerLen;
+      const revealed = selectionWithinMarkerRange(
+        view.hasFocus, view.state.selection.ranges, from, contentStart
+      );
 
-      // Hide number, dot, and checkbox syntax — see wrapInsideMark
-      // note above; the same nesting logic applies here.
-      decorations.push({
-        from,
-        to: contentStart,
-        value: { replace: true, wrapInsideMark: true }
-      });
+      if (revealed) {
+        // Reveal raw `N. [ ] ` source (dimmed), no number/checkbox widgets.
+        decorations.push({
+          from,
+          to: contentStart,
+          value: { class: 'cm-md-inline-marker' }
+        });
+      } else {
+        // Hide number, dot, and checkbox syntax — see wrapInsideMark
+        // note above; the same nesting logic applies here.
+        decorations.push({
+          from,
+          to: contentStart,
+          value: { replace: true, wrapInsideMark: true }
+        });
 
-      // Add number widget
-      decorations.push({
-        from,
-        to: from,
-        value: {
-          widget: new NumberWidget(num, indentLevel),
-          side: -1
-        }
-      });
+        // Add number widget
+        decorations.push({
+          from,
+          to: from,
+          value: {
+            widget: new NumberWidget(num, indentLevel),
+            side: -1
+          }
+        });
 
-      // Add checkbox widget after number
-      const checkbox = new TaskCheckboxWidget(checked === 'x' || checked === 'X');
-      decorations.push({
-        from,
-        to: from,
-        value: {
-          widget: checkbox,
-          side: -1
-        }
-      });
+        // Add checkbox widget after number
+        const checkbox = new TaskCheckboxWidget(checked === 'x' || checked === 'X');
+        decorations.push({
+          from,
+          to: from,
+          value: {
+            widget: checkbox,
+            side: -1
+          }
+        });
+      }
 
       // Add className to content
       if (contentStart < lineEnd) {
@@ -1778,22 +1849,36 @@ class LiveMarkdownPlugin implements PluginValue {
     if (bulletMatch) {
       const fullMarkerLen = bulletMatch[0].length;
       const contentStart = from + fullMarkerLen;
+      const revealed = selectionWithinMarkerRange(
+        view.hasFocus, view.state.selection.ranges, from, contentStart
+      );
 
-      // Replace ONLY the marker character with the bullet widget; leave
-      // the trailing whitespace in the document. Without that real text
-      // node, Android Chrome can't position its DOM selection between
-      // the widget and the bullet text — the caret anchors at the line's
-      // left edge regardless of CM6's actual selection state. (See
-      // bug-f80730c4 from 2026-05-01.)
-      decorations.push({
-        from,
-        to: from + 1,
-        value: {
-          widget: new BulletWidget(indentLevel),
-          // Decoration.replace + widget is a point widget; no `side`
-          // override — CM6 places it where the replaced range was.
-        }
-      });
+      if (revealed) {
+        // Caret is on the marker: reveal the raw `-`/`*`/`+` (dimmed)
+        // instead of the bullet glyph — matches Obsidian, which shows the
+        // dash while the caret sits before the first content character.
+        decorations.push({
+          from,
+          to: from + 1,
+          value: { class: 'cm-md-inline-marker' }
+        });
+      } else {
+        // Replace ONLY the marker character with the bullet widget; leave
+        // the trailing whitespace in the document. Without that real text
+        // node, Android Chrome can't position its DOM selection between
+        // the widget and the bullet text — the caret anchors at the line's
+        // left edge regardless of CM6's actual selection state. (See
+        // bug-f80730c4 from 2026-05-01.)
+        decorations.push({
+          from,
+          to: from + 1,
+          value: {
+            widget: new BulletWidget(indentLevel),
+            // Decoration.replace + widget is a point widget; no `side`
+            // override — CM6 places it where the replaced range was.
+          }
+        });
+      }
 
       // Add className to content
       if (contentStart < lineEnd) {
@@ -1819,14 +1904,26 @@ class LiveMarkdownPlugin implements PluginValue {
       const num = parseInt(orderedMatch[1]);
       const fullMarkerLen = orderedMatch[0].length;
       const contentStart = from + fullMarkerLen;
+      const revealed = selectionWithinMarkerRange(
+        view.hasFocus, view.state.selection.ranges, from, contentStart
+      );
 
-      // Replace `N. ` source text with the number widget in a single
-      // decoration so its DOM element maps to from..contentStart.
-      decorations.push({
-        from,
-        to: contentStart,
-        value: { widget: new NumberWidget(num, indentLevel) }
-      });
+      if (revealed) {
+        // Reveal raw `N. ` source (dimmed) instead of the number widget.
+        decorations.push({
+          from,
+          to: contentStart,
+          value: { class: 'cm-md-inline-marker' }
+        });
+      } else {
+        // Replace `N. ` source text with the number widget in a single
+        // decoration so its DOM element maps to from..contentStart.
+        decorations.push({
+          from,
+          to: contentStart,
+          value: { widget: new NumberWidget(num, indentLevel) }
+        });
+      }
 
       // Add className to content
       if (contentStart < lineEnd) {
