@@ -56,23 +56,19 @@ new-note affordances.
 - The FAB creates an "Untitled" note in the current folder (the vault root when
   "All notes" is selected) and opens it with the title autofocused. →
   NoteListScreen.kt
-- The Tauri mobile shell matches: both "+ New" and Quick capture open the new
-  note with the **title** focused and "Untitled" select-all'd so typing
-  replaces it immediately (desktop keeps body focus; the wikilink-to-missing-
-  note create path keeps body focus everywhere). Verified on Android Tauri
-  2026-06-09. → noteSession.svelte.ts `loadNote('new')`, NotesShell.svelte
-  `focusTitle`
+- On mobile-width shells, "+ New" opens the note with the **title** focused and
+  "Untitled" select-all'd so typing replaces it immediately. Desktop keeps body
+  focus; the wikilink-to-missing-note create path keeps body focus everywhere.
+  → noteSession.svelte.ts `loadNote('new')`, NotesShell.svelte `focusTitle`
 
 ## Note actions (menu)
 
 - An open note's overflow menu offers: **Graph view** (stub — toast
   "coming soon"), **Copy file path** (full filesystem path to clipboard),
-  **Move to folder**, **Delete note**. The same menu appears on desktop and
-  Tauri mobile. → NotesShell.svelte note menu
+  **Move to folder**, **Delete note**. → NotesShell.svelte note menu
 - "Move to folder" opens a folder picker (root "Notes" + folder tree, nesting
   shown); picking a destination moves the file, keeps the note open under its
-  new id, and rewrites backlinks. Verified on Android Tauri 2026-06-09. →
-  FolderPickerModal.svelte
+  new id, and rewrites backlinks. → FolderPickerModal.svelte
 - "Delete note" asks for confirmation ("This action cannot be undone."), then
   deletes **permanently** — there is no trash in the UI flow. Deleting the
   only note in a folder prunes now-empty ancestor folders. →

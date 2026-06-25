@@ -8,10 +8,6 @@ use std::collections::HashMap;
 // ---------------------------------------------------------------------------
 
 /// Default target tokens per chunk (used by [`chunk_content`]).
-///
-/// SPLADE callers should use [`chunk_content_with_target`] with ~400 so chunks
-/// fit inside DistilBERT's 512-WordPiece-token cap (word-count × 1.3 ≈ 520
-/// WordPiece tokens worst case).
 const TARGET_TOKENS: usize = 900;
 
 /// Overlap ratio between adjacent chunks.
@@ -99,8 +95,7 @@ pub fn chunk_content(content: &str) -> Vec<Chunk> {
 }
 
 /// Same as [`chunk_content`] but with a configurable target token count per
-/// chunk. SPLADE callers pass ~400 to keep chunks under DistilBERT's 512-token
-/// position-embedding cap.
+/// chunk.
 pub fn chunk_content_with_target(content: &str, target_tokens: usize) -> Vec<Chunk> {
     if content.is_empty() {
         return vec![];

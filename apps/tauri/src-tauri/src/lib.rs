@@ -1,8 +1,6 @@
 pub mod core;
 pub mod notes;
 pub mod search;
-#[cfg(any(target_os = "android", test))]
-mod android_logcat;
 mod panic_reporter;
 mod sync;
 mod sync_state;
@@ -78,37 +76,6 @@ fn linux_color_scheme_watcher(app: tauri::AppHandle) {
     let _ = child.kill();
 }
 
-/// Point ORT at the libonnxruntime.so we ship alongside the binary. Called
-/// from the Tauri setup hook before any `Session::builder()` call, so
-/// `ort::init` dlopens the right .so. Checks, in order:
-///   1. Sibling of the current exe — covers AppImage (`usr/bin/` next to the
-///      binary) and dev (`target/{debug,release}/` via fetch-ort-linux.mjs).
-///   2. `<exe_dir>/../lib/futo-notes/libonnxruntime.so` — .deb/.rpm install
-///      layout (`/usr/bin/futo-notes-tauri` → `/usr/lib/futo-notes/...`).
-///
-/// Respects ORT_DYLIB_PATH if the user has already set it.
-#[cfg(target_os = "linux")]
-fn init_ort_dylib_path() {
-    if std::env::var_os("ORT_DYLIB_PATH").is_some() {
-        return;
-    }
-    let Ok(exe) = std::env::current_exe() else {
-        return;
-    };
-    let Some(dir) = exe.parent() else {
-        return;
-    };
-    for cand in [
-        dir.join("libonnxruntime.so"),
-        dir.join("../lib/futo-notes/libonnxruntime.so"),
-    ] {
-        if cand.exists() {
-            std::env::set_var("ORT_DYLIB_PATH", cand);
-            return;
-        }
-    }
-}
-
 /// Raise the file-descriptor soft limit. iOS defaults to 256 which is too low
 /// for a WebView app that also reads/writes thousands of note files during sync.
 #[cfg(unix)]
@@ -125,7 +92,6 @@ fn raise_fd_limit() {
     }
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[cfg(unix)]
     raise_fd_limit();
@@ -151,21 +117,6 @@ pub fn run() {
             if let Ok(root) = core::notes_root(_app.handle()) {
                 let crashlogs = root.join(".crashlogs");
                 panic_reporter::install(crashlogs.clone());
-                // On Android, also tail the system logcat for evidence of a
-                // native crash from the previous session and queue it as a
-                // CrashReport. Catches what window.onerror and panic::set_hook
-                // miss: Java FATAL EXCEPTIONs and visible-to-UID native crashes.
-                #[cfg(target_os = "android")]
-                {
-                    let _ = std::thread::Builder::new()
-                        .name("logcat-crash-scan".into())
-                        .spawn(move || {
-                            android_logcat::capture_previous_native_crash(
-                                &crashlogs,
-                                "com.futo.notes",
-                            );
-                        });
-                }
             }
             #[cfg(desktop)]
             {
@@ -179,38 +130,10 @@ pub fn run() {
                     ))?;
                 }
             }
-            // On iOS, extend the webview edge-to-edge so CSS env(safe-area-inset-*)
-            // reports correct values and the app fills the full screen.
-            #[cfg(target_os = "ios")]
-            {
-                let webview = _app.get_webview_window("main").unwrap();
-                webview
-                    .with_webview(move |wv| {
-                        use objc2::msg_send;
-                        use objc2::runtime::AnyObject;
-                        unsafe {
-                            let wk: *mut AnyObject = wv.inner().cast();
-                            // WKWebView.scrollView
-                            let scroll_view: *mut AnyObject = msg_send![wk, scrollView];
-                            // UIScrollView.contentInsetAdjustmentBehavior = .never (2)
-                            let _: () =
-                                msg_send![scroll_view, setContentInsetAdjustmentBehavior: 2_isize];
-                            // Get the WKWebView's superview (the view controller's view)
-                            let superview: *mut AnyObject = msg_send![wk, superview];
-                            if !superview.is_null() {
-                                // Set insetsLayoutMarginsFromSafeArea = NO
-                                let _: () =
-                                    msg_send![superview, setInsetsLayoutMarginsFromSafeArea: false];
-                            }
-                        }
-                    })
-                    .unwrap();
-            }
             // On Linux, disable native GTK decorations so the frontend can
             // render its own Breeze-style titlebar consistently across DEs.
             #[cfg(target_os = "linux")]
             {
-                init_ort_dylib_path();
                 if let Some(w) = _app.get_webview_window("main") {
                     w.set_decorations(false)?;
                 }
@@ -228,8 +151,6 @@ pub fn run() {
             search::init_on_startup(_app.handle());
             Ok(())
         })
-        // `show_soft_keyboard` / `haptic_impact` resolve to their per-target
-        // `#[cfg]` variant.
         .invoke_handler(tauri::generate_handler![
             fs_list_notes_with_meta,
             fs_save_image,
@@ -249,8 +170,6 @@ pub fn run() {
             sync::e2ee_start_live,
             sync::e2ee_stop_live,
             sync::e2ee_note_changed,
-            show_soft_keyboard,
-            haptic_impact,
             // ── Note CRUD (futo-notes-model::crud, Phase 1) ──
             notes::notes_scan,
             notes::notes_scan_folders,
@@ -265,7 +184,7 @@ pub fn run() {
             notes::notes_delete_to_trash,
             notes::notes_rename_folder,
             notes::notes_delete_folder,
-            // ── Shared full-text search: Tantivy BM25 + SPLADE (Phase 2) ──
+            // ── Shared full-text search: Tantivy BM25 ──
             search::search_query,
             search::search_status,
             search::search_rebuild,

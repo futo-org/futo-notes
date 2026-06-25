@@ -15,109 +15,15 @@ function detectPlatform(): PlatformName {
 export const platformName: PlatformName = detectPlatform();
 export const isTauri = platformName === 'tauri';
 
-function detectMobileDevice(): boolean {
-  if (typeof navigator === 'undefined') return false;
-  return /android|iphone|ipad|ipod/i.test(navigator.userAgent);
-}
-
-const tauriMobile = isTauri && detectMobileDevice();
-export const isDesktop = isTauri && !tauriMobile;
-export const isMobile = tauriMobile;
+export const isDesktop = isTauri;
+export const isMobile = false;
 export const isLinux = typeof navigator !== 'undefined' && /\blinux\b/i.test(navigator.userAgent);
-export const isAndroid =
-  isTauri && typeof navigator !== 'undefined' && /android/i.test(navigator.userAgent);
-export const isIOS =
-  isTauri &&
-  typeof navigator !== 'undefined' &&
-  /iphone|ipad|ipod/i.test(navigator.userAgent);
+export const isIOS = false;
 // "Apple platform" — true on macOS desktop and on iOS hardware keyboards.
 // Used to route ⌘ vs Ctrl in keyboard shortcuts. For desktop-only checks
 // (titlebar styling, traffic-light insets) gate on `isDesktop && isMac`.
 export const isMac =
   typeof navigator !== 'undefined' && /Mac|iPhone|iPad/i.test(navigator.userAgent);
-
-let softKeyboardPrimer: HTMLInputElement | null = null;
-
-function removeSoftKeyboardPrimer(): void {
-  const primer = softKeyboardPrimer;
-  softKeyboardPrimer = null;
-  if (!primer) return;
-
-  requestAnimationFrame(() => {
-    if (document.activeElement === primer) primer.blur();
-    primer.remove();
-  });
-}
-
-/**
- * Preserve iOS' tap-triggered keyboard activation across async navigation.
- *
- * WKWebView only opens the software keyboard when focus happens during a user
- * gesture. Creating a new note has to flush/save and route before the editor
- * exists, so the eventual CodeMirror `.focus()` happens too late. Focusing a
- * small input synchronously during the tap opens the keyboard; the later
- * editor focus then inherits that active keyboard session.
- */
-export function primeSoftKeyboardForProgrammaticFocus(): void {
-  if (!isIOS || typeof document === 'undefined') return;
-  if (softKeyboardPrimer?.isConnected) {
-    softKeyboardPrimer.focus({ preventScroll: true });
-    return;
-  }
-
-  const primer = document.createElement('input');
-  primer.type = 'text';
-  primer.setAttribute('aria-hidden', 'true');
-  primer.setAttribute('data-futo-keyboard-primer', 'true');
-  primer.setAttribute('inputmode', 'text');
-  primer.tabIndex = -1;
-  primer.autocapitalize = 'off';
-  primer.autocomplete = 'off';
-  primer.spellcheck = false;
-  primer.style.cssText = [
-    'position: fixed',
-    'left: 50%',
-    'bottom: 0',
-    'width: 32px',
-    'height: 32px',
-    'opacity: 0.01',
-    'border: 0',
-    'padding: 0',
-    'margin: 0',
-    'font-size: 16px',
-    'background: transparent',
-    'color: transparent',
-    'caret-color: transparent',
-    'transform: translateX(-50%)',
-    'z-index: 2147483647',
-  ].join('; ');
-
-  document.body.appendChild(primer);
-  softKeyboardPrimer = primer;
-  primer.focus({ preventScroll: true });
-}
-
-/**
- * Raise the soft keyboard / IME for the focused webview. No-op on desktop.
- * Wraps the `show_soft_keyboard` Tauri command, which on Android calls
- * `InputMethodManager.showSoftInput` via JNI and on iOS calls
- * `becomeFirstResponder` on the WKWebView.
- *
- * Use after a programmatic `.focus()` on the editor or any contenteditable
- * — both Android Chrome and iOS WKWebView gate keyboard display on a real
- * user gesture, so non-gesture focus needs this hint.
- */
-export async function showSoftKeyboard(): Promise<void> {
-  if (!isAndroid && !isIOS) return;
-  removeSoftKeyboardPrimer();
-  try {
-    const { invoke } = await import('@tauri-apps/api/core');
-    await invoke('show_soft_keyboard');
-  } catch {
-    // Best-effort: a missing or failing native IME call should never break
-    // the calling flow. The user can still tap to bring up the keyboard.
-  }
-}
 
 // Lazy-loaded platform filesystem implementation
 let _fs: PlatformFS | null = null;

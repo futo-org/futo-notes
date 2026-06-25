@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte';
   import { portal } from '$lib/util/portal';
-  import { isMobile, showSoftKeyboard } from '$lib/platform';
+  import { isMobile } from '$lib/platform';
 
   interface Props {
     /** Pre-filled value (used by the rename modal). */
@@ -32,7 +32,6 @@
   onMount(() => {
     inputEl?.focus();
     inputEl?.select();
-    if (isMobile) void showSoftKeyboard();
   });
 
   async function handleSubmit(): Promise<void> {

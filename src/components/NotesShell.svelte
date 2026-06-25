@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { hasFileSystem, isMobile, isDesktop, isTauri, isMac, primeSoftKeyboardForProgrammaticFocus, showSoftKeyboard } from '$lib/platform';
+  import { hasFileSystem, isMobile, isDesktop, isTauri, isMac } from '$lib/platform';
   import { setContext } from 'svelte';
   import { createAppContext, APP_CONTEXT_KEY } from '$lib/appContext.svelte';
   import { createTouchSwipe } from '$lib/touchSwipe.svelte';
@@ -327,7 +327,6 @@
 
 
   async function createNewNote(): Promise<void> {
-    primeSoftKeyboardForProgrammaticFocus();
     if (isMobile) setDrawerOpen(false);
     await session.flushSave();
     tabsStore.openNote('new', 'current');
@@ -340,7 +339,6 @@
    * instead of the root.
    */
   async function createNewNoteInFolder(folderPath: string): Promise<void> {
-    primeSoftKeyboardForProgrammaticFocus();
     if (isMobile) setDrawerOpen(false);
     await session.flushSave();
     const tab = tabsStore.openNote('new', 'current');
@@ -409,9 +407,6 @@
       editor.placeCaretAtEnd();
     }
     editor.focus();
-    // Android: explicitly raise the IME so the keyboard appears even when
-    // the focus came from JS rather than the system tap-on-EditText path.
-    void showSoftKeyboard();
   }
 
 

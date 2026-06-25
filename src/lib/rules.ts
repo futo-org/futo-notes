@@ -4,14 +4,11 @@
  * `@futo-notes/editor`, which is kept bit-for-bit identical to the Rust
  * `futo-notes-model` rules by the conformance harness.
  *
- * Why a shim (migration plan, Phase 3): the reactive layer (`notes.svelte.ts`,
+ * Why a shim: the reactive layer (`notes.svelte.ts`,
  * `notesIndex.ts`, `folders.svelte.ts`, `noteSession.svelte.ts`, the editor)
  * calls these rules SYNCHRONOUSLY — many per keystroke. They must NOT become
- * Tauri IPC round-trips. The Rust rules are still exposed as `#[tauri::command]`
- * wrappers (see `apps/tauri/src-tauri/src/rules.rs` → `bindings.ts`) for
- * non-hot-path / cross-platform use; this shim is the hot-path TS home and the
- * one place to swap an individual rule onto a command later if it's ever cheap
- * enough to do so.
+ * Tauri IPC round-trips. This shim is the hot-path TS home and the one place
+ * to keep the conformance-locked TS copy aligned with the Rust model.
  */
 export {
   // filename / title

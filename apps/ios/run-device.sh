@@ -2,12 +2,12 @@
 # Build & run the FUTO Notes NATIVE iOS spike on a CONNECTED PHYSICAL iPhone.
 #
 # Same app as run.sh (simulator), but a physical device requires code signing.
-# Reuses the Apple Developer team the Tauri app signs under (auto-detected from
-# apps/tauri/src-tauri/gen/apple/project.yml); override with FUTO_DEV_TEAM.
+# Uses FUTO_DEV_TEAM or apps/ios/.signing-team for the Apple Developer team.
 #
 # Usage:
 #   apps/ios/run-device.sh              # auto-detect device + team
 #   FUTO_DEV_TEAM=XXXXXXXXXX apps/ios/run-device.sh
+#   echo XXXXXXXXXX > apps/ios/.signing-team
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -27,11 +27,11 @@ echo "==> Device: $UDID"
 
 # ── Signing team ──
 TEAM="${FUTO_DEV_TEAM:-}"
-if [ -z "$TEAM" ]; then
-  TEAM=$(grep -m1 'DEVELOPMENT_TEAM:' apps/tauri/src-tauri/gen/apple/project.yml 2>/dev/null | awk '{print $2}')
+if [ -z "$TEAM" ] && [ -f "$APP_DIR/.signing-team" ]; then
+  TEAM=$(tr -d '[:space:]' < "$APP_DIR/.signing-team")
 fi
 if [ -z "$TEAM" ]; then
-  echo "Could not determine a signing team. Set FUTO_DEV_TEAM=<10-char team id>." >&2
+  echo "Could not determine a signing team. Set FUTO_DEV_TEAM=<10-char team id> or write apps/ios/.signing-team." >&2
   exit 1
 fi
 echo "==> Signing team: $TEAM"

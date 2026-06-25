@@ -85,8 +85,7 @@ this file states the behaviors a human cares about.
 ## Tag bar *(desktop)*
 
 The tag bar is a **desktop-only surface by decision (2026-06-09)** — mobile
-(native shells; the legacy Tauri mobile shell still happens to render it)
-edits tags as text in the body, which is not a gap.
+native shells edit tags as text in the body, which is not a gap.
 
 - A tag bar sits between the title and the editor: one chip per current tag,
   plus a "+ Tag" affordance. → NoteTagBar.svelte
@@ -101,8 +100,7 @@ edits tags as text in the body, which is not a gap.
 ## Wikilinks — navigation & integrity
 
 - Clicking/tapping a wikilink navigates to the target note (desktop:
-  Cmd/Ctrl+click opens it in a new tab). Verified on Android Tauri 2026-06-09.
-  → NotesShell.svelte onopenlink
+  Cmd/Ctrl+click opens it in a new tab). → NotesShell.svelte onopenlink
 - A wikilink displays the **shortest unique path suffix** (`[[Projects/Roadmap]]`
   renders as "Roadmap" while unambiguous). The native shells feed the vault
   note list into the shared editor WebView over the bridge (`setNotes`), so
@@ -126,9 +124,8 @@ edits tags as text in the body, which is not a gap.
   NoteEditorScreen.kt / NoteEditorView.swift `openLinkedNote`
 - **Renaming or moving a note rewrites every wikilink that points at it,
   across all notes** — including folder moves (`[[Markdown demo]]` →
-  `[[Archive/Markdown demo]]`). Verified end-to-end on Android Tauri
-  2026-06-09. → wikilinks.ts rewrite rules, notes.svelte.ts
-  `rewriteWikilinksForRename`
+  `[[Archive/Markdown demo]]`). → wikilinks.ts rewrite rules,
+  notes.svelte.ts `rewriteWikilinksForRename`
 - The relink rules also live in the shared Rust crate
   (futo-notes-model `wikilinks::{resolve_wikilink, shortest_unique_suffix,
   rewrite_wikilinks}` + `relink_note_references`), conformance-locked
@@ -144,7 +141,7 @@ edits tags as text in the body, which is not a gap.
 ## Interactive elements
 
 - Tapping a task checkbox toggles `[ ]`/`[x]` in the source and autosaves —
-  no cursor placement needed. Verified on Android Tauri 2026-06-09.
+  no cursor placement needed.
 - Table cells are individually editable in place; Tab/Shift+Tab move between
   cells; Enter on the last row appends a row; structure is revalidated on each
   edit. A cell context menu (desktop right-click) inserts/deletes rows/columns.
@@ -159,14 +156,13 @@ edits tags as text in the body, which is not a gap.
   (headings, lists, tasks, quote, code, table, HR); a `+` block handle in the
   margin opens the same menu. → editorUX/slashMenu.ts *(desktop)*
 
-## Markdown toolbar *(Tauri mobile + native shells)*
+## Markdown toolbar *(native shells / mobile-width editor)*
 
 - When the editor body is focused, a formatting toolbar docks above the soft
   keyboard: Bold, Italic, Strikethrough, Heading, Quote, Bullet/Ordered/Task
   list, Indent/Outdent (shown when the cursor is on a list line), Camera,
   Image — horizontally scrollable, with a collapse chevron that blurs the
-  editor (dropping both the keyboard and the toolbar). Verified on Android
-  Tauri 2026-06-09. → MarkdownToolbar.svelte
+  editor (dropping both the keyboard and the toolbar). → MarkdownToolbar.svelte
 - The toolbar SURFACE — items, order, grouping, accessibility labels,
   per-platform icons, visibility rules — is defined once in the
   `@futo-notes/editor` manifest, and the editing BEHAVIOR behind every

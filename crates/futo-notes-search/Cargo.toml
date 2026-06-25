@@ -6,64 +6,21 @@ edition = "2021"
 [lib]
 name = "futo_notes_search"
 
-# Platform-agnostic on-device search engine: two Tantivy indices (BM25 +
-# SPLADE) with a background indexer and a custom sparse-dot-product scorer.
+# Platform-agnostic on-device search engine: a Tantivy BM25 index with a
+# background indexer.
 # Knows nothing about Tauri / iOS / Android — it takes paths + a status
 # callback and returns data. One engine shared by desktop (Tauri) and both
 # native apps (via futo-notes-ffi).
 [dependencies]
-futo-notes-core = { path = "../futo-notes-core" }
-# SPLADE doc encoder + WordPiece query tokenizer. ORT linking mode is chosen
-# by this crate's feature flags (see [features]); default is download-binaries
-# for desktop, mobile consumers select load-dynamic. Optional: gated behind
-# the `semantic` feature so a no-default-features build (futo-notes-ffi for
-# the native shells) is keyword/BM25-only with NO ORT linkage at all.
-futo-notes-inference = { path = "../futo-notes-inference", default-features = false, optional = true }
-
-# Full-text engine. Backs both the BM25 keyword index and the SPLADE sparse
-# index (pre-tokenized terms, frequency = quantized weight).
+# Full-text engine.
 tantivy = "0.26"
 
-# Corpus walk for reconcile/backfill.
+# Corpus walk for reconcile.
 walkdir = "2.5"
 
-# WordPiece tokenizer for the inference-free query path (load tokenizer.json,
-# tokenize_only_query). Match the inference crate's feature set so the C `onig`
-# backend stays out of mobile builds.
-tokenizers = { version = "0.22", default-features = false, features = ["fancy-regex"] }
-
 # Background indexer: an mpsc channel from the filesystem watcher, debounce
-# timers, and blocking Tantivy/encode work off the async path.
+# timers, and blocking Tantivy work off the async path.
 tokio = { version = "1", features = ["sync", "macros", "rt-multi-thread", "time"] }
 
-# Status structs + the on-disk progress sidecar.
+# Status structs.
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-
-# Diagnostics (replaces the Tauri layer's /tmp trace file). Callers opt into a
-# subscriber.
-tracing = "0.1"
-
-[features]
-# Desktop default: ort downloads + statically links libonnxruntime at build
-# time via futo-notes-inference's download-binaries feature.
-default = ["download-binaries"]
-
-# The SPLADE/semantic half: doc encoder, backfill, and the hybrid query path.
-# Without it the engine is keyword/BM25-only — no futo-notes-inference and
-# therefore no ONNX Runtime in the dependency graph (`SpladeStatus` then
-# reports `fallback_reason = "semantic_disabled"`). This is what the native
-# shells build via futo-notes-ffi (default-features = false).
-semantic = ["dep:futo-notes-inference"]
-
-# Forward ORT linking-mode + execution-provider selection to the inference
-# crate so platform layers pick the right one without depending on the
-# inference crate directly (each implies `semantic`):
-#   download-binaries → desktop (static link, build-time fetch)
-#   load-dynamic      → Android (libonnxruntime.so shipped in jniLibs/<abi>/)
-#   coreml            → Apple (CoreML EP for the fp16 ANE path)
-#   xnnpack           → mobile CPU acceleration
-download-binaries = ["semantic", "futo-notes-inference/download-binaries"]
-load-dynamic = ["semantic", "futo-notes-inference/load-dynamic"]
-coreml = ["semantic", "futo-notes-inference/coreml"]
-xnnpack = ["semantic", "futo-notes-inference/xnnpack"]

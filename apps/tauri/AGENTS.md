@@ -1,6 +1,6 @@
 # AGENTS.md - FUTO Notes Tauri App
 
-Tauri v2 **desktop** shell. This is the **Tauri adapter**: a Rust backend that exposes the shared note domain (CRUD, rules, search, sync) to the Svelte UI via `#[tauri::command]`s, plus OS-level glue. The shared Svelte/TS layer (`src/`) owns the UI and reactive state and calls in. (The Tauri *mobile* shell is retired — mobile ships as native SwiftUI/Compose in `apps/ios` / `apps/android`; see root AGENTS.md. The iOS/Android `cfg` code below still exists in-tree but is no longer built via `just`.)
+Tauri v2 **desktop** shell. This is the **Tauri adapter**: a Rust backend that exposes the shared note domain (CRUD, rules, search, sync) to the Svelte UI via `#[tauri::command]`s, plus OS-level glue. The shared Svelte/TS layer (`src/`) owns the UI and reactive state and calls in. The Tauri mobile shell is retired — mobile ships as native SwiftUI/Compose in `apps/ios` / `apps/android`; see root AGENTS.md.
 
 **Stack**: Rust + Tauri v2 + serde. Plugins: dialog, process, clipboard-manager, opener, fs, single-instance (desktop), mcp-bridge (debug).
 
@@ -13,10 +13,10 @@ From the monorepo root, prefer the `just` wrappers: `just tauri-dev`, `just taur
 The command surface (registered in `lib.rs` via `tauri::generate_handler!`) is split by module:
 
 - **`notes.rs`**: `notes_*` — note CRUD + scanning over `futo-notes-model::crud` (`notes_scan`, `notes_read`, `notes_write`, `notes_create`, `notes_delete`, `notes_rename`, `notes_move`, folder ops, trash). Mirrors the FFI `NoteStore` 1:1.
-- **`search.rs`**: `search_*` — desktop shim over `futo-notes-search` (Tantivy BM25 + SPLADE, background indexer, RRF fusion). The heavy lifting lives in the crate; this layer resolves paths, emits `search:status`, and exposes the commands. (Supersearch vector ops are gone — replaced by this engine.)
+- **`search.rs`**: `search_*` — desktop shim over `futo-notes-search` (Tantivy BM25 plus a background indexer). The heavy lifting lives in the crate; this layer resolves paths, emits `search:status`, and exposes the commands. (Supersearch vector ops are gone — replaced by this engine.)
 - **`sync.rs`** / **`sync_state.rs`**: `e2ee_*` — the E2EE sync command surface over `futo-notes-sync`, plus the JS↔Rust state and watcher-suppression map.
 - **`core.rs`**: the remaining `fs_*` / path / device commands — filesystem watcher (`notify` crate, emits `fs:change`), image save/paste, folder ops not yet on the model, notes-dir override, default path resolution, soft-keyboard/haptics. Every public command wraps an `_impl` function for testability.
-- **`lib.rs`**: App setup — plugin registration, the `tauri::generate_handler!` `invoke_handler`, platform-specific init (iOS safe-area, Linux GTK decorations, fd limit bump).
+- **`lib.rs`**: App setup — plugin registration, the `tauri::generate_handler!` `invoke_handler`, Linux GTK decorations, fd limit bump.
 - **`main.rs`**: Entry point. Disables WebKitGTK DMA-BUF renderer on Linux for Wayland stability.
 
 TypeScript handles: reactive note state (`notes.svelte.ts`, `notesCache`), app state/preferences (`src/lib/appState.ts`), sync coordination (`src/lib/syncManager.svelte.ts`), and the search shim (`src/lib/searchEngine.ts`, which prefers the Rust engine and falls back to the live MiniSearch keyword index in `src/lib/searchIndex.ts`). Note I/O goes through the `notes_*` commands rather than `@tauri-apps/plugin-fs`.
@@ -50,7 +50,6 @@ For sync server switching, use the dev-only webview hook:
 
 Notes:
 - Desktop dev server URLs use `127.0.0.1`
-- Android emulator must use `10.0.2.2` for host services
 - `connect()` and `connectE2ee()` clear cached E2EE state first so sync state does not bleed across backend switches
 - The same test hooks are available in debug builds created with `VITE_INCLUDE_TEST_HOOKS=true`, which is how `just test-cross-platform` drives the app
 
@@ -74,11 +73,8 @@ just test-rust       # Rust unit tests (creates dist/ first)
 | Rust logic (`core.rs`) | `just test-rust` |
 | New `#[tauri::command]` | Add unit test for `_impl` function, then `just test-rust` |
 | Tauri config / capabilities | `just tauri-dev` → manual smoke test |
-| Mobile-specific code | Build + deploy to device, check `adb logcat` (Android) or Xcode logs (iOS) |
 
 ## Constraints
 
 - **`window.confirm()`/`window.alert()` don't work in Tauri's webview.** Use `ask()`/`message()` from `@tauri-apps/plugin-dialog`.
 - **Single-instance** (desktop only): second launch focuses the existing window. Kill stale processes when testing binary swaps.
-- **iOS**: `objc2` used for safe-area insets and edge-to-edge webview. `disableInputAccessoryView: true` removes keyboard bar.
-- **Android**: Camera + Internet permissions declared. Uses `TAURI_DEV_HOST` for remote dev.

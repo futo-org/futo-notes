@@ -65,8 +65,8 @@ AGENTS.md → "Browser Tools".
 The E2EE sync server is a **separate repo**:
 <https://gitlab.futo.org/futo-notes/futo-notes-server>. Clone it to
 `~/Developer/futo-notes-server` (or set `FUTO_NOTES_E2EE_SERVER_REPO` to wherever
-you put it). It's only needed for `just test-cross-platform` and
-`just test-mac-ios`; everything else runs without it.
+you put it). It's only needed for `just test-cross-platform`; everything else
+runs without it.
 
 ## 6. Where to go next
 

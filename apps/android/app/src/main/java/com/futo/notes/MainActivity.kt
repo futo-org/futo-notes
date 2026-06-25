@@ -162,7 +162,7 @@ class MainActivity : ComponentActivity() {
         // never gates render. No-op when no password is stored.
         sync.restoreSession(store.rootPath)
 
-        // BM25 search engine [search.md:60]. Opening/building the Tantivy index
+        // BM25 search engine. Opening/building the Tantivy index
         // does disk I/O, so construction runs off-main; SearchScreen falls back
         // to substring filtering until `store.engine` lands. Process-singleton:
         // the engine holds Tantivy's exclusive IndexWriter lock, so a second

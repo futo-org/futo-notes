@@ -25,7 +25,7 @@ Behaviors and constraints that hold across every surface and platform.
   (`crates/futo-notes-*`), exposed **once** via the `futo-notes-ffi` UniFFI
   facade (iOS/Android) and `#[tauri::command]`s (desktop). Svelte / Compose /
   SwiftUI are thin shells that call in and render. →
-  docs/migration/rust-core-migration-plan.md
+  AGENTS.md → "Where Logic Lives"
 - Deterministic editor rules (filename/tag parsing) may keep a synchronous TS
   copy in `packages/editor` to avoid a per-keystroke IPC/FFI hop, but it is
   conformance-locked bit-for-bit against the Rust impl. → tests/conformance
@@ -63,8 +63,7 @@ Behaviors and constraints that hold across every surface and platform.
   dialog: expandable "View report", an optional "What were you doing?" field,
   an "Always send crash reports" checkbox, and Send / Don't Send. "Always
   send" (also a Settings toggle) auto-sends future reports without the
-  dialog. Verified on Android Tauri 2026-06-09. → CrashReportDialog.svelte,
-  crashHandler.ts *(Tauri)*
+  dialog. → CrashReportDialog.svelte, crashHandler.ts *(Tauri)*
 - The native shells run the same pipeline: an uncaught-exception handler
   (Android `Thread.setDefaultUncaughtExceptionHandler`; iOS
   `NSSetUncaughtExceptionHandler` plus fatal-signal handlers with

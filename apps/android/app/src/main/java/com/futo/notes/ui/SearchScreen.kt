@@ -49,8 +49,8 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.withContext
 
 /**
- * Search over the real note set [search.md:60]. Ranked BM25 via the Rust
- * `SearchEngine` (FFI, keyword-only — no SPLADE model on native) once its
+ * Search over the real note set. Ranked BM25 via the Rust
+ * `SearchEngine` (FFI, keyword-only) once its
  * index is warm; until then — and whenever the engine is absent or errors — a
  * case-insensitive substring match on title/preview/tags keeps results
  * flowing. Queries are debounced 100 ms and run off-main. The mock "Ask your

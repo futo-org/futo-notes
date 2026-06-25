@@ -81,11 +81,6 @@ function ktScreenFiles() {
 
 const PROBES = [
   {
-    match: /hybrid search crate is reachable only via Tauri commands/,
-    closed: () => /\bsearch/i.test(read('crates/futo-notes-ffi/src/lib.rs')),
-    hint: 'futo-notes-ffi/src/lib.rs now mentions search — is hybrid search exposed to the native shells?',
-  },
-  {
     match: /Android native has no move UI/,
     closed: () => ktScreenFiles().some((f) => /\.moveNote\(/.test(fs.readFileSync(f, 'utf8'))),
     hint: 'an Android screen now calls store.moveNote() — move UI may exist.',

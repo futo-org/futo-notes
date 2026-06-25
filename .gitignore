@@ -26,6 +26,7 @@ Index/
 DerivedData/
 
 # Native signing
+apps/ios/.signing-team
 *.orig.*
 *.jks
 *.p8

@@ -9,7 +9,6 @@
  *
  * Usage:
  *   node tests/cross-platform-sync.mjs
- *   node tests/cross-platform-sync.mjs --matrix desktop-android
  *   node tests/cross-platform-sync.mjs --scenario "five notes roundtrip"
  *
  * Requires:
@@ -24,7 +23,6 @@ import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { startDesktopTauriInstance } from './lib/tauri-instance.mjs';
-import { startAndroidEmulatorInstance } from './lib/android-instance.mjs';
 import { startServer } from './lib/sync-test-server.mjs';
 import { sleep, executeJs } from './lib/mcp-client.mjs';
 
@@ -978,20 +976,20 @@ async function emptyFolderDoesNotSync(a, b, server) {
 // ── Scenario registry ───────────────────────────────────────────
 
 const scenarios = [
-  { name: 'editor roundtrip through real sync', fn: editorRoundtripThroughRealSync, matrices: ['desktop-desktop', 'desktop-android'] },
-  { name: 'edit during sync keeps local draft', fn: editDuringSyncKeepsLocalDraft, serverOptions: { syncDelayMs: 1500 }, matrices: ['desktop-desktop', 'desktop-android'] },
+  { name: 'editor roundtrip through real sync', fn: editorRoundtripThroughRealSync, matrices: ['desktop-desktop'] },
+  { name: 'edit during sync keeps local draft', fn: editDuringSyncKeepsLocalDraft, serverOptions: { syncDelayMs: 1500 }, matrices: ['desktop-desktop'] },
   { name: 'concurrent edit conflict', fn: concurrentEditConflict, matrices: ['desktop-desktop'] },
   { name: 'three way merge', fn: threeWayMerge, matrices: ['desktop-desktop'] },
-  { name: 'rename propagation', fn: renamePropagation, matrices: ['desktop-desktop', 'desktop-android'] },
-  { name: 'active note reload', fn: activeNoteReload, matrices: ['desktop-desktop', 'desktop-android'] },
+  { name: 'rename propagation', fn: renamePropagation, matrices: ['desktop-desktop'] },
+  { name: 'active note reload', fn: activeNoteReload, matrices: ['desktop-desktop'] },
   // Folder-support v1 scenarios — see Specs § Sync conflict resolution.
   { name: 'folder rename on A edit on B', fn: folderRenameOnAEditOnB, matrices: ['desktop-desktop'] },
   { name: 'file move on A edit on B', fn: fileMoveOnAEditOnB, matrices: ['desktop-desktop'] },
   { name: 'file moved to two folders by A and B', fn: fileMovedToTwoFoldersByAandB, matrices: ['desktop-desktop'] },
   { name: 'concurrent offline folder rename', fn: concurrentOfflineFolderRename, matrices: ['desktop-desktop'] },
-  { name: 'move note into folder delete folder', fn: moveNoteIntoFolderDeleteFolder, matrices: ['desktop-desktop', 'desktop-android'] },
+  { name: 'move note into folder delete folder', fn: moveNoteIntoFolderDeleteFolder, matrices: ['desktop-desktop'] },
   // Adversarial scenarios targeting pair_local_moved_objects edge cases.
-  { name: 'local rename and edit in same sync', fn: localRenameAndEditInSameSync, matrices: ['desktop-desktop', 'desktop-android'] },
+  { name: 'local rename and edit in same sync', fn: localRenameAndEditInSameSync, matrices: ['desktop-desktop'] },
   { name: 'multiple local moves in one sync', fn: multipleLocalMovesInOneSync, matrices: ['desktop-desktop'] },
   { name: 'both clients rename to same destination', fn: bothClientsRenameToSameDestination, matrices: ['desktop-desktop'] },
   { name: 'folder X and file X coexist at same level', fn: folderXVsFileXAtSameLevel, matrices: ['desktop-desktop'] },
@@ -1005,11 +1003,11 @@ const scenarios = [
   // the CodeMirror update path may be blocked by unrelated IPC traffic.
   { name: 'external watcher reloads clean note', fn: externalWatcherReloadsCleanNote, matrices: ['desktop-desktop'], skipOnCi: true },
   { name: 'external watcher keeps dirty draft', fn: externalWatcherKeepsDirtyDraft, matrices: ['desktop-desktop'], skipOnCi: true },
-  { name: 'delete vs edit', fn: deleteVsEdit, matrices: ['desktop-desktop', 'desktop-android'] },
-  { name: 'lost state recovery', fn: lostStateRecovery, matrices: ['desktop-desktop', 'desktop-android'] },
-  { name: 'rapid reconnect', fn: rapidReconnect, matrices: ['desktop-desktop', 'desktop-android'] },
-  { name: 'offline accumulation', fn: offlineAccumulation, matrices: ['desktop-desktop', 'desktop-android'] },
-  { name: 'large sync', fn: largeSync, matrices: ['desktop-desktop', 'desktop-android'] },
+  { name: 'delete vs edit', fn: deleteVsEdit, matrices: ['desktop-desktop'] },
+  { name: 'lost state recovery', fn: lostStateRecovery, matrices: ['desktop-desktop'] },
+  { name: 'rapid reconnect', fn: rapidReconnect, matrices: ['desktop-desktop'] },
+  { name: 'offline accumulation', fn: offlineAccumulation, matrices: ['desktop-desktop'] },
+  { name: 'large sync', fn: largeSync, matrices: ['desktop-desktop'] },
   { name: 'tombstone does not block new note', fn: tombstoneDoesNotBlockNewNote, matrices: ['desktop-desktop'] },
 ];
 
@@ -1023,13 +1021,6 @@ const matrixLaunchers = {
     startClients: async () => ([
       await startDesktopTauriInstance('client-a', REPO_ROOT),
       await startDesktopTauriInstance('client-b', REPO_ROOT),
-    ]),
-  },
-  'desktop-android': {
-    label: 'desktop ↔ android-emulator',
-    startClients: async () => ([
-      await startDesktopTauriInstance('client-a', REPO_ROOT),
-      await startAndroidEmulatorInstance('client-b', REPO_ROOT),
     ]),
   },
 };
@@ -1095,35 +1086,6 @@ function rebuildDesktopBinary() {
   );
 }
 
-function ensureAndroidApk() {
-  const apkPath = join(REPO_ROOT, 'apps', 'tauri', 'src-tauri', 'gen', 'android', 'app',
-    'build', 'outputs', 'apk', 'universal', 'debug', 'app-universal-debug.apk');
-  if (!existsSync(apkPath)) {
-    console.log('Android APK missing — building with test hooks…');
-    rebuildAndroidApk();
-    return;
-  }
-  const distJs = findDistIndexJs();
-  if (!distJs || !fileContains(distJs, '__testSync')) {
-    console.log('dist/ missing test hooks — rebuilding Android APK…');
-    rebuildAndroidApk();
-  }
-}
-
-function rebuildAndroidApk() {
-  // Ensure x86_64 ORT for emulator + arm64 for devices.
-  runOrThrow('node', ['scripts/fetch-ort-android.mjs', '--abis', 'arm64-v8a,x86_64'], {
-    cwd: REPO_ROOT,
-  });
-  runOrThrow('cargo', [
-    'tauri', 'android', 'build', '--debug', '--apk',
-    '--config', 'src-tauri/tauri.android.dev-mode.conf.json',
-  ], {
-    cwd: join(REPO_ROOT, 'apps', 'tauri'),
-    env: { ...process.env, VITE_INCLUDE_TEST_HOOKS: 'true' },
-  });
-}
-
 function findDistIndexJs() {
   const assetsDir = join(REPO_ROOT, 'dist', 'assets');
   if (!existsSync(assetsDir)) return null;
@@ -1182,9 +1144,6 @@ async function main() {
   // Bootstrap artifacts and clean up stale state from a prior run.
   killStalePreviewAndClients();
   ensureDesktopDebugBinary();
-  if (args.matrix === 'desktop-android') {
-    ensureAndroidApk();
-  }
 
   // Filter scenarios if --scenario is set
   const selected = args.scenario

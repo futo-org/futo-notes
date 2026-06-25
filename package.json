@@ -45,8 +45,7 @@
     "ci": "pnpm run lint && pnpm run test:minimal && pnpm run build",
     "_comment": "Tauri commands (dev, build, deploy) live in the justfile — use `just` from the monorepo root. Only toolchain scripts (vite, vitest, playwright, eslint) belong here.",
     "test:desktop-smoke": "node tests/desktop-smoke.mjs",
-    "test:cross-platform": "node tests/cross-platform-sync.mjs",
-    "test:cross-platform:android": "node tests/cross-platform-sync.mjs --matrix desktop-android"
+    "test:cross-platform": "node tests/cross-platform-sync.mjs"
   },
   "dependencies": {
     "@codemirror/lang-markdown": "6.5.0",

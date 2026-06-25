@@ -2,7 +2,7 @@
 # Bundle all meaningful source files into a single text file for LLM context.
 # Usage: ./scripts/bundle-source.sh [output-file]
 #
-# Excludes: binaries, lock files, generated mobile code, .claude/ skills,
+# Excludes: binaries, lock files, .claude/ skills,
 # docs/ planning docs, CI configs (low signal-to-noise), test fixtures.
 
 set -euo pipefail
@@ -12,8 +12,6 @@ EXCLUDE_PATTERNS=(
   'pnpm-lock\.yaml$'
   'Cargo\.lock$'
   '\.pbxproj$'
-  'gen/android/'
-  'gen/apple/'
   '\.png$'
   '\.ico$'
   '\.icns$'

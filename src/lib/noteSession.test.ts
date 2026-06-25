@@ -8,7 +8,6 @@ const platformState = vi.hoisted(() => ({ isMobile: false }));
 vi.mock('$lib/platform', () => ({
   hasFileSystem: true,
   get isMobile() { return platformState.isMobile; },
-  showSoftKeyboard: vi.fn(async () => {}),
 }));
 
 vi.mock('$lib/notes.svelte', () => ({
@@ -300,9 +299,9 @@ describe('loadNote focus routing', () => {
   });
 
   it("focuses the title for '+ New' / quick capture on mobile", async () => {
-    // Spec gap (list.md): on Tauri mobile a fresh note should land focus on
-    // the title — handleTitleFocus select-alls "Untitled" so typing replaces
-    // it — instead of dropping the user into the body.
+    // On mobile-width shells a fresh note should land focus on the title —
+    // handleTitleFocus select-alls "Untitled" so typing replaces it —
+    // instead of dropping the user into the body.
     platformState.isMobile = true;
     const deps = makeDeps();
     await createNoteSession(deps).loadNote('new');

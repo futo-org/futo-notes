@@ -1,8 +1,14 @@
 # IME Shield — Android renderer-crash workaround
 
-**This is a load-bearing workaround.** If you are reading this because
-you're about to remove some "weird IME wrapper code," stop and read the
-whole document.
+> **Historical note:** this documents the retired Tauri Android shell and is
+> preserved as a learning. The generated Tauri Android files it references were
+> removed from `main` when mobile moved to the native Compose shell. If a similar
+> IME crash appears in the native shell, treat this as prior art, not active
+> implementation documentation.
+
+**This was a load-bearing workaround in the retired Tauri Android shell.** If
+you are reading this because a similar "weird IME wrapper" is being considered
+for native Android, read the whole document first.
 
 ## The bug we're working around
 

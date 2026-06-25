@@ -49,7 +49,7 @@ class NotesStore(notesRoot: File) {
      *  [settings.md:43]. Mirrors desktop `deleteAllNotes` pausing auto-sync. */
     var suppressAutoPush = false
 
-    /** The BM25 keyword search engine [search.md:60]. Set once by the Activity
+    /** The BM25 keyword search engine. Set once by the Activity
      *  after off-main construction (the Tantivy index open does disk I/O and
      *  must never gate render); null until then — SearchScreen falls back to
      *  substring filtering. Mutations below feed it incremental notify calls. */

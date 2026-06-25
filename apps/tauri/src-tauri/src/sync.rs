@@ -77,7 +77,7 @@ pub struct E2eeStatusOutput {
 
 /// Wire `SyncSummary` returned by `e2ee_sync_run` and emitted on
 /// `sync:live-synced`. Identical to the pre-relocation shape so the JS
-/// `SyncSummary` type (in `bindings.ts`) is unchanged. The crate's rich
+/// `SyncSummary` type in `syncServiceE2ee.ts` is unchanged. The crate's rich
 /// `SyncSummary` carries ids already stripped of `.md`; this just copies
 /// the count + id-list + rename fields out of it.
 #[derive(Debug, Default, Serialize, Clone)]

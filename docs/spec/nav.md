@@ -25,19 +25,6 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
   MainActivity.kt / EditorHost *(Android)*; FutoNotesApp
   `EditorHost.prewarm()` / EditorWebView `EditorHost.shared` *(iOS)*
 
-## Tauri mobile shell
-
-- The drawer opens from the hamburger button or a left-edge swipe; tapping the
-  dimmed overlay (or swiping back) closes it; it slides proportionally with
-  the finger. → DrawerSidebar.svelte, touchSwipe.svelte.ts
-- System Back closes the topmost overlay first (search popup, settings sheet,
-  drawer), then the open note (back to the For You home), and on the home
-  screen leaves the app. Verified on Android Tauri 2026-06-09.
-- Settings opens as a bottom sheet over the current screen (not a pushed
-  screen). → SettingsScreen.svelte
-- The top chrome (hamburger, note menu) floats over the editor; content
-  scrolls beneath it. *(Android Tauri)*
-
 ## Desktop shell *(desktop)*
 
 - The sidebar is persistent and resizable (drag the divider, min 200px); a

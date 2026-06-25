@@ -41,7 +41,7 @@ just android-native     # Native Android (Compose) app on device/emulator
 > first (stale node_modules). A locked iPhone yields
 > `FBSOpenApplicationErrorDomain error 7` on launch — unlock and relaunch.
 
-**Always use `just` from the monorepo root.** All Tauri commands (dev, build, deploy) live in the justfile — never call `cargo tauri` directly, because the justfile encodes the correct config overlays (dev bundle IDs, ORT fetch steps, device detection). The package.json only has toolchain scripts (vite, vitest, playwright, eslint).
+**Always use `just` from the monorepo root.** All Tauri commands (dev, build, deploy) live in the justfile — never call `cargo tauri` directly, because the justfile encodes the correct config overlays, dev bundle IDs, and device detection. The package.json only has toolchain scripts (vite, vitest, playwright, eslint).
 
 ## Monorepo
 
@@ -50,88 +50,40 @@ npm workspaces. Shared Svelte app at root, platform shells in `apps/`, shared pa
 ```
 src/                  ← Shared Svelte 5 app (editor, UI, sync client)
 crates/
-  futo-notes-core/    ← Rust crate (hashing, sync payload, search vectors, graph layout)
+  futo-notes-core/    ← Rust crate (hashing, E2EE crypto, sync payload, search helpers, merge)
 apps/
-  tauri/              ← Tauri v2 desktop + mobile shell (Rust backend)
+  tauri/              ← Tauri v2 desktop shell (Rust backend)
 packages/
   shared/             ← Shared TS types & utils (auth types, filename rules, tag parsing)
 ```
 
 - **Client stack**: Svelte 5 + Tauri v2 + Vite + Tailwind v4 + CodeMirror 6
 - **Sync server**: External E2EE server at `/home/justin/Developer/futo-notes-server` ([GitLab](https://gitlab.futo.org/futo-notes/futo-notes-server)). The client uploads opaque encrypted blobs through collection/object/blob APIs.
-- **Rust crates**: `futo-notes-model` owns the note domain — CRUD (`scan_notes`, `read_note`, `write_note`, `create_note`, `delete_note`, `rename_note`, `move_note`, `create_folder`), the note rules (`sanitize_title`, `make_id`, `split_id`, `extract_tags`, `extract_wikilinks`, `make_preview`), and full-text search. `futo-notes-core` owns hashing, sync payload prep/apply, vector search (UMAP + K-Means), graph layout, and merge. Both are imported by the Tauri app (via `apps/tauri/src-tauri/src/notes.rs`, `search.rs`) and by the native shells (via the `futo-notes-ffi` UniFFI crate). Do not reimplement logic that exists in these crates — there is one definition of every note rule and CRUD primitive, shared across all three apps.
-- **Tauri ↔ TS boundary**: The note domain lives in Rust and is reached through `#[tauri::command]` wrappers (`notes_*`, `search_notes`) registered with `tauri::generate_handler!`. (The note rules live in `futo-notes-model` but are not behind Tauri commands: desktop calls the conformance-locked TS copy `src/lib/rules.ts` to avoid a per-keystroke IPC hop, and the native shells reach them via the `futo-notes-ffi` facade.) TypeScript (`src/lib/`) owns the Svelte UI, reactive app state (`notesCache` in `notes.svelte.ts`), sync coordination, and the platform shell; it calls the Rust commands rather than touching `@tauri-apps/plugin-fs` for note I/O. The hard never-gate-render constraint is unchanged: the scan that populates `notesCache` runs un-awaited after `initialized = true` (see Key Constraints), so a slow Rust scan can only delay list population, never the shell.
+- **Rust crates**: `futo-notes-model` owns the note domain — CRUD (`scan_notes`, `read_note`, `write_note`, `create_note`, `delete_note`, `rename_note`, `move_note`, `create_folder`), the note rules (`sanitize_title`, `make_id`, `split_id`, `extract_tags`, `extract_wikilinks`, `make_preview`), and full-text search. `futo-notes-core` owns hashing, E2EE crypto, sync payload prep/apply, search helpers (chunking + RRF fusion), and merge. Both are imported by the Tauri app (via `apps/tauri/src-tauri/src/notes.rs`, `search.rs`) and by the native shells (via the `futo-notes-ffi` UniFFI crate). Do not reimplement logic that exists in these crates — there is one definition of every note rule and CRUD primitive, shared across all three apps.
+- **Tauri ↔ TS boundary**: The note domain lives in Rust and is reached through `#[tauri::command]` wrappers (`notes_*`, `search_*`) registered with `tauri::generate_handler!`. (The note rules live in `futo-notes-model` but are not behind Tauri commands: desktop calls the conformance-locked TS copy `src/lib/rules.ts` to avoid a per-keystroke IPC hop, and the native shells reach them via the `futo-notes-ffi` facade.) TypeScript (`src/lib/`) owns the Svelte UI, reactive app state (`notesCache` in `notes.svelte.ts`), sync coordination, and the platform shell; it calls the Rust commands rather than touching `@tauri-apps/plugin-fs` for note I/O. The hard never-gate-render constraint is unchanged: the scan that populates `notesCache` runs un-awaited after `initialized = true` (see Key Constraints), so a slow Rust scan can only delay list population, never the shell.
 - **Shared package** (`@futo-notes/shared`): Auth protocol types and image-extension validation (`IMAGE_EXTENSIONS`, `isImageFilename`) consumed by both the client and the external sync server. Filename and tag rules (`sanitizeTitle`, `validateTitle`, `extractTags`) duplicate `futo-notes-model`'s canonical Rust rules; the TS copies are kept deliberately (desktop per-keystroke paths and the sync server) and held bit-for-bit in lockstep via `tests/conformance/*` — there are no `rules_*` Tauri commands. Consumed as TypeScript source (no build step).
 
 ## Where Logic Lives
 
-**The note domain is Rust.** CRUD, note rules (title/tag/id/wikilink/preview), and full-text search live in `futo-notes-model` and are shared verbatim by the Tauri app and the native iOS/Android shells. Do not re-implement any of these in TypeScript — call the `notes_*` / `search_notes` commands. (The note rules are the one exception: they are not exposed as Tauri commands — desktop uses the conformance-locked TS copy `src/lib/rules.ts` to dodge a per-keystroke IPC hop, native uses the FFI facade, both held in lockstep with `futo-notes-model`.) This single-source rule is what keeps the three apps behaviorally identical; a rule that exists in two places will drift.
+**The note domain is Rust.** CRUD, note rules (title/tag/id/wikilink/preview), and full-text search live in `futo-notes-model` and are shared verbatim by the Tauri app and the native iOS/Android shells. Do not re-implement any of these in TypeScript — call the `notes_*` / `search_*` commands. (The note rules are the one exception: they are not exposed as Tauri commands — desktop uses the conformance-locked TS copy `src/lib/rules.ts` to dodge a per-keystroke IPC hop, native uses the FFI facade, both held in lockstep with `futo-notes-model`.) This single-source rule is what keeps the three apps behaviorally identical; a rule that exists in two places will drift.
 
 **TypeScript owns the UI and reactive state.** The Svelte components, `notesCache` and its derived stores, sync coordination, tab/session state, and the platform shell stay in TS — that is where TS's ergonomics and the lack of an IPC round-trip pay off. When adding code that is plainly view/state logic, write it in TS; when it is a note rule or a filesystem mutation on the note tree, route it through Rust. Reserve net-new Rust for the note domain and the existing compute-heavy paths (vector math, sync delta, hashing); ad-hoc OS access the platform layer already covers (filesystem watcher, clipboard image extraction) stays where it is.
 
 ## Platform Build & Webview Notes
 
-### Android emulator — running JS against the webview
+### Android emulator — running JS against the native webview
 
-Tauri apps enable CSP which blocks ad-hoc inline scripts, so `webview_execute_js` through the MCP bridge fails with *"Resolve-ref helper was not available"*. On Android the webview DevTools socket is exposed and bypasses CSP. Use it via:
+The native Android app exposes a WebView DevTools socket. Use CDP when you need
+to inspect the embedded editor or run JavaScript against it:
 
 ```bash
-# Find the socket name for the running com.futo.notes process
 adb shell 'cat /proc/net/unix' | grep webview_devtools_remote
-# → @webview_devtools_remote_<pid>
-
-# Forward and invoke
 adb forward tcp:9228 localabstract:webview_devtools_remote_<pid>
-node scripts/cdp-invoke.mjs "await window.__TAURI__.core.invoke('my_command', { arg: 1 })"
+node scripts/cdp-invoke.mjs "document.title"
 ```
 
-`scripts/cdp-invoke.mjs` wraps the Chrome DevTools Protocol in a tiny wrapper that calls `Runtime.evaluate` with `awaitPromise:true`. Useful for any Tauri command on Android, not just inference.
-
-### Android — ONNX Runtime `.so` for the inference crate
-
-The Android build of `futo-notes-inference` links against `libonnxruntime.so` dynamically (via the `load-dynamic` feature). Tauri's Gradle plugin doesn't fetch it; `scripts/fetch-ort-android.mjs` does. Run before `cargo tauri android build`:
-
-```bash
-# Fetches Microsoft's ONNX Runtime Android AAR from Maven, extracts the per-ABI
-# .so into apps/tauri/src-tauri/gen/android/app/src/main/jniLibs/<abi>/.
-node scripts/fetch-ort-android.mjs                          # default: arm64-v8a
-node scripts/fetch-ort-android.mjs --abis arm64-v8a,x86_64  # + emulator
-```
-
-Version is pinned to `ort-sys 2.0.0-rc.12`'s target (ORT 1.24.2). If you bump the `ort` dep, bump `DEFAULT_VERSION` in the fetch script. The `.so` files are gitignored.
-
-### Linux — ONNX Runtime `.so` for the inference crate
-
-On Linux the `futo-notes-inference` crate uses ORT's `load-dynamic` feature:
-ORT is NOT statically linked at build time. Instead, `scripts/fetch-ort-linux.mjs`
-downloads Microsoft's official `onnxruntime-linux-x64-${ver}.tgz` (glibc 2.17
-floor, no `__isoc23_*` symbols — so it links on any distro the `.deb`/`.rpm`
-targets) and drops `libonnxruntime.so` into `apps/tauri/src-tauri/gen/linux/`
-plus `target/{debug,release}/`.
-
-```bash
-# Fetches to apps/tauri/src-tauri/gen/linux/libonnxruntime.so.
-node scripts/fetch-ort-linux.mjs
-```
-
-`init_ort_dylib_path()` in `lib.rs` sets `ORT_DYLIB_PATH` at app startup by
-looking for the `.so` next to the exe (AppImage, dev) or in
-`../lib/futo-notes/` (`.deb`/`.rpm` install layout). `tauri.conf.json`'s
-`bundle.linux.{deb,rpm,appimage}.files` maps the `.so` into the right place
-in each package. Version is pinned to `ort-sys 2.0.0-rc.12`'s target (ORT
-1.24.2). If you bump the `ort` dep, bump `DEFAULT_VERSION` in the fetch
-script in lockstep with the Android and iOS scripts.
-
-### iOS — ONNX Runtime xcframework for the inference crate
-
-The iOS build of `futo-notes-inference` links ORT statically via an xcframework with CoreML EP. `scripts/fetch-ort-ios.mjs` downloads Microsoft's prebuilt pod-archive and extracts the xcframework. Run before `cargo tauri ios build`:
-
-```bash
-# Downloads ~50 MB, extracts to apps/tauri/src-tauri/gen/apple/onnxruntime.xcframework/
-node scripts/fetch-ort-ios.mjs
-```
-
-The xcframework path is automatically set via `ORT_IOS_XCFWK_PATH` in the Xcode pre-build script (`project.yml`). The `just deploy-ios` recipe includes this step. The xcframework is gitignored.
+`scripts/cdp-invoke.mjs` wraps the Chrome DevTools Protocol in a tiny wrapper
+that calls `Runtime.evaluate` with `awaitPromise:true`.
 
 ## Behavioral Spec — Source of Truth
 
@@ -163,10 +115,10 @@ fixtures) — reference those, don't duplicate them.
 - **IMPORTANT**: Styles in `@layer(components)` lose to CM6's unlayered CSS. Use `!important` on CodeMirror overrides inside layered CSS.
 - **IMPORTANT**: `pnpm run dev` uses localhost APIs. `pnpm run build` points to production endpoints.
 - **IMPORTANT**: `pnpm run build` must run from monorepo root. Running from a workspace resolves a different build script — verify output includes `vite build` and `dist/assets/`.
-- **IMPORTANT**: Tauri dev ports are split by target to avoid collisions: desktop `5180`, Android `5181`, iOS `5182`.
+- **IMPORTANT**: Tauri desktop dev uses fixed port `5180`.
 - **IMPORTANT**: `window.confirm()`/`window.alert()` don't block properly in Tauri's webview. Use `ask()`/`message()` from `@tauri-apps/plugin-dialog` instead.
 - **CRITICAL: Dev/debug builds MUST NOT overwrite the user's production app or notes.**
-  - **Bundle ID**: Dev/debug builds must use `com.futo.notes.dev` (product name "FUTO Notes Dev"). Pass `--config src-tauri/tauri.ios.dev.conf.json` (iOS) or `--config src-tauri/tauri.dev.conf.json` (desktop) to `cargo tauri build --debug`. Never run `cargo tauri ios build --debug` without the dev config — it installs over the production app. The `just` recipes (`ios-dev`, `ios-offline`, `tauri-dev`) handle this automatically.
+  - **Bundle ID**: Dev/debug builds must use `com.futo.notes.dev` (product name "FUTO Notes Dev") for native mobile and the desktop dev bundle config for Tauri. The `just` recipes (`ios-native-device`, `android-native`, `tauri-dev`) handle this automatically.
   - **Notes root**: Debug builds default to **`~/Documents/fake-notes`** (see `default_notes_root` in `apps/tauri/src-tauri/src/core.rs`). Release builds default to `~/Documents/futo-notes`. Do not remove or weaken this guard.
   - The TS resolver (`src/lib/platform/tauriPaths.ts:getDefaultNotesRoot`) must delegate to the Rust `resolve_default_notes_root` command — never resolve the default in JS, because `documentDir()` gives the same path in dev and release.
   - `FUTO_NOTES_DATA_DIR` env var overrides both (used by `scripts/tauri-dev.mjs` and cross-platform tests for per-worktree isolation — writes go to `{data_dir}/notes`).

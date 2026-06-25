@@ -7,8 +7,6 @@
     "tauri": "tauri",
     "dev": "tauri dev",
     "build": "tauri build --no-bundle",
-    "android": "tauri android dev",
-    "ios": "tauri ios dev",
     "test:rust": "mkdir -p ../../dist && cd src-tauri && cargo test"
   },
   "dependencies": {

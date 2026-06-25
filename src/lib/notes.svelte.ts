@@ -494,7 +494,7 @@ export async function search(query: string): Promise<SearchResultItem[]> {
   if (!query.trim()) {
     return getAllNotes().map((note) => ({ note, snippet: null }));
   }
-  // Prefer the Rust futo-notes-search engine (Tantivy BM25 + SPLADE) when it's
+  // Prefer the Rust futo-notes-search engine (Tantivy BM25) when it's
   // reachable, has a ready keyword index, and returns hits. MiniSearch stays as
   // the coexisting fallback (parity window) for non-Tauri, not-yet-initialized,
   // or empty-result cases.

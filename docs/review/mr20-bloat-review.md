@@ -38,7 +38,7 @@ This is an advisory review. I verified the high-impact claims against the code; 
 ### Theme A — Semantic-search stack ships only to desktop, not the native shells the MR is named for
 **Raised by all 6 personas. Confidence: high (verified).**
 - `grep` for `search|splade|embed` in `crates/futo-notes-ffi/src/lib.rs` → **zero hits**. FFI's `Cargo.toml` depends only on `futo-notes-app` + `futo-notes-core` — **not** on search or inference.
-- `futo-notes-search` is consumed only by `apps/tauri/src-tauri` (and by `futo-notes-inference`). Verified via Cargo.toml grep.
+- At review time, `futo-notes-search` was consumed only by `apps/tauri/src-tauri` and the now-removed inference crate. Verified via Cargo.toml grep.
 - Native search is a one-line substring filter: `apps/android/.../ui/SearchScreen.kt:60` `store.notes.filter { it.title.lowercase().contains(q) ... }`; `apps/ios/Sources/NoteListView.swift:23` identical. The Android source comment itself (SearchScreen.kt:45-47) says "not the ranked BM25 engine ... which is not exposed via FFI ... no semantic engine on native."
 - `rust-core-migration-plan.md` mentions SPLADE 0 times; SPLADE is tracked by a *separate* plan (`splade-integration-plan.md`, status NOT STARTED).
 - **This is the single largest block of production code that adds no behavior to the two new shells.** Whether to cut it is a product/architecture decision (below), but the framing must be corrected: today these crates are a Tauri feature, not a tri-platform one.

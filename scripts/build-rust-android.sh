@@ -3,8 +3,7 @@
 # bindings, and stage the per-ABI .so into apps/android's jniLibs.
 #
 # futo-notes-ffi is the single FFI facade (note domain + sync) — the SAME crate
-# iOS builds via scripts/build-rust-ios.sh. The per-ABI jniLibs layout mirrors
-# scripts/fetch-ort-android.mjs.
+# iOS builds via scripts/build-rust-ios.sh.
 #
 # Requires: ANDROID_NDK_HOME + `cargo install cargo-ndk` + the android rust
 # targets (`rustup target add aarch64-linux-android armv7-linux-androideabi

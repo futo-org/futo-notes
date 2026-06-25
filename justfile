@@ -36,17 +36,14 @@ lint-swift:
 # ── Desktop (Tauri) ──
 
 tauri-dev:
-  node scripts/fetch-ort-linux.mjs
   node scripts/tauri-dev.mjs
 
 tauri-prod:
   pnpm run build
-  node scripts/fetch-ort-linux.mjs
   cd apps/tauri && WINIT_UNIX_BACKEND=wayland GDK_BACKEND=wayland WEBKIT_DISABLE_DMABUF_RENDERER=1 cargo tauri dev --config src-tauri/tauri.prod.conf.json
 
 tauri-build:
   pnpm run build
-  node scripts/fetch-ort-linux.mjs
   # NO_STRIP=true: linuxdeploy ships an old `strip` that can't read
   # .relr.dyn sections emitted by newer binutils (Fedora 39+, Arch, etc.),
   # which breaks AppImage bundling. CI runs on ubuntu:22.04 where stock
@@ -155,18 +152,6 @@ test-e2e-full:
 
 test-cross-platform:
   pnpm run test:cross-platform
-
-test-cross-platform-android:
-  pnpm -w run test:cross-platform:android
-
-# Mac ↔ iOS regression suite. Boots a macOS Tauri instance and an iOS
-# simulator-backed Tauri instance, then runs note CRUD, basic markdown,
-# folder ops, multi-tab, search, and bidirectional sync scenarios. Requires
-# Xcode + an iOS simulator. The sync portion also requires Docker
-# (futo-notes-server uses Postgres) — pass --skip-sync to bypass.
-test-mac-ios *args:
-  FUTO_NOTES_E2EE_SERVER_REPO="${FUTO_NOTES_E2EE_SERVER_REPO:-$HOME/Developer/futo-notes-server}" \
-    node tests/mac-ios-regression.mjs {{args}}
 
 test-markdown-spec:
   pnpm run test:markdown-spec
@@ -283,7 +268,6 @@ deploy-deb:
   fi
   echo "Version: ${VERSION}"
   node -e "const fs=require('fs'),f='${CONF}',c=JSON.parse(fs.readFileSync(f));c.version='${VERSION}';fs.writeFileSync(f,JSON.stringify(c,null,2)+'\n')"
-  node scripts/fetch-ort-linux.mjs >/dev/null
   # Clean stale bundles so we never install an old one
   rm -rf "$BUNDLE_DIR"
   echo "Building .deb package..."
@@ -315,7 +299,6 @@ deploy-rpm:
   fi
   echo "Version: ${VERSION}"
   node -e "const fs=require('fs'),f='${CONF}',c=JSON.parse(fs.readFileSync(f));c.version='${VERSION}';fs.writeFileSync(f,JSON.stringify(c,null,2)+'\n')"
-  node scripts/fetch-ort-linux.mjs >/dev/null
   # Clean stale bundles so we never install an old one
   rm -rf "$BUNDLE_DIR"
   echo "Building .rpm package..."

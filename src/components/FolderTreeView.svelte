@@ -11,7 +11,7 @@
     type TreeNode,
     type FolderNode,
   } from '$lib/folders.svelte';
-  import { isIOS, isMobile, isTauri } from '$lib/platform';
+  import { isMobile } from '$lib/platform';
   import { idParent, idLeaf } from '$lib/platform/pathSafety';
   import { setItemDragging } from '$lib/dragState';
 
@@ -293,18 +293,9 @@
   }
 
   function triggerHaptic(): void {
-    // Android WebView supports navigator.vibrate; iOS WebKit doesn't
-    // expose it, so we round-trip through a Tauri command that calls
-    // UIImpactFeedbackGenerator. Both paths are best-effort — silent
-    // on simulators and unsupported devices.
     if (typeof navigator !== 'undefined') {
       const nav = navigator as Navigator & { vibrate?: (pattern: number | number[]) => boolean };
       try { nav.vibrate?.(20); } catch { /* unsupported */ }
-    }
-    if (isIOS && isTauri) {
-      void import('@tauri-apps/api/core').then(({ invoke }) => {
-        invoke('haptic_impact').catch(() => { /* silent — best-effort */ });
-      });
     }
   }
 

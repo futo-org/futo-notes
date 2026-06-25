@@ -2,7 +2,6 @@
 resolver = "2"
 members = [
   "crates/futo-notes-core",
-  "crates/futo-notes-inference",
   "crates/futo-notes-sync",
   "crates/futo-notes-model",
   "crates/futo-notes-ffi",
@@ -15,7 +14,7 @@ members = [
 # the optimizer reason about the whole crate; `panic = "abort"` removes
 # the unwinding tables we'll never read. `strip = "debuginfo"` keeps the
 # .deb/.rpm/.AppImage smaller without losing panic backtraces (kept by
-# Rust's runtime). The Tauri Android/iOS builds inherit from this.
+# Rust's runtime).
 [profile.release]
 lto = "thin"
 codegen-units = 1
@@ -43,8 +42,8 @@ panic = "unwind"
 strip = "none"
 
 # Dev profile: keep the default opt-level for our crates (faster compile),
-# but bump optimization for dependencies so e.g. ort, sha2, rayon, regex
-# are still fast in `just tauri-dev`. Saves seconds per keystroke when
+# but bump optimization for dependencies so e.g. sha2, rayon, regex, and
+# Tantivy are still fast in `just tauri-dev`. Saves seconds per keystroke when
 # the search index or sync touches a hot dep.
 [profile.dev.package."*"]
 opt-level = 2

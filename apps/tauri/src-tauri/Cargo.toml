@@ -31,13 +31,9 @@ futo-notes-sync = { path = "../../../crates/futo-notes-sync" }
 # The canonical note rules (filename/tag/title) + note CRUD. Exposed as
 # #[tauri::command] wrappers so desktop consumes the SAME Rust as native.
 futo-notes-model = { path = "../../../crates/futo-notes-model" }
-# Platform-agnostic on-device search engine (Tantivy BM25 + SPLADE). Thin
-# Tauri shim in src/search.rs over this; ORT linking selected per-target by
-# the futo-notes-inference feature flags below. default-features = false is
-# load-bearing: Cargo UNIONS features across declarations, so leaving the
-# default (download-binaries) on here would force it onto every target,
-# including the ones that pick the mutually-exclusive load-dynamic below.
-futo-notes-search = { path = "../../../crates/futo-notes-search", default-features = false }
+# Platform-agnostic on-device BM25 search engine. Thin Tauri shim in
+# src/search.rs over this.
+futo-notes-search = { path = "../../../crates/futo-notes-search" }
 rand = "0.9"
 rand_chacha = "0.9"
 rayon = "1.11.0"
@@ -54,59 +50,17 @@ url = "2.5"
 thiserror = "1"
 tokio = { version = "1", features = ["sync", "macros", "rt-multi-thread", "time"] }
 
-# Desktop-only: route folder/note deletes through the system trash so users
-# can recover from accidental deletes. iOS / Android have no system trash;
-# those builds hard-delete instead.
+# Route folder/note deletes through the desktop system trash so users can
+# recover from accidental deletes.
 [target.'cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))'.dependencies]
 trash = "5"
 
-# macOS + Windows: ort downloads and statically links libonnxruntime during
-# `cargo build`. pyke's prebuilts for these targets link cleanly.
 [target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
 tauri-plugin-single-instance = "2"
-futo-notes-inference = { path = "../../../crates/futo-notes-inference" }
-# Match the inference ORT linking mode for the search engine's encoder (the
-# base declaration is default-features = false, so each target picks here).
-futo-notes-search = { path = "../../../crates/futo-notes-search", features = ["download-binaries"] }
 
-# Linux: ORT ships as a separate libonnxruntime.so in
-# apps/tauri/src-tauri/gen/linux/, fetched by `scripts/fetch-ort-linux.mjs`
-# from Microsoft's official tarball (glibc 2.17 floor, no __isoc23_* symbols).
-# The .so is bundled as a Tauri resource; init_ort_dylib_path() in lib.rs sets
-# ORT_DYLIB_PATH at startup so `ort::init` finds it.
 [target.'cfg(target_os = "linux")'.dependencies]
 tauri-plugin-single-instance = "2"
-futo-notes-inference = { path = "../../../crates/futo-notes-inference", default-features = false, features = ["load-dynamic"] }
-# Match the inference ORT linking mode so the search engine's encoder links the
-# same libonnxruntime.so (no build-time download on Linux).
-futo-notes-search = { path = "../../../crates/futo-notes-search", default-features = false, features = ["load-dynamic"] }
 glib = "0.18"
-
-[target.'cfg(target_os = "ios")'.dependencies]
-objc2 = "0.6"
-# iOS: ORT statically linked via xcframework fetched by `scripts/fetch-ort-ios.mjs`.
-# ORT_IOS_XCFWK_PATH is set by the Xcode pre-build script in project.yml.
-# CoreML EP enables Neural Engine / GPU acceleration on iPhone.
-futo-notes-inference = { path = "../../../crates/futo-notes-inference", default-features = false, features = ["coreml"] }
-# CoreML EP for the SPLADE encoder's ANE path on iPhone.
-futo-notes-search = { path = "../../../crates/futo-notes-search", default-features = false, features = ["coreml"] }
-
-[target.'cfg(target_os = "android")'.dependencies]
-# Android: ORT ships as a separate .so in gen/android/.../jniLibs/<abi>/,
-# fetched by `node scripts/fetch-ort-android.mjs`. XNNPACK EP for SIMD CPU
-# inference on ARM. Opting out of ort's build-time download here because
-# cross-compiling through pyke's CDN isn't set up and load-dynamic is simpler
-# to reason about.
-futo-notes-inference = { path = "../../../crates/futo-notes-inference", default-features = false, features = ["load-dynamic", "xnnpack"] }
-# Match the inference ORT linking mode + EP for the search engine's encoder.
-futo-notes-search = { path = "../../../crates/futo-notes-search", default-features = false, features = ["load-dynamic", "xnnpack"] }
-# JNI for the soft-keyboard helper (InputMethodManager.showSoftInput). Pinned
-# to the same major as tauri-runtime-wry's transitive jni so the JNIEnv types
-# match across crates.
-jni = "0.21"
-# Resolves the JavaVM/Activity for the SPLADE APK-asset extraction
-# (search.rs ensure_splade_assets_for_android).
-ndk-context = "0.1"
 
 [lints.clippy]
 too_many_lines = "warn"

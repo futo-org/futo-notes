@@ -44,8 +44,8 @@ SettingsScreen.kt *(Android)*, SettingsView.swift *(iOS)*
 
 - Settings is a sheet/modal (mobile: bottom sheet over the current screen)
   with sections: Appearance, Sync, Crash reporting, Danger zone, and a
-  version footer. Verified on Android Tauri 2026-06-09. →
-  SettingsScreen.svelte (see settings-visual.md for the desktop layout)
+  version footer. → SettingsScreen.svelte (see settings-visual.md for the
+  desktop layout)
 - **Sync**: server URL + password inline with a Connect button and a
   "Last sync: …" line ("never" before the first sync). Once connected the
   section shows status/disconnect (see sync.md).

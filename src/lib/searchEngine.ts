@@ -1,13 +1,8 @@
-// Thin TS shim over the Rust `futo-notes-search` engine (Tantivy BM25 + SPLADE)
-// exposed by the Tauri `search_*` commands. This coexists with the MiniSearch
-// keyword index in `searchIndex.ts`: callers prefer the Rust engine when it is
-// available and has results, and fall back to MiniSearch otherwise (parity
-// window — see docs/migration/splade-integration-plan.md). MiniSearch is NOT
-// removed.
-//
-// The engine reconciles BM25 fast at boot (so keyword search is live almost
-// immediately) and backfills SPLADE in the background; queries fuse BM25 ⊕
-// SPLADE via RRF once SPLADE is ready (`source` flips "bm25" → "hybrid").
+// Thin TS shim over the Rust `futo-notes-search` engine (Tantivy BM25) exposed
+// by the Tauri `search_*` commands. This coexists with the MiniSearch keyword
+// index in `searchIndex.ts`: callers prefer the Rust engine when it is
+// available and has results, and fall back to MiniSearch otherwise. MiniSearch
+// is NOT removed.
 
 import { invoke } from '@tauri-apps/api/core';
 import { isTauri } from './platform';
@@ -16,20 +11,13 @@ import { isTauri } from './platform';
 export interface EngineSearchHit {
   noteId: string;
   score: number;
-  /** "bm25" until SPLADE is ready, then "hybrid". */
+  /** Current engine source, currently always "bm25". */
   source: string;
 }
 
 /** Mirrors the Rust `futo_notes_search::SearchStatus`. */
 export interface EngineSearchStatus {
   keyword: { ready: boolean };
-  splade: {
-    ready: boolean;
-    indexed: number;
-    total: number;
-    compiling: boolean;
-    fallbackReason: string | null;
-  };
 }
 
 /** Whether the Rust search command surface is reachable (Tauri only). */
@@ -38,7 +26,7 @@ export function isEngineAvailable(): boolean {
 }
 
 /**
- * Run a hybrid query against the Rust engine. Returns `null` (rather than
+ * Run a BM25 query against the Rust engine. Returns `null` (rather than
  * throwing) when the engine isn't reachable or hasn't initialized, so callers
  * can cleanly fall back to MiniSearch.
  */
@@ -65,7 +53,7 @@ export async function engineStatus(): Promise<EngineSearchStatus | null> {
   }
 }
 
-/** Force a full corpus rescan (re-encodes every note). Settings / tests only. */
+/** Force a full corpus rescan. Settings / tests only. */
 export async function engineRebuild(): Promise<void> {
   if (!isTauri) return;
   try {

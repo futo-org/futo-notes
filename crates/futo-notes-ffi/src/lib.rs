@@ -205,12 +205,10 @@ pub fn extract_wikilinks(content: String) -> Vec<String> {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-//  Search (keyword/BM25 — the SPLADE/semantic half is compiled out here)
+//  Search (keyword/BM25)
 // ════════════════════════════════════════════════════════════════════════
 
-/// A ranked search hit. `source` is always `"bm25"` through this facade —
-/// the native builds compile `futo-notes-search` without the `semantic`
-/// feature, so there is no SPLADE model and no hybrid fusion.
+/// A ranked search hit. `source` is always `"bm25"` on main.
 #[derive(uniffi::Record)]
 pub struct SearchHit {
     pub note_id: String,
@@ -253,11 +251,6 @@ impl SearchEngine {
         let config = engine::SearchConfig {
             notes_root: PathBuf::from(notes_root),
             index_dir: PathBuf::from(index_dir),
-            // BM25-only: no SPLADE model/tokenizer on native; the variant is
-            // a required field but unused without them.
-            model_path: None,
-            tokenizer_path: None,
-            model_variant: engine::SpladeModelVariant::Int8Dynamic,
         };
         let inner = engine::SearchEngine::start(
             config,

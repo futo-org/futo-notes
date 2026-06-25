@@ -26,8 +26,6 @@ tokio = { version = "1", features = ["sync", "macros", "rt-multi-thread", "time"
 futo-notes-model = { path = "../futo-notes-model" }
 futo-notes-sync = { path = "../futo-notes-sync" }
 futo-notes-core = { path = "../futo-notes-core" }
-# Keyword-only search for the native shells: default-features = false drops
-# the SPLADE/semantic half (and with it futo-notes-inference + every ORT
-# linkage mode) — the engine is BM25-only on iOS/Android.
-futo-notes-search = { path = "../futo-notes-search", default-features = false }
+# On-device BM25 search shared by desktop and native shells.
+futo-notes-search = { path = "../futo-notes-search" }
 thiserror = "1"

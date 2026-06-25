@@ -1,3 +1,0 @@
-# Prebuilt libonnxruntime.so files are fetched by scripts/fetch-ort-android.mjs
-# and must match the ORT version in ort-sys. Do not commit them to git.
-**/libonnxruntime.so

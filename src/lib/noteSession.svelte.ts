@@ -5,7 +5,7 @@
  * title‑validation state. MarkdownEditor bindings and scrollParent stay in
  * NotesShell.
  */
-import { hasFileSystem, isMobile, showSoftKeyboard } from '$lib/platform';
+import { hasFileSystem, isMobile } from '$lib/platform';
 import {
   updateNote,
   readNote,
@@ -440,12 +440,6 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
         } else {
           deps.focusEditor();
         }
-        // Android: programmatic focus doesn't always raise the IME. Bridge
-        // to InputMethodManager so a fresh note brings the keyboard up
-        // immediately. (On iOS this also retires the keyboard primer from
-        // primeSoftKeyboardForProgrammaticFocus — the focused field
-        // inherits its active keyboard session.)
-        void showSoftKeyboard();
       });
     } else if (hasFileSystem) {
       try {
@@ -501,7 +495,6 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
             if (loadVersion !== noteLoadVersion) return;
             autoResizeTitleTextarea();
             deps.focusEditor();
-            void showSoftKeyboard();
           });
           return;
         } catch {

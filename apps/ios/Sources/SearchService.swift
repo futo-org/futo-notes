@@ -1,7 +1,7 @@
 import Foundation
 
 /// Off-main owner of the Rust `SearchEngine` (UniFFI) — BM25 keyword search
-/// over the vault (no SPLADE model on native). Mirrors the `NoteVault` pattern:
+/// over the vault. Mirrors the `NoteVault` pattern:
 /// the engine is reached only through this actor's executor, so index opens,
 /// rescans, and queries can never touch the main actor.
 ///

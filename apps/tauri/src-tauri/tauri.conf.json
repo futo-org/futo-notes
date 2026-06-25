@@ -40,23 +40,6 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "linux": {
-      "deb": {
-        "files": {
-          "/usr/lib/futo-notes/libonnxruntime.so": "gen/linux/libonnxruntime.so"
-        }
-      },
-      "rpm": {
-        "files": {
-          "/usr/lib/futo-notes/libonnxruntime.so": "gen/linux/libonnxruntime.so"
-        }
-      },
-      "appimage": {
-        "files": {
-          "usr/bin/libonnxruntime.so": "gen/linux/libonnxruntime.so"
-        }
-      }
-    },
     "macOS": {
       "entitlements": "Entitlements.plist",
       "signingIdentity": "-",
