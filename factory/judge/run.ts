@@ -906,9 +906,34 @@ function prepareObsidianRegistry(): () => void {
   const perVaultJson = path.join(OBSIDIAN_CONFIG_DIR, `${FACTORY_VAULT_ID}.json`);
   const backup = `${obsidianJson}.factory-bak`;
 
+  // The "true original" is obsidian.json with NO factory vault registered.
+  // Sanitize on the way in so a previous *crashed* run (which left the factory
+  // vault registered + the real vaults closed) can't poison this run's backup
+  // — restoring a poisoned backup is what stranded Obsidian on the factory
+  // vault. If sanitizing closes every real vault, re-open the most-recent one
+  // so the user lands on a real vault, not a blank picker.
+  const sanitize = (raw: string): string => {
+    const d = JSON.parse(raw);
+    if (d.vaults) {
+      delete d.vaults[FACTORY_VAULT_ID];
+      const ks = Object.keys(d.vaults);
+      if (ks.length && !ks.some((k) => d.vaults[k].open)) {
+        ks.sort((a, b) => (d.vaults[b].ts ?? 0) - (d.vaults[a].ts ?? 0));
+        d.vaults[ks[0]].open = true;
+      }
+    }
+    return JSON.stringify(d);
+  };
+
   let origRegistry: string | null = null;
-  if (existsSync(obsidianJson)) {
-    origRegistry = readFileSync(obsidianJson, 'utf8');
+  if (existsSync(backup)) {
+    // A prior run died before its cleanup ran. Its backup is the best
+    // not-yet-poisoned original we have — trust it over the live
+    // obsidian.json (which is still in the factory-modified state) and
+    // DON'T overwrite it, so the clean original survives this run too.
+    origRegistry = readFileSync(backup, 'utf8');
+  } else if (existsSync(obsidianJson)) {
+    origRegistry = sanitize(readFileSync(obsidianJson, 'utf8'));
     writeFileSync(backup, origRegistry);
   }
 
