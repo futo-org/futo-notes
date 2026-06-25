@@ -286,17 +286,17 @@
 </div>
 
 <style>
-  /* The strip is the same height as the macOS traffic-light row
-     (`trafficLightPosition.y` + light diameter ≈ 14+12=26; round up
-     with breathing room) so on Mac the lights vertically center inside
-     it and live in the same band as the tabs — Obsidian-style. On
-     other platforms the strip simply caps the top of the editor. */
+  /* On macOS the strip hosts the system traffic lights, so it's sized to
+     give them room: `--tabs-strip-height` (48px, set in App.svelte) seats
+     the lights (top at y=20, ~12px tall) centered with margin above and
+     below — Obsidian-style. On other platforms the var is unset and the
+     strip falls back to 40px, simply capping the top of the editor. */
   .tabs-strip {
     flex: 0 0 auto;
     display: flex;
     align-items: flex-end;
     gap: 2px;
-    height: 40px;
+    height: var(--tabs-strip-height, 40px);
     padding: 0 8px;
     background: var(--color-surface, var(--color-bg));
     overflow-x: auto;

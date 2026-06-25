@@ -13,20 +13,29 @@
   }
   // macOS uses the system traffic lights over a transparent titlebar
   // (configured in tauri.conf.json via "titleBarStyle": "Overlay" with
-  // `trafficLightPosition` set to vertically center the lights inside
-  // the tabs strip — Obsidian-style top-of-window tab bar).
+  // `trafficLightPosition: { x: 19, y: 20 }` and `hiddenTitle: true` so the
+  // native window-title text doesn't draw over our tab strip). The lights
+  // live centered in a top band — Obsidian-style top-of-window tab bar.
+  //
+  // `--tabs-strip-height` is that band's height. It's sized so the lights
+  // (top at y=20, ~12px tall) sit with comfortable margin above and below:
+  // 48px → ~20px above the lights, ~16px below. On non-mac platforms the
+  // strip falls back to its default 40px (no lights to clear).
   //
   // `--macos-titlebar-inset` pushes the sidebar header's content below
-  // where the traffic lights sit so they don't overlap.
+  // where the traffic lights sit so they don't overlap; matched to the
+  // strip height (16px base padding + 32px inset = 48px) so the expanded
+  // sidebar header and the collapsed tab strip share one top band.
   //
   // `--macos-traffic-lights-width` is the leading clearance the tabs
   // strip / sidebar-expand-button need when the sidebar is COLLAPSED:
   // there's no sidebar to host the lights so they overlap the strip's
   // left edge directly. Three buttons starting at x≈19 with ~20px
-  // spacing land the rightmost light at ~x=80; 96px gives a small gap.
+  // spacing land the rightmost light at ~x=71; 96px gives a clear gap.
   if (isDesktop && isMac) {
-    document.documentElement.style.setProperty('--macos-titlebar-inset', '28px');
+    document.documentElement.style.setProperty('--macos-titlebar-inset', '32px');
     document.documentElement.style.setProperty('--macos-traffic-lights-width', '96px');
+    document.documentElement.style.setProperty('--tabs-strip-height', '48px');
   } else {
     document.documentElement.style.setProperty('--macos-titlebar-inset', '0px');
     document.documentElement.style.setProperty('--macos-traffic-lights-width', '0px');
