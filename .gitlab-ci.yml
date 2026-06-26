@@ -367,53 +367,11 @@ test:rust:macos:
       when: manual
       allow_failure: true
 
-test:desktop-smoke:
-  stage: test
-  cache:
-    - !reference [.cache-pnpm, cache]
-    - !reference [.cache-cargo-tauri, cache]
-  script:
-    - pnpm install --frozen-lockfile
-    - !reference [.setup-linux-deps, script]
-    - !reference [.setup-rust, script]
-    - DEBIAN_FRONTEND=noninteractive apt-get install -y xvfb
-    # Build frontend + debug binary
-    - pnpm run build
-    - cd apps/tauri && cargo tauri build --debug --no-bundle && cd ../..
-    # Pre-configure notes dir so app boots to editor
-    - |
-      NOTES_DIR=$(mktemp -d)
-      mkdir -p ~/.local/share/com.futo.notes
-      echo '{"notesDir":"'"$NOTES_DIR"'"}' > ~/.local/share/com.futo.notes/notes-dir-override.json
-    # Launch under xvfb
-    - |
-      TAURI_LOG="/tmp/tauri-smoke.log"
-      WEBKIT_DISABLE_DMABUF_RENDERER=1 \
-        xvfb-run -a --server-args="-screen 0 1280x800x24" \
-        target/debug/futo-notes-tauri > "$TAURI_LOG" 2>&1 &
-    # Run smoke tests (script handles port discovery + retries)
-    - node tests/desktop-smoke.mjs --log-file /tmp/tauri-smoke.log
-  after_script:
-    - kill $(pgrep -f futo-notes-tauri) 2>/dev/null || true
-  artifacts:
-    when: always
-    paths:
-      - test-screenshots/smoke-*.png
-      - test-screenshots/smoke-results.json
-    expire_in: 1 week
-  rules:
-    - if: $CI_COMMIT_TAG
-    - if: $CI_MERGE_REQUEST_IID
-      when: manual
-      allow_failure: true
-      changes:
-        - apps/tauri/**/*
-        - src/**/*
-        - packages/shared/**/*
-        - packages/editor/**/*
-
 test:cross-platform-sync:
   stage: test
+  # Pin to the fast office runner — see build:android-native.
+  tags:
+    - dind_fast
   services:
     - name: postgres:15
       alias: postgres
@@ -433,8 +391,8 @@ test:cross-platform-sync:
     - DEBIAN_FRONTEND=noninteractive apt-get install -y xvfb postgresql-client
     - !reference [.setup-futo-notes-server, script]
     # cargo clean -p so the tauri build script re-runs and re-embeds dist/
-    # with hooks — .cache-cargo-tauri is shared with test:desktop-smoke
-    # which builds without VITE_INCLUDE_TEST_HOOKS, and the cached crate can
+    # with the test hooks: a futo-notes-tauri crate cached in
+    # .cache-cargo-tauri from a build without VITE_INCLUDE_TEST_HOOKS can
     # otherwise re-link a hooks-free binary.
     - (cd apps/tauri && cargo clean -p futo-notes-tauri 2>/dev/null || true)
     - (cd apps/tauri && VITE_INCLUDE_TEST_HOOKS=true cargo tauri build --debug --no-bundle)
@@ -497,6 +455,9 @@ test:desktop-smoke:macos:
 # glibc and break on anything older.
 build:linux-packages:
   stage: build
+  # Pin to the fast office runner — see build:android-native.
+  tags:
+    - dind_fast
   needs:
     - job: test
   image: ubuntu:22.04
@@ -547,6 +508,9 @@ build:linux-packages:
 # extra here and costs us glibc compat on older target distros.
 build:linux-appimage:
   stage: build
+  # Pin to the fast office runner — see build:android-native.
+  tags:
+    - dind_fast
   needs:
     - job: test
   image: ubuntu:22.04
@@ -652,6 +616,13 @@ build:macos:
 
 build:android-native:
   stage: build
+  # Pin to the office runner via the dind_fast tag (only runner 71 has it; the
+  # DigitalOcean dind droplet has just `dind`). It keeps a warm local cargo
+  # cache and has far faster CPU — ~5m here vs ~88m cold on the droplet.
+  # Trade-off: the dind_fast jobs serialise on one box and lose the droplet
+  # as failover.
+  tags:
+    - dind_fast
   needs: []
   image: gitlab.futo.org:5050/futo-notes/futo-notes/ci/android:latest
   cache:
@@ -1084,7 +1055,6 @@ release:gate:
     - job: test:rust
     - job: test:rust:dep-guard
     - job: test:rust:macos
-    - job: test:desktop-smoke
     - job: test:desktop-smoke:macos
     - job: test:cross-platform-sync
     - job: build:linux-packages
