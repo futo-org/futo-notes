@@ -221,11 +221,12 @@ build_macos_task:
     - corepack enable
     - corepack prepare pnpm@10.29.2 --activate
 
-    # Install Rust. Apple Silicon only — ort-sys has no prebuilt for
-    # x86_64-apple-darwin, and Intel Macs are EOL on our support matrix.
+    # Install Rust. We ship a universal (x86_64 + arm64) DMG so a single
+    # download runs native on both Apple Silicon and Intel Macs — both target
+    # std libs are needed for `--target universal-apple-darwin`.
     - curl https://sh.rustup.rs -sSf | sh -s -- -y
     - export PATH="$HOME/.cargo/bin:$PATH"
-    - rustup target add aarch64-apple-darwin
+    - rustup target add aarch64-apple-darwin x86_64-apple-darwin
     - cargo install tauri-cli --locked
 
     # Derive version from git tag
@@ -245,13 +246,13 @@ build_macos_task:
         fs.writeFileSync(f, JSON.stringify(c, null, 2) + '\n');
       " "$VERSION"
 
-    # Build aarch64 macOS DMG (Tauri handles signing + notarization)
+    # Build universal macOS DMG (Tauri handles signing + notarization)
     - cd apps/tauri
-    - cargo tauri build --target aarch64-apple-darwin
+    - cargo tauri build --target universal-apple-darwin
     - cd ../..
 
     # Copy DMG to artifacts location
-    - cp target/aarch64-apple-darwin/release/bundle/dmg/*.dmg ./
+    - cp target/universal-apple-darwin/release/bundle/dmg/*.dmg ./
   binary_artifacts:
     path: "*.dmg"
 

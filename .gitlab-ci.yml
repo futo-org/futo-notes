@@ -1224,7 +1224,7 @@ release:
     - |
       DMG=$(find buildFutoNotesMacOS -name "*.dmg" -type f 2>/dev/null | head -1)
       if [ -n "$DMG" ]; then
-        NAME="FUTO-Notes-${VERSION}-aarch64.dmg"
+        NAME="FUTO-Notes-${VERSION}-universal.dmg"
         echo "Uploading $NAME"
         curl --fail -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$DMG" "${REGISTRY_URL}/${NAME}"
       fi
@@ -1257,7 +1257,7 @@ release:
         --assets-link "{\"name\":\"FUTO-Notes-${VERSION}-x86_64.AppImage\",\"url\":\"${REGISTRY_URL}/FUTO-Notes-${VERSION}-x86_64.AppImage\",\"link_type\":\"package\"}" \
         --assets-link "{\"name\":\"futo-notes-${VERSION}.apk\",\"url\":\"${REGISTRY_URL}/futo-notes-${VERSION}.apk\",\"link_type\":\"package\"}" \
         --assets-link "{\"name\":\"FUTO-Notes-${VERSION}.ipa\",\"url\":\"${REGISTRY_URL}/FUTO-Notes-${VERSION}.ipa\",\"link_type\":\"package\"}" \
-        --assets-link "{\"name\":\"FUTO-Notes-${VERSION}-aarch64.dmg\",\"url\":\"${REGISTRY_URL}/FUTO-Notes-${VERSION}-aarch64.dmg\",\"link_type\":\"package\"}" \
+        --assets-link "{\"name\":\"FUTO-Notes-${VERSION}-universal.dmg\",\"url\":\"${REGISTRY_URL}/FUTO-Notes-${VERSION}-universal.dmg\",\"link_type\":\"package\"}" \
         --assets-link "{\"name\":\"FUTO-Notes-${VERSION}-x64-setup.exe\",\"url\":\"${REGISTRY_URL}/FUTO-Notes-${VERSION}-x64-setup.exe\",\"link_type\":\"package\"}"
   rules:
     - if: $CI_COMMIT_TAG
