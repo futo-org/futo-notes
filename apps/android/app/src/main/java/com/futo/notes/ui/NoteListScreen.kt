@@ -54,6 +54,7 @@ import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -106,6 +107,15 @@ fun NoteListScreen(
     var moveTarget by remember { mutableStateOf<String?>(null) }
     var newFolderDialog by remember { mutableStateOf(false) }
     var confirmDeleteFolder by remember { mutableStateOf<String?>(null) }
+
+    // Resort on return-to-list [list.md:24]: `NotesStore.write` updates the
+    // edited row IN PLACE while typing (stable identity/order so the open editor
+    // can't pop out from under the user), so the list is stale-ordered when this
+    // screen re-enters composition after the editor closes. This screen leaves
+    // composition whenever the editor is pushed, so a keyed-Unit LaunchedEffect
+    // re-runs on every return — sorting the in-memory rows most-recently-modified
+    // first, never on a keystroke (the list isn't composed while editing).
+    LaunchedEffect(Unit) { store.resortInPlace() }
 
     val scrolled by remember {
         derivedStateOf {
@@ -246,7 +256,10 @@ fun NoteListScreen(
             confirmLabel = "Delete",
             onConfirm = {
                 deleteTarget = null
-                scope.launch { store.delete(id) }
+                scope.launch {
+                    store.delete(id)
+                    Toast.makeText(context, "Note deleted", Toast.LENGTH_SHORT).show()
+                }
             },
             onDismiss = { deleteTarget = null },
         )

@@ -34,8 +34,12 @@
  * - 4: clipboard image paste (saveImageData outbound message). Additive — a
  *      host that doesn't handle it just drops the message (paste is a no-op,
  *      nothing breaks); the toolbar Camera/Image picker is unaffected.
+ * - 5: native-pasteboard clipboard image paste (pasteClipboardImage outbound
+ *      message) for WebViews (iOS WKWebView) that hide the bitmap from the JS
+ *      paste event, so no image File reaches `saveImageData`. Additive — a host
+ *      that doesn't handle it just drops the message (paste is a no-op).
  */
-export const BRIDGE_VERSION = 4 as const;
+export const BRIDGE_VERSION = 5 as const;
 
 /** Editor color theme. */
 export type EditorTheme = 'light' | 'dark';
@@ -180,6 +184,21 @@ export interface SaveImageDataMessage {
 }
 
 /**
+ * Emitted when the user pastes an image but the WebView hid the bitmap from the
+ * JS paste event (no image File — iOS WKWebView, like WebKitGTK), yet the paste
+ * still `looksLikeImagePaste`. Carries no payload: the host reads the image off
+ * the NATIVE pasteboard (`UIPasteboard.general` on iOS), saves it into the
+ * vault root through the SAME path as `saveImageData`/`pickImage`, then calls
+ * {@link FutoEditorApi.insertImage} with the saved filename. A host that can't
+ * read the pasteboard just drops the message (the paste is a no-op). Android's
+ * WebView always exposes the File, so it never receives this — it uses
+ * {@link SaveImageDataMessage}.
+ */
+export interface PasteClipboardImageMessage {
+  type: 'pasteClipboardImage';
+}
+
+/**
  * Editor → host messages, posted to the host's `futoBridge` message handler.
  * Discriminated on `type`.
  */
@@ -190,7 +209,8 @@ export type FutoEditorOutboundMessage =
   | OpenNoteMessage
   | PickImageMessage
   | CursorContextMessage
-  | SaveImageDataMessage;
+  | SaveImageDataMessage
+  | PasteClipboardImageMessage;
 
 /**
  * The iOS host message sink: `window.webkit.messageHandlers.futoBridge`, a

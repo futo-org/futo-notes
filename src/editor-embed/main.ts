@@ -35,7 +35,7 @@ import { TOOLBAR_EXEC } from '../lib/markdownToolbar';
 import { getAllNotes, setNotesUniverse } from '../lib/notes.svelte';
 import { resolveWikilink } from '../lib/wikilinks';
 import { preloadImages, setLocalImageBaseUrl } from '../lib/liveMarkdownTransform';
-import { extFromMime, getImageFile } from '../lib/imagePaste';
+import { extFromMime, getImageFile, looksLikeImagePaste } from '../lib/imagePaste';
 import type { NotePreview } from '../types';
 
 // ---------------------------------------------------------------------------
@@ -217,6 +217,14 @@ toolbar = mount(EmbedToolbar, {
 // The host saves into the vault (same path as the Camera/Image picker) and
 // calls `insertImage(filename)` back. Capture phase + stop so CodeMirror's
 // built-in paste doesn't also run. Non-image pastes fall through untouched.
+//
+// Some WebViews (iOS WKWebView, like WebKitGTK on the desktop) HIDE the bitmap
+// from the JS paste event — no image File — while the OS clipboard still holds
+// it. When the paste merely `looksLikeImagePaste` (same heuristic the Tauri
+// desktop uses → src/lib/imagePaste.ts), fall back to `pasteClipboardImage`:
+// the host reads the image off the native pasteboard and saves it through the
+// SAME vault path. Android/Chromium always exposes the File, so the File path
+// above takes the paste there and this fallback never fires.
 function handleNativeImagePaste(event: ClipboardEvent): void {
   if (!hasNativeHost()) return;
   const clipboardData = event.clipboardData;
@@ -230,20 +238,31 @@ function handleNativeImagePaste(event: ClipboardEvent): void {
   if (!inEditor) return;
 
   const file = getImageFile(clipboardData);
-  if (!file) return;
+  if (file) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
 
-  event.preventDefault();
-  event.stopImmediatePropagation();
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result !== 'string') return;
+      // readAsDataURL gives "data:<mime>;base64,<bytes>" — strip the prefix.
+      const comma = reader.result.indexOf(',');
+      const data = comma >= 0 ? reader.result.slice(comma + 1) : reader.result;
+      post({ type: 'saveImageData', data, ext: extFromMime(file.type) });
+    };
+    reader.readAsDataURL(file);
+    return;
+  }
 
-  const reader = new FileReader();
-  reader.onload = () => {
-    if (typeof reader.result !== 'string') return;
-    // readAsDataURL gives "data:<mime>;base64,<bytes>" — strip the prefix.
-    const comma = reader.result.indexOf(',');
-    const data = comma >= 0 ? reader.result.slice(comma + 1) : reader.result;
-    post({ type: 'saveImageData', data, ext: extFromMime(file.type) });
-  };
-  reader.readAsDataURL(file);
+  // No File exposed, but this looks like an image paste (the heuristic already
+  // guards `text/plain` so a real text paste is never hijacked): ask the host
+  // to read the bitmap off the native pasteboard. The host saves into the
+  // vault and calls `insertImage(filename)` back, exactly like `saveImageData`.
+  if (looksLikeImagePaste(clipboardData)) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    post({ type: 'pasteClipboardImage' });
+  }
 }
 document.addEventListener('paste', handleNativeImagePaste, true);
 

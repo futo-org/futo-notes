@@ -21,13 +21,25 @@ new-note affordances.
 - Notes are sorted most-recently-modified first. **Opening a note does not count
   as modifying it** — only an actual content or title change moves a note to the
   top.
+- On the native shells the editor is a full-screen push (the list isn't visible
+  while editing), so a content/title edit refreshes the row **in place** while
+  typing — stable identity/order, no editor-popping, the deliberate
+  `NotesStore.write` optimization — and the list resorts
+  most-recently-modified-first when it re-appears on editor close, never on a
+  keystroke. The resort is a cheap in-memory sort (`NotesStore.resortInPlace()`,
+  key `modified` desc then `id`, matching the Rust scan order) fired from
+  `FolderContentsView.onAppear` on iOS and a `LaunchedEffect` in `NoteListScreen`
+  on Android. Desktop Tauri resorts live. → NotesStore.swift / NotesStore.kt
+  `resortInPlace`
 - Tapping a note opens it in the editor (no autofocus). → NoteListScreen.kt /
   MainActivity.kt
 - The list keeps its scroll position while you navigate: scroll, open a note
   (or Search / Settings), come back — the list is where you left it, not
   jumped to the top. → MainActivity.kt saved per-screen state *(Android
   native)*, NoteListView.swift NavigationStack *(iOS native)*
-- An empty folder shows an empty state ("Nothing here yet").
+- An empty folder shows an empty state. *(Tauri/Android: "Nothing here yet".
+  iOS native distinguishes the case: "No notes yet" at the vault root, "Empty
+  folder" inside a folder — NoteListView.swift.)*
 - The top bar is transparent at rest and gains a surface fill + bottom border
   once the list is scrolled. *(Android)*
 
@@ -37,6 +49,15 @@ new-note affordances.
   each folder path, each with a live note count. → NoteListScreen.kt
 - Selecting a folder filters the list and closes the drawer.
 - A Settings entry sits at the bottom of the drawer.
+
+**iOS native, by design, has no drawer** (intentional platform difference, not a
+gap): instead of the drawer / **"All notes"** entry / **live per-folder note
+counts** above — which are **Android-native + Tauri** surfaces — it uses a
+`NavigationStack` folder browser (the root shows folders-as-rows + root notes;
+tapping a folder pushes its contents) and reaches Settings via a nav-bar **gear
+icon**. `NotesStore.noteCount(under:)` exists but is only used for delete
+confirmation, not surfaced as a per-folder count. → NoteListView.swift
+`FolderContentsView`
 
 ## Sidebar drag & drop *(desktop)*
 
@@ -125,7 +146,14 @@ new-note affordances.
 
 - A folder can be created from the new-item affordance ("New Folder").
 - Folder names must be unique among siblings (case-insensitive) and
-  filesystem-safe; the shared sanitize rules apply. → folders.svelte.ts
+  filesystem-safe; the shared sanitize rules apply. Enforced on Tauri
+  (`folders.svelte.ts`), Android (`NewFolderDialog.kt`), and iOS native
+  (`NoteListView.swift` `createFolder`): on a case-insensitive sibling match the
+  Create action is disabled and the dialog shows "A folder with this name
+  already exists", with the name cleaned via the shared Rust `sanitizeTitle`. A
+  hard guard in `createFolder` also blocks the idempotent `create_dir_all` from
+  silently merging into an existing folder. → folders.svelte.ts,
+  NewFolderDialog.kt, NoteListView.swift
 - A folder can be renamed; the rename updates every note path beneath it and
   rewrites wikilinks pointing at those notes. → folders.svelte.ts *(Tauri)*
 - Notes and folders can be moved by drag-and-drop in the tree (note → folder,

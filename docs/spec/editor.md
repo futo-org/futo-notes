@@ -260,23 +260,29 @@ native shells edit tags as text in the body, which is not a gap.
   through the SAME path as the Camera/Image picker, then calls
   `insertImage(filename)` — so a pasted image is indistinguishable from a picked
   one (`![](image-…ext)`, stored as a vault blob, no inline base64). Verified
-  end-to-end on the Android emulator 2026-06-22. → editor-embed/main.ts
-  `handleNativeImagePaste`, bridge.ts `SaveImageDataMessage` (contract v4),
-  EditorWebView.kt + ImagePicker.kt `saveImageDataIntoVault` (Android),
-  EditorWebView.swift `saveImageData` + EditorImages.swift `VaultImages.save` (iOS)
+  end-to-end on the Android emulator 2026-06-22. When the WebView hides the
+  bitmap from the JS paste event (no File — WKWebView/WebKitGTK), the embed
+  instead posts the payload-less `pasteClipboardImage` message (bridge contract
+  v5) and the host reads the image off the native clipboard. → editor-embed/main.ts
+  `handleNativeImagePaste`, bridge.ts `SaveImageDataMessage` /
+  `PasteClipboardImageMessage` (contract v5), EditorWebView.kt + ImagePicker.kt
+  `saveImageDataIntoVault` (Android), EditorWebView.swift `saveImageData` +
+  `clipboardImageData` + EditorImages.swift `VaultImages.save` (iOS),
+  fs_paste_clipboard_image (Tauri)
 
 > **Gap:** Clipboard image paste is verified on Linux (WebKitGTK), Windows
-> (WebView2), and native Android (emulator, 2026-06-22). Two pieces remain
-> unverified: (1) **macOS** desktop (Tauri/WKWebView) is untested — WKWebView
-> may, like WebKitGTK, hide the bitmap from the JS paste event, in which case
-> the `looksLikeImagePaste` → `fs_paste_clipboard_image` fallback should cover
-> it; (2) **native iOS** has the `saveImageData` host handler implemented
-> (mirrors Android) but is **unverified** (no Mac on hand to build/run). Also,
-> the native paste path only handles an image *file* exposed on the paste event
-> (Android/Chromium exposes one for both screenshot and Copy Image); if iOS
-> WKWebView hides the bitmap the way WebKitGTK does, that shape won't paste
-> until a native clipboard-read bridge is added. To close: test on macOS Tauri
-> and an iOS device/simulator. (recorded 2026-06-22)
+> (WebView2), and native Android (emulator, 2026-06-22). The iOS path is now
+> wired both ways: the embed posts `saveImageData` when WKWebView exposes the
+> pasted image File, and falls back to the payload-less `pasteClipboardImage`
+> (bridge contract v5) when WKWebView hides the bitmap — EditorWebView.swift's
+> `clipboardImageData()` then reads it off `UIPasteboard.general` (raw png/jpeg,
+> else UIImage→PNG) and saves through `VaultImages.save`, the SAME vault path as
+> the picker. Compiles clean (`just build-ios-native`). What remains is on-device
+> end-to-end QA: (1) a native iOS device/simulator (copy a screenshot / "Copy
+> Image", paste into the editor, confirm a vault blob + `![](image-…)` insert),
+> and (2) **macOS** desktop (Tauri/WKWebView) for the analogous
+> `looksLikeImagePaste` → `fs_paste_clipboard_image` fallback. To close: run both
+> manual checks. (bridge added 2026-06-26)
 
 ## Code / fence isolation
 

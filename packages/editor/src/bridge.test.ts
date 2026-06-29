@@ -9,12 +9,12 @@ import {
 describe('futoBridge contract', () => {
   it('pins the contract version', () => {
     // Bumping this is a deliberate, breaking change — update all three hosts.
-    expect(BRIDGE_VERSION).toBe(4);
+    expect(BRIDGE_VERSION).toBe(5);
   });
 
   it('ready message carries the version', () => {
     const msg: FutoEditorOutboundMessage = { type: 'ready', version: BRIDGE_VERSION };
-    expect(msg).toEqual({ type: 'ready', version: 4 });
+    expect(msg).toEqual({ type: 'ready', version: 5 });
   });
 
   it('outbound messages are a discriminated union over `type`', () => {
@@ -27,6 +27,7 @@ describe('futoBridge contract', () => {
       { type: 'pickImage', source: 'library' },
       { type: 'cursorContext', onListLine: true },
       { type: 'saveImageData', data: 'aGk=', ext: 'png' },
+      { type: 'pasteClipboardImage' },
     ];
     expect(msgs.map((m) => m.type)).toEqual([
       'ready',
@@ -37,6 +38,7 @@ describe('futoBridge contract', () => {
       'pickImage',
       'cursorContext',
       'saveImageData',
+      'pasteClipboardImage',
     ]);
   });
 
@@ -121,6 +123,19 @@ describe('postToHost routing', () => {
     expect(android).toHaveBeenCalledWith(
       JSON.stringify({ type: 'saveImageData', data: 'aGk=', ext: 'png' }),
     );
+  });
+
+  it('serializes a pasteClipboardImage (native pasteboard) message for both transports', () => {
+    const ios = vi.fn();
+    g.webkit = { messageHandlers: { futoBridge: { postMessage: ios } } };
+    postToHost({ type: 'pasteClipboardImage' });
+    expect(ios).toHaveBeenCalledWith({ type: 'pasteClipboardImage' });
+    delete g.webkit;
+
+    const android = vi.fn();
+    g.futoBridge = { postMessage: android };
+    postToHost({ type: 'pasteClipboardImage' });
+    expect(android).toHaveBeenCalledWith(JSON.stringify({ type: 'pasteClipboardImage' }));
   });
 
   it('prefers the iOS handler when both transports are present', () => {

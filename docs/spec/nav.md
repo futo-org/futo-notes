@@ -10,6 +10,18 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
   bottom search bar on the list; the nav-bar gear presents the Settings
   sheet and the cloud button presents the Sync sheet (see settings.md). →
   NoteListView.swift *(iOS)*
+  > **Gap:** *(accessibility — pending device confirmation)* The iOS list
+  > nav-bar controls — the **gear** (Settings), the **cloud** (Sync), and the
+  > **"+"** create-note menu — now each carry an explicit `accessibilityLabel`
+  > ("Settings" / "Sync" / "New note or folder"), a `.isButton` trait, and a
+  > stable `accessibilityIdentifier` (`nav-settings` / `nav-sync` /
+  > `nav-create`), and the two leading items have distinct `ToolbarItem(id:)`s so
+  > they should no longer collapse into one unlabeled AX container. Compiles and
+  > launches (`just build-ios-native`; all three controls render). What remains
+  > is the runtime AX confirmation the gap was originally filed from: an idb
+  > `describe-ui` / VoiceOver pass on a sim/device showing the three as separate,
+  > labeled, activatable elements (idb is not installed in this environment). →
+  > NoteListView.swift toolbar (fix 2026-06-26)
 - A typed nav stack holds entries. Note ids and folders contain `/`, which would
   break string-based routes, so the stack holds typed `Screen` values, not path
   strings. → MainActivity.kt

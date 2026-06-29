@@ -1,4 +1,6 @@
 import SwiftUI
+import UIKit
+import UniformTypeIdentifiers
 import WebKit
 import ObjectiveC
 import ObjectiveC.runtime
@@ -29,6 +31,8 @@ import os
 ///   { type: 'openNote', id: <resolved note id> }
 ///   { type: 'pickImage', source: 'camera' | 'library' }
 ///   { type: 'cursorContext', onListLine: <bool> }
+///   { type: 'saveImageData', data: <base64>, ext: <string> }   (v4)
+///   { type: 'pasteClipboardImage' }                            (v5)
 ///
 /// The markdown toolbar is NATIVE on iOS: EditorHost installs
 /// EditorToolbarAccessory as the keyboard's inputAccessoryView (so it docks
@@ -341,9 +345,43 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
                     self.insertImage(filename)
                 }
             }
+        case "pasteClipboardImage":
+            // Clipboard image paste where WKWebView hid the bitmap from the JS
+            // paste event (no image File reached saveImageData), like WebKitGTK.
+            // Read it off the NATIVE pasteboard, then save via the SAME path as
+            // saveImageData/pickImage and hand the filename back. Prefer the raw
+            // PNG/JPEG bytes (keeps the source format like the picker does);
+            // otherwise re-encode UIPasteboard's UIImage as PNG. No-op when the
+            // pasteboard holds no image.
+            if let (data, ext) = clipboardImageData() {
+                Task { @MainActor in
+                    guard let filename = await VaultImages.save(
+                        data: data, preferredExtension: ext) else { return }
+                    self.insertImage(filename)
+                }
+            } else {
+                EditorHost.logger.info("pasteClipboardImage: no image on the pasteboard")
+            }
         default:
             break
         }
+    }
+
+    /// Image bytes + preferred extension from the system pasteboard, or nil when
+    /// it holds no image. Prefers the raw PNG/JPEG representation (preserves the
+    /// source format, as the picker does), falling back to UIImage → PNG.
+    private func clipboardImageData() -> (Data, String)? {
+        let pasteboard = UIPasteboard.general
+        if let png = pasteboard.data(forPasteboardType: UTType.png.identifier) {
+            return (png, "png")
+        }
+        if let jpeg = pasteboard.data(forPasteboardType: UTType.jpeg.identifier) {
+            return (jpeg, "jpg")
+        }
+        if let image = pasteboard.image, let png = image.pngData() {
+            return (png, "png")
+        }
+        return nil
     }
 
     /// Bridge 'pickImage': camera or library picker (camera falls back to the

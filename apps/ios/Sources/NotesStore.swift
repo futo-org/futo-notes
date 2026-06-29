@@ -262,6 +262,23 @@ final class NotesStore: ObservableObject {
         }
     }
 
+    /// Resort the existing in-memory `notes` by most-recently-modified first,
+    /// WITHOUT a rescan or any FFI call — just sort the array already in memory.
+    /// `write` deliberately refreshes a row IN PLACE (no resort) so per-keystroke
+    /// edits don't churn List diffing or pop the pushed editor out from under the
+    /// user. On mobile the list isn't visible while editing (the editor is a
+    /// full-screen NavigationStack push), so the list is resorted when it
+    /// re-appears after the editor pops (FolderContentsView.onAppear), not on
+    /// keystroke. The key matches the bootstrap scan's `(modified_ms desc,
+    /// id asc)` (crud.rs scan_notes) so the order is identical to a fresh scan.
+    /// [list.md:24]
+    func resortInPlace() {
+        notes.sort { a, b in
+            if a.modified != b.modified { return a.modified > b.modified }
+            return a.id < b.id
+        }
+    }
+
     /// Map a Rust `NoteMetadata` to the SwiftUI `NoteItem` (ms → Date).
     private static func item(from meta: NoteMetadata) -> NoteItem {
         NoteItem(

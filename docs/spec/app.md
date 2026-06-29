@@ -58,7 +58,9 @@ Behaviors and constraints that hold across every surface and platform.
 
 - Action feedback uses transient toasts (~3 s, one at a time, auto-dismiss):
   "Note deleted", "Moved to {folder}", "Path copied", etc. *(Tauri; Android
-  native uses platform toasts for the same moments)* → toast.ts
+  native shows the same platform toasts — delete now toasts "Note deleted" from
+  both the editor ⋮ menu and the list long-press)* → toast.ts,
+  NoteEditorScreen.kt, NoteListScreen.kt
 - An uncaught error/crash is queued; the **next launch** shows a Crash Report
   dialog: expandable "View report", an optional "What were you doing?" field,
   an "Always send crash reports" checkbox, and Send / Don't Send. "Always

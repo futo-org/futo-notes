@@ -148,6 +148,17 @@ class NotesStore(notesRoot: File) {
         }
     }
 
+    /** Re-sort the in-memory list most-recently-modified first WITHOUT a rescan
+     *  [list.md:24]. `write` keeps row identity/order stable while typing (so a
+     *  resort can't pop the open editor out from under the user); this sorts what
+     *  is already in memory and is called when returning to the list after the
+     *  editor closes. The key matches the bootstrap scan's
+     *  `(modified_ms desc, id asc)` (futo-notes-model `scan_notes`) so the order
+     *  is identical to a fresh reload. Pure state swap on main — no FFI, no I/O. */
+    fun resortInPlace() {
+        notes = notes.sortedWith(compareByDescending<NoteItem> { it.modifiedMs }.thenBy { it.id })
+    }
+
     suspend fun createNote(title: String, folder: String = ""): String? = try {
         val id = withContext(Dispatchers.IO) { core.createNote(title, folder) }
         reload()

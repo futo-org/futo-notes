@@ -405,9 +405,14 @@ fun NoteEditorScreen(
                 saveJob?.cancel()
                 // Mark clean so the onDispose flush can't resurrect the note,
                 // then fire the suspend delete on the composable scope (FFI on
-                // IO) and pop back immediately.
+                // IO) and pop back immediately. Toast synchronously BEFORE the
+                // pop: onBack() cancels this screen's coroutine scope, so a toast
+                // awaited inside the launch could be cut off before it shows.
+                // store.delete swallows its own errors (never throws), so there's
+                // no failure state to withhold the confirmation for.
                 savedContent = content
                 scope.launch { store.delete(noteId) }
+                Toast.makeText(context, "Note deleted", Toast.LENGTH_SHORT).show()
                 onBack()
             },
             onDismiss = { confirmDelete = false },

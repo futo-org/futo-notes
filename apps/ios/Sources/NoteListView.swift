@@ -56,21 +56,31 @@ struct NoteListView: View {
                 await runEngineSearch()
             }
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
+                // Distinct ToolbarItem `id:`s so the two leading controls expose
+                // as SEPARATE accessibility elements instead of collapsing into
+                // one unlabeled container (VoiceOver/idb couldn't read or tap
+                // them). [nav.md:13]
+                ToolbarItem(id: "settings", placement: .topBarLeading) {
                     Button {
                         showSettings = true
                     } label: {
                         Image(systemName: "gearshape")
                     }
                     .tint(Theme.primary)
+                    .accessibilityLabel("Settings")
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityIdentifier("nav-settings")
                 }
-                ToolbarItem(placement: .topBarLeading) {
+                ToolbarItem(id: "sync", placement: .topBarLeading) {
                     Button {
                         showSync = true
                     } label: {
                         Image(systemName: sync.connected ? "checkmark.icloud" : "icloud")
                     }
                     .tint(Theme.primary)
+                    .accessibilityLabel("Sync")
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityIdentifier("nav-sync")
                 }
             }
             .sheet(isPresented: $showSync) {
@@ -197,6 +207,24 @@ struct FolderContentsView: View {
     private var subfolders: [String] { store.subfolders(of: folder) }
     private var notes: [NoteItem] { store.notes(in: folder) }
 
+    /// The new-folder name run through the SAME Rust filename rules a note title
+    /// uses (a folder name is a path segment). "" once trimmed/sanitized away.
+    private var newFolderClean: String {
+        sanitizeTitle(title: newFolderName.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    /// Whether `newFolderClean` collides (case-insensitively) with an existing
+    /// sibling folder. Rust `create_folder` is `create_dir_all` (idempotent), so
+    /// without this guard creating "Specs" when "specs" exists would silently
+    /// MERGE into the existing folder. Same lastPathComponent comparison Android
+    /// uses (NewFolderDialog.kt). [list.md:152]
+    private var newFolderIsDuplicate: Bool {
+        !newFolderClean.isEmpty && subfolders.contains { child in
+            (child.split(separator: "/").last.map(String.init) ?? child)
+                .lowercased() == newFolderClean.lowercased()
+        }
+    }
+
     private var title: String {
         folder.isEmpty ? "Notes" : (folder.split(separator: "/").last.map(String.init) ?? folder)
     }
@@ -220,8 +248,17 @@ struct FolderContentsView: View {
         }
         .background(Theme.background)
         .navigationTitle(title)
+        .onAppear {
+            // Resort the list when it re-appears — including when a pushed
+            // editor pops back in this NavigationStack. `write` refreshes the
+            // edited row's modified date in place (no resort) so editing doesn't
+            // churn the list; we settle the order here, once, on return. Cheap
+            // in-memory sort, no rescan; first-appear is already-sorted → no-op.
+            // [list.md:24]
+            store.resortInPlace()
+        }
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItem(id: "create", placement: .topBarTrailing) {
                 Menu {
                     Button {
                         newNoteTitle = "Untitled"
@@ -239,6 +276,12 @@ struct FolderContentsView: View {
                     Image(systemName: "plus")
                 }
                 .tint(Theme.primary)
+                // Explicit AX so VoiceOver/idb can read + activate the create
+                // menu (it otherwise collapses into an unlabeled container).
+                // [nav.md:13]
+                .accessibilityLabel("New note or folder")
+                .accessibilityAddTraits(.isButton)
+                .accessibilityIdentifier("nav-create")
             }
         }
         .alert("New Note", isPresented: $showingNewNote) {
@@ -251,9 +294,16 @@ struct FolderContentsView: View {
         .alert("New Folder", isPresented: $showingNewFolder) {
             TextField("Folder name", text: $newFolderName)
             Button("Cancel", role: .cancel) {}
+            // Mirror Android: Create is disabled on an empty or
+            // case-insensitive-duplicate sibling name (NewFolderDialog.kt). A
+            // SwiftUI .alert can't render an inline error under the field, so
+            // the duplicate reason surfaces in the message text below.
             Button("Create") { createFolder() }
+                .disabled(newFolderClean.isEmpty || newFolderIsDuplicate)
         } message: {
-            Text("Create a folder in \(folder.isEmpty ? "Notes" : title).")
+            Text(newFolderIsDuplicate
+                ? "A folder with this name already exists"
+                : "Create a folder in \(folder.isEmpty ? "Notes" : title).")
         }
         .sheet(item: $moveTarget) { note in
             MoveToFolderSheet(note: note, currentFolder: folder)
@@ -385,9 +435,13 @@ struct FolderContentsView: View {
     }
 
     private func createFolder() {
-        let name = newFolderName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty else { return }
-        store.createFolder(folder.isEmpty ? name : folder + "/" + name)
+        // Hard guard behind the disabled Create button: never call through to
+        // the idempotent Rust create_dir_all on an empty name or a
+        // case-insensitive sibling collision — that would silently MERGE into
+        // the existing folder. [list.md:152]
+        let clean = newFolderClean
+        guard !clean.isEmpty, !newFolderIsDuplicate else { return }
+        store.createFolder(folder.isEmpty ? clean : folder + "/" + clean)
     }
 }
 
