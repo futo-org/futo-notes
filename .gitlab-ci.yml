@@ -566,28 +566,6 @@ build:ci-android-image:
       when: manual
       allow_failure: true
 
-build:ios:
-  stage: build
-  needs:
-    - job: test
-  tags:
-    - macscript
-  variables:
-    GIT_STRATEGY: clone
-  before_script:
-    - env | grep -E '^(CI_|IOS_|ASC_)' > .cienv
-  script:
-    - cirrus run buildFutoNotesIOS --artifacts-dir . --env-file .cienv
-  artifacts:
-    paths:
-      - buildFutoNotesIOS/binary/*.ipa
-    expire_in: 4 weeks
-  rules:
-    # Legacy Tauri iOS shell. Native iOS is the release mobile app.
-    - if: $CI_COMMIT_TAG
-      when: manual
-      allow_failure: true
-
 build:macos:
   stage: build
   needs:
