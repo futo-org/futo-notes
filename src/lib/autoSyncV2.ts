@@ -1,4 +1,5 @@
-import { hasFileSystem } from './platform';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { hasFileSystem, isTauri } from './platform';
 import { syncE2eeAuto, isE2eeConfigured, ensureLiveSync, stopLiveSync, notifyNoteChanged, type SyncSummary } from './syncServiceE2ee';
 
 export type { SyncSummary } from './syncServiceE2ee';
@@ -6,6 +7,7 @@ export type { SyncSummary } from './syncServiceE2ee';
 // Pull-only interval — local edits push via notifySavedV2, so this only
 // covers cross-device propagation.
 const POLL_INTERVAL_MS = 15_000;
+const LIVE_CONNECTED_POLL_INTERVAL_MS = 120_000;
 const INITIAL_SYNC_DELAY_MS = 8_000;
 const RESUME_COOLDOWN = 10_000;
 const BACKGROUND_SYNC_RETRY_DELAY = 1_000;
@@ -36,6 +38,8 @@ let initialRetryTimer: number | null = null;
 let initialRetryCount = 0;
 let backgroundRetryTimer: number | null = null;
 let pollTimer: number | null = null;
+let liveConnected = false;
+let liveStateUnlisten: UnlistenFn | null = null;
 let pendingLocalSave = false;
 let pendingLocalSaveTimer: number | null = null;
 
@@ -174,19 +178,44 @@ function handleResume(): void {
   void performSync('resume');
 }
 
-// ── Polling (replaces SSE) ─────────────────────────────────
+// ── Polling (SSE catch-all) ─────────────────────────────────
+
+function currentPollIntervalMs(): number {
+  return liveConnected ? LIVE_CONNECTED_POLL_INTERVAL_MS : POLL_INTERVAL_MS;
+}
+
+function setLiveConnected(next: boolean): void {
+  if (liveConnected === next) return;
+  liveConnected = next;
+  if (pollTimer !== null) startPolling();
+}
+
+async function startLiveStateListener(): Promise<void> {
+  if (!isTauri || liveStateUnlisten) return;
+  try {
+    liveStateUnlisten = await listen<{ live: boolean; status: string; message?: string }>(
+      'sync:live-state',
+      (event) => setLiveConnected(Boolean(event.payload.live)),
+    );
+  } catch (err) {
+    console.warn('Live sync state listener failed:', err);
+  }
+}
 
 function startPolling(): void {
   stopPolling();
-  pollTimer = window.setInterval(() => {
-    if (!isE2eeConfigured() || syncing || paused || autoPaused) return;
-    void performSync('poll');
-  }, POLL_INTERVAL_MS);
+  pollTimer = window.setTimeout(() => {
+    pollTimer = null;
+    if (isE2eeConfigured() && !syncing && !paused && !autoPaused) {
+      void performSync('poll');
+    }
+    if (callbacks) startPolling();
+  }, currentPollIntervalMs());
 }
 
 function stopPolling(): void {
   if (pollTimer !== null) {
-    clearInterval(pollTimer);
+    clearTimeout(pollTimer);
     pollTimer = null;
   }
 }
@@ -263,6 +292,7 @@ export function startAutoSyncV2(cb: AutoSyncCallbacks): void {
     window.removeEventListener('online', onlineHandler);
   });
 
+  void startLiveStateListener();
   startPolling();
 
   initialSyncTimer = window.setTimeout(() => {
@@ -289,6 +319,9 @@ export function startAutoSyncV2(cb: AutoSyncCallbacks): void {
 
 export function stopAutoSyncV2(): void {
   stopPolling();
+  liveStateUnlisten?.();
+  liveStateUnlisten = null;
+  liveConnected = false;
   lastSyncTime = 0;
   pendingLocalSave = false;
   cancelPendingLocalSaveRetry();

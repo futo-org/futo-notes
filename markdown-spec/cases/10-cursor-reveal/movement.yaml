@@ -83,7 +83,7 @@
 
 
     continued in [[fix tomorrow]]
-  start_cursor: { line: 0, ch: 52 }
+  start_cursor: { line: 0, ch: 999 }
   moves: [ArrowDown, ArrowDown, ArrowDown]
   checkpoints:
     - after: 1
