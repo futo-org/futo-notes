@@ -316,3 +316,30 @@ fn delete_folder_removes_tree_and_spares_siblings() {
     fs::remove_file(&sentinel).ok();
     fs::remove_dir_all(&root).ok();
 }
+
+// ── first-run seeding: shared across every shell ─────────────────────────
+#[test]
+fn seed_if_empty_writes_one_welcome_note_then_is_idempotent() {
+    let root = temp_root();
+
+    // Empty vault → seeds exactly the one welcome note.
+    assert_eq!(model::seed_if_empty(&root).unwrap(), 1);
+    let notes = model::scan_notes(&root);
+    assert_eq!(notes.len(), 1);
+    assert_eq!(notes[0].id, model::WELCOME_NOTE_ID);
+    assert_eq!(model::read_note(&root, model::WELCOME_NOTE_ID), model::WELCOME_NOTE);
+
+    // Re-running is a no-op: a non-empty vault is never re-seeded or clobbered.
+    model::write_note(&root, "my own note", "untouched").unwrap();
+    assert_eq!(model::seed_if_empty(&root).unwrap(), 0);
+    assert_eq!(model::scan_notes(&root).len(), 2);
+    assert_eq!(model::read_note(&root, "my own note"), "untouched");
+
+    // The seed copy is user-facing — no internal/dev vocabulary leaks to users.
+    let lower = model::WELCOME_NOTE.to_lowercase();
+    for banned in ["spike", "web view", "webview", "editor.html", "ship it"] {
+        assert!(!lower.contains(banned), "welcome note must not mention {banned:?}");
+    }
+
+    fs::remove_dir_all(&root).ok();
+}

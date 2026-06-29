@@ -83,57 +83,9 @@ actor NoteVault {
     // MARK: - Seeding (runs on the actor, off-main)
 
     private func seedIfEmpty() {
-        guard core.scanNotes().isEmpty else { return }
-
-        let welcome = """
-        # Welcome to FUTO Notes
-
-        This is a **native iOS** spike. The note list, folders, and navigation \
-        are all native SwiftUI — only the editor below is a web view.
-
-        - Offline-first markdown
-        - Tap a note to edit it
-        - Swipe a row to delete
-
-        Try the #welcome and #spike tags.
-        """
-
-        let demo = """
-        # Markdown demo
-
-        Some **bold**, some *italic*, and `inline code`.
-
-        ## A list
-        - First
-        - Second
-        - Third
-
-        ## Checkboxes
-        - [x] Build native list
-        - [ ] Ship it
-
-        ## A table
-        | Feature | Status |
-        | ------- | ------ |
-        | List    | done   |
-        | Editor  | wip    |
-
-        Tagged #demo #markdown.
-        """
-
-        let spec = """
-        # Folder support
-
-        Notes can live in folders. This note lives under `Specs/`.
-
-        The note id is its path relative to the root, without `.md`.
-
-        #spec
-        """
-
-        try? core.write(id: "Welcome", content: welcome)
-        try? core.write(id: "Markdown demo", content: demo)
-        try? core.write(id: "Specs/Folder support", content: spec)
+        // Seed content lives in futo-notes-model (`seed_if_empty`) so iOS,
+        // Android, and desktop share one user-facing first run that can't drift.
+        _ = try? core.seedIfEmpty()
     }
 }
 

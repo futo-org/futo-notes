@@ -318,6 +318,45 @@ pub fn create_note(base: &Path, folder: &str, title: &str) -> Result<String, Str
     Ok(id)
 }
 
+// ── First-run seeding ────────────────────────────────────────────────────
+
+/// Id (and therefore title) of the note seeded into an empty vault.
+pub const WELCOME_NOTE_ID: &str = "Welcome";
+
+/// The single user-facing note written on first launch. Plain Markdown that
+/// introduces the app and demonstrates the features it mentions — no internal
+/// implementation language. Owned here so iOS, Android, and any future shell
+/// seed identical content and can't drift.
+pub const WELCOME_NOTE: &str = "\
+# Welcome to FUTO Notes
+
+FUTO Notes keeps everything as plain Markdown files on your device. There's no \
+account to create and nothing to sign in to — your notes are just files you own.
+
+## Getting started
+- Open a note to edit it; changes save as you type.
+
+## Markdown you can use
+- **Bold**, *italic*, and `inline code`
+- Bulleted and numbered lists
+- [ ] Checklists — tap a box to toggle it
+- Group notes with #tags, or sort them into folders
+
+Feel free to delete this note once you've had a look around.
+";
+
+/// Write the welcome note iff the vault has no notes yet. Returns the number
+/// of notes seeded (0 when the vault already had content). Idempotent: safe to
+/// call on every launch. Shells call this instead of embedding their own seed
+/// content so the first-run experience stays identical across platforms.
+pub fn seed_if_empty(base: &Path) -> Result<u32, String> {
+    if !scan_notes(base).is_empty() {
+        return Ok(0);
+    }
+    write_note(base, WELCOME_NOTE_ID, WELCOME_NOTE)?;
+    Ok(1)
+}
+
 /// Delete a note. Missing file is not an error. Empty parent folders are NOT
 /// pruned (they surface as empty folders, matching the Swift behavior).
 pub fn delete_note(base: &Path, id: &str) -> Result<(), String> {

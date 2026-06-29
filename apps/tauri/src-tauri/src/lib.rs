@@ -173,6 +173,7 @@ pub fn run() {
             // ── Note CRUD (futo-notes-model::crud, Phase 1) ──
             notes::notes_scan,
             notes::notes_scan_folders,
+            notes::notes_seed_if_empty,
             notes::notes_read,
             notes::notes_exists,
             notes::notes_write,

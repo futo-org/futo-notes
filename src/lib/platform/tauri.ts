@@ -244,6 +244,12 @@ export const tauriFS: PlatformFS = {
     }));
   },
 
+  async seedIfEmpty(): Promise<number> {
+    // Rust writes the shared welcome note iff the vault is empty
+    // (futo-notes-model::seed_if_empty). Same first run as iOS/Android.
+    return invoke<number>('notes_seed_if_empty');
+  },
+
   async readNote(id: string): Promise<string> {
     // Rust command over futo-notes-model::read_note (missing = ""). The
     // command does notes_root() → create_dir_all itself, so this no longer

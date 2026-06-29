@@ -37,7 +37,7 @@ SettingsScreen.kt *(Android)*, SettingsView.swift *(iOS)*
   (notes, folders, `.crashlogs`) behind a blocking "Deleting all notes…"
   overlay, with live sync paused and the connection + stored password
   dropped so a racing sync cannot resurrect files; the next launch reseeds
-  the welcome notes and stays LOCAL (verified on both 2026-06-09).
+  the welcome note and stays LOCAL (verified on both 2026-06-09).
 - Debug builds add a "Test crash" row to exercise the crash pipeline.
 
 ## Tauri shell

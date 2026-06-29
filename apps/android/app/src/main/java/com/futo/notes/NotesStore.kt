@@ -287,21 +287,8 @@ class NotesStore(notesRoot: File) {
     private fun NoteMetadata.toItem() = NoteItem(id, title, folder, modifiedMs, preview, tags)
 
     private fun seedIfEmpty() {
-        if (core.scanNotes().isNotEmpty()) return
-        runCatching {
-            core.write(
-                "Welcome",
-                """
-                # Welcome to FUTO Notes
-
-                This is a **native Android** shell. The note list, folders, and
-                navigation are native Compose — only the editor below is a web view,
-                the SAME editor.html the iOS and desktop apps use.
-
-                Try the #welcome and #android tags.
-                """.trimIndent(),
-            )
-            core.write("Specs/Folder support", "# Folder support\n\nNotes can live in folders.\n\n#spec")
-        }
+        // Seed content lives in futo-notes-model (`seed_if_empty`) so Android,
+        // iOS, and desktop share one user-facing first run that can't drift.
+        runCatching { core.seedIfEmpty() }
     }
 }

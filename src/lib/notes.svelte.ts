@@ -110,6 +110,14 @@ export async function initNotes(onStep?: (label: string) => void): Promise<void>
   // remapping. Replaces the old plugin-fs listNoteFiles + N body reads +
   // ensureNotesFolder() — the Rust command does notes_root() → create_dir_all
   // itself, eliminating the iOS cold-sandbox plugin-fs hang on the note path.
+  // Seed the shared welcome note on a brand-new vault BEFORE the scan, so the
+  // first scan sees it. Idempotent (Rust no-ops when the vault is non-empty);
+  // a failure must never block startup. Runs inside the already-backgrounded
+  // initNotes() (fired un-awaited from App.svelte after initialized = true), so
+  // this awaits without gating render. Same first run as iOS/Android.
+  onStep?.('initNotes: seedIfEmpty');
+  await fs.seedIfEmpty().catch((err) => console.warn('Welcome-note seed failed:', err));
+
   onStep?.('initNotes: notes_scan');
   const previews = await fs.scanNotes();
   notesCache = previews;

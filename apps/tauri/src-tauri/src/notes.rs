@@ -90,6 +90,20 @@ pub async fn notes_scan_folders(app: AppHandle) -> Result<Vec<String>, String> {
     .map_err(task_join_err)?
 }
 
+/// Seed the welcome note iff the vault is empty. Returns the number of notes
+/// written (0 when the vault already had content). The seed content lives in
+/// `futo-notes-model` (`seed_if_empty`) so desktop, iOS, and Android get an
+/// identical first run. Idempotent — safe to fire un-awaited on every launch.
+#[tauri::command]
+pub async fn notes_seed_if_empty(app: AppHandle) -> Result<u32, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let base = notes_root(&app)?;
+        model::seed_if_empty(&base)
+    })
+    .await
+    .map_err(task_join_err)?
+}
+
 /// Read a note's content (`""` if missing).
 #[tauri::command]
 pub async fn notes_read(app: AppHandle, id: String) -> Result<String, String> {

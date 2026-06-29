@@ -33,6 +33,13 @@ export const webFS: PlatformFS = {
       .sort((a, b) => b.modificationTime - a.modificationTime || a.id.localeCompare(b.id));
   },
 
+  async seedIfEmpty(): Promise<number> {
+    // No-op on web: this shell is dev/test only, and the E2E suites assume an
+    // empty in-memory vault. First-run seeding is a real-install concern, owned
+    // by the Tauri desktop + native iOS/Android shells.
+    return 0;
+  },
+
   async readNote(id: string): Promise<string> {
     const note = noteStore.get(id);
     if (!note) throw new Error(`Note not found: ${id}`);

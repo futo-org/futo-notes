@@ -119,6 +119,13 @@ impl NoteStore {
         model::write_note(&self.root, &id, &content).map_err(NoteError::Io)
     }
 
+    /// Seed the welcome note iff the vault is empty. Returns the number of
+    /// notes written (0 when the vault already had content). The seed content
+    /// lives in `futo-notes-model` so every shell gets an identical first run.
+    pub fn seed_if_empty(&self) -> Result<u32, NoteError> {
+        model::seed_if_empty(&self.root).map_err(NoteError::Io)
+    }
+
     /// Create a note from a title (+ optional folder). Returns the final id.
     pub fn create_note(&self, title: String, folder: String) -> Result<String, NoteError> {
         model::create_note(&self.root, &folder, &title).map_err(NoteError::Io)

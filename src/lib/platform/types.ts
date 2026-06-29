@@ -48,6 +48,11 @@ export interface FileSystem {
    *  Tauri does this in Rust (`notes_scan` over futo-notes-model); the result
    *  feeds `notesCache` directly. */
   scanNotes(): Promise<NotePreviewMeta[]>;
+  /** Seed the welcome note iff the vault is empty. Returns the number of notes
+   *  written (0 when the vault already had content). Idempotent — fired before
+   *  the first scan so a brand-new vault isn't empty. The seed content is owned
+   *  by `futo-notes-model` (`seed_if_empty`), shared with iOS/Android. */
+  seedIfEmpty(): Promise<number>;
   readNote(id: string): Promise<string>;
   writeNote(id: string, content: string, modifiedAtMs?: number): Promise<number>;
   deleteNoteFile(id: string): Promise<void>;
