@@ -1,6 +1,8 @@
 package com.futo.notes
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -24,5 +26,25 @@ class SyncManagerDefaultsTest {
     @Test
     fun releaseSeedsEmptyServer() {
         assertEquals("", SyncManager.defaultServer(isDebug = false))
+    }
+
+    @Test
+    fun acceptsUrlsWithScheme() {
+        assertNull(SyncManager.validateServerUrl("https://notes.example.com"))
+        assertNull(SyncManager.validateServerUrl("http://10.0.2.2:3005"))
+        // Case-insensitive scheme, surrounding whitespace tolerated.
+        assertNull(SyncManager.validateServerUrl("  HTTPS://notes.example.com  "))
+    }
+
+    @Test
+    fun rejectsSchemelessUrlWithActionableMessage() {
+        val msg = SyncManager.validateServerUrl("notes.example.com")
+        assertTrue(msg!!.contains("http://"))
+        assertTrue(msg.contains("https://"))
+    }
+
+    @Test
+    fun rejectsEmptyUrl() {
+        assertEquals("Enter a server URL.", SyncManager.validateServerUrl("   "))
     }
 }

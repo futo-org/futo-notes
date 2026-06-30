@@ -91,9 +91,18 @@ class SyncManager(
 
     /** Connect (login + unwrap vault key), run an initial sync, then go live. */
     suspend fun connectAndSync(notesRoot: String, password: String) {
+        // Be forgiving about whitespace, but catch the common mistake of a
+        // schemeless URL up front with an actionable message instead of letting
+        // it surface as a cryptic transport error [sync.md].
+        val url = serverUrl.trim()
+        validateServerUrl(url)?.let { error ->
+            lastError = error
+            status = "Error"
+            return
+        }
         busy = true; lastError = null; status = "Connecting…"
         try {
-            val c = SyncClient(notesRoot, serverUrl)
+            val c = SyncClient(notesRoot, url)
             val info = c.connect(password)
             client = c
             connected = true
@@ -101,7 +110,7 @@ class SyncManager(
             // [sync.md:91]. Keystore + prefs I/O — off the main thread.
             withContext(Dispatchers.IO) {
                 secure?.storePassword(password)
-                prefs?.edit()?.putString(Prefs.SYNC_SERVER_URL, serverUrl)?.apply()
+                prefs?.edit()?.putString(Prefs.SYNC_SERVER_URL, url)?.apply()
             }
             status = "Connected (${info.authMode}) · syncing…"
             val initial = c.syncNow()
@@ -208,5 +217,20 @@ class SyncManager(
         /** Pure seed selection — testable without BuildConfig. */
         internal fun defaultServer(isDebug: Boolean): String =
             if (isDebug) DEFAULT_SERVER else ""
+
+        /** Validate a user-entered server URL before attempting a connection.
+         *  Returns a friendly, actionable error message, or `null` when the URL
+         *  is acceptable. Catches the common mistake of omitting the scheme — a
+         *  bare host like `notes.example.com` would otherwise fail with an opaque
+         *  transport error [sync.md]. Pure → unit-testable. */
+        internal fun validateServerUrl(url: String): String? {
+            val trimmed = url.trim()
+            if (trimmed.isEmpty()) return "Enter a server URL."
+            val lower = trimmed.lowercase()
+            if (!lower.startsWith("http://") && !lower.startsWith("https://")) {
+                return "Add http:// or https:// to the start of the server URL."
+            }
+            return null
+        }
     }
 }

@@ -35,9 +35,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.futo.notes.NotesStore
@@ -86,6 +89,14 @@ fun SyncScreen(store: NotesStore, sync: SyncManager, onBack: () -> Unit) {
                 label = { Text("Server URL") },
                 singleLine = true,
                 enabled = !sync.connected,
+                // A URL is not prose: tell the IME so it stops autocapitalizing
+                // the scheme/host and offering autocorrect/predictive suggestions
+                // that silently mangle what the user types [sync.md].
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Uri,
+                    autoCorrectEnabled = false,
+                    capitalization = KeyboardCapitalization.None,
+                ),
                 shape = RoundedCornerShape(FutoRadius.md),
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -96,6 +107,15 @@ fun SyncScreen(store: NotesStore, sync: SyncManager, onBack: () -> Unit) {
                     label = { Text("Password") },
                     singleLine = true,
                     visualTransformation = PasswordVisualTransformation(),
+                    // PasswordVisualTransformation only masks the DISPLAY — without
+                    // password keyboard options the IME still autocapitalizes the
+                    // first letter and autocorrects, so the bytes sent to the server
+                    // differ from what the user typed → "invalid password" [sync.md].
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Password,
+                        autoCorrectEnabled = false,
+                        capitalization = KeyboardCapitalization.None,
+                    ),
                     shape = RoundedCornerShape(FutoRadius.md),
                     modifier = Modifier.fillMaxWidth(),
                 )

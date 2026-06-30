@@ -17,4 +17,8 @@ flag gaps the codebase suggests have been implemented.
 
 - [nav.md:13](nav.md#L13) — *(accessibility — pending device confirmation)* The iOS list nav-bar controls — the **gear** (Settings), the **cloud** (Sync), and the **"+"** create-note menu — now each carry an explicit `accessibilityLabel` ("Settings" / "Sync" / "New note or folder"), a `.isButton` trait, and a stable `accessibilityIdentifier` (`nav-settings` / `nav-sync` / `nav-create`), and the two leading items have distinct `ToolbarItem(id:)`s so they should no longer collapse into one unlabeled AX container. Compiles and launches (`just build-ios-native`; all three controls render). What remains is the runtime AX confirmation the gap was originally filed from: an idb `describe-ui` / VoiceOver pass on a sim/device showing the three as separate, labeled, activatable elements (idb is not installed in this environment). → NoteListView.swift toolbar (fix 2026-06-26)
 
-_3 gaps._
+## sync.md
+
+- [sync.md:32](sync.md#L32) — Only the Android shell pre-validates the URL scheme. iOS (SyncManager.swift) and desktop (syncManager.svelte.ts) pass the raw URL straight to the client, so a schemeless URL there still fails with a generic connection error rather than the actionable message.
+
+_4 gaps._

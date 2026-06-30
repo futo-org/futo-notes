@@ -13,6 +13,26 @@ client uploads opaque encrypted blobs — note content is encrypted before uploa
   first sync. → SyncScreen.kt
 - Once connected, the server URL is locked. The user can "Sync now" or
   "Disconnect". → SyncScreen.kt
+- **The password and server-URL fields suppress IME text "help."** Both declare
+  the right soft-keyboard type (password / URI) and disable autocapitalization
+  and autocorrect/predictive text. A default text field on a phone silently
+  capitalizes the first character or autocorrects, so the bytes sent to the
+  server differ from what the user typed — surfacing as a spurious "invalid
+  password" or an unreachable host even when the input looks correct. → iOS
+  `SecureField` + `.textInputAutocapitalization(.never)`/`.autocorrectionDisabled()`
+  on the URL field (SyncView.swift); Android `KeyboardOptions(keyboardType =
+  Password/Uri, autoCorrectEnabled = false, capitalization = None)`
+  (SyncScreen.kt); desktop `type="password"` + `autocapitalize="off"`
+  (SettingsScreen.svelte).
+- **A server URL without an `http://` or `https://` scheme is rejected before
+  any network call**, with the actionable message *"Add http:// or https:// to
+  the start of the server URL."* (surrounding whitespace is trimmed). This turns
+  the most common setup mistake into a clear instruction instead of an opaque
+  transport error. → SyncManager.kt `validateServerUrl`
+  > **Gap:** Only the Android shell pre-validates the URL scheme. iOS
+  > (SyncManager.swift) and desktop (syncManager.svelte.ts) pass the raw URL
+  > straight to the client, so a schemeless URL there still fails with a generic
+  > connection error rather than the actionable message.
 - When no server is connected yet, the Sync screen points the user at how to
   get one: a **bordered link row** — a leading external-link icon (iOS
   `arrow.up.forward.square` / Android `OpenInNew`) followed by the
