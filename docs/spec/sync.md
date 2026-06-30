@@ -42,6 +42,29 @@ client uploads opaque encrypted blobs — note content is encrypted before uploa
   message. → syncManager.svelte.ts (`getSyncErrorMessage`, `syncError`),
   SyncStatusBar.svelte, SettingsScreen.svelte (desktop)
 - An edit made on one device appears on another device after a sync cycle.
+- **Embedded images sync with their notes.** A note's `.md` and the image
+  files it references (`is_image_filename`: png/jpg/jpeg/gif/webp/svg/bmp/ico/
+  avif/heic) are both scanned, encrypted, and uploaded, so an `![](image-…png)`
+  reference is never delivered to a peer pointing at a file that doesn't exist.
+  Image binaries ride the SAME object map and note frame as text notes — their
+  bytes are base64-encoded into the frame's UTF-8 `content` at read/encrypt
+  time and decoded back to disk on apply — so no separate blob protocol or
+  wire-format change is needed; the only cost is the base64 expansion inside
+  the already-encrypted blob. Because every device mints a unique random image
+  filename, two devices never produce a same-name/different-bytes image, so the
+  3-way text merge is skipped for blobs (it would corrupt base64) in favor of
+  the conflict-copy path, which preserves the image extension. Verified
+  desktop↔desktop and into native Android (emulator, file:// vault render),
+  2026-06-30. **Regression-guarded** by the `image sync roundtrip`
+  cross-platform scenario (full client stack + real server: image binary
+  arrives byte-for-byte AND a re-sync does not re-upload it) plus
+  `orchestrator` unit tests `list_notes_skips_hidden_and_finds_md_and_images`
+  and `image_blob_round_trips_through_apply_and_read` — if you re-introduce a
+  `.md`-only scan/filter or a `read_to_string`/`write_atomic_text` on the blob
+  path, these fail. → futo-notes-sync `orchestrator`
+  (scan/`safe_relative_sync_path`/`read_local_note`/`apply_delta`),
+  futo-notes-core `files::{read_blob_as_base64,write_base64_as_blob}`;
+  tests/cross-platform-sync.mjs `imageSyncRoundtrip`
 - The persisted sync state (`.e2ee-state.json`) is tagged with the server
   collection it describes; connecting to a **different** collection (vault
   reset, account recreation, server wipe) resets the cursor + object map and

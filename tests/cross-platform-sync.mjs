@@ -973,9 +973,66 @@ async function emptyFolderDoesNotSync(a, b, server) {
   );
 }
 
+// A real (tiny) PNG. Non-UTF-8 bytes — exactly the kind of content that the
+// old `.md`-only, read_to_string sync pipeline could never carry. We assert
+// the bytes survive byte-for-byte across the E2EE round-trip.
+const SAMPLE_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+  'base64',
+);
+
+// Regression for the "image markdown syncs but the image itself doesn't"
+// bug: image binaries were never scanned/uploaded/downloaded, so the
+// `![](…)` reference arrived on the peer pointing at a file that didn't
+// exist. The image now rides the object map alongside its note (base64 in the
+// note frame), so the bytes must land on B identical to A.
+async function imageSyncRoundtrip(a, b, server) {
+  await a.connectSync(server.url, server.password);
+  await b.connectSync(server.url, server.password);
+  // Explicit syncNow owns the upload/download (see editorRoundtrip rationale).
+  await a.pauseAutoSync();
+  await b.pauseAutoSync();
+
+  const imageName = 'image-sync-test.png';
+  // Drop the image binary into A's vault — the same place the paste/picker
+  // handler writes it — and a note that embeds it.
+  writeFileSync(join(a.notesDir, imageName), SAMPLE_PNG);
+  await a.writeNote('photo note', `# Photo\n\n![](${imageName})\n`);
+
+  const aResult = await a.syncNow();
+  assert(
+    aResult.summary.uploaded >= 2,
+    `A should upload the note AND the image (uploaded=${aResult.summary.uploaded}, expected >=2)`,
+  );
+
+  await b.syncNow();
+
+  // The note reference arrives…
+  const bNote = await b.readNote('photo note');
+  assert(bNote.includes(`![](${imageName})`), `B note is missing the image reference`);
+
+  // …AND so does the image file, byte-for-byte (this is what used to fail).
+  const bImagePath = join(b.notesDir, imageName);
+  assert(existsSync(bImagePath), `image binary did not arrive on B at ${bImagePath}`);
+  const bBytes = readFileSync(bImagePath);
+  assert(
+    Buffer.compare(bBytes, SAMPLE_PNG) === 0,
+    `image bytes differ on B (got ${bBytes.length} bytes, expected ${SAMPLE_PNG.length})`,
+  );
+
+  // Re-syncing must NOT re-upload the image (fast-path size accounting holds
+  // for the base64-vs-raw size difference).
+  const aResync = await a.syncNow();
+  assert(
+    aResync.summary.uploaded === 0,
+    `A should not re-upload the unchanged image (uploaded=${aResync.summary.uploaded}, expected 0)`,
+  );
+}
+
 // ── Scenario registry ───────────────────────────────────────────
 
 const scenarios = [
+  { name: 'image sync roundtrip', fn: imageSyncRoundtrip, matrices: ['desktop-desktop'] },
   { name: 'editor roundtrip through real sync', fn: editorRoundtripThroughRealSync, matrices: ['desktop-desktop'] },
   { name: 'edit during sync keeps local draft', fn: editDuringSyncKeepsLocalDraft, serverOptions: { syncDelayMs: 1500 }, matrices: ['desktop-desktop'] },
   { name: 'concurrent edit conflict', fn: concurrentEditConflict, matrices: ['desktop-desktop'] },

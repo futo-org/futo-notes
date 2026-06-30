@@ -1,3 +1,4 @@
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use filetime::{set_file_mtime, FileTime};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -277,6 +278,15 @@ pub fn set_file_mtime_ms(path: &Path, modified_at_ms: i64) -> Result<(), String>
 
 /// Atomically write text to a file (write to temp, then rename).
 pub fn write_atomic_text(path: &Path, content: &str) -> Result<(), String> {
+    write_atomic_bytes(path, content.as_bytes())
+}
+
+/// Atomically write raw `bytes` to `path` (binary-safe sibling of
+/// [`write_atomic_text`]). Used for image blobs, whose contents are not valid
+/// UTF-8. Every guarantee `write_atomic_text` makes — create_dir_all, a
+/// unique temp name, the rename + case-collision recovery — applies here; the
+/// text wrapper simply forwards `content.as_bytes()`.
+pub fn write_atomic_bytes(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let parent = path
         .parent()
         .ok_or_else(|| "invalid file path".to_string())?;
@@ -294,7 +304,7 @@ pub fn write_atomic_text(path: &Path, content: &str) -> Result<(), String> {
     // failure mid-sync.
     let seq = TMP_SEQ.fetch_add(1, Ordering::Relaxed);
     let tmp = parent.join(format!(".sf-tmp-{}-{}", now_ms(), seq));
-    fs::write(&tmp, content).map_err(|e| format!("{e} (writing temp {})", tmp.display()))?;
+    fs::write(&tmp, bytes).map_err(|e| format!("{e} (writing temp {})", tmp.display()))?;
     if let Err(e) = fs::rename(&tmp, path) {
         // On a case-insensitive filesystem (default APFS on macOS/iOS, NTFS on
         // Windows) `rename` onto a destination that differs only in case from an
@@ -337,6 +347,33 @@ pub fn write_atomic_text(path: &Path, content: &str) -> Result<(), String> {
         ));
     }
     Ok(())
+}
+
+// ── Image-blob sync content (base64 over the text frame) ─────────────────
+//
+// The E2EE sync wire format (`pack_note_v2`) carries `content` as a UTF-8
+// string, and every layer of the orchestrator's object map / hashing / change
+// detection treats that content as opaque text. Image binaries are not valid
+// UTF-8, so to sync them through the unchanged pipeline we base64-encode the
+// bytes into that text `content` and decode on the way back to disk. The
+// server only ever sees the encrypted blob, so the base64 expansion is
+// invisible to it; the only cost is ~33% larger ciphertext, well under the
+// server's blob-size limit for the small images notes embed.
+
+/// Read an image blob from disk and return its standard-base64 encoding,
+/// suitable for use as the `content` string of a sync note frame.
+pub fn read_blob_as_base64(path: &Path) -> Result<String, String> {
+    let bytes = fs::read(path).map_err(|e| e.to_string())?;
+    Ok(STANDARD.encode(bytes))
+}
+
+/// Decode base64 `content` (produced by [`read_blob_as_base64`] on a peer)
+/// back to raw bytes and atomically write them to `path`.
+pub fn write_base64_as_blob(path: &Path, content: &str) -> Result<(), String> {
+    let bytes = STANDARD
+        .decode(content.as_bytes())
+        .map_err(|e| format!("invalid base64 image content: {e}"))?;
+    write_atomic_bytes(path, &bytes)
 }
 
 /// Remove `path` if it exists, plus any directory entry in `parent` whose name
@@ -731,6 +768,36 @@ mod tests {
         write_atomic_text(&path, "first").unwrap();
         write_atomic_text(&path, "second").unwrap();
         assert_eq!(fs::read_to_string(&path).unwrap(), "second");
+        cleanup(&base);
+    }
+
+    // ── image blob base64 roundtrip ─────────────────────────────────
+
+    #[test]
+    fn blob_base64_roundtrip_preserves_non_utf8_bytes() {
+        let base = temp_dir();
+        let src = base.join("image-src.png");
+        // A minimal byte sequence that is NOT valid UTF-8 (a PNG magic header
+        // plus a stray 0xFF) — exactly the kind of content read_to_string
+        // would have rejected.
+        let raw: Vec<u8> = vec![0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a, 0xff, 0x00, 0xfe];
+        write_atomic_bytes(&src, &raw).unwrap();
+
+        // Encode from disk, then decode to a second path: bytes must match.
+        let encoded = read_blob_as_base64(&src).unwrap();
+        assert!(encoded.is_ascii(), "base64 output must be ASCII (valid UTF-8)");
+        let dst = base.join("image-dst.png");
+        write_base64_as_blob(&dst, &encoded).unwrap();
+        assert_eq!(fs::read(&dst).unwrap(), raw);
+        cleanup(&base);
+    }
+
+    #[test]
+    fn write_base64_as_blob_rejects_invalid_base64() {
+        let base = temp_dir();
+        let path = base.join("bad.png");
+        // '!' is outside the base64 alphabet.
+        assert!(write_base64_as_blob(&path, "not!base64!").is_err());
         cleanup(&base);
     }
 

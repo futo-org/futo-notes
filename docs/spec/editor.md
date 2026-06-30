@@ -253,6 +253,11 @@ native shells edit tags as text in the body, which is not a gap.
   render inline (verified end-to-end on emulator + simulator 2026-06-09).
   → EditorImages.swift `FutoAssetSchemeHandler`, ImagePicker.kt,
   liveMarkdownTransform.ts `setLocalImageBaseUrl`
+- Inline image rendering depends on the referenced file existing in the vault.
+  That file is delivered across devices by sync — the image binary syncs
+  alongside its note, so `![](image-…)` resolves on every device, not just the
+  one that created it. → [sync.md](sync.md) "Embedded images sync with their
+  notes"
 - The native shells ALSO support clipboard image paste. The native WebView has
   no `saveImageBytes` (that's a Tauri-desktop FS method), so the embed reads the
   pasted image bytes and hands them to the host via the `saveImageData` bridge

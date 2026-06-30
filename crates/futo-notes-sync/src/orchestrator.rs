@@ -33,9 +33,11 @@ use futo_notes_core::e2ee::{
     KEY_BYTES,
 };
 use futo_notes_core::files::{
-    file_mtime_ms, now_ms, safe_note_path, set_file_mtime_ms, write_atomic_text,
+    file_mtime_ms, now_ms, read_blob_as_base64, set_file_mtime_ms, write_atomic_text,
+    write_base64_as_blob,
 };
 use futo_notes_core::hash::hash_sha256;
+use futo_notes_core::invariants::is_image_filename;
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 
@@ -132,9 +134,13 @@ pub struct NoteFileMeta {
     pub size_bytes: u64,
 }
 
-/// One-shot recursive readdir+stat for `.md` files. Skips hidden dirs/files
-/// (`.git`, `.obsidian`, `.e2ee-state.json`, etc.) so sync state and VCS
-/// metadata never enter the object map.
+/// One-shot recursive readdir+stat for `.md` notes AND embedded image blobs
+/// (`is_image_filename`). Skips hidden dirs/files (`.git`, `.obsidian`,
+/// `.e2ee-state.json`, etc.) so sync state and VCS metadata never enter the
+/// object map. Images ride the same object map as notes — their content is
+/// base64-encoded into the note frame at read/encrypt time (see
+/// `read_local_note`) — so a pasted image syncs alongside the `![](…)` that
+/// references it instead of dangling on the device that created it.
 pub fn list_notes_with_meta(base: &Path) -> Vec<NoteFileMeta> {
     let mut out = Vec::new();
     if base.exists() {
@@ -163,7 +169,7 @@ fn walk(base: &Path, dir: &Path, out: &mut Vec<NoteFileMeta>) {
         };
         if file_type.is_dir() {
             walk(base, &path, out);
-        } else if file_type.is_file() && name.ends_with(".md") {
+        } else if file_type.is_file() && (name.ends_with(".md") || is_image_filename(&name)) {
             let rel = match path.strip_prefix(base) {
                 Ok(r) => r.to_string_lossy().replace('\\', "/"),
                 Err(_) => continue,
@@ -213,9 +219,10 @@ pub struct V2SyncApplyOutput {
 }
 
 /// Validate that `rel` is a safe relative path under the notes root: no
-/// absolute roots, no `..` traversal, no empty components, must end in
-/// `.md`. Returns the validated joined path.
-fn safe_relative_md_path(base: &Path, rel: &str) -> Result<PathBuf, String> {
+/// absolute roots, no `..` traversal, no empty components, and a syncable
+/// extension — either a `.md` note or a recognized image blob
+/// (`is_image_filename`). Returns the validated joined path.
+fn safe_relative_sync_path(base: &Path, rel: &str) -> Result<PathBuf, String> {
     if rel.is_empty() {
         return Err("empty path".into());
     }
@@ -230,8 +237,8 @@ fn safe_relative_md_path(base: &Path, rel: &str) -> Result<PathBuf, String> {
         }
         path.push(component);
     }
-    if !normalized.ends_with(".md") {
-        return Err("path must end in .md".into());
+    if !(normalized.ends_with(".md") || is_image_filename(&normalized)) {
+        return Err("path must be a .md note or an image".into());
     }
     Ok(path)
 }
@@ -258,7 +265,7 @@ fn apply_delta(
     // Delete files
     for filename in &input.delete {
         pre_write(filename);
-        let path = match safe_relative_md_path(notes_root, filename) {
+        let path = match safe_relative_sync_path(notes_root, filename) {
             Ok(p) => p,
             Err(_) => continue,
         };
@@ -272,9 +279,14 @@ fn apply_delta(
     // Write updates
     for update in &input.update {
         pre_write(&update.filename);
-        let path = safe_relative_md_path(notes_root, &update.filename)?;
-        // write_atomic_text already calls fs::create_dir_all on the parent.
-        write_atomic_text(&path, &update.content)?;
+        let path = safe_relative_sync_path(notes_root, &update.filename)?;
+        // Both writers call fs::create_dir_all on the parent. Image content
+        // arrives base64-encoded in the note frame; decode it back to bytes.
+        if is_image_filename(&update.filename) {
+            write_base64_as_blob(&path, &update.content)?;
+        } else {
+            write_atomic_text(&path, &update.content)?;
+        }
 
         // 0 means "no timestamp from server" — keep the filesystem's own mtime
         if update.modified_at > 0 {
@@ -287,8 +299,12 @@ fn apply_delta(
     // Write conflict copies
     for conflict in &input.conflicts {
         pre_write(&conflict.filename);
-        let path = safe_relative_md_path(notes_root, &conflict.filename)?;
-        write_atomic_text(&path, &conflict.content)?;
+        let path = safe_relative_sync_path(notes_root, &conflict.filename)?;
+        if is_image_filename(&conflict.filename) {
+            write_base64_as_blob(&path, &conflict.content)?;
+        } else {
+            write_atomic_text(&path, &conflict.content)?;
+        }
         conflict_filenames.push(conflict.filename.clone());
     }
 
@@ -296,7 +312,7 @@ fn apply_delta(
     // This fixes files that were already up-to-date (same hash) but had wrong mtimes.
     for (filename, server_mtime) in &input.timestamps {
         if *server_mtime > 0 {
-            let path = match safe_relative_md_path(notes_root, filename) {
+            let path = match safe_relative_sync_path(notes_root, filename) {
                 Ok(p) => p,
                 Err(_) => continue,
             };
@@ -1027,13 +1043,23 @@ pub async fn run_pull(
     // is free for the winner.
     let mut collision_conflict_updates: Vec<V2IncomingUpdate> = Vec::new();
     for mv in &collision_plan.map_renames {
-        let path = match safe_relative_md_path(notes_root_path, &mv.old_filename) {
+        let path = match safe_relative_sync_path(notes_root_path, &mv.old_filename) {
             Ok(p) => p,
             Err(_) => continue,
         };
-        let content = tokio::task::spawn_blocking(move || std::fs::read_to_string(&path).ok())
-            .await
-            .map_err(task_join_err)?;
+        // Read the loser's on-disk bytes as sync content — base64 for an image
+        // blob, text otherwise — so the re-write under the conflict name
+        // round-trips losslessly through apply_delta.
+        let is_blob = is_image_filename(&mv.old_filename);
+        let content = tokio::task::spawn_blocking(move || {
+            if is_blob {
+                read_blob_as_base64(&path).ok()
+            } else {
+                std::fs::read_to_string(&path).ok()
+            }
+        })
+        .await
+        .map_err(task_join_err)?;
         let Some(content) = content else { continue };
         let hash = hash_sha256(&content);
         collision_conflict_updates.push(V2IncomingUpdate {
@@ -1308,15 +1334,20 @@ enum PushOutcome {
 }
 
 async fn read_local_note(notes_root: &Path, filename: &str) -> Result<String, String> {
-    // filename is "<id>.md"; safe_note_path expects the id only.
-    let id = match filename.strip_suffix(".md") {
-        Some(i) => i,
-        None => return Err(format!("local file lacks .md suffix: {filename}")),
-    };
-    let path = safe_note_path(notes_root, id)?;
-    tokio::task::spawn_blocking(move || std::fs::read_to_string(&path).map_err(|e| e.to_string()))
-        .await
-        .map_err(task_join_err)?
+    // `filename` is the full relative name (`<id>.md` or an image like
+    // `image-….png`). Validate + join it once; image blobs read back as
+    // base64 so they ride the text note frame, notes read back as UTF-8.
+    let path = safe_relative_sync_path(notes_root, filename)?;
+    let is_blob = is_image_filename(filename);
+    tokio::task::spawn_blocking(move || {
+        if is_blob {
+            read_blob_as_base64(&path)
+        } else {
+            std::fs::read_to_string(&path).map_err(|e| e.to_string())
+        }
+    })
+    .await
+    .map_err(task_join_err)?
 }
 
 async fn encrypt_note(
@@ -1376,12 +1407,20 @@ async fn resolve_update_conflict(
 
     // Best-effort fetch of the merge base. The server retains orphaned
     // blobs for ~1 year; missing means "fall through to conflict copy."
-    let base_content: Option<String> = match http.get_blob(&existing.blob_key).await {
-        Ok(ct) => e2ee::aes_gcm_decrypt(&vault_key, &ct)
-            .ok()
-            .and_then(|p| e2ee::unpack_note(&p).ok())
-            .map(|n| n.content),
-        Err(_) => None,
+    // Images carry base64 content, which a line-oriented 3-way text merge
+    // would silently corrupt — and two devices never independently mint the
+    // same random image filename, so a real same-object image conflict can't
+    // happen. Skip the merge entirely for blobs and conflict-copy instead.
+    let base_content: Option<String> = if is_image_filename(filename) {
+        None
+    } else {
+        match http.get_blob(&existing.blob_key).await {
+            Ok(ct) => e2ee::aes_gcm_decrypt(&vault_key, &ct)
+                .ok()
+                .and_then(|p| e2ee::unpack_note(&p).ok())
+                .map(|n| n.content),
+            Err(_) => None,
+        }
     };
 
     if let Some(base) = base_content {
@@ -1509,7 +1548,17 @@ async fn push_one_file(
         }
     };
     let hash = hash_sha256(&content);
-    let size = content.as_bytes().len() as u64;
+    // `size` feeds the object-map entry, which the push fast-path
+    // (`plan_push_with_moves`) compares against the on-disk `meta.len()` from
+    // the scan. For a note the content IS the on-disk bytes, but an image's
+    // `content` is base64 (~33% larger than the file), so we must record the
+    // RAW on-disk size (`file.size_bytes`) for blobs — otherwise the fast-path
+    // would miss every cycle and re-read/-encode the image forever.
+    let size = if is_image_filename(&filename) {
+        file.size_bytes
+    } else {
+        content.as_bytes().len() as u64
+    };
 
     // Hash matches the recorded entry — content didn't change despite the
     // mtime/size fast-path miss (a content-identical touch: editor re-save,
@@ -1674,11 +1723,12 @@ pub async fn run_push(
     let local_files = tokio::task::spawn_blocking(move || list_notes_with_meta(&root_for_walk))
         .await
         .map_err(task_join_err)?;
-    // Drop non-`.md` rows just in case (`list_notes_with_meta`
-    // already filters, but defense-in-depth keeps push logic local).
+    // Keep only syncable rows — `.md` notes and image blobs — just in case
+    // (`list_notes_with_meta` already filters, but defense-in-depth keeps push
+    // logic local).
     let local_files: Vec<NoteFileMeta> = local_files
         .into_iter()
-        .filter(|f| f.name.ends_with(".md"))
+        .filter(|f| f.name.ends_with(".md") || is_image_filename(&f.name))
         .collect();
 
     // Detect 1-to-1 local renames before planning. Rewrites a working
@@ -2416,7 +2466,7 @@ async fn reconcile_empty_map(
         .map_err(task_join_err)?;
     let local_by_name: HashMap<String, (i64, u64)> = local_files
         .iter()
-        .filter(|f| f.name.ends_with(".md"))
+        .filter(|f| f.name.ends_with(".md") || is_image_filename(&f.name))
         .map(|f| (f.name.clone(), (f.mtime_ms, f.size_bytes)))
         .collect();
 
@@ -2511,10 +2561,16 @@ async fn reconcile_empty_map(
                 adopted.push(target_name.clone());
             }
             Some(_) => {
-                // Local file present — read its content to compare.
+                // Local file present — read its content (base64 for an image
+                // blob) to compare its hash against the remote's.
                 let path = notes_root_path.join(&target_name);
+                let is_blob = is_image_filename(&target_name);
                 let local_content = tokio::task::spawn_blocking(move || {
-                    std::fs::read_to_string(&path).ok()
+                    if is_blob {
+                        read_blob_as_base64(&path).ok()
+                    } else {
+                        std::fs::read_to_string(&path).ok()
+                    }
                 })
                 .await
                 .map_err(task_join_err)?;
@@ -2800,7 +2856,7 @@ impl SyncErrorKind {
 }
 
 /// `String` errors come from the filesystem helpers (`apply_delta`,
-/// `read_local_note`, `safe_relative_md_path`); they're all I/O failures.
+/// `read_local_note`, `safe_relative_sync_path`); they're all I/O failures.
 impl From<String> for SyncErrorKind {
     fn from(s: String) -> Self {
         SyncErrorKind::Io(s)
@@ -3375,21 +3431,28 @@ mod tests {
     }
 
     #[test]
-    fn safe_relative_md_path_rejects_traversal() {
+    fn safe_relative_sync_path_rejects_traversal() {
         let base = Path::new("/tmp/x");
-        assert!(safe_relative_md_path(base, "../escape.md").is_err());
-        assert!(safe_relative_md_path(base, "/abs.md").is_err());
-        assert!(safe_relative_md_path(base, "no-ext").is_err());
-        assert!(safe_relative_md_path(base, "ok.md").is_ok());
-        assert!(safe_relative_md_path(base, "Specs/ok.md").is_ok());
+        assert!(safe_relative_sync_path(base, "../escape.md").is_err());
+        assert!(safe_relative_sync_path(base, "/abs.md").is_err());
+        assert!(safe_relative_sync_path(base, "no-ext").is_err());
+        assert!(safe_relative_sync_path(base, "ok.md").is_ok());
+        assert!(safe_relative_sync_path(base, "Specs/ok.md").is_ok());
+        // Image blobs are syncable too; arbitrary binaries are not.
+        assert!(safe_relative_sync_path(base, "image-123.png").is_ok());
+        assert!(safe_relative_sync_path(base, "Specs/pic.JPEG").is_ok());
+        assert!(safe_relative_sync_path(base, "../evil.png").is_err());
+        assert!(safe_relative_sync_path(base, "secrets.txt").is_err());
     }
 
     #[test]
-    fn list_notes_skips_hidden_and_finds_md() {
+    fn list_notes_skips_hidden_and_finds_md_and_images() {
         let root = temp_root();
         std::fs::write(root.join("a.md"), "alpha").unwrap();
         std::fs::create_dir_all(root.join("Specs")).unwrap();
         std::fs::write(root.join("Specs/b.md"), "beta").unwrap();
+        // An embedded image blob must be picked up so it syncs with its note.
+        std::fs::write(root.join("image-1.png"), [0x89u8, b'P', b'N', b'G']).unwrap();
         std::fs::write(root.join(".e2ee-state.json"), "{}").unwrap();
         std::fs::write(root.join("ignore.txt"), "nope").unwrap();
         std::fs::create_dir_all(root.join(".git")).unwrap();
@@ -3401,9 +3464,52 @@ mod tests {
             .collect();
         assert!(names.contains("a.md"));
         assert!(names.contains("Specs/b.md"));
+        assert!(names.contains("image-1.png"));
         assert!(!names.contains("ignore.txt"));
         assert!(!names.iter().any(|n| n.contains(".git")));
-        assert_eq!(names.len(), 2);
+        assert_eq!(names.len(), 3);
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// End-to-end I/O round-trip proving an image blob survives the sync
+    /// content layer: apply_delta decodes base64 → raw bytes on disk, and
+    /// read_local_note re-encodes the on-disk bytes → the same base64. This is
+    /// the path that was missing entirely (images were never scanned, so the
+    /// `![](…)` reference synced but the bytes never did).
+    #[tokio::test]
+    async fn image_blob_round_trips_through_apply_and_read() {
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
+        let root = temp_root();
+        let pre = no_pre_write();
+        // Non-UTF-8 bytes — exactly what read_to_string would have choked on.
+        let raw: Vec<u8> = vec![0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0xff, 0x00, 0xfe, 0x01];
+        let b64 = STANDARD.encode(&raw);
+
+        apply_delta(
+            &root,
+            pre.as_ref(),
+            V2SyncApplyInput {
+                update: vec![V2IncomingUpdate {
+                    filename: "image-xyz.png".into(),
+                    content: b64.clone(),
+                    hash: hash_sha256(&b64),
+                    modified_at: 0,
+                }],
+                delete: Vec::new(),
+                conflicts: Vec::new(),
+                timestamps: HashMap::new(),
+            },
+        )
+        .unwrap();
+
+        // On disk it's the raw bytes, not the base64 text.
+        assert_eq!(std::fs::read(root.join("image-xyz.png")).unwrap(), raw);
+
+        // Reading it back for a push re-produces the identical base64 content,
+        // so the content hash is stable across the round-trip.
+        let read_back = read_local_note(&root, "image-xyz.png").await.unwrap();
+        assert_eq!(read_back, b64);
+        assert_eq!(hash_sha256(&read_back), hash_sha256(&b64));
         std::fs::remove_dir_all(&root).ok();
     }
 

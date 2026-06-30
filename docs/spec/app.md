@@ -18,6 +18,12 @@ Behaviors and constraints that hold across every surface and platform.
   characters are stripped. → `sanitizeTitle`
 - Notes are plain Markdown files on disk — "file over app." A note's content is
   its file's bytes; renaming a note renames its file.
+- A note may embed images (`![](image-…)`); those image files are first-class
+  vault content, not just notes. Anything that walks "the vault" for sync or
+  integrity must include image blobs, not only `.md` — an image that a note
+  references but that doesn't travel with it is a data-integrity bug (it leaves
+  a broken `![]()` on every other device). → [sync.md](sync.md) "Embedded
+  images sync with their notes"
 
 ## Where logic lives
 
