@@ -67,11 +67,16 @@ android {
             if (hasReleaseKeystore) {
                 signingConfig = signingConfigs.getByName("release")
             }
-            // Production ships real-device ABIs only. x86_64 is staged for the
-            // emulator (debug) but excluded here so it doesn't ride along in the
-            // Play AAB. armv7 is kept deliberately for older 32-bit devices.
+            // Ship every ABI we build a .so for. x86_64 is NOT just an
+            // emulator concern: de-Googled installs (ChromeOS/ARC, Waydroid,
+            // Windows Subsystem for Android, x86 tablets) are common in our
+            // audience, and omitting x86_64 left those devices with no matching
+            // native lib — an UnsatisfiedLinkError on the universal APK, or a
+            // missing-ABI-split on the Play/Aurora path. armv7 stays for older
+            // 32-bit devices. Combined with the non-splitting `bundle` block
+            // below, the base APK carries all three ABIs.
             ndk {
-                abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+                abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
                 // Extract native debug symbols from libfuto_notes_ffi.so into a
                 // native-debug-symbols file inside the AAB so Play can
                 // symbolicate native crashes/ANRs. SYMBOL_TABLE captures every
@@ -87,11 +92,23 @@ android {
     }
 
     // Play distribution = Android App Bundle (`./gradlew :app:bundleRelease`).
-    // ABI splitting (on by default) makes Play deliver one architecture's
-    // libfuto_notes_ffi.so per device instead of a fat universal APK — the
-    // stripped release-ffi .so per ABI stays well under Play's limits.
+    // Config splits are turned OFF: with splitting on, AGP marks the base APK
+    // `isSplitRequired="true"`, and any device that launches without the full
+    // split set gets the OS "missing splits" recovery dialog ("Something went
+    // wrong. Check that Google Play is enabled…" — that string is baked into
+    // the platform, so it shows even on de-Googled devices with no Play).
+    // Aurora Store reconstructs the split set from our Play AAB on de-Googled
+    // devices and frequently lands an incomplete set, triggering exactly that
+    // dialog. Disabling the splits makes the bundle deliver ONE self-contained
+    // APK (all ABIs/densities/languages in the base), so the install can never
+    // be missing a required split. Play still accepts a non-splitting AAB; the
+    // only cost is a larger per-device download, which is negligible here and
+    // worth it for de-Googled compatibility. This makes the Play/Aurora install
+    // match the self-contained universal APK we ship via GitLab/Obtainium.
     bundle {
-        abi { enableSplit = true }
+        abi { enableSplit = false }
+        density { enableSplit = false }
+        language { enableSplit = false }
     }
 
     compileOptions {
