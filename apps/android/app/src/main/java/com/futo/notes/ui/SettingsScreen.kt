@@ -40,7 +40,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -56,11 +55,11 @@ import com.futo.notes.BuildConfig
 import com.futo.notes.NotesStore
 import com.futo.notes.Prefs
 import com.futo.notes.SyncManager
+import com.futo.notes.ui.components.ConfirmDialog
 import com.futo.notes.ui.components.MicroLabel
 import com.futo.notes.ui.theme.FutoRadius
 import com.futo.notes.ui.theme.FutoTheme
 import com.futo.notes.ui.theme.FutoType
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 enum class ThemeMode { LIGHT, DARK, AUTO }
@@ -85,14 +84,8 @@ fun SettingsScreen(
     val prefs = remember { context.getSharedPreferences(Prefs.FILE, Context.MODE_PRIVATE) }
     var crashEnabled by remember { mutableStateOf(prefs.getBoolean(Prefs.CRASH_ENABLED, true)) }
     var crashAlwaysSend by remember { mutableStateOf(prefs.getBoolean(Prefs.CRASH_ALWAYS_SEND, false)) }
-    var resetArmed by remember { mutableStateOf(false) }
+    var confirmReset by remember { mutableStateOf(false) }
     var resetting by remember { mutableStateOf(false) }
-
-    // Two-tap full reset [settings.md:43]: disarm automatically if the user
-    // walks away after the first tap.
-    LaunchedEffect(resetArmed) {
-        if (resetArmed) { delay(5000); resetArmed = false }
-    }
 
     Box {
     Scaffold(
@@ -188,33 +181,10 @@ fun SettingsScreen(
 
             SettingsGroup("Danger zone") {
                 SettingsRow(
-                    title = if (resetArmed) "Tap again to confirm" else "Full reset",
-                    subtitle = if (resetArmed) "This cannot be undone!" else "Delete every note, folder, and crash log",
+                    title = "Full reset",
+                    subtitle = "Delete every note, folder, and crash log",
                     titleColor = c.danger,
-                    onClick = {
-                        if (!resetArmed) {
-                            resetArmed = true
-                        } else {
-                            resetArmed = false
-                            resetting = true
-                            scope.launch {
-                                // Pause live sync + auto-push so the wipe can't
-                                // race a push, wipe the vault, then drop the
-                                // session (also clears the stored password)
-                                // [settings.md:43]. Parity model: desktop
-                                // deleteAllNotes (src/lib/notes.svelte.ts).
-                                sync.pauseLive()
-                                store.suppressAutoPush = true
-                                try {
-                                    store.deleteAll()
-                                    sync.disconnect()
-                                } finally {
-                                    store.suppressAutoPush = false
-                                    resetting = false
-                                }
-                            }
-                        }
-                    },
+                    onClick = { confirmReset = true },
                 )
             }
 
@@ -230,6 +200,36 @@ fun SettingsScreen(
             }
             Spacer(Modifier.height(32.dp))
         }
+    }
+
+    // Modal confirmation [settings.md]: a stray double-tap on the row must not
+    // be able to wipe the vault — only confirming in this dialog deletes.
+    if (confirmReset) {
+        ConfirmDialog(
+            title = "Full reset",
+            body = "Permanently delete all notes and app data? This cannot be undone.",
+            confirmLabel = "Delete everything",
+            onConfirm = {
+                confirmReset = false
+                resetting = true
+                scope.launch {
+                    // Pause live sync + auto-push so the wipe can't race a
+                    // push, wipe the vault, then drop the session (also clears
+                    // the stored password). Parity model: desktop
+                    // deleteAllNotes (src/lib/notes.svelte.ts).
+                    sync.pauseLive()
+                    store.suppressAutoPush = true
+                    try {
+                        store.deleteAll()
+                        sync.disconnect()
+                    } finally {
+                        store.suppressAutoPush = false
+                        resetting = false
+                    }
+                }
+            },
+            onDismiss = { confirmReset = false },
+        )
     }
 
     if (resetting) {

@@ -19,9 +19,11 @@ struct SettingsView: View {
     @AppStorage("futo.crashReporting.alwaysSend") private var crashAlwaysSend = false
 
     @State private var showSync = false
-    /// Full reset is double-confirmed in place: first tap arms the button,
-    /// second tap runs. Re-disarmed when the sheet goes away.
-    @State private var resetArmed = false
+    /// Full reset is guarded by a modal confirmation dialog: tapping the row
+    /// opens it, and only confirming there runs the wipe. (The old in-place
+    /// two-tap arm/confirm was removed — a stray double-tap wiped everything
+    /// too easily.)
+    @State private var showResetConfirm = false
     @State private var resetting = false
 
     var body: some View {
@@ -92,17 +94,20 @@ struct SettingsView: View {
 
                 Section("Danger zone") {
                     Button(role: .destructive) {
-                        if resetArmed {
-                            Task { await runFullReset() }
-                        } else {
-                            resetArmed = true
-                        }
+                        showResetConfirm = true
                     } label: {
-                        Text(resetArmed
-                            ? "Tap again to confirm — this cannot be undone!"
-                            : "Full reset")
+                        Text("Full reset")
                     }
                     .disabled(resetting)
+                    .confirmationDialog(
+                        "Permanently delete all notes and app data? This cannot be undone.",
+                        isPresented: $showResetConfirm, titleVisibility: .visible
+                    ) {
+                        Button("Delete Everything", role: .destructive) {
+                            Task { await runFullReset() }
+                        }
+                        Button("Cancel", role: .cancel) {}
+                    }
                     #if DEBUG
                     // On-device verification hook for the crash pipeline: traps
                     // (SIGTRAP) → the signal handler writes a .crashlogs report
@@ -129,7 +134,6 @@ struct SettingsView: View {
                     .environmentObject(sync)
                     .environmentObject(store)
             }
-            .onDisappear { resetArmed = false }
             .overlay {
                 if resetting {
                     // Blocking overlay — no interaction until the wipe lands.
@@ -174,6 +178,5 @@ struct SettingsView: View {
         await store.fullReset()
         await sync.disconnect()
         resetting = false
-        resetArmed = false
     }
 }

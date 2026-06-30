@@ -24,7 +24,6 @@
   let { onclose, onimported, syncError = false, syncErrorMessage = '' }: Props = $props();
 
   let nuking = $state(false);
-  let nukeConfirm = $state(false);
   let nukeError = $state('');
 
   // Crash reporting preferences
@@ -221,13 +220,17 @@
     await applyThemePreference(nextTheme);
   }
 
-  function handleNukeTap(): void {
+  // Full reset is guarded by a modal confirmation dialog (confirmDialog →
+  // native ask() on desktop). The old in-place two-tap arm/confirm was removed
+  // because a stray double-tap wiped everything too easily.
+  async function handleNukeTap(): Promise<void> {
     if (nuking) return;
-    if (!nukeConfirm) {
-      nukeConfirm = true;
-      return;
-    }
-    void doNuke();
+    const confirmed = await confirmDialog(
+      'Permanently delete all notes and app data? This cannot be undone.',
+      { title: 'Full reset', kind: 'warning' },
+    );
+    if (!confirmed) return;
+    await doNuke();
   }
 
   async function doNuke(): Promise<void> {
@@ -245,7 +248,6 @@
 
   function cancelNuke(): void {
     nuking = false;
-    nukeConfirm = false;
     nukeError = '';
   }
 
@@ -415,20 +417,12 @@
 
       <section class="settings-section">
         <h3 class="settings-section-title">Danger zone</h3>
-        <button class="settings-btn settings-btn-danger" onclick={handleNukeTap} disabled={nuking}>
+        <button class="settings-btn settings-btn-danger" onclick={() => void handleNukeTap()} disabled={nuking}>
           <span class="settings-btn-text">
-            <span class="settings-btn-label">
-              {#if nukeConfirm}
-                Tap again to confirm
-              {:else}
-                Full reset
-              {/if}
-            </span>
+            <span class="settings-btn-label">Full reset</span>
             <span class="settings-btn-desc">
               {#if nuking}
                 Deleting...
-              {:else if nukeConfirm}
-                This cannot be undone!
               {:else}
                 Permanently remove all notes and app data
               {/if}

@@ -37,7 +37,7 @@ Each shell renders settings with its own native idioms. These differences are
 | About / source link | Absent (version footer only) | **Source** row linking to GitLab + version | — |
 | Benchmark | **Benchmark** section (on-device embedding test + results table) | Absent | — |
 | Crash reporting toggles | Present (switch + "always send" sub-row) | Absent | — |
-| Danger zone | "Full reset" (two-tap confirm) + dev-only "Test crash" | Absent | — |
+| Danger zone | "Full reset" (modal confirm) + dev-only "Test crash" | Absent | — |
 | Blocking progress | In-panel overlay (spinner + phase / error) for Connect and Full reset | Handled on the dedicated Sync screen | — |
 
 > **Gap (iOS):** the native iOS shell has no Settings screen yet. When it is
@@ -79,8 +79,10 @@ same meanings. This is the part that belongs to the app, not the shell.
   **"Always send automatically"** option. Persisted in preferences
   (`crashReporting.enabled`, `crashReporting.alwaysSend`).
 - **Full reset (danger)** — permanently delete all notes and app data. Must be
-  **guarded by an explicit confirmation** (desktop uses two-tap: "Full reset" →
-  "Tap again to confirm" → deletes, then reloads).
+  **guarded by an explicit modal confirmation dialog**: tapping "Full reset"
+  opens a confirm dialog ("Permanently delete all notes and app data? This
+  cannot be undone."); only confirming deletes, then reloads. (A bare in-place
+  two-tap is not enough — a stray double-tap wiped everything too easily.)
 - **App version** — display the running version (`FUTO Notes v<version>`).
 
 **Shared semantics that hold on every platform:**
@@ -320,10 +322,11 @@ No card — standalone full-width buttons.
   - It holds a stacked text column (label + description, `gap: 2px`).
   - In a danger button the **label is colored `var(--color-danger)`**; the
     description stays muted.
+  - Tapping it opens a **confirmation dialog** (the platform `ask()` dialog:
+    "Permanently delete all notes and app data? This cannot be undone." with
+    Cancel / OK); only confirming proceeds to the delete.
   - State machine on the label/description:
     - Default: **"Full reset"** / "Permanently remove all notes and app data".
-    - After first tap (armed): **"Tap again to confirm"** / "This cannot be
-      undone!".
     - While deleting: description shows "Deleting..." and the button is
       disabled.
 - **Test crash** button — *dev builds only* (`import.meta.env.DEV`).

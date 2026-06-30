@@ -31,13 +31,17 @@ SettingsScreen.kt *(Android)*, SettingsView.swift *(iOS)*
 - **About**: an open-source link (GitLab) and the app version.
 - **Crash reporting**: "Share crash reports" toggle with a nested "Always
   send automatically" (see app.md for the dialog flow).
-- **Danger zone — Full reset**: same two-tap arm/confirm contract as the
-  Tauri shell below — first tap arms ("Tap again to confirm" / "this cannot
-  be undone!"), second tap deletes everything under the vault root
-  (notes, folders, `.crashlogs`) behind a blocking "Deleting all notes…"
-  overlay, with live sync paused and the connection + stored password
-  dropped so a racing sync cannot resurrect files; the next launch reseeds
-  the welcome note and stays LOCAL (verified on both 2026-06-09).
+- **Danger zone — Full reset**: same modal-confirmation contract as the Tauri
+  shell below — tapping **Full reset** opens a confirmation dialog
+  ("Permanently delete all notes and app data? This cannot be undone."); only
+  confirming there deletes everything under the vault root (notes, folders,
+  `.crashlogs`) behind a blocking "Deleting all notes…" overlay, with live
+  sync paused and the connection + stored password dropped so a racing sync
+  cannot resurrect files; the next launch reseeds the welcome note and stays
+  LOCAL. iOS presents a `.confirmationDialog`; Android presents the shared
+  `ConfirmDialog` (Material 3 `AlertDialog`). (Modal confirm verified on both
+  2026-06-30; the earlier two-tap arm/confirm was removed because a stray
+  double-tap wiped everything too easily.)
 - Debug builds add a "Test crash" row to exercise the crash pipeline.
 
 ## Tauri shell
@@ -52,8 +56,9 @@ SettingsScreen.kt *(Android)*, SettingsView.swift *(iOS)*
 - **Crash reporting**: a "Share crash reports" toggle (anonymous crash logs);
   see app.md for the crash dialog flow.
 - **Danger zone — Full reset**: permanently removes all notes and app data.
-  First tap arms it ("Tap again to confirm" / "This cannot be undone!");
-  second tap deletes with a blocking "Deleting all notes…" overlay. Sync is
-  paused for the duration so a racing sync cannot resurrect files. The
-  native shells implement the same contract (see "Native shells" above). →
-  SettingsScreen.svelte, notes.svelte.ts `deleteAllNotes`
+  Tapping **Full reset** opens a confirmation dialog ("Permanently delete all
+  notes and app data? This cannot be undone."); only confirming deletes, with
+  a blocking "Deleting all notes…" overlay, then reloads. Sync is paused for
+  the duration so a racing sync cannot resurrect files. The native shells
+  implement the same contract (see "Native shells" above). →
+  SettingsScreen.svelte (`confirmDialog`), notes.svelte.ts `deleteAllNotes`
