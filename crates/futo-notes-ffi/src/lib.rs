@@ -44,6 +44,8 @@ pub struct NoteMetadata {
     pub folder: String,
     pub modified_ms: i64,
     pub preview: String,
+    /// Multi-line, display-oriented preview (see `make_rich_preview`).
+    pub rich_preview: String,
     pub tags: Vec<String>,
 }
 
@@ -55,6 +57,7 @@ impl From<model::NoteMetadata> for NoteMetadata {
             folder: m.folder,
             modified_ms: m.modified_ms,
             preview: m.preview,
+            rich_preview: m.rich_preview,
             tags: m.tags,
         }
     }
@@ -203,6 +206,15 @@ pub fn extract_tags(content: String) -> Vec<String> {
 #[uniffi::export]
 pub fn make_preview(content: String) -> String {
     model::make_preview(&content)
+}
+
+/// Multi-line, display-oriented preview for native note lists. Drops tables,
+/// strips heading/quote markers, turns task items into ☐/☑ and bullets into •,
+/// and preserves line breaks — while leaving inline `**bold**`/`*italic*` for
+/// the platform renderer.
+#[uniffi::export]
+pub fn make_rich_preview(content: String) -> String {
+    model::make_rich_preview(&content)
 }
 
 /// Wikilink targets (`[[target]]` / `[[target|alias]]`).

@@ -574,13 +574,26 @@ struct NoteRow: View {
                     .font(.caption2)
                     .foregroundStyle(Theme.primary)
             }
-            if !note.preview.isEmpty {
-                Text(note.preview)
+            if !note.richPreview.isEmpty {
+                Text(richPreview)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                    .lineLimit(2)
+                    .lineLimit(3)
             }
         }
         .padding(.vertical, 2)
+    }
+
+    /// The rich preview rendered as an `AttributedString`: inline `**bold**` /
+    /// `*italic*` / `` `code` `` become real styling, and line breaks are kept
+    /// (`.inlineOnlyPreservingWhitespace` parses only inline syntax — the block
+    /// markdown was already rewritten into glyphs by `make_rich_preview`). Falls
+    /// back to the raw string if markdown parsing ever fails.
+    private var richPreview: AttributedString {
+        let options = AttributedString.MarkdownParsingOptions(
+            interpretedSyntax: .inlineOnlyPreservingWhitespace,
+            failurePolicy: .returnPartiallyParsedIfPossible)
+        return (try? AttributedString(markdown: note.richPreview, options: options))
+            ?? AttributedString(note.richPreview)
     }
 }

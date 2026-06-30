@@ -20,7 +20,13 @@ data class NoteItem(
     val title: String,
     val folder: String,
     val modifiedMs: Long,
+    /** Single-line preview (search filtering). */
     val preview: String,
+    /** Multi-line, display-oriented preview: block markdown rewritten for
+     *  rendering (☐/☑ task glyphs, • bullets, tables dropped, inline emphasis
+     *  kept, line breaks preserved). Rendered as an AnnotatedString in the list.
+     *  See `make_rich_preview` in futo-notes-model. */
+    val richPreview: String,
     val tags: List<String>,
 )
 
@@ -127,7 +133,11 @@ class NotesStore(notesRoot: File) {
         try {
             val derived = withContext(Dispatchers.IO) {
                 core.write(id, content)
-                uniffi.futo_notes_ffi.makePreview(content) to uniffi.futo_notes_ffi.extractTags(content)
+                Triple(
+                    uniffi.futo_notes_ffi.makePreview(content),
+                    uniffi.futo_notes_ffi.makeRichPreview(content),
+                    uniffi.futo_notes_ffi.extractTags(content),
+                )
             }
             val idx = notes.indexOfFirst { it.id == id }
             if (idx >= 0) {
@@ -135,7 +145,8 @@ class NotesStore(notesRoot: File) {
                 val updated = old.copy(
                     modifiedMs = System.currentTimeMillis(),
                     preview = derived.first,
-                    tags = derived.second,
+                    richPreview = derived.second,
+                    tags = derived.third,
                 )
                 notes = notes.toMutableList().also { it[idx] = updated }
             } else {
@@ -284,7 +295,8 @@ class NotesStore(notesRoot: File) {
     /** Notes whose parent folder is exactly `folder`. */
     fun notesIn(folder: String): List<NoteItem> = notes.filter { it.folder == folder }
 
-    private fun NoteMetadata.toItem() = NoteItem(id, title, folder, modifiedMs, preview, tags)
+    private fun NoteMetadata.toItem() =
+        NoteItem(id, title, folder, modifiedMs, preview, richPreview, tags)
 
     private fun seedIfEmpty() {
         // Seed content lives in futo-notes-model (`seed_if_empty`) so Android,

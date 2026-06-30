@@ -96,13 +96,17 @@ fun NoteCard(
                 Text(note.folder, style = FutoType.caption, color = c.textMuted, maxLines = 1)
             }
 
-            if (note.preview.isNotBlank()) {
+            if (note.richPreview.isNotBlank()) {
                 Spacer(Modifier.height(4.dp))
+                // Rich preview: inline **bold**/*italic*/`code`/~~strike~~ render
+                // as real styling and line breaks are preserved (up to 3 lines).
+                // Block markdown was already rewritten to ☐/☑/• glyphs by the
+                // shared Rust `make_rich_preview`. Mirrors the iOS NoteRow.
                 Text(
-                    text = note.preview,
+                    text = parseInlinePreview(note.richPreview, codeColor = c.accent),
                     style = FutoType.small,
                     color = c.textTertiary,
-                    maxLines = 2,
+                    maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
                 )
             }

@@ -7,10 +7,14 @@ flag gaps the codebase suggests have been implemented.
 
 ## editor.md
 
-- [editor.md:278](editor.md#L278) — Clipboard image paste is verified on Linux (WebKitGTK), Windows (WebView2), and native Android (emulator, 2026-06-22). The iOS path is now wired both ways: the embed posts `saveImageData` when WKWebView exposes the pasted image File, and falls back to the payload-less `pasteClipboardImage` (bridge contract v5) when WKWebView hides the bitmap — EditorWebView.swift's `clipboardImageData()` then reads it off `UIPasteboard.general` (raw png/jpeg, else UIImage→PNG) and saves through `VaultImages.save`, the SAME vault path as the picker. Compiles clean (`just build-ios-native`). What remains is on-device end-to-end QA: (1) a native iOS device/simulator (copy a screenshot / "Copy Image", paste into the editor, confirm a vault blob + `![](image-…)` insert), and (2) **macOS** desktop (Tauri/WKWebView) for the analogous `looksLikeImagePaste` → `fs_paste_clipboard_image` fallback. To close: run both manual checks. (bridge added 2026-06-26)
+- [editor.md:290](editor.md#L290) — Clipboard image paste is verified on Linux (WebKitGTK), Windows (WebView2), and native Android (emulator, 2026-06-22). The iOS path is now wired both ways: the embed posts `saveImageData` when WKWebView exposes the pasted image File, and falls back to the payload-less `pasteClipboardImage` (bridge contract v5) when WKWebView hides the bitmap — EditorWebView.swift's `clipboardImageData()` then reads it off `UIPasteboard.general` (raw png/jpeg, else UIImage→PNG) and saves through `VaultImages.save`, the SAME vault path as the picker. Compiles clean (`just build-ios-native`). What remains is on-device end-to-end QA: (1) a native iOS device/simulator (copy a screenshot / "Copy Image", paste into the editor, confirm a vault blob + `![](image-…)` insert), and (2) **macOS** desktop (Tauri/WKWebView) for the analogous `looksLikeImagePaste` → `fs_paste_clipboard_image` fallback. To close: run both manual checks. (bridge added 2026-06-26)
+
+## list.md
+
+- [list.md:55](list.md#L55) — Tauri desktop still shows the single-line, markdown-opaque `make_preview` snippet in note rows; the rich preview is native-only (iOS + Android) for now.
 
 ## nav.md
 
 - [nav.md:13](nav.md#L13) — *(accessibility — pending device confirmation)* The iOS list nav-bar controls — the **gear** (Settings), the **cloud** (Sync), and the **"+"** create-note menu — now each carry an explicit `accessibilityLabel` ("Settings" / "Sync" / "New note or folder"), a `.isButton` trait, and a stable `accessibilityIdentifier` (`nav-settings` / `nav-sync` / `nav-create`), and the two leading items have distinct `ToolbarItem(id:)`s so they should no longer collapse into one unlabeled AX container. Compiles and launches (`just build-ios-native`; all three controls render). What remains is the runtime AX confirmation the gap was originally filed from: an idb `describe-ui` / VoiceOver pass on a sim/device showing the three as separate, labeled, activatable elements (idb is not installed in this environment). → NoteListView.swift toolbar (fix 2026-06-26)
 
-_2 gaps._
+_3 gaps._

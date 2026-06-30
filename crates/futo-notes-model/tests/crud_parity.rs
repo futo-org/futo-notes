@@ -47,6 +47,40 @@ fn make_preview_collapses_whitespace_and_caps() {
     assert_eq!(model::make_preview(&long).chars().count(), 100);
 }
 
+// ── makeRichPreview: multi-line, block markdown rewritten for display ────
+#[test]
+fn make_rich_preview_strips_block_markdown_and_keeps_inline() {
+    // Heading markers stripped; inline emphasis left intact for the renderer.
+    assert_eq!(
+        model::make_rich_preview("# My Note\nSome **bold** text"),
+        "My Note\nSome **bold** text"
+    );
+    // Task items → ☐ / ☑ (case-insensitive x).
+    assert_eq!(
+        model::make_rich_preview("- [ ] todo\n- [x] done\n- [X] also done"),
+        "☐ todo\n☑ done\n☑ also done"
+    );
+    // Plain bullets → •, blockquote markers peeled.
+    assert_eq!(model::make_rich_preview("* item\n> quoted"), "• item\nquoted");
+    // Blank lines collapse; line breaks between content are preserved.
+    assert_eq!(model::make_rich_preview("a\n\n\nb"), "a\nb");
+}
+
+#[test]
+fn make_rich_preview_drops_tables_fences_and_caps_lines() {
+    // Table rows + delimiter rows are dropped entirely.
+    assert_eq!(
+        model::make_rich_preview("| a | b |\n|---|---|\n| 1 | 2 |\nafter"),
+        "after"
+    );
+    // Code-fence lines dropped (the code body itself still shows verbatim).
+    assert_eq!(model::make_rich_preview("```rust\nlet x = 1;\n```"), "let x = 1;");
+    // Thematic break (`---`) is rule punctuation, dropped.
+    assert_eq!(model::make_rich_preview("one\n---\ntwo"), "one\ntwo");
+    // At most 3 logical lines are kept.
+    assert_eq!(model::make_rich_preview("1\n2\n3\n4\n5"), "1\n2\n3");
+}
+
 // ── tag lowercasing + dedup (display form, no '#') ───────────────────────
 #[test]
 fn note_tags_lowercase_dedup_no_hash() {

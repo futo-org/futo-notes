@@ -28,6 +28,9 @@ pub struct NoteMetadata {
     /// File modification time, ms since Unix epoch.
     pub modified_ms: i64,
     pub preview: String,
+    /// Multi-line, display-oriented preview for native note lists. See
+    /// [`make_rich_preview`]. Empty when the note has no renderable body.
+    pub rich_preview: String,
     pub tags: Vec<String>,
 }
 
@@ -151,6 +154,121 @@ pub fn make_preview(content: &str) -> String {
     out
 }
 
+/// Max logical lines kept in a rich preview, and the overall code-point cap.
+const RICH_PREVIEW_MAX_LINES: usize = 3;
+const RICH_PREVIEW_MAX_CHARS: usize = 280;
+
+/// A multi-line, display-oriented preview for the native note list.
+///
+/// Unlike [`make_preview`] (single-line, markdown-opaque, conformance-locked
+/// against the TS twin) this rule is **presentation-only and native-only**: it
+/// preserves line breaks and rewrites *block* markdown into something a
+/// plain/inline-markdown renderer can show cleanly, so a list row no longer
+/// shows raw `#`, `|`, or `- [ ]` syntax. Specifically, per non-blank line
+/// (capped at [`RICH_PREVIEW_MAX_LINES`]):
+///
+///   - table rows and delimiter/rule lines are dropped entirely;
+///   - code-fence lines (```` ``` ````, `~~~`) are dropped;
+///   - ATX heading markers (`#`) and blockquote markers (`>`) are stripped;
+///   - task items (`- [ ]` / `- [x]`) become `☐` / `☑`;
+///   - plain bullets (`-`, `*`, `+`) become `•`.
+///
+/// **Inline** emphasis (`**bold**`, `*italic*`, `` `code` ``, links) is left
+/// INTACT so the platform layer (SwiftUI `AttributedString` / Compose
+/// `AnnotatedString`) can render it as actual styling rather than literal
+/// markers. There is intentionally no TS twin — desktop keeps using the
+/// single-line [`make_preview`].
+pub fn make_rich_preview(content: &str) -> String {
+    let mut lines: Vec<String> = Vec::new();
+
+    for raw in content.lines() {
+        if lines.len() >= RICH_PREVIEW_MAX_LINES {
+            break;
+        }
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            continue; // collapse blank lines
+        }
+        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
+            continue; // drop code-fence lines
+        }
+        if is_table_line(trimmed) {
+            continue; // drop tables / delimiter / rule lines
+        }
+        let cleaned = clean_preview_line(trimmed);
+        if cleaned.is_empty() {
+            continue;
+        }
+        lines.push(cleaned);
+    }
+
+    let out = lines.join("\n");
+    if out.chars().count() > RICH_PREVIEW_MAX_CHARS {
+        return out.chars().take(RICH_PREVIEW_MAX_CHARS).collect();
+    }
+    out
+}
+
+/// A table row (`| a | b |`), or a line made only of table/rule punctuation
+/// (`|---|---|`, `:--:`, `---`) — i.e. nothing worth showing in a preview.
+fn is_table_line(line: &str) -> bool {
+    if line.starts_with('|') {
+        return true;
+    }
+    line.contains('-') && line.chars().all(|c| matches!(c, '|' | '-' | ':' | ' '))
+}
+
+/// Strip leading block markers (heading / blockquote) and rewrite a leading
+/// list/task marker into a display glyph. Inline markdown is left untouched.
+fn clean_preview_line(line: &str) -> String {
+    // Peel any nested blockquote markers: "> > text" → "text".
+    let mut s = line;
+    loop {
+        let t = s.trim_start();
+        match t.strip_prefix('>') {
+            Some(rest) => s = rest,
+            None => {
+                s = t;
+                break;
+            }
+        }
+    }
+
+    // ATX heading: 1–6 leading '#'s followed by a space (or end of line).
+    let hashes = s.chars().take_while(|&c| c == '#').count();
+    if (1..=6).contains(&hashes) {
+        let after = &s[hashes..];
+        if after.is_empty() || after.starts_with(' ') {
+            s = after.trim_start();
+        }
+    }
+
+    // Task item: "<bullet> [ ] …" / "<bullet> [x] …" → ☐ / ☑.
+    let bytes = s.as_bytes();
+    if bytes.len() >= 5
+        && matches!(bytes[0], b'-' | b'*' | b'+')
+        && bytes[1] == b' '
+        && bytes[2] == b'['
+        && bytes[4] == b']'
+    {
+        let glyph = match bytes[3] {
+            b'x' | b'X' => Some("☑"),
+            b' ' => Some("☐"),
+            _ => None,
+        };
+        if let Some(glyph) = glyph {
+            return format!("{glyph} {}", s[5..].trim_start());
+        }
+    }
+
+    // Plain bullet: "- item" / "* item" / "+ item" → "• item".
+    if bytes.len() >= 2 && matches!(bytes[0], b'-' | b'*' | b'+') && bytes[1] == b' ' {
+        return format!("• {}", s[2..].trim_start());
+    }
+
+    s.trim().to_string()
+}
+
 // ── Scanning ─────────────────────────────────────────────────────────────
 
 /// Recursively scan `.md` files under `base`, skipping hidden entries, and
@@ -181,6 +299,7 @@ pub fn scan_notes(base: &Path) -> Vec<NoteMetadata> {
                 folder,
                 modified_ms: file_mtime_ms(&meta),
                 preview: make_preview(&content),
+                rich_preview: make_rich_preview(&content),
                 tags: note_tags(&content),
             })
         })

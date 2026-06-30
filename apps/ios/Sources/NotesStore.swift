@@ -39,9 +39,15 @@ actor NoteVault {
 
     /// Write content, returning the up-to-date preview/tags for an in-place row
     /// refresh (so the caller never has to re-derive rules — same Rust source).
-    func write(_ id: String, content: String) throws -> (preview: String, tags: [String]) {
+    func write(_ id: String, content: String) throws
+        -> (preview: String, richPreview: String, tags: [String])
+    {
         try core.write(id: id, content: content)
-        return (makePreview(content: content), extractTags(content: content))
+        return (
+            makePreview(content: content),
+            makeRichPreview(content: content),
+            extractTags(content: content)
+        )
     }
 
     func createNote(title: String, folder: String) throws -> String {
@@ -239,6 +245,7 @@ final class NotesStore: ObservableObject {
             folder: meta.folder,
             modified: Date(timeIntervalSince1970: Double(meta.modifiedMs) / 1000.0),
             preview: meta.preview,
+            richPreview: meta.richPreview,
             tags: meta.tags
         )
     }
@@ -255,7 +262,7 @@ final class NotesStore: ObservableObject {
     /// save (on rename / background) and KNOW it landed before the file moves.
     func write(_ id: String, content: String) async {
         do {
-            let (preview, tags) = try await vault.write(id, content: content)
+            let (preview, richPreview, tags) = try await vault.write(id, content: content)
             // Update the in-memory note in place instead of a full rescan +
             // resort. Reassigning the whole `notes` array on every keystroke
             // churns the List's diffing and pops the pushed editor out from
@@ -271,6 +278,7 @@ final class NotesStore: ObservableObject {
                     folder: old.folder,
                     modified: Date(),
                     preview: preview,
+                    richPreview: richPreview,
                     tags: tags
                 )
             } else {

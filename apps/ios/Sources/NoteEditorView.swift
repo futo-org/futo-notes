@@ -233,7 +233,7 @@ struct NoteEditorView: View {
         let parts = splitId(id: noteId)
         return NoteItem(
             id: noteId, title: parts.title, folder: parts.folder,
-            modified: Date(), preview: "", tags: [])
+            modified: Date(), preview: "", richPreview: "", tags: [])
     }
 
     /// Adopt an on-disk change of the OPEN note (live pull / external rewrite).

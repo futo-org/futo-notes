@@ -214,6 +214,18 @@ native shells edit tags as text in the body, which is not a gap.
   - Android docks flush by construction: the 44 dp Compose bar is held above
     the keyboard by the screen's `imePadding`, so the inset tracks the
     keyboard with no gap. → EditorToolbar.kt, NoteEditorScreen.kt
+- **Scroll affordance — "snapped peek" (both native shells).** When the items
+  overflow, the trailing edge does NOT cut cleanly (which read as "nothing more
+  here"): the bar measures the laid-out button positions + the viewport width
+  and adds a trailing inset that clips whichever icon sits at the edge to ~55%,
+  so a partial icon always peeks past the edge — the deterministic, same-on-
+  every-width/density signal that the bar scrolls. A soft ~10 pt edge fade
+  softens the clipped icon (and the leading edge once scrolled). Verified on the
+  iOS simulator (iPhone 17 Pro 402 pt + Pro Max 440 pt) and the Android emulator
+  2026-06-30 — a different edge icon is clipped per width, always to ~half. iOS
+  derives the geometry from `onScrollGeometryChange`; Android from
+  `onGloballyPositioned` (`positionInWindow`) + a measure-tick. → EditorToolbar.swift
+  `computeSnap`, EditorToolbar.kt `computeToolbarSnapPx`
 - Camera inserts a photo from the device camera or photo library; Image opens
   a file picker. Both save the image into the vault and insert `![](file)`.
   On the native shells the toolbar's Camera/Image buttons reach the host

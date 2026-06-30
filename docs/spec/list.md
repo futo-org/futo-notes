@@ -42,6 +42,19 @@ new-note affordances.
   folder" inside a folder — NoteListView.swift.)*
 - The top bar is transparent at rest and gains a surface fill + bottom border
   once the list is scrolled. *(Android)*
+- Each note row shows a **rich, multi-line** body preview rather than raw
+  markdown: line breaks are preserved (up to 3 lines), heading/quote markers are
+  stripped, task items render as ☐/☑, bullets as •, tables/code-fences/rules are
+  dropped, and inline `**bold**` / `*italic*` / `` `code` `` / `~~strike~~`
+  render as real styling. The block-markdown rewrite is the shared Rust rule
+  `make_rich_preview` (futo-notes-model), exposed over FFI and carried on
+  `NoteMetadata.richPreview`. *(iOS native)* renders it via `AttributedString`
+  (`.inlineOnlyPreservingWhitespace`) → NoteListView.swift `NoteRow`; *(Android
+  native)* via a small inline-markdown `AnnotatedString` parser → NoteCard.kt /
+  InlineMarkdown.kt.
+  > **Gap:** Tauri desktop still shows the single-line, markdown-opaque
+  > `make_preview` snippet in note rows; the rich preview is native-only
+  > (iOS + Android) for now.
 
 ## Folder drawer
 
