@@ -129,6 +129,9 @@ fast and found real drift the closure-probes missed.
   empty item — wired into the same document-capture path as Enter (iOS-robust).
 - **`+` block-margin handle** (`slashMenu.ts` `blockHandle` + `MarkdownEditor`
   desktop-only + `.sf-block-handle` CSS): opens the slash menu on empty blocks.
+  *(Later removed before merge — product decision: the `+` handle was dropped
+  from both the spec and the implementation; typing `/` remains the only
+  trigger.)*
 - **Shift+click → background tab** + **per-tab scroll/selection persistence**
   (`tabsStore.svelte.ts`, `platform/tauri.ts`).
 - **Empty search caps to 8 recent** (`SearchPopup.svelte`).

@@ -9,16 +9,12 @@ import {
 } from '$lib/markdownToolbar';
 
 /**
- * Shared command registry.
+ * Shared command registry for the slash menu (typed `/foo` in a block).
+ * Keeping it in one place means tests only need to cover one source of truth.
  *
- * Used by both the slash menu (typed `/foo` in a block) and the block handle's `+` button.
- * Keeping it in one place means the two surfaces stay in sync and tests only need to cover
- * one source of truth.
- *
- * Each command's `run(view, at)` receives the cursor position `at` — for the slash menu
- * this is the position AFTER the typed `/query` was deleted, so the command can safely
- * mutate the line it lives on. For the block handle's + button it's the position of the
- * newly-inserted empty paragraph.
+ * Each command's `run(view, at)` receives the cursor position `at` — the
+ * position AFTER the typed `/query` was deleted, so the command can safely
+ * mutate the line it lives on.
  */
 export interface EditorCommand {
   id: string;

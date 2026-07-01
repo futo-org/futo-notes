@@ -10,8 +10,6 @@ import {
   openSlashMenuEffect,
   closeSlashMenuEffect,
   computeMenuPlacement,
-  shouldShowBlockHandle,
-  blockHandle,
 } from './slashMenu';
 
 describe('computeMenuPlacement', () => {
@@ -91,83 +89,6 @@ function typeChar(view: EditorView, ch: string): void {
 function isOpen(view: EditorView): boolean {
   return view.state.field(slashMenuField, false)?.open === true;
 }
-
-describe('shouldShowBlockHandle', () => {
-  it('shows on an empty block with a caret', () => {
-    const v = setup('', 0);
-    expect(shouldShowBlockHandle(v.state)).toBe(true);
-  });
-  it('shows on a whitespace-only line', () => {
-    const v = setup('   ', 3);
-    expect(shouldShowBlockHandle(v.state)).toBe(true);
-  });
-  it('hides on a non-empty line', () => {
-    const v = setup('hello', 5);
-    expect(shouldShowBlockHandle(v.state)).toBe(false);
-  });
-  it('hides when the slash menu is open', () => {
-    const v = setup('');
-    v.dispatch({
-      changes: { from: 0, insert: '/' },
-      selection: EditorSelection.cursor(1),
-      effects: openSlashMenuEffect.of({ from: 0 }),
-    });
-    expect(shouldShowBlockHandle(v.state)).toBe(false);
-  });
-  it('hides on a range (non-empty) selection', () => {
-    const v = setup('    ', 0); // whitespace-only line
-    v.dispatch({ selection: EditorSelection.range(0, 2) });
-    expect(shouldShowBlockHandle(v.state)).toBe(false);
-  });
-});
-
-// The `+` block handle is a desktop affordance (editor.md). shouldShowBlockHandle
-// (above) is the visibility predicate; this exercises the click→trigger DOM path
-// that the plugin actually wires up.
-function setupWithHandle(doc: string, anchor = doc.length): EditorView {
-  const view = new EditorView({
-    doc,
-    selection: { anchor },
-    extensions: [markdown(), slashMenu, blockHandle],
-    parent: document.body,
-  });
-  views.push(view);
-  return view;
-}
-
-describe('blockHandle click (editor.md)', () => {
-  it('inserts `/` and opens the slash menu when clicked on an empty block', () => {
-    const v = setupWithHandle('');
-    const btn = v.dom.querySelector('.sf-block-handle') as HTMLButtonElement | null;
-    expect(btn).not.toBeNull();
-    btn!.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    expect(v.state.doc.toString()).toBe('/');
-    expect(v.state.selection.main.head).toBe(1);
-    expect(isOpen(v)).toBe(true);
-  });
-
-  it('does nothing when clicked on a non-empty block', () => {
-    const v = setupWithHandle('hello', 5);
-    const btn = v.dom.querySelector('.sf-block-handle') as HTMLButtonElement | null;
-    expect(btn).not.toBeNull();
-    btn!.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    expect(v.state.doc.toString()).toBe('hello');
-    expect(isOpen(v)).toBe(false);
-  });
-
-  it('is a no-op when the slash menu is already open', () => {
-    const v = setupWithHandle('');
-    v.dispatch({
-      changes: { from: 0, insert: '/' },
-      selection: EditorSelection.cursor(1),
-      effects: openSlashMenuEffect.of({ from: 0 }),
-    });
-    const btn = v.dom.querySelector('.sf-block-handle') as HTMLButtonElement | null;
-    btn!.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    // Still exactly one `/` — the handle didn't insert a second.
-    expect(v.state.doc.toString()).toBe('/');
-  });
-});
 
 describe('slashMenuField', () => {
   it('opens when effect is dispatched', () => {

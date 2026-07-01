@@ -162,8 +162,8 @@ native shells edit tags as text in the body, which is not a gap.
   Italic, Strikethrough, Code, Link. It hides for empty/multi-line selections
   and inside tables/code. → editorUX/selectionToolbar.ts *(desktop)*
 - Typing `/` at the start of an empty block opens a block-command menu
-  (headings, lists, tasks, quote, code, table, HR); a `+` block handle in the
-  margin opens the same menu. → editorUX/slashMenu.ts *(desktop)*
+  (headings, lists, tasks, quote, code, table, HR). → editorUX/slashMenu.ts
+  *(desktop)*
 
 ## Markdown toolbar *(native shells / mobile-width editor)*
 

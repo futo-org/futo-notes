@@ -1,4 +1,4 @@
-/* Crepe-style editor UX: selection toolbar, slash menu, block handle, table editor.
+/* Crepe-style editor UX: selection toolbar, slash menu, table editor.
  *
  * IMPORTANT: CM6 injects unlayered CSS, which outranks anything inside @layer(components).
  * Rules in this file are outside @layer (app.css imports this directly) and we still use
@@ -54,33 +54,6 @@
   align-self: stretch;
   background: var(--color-border);
   margin: 4px 2px;
-}
-
-/* === Block handle (+ margin affordance, opens the slash menu) ================== */
-
-.sf-block-handle {
-  position: absolute;
-  width: 22px;
-  height: 1.6em;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: none;
-  background: transparent;
-  color: var(--color-muted);
-  font-size: 18px;
-  line-height: 1;
-  border-radius: 6px;
-  cursor: pointer;
-  opacity: 0.55;
-  z-index: 5;
-  transition: opacity 0.12s, background 0.12s;
-}
-
-.sf-block-handle:hover {
-  opacity: 1;
-  background: var(--color-surface);
 }
 
 /* === Slash menu ================================================================ */
@@ -161,13 +134,6 @@
   font-size: 13px;
   text-align: center;
 }
-
-/* NOTE: the live `.sf-block-handle` rule is defined above (near the top of this
-   file). A stale second `.sf-block-handle` block from an abandoned drag-handle
-   design used to live here with `position: fixed; opacity: 0; pointer-events:
-   none` + `--visible`/`__drag`/`__add`/`sf-block-drop-indicator` classes that
-   NO code references — being later in the file it silently overrode the live
-   rule and made the `+` handle invisible/unclickable. Removed. */
 
 /* === Table editor ============================================================== */
 
@@ -344,10 +310,6 @@
   .sf-table__row-controls,
   .sf-table__col-controls {
     /* Hide on narrow viewports — a long-press menu would be nicer but out of scope */
-    display: none;
-  }
-
-  .sf-block-handle {
     display: none;
   }
 }

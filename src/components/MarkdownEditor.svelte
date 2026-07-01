@@ -17,7 +17,7 @@
   import { warmHeightMap } from '$lib/heightMapWarm';
   import { interactiveTableEditor } from '$lib/editorUX/tableEditor';
   import { selectionToolbar } from '$lib/editorUX/selectionToolbar';
-  import { slashMenu, blockHandle } from '$lib/editorUX/slashMenu';
+  import { slashMenu } from '$lib/editorUX/slashMenu';
   import {
     liveMarkdownTransform,
     preloadImages,
@@ -739,8 +739,6 @@
       interactiveTableEditor,
       ...(isMobile ? [] : selectionToolbar),
       slashMenu,
-      // The `+` block-margin handle is a desktop affordance (editor.md).
-      ...(isMobile ? [] : [blockHandle]),
       wikilinkAutocomplete(),
       imagePasteHandler,
       tripleClickLineSelectionHandler,
