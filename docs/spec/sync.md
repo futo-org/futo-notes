@@ -33,6 +33,14 @@ client uploads opaque encrypted blobs — note content is encrypted before uploa
   > (SyncManager.swift) and desktop (syncManager.svelte.ts) pass the raw URL
   > straight to the client, so a schemeless URL there still fails with a generic
   > connection error rather than the actionable message.
+- **A plain-`http://` sync server is permitted on every build type, including
+  production.** Self-hosters and testers can point at a server without TLS (a
+  LAN box, a VPS, or localhost); note content is E2EE-encrypted client-side
+  before upload, so cleartext transport carries only opaque blobs + auth. HTTPS
+  is still recommended. → Android `AndroidManifest.xml`
+  `usesCleartextTraffic="true"` (all build types); iOS `Info.plist`
+  `NSAppTransportSecurity → NSAllowsArbitraryLoads` (shared by Debug + Release
+  via `project.yml` `settings.base`).
 - When no server is connected yet, the Sync screen points the user at how to
   get one: a **bordered link row** — a leading external-link icon (iOS
   `arrow.up.forward.square` / Android `OpenInNew`) followed by the

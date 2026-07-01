@@ -82,8 +82,10 @@ Mirror the iOS smoke test:
   brand-new note won't accept typing until you tap twice, port the IME approach.
 - **Release `applicationId` = `com.futo.notes`**. Debug appends `.dev`, so
   development installs keep separate app data.
-- **`usesCleartextTraffic=true`** is enabled for local-server sync testing;
-  tighten before any real distribution.
+- **`usesCleartextTraffic=true`** is enabled in **all** build types (a
+  deliberate decision) so self-hosters/testers can sync to a plain-`http://`
+  server. Note content is E2EE before upload, so cleartext carries only
+  encrypted blobs + auth; HTTPS is still recommended.
 - The `futoBridge` contract is already cross-platform (`postToHost()` handles
   the Android `@JavascriptInterface` transport) — no editor changes needed.
 

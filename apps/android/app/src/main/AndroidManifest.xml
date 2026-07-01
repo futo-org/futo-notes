@@ -13,6 +13,13 @@
          install-time grant; APP storage is the no-permission alternative. -->
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
 
+    <!-- Cleartext HTTP is permitted in all build types (usesCleartextTraffic
+         below) so self-hosters and testers can point at a plain-http:// server
+         (a LAN box or a VPS without TLS). Note content is E2EE-encrypted
+         client-side before upload, so the transport carries only opaque blobs +
+         auth. HTTPS is still recommended; this only removes the OS-level block
+         on http://. -->
+
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
@@ -20,7 +27,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.Material3.DayNight.NoActionBar"
-        android:usesCleartextTraffic="false">
+        android:usesCleartextTraffic="true">
         <activity
             android:name=".MainActivity"
             android:exported="true"

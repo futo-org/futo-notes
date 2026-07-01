@@ -8,7 +8,7 @@ import org.junit.Test
 /**
  * Regression guard for the user decision: the SYNC server URL seed default
  * must be the emulator dev server in DEBUG builds and EMPTY in RELEASE builds
- * (release blocks cleartext HTTP — see AndroidManifest usesCleartextTraffic).
+ * (a shipping build starts with no server until the user enters one).
  *
  * Exercises the pure boolean-driven selector so neither branch depends on the
  * generated BuildConfig.DEBUG; the production wiring (`defaultServer()`) feeds

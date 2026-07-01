@@ -36,10 +36,9 @@ class SyncManager(
 ) {
     var serverUrl by mutableStateOf(
         // First-launch seed: the emulator dev server in debug, empty in release.
-        // Release builds block cleartext HTTP (AndroidManifest), so a plain-HTTP
-        // dev default would be unusable there anyway — and shipping should start
-        // with no server until the user enters one. Mirrors CrashReporter.kt's
-        // BuildConfig.DEBUG gate. The runtime-editable/persisted value
+        // Shipping should start with no server until the user enters one (the
+        // emulator loopback default is meaningless off a dev machine). Mirrors
+        // CrashReporter.kt's BuildConfig.DEBUG gate. The runtime-editable/persisted value
         // (SyncScreen + prefs) is unchanged — this only changes the seed.
         prefs?.getString(Prefs.SYNC_SERVER_URL, defaultServer()) ?: defaultServer(),
     )
@@ -210,8 +209,8 @@ class SyncManager(
         const val DEFAULT_SERVER = "http://10.0.2.2:3005" // emulator → host loopback (debug only)
 
         /** First-launch seed for [serverUrl]: the emulator dev server in debug,
-         *  empty in release (release blocks cleartext HTTP — see the
-         *  AndroidManifest usesCleartextTraffic gate). */
+         *  empty in release (a shipping build starts with no server until the
+         *  user enters one). */
         fun defaultServer(): String = defaultServer(BuildConfig.DEBUG)
 
         /** Pure seed selection — testable without BuildConfig. */
