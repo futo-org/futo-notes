@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- RELEASE base Info.plist. Wired via project.yml's Release config
+	     (INFOPLIST_FILE). With GENERATE_INFOPLIST_FILE=YES, Xcode merges the
+	     auto-generated keys (display name, scene/launch, orientations) ON TOP of
+	     this file. Its sole contribution is exposing the vault in the Files app.
+
+	     Both keys are required to surface the app's Documents directory (which
+	     holds futo-notes/) under "On My iPhone > FUTO Notes", editable in place
+	     [app.md]. The flat INFOPLIST_KEY_* build-setting form does NOT synthesize
+	     these (Xcode honors only a fixed allowlist of INFOPLIST_KEY_* names, which
+	     excludes both — same reason Info.debug.plist exists), which is why this
+	     file does. Release ships NO ATS exception (that stays debug-only). -->
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
+</dict>
+</plist>

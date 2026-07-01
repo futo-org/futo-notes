@@ -10,6 +10,11 @@ object Prefs {
 
     const val THEME = "theme_mode"
 
+    // Vault storage location [app.md]. One of StorageMode (DEVICE/APP/INTERNAL).
+    // Absent = undecided: a fresh install shows the storage picker; an existing
+    // install (non-empty internal vault) is grandfathered on INTERNAL.
+    const val STORAGE_MODE = "storage_mode"
+
     // Sync session persistence [sync.md:91]. The server URL is plain; the
     // password is Keystore-encrypted by SecureStore (iv + ciphertext only).
     const val SYNC_SERVER_URL = "sync_server_url"
