@@ -17,6 +17,7 @@ flag gaps the codebase suggests have been implemented.
 ## list.md
 
 - [list.md:55](list.md#L55) — Tauri desktop still shows the single-line, markdown-opaque `make_preview` snippet in note rows; the rich preview is native-only (iOS + Android) for now.
+- [list.md:137](list.md#L137) — Android native — the autofocused title places the cursor at the start of the prefilled "Untitled", so typing prepends ("XUntitled") instead of replacing the placeholder the way the mobile-width web shell's select-all does. Found in the emulator QA pass (2026-06); still present in code 2026-07-01 — the title `BasicTextField` in NoteEditorScreen.kt takes a plain String and never sets a selection. → NoteEditorScreen.kt
 
 ## nav.md
 
@@ -26,4 +27,4 @@ flag gaps the codebase suggests have been implemented.
 
 - [sync.md:32](sync.md#L32) — Only the Android shell pre-validates the URL scheme. iOS (SyncManager.swift) and desktop (syncManager.svelte.ts) pass the raw URL straight to the client, so a schemeless URL there still fails with a generic connection error rather than the actionable message.
 
-_6 gaps._
+_7 gaps._

@@ -104,6 +104,14 @@ const PROBES = [
       fs.readdirSync(path.join(ROOT, 'apps/ios/Sources')).some((f) => /settings/i.test(f)),
     hint: 'apps/ios/Sources now has a Settings file.',
   },
+  {
+    match: /title places the cursor at the start of the prefilled "Untitled"/,
+    closed: () =>
+      /TextFieldValue|TextRange|selectAll/.test(
+        read('apps/android/app/src/main/java/com/futo/notes/ui/NoteEditorScreen.kt'),
+      ),
+    hint: 'NoteEditorScreen.kt now manages the title selection — the prefill may be select-all’d.',
+  },
 ];
 
 // ── render ─────────────────────────────────────────────────────────────────

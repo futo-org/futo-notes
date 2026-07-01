@@ -133,6 +133,13 @@ confirmation, not surfaced as a per-folder count. → NoteListView.swift
   then opens with the **body** focused. Android native opens the editor with
   the title focused instead; the title-dialog flow is iOS-only. →
   NoteListView.swift
+
+  > **Gap:** Android native — the autofocused title places the cursor at the
+  > start of the prefilled "Untitled", so typing prepends ("XUntitled")
+  > instead of replacing the placeholder the way the mobile-width web shell's
+  > select-all does. Found in the emulator QA pass (2026-06); still present in
+  > code 2026-07-01 — the title `BasicTextField` in NoteEditorScreen.kt takes
+  > a plain String and never sets a selection. → NoteEditorScreen.kt
 - **Android native**'s FAB opens a New note / New folder menu; New folder
   shows a name dialog that sanitizes via the shared rules and rejects
   case-insensitive sibling duplicates inline (verified on emulator
