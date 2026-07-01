@@ -12,7 +12,13 @@ client-side MiniSearch index remains as the warm-up and non-Tauri fallback.
 - Non-empty queries return ranked note IDs from BM25. Empty query shows the 8
   most-recent notes.
 - Store mutations feed `search_notify`; bulk wipes and live pulls trigger a
-  rescan so the index stays in lockstep with the vault.
+  rescan so the index stays in lockstep with the vault. This holds on every
+  app: the native shells rescan after a live pull, and on desktop
+  `handleSyncComplete` reindexes each peer change (`peerUpdatedIds` →
+  `change`, `peerDeletedIds` → `unlink`, `renamed` → `rename`) into the
+  engine. Without it a synced-in note stayed in MiniSearch but missing from
+  Tantivy — unsearchable until the next app launch, since sync's Rust-side
+  writes have their watcher echo suppressed and never reach `search_notify`.
 
 ## Search UI *(Tauri)*
 

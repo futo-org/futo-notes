@@ -23,6 +23,7 @@ import {
 } from '$lib/notes.svelte';
 import { startAutoSyncV2, stopAutoSyncV2, notifySavedV2 } from '$lib/autoSyncV2';
 import { updateAppState } from '$lib/appState';
+import { engineNotify } from '$lib/searchEngine';
 
 // ── Dependency interface ─────────────────────────────────────────────────
 
@@ -307,8 +308,16 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
       writeSuppressor.recordSyncWrite(`${rename.toId}.md`);
       writeSuppressor.recordRemoteRename(rename.fromId, rename.toId);
       deps.onAnySyncRename?.(rename.fromId, rename.toId);
+      // Sync writes are Rust-side and their watcher echo is suppressed, so the
+      // Tantivy engine never sees them (MiniSearch is refreshed by the rescan
+      // below). Reindex peer changes into the engine here — mirrors the native
+      // shells' rescan-on-pull. Pure channel sends; the engine coalesces them
+      // into one commit. `engineNotify` no-ops off-Tauri.
+      void engineNotify('rename', `${rename.toId}.md`, `${rename.fromId}.md`);
     }
     if (hasPeerNoteChanges) {
+      for (const id of summary.peerUpdatedIds) void engineNotify('change', `${id}.md`);
+      for (const id of summary.peerDeletedIds) void engineNotify('unlink', `${id}.md`);
       setTimeout(() => runExternalRescan(), 50);
     }
 
