@@ -107,18 +107,33 @@ Invoke-Step "Building frontend" {
     pnpm run build
 }
 
-Invoke-Step "Fetching VC++ redistributable (bundled into the NSIS installer)" {
-    # FUTO Notes links the MSVC runtime; a clean Windows lacks it (MSVCP140_1.dll),
-    # so the NSIS POSTINSTALL hook installs this silently. See
-    # apps/tauri/src-tauri/tauri.windows.conf.json + windows/installer-hooks.nsh.
-    $redistDir = "C:\build\futo-notes\apps\tauri\src-tauri\redist"
-    New-Item -ItemType Directory -Force -Path $redistDir | Out-Null
-    Invoke-WebRequest -Uri "https://aka.ms/vs/17/release/vc_redist.x64.exe" -OutFile (Join-Path $redistDir "vc_redist.x64.exe")
-}
-
 Set-Location apps\tauri
 Invoke-Step "Building Tauri (Windows)" {
     cargo tauri build
+}
+
+Invoke-Step "Verifying the binary has no dynamic VC++ runtime dependency" {
+    # The .cargo/config.toml `+crt-static` flag statically links the MSVC runtime
+    # so the app launches on a clean Windows with no redistributable installed.
+    # If a dependency ever silently forces the dynamic CRT back in, the .exe would
+    # import VCRUNTIME140*/MSVCP140* and brick first launch on clean machines
+    # again. dumpbin reads the import table; fail the build if those reappear.
+    $exe = "..\..\target\release\futo-notes-tauri.exe"
+    if (-not (Test-Path $exe)) { throw "Built exe not found at $exe" }
+
+    # dumpbin ships with the MSVC toolchain but isn't on PATH; locate it via vswhere.
+    $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+    if (-not (Test-Path $vswhere)) { throw "vswhere.exe not found; cannot locate dumpbin" }
+    $dumpbin = & $vswhere -latest -products * -find "**\dumpbin.exe" | Select-Object -First 1
+    if (-not $dumpbin) { throw "dumpbin.exe not found via vswhere" }
+
+    $deps = & $dumpbin /dependents $exe
+    $bad = $deps | Select-String -Pattern 'VCRUNTIME140|MSVCP140' -CaseSensitive:$false
+    if ($bad) {
+        Write-Host ($bad | Out-String)
+        throw "Binary still dynamically imports the VC++ runtime; crt-static is not taking effect. A clean Windows would fail to launch (MSVCP140_1.dll not found)."
+    }
+    Write-Host "OK: no VCRUNTIME140/MSVCP140 imports; CRT is statically linked."
 }
 
 Write-Host "=== Build artifacts ==="
