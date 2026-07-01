@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.NorthEast
 import androidx.compose.material3.CircularProgressIndicator
@@ -54,6 +55,7 @@ import androidx.compose.ui.unit.dp
 import com.futo.notes.BuildConfig
 import com.futo.notes.NotesStore
 import com.futo.notes.Prefs
+import com.futo.notes.StorageMode
 import com.futo.notes.SyncManager
 import com.futo.notes.ui.components.ConfirmDialog
 import com.futo.notes.ui.components.MicroLabel
@@ -66,6 +68,12 @@ enum class ThemeMode { LIGHT, DARK, AUTO }
 
 private const val SOURCE_URL = "https://gitlab.futo.org/futo-notes/futo-notes"
 
+private fun storageModeLabel(mode: StorageMode): String = when (mode) {
+    StorageMode.DEVICE -> "Shared folder · visible in Files"
+    StorageMode.APP -> "App folder · private"
+    StorageMode.INTERNAL -> "Internal · private (legacy)"
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
@@ -74,6 +82,8 @@ fun SettingsScreen(
     themeMode: ThemeMode,
     onThemeMode: (ThemeMode) -> Unit,
     onOpenSync: () -> Unit,
+    storageMode: StorageMode,
+    onChangeStorage: () -> Unit,
     onBack: () -> Unit,
 ) {
     val c = FutoTheme.colors
@@ -159,7 +169,20 @@ fun SettingsScreen(
             }
 
             SettingsGroup("Storage") {
-                SettingsRow(title = "Notes directory", subtitle = store.rootPath)
+                SettingsRow(
+                    title = "Storage location",
+                    subtitle = storageModeLabel(storageMode),
+                    onClick = onChangeStorage,
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = c.textMuted,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+                Divider()
+                SettingsRow(title = "Folder", subtitle = store.rootPath)
             }
 
             SettingsGroup("About") {

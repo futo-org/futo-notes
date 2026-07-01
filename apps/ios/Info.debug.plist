@@ -2,20 +2,27 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- DEBUG-ONLY base Info.plist. Wired via project.yml's Debug config
+	<!-- DEBUG base Info.plist. Wired via project.yml's Debug config
 	     (INFOPLIST_FILE). With GENERATE_INFOPLIST_FILE=YES, Xcode merges the
 	     auto-generated keys (display name, scene/launch, orientations) ON TOP of
-	     this file, so the ONLY thing this contributes is the App Transport
-	     Security exception below. Release sets no INFOPLIST_FILE and ships NO ATS
-	     exception — it behaves byte-identically to before the dev/prod split
-	     (F10). The flat INFOPLIST_KEY_NSAppTransportSecurity_* build-setting form
-	     does NOT synthesize this nested dict (Xcode only honors a fixed allowlist
-	     of INFOPLIST_KEY_* names), which is why this file exists. -->
+	     this file. It contributes the App Transport Security exception (debug
+	     only) plus the Files-app exposure keys (which Release carries via its own
+	     Info.plist). Release sets INFOPLIST_FILE=Info.plist and ships NO ATS
+	     exception. The flat INFOPLIST_KEY_* build-setting form does NOT synthesize
+	     the nested ATS dict, nor the file-sharing keys (Xcode only honors a fixed
+	     allowlist of INFOPLIST_KEY_* names, which excludes all three), which is
+	     why this file exists. -->
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<!-- Allows the dev sync server over plain http on localhost / LAN. -->
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>
+	<!-- Expose the vault (Documents/futo-notes) in the Files app [app.md]; both
+	     keys required. Kept in lockstep with the Release Info.plist. -->
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
 </dict>
 </plist>

@@ -100,6 +100,11 @@ client uploads opaque encrypted blobs — note content is encrypted before uploa
   costs one re-reconcile through the empty-map path, which hash-dedups
   against local files. → futo-notes-sync
   `state::Loaded::reset_if_collection_changed`
+- Moving the whole vault folder to a new location (e.g. the Android Device/App
+  storage switch → [app.md](app.md) "Vault location") is transparent to sync:
+  the object map is keyed by **relative** filename (not absolute path) and the
+  `.e2ee-state.json` travels inside the vault, so the orchestrator picks up at
+  the new root with no re-upload — provided the move carries the dotfiles.
 
 ## Live sync (SSE)
 

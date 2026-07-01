@@ -97,8 +97,15 @@ targets:
           # http on localhost/LAN. Supplied via a base Info.plist (the flat
           # INFOPLIST_KEY_NSAppTransportSecurity_* form does NOT synthesize the
           # nested dict). GENERATE_INFOPLIST_FILE merges the auto-generated keys
-          # on top, so this file contributes ONLY the ATS dict. Release sets no
-          # INFOPLIST_FILE → no ATS exception (byte-identical to before).
+          # on top, so this file contributes the ATS dict + the Files-app keys.
+          # Release uses its own Info.plist (Files-app keys only) → NO ATS
+          # exception, so release transport security is unchanged.
           INFOPLIST_FILE: Info.debug.plist
         Release:
           PRODUCT_BUNDLE_IDENTIFIER: com.futo.notes
+          # Base Info.plist carrying the Files-app exposure keys
+          # (UIFileSharingEnabled + LSSupportsOpeningDocumentsInPlace). These are
+          # NOT in Xcode's INFOPLIST_KEY_* allowlist, so they live in a plist that
+          # GENERATE_INFOPLIST_FILE merges its auto keys on top of. NO ATS here —
+          # that stays debug-only (Info.debug.plist).
+          INFOPLIST_FILE: Info.plist
