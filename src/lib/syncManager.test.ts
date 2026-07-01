@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 
 // ── Mocks ────────────────────────────────────────────────────────────────
 // Capture the AutoSync callbacks that createSyncManager registers in start(),
@@ -27,7 +27,20 @@ vi.mock('./appState', async (importOriginal) => {
   return { ...actual, updateAppState: vi.fn(async () => {}) };
 });
 
+// Spy on the Rust search-engine bridge so the test can assert that a sync pull
+// reindexes peer changes into Tantivy. The whole module is replaced, so every
+// export touched by the syncManager module graph (notes.svelte imports the
+// query/status/rebuild trio) must be present.
+vi.mock('./searchEngine', () => ({
+  isEngineAvailable: () => true,
+  engineQuery: vi.fn(async () => []),
+  engineStatus: vi.fn(async () => null),
+  engineRebuild: vi.fn(async () => {}),
+  engineNotify: vi.fn(async () => {}),
+}));
+
 import { findActiveSyncRename, createSyncManager, getSyncErrorMessage } from './syncManager.svelte';
+import { engineNotify } from './searchEngine';
 import { updateAppState } from './appState';
 import type { SyncManagerDeps } from './syncManager.svelte';
 import type { SyncSummary } from './syncServiceE2ee';
@@ -188,6 +201,101 @@ describe('createSyncManager sync-error state (F15)', () => {
     const calls = vi.mocked(updateAppState).mock.calls;
     const stamped = calls[calls.length - 1][0].lastSyncedAt as number;
     expect(stamped).toBeGreaterThanOrEqual(before);
+    cleanup();
+  });
+});
+
+// Regression (work-item #7): notes arriving via an E2EE sync pull landed in
+// notesCache + MiniSearch but never in the Rust Tantivy engine, so they were
+// unsearchable until an app restart (sync writes are Rust-side and their
+// watcher echo is suppressed, so the watcher's engineNotify never fired). The
+// post-sync reconcile only touched MiniSearch. handleSyncComplete must now
+// reindex peer changes into the engine — mirroring the native rescan-on-pull.
+describe('handleSyncComplete reindexes peer changes into the search engine', () => {
+  const baseSummary: SyncSummary = {
+    uploaded: 0,
+    downloaded: 0,
+    deleted: 0,
+    conflicts: 0,
+    updatedIds: [],
+    deletedIds: [],
+    renamed: [],
+    peerUpdatedIds: [],
+    peerDeletedIds: [],
+  };
+
+  function makeDeps(): SyncManagerDeps {
+    return {
+      getOriginalId: () => null,
+      getEditVersion: () => 0,
+      isSavePending: () => false,
+      hasOpenDraftChanges: () => false,
+      getLastEditTime: () => 0,
+      applyExternalContent: () => {},
+      applyRemoteRename: () => {},
+      cancelAndClear: () => {},
+      flushSave: async () => {},
+      getEditorContent: () => undefined,
+      isComposing: () => false,
+      patchGraphNode: () => {},
+      clearGraphData: () => {},
+      showToast: () => {},
+      navigate: () => {},
+      getNoteId: () => null,
+      getPrevNoteId: () => null,
+      setPrevNoteId: () => {},
+    } as unknown as SyncManagerDeps;
+  }
+
+  beforeEach(() => {
+    capturedCallbacks = null;
+    vi.mocked(engineNotify).mockClear();
+    // Fake timers so the 50ms post-sync MiniSearch rescan never fires and
+    // touches the platform filesystem; engineNotify runs synchronously, before
+    // any await, so it lands without advancing timers.
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('notifies the engine of peer updates, deletes, and renames', async () => {
+    const mgr = createSyncManager(makeDeps());
+    const cleanup = mgr.start();
+
+    await capturedCallbacks!.onSyncComplete({
+      ...baseSummary,
+      downloaded: 1,
+      deleted: 1,
+      updatedIds: ['Peer Note'],
+      deletedIds: ['Gone Note'],
+      peerUpdatedIds: ['Peer Note'],
+      peerDeletedIds: ['Gone Note'],
+      renamed: [{ fromId: 'Old Name', toId: 'New Name' }],
+    });
+
+    expect(engineNotify).toHaveBeenCalledWith('change', 'Peer Note.md');
+    expect(engineNotify).toHaveBeenCalledWith('unlink', 'Gone Note.md');
+    expect(engineNotify).toHaveBeenCalledWith('rename', 'New Name.md', 'Old Name.md');
+    cleanup();
+  });
+
+  it('does not notify the engine for our own pushes (non-peer ids)', async () => {
+    const mgr = createSyncManager(makeDeps());
+    const cleanup = mgr.start();
+
+    // A pure push: our edits echo back in updatedIds/deletedIds but the peer
+    // lists are empty. Those ids are already in the engine via the local-edit
+    // chokepoint, so re-notifying them would be wasted work.
+    await capturedCallbacks!.onSyncComplete({
+      ...baseSummary,
+      uploaded: 1,
+      updatedIds: ['My Edit'],
+      deletedIds: ['My Delete'],
+    });
+
+    expect(engineNotify).not.toHaveBeenCalled();
     cleanup();
   });
 });
