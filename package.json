@@ -30,7 +30,7 @@
     "test:markdown-spec": "playwright test tests/markdown-spec.spec.ts",
     "test:e2e:rest": "playwright test --grep-invert \"Markdown Spec\"",
     "test:unit": "pnpm run test:unit:minimal",
-    "test:unit:minimal": "vitest run src/lib/editorInit.test.ts src/lib/platform/pathSafety.test.ts src/lib/platform/tauriPaths.test.ts",
+    "test:unit:minimal": "vitest run src/lib/editorInit.test.ts src/lib/platform/pathSafety.test.ts src/lib/platform/tauriPaths.test.ts src/lib/platform/windowsRuntimeConfig.test.ts",
     "test:unit:full": "vitest run",
     "test:shared": "pnpm run test:shared:minimal",
     "test:shared:minimal": "pnpm --filter @futo-notes/shared exec vitest run src/image.test.ts",

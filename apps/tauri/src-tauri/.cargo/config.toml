@@ -34,3 +34,18 @@ WRY_RUSTWEBVIEW_CLASS_EXTENSION = '''
         return FutoImeConnection(base)
     }
 '''
+
+# Statically link the MSVC C runtime into the Windows binary.
+#
+# A default MSVC build links the VC++ runtime dynamically (VCRUNTIME140.dll,
+# MSVCP140*.dll), which a clean Windows install does NOT ship — so the app dies
+# on first launch with "MSVCP140_1.dll was not found" until some other app
+# happens to install the redistributable. `+crt-static` bakes the runtime into
+# our .exe instead, so it launches on a clean machine with no redistributable.
+# This supersedes the old bundle-vc_redist + NSIS-hook workaround.
+#
+# Windows-MSVC-target scoped, so Linux/macOS/Android builds are unaffected.
+# Enforced by ci/win-build.ps1 (dumpbin: the .exe must not import VCRUNTIME140/
+# MSVCP140) and src/lib/platform/windowsRuntimeConfig.test.ts (this flag present).
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
