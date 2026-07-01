@@ -54,6 +54,23 @@ final class SyncManager: ObservableObject {
         "Sync complete"
     }
 
+    /// Validate a user-entered server URL before attempting a connection.
+    /// Returns a friendly, actionable message, or nil when acceptable. Catches
+    /// the common mistake of omitting the scheme — a bare host like
+    /// `notes.example.com` would otherwise fail with an opaque transport error.
+    /// Mirrors Android's `SyncManager.validateServerUrl`. → sync.md
+    /// Must satisfy the shared case-set in `tests/conformance/server-url.json`
+    /// (the source of truth for all three shells' copies of this rule).
+    static func validateServerURL(_ url: String) -> String? {
+        let trimmed = url.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return "Enter a server URL." }
+        let lower = trimmed.lowercased()
+        if !lower.hasPrefix("http://") && !lower.hasPrefix("https://") {
+            return "Add http:// or https:// to the start of the server URL."
+        }
+        return nil
+    }
+
     /// Connect (login + unwrap vault key) then run an initial sync.
     func connectAndSync(notesRoot: String, password: String) async {
         busy = true
@@ -61,9 +78,21 @@ final class SyncManager: ObservableObject {
         liveError = nil
         status = "Connecting…"
         defer { busy = false }
-        UserDefaults.standard.set(serverURL, forKey: "futo.serverURL")
+        // Reject a schemeless URL up front with an actionable message instead
+        // of letting the client fail with an opaque transport error. → sync.md
+        if let urlError = SyncManager.validateServerURL(serverURL) {
+            lastError = urlError
+            status = "Error"
+            return
+        }
+        // Connect with (and persist) the trimmed URL, mirroring Android.
+        // Validation trims before the scheme check, so a whitespace-wrapped
+        // URL must not reach SyncClient untrimmed — that reintroduces the
+        // opaque transport failure the validation exists to prevent. → sync.md
+        let normalizedURL = serverURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        UserDefaults.standard.set(normalizedURL, forKey: "futo.serverURL")
         do {
-            let c = SyncClient(notesRoot: notesRoot, serverUrl: serverURL)
+            let c = SyncClient(notesRoot: notesRoot, serverUrl: normalizedURL)
             let info = try await c.connect(password: password)
             client = c
             connected = true

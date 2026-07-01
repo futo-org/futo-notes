@@ -120,13 +120,41 @@ export async function notifyNoteChanged(): Promise<void> {
   try { await invoke('e2ee_note_changed'); } catch { /* ignore */ }
 }
 
+/**
+ * Validate a user-entered sync server URL before attempting a connection.
+ * Returns an actionable error message, or null when acceptable. Catches the
+ * common mistake of omitting the scheme (a bare host like `notes.example.com`
+ * would otherwise fail with an opaque transport error). Mirrors the native
+ * shells' `validateServerUrl` (SyncManager.kt / SyncManager.swift). → sync.md
+ *
+ * All three copies must satisfy the shared case-set in
+ * `tests/conformance/server-url.json`; the vitest suite asserts this copy
+ * against it so the shells cannot silently drift.
+ */
+export function validateSyncServerUrl(url: string): string | null {
+  const trimmed = url.trim();
+  if (!trimmed) return 'Enter a server URL.';
+  const lower = trimmed.toLowerCase();
+  if (!lower.startsWith('http://') && !lower.startsWith('https://')) {
+    return 'Add http:// or https:// to the start of the server URL.';
+  }
+  return null;
+}
+
 export async function connectE2ee(serverUrl: string, password: string): Promise<void> {
+  const urlError = validateSyncServerUrl(serverUrl);
+  if (urlError) throw new Error(urlError);
+  // Connect with (and persist) the trimmed URL, mirroring Android. Validation
+  // trims before checking the scheme, so a whitespace-wrapped-but-valid URL
+  // must not reach the transport untrimmed — that reintroduces the opaque
+  // failure this validation exists to prevent. → sync.md
+  const normalizedUrl = serverUrl.trim();
   const out = await invoke<E2eeConnectOutput>('e2ee_connect', {
-    input: { serverUrl, password },
+    input: { serverUrl: normalizedUrl, password },
   });
   await saveAppState({
     ...getAppState(),
-    e2eeServerUrl: serverUrl,
+    e2eeServerUrl: normalizedUrl,
     e2eeAuthToken: out.token,
     e2eeUserId: out.userId,
     e2eeCollectionId: out.collectionId,

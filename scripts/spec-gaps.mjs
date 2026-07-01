@@ -19,6 +19,15 @@ const SPEC_DIR = path.join(ROOT, 'docs/spec');
 const OUT = path.join(SPEC_DIR, 'GAPS.md');
 const MAX_AGE_DAYS = 90;
 
+// Match a gap blockquote, allowing an optional parenthetical qualifier between
+// "Gap" and the colon, e.g. `> **Gap:**`, `> **Gap (iOS):**`, `> **Gap
+// (parity):**`. Before this, a qualified gap silently never rolled up into
+// GAPS.md (it passed `spec-gaps-check` while staying invisible).
+const GAP_LINE_RE = /^\s*> \*\*Gap(?:\s*\([^)]*\))?:\*\*/;
+// Strip the `**Gap…:**` marker from the joined text, keeping any qualifier
+// (e.g. "(iOS)") as a prefix so the rollup line still says which platform.
+const GAP_STRIP_RE = /\*\*Gap(\s*\([^)]*\))?:\*\*\s*/;
+
 // ── collect ────────────────────────────────────────────────────────────────
 
 function collectGaps() {
@@ -30,7 +39,7 @@ function collectGaps() {
   for (const file of files) {
     const lines = fs.readFileSync(path.join(SPEC_DIR, file), 'utf8').split('\n');
     for (let i = 0; i < lines.length; i++) {
-      if (!/^\s*> \*\*Gap:\*\*/.test(lines[i])) continue;
+      if (!GAP_LINE_RE.test(lines[i])) continue;
       const start = i;
       const block = [];
       while (i < lines.length && /^\s*>/.test(lines[i])) {
@@ -40,7 +49,7 @@ function collectGaps() {
       i--;
       const text = block
         .join(' ')
-        .replace(/\*\*Gap:\*\*\s*/, '')
+        .replace(GAP_STRIP_RE, (_m, q) => (q ? q.trim() + ' ' : ''))
         .replace(/\s+/g, ' ')
         .trim();
       gaps.push({ file, line: start + 1, text });

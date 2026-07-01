@@ -127,6 +127,13 @@ export function createNodeFS(): TestPlatformFS {
       return fs.existsSync(path.join(tmpDir, `${id}.md`));
     },
 
+    // Tests control their vault contents explicitly, so seeding is a no-op
+    // here (the real welcome-note seed lives in tauri.ts/web.ts). Present so
+    // `initNotes()` — which now calls `fs.seedIfEmpty()` — doesn't throw.
+    async seedIfEmpty(): Promise<number> {
+      return 0;
+    },
+
     async deleteAllContent(): Promise<void> {
       if (!fs.existsSync(tmpDir)) return;
       for (const entry of fs.readdirSync(tmpDir, { withFileTypes: true })) {

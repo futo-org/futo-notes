@@ -45,6 +45,16 @@ function pressTab(view: EditorView, shiftKey = false): void {
   runScopeHandlers(view, ev, 'editor');
 }
 
+function pressBackspace(view: EditorView): void {
+  // Same document-capture path as Enter (see listContinuation.ts).
+  const ev = new KeyboardEvent('keydown', {
+    key: 'Backspace',
+    bubbles: true,
+    cancelable: true,
+  });
+  view.contentDOM.dispatchEvent(ev);
+}
+
 describe('blockquote exit', () => {
   it('replaces `> ` with a leading newline so the quote is terminated', () => {
     // Scenario: user is on `> ` (empty content) and hits Enter
@@ -232,5 +242,73 @@ describe('code block escape', () => {
     expect(v.state.doc.toString()).toBe('```\nfoo\n```');
     const expectedHead = '```\nfoo\n```'.length;
     expect(v.state.selection.main.head).toBe(expectedHead);
+  });
+});
+
+describe('list backspace: dedent / delete-empty (editor.md)', () => {
+  it('deletes an empty bullet item (clears the line)', () => {
+    const doc = '- ';
+    const v = setup(doc, doc.length); // caret after "- "
+    pressBackspace(v);
+    expect(v.state.doc.toString()).toBe('');
+    expect(v.state.selection.main.head).toBe(0);
+  });
+
+  it('deletes an empty ordered item', () => {
+    const doc = '1. ';
+    const v = setup(doc, doc.length);
+    pressBackspace(v);
+    expect(v.state.doc.toString()).toBe('');
+  });
+
+  it('deletes an empty task item', () => {
+    const doc = '- [ ] ';
+    const v = setup(doc, doc.length);
+    pressBackspace(v);
+    expect(v.state.doc.toString()).toBe('');
+  });
+
+  it('strips the marker on a top-level bullet when the caret is at content start', () => {
+    const doc = '- hello';
+    const v = setup(doc, 2); // right after "- "
+    pressBackspace(v);
+    expect(v.state.doc.toString()).toBe('hello');
+    expect(v.state.selection.main.head).toBe(0);
+  });
+
+  it('strips the marker on a top-level ordered item at content start', () => {
+    const doc = '1. hello';
+    const v = setup(doc, 3); // after "1. "
+    pressBackspace(v);
+    expect(v.state.doc.toString()).toBe('hello');
+  });
+
+  it('dedents a space-indented item by one level at content start', () => {
+    const doc = '  - hello';
+    const v = setup(doc, doc.indexOf('hello')); // content start
+    pressBackspace(v);
+    expect(v.state.doc.toString()).toBe('- hello');
+    expect(v.state.selection.main.head).toBe(2);
+  });
+
+  it('dedents a tab-indented item by one tab at content start', () => {
+    const doc = '\t- hello';
+    const v = setup(doc, doc.indexOf('hello'));
+    pressBackspace(v);
+    expect(v.state.doc.toString()).toBe('- hello');
+  });
+
+  it('does not intercept a mid-content backspace (falls through to default)', () => {
+    const doc = '- hello';
+    const v = setup(doc, doc.length); // caret at end, not content-start
+    pressBackspace(v);
+    expect(v.state.doc.toString()).toBe('- hello');
+  });
+
+  it('does not intercept on a non-list line', () => {
+    const doc = 'plain text';
+    const v = setup(doc, 5);
+    pressBackspace(v);
+    expect(v.state.doc.toString()).toBe('plain text');
   });
 });

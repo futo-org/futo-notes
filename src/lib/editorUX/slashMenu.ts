@@ -307,6 +307,93 @@ class SlashMenuRenderer implements PluginValue {
 
 export const slashMenuPlugin = ViewPlugin.fromClass(SlashMenuRenderer);
 
+/**
+ * The `+` block handle should show when the caret sits on an empty block (the
+ * same place typing `/` would open the menu) and the menu isn't already open.
+ * Pure so it can be unit-tested without the DOM plugin.
+ */
+export function shouldShowBlockHandle(state: EditorState): boolean {
+  if (state.field(slashMenuField, false)?.open) return false;
+  const sel = state.selection.main;
+  if (!sel.empty) return false;
+  const line = state.doc.lineAt(sel.from);
+  return line.text.trim() === '';
+}
+
+/**
+ * Left-margin `+` block handle. On an empty block it renders a `+` in the
+ * gutter; clicking it opens the SAME block-command menu as typing `/` (it
+ * inserts the `/` at the block start and dispatches openSlashMenuEffect).
+ * Desktop-only — wired into MarkdownEditor's non-mobile branch. → editor.md
+ */
+class BlockHandleRenderer implements PluginValue {
+  private btn: HTMLButtonElement;
+
+  constructor(private view: EditorView) {
+    this.btn = document.createElement('button');
+    this.btn.type = 'button';
+    this.btn.className = 'sf-block-handle';
+    this.btn.setAttribute('aria-label', 'Insert block');
+    this.btn.setAttribute('tabindex', '-1');
+    this.btn.textContent = '+';
+    this.btn.style.display = 'none';
+    // Keep the editor selection alive when the handle is pressed.
+    this.btn.addEventListener('mousedown', (e) => e.preventDefault());
+    this.btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      this.trigger();
+    });
+    view.dom.appendChild(this.btn);
+  }
+
+  update(update: ViewUpdate): void {
+    if (!shouldShowBlockHandle(update.state)) {
+      this.hide();
+      return;
+    }
+    const line = update.state.doc.lineAt(update.state.selection.main.from);
+    this.view.requestMeasure({
+      read: () => ({
+        coords: this.view.coordsAtPos(line.from),
+        host: this.view.dom.getBoundingClientRect(),
+      }),
+      write: (r) => {
+        if (!r.coords) {
+          this.hide();
+          return;
+        }
+        this.btn.style.display = '';
+        this.btn.style.top = `${r.coords.top - r.host.top}px`;
+        this.btn.style.left = `${Math.max(0, r.coords.left - r.host.left - 28)}px`;
+      },
+    });
+  }
+
+  private trigger(): void {
+    const st = this.view.state;
+    if (st.field(slashMenuField, false)?.open) return;
+    const line = st.doc.lineAt(st.selection.main.from);
+    if (line.text.trim() !== '') return;
+    this.view.dispatch({
+      changes: { from: line.from, to: line.to, insert: '/' },
+      selection: EditorSelection.cursor(line.from + 1),
+      effects: openSlashMenuEffect.of({ from: line.from }),
+      userEvent: 'input.type',
+    });
+    this.view.focus();
+  }
+
+  private hide(): void {
+    this.btn.style.display = 'none';
+  }
+
+  destroy(): void {
+    this.btn.remove();
+  }
+}
+
+export const blockHandle = ViewPlugin.fromClass(BlockHandleRenderer);
+
 function isOpen(view: EditorView): boolean {
   return view.state.field(slashMenuField, false)?.open === true;
 }

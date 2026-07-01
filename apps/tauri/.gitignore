@@ -1,3 +1,6 @@
 node_modules/
 src-tauri/target/
-src-tauri/gen/schemas/
+# All of gen/ is machine-generated Tauri output (capability schemas + the
+# retired mobile shell's build tree). Ignoring the whole dir keeps multi-GB
+# artifacts like gen/apple/**/libapp.a out of the repo. Nothing here is tracked.
+src-tauri/gen/

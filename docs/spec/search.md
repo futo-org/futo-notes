@@ -1,16 +1,20 @@
 # Search — Spec
 
 Search is on-device keyword retrieval. The shared Rust engine indexes note
-title, folder, tags, preview, and body text with Tantivy BM25. The older
-client-side MiniSearch index remains as the warm-up and non-Tauri fallback.
+title, folder, tags, and body text with Tantivy BM25. The older client-side
+MiniSearch index remains as the warm-up and non-Tauri fallback.
 
 ## Behavior
 
 - Search runs fully on-device; no query or note content leaves the device.
 - The Rust index builds in the background and never blocks the UI. Until
   `search_status.keyword.ready` is true, callers fall back to MiniSearch.
-- Non-empty queries return ranked note IDs from BM25. Empty query shows the 8
-  most-recent notes.
+- Non-empty queries return ranked note IDs from BM25. On the Tauri search popup
+  and Android an empty query shows the 8 most-recent notes. iOS is the
+  exception by design: it has no dedicated search popup — search is an inline
+  `.searchable` bottom bar on the folder browser, so an empty query simply shows
+  the current folder's normal list (not an 8-recent list). → NoteListView.swift
+  `.searchable`
 - Store mutations feed `search_notify`; bulk wipes and live pulls trigger a
   rescan so the index stays in lockstep with the vault.
 

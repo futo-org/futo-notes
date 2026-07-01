@@ -139,6 +139,79 @@ function handleEnter(view: EditorView): boolean {
   return false;
 }
 
+// Remove one indent step from a leading-whitespace string (one tab, else up
+// to two spaces, else one space).
+function dedentOne(indent: string): string {
+  if (indent.endsWith('\t')) return indent.slice(0, -1);
+  if (indent.endsWith('  ')) return indent.slice(0, -2);
+  if (indent.length > 0) return indent.slice(0, -1);
+  return indent;
+}
+
+// Backspace at the start of a list item dedents it (top-level: strips the
+// marker to a plain line); Backspace in an empty list item deletes the item
+// (clears the line to blank). Matches editor.md "Interactive elements".
+// Returns true when handled. Anything else falls through to CM6's default.
+function handleBackspace(view: EditorView): boolean {
+  const { state } = view;
+  const range = state.selection.main;
+  if (!range.empty) return false; // backspace over a selection is a plain delete
+
+  const pos = range.from;
+  const line = state.doc.lineAt(pos);
+  const text = line.text;
+
+  // Identify a list item and where its content starts. Task is the most
+  // specific bullet, so try it first.
+  const m =
+    text.match(/^(\s*)([-*+])\s+\[[ xX]\]\s?/) ??
+    text.match(/^(\s*)(\d+)\.\s+/) ??
+    text.match(/^(\s*)([-*+])\s+/);
+  if (!m) return false;
+
+  const prefixLen = m[0].length;
+  const indent = m[1];
+  const contentStart = line.from + prefixLen;
+  const content = text.slice(prefixLen);
+
+  // Empty item → delete the item (clear the line to blank), mirroring the
+  // empty-item Enter behavior.
+  if (content.trim() === '') {
+    if (pos < contentStart) return false; // caret sits within the marker — leave it
+    view.dispatch({
+      changes: { from: line.from, to: line.to, insert: '' },
+      selection: EditorSelection.cursor(line.from),
+      scrollIntoView: true,
+    });
+    return true;
+  }
+
+  // Non-empty item: only act when the caret is exactly at the content start.
+  if (pos !== contentStart) return false;
+
+  if (indent.length > 0) {
+    // Dedent one level, keeping the marker + content.
+    const newIndent = dedentOne(indent);
+    const removed = indent.length - newIndent.length;
+    if (removed === 0) return false;
+    view.dispatch({
+      changes: { from: line.from, to: line.from + indent.length, insert: newIndent },
+      selection: EditorSelection.cursor(contentStart - removed),
+      scrollIntoView: true,
+    });
+    return true;
+  }
+
+  // Top-level item, caret at content start → strip the marker (full dedent to
+  // a plain line), keeping the content.
+  view.dispatch({
+    changes: { from: line.from, to: contentStart, insert: '' },
+    selection: EditorSelection.cursor(line.from),
+    scrollIntoView: true,
+  });
+  return true;
+}
+
 function getSelectedLineNumbers(view: EditorView): number[] {
   const lines = new Set<number>();
   for (const range of view.state.selection.ranges) {
@@ -191,24 +264,28 @@ const tabKeymap = Prec.highest(keymap.of([
   { key: 'Shift-Tab', run: (view) => changeQuoteDepth(view, -1) }
 ]));
 
-// Enter is handled at document-capture phase, NOT via the CM6 keymap. iOS's
-// WKWebView intercepts Enter on certain cursor positions (e.g., when the
-// cursor sits right after a contenteditable=false widget like a rendered
-// list marker) and applies its own native newline insertion without ever
-// firing `beforeinput`. CM6's keymap only runs when CM6 sees beforeinput
-// and synthesizes a keydown; since beforeinput never arrives in that case,
-// the keymap silently doesn't fire and the empty list marker survives.
+// Enter and Backspace are handled at document-capture phase, NOT via the CM6
+// keymap. iOS's WKWebView intercepts these keys on certain cursor positions
+// (e.g., when the cursor sits right after a contenteditable=false widget like
+// a rendered list marker) and applies its own native edit without ever firing
+// `beforeinput`. CM6's keymap only runs when CM6 sees beforeinput and
+// synthesizes a keydown; since beforeinput never arrives in that case, the
+// keymap silently doesn't fire (the empty list marker survives / the dedent
+// never happens).
 //
 // By listening at document capture phase we get the keydown before iOS
-// applies its default, run handleEnter directly, and preventDefault to
-// stop the native insertion when we handle the event ourselves.
-const enterCaptureHandler = ViewPlugin.fromClass(class {
+// applies its default, run our handler directly, and preventDefault to stop
+// the native edit when we handle the event ourselves.
+const listEditCaptureHandler = ViewPlugin.fromClass(class {
   listener: (e: KeyboardEvent) => void;
   constructor(view: EditorView) {
     this.listener = (e: KeyboardEvent) => {
-      if (e.key !== 'Enter' || e.isComposing) return;
+      if (e.isComposing) return;
       if (!view.contentDOM.contains(e.target as Node)) return;
-      if (handleEnter(view)) {
+      let handled = false;
+      if (e.key === 'Enter') handled = handleEnter(view);
+      else if (e.key === 'Backspace') handled = handleBackspace(view);
+      if (handled) {
         e.preventDefault();
         e.stopPropagation();
       }
@@ -220,7 +297,7 @@ const enterCaptureHandler = ViewPlugin.fromClass(class {
   }
 });
 
-export const listContinuationKeymap = [tabKeymap, enterCaptureHandler];
+export const listContinuationKeymap = [tabKeymap, listEditCaptureHandler];
 
 const ORDERED_LINE_RE = /^(\s*)(\d+)\.\s/;
 

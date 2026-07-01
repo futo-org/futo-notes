@@ -437,7 +437,8 @@
 
   function handleResizeMove(e: PointerEvent): void {
     if (!sidebarResizing) return;
-    sidebarWidth = Math.max(180, Math.min(600, resizeStartWidth + (e.clientX - resizeStartX)));
+    // Min 200px per nav.md ("resizable (drag the divider, min 200px)").
+    sidebarWidth = Math.max(200, Math.min(600, resizeStartWidth + (e.clientX - resizeStartX)));
   }
 
   function handleResizeEnd(): void {

@@ -34,6 +34,8 @@ export interface PersistedTab {
   id: string;
   noteId: string | null;
   pendingFolder?: string;
+  // Per-tab scroll/selection, persisted so it survives a restart (tabs.md).
+  state?: { scroll: number; selFrom: number; selTo: number };
 }
 
 export interface PersistedTabs {

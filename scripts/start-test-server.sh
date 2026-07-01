@@ -48,7 +48,10 @@ for _ in $(seq 1 30); do
 done
 
 echo "[start-test-server] Hashing password..."
-HASH=$(pnpm exec tsx src/index.ts hash "$PASSWORD")
+# The server is bun-only now; `pnpm exec tsx` drifted (tsx is not a server dep)
+# and fails under `set -e`, exiting silently right after this line. Use bun,
+# matching the cross-platform harness (tests/lib/sync-test-server.mjs).
+HASH=$(bun src/index.ts hash "$PASSWORD")
 if [ -z "$HASH" ]; then
   echo "error: failed to compute password hash" >&2
   exit 1

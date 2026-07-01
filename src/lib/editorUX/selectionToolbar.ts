@@ -2,6 +2,7 @@ import { EditorView, showTooltip, tooltips } from '@codemirror/view';
 import type { Tooltip } from '@codemirror/view';
 import { StateEffect, StateField } from '@codemirror/state';
 import type { EditorState } from '@codemirror/state';
+import { syntaxTree } from '@codemirror/language';
 import { toggleBold, toggleItalic, toggleStrikethrough } from '$lib/markdownToolbar';
 import { toggleCodeInline, toggleLink } from './linkCommand';
 import { renderIcon } from './icons';
@@ -36,6 +37,17 @@ function getTableFocused(state: EditorState): boolean {
   return state.field(tableFocusField, false) === true;
 }
 
+/** True when `pos` sits inside inline code or a fenced/indented code block. */
+export function isInsideCode(state: EditorState, pos: number): boolean {
+  // Walk ancestors via a TreeCursor to avoid a nullable SyntaxNode reassign.
+  const cur = syntaxTree(state).cursorAt(pos, -1);
+  do {
+    // markdown node names: InlineCode, FencedCode, CodeBlock, CodeText, CodeMark
+    if (/Code/.test(cur.name)) return true;
+  } while (cur.parent());
+  return false;
+}
+
 function shouldShow(state: EditorState): boolean {
   const sel = state.selection.main;
   if (sel.empty) return false;
@@ -45,6 +57,10 @@ function shouldShow(state: EditorState): boolean {
   if (from.number !== to.number) return false;
 
   if (getTableFocused(state)) return false;
+  // Stay out of code (inline or fenced): the spec hides the toolbar inside
+  // tables/code. Multi-line code is already excluded by the line check above;
+  // this covers a single-line selection inside inline code or a fenced block.
+  if (isInsideCode(state, sel.from) || isInsideCode(state, sel.to)) return false;
   return true;
 }
 

@@ -24,31 +24,21 @@ not a requirement for every platform.
 Each shell renders settings with its own native idioms. These differences are
 **expected and allowed** — they should not be "fixed" to match desktop.
 
-| Concern | Desktop / Tauri (`SettingsScreen.svelte`) | Native Android (`apps/android/.../ui/SettingsScreen.kt`) | Native iOS (`apps/ios/`) |
+| Concern | Desktop / Tauri (`SettingsScreen.svelte`) | Native Android (`apps/android/.../ui/SettingsScreen.kt`) | Native iOS (`apps/ios/SettingsView.swift`) |
 |---|---|---|---|
-| Presentation | Modal **bottom sheet** — dim overlay, panel rises from bottom, ≤600px centered, rounded top corners, ≤85vh, internal scroll | **Full screen** — Compose `Scaffold` with a `TopAppBar` ("Settings" + back arrow) | *Not yet built — only `SyncView.swift` exists* |
-| Dismissal | Click overlay / `Escape` / `×` close button in the sticky header | Back arrow (and system back) | — |
-| Rendering | HTML/CSS in the WebView; styles from `app.css` tokens | Compose + Material 3 (`SegmentedButton`, `Surface`, `HorizontalDivider`) themed via `FutoTheme` | — |
-| Theme control order | **Auto · Dark · Light** | **Light · Dark · Auto** | — |
-| Account header | None | None — folded into the single "Self-hosted sync" Sync row (see settings.md) | — |
-| Sync UI | **Inline** in the Sync card (URL, password, Connect / Sync now, links) | A single **"Self-hosted sync" row that routes to a separate Sync screen** (`onOpenSync`); no inline form | — |
-| Storage / notes dir | **Storage** section — shows path, "Change directory" (folder picker + app restart), "Reset to default" | Absent (mobile sandbox; no user-chosen directory) | — |
-| Editor note | Absent | Absent — the "Editor" / "file over app" caption was removed (see settings.md) | — |
-| About / source link | Absent (version footer only) | **Source** row linking to GitLab + version | — |
-| Benchmark | **Benchmark** section (on-device embedding test + results table) | Absent | — |
-| Crash reporting toggles | Present (switch + "always send" sub-row) | Absent | — |
-| Danger zone | "Full reset" (modal confirm) + dev-only "Test crash" | Absent | — |
-| Blocking progress | In-panel overlay (spinner + phase / error) for Connect and Full reset | Handled on the dedicated Sync screen | — |
-
-> **Gap (iOS):** the native iOS shell has no Settings screen yet. When it is
-> built it should present the [shared model](#shared-content--functionality)
-> using iOS-native idioms (e.g. a `NavigationStack` + grouped `List`/`Form`,
-> `Toggle`, a segmented `Picker`).
-
-> **Gap (parity):** native Android currently omits crash-reporting controls,
-> the benchmark, and the full-reset action that desktop exposes. These are
-> shared-model items (below) that Android has not implemented yet — not
-> intentional platform differences.
+| Presentation | Modal **bottom sheet** — dim overlay, panel rises from bottom, ≤600px centered, rounded top corners, ≤85vh, internal scroll | **Full screen** — Compose `Scaffold` with a `TopAppBar` ("Settings" + back arrow) | **Sheet** — a `NavigationStack` wrapping a grouped `Form` (title "Settings", inline display mode) |
+| Dismissal | Click overlay / `Escape` / `×` close button in the sticky header | Back arrow (and system back) | **"Done"** trailing toolbar button + interactive drag-to-dismiss (both suppressed while resetting) |
+| Rendering | HTML/CSS in the WebView; styles from `app.css` tokens | Compose + Material 3 (`SegmentedButton`, `Surface`, `HorizontalDivider`) themed via `FutoTheme` | Native SwiftUI (`Form` `Section`s, `Picker`, `Toggle`, `Link`) tinted `Theme.primary` |
+| Theme control order | **Auto · Dark · Light** | **Light · Dark · Auto** | **Light · Dark · Auto** (segmented `Picker`) |
+| Account header | None | None — folded into the single "Self-hosted sync" Sync row (see settings.md) | None — folded into the single "Self-hosted sync" Sync row |
+| Sync UI | **Inline** in the Sync card (URL, password, Connect / Sync now, links) | A single **"Self-hosted sync" row that routes to a separate Sync screen** (`onOpenSync`); no inline form | A single **"Self-hosted sync" row** (with SYNCED/LOCAL badge) that presents `SyncView` as a sheet; no inline form |
+| Storage / notes dir | **Storage** section — shows path, "Change directory" (folder picker + app restart), "Reset to default" | Absent (mobile sandbox; no user-chosen directory) | **Storage** section — read-only "Notes folder" path readout (selectable, monospaced); no picker (fixed sandbox) |
+| Editor note | Absent | Absent — the "Editor" / "file over app" caption was removed (see settings.md) | Absent |
+| About / source link | Absent (version footer only) | **Source** row linking to GitLab + version | **About** section — "Open source" link to GitLab + a "Version" row |
+| Crash reporting toggles | Present (switch + "always send" sub-row) | Present — "Share crash reports" `Switch` + nested "Always send automatically" (shown only while the first is on) | Present — "Share crash reports" `Toggle` + "Always send automatically" `Toggle` (disabled while the first is off) |
+| Danger zone | "Full reset" (modal confirm) + dev-only "Test crash" | "Full reset" (modal `ConfirmDialog`) + debug-only "Test crash" (in a Debug group) | "Full reset" (`confirmationDialog`) + `#if DEBUG` "Test crash" |
+| Benchmark | **Benchmark** section (on-device embedding test + results table) | Absent | Absent |
+| Blocking progress | In-panel overlay (spinner + phase / error) for Connect and Full reset | Full-screen overlay ("Deleting all notes…") during Full reset; Connect handled on the Sync screen | Full-screen overlay ("Deleting all notes…") during Full reset; Connect handled in `SyncView` |
 
 ---
 
@@ -99,8 +89,8 @@ same meanings. This is the part that belongs to the app, not the shell.
 
 **Platform-only items (NOT part of the shared model):** the desktop **Storage**
 directory picker (desktop has a user-chosen notes folder; mobile uses a fixed
-sandbox), the **Benchmark** section, and the dev-only **Test crash** button.
-These are desktop conveniences and need not appear on mobile.
+sandbox) and the dev-only **Test crash** button. These are desktop conveniences
+and need not appear on mobile.
 
 ---
 
@@ -169,9 +159,8 @@ Sections appear in this order (some are conditional):
 2. **Appearance** — always
 3. **Sync** — only when the platform has a filesystem
 4. **Crash Reporting** — always
-5. **Benchmark** — always
-6. **Danger zone** — always
-7. Version footer
+5. **Danger zone** — always
+6. Version footer
 
 ---
 
@@ -286,29 +275,7 @@ This section uses **toggle rows**, not a card.
 
 ---
 
-## Section: Benchmark
-
-A single card for testing on-device embedding inference.
-
-1. Hint at top (`margin-top: 0`): "Test on-device embedding inference. First
-   run downloads the model (~35 MB)."
-2. Action row with a **"Run benchmarks"** inline button (→ "Running..." +
-   disabled while running).
-3. While running, an *italic* phase line (`.bench-phase`, muted) reports the
-   current step.
-4. On error, a hint line colored `var(--color-danger)`.
-5. On success, a **results table** (`.bench-table`):
-   - Full width, `border-collapse: collapse`, `font-size: 13px`.
-   - Header cells: left-aligned, `font-weight: 600`, muted, `font-size: 11px`,
-     uppercase, `letter-spacing: 0.04em`, `border-bottom: 1px solid
-     var(--color-border)`. Columns: **Test**, **Load**, **Embed**.
-   - Body cells: `var(--color-text)`, hairline bottom border (border color at
-     50% via `color-mix`); last row has no border.
-   - The Load/Embed numeric cells (`.bench-num`) are right-aligned,
-     `font-variant-numeric: tabular-nums`, `white-space: nowrap`, formatted as
-     `<n> ms`.
-   - Below the table, a muted hint: "Output: <dims>-dim vectors. The real
-     indexer holds one session — load cost is paid once."
+<!-- Benchmark section was removed from the desktop component; spec updated to match. -->
 
 ---
 

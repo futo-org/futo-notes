@@ -110,7 +110,16 @@ native shells edit tags as text in the body, which is not a gap.
 - Typing `[[` opens autocomplete over all note ids; selecting inserts the full
   path. Works on Tauri and both native shells (same embed; verified on
   emulator + simulator 2026-06-09). → wikilinkAutocomplete.ts
-- A broken or ambiguous wikilink renders undecorated (not a live link).
+- A wikilink whose target does not resolve is still decorated, styled **broken**
+  (`cm-md-link cm-md-wikilink cm-md-wikilink-broken`) — not undecorated. The
+  resolver (`resolveWikilink`) treats an **ambiguous** target (a bare filename
+  matching more than one note) exactly like an absent one: both return `null` and
+  render broken. On **desktop**, clicking a broken wikilink navigates to
+  `/note/<target>`, which creates the target note on the fly (the documented
+  create-on-missing path). The **native** shells no-op a broken tap: only a
+  resolved link posts `openNote`. → liveMarkdownTransform.ts, wikilinks.ts
+  `resolveWikilink`, noteSession.svelte.ts `loadNote` (create-on-missing),
+  editor-embed/main.ts
 - On the native shells, tapping a resolved wikilink navigates: the embed
   resolves the raw target against the pushed note list and posts `openNote`
   to the host, which swaps the open editor in place (Back returns to the
@@ -348,7 +357,8 @@ native shells edit tags as text in the body, which is not a gap.
   - The in-app IME shield has been **removed** from the shared editor
     (`imeShieldPlugin` / `imeShield.ts`) and the `just verify-ime-shield` guard
     is gone. The native Compose app never carried it and is fine without it.
-    Inert remnants remain in the legacy **Tauri** Android tree
-    (`FutoImeConnection` / `EditorImeShield` Kotlin + the `.cargo/config.toml`
-    WRY override); they go with the rest of the Tauri-mobile shell when it is
-    deleted.
+    (The `FutoImeConnection` / `EditorImeShield` Kotlin classes only ever lived
+    in the gitignored generated Tauri-Android tree, which is no longer generated;
+    the only surviving artifact is the `WRY_RUSTWEBVIEW_CLASS_EXTENSION` override
+    in `apps/tauri/src-tauri/.cargo/config.toml`, still marked DO-NOT-REMOVE for
+    the Tauri-Android build path.)

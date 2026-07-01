@@ -8,8 +8,11 @@ new-note affordances.
 - With no note open, the main pane shows a "For You" feed of recent-note cards
   (title, preview, relative modified time); tapping a card opens the note.
   Cards reorder as notes are edited. → ForYouPage.svelte
-- An empty vault shows "Create your first note" with a "Browse notes" button
-  (opens the drawer) and, on mobile, a "Quick capture" button.
+- An empty vault shows a **"FUTO Notes"** heading. On mobile the subtitle reads
+  "Create your first note to get started." with a **"Browse notes"** button
+  (opens the drawer) and a **"Quick capture"** button below the feed area; on
+  desktop only the subtitle "Create your first note from the sidebar to get
+  started." shows (both buttons are mobile-only). → ForYouPage.svelte
 - Quick capture creates a new note and opens it ready to type. Backing out of
   an untouched quick-capture note leaves no note behind. Verified on Android
   Tauri 2026-06-09.
@@ -52,20 +55,27 @@ new-note affordances.
   (`.inlineOnlyPreservingWhitespace`) → NoteListView.swift `NoteRow`; *(Android
   native)* via a small inline-markdown `AnnotatedString` parser → NoteCard.kt /
   InlineMarkdown.kt.
-  > **Gap:** Tauri desktop still shows the single-line, markdown-opaque
-  > `make_preview` snippet in note rows; the rich preview is native-only
-  > (iOS + Android) for now.
+  > **Gap:** Tauri desktop sidebar note rows show the **title only** — no body
+  > preview at all. The single-line, markdown-opaque `make_preview` snippet
+  > appears on the For-You feed cards (`ForYouPage.svelte`), not in the sidebar
+  > rows. The rich multi-line preview is native-only (iOS + Android) for now.
 
 ## Folder drawer
 
 - Opened from the menu icon (or an edge swipe). Lists "All notes" first, then
-  each folder path, each with a live note count. → NoteListScreen.kt
+  each folder path, each with a live note count. → NoteListScreen.kt *(Android
+  native)*
 - Selecting a folder filters the list and closes the drawer.
 - A Settings entry sits at the bottom of the drawer.
+- **Tauri** does not use this "All notes" + per-folder-count drawer. Its
+  sidebar is a **tabbed folder tree** (files / tags / images — see [Sidebar
+  tabs](#sidebar-tabs-tauri)): the files tab is a virtualized folder tree with
+  no "All notes" row and no per-folder note counts. → DrawerSidebar.svelte /
+  FolderTreeView.svelte
 
 **iOS native, by design, has no drawer** (intentional platform difference, not a
 gap): instead of the drawer / **"All notes"** entry / **live per-folder note
-counts** above — which are **Android-native + Tauri** surfaces — it uses a
+counts** — which are the **Android-native** surface above — it uses a
 `NavigationStack` folder browser (the root shows folders-as-rows + root notes;
 tapping a folder pushes its contents) and reaches Settings via a nav-bar **gear
 icon**. `NotesStore.noteCount(under:)` exists but is only used for delete
@@ -153,7 +163,8 @@ confirmation, not surfaced as a per-folder count. → NoteListView.swift
   action; deleting does NOT rewrite notes that reference the image. →
   SidebarImageView.svelte
 - The sidebar virtualizes rows (only visible rows render) so 1000+ note vaults
-  stay responsive. → VirtualList.svelte
+  stay responsive — the files-tab tree computes a `visibleRange`/`visibleNodes`
+  window inline over a fixed-height spacer. → FolderTreeView.svelte
 
 ## Folder management
 

@@ -28,6 +28,9 @@ class SyncManagerDefaultsTest {
         assertEquals("", SyncManager.defaultServer(isDebug = false))
     }
 
+    // The three validateServerUrl tests below mirror the shared cross-shell
+    // case-set in tests/conformance/server-url.json (the source of truth the
+    // TS/Swift/Kotlin copies must all satisfy). Keep them in sync with it.
     @Test
     fun acceptsUrlsWithScheme() {
         assertNull(SyncManager.validateServerUrl("https://notes.example.com"))

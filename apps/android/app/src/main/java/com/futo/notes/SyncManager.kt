@@ -222,7 +222,11 @@ class SyncManager(
          *  Returns a friendly, actionable error message, or `null` when the URL
          *  is acceptable. Catches the common mistake of omitting the scheme — a
          *  bare host like `notes.example.com` would otherwise fail with an opaque
-         *  transport error [sync.md]. Pure → unit-testable. */
+         *  transport error [sync.md]. Pure → unit-testable.
+         *
+         *  Must satisfy the shared case-set in `tests/conformance/server-url.json`
+         *  (the source of truth for all three shells' copies of this rule);
+         *  SyncManagerDefaultsTest mirrors those cases. */
         internal fun validateServerUrl(url: String): String? {
             val trimmed = url.trim()
             if (trimmed.isEmpty()) return "Enter a server URL."

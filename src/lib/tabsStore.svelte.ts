@@ -28,7 +28,17 @@ export type PersistedTab = {
   id: string;
   noteId: string | null;
   pendingFolder?: string;
+  state?: TabState;
 };
+
+function isValidTabState(s: unknown): s is TabState {
+  return (
+    !!s &&
+    typeof (s as TabState).scroll === 'number' &&
+    typeof (s as TabState).selFrom === 'number' &&
+    typeof (s as TabState).selTo === 'number'
+  );
+}
 
 export type PersistedTabs = {
   tabs: PersistedTab[];
@@ -80,6 +90,8 @@ function persist(): void {
       id: t.id,
       noteId: t.noteId,
       ...(t.pendingFolder !== undefined ? { pendingFolder: t.pendingFolder } : {}),
+      // Persist per-tab scroll/selection so it survives a restart (tabs.md).
+      ...(t.state ? { state: t.state } : {}),
     })),
     activeTabId: persistable.find((t) => t.id === _activeTabId) ? _activeTabId : (persistable[0]?.id ?? null),
   });
@@ -145,6 +157,7 @@ export const tabsStore = {
           id: typeof t.id === 'string' ? t.id : newId(),
           noteId: t.noteId ?? null,
           ...(t.pendingFolder ? { pendingFolder: t.pendingFolder } : {}),
+          ...(isValidTabState(t.state) ? { state: t.state } : {}),
         }));
 
       if (cleaned.length > 0) {
@@ -322,7 +335,9 @@ export const tabsStore = {
     const tab = findTab(tabId);
     if (!tab) return;
     tab.state = state;
-    // intentionally not persisted
+    // Persisted: per-tab scroll/selection survives a restart (tabs.md). This
+    // fires on tab-switch snapshots, not per scroll frame, so it isn't chatty.
+    persist();
   },
 
   setPendingFolder(tabId: string, folder: string | null): void {
@@ -337,6 +352,8 @@ export const tabsStore = {
    * Chrome-style mode resolver:
    *   mod+shift+click             → foreground new tab
    *   mod+click  OR  middle btn   → background new tab
+   *   shift+click (no mod)        → background new tab (tabs.md: "Shift+click
+   *                                 opens a new background tab")
    *   plain click                 → current tab
    */
   modeFromEvent(
@@ -346,7 +363,7 @@ export const tabsStore = {
     const mod = isMacAgent() ? e.metaKey : e.ctrlKey;
     const middle = e.button === 1;
     if (mod && e.shiftKey) return 'foreground';
-    if (mod || middle) return 'background';
+    if (mod || middle || e.shiftKey) return 'background';
     return 'current';
   },
 

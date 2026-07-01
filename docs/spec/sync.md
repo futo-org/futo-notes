@@ -28,11 +28,12 @@ client uploads opaque encrypted blobs — note content is encrypted before uploa
   any network call**, with the actionable message *"Add http:// or https:// to
   the start of the server URL."* (surrounding whitespace is trimmed). This turns
   the most common setup mistake into a clear instruction instead of an opaque
-  transport error. → SyncManager.kt `validateServerUrl`
-  > **Gap:** Only the Android shell pre-validates the URL scheme. iOS
-  > (SyncManager.swift) and desktop (syncManager.svelte.ts) pass the raw URL
-  > straight to the client, so a schemeless URL there still fails with a generic
-  > connection error rather than the actionable message.
+  transport error. All three shells pre-validate identically: Android
+  `SyncManager.validateServerUrl`, iOS `SyncManager.validateServerURL` (guards
+  `connectAndSync`), and desktop `validateSyncServerUrl` (thrown from
+  `connectE2ee` before the `e2ee_connect` invoke; surfaced via
+  `getSyncErrorMessage`). → SyncManager.kt / SyncManager.swift /
+  syncServiceE2ee.ts
 - When no server is connected yet, the Sync screen points the user at how to
   get one: a **bordered link row** — a leading external-link icon (iOS
   `arrow.up.forward.square` / Android `OpenInNew`) followed by the
@@ -129,7 +130,8 @@ client uploads opaque encrypted blobs — note content is encrypted before uploa
   (Android), SyncManager.swift + SyncView.swift (iOS)
 - Live sync is also wired on **Tauri desktop** — Rust `e2ee_start_live` /
   `e2ee_stop_live` drive the same `futo-notes-sync` `live::watch`, emitting
-  `sync:live-state` (drives the "● Live" indicator) and `sync:live-synced`
+  `sync:live-state` (tracks stream health internally via `setLiveConnected`; no
+  user-facing "Live" label is rendered) and `sync:live-synced`
   (carries the per-note `SyncSummary`, which the JS routes through the normal
   `handleSyncComplete` reconciliation so the open note + list refresh live).
   `ensureLiveSync()` starts the stream after the first successful sync; the 15 s

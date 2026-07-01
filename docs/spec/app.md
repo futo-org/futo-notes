@@ -38,9 +38,12 @@ Behaviors and constraints that hold across every surface and platform.
 
 ## Performance
 
-- Book-length notes must stay responsive. No synchronous full-document parse on
-  the open path (`ensureSyntaxTree(..., doc.length, 5000)` is banned there) —
-  build decorations from the current tree and grow incrementally. →
+- Book-length notes must stay responsive. On the open path an unbounded
+  synchronous full-document parse (`ensureSyntaxTree(..., doc.length, 5000)`) is
+  banned; instead the `LiveMarkdownPlugin` constructor seeds decorations with a
+  tightly time-boxed (≤200 ms) `ensureSyntaxTree(..., doc.length, 200)` parse,
+  then grows decorations incrementally as parsing continues
+  (`scheduleParseRefresh`). → src/lib/liveMarkdownTransform.ts,
   docs/learnings/scroll-fix-handoff-report.md
 
 ## Data safety

@@ -29,7 +29,9 @@
     if (!q.trim()) {
       searchKeyword('')
         .then((r) => {
-          if (requestId === keywordRequestId) results = r;
+          // Empty query shows the 8 most-recent notes (search.md), not the
+          // whole vault — search('') returns all notes most-recent-first.
+          if (requestId === keywordRequestId) results = r.slice(0, 8);
         })
         .catch(() => {
           if (requestId === keywordRequestId) results = [];
