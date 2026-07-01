@@ -156,7 +156,10 @@ pub async fn watch(
         handle.listener.on_connected();
 
         // A fresh connection is effectively a `ready` — catch up now.
-        run_cycle(&handle).await;
+        if let CycleControl::Stop = run_cycle(&handle).await {
+            handle.listener.on_stopped();
+            return;
+        }
 
         let byte_stream = response.bytes_stream();
         tokio::pin!(byte_stream);
@@ -189,12 +192,23 @@ pub async fn watch(
                 }
                 _ = push_fire => {
                     push_at = None;
-                    run_cycle(&handle).await;
+                    if let CycleControl::Stop = run_cycle(&handle).await {
+                        handle.listener.on_stopped();
+                        return;
+                    }
                 }
-                _ = safety.tick() => run_cycle(&handle).await,
+                _ = safety.tick() => {
+                    if let CycleControl::Stop = run_cycle(&handle).await {
+                        handle.listener.on_stopped();
+                        return;
+                    }
+                }
                 _ = coalesce_fire => {
                     coalesce = None;
-                    run_cycle(&handle).await;
+                    if let CycleControl::Stop = run_cycle(&handle).await {
+                        handle.listener.on_stopped();
+                        return;
+                    }
                 }
                 chunk = tokio::time::timeout(READ_IDLE, byte_stream.next()) => {
                     match chunk {
@@ -209,7 +223,12 @@ pub async fn watch(
                             decoder.push(&bytes, &mut events);
                             for name in events {
                                 match name.as_str() {
-                                    "ready" => run_cycle(&handle).await,
+                                    "ready" => {
+                                        if let CycleControl::Stop = run_cycle(&handle).await {
+                                            handle.listener.on_stopped();
+                                            return;
+                                        }
+                                    }
                                     "ping" => {} // heartbeat
                                     // `change` and any unnamed/unknown event:
                                     // debounce a pull.
@@ -234,11 +253,43 @@ pub async fn watch(
     handle.listener.on_stopped();
 }
 
-async fn run_cycle(handle: &LiveHandle) {
+/// What the loop should do after one cycle.
+enum CycleControl {
+    /// Keep the loop running (clean pull, no-op, or a transient/non-fatal error
+    /// the loop retries with backoff + the safety poll).
+    Continue,
+    /// Stop the loop: the vault this session pinned to was collapsed
+    /// server-side (single-vault migration). Reconnecting to the same dead
+    /// vault is futile — the collection-gone message was already delivered via
+    /// `on_error`, and the shell re-points on it (desktop's poll, native's
+    /// `SyncManager` heal). The caller must fire `on_stopped` and return.
+    Stop,
+}
+
+/// Whether a cycle error means the pinned vault is gone (collapsed by the
+/// single-vault migration). Both adapters flatten `SyncErrorKind::CollectionGone`
+/// to a string prefixed `collection-gone:` (FFI via `SyncError::to_string`,
+/// Tauri via `SyncErrorKind::to_string`), so a substring check works for both.
+fn is_collection_gone(msg: &str) -> bool {
+    msg.contains("collection-gone")
+}
+
+async fn run_cycle(handle: &LiveHandle) -> CycleControl {
     match (handle.cycle)().await {
-        Ok(Some(counts)) => handle.listener.on_synced(counts),
-        Ok(None) => {} // disconnected — nothing to reconcile
-        Err(msg) => handle.listener.on_error(msg),
+        Ok(Some(counts)) => {
+            handle.listener.on_synced(counts);
+            CycleControl::Continue
+        }
+        Ok(None) => CycleControl::Continue, // disconnected — nothing to reconcile
+        Err(msg) => {
+            let gone = is_collection_gone(&msg);
+            handle.listener.on_error(msg);
+            if gone {
+                CycleControl::Stop
+            } else {
+                CycleControl::Continue
+            }
+        }
     }
 }
 
@@ -335,5 +386,99 @@ mod tests {
             names(&["event: change\ndata: line1\ndata: line2\n\n"]),
             vec!["change"]
         );
+    }
+
+    // ── run_cycle control decision ───────────────────────────────────────
+    //
+    // The live loop must STOP on a collection-gone error (the vault was
+    // collapsed by the single-vault migration — reconnecting to the same dead
+    // vault would spin forever) but KEEP RUNNING on any other error (transient
+    // connect/stream failures self-heal via backoff + the safety poll).
+
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Mutex;
+
+    #[derive(Default)]
+    struct RecordingListener {
+        synced: AtomicUsize,
+        connected: AtomicUsize,
+        errors: Mutex<Vec<String>>,
+        stopped: AtomicUsize,
+    }
+
+    impl SyncSessionListener for RecordingListener {
+        fn on_synced(&self, _counts: SyncCounts) {
+            self.synced.fetch_add(1, Ordering::SeqCst);
+        }
+        fn on_connected(&self) {
+            self.connected.fetch_add(1, Ordering::SeqCst);
+        }
+        fn on_error(&self, message: String) {
+            self.errors.lock().unwrap().push(message);
+        }
+        fn on_stopped(&self) {
+            self.stopped.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    /// Build a `LiveHandle` whose `cycle` yields `result` each call. `snapshot`
+    /// is a stub — `run_cycle` never calls it (only `watch` does).
+    fn handle_with_cycle(
+        listener: Arc<RecordingListener>,
+        cycle: impl Fn() -> Result<Option<SyncCounts>, String> + Send + Sync + 'static,
+    ) -> LiveHandle {
+        LiveHandle {
+            snapshot: Box::new(|| Box::pin(async { None })),
+            cycle: Box::new(move || {
+                let out = cycle();
+                Box::pin(async move { out })
+            }),
+            listener,
+        }
+    }
+
+    #[tokio::test]
+    async fn run_cycle_stops_on_collection_gone() {
+        let rec = Arc::new(RecordingListener::default());
+        let handle = handle_with_cycle(rec.clone(), || {
+            Err("collection-gone: HTTP 404 Not Found".to_owned())
+        });
+        assert!(matches!(run_cycle(&handle).await, CycleControl::Stop));
+        // The collection-gone message is still delivered so the shell can heal.
+        assert_eq!(rec.errors.lock().unwrap().len(), 1);
+        assert!(rec.errors.lock().unwrap()[0].contains("collection-gone"));
+        assert_eq!(rec.synced.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn run_cycle_continues_on_transient_error() {
+        let rec = Arc::new(RecordingListener::default());
+        let handle = handle_with_cycle(rec.clone(), || Err("stream: connection reset".to_owned()));
+        assert!(matches!(run_cycle(&handle).await, CycleControl::Continue));
+        assert_eq!(rec.errors.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn run_cycle_continues_on_success_and_noop() {
+        let rec = Arc::new(RecordingListener::default());
+        let ok = handle_with_cycle(rec.clone(), || Ok(Some(SyncCounts::default())));
+        assert!(matches!(run_cycle(&ok).await, CycleControl::Continue));
+        assert_eq!(rec.synced.load(Ordering::SeqCst), 1);
+
+        // Ok(None) (disconnected mid-cycle) is also non-terminal and reports
+        // neither a sync nor an error.
+        let rec2 = Arc::new(RecordingListener::default());
+        let noop = handle_with_cycle(rec2.clone(), || Ok(None));
+        assert!(matches!(run_cycle(&noop).await, CycleControl::Continue));
+        assert_eq!(rec2.synced.load(Ordering::SeqCst), 0);
+        assert_eq!(rec2.errors.lock().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn is_collection_gone_matches_only_the_prefix() {
+        assert!(is_collection_gone("collection-gone: HTTP 404"));
+        assert!(is_collection_gone("wrapped: collection-gone: HTTP 404"));
+        assert!(!is_collection_gone("stream: boom"));
+        assert!(!is_collection_gone("HTTP error: 500"));
     }
 }

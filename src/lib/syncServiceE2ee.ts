@@ -84,15 +84,29 @@ async function ensureConnected(passwordOverride?: string): Promise<void> {
   if (!s.e2eeServerUrl || !s.e2eeAuthToken || !s.e2eeUserId || !s.e2eeCollectionId || !password) {
     throw new Error('E2EE sync not configured');
   }
-  await invoke('e2ee_resume', {
-    input: {
-      serverUrl: s.e2eeServerUrl,
-      token: s.e2eeAuthToken,
-      userId: s.e2eeUserId,
-      collectionId: s.e2eeCollectionId,
-      password,
-    },
-  });
+  try {
+    await invoke('e2ee_resume', {
+      input: {
+        serverUrl: s.e2eeServerUrl,
+        token: s.e2eeAuthToken,
+        userId: s.e2eeUserId,
+        collectionId: s.e2eeCollectionId,
+        password,
+      },
+    });
+  } catch (e) {
+    // The stored vault no longer exists on the server — e.g. it was a duplicate
+    // collection collapsed by the single-vault migration. Re-point to the
+    // canonical vault: connect() re-picks it and persists the corrected ids, and
+    // the orchestrator's reset→reconcile→push re-uploads our local notes to the
+    // survivor. (Native shells already self-heal because they only ever
+    // connect(), never resume().)
+    if (String(e).includes('collection-gone')) {
+      await connectE2ee(s.e2eeServerUrl, password);
+    } else {
+      throw e;
+    }
+  }
 }
 
 // ── Live sync (Rust SSE stream) ─────────────────────────────────────────
@@ -156,8 +170,23 @@ export async function disconnectE2ee(): Promise<void> {
 
 export async function syncE2eeAuto(): Promise<SyncSummary> {
   await ensureConnected();
-  const summary = await invoke<SyncSummary>('e2ee_sync_run');
-  return summary;
+  try {
+    return await invoke<SyncSummary>('e2ee_sync_run');
+  } catch (e) {
+    // The vault was collapsed/deleted server-side while we were already
+    // connected (e.g. the single-vault migration during a server upgrade).
+    // ensureConnected's resume-heal can't fire for a live session, so re-point
+    // here: tear down the live loop bound to the gone vault, connect() re-picks
+    // the survivor, and retry the sync once. The post-sync `ensureLiveSync`
+    // (autoSyncV2) then restarts the live stream on the new session.
+    const s = getAppState();
+    if (String(e).includes('collection-gone') && s.e2eeServerUrl && s.e2eePassword) {
+      await stopLiveSync();
+      await connectE2ee(s.e2eeServerUrl, s.e2eePassword);
+      return await invoke<SyncSummary>('e2ee_sync_run');
+    }
+    throw e;
+  }
 }
 
 /**
