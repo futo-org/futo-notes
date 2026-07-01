@@ -423,12 +423,34 @@ pub async fn connect(
             unwrap_blocking(password.to_owned(), material).await.map_err(SyncErrorKind::crypto)?
         }
         None => {
-            let (vk, fresh) =
-                wrap_blocking(password.to_owned()).await.map_err(SyncErrorKind::crypto)?;
-            http.put_key_material(&collection_id, &fresh)
+            // Refuse to mint a fresh vault key into a collection that already
+            // holds objects: those would have been encrypted under a now-missing
+            // key, and a new key would strand them (mixed-key corruption). A
+            // freshly-created vault is empty, so the normal first-connect path
+            // passes; a non-empty collection with no key is an inconsistent
+            // server state we fail hard on.
+            let existing = http
+                .list_objects(&collection_id, 0)
                 .await
                 .map_err(SyncErrorKind::http)?;
-            vk
+            if !existing.is_empty() {
+                return Err(SyncErrorKind::Crypto(
+                    "collection has objects but no key material; refusing to mint a new vault key"
+                        .to_owned(),
+                ));
+            }
+            let (_local_vk, fresh) =
+                wrap_blocking(password.to_owned()).await.map_err(SyncErrorKind::crypto)?;
+            // PUT is first-write-wins and returns the AUTHORITATIVE material. If
+            // a racing client established the vault key first, we adopt theirs
+            // instead of our locally-minted one — so both devices share one key.
+            let authoritative = http
+                .put_key_material(&collection_id, &fresh)
+                .await
+                .map_err(SyncErrorKind::http)?;
+            unwrap_blocking(password.to_owned(), authoritative)
+                .await
+                .map_err(SyncErrorKind::crypto)?
         }
     };
 
@@ -482,11 +504,29 @@ pub async fn resume(
     let mut http = E2eeClient::new(server_url).map_err(SyncErrorKind::http)?;
     http.set_token(token);
 
-    let material = http
-        .get_key_material(collection_id)
-        .await
-        .map_err(SyncErrorKind::http)?
-        .ok_or_else(|| SyncErrorKind::Crypto("vault key material missing on server".to_owned()))?;
+    // A persisted collection that the server no longer recognizes (404) — or
+    // that exists but has no key material — means the stored vault is gone (e.g.
+    // a duplicate collapsed by the single-vault migration). Surface it as
+    // `CollectionGone` so the desktop re-points to the canonical vault instead
+    // of failing the sync outright.
+    let material = match http.get_key_material(collection_id).await {
+        Ok(Some(m)) => m,
+        // Collection exists but has no key material — an inconsistent server
+        // state, NOT a collapsed vault. Fail hard rather than treat it as
+        // collection-gone (which would re-connect and risk minting a new key
+        // into a collection that may still hold objects).
+        Ok(None) => {
+            return Err(SyncErrorKind::Crypto(
+                "vault key material missing on server".to_owned(),
+            ))
+        }
+        // A 404 means the persisted collection is gone (e.g. a duplicate
+        // collapsed by the single-vault migration) — heal by re-connecting.
+        Err(e) if e.is_not_found() => {
+            return Err(SyncErrorKind::CollectionGone(format!("collection-gone: {e}")))
+        }
+        Err(e) => return Err(SyncErrorKind::http(e)),
+    };
 
     let vault_key = unwrap_blocking(password.to_owned(), material)
         .await
@@ -951,7 +991,7 @@ pub async fn run_pull(
     let server_objects = http
         .list_objects(&state_cell.collection_id, since)
         .await
-        .map_err(SyncErrorKind::http)?;
+        .map_err(SyncErrorKind::collection_http)?;
 
     let filename_by_object_id = build_filename_by_object_id(&state_cell.object_map);
     let FirstPass {
@@ -2446,7 +2486,7 @@ async fn reconcile_empty_map(
     let server_objects = http
         .list_objects(&state_cell.collection_id, 0)
         .await
-        .map_err(SyncErrorKind::http)?;
+        .map_err(SyncErrorKind::collection_http)?;
 
     // Live objects only (deleted tombstones contribute no blob to reconcile).
     let live: Vec<ServerObject> = server_objects
@@ -2824,6 +2864,16 @@ pub enum SyncErrorKind {
     Crypto(String),
     Io(String),
     Auth(String),
+    /// The collection this session was pinned to no longer exists on the server
+    /// (404) — e.g. a duplicate vault collapsed by the single-vault migration.
+    /// Produced by `resume` (cold start) AND by the active-session pull path
+    /// (`run_pull` / `reconcile_empty_map` via `collection_http`). Every client
+    /// catches this and re-connects to the canonical vault: desktop via
+    /// `syncE2eeAuto` / `ensureConnected`, native via `SyncManager`'s heal, and
+    /// the shared live loop stops (terminal) so it can't spin against the dead
+    /// vault. The message is prefixed `collection-gone:` so the JS boundary and
+    /// the live loop can recognize it.
+    CollectionGone(String),
     NotConnected,
 }
 
@@ -2833,6 +2883,18 @@ impl SyncErrorKind {
             SyncErrorKind::Auth(format!("{e}"))
         } else {
             SyncErrorKind::Http(format!("{e}"))
+        }
+    }
+
+    /// Like `http`, but maps a 404 on a collection-scoped request to
+    /// `CollectionGone`. The objects endpoint returns 404 when the vault no
+    /// longer exists (e.g. collapsed by the single-vault migration), so an
+    /// active session can re-point instead of failing the sync forever.
+    fn collection_http(e: crate::client::E2eeHttpError) -> Self {
+        if e.is_not_found() {
+            SyncErrorKind::CollectionGone(format!("collection-gone: {e}"))
+        } else {
+            Self::http(e)
         }
     }
 
@@ -2849,7 +2911,8 @@ impl SyncErrorKind {
             SyncErrorKind::Http(s)
             | SyncErrorKind::Crypto(s)
             | SyncErrorKind::Io(s)
-            | SyncErrorKind::Auth(s) => s.clone(),
+            | SyncErrorKind::Auth(s)
+            | SyncErrorKind::CollectionGone(s) => s.clone(),
             SyncErrorKind::NotConnected => "not connected".to_owned(),
         }
     }

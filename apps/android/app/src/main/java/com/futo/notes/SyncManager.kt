@@ -62,6 +62,14 @@ class SyncManager(
 
     private var client: SyncClient? = null
 
+    /** Vault root of the current session, stashed at connect so a
+     *  collection-gone heal can rebuild the client without the Sync screen. */
+    private var notesRoot: String? = null
+
+    /** Guards against re-entrant heal attempts — a collection-gone can surface
+     *  from both the manual/initial sync path and the live loop at once. */
+    private var healing = false
+
     /** Marshals Rust live-sync callbacks onto the main thread. */
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
@@ -81,7 +89,17 @@ class SyncManager(
             scope.launch { live = true }
         }
         override fun onError(message: String) {
-            scope.launch { lastError = message }
+            scope.launch {
+                // The live loop hit the collapsed vault and stopped itself
+                // (terminal on collection-gone). Re-point to the surviving
+                // canonical vault rather than leaving a persistent error until
+                // the app restarts.
+                if (message.contains("collection-gone")) {
+                    healCollectionGone()
+                } else {
+                    lastError = message
+                }
+            }
         }
         override fun onStopped() {
             scope.launch { live = false }
@@ -100,6 +118,7 @@ class SyncManager(
             return
         }
         busy = true; lastError = null; status = "Connecting…"
+        this.notesRoot = notesRoot  // stash for a later collection-gone heal
         try {
             val c = SyncClient(notesRoot, url)
             val info = c.connect(password)
@@ -133,9 +152,43 @@ class SyncManager(
             c.syncNow()
             status = "Sync complete"
         } catch (e: Exception) {
-            lastError = describe(e); status = "Error"
+            // The pinned vault was collapsed by the single-vault migration —
+            // re-point to the survivor instead of surfacing a dead-end error.
+            if (isCollectionGone(e)) {
+                healCollectionGone()
+            } else {
+                lastError = describe(e); status = "Error"
+            }
         } finally {
             busy = false
+        }
+    }
+
+    /** Whether a sync error is the collection-gone signal (the pinned vault was
+     *  collapsed server-side by the single-vault migration). */
+    private fun isCollectionGone(e: Exception): Boolean = e is SyncException.CollectionGone
+
+    /** Heal a collapsed vault: re-point to the surviving canonical vault. A
+     *  fresh [connectAndSync] re-runs connect() (which re-picks the survivor via
+     *  list_collections) and the reset→reconcile→push re-uploads local notes, so
+     *  nothing is lost. Uses the password stored at last connect; no-op if none.
+     *  Guarded against re-entry. Mirrors iOS `healCollectionGone`. */
+    private fun healCollectionGone() {
+        if (healing) return
+        val root = notesRoot ?: return
+        healing = true
+        scope.launch {
+            val password = withContext(Dispatchers.IO) {
+                runCatching { secure?.loadPassword() }.getOrNull()
+            }
+            if (password == null) {
+                healing = false
+                return@launch
+            }
+            // The dead session's live loop stopped itself (terminal on
+            // collection-gone); connectAndSync builds a fresh client + live loop.
+            connectAndSync(root, password)
+            healing = false
         }
     }
 
@@ -187,6 +240,7 @@ class SyncManager(
         client = null
         connected = false
         live = false
+        healing = false  // clear any stalled heal so a future session can heal
         status = "Not connected"
         lastError = null
         // Explicit disconnect is the ONLY place the stored password is wiped.
@@ -198,6 +252,7 @@ class SyncManager(
         is SyncException.Crypto -> "Crypto: ${e.message}"
         is SyncException.Io -> "IO: ${e.message}"
         is SyncException.Auth -> "Auth: ${e.message}"
+        is SyncException.CollectionGone -> e.message ?: "collection-gone"
         is SyncException.NotConnected -> "Not connected"
         else -> e.message ?: e.toString()
     }

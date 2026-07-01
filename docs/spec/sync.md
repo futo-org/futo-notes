@@ -108,6 +108,40 @@ client uploads opaque encrypted blobs — note content is encrypted before uploa
   costs one re-reconcile through the empty-map path, which hash-dedups
   against local files. → futo-notes-sync
   `state::Loaded::reset_if_collection_changed`
+- **A server instance holds exactly one vault (collection) per account.** The
+  protocol is single-vault, but the server used to mint a fresh collection on
+  every `POST /api/collections`, so two devices connecting *concurrently* each
+  created their own vault — with its own random key — and never saw each other's
+  notes (silent split-brain; reproduced 2026-06-30 via concurrent `connect()`).
+  The server now enforces it: `UNIQUE(user_id)` on `collections`, an idempotent
+  `POST /api/collections` (claim-or-return), and **first-write-wins** key
+  material on `PUT /api/collections/:id/key` (a racing second client gets the
+  authoritative key back instead of overwriting it). Pre-existing splits are
+  collapsed by **migration 008** — keep the earliest vault per account (the one
+  `connect()` picks), delete the rest (objects cascade). → futo-notes-server
+  `collections/routes.ts`, `db/migrations/008_single_collection_per_user.ts`
+- **Clients re-point to the surviving vault automatically — cold start AND while
+  running.** The client adopts the authoritative key the server returns from
+  `PUT …/key` (so concurrent connects converge on one key, not just one
+  collection id). A client pinned to a collapsed/deleted vault heals: the server
+  signals a gone vault with **404**, which the client maps to
+  `SyncErrorKind::CollectionGone` (message prefixed `collection-gone:`).
+  - **Cold start:** native re-picks the vault on every `connect()` (it has no
+    `resume()`); desktop `resume()` surfaces `CollectionGone`, which
+    `ensureConnected` catches to fall back to `connectE2ee`.
+  - **Already running:** the active-session pull path (`run_pull` /
+    `reconcile_empty_map`) surfaces `CollectionGone`, and the shared **live loop
+    stops (terminal)** instead of spinning against the dead vault. Desktop's
+    `syncE2eeAuto` catches it and re-points (`stopLiveSync` → `connectE2ee`);
+    native `SyncManager` catches it — the typed `SyncError.CollectionGone` from
+    `sync_now`, or the `collection-gone` string from the live loop's `on_error` —
+    and re-runs `connectAndSync`.
+
+  After re-pointing, the reset→reconcile→push re-uploads local notes to the
+  survivor — no data loss for anything a device still holds. → futo-notes-sync
+  `orchestrator::{connect,resume,run_pull}`, `live::watch` (terminal on
+  collection-gone), `client::E2eeHttpError::is_not_found`; syncServiceE2ee
+  `{ensureConnected,syncE2eeAuto}`; SyncManager.{swift,kt} `healCollectionGone`
 - Moving the whole vault folder to a new location (e.g. the Android Device/App
   storage switch → [app.md](app.md) "Vault location") is transparent to sync:
   the object map is keyed by **relative** filename (not absolute path) and the
