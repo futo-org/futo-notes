@@ -10,18 +10,19 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
   bottom search bar on the list; the nav-bar gear presents the Settings
   sheet and the cloud button presents the Sync sheet (see settings.md). →
   NoteListView.swift *(iOS)*
-  The iOS list nav-bar controls — the **gear** (Settings), the **cloud**
-  (Sync), and the **"+"** create-note menu — are each a separate, labeled,
-  activatable accessibility element (they do NOT collapse into one unlabeled
-  container). Each carries an explicit `accessibilityLabel` ("Settings" /
-  "Sync" / "New note or folder"), a button trait, and a stable
-  `accessibilityIdentifier` (`nav-settings` / `nav-sync` / `nav-create`); the
-  two leading items have distinct `ToolbarItem(id:)`s. Runtime-confirmed on the
-  iOS 26.5 simulator via `idb ui describe-point` 2026-07-01: gear →
-  `{AXLabel:"Settings", id:nav-settings, AXButton}`, cloud →
-  `{AXLabel:"Sync", id:nav-sync, AXButton}`, "+" → `{AXLabel:"New note or
-  folder", id:nav-create, AXPopUpButton}`, all `enabled`. → NoteListView.swift
-  toolbar
+  > **Gap:** *(accessibility — fix did not take effect at runtime)* The iOS
+  > list nav-bar controls — the **gear** (Settings), the **cloud** (Sync), and
+  > the **"+"** create-note menu — carry explicit `accessibilityLabel`s
+  > ("Settings" / "Sync" / "New note or folder"), a `.isButton` trait, stable
+  > `accessibilityIdentifier`s (`nav-settings` / `nav-sync` / `nav-create`),
+  > and distinct `ToolbarItem(id:)`s in code (added 2026-06-26), but the
+  > runtime check the gap was waiting on **failed**: an `idb ui describe-all`
+  > pass on the iOS 26.5 simulator (2026-07-02, during a QA run) shows the
+  > list nav-bar controls as **unlabeled Groups** — no labels, identifiers, or
+  > button traits surface in the AX tree, and automation must tap them by
+  > screenshot coordinates. (The editor's nav bar is fine — its "…" exposes
+  > AXLabel "More".) Needs investigation into why SwiftUI toolbar-hosted
+  > labels don't reach the AX tree here. → NoteListView.swift toolbar
 - A typed nav stack holds entries. Note ids and folders contain `/`, which would
   break string-based routes, so the stack holds typed `Screen` values, not path
   strings. → MainActivity.kt

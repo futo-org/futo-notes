@@ -4,6 +4,22 @@
     <!-- Sync talks to the E2EE server over HTTP(S). -->
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- DEVICE storage mode [app.md]: keeps the vault in a shared folder
+         (Documents/FUTO Notes) the user can open in the Files app + sync with
+         other apps. The Rust core does direct std::fs path I/O, so SAF/content
+         URIs are not viable; broad access is the only way to a user-visible,
+         path-addressable vault (same reason Obsidian declares this). It is a
+         user-granted "All files access" special permission (Settings), never an
+         install-time grant; APP storage is the no-permission alternative. -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+
+    <!-- Cleartext HTTP is permitted in all build types (usesCleartextTraffic
+         below) so self-hosters and testers can point at a plain-http:// server
+         (a LAN box or a VPS without TLS). Note content is E2EE-encrypted
+         client-side before upload, so the transport carries only opaque blobs +
+         auth. HTTPS is still recommended; this only removes the OS-level block
+         on http://. -->
+
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
@@ -11,7 +27,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.Material3.DayNight.NoActionBar"
-        android:usesCleartextTraffic="false">
+        android:usesCleartextTraffic="true">
         <activity
             android:name=".MainActivity"
             android:exported="true"

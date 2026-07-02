@@ -77,10 +77,15 @@ The native Android app exposes a WebView DevTools socket. Use CDP when you need
 to inspect the embedded editor or run JavaScript against it:
 
 ```bash
-adb shell 'cat /proc/net/unix' | grep webview_devtools_remote
-adb forward tcp:9228 localabstract:webview_devtools_remote_<pid>
-node scripts/cdp-invoke.mjs "document.title"
+just cdp-forward          # finds the app's socket, forwards to a per-worktree
+                          # port, and prints the matching `export CDP_PORT=…`
+node scripts/cdp-invoke.mjs "document.title"   # honors $CDP_PORT
 ```
+
+(Manual equivalent: `adb shell 'cat /proc/net/unix' | grep
+webview_devtools_remote`, then `adb forward tcp:<port>
+localabstract:webview_devtools_remote_<pid>`. adb forward host ports are
+machine-global — parallel sessions must not share one.)
 
 `scripts/cdp-invoke.mjs` wraps the Chrome DevTools Protocol in a tiny wrapper
 that calls `Runtime.evaluate` with `awaitPromise:true`.
@@ -149,7 +154,7 @@ Do not report a fix or addition as complete until you verify it. If verification
 | CSS / Tailwind only | `just build` (catches missing classes) → visual spot-check via Playwright screenshot |
 | Sync client stack (full) | `just test-cross-platform` (boots 2 Tauri instances + server, runs 12 scenarios) |
 | CI / pipeline config | Push branch → check pipeline via GitLab API (see GitLab CI section) |
-| Windows-only / WebView2 behavior (native drag-drop, NSIS installer, clean-machine launch) | Qemu Win11 VM — Playwright/agent-browser run WebKit/Chromium, **not** WebView2, so they can't prove it. Harness in `scripts/win-vm/` (see `scripts/win-vm/README.md`) + the `/verify` skill's "Windows (WebView2 — qemu VM)" section |
+| Windows-only / WebView2 behavior (native drag-drop, NSIS installer, clean-machine launch) | Qemu Win11 VM — Playwright/agent-browser run WebKit/Chromium, **not** WebView2, so they can't prove it. Harness in `scripts/win-vm/` (see `scripts/win-vm/README.md`) + the `/verify` skill's `references/windows-vm.md` |
 
 Always pipe build output through `| tail -20` for readability. Run `pnpm exec tsc --noEmit | head -30` before a full build to catch type errors early.
 
@@ -173,7 +178,7 @@ curl -s --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
 - Regression tests: `tests/p0-regressions.spec.ts` (crash/IME), `tests/p1-regressions.spec.ts` (links), `tests/p2-regressions.spec.ts` (title/formatting)
 - Markdown spec + cursor movement coverage: `tests/markdown-spec.spec.ts` and `markdown-spec/cases/**`. The movement-path editor cases run in CI via `pnpm run test:markdown-spec`.
 - Some Android-native issues (IME, status bar) require device QA even when Playwright passes
-- Windows-only behavior (native drag-drop on WebView2, the NSIS installer, VC++/WebView2 runtime on a clean machine) is invisible to Playwright/agent-browser (they run WebKit/Chromium). Verify in the sudo-free qemu Win11 harness in `scripts/win-vm/` (data dir defaults to `~/Developer/win-vm`) — full procedure + video-recording steps live in `scripts/win-vm/README.md` and the `/verify` skill ("Windows (WebView2 — qemu VM)")
+- Windows-only behavior (native drag-drop on WebView2, the NSIS installer, VC++/WebView2 runtime on a clean machine) is invisible to Playwright/agent-browser (they run WebKit/Chromium). Verify in the sudo-free qemu Win11 harness in `scripts/win-vm/` (data dir defaults to `~/Developer/win-vm`) — full procedure + video-recording steps live in `scripts/win-vm/README.md` and the `/verify` skill's `references/windows-vm.md`
 
 ## Test Requirements
 
@@ -213,7 +218,7 @@ Every code change that touches logic must include or update tests. No exceptions
 
 ## Browser Tools
 
-**Use `agent-browser` over Playwright MCP** for interactive browser tasks — poking around, testing UI, taking screenshots, inspecting state. It's faster, handles CodeMirror typing natively, and supports annotated screenshots with element labels. Run `agent-browser` with no args to see the full command reference and tips. For the Tauri app (desktop, Android, iOS), use the Tauri MCP bridge tools (`driver_session`, `webview_*`) — the bridge is included in debug builds on all platforms.
+**Use `agent-browser` over Playwright MCP** for interactive browser tasks — poking around, testing UI, taking screenshots, inspecting state. It's faster, handles CodeMirror typing natively, and supports annotated screenshots with element labels. Run `agent-browser` with no args to see the full command reference and tips. For the Tauri **desktop** app, use the Tauri MCP bridge tools (`driver_session`, `webview_*`) — the bridge ships in desktop debug builds. The native mobile shells have **no** MCP bridge: drive iOS with `xcrun simctl` + `idb`, Android with `adb`/uiautomator + CDP (`just cdp-forward`) — full playbooks in the `/verify` skill's `references/ios.md` and `references/android.md`.
 
 When switching sync servers in debug builds, prefer the dev-only `window.__testSync` hook over UI automation. It is exposed in Tauri dev webviews and supports:
 
@@ -229,8 +234,9 @@ For Android emulator runs, use `10.0.2.2` instead of `127.0.0.1` for host servic
 ## Debugging
 
 ```bash
-adb logcat | grep "futo\|JS\|error"  # Android logs
-# iOS: Xcode → Window → Devices and Simulators → View device logs
+just emu-logs   # Android: tag-scoped logcat (FutoStartup, NotesStore, FutoBridgeDBG, AndroidRuntime, …)
+just sim-logs   # iOS simulator: os_log stream. print() output needs a console-attached
+                # launch instead: xcrun simctl launch --console-pty booted com.futo.notes.dev
 ```
 
 ## Error Handling

@@ -25,6 +25,50 @@ Behaviors and constraints that hold across every surface and platform.
   a broken `![]()` on every other device). → [sync.md](sync.md) "Embedded
   images sync with their notes"
 
+## Vault location & file-manager access
+
+- The vault should be reachable from the OS file browser so users can open, back
+  up, and inter-operate with their notes ("file over app"). The Rust core does
+  direct `std::fs` path I/O, so SAF / content-URIs are not viable — a
+  user-visible vault must be a real filesystem path.
+- **Desktop:** the vault is a normal folder (`~/Documents/futo-notes`), always
+  browsable; changeable in Settings.
+- **iOS:** the vault lives in the app's Documents container
+  (`Documents/futo-notes`) and is exposed in the Files app under
+  "On My iPhone → FUTO Notes" via `UIFileSharingEnabled` +
+  `LSSupportsOpeningDocumentsInPlace`. Sync state / crash logs are dotfiles
+  inside the vault, which the Files app hides. Applies to all installs (it only
+  reveals the existing folder — no migration). *(iOS)*
+- **Android:** two storage modes, chosen on first run (Obsidian-style picker;
+  Device storage is the pre-selected recommended default), switchable later in
+  Settings → Storage:
+  - **Device storage** — `Documents/FUTO Notes` on shared storage: visible in
+    the stock Files app + survives uninstall. Needs the "All files access"
+    (`MANAGE_EXTERNAL_STORAGE`) permission, requested behind a rationale screen
+    shown before the system dialog. Android 11+ only.
+  - **App storage** — `Android/data/<pkg>/files/futo-notes`: no permission, but
+    invisible to the stock Files app on Android 11+ and deleted on uninstall.
+  Switching modes migrates the whole vault (including the `.futo` sync state) and
+  relaunches; the move is transparent to sync (object map is keyed by relative
+  filename → [sync.md](sync.md)).
+- **No silent relocation of existing installs.** An Android install that predates
+  the picker is grandfathered on its legacy internal location
+  (`filesDir/futo-notes`); it gains Files-app access only by opting in via
+  Settings (which migrates). An update must never repoint an existing vault out
+  from under the user.
+- **Dev/prod guard for Device storage:** the public Documents folder is not
+  package-scoped, so debug builds use `Documents/FUTO Notes Dev` while release
+  uses `Documents/FUTO Notes` (App/Internal modes already isolate via the `.dev`
+  applicationId). → [Data safety](#data-safety)
+
+> **Gap:** Android pre-11 (API < 30) devices can't use Device storage (All-files
+> access is an API-30 mechanism) — they only get App storage, so their vault is
+> not visible in a file manager. *(Android)*
+
+> **Gap:** The vault folder is fixed per mode and not a user-pickable arbitrary
+> directory on mobile (desktop allows a custom folder); iOS has no iCloud Drive
+> vault option. Both are possible follow-ups. *(iOS / Android)*
+
 ## Where logic lives
 
 - Note CRUD, rules, sync, search, and indexing logic live in Rust

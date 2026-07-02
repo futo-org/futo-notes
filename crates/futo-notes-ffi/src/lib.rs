@@ -372,6 +372,14 @@ pub enum SyncError {
     Io(String),
     #[error("auth error: {0}")]
     Auth(String),
+    /// The vault this client was pinned to no longer exists on the server
+    /// (404) — e.g. a duplicate collapsed by the single-vault migration. The
+    /// shell heals by re-connecting: `connect()` re-picks the surviving
+    /// canonical vault and the reset→reconcile→push re-uploads local notes. The
+    /// message is prefixed `collection-gone:`. Surfaced from `sync_now` and
+    /// (as an `on_error` string) from the live loop.
+    #[error("{0}")]
+    CollectionGone(String),
     #[error("not connected")]
     NotConnected,
 }
@@ -383,6 +391,12 @@ impl From<SyncErrorKind> for SyncError {
             SyncErrorKind::Crypto(s) => SyncError::Crypto(s),
             SyncErrorKind::Io(s) => SyncError::Io(s),
             SyncErrorKind::Auth(s) => SyncError::Auth(s),
+            // Native DOES produce this: `sync_now`/the live loop reach the pull
+            // path (`run_pull`/`reconcile_empty_map`), which maps a 404 on the
+            // pinned collection to CollectionGone. Surface it distinctly so the
+            // shell can re-point to the surviving vault instead of showing a
+            // dead-end error.
+            SyncErrorKind::CollectionGone(s) => SyncError::CollectionGone(s),
             SyncErrorKind::NotConnected => SyncError::NotConnected,
         }
     }

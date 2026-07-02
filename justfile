@@ -122,6 +122,131 @@ test-ios-native: build-rust-ios
 test-android-native: build-rust-android
   cd apps/android && ./gradlew testDebugUnitTest
 
+# ── Parallel QA isolation (multiple worktrees, one machine) ──
+# Worktree path → slot → pooled devices (futo-qa-0..6 per platform) + a
+# per-slot sync server with its own Postgres database. Your personal
+# simulators/AVDs are never touched. See scripts/qa.mjs and the /verify
+# skill's "Isolation model" section.
+
+# Claim (create + boot if needed) this worktree's pooled simulator/emulator.
+# Prints `export SIM=…` / `export ANDROID_SERIAL=…` — eval or copy them.
+qa-claim target="all":
+  @node scripts/qa.mjs claim {{target}}
+
+# Show pool devices + per-slot sync servers, and which worktree owns each.
+qa-status:
+  @node scripts/qa.mjs status
+
+# Release this worktree's devices (add --shutdown to also power them off).
+# Also stops this worktree's qa-server so nothing is left orphaned.
+qa-release *flags:
+  @node scripts/qa.mjs release {{flags}}
+
+# Reap pool devices/servers owned by worktrees that no longer exist.
+qa-gc:
+  @node scripts/qa.mjs gc
+
+# Start this worktree's isolated sync server (own port + own Postgres DB).
+qa-server:
+  @node scripts/qa.mjs server-start
+
+# Stop it (add --drop to also drop its database and blobs).
+qa-server-stop *flags:
+  @node scripts/qa.mjs server-stop {{flags}}
+
+# ── Simulator / emulator QA helpers ──
+# Mechanics for driving the native apps under QA. The judgment layer (how to
+# read a11y trees, what can't be automated, failure modes) lives in the
+# /verify skill's references/ios.md and references/android.md. All sim-*
+# helpers honor $SIM (from qa-claim); adb-based ones honor $ANDROID_SERIAL.
+
+# Boot an iOS simulator by name (no-op if already booted) and wait for it.
+sim-boot name="iPhone 17 Pro":
+  #!/usr/bin/env bash
+  set -euo pipefail
+  xcrun simctl boot '{{name}}' 2>/dev/null || true  # "already booted" is fine
+  open -a Simulator
+  for i in $(seq 1 30); do
+    xcrun simctl list devices booted | grep -q Booted && break; sleep 1
+  done
+  just sim-udid
+
+# Print the target simulator UDID: $SIM when set, else the single booted one.
+sim-udid:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  if [ -n "${SIM:-}" ]; then echo "$SIM"; exit 0; fi
+  UDIDS=$(xcrun simctl list devices booted | sed -n 's/.*(\([0-9A-Fa-f-]\{36\}\)).*Booted.*/\1/p')
+  COUNT=$(printf '%s' "$UDIDS" | grep -c . || true)
+  [ "$COUNT" -ge 1 ] || { echo "No booted simulator. Boot one: just sim-boot (or just qa-claim ios)" >&2; exit 1; }
+  [ "$COUNT" -eq 1 ] || { echo "Multiple booted simulators — set SIM=<udid> (just qa-claim ios prints it):" >&2; echo "$UDIDS" >&2; exit 1; }
+  echo "$UDIDS"
+
+# Screenshot the target simulator ($SIM, else booted) → test-screenshots/<name>.png
+sim-screenshot name="sim":
+  @mkdir -p test-screenshots
+  xcrun simctl io "${SIM:-booted}" screenshot 'test-screenshots/{{name}}.png'
+
+# Flip the target simulator's system appearance (dark|light).
+sim-appearance mode="dark":
+  xcrun simctl ui "${SIM:-booted}" appearance {{mode}}
+
+# NOTE: the app logs mostly via print(), which os_log does NOT capture — for
+# stdout, relaunch with `xcrun simctl launch --console-pty booted com.futo.notes.dev`.
+# Stream the native iOS app's os_log/WebKit output (see NOTE above for print()).
+sim-logs:
+  xcrun simctl spawn "${SIM:-booted}" log stream --level=debug --predicate 'process == "FutoNotesNative"'
+
+# Print the debug app's (com.futo.notes.dev) notes root in the sim container.
+sim-container:
+  @echo "$(xcrun simctl get_app_container "${SIM:-booted}" com.futo.notes.dev data)/Documents/fake-notes"
+
+# Boot the first available AVD if none is connected; wait up to 120s for it.
+emu-boot:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  if adb devices | grep -qE '\tdevice$'; then
+    echo "Android device/emulator already connected:"; adb devices | grep -v '^List'; exit 0
+  fi
+  EMULATOR="${ANDROID_HOME:-$HOME/Library/Android/sdk}/emulator/emulator"
+  AVD=$("$EMULATOR" -list-avds 2>/dev/null | head -1)
+  [ -n "$AVD" ] || { echo "No AVDs available — create one with Android Studio or avdmanager." >&2; exit 1; }
+  echo "Launching AVD: $AVD"
+  "$EMULATOR" -avd "$AVD" -no-snapshot-load >/dev/null 2>&1 &
+  for i in $(seq 1 60); do
+    [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ] && echo "Booted." && exit 0
+    sleep 2
+  done
+  echo "Emulator did not boot within 120s" >&2; exit 1
+
+# With several devices attached, set ANDROID_SERIAL first.
+# Screenshot the connected Android device/emulator → test-screenshots/<name>.png
+emu-screenshot name="emu":
+  @mkdir -p test-screenshots
+  adb exec-out screencap -p > 'test-screenshots/{{name}}.png'
+
+# `adb logcat -c` first for a clean slate; crashes land under AndroidRuntime.
+# Tag-scoped logcat for the native Android app's stable log tags.
+emu-logs:
+  adb logcat -s FutoStartup FutoSearch NotesStore FutoToolbarDBG FutoBridgeDBG AndroidRuntime
+
+# Debug builds only; re-run after every app restart (the WebView pid changes).
+# adb forward host ports are machine-global, so the port is per-worktree
+# (9330 + slot; override with $CDP_PORT). cdp-invoke.mjs honors $CDP_PORT.
+# Forward the Android app's WebView DevTools socket for cdp-invoke.mjs.
+cdp-forward:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  SLOT=$(( $(printf "%d" "0x$(echo -n "$(git rev-parse --show-toplevel)" | md5sum | cut -c1-8)") % 50 ))
+  PORT="${CDP_PORT:-$((9330 + SLOT))}"
+  PID=$(adb shell pidof com.futo.notes.dev | tr -d '\r')
+  [ -n "$PID" ] || { echo "com.futo.notes.dev is not running — launch the app first." >&2; exit 1; }
+  SOCKET=$(adb shell 'cat /proc/net/unix' | grep -o "webview_devtools_remote_${PID}" | head -1)
+  [ -n "$SOCKET" ] || { echo "No DevTools socket for pid $PID — has the editor WebView been opened yet?" >&2; exit 1; }
+  adb forward "tcp:${PORT}" "localabstract:${SOCKET}"
+  echo "Forwarded localhost:${PORT} → ${SOCKET}"
+  echo "  export CDP_PORT=${PORT}   # then: node scripts/cdp-invoke.mjs \"document.title\""
+
 build:
   pnpm exec tsc --noEmit | head -30
   pnpm run build | tail -20

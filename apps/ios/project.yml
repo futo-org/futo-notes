@@ -65,6 +65,12 @@ targets:
         INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         GENERATE_INFOPLIST_FILE: "YES"
+        # Base Info.plist supplies what the flat INFOPLIST_KEY_* form can't express:
+        # the nested NSAppTransportSecurity dict (cleartext http:// for self-hosted
+        # sync servers) + the Files-app exposure keys (UIFileSharingEnabled,
+        # LSSupportsOpeningDocumentsInPlace). Shared by Debug AND Release so both
+        # get identical treatment. GENERATE_INFOPLIST_FILE merges the auto keys on top.
+        INFOPLIST_FILE: Info.plist
         # Keychain (sync-password persistence for force-quit survival) requires a
         # keychain-access-groups entitlement + a code signature. The simulator
         # uses ad-hoc signing (run.sh passes CODE_SIGN_IDENTITY=-); device builds
@@ -80,9 +86,9 @@ targets:
       #   - PRODUCT_BUNDLE_IDENTIFIER drives the install identity.
       #   - FUTO_DEBUG_BUILD=1 (Debug only) selects the dev data root +
       #     dev keychain service in Swift (NotesStore / Keychain).
-      # Debug also relaxes App Transport Security so the dev sync server can be
-      # reached over plain http on the LAN/localhost. Release ships NO ATS
-      # exception — it must behave byte-identically to before this change.
+      # App Transport Security is relaxed for BOTH Debug and Release (via the
+      # shared base Info.plist above) so a self-hosted sync server can be reached
+      # over plain http://. Content is E2EE before upload; HTTPS is recommended.
       configs:
         Debug:
           PRODUCT_BUNDLE_IDENTIFIER: com.futo.notes.dev
@@ -93,12 +99,5 @@ targets:
           # is our own compile-time marker so the dev/prod split is explicit and
           # testable independent of the DEBUG macro.
           SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) DEBUG FUTO_DEBUG_BUILD"
-          # ATS exception — DEBUG ONLY. Allows the dev sync server over plain
-          # http on localhost/LAN. Supplied via a base Info.plist (the flat
-          # INFOPLIST_KEY_NSAppTransportSecurity_* form does NOT synthesize the
-          # nested dict). GENERATE_INFOPLIST_FILE merges the auto-generated keys
-          # on top, so this file contributes ONLY the ATS dict. Release sets no
-          # INFOPLIST_FILE → no ATS exception (byte-identical to before).
-          INFOPLIST_FILE: Info.debug.plist
         Release:
           PRODUCT_BUNDLE_IDENTIFIER: com.futo.notes

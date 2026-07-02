@@ -54,6 +54,14 @@ impl E2eeHttpError {
     pub fn is_payload_too_large(&self) -> bool {
         matches!(self, Self::Http { status: 413, .. })
     }
+
+    /// True for an HTTP 404 — the resource is gone. On the resume path a 404
+    /// from the key-material endpoint means the persisted collection no longer
+    /// exists on the server (e.g. a duplicate vault collapsed by the
+    /// single-vault migration), which the desktop heals by re-connecting.
+    pub fn is_not_found(&self) -> bool {
+        matches!(self, Self::Http { status: 404, .. })
+    }
 }
 
 // ── Wire types ───────────────────────────────────────────────────────────

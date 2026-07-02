@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Base Info.plist shared by Debug AND Release (project.yml settings.base
+	     INFOPLIST_FILE). With GENERATE_INFOPLIST_FILE=YES, Xcode merges the
+	     auto-generated keys (display name, scene/launch, orientations) ON TOP of
+	     this file, so this file contributes only what the flat INFOPLIST_KEY_*
+	     build-setting form can't synthesize (Xcode honors only a fixed allowlist
+	     of INFOPLIST_KEY_* names, which excludes every key below): the nested App
+	     Transport Security dict and the Files-app exposure keys.
+	     App Store note: NSAllowsArbitraryLoads triggers a review justification
+	     prompt — the app's E2EE means the transport carries only encrypted blobs,
+	     and users self-host on arbitrary http:// servers. -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<!-- Allows a self-hosted sync server over plain http (LAN box, VPS
+		     without TLS, or localhost during testing). Note content is E2EE
+		     before upload; HTTPS is still recommended. -->
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
+	<!-- Expose the vault (Documents/futo-notes) in the Files app [app.md]; both
+	     keys are required to surface the app's Documents directory under
+	     "On My iPhone > FUTO Notes", editable in place. -->
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
+</dict>
+</plist>

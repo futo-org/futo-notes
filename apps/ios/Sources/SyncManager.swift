@@ -42,6 +42,14 @@ final class SyncManager: ObservableObject {
     /// must keep it alive ourselves (it in turn holds `self` weakly).
     private var liveListener: LiveListener?
 
+    /// The vault root of the current session, stashed at connect so a
+    /// collection-gone heal can rebuild the client without the Sync view.
+    private var notesRoot: String?
+
+    /// Guards against re-entrant heal attempts — a collection-gone can surface
+    /// from both the manual/initial sync path and the live loop at once.
+    private var healing = false
+
     /// Invoked on the main actor after a live pull that changed the vault on
     /// disk (downloaded/deleted > 0). The note list is a separate `NotesStore`,
     /// so the app wires this to `store.reload()` to surface the pulled note
@@ -77,6 +85,7 @@ final class SyncManager: ObservableObject {
         lastError = nil
         liveError = nil
         status = "Connecting…"
+        self.notesRoot = notesRoot  // stash for a later collection-gone heal
         defer { busy = false }
         // Reject a schemeless URL up front with an actionable message instead
         // of letting the client fail with an opaque transport error. → sync.md
@@ -134,8 +143,34 @@ final class SyncManager: ObservableObject {
             let summary = try await c.syncNow()
             status = summarize(summary)
         } catch {
+            // The pinned vault was collapsed by the single-vault migration —
+            // re-point to the survivor instead of surfacing a dead-end error.
+            if isCollectionGone(error) { healCollectionGone(); return }
             lastError = describe(error)
             status = "Error"
+        }
+    }
+
+    /// Whether a typed sync error is the collection-gone signal (the vault this
+    /// client pinned to was collapsed server-side by the single-vault migration).
+    private func isCollectionGone(_ error: Error) -> Bool {
+        if let e = error as? SyncError, case .CollectionGone = e { return true }
+        return false
+    }
+
+    /// Heal a collapsed vault: re-point to the surviving canonical vault. A
+    /// fresh `connectAndSync` re-runs `connect()` (which re-picks the survivor
+    /// via `list_collections`) and the reset→reconcile→push re-uploads our local
+    /// notes, so nothing is lost. Uses the password stored at last connect;
+    /// no-op if none. Guarded against re-entry.
+    private func healCollectionGone() {
+        guard !healing, let root = notesRoot, let password = Keychain.syncPassword else { return }
+        healing = true
+        Task {
+            // The dead session's live loop stopped itself (terminal on
+            // collection-gone); connectAndSync builds a fresh client + live loop.
+            await connectAndSync(notesRoot: root, password: password)
+            healing = false
         }
     }
 
@@ -197,6 +232,13 @@ final class SyncManager: ObservableObject {
     /// still runs) are live-stream health and go to the muted `liveError`.
     /// Anything else is a genuine failure and gets the red `lastError`.
     fileprivate func setLastError(_ m: String) {
+        // The live loop hit the collapsed vault and stopped itself (terminal on
+        // collection-gone). Re-point to the surviving canonical vault rather
+        // than leaving a persistent error until the app restarts.
+        if m.contains("collection-gone") {
+            healCollectionGone()
+            return
+        }
         if m.hasPrefix("connect:") || m.hasPrefix("stream:") {
             liveError = m
         } else {
@@ -216,6 +258,7 @@ final class SyncManager: ObservableObject {
         status = "Not connected"
         lastError = nil
         liveError = nil
+        healing = false  // clear any stalled heal so a future session can heal
     }
 
     private func describe(_ error: Error) -> String {
@@ -225,6 +268,7 @@ final class SyncManager: ObservableObject {
             case .Crypto(let m): return "Crypto: \(m)"
             case .Io(let m): return "IO: \(m)"
             case .Auth(let m): return "Auth: \(m)"
+            case .CollectionGone(let m): return m
             case .NotConnected: return "Not connected"
             }
         }
