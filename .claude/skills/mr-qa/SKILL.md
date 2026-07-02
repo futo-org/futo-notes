@@ -1,6 +1,6 @@
 ---
 name: mr-qa
-description: Parallel QA of one or more merge requests across desktop/iOS/Android, including cross-client sync. Use when the user wants MRs tested — "test MR !123", "QA these five MRs in parallel", "spin up QA for my open MRs", "test this branch on mobile" — or wants a full spec pass. Creates a worktree per MR, pre-builds, fans out mobile-qa agents concurrently, and aggregates verdicts.
+description: Parallel QA of one or more merge requests across desktop/iOS/Android, including cross-client sync. Use when the user wants MRs tested — "test MR !123", "QA these five MRs in parallel", "spin up QA for my open MRs", "test this branch on mobile" — or wants a full spec pass. Creates a worktree per MR, pre-builds, fans out app-qa agents concurrently, and aggregates verdicts.
 ---
 
 # MR QA — parallel by default
@@ -31,7 +31,7 @@ model in the `/verify` skill is what makes that safe. Battle-tested
      do NOT use `just tauri-dev` here — its auto-started server would
      collide with `qa-server` on the same slot port).
    - `just qa-server` if the pass includes sync (it usually should).
-3. **Spawn one `mobile-qa` agent per MR** (they're model-pinned to Sonnet).
+3. **Spawn one `app-qa` agent per MR** (they're model-pinned to Sonnet).
    Hand it: the worktree path, the claimed device ids, the server
    port/password, what the MR changes (diff summary → spec surfaces), and
    that apps are pre-built. Agents for different MRs run concurrently.
