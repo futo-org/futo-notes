@@ -4,13 +4,17 @@
 // remote result as JSON.
 //
 // Usage:
-//   node scripts/cdp-invoke.mjs "await window.__TAURI__.core.invoke('cmd',{a:1})"
-//   node scripts/cdp-invoke.mjs --port 9228 "expr"
+//   node scripts/cdp-invoke.mjs "window.FutoEditor.getContent()"
+//   node scripts/cdp-invoke.mjs --port 9331 "expr"
+//
+// The port defaults to $CDP_PORT (exported by `just cdp-forward`, which
+// forwards to a per-worktree port so parallel sessions don't steal each
+// other's forward), then 9228.
 
 import WebSocket from 'ws';
 
 const args = process.argv.slice(2);
-let port = 9228;
+let port = Number(process.env.CDP_PORT || 9228);
 const out = [];
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--port') {

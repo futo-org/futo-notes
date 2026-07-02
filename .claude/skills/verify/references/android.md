@@ -12,16 +12,17 @@ production install comes from the `.dev` application-id suffix.
 ## 1. Device or emulator
 
 ```bash
-adb devices                 # anything attached?
-just emu-boot               # if not: boots the first available AVD and waits for it
+just qa-claim android       # THE way in a shared/parallel session: claims this
+                            # worktree's pooled AVD, boots it, prints
+                            # `export ANDROID_SERIAL=<serial>` — set it in every Bash block
+adb devices                 # solo alternative: anything already attached?
+just emu-boot               # boots the first available AVD if nothing is
 ```
 
-With **multiple** devices attached (e.g. two emulators), every `adb` call
-needs a target — export it once instead of adding `-s` everywhere:
-
-```bash
-export ANDROID_SERIAL=emulator-5554
-```
+`adb` honors `$ANDROID_SERIAL` natively; with multiple devices attached every
+`adb` call is ambiguous without it. Driving a device another session claimed
+(see `just qa-status`) causes install-thrashing — don't. Release with
+`just qa-release` when done.
 
 ## 2. Build, install, launch
 
@@ -34,9 +35,19 @@ For app-only iteration (no Rust/editor changes), skip the Rust rebuild:
 ```bash
 cd apps/android && ./gradlew :app:installDebug
 adb shell am force-stop com.futo.notes.dev
-adb shell monkey -p com.futo.notes.dev -c android.intent.category.LAUNCHER 1
+adb shell am start -n com.futo.notes.dev/com.futo.notes.MainActivity
 adb shell pidof com.futo.notes.dev    # confirm it's running
 ```
+
+(`am start -n` is the reliable launcher — `adb shell monkey -p … 1` exits 251
+without launching on some emulators. If the activity name ever moves:
+`adb shell cmd package resolve-activity --brief com.futo.notes.dev`.)
+
+**First run on a fresh AVD hits onboarding**: a "Where should your notes
+live?" storage choice plus an "All files access" permission grant stand
+between launch and the note list. On small AVD resolutions the
+Continue/Grant buttons sit below the fold — scroll before concluding
+they're missing.
 
 - `INSTALL_FAILED_INSUFFICIENT_STORAGE` → uninstall stale builds:
   `adb shell pm uninstall com.futo.notes.dev` (and any old `com.futo.notes`
@@ -86,7 +97,8 @@ Debug builds enable WebView debugging (`EditorWebView.kt`). One-time setup per
 app launch, then evaluate arbitrary JS in the editor page:
 
 ```bash
-just cdp-forward            # finds the app's devtools socket, forwards to :9228
+just cdp-forward            # finds the app's devtools socket, forwards to a
+                            # per-worktree port, prints `export CDP_PORT=…` — set it
 node scripts/cdp-invoke.mjs "document.title"
 node scripts/cdp-invoke.mjs "window.FutoEditor.getContent()"
 node scripts/cdp-invoke.mjs "window.FutoEditor.setContent('# from CDP')"
@@ -95,7 +107,11 @@ node scripts/cdp-invoke.mjs "window.FutoEditor.setContent('# from CDP')"
 `window.FutoEditor` is the embed's API surface (setContent / getContent /
 focus / setTheme / exec / setNativeToolbar, …) — see the contract comment at
 the top of `apps/ios/Sources/EditorWebView.swift` (same embed on both
-platforms). There is **no** `window.__TAURI__` or `window.__testSync` here —
+platforms). **`setContent` updates the visible editor only** — it does not
+fire the native change/save pipeline, so the content reverts on background
+unless you also post the bridge message a real keystroke would send:
+`window.futoBridge.postMessage(JSON.stringify({type:'change', content}))`
+(or send one real keystroke through the UI). There is **no** `window.__TAURI__` or `window.__testSync` here —
 those are Tauri-desktop-only. `cdp-invoke.mjs` awaits promises and bypasses
 page CSP; re-run `just cdp-forward` after an app restart (the WebView pid
 changes).
@@ -116,16 +132,22 @@ offered for upload on the next launch.
 
 ## 6. App data: seeding and verification
 
-The vault is app-private, but debug builds are debuggable — `run-as` works:
+The vault location depends on the onboarding storage choice:
+
+- **Device storage** (the recommended option): shared storage at
+  `/storage/emulated/0/Documents/FUTO Notes Dev` — plain `adb shell
+  cat`/`find` works; `run-as` does NOT (that path 404s under it).
+- **App storage**: app-private `files/futo-notes` — debug builds are
+  debuggable, so `run-as com.futo.notes.dev` works there.
 
 ```bash
-adb shell run-as com.futo.notes.dev ls files/futo-notes
-adb shell run-as com.futo.notes.dev cat 'files/futo-notes/grocery list.md'
+adb shell find '/storage/emulated/0/Documents/FUTO Notes Dev' -name '*.md'   # device storage
+adb shell run-as com.futo.notes.dev ls files/futo-notes                      # app storage
 
-# Seed a fixture, then relaunch so the scan picks it up:
-printf '# Seeded\n' | adb shell run-as com.futo.notes.dev sh -c 'cat > "files/futo-notes/Seeded Note.md"'
+# Seed a fixture (device-storage vault), then relaunch so the scan picks it up:
+printf '# Seeded\n' | adb shell sh -c 'cat > "/storage/emulated/0/Documents/FUTO Notes Dev/Seeded Note.md"'
 adb shell am force-stop com.futo.notes.dev
-adb shell monkey -p com.futo.notes.dev -c android.intent.category.LAUNCHER 1
+adb shell am start -n com.futo.notes.dev/com.futo.notes.MainActivity
 ```
 
 Full reset: `adb shell pm clear com.futo.notes.dev` (wipes vault + prefs +

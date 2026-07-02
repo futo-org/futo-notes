@@ -17,13 +17,20 @@ Everything below assumes: Xcode (with a downloaded simulator runtime),
 (`brew install idb-companion` + `pip install fb-idb`). `just ios-native` fails
 with a clear message when something is missing.
 
-## 1. Boot a simulator
+## 1. Get a simulator
 
 ```bash
-just sim-boot                      # boots "iPhone 17 Pro" + opens Simulator.app
-just sim-boot 'iPhone 17 Pro Max'  # or any device from `xcrun simctl list devices available`
-just sim-udid                      # prints the booted UDID (fails if none)
+just qa-claim ios                  # THE way in a shared/parallel session: claims
+                                   # this worktree's pooled sim, boots it, prints
+                                   # `export SIM=<udid>` — set it in every Bash block
+just sim-boot                      # solo alternative: boots "iPhone 17 Pro"
+just sim-udid                      # $SIM if set, else the single booted UDID
+                                   # (errors when several sims are booted — claim instead)
 ```
+
+All `sim-*` recipes and `apps/ios/run.sh` honor `$SIM`. With more than one
+booted simulator, bare `booted` targeting is ambiguous — always pin `SIM`.
+Release the claim with `just qa-release` when the session is done.
 
 ## 2. Build, install, launch
 
@@ -60,6 +67,7 @@ coordinates from screenshots.
 
 ```bash
 SIM=$(just sim-udid)
+idb list-targets | grep "$SIM"               # says "No Companion Connected"? → idb connect $SIM
 idb ui describe-all --udid $SIM              # full a11y tree (JSON array)
 idb ui describe-point --udid $SIM 201 400    # element under a point
 idb ui tap --udid $SIM 201 400               # tap; add --duration 0.9 for long-press
@@ -70,10 +78,19 @@ idb ui button --udid $SIM HOME               # hardware button (HOME backgrounds
 ```
 
 To find an element, pipe `describe-all` through python/jq and filter by
-`AXLabel`, then tap the center of its `frame`. Long-press (`tap --duration
+`AXLabel`, then tap the **center** of its `frame` (`x+w/2, y+h/2`) — taps at
+a frame's top edge hit the adjacent menu item. Long-press (`tap --duration
 0.9`) opens row context menus; `custom_actions` in the tree lists swipe
 actions that have no visible affordance — check them before declaring a
 feature missing (see `docs/spec/AGENTS.md`).
+
+Tree quirks (observed 2026-07): right after a screen push finishes,
+`describe-all` can return just an unlabeled `Group` for a couple of seconds —
+retry after a short sleep before concluding elements are missing. The
+nav-bar controls (gear / cloud / `+` / back / `…`) appear as **unlabeled
+Groups**, not labeled buttons — locate them on a screenshot instead
+(coordinates in the tree are a11y points; × 3.0 = screenshot pixels on
+current iPhone simulators).
 
 **What idb cannot reach**: out-of-process system UI — the "Save Password?"
 sheet, the Photos picker, permission dialogs. They don't appear in the a11y
@@ -113,6 +130,11 @@ printf '# Seeded\n\n- [ ] task\n' > "$NOTES/QA Folder/Seeded Note.md"
 xcrun simctl terminate "$SIM" com.futo.notes.dev; xcrun simctl launch "$SIM" com.futo.notes.dev
 ```
 
+**Empty-vault Welcome seed**: launching into a completely empty vault
+auto-seeds `Welcome.md` — wipe-and-relaunch can never show the bare
+"No notes yet" state. To reach true-empty, delete the last note **in-app**
+(row long-press → Delete → confirm) and don't relaunch afterward.
+
 ### The flush-and-read trick (editor content verification)
 
 The editor WKWebView is not reachable via CDP or JS from outside (no
@@ -128,6 +150,15 @@ cat "$NOTES/<note>.md"
 
 Type into the editor with `idb ui text` after tapping the title/body to
 focus; verify the result on disk, not by screenshot-squinting.
+
+**IME mangles typed text in note fields**: autocapitalize/predictive-text
+rewrite things like `para-1-ios` → `Para-1-iOS` (the Sync settings fields
+suppress this; note fields don't). `idb ui text` also APPENDS to prefilled
+fields — clear them first (tap the field's right edge, then `idb ui key 42`
+backspaces). For exact text, `xcrun simctl pbcopy $SIM` + long-press → Paste
+usually works but has silently no-op'd in some fields — the robust pattern
+is: use markers autocorrect can't rewrite (digits/hyphens), and verify
+byte-for-byte on disk rather than trusting what the screen shows.
 
 ## 6. Sync features
 
@@ -147,7 +178,7 @@ record sync happy-path stories as **Blocked**, not failed.
   appearance switch, re-open the note before calling it a bug — and if it
   persists, that's a regression worth reporting.
 - **`just ios-native` needs an already-booted simulator** — it does not
-  auto-boot; run `just sim-boot` first.
+  auto-boot; run `just qa-claim ios` (or `just sim-boot` solo) first.
 - Editor-affecting changes (`src/`, `packages/editor`) need a rebuilt editor
   bundle: `just ios-native` runs `vite build --config vite.editor.config.ts`
   every time, so a plain rebuild+reinstall picks them up.

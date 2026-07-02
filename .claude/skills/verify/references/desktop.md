@@ -56,8 +56,12 @@ if [ "$ALREADY_RUNNING" = false ]; then
   # `.47`, accepts `.s47`.
   # NOTE: use Bash run_in_background instead of shell `&` — `$!` does not
   # expand correctly inside the Bash tool.
+  # FUTO_NOTES_DATA_DIR isolates notes/app data per worktree — the debug
+  # default (~/Documents/fake-notes) is machine-global and would be shared
+  # by parallel sessions.
   cd "$WORKTREE_ROOT/apps/tauri" && \
     WINIT_UNIX_BACKEND=wayland GDK_BACKEND=wayland WEBKIT_DISABLE_DMABUF_RENDERER=1 \
+    FUTO_NOTES_DATA_DIR="$WORKTREE_ROOT/.tauri-data" \
     cargo tauri dev \
       --config src-tauri/tauri.dev.conf.json \
       --config '{"identifier":"com.futo.notes.verify.s'"$SLOT"'","build":{"beforeDevCommand":"npm run dev --prefix ../.. -- --host 127.0.0.1 --port '"$VITE_PORT"' --strictPort","devUrl":"http://127.0.0.1:'"$VITE_PORT"'"}}' \
@@ -108,6 +112,35 @@ click them by screenshot coordinates via `webview_interact`.
 Dev-only sync hooks in this webview: `window.__testSync.connect(url, password)`
 / `.status()` / `.syncNow()` / `.disconnect()` — prefer these over UI
 automation when switching sync servers (see AGENTS.md "Browser Tools").
+
+### No MCP tools? Raw WebSocket fallback
+
+Fresh sessions and background jobs often don't have the Tauri MCP tools
+registered. The bridge is a plain WebSocket server on the port you discovered
+above — send `{"id":"r1","command":"…","args":{…}}`, receive
+`{"id","success","data"}`. Commands: `execute_js` (`args:{script}`; async
+IIFEs are awaited), `capture_native_screenshot` (returns a base64 data URL),
+`list_windows`, `invoke_tauri`. Node ≥21's built-in WebSocket needs no deps:
+
+```bash
+MCP_PORT=$MCP_PORT node <<'EOF'
+const ws = new WebSocket(`ws://127.0.0.1:${process.env.MCP_PORT}`);
+ws.onopen = () => ws.send(JSON.stringify({ id: 'r1', command: 'execute_js',
+  args: { script: '(async () => await window.__testSync.status())()' } }));
+ws.onmessage = (m) => { console.log(m.data); ws.close(); };
+EOF
+```
+
+Gotchas: (1) `execute_js` has a ~2–3s server-side timeout, but the script
+**keeps running in the webview** after the timeout error — never assume a
+timed-out script didn't execute; for longer work, stash results on
+`window.__x` and collect them with a second call. (2) Vite module singletons
+are importable — `await import('/src/lib/foo.svelte.ts')` returns the same
+instance the app uses. (3) Killing a backgrounded `tauri dev` task can orphan
+the real `target/debug/futo-notes-tauri` binary, which keeps its bridge port
+and pushes the next launch to the next port — `pkill -f
+"target/debug/futo-notes-tauri"` and re-check with `lsof -iTCP:9223
+-sTCP:LISTEN`.
 
 ### Cleanup (this worktree only)
 

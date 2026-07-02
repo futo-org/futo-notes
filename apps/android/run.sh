@@ -30,5 +30,7 @@ if [ -x ./gradlew ]; then GRADLE=./gradlew; else GRADLE=gradle; fi
 "$GRADLE" :app:installDebug
 
 echo "==> Launching"
-adb shell monkey -p com.futo.notes.dev -c android.intent.category.LAUNCHER 1
+# `am start -n` rather than monkey: monkey exits 251 without launching on
+# some emulators (observed on API 36 images).
+adb shell am start -n com.futo.notes.dev/com.futo.notes.MainActivity
 echo "==> Done."

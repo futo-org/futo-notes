@@ -31,12 +31,25 @@ Compose shells on the shared Rust core. Neither has the MCP bridge — the
 bridge is desktop-only. iOS is driven with `simctl` + `idb`, Android with
 `adb` + CDP.
 
-## Instance Setup (desktop chains — run first)
+**Platform matrix** (`uname -s`): macOS = iOS + Android + desktop; Linux =
+Android + desktop + the Windows qemu VM (no iOS). The playbooks note the few
+OS-specific bits (Wayland env vars, SDK paths).
 
-Multiple Tauri instances can run simultaneously from different git worktrees;
-each worktree derives unique ports from its path. Shell variables don't
-persist between Bash tool calls — **re-compute these at the start of any
-block that needs them** (works on Linux and modern macOS; both ship
+## Isolation model (parallel sessions — read first)
+
+One machine can run several QA sessions at once (different windows, different
+MRs) without collisions, because every shared resource is keyed on the
+**worktree**:
+
+- **One session per worktree.** Testing a different MR means a different git
+  worktree — two sessions in one checkout collide at the working-tree level
+  before any device is involved.
+- The worktree path hashes to a **slot**; the slot derives ports, the pooled
+  device, and the sync server + its database. Nothing needs a registry to
+  stay "free" — no other session will ever target your slot's resources.
+
+Shell variables don't persist between Bash tool calls — **re-compute these at
+the start of any block that needs them** (Linux and modern macOS both ship
 `md5sum`):
 
 ```bash
@@ -49,14 +62,34 @@ PID_FILE="/tmp/tauri-verify-${SLOT}.pid"
 echo "Worktree: $WORKTREE_ROOT → Vite port $VITE_PORT, web port $WEB_VITE_PORT (slot $SLOT)"
 ```
 
-| Purpose | Range | Notes |
+| Resource | Range / name | How |
 |---|---|---|
-| Tauri Vite (per worktree) | 5200–5249 | avoids 5173/5180–5182 |
-| Web Vite (per worktree) | 5250–5299 | separate from Tauri range |
-| MCP bridge | 9223–9322 | plugin auto-scans; discover after launch |
+| Tauri Vite (per worktree) | 5200–5249 | computed above (avoids 5173/5180–5182) |
+| Web Vite (per worktree) | 5250–5299 | computed above |
+| MCP bridge (desktop) | 9223–9322 | plugin auto-scans; discover after launch |
+| Android CDP forward | 9330–9379 | `just cdp-forward` prints `export CDP_PORT=…` |
+| Sync server | 3100–3149 + own Postgres DB | `just qa-server` (see sync section) |
+| iOS simulator / Android AVD | pool `futo-qa-0..6` per platform | `just qa-claim` prints `export SIM=…` / `export ANDROID_SERIAL=…` |
+| Windows qemu VM | singleton | one session at a time |
+
+**Devices**: `just qa-claim [ios|android|all]` claims this worktree's pooled
+device — creating and booting it on first use — and prints the export lines.
+Set `SIM` / `ANDROID_SERIAL` in every Bash block that drives a device: all
+`sim-*` recipes and `apps/ios/run.sh` honor `$SIM`, and `adb` honors
+`$ANDROID_SERIAL` natively. `just qa-status` shows who owns what,
+`just qa-release` frees your claims when done, `just qa-gc` reaps devices
+whose worktrees were deleted. Personal (non-pool) simulators/AVDs are never
+touched. Driving a device you didn't claim is how two sessions end up
+install-thrashing one emulator — don't.
 
 > When setting up multiple worktrees, run `pnpm install` in all of them
 > concurrently — separate `node_modules`, no conflicts, ~12s saved each.
+
+> **Within one worktree**, the iOS, Android, and desktop builds all compile
+> the same Cargo workspace and share that worktree's `target/`, so launching
+> them together partially serializes on cargo's build-dir lock — "Blocking
+> waiting for file lock on build directory" is queueing, not a hang. Builds
+> in **different** worktrees are fully parallel (separate `target/`).
 
 ## Step 1: Detect what changed (change verification mode only)
 
@@ -198,23 +231,26 @@ they break most often.
 
 ### Features that need a sync server
 
-The E2EE sync server is the **sibling Bun + Postgres repo** (expected at
-`~/Developer/futo-notes-server`; set `FUTO_NOTES_E2EE_SERVER_REPO` when your
-checkout lives elsewhere).
+`just qa-server` starts **this worktree's isolated server**: a bun process on
+port `3100 + slot` with its **own Postgres database** (`futo_notes_qa_s<slot>`)
+and blob dir. The per-slot database matters: test tooling TRUNCATEs its
+tables, so parallel sessions sharing one database would wipe each other
+mid-run. Password: `testing123`. Stop with `just qa-server-stop` (`--drop`
+also drops the database).
+
+Prereqs: the sibling server repo (set `FUTO_NOTES_E2EE_SERVER_REPO` when it's
+not at `~/Developer/futo-notes-server`) + any reachable Postgres — the
+recipe tries the repo's `docker compose up -d postgres` itself; a native
+Postgres works too via `FUTO_NOTES_QA_PG=postgres://user:pass@localhost:5432`.
 
 - **Client sync-stack changes**: prefer `just test-cross-platform` — it boots
-  two real Tauri instances plus a fresh server per scenario by itself
-  (`tests/lib/sync-test-server.mjs` handles Postgres-via-docker, password
-  hashing, isolated blob dirs).
-- **Hands-on QA against a live server**: reuse that helper, or manually in
-  the server repo: `docker compose up -d postgres`, then `AUTH_MODE=dev
-  PORT=<port> bun dev` (full env story in that repo's AGENTS.md).
+  two real Tauri instances plus a fresh server per scenario by itself.
 - **No Docker/Postgres available** (true of some QA machines): record sync
   happy-path stories as **Blocked**, not failed — the deeper sync logic is
   already covered by cross-platform + server-side suites.
-- Reaching the host server: desktop/iOS-simulator use `http://127.0.0.1:<port>`;
-  the **Android emulator needs `10.0.2.2`**; physical devices need the
-  machine's LAN IP.
+- Reaching the server: desktop/iOS-simulator use `http://127.0.0.1:<port>`;
+  the **Android emulator needs `http://10.0.2.2:<port>`**; physical devices
+  need the machine's LAN IP.
 - Connecting: the Tauri **dev** webview exposes `window.__testSync` (connect/
   status/syncNow/disconnect — see AGENTS.md "Browser Tools"); the native
   shells have no such hook — use Settings → Sync in the app UI.

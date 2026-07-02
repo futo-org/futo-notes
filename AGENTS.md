@@ -77,13 +77,15 @@ The native Android app exposes a WebView DevTools socket. Use CDP when you need
 to inspect the embedded editor or run JavaScript against it:
 
 ```bash
-just cdp-forward          # finds the app's socket + forwards to :9228
-node scripts/cdp-invoke.mjs "document.title"
+just cdp-forward          # finds the app's socket, forwards to a per-worktree
+                          # port, and prints the matching `export CDP_PORT=…`
+node scripts/cdp-invoke.mjs "document.title"   # honors $CDP_PORT
 ```
 
 (Manual equivalent: `adb shell 'cat /proc/net/unix' | grep
-webview_devtools_remote`, then `adb forward tcp:9228
-localabstract:webview_devtools_remote_<pid>`.)
+webview_devtools_remote`, then `adb forward tcp:<port>
+localabstract:webview_devtools_remote_<pid>`. adb forward host ports are
+machine-global — parallel sessions must not share one.)
 
 `scripts/cdp-invoke.mjs` wraps the Chrome DevTools Protocol in a tiny wrapper
 that calls `Runtime.evaluate` with `awaitPromise:true`.

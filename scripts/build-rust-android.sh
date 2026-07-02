@@ -22,6 +22,16 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 # ── Early environment checks with actionable errors ──────────────────────
+# ANDROID_NDK_HOME is often not exported even when the NDK is installed —
+# fall back to the newest NDK under the SDK before giving up.
+if [[ -z "${ANDROID_NDK_HOME:-}" || ! -d "${ANDROID_NDK_HOME}" ]]; then
+  SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}}"
+  NEWEST_NDK=$(ls -1 "$SDK/ndk" 2>/dev/null | sort -V | tail -1)
+  if [[ -n "$NEWEST_NDK" && -d "$SDK/ndk/$NEWEST_NDK" ]]; then
+    export ANDROID_NDK_HOME="$SDK/ndk/$NEWEST_NDK"
+    echo "==> ANDROID_NDK_HOME not set; using detected NDK: $ANDROID_NDK_HOME"
+  fi
+fi
 if [[ -z "${ANDROID_NDK_HOME:-}" || ! -d "${ANDROID_NDK_HOME}" ]]; then
   echo "ERROR: ANDROID_NDK_HOME is unset or not a directory." >&2
   echo "  Install the NDK via Android Studio (SDK Manager → NDK) and export e.g.:" >&2
