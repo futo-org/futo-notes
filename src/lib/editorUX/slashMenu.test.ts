@@ -188,3 +188,64 @@ describe('inputHandler trigger', () => {
     expect(isOpen(v)).toBe(true);
   });
 });
+
+// Real-mouse activation. The menu container preventDefaults `mousedown` to keep
+// editor focus, and WebKit cancels the click that follows a prevented mousedown
+// (see the wikilink note in docs/spec/editor.md) — so an item must commit on the
+// press itself, not rely on `click` arriving.
+describe('menu item mouse activation (editor.md)', () => {
+  function openWithQuery(view: EditorView, query: string): void {
+    view.dispatch({
+      changes: { from: 0, insert: '/' },
+      selection: EditorSelection.cursor(1),
+      effects: openSlashMenuEffect.of({ from: 0 }),
+      userEvent: 'input.type',
+    });
+    for (const ch of query) typeChar(view, ch);
+  }
+
+  function pressMouse(el: Element, withClick: boolean): void {
+    el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
+    el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 0 }));
+    if (withClick) {
+      el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
+    }
+  }
+
+  it('commits on mousedown+mouseup without a click (WebKit cancels it)', () => {
+    const v = setup('');
+    openWithQuery(v, 'head');
+    const item = v.dom.querySelector('[data-command-id="heading-2"]');
+    expect(item).not.toBeNull();
+    pressMouse(item!, false);
+    expect(isOpen(v)).toBe(false);
+    expect(v.state.doc.toString()).toBe('## ');
+  });
+
+  it('does not double-commit when click follows mousedown (Chromium)', () => {
+    const v = setup('');
+    openWithQuery(v, 'head');
+    const item = v.dom.querySelector('[data-command-id="heading-2"]');
+    pressMouse(item!, true);
+    expect(v.state.doc.toString()).toBe('## ');
+  });
+
+  it('right-button press does not commit', () => {
+    const v = setup('');
+    openWithQuery(v, 'head');
+    const item = v.dom.querySelector('[data-command-id="heading-2"]');
+    item!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 2 }));
+    item!.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 2 }));
+    expect(isOpen(v)).toBe(true);
+    expect(v.state.doc.toString()).toBe('/head');
+  });
+
+  it('click alone still commits (assistive tech synthesizes bare clicks)', () => {
+    const v = setup('');
+    openWithQuery(v, 'head');
+    const item = v.dom.querySelector('[data-command-id="heading-2"]');
+    item!.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
+    expect(isOpen(v)).toBe(false);
+    expect(v.state.doc.toString()).toBe('## ');
+  });
+});

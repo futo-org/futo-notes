@@ -274,6 +274,17 @@ class SlashMenuRenderer implements PluginValue {
       }
       item.appendChild(textEl);
 
+      // Commit on the press itself: the container's prevented `mousedown`
+      // (focus guard) makes WebKit cancel the following `click`, so a
+      // click-only handler dead-ends in the Tauri/WKWebView shells. The
+      // `click` listener stays for assistive tech that synthesizes bare
+      // clicks; commitCommand no-ops once the menu is closed, so engines
+      // that fire both never double-commit.
+      item.addEventListener('mousedown', (e) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        commitCommand(this.view, cmd);
+      });
       item.addEventListener('click', (e) => {
         e.preventDefault();
         commitCommand(this.view, cmd);

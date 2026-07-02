@@ -162,7 +162,11 @@ native shells edit tags as text in the body, which is not a gap.
   Italic, Strikethrough, Code, Link. It hides for empty/multi-line selections
   and inside tables/code. → editorUX/selectionToolbar.ts *(desktop)*
 - Typing `/` at the start of an empty block opens a block-command menu
-  (headings, lists, tasks, quote, code, table, HR). → editorUX/slashMenu.ts
+  (headings, lists, tasks, quote, code, table, HR). Arrow keys move the
+  highlight; a menu item activates on BOTH mouse click and Enter — the item
+  must commit on the press (`mousedown`), because WebKit cancels the `click`
+  that follows the menu's focus-guard `preventDefault`ed mousedown (same
+  dead-end as the wikilink `touchend` note above). → editorUX/slashMenu.ts
   *(desktop)*
 
 ## Markdown toolbar *(native shells / mobile-width editor)*
