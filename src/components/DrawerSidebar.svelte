@@ -10,6 +10,7 @@
   import ContextMenu, { type MenuItem } from './ContextMenu.svelte';
   import {
     createFolder,
+    validateNewFolderName,
     deleteFolder,
     renameOrMoveFolder,
     clearDragHoverExpanded,
@@ -568,6 +569,7 @@
   {#if showCreateFolder}
     <CreateFolderModal
       title={createFolderParent ? `New folder in "${createFolderParent}"` : 'New folder'}
+      validate={(v) => validateNewFolderName(createFolderParent, v.trim(), collectSiblings(createFolderParent))}
       onsubmit={handleCreateFolderSubmit}
       oncancel={() => (showCreateFolder = false)}
     />

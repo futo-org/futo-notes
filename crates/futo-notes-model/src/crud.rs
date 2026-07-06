@@ -476,14 +476,55 @@ pub fn seed_if_empty(base: &Path) -> Result<u32, String> {
     Ok(1)
 }
 
-/// Delete a note. Missing file is not an error. Empty parent folders are NOT
-/// pruned (they surface as empty folders, matching the Swift behavior).
+/// Delete a note. Missing file is not an error. Now-empty ancestor folders
+/// are pruned up to (but never including) the vault root — the spec
+/// (list.md) requires the prune on EVERY platform, so it lives here in the
+/// shared path rather than in any one shell.
 pub fn delete_note(base: &Path, id: &str) -> Result<(), String> {
     let path = safe_note_path(base, id)?;
     match std::fs::remove_file(&path) {
-        Ok(()) => Ok(()),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(e) => Err(e.to_string()),
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e.to_string()),
+    }
+    prune_empty_parent_dirs(base, &path);
+    Ok(())
+}
+
+/// Walk up from `path` removing empty directories until we hit `base` or a
+/// non-empty directory. Never removes `base` itself and refuses to walk
+/// outside it. ANY remaining entry — notes, images, subfolders, dotfiles
+/// like `.futo` sync state — stops the walk. Best-effort: I/O errors end
+/// the walk silently. The single prune implementation shared by the model's
+/// `delete_note` and the Tauri shell's trash-routed delete / raw note move.
+pub fn prune_empty_parent_dirs(base: &Path, path: &Path) {
+    let mut cursor = match path.parent() {
+        Some(p) => p.to_path_buf(),
+        None => return,
+    };
+    loop {
+        if cursor == base {
+            return;
+        }
+        if !cursor.starts_with(base) {
+            return;
+        }
+        match std::fs::read_dir(&cursor) {
+            Ok(mut iter) => {
+                if iter.next().is_some() {
+                    return;
+                }
+            }
+            Err(_) => return,
+        }
+        if std::fs::remove_dir(&cursor).is_err() {
+            return;
+        }
+        let parent = match cursor.parent() {
+            Some(p) => p.to_path_buf(),
+            None => return,
+        };
+        cursor = parent;
     }
 }
 

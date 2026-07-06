@@ -15,6 +15,15 @@ MiniSearch index remains as the warm-up and non-Tauri fallback.
   `.searchable` bottom bar on the folder browser, so an empty query simply shows
   the current folder's normal list (not an 8-recent list). → NoteListView.swift
   `.searchable`
+- A query token containing internal hyphens (`folder-scoped`) is matched as an
+  adjacent **phrase** (`"folder scoped"`), not as independent OR'd words — it
+  matches the literal compound (the tokenizer splits on `-`) but not the same
+  words separated elsewhere in a note. Established behavior of the default
+  Tantivy tokenizer + query parser; regression-locked in futo-notes-search. →
+  crates/futo-notes-search `tantivy_indices.rs` `search_bm25`
+- Results show a folder badge for foldered notes on the Tauri popup **and** the
+  native iOS inline results (verified iOS 2026-07-02); this is intended parity,
+  not a desktop-only detail.
 - Store mutations feed `search_notify`; bulk wipes and live pulls trigger a
   rescan so the index stays in lockstep with the vault. This holds on every
   app: the native shells rescan after a live pull, and on desktop

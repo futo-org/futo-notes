@@ -14,9 +14,11 @@ shells are single-document. → TabsStrip.svelte, tabsStore.svelte.ts
 - Tabs drag to reorder, with an insertion-slot indicator.
 - Open tabs, their order, per-tab scroll position, and the active tab persist
   across restarts.
-- Opening a note from the sidebar replaces the current tab's note;
-  Ctrl/Cmd+click opens it in a new tab; Shift+click opens a new background
-  tab.
+- Opening a note from the sidebar replaces the current tab's note.
+  Ctrl/Cmd+click, Shift+click, or middle-click opens it in a new **background**
+  tab (the current tab stays active); Ctrl/Cmd+Shift+click opens it in a new
+  **foreground** tab. → tabsStore.svelte.ts `modeFromEvent`
+  (regression-locked by tabsStore.test.ts)
 
 ## Keyboard shortcuts
 

@@ -506,6 +506,32 @@ describe('folder support: path-as-ID', () => {
     expect(hits.some((h) => h.note.id === 'Specs/folders')).toBe(true);
   });
 
+  it('updateNote rename rewrites self-referencing wikilinks in the renamed note', async () => {
+    // Spec (editor.md): rename rewrites links across all notes AND
+    // self-referencing links inside the renamed note's own body.
+    await testFS.writeNote('groceries', 'see [[groceries]] from last week');
+
+    const { initNotes, updateNote, readNote } = await freshNotes();
+    await initNotes();
+
+    await updateNote('shopping', 'shopping', 'see [[groceries]] from last week', 'groceries');
+
+    const body = await readNote('shopping');
+    expect(body).toBe('see [[shopping]] from last week');
+  });
+
+  it('moveNote rewrites self-referencing wikilinks in the moved note', async () => {
+    await testFS.writeNote('grocery list', 'todo: [[grocery list]] again');
+
+    const { initNotes, moveNote, readNote } = await freshNotes();
+    await initNotes();
+
+    await moveNote('grocery list', 'Lists/grocery list');
+
+    const body = await readNote('Lists/grocery list');
+    expect(body).toBe('todo: [[Lists/grocery list]] again');
+  });
+
   it('moveNote rewrites legacy bare-filename wikilinks when unique', async () => {
     await testFS.writeNote('Specs/folder-support', '# Folder support');
     await testFS.writeNote('Other/note', 'see [[folder-support]] for details');

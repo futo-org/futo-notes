@@ -249,13 +249,15 @@ pub fn rewrite_wikilinks(
     (out, rewrites)
 }
 
-/// Rewrite every wikilink in every other note in the vault that targets
-/// `old_id` to point at `new_id` — the Rust-owned equivalent of the desktop
-/// `rewriteWikilinksForRename` (notes.svelte.ts). Touches only notes whose
-/// body actually contains a `[[` and only writes back when the rewrite
-/// changed the text. A failed write skips that note and continues (the TS
-/// warns and moves on too), so the pass never leaves the rest of the vault
-/// un-relinked. Returns the count of notes rewritten.
+/// Rewrite every wikilink in every note in the vault that targets `old_id`
+/// to point at `new_id` — the Rust-owned equivalent of the desktop
+/// `rewriteWikilinksForRename` (notes.svelte.ts). This includes the renamed
+/// note's OWN body: self-referencing links follow the rename too (spec:
+/// editor.md). Touches only notes whose body actually contains a `[[` and
+/// only writes back when the rewrite changed the text. A failed write skips
+/// that note and continues (the TS warns and moves on too), so the pass
+/// never leaves the rest of the vault un-relinked. Returns the count of
+/// notes rewritten.
 pub fn relink_note_references(
     notes_root: &Path,
     old_id: &str,
@@ -268,9 +270,11 @@ pub fn relink_note_references(
     let all_ids: Vec<String> = notes.iter().map(|n| n.id.clone()).collect();
     let mut rewritten = 0u32;
     for note in &notes {
-        if note.id == new_id || note.id == old_id {
-            continue;
-        }
+        // The renamed note itself is NOT skipped: self-referencing links in
+        // its own body follow the rename too (spec: editor.md). At relink
+        // time the scan sees the note at whichever id currently exists on
+        // disk (post-rename callers see `new_id`), so reading/writing
+        // `note.id` always hits the file that exists.
         let body = crate::crud::read_note(notes_root, &note.id);
         // Cheap pre-filter: no `[[` means no wikilinks, skip the rewrite.
         if !body.contains("[[") {

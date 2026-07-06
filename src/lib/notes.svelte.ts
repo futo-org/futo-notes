@@ -312,9 +312,10 @@ export async function updateNote(
 }
 
 /**
- * Rewrite every wikilink in every other note that targets `oldId` to
- * point at `newId`. Touches only notes whose body actually contains a
- * wikilink — we read each note, run `rewriteWikilinks`, and only write
+ * Rewrite every wikilink in every note that targets `oldId` to point at
+ * `newId` — including self-referencing links in the renamed note's own
+ * body (spec: editor.md). Touches only notes whose body actually contains
+ * a wikilink — we read each note, run `rewriteWikilinks`, and only write
  * back if the body changed. The rewrites become regular note edits that
  * sync as content changes.
  */
@@ -327,10 +328,14 @@ export async function rewriteWikilinksForRename(
   const allIds = notesCache.map((n) => n.id);
   // Read in a bounded pool so a large vault doesn't block on serial IPC.
   await runPool(notesCache.slice(), RECONCILE_CONCURRENCY, async (note) => {
-    if (note.id === newId || note.id === oldId) return;
+    // The renamed note itself is NOT skipped: its self-links follow the
+    // rename too. Its cache entry may still be keyed oldId (updateNote
+    // re-keys after this pass) while the file already lives at newId —
+    // always read/write the file that exists.
+    const fileId = note.id === oldId ? newId : note.id;
     let body: string;
     try {
-      body = await readNoteFile(note.id);
+      body = await readNoteFile(fileId);
     } catch {
       return;
     }
@@ -338,7 +343,7 @@ export async function rewriteWikilinksForRename(
     const result = rewriteWikilinks(body, oldId, newId, allIds);
     if (result.rewrites === 0 || result.text === body) return;
     try {
-      const newMtime = await fs.writeNote(note.id, result.text);
+      const newMtime = await fs.writeNote(fileId, result.text);
       const idx = notesCache.findIndex((n) => n.id === note.id);
       if (idx >= 0) {
         notesCache[idx] = {
@@ -348,12 +353,12 @@ export async function rewriteWikilinksForRename(
           tags: noteTags(result.text),
         };
       }
-      addToSearchIndex({ id: note.id, title: noteTitleFromId(note.id), body: result.text, mtime: newMtime });
+      addToSearchIndex({ id: fileId, title: noteTitleFromId(fileId), body: result.text, mtime: newMtime });
       // This write goes through getFS() directly (not the fileSystem.ts
       // chokepoint), so notify the Rust engine here to mirror MiniSearch.
-      void engineNotify('change', `${note.id}.md`);
+      void engineNotify('change', `${fileId}.md`);
     } catch (err) {
-      console.warn(`[wikilink-rewrite] Failed to update ${note.id}:`, err);
+      console.warn(`[wikilink-rewrite] Failed to update ${fileId}:`, err);
     }
   });
 }
@@ -484,6 +489,13 @@ export async function deleteAllNotes(): Promise<void> {
   try {
     await stopLiveSync();
     await waitForSyncIdleV2();
+    // Durably kill the sync session BEFORE touching the vault: drop the
+    // connection + stored password (Rust e2ee_disconnect also stops the live
+    // loop). Merely pausing is not enough — a resumed, still-authenticated
+    // session would diff the emptied vault against the persisted object map
+    // and push tombstones for every note, i.e. real deletions on every other
+    // device (settings.md "Full reset"). The next launch then stays LOCAL.
+    // Safe when not connected: disconnectE2ee tolerates a local-only client.
     await disconnectE2ee();
     // Wait for any in-flight bootstrap to finish before clearing — otherwise
     // a stale pool read can re-add a deleted doc after clearSearchIndex().
@@ -498,6 +510,10 @@ export async function deleteAllNotes(): Promise<void> {
     searchIndexReady = Promise.resolve();
     void persistIndex();
   } finally {
+    // Un-pause so a failed reset doesn't leave sync permanently dead. On the
+    // success path this is inert: the session was disconnected above, so
+    // isE2eeConfigured() is false and nothing can sync (the caller reloads
+    // the app right after anyway).
     resumeSyncV2();
   }
 }

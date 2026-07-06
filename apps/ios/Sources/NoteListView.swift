@@ -225,6 +225,16 @@ struct FolderContentsView: View {
         }
     }
 
+    /// True when the typed name only survives sanitization via the "Untitled"
+    /// fallback (sanitizeTitle's note-title contract turns "", "///", "..."
+    /// into "Untitled"). Creating then would silently make a folder the user
+    /// never named — treat it as invalid instead (2026-07-02 QA: "///" created
+    /// an "Untitled" folder). Literally typing "Untitled" stays allowed.
+    private var newFolderSanitizesAway: Bool {
+        newFolderClean == "Untitled"
+            && newFolderName.trimmingCharacters(in: .whitespacesAndNewlines) != "Untitled"
+    }
+
     private var title: String {
         folder.isEmpty ? "Notes" : (folder.split(separator: "/").last.map(String.init) ?? folder)
     }
@@ -268,7 +278,7 @@ struct FolderContentsView: View {
                     }
                     Button {
                         newFolderName = ""
-                        showingNewFolder = true
+                        setNewFolderDialog(visible: true)
                     } label: {
                         Label("New Folder", systemImage: "folder.badge.plus")
                     }
@@ -291,19 +301,34 @@ struct FolderContentsView: View {
         } message: {
             Text("Create a note in \(folder.isEmpty ? "Notes" : title).")
         }
-        .alert("New Folder", isPresented: $showingNewFolder) {
-            TextField("Folder name", text: $newFolderName)
-            Button("Cancel", role: .cancel) {}
-            // Mirror Android: Create is disabled on an empty or
-            // case-insensitive-duplicate sibling name (NewFolderDialog.kt). A
-            // SwiftUI .alert can't render an inline error under the field, so
-            // the duplicate reason surfaces in the message text below.
-            Button("Create") { createFolder() }
-                .disabled(newFolderClean.isEmpty || newFolderIsDuplicate)
-        } message: {
-            Text(newFolderIsDuplicate
-                ? "A folder with this name already exists"
-                : "Create a folder in \(folder.isEmpty ? "Notes" : title).")
+        // NOT a .alert: an alert snapshots its message: closure at presentation,
+        // so the duplicate warning required by list.md:182 never appeared while
+        // typing (the Create button's .disabled kept re-evaluating; the message
+        // didn't). A transparent fullScreenCover hosts real view content, which
+        // re-renders live — the message flips to the warning as the user types.
+        .fullScreenCover(isPresented: $showingNewFolder) {
+            NewFolderDialog(
+                message: newFolderIsDuplicate
+                    ? "A folder with this name already exists"
+                    : (newFolderSanitizesAway
+                        && !newFolderName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        ? "Enter a valid folder name"
+                        : "Create a folder in \(folder.isEmpty ? "Notes" : title)."),
+                messageIsWarning: newFolderIsDuplicate
+                    || (newFolderSanitizesAway
+                        && !newFolderName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty),
+                name: $newFolderName,
+                // Mirror Android: Create is disabled on an empty, sanitize-away,
+                // or case-insensitive-duplicate sibling name (NewFolderDialog.kt).
+                canCreate: !newFolderClean.isEmpty && !newFolderIsDuplicate
+                    && !newFolderSanitizesAway,
+                onCancel: { setNewFolderDialog(visible: false) },
+                onCreate: {
+                    createFolder()
+                    setNewFolderDialog(visible: false)
+                }
+            )
+            .presentationBackground(.clear)
         }
         .sheet(item: $moveTarget) { note in
             MoveToFolderSheet(note: note, currentFolder: folder)
@@ -440,8 +465,93 @@ struct FolderContentsView: View {
         // case-insensitive sibling collision — that would silently MERGE into
         // the existing folder. [list.md:152]
         let clean = newFolderClean
-        guard !clean.isEmpty, !newFolderIsDuplicate else { return }
+        guard !clean.isEmpty, !newFolderIsDuplicate, !newFolderSanitizesAway else { return }
         store.createFolder(folder.isEmpty ? clean : folder + "/" + clean)
+    }
+
+    /// Show/hide the New Folder dialog with presentation animations disabled,
+    /// so its transparent fullScreenCover pops in place like the .alert it
+    /// replaced instead of playing the cover's default slide-up.
+    private func setNewFolderDialog(visible: Bool) {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { showingNewFolder = visible }
+    }
+}
+
+/// Alert-look-alike card for creating a folder, hosted in a transparent
+/// `fullScreenCover`. Exists because `.alert` snapshots its `message:` closure
+/// when presented — the case-insensitive duplicate warning (list.md:182) must
+/// update live while the user types, which only real view content does.
+/// Mirrors Android's NewFolderDialog.kt: inline duplicate error, Create
+/// disabled on empty/duplicate names.
+private struct NewFolderDialog: View {
+    /// Live status line under the title: the create hint or, on a
+    /// case-insensitive sibling collision, the duplicate warning.
+    let message: String
+    /// Whether `message` is the duplicate warning (rendered in danger red).
+    let messageIsWarning: Bool
+    @Binding var name: String
+    let canCreate: Bool
+    let onCancel: () -> Void
+    let onCreate: () -> Void
+
+    @FocusState private var nameFocused: Bool
+
+    var body: some View {
+        ZStack {
+            // The same dim a real alert draws. Taps on it do NOT dismiss —
+            // parity with the .alert this replaced. ignoresSafeArea extends it
+            // under the keyboard inset while the centered card still respects
+            // it, so the card slides up above the keyboard like an alert.
+            Color.black.opacity(0.2)
+                .ignoresSafeArea()
+            VStack(spacing: 0) {
+                VStack(spacing: 6) {
+                    Text("New Folder")
+                        .font(.headline)
+                    Text(message)
+                        .font(.footnote)
+                        .foregroundStyle(messageIsWarning ? Theme.danger : Color.secondary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                    TextField("Folder name", text: $name)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.callout)
+                        .focused($nameFocused)
+                        .submitLabel(.done)
+                        .onSubmit { if canCreate { onCreate() } }
+                        .padding(.top, 6)
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 19)
+                .padding(.bottom, 16)
+                Divider()
+                HStack(spacing: 0) {
+                    Button(action: onCancel) {
+                        Text("Cancel")
+                            .fontWeight(.semibold)
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                    }
+                    Divider()
+                        .frame(height: 44)
+                    Button(action: onCreate) {
+                        Text("Create")
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                    }
+                    .disabled(!canCreate)
+                }
+            }
+            .frame(width: 270)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+            .defaultFocus($nameFocused, true)
+            .onAppear {
+                // Belt-and-braces with .defaultFocus: initial focus inside a
+                // fresh presentation can miss while the view tree settles, and
+                // the .alert this replaced always raised the keyboard.
+                DispatchQueue.main.async { nameFocused = true }
+            }
+        }
     }
 }
 

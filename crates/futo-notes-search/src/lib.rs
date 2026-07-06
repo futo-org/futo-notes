@@ -182,4 +182,51 @@ mod tests {
         assert!(hits.iter().all(|h| h.source == "bm25"));
         assert!(engine.query("   ", 10).unwrap().is_empty());
     }
+
+    /// Spec (search.md): a hyphenated query token matches as an ADJACENT
+    /// phrase — `folder-scoped` matches the literal compound, not the same
+    /// words separated elsewhere. A space-separated query matches both.
+    /// Regression lock — no behavior change intended.
+    #[test]
+    fn hyphenated_query_is_an_adjacent_phrase() {
+        let vault = ScopedTempDir::new();
+        let index = ScopedTempDir::new();
+        std::fs::write(
+            vault.path().join("Compound.md"),
+            "search is folder-scoped by default",
+        )
+        .unwrap();
+        std::fs::write(
+            vault.path().join("Separated.md"),
+            "search is scoped to a single folder",
+        )
+        .unwrap();
+
+        let config = SearchConfig {
+            notes_root: vault.path().clone(),
+            index_dir: index.path().clone(),
+        };
+        let engine = SearchEngine::start(config, Arc::new(|_| {})).expect("engine starts");
+
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !engine.status().keyword.ready {
+            assert!(Instant::now() < deadline, "keyword index never became ready");
+            std::thread::sleep(Duration::from_millis(25));
+        }
+
+        // Hyphenated token → phrase: only the literal compound matches.
+        let hits = engine.query("folder-scoped", 10).expect("query ok");
+        let ids: Vec<&str> = hits.iter().map(|h| h.note_id.as_str()).collect();
+        assert!(ids.contains(&"Compound"), "expected compound hit, got {ids:?}");
+        assert!(
+            !ids.contains(&"Separated"),
+            "non-adjacent words must not match the hyphenated phrase, got {ids:?}"
+        );
+
+        // Space-separated words → both notes match.
+        let hits = engine.query("folder scoped", 10).expect("query ok");
+        let ids: Vec<&str> = hits.iter().map(|h| h.note_id.as_str()).collect();
+        assert!(ids.contains(&"Compound"), "expected compound hit, got {ids:?}");
+        assert!(ids.contains(&"Separated"), "expected separated hit, got {ids:?}");
+    }
 }

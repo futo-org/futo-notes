@@ -250,16 +250,59 @@ fn identical_rename_is_noop() {
     fs::remove_dir_all(&root).ok();
 }
 
-// ── delete: idempotent, no prune (empty folder still surfaces) ───────────
+// ── delete: idempotent + prunes now-empty ancestors (spec: list.md) ──────
 #[test]
-fn delete_is_idempotent_and_keeps_empty_folder() {
+fn delete_is_idempotent_and_prunes_empty_folder() {
     let root = temp_root();
     model::write_note(&root, "Specs/only", "x").unwrap();
     model::delete_note(&root, "Specs/only").unwrap();
     model::delete_note(&root, "Specs/only").unwrap(); // idempotent
     assert!(!model::note_exists(&root, "Specs/only"));
-    // The now-empty Specs folder still surfaces (matches Swift).
-    assert_eq!(model::scan_folders(&root), vec!["Specs"]);
+    // Deleting the only note in a folder prunes the now-empty folder on
+    // EVERY platform (spec: list.md) — the shared path owns the prune.
+    assert!(model::scan_folders(&root).is_empty());
+    assert!(root.exists(), "the vault root is never pruned");
+    fs::remove_dir_all(&root).ok();
+}
+
+#[test]
+fn delete_prunes_nested_empty_ancestors_up_to_root() {
+    let root = temp_root();
+    model::write_note(&root, "A/B/C/deep", "x").unwrap();
+    model::delete_note(&root, "A/B/C/deep").unwrap();
+    assert!(!root.join("A").exists(), "the whole empty chain is pruned");
+    assert!(root.exists(), "the vault root is never pruned");
+    fs::remove_dir_all(&root).ok();
+}
+
+#[test]
+fn delete_prune_stops_at_ancestors_with_remaining_content() {
+    let root = temp_root();
+    // A sibling note keeps `A` alive; only `A/B` empties out.
+    model::write_note(&root, "A/B/only", "x").unwrap();
+    model::write_note(&root, "A/keep", "y").unwrap();
+    model::delete_note(&root, "A/B/only").unwrap();
+    assert!(!root.join("A/B").exists(), "emptied folder is pruned");
+    assert!(model::note_exists(&root, "A/keep"));
+
+    // ANY remaining entry blocks the prune — including dotfiles like the
+    // `.futo` sync state, which scan_notes doesn't surface.
+    model::write_note(&root, "C/D/only", "x").unwrap();
+    fs::write(root.join("C/D/.futo"), "sync state").unwrap();
+    model::delete_note(&root, "C/D/only").unwrap();
+    assert!(root.join("C/D/.futo").exists(), "dotfile keeps the folder");
+    assert!(root.join("C/D").exists());
+    fs::remove_dir_all(&root).ok();
+}
+
+#[test]
+fn delete_of_missing_note_still_prunes_safely() {
+    let root = temp_root();
+    // Missing note in a missing folder: no error, nothing pruned outside base.
+    model::delete_note(&root, "Nope/gone").unwrap();
+    assert!(root.exists());
+    // Traversal ids are still rejected before any fs work.
+    assert!(model::delete_note(&root, "../outside").is_err());
     fs::remove_dir_all(&root).ok();
 }
 

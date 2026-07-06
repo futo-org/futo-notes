@@ -38,6 +38,7 @@ import com.futo.notes.ui.CrashReportDialog
 import com.futo.notes.ui.EditorHost
 import com.futo.notes.ui.NoteEditorScreen
 import com.futo.notes.ui.NoteListScreen
+import com.futo.notes.ui.isAtListTop
 import com.futo.notes.ui.SearchScreen
 import com.futo.notes.ui.SettingsScreen
 import com.futo.notes.ui.StorageOnboarding
@@ -259,14 +260,45 @@ class MainActivity : ComponentActivity() {
         dark: Boolean,
     ) {
         val stack = remember { mutableStateListOf<Screen>(Screen.List) }
-        fun push(screen: Screen) = stack.add(screen)
-        fun pop() { if (stack.size > 1) stack.removeAt(stack.lastIndex) }
 
         // List scroll position survives navigation [list.md:26]: the list's
         // LazyListState is owned HERE, not in NoteListScreen — pushing the editor
         // (or Search/Settings) takes the list out of composition, and a
         // screen-local rememberLazyListState would be recreated at the top on pop.
         val listState = rememberLazyListState()
+
+        fun push(screen: Screen) = stack.add(screen)
+
+        // Resort on return-to-list [list.md:24]: `NotesStore.write` updates the
+        // edited row IN PLACE while typing (stable identity/order so the open
+        // editor can't pop out from under the user), so the list is stale-ordered
+        // whenever a pop lands back on it. Resorting HERE — while NoteListScreen
+        // is still OUT of composition — is what makes the flow race-free: the
+        // re-entering LazyColumn's first measure already sees the final order, so
+        // key-based anchoring can't record a stale top row and follow it downward
+        // (a resort inside the screen raced that first measure — the
+        // invisible-new-note / 2px-sliver bug).
+        //
+        // Re-pin to the ABSOLUTE top only when the user left the list at the top:
+        // LazyListState preserves the position anchored to the KEY of the
+        // previously-first row, so a row re-ranked above it would otherwise land
+        // above the viewport, invisible [list.md:24]. requestScrollToItem defers
+        // the snap to the next measure (with the fresh order) and disables key
+        // anchoring for it; deep scroll positions keep the anchoring behavior and
+        // are preserved [list.md:26]. Capture at-top-ness BEFORE the resort — the
+        // state still holds the last real measure.
+        fun pop() {
+            if (stack.size <= 1) return
+            stack.removeAt(stack.lastIndex)
+            if (stack.last() is Screen.List) {
+                val atTop = isAtListTop(
+                    listState.firstVisibleItemIndex,
+                    listState.firstVisibleItemScrollOffset,
+                )
+                s.resortInPlace()
+                if (atTop) listState.requestScrollToItem(0)
+            }
+        }
 
         BackHandler(enabled = stack.size > 1) { pop() }
 

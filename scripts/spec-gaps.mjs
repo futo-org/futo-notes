@@ -121,6 +121,17 @@ const PROBES = [
       ),
     hint: 'NoteEditorScreen.kt now manages the title selection — the prefill may be select-all’d.',
   },
+  {
+    match: /sync live pull.*land above the viewport|reloadAsync.*no at-top re-pin/s,
+    closed: () =>
+      /requestScrollToItem/.test(
+        read('apps/android/app/src/main/java/com/futo/notes/NotesStore.kt'),
+      ) ||
+      /requestScrollToItem/.test(
+        read('apps/android/app/src/main/java/com/futo/notes/SyncManager.kt'),
+      ),
+    hint: 'the Android sync-pull path now references an at-top re-pin — the live-pull anchoring gap may be closed.',
+  },
 ];
 
 // ── render ─────────────────────────────────────────────────────────────────

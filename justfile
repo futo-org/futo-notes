@@ -157,6 +157,19 @@ qa-release *flags:
 qa-gc:
   @node scripts/qa.mjs gc
 
+# APFS-clone (copy-on-write) this checkout's target/ into a worktree: a 31GB
+# target/ clones in seconds and shares blocks until builds diverge, killing
+# the cold-build tax on parallel QA worktrees. Run from a built checkout.
+# Seed a QA worktree with a warm cargo build (APFS clone of target/).
+qa-clone-target dest:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  [ -d target ] || { echo "no target/ in $(pwd) — build here once first" >&2; exit 1; }
+  [ -d '{{dest}}' ] || { echo "worktree '{{dest}}' does not exist" >&2; exit 1; }
+  [ -e '{{dest}}/target' ] && { echo "'{{dest}}/target' already exists — remove it first" >&2; exit 1; }
+  cp -Rc target '{{dest}}/target'
+  echo "Cloned target/ → {{dest}}/target (APFS copy-on-write)"
+
 # Start this worktree's isolated sync server (own port + own Postgres DB).
 qa-server:
   @node scripts/qa.mjs server-start

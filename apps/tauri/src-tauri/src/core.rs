@@ -160,38 +160,10 @@ pub(crate) fn notes_root(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(root)
 }
 
-/// Walk up from `path` removing empty directories until we hit `base` or
-/// a non-empty directory. Skips removal of `base` itself.
-pub(crate) fn prune_empty_parent_dirs(base: &Path, path: &Path) {
-    let mut cursor = match path.parent() {
-        Some(p) => p.to_path_buf(),
-        None => return,
-    };
-    loop {
-        if cursor == base {
-            return;
-        }
-        if !cursor.starts_with(base) {
-            return;
-        }
-        match fs::read_dir(&cursor) {
-            Ok(mut iter) => {
-                if iter.next().is_some() {
-                    return;
-                }
-            }
-            Err(_) => return,
-        }
-        if fs::remove_dir(&cursor).is_err() {
-            return;
-        }
-        let parent = match cursor.parent() {
-            Some(p) => p.to_path_buf(),
-            None => return,
-        };
-        cursor = parent;
-    }
-}
+// The single prune implementation lives in the model (`delete_note` prunes
+// on every platform now — spec: list.md); re-export it for this shell's
+// trash-routed delete (notes.rs) and raw note move (`fs_move_note`).
+pub(crate) use futo_notes_model::prune_empty_parent_dirs;
 
 /// Classify a notify event into a UI-facing change type. Rename events
 /// are surfaced separately by the watcher loop using the cookie-pairing

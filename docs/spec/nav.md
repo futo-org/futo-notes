@@ -27,7 +27,10 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
   break string-based routes, so the stack holds typed `Screen` values, not path
   strings. → MainActivity.kt
 - System Back pops one screen. Back on the root List does nothing app-side (the
-  stack floor is the List). → MainActivity.kt
+  stack floor is the List — the app never intercepts it there); on Android the
+  unhandled Back then follows the OS default and backgrounds/finishes the
+  activity. "Nothing app-side" means the nav stack never changes, not that the
+  event is swallowed. → MainActivity.kt `BackHandler(enabled = stack.size > 1)`
 - Forward transitions slide in + fade; back transitions fade + slide out.
   *(Android)*
 - Creating a note pushes the editor focused for immediate typing (Android

@@ -8,8 +8,10 @@ Behaviors and constraints that hold across every surface and platform.
   I/O.** Theme, prefs, notes, and the search index load in the background and
   apply reactively. → CLAUDE.md "Key Constraints"; `App.svelte` flips
   `initialized` synchronously.
-- iOS `plugin-fs` reads (`readTextFile`, `exists`) can hang indefinitely on a
-  cold sandbox — never `await` one before first render. *(iOS / desktop Tauri)*
+- `plugin-fs` reads (`readTextFile`, `exists`) can hang indefinitely on a cold
+  sandbox — never `await` one before first render. *(desktop Tauri; originally
+  observed on the since-removed iOS Tauri shell — the native iOS app doesn't
+  use `@tauri-apps/plugin-fs` at all)*
 
 ## Notes & files
 

@@ -12,6 +12,11 @@
     confirmLabel?: string;
     /** Validate + submit. Return null on success, or an error string to display. */
     onsubmit: (value: string) => Promise<string | null> | string | null;
+    /** Optional live validator, re-run on every keystroke. A non-null
+     *  return disables the confirm action and is shown as the error
+     *  (once the field is non-empty). The submit path stays guarded by
+     *  `onsubmit` as a hard backstop. */
+    validate?: (value: string) => string | null;
     oncancel: () => void;
   }
 
@@ -20,6 +25,7 @@
     title = 'New folder',
     confirmLabel = 'Create',
     onsubmit,
+    validate,
     oncancel,
   }: Props = $props();
 
@@ -29,13 +35,18 @@
   let submitting = $state(false);
   let inputEl: HTMLInputElement | undefined = $state();
 
+  const liveError = $derived(validate ? validate(value) : null);
+  // An untouched/whitespace-only field is disabled-but-quiet — showing
+  // "cannot be empty" before the user types anything reads as a scold.
+  const shownError = $derived(liveError !== null && value.trim() !== '' ? liveError : error);
+
   onMount(() => {
     inputEl?.focus();
     inputEl?.select();
   });
 
   async function handleSubmit(): Promise<void> {
-    if (submitting) return;
+    if (submitting || liveError !== null) return;
     submitting = true;
     error = null;
     try {
@@ -73,6 +84,7 @@
         bind:value
         type="text"
         class="modal-input"
+        oninput={() => { error = null; }}
         onkeydown={handleKey}
         autocomplete="off"
         autocapitalize="none"
@@ -81,8 +93,8 @@
         data-testid="create-folder-input"
       />
     </label>
-    {#if error}
-      <div class="modal-error" role="alert">{error}</div>
+    {#if shownError}
+      <div class="modal-error" role="alert">{shownError}</div>
     {/if}
     <div class="modal-actions">
       <button type="button" class="modal-btn modal-btn-secondary" onclick={oncancel}>Cancel</button>
@@ -90,7 +102,7 @@
         type="button"
         class="modal-btn modal-btn-primary"
         onclick={handleSubmit}
-        disabled={submitting}
+        disabled={submitting || liveError !== null}
         data-testid="create-folder-confirm"
       >{confirmLabel}</button>
     </div>
