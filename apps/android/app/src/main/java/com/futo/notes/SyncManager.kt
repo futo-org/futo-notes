@@ -78,9 +78,11 @@ class SyncManager(
         override fun onSynced(summary: SyncSummary) {
             scope.launch {
                 // Success reports just "Sync complete" — never the
-                // uploaded/downloaded/deleted/conflict counts [sync.md].
-                status = "Sync complete"
-                lastError = null
+                // uploaded/downloaded/deleted/conflict counts [sync.md]. A cycle
+                // that COMPLETED with per-item failures (uploads/deletes that
+                // didn't reach the server) is not success — route it to the
+                // red error line instead [sync.md].
+                applyOutcome(summary)
                 // A live pull wrote to disk — refresh the list (skip no-op pulls).
                 if (summary.downloaded > 0u || summary.deleted > 0u) onLivePull?.invoke()
             }
@@ -132,7 +134,7 @@ class SyncManager(
             }
             status = "Connected (${info.authMode}) · syncing…"
             val initial = c.syncNow()
-            status = "Sync complete"
+            applyOutcome(initial)
             // Refresh the list if the initial (catch-up) sync pulled changes.
             if (initial.downloaded > 0u || initial.deleted > 0u) onLivePull?.invoke()
             c.startLive(LiveListener()) // onConnected flips `live` when the stream is up
@@ -149,8 +151,7 @@ class SyncManager(
         val c = client ?: return
         busy = true; lastError = null; status = "Syncing…"
         try {
-            c.syncNow()
-            status = "Sync complete"
+            applyOutcome(c.syncNow())
         } catch (e: Exception) {
             // The pinned vault was collapsed by the single-vault migration —
             // re-point to the survivor instead of surfacing a dead-end error.
@@ -189,6 +190,21 @@ class SyncManager(
             // collection-gone); connectAndSync builds a fresh client + live loop.
             connectAndSync(root, password)
             healing = false
+        }
+    }
+
+    /** Single reporter for a completed cycle's outcome [sync.md]: clean →
+     *  "Sync complete" (no counts); per-item failures → the red error line,
+     *  using `failureMessage` (computed once in the Rust core so every shell
+     *  shows identical wording). Cleared by the next clean cycle. */
+    internal fun applyOutcome(summary: SyncSummary) {
+        val message = summary.failureMessage
+        if (message != null) {
+            lastError = message
+            status = "Error"
+        } else {
+            status = "Sync complete"
+            lastError = null
         }
     }
 

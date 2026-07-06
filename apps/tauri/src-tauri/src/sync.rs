@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
 
 use futo_notes_sync::live::{LiveFuture, LiveHandle, SyncSessionListener};
-use futo_notes_sync::{ConnectedState, SyncCounts, SyncProgress};
+use futo_notes_sync::{ConnectedState, SyncProgress};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -87,11 +87,28 @@ pub struct SyncSummary {
     pub downloaded: usize,
     pub deleted: usize,
     pub conflicts: usize,
+    /// Per-item operations that failed without aborting the cycle. Non-empty
+    /// drives the desktop failure indicator + toast.
+    pub failures: Vec<SyncFailure>,
+    /// User-facing one-liner describing `failures`, computed once in
+    /// `futo-notes-sync` so every shell shows identical wording. `None` for
+    /// a clean cycle.
+    pub failure_message: Option<String>,
     pub updated_ids: Vec<String>,
     pub deleted_ids: Vec<String>,
     pub peer_updated_ids: Vec<String>,
     pub peer_deleted_ids: Vec<String>,
     pub renamed: Vec<RenamePair>,
+}
+
+/// Wire form of a per-item sync failure. `kind` is `"upload" | "delete" |
+/// "checkpoint"`; `statusCode` is the server HTTP status when present.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncFailure {
+    pub filename: String,
+    pub kind: String,
+    pub status_code: Option<u16>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -116,6 +133,16 @@ fn to_wire_summary(s: &futo_notes_sync::SyncSummary) -> SyncSummary {
         downloaded: s.downloaded as usize,
         deleted: s.deleted as usize,
         conflicts: s.conflicts as usize,
+        failure_message: s.failure_message(),
+        failures: s
+            .failures
+            .iter()
+            .map(|f| SyncFailure {
+                filename: f.filename.clone(),
+                kind: f.kind.as_str().to_owned(),
+                status_code: f.status_code,
+            })
+            .collect(),
         updated_ids: s.updated_ids.clone(),
         deleted_ids: s.deleted_ids.clone(),
         peer_updated_ids: s.peer_updated_ids.clone(),
@@ -151,7 +178,7 @@ struct TauriListener {
 }
 
 impl SyncSessionListener for TauriListener {
-    fn on_synced(&self, _counts: SyncCounts) {
+    fn on_synced(&self, _summary: futo_notes_sync::SyncSummary) {
         // Rich `sync:live-synced` is emitted in the pull/push closure.
     }
     fn on_connected(&self) {
@@ -166,6 +193,18 @@ impl SyncSessionListener for TauriListener {
             serde_json::json!({
                 "live": false,
                 "status": "reconnecting",
+                "message": message,
+            }),
+        );
+    }
+    fn on_cycle_error(&self, message: String) {
+        // The stream is still connected — keep `live` up so the idle ✓ tick
+        // survives a failing cycle; the message alone raises the error UI.
+        let _ = self.app.emit(
+            "sync:live-state",
+            serde_json::json!({
+                "live": true,
+                "status": "cycle-error",
                 "message": message,
             }),
         );
@@ -312,8 +351,8 @@ fn gated_run_sync_closure(
     suppressed: Arc<Mutex<HashMap<String, i64>>>,
     app: AppHandle,
     root: PathBuf,
-) -> Box<dyn Fn() -> LiveFuture<Result<Option<SyncCounts>, String>> + Send + Sync> {
-    Box::new(move || -> LiveFuture<Result<Option<SyncCounts>, String>> {
+) -> Box<dyn Fn() -> LiveFuture<Result<Option<futo_notes_sync::SyncSummary>, String>> + Send + Sync> {
+    Box::new(move || -> LiveFuture<Result<Option<futo_notes_sync::SyncSummary>, String>> {
         // Capture owned clones so the returned future is 'static.
         let inner = Arc::clone(&inner);
         let sync_gate = Arc::clone(&sync_gate);
@@ -338,7 +377,7 @@ fn gated_run_sync_closure(
                 .map_err(|e| e.to_string())?;
             *inner.lock().await = Some(next);
             let _ = app.emit("sync:live-synced", to_wire_summary(&summary));
-            Ok(Some((&summary).into()))
+            Ok(Some(summary))
         })
     })
 }
@@ -518,6 +557,12 @@ mod tests {
             downloaded: 2,
             deleted: 3,
             conflicts: 4,
+            failures: vec![SyncFailure {
+                filename: "note.md".into(),
+                kind: "upload".into(),
+                status_code: Some(500),
+            }],
+            failure_message: Some("1 change couldn't reach the server (HTTP 500)".into()),
             updated_ids: vec!["a".into()],
             deleted_ids: vec!["b".into()],
             peer_updated_ids: vec!["c".into()],
@@ -533,5 +578,9 @@ mod tests {
         assert!(j.contains("\"peerDeletedIds\""));
         assert!(j.contains("\"fromId\""));
         assert!(j.contains("\"toId\""));
+        // Failure channel: core-computed message + per-item detail with
+        // camelCase statusCode.
+        assert!(j.contains("\"failureMessage\""));
+        assert!(j.contains("\"statusCode\":500"));
     }
 }

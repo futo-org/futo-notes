@@ -58,18 +58,102 @@ client uploads opaque encrypted blobs — note content is encrypted before uploa
   status never shows uploaded/downloaded/deleted/conflict counts (spec
   decision 2026-06-10; the native shells previously showed
   `Synced — ↑a ↓b ✕c ⚠d`, and Tauri desktop previously showed `Synced: N
-  uploaded, …` / `Synced N notes`). This holds on **all three** shells: the
-  desktop Settings toast and coordinator status line report only "Sync
-  complete". → SyncManager.kt / SyncManager.swift `describe`,
-  SettingsScreen.svelte + syncManager.svelte.ts *(desktop)*
+  uploaded, …` / `Synced N notes`). This holds on **all three** shells. →
+  SyncManager.kt / SyncManager.swift `describe`, syncManager.svelte.ts *(desktop)*
+  - **Exemption:** the "no counts" rule covers *success* reporting only. A
+    **failure** count/status (e.g. "3 changes couldn't reach the server (HTTP
+    500)") is a distinct, actionable signal and IS surfaced — see the
+    per-item failure bullet below.
+  - **Desktop has a SINGLE completion reporter.** All sync-outcome feedback
+    (the "Sync complete" toast, the failure indicator/toast, the large-sync
+    banner) is decided in ONE place — the sync manager's `handleSyncComplete`,
+    which sees every sync (manual, poll, live SSE) with its trigger. A clean
+    **manual** sync (Settings Connect / "Sync now") toasts "Sync complete";
+    clean background/live cycles stay quiet. SettingsScreen owns no success
+    reporting of its own — only transient progress text and the errors the
+    manager never sees: pre-sync connect failures (bad URL/password) and a
+    manual sync that never executed a cycle (offline, sync already running).
+    Executed-cycle errors are marked by autoSyncV2 (`wasSyncErrorReported`)
+    so Settings renders exactly the rest locally instead of swallowing them. →
+    syncManager.svelte.ts (`handleSyncComplete` + trigger), autoSyncV2.ts
+    (`SyncTrigger`, `wasSyncErrorReported`), SettingsScreen.svelte
+  - **"Sync complete" requires a genuinely clean cycle.** A cycle that
+    resolves but carries per-item failures reports the failure state instead —
+    resolution alone is not success. Same rule for the large-sync coordinator
+    banner. → syncManager.svelte.ts (`handleSyncComplete`)
 - A failed **auto/background** sync (not just a manual "Sync now") surfaces too,
   not only in the console: the desktop status bar shows a muted error indicator
-  (an ✕, distinct from the offline icon, which wins when there's no network)
+  (a ⚠ warning triangle, distinct from the offline icon, which wins when there's no network)
   whose hover tooltip carries the error message, and the Settings sync section
   shows the same "Sync failed: …" line. Both clear on the next successful sync.
+  Manual-sync errors ride the SAME shared state (single reporter — see above);
+  only pre-sync connect failures (bad URL/password) render as a local
+  "Connect failed: …" line in Settings.
+  The ⚠ indicator is also **click-to-dismiss** (`clearSyncError`) — a manual
+  dismiss, not a mute: the next failing sync re-raises it.
   Opaque `fetch` `TypeError`s (server unreachable) are rewritten to an actionable
-  message. → syncManager.svelte.ts (`getSyncErrorMessage`, `syncError`),
-  SyncStatusBar.svelte, SettingsScreen.svelte (desktop)
+  message. → syncManager.svelte.ts (`getSyncErrorMessage`, `syncError`,
+  `clearSyncError`), SyncStatusBar.svelte (`onclear`), SettingsScreen.svelte (desktop)
+- **Per-item sync failures surface — a cycle that COMPLETES is not assumed
+  healthy.** When individual operations fail (an upload/create/update, a
+  push-side delete, a duplicate-move loser takedown, or an object-map
+  checkpoint persist) but the cycle itself
+  doesn't throw, they are counted into `SyncSummary.failures` (a channel
+  distinct from `conflicts`) and drive the SAME ⚠ indicator + Settings
+  line as a whole-cycle failure. Previously these returned `Ok` and were
+  swallowed to stderr — invisible in packaged builds — so a server rejecting
+  every upload (the 2026-06-29 EACCES/HTTP-500 incident) showed **no** client
+  signal for days. **The user-facing message is computed ONCE, in the Rust
+  core** (`SyncSummary::failure_message`) and rendered verbatim by all three
+  shells: server-bound failures (upload/delete) read "N change(s) couldn't
+  reach the server", with the most common HTTP status appended when one
+  exists (ties keep the first-seen code, deterministically on every
+  platform); a checkpoint failure is a LOCAL persist error — the data did
+  reach the server — so it gets its own clause ("sync state couldn't be
+  saved locally"), never the server wording, and is recorded at most once
+  per cycle even when the interim and final persists both fail.
+  413-oversize and unresolved-merge outcomes stay in `conflicts`, NOT
+  `failures`. Partial cycles report honestly — a cycle can have both
+  `uploaded > 0` and failures.
+  → futo-notes-sync `orchestrator` (`SyncFailure`, `FailureKind`,
+  `SyncSummary::failure_message`, `run_push`), sync.rs `to_wire_summary`,
+  syncManager.svelte.ts (`handleSyncComplete`)
+- **The failure signal also fires a toast, on message change.** A toast —
+  prefixed **"Sync error: "** so the source is clear outside the sync UI
+  ("Sync error: N change(s) couldn't reach the server …") — appears on the
+  first failure and on
+  every subsequent failure whose **message differs** (count or dominant HTTP
+  status changed). An **identical** repeat stays silent — auto-sync retries a
+  persistent outage every ~15s, and per-cycle toasting would spam. After a
+  clear (clean sync or click-to-dismiss) the message resets, so the next
+  failure toasts again. Errors are cleared **per source**: a clean completed
+  sync clears cycle-failure errors but NOT a live-stream error (the stream is
+  still down — clearing it would re-arm the toast and spam every reconnect
+  attempt); a stream error clears when the stream reconnects or on dismiss.
+  → syncManager.svelte.ts (`raiseSyncError`, `clearSyncError`,
+  `SyncErrorSource`)
+- **Desktop shows a persistent idle sync indicator.** While the live SSE stream
+  is connected and healthy (no active sync, no error, online), the bottom-right
+  corner shows a subtle ✓ tick, so "sync is set up and fine" is always legible
+  rather than blank. It yields to the spinner (syncing), ⚠ (error), and
+  offline icons. A failing **cycle** on a healthy stream does not drop the
+  tick's connected state — the live loop reports it as `status: "cycle-error"`
+  with `live: true` (only a real stream drop reports `live: false`), so one
+  transient cycle error can't blank the tick until the next stream reconnect.
+  Desktop only — native shells surface sync state on their Sync screen. →
+  SyncStatusBar.svelte (`connected` = `sync.live`), sync.rs (`on_cycle_error`),
+  futo-notes-sync `live::run_cycle`
+
+- **Native shells surface per-item failures on their Sync screen.** The FFI
+  `SyncSummary` carries the per-item `failures` (kind, HTTP status) plus the
+  core-computed `failure_message` — on `sync_now` AND live `on_synced` alike
+  (the live loop forwards the full rich summary; there is no count-only live
+  path). Both native SyncManagers route a completed-but-failing cycle
+  (`failureMessage != null`) to the red error line verbatim — identical
+  wording to desktop by construction — instead of "Sync complete", on manual
+  sync, the post-connect initial sync, and live `on_synced` alike. Cleared by
+  the next clean cycle. → futo-notes-ffi `SyncSummary`/`SyncFailure`,
+  SyncManager.kt / SyncManager.swift (`applyOutcome`)
 - An edit made on one device appears on another device after a sync cycle.
 - **Embedded images sync with their notes.** A note's `.md` and the image
   files it references (`is_image_filename`: png/jpg/jpeg/gif/webp/svg/bmp/ico/
@@ -157,8 +241,19 @@ client uploads opaque encrypted blobs — note content is encrypted before uploa
   state is NOT surfaced as a "Live" label — that label was removed everywhere
   (2026-06-04): it tracked the reconnect task being alive, not an
   authenticated stream, so it stayed lit while every request 401'd. Errors
-  surface via the status/lastError line instead. → futo-notes-sync
-  `live::watch`, `SyncClient::start_live` (native), `e2ee_start_live` +
+  surface via the status/lastError line instead. On desktop, the live loop's
+  error emits (`sync:live-state` with a `message`) also route into the same
+  ⚠ failure indicator + toast as every other sync error — previously the
+  message was dropped and a failing live loop stayed quiet until the (up to
+  120 s) safety poll hit the same error. The loop distinguishes its two
+  failure classes: a failed **cycle** on a healthy stream emits
+  `status: "cycle-error"` (`live: true` — same class as a poll failure,
+  cleared by the next clean sync) while a **stream** connect/read failure
+  emits `status: "reconnecting"` (`live: false`, cleared when the stream
+  reconnects or on dismiss — deliberately NOT by a clean poll, which proves
+  syncing works but not that the stream recovered). → futo-notes-sync
+  `live::watch` (`SyncSessionListener::on_cycle_error`), `SyncClient::start_live`
+  (native), `e2ee_start_live` + syncManager.svelte.ts (`handleLiveState`) +
   SyncStatusBar.svelte (desktop)
 - The `change` event is a doorbell only (`{collectionId, currentVersion}`, no
   content); the client always pulls from its persisted `max_version` cursor, so

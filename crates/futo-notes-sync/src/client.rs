@@ -62,6 +62,16 @@ impl E2eeHttpError {
     pub fn is_not_found(&self) -> bool {
         matches!(self, Self::Http { status: 404, .. })
     }
+
+    /// The HTTP status code when the error carries a server response
+    /// (`Http`). `None` for transport/network, bad-token, or JSON errors —
+    /// those have no status. Feeds the per-failure detail surfaced to the user.
+    pub fn status_code(&self) -> Option<u16> {
+        match self {
+            Self::Http { status, .. } => Some(*status),
+            _ => None,
+        }
+    }
 }
 
 // ── Wire types ───────────────────────────────────────────────────────────

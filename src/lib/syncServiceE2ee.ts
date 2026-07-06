@@ -21,11 +21,26 @@ export interface SyncSummary {
   downloaded: number;
   deleted: number;
   conflicts: number;
+  /** Per-item ops that failed without aborting the cycle. Non-empty drives
+   *  the failure indicator + toast. */
+  failures: SyncFailure[];
+  /** User-facing one-liner describing `failures`, computed in the Rust core
+   *  so every shell shows identical wording. Absent for a clean cycle. */
+  failureMessage?: string | null;
   updatedIds: string[];
   deletedIds: string[];
   renamed: Array<{ fromId: string; toId: string }>;
   peerUpdatedIds: string[];
   peerDeletedIds: string[];
+}
+
+/** One per-item sync failure. `kind` is `'upload' | 'delete' | 'checkpoint'`;
+ *  `statusCode` is the server HTTP status when the failure came from a
+ *  response (absent for transport/local errors). */
+export interface SyncFailure {
+  filename: string;
+  kind: string;
+  statusCode?: number;
 }
 
 export type SyncProgress = {

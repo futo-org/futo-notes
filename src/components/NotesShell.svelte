@@ -800,6 +800,7 @@
     const win = window as typeof window & {
       __notesShellTest?: {
         handleSyncComplete: (summary: SyncSummary) => Promise<void>;
+        handleLiveState: (payload: { live: boolean; status: string; message?: string }) => void;
         handleFileChange: (event: { type: 'add' | 'change' | 'unlink'; filename: string }) => Promise<void>;
         seedOpenNote: (id: string, body: string) => void;
         flushSave: () => Promise<void>;
@@ -816,6 +817,7 @@
     };
     win.__notesShellTest = {
       handleSyncComplete: sync.handleSyncComplete,
+      handleLiveState: sync.handleLiveState,
       handleFileChange: sync.handleFileChange,
       seedOpenNote: (id: string, body: string) => {
         session.seedOpenNote(id, body);
@@ -998,7 +1000,7 @@
         <ForYouPage onbrowse={() => setDrawerOpen(true)} onquickcapture={createNewNote} />
       {/if}
     </div>
-    <SyncStatusBar statusMessage={sync.syncStatusMessage} indicatorVisible={sync.syncIndicatorVisible} offline={sync.syncOffline} error={sync.syncError} errorMessage={sync.syncErrorMessage} />
+    <SyncStatusBar statusMessage={sync.syncStatusMessage} indicatorVisible={sync.syncIndicatorVisible} offline={sync.syncOffline} error={sync.syncError} errorMessage={sync.syncErrorMessage} connected={sync.live} onclear={sync.clearSyncError} />
   </div>
 
   {#if isMobile && MarkdownToolbar}
@@ -1035,6 +1037,7 @@
     onimported={handleImported}
     syncError={sync.syncError}
     syncErrorMessage={sync.syncErrorMessage}
+    {...(import.meta.env.DEV ? { simulateSyncSummary: sync.handleSyncComplete } : {})}
   />
 {/if}
 

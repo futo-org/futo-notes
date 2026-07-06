@@ -56,10 +56,19 @@ final class SyncManager: ObservableObject {
     /// without a manual sync. (Manual `syncNow` reloads via the Sync view.)
     var onLivePull: (() -> Void)?
 
-    private func summarize(_ s: SyncSummary) -> String {
-        // Spec (docs/spec/sync.md): a successful sync reports just "Sync
-        // complete" — never uploaded/downloaded/deleted/conflict counts.
-        "Sync complete"
+    /// Single reporter for a completed cycle's outcome (docs/spec/sync.md):
+    /// clean → just "Sync complete" (never uploaded/downloaded/deleted/conflict
+    /// counts); per-item failures → the red `lastError`, using
+    /// `failureMessage` (computed once in the Rust core so every shell shows
+    /// identical wording). Cleared by the next clean cycle.
+    private func applyOutcome(_ s: SyncSummary) {
+        if let message = s.failureMessage {
+            lastError = message
+            status = "Error"
+        } else {
+            status = "Sync complete"
+            lastError = nil
+        }
     }
 
     /// Validate a user-entered server URL before attempting a connection.
@@ -110,7 +119,7 @@ final class SyncManager: ObservableObject {
             Keychain.syncPassword = password
             status = "Connected (\(info.authMode)) · syncing…"
             let summary = try await c.syncNow()
-            status = summarize(summary)
+            applyOutcome(summary)
             // Refresh the list if the initial (catch-up) sync pulled changes —
             // covers `restoreSession` on a cold launch, where there's no Sync
             // view to reload the store afterward.
@@ -141,7 +150,7 @@ final class SyncManager: ObservableObject {
         defer { busy = false }
         do {
             let summary = try await c.syncNow()
-            status = summarize(summary)
+            applyOutcome(summary)
         } catch {
             // The pinned vault was collapsed by the single-vault migration —
             // re-point to the survivor instead of surfacing a dead-end error.
@@ -214,8 +223,7 @@ final class SyncManager: ObservableObject {
     // ── Live-listener callbacks (invoked on the main actor by LiveListener) ──
 
     func applyLiveSummary(_ s: SyncSummary) {
-        status = summarize(s)
-        lastError = nil
+        applyOutcome(s)
         liveError = nil  // a completed live pull means the stream is healthy
         // A live pull wrote to disk — refresh the note list (only when there's
         // an actual change, to skip needless rescans on no-op pulls).

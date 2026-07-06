@@ -21,7 +21,7 @@ import {
   handleExternalFileChange,
   refreshNotesFromStorage,
 } from '$lib/notes.svelte';
-import { startAutoSyncV2, stopAutoSyncV2, notifySavedV2 } from '$lib/autoSyncV2';
+import { startAutoSyncV2, stopAutoSyncV2, notifySavedV2, type SyncTrigger } from '$lib/autoSyncV2';
 import { updateAppState } from '$lib/appState';
 import { engineNotify } from '$lib/searchEngine';
 
@@ -86,13 +86,32 @@ export interface SyncManager {
   /** Notify auto-sync that a local change happened (save, delete, etc). */
   notifySaved: () => void;
 
+  /** Dismiss the current sync error (✕ indicator + message). A manual dismiss,
+   *  NOT a mute — the next failing sync re-raises it. */
+  clearSyncError: () => void;
+
   /** Start sync lifecycle (call in mount $effect). Returns cleanup fn. */
   start: () => () => void;
 
   // For __notesShellTest dev hook
-  handleSyncComplete: (summary: SyncSummary) => Promise<void>;
+  handleSyncComplete: (summary: SyncSummary, trigger?: SyncTrigger) => Promise<void>;
   handleFileChange: (event: FileChangeEvent) => Promise<void>;
+  /** Exposed for tests — the `sync:live-state` event handler. */
+  handleLiveState: (payload: LiveStatePayload) => void;
 }
+
+/** Payload of the Rust live loop's `sync:live-state` event. `message` is set
+ *  only on error emits: status "reconnecting" (stream down, `live: false`) or
+ *  "cycle-error" (a sync cycle failed while the stream stayed up, `live:
+ *  true`). */
+export interface LiveStatePayload {
+  live: boolean;
+  status: string;
+  message?: string;
+}
+
+/** Which surface raised a sync error — see `raiseSyncError`/`clearSyncError`. */
+export type SyncErrorSource = 'sync' | 'stream';
 
 // ── Constants ────────────────────────────────────────────────────────────
 
@@ -145,6 +164,42 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
   let syncError = $state(false);
   let syncErrorMessage = $state('');
   let live = $state(false);
+  /** What raised the current error: 'sync' (a cycle failed — poll, manual, or
+   *  live cycle-error) or 'stream' (the SSE stream is down). Tracked so each
+   *  source only clears its own errors — see `clearSyncError`. */
+  let syncErrorSource: SyncErrorSource | null = null;
+
+  /**
+   * Raise the sync-failure state (⚠ indicator + Settings line) from a
+   * whole-cycle throw, per-item failures, or a live-loop error. The toast
+   * fires on any CHANGE of message — the first failure (message was '') and
+   * every subsequent DIFFERENT failure — but stays silent on an identical
+   * repeat, so a persistent outage that auto-sync retries every ~15s doesn't
+   * spam.
+   */
+  function raiseSyncError(message: string, source: SyncErrorSource = 'sync'): void {
+    const changed = message !== syncErrorMessage;
+    syncError = true;
+    syncErrorMessage = message;
+    syncErrorSource = source;
+    // Toasts float free of the sync UI, so name the source; the indicator
+    // tooltip and Settings line carry their own "Sync error/failed" labels.
+    if (changed) deps.showToast(`Sync error: ${message}`);
+  }
+
+  /**
+   * Clear the error state. With a `source`, only clears an error that source
+   * raised: a clean poll proves syncing works but not that the stream
+   * recovered, so it must not clear (and re-arm the toast for) a 'stream'
+   * error the live loop is still retrying. The click-to-dismiss ⚠ passes no
+   * source and clears everything.
+   */
+  function clearSyncError(source?: SyncErrorSource): void {
+    if (source && syncErrorSource !== null && syncErrorSource !== source) return;
+    syncError = false;
+    syncErrorMessage = '';
+    syncErrorSource = null;
+  }
 
   // ── Internal state ──
   let externalRescanTimer: number | null = null;
@@ -264,13 +319,43 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
   // ── Sync coordinator (created lazily in start()) ──
   let syncCoord: SyncCoordinator | null = null;
 
+  // ── Live-state handler ──
+
+  /**
+   * `sync:live-state` from the Rust live loop. `message` is only present on
+   * the error emits: "cycle-error" (a sync cycle failed, stream still up —
+   * same failure class as a poll error, so source 'sync') and "reconnecting"
+   * (the stream itself is down — source 'stream', cleared only when the
+   * stream comes back or the user dismisses, never by a clean poll).
+   */
+  function handleLiveState(payload: LiveStatePayload): void {
+    live = payload.live;
+    if (payload.message) {
+      raiseSyncError(payload.message, payload.status === 'cycle-error' ? 'sync' : 'stream');
+    } else if (payload.live) {
+      // Clean (re)connect — a stream error is resolved.
+      clearSyncError('stream');
+    }
+  }
+
   // ── Sync complete handler ──
 
-  async function handleSyncComplete(summary: SyncSummary): Promise<void> {
-    // A successful sync (auto, manual, or live SSE) clears any prior error so
-    // the status-bar indicator and Settings stop showing a stale failure.
-    syncError = false;
-    syncErrorMessage = '';
+  async function handleSyncComplete(summary: SyncSummary, trigger?: SyncTrigger): Promise<void> {
+    // Single reporter for sync-completion feedback (spec: sync.md). A cycle
+    // with zero per-item failures clears any prior error so the status-bar
+    // indicator and Settings stop showing a stale failure — and, for a MANUAL
+    // sync (Settings Connect / "Sync now"), toasts "Sync complete" (never
+    // per-item success counts — spec decision 2026-06-10; background/live
+    // cycles stay quiet). A cycle that COMPLETED but had per-item failures
+    // (uploads/deletes that didn't reach the server — work-item #10) raises
+    // the muted failure indicator + toast instead — resolution alone is not
+    // success.
+    if (summary.failureMessage) {
+      raiseSyncError(summary.failureMessage);
+    } else {
+      clearSyncError('sync');
+      if (trigger === 'manual') deps.showToast('Sync complete');
+    }
     // Stamp the "last synced" time. Nothing else writes appState.lastSyncedAt,
     // so without this the Settings "Last sync" label stayed frozen (e.g.
     // "1mo ago") even after a successful manual "Sync now". Fire it before the
@@ -374,9 +459,10 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
 
     // Sync status banner. A successful sync reports just "Sync complete" —
     // never per-item uploaded/downloaded/deleted/conflict counts (sync.md,
-    // 2026-06-10). Only surfaced for large syncs so routine polls stay quiet.
+    // 2026-06-10). Only surfaced for large syncs so routine polls stay quiet,
+    // and never for a cycle with per-item failures — the ⚠ indicator owns that.
     const totalChanges = summary.updatedIds.length + summary.deletedIds.length + summary.renamed.length;
-    if (totalChanges > 20) {
+    if (totalChanges > 20 && !summary.failureMessage) {
       syncCoord?.setStatusWithTimeout('Sync complete', 3000);
     } else {
       syncStatusMessage = '';
@@ -406,9 +492,9 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
       onSyncError: (err) => {
         // F15: surface auto/background sync failures in the UI instead of only
         // console.warn — the status-bar indicator + Settings read this state.
-        // Cleared on the next successful sync (handleSyncComplete).
-        syncError = true;
-        syncErrorMessage = getSyncErrorMessage(err);
+        // Edge-triggered toast on the healthy→failing transition; cleared on
+        // the next successful sync (handleSyncComplete).
+        raiseSyncError(getSyncErrorMessage(err));
         console.warn('Auto-sync error:', err);
       },
       flushPendingSave: deps.flushSave,
@@ -424,7 +510,7 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
     if (isTauri) {
       void listen('sync:live-synced', (e) => { void handleSyncComplete(e.payload as SyncSummary); })
         .then((un) => liveUnlisteners.push(un));
-      void listen<{ live: boolean; status: string; message?: string }>('sync:live-state', (e) => { live = e.payload.live; })
+      void listen<LiveStatePayload>('sync:live-state', (e) => handleLiveState(e.payload))
         .then((un) => liveUnlisteners.push(un));
     }
 
@@ -456,9 +542,11 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
 
     enqueueFileChange: (event: FileChangeEvent) => watcherBatch.enqueue(event),
     notifySaved,
+    clearSyncError,
 
     start,
     handleSyncComplete,
     handleFileChange: handleSingleWatcherEvent,
+    handleLiveState,
   };
 }

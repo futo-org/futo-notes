@@ -70,6 +70,7 @@ test-results/
 # Claude
 .claude/local-plugins/*
 .claude/worktrees
+.claude/settings.local.json
 
 # Local data (SQLite DB + notes)
 data/
