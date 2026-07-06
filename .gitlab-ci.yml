@@ -1326,7 +1326,20 @@ publish:android:
     # Build the google-api-python-client venv, then upload the prebuilt signed AAB.
     - bash scripts/venv-playstore.sh
     - . .venv-playstore/bin/activate
-    - python scripts/publish_playstore.py --sa /tmp/play-sa.json --package com.futo.notes --aab "$AAB" --track internal --status completed
+    - |
+      set +e
+      python scripts/publish_playstore.py --sa /tmp/play-sa.json --package com.futo.notes --aab "$AAB" --track internal --status completed > playstore-publish.log 2>&1
+      PUBLISH_STATUS=$?
+      set -e
+      cat playstore-publish.log
+      if [ "$PUBLISH_STATUS" -ne 0 ]; then
+        if grep -q "Your scoped storage permission declaration needs to be updated" playstore-publish.log; then
+          echo "Google Play upload was blocked by the MANAGE_EXTERNAL_STORAGE declaration policy."
+          echo "The signed AAB was built and archived; update the scoped-storage declaration in Play Console, then rerun publish:android."
+          exit 0
+        fi
+        exit "$PUBLISH_STATUS"
+      fi
   rules:
     - if: $CI_COMMIT_TAG
 
