@@ -12,19 +12,28 @@ export async function waitForTestHooks(
   { initialDelayMs = 3_000, attempts = 15, intervalMs = 2_000 } = {},
 ) {
   await sleep(initialDelayMs);
+  let lastError = null;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
-    const result = await executeJs(ws, `JSON.stringify({
-      testSync: typeof window.__testSync,
-      notesShell: typeof window.__notesShellTest,
-    })`);
-    const parsed = JSON.parse(String(result));
-    if (parsed.testSync === 'object' && parsed.notesShell === 'object') return;
+    try {
+      const result = await executeJs(ws, `JSON.stringify({
+        testSync: typeof window.__testSync,
+        notesShell: typeof window.__notesShellTest,
+      })`);
+      const parsed = JSON.parse(String(result));
+      if (parsed.testSync === 'object' && parsed.notesShell === 'object') return;
+      lastError = null;
+    } catch (err) {
+      // The bridge can accept WebSocket connections before the webview is
+      // ready to run JS. Treat early execute_js timeouts like a missing hook.
+      lastError = err;
+    }
     await sleep(intervalMs);
   }
 
   const totalMs = initialDelayMs + (attempts * intervalMs);
+  const suffix = lastError ? ` Last probe error: ${lastError.message}` : '';
   throw new Error(
-    `${name}: test hooks not available after ${Math.round(totalMs / 1000)}s. Was the frontend built with VITE_INCLUDE_TEST_HOOKS=true?`,
+    `${name}: test hooks not available after ${Math.round(totalMs / 1000)}s. Was the frontend built with VITE_INCLUDE_TEST_HOOKS=true?${suffix}`,
   );
 }
 

@@ -191,12 +191,13 @@ confirmation, not surfaced as a per-folder count. → NoteListView.swift
 - Folder names must be unique among siblings (case-insensitive) and
   filesystem-safe; the shared sanitize rules apply. Enforced on Tauri
   (`folders.svelte.ts`), Android (`NewFolderDialog.kt`), and iOS native
-  (`NoteListView.swift` `createFolder`): on a case-insensitive sibling match the
-  Create action is disabled and the dialog shows "A folder with this name
-  already exists", with the name cleaned via the shared Rust `sanitizeTitle`. A
-  hard guard in `createFolder` also blocks the idempotent `create_dir_all` from
-  silently merging into an existing folder. → folders.svelte.ts,
-  NewFolderDialog.kt, NoteListView.swift
+  (`NoteListView.swift` `createFolder`): invalid names disable the Create
+  action live; non-empty invalid names show the validation error, while an empty
+  field stays disabled but quiet. On a case-insensitive sibling match the dialog
+  shows "A folder with this name already exists", with the name cleaned via the
+  shared Rust `sanitizeTitle`. A hard guard in `createFolder` also blocks the
+  idempotent `create_dir_all` from silently merging into an existing folder. →
+  folders.svelte.ts, NewFolderDialog.kt, NoteListView.swift
 - A folder can be renamed *(Tauri only — the native shells expose no
   folder-rename affordance by design; long-press offers Delete only)*; the
   rename updates every note path beneath it and rewrites wikilinks pointing at

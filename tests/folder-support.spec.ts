@@ -66,8 +66,7 @@ test.describe('Folder support', () => {
     await openSidebar(page);
     await page.getByTestId('new-folder-btn').click();
     await page.getByTestId('create-folder-input').fill('CON');
-    await page.getByTestId('create-folder-confirm').click();
-    // The modal stays open with an error message.
+    await expect(page.getByTestId('create-folder-confirm')).toBeDisabled();
     await expect(page.locator('.modal-error')).toContainText(/reserved/i);
   });
 
@@ -81,23 +80,23 @@ test.describe('Folder support', () => {
     // Try to create a case-only-different sibling
     await page.getByTestId('new-folder-btn').click();
     await page.getByTestId('create-folder-input').fill('SPECS');
-    await page.getByTestId('create-folder-confirm').click();
+    await expect(page.getByTestId('create-folder-confirm')).toBeDisabled();
     await expect(page.locator('.modal-error')).toContainText(/already exists/i);
   });
 
-  test('creating a folder with an empty name surfaces an error', async ({ page }) => {
+  test('creating a folder with an empty name keeps Create disabled without an error', async ({ page }) => {
     await openSidebar(page);
     await page.getByTestId('new-folder-btn').click();
     await page.getByTestId('create-folder-input').fill('   ');
-    await page.getByTestId('create-folder-confirm').click();
-    await expect(page.locator('.modal-error')).toBeVisible();
+    await expect(page.getByTestId('create-folder-confirm')).toBeDisabled();
+    await expect(page.locator('.modal-error')).toBeHidden();
   });
 
   test('creating a folder with forbidden characters surfaces an error', async ({ page }) => {
     await openSidebar(page);
     await page.getByTestId('new-folder-btn').click();
     await page.getByTestId('create-folder-input').fill('bad<name>');
-    await page.getByTestId('create-folder-confirm').click();
+    await expect(page.getByTestId('create-folder-confirm')).toBeDisabled();
     await expect(page.locator('.modal-error')).toBeVisible();
   });
 

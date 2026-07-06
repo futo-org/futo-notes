@@ -111,7 +111,7 @@ function moveByVisualLine(view: EditorView, direction: 'up' | 'down'): boolean {
   return true;
 }
 
-export const cursorMotionKeymap = Prec.highest(keymap.of([
+export const cursorMotionKeymap = Prec.high(keymap.of([
   { key: 'ArrowUp', run: (view) => moveAcrossEmptyLine(view, 'up') || moveByVisualLine(view, 'up') },
   { key: 'ArrowDown', run: (view) => moveAcrossEmptyLine(view, 'down') || moveByVisualLine(view, 'down') },
 ]));
