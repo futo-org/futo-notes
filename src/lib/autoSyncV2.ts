@@ -14,7 +14,7 @@ const BACKGROUND_SYNC_RETRY_DELAY = 1_000;
 const INITIAL_RETRY_DELAYS = [4_000, 8_000, 16_000, 30_000, 30_000];
 
 export interface AutoSyncCallbacks {
-  onSyncComplete: (summary: SyncSummary) => void;
+  onSyncComplete: (summary: SyncSummary, trigger: SyncTrigger) => void;
   onSyncError: (error: Error) => void;
   flushPendingSave: () => Promise<void>;
   shouldDeferSync?: () => boolean;
@@ -43,7 +43,18 @@ let liveStateUnlisten: UnlistenFn | null = null;
 let pendingLocalSave = false;
 let pendingLocalSaveTimer: number | null = null;
 
-type SyncTrigger = 'local-save' | 'manual' | 'poll' | 'resume' | 'initial';
+export type SyncTrigger = 'local-save' | 'manual' | 'poll' | 'resume' | 'initial';
+
+// Errors already routed through callbacks.onSyncError (executed-cycle
+// failures). Callers awaiting a manual sync check this to avoid
+// double-reporting: the sync manager owns executed-cycle errors; anything
+// unmarked (offline, unconfigured, already running) is the caller's to
+// surface.
+const reportedSyncErrors = new WeakSet<Error>();
+
+export function wasSyncErrorReported(e: unknown): boolean {
+  return e instanceof Error && reportedSyncErrors.has(e);
+}
 
 function isBackgroundTrigger(trigger: SyncTrigger): boolean {
   return trigger === 'poll' || trigger === 'resume' || trigger === 'initial';
@@ -85,7 +96,7 @@ async function performSync(trigger: SyncTrigger, options: { propagateErrors?: bo
     lastSyncTime = Date.now();
     cancelInitialRetry();
     cancelBackgroundRetry();
-    callbacks.onSyncComplete(summary);
+    callbacks.onSyncComplete(summary, trigger);
     // Idempotently open the Rust SSE live stream once a sync has succeeded
     // (i.e. after the post-connect sync or startup-resume initial sync).
     // Skip while auto-sync is paused (test-only) so a manual sync doesn't
@@ -95,6 +106,7 @@ async function performSync(trigger: SyncTrigger, options: { propagateErrors?: bo
   } catch (e) {
     const error = e instanceof Error ? e : new Error(String(e));
     callbacks.onSyncError(error);
+    reportedSyncErrors.add(error);
     if (options.propagateErrors) throw error;
     return null;
   } finally {
@@ -167,7 +179,7 @@ export async function requestSyncV2(): Promise<SyncSummary> {
   if (syncing) await waitForSyncIdleV2();
   const summary = await performSync('manual', { propagateErrors: true, requireExecution: true });
   if (!summary) {
-    throw new Error('Manual sync did not execute');
+    throw new Error(navigator.onLine ? 'Manual sync did not execute' : 'Offline — reconnect to sync');
   }
   return summary;
 }

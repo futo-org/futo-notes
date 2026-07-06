@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use futo_notes_sync::live::{watch, LiveFuture, LiveHandle, SyncSessionListener};
 use futo_notes_sync::state::ConnectedState;
-use futo_notes_sync::{SyncCounts, SyncProgress};
+use futo_notes_sync::{SyncProgress, SyncSummary};
 use tokio::sync::{mpsc, Mutex};
 
 /// No-op sync hooks (no progress UI, no watcher to suppress in the test).
@@ -32,10 +32,10 @@ struct Recorded {
 struct Recorder(Arc<std::sync::Mutex<Recorded>>);
 
 impl SyncSessionListener for Recorder {
-    fn on_synced(&self, counts: SyncCounts) {
+    fn on_synced(&self, summary: SyncSummary) {
         let mut g = self.0.lock().unwrap();
         g.synced += 1;
-        g.downloaded += counts.downloaded;
+        g.downloaded += summary.downloaded;
     }
     fn on_connected(&self) {
         self.0.lock().unwrap().connected += 1;
@@ -65,7 +65,7 @@ fn make_handle(
         cycle: {
             let state = state.clone();
             let vault = vault.clone();
-            Box::new(move || -> LiveFuture<Result<Option<SyncCounts>, String>> {
+            Box::new(move || -> LiveFuture<Result<Option<SyncSummary>, String>> {
                 let state = state.clone();
                 let vault = vault.clone();
                 Box::pin(async move {
@@ -78,7 +78,7 @@ fn make_handle(
                             .await
                             .map_err(|e| format!("{e:?}"))?;
                     *state.lock().await = Some(after);
-                    Ok(Some((&summary).into()))
+                    Ok(Some(summary))
                 })
             })
         },

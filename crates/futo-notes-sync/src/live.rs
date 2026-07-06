@@ -40,7 +40,7 @@ use futures_util::StreamExt;
 use tokio::sync::mpsc;
 use tokio::time::{interval, Instant, MissedTickBehavior};
 
-use crate::orchestrator::SyncCounts;
+use crate::orchestrator::SyncSummary;
 use crate::state::ConnectedState;
 
 /// A boxed, `'static`, `Send` future — the return type of [`LiveHandle`]'s
@@ -57,12 +57,19 @@ pub type LiveFuture<T> = BoxFuture<'static, T>;
 /// UI state, and must NOT call back into a session method that takes a blocking
 /// lock (that would deadlock a runtime worker).
 pub trait SyncSessionListener: Send + Sync {
-    /// A pull (or auto-push) completed; `counts` carries its tallies.
-    fn on_synced(&self, counts: SyncCounts);
+    /// A pull (or auto-push) completed; `summary` carries the full per-cycle
+    /// result, including per-item failures.
+    fn on_synced(&self, summary: SyncSummary);
     /// The stream connected (or reconnected) cleanly.
     fn on_connected(&self);
-    /// A non-fatal error; the loop is reconnecting with backoff.
+    /// A stream-level error (connect/read); the loop is reconnecting with
+    /// backoff.
     fn on_error(&self, message: String);
+    /// A sync cycle failed while the stream itself stayed healthy. Distinct
+    /// from `on_error` so adapters don't report the stream as down.
+    fn on_cycle_error(&self, message: String) {
+        self.on_error(message);
+    }
     /// The live loop stopped (cancelled / disconnected / fatal auth error).
     fn on_stopped(&self);
 }
@@ -80,7 +87,7 @@ pub struct LiveHandle {
     /// failure. Both the SSE pull triggers and the write-once auto-push fire
     /// this same closure under the same gate, so a debounced local push can
     /// never race a live pull's cursor.
-    pub cycle: Box<dyn Fn() -> LiveFuture<Result<Option<SyncCounts>, String>> + Send + Sync>,
+    pub cycle: Box<dyn Fn() -> LiveFuture<Result<Option<SyncSummary>, String>> + Send + Sync>,
     /// Lifecycle listener (synced / connected / error / stopped).
     pub listener: Arc<dyn SyncSessionListener>,
 }
@@ -276,17 +283,21 @@ fn is_collection_gone(msg: &str) -> bool {
 
 async fn run_cycle(handle: &LiveHandle) -> CycleControl {
     match (handle.cycle)().await {
-        Ok(Some(counts)) => {
-            handle.listener.on_synced(counts);
+        Ok(Some(summary)) => {
+            handle.listener.on_synced(summary);
             CycleControl::Continue
         }
         Ok(None) => CycleControl::Continue, // disconnected — nothing to reconcile
         Err(msg) => {
-            let gone = is_collection_gone(&msg);
-            handle.listener.on_error(msg);
-            if gone {
+            if is_collection_gone(&msg) {
+                // Terminal: the pinned vault is gone — the shells heal on this
+                // exact on_error message, and the loop must stop.
+                handle.listener.on_error(msg);
                 CycleControl::Stop
             } else {
+                // The stream is still healthy — report as a cycle failure, not
+                // a stream error, so adapters don't drop their "live" state.
+                handle.listener.on_cycle_error(msg);
                 CycleControl::Continue
             }
         }
@@ -407,7 +418,7 @@ mod tests {
     }
 
     impl SyncSessionListener for RecordingListener {
-        fn on_synced(&self, _counts: SyncCounts) {
+        fn on_synced(&self, _summary: SyncSummary) {
             self.synced.fetch_add(1, Ordering::SeqCst);
         }
         fn on_connected(&self) {
@@ -425,7 +436,7 @@ mod tests {
     /// is a stub — `run_cycle` never calls it (only `watch` does).
     fn handle_with_cycle(
         listener: Arc<RecordingListener>,
-        cycle: impl Fn() -> Result<Option<SyncCounts>, String> + Send + Sync + 'static,
+        cycle: impl Fn() -> Result<Option<SyncSummary>, String> + Send + Sync + 'static,
     ) -> LiveHandle {
         LiveHandle {
             snapshot: Box::new(|| Box::pin(async { None })),
@@ -461,7 +472,7 @@ mod tests {
     #[tokio::test]
     async fn run_cycle_continues_on_success_and_noop() {
         let rec = Arc::new(RecordingListener::default());
-        let ok = handle_with_cycle(rec.clone(), || Ok(Some(SyncCounts::default())));
+        let ok = handle_with_cycle(rec.clone(), || Ok(Some(SyncSummary::default())));
         assert!(matches!(run_cycle(&ok).await, CycleControl::Continue));
         assert_eq!(rec.synced.load(Ordering::SeqCst), 1);
 

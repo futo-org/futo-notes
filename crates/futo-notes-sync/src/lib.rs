@@ -18,8 +18,8 @@ pub mod state;
 // Re-export the types FFI/app consumers need at the crate root for
 // convenience.
 pub use orchestrator::{
-    auth_mode_str, connect, resume, run_pull, run_push, run_sync, ConnectResult,
-    HashFilenameEntry, RenamePair, SyncCounts, SyncErrorKind, SyncProgress, SyncSummary,
+    auth_mode_str, connect, resume, run_pull, run_push, run_sync, ConnectResult, FailureKind,
+    HashFilenameEntry, RenamePair, SyncErrorKind, SyncFailure, SyncProgress, SyncSummary,
 };
 pub use live::{LiveHandle, SyncSessionListener};
 pub use session::{AbortableTask, SyncSession};

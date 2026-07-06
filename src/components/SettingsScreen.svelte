@@ -4,10 +4,10 @@
   import { getAppState, getCachedPreferences, savePreferences } from '$lib/appState';
   import { applyThemePreference, type ThemePreference } from '$lib/theme';
   import { connectE2ee, disconnectE2ee, hasStoredSyncPassword, forgetStoredSyncPassword, setSyncProgressListener } from '$lib/syncServiceE2ee';
-  import { requestSyncV2 } from '$lib/autoSyncV2';
+  import type { SyncSummary } from '$lib/syncServiceE2ee';
+  import { requestSyncV2, wasSyncErrorReported } from '$lib/autoSyncV2';
   import { getSyncErrorMessage } from '$lib/syncErrorMessage';
   import { getAppVersion } from '$lib/crashHandler';
-  import { showGlobalToast } from '$lib/toast';
   import { confirmDialog } from '$lib/confirm';
   import { formatRelativeTime } from '$lib/utils';
 
@@ -19,9 +19,43 @@
      *  hover tooltip. Cleared by the manager on the next successful sync. */
     syncError?: boolean;
     syncErrorMessage?: string;
+    /** Dev only: feed a fabricated SyncSummary through the sync manager's real
+     *  `handleSyncComplete` so the failure indicator/toast fire exactly as a
+     *  live/manual sync would. Only passed (and only rendered) in dev builds. */
+    simulateSyncSummary?: (summary: SyncSummary, trigger?: 'manual') => void | Promise<void>;
   }
 
-  let { onclose, onimported, syncError = false, syncErrorMessage = '' }: Props = $props();
+  let {
+    onclose,
+    onimported,
+    syncError = false,
+    syncErrorMessage = '',
+    simulateSyncSummary,
+  }: Props = $props();
+
+  // Dev-only sync-error harness. A fabricated summary routed through the
+  // manager's real handler is indistinguishable from a server-thrown one at
+  // every layer above the wire — same toast, same ⚠ indicator + "Sync failed"
+  // line, same clear. `failureMessage` is normally computed in the Rust core;
+  // each test button supplies the string its failures would produce.
+  function fakeSyncSummary(
+    failures: SyncSummary['failures'],
+    failureMessage: string | null = null,
+  ): SyncSummary {
+    return {
+      uploaded: 0,
+      downloaded: 0,
+      deleted: 0,
+      conflicts: 0,
+      failures,
+      failureMessage,
+      updatedIds: [],
+      deletedIds: [],
+      renamed: [],
+      peerUpdatedIds: [],
+      peerDeletedIds: [],
+    };
+  }
 
   let nuking = $state(false);
   let nukeError = $state('');
@@ -41,6 +75,10 @@
   let syncLastAt = $state<number | null>(prefs.sync.lastSyncedAt);
   let hasSyncToken = $state(Boolean(appState.e2eeAuthToken));
   let passwordSaved = $state(hasStoredSyncPassword());
+
+  // True only when the press started on the overlay itself — a click whose
+  // mousedown began inside the panel (e.g. drag-selecting text) must not close.
+  let overlayPressed = false;
 
   // Connect + sync blocking modal
   let connectSyncing = $state(false);
@@ -124,18 +162,27 @@
 
       const updatedPrefs = getCachedPreferences();
       syncLastAt = updatedPrefs.sync.lastSyncedAt;
-      syncStatus = '';
 
       connectSyncing = false;
-      // A successful sync reports just "Sync complete" — never per-item
-      // uploaded/downloaded/deleted/conflict counts (sync.md, 2026-06-10).
-      showGlobalToast('Sync complete');
+      // Sync outcome reporting (the "Sync complete" toast, per-item failure
+      // state, thrown-error state) is owned by the sync manager — it sees this
+      // sync via autoSyncV2's callbacks. Only clear the local transient status;
+      // a failure renders through the shared syncError line below.
+      syncStatus = '';
     } catch (e) {
       console.error('[e2ee] connect/sync failed:', e);
       connectSyncError = getErrorMessage(e);
       if (!hasSyncToken) {
+        // connectE2ee failed — a pre-sync auth/URL error the manager never
+        // sees, so it stays a local inline message.
         syncStatus = `Connect failed: ${connectSyncError}`;
+      } else if (wasSyncErrorReported(e)) {
+        // The sync itself threw; the manager's onSyncError already raised the
+        // shared error state, which renders in the status line below.
+        syncStatus = '';
       } else {
+        // Never reached the manager (offline, sync already running, …) —
+        // render locally or the click gives no feedback at all.
         syncStatus = `Sync failed: ${connectSyncError}`;
       }
     } finally {
@@ -187,9 +234,15 @@
       const updatedPrefs = getCachedPreferences();
       hasSyncToken = Boolean(getAppState().e2eeAuthToken);
       syncLastAt = updatedPrefs.sync.lastSyncedAt;
-      syncStatus = 'Sync complete';
+      // Outcome reporting (toast + failure state) is owned by the sync
+      // manager; failures render via the shared syncError line below.
+      syncStatus = '';
     } catch (e) {
-      syncStatus = `Sync failed: ${getErrorMessage(e)}`;
+      // Executed-cycle errors are raised by the manager and render via the
+      // shared syncError line below; anything else (offline, sync already
+      // running, persist failure) never reached it — render locally or the
+      // click gives no feedback at all.
+      syncStatus = wasSyncErrorReported(e) ? '' : `Sync failed: ${getErrorMessage(e)}`;
     } finally {
       syncBusy = false;
     }
@@ -256,7 +309,7 @@
   }
 </script>
 
-<div class="settings-overlay" role="button" tabindex="-1" onclick={() => !connectSyncing && !nuking && onclose()} onkeydown={(e) => e.key === 'Escape' && !connectSyncing && !nuking && onclose()}>
+<div class="settings-overlay" role="button" tabindex="-1" onpointerdown={(e) => (overlayPressed = e.target === e.currentTarget)} onclick={() => overlayPressed && !connectSyncing && !nuking && onclose()} onkeydown={(e) => e.key === 'Escape' && !connectSyncing && !nuking && onclose()}>
   <div class="settings-panel" role="dialog" aria-modal="true" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
     <div class="settings-header">
       <h2 class="settings-title">Settings</h2>
@@ -389,6 +442,96 @@
           {/if}
         </div>
       </section>
+      {/if}
+
+      <!-- Dev-only sync-error test harness (stripped from production builds,
+           same gate as the "Test crash" button). Routes a fabricated
+           SyncSummary through the manager's real handleSyncComplete so the
+           indicator/toast are indistinguishable from a real server-thrown
+           failure. -->
+      {#if import.meta.env.DEV && simulateSyncSummary}
+        <section class="settings-section">
+          <h3 class="settings-section-title">Sync error test (dev)</h3>
+          <div class="settings-card">
+            <p class="settings-btn-desc settings-hint">
+              Fires a fabricated sync result through the real handler — the ⚠
+              indicator, toast, and "Sync failed" line behave exactly as a
+              server-thrown error. "Successful sync" clears it (or click the ⚠).
+            </p>
+            <div class="settings-actions" style="flex-wrap: wrap; gap: 8px; margin-top: 10px">
+              <button
+                class="settings-btn settings-btn-inline"
+                onclick={() =>
+                  void simulateSyncSummary(
+                    fakeSyncSummary(
+                      [{ filename: 'note.md', kind: 'upload', statusCode: 500 }],
+                      "1 change couldn't reach the server (HTTP 500)",
+                    ),
+                  )}
+              >
+                Upload 500
+              </button>
+              <button
+                class="settings-btn settings-btn-inline"
+                onclick={() =>
+                  void simulateSyncSummary(
+                    fakeSyncSummary(
+                      [{ filename: 'note.md', kind: 'upload', statusCode: 403 }],
+                      "1 change couldn't reach the server (HTTP 403)",
+                    ),
+                  )}
+              >
+                Upload 403
+              </button>
+              <button
+                class="settings-btn settings-btn-inline"
+                onclick={() =>
+                  void simulateSyncSummary(
+                    fakeSyncSummary(
+                      [{ filename: 'note.md', kind: 'delete', statusCode: 500 }],
+                      "1 change couldn't reach the server (HTTP 500)",
+                    ),
+                  )}
+              >
+                Delete 500
+              </button>
+              <button
+                class="settings-btn settings-btn-inline"
+                onclick={() =>
+                  void simulateSyncSummary(
+                    fakeSyncSummary(
+                      [{ filename: 'note.md', kind: 'upload' }],
+                      "1 change couldn't reach the server",
+                    ),
+                  )}
+              >
+                Network (no status)
+              </button>
+              <button
+                class="settings-btn settings-btn-inline"
+                onclick={() =>
+                  void simulateSyncSummary(
+                    fakeSyncSummary(
+                      [
+                        { filename: 'a.md', kind: 'upload', statusCode: 500 },
+                        { filename: 'b.md', kind: 'upload', statusCode: 500 },
+                        { filename: 'c.md', kind: 'delete', statusCode: 500 },
+                      ],
+                      "3 changes couldn't reach the server (HTTP 500)",
+                    ),
+                  )}
+              >
+                3 failures
+              </button>
+              <button
+                class="settings-btn settings-btn-inline"
+                onclick={() => void simulateSyncSummary(fakeSyncSummary([]), 'manual')}
+              >
+                Successful sync
+              </button>
+            </div>
+          </div>
+        </section>
       {/if}
 
       <section class="settings-section">

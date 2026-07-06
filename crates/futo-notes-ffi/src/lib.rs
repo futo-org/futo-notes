@@ -18,7 +18,7 @@ use futo_notes_search as engine;
 use futo_notes_sync as sync;
 use futo_notes_sync::{
     live::{LiveHandle, LiveFuture, SyncSessionListener},
-    orchestrator::{SyncCounts, SyncErrorKind},
+    orchestrator::SyncErrorKind,
     session::SyncSession,
     state::ConnectedState,
 };
@@ -342,13 +342,32 @@ pub struct ConnectInfo {
     pub auth_mode: String,
 }
 
-/// Per-`sync_now` tallies.
+/// Per-cycle tallies, for both `sync_now` and live-loop `on_synced`.
 #[derive(uniffi::Record)]
 pub struct SyncSummary {
     pub uploaded: u32,
     pub downloaded: u32,
     pub deleted: u32,
     pub conflicts: u32,
+    /// Per-item operations that failed WITHOUT aborting the cycle (upload /
+    /// delete / checkpoint errors — a channel distinct from `conflicts`).
+    /// Non-empty means the cycle "completed" but not cleanly; the shells
+    /// must not report success.
+    pub failures: Vec<SyncFailure>,
+    /// User-facing one-liner describing `failures`, computed once in
+    /// `futo-notes-sync` so every shell shows identical wording. `None` for
+    /// a clean cycle.
+    pub failure_message: Option<String>,
+}
+
+/// One per-item sync failure. `kind` is `"upload" | "delete" | "checkpoint"`;
+/// `status_code` is the server HTTP status when the failure came from a
+/// response (`None` for transport/local errors).
+#[derive(uniffi::Record)]
+pub struct SyncFailure {
+    pub filename: String,
+    pub kind: String,
+    pub status_code: Option<u16>,
 }
 
 /// Snapshot of the client's connection state.
@@ -402,27 +421,26 @@ impl From<SyncErrorKind> for SyncError {
     }
 }
 
-impl From<SyncCounts> for SyncSummary {
-    fn from(c: SyncCounts) -> Self {
-        SyncSummary {
-            uploaded: c.uploaded,
-            downloaded: c.downloaded,
-            deleted: c.deleted,
-            conflicts: c.conflicts,
-        }
-    }
-}
-
 impl From<sync::orchestrator::SyncSummary> for SyncSummary {
-    /// Map the rich orchestrator summary down to the four count fields the
-    /// native shell exposes; the id-list / rename fields are dropped (native
-    /// doesn't surface them).
+    /// Map the rich orchestrator summary down to the count + failure fields
+    /// the native shell exposes; the id-list / rename fields are dropped
+    /// (native doesn't surface them).
     fn from(s: sync::orchestrator::SyncSummary) -> Self {
         SyncSummary {
             uploaded: s.uploaded,
             downloaded: s.downloaded,
             deleted: s.deleted,
             conflicts: s.conflicts,
+            failure_message: s.failure_message(),
+            failures: s
+                .failures
+                .into_iter()
+                .map(|f| SyncFailure {
+                    filename: f.filename,
+                    kind: f.kind.as_str().to_owned(),
+                    status_code: f.status_code,
+                })
+                .collect(),
         }
     }
 }
@@ -437,7 +455,8 @@ impl From<sync::orchestrator::SyncSummary> for SyncSummary {
 /// rather than blocking or panicking a runtime worker.
 #[uniffi::export(callback_interface)]
 pub trait SyncEventListener: Send + Sync {
-    /// A live pull completed; `summary` carries its counts.
+    /// A live pull completed; `summary` carries the full per-cycle result,
+    /// including per-item failures and the shared `failure_message`.
     fn on_synced(&self, summary: SyncSummary);
     /// The live stream connected (or reconnected) cleanly.
     fn on_connected(&self);
@@ -453,8 +472,8 @@ pub trait SyncEventListener: Send + Sync {
 struct FfiListener(Arc<dyn SyncEventListener>);
 
 impl SyncSessionListener for FfiListener {
-    fn on_synced(&self, counts: SyncCounts) {
-        self.0.on_synced(counts.into());
+    fn on_synced(&self, summary: sync::orchestrator::SyncSummary) {
+        self.0.on_synced(summary.into());
     }
     fn on_connected(&self) {
         self.0.on_connected();
@@ -600,7 +619,7 @@ impl SyncClient {
                     let inner = Arc::clone(&inner);
                     let sync_gate = Arc::clone(&sync_gate);
                     let notes_root = notes_root.clone();
-                    Box::new(move || -> LiveFuture<Result<Option<SyncCounts>, String>> {
+                    Box::new(move || -> LiveFuture<Result<Option<sync::orchestrator::SyncSummary>, String>> {
                         let inner = Arc::clone(&inner);
                         let sync_gate = Arc::clone(&sync_gate);
                         let notes_root = notes_root.clone();
@@ -630,7 +649,7 @@ impl SyncClient {
                             .await
                             .map_err(|e| SyncError::from(e).to_string())?;
                             *inner.lock().await = Some(after);
-                            Ok(Some((&summary).into()))
+                            Ok(Some(summary))
                         })
                     })
                 },

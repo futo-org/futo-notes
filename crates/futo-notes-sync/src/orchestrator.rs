@@ -588,6 +588,12 @@ pub struct SyncSummary {
     pub peer_updated_ids: Vec<String>,
     pub peer_deleted_ids: Vec<String>,
     pub renamed: Vec<RenamePair>,
+    /// Per-item sync operations that failed but did NOT abort the cycle
+    /// (upload/delete/checkpoint errors). Distinct from `conflicts`, which
+    /// carries expected/handled outcomes (413 oversize, unresolved merges).
+    /// Empty in a healthy cycle; a non-empty vec drives the UI failure
+    /// indicator + toast. Count = `failures.len()`.
+    pub failures: Vec<SyncFailure>,
 
     pub(crate) deleted_hashes: HashMap<String, String>,
     pub(crate) created_hashes: HashMap<String, String>,
@@ -598,41 +604,94 @@ pub struct SyncSummary {
     pub(crate) hash_to_filenames: HashMap<String, Vec<HashFilenameEntry>>,
 }
 
+/// The sync operation that failed, for the per-failure detail surfaced to
+/// the user.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FailureKind {
+    /// A push (create/update) — read/encrypt or POST/PUT failure.
+    Upload,
+    /// A push-side delete (or its 409-restore) failure.
+    Delete,
+    /// An object-map checkpoint persist failure.
+    Checkpoint,
+}
+
+impl FailureKind {
+    /// Canonical wire string, shared by the Tauri wire summary and the FFI
+    /// record so the two adapters can't drift.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            FailureKind::Upload => "upload",
+            FailureKind::Delete => "delete",
+            FailureKind::Checkpoint => "checkpoint",
+        }
+    }
+}
+
+/// One per-item sync failure that did not abort the cycle. `filename` is
+/// empty when the failure has no single associated file (task panic,
+/// checkpoint persist). `status_code` is the HTTP status when the failure
+/// came from a server response, `None` for transport/local errors.
+#[derive(Debug, Clone)]
+pub struct SyncFailure {
+    pub filename: String,
+    pub kind: FailureKind,
+    pub status_code: Option<u16>,
+}
+
+impl SyncSummary {
+    /// One-line user-facing description of the per-item failures, or `None`
+    /// for a clean cycle. Computed here — once — so the desktop and both
+    /// native shells surface identical wording (docs/spec/sync.md).
+    ///
+    /// Upload/delete failures are server-bound ("couldn't reach the server",
+    /// with the most frequent HTTP status appended when one exists — ties
+    /// keep the first-seen code). Checkpoint failures are local persist
+    /// errors and get their own clause; lumping them into the server count
+    /// would misdirect the user to the network.
+    pub fn failure_message(&self) -> Option<String> {
+        let server: Vec<&SyncFailure> = self
+            .failures
+            .iter()
+            .filter(|f| f.kind != FailureKind::Checkpoint)
+            .collect();
+        let checkpoint_failed = self.failures.len() > server.len();
+
+        let mut parts: Vec<String> = Vec::new();
+        if !server.is_empty() {
+            let n = server.len();
+            let noun = if n == 1 { "change" } else { "changes" };
+            let mut msg = format!("{n} {noun} couldn't reach the server");
+            let codes: Vec<u16> = server.iter().filter_map(|f| f.status_code).collect();
+            if let Some(&first) = codes.first() {
+                let mut top = first;
+                let mut top_count = 0usize;
+                for &c in &codes {
+                    let count = codes.iter().filter(|&&x| x == c).count();
+                    if count > top_count {
+                        top = c;
+                        top_count = count;
+                    }
+                }
+                msg.push_str(&format!(" (HTTP {top})"));
+            }
+            parts.push(msg);
+        }
+        if checkpoint_failed {
+            parts.push("sync state couldn't be saved locally".to_owned());
+        }
+        if parts.is_empty() {
+            None
+        } else {
+            Some(parts.join("; "))
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct HashFilenameEntry {
     pub filename: String,
     pub change_seq: u64,
-}
-
-/// Bare per-cycle counts, used only as the live-loop's callback transport
-/// (`live.rs`'s `LiveHandle`). The rich orchestrator results are `SyncSummary`;
-/// this is the thin projection the SSE loop hands to `on_synced`.
-#[derive(Debug, Default, Clone)]
-pub struct SyncCounts {
-    pub uploaded: u32,
-    pub downloaded: u32,
-    pub deleted: u32,
-    pub conflicts: u32,
-}
-
-impl SyncCounts {
-    pub fn add(&mut self, other: &SyncCounts) {
-        self.uploaded += other.uploaded;
-        self.downloaded += other.downloaded;
-        self.deleted += other.deleted;
-        self.conflicts += other.conflicts;
-    }
-}
-
-impl From<&SyncSummary> for SyncCounts {
-    fn from(s: &SyncSummary) -> Self {
-        SyncCounts {
-            uploaded: s.uploaded,
-            downloaded: s.downloaded,
-            deleted: s.deleted,
-            conflicts: s.conflicts,
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -1368,9 +1427,14 @@ enum PushOutcome {
     /// is recorded in `oversize_skip` so we don't re-encrypt/re-upload it every
     /// cycle until the user edits it (changing the mtime).
     TooLarge { filename: String, mtime_ms: i64 },
-    /// HTTP error logged; not surfaced as a hard fail so one bad file
-    /// doesn't abort the whole sync.
-    Error,
+    /// Upload failed (read/encrypt or POST/PUT). Logged and counted into
+    /// `SyncSummary.failures` so the UI can surface it — but not a hard fail,
+    /// so one bad file doesn't abort the whole sync. `status_code` is the
+    /// server HTTP status when present (`None` for a local read/encrypt error).
+    Error {
+        filename: String,
+        status_code: Option<u16>,
+    },
 }
 
 async fn read_local_note(notes_root: &Path, filename: &str) -> Result<String, String> {
@@ -1584,7 +1648,7 @@ async fn push_one_file(
         Ok(c) => c,
         Err(e) => {
             eprintln!("[e2ee] could not read {filename}: {e}");
-            return Ok(PushOutcome::Error);
+            return Ok(PushOutcome::Error { filename, status_code: None });
         }
     };
     let hash = hash_sha256(&content);
@@ -1638,7 +1702,7 @@ async fn push_one_file(
             }
             Err(e) => {
                 eprintln!("[e2ee] failed to create {filename}: {e}");
-                return Ok(PushOutcome::Error);
+                return Ok(PushOutcome::Error { filename, status_code: e.status_code() });
             }
         };
         let entry = E2eeObjectMapEntry {
@@ -1708,7 +1772,7 @@ async fn push_one_file(
         }
         Err(e) => {
             eprintln!("[e2ee] failed to update {filename}: {e}");
-            Ok(PushOutcome::Error)
+            Ok(PushOutcome::Error { filename, status_code: e.status_code() })
         }
     }
 }
@@ -1841,6 +1905,12 @@ pub async fn run_push(
     // local file writes that must stay in the batched post-loop apply.
     const PUSH_CHECKPOINT_EVERY: usize = 50;
     let mut outcomes: Vec<PushOutcome> = Vec::new();
+    // Per-item failures collected across the join loop, checkpoint persists,
+    // the delete loop, and the outcome flatten below. Folded into the summary.
+    let mut failures: Vec<SyncFailure> = Vec::new();
+    // Interim and final checkpoint persists share one disk fault; record it
+    // once per cycle so the failure count stays honest.
+    let mut checkpoint_failed = false;
     let mut pending_ckpt_upserts: Vec<(String, E2eeObjectMapEntry)> = Vec::new();
     let mut pending_ckpt_max_version: u64 = state_cell.max_version;
     let mut since_ckpt: usize = 0;
@@ -1870,16 +1940,27 @@ pub async fn run_push(
                         state::persist(notes_root_path, &next.object_map, next.max_version, &next.collection_id)
                     {
                         eprintln!("[e2ee] push checkpoint persist failed: {e}");
+                        checkpoint_failed = true;
                     }
                     since_ckpt = 0;
                 }
             }
             Ok(Err(e)) => {
                 eprintln!("[e2ee] push task errored: {e}");
+                failures.push(SyncFailure {
+                    filename: String::new(),
+                    kind: FailureKind::Upload,
+                    status_code: None,
+                });
                 progress_emitter.bump();
             }
             Err(e) => {
                 eprintln!("[e2ee] push task panicked: {e}");
+                failures.push(SyncFailure {
+                    filename: String::new(),
+                    kind: FailureKind::Upload,
+                    status_code: None,
+                });
                 progress_emitter.bump();
             }
         }
@@ -1897,7 +1978,15 @@ pub async fn run_push(
         next.max_version = next.max_version.max(max_tail);
         if let Err(e) = state::persist(notes_root_path, &next.object_map, next.max_version, &next.collection_id) {
             eprintln!("[e2ee] push final checkpoint persist failed: {e}");
+            checkpoint_failed = true;
         }
+    }
+    if checkpoint_failed {
+        failures.push(SyncFailure {
+            filename: String::new(),
+            kind: FailureKind::Checkpoint,
+            status_code: None,
+        });
     }
 
     // Push deletes serially. The TS code does the same — delete volume is
@@ -1928,14 +2017,29 @@ pub async fn run_push(
                     }
                     Ok(None) => {
                         eprintln!("[e2ee] delete 409 missing currentBlobKey for {filename}");
+                        failures.push(SyncFailure {
+                            filename: filename.clone(),
+                            kind: FailureKind::Delete,
+                            status_code: None,
+                        });
                     }
                     Err(e) => {
                         eprintln!("[e2ee] delete-conflict restore failed for {filename}: {e}");
+                        failures.push(SyncFailure {
+                            filename: filename.clone(),
+                            kind: FailureKind::Delete,
+                            status_code: None,
+                        });
                     }
                 }
             }
             Err(e) => {
                 eprintln!("[e2ee] delete failed for {filename}: {e}");
+                failures.push(SyncFailure {
+                    filename: filename.clone(),
+                    kind: FailureKind::Delete,
+                    status_code: e.status_code(),
+                });
             }
         }
     }
@@ -2101,7 +2205,13 @@ pub async fn run_push(
                 conflicts += 1;
                 next.oversize_skip.insert(filename, mtime_ms);
             }
-            PushOutcome::Error => {}
+            PushOutcome::Error { filename, status_code } => {
+                failures.push(SyncFailure {
+                    filename,
+                    kind: FailureKind::Upload,
+                    status_code,
+                });
+            }
         }
     }
 
@@ -2185,6 +2295,7 @@ pub async fn run_push(
             downloaded,
             deleted: removes.len() as u32,
             conflicts,
+            failures,
             updated_ids,
             deleted_ids,
             peer_updated_ids,
@@ -2234,6 +2345,9 @@ fn checkpointable_upsert(out: &PushOutcome) -> Option<(String, E2eeObjectMapEntr
 struct DuplicateResolution {
     conflicts: u32,
     deleted_ids: Vec<String>,
+    /// Loser takedowns whose server delete failed (transport / non-409 HTTP) —
+    /// the duplicate survives silently, so these fold into `SyncSummary.failures`.
+    failures: Vec<SyncFailure>,
 }
 
 /// Concurrent-move convergence: when two clients in the same cycle move
@@ -2265,11 +2379,21 @@ async fn resolve_concurrent_move_duplicates(
     for (hash, from_filename) in deleted_hashes {
         let losers = pick_duplicate_move_losers(from_filename, hash, push_h2f, pull_h2f);
         for loser in losers {
-            if delete_synced_filename(&http, state, notes_root_path, pre_write, &loser.filename)
+            match delete_synced_filename(&http, state, notes_root_path, pre_write, &loser.filename)
                 .await?
             {
-                out.conflicts += 1;
-                out.deleted_ids.push(filename_to_id(&loser.filename));
+                DeleteSyncedOutcome::Deleted => {
+                    out.conflicts += 1;
+                    out.deleted_ids.push(filename_to_id(&loser.filename));
+                }
+                DeleteSyncedOutcome::Skipped => {}
+                DeleteSyncedOutcome::Failed { status_code } => {
+                    out.failures.push(SyncFailure {
+                        filename: loser.filename.clone(),
+                        kind: FailureKind::Delete,
+                        status_code,
+                    });
+                }
             }
         }
     }
@@ -2319,16 +2443,27 @@ fn pick_duplicate_move_losers(
 ///
 /// Rule 3: mutates the caller's owned working `state` in place where the
 /// desktop did `state.with_map_mut` + `state.persist`.
+/// Outcome of a duplicate-move loser takedown. `Skipped` covers the benign
+/// non-deletes (no map entry; 409 refusal, where leaving the file alone is the
+/// deliberate convergence-safety behavior). `Failed` is a real server error
+/// (transport / non-409 HTTP) — the duplicate silently survives, so it must be
+/// recorded into `SyncSummary.failures`.
+enum DeleteSyncedOutcome {
+    Deleted,
+    Skipped,
+    Failed { status_code: Option<u16> },
+}
+
 async fn delete_synced_filename(
     http: &Arc<E2eeClient>,
     state: &mut ConnectedState,
     notes_root_path: &Path,
     pre_write: &PreWriteFn,
     filename: &str,
-) -> Result<bool, SyncErrorKind> {
+) -> Result<DeleteSyncedOutcome, SyncErrorKind> {
     let (collection_id, entry) = match state.object_map.get(filename).cloned() {
         Some(e) => (state.collection_id.clone(), e),
-        None => return Ok(false),
+        None => return Ok(DeleteSyncedOutcome::Skipped),
     };
 
     let change_seq = match http
@@ -2340,14 +2475,15 @@ async fn delete_synced_filename(
             eprintln!(
                 "[e2ee] duplicate-move delete refused (409) for {filename}; leaving alone"
             );
-            return Ok(false);
+            return Ok(DeleteSyncedOutcome::Skipped);
         }
         Err(e) => {
+            let status_code = e.status_code();
             eprintln!(
                 "[e2ee] duplicate-move delete failed for {filename}: {}",
                 http_err_to_string(e)
             );
-            return Ok(false);
+            return Ok(DeleteSyncedOutcome::Failed { status_code });
         }
     };
 
@@ -2365,7 +2501,7 @@ async fn delete_synced_filename(
     }
     state::persist(notes_root_path, &state.object_map, state.max_version, &state.collection_id)
         .map_err(SyncErrorKind::Io)?;
-    Ok(true)
+    Ok(DeleteSyncedOutcome::Deleted)
 }
 
 /// Detect renames by content-hash equality across the union of delete +
@@ -2413,6 +2549,8 @@ fn combine_summaries(
     push.downloaded += pull.downloaded;
     push.deleted += pull.deleted + dup.deleted_ids.len() as u32;
     push.conflicts += pull.conflicts + dup.conflicts;
+    push.failures.extend(pull.failures);
+    push.failures.extend(dup.failures);
     push.updated_ids.extend(pull.updated_ids);
     push.deleted_ids.extend(pull.deleted_ids);
     push.peer_updated_ids.extend(pull.peer_updated_ids);
@@ -2811,7 +2949,9 @@ pub async fn run_sync(
 /// `run_pull` (it sees them already at the recorded version and skips
 /// them). Without folding these in, the reconcile-driven disk writes are
 /// never counted as downloads — the exact bug behind scenario 1.
-fn fold_reconcile_summary(mut combined: SyncSummary, reconcile: SyncSummary) -> SyncSummary {
+fn fold_reconcile_summary(mut combined: SyncSummary, mut reconcile: SyncSummary) -> SyncSummary {
+    // Reconcile failures (if any) fold in regardless of the download count.
+    combined.failures.append(&mut reconcile.failures);
     if reconcile.downloaded == 0 {
         return combined;
     }
@@ -3181,6 +3321,139 @@ mod tests {
     }
 
     #[test]
+    fn combine_summaries_merges_push_and_pull_failures() {
+        // The failure channel (work-item #10) must survive the push+pull merge
+        // so the combined summary the UI reads carries every per-item failure.
+        let push = SyncSummary {
+            failures: vec![SyncFailure {
+                filename: "up.md".into(),
+                kind: FailureKind::Upload,
+                status_code: Some(500),
+            }],
+            ..Default::default()
+        };
+        let pull = SyncSummary {
+            failures: vec![SyncFailure {
+                filename: "del.md".into(),
+                kind: FailureKind::Delete,
+                status_code: None,
+            }],
+            ..Default::default()
+        };
+        let dup = DuplicateResolution {
+            failures: vec![SyncFailure {
+                filename: "dup.md".into(),
+                kind: FailureKind::Delete,
+                status_code: Some(502),
+            }],
+            ..Default::default()
+        };
+        let combined = combine_summaries(push, pull, Vec::new(), dup);
+        assert_eq!(combined.failures.len(), 3);
+        assert_eq!(combined.failures[0].filename, "up.md");
+        assert_eq!(combined.failures[1].kind, FailureKind::Delete);
+        assert_eq!(combined.failures[2].filename, "dup.md");
+        assert_eq!(combined.failures[2].status_code, Some(502));
+    }
+
+    fn failure(filename: &str, kind: FailureKind, status_code: Option<u16>) -> SyncFailure {
+        SyncFailure {
+            filename: filename.into(),
+            kind,
+            status_code,
+        }
+    }
+
+    fn summary_with(failures: Vec<SyncFailure>) -> SyncSummary {
+        SyncSummary {
+            failures,
+            ..Default::default()
+        }
+    }
+
+    // failure_message is the single source of the user-facing wording for all
+    // three shells (docs/spec/sync.md) — these pin it.
+    #[test]
+    fn failure_message_none_for_clean_cycle() {
+        assert_eq!(summary_with(Vec::new()).failure_message(), None);
+    }
+
+    #[test]
+    fn failure_message_singular_vs_plural() {
+        let one = summary_with(vec![failure("a.md", FailureKind::Upload, None)]);
+        assert_eq!(
+            one.failure_message().unwrap(),
+            "1 change couldn't reach the server"
+        );
+        let three = summary_with(vec![
+            failure("a.md", FailureKind::Upload, None),
+            failure("b.md", FailureKind::Upload, None),
+            failure("c.md", FailureKind::Delete, None),
+        ]);
+        assert_eq!(
+            three.failure_message().unwrap(),
+            "3 changes couldn't reach the server"
+        );
+    }
+
+    #[test]
+    fn failure_message_appends_most_frequent_status() {
+        let s = summary_with(vec![
+            failure("a.md", FailureKind::Upload, Some(500)),
+            failure("b.md", FailureKind::Upload, Some(500)),
+            failure("c.md", FailureKind::Delete, Some(403)),
+        ]);
+        assert_eq!(
+            s.failure_message().unwrap(),
+            "3 changes couldn't reach the server (HTTP 500)"
+        );
+    }
+
+    #[test]
+    fn failure_message_tie_keeps_first_seen_status() {
+        // Deterministic tie-break: first-seen wins, on every platform, every
+        // run — the shells render this string verbatim.
+        let s = summary_with(vec![
+            failure("a.md", FailureKind::Upload, Some(500)),
+            failure("b.md", FailureKind::Upload, Some(403)),
+        ]);
+        assert_eq!(
+            s.failure_message().unwrap(),
+            "2 changes couldn't reach the server (HTTP 500)"
+        );
+    }
+
+    #[test]
+    fn failure_message_checkpoint_is_local_not_server() {
+        // A checkpoint failure is a local persist error — the data DID reach
+        // the server, so it must not be described as a server-reach failure.
+        let s = summary_with(vec![failure("", FailureKind::Checkpoint, None)]);
+        assert_eq!(
+            s.failure_message().unwrap(),
+            "sync state couldn't be saved locally"
+        );
+    }
+
+    #[test]
+    fn failure_message_mixed_server_and_checkpoint() {
+        let s = summary_with(vec![
+            failure("a.md", FailureKind::Upload, Some(500)),
+            failure("", FailureKind::Checkpoint, None),
+        ]);
+        assert_eq!(
+            s.failure_message().unwrap(),
+            "1 change couldn't reach the server (HTTP 500); sync state couldn't be saved locally"
+        );
+    }
+
+    #[test]
+    fn failure_kind_wire_strings() {
+        assert_eq!(FailureKind::Upload.as_str(), "upload");
+        assert_eq!(FailureKind::Delete.as_str(), "delete");
+        assert_eq!(FailureKind::Checkpoint.as_str(), "checkpoint");
+    }
+
+    #[test]
     fn fold_reconcile_surfaces_adoptions_as_downloads() {
         // Scenario 1: B's first sync adopts A's note via the empty-map
         // reconcile pass. The subsequent push/pull see nothing new, so the
@@ -3268,6 +3541,7 @@ mod tests {
         let dup = DuplicateResolution {
             conflicts: 1,
             deleted_ids: vec!["FolderA/contested".into()],
+            ..Default::default()
         };
         let combined = combine_summaries(push, pull, Vec::new(), dup);
         assert_eq!(combined.updated_ids, vec!["FolderB/contested".to_string()]);
@@ -4016,5 +4290,137 @@ mod tests {
             }
             other => panic!("expected PushOutcome::TooLarge, got {other:?}"),
         }
+    }
+
+    // ── Upload failure channel (work-item #10) ───────────────────────────
+    //
+    // A non-413 upload failure (HTTP 5xx — the 2026-06-29 EACCES incident
+    // class — 403, network) used to return a bare `PushOutcome::Error` that
+    // the aggregator dropped: not counted, not surfaced. It must now carry
+    // the filename + status so `run_push` can fold it into
+    // `SyncSummary.failures` and the UI can surface it.
+
+    #[tokio::test]
+    async fn push_one_file_post_500_surfaces_error_with_status() {
+        let server = MockServer::start().await;
+        Mock::given(wm_method("POST"))
+            .and(wm_path("/api/collections/c1/blob-objects"))
+            .respond_with(ResponseTemplate::new(500).set_body_json(serde_json::json!({
+                "error": "internal server error"
+            })))
+            .mount(&server)
+            .await;
+
+        let root = temp_root();
+        std::fs::write(root.join("err.md"), "body\n").unwrap();
+
+        let outcome = push_one_file(
+            root,
+            test_client(&server),
+            Arc::new(TEST_VAULT_KEY),
+            "c1".to_owned(),
+            local("err.md", 111, 5),
+            None, // no prior entry → POST create
+            HashSet::new(),
+            false,
+            None,
+        )
+        .await
+        .expect("a 5xx upload is non-fatal, not a hard cycle error");
+
+        match outcome {
+            PushOutcome::Error { filename, status_code } => {
+                assert_eq!(filename, "err.md");
+                assert_eq!(status_code, Some(500), "status must be carried for the tooltip");
+            }
+            other => panic!("expected PushOutcome::Error, got {other:?}"),
+        }
+    }
+
+    // Channel separation: a 413 on the SAME push path stays TooLarge (the
+    // oversize/conflict channel) and must NOT leak into the generic
+    // Error/`failed` channel.
+    #[tokio::test]
+    async fn push_one_file_post_413_stays_too_large_not_error() {
+        let server = MockServer::start().await;
+        Mock::given(wm_method("POST"))
+            .and(wm_path("/api/collections/c1/blob-objects"))
+            .respond_with(ResponseTemplate::new(413).set_body_json(serde_json::json!({
+                "error": "blob too large"
+            })))
+            .mount(&server)
+            .await;
+
+        let root = temp_root();
+        std::fs::write(root.join("big.md"), "body\n").unwrap();
+
+        let outcome = push_one_file(
+            root,
+            test_client(&server),
+            Arc::new(TEST_VAULT_KEY),
+            "c1".to_owned(),
+            local("big.md", 222, 5),
+            None,
+            HashSet::new(),
+            false,
+            None,
+        )
+        .await
+        .expect("413 is non-fatal");
+
+        assert!(
+            matches!(outcome, PushOutcome::TooLarge { .. }),
+            "413 must stay TooLarge, got {outcome:?}",
+        );
+    }
+
+    // Duplicate-move loser takedown: a non-409 server error on the DELETE used
+    // to eprintln + return Ok(false) — invisible to the summary. It must now
+    // report Failed (with the HTTP status) so resolve_concurrent_move_duplicates
+    // records it into SyncSummary.failures.
+    #[tokio::test]
+    async fn delete_synced_filename_500_reports_failed_with_status() {
+        let server = MockServer::start().await;
+        Mock::given(wm_method("DELETE"))
+            .and(wm_path("/api/collections/c1/objects/o-dup"))
+            .respond_with(ResponseTemplate::new(500).set_body_json(serde_json::json!({
+                "error": "internal server error"
+            })))
+            .mount(&server)
+            .await;
+
+        let mut state = ConnectedState {
+            base_url: server.uri(),
+            token: "test-token".into(),
+            user_id: "u1".into(),
+            collection_id: "c1".into(),
+            vault_key: TEST_VAULT_KEY,
+            object_map: HashMap::from([(
+                "dup.md".to_owned(),
+                map_entry_for("o-dup", 2, "bk-dup"),
+            )]),
+            max_version: 0,
+            oversize_skip: HashMap::new(),
+        };
+        let root = temp_root();
+        let pre = no_pre_write();
+
+        let outcome = delete_synced_filename(
+            &test_client(&server),
+            &mut state,
+            &root,
+            pre.as_ref(),
+            "dup.md",
+        )
+        .await
+        .expect("a 5xx delete is non-fatal, not a hard cycle error");
+
+        match outcome {
+            DeleteSyncedOutcome::Failed { status_code } => assert_eq!(status_code, Some(500)),
+            DeleteSyncedOutcome::Deleted => panic!("expected Failed, got Deleted"),
+            DeleteSyncedOutcome::Skipped => panic!("expected Failed, got Skipped"),
+        }
+        // The failed takedown must NOT mutate local state — entry stays mapped.
+        assert!(state.object_map.contains_key("dup.md"));
     }
 }
