@@ -1334,9 +1334,11 @@ publish:android:
       cat playstore-publish.log
       if [ "$PUBLISH_STATUS" -ne 0 ]; then
         if grep -q "Your scoped storage permission declaration needs to be updated" playstore-publish.log; then
-          echo "Google Play upload was blocked by the MANAGE_EXTERNAL_STORAGE declaration policy."
-          echo "The signed AAB was built and archived; update the scoped-storage declaration in Play Console, then rerun publish:android."
-          exit 0
+          echo "ERROR: Google Play rejected the upload — the MANAGE_EXTERNAL_STORAGE" >&2
+          echo "('All files access') permission declaration has not been completed/approved" >&2
+          echo "in Play Console, so nothing was published. The signed AAB was built and" >&2
+          echo "archived by build:android-native; complete the declaration in Play Console," >&2
+          echo "then retry this job (no rebuild needed)." >&2
         fi
         exit "$PUBLISH_STATUS"
       fi
