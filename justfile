@@ -35,8 +35,10 @@ lint-swift:
 
 # ── Desktop (Tauri) ──
 
-tauri-dev:
-  node scripts/tauri-dev.mjs
+# Desktop dev. `--fake-update[=X.Y.Z]` shows a simulated update (banner/Settings
+# iteration without a server or signed build); install is simulated.
+tauri-dev *args:
+  node scripts/tauri-dev.mjs {{args}}
 
 tauri-prod:
   pnpm run build
@@ -49,6 +51,15 @@ tauri-build:
   # which breaks AppImage bundling. CI runs on ubuntu:22.04 where stock
   # strip matches, so this is local-only noise.
   cd apps/tauri && NO_STRIP=true cargo tauri build
+
+# ── In-app updater: local verified-build dry-run ──
+# Mirrors the prod release flow EXACTLY (same scripts/release-build.mjs), with
+# stand-in keys: only host (localhost), signing key (committed keys/localdev),
+# and baked pubkey (localdev) differ. Builds OLD + NEW signed AppImages, serves
+# the update on :8787, prints the command to run the OLD app. See keys/README.md
+# + scripts/release-build.mjs. Linux/AppImage only; Ctrl-C to stop.
+updater-localdev *args:
+  node scripts/release-build.mjs e2e {{args}}
 
 # ── Native mobile shells (SwiftUI / Compose — the SHIPPING mobile apps) ──
 # These reuse the shared Rust core (futo-notes-ffi) + the embedded web editor.

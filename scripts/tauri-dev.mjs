@@ -33,6 +33,16 @@ const WAYLAND_ENV = {
   WEBKIT_DISABLE_DMABUF_RENDERER: '1',
 }
 
+// Dev fake-update flag: `just tauri-dev --fake-update[=X.Y.Z]` (or FUTO_FAKE_UPDATE)
+// makes the app show a synthetic "update available" so the banner + Settings can
+// be iterated without a server or a signed build. Plumbed to the frontend as
+// VITE_FAKE_UPDATE (read by the dev-only src/lib/updater.fake backend).
+const fakeArg = process.argv.slice(2).find((a) => a === '--fake-update' || a.startsWith('--fake-update='))
+// `--fake-update` or `--fake-update=` (empty) both enable with the default version.
+const fakeUpdate = fakeArg ? (fakeArg.split('=')[1] || '9.9.9') : (process.env.FUTO_FAKE_UPDATE || null)
+const FAKE_ENV = fakeUpdate ? { VITE_FAKE_UPDATE: fakeUpdate } : {}
+if (fakeUpdate) console.log(`[tauri-dev] FAKE UPDATE on → app will show an update available (v${fakeUpdate}); install is simulated`)
+
 ;(async () => {
 if (!isWorktree) {
   // Main repo: point notes at ~/Documents/fake-notes so the real vault is untouched.
@@ -60,7 +70,7 @@ if (!isWorktree) {
     ['tauri', 'dev', '--config', 'src-tauri/tauri.dev.conf.json'],
     {
       cwd: join(repoRoot, 'apps/tauri'),
-      env: { ...process.env, ...WAYLAND_ENV, FUTO_NOTES_DATA_DIR: dataDir },
+      env: { ...process.env, ...WAYLAND_ENV, ...FAKE_ENV, FUTO_NOTES_DATA_DIR: dataDir },
       stdio: 'inherit',
     }
   )
@@ -139,6 +149,7 @@ if (!isWorktree) {
       env: {
         ...process.env,
         ...WAYLAND_ENV,
+        ...FAKE_ENV,
         FUTO_NOTES_DATA_DIR: dataDir,
       },
       stdio: 'inherit',

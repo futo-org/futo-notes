@@ -34,6 +34,10 @@ apps/ios/.signing-team
 *.key
 *.mobileprovision
 release.keystore
+# Exception: the throwaway localdev updater key is committed on purpose — it
+# signs only localhost dev builds and is rejected by every prod client (the
+# prod pubkey is baked in). See keys/README.md. Like a shared debug keystore.
+!keys/localdev-updater.key
 
 # Debug
 npm-debug.*

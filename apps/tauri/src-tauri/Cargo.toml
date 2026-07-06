@@ -54,6 +54,11 @@ tokio = { version = "1", features = ["sync", "macros", "rt-multi-thread", "time"
 # recover from accidental deletes.
 [target.'cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))'.dependencies]
 trash = "5"
+# In-app self-updater (desktop only — not supported on iOS/Android, which ship
+# native via the App Store / sideload). Checks a signed JSON manifest, verifies
+# the minisign signature against the pubkey in tauri.conf.json, downloads the
+# matching bundle for this OS/arch, swaps it, and relaunches via plugin-process.
+tauri-plugin-updater = "2"
 
 [target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
 tauri-plugin-single-instance = "2"

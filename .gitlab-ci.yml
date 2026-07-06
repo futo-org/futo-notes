@@ -22,11 +22,140 @@ workflow:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
 stages:
+  - collect-secrets
   - test
   - build
   - verify
   - release
   - trigger
+
+collect-secrets-from-op:
+  stage: collect-secrets
+  needs: []
+  # Don't inherit default.before_script (nvm/corepack/pnpm) — none of it exists
+  # on the 1password/op image and `. $HOME/.nvm/nvm.sh` would fail the job
+  # before script: runs.
+  before_script: []
+  image:
+    name: 1password/op
+    docker:
+      user: root
+  variables:
+    OP_ITEMS: |
+      TAURI_SIGNING_PRIVATE_KEY:tauri-updater-signing-keys/tauri-signing-private-key
+    OP_VAULT: "FUTO_Notes"
+  # Provisioning job: writes Protected project variables, so only run where the
+  # OP/GitLab tokens are available. Runs automatically on every default-branch
+  # pipeline (push + scheduled); tag/MR pipelines leave CI_COMMIT_BRANCH empty so
+  # they're excluded (protected tokens absent there anyway). allow_failure so a
+  # transient 1Password/API error doesn't block main CI — the written var
+  # persists, so a failed re-sync just keeps the last good value.
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      allow_failure: true
+  script:
+    - apt install -y curl
+    - op --version
+
+    - |
+      if [ -z "$OP_SERVICE_ACCOUNT_TOKEN" ]; then
+        echo "ERROR:OP_SERVICE_ACCOUNT_TOKEN is not set - should be a CI secret for the OnePassword Vault access token"
+        exit 1
+      fi
+      # Parse OP_ITEMS and sync each secret to GitLab CI/CD variables
+      if [ -z "$OP_ITEMS" ]; then
+        echo "ERROR: OP_ITEMS is not set"
+        exit 1
+      fi
+      if [ -z "$OP_VAULT" ]; then
+        echo "ERROR: OP_VAULT is not set"
+        exit 1
+      fi
+      if [ -z "$GITLAB_API_TOKEN" ]; then
+        echo "ERROR: GITLAB_API_TOKEN is not set"
+        exit 1
+      fi
+
+      API_URL="${CI_SERVER_URL}/api/v4/projects/${CI_PROJECT_ID}/variables"
+      FAILED=0
+
+      echo "$OP_ITEMS" | tr ',' '\n' | while IFS=: read -r VAR_NAME ITEM_NAME; do
+        # Trim whitespace
+        VAR_NAME=$(echo "$VAR_NAME" | xargs)
+        ITEM_NAME=$(echo "$ITEM_NAME" | xargs)
+
+        if [ -z "$VAR_NAME" ] || [ -z "$ITEM_NAME" ]; then
+          echo "WARNING: Skipping malformed entry (VAR_NAME='${VAR_NAME}', ITEM_NAME='${ITEM_NAME}')"
+          continue
+        fi
+
+        echo "Fetching secret for '${ITEM_NAME}' from vault '${OP_VAULT}'..."
+        SECRET=$(op read "op://${OP_VAULT}/${ITEM_NAME}") || {
+          echo "ERROR: Failed to read op://${OP_VAULT}/${ITEM_NAME}"
+          exit 1
+        }
+
+        # GitLab requires masked variables to be at least 8 characters
+        if [ ${#SECRET} -lt 8 ]; then
+          echo "WARNING: Skipping '${VAR_NAME}' — secret is ${#SECRET} characters, GitLab requires at least 8 for masked variables"
+          continue
+        fi
+
+        # GitLab requires masked variables to only contain Base64 chars plus @:.~/-
+        if echo "$SECRET" | grep -qP '[^a-zA-Z0-9+/=@:.~\-]'; then
+          echo "WARNING: Skipping '${VAR_NAME}' — secret contains characters not allowed in GitLab masked variables (only Base64, @, :, ., ~, /, - are permitted)"
+          continue
+        fi
+
+        echo "Setting CI/CD variable '${VAR_NAME}'..."
+
+        RESPONSE_BODY=$(mktemp)
+        trap "rm -f $RESPONSE_BODY" EXIT
+
+        # Try PUT (update) first
+        HTTP_CODE=$(curl -s -o "$RESPONSE_BODY" -w "%{http_code}" -X PUT \
+          "${API_URL}/${VAR_NAME}" \
+          -H "PRIVATE-TOKEN: ${GITLAB_API_TOKEN}" \
+          -H "Content-Type: application/x-www-form-urlencoded" \
+          --data-urlencode "value=${SECRET}" \
+          --data-urlencode "masked=true" \
+          --data-urlencode "protected=true" \
+          --data-urlencode "variable_type=env_var")
+
+        if [ "$HTTP_CODE" = "200" ]; then
+          echo "  Updated '${VAR_NAME}' (HTTP ${HTTP_CODE})"
+        elif [ "$HTTP_CODE" = "404" ]; then
+          # Variable doesn't exist yet — create it with POST
+          HTTP_CODE=$(curl -s -o "$RESPONSE_BODY" -w "%{http_code}" -X POST \
+            "${API_URL}" \
+            -H "PRIVATE-TOKEN: ${GITLAB_API_TOKEN}" \
+            -H "Content-Type: application/x-www-form-urlencoded" \
+            --data-urlencode "key=${VAR_NAME}" \
+            --data-urlencode "value=${SECRET}" \
+            --data-urlencode "masked=true" \
+            --data-urlencode "protected=true" \
+            --data-urlencode "variable_type=env_var")
+
+          if [ "$HTTP_CODE" = "201" ]; then
+            echo "  Created '${VAR_NAME}' (HTTP ${HTTP_CODE})"
+          else
+            echo "ERROR: Failed to create '${VAR_NAME}' (HTTP ${HTTP_CODE})"
+            echo "  Response: $(cat $RESPONSE_BODY)"
+            exit 1
+          fi
+        else
+          echo "ERROR: Failed to update '${VAR_NAME}' (HTTP ${HTTP_CODE})"
+          echo "  Response: $(cat $RESPONSE_BODY)"
+          exit 1
+        fi
+      done
+
+      # Check if the subshell (piped while loop) failed
+      if [ $? -ne 0 ]; then
+        exit 1
+      fi
+
+      echo "All secrets synced successfully."
 
 # ─────────────────────────────────────────────────────────────
 # Reusable script fragments
@@ -192,11 +321,12 @@ stages:
     policy: pull-push
     when: always
 
-# Separate caches for the release Linux builds. Packages (.deb/.rpm) build on
-# ubuntu:22.04 (glibc 2.35, wide forward-compat); AppImage builds on ubuntu:24.04
-# so the bundled WebKitGTK is new enough for Mesa 26 (Arch/Fedora 40+). Test
-# jobs use the kitchensink image. Each base gets its own cache key — sharing a
-# target/ across images wastes bandwidth and invalidates oddly.
+# Separate caches for the release Linux builds. Both packages (.deb/.rpm) and the
+# AppImage build on ubuntu:22.04 (glibc 2.35, wide forward-compat; jammy-security
+# WebKitGTK is new enough for the EGL platform API — the AppImage's Mesa 26 issue
+# is handled by scripts/patch-appimage-mesa26.mjs, not by a newer base). Test jobs
+# use the kitchensink image. Each base gets its own cache key — sharing a target/
+# across images wastes bandwidth and invalidates oddly.
 .cache-cargo-tauri-linux-packages:
   cache:
     key:
@@ -527,13 +657,24 @@ build:linux-appimage:
     # Strip the bundled libwayland-client.so.0 so the AppImage boots on Mesa 26.
     # Script auto-downloads appimagetool if it isn't already on PATH.
     - node scripts/patch-appimage-mesa26.mjs --dir target/release/bundle/appimage
+    # Updater signature — minisign the FINAL (mesa-patched) AppImage so the .sig
+    # matches the bytes clients download. MUST be the last touch on the artifact.
+    # TAURI_SIGNING_PRIVATE_KEY is a protected CI variable; the key has no password
+    # (-p "" supplies the empty passphrase). The .sig content is embedded into
+    # latest.json by the release: job.
+    - |
+      test -n "$TAURI_SIGNING_PRIVATE_KEY" || { echo "TAURI_SIGNING_PRIVATE_KEY is not set"; exit 1; }
+      for f in target/release/bundle/appimage/*.AppImage; do
+        cargo tauri signer sign -p "" "$f"
+      done
   after_script:
     - |
       echo "=== Linux AppImage artifact ==="
-      find target/release/bundle -type f -name "*.AppImage" 2>/dev/null
+      find target/release/bundle -type f \( -name "*.AppImage" -o -name "*.AppImage.sig" \) 2>/dev/null
   artifacts:
     paths:
       - target/release/bundle/appimage/*.AppImage
+      - target/release/bundle/appimage/*.AppImage.sig
     expire_in: 4 weeks
   rules:
     - if: $CI_COMMIT_TAG
@@ -575,12 +716,15 @@ build:macos:
   variables:
     GIT_STRATEGY: clone
   before_script:
-    - env | grep -E '^(CI_|MACOS_|ASC_)' > .cienv
+    # TAURI_ passes the updater signing key (TAURI_SIGNING_PRIVATE_KEY[_PASSWORD])
+    # through to the Cirrus macOS task, which builds the signed .app.tar.gz.
+    - env | grep -E '^(CI_|MACOS_|ASC_|TAURI_)' > .cienv
   script:
     - cirrus run buildFutoNotesMacOS --artifacts-dir . --env-file .cienv
   artifacts:
     paths:
       - buildFutoNotesMacOS/binary/*.dmg
+      - buildFutoNotesMacOS/updater/*
     expire_in: 4 weeks
   rules:
     - if: $CI_COMMIT_TAG
@@ -947,9 +1091,9 @@ windows:sign:
   before_script: []
   script:
     - |
-      if ! command -v aws >/dev/null 2>&1 || ! command -v java >/dev/null 2>&1 || ! command -v python3 >/dev/null 2>&1; then
+      if ! command -v aws >/dev/null 2>&1 || ! command -v java >/dev/null 2>&1 || ! command -v python3 >/dev/null 2>&1 || ! command -v npx >/dev/null 2>&1; then
         apt-get update
-        DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl jq awscli default-jre-headless python3
+        DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl jq awscli default-jre-headless python3 nodejs npm
       fi
     # Download fullchain.pem from GitLab secure files
     - |
@@ -964,15 +1108,28 @@ windows:sign:
         --output /deploy/signing/fullchain.pem \
         "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/secure_files/${FILE_ID}/download"
       echo "Downloaded fullchain.pem"
-    # Sign all .exe artifacts
+    # Sign all .exe artifacts (Authenticode via jsign/AWS KMS)
     - |
       for f in windows-artifacts/*.exe; do
         [ -f "$f" ] || continue
         CERT_FILE=/deploy/signing/fullchain.pem bash ci/sign-windows.sh "$f"
       done
+    # Updater signature — minisign the exe AFTER Authenticode (jsign rewrites the
+    # bytes, so any earlier .sig is stale). minisign MUST be the last touch. The
+    # Windows VM build stays keyless; the signing key lives only here as a CI var.
+    # The key has no password (-p "" supplies the empty passphrase). The CLI is
+    # pinned to match the cargo tauri-cli used on Linux/macOS. The .sig content is
+    # embedded into latest.json by the release: job.
+    - |
+      test -n "$TAURI_SIGNING_PRIVATE_KEY" || { echo "TAURI_SIGNING_PRIVATE_KEY is not set"; exit 1; }
+      for f in windows-artifacts/*.exe; do
+        [ -f "$f" ] || continue
+        npx --yes @tauri-apps/cli@2.11.3 signer sign -p "" "$f"
+      done
   artifacts:
     paths:
       - windows-artifacts/*.exe
+      - windows-artifacts/*.exe.sig
     expire_in: 4 weeks
   rules:
     - if: $CI_COMMIT_TAG
@@ -1089,6 +1246,16 @@ release:gate:
       echo ""
       echo "=== Windows installer ==="
       check "windows-artifacts/*.exe"
+
+      echo ""
+      echo "=== Desktop updater artifacts (.sig + macOS app.tar.gz) ==="
+      # The self-updater needs a signed updater artifact per desktop OS. Linux
+      # ships the AppImage, macOS the .app.tar.gz (NOT the .dmg), Windows the
+      # setup.exe — each with a minisign .sig embedded into latest.json.
+      check "target/release/bundle/appimage/*.AppImage.sig"
+      check_find "buildFutoNotesMacOS/updater" "*.app.tar.gz"
+      check_find "buildFutoNotesMacOS/updater" "*.app.tar.gz.sig"
+      check "windows-artifacts/*.exe.sig"
 
       echo ""
       if [ "$MISSING" -gt 0 ]; then
@@ -1221,13 +1388,22 @@ release:
         echo "Uploading $NAME"
         curl --fail -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$IPA" "${REGISTRY_URL}/${NAME}"
       fi
-    # macOS DMG
+    # macOS DMG (first-install download)
     - |
       DMG=$(find buildFutoNotesMacOS -name "*.dmg" -type f 2>/dev/null | head -1)
       if [ -n "$DMG" ]; then
         NAME="FUTO-Notes-${VERSION}-universal.dmg"
         echo "Uploading $NAME"
         curl --fail -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$DMG" "${REGISTRY_URL}/${NAME}"
+      fi
+    # macOS updater artifact (.app.tar.gz — what the self-updater downloads).
+    # Universal (x86_64 + arm64), same as the DMG — one tarball serves both arches.
+    - |
+      TARGZ=$(find buildFutoNotesMacOS/updater -name "*.app.tar.gz" -type f 2>/dev/null | head -1)
+      if [ -n "$TARGZ" ]; then
+        NAME="FUTO-Notes-${VERSION}-universal.app.tar.gz"
+        echo "Uploading $NAME"
+        curl --fail -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$TARGZ" "${REGISTRY_URL}/${NAME}"
       fi
     # Windows NSIS installer
     - |
@@ -1237,6 +1413,56 @@ release:
         echo "Uploading $NAME"
         curl --fail -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$NSIS" "${REGISTRY_URL}/${NAME}"
       fi
+    # ── Desktop self-update manifest (latest.json) ──
+    # Assemble the multi-platform Tauri updater manifest from each desktop OS's
+    # signed artifact + its .sig, with URLs pointing at the package-registry
+    # uploads above. Embeds the .sig CONTENTS (clients verify the download against
+    # them — the .sig files themselves are not published). The baked endpoint in
+    # tauri.conf.json is the "latest" release permalink, which resolves to the
+    # release asset whose filepath is /latest.json (added to release-cli below).
+    - |
+      APPIMAGE_SIG=$(find target/release/bundle/appimage -name "*.AppImage.sig" -type f | head -1)
+      MAC_SIG=$(find buildFutoNotesMacOS/updater -name "*.app.tar.gz.sig" -type f | head -1)
+      WIN_SIG=$(find windows-artifacts -name "*.exe.sig" -type f | head -1)
+      # Hard-abort (release:gate already guards this, but don't assemble a partial
+      # manifest if a .sig is somehow absent — no `set -e` is active here).
+      if [ -z "$APPIMAGE_SIG" ] || [ -z "$MAC_SIG" ] || [ -z "$WIN_SIG" ]; then
+        echo "missing updater .sig (linux=$APPIMAGE_SIG mac=$MAC_SIG win=$WIN_SIG)"; exit 1
+      fi
+      # Verify each artifact's .sig against the PROD pubkey baked in tauri.conf.json
+      # BEFORE assembling the manifest. This is the only place that catches a
+      # signing-key/baked-pubkey mismatch (which would brick auto-update for every
+      # client — the pubkey can't be rotated on shipped installs) and a stale .sig
+      # left from before the OS-signing step (Authenticode/notarize/mesa) rewrote
+      # the bytes. The artifact path is the .sig path minus the suffix. No `set -e`
+      # here, so abort explicitly on a non-zero exit.
+      node scripts/verify-updater-signature.mjs \
+        --artifact "${APPIMAGE_SIG%.sig}" --sig "$APPIMAGE_SIG" \
+        --artifact "${MAC_SIG%.sig}"      --sig "$MAC_SIG" \
+        --artifact "${WIN_SIG%.sig}"      --sig "$WIN_SIG" \
+        || { echo "updater signature verification FAILED — refusing to publish"; exit 1; }
+      node -e "
+        const fs = require('fs');
+        const [v, reg, ls, ms, ws] = process.argv.slice(1);
+        // The macOS .app.tar.gz is a universal (x86_64 + arm64) bundle, so both
+        // darwin keys point at the SAME artifact + signature — Intel and Apple
+        // Silicon clients each match their own key and download the one tarball.
+        const macUrl = reg + '/FUTO-Notes-' + v + '-universal.app.tar.gz';
+        fs.writeFileSync('updater-spec.json', JSON.stringify({
+          version: v,
+          notes: 'FUTO Notes ' + v,
+          platforms: [
+            { platform: 'linux-x86_64',   url: reg + '/FUTO-Notes-' + v + '-x86_64.AppImage', sig: ls },
+            { platform: 'darwin-aarch64', url: macUrl,                                        sig: ms },
+            { platform: 'darwin-x86_64',  url: macUrl,                                        sig: ms },
+            { platform: 'windows-x86_64', url: reg + '/FUTO-Notes-' + v + '-x64-setup.exe',   sig: ws },
+          ],
+        }));
+      " "$VERSION" "$REGISTRY_URL" "$APPIMAGE_SIG" "$MAC_SIG" "$WIN_SIG"
+      node scripts/build-updater-manifest.mjs --spec updater-spec.json --out latest.json
+      echo "=== latest.json ==="; cat latest.json
+      echo "Uploading latest.json"
+      curl --fail -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file latest.json "${REGISTRY_URL}/latest.json"
     # Create GitLab release
     - |
       curl -sL "https://gitlab.com/api/v4/projects/gitlab-org%2Frelease-cli/packages/generic/release-cli/latest/release-cli-linux-amd64" \
@@ -1259,9 +1485,19 @@ release:
         --assets-link "{\"name\":\"futo-notes-${VERSION}.apk\",\"url\":\"${REGISTRY_URL}/futo-notes-${VERSION}.apk\",\"link_type\":\"package\"}" \
         --assets-link "{\"name\":\"FUTO-Notes-${VERSION}.ipa\",\"url\":\"${REGISTRY_URL}/FUTO-Notes-${VERSION}.ipa\",\"link_type\":\"package\"}" \
         --assets-link "{\"name\":\"FUTO-Notes-${VERSION}-universal.dmg\",\"url\":\"${REGISTRY_URL}/FUTO-Notes-${VERSION}-universal.dmg\",\"link_type\":\"package\"}" \
-        --assets-link "{\"name\":\"FUTO-Notes-${VERSION}-x64-setup.exe\",\"url\":\"${REGISTRY_URL}/FUTO-Notes-${VERSION}-x64-setup.exe\",\"link_type\":\"package\"}"
+        --assets-link "{\"name\":\"FUTO-Notes-${VERSION}-x64-setup.exe\",\"url\":\"${REGISTRY_URL}/FUTO-Notes-${VERSION}-x64-setup.exe\",\"link_type\":\"package\"}" \
+        --assets-link "{\"name\":\"FUTO-Notes-${VERSION}-universal.app.tar.gz\",\"url\":\"${REGISTRY_URL}/FUTO-Notes-${VERSION}-universal.app.tar.gz\",\"link_type\":\"package\"}" \
+        --assets-link "{\"name\":\"latest.json\",\"url\":\"${REGISTRY_URL}/latest.json\",\"filepath\":\"/latest.json\",\"link_type\":\"other\"}"
   rules:
-    - if: $CI_COMMIT_TAG
+    # STABLE tags only (vX.Y.Z — no -rc/-nightly suffix). The updater endpoint is
+    # the "latest release" permalink, which GitLab resolves by release DATE, so a
+    # published prerelease would become "latest" and be served to stable clients.
+    # Gating publish to stable tags keeps the channel stable-only; the Tauri
+    # client never downgrades (semver compare), so clients only move UP to the
+    # newest stable. (Prerelease tags still run the build jobs for validation;
+    # they just don't publish a release. A future nightly channel = a second
+    # fixed manifest + a client channel setting.)
+    - if: $CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+$/
 
 # ─────────────────────────────────────────────────────────────
 # Publish to the FUTO F-Droid repo (app.futo.org/fdroid)
@@ -1281,8 +1517,8 @@ update-fdroid:
   image: alpine:latest
   interruptible: false
   needs:
-    - job: release                 # ensure the package asset is uploaded first
-    - job: build:android-native    # the signed APK, to compute its sha256
+    - job: release # ensure the package asset is uploaded first
+    - job: build:android-native # the signed APK, to compute its sha256
       artifacts: true
   before_script:
     - apk add --no-cache python3 git openssh-client
