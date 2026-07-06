@@ -6,7 +6,7 @@ export default defineConfig({
   plugins: [svelte({ hot: false })],
   test: {
     globals: true,
-    include: ['src/**/*.test.ts', 'markdown-spec/**/*.test.ts'],
+    include: ['src/**/*.test.ts', 'markdown-spec/**/*.test.ts', 'scripts/**/*.test.mjs'],
     mockReset: true,
     server: { deps: { inline: [/^svelte/] } },
   },

@@ -23,6 +23,10 @@ export interface AppState {
     alwaysSend: boolean;
   };
 
+  updates: {
+    enabled: boolean;
+  };
+
   lastSyncedAt: number | null;
   lastSyncError: string;
 
@@ -67,6 +71,9 @@ function defaultState(): AppState {
       enabled: true,
       alwaysSend: false,
     },
+    updates: {
+      enabled: true,
+    },
     lastSyncedAt: null,
     lastSyncError: '',
   };
@@ -96,6 +103,10 @@ function sanitize(raw: unknown): AppState {
     ? obj.crashReporting
     : {}) as Record<string, unknown>;
 
+  const rawUpdates = (obj.updates && typeof obj.updates === 'object'
+    ? obj.updates
+    : {}) as Record<string, unknown>;
+
   return {
     deviceId,
     preferences: {
@@ -107,6 +118,9 @@ function sanitize(raw: unknown): AppState {
     crashReporting: {
       enabled: typeof rawCrash.enabled === 'boolean' ? rawCrash.enabled : true,
       alwaysSend: typeof rawCrash.alwaysSend === 'boolean' ? rawCrash.alwaysSend : false,
+    },
+    updates: {
+      enabled: typeof rawUpdates.enabled === 'boolean' ? rawUpdates.enabled : true,
     },
     lastSyncedAt: typeof obj.lastSyncedAt === 'number' ? obj.lastSyncedAt : null,
     lastSyncError: typeof obj.lastSyncError === 'string' ? obj.lastSyncError : '',
@@ -202,7 +216,7 @@ export async function saveAppState(state: AppState): Promise<void> {
 }
 
 export async function updateAppState(
-  updates: Partial<Pick<AppState, 'lastSyncedAt' | 'lastSyncError' | 'preferences' | 'crashReporting' | 'e2eeServerUrl' | 'e2eeAuthToken' | 'e2eeUserId' | 'e2eeCollectionId' | 'e2eeSalt' | 'e2eePassword'>>,
+  updates: Partial<Pick<AppState, 'lastSyncedAt' | 'lastSyncError' | 'preferences' | 'crashReporting' | 'updates' | 'e2eeServerUrl' | 'e2eeAuthToken' | 'e2eeUserId' | 'e2eeCollectionId' | 'e2eeSalt' | 'e2eePassword'>>,
 ): Promise<void> {
   const current = getAppState();
   const next = { ...current, ...updates };
@@ -219,6 +233,9 @@ export interface AppPreferences {
     enabled: boolean;
     alwaysSend: boolean;
   };
+  updates: {
+    enabled: boolean;
+  };
   sync: {
     serverUrl: string;
     token: string;
@@ -232,6 +249,7 @@ function stateToPrefs(): AppPreferences {
   return {
     appearance: { theme: s.preferences.theme },
     crashReporting: { ...s.crashReporting },
+    updates: { ...s.updates },
     sync: {
       serverUrl: s.e2eeServerUrl ?? '',
       token: s.e2eeAuthToken ?? '',
@@ -254,6 +272,7 @@ export async function savePreferences(prefs: AppPreferences): Promise<void> {
   await updateAppState({
     preferences: { ...getAppState().preferences, theme: prefs.appearance.theme },
     crashReporting: prefs.crashReporting,
+    updates: prefs.updates,
     lastSyncedAt: prefs.sync.lastSyncedAt,
     lastSyncError: prefs.sync.lastError,
   });

@@ -2,6 +2,8 @@
   import NotesShell from './components/NotesShell.svelte';
   import TitleBar from './components/TitleBar.svelte';
   import CrashReportDialog from './components/CrashReportDialog.svelte';
+  import UpdateBanner from './components/UpdateBanner.svelte';
+  import { updateChecker } from '$lib/updateChecker.svelte';
   import { hasFileSystem, getFS, getPlatformFS, isDesktop, isLinux, isMac } from '$lib/platform';
   import { installExternalFileDropGuard } from '$lib/externalFileDropGuard';
   import { tabsStore } from '$lib/tabsStore.svelte';
@@ -198,6 +200,11 @@
           console.warn('Crash reporting init failed:', e);
         }
       })();
+
+      // Desktop self-update: check on launch + hourly, surfacing the
+      // UpdateBanner. Backgrounded like everything else here so it never
+      // gates render; no-ops on platforms that can't self-update.
+      void updateChecker.start().catch((e) => console.warn('Update checker init failed:', e));
     }
     init();
 
@@ -205,6 +212,7 @@
       window.removeEventListener('hashchange', onHashChange);
       stopWatchingSystemTheme?.();
       stopWatchingSystemTheme = null;
+      updateChecker.stop();
     };
   });
 
@@ -323,6 +331,8 @@
 {#if toastMessage}
   <div class="toast">{toastMessage}</div>
 {/if}
+
+<UpdateBanner />
 
 <style>
   .loading-screen {

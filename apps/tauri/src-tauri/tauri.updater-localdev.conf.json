@@ -1,0 +1,15 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "identifier": "com.futo.notes.dev",
+  "productName": "FUTO Notes Updater Test",
+  "bundle": {
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDNDQkIwOTYxQUZDQTlDODAKUldTQW5NcXZZUW03UEcyMndIY1J4M3hFZCtWVzdEaGd5ck1oaXVrbjdxV3l1YjhpaEhTZzhaSWkK",
+      "endpoints": ["http://localhost:8787/latest.json"],
+      "dangerousInsecureTransportProtocol": true
+    }
+  }
+}

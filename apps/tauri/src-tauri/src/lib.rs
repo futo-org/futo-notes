@@ -110,6 +110,18 @@ pub fn run() {
     #[cfg(debug_assertions)]
     let builder = builder.plugin(tauri_plugin_mcp_bridge::init());
 
+    // In-app updater: desktop only (iOS/Android update via store/sideload).
+    // Endpoints + pubkey come from `plugins.updater` in the merged config; dev
+    // inherits the production HTTPS endpoint (see updaterConfig.test.ts). Dev
+    // builds can't self-update regardless of endpoint: `app_self_update_supported`
+    // returns false in any debug build (core.rs gates on `cfg!(debug_assertions)`),
+    // so the auto-checker no-ops and UpdateBanner never starts in dev. The Settings
+    // "Check for updates" button is still force-shown in dev for manual testing; it
+    // queries the prod endpoint but can't swap a dev binary, so registering the
+    // plugin in debug keeps that button functional.
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+
     builder
         .setup(|_app| {
             // Install the Rust panic reporter as early as possible so a panic
@@ -162,6 +174,7 @@ pub fn run() {
             notes_dir_override_load,
             notes_dir_override_save,
             resolve_default_notes_root,
+            app_self_update_supported,
             sync::e2ee_connect,
             sync::e2ee_resume,
             sync::e2ee_disconnect,

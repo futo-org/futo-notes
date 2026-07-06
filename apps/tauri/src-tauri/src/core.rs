@@ -849,6 +849,36 @@ fn rand_suffix() -> String {
     format!("{n:04}")
 }
 
+/// Pure decision: can the running desktop install apply an in-app update?
+///
+/// On Linux only an AppImage self-updates in-app — deb/rpm are expected to
+/// update via the system package repo, not the updater (a deb/rpm install
+/// fed an AppImage artifact would fail at install time). macOS and Windows
+/// installs always self-update. Anything else (incl. mobile) cannot.
+pub(crate) fn compute_self_update_supported(os: &str, appimage_present: bool) -> bool {
+    match os {
+        "linux" => appimage_present,
+        "macos" | "windows" => true,
+        _ => false,
+    }
+}
+
+/// Whether the running install supports the in-app updater. The webview cannot
+/// read process env, so the Settings "Updates" section asks here before showing
+/// the "Check for updates" button — keeping it hidden on deb/rpm installs where
+/// in-app update is out of scope.
+#[tauri::command]
+pub fn app_self_update_supported() -> bool {
+    // Debug builds (cargo-run dev, ANY OS) never self-update: they aren't packaged
+    // updater artifacts, and a dev build must not auto-check the production
+    // endpoint. On Linux this also follows from APPIMAGE being unset, but macOS/
+    // Windows dev builds need this explicit gate.
+    if cfg!(debug_assertions) {
+        return false;
+    }
+    compute_self_update_supported(std::env::consts::OS, std::env::var("APPIMAGE").is_ok())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1290,6 +1320,19 @@ mod tests {
         assert!(filename.ends_with(".jpg"));
         assert!(base.join(&filename).exists());
         cleanup_temp_dir(&base);
+    }
+
+    #[test]
+    fn self_update_supported_by_platform() {
+        // Linux: only AppImage self-updates; deb/rpm (no APPIMAGE env) cannot.
+        assert!(compute_self_update_supported("linux", true));
+        assert!(!compute_self_update_supported("linux", false));
+        // macOS + Windows installs always self-update.
+        assert!(compute_self_update_supported("macos", false));
+        assert!(compute_self_update_supported("windows", false));
+        // Anything else (e.g. mobile) cannot.
+        assert!(!compute_self_update_supported("android", false));
+        assert!(!compute_self_update_supported("ios", false));
     }
 
     #[test]

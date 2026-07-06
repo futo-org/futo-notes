@@ -15,7 +15,7 @@ The command surface (registered in `lib.rs` via `tauri::generate_handler!`) is s
 - **`notes.rs`**: `notes_*` — note CRUD + scanning over `futo-notes-model::crud` (`notes_scan`, `notes_read`, `notes_write`, `notes_create`, `notes_delete`, `notes_rename`, `notes_move`, folder ops, trash). Mirrors the FFI `NoteStore` 1:1.
 - **`search.rs`**: `search_*` — desktop shim over `futo-notes-search` (Tantivy BM25 plus a background indexer). The heavy lifting lives in the crate; this layer resolves paths, emits `search:status`, and exposes the commands. (Supersearch vector ops are gone — replaced by this engine.)
 - **`sync.rs`** / **`sync_state.rs`**: `e2ee_*` — the E2EE sync command surface over `futo-notes-sync`, plus the JS↔Rust state and watcher-suppression map.
-- **`core.rs`**: the remaining `fs_*` / path / device commands — filesystem watcher (`notify` crate, emits `fs:change`), image save/paste, folder ops not yet on the model, notes-dir override, default path resolution, soft-keyboard/haptics. Every public command wraps an `_impl` function for testability.
+- **`core.rs`**: the remaining `fs_*` / path / device commands — filesystem watcher (`notify` crate, emits `fs:change`), image save/paste, folder ops not yet on the model, notes-dir override, default path resolution. Every public command wraps an `_impl` function for testability.
 - **`lib.rs`**: App setup — plugin registration, the `tauri::generate_handler!` `invoke_handler`, Linux GTK decorations, fd limit bump.
 - **`main.rs`**: Entry point. Disables WebKitGTK DMA-BUF renderer on Linux for Wayland stability.
 

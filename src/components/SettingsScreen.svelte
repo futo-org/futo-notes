@@ -8,6 +8,8 @@
   import { requestSyncV2, wasSyncErrorReported } from '$lib/autoSyncV2';
   import { getSyncErrorMessage } from '$lib/syncErrorMessage';
   import { getAppVersion } from '$lib/crashHandler';
+  import { selfUpdateSupported, updaterSupported } from '$lib/updater';
+  import { updateChecker as upd } from '$lib/updateChecker.svelte';
   import { confirmDialog } from '$lib/confirm';
   import { formatRelativeTime } from '$lib/utils';
 
@@ -64,6 +66,7 @@
   const prefs = getCachedPreferences();
   let crashEnabled = $state(prefs.crashReporting.enabled);
   let crashAlwaysSend = $state(prefs.crashReporting.alwaysSend);
+  let updatesEnabled = $state(prefs.updates.enabled);
   let themePreference = $state<ThemePreference>(prefs.appearance.theme);
 
   // Sync MVP preferences
@@ -97,6 +100,27 @@
         defaultNotesDir = cfg.defaultNotesDir;
       })
     );
+  }
+
+  // Desktop in-app updater (Updates section). State + actions live in the shared
+  // `updateChecker` (aliased `upd`) so the manual button here and the global
+  // auto-check banner stay in lockstep — same pending version, same progress,
+  // same install path. A check here clears the banner and vice versa.
+  //
+  // Show the section on desktop: in dev builds always (so the button can be
+  // exercised against the local dummy server); in release only where the
+  // running install can actually self-update (AppImage / macOS / Windows — NOT
+  // deb/rpm, which update via the system package repo), resolved via the Rust
+  // app_self_update_supported command.
+  let showUpdates = $state(false);
+  if (updaterSupported()) {
+    if (import.meta.env.DEV) {
+      showUpdates = true;
+    } else {
+      selfUpdateSupported().then((ok) => {
+        showUpdates = ok;
+      });
+    }
   }
 
   async function handleChangeDir(): Promise<void> {
@@ -262,6 +286,21 @@
     const p = getCachedPreferences();
     p.crashReporting.alwaysSend = crashAlwaysSend;
     await savePreferences(p);
+  }
+
+  // Locked while an update is downloading/installing or staged awaiting restart:
+  // those bytes are already on disk and can't be un-staged, so disabling then
+  // would be a lie. Only toggleable from idle/available/up-to-date/error.
+  const updatesLocked = $derived(upd.busy || upd.phase === 'restart');
+
+  async function toggleUpdatesEnabled(): Promise<void> {
+    if (updatesLocked) return;
+    updatesEnabled = !updatesEnabled;
+    const p = getCachedPreferences();
+    p.updates.enabled = updatesEnabled;
+    await savePreferences(p);
+    if (updatesEnabled) void upd.start();
+    else upd.disable();
   }
 
   async function setThemePreference(nextTheme: ThemePreference): Promise<void> {
@@ -558,6 +597,78 @@
         {/if}
       </section>
 
+      {#if showUpdates}
+      <section class="settings-section">
+        <h3 class="settings-section-title">Updates</h3>
+        <div
+          class="settings-toggle-row"
+          class:disabled={updatesLocked}
+          onclick={toggleUpdatesEnabled}
+          role="button"
+          tabindex="0"
+          onkeydown={(e) => e.key === 'Enter' && toggleUpdatesEnabled()}
+        >
+          <span class="settings-toggle-text">
+            <span class="settings-btn-label">Automatically check for updates</span>
+            <span class="settings-btn-desc">Periodically check for new versions and notify you when one is available</span>
+          </span>
+          <div class="settings-switch" class:on={updatesEnabled}>
+            <div class="settings-switch-thumb"></div>
+          </div>
+        </div>
+        {#if updatesEnabled}
+        <button
+          class="settings-btn"
+          onclick={upd.phase === 'restart'
+            ? () => upd.restart()
+            : upd.phase === 'available' || (upd.phase === 'error' && upd.pending)
+              ? () => upd.install()
+              : () => upd.check()}
+          disabled={upd.busy}
+        >
+          <span class="settings-btn-text">
+            <span class="settings-btn-label">
+              {#if upd.phase === 'checking'}
+                Checking for updates…
+              {:else if upd.phase === 'available'}
+                Update &amp; restart
+              {:else if upd.phase === 'downloading'}
+                Downloading…{upd.percent != null ? ` ${upd.percent}%` : ''}
+              {:else if upd.phase === 'installing'}
+                Installing…
+              {:else if upd.phase === 'restart'}
+                Restart now to finish
+              {:else if upd.phase === 'error' && upd.pending}
+                Retry update — v{upd.pending?.currentVersion} → v{upd.pending?.version}
+              {:else}
+                Check for updates
+              {/if}
+            </span>
+            <span class="settings-btn-desc">
+              {#if upd.phase === 'up-to-date'}
+                You're on the latest version (v{getAppVersion()}).
+              {:else if upd.phase === 'available'}
+                v{upd.pending?.currentVersion} → v{upd.pending?.version}
+              {:else if upd.phase === 'downloading' || upd.phase === 'installing'}
+                Please wait — the app will restart automatically.
+              {:else if upd.phase === 'restart'}
+                Update installed. Restart to finish.
+              {:else if upd.phase === 'error'}
+                {upd.error || 'Update failed.'}
+              {:else}
+                Currently running v{getAppVersion()}.
+              {/if}
+            </span>
+          </span>
+        </button>
+        {#if (upd.phase === 'available' || upd.phase === 'error') && upd.pending?.notes}
+          <p class="settings-update-notes">{upd.pending.notes}</p>
+        {/if}
+        {/if}
+      </section>
+      {/if}
+
+      <!-- Danger zone is always the last section (see docs/spec/settings.md). -->
       <section class="settings-section">
         <h3 class="settings-section-title">Danger zone</h3>
         <button class="settings-btn settings-btn-danger" onclick={() => void handleNukeTap()} disabled={nuking}>
@@ -827,6 +938,19 @@
     color: var(--color-muted);
   }
 
+  .settings-update-notes {
+    margin: 8px 0 0;
+    padding: 8px 10px;
+    font-size: 13px;
+    line-height: 1.4;
+    color: var(--color-muted);
+    white-space: pre-wrap;
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    max-height: 160px;
+    overflow-y: auto;
+  }
+
   .settings-hint {
     margin: 6px 0;
     line-height: 1.35;
@@ -865,6 +989,12 @@
 
   .settings-toggle-row:active {
     transform: scale(0.98);
+  }
+
+  .settings-toggle-row.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    pointer-events: none;
   }
 
   .settings-toggle-row.sub {

@@ -179,6 +179,7 @@ curl -s --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
 - Markdown spec + cursor movement coverage: `tests/markdown-spec.spec.ts` and `markdown-spec/cases/**`. The movement-path editor cases run in CI via `pnpm run test:markdown-spec`.
 - Some Android-native issues (IME, status bar) require device QA even when Playwright passes
 - Windows-only behavior (native drag-drop on WebView2, the NSIS installer, VC++/WebView2 runtime on a clean machine) is invisible to Playwright/agent-browser (they run WebKit/Chromium). Verify in the sudo-free qemu Win11 harness in `scripts/win-vm/` (data dir defaults to `~/Developer/win-vm`) — full procedure + video-recording steps live in `scripts/win-vm/README.md` and the `/verify` skill's `references/windows-vm.md`
+- Desktop in-app updater (Tauri updater plugin): release/CI/signing architecture + full test map in `docs/release/updater.md`; keys + trust boundary in `keys/README.md`. Critical invariant: the detached `.sig` must be the LAST touch on the artifact bytes (after the Linux mesa patch / macOS notarize / Windows Authenticode) or verification fails. Local E2E rehearsal: `just updater-localdev`.
 
 ## Test Requirements
 

@@ -42,19 +42,39 @@ SettingsScreen.kt *(Android)*, SettingsView.swift *(iOS)*
   `ConfirmDialog` (Material 3 `AlertDialog`). (Modal confirm verified on both
   2026-06-30; the earlier two-tap arm/confirm was removed because a stray
   double-tap wiped everything too easily.)
+  The Danger zone is **always the last section** in Settings — below every
+  other section (including Updates) — so the destructive action never sits
+  above routine settings.
 - Debug builds add a "Test crash" row to exercise the crash pipeline.
 
 ## Tauri shell
 
 - Settings is a sheet/modal (mobile: bottom sheet over the current screen)
-  with sections: Appearance, Sync, Crash reporting, Danger zone, and a
-  version footer. → SettingsScreen.svelte (see settings-visual.md for the
-  desktop layout)
+  with sections: Storage, Appearance, Sync, Crash reporting, Updates, then
+  Danger zone last, and a version footer. → SettingsScreen.svelte (see
+  settings-visual.md for the desktop layout)
 - **Sync**: server URL + password inline with a Connect button and a
   "Last sync: …" line ("never" before the first sync). Once connected the
   section shows status/disconnect (see sync.md).
 - **Crash reporting**: a "Share crash reports" toggle (anonymous crash logs);
   see app.md for the crash dialog flow.
+- **Updates (desktop self-update)**: an "Updates" section with a single
+  state-driven button — Check for updates → Restart & update to vX →
+  Downloading…N% → Restart now to finish — backed by the Tauri updater plugin
+  (minisign-verified; endpoint + pubkey in tauri.conf.json). The section shows
+  only where the running install can self-update: dev builds always (so the
+  button is reachable for manual testing), release builds only on AppImage /
+  macOS / Windows (NOT deb/rpm, which update via the system package repo), gated
+  by the Rust `app_self_update_supported` command. Installing relaunches into the new
+  version. The button and the global update banner (see app.md) share one state
+  machine (`updateChecker`), so a check in either surface reflects in the other.
+  An **Automatically check for updates** toggle (persisted in app state, default
+  on) gates the section: off stops the hourly background poll, clears any pending
+  update (so the banner also disappears), and hides the manual button; on resumes
+  checks. The toggle locks while an update is downloading/installing or staged
+  awaiting restart — those bytes are already on disk and can't be un-staged.
+  → SettingsScreen.svelte, updater.ts, updateChecker.svelte.ts,
+  core.rs `app_self_update_supported`
 - **Danger zone — Full reset**: permanently removes all notes and app data.
   Tapping **Full reset** opens a confirmation dialog ("Permanently delete all
   notes and app data? This cannot be undone."); only confirming deletes, with

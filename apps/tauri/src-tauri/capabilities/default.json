@@ -12,6 +12,7 @@
     "dialog:allow-open",
     "process:allow-restart",
     "process:allow-exit",
+    "updater:default",
     "clipboard-manager:allow-write-text",
     "opener:default",
     "core:window:default",
