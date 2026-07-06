@@ -58,7 +58,8 @@ SettingsScreen.kt *(Android)*, SettingsView.swift *(iOS)*
 - **Danger zone — Full reset**: permanently removes all notes and app data.
   Tapping **Full reset** opens a confirmation dialog ("Permanently delete all
   notes and app data? This cannot be undone."); only confirming deletes, with
-  a blocking "Deleting all notes…" overlay, then reloads. Sync is paused for
-  the duration so a racing sync cannot resurrect files. The native shells
-  implement the same contract (see "Native shells" above). →
+  a blocking "Deleting all notes…" overlay, then reloads. Live sync is stopped
+  and the E2EE connection + stored password are dropped before the vault is
+  wiped, so a racing sync cannot push the wipe or resurrect files. The native
+  shells implement the same contract (see "Native shells" above). →
   SettingsScreen.svelte (`confirmDialog`), notes.svelte.ts `deleteAllNotes`

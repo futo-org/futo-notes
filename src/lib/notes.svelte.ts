@@ -11,6 +11,7 @@ import {
 import { getFS, getPlatformFS } from './platform';
 import { idLeaf } from './platform/pathSafety';
 import { pauseSyncV2, resumeSyncV2, waitForSyncIdleV2 } from './autoSyncV2';
+import { disconnectE2ee, stopLiveSync } from './syncServiceE2ee';
 import { makePreview, noteTags, convertTxtToMd } from './notesIndex';
 import {
   searchNotes,
@@ -476,11 +477,14 @@ export async function deleteNote(id: string): Promise<void> {
 }
 
 export async function deleteAllNotes(): Promise<void> {
-  // Pause auto-sync for the duration of the reset. Without this, a sync can race
-  // between steps and see files on disk with stale state.
+  // Pause every sync entrypoint for the duration of the reset. The Rust live
+  // loop can push independently of the TS scheduler, so stop it and drop the
+  // E2EE session before the vault disappears on disk.
   pauseSyncV2();
   try {
+    await stopLiveSync();
     await waitForSyncIdleV2();
+    await disconnectE2ee();
     // Wait for any in-flight bootstrap to finish before clearing — otherwise
     // a stale pool read can re-add a deleted doc after clearSearchIndex().
     if (searchIndexReady) await searchIndexReady;

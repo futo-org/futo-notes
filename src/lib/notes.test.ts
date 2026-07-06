@@ -1,6 +1,27 @@
 import { describe, it, expect, beforeEach, afterAll, vi } from 'vitest';
 
+const autoSyncMocks = vi.hoisted(() => ({
+  events: [] as string[],
+  pauseSyncV2: vi.fn(),
+  resumeSyncV2: vi.fn(),
+  waitForSyncIdleV2: vi.fn(),
+}));
+
+const e2eeMocks = vi.hoisted(() => ({
+  stopLiveSync: vi.fn(),
+  disconnectE2ee: vi.fn(),
+}));
+
 vi.mock('$lib/platform');
+vi.mock('./autoSyncV2', () => ({
+  pauseSyncV2: autoSyncMocks.pauseSyncV2,
+  resumeSyncV2: autoSyncMocks.resumeSyncV2,
+  waitForSyncIdleV2: autoSyncMocks.waitForSyncIdleV2,
+}));
+vi.mock('./syncServiceE2ee', () => ({
+  stopLiveSync: e2eeMocks.stopLiveSync,
+  disconnectE2ee: e2eeMocks.disconnectE2ee,
+}));
 
 import { testFS } from '$lib/platform';
 
@@ -12,6 +33,27 @@ async function freshNotes() {
 
 beforeEach(() => {
   testFS._reset();
+  autoSyncMocks.events = [];
+  autoSyncMocks.pauseSyncV2.mockReset();
+  autoSyncMocks.resumeSyncV2.mockReset();
+  autoSyncMocks.waitForSyncIdleV2.mockReset();
+  e2eeMocks.stopLiveSync.mockReset();
+  e2eeMocks.disconnectE2ee.mockReset();
+  autoSyncMocks.pauseSyncV2.mockImplementation(() => {
+    autoSyncMocks.events.push('pause');
+  });
+  autoSyncMocks.resumeSyncV2.mockImplementation(() => {
+    autoSyncMocks.events.push('resume');
+  });
+  autoSyncMocks.waitForSyncIdleV2.mockImplementation(async () => {
+    autoSyncMocks.events.push('wait-idle');
+  });
+  e2eeMocks.stopLiveSync.mockImplementation(async () => {
+    autoSyncMocks.events.push('stop-live');
+  });
+  e2eeMocks.disconnectE2ee.mockImplementation(async () => {
+    autoSyncMocks.events.push('disconnect');
+  });
 });
 
 afterAll(() => {
@@ -42,6 +84,38 @@ describe('initNotes', () => {
     await initNotes(); // second call should be no-op
 
     expect(getAllNotes()).toHaveLength(1);
+  });
+});
+
+describe('deleteAllNotes', () => {
+  it('stops live sync and disconnects before wiping the vault', async () => {
+    await testFS.writeNote('reset-me', 'body');
+    const realDeleteAllContent = testFS.deleteAllContent.bind(testFS);
+    const deleteAllContentSpy = vi.spyOn(testFS, 'deleteAllContent').mockImplementation(async () => {
+      autoSyncMocks.events.push('delete-all');
+      await realDeleteAllContent();
+    });
+
+    try {
+      const { initNotes, deleteAllNotes, getAllNotes } = await freshNotes();
+      await initNotes();
+
+      await deleteAllNotes();
+
+      expect(getAllNotes()).toEqual([]);
+      expect(e2eeMocks.stopLiveSync).toHaveBeenCalledTimes(1);
+      expect(e2eeMocks.disconnectE2ee).toHaveBeenCalledTimes(1);
+      expect(autoSyncMocks.events).toEqual([
+        'pause',
+        'stop-live',
+        'wait-idle',
+        'disconnect',
+        'delete-all',
+        'resume',
+      ]);
+    } finally {
+      deleteAllContentSpy.mockRestore();
+    }
   });
 });
 
