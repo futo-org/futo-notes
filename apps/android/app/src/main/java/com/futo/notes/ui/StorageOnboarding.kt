@@ -35,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.futo.notes.NotesStorage
 import com.futo.notes.StorageMode
 import com.futo.notes.ui.theme.FutoRadius
 import com.futo.notes.ui.theme.FutoTheme
@@ -42,10 +43,11 @@ import com.futo.notes.ui.theme.FutoType
 
 /**
  * First-run / change-storage picker, mirroring Obsidian's vault-location screen.
- * DEVICE is the pre-selected RECOMMENDED option (a default with an escape
- * hatch). Picking DEVICE shows a permission RATIONALE screen before the caller
- * launches the system "All files access" dialog [the priming screen]; APP
- * confirms immediately.
+ * When supported, DEVICE is the pre-selected RECOMMENDED option (a default with
+ * an escape hatch). Picking DEVICE shows a permission RATIONALE screen before
+ * the caller launches the system "All files access" dialog [the priming screen];
+ * APP confirms immediately. On API < 30, DEVICE is not supported and the picker
+ * presents APP as the only valid target.
  *
  * Pure UI: it never touches disk or permissions itself — [onConfirm] hands the
  * chosen mode back to the Activity, which persists it, requests the permission,
@@ -55,15 +57,18 @@ import com.futo.notes.ui.theme.FutoType
 @Composable
 fun StorageOnboarding(
     initialMode: StorageMode,
+    deviceModeSupported: Boolean,
     onConfirm: (StorageMode) -> Unit,
     onCancel: (() -> Unit)? = null,
 ) {
-    var selected by remember { mutableStateOf(if (initialMode == StorageMode.INTERNAL) StorageMode.DEVICE else initialMode) }
+    var selected by remember(initialMode, deviceModeSupported) {
+        mutableStateOf(NotesStorage.pickerInitialMode(initialMode, deviceModeSupported))
+    }
     var showRationale by remember { mutableStateOf(false) }
     val c = FutoTheme.colors
 
     Surface(color = c.surface, modifier = Modifier.fillMaxSize()) {
-        if (showRationale) {
+        if (showRationale && deviceModeSupported) {
             RationaleScreen(
                 primaryLabel = "Continue",
                 onPrimary = { onConfirm(StorageMode.DEVICE) },
@@ -89,22 +94,24 @@ fun StorageOnboarding(
             )
             Spacer(Modifier.height(28.dp))
 
-            StorageOptionCard(
-                title = "Device storage",
-                icon = Icons.Filled.Folder,
-                recommended = true,
-                selected = selected == StorageMode.DEVICE,
-                bullets = listOf(
-                    "Open, back up, and sync your notes from your Files app and other apps.",
-                    "Requires the “All files access” permission.",
-                ),
-                onClick = { selected = StorageMode.DEVICE },
-            )
-            Spacer(Modifier.height(12.dp))
+            if (deviceModeSupported) {
+                StorageOptionCard(
+                    title = "Device storage",
+                    icon = Icons.Filled.Folder,
+                    recommended = true,
+                    selected = selected == StorageMode.DEVICE,
+                    bullets = listOf(
+                        "Open, back up, and sync your notes from your Files app and other apps.",
+                        "Requires the “All files access” permission.",
+                    ),
+                    onClick = { selected = StorageMode.DEVICE },
+                )
+                Spacer(Modifier.height(12.dp))
+            }
             StorageOptionCard(
                 title = "App storage",
                 icon = Icons.Filled.Lock,
-                recommended = false,
+                recommended = !deviceModeSupported,
                 selected = selected == StorageMode.APP,
                 bullets = listOf(
                     "Your notes stay private to FUTO Notes.",
@@ -116,7 +123,11 @@ fun StorageOnboarding(
             Spacer(Modifier.height(28.dp))
             Button(
                 onClick = {
-                    if (selected == StorageMode.DEVICE) showRationale = true else onConfirm(StorageMode.APP)
+                    if (selected == StorageMode.DEVICE && deviceModeSupported) {
+                        showRationale = true
+                    } else {
+                        onConfirm(StorageMode.APP)
+                    }
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = c.accent, contentColor = c.textOnInk),
                 shape = RoundedCornerShape(FutoRadius.pill),

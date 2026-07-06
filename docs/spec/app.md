@@ -39,9 +39,10 @@ Behaviors and constraints that hold across every surface and platform.
   `LSSupportsOpeningDocumentsInPlace`. Sync state / crash logs are dotfiles
   inside the vault, which the Files app hides. Applies to all installs (it only
   reveals the existing folder — no migration). *(iOS)*
-- **Android:** two storage modes, chosen on first run (Obsidian-style picker;
-  Device storage is the pre-selected recommended default), switchable later in
-  Settings → Storage:
+- **Android:** storage is chosen on first run (Obsidian-style picker) and is
+  switchable later in Settings → Storage. On Android 11+ the picker offers two
+  modes and Device storage is the pre-selected recommended default; on API < 30
+  it offers only App storage because Device storage depends on All-files access:
   - **Device storage** — `Documents/FUTO Notes` on shared storage: visible in
     the stock Files app + survives uninstall. Needs the "All files access"
     (`MANAGE_EXTERNAL_STORAGE`) permission, requested behind a rationale screen

@@ -93,6 +93,18 @@ object NotesStorage {
     fun hasDeviceAccess(): Boolean =
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()
 
+    /**
+     * Picker default for first-run and Settings. INTERNAL is a legacy/grandfathered
+     * storage mode, not a user-facing option; when Device storage is unavailable
+     * (API < 30), App storage is the only valid picker target.
+     */
+    fun pickerInitialMode(initialMode: StorageMode, deviceModeSupported: Boolean): StorageMode =
+        when {
+            !deviceModeSupported -> StorageMode.APP
+            initialMode == StorageMode.INTERNAL -> StorageMode.DEVICE
+            else -> initialMode
+        }
+
     // ── Migration (PURE) ──
 
     data class MigrationResult(val migrated: Boolean, val files: Int)

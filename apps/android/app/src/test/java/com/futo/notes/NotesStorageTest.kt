@@ -63,6 +63,30 @@ class NotesStorageTest {
         assertTrue(r.needsOnboarding)
     }
 
+    @Test
+    fun pickerDefaultsToDeviceForLegacyInternalOnlyWhenDeviceSupported() {
+        assertEquals(
+            StorageMode.DEVICE,
+            NotesStorage.pickerInitialMode(StorageMode.INTERNAL, deviceModeSupported = true),
+        )
+        assertEquals(
+            StorageMode.APP,
+            NotesStorage.pickerInitialMode(StorageMode.INTERNAL, deviceModeSupported = false),
+        )
+    }
+
+    @Test
+    fun pickerCoercesUnsupportedDeviceModeToAppStorage() {
+        assertEquals(
+            StorageMode.APP,
+            NotesStorage.pickerInitialMode(StorageMode.DEVICE, deviceModeSupported = false),
+        )
+        assertEquals(
+            StorageMode.APP,
+            NotesStorage.pickerInitialMode(StorageMode.APP, deviceModeSupported = false),
+        )
+    }
+
     // ── looksLikeExistingVault ──
 
     @Test

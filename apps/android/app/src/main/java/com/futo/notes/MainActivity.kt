@@ -237,6 +237,7 @@ class MainActivity : ComponentActivity() {
                         )
                         s == null -> StorageOnboarding(
                             initialMode = StorageMode.DEVICE,
+                            deviceModeSupported = NotesStorage.deviceModeSupported(),
                             onConfirm = { chooseStorage(it) },
                         )
                         else -> AppShell(s, themeMode, onThemeMode = {
@@ -351,6 +352,7 @@ class MainActivity : ComponentActivity() {
         if (showStoragePicker.value) {
             StorageOnboarding(
                 initialMode = currentMode(),
+                deviceModeSupported = NotesStorage.deviceModeSupported(),
                 onConfirm = { performStorageChange(it) },
                 onCancel = { showStoragePicker.value = false },
             )
@@ -437,6 +439,10 @@ class MainActivity : ComponentActivity() {
     private fun performStorageChange(mode: StorageMode) {
         showStoragePicker.value = false
         if (mode == currentMode()) return
+        if (mode == StorageMode.DEVICE && !NotesStorage.deviceModeSupported()) {
+            Toast.makeText(this, "Device storage requires Android 11 or newer.", Toast.LENGTH_LONG).show()
+            return
+        }
         if (mode == StorageMode.DEVICE) requestDeviceAccess { performSwitch(StorageMode.DEVICE) }
         else performSwitch(mode)
     }
@@ -464,6 +470,10 @@ class MainActivity : ComponentActivity() {
      * re-checks [NotesStorage.hasDeviceAccess] and runs [onGranted].
      */
     private fun requestDeviceAccess(onGranted: () -> Unit) {
+        if (!NotesStorage.deviceModeSupported()) {
+            Toast.makeText(this, "Device storage requires Android 11 or newer.", Toast.LENGTH_LONG).show()
+            return
+        }
         if (NotesStorage.hasDeviceAccess()) { onGranted(); return }
         pendingDeviceAction = onGranted
         val perApp = Intent(
