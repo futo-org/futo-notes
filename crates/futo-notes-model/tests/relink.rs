@@ -73,6 +73,47 @@ fn relink_leaves_ambiguous_and_alias_links_untouched() {
     fs::remove_dir_all(&root).ok();
 }
 
+// ── self-referencing links in the renamed note's own body ────────────────
+// Spec (editor.md): rename/move rewrites every wikilink that points at the
+// note across all notes AND self-referencing links inside its own body.
+
+#[test]
+fn relink_rewrites_self_link_bare_leaf() {
+    let root = temp_root();
+    // Post-rename state: the note already lives at its new id while its own
+    // body still links to the old title.
+    model::write_note(&root, "shopping", "see [[groceries]] from last week").unwrap();
+    let n = model::relink_note_references(&root, "groceries", "shopping").unwrap();
+    assert_eq!(n, 1, "the renamed note's own body is rewritten");
+    assert_eq!(model::read_note(&root, "shopping"), "see [[shopping]] from last week");
+    fs::remove_dir_all(&root).ok();
+}
+
+#[test]
+fn relink_rewrites_self_link_full_path_form() {
+    let root = temp_root();
+    model::write_note(&root, "Specs/y", "supersedes [[Specs/x]] entirely").unwrap();
+    let n = model::relink_note_references(&root, "Specs/x", "Specs/y").unwrap();
+    assert_eq!(n, 1);
+    assert_eq!(model::read_note(&root, "Specs/y"), "supersedes [[Specs/y]] entirely");
+    fs::remove_dir_all(&root).ok();
+}
+
+#[test]
+fn relink_rewrites_self_link_on_folder_move() {
+    let root = temp_root();
+    // Folder move keeps the leaf — the bare-leaf self-link must follow the
+    // note into its new folder.
+    model::write_note(&root, "Lists/grocery list", "todo: [[grocery list]] again").unwrap();
+    let n = model::relink_note_references(&root, "grocery list", "Lists/grocery list").unwrap();
+    assert_eq!(n, 1);
+    assert_eq!(
+        model::read_note(&root, "Lists/grocery list"),
+        "todo: [[Lists/grocery list]] again"
+    );
+    fs::remove_dir_all(&root).ok();
+}
+
 #[test]
 fn relink_same_id_is_a_noop() {
     let root = temp_root();

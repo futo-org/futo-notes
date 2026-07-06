@@ -54,7 +54,6 @@ import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -108,14 +107,14 @@ fun NoteListScreen(
     var newFolderDialog by remember { mutableStateOf(false) }
     var confirmDeleteFolder by remember { mutableStateOf<String?>(null) }
 
-    // Resort on return-to-list [list.md:24]: `NotesStore.write` updates the
-    // edited row IN PLACE while typing (stable identity/order so the open editor
-    // can't pop out from under the user), so the list is stale-ordered when this
-    // screen re-enters composition after the editor closes. This screen leaves
-    // composition whenever the editor is pushed, so a keyed-Unit LaunchedEffect
-    // re-runs on every return — sorting the in-memory rows most-recently-modified
-    // first, never on a keystroke (the list isn't composed while editing).
-    LaunchedEffect(Unit) { store.resortInPlace() }
+    // NOTE: the resort-on-return + at-top re-pin [list.md:24] does NOT live in
+    // this composable — it runs in AppShell's pop() (MainActivity), BEFORE this
+    // screen re-enters composition. Doing either here (e.g. in a LaunchedEffect)
+    // races the re-entering LazyColumn's first measure: the measure runs against
+    // the pre-resort row order, records the OLD top row as LazyListState's key
+    // anchor, and the post-resort measure then follows that key downward —
+    // parking the real top row above the viewport (the invisible-new-note /
+    // 2px-sliver bug).
 
     val scrolled by remember {
         derivedStateOf {
@@ -190,10 +189,34 @@ fun NoteListScreen(
                             onClick = {
                                 fabMenu = false
                                 val folder = if (currentFolder == ALL) "" else currentFolder
+                                // `createNote`'s reload inserts the new note at index 0
+                                // while this list is STILL composed (the editor push hasn't
+                                // removed it yet), so LazyColumn's key-based anchoring would
+                                // keep the old top row pinned and park the new note above
+                                // the viewport — corrupting the position the return-to-list
+                                // re-pin later reads. Capture at-top-ness NOW (the last
+                                // measure reflects the user's real position) and QUEUE a
+                                // top snap for the next measure. requestScrollToItem, NOT
+                                // scrollToItem: scrollToItem force-remeasures immediately —
+                                // before recomposition has delivered the reloaded list to
+                                // the LazyColumn — so it re-records the OLD top row as the
+                                // key anchor and the next real measure follows it down
+                                // anyway. requestScrollToItem defers the snap to the next
+                                // measure (which runs AFTER the recomposition carrying the
+                                // new list) and disables key anchoring for it.
+                                val atTop = isAtListTop(
+                                    listState.firstVisibleItemIndex,
+                                    listState.firstVisibleItemScrollOffset,
+                                )
                                 // `createNote` is suspend (FFI write on IO). Launch on the
                                 // composable's main scope; the navigate callback runs after
                                 // it returns (resumes on Main, safe for Compose state).
-                                scope.launch { store.createNote("Untitled", folder)?.let(onCreate) }
+                                scope.launch {
+                                    store.createNote("Untitled", folder)?.let { id ->
+                                        if (atTop) listState.requestScrollToItem(0)
+                                        onCreate(id)
+                                    }
+                                }
                             },
                         )
                         DropdownMenuItem(
@@ -308,7 +331,7 @@ fun NoteListScreen(
                     val moved = store.deleteFolder(folder)
                     if (moved != null) {
                         if (currentFolder == folder || currentFolder.startsWith("$folder/")) currentFolder = ALL
-                        Toast.makeText(context, "Folder deleted; moved $moved notes", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, folderDeletedToast(moved), Toast.LENGTH_SHORT).show()
                     } else {
                         Toast.makeText(context, "Couldn't delete folder — nothing was changed", Toast.LENGTH_SHORT).show()
                     }
@@ -318,6 +341,21 @@ fun NoteListScreen(
         )
     }
 }
+
+/** Toast body for a MOVE-UP folder delete [list.md:121]. Pluralizes the
+ *  moved-note count ("moved 1 note" / "moved N notes") — pinned by
+ *  FolderDeleteToastTest. */
+internal fun folderDeletedToast(moved: UInt): String =
+    "Folder deleted; moved $moved " + if (moved == 1u) "note" else "notes"
+
+/** Viewport-at-top predicate for the rank-change re-pin [list.md:24]: only a
+ *  viewport the user left at the ABSOLUTE top snaps back to index 0 after a
+ *  rank-changing create/edit; deep scroll positions are preserved
+ *  [list.md:26]. A few px of slop absorbs sub-row settle from overscroll /
+ *  fling rounding. Shared by the FAB create path (NoteListScreen) and the
+ *  return-to-list re-pin (AppShell.pop) — pinned by NoteListRepinTest. */
+internal fun isAtListTop(firstVisibleItemIndex: Int, firstVisibleItemScrollOffset: Int): Boolean =
+    firstVisibleItemIndex == 0 && firstVisibleItemScrollOffset <= 4
 
 @Composable
 private fun LibraryDrawer(

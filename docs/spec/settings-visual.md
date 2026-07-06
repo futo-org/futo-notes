@@ -32,9 +32,9 @@ Each shell renders settings with its own native idioms. These differences are
 | Theme control order | **Auto · Dark · Light** | **Light · Dark · Auto** | **Light · Dark · Auto** (segmented `Picker`) |
 | Account header | None | None — folded into the single "Self-hosted sync" Sync row (see settings.md) | None — folded into the single "Self-hosted sync" Sync row |
 | Sync UI | **Inline** in the Sync card (URL, password, Connect / Sync now, links) | A single **"Self-hosted sync" row that routes to a separate Sync screen** (`onOpenSync`); no inline form | A single **"Self-hosted sync" row** (with SYNCED/LOCAL badge) that presents `SyncView` as a sheet; no inline form |
-| Storage / notes dir | **Storage** section — shows path, "Change directory" (folder picker + app restart), "Reset to default" | Absent (mobile sandbox; no user-chosen directory) | **Storage** section — read-only "Notes folder" path readout (selectable, monospaced); no picker (fixed sandbox) |
+| Storage / notes dir | **Storage** section — shows path, "Change directory" (folder picker + app restart), "Reset to default" | **Storage** section — "Storage location" path readout + storage-**mode** switcher (Device/App storage — see app.md); no free directory picker | **Storage** section — read-only "Notes folder" path readout (selectable, monospaced); no picker (fixed sandbox) |
 | Editor note | Absent | Absent — the "Editor" / "file over app" caption was removed (see settings.md) | Absent |
-| About / source link | Absent (version footer only) | **Source** row linking to GitLab + version | **About** section — "Open source" link to GitLab + a "Version" row |
+| About / source link | Absent (version footer only) | **About** section — "Open source" row linking to GitLab + a Version row | **About** section — "Open source" link to GitLab + a "Version" row |
 | Crash reporting toggles | Present (switch + "always send" sub-row) | Present — "Share crash reports" `Switch` + nested "Always send automatically" (shown only while the first is on) | Present — "Share crash reports" `Toggle` + "Always send automatically" `Toggle` (disabled while the first is off) |
 | Danger zone | "Full reset" (modal confirm) + dev-only "Test crash" | "Full reset" (modal `ConfirmDialog`) + debug-only "Test crash" (in a Debug group) | "Full reset" (`confirmationDialog`) + `#if DEBUG` "Test crash" |
 | Benchmark | **Benchmark** section (on-device embedding test + results table) | Absent | Absent |
@@ -63,7 +63,10 @@ same meanings. This is the part that belongs to the app, not the shell.
     **Reset connection** (disconnect). Show **last-sync time** and current
     status/errors.
   - Connecting/syncing surfaces progress phases: Connecting → Syncing →
-    Reconciling / Uploading / Downloading (`current/total`).
+    Reconciling / Uploading / Downloading (`current/total`) *(the granular
+    phase/count readout is the desktop inline card; the native shells show
+    simpler "Connecting…"/"Syncing…" states, and a fast local sync may only
+    ever show a generic spinner)*.
   - See `sync.md` for the authoritative sync behavior.
 - **Crash reporting** — opt-in **"Share crash reports"**; when on, a nested
   **"Always send automatically"** option. Persisted in preferences

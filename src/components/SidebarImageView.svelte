@@ -1,6 +1,7 @@
 <script lang="ts">
   import { listImageFiles, deleteImage, type ImageFileEntry } from '$lib/images';
   import { getImageWebPath } from '$lib/fileSystem';
+  import { formatRelativeTime } from '$lib/utils';
 
   let images: ImageFileEntry[] = $state([]);
   let selectedImage: string | null = $state(null);
@@ -92,7 +93,7 @@
       <div class="sidebar-image-info">
         <div class="sidebar-image-info-name">{selectedImage}</div>
         {#if entry}
-          <div class="sidebar-image-info-size">{formatSize(entry.size)}</div>
+          <div class="sidebar-image-info-size">{formatSize(entry.size)} · {formatRelativeTime(entry.mtime)}</div>
         {/if}
       </div>
     </div>
@@ -108,6 +109,7 @@
             <div class="sidebar-image-thumb-placeholder"></div>
           {/await}
           <span class="sidebar-image-thumb-label">{image.filename}</span>
+          <span class="sidebar-image-thumb-meta">{formatSize(image.size)} · {formatRelativeTime(image.mtime)}</span>
         </button>
       {/each}
     </div>

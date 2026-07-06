@@ -36,7 +36,13 @@ fun NewFolderDialog(
 ) {
     val c = FutoTheme.colors
     var name by remember { mutableStateOf("") }
-    val clean = sanitizeTitle(name.trim())
+    val raw = name.trim()
+    val clean = sanitizeTitle(raw)
+    // sanitizeTitle falls back to "Untitled" when the input strips to nothing
+    // (its note-title contract: "", "///", "..."). Creating then would
+    // silently make a folder the user never named (2026-07-02 QA) — treat it
+    // as invalid. Literally typing "Untitled" stays allowed.
+    val sanitizesAway = clean == "Untitled" && raw != "Untitled"
     val duplicate = clean.isNotEmpty() && store.subfolders(parent)
         .any { it.substringAfterLast('/').equals(clean, ignoreCase = true) }
 
@@ -61,14 +67,25 @@ fun NewFolderDialog(
                         color = c.danger,
                         modifier = Modifier.padding(top = 6.dp),
                     )
+                } else if (sanitizesAway && raw.isNotEmpty()) {
+                    Text(
+                        "Enter a valid folder name",
+                        style = FutoType.caption,
+                        color = c.danger,
+                        modifier = Modifier.padding(top = 6.dp),
+                    )
                 }
             }
         },
         confirmButton = {
+            // Disabled visual must match the disabled behavior [list.md:182]: a
+            // hardcoded accent color would override TextButton's disabled
+            // content color and make an inert Create look tappable.
+            val canCreate = clean.isNotEmpty() && !duplicate && !sanitizesAway
             TextButton(
-                enabled = clean.isNotEmpty() && !duplicate,
+                enabled = canCreate,
                 onClick = { onCreate(if (parent.isEmpty()) clean else "$parent/$clean") },
-            ) { Text("Create", color = c.textAccent) }
+            ) { Text("Create", color = if (canCreate) c.textAccent else c.textMuted) }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("Cancel", color = c.textSecondary) }

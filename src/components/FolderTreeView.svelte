@@ -871,7 +871,7 @@
     <div class="empty-state">No notes yet. Tap + to create one.</div>
   {:else}
     <div class="virtual-spacer" style="height: {flat.length * ROW_HEIGHT}px;">
-      {#each visibleNodes as { node, index } (node.type === 'folder' ? `f:${node.path}` : `n:${node.note.id}`)}
+      {#each visibleNodes as { node, index } (node.type === 'folder' ? `f:${node.path}` : node.type === 'empty' ? `e:${node.parentPath}` : `n:${node.note.id}`)}
         {#if node.type === 'folder'}
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
@@ -951,6 +951,22 @@
               </button>
             {/if}
           </div>
+        {:else if node.type === 'empty'}
+          <!-- Per-folder empty state (spec list.md "An empty folder shows an
+               empty state"). Emitted by flattenTree as a real flattened row so
+               the virtualization spacer/top math stays exact. Drag handlers
+               route drops on it into the parent folder, matching the note-row
+               behavior — without them this indented area would read as a
+               root drop target. -->
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <div
+            class="folder-empty-row virtual-row"
+            style="top: {index * ROW_HEIGHT}px; left: {node.depth * DEPTH_INDENT_PX}px"
+            ondragover={(e) => handleNoteRowDragOver(e, node.parentPath)}
+            ondrop={(e) => handleRowDrop(e, node.parentPath)}
+            data-folder-path={node.parentPath}
+            data-testid="folder-empty-state"
+          >Nothing here yet</div>
         {:else}
           <!-- svelte-ignore a11y_click_events_have_key_events -->
           <button
@@ -1005,6 +1021,20 @@
     text-align: center;
     color: var(--color-muted, #888);
     font-size: 0.95rem;
+  }
+  /* Per-folder empty state — same muted look as .empty-state, but shaped
+     like a row (48px + 1px margins = ROW_HEIGHT) so it slots into the
+     virtualized flow, indented under its folder row. */
+  .folder-empty-row {
+    display: flex;
+    align-items: center;
+    height: 48px;
+    margin: 1px 0;
+    padding: 0 12px;
+    box-sizing: border-box;
+    color: var(--color-muted, #888);
+    font-size: 0.95rem;
+    user-select: none;
   }
   .folder-row,
   .note-row {

@@ -111,12 +111,16 @@ native shells edit tags as text in the body, which is not a gap.
   path. Works on Tauri and both native shells (same embed; verified on
   emulator + simulator 2026-06-09). → wikilinkAutocomplete.ts
 - A wikilink whose target does not resolve is still decorated, styled **broken**
-  (`cm-md-link cm-md-wikilink cm-md-wikilink-broken`) — not undecorated. The
+  (`cm-md-link cm-md-wikilink cm-md-wikilink-broken`) — not undecorated, and
+  **visually distinct from a resolved link** (muted/dimmed styling so a dead
+  link is identifiable before tapping, not only by its no-op). The
   resolver (`resolveWikilink`) treats an **ambiguous** target (a bare filename
   matching more than one note) exactly like an absent one: both return `null` and
   render broken. On **desktop**, clicking a broken wikilink navigates to
   `/note/<target>`, which creates the target note on the fly (the documented
-  create-on-missing path). The **native** shells no-op a broken tap: only a
+  create-on-missing path — **lazily**: a note session opens immediately, but the
+  file is only written on the first body edit and appears in the sidebar then).
+  The **native** shells no-op a broken tap: only a
   resolved link posts `openNote`. → liveMarkdownTransform.ts, wikilinks.ts
   `resolveWikilink`, noteSession.svelte.ts `loadNote` (create-on-missing),
   editor-embed/main.ts
@@ -133,7 +137,9 @@ native shells edit tags as text in the body, which is not a gap.
   NoteEditorScreen.kt / NoteEditorView.swift `openLinkedNote`
 - **Renaming or moving a note rewrites every wikilink that points at it,
   across all notes** — including folder moves (`[[Markdown demo]]` →
-  `[[Archive/Markdown demo]]`). → wikilinks.ts rewrite rules,
+  `[[Archive/Markdown demo]]`) and **self-referencing links inside the renamed
+  note's own body** (a note linking to itself must not be left with a silently
+  broken link after its own rename). → wikilinks.ts rewrite rules,
   notes.svelte.ts `rewriteWikilinksForRename`
 - The relink rules also live in the shared Rust crate
   (futo-notes-model `wikilinks::{resolve_wikilink, shortest_unique_suffix,
@@ -152,8 +158,8 @@ native shells edit tags as text in the body, which is not a gap.
 - Tapping a task checkbox toggles `[ ]`/`[x]` in the source and autosaves —
   no cursor placement needed.
 - Table cells are individually editable in place; Tab/Shift+Tab move between
-  cells; Enter on the last row appends a row; structure is revalidated on each
-  edit. A cell context menu (desktop right-click) inserts/deletes rows/columns.
+  cells; Enter inserts a new row below the current one (so on the last row it
+  appends); structure is revalidated on each edit. A cell context menu (desktop right-click) inserts/deletes rows/columns.
   → tableEditor.ts
 - Pressing Enter in a list item continues the list (inherits nesting, auto
   numbers ordered items, renumbers on edit); Backspace at item start dedents;
@@ -169,7 +175,12 @@ native shells edit tags as text in the body, which is not a gap.
   dead-end as the wikilink `touchend` note above). → editorUX/slashMenu.ts
   *(desktop)*
 
-## Markdown toolbar *(native shells / mobile-width editor)*
+## Markdown toolbar *(native shells / mobile-width web editor)*
+
+This surface exists on the native shells and the mobile-width **web** build
+only. The Tauri **desktop** shell never shows it regardless of window size —
+its platform module hardcodes `isMobile = false`, so there is no live
+breakpoint that could reveal it. → src/lib/platform/index.ts
 
 - When the editor body is focused, a formatting toolbar docks above the soft
   keyboard: Bold, Italic, Strikethrough, Heading, Quote, Bullet/Ordered/Task
@@ -301,18 +312,18 @@ native shells edit tags as text in the body, which is not a gap.
   fs_paste_clipboard_image (Tauri)
 
 > **Gap:** Clipboard image paste is verified on Linux (WebKitGTK), Windows
-> (WebView2), and native Android (emulator, 2026-06-22). The iOS path is now
-> wired both ways: the embed posts `saveImageData` when WKWebView exposes the
-> pasted image File, and falls back to the payload-less `pasteClipboardImage`
-> (bridge contract v5) when WKWebView hides the bitmap — EditorWebView.swift's
-> `clipboardImageData()` then reads it off `UIPasteboard.general` (raw png/jpeg,
-> else UIImage→PNG) and saves through `VaultImages.save`, the SAME vault path as
-> the picker. Compiles clean (`just build-ios-native`). What remains is on-device
-> end-to-end QA: (1) a native iOS device/simulator (copy a screenshot / "Copy
-> Image", paste into the editor, confirm a vault blob + `![](image-…)` insert),
-> and (2) **macOS** desktop (Tauri/WKWebView) for the analogous
-> `looksLikeImagePaste` → `fs_paste_clipboard_image` fallback. To close: run both
-> manual checks. (bridge added 2026-06-26)
+> (WebView2), native Android (emulator, 2026-06-22), and **macOS desktop**
+> (Tauri/WKWebView — real clipboard image + real Cmd+V through the
+> `looksLikeImagePaste` → `fs_paste_clipboard_image` fallback, verified in the
+> 2026-07-02 full-spec QA pass). The iOS path is wired both ways: the embed
+> posts `saveImageData` when WKWebView exposes the pasted image File, and falls
+> back to the payload-less `pasteClipboardImage` (bridge contract v5) when
+> WKWebView hides the bitmap — EditorWebView.swift's `clipboardImageData()`
+> then reads it off `UIPasteboard.general` (raw png/jpeg, else UIImage→PNG) and
+> saves through `VaultImages.save`, the SAME vault path as the picker. Compiles
+> clean (`just build-ios-native`). What remains is on-device end-to-end QA on
+> **native iOS only**: copy a screenshot / "Copy Image", paste into the editor,
+> confirm a vault blob + `![](image-…)` insert. (bridge added 2026-06-26)
 
 ## Code / fence isolation
 

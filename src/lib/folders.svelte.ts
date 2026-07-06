@@ -234,6 +234,20 @@ export interface NoteNode {
 
 export type TreeNode = FolderNode | NoteNode;
 
+/** Placeholder row emitted by `flattenTree` for an OPEN folder with no
+ *  children, so the tree can render a per-folder empty state
+ *  (docs/spec/list.md: "An empty folder shows an empty state"). It is a
+ *  real flattened row — it participates in the sidebar's row
+ *  virtualization height math like any folder/note row. */
+export interface EmptyFolderPlaceholderNode {
+  type: 'empty';
+  /** Path of the open, childless folder this placeholder sits under. */
+  parentPath: string;
+  depth: number;
+}
+
+export type FlatNode = TreeNode | EmptyFolderPlaceholderNode;
+
 /**
  * Build the rendered folder/note tree from the notes index plus the
  * empty-folder set.
@@ -344,14 +358,20 @@ function sortLevel(nodes: TreeNode[]): void {
 }
 
 /** Flatten the visible portion of the tree into a list for rendering.
- *  Closed folders contribute themselves but no descendants. */
-export function flattenTree(tree: TreeNode[]): TreeNode[] {
-  const out: TreeNode[] = [];
+ *  Closed folders contribute themselves but no descendants. An open
+ *  folder with no children contributes an `empty` placeholder row so
+ *  the UI can show a per-folder empty state. */
+export function flattenTree(tree: TreeNode[]): FlatNode[] {
+  const out: FlatNode[] = [];
   const walk = (nodes: TreeNode[]) => {
     for (const n of nodes) {
       out.push(n);
       if (n.type === 'folder' && isFolderOpen(n.path)) {
-        walk(n.children);
+        if (n.children.length === 0) {
+          out.push({ type: 'empty', parentPath: n.path, depth: n.depth + 1 });
+        } else {
+          walk(n.children);
+        }
       }
     }
   };
@@ -368,6 +388,34 @@ export interface CreateFolderResult {
 }
 
 /**
+ * Pure validation for a prospective folder name under `parentPath`.
+ * Returns the user-facing error string, or null when the name is
+ * creatable. Shared by the New-Folder dialog (live, per keystroke —
+ * the Create action is disabled while this returns non-null) and by
+ * `createFolder` (hard guard on submit) so the two can never disagree.
+ */
+export function validateNewFolderName(
+  parentPath: string,
+  name: string,
+  siblings: Iterable<string>,
+): string | null {
+  if (!isValidFolderName(name)) {
+    const issues = validateFolderName(name);
+    return issues[0]?.message ?? 'Invalid folder name';
+  }
+  if (hasCaseInsensitiveSiblingCollision(name, siblings)) {
+    // Shared copy across all three apps (list.md; iOS/Android use the same
+    // phrase) — keep in lockstep rather than inventing per-platform wording.
+    return 'A folder with this name already exists';
+  }
+  const fullPath = parentPath ? `${parentPath}/${name}` : name;
+  if (folderPathComponents(fullPath) > MAX_FOLDER_DEPTH) {
+    return `Folder depth cannot exceed ${MAX_FOLDER_DEPTH}`;
+  }
+  return null;
+}
+
+/**
  * Create a folder under `parentPath` (root = ''). Validates the name
  * against §7 (character/dot rules, Windows-reserved names, sibling
  * case-collision, depth limit). On success, persists the folder and
@@ -378,20 +426,11 @@ export async function createFolder(
   name: string,
   siblings: Iterable<string>,
 ): Promise<CreateFolderResult> {
-  if (!isValidFolderName(name)) {
-    const issues = validateFolderName(name);
-    return { ok: false, error: issues[0]?.message ?? 'Invalid folder name' };
-  }
-  if (hasCaseInsensitiveSiblingCollision(name, siblings)) {
-    return {
-      ok: false,
-      error: `A folder named "${name}" already exists at this level`,
-    };
+  const validationError = validateNewFolderName(parentPath, name, siblings);
+  if (validationError !== null) {
+    return { ok: false, error: validationError };
   }
   const fullPath = parentPath ? `${parentPath}/${name}` : name;
-  if (folderPathComponents(fullPath) > MAX_FOLDER_DEPTH) {
-    return { ok: false, error: `Folder depth cannot exceed ${MAX_FOLDER_DEPTH}` };
-  }
   try {
     const fs = getFS();
     if (fs.createFolder) {

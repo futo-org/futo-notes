@@ -84,6 +84,9 @@ install-thrashing one emulator — don't.
 
 > When setting up multiple worktrees, run `pnpm install` in all of them
 > concurrently — separate `node_modules`, no conflicts, ~12s saved each.
+> Then seed each with a warm cargo build via `just qa-clone-target
+> <worktree>` (APFS copy-on-write clone of `target/` — seconds, near-zero
+> real disk) so the first build isn't a cold workspace compile.
 
 > **Within one worktree**, the iOS, Android, and desktop builds all compile
 > the same Cargo workspace and share that worktree's `target/`, so launching

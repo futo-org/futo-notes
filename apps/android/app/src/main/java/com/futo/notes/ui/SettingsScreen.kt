@@ -205,7 +205,9 @@ fun SettingsScreen(
             SettingsGroup("Danger zone") {
                 SettingsRow(
                     title = "Full reset",
-                    subtitle = "Delete every note, folder, and crash log",
+                    // Shared copy [settings-visual.md "Copy is shared"] — same
+                    // wording as desktop's Danger-zone row.
+                    subtitle = "Permanently remove all notes and app data",
                     titleColor = c.danger,
                     onClick = { confirmReset = true },
                 )

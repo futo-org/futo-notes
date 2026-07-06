@@ -257,6 +257,18 @@
   text-decoration-style: dashed;
 }
 
+/* Broken/ambiguous wikilinks — muted, so a dead link is identifiable before
+   tapping, not only by its no-op (editor.md "Wikilinks"). The class comes
+   from liveMarkdownTransform when resolveWikilink returns null. */
+.cm-md-link.cm-md-wikilink.cm-md-wikilink-broken {
+  color: var(--color-muted);
+  text-decoration-color: currentColor;
+}
+
+.cm-md-link.cm-md-wikilink.cm-md-wikilink-broken:hover {
+  color: var(--color-muted);
+}
+
 /* Hidden header tag block lines */
 .cm-header-tag-hidden {
   display: none !important;

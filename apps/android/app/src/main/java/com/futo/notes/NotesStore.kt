@@ -30,6 +30,13 @@ data class NoteItem(
     val tags: List<String>,
 )
 
+/** The list's display order: most-recently-modified first, id ascending as the
+ *  tiebreaker — matches the bootstrap scan's `(modified_ms desc, id asc)`
+ *  (futo-notes-model `scan_notes`) so an in-place resort is identical to a
+ *  fresh reload. Pinned by NoteListRepinTest. */
+internal val noteListOrder: Comparator<NoteItem> =
+    compareByDescending<NoteItem> { it.modifiedMs }.thenBy { it.id }
+
 /**
  * Reactive shell around the Rust note domain (`NoteStore`, UniFFI) — the exact
  * counterpart of the iOS `NotesStore.swift`. ALL business logic (filename/tag
@@ -162,12 +169,10 @@ class NotesStore(notesRoot: File) {
     /** Re-sort the in-memory list most-recently-modified first WITHOUT a rescan
      *  [list.md:24]. `write` keeps row identity/order stable while typing (so a
      *  resort can't pop the open editor out from under the user); this sorts what
-     *  is already in memory and is called when returning to the list after the
-     *  editor closes. The key matches the bootstrap scan's
-     *  `(modified_ms desc, id asc)` (futo-notes-model `scan_notes`) so the order
-     *  is identical to a fresh reload. Pure state swap on main — no FFI, no I/O. */
+     *  is already in memory and is called when a pop lands back on the list
+     *  (AppShell.pop). Pure state swap on main — no FFI, no I/O. */
     fun resortInPlace() {
-        notes = notes.sortedWith(compareByDescending<NoteItem> { it.modifiedMs }.thenBy { it.id })
+        notes = notes.sortedWith(noteListOrder)
     }
 
     suspend fun createNote(title: String, folder: String = ""): String? = try {

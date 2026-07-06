@@ -1527,6 +1527,19 @@
   padding: 3px 2px 1px;
 }
 
+.sidebar-image-thumb-meta {
+  display: block;
+  width: 100%;
+  font-size: 9px;
+  color: var(--color-muted);
+  opacity: 0.85;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 0 2px 2px;
+}
+
 /* Detail view */
 .sidebar-image-detail {
   display: flex;

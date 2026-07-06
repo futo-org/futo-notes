@@ -38,8 +38,9 @@ pub use tags::{
 };
 pub use crud::{
     create_folder, create_note, delete_folder, delete_folder_move_up, delete_note, make_id,
-    make_preview, make_rich_preview, move_note, note_exists, note_tags, read_note, rename_note,
-    sanitize_folder_path, scan_folders, scan_notes, seed_if_empty, split_id, write_note,
+    make_preview, make_rich_preview, move_note, note_exists, note_tags, prune_empty_parent_dirs,
+    read_note, rename_note, sanitize_folder_path, scan_folders, scan_notes, seed_if_empty,
+    split_id, write_note,
     NoteMetadata, WELCOME_NOTE, WELCOME_NOTE_ID,
 };
 pub use wikilinks::{

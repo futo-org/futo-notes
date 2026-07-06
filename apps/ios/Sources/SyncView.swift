@@ -21,10 +21,19 @@ struct SyncView: View {
         NavigationStack {
             Form {
                 Section("Server") {
+                    // Once connected the server URL is LOCKED (sync.md) — an
+                    // edit here writes straight through @Published→UserDefaults
+                    // (disconnect() never resets it) and would silently feed
+                    // the next connectAndSync/healCollectionGone. Mirrors
+                    // Android's `enabled = !sync.connected` (SyncScreen.kt).
+                    // Dimmed while disabled so it reads as non-editable — a
+                    // disabled TextField keeps primary-colored text otherwise.
                     TextField("Server URL", text: $sync.serverURL)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .keyboardType(.URL)
+                        .disabled(sync.connected)
+                        .foregroundStyle(sync.connected ? .secondary : .primary)
                     // Only relevant before connecting: once connected the Rust
                     // session holds the vault key and Sync Now ignores this field.
                     if !sync.connected {

@@ -350,6 +350,11 @@
 
 <div class="settings-overlay" role="button" tabindex="-1" onpointerdown={(e) => (overlayPressed = e.target === e.currentTarget)} onclick={() => overlayPressed && !connectSyncing && !nuking && onclose()} onkeydown={(e) => e.key === 'Escape' && !connectSyncing && !nuking && onclose()}>
   <div class="settings-panel" role="dialog" aria-modal="true" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
+    <!-- The scroller is a child so the blocking overlays (siblings below)
+         anchor to the panel's VISIBLE box. When the panel itself scrolled,
+         `inset: 0` resolved against the scrolled content box and the overlay
+         could sit entirely off-screen — an invisible blocking state. -->
+    <div class="settings-scroll">
     <div class="settings-header">
       <h2 class="settings-title">Settings</h2>
       {#if !connectSyncing && !nuking}
@@ -695,6 +700,7 @@
 
       <p class="settings-version">FUTO Notes v{getAppVersion()}</p>
     </div>
+    </div>
 
     {#if connectSyncing}
       <div class="connect-sync-overlay">
@@ -734,14 +740,24 @@
   }
 
   .settings-panel {
+    /* Positioning context for .connect-sync-overlay. Must NOT be the
+       scroller: absolute children of a scrolling box anchor to the scrolled
+       content, not the visible viewport (the invisible-overlay bug). */
     position: relative;
+    display: flex;
+    flex-direction: column;
     width: 100%;
     max-width: 600px;
     max-height: 85vh;
     background: var(--color-bg);
     border-radius: 16px 16px 0 0;
+    overflow: hidden;
+  }
+
+  .settings-scroll {
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
+    min-height: 0;
     padding-bottom: max(16px, env(safe-area-inset-bottom));
   }
 
