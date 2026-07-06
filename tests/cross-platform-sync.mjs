@@ -319,7 +319,10 @@ async function renamePropagation(a, b, server) {
   const stableState = await b.getOpenNoteState();
   assertEqual(stableState.originalId, 'new name', 'open note should remain stable after watcher aftermath');
   assertEqual(stableState.hash, `#/note/${encodeURIComponent('new name')}`, 'route should remain stable after watcher aftermath');
-  assertEqual(stableState.toastMessage, '', 'remote rename should not surface a delete/change toast');
+  assert(
+    stableState.toastMessage === '' || stableState.toastMessage === 'Sync complete',
+    `remote rename should not surface a delete/change toast, got ${JSON.stringify(stableState.toastMessage)}`,
+  );
 }
 
 async function activeNoteReload(a, b, server) {
@@ -663,10 +666,14 @@ async function tombstoneDoesNotBlockNewNote(a, b, server) {
     'sync should not return Untitled in deletedIds',
   );
 
-  // No spurious toast should appear
+  // No spurious delete/change toast should appear. A clean manual sync may
+  // still show the normal "Sync complete" toast.
   await sleep(500);
   const finalState = await a.getOpenNoteState();
-  assertEqual(finalState.toastMessage, '', 'no toast should appear after syncing re-created note');
+  assert(
+    finalState.toastMessage === '' || finalState.toastMessage === 'Sync complete',
+    `no delete/change toast should appear after syncing re-created note, got ${JSON.stringify(finalState.toastMessage)}`,
+  );
   assert(await a.noteExists('Untitled'), 'Untitled should still exist on disk');
 }
 
