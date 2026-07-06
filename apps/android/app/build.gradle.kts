@@ -16,18 +16,25 @@ if (hasReleaseKeystore) {
 
 android {
     namespace = "com.futo.notes"
-    // Google Play requires targetSdk 35 (Android 15) for new apps and updates
-    // since 2025-08-31. compileSdk tracks it.
-    compileSdk = 35
+    // compileSdk 36 (Android 16): required so the modernized androidx stack
+    // (activity 1.12+, which brings the non-deprecated edge-to-edge path) can be
+    // compiled — those artifacts declare a compileSdk-36 floor. targetSdk stays
+    // 35 (below) — compileSdk only controls which APIs we can compile against,
+    // targetSdk controls runtime-behavior opt-in, so we don't take on Android 16
+    // runtime changes here.
+    compileSdk = 36
 
     // Pin the NDK AGP uses for native lib stripping + debug-symbol extraction
     // (the release build's debugSymbolLevel below). Without this AGP looks for
-    // its default NDK (26.1.x), which isn't installed, and silently skips
+    // its default NDK, which isn't installed, and silently skips
     // stripping/extraction ("missing strip tool for ABI"). Must match the NDK
-    // CI provisions for the Rust .so build (.gitlab-ci.yml: 27.0.12077973).
+    // CI provisions for the Rust .so build (.gitlab-ci.yml: 28.2.13676358).
+    // NDK r28+ links native libs 16 KB-page-aligned BY DEFAULT (Play requires
+    // 16 KB page-size support for targetSdk 35+ since 2025-11-01) — r27 needed
+    // explicit -Wl,-z,max-page-size=16384 flags, r28 removes that need.
     // NOTE: do not also set ndk.dir in local.properties — a version mismatch
     // between the two breaks NDK resolution and re-triggers the skip.
-    ndkVersion = "27.0.12077973"
+    ndkVersion = "28.2.13676358"
 
     defaultConfig {
         applicationId = "com.futo.notes"
@@ -127,9 +134,17 @@ android {
 }
 
 dependencies {
-    val composeBom = platform("androidx.compose:compose-bom:2024.09.02")
+    // BOM bumped to the Compose 1.9.x train so material3/foundation/ui stay
+    // consistent with the Compose 1.9.2 that activity 1.12.x pulls in transitively
+    // (a stale BOM would leave material3 on 1.3.x against foundation 1.9.2 — skew).
+    val composeBom = platform("androidx.compose:compose-bom:2025.09.01")
     implementation(composeBom)
-    implementation("androidx.activity:activity-compose:1.9.2")
+    // enableEdgeToEdge() only stops calling the deprecated
+    // Window.setStatusBarColor/setNavigationBarColor internally on API 35 as of
+    // androidx.activity 1.12.0 (it draws bar scrims via a ProtectionLayout overlay
+    // instead). Below 1.12 the Play "deprecated edge-to-edge APIs" warning fires
+    // even through enableEdgeToEdge(). 1.12.x requires compileSdk 36 + AGP 8.9.1+.
+    implementation("androidx.activity:activity-compose:1.12.4")
     // FileProvider (camera capture staging for the editor image picker).
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.compose.ui:ui")
@@ -144,7 +159,10 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.5")
 
     // UniFFI-generated Kotlin bindings use JNA to call libfuto_notes_ffi.so.
-    implementation("net.java.dev.jna:jna:5.14.0@aar")
+    // 5.17.0: first version whose bundled libjnidispatch.so is 16 KB-page-aligned
+    // (the fix landed across 5.16.0 + 5.17.0; 5.16.0 alone was incomplete). 5.14.0
+    // SIGSEGVs on 16 KB-page devices — part of the Play 16 KB block.
+    implementation("net.java.dev.jna:jna:5.17.0@aar")
 
     // Coroutines for the async SyncClient FFI methods.
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")

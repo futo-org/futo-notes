@@ -14,7 +14,7 @@ FROM gitlab.futo.org:5050/futocore/ci/kitchensink:latest
 
 ENV ANDROID_HOME=/opt/android-sdk
 ENV JAVA_HOME=/opt/jdk-21
-ENV NDK_HOME=/opt/android-sdk/ndk/27.0.12077973
+ENV NDK_HOME=/opt/android-sdk/ndk/28.2.13676358
 
 # JDK 21
 RUN curl -sL https://download.oracle.com/java/21/latest/jdk-21_linux-x64_bin.tar.gz | tar xz -C /opt && \
@@ -28,7 +28,7 @@ RUN mkdir -p "$ANDROID_HOME/cmdline-tools" && \
     rm /tmp/cmdtools.zip && \
     yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1 && \
     "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
-      "platform-tools" "platforms;android-34" "build-tools;34.0.0" "ndk;27.0.12077973"
+      "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;28.2.13676358"
 
 # Rust Android targets
 RUN . "$HOME/.cargo/env" 2>/dev/null || true && \

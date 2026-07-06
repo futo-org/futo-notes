@@ -9,6 +9,7 @@ import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.setContent
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
@@ -144,11 +145,14 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         // Edge-to-edge; Compose Scaffold/TopAppBar handle the system-bar insets.
-        // Transparent bars so the Compose background shows (not the leftover
-        // Material manifest theme's primary color).
-        WindowCompat.setDecorFitsSystemWindows(window, false)
-        window.statusBarColor = android.graphics.Color.TRANSPARENT
-        window.navigationBarColor = android.graphics.Color.TRANSPARENT
+        // enableEdgeToEdge() (androidx.activity) is the non-deprecated path: on
+        // API 35 it draws bar scrims via an overlay instead of the now-deprecated
+        // Window.setStatusBarColor/setNavigationBarColor (which Play flags and
+        // which are no-ops under Android 15's forced edge-to-edge). SystemBarAppearance
+        // below still owns light/dark icon contrast, reactive to the app theme.
+        // Requires androidx.activity >= 1.12 — earlier versions call the deprecated
+        // setters internally, so the Play warning would persist (see build.gradle.kts).
+        enableEdgeToEdge()
 
         // `getSharedPreferences` + the internal-vault stat each do a one-time
         // framework disk read to resolve the app's private dirs. Not note-domain

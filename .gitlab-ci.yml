@@ -758,10 +758,11 @@ build:android-native:
     ANDROID_HOME: /opt/android-sdk
     ANDROID_SDK_ROOT: /opt/android-sdk
     JAVA_HOME: /opt/jdk-21
-    NDK_HOME: /opt/android-sdk/ndk/27.0.12077973
+    NDK_HOME: /opt/android-sdk/ndk/28.2.13676358
     # scripts/build-rust-android.sh requires ANDROID_NDK_HOME specifically
-    # (cargo-ndk also honors it); the image only exports NDK_HOME.
-    ANDROID_NDK_HOME: /opt/android-sdk/ndk/27.0.12077973
+    # (cargo-ndk also honors it); the image only exports NDK_HOME. NDK r28 links
+    # the Rust .so 16 KB-page-aligned by default (Play 16 KB requirement).
+    ANDROID_NDK_HOME: /opt/android-sdk/ndk/28.2.13676358
     # Point Gradle's home at a cached, in-project dir so the wrapper dist +
     # dependency cache survive between runs (must be under $CI_PROJECT_DIR for
     # GitLab caching). The .gradle-native/{caches,wrapper} subtrees map to
@@ -769,7 +770,7 @@ build:android-native:
     GRADLE_USER_HOME: $CI_PROJECT_DIR/.gradle-native
   script:
     - export PATH="$JAVA_HOME/bin:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
-    # SDK platform 34 + build-tools 34 are baked into ci/android.Dockerfile
+    # SDK platform 36 + build-tools 36 are baked into ci/android.Dockerfile
     # (the same image build:android uses), so no inline sdkmanager install is
     # needed here.
     - pnpm install --frozen-lockfile
