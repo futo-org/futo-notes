@@ -226,10 +226,10 @@ fn split_conflict_name_parts(original: &str) -> (&str, &str) {
 /// base + the current loser, so the fleet converges to a bounded, flat set.
 ///
 /// Idempotent: applying it to an already-stripped base is a no-op. A group is
-/// only peeled when its parenthesized token contains no nested parens, so a
-/// user title like `notes (conflict resolution)` loses at most its own
-/// trailing group when it is itself conflict-copied — never the canonical
-/// note, and never a partial parse.
+/// only peeled when its parenthesized token matches a suffix this code
+/// generates (date/date-counter, object-id short token, or the degenerate
+/// `object` fallback), so a user title like `notes (conflict resolution)` is
+/// preserved when it is itself conflict-copied.
 fn strip_trailing_conflict_suffixes(mut base: &str) -> &str {
     const OPEN: &str = " (conflict ";
     loop {
@@ -241,11 +241,47 @@ fn strip_trailing_conflict_suffixes(mut base: &str) -> &str {
             return base;
         };
         let inner = &trimmed[open_at + OPEN.len()..trimmed.len() - 1];
-        if inner.contains('(') || inner.contains(')') {
+        if !is_generated_conflict_token(inner) {
             return base;
         }
         base = &trimmed[..open_at];
     }
+}
+
+fn is_generated_conflict_token(token: &str) -> bool {
+    is_date_conflict_token(token) || is_object_conflict_token(token)
+}
+
+fn is_date_conflict_token(token: &str) -> bool {
+    let Some(date) = token.get(..10) else {
+        return false;
+    };
+    let bytes = date.as_bytes();
+    let date_shape = bytes.len() == 10
+        && bytes[4] == b'-'
+        && bytes[7] == b'-'
+        && bytes[..4].iter().all(u8::is_ascii_digit)
+        && bytes[5..7].iter().all(u8::is_ascii_digit)
+        && bytes[8..10].iter().all(u8::is_ascii_digit);
+    if !date_shape {
+        return false;
+    }
+    match token.get(10..) {
+        Some("") => true,
+        Some(rest) if rest.starts_with(' ') => {
+            let counter = &rest[1..];
+            !counter.is_empty() && counter.as_bytes().iter().all(u8::is_ascii_digit)
+        }
+        _ => false,
+    }
+}
+
+fn is_object_conflict_token(token: &str) -> bool {
+    token == "object"
+        || (token.len() == 8 && token.as_bytes().iter().all(u8::is_ascii_hexdigit))
+        || (token.len() == 8
+            && token.as_bytes().iter().all(u8::is_ascii_alphanumeric)
+            && token.as_bytes().iter().any(u8::is_ascii_digit))
 }
 
 /// Resolve a filename collision against an in-memory set of existing filenames.
@@ -776,7 +812,10 @@ mod tests {
     fn collision_conflict_filename_peels_deep_stacks_flat() {
         // A name already 3 suffixes deep collapses to a single suffix.
         assert_eq!(
-            collision_conflict_filename("foo (conflict A) (conflict B) (conflict C).md", "019f3d9d"),
+            collision_conflict_filename(
+                "foo (conflict deadbeef) (conflict cafebabe) (conflict facefeed).md",
+                "019f3d9d",
+            ),
             "foo (conflict 019f3d9d).md"
         );
     }
@@ -794,8 +833,30 @@ mod tests {
     #[test]
     fn conflict_naming_preserves_extension_when_stripping_stack() {
         assert_eq!(
-            collision_conflict_filename("image (conflict A).png", "019f3d9d"),
+            collision_conflict_filename("image (conflict deadbeef).png", "019f3d9d"),
             "image (conflict 019f3d9d).png"
+        );
+    }
+
+    #[test]
+    fn conflict_naming_preserves_user_title_that_mentions_conflict() {
+        let existing = HashSet::new();
+        assert_eq!(
+            conflict_filename("plan (conflict resolution).md", "2026-03-29", &existing),
+            "plan (conflict resolution) (conflict 2026-03-29).md"
+        );
+        assert_eq!(
+            collision_conflict_filename("plan (conflict resolution).md", "019f3d9d"),
+            "plan (conflict resolution) (conflict 019f3d9d).md"
+        );
+    }
+
+    #[test]
+    fn conflict_naming_peels_date_counter_suffix() {
+        let existing = HashSet::new();
+        assert_eq!(
+            conflict_filename("note (conflict 2026-03-28 2).md", "2026-03-29", &existing),
+            "note (conflict 2026-03-29).md"
         );
     }
 

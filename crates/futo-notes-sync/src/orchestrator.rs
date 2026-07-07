@@ -2684,6 +2684,11 @@ async fn reconcile_empty_map(
         .filter(|f| f.name.ends_with(".md") || is_image_filename(&f.name))
         .map(|f| (f.name.clone(), (f.mtime_ms, f.size_bytes)))
         .collect();
+    let ancestry_by_object_id: HashMap<String, (String, state::AncestryEntry)> = ancestry
+        .iter()
+        .filter(|(filename, _)| local_by_name.contains_key(filename.as_str()))
+        .map(|(filename, entry)| (entry.object_id.clone(), (filename.clone(), entry.clone())))
+        .collect();
 
     let total = live.len();
     let progress_emitter = ProgressEmitter::new(progress, "reconciling", total);
@@ -2732,6 +2737,7 @@ async fn reconcile_empty_map(
     // whether to write, skip, or omit mtime/size to flag divergence.
     let mut updates: Vec<V2IncomingUpdate> = Vec::new();
     let mut timestamps: HashMap<String, i64> = HashMap::new();
+    let mut deletes: Vec<String> = Vec::new();
     let mut upserts: Vec<(String, E2eeObjectMapEntry)> = Vec::new();
     // Filenames adopted from the server (written to disk) — these are
     // genuine peer-driven downloads and must be surfaced in the summary so
@@ -2761,6 +2767,79 @@ async fn reconcile_empty_map(
 
         match local_by_name.get(&target_name) {
             None => {
+                if let Some((previous_name, anc)) = ancestry_by_object_id.get(&note.object_id) {
+                    if previous_name != &target_name {
+                        if let Ok(content) = read_local_note(notes_root_path, previous_name).await {
+                            let local_hash = hash_sha256(&content);
+                            if anc.hash == local_hash {
+                                // The object moved while this device was
+                                // disconnected, and the old local path is
+                                // still exactly what this device last synced.
+                                // Adopt the remote at its new path and delete
+                                // the stale old path so it cannot be POSTed as
+                                // a duplicate on the push phase.
+                                deletes.push(previous_name.clone());
+                                updates.push(V2IncomingUpdate {
+                                    filename: target_name.clone(),
+                                    content: note.content.clone(),
+                                    hash: note.hash.clone(),
+                                    modified_at: note.modified_at_ms,
+                                });
+                                upserts.push((
+                                    target_name.clone(),
+                                    entry_common(Some(note.modified_at_ms), Some(remote_size)),
+                                ));
+                                adopted.push(target_name.clone());
+                                continue;
+                            }
+                            if anc.hash == note.hash {
+                                // The peer renamed the object without changing
+                                // its content; this device edited the old path
+                                // while disconnected. Move the local edit to
+                                // the peer's new path and map it to the same
+                                // object with no fast-path fields so the next
+                                // push updates that object instead of minting a
+                                // duplicate.
+                                deletes.push(previous_name.clone());
+                                updates.push(V2IncomingUpdate {
+                                    filename: target_name.clone(),
+                                    content,
+                                    hash: local_hash,
+                                    modified_at: 0,
+                                });
+                                upserts.push((target_name.clone(), entry_common(None, None)));
+                                adopted.push(target_name.clone());
+                                continue;
+                            }
+
+                            // Both sides changed: keep the remote at its new
+                            // path, preserve the local edit as a conflict copy,
+                            // and remove the stale old path so it cannot upload
+                            // as an unrelated new object.
+                            let copy_name =
+                                collision_conflict_filename(&target_name, &note.object_id);
+                            deletes.push(previous_name.clone());
+                            updates.push(V2IncomingUpdate {
+                                filename: copy_name,
+                                content,
+                                hash: local_hash,
+                                modified_at: 0,
+                            });
+                            updates.push(V2IncomingUpdate {
+                                filename: target_name.clone(),
+                                content: note.content.clone(),
+                                hash: note.hash.clone(),
+                                modified_at: note.modified_at_ms,
+                            });
+                            upserts.push((
+                                target_name.clone(),
+                                entry_common(Some(note.modified_at_ms), Some(remote_size)),
+                            ));
+                            adopted.push(target_name.clone());
+                            continue;
+                        }
+                    }
+                }
                 // No local file → adopt the remote at its (collision-resolved)
                 // target name.
                 updates.push(V2IncomingUpdate {
@@ -2911,10 +2990,10 @@ async fn reconcile_empty_map(
     // Apply file writes for remote-only adoptions — plus mtime corrections
     // for identical-content matches — via the shared apply path so watcher
     // suppressions are recorded.
-    if !updates.is_empty() || !timestamps.is_empty() {
+    if !updates.is_empty() || !timestamps.is_empty() || !deletes.is_empty() {
         let apply_input = V2SyncApplyInput {
             update: updates,
-            delete: Vec::new(),
+            delete: deletes,
             conflicts: Vec::new(),
             timestamps,
         };

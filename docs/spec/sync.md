@@ -384,17 +384,19 @@ client uploads opaque encrypted blobs — note content is encrypted before uploa
 - **A reconnect after fleet drift does not mint conflict copies for notes the
   device never edited.** The empty-map reconcile consults the ancestry file:
   for the same objectId, local hash == last-synced hash ⇒ only the remote
-  moved ⇒ fast-forward to the remote (no park); remote hash == last-synced
-  hash ⇒ only local was edited while disconnected ⇒ keep local and push it as
-  an update to the SAME object (no park, no duplicate object). Both sides
-  changed, or no ancestry (fresh install, notes copied in without dotfiles) ⇒
-  the conservative F6 park above. This closes the July 2026 incident where a
+  moved/renamed ⇒ fast-forward to the remote path and remove the stale local
+  path (no park, no duplicate object); remote hash == last-synced hash ⇒ only
+  local was edited while disconnected ⇒ keep local and push it as an update to
+  the SAME object (no park, no duplicate object). Both sides changed, or no
+  ancestry (fresh install, notes copied in without dotfiles) ⇒ the conservative
+  F6 park above. This closes the July 2026 incident where a
   password re-login on a device that had been disconnected for days parked a
   stale `(conflict <oid8>)` copy of every note edited elsewhere in the
   meantime and synced the copies to the whole fleet. → futo-notes-sync
   `orchestrator::reconcile_empty_map` ancestry branch; regression tests
   `reconnect_after_remote_drift_fast_forwards_instead_of_parking`,
   `reconnect_after_local_edit_updates_same_object_instead_of_parking`,
+  `reconnect_after_remote_rename_deletes_stale_old_path_no_duplicate`,
   `state::tests::demote_*` / `load_for_collection_*`
 - `write_atomic_text` overwrites a destination that differs only in **filename
   case** from an existing file instead of failing. On case-insensitive

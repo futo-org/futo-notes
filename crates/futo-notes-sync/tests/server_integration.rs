@@ -1158,3 +1158,84 @@ async fn reconnect_after_local_edit_updates_same_object_instead_of_parking() {
     common::cleanup(&va);
     common::cleanup(&vc);
 }
+
+#[tokio::test]
+#[ignore = "requires a running FUTO_TEST_SERVER"]
+async fn reconnect_after_remote_rename_deletes_stale_old_path_no_duplicate() {
+    if common::skip_if_no_server(
+        "reconnect_after_remote_rename_deletes_stale_old_path_no_duplicate",
+    ) {
+        return;
+    }
+    let server = common::server_url().unwrap();
+
+    // A creates + pushes a note at the root, then disconnects and keeps that
+    // old local path on disk.
+    let (a, va) = fresh_client(&server).await;
+    let stem = common::unique("drift-renamed");
+    let root_file = format!("{stem}.md");
+    let moved_file = format!("Folder/{stem}.md");
+    std::fs::write(va.join(&root_file), "v1 before rename\n").unwrap();
+    let (_c, a1) = futo_notes_sync::run_push(&a, &va, &no_progress, &no_pre_write)
+        .await
+        .expect("A push v1");
+    let object_id = a1
+        .object_map
+        .get(&root_file)
+        .expect("mapped after push")
+        .object_id
+        .clone();
+    futo_notes_sync::state::demote_state_to_ancestry(&va).expect("disconnect A");
+
+    // B renames the same object while A is disconnected.
+    let (b, vb) = fresh_client(&server).await;
+    let b = pull(&b, &vb).await;
+    std::fs::remove_file(vb.join(&root_file)).unwrap();
+    std::fs::create_dir_all(vb.join("Folder")).unwrap();
+    std::fs::write(vb.join(&moved_file), "v1 before rename\n").unwrap();
+    let (_c, _b) = futo_notes_sync::run_push(&b, &vb, &no_progress, &no_pre_write)
+        .await
+        .expect("B push rename");
+
+    // A reconnects with an empty live map. The reconcile must use ancestry by
+    // object_id to recognize that its stale root path is the pre-rename copy,
+    // delete it locally, and map the moved filename to the SAME object. If the
+    // old path survives, the push phase posts it as a duplicate new object.
+    let (a2, _info) = futo_notes_sync::connect(&va, &server, common::TEST_PASSWORD)
+        .await
+        .expect("A reconnect");
+    assert!(a2.object_map.is_empty(), "reconnect after disconnect starts empty");
+    let (_summary, a3) = futo_notes_sync::run_sync(&a2, &va, &no_progress, &no_pre_write)
+        .await
+        .expect("A reconcile sync");
+
+    assert!(!va.join(&root_file).exists(), "stale pre-rename path must be deleted");
+    assert_eq!(
+        std::fs::read_to_string(va.join(&moved_file)).unwrap(),
+        "v1 before rename\n",
+        "A must adopt the peer's renamed path"
+    );
+    assert!(!a3.object_map.contains_key(&root_file));
+    assert_eq!(
+        a3.object_map
+            .get(&moved_file)
+            .expect("moved path mapped")
+            .object_id,
+        object_id,
+        "remote rename must keep tracking the same server object"
+    );
+
+    // A fresh peer should see only the moved path, not a duplicate re-upload of
+    // A's stale root path.
+    let (c, vc) = fresh_client(&server).await;
+    let _c = pull(&c, &vc).await;
+    assert!(vc.join(&moved_file).exists(), "fresh peer should receive moved note");
+    assert!(
+        !vc.join(&root_file).exists(),
+        "stale root path must not be re-uploaded as a duplicate object"
+    );
+
+    common::cleanup(&va);
+    common::cleanup(&vb);
+    common::cleanup(&vc);
+}
