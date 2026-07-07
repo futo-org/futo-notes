@@ -201,13 +201,7 @@ collect-secrets-from-op:
       VERSION="${CI_COMMIT_TAG#v}"
       echo "VERSION=$VERSION" >> build.env
       echo "Building version $VERSION from tag $CI_COMMIT_TAG"
-      node -e "
-        const fs = require('fs');
-        const f = 'apps/tauri/src-tauri/tauri.conf.json';
-        const c = JSON.parse(fs.readFileSync(f, 'utf8'));
-        c.version = '$VERSION';
-        fs.writeFileSync(f, JSON.stringify(c, null, 2) + '\n');
-      "
+      node scripts/desktop-version.mjs "$VERSION"
 
 # Clone the E2EE sync server (separate repo, public) and install its deps.
 # tests/lib/sync-test-server.mjs reads FUTO_NOTES_E2EE_SERVER_REPO to locate it.
