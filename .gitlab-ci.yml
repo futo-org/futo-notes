@@ -681,23 +681,29 @@ build:linux-appimage:
 
 # Rebuild the pre-baked Android CI image (JDK + SDK/NDK + Rust targets +
 # emulator + system image + desktop Tauri deps). Manual trigger only —
-# click "Run" on this job when ci/android.Dockerfile changes. Runs as
-# docker-in-docker so registry auth uses the runner's CI_JOB_TOKEN and no
-# laptop push is needed.
+# click "Run" on this job when ci/android.Dockerfile changes. Registry auth
+# uses the runner's CI_JOB_TOKEN, so no laptop push is needed.
+#
+# Builds with Buildah (rootless, daemonless) instead of docker-in-docker: the
+# docker:27-dind SERVICE stopped starting on our runners — its health check
+# fails and the `docker` host never resolves, so `docker build` died with
+# `error during connect: … lookup docker … no such host`. Buildah needs no
+# privileged daemon and no service container, which removes that whole failure
+# class. STORAGE_DRIVER=vfs + BUILDAH_ISOLATION=chroot is the recipe for an
+# unprivileged CI container (no user-namespace / fuse-overlayfs requirement);
+# --format docker keeps the pushed manifest in the schema every consumer pulls.
 build:ci-android-image:
   stage: build
   needs: []
-  image: docker:27
-  services:
-    - docker:27-dind
+  image: quay.io/buildah/stable:latest
   before_script: []
   variables:
-    DOCKER_HOST: tcp://docker:2375
-    DOCKER_TLS_CERTDIR: ""
+    STORAGE_DRIVER: vfs
+    BUILDAH_ISOLATION: chroot
   script:
-    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
-    - docker build -f ci/android.Dockerfile -t "$CI_REGISTRY_IMAGE/ci/android:latest" .
-    - docker push "$CI_REGISTRY_IMAGE/ci/android:latest"
+    - buildah login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+    - buildah bud --format docker -f "$CI_PROJECT_DIR/ci/android.Dockerfile" -t "$CI_REGISTRY_IMAGE/ci/android:latest" "$CI_PROJECT_DIR"
+    - buildah push "$CI_REGISTRY_IMAGE/ci/android:latest"
   rules:
     - if: $CI_PIPELINE_SOURCE == "web"
       when: manual
