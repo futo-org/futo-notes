@@ -366,9 +366,13 @@ test:
     - !reference [.cache-pnpm, cache]
   script:
     - pnpm install --frozen-lockfile --prefer-offline
+    - node scripts/spec-gaps.mjs --check
+    - pnpm exec tsx scripts/gen-toolbar-spec.ts --check
     - pnpm run lint
     - pnpm run lint:platform
-    - pnpm run test:minimal
+    - pnpm exec tsx tests/conformance/generate.mjs --check
+    - pnpm run test:full
+    - pnpm run build
   rules:
     - if: $CI_COMMIT_TAG
     - if: $CI_MERGE_REQUEST_IID
@@ -386,11 +390,17 @@ test:e2e:smoke:
   rules:
     - if: $CI_COMMIT_TAG
     - if: $CI_MERGE_REQUEST_IID
-      when: manual
-      allow_failure: true
+      changes: &web-e2e-smoke-changes
+        - src/**/*
+        - packages/editor/**/*
+        - packages/shared/**/*
+        - tests/p0-regressions.spec.ts
+        - tests/lib/**/*
+        - playwright.config.ts
+        - package.json
+        - pnpm-lock.yaml
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-      when: manual
-      allow_failure: true
+      changes: *web-e2e-smoke-changes
 
 test:e2e:markdown-spec:
   stage: test
@@ -434,6 +444,30 @@ test:rust:
   rules:
     - if: $CI_COMMIT_TAG
     - if: $CI_MERGE_REQUEST_IID
+
+test:rust:workspace:
+  stage: test
+  cache:
+    - !reference [.cache-cargo-tauri, cache]
+  script:
+    - !reference [.setup-rust, script]
+    - mkdir -p dist
+    - cargo test --workspace
+  rules:
+    - if: $CI_COMMIT_TAG
+    - if: $CI_MERGE_REQUEST_IID
+      changes: &rust-workspace-changes
+        - Cargo.toml
+        - Cargo.lock
+        - rust-toolchain.toml
+        - .cargo/**/*
+        - crates/**/*
+        - apps/tauri/src-tauri/**/*
+        - apps/tauri/Cargo.toml
+        - scripts/build-rust-android.sh
+        - scripts/build-rust-ios.sh
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes: *rust-workspace-changes
 
 # Lock in the search/ML isolation boundary: the portable core crates must never
 # pull in Tantivy or ORT. The FFI facade may expose keyword-only native search
@@ -826,7 +860,7 @@ build:android-native:
       if [ -n "$CI_COMMIT_TAG" ]; then
         cd apps/android && ./gradlew --no-daemon :app:assembleRelease :app:bundleRelease
       else
-        cd apps/android && ./gradlew --no-daemon :app:assembleDebug
+        cd apps/android && ./gradlew --no-daemon :app:assembleDebug :app:testDebugUnitTest
       fi
   after_script:
     - find apps/android/app/build/outputs/apk -name "*.apk" -type f 2>/dev/null || true
@@ -1212,6 +1246,7 @@ release:gate:
     - job: test:e2e:markdown-spec
     - job: test:e2e:rest
     - job: test:rust
+    - job: test:rust:workspace
     - job: test:rust:dep-guard
     - job: test:rust:macos
     - job: test:desktop-smoke:macos
