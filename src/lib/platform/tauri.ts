@@ -535,14 +535,17 @@ export function onMenuAction(callback: (action: string) => void): () => void {
 
 const APP_CONFIG_PATH = '.app-config.json';
 
-async function loadAppConfigFile(): Promise<AppConfigFile> {
+async function loadAppConfigFile(options: { fallbackOnReadError?: boolean } = {}): Promise<AppConfigFile> {
+  const fallbackOnReadError = options.fallbackOnReadError ?? true;
   let raw: string | null;
   try {
     raw = await tauriFS.readAppData(APP_CONFIG_PATH);
   } catch (err) {
     // On macOS a TCC/permission denial makes the open reject EPERM. Degrade to
-    // defaults so settings still load, and surface the error rather than
-    // letting it become an unhandled rejection / crash report.
+    // defaults for read-only startup paths so settings still load. Save paths
+    // must remain strict, though: read-modify-write after a failed read would
+    // clobber unrelated persisted fields.
+    if (!fallbackOnReadError) throw err;
     console.warn(`Failed to read ${APP_CONFIG_PATH}, using defaults:`, err);
     return {};
   }
@@ -577,7 +580,7 @@ export async function getConfig(): Promise<AppConfig> {
 }
 
 export async function saveConfig(updates: AppConfigUpdates): Promise<void> {
-  const cfg = await loadAppConfigFile();
+  const cfg = await loadAppConfigFile({ fallbackOnReadError: false });
   if ('sidebarWidth' in updates) cfg.sidebarWidth = updates.sidebarWidth;
   if ('graphSidebarWidth' in updates) cfg.graphSidebarWidth = updates.graphSidebarWidth;
   if ('openFolders' in updates) cfg.openFolders = updates.openFolders;

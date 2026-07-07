@@ -605,7 +605,9 @@
             if (tabsPersistTimer !== null) clearTimeout(tabsPersistTimer);
             tabsPersistTimer = window.setTimeout(() => {
               tabsPersistTimer = null;
-              void saveConfig({ openTabs: snapshot });
+              void saveConfig({ openTabs: snapshot }).catch((err) => {
+                console.warn('Failed to persist open tabs:', err);
+              });
             }, 250);
           });
         })

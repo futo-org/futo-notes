@@ -165,6 +165,19 @@ describe('saveConfig', () => {
     // Doesn't clobber existing fields
     expect(written.sidebarWidth).toBe(280);
   });
+
+  it('does not write a partial config when the existing config read is denied', async () => {
+    setupInvokeMock();
+    const { readTextFile, writeTextFile, rename, exists } = await import('@tauri-apps/plugin-fs');
+    vi.mocked(exists).mockResolvedValueOnce(true);
+    vi.mocked(readTextFile).mockRejectedValueOnce(
+      new Error('Operation not permitted (os error 1)'),
+    );
+
+    await expect(saveConfig({ sidebarWidth: 360 })).rejects.toThrow('Operation not permitted');
+    expect(writeTextFile).not.toHaveBeenCalled();
+    expect(rename).not.toHaveBeenCalled();
+  });
 });
 
 describe('loadOpenFoldersConfig', () => {

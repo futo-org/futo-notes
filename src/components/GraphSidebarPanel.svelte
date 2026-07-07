@@ -89,7 +89,9 @@
   function persistGraphSidebarWidth(width: number): void {
     if (isDesktop) {
       import('$lib/platform/tauri').then(({ saveConfig }) => {
-        saveConfig({ graphSidebarWidth: width });
+        saveConfig({ graphSidebarWidth: width }).catch((err) => {
+          console.warn('Failed to persist graph sidebar width:', err);
+        });
       });
     } else {
       localStorage.setItem('futo-notes:graphSidebarWidth', String(width));
