@@ -39,11 +39,23 @@ vi.mock('./searchEngine', () => ({
   engineNotify: vi.fn(async () => {}),
 }));
 
+// Stub the filesystem-touching notes helpers the watcher/sync paths call so the
+// focus-guard tests can drive the real handlers without hitting platform FS.
+vi.mock('./notes.svelte', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./notes.svelte')>();
+  return {
+    ...actual,
+    readNote: vi.fn(async () => ''),
+    handleExternalFileChange: vi.fn(async () => {}),
+  };
+});
+
 import {
   findActiveSyncRename,
   createSyncManager,
   getSyncErrorMessage,
 } from './syncManager.svelte';
+import { readNote } from './notes.svelte';
 import { engineNotify } from './searchEngine';
 import { updateAppState } from './appState';
 import type { SyncManagerDeps } from './syncManager.svelte';
@@ -140,6 +152,7 @@ describe('createSyncManager sync-error state (F15)', () => {
       flushSave: async () => {},
       getEditorContent: () => undefined,
       isComposing: () => false,
+      isEditorFocused: () => false,
       patchGraphNode: () => {},
       clearGraphData: () => {},
       showToast: () => {},
@@ -434,6 +447,7 @@ describe('handleSyncComplete reindexes peer changes into the search engine', () 
       flushSave: async () => {},
       getEditorContent: () => undefined,
       isComposing: () => false,
+      isEditorFocused: () => false,
       patchGraphNode: () => {},
       clearGraphData: () => {},
       showToast: () => {},
@@ -532,6 +546,7 @@ describe('single-reporter completion feedback (handleSyncComplete + trigger)', (
       flushSave: async () => {},
       getEditorContent: () => undefined,
       isComposing: () => false,
+      isEditorFocused: () => false,
       patchGraphNode: () => {},
       clearGraphData: () => {},
       showToast: (m) => toasts.push(m),
@@ -570,5 +585,120 @@ describe('single-reporter completion feedback (handleSyncComplete + trigger)', (
     );
     expect(toasts).toEqual(["Sync error: 1 change couldn't reach the server (HTTP 500)"]);
     expect(mgr.syncError).toBe(true);
+  });
+});
+
+// Regression (CM position-desync crash, 166/172 crashes): replacing the OPEN
+// note's document while its editor is focused leaves CM6's async
+// DOM-selection/scroll/measure machinery holding pre-update positions; once the
+// adopted doc is shorter, CM6 throws RangeError "Selection points outside of
+// document" / "No tile at position N" / "Invalid position N in document". The
+// fix: never adopt external content into the open note while the editor is
+// focused — from both the file watcher and the post-sync reconcile.
+describe('focus guard: no external adopt into a focused editor', () => {
+  const emptySummary: SyncSummary = {
+    uploaded: 0,
+    downloaded: 0,
+    deleted: 0,
+    conflicts: 0,
+    failures: [],
+    failureMessage: null,
+    updatedIds: [],
+    deletedIds: [],
+    renamed: [],
+    peerUpdatedIds: [],
+    peerDeletedIds: [],
+  };
+
+  function makeDeps(overrides: Partial<SyncManagerDeps>): SyncManagerDeps {
+    return {
+      getOriginalId: () => null,
+      getEditVersion: () => 0,
+      isSavePending: () => false,
+      hasOpenDraftChanges: () => false,
+      getLastEditTime: () => 0,
+      applyExternalContent: () => {},
+      applyRemoteRename: () => {},
+      cancelAndClear: () => {},
+      flushSave: async () => {},
+      getEditorContent: () => undefined,
+      isComposing: () => false,
+      isEditorFocused: () => false,
+      patchGraphNode: () => {},
+      clearGraphData: () => {},
+      showToast: () => {},
+      navigate: () => {},
+      getNoteId: () => null,
+      getPrevNoteId: () => null,
+      setPrevNoteId: () => {},
+      ...overrides,
+    };
+  }
+
+  beforeEach(() => {
+    vi.mocked(readNote).mockReset();
+    vi.mocked(readNote).mockResolvedValue('FRESH EXTERNAL CONTENT');
+  });
+
+  it('watcher: skips applyExternalContent for the open note when the editor is focused', async () => {
+    const applyExternalContent = vi.fn();
+    const mgr = createSyncManager(
+      makeDeps({
+        getOriginalId: () => 'FocusNote',
+        isEditorFocused: () => true,
+        applyExternalContent,
+      }),
+    );
+
+    await mgr.handleFileChange({ type: 'change', filename: 'FocusNote.md' });
+
+    expect(applyExternalContent).not.toHaveBeenCalled();
+  });
+
+  it('watcher: still adopts the open note when the editor is NOT focused', async () => {
+    const applyExternalContent = vi.fn();
+    const mgr = createSyncManager(
+      makeDeps({
+        getOriginalId: () => 'BlurNote',
+        isEditorFocused: () => false,
+        applyExternalContent,
+      }),
+    );
+
+    await mgr.handleFileChange({ type: 'change', filename: 'BlurNote.md' });
+
+    expect(applyExternalContent).toHaveBeenCalledWith('FRESH EXTERNAL CONTENT');
+  });
+
+  it('sync-complete: skips applyExternalContent for the open note when the editor is focused', async () => {
+    const applyExternalContent = vi.fn();
+    const mgr = createSyncManager(
+      makeDeps({
+        getOriginalId: () => 'SyncNote',
+        getEditorContent: () => 'OLD CONTENT',
+        isEditorFocused: () => true,
+        applyExternalContent,
+      }),
+    );
+
+    await mgr.handleSyncComplete({ ...emptySummary, updatedIds: ['SyncNote'] }, 'poll');
+
+    expect(applyExternalContent).not.toHaveBeenCalled();
+  });
+
+  it('sync-complete: still adopts the open note when the editor is NOT focused', async () => {
+    const applyExternalContent = vi.fn();
+    const mgr = createSyncManager(
+      makeDeps({
+        getOriginalId: () => 'SyncNote2',
+        getEditorContent: () => 'OLD CONTENT',
+        isEditorFocused: () => false,
+        applyExternalContent,
+      }),
+    );
+
+    await mgr.handleSyncComplete({ ...emptySummary, updatedIds: ['SyncNote2'] }, 'poll');
+
+    expect(applyExternalContent).toHaveBeenCalledWith('FRESH EXTERNAL CONTENT');
   });
 });

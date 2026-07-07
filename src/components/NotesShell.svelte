@@ -191,6 +191,7 @@
 
     getEditorContent: () => editor?.getContent(),
     isComposing: () => Boolean(editor?.isComposing?.()),
+    isEditorFocused: () => editor?.hasFocus?.() ?? false,
 
     patchGraphNode: (from, to, title) => graphPanel?.patchGraphNode(from, to, title),
     clearGraphData: () => graphPanel?.clearGraphData(),

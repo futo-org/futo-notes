@@ -43,6 +43,10 @@ export interface SyncManagerDeps {
   // Editor
   getEditorContent: () => string | undefined;
   isComposing: () => boolean;
+  /** Whether the editor currently holds focus. Adopting external content into
+   *  a focused editor desyncs CM6's async selection/scroll/measure machinery
+   *  from the replaced doc and crashes it — see the guards below. */
+  isEditorFocused: () => boolean;
 
   // Graph
   patchGraphNode: (from: string, to: string, title: string) => void;
@@ -276,7 +280,14 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
     if (type === 'unlink' && id === originalId) {
       deps.cancelAndClear();
       deps.showToast('Note was deleted externally');
-    } else if (type === 'change' && id === originalId) {
+    } else if (type === 'change' && id === originalId && !deps.isEditorFocused()) {
+      // Never replace the open note's document while its editor is focused:
+      // CM6's async DOM-selection/scroll/measure machinery still references
+      // pre-update positions, and once the adopted doc shrinks under it CM6
+      // throws (RangeError "Selection points outside of document" / "No tile at
+      // position N" / "Invalid position N in document"). The single-note cache
+      // update below still runs so the note list tracks the change; the editor
+      // keeps its current doc until it loses focus.
       try {
         const freshContent = await readNote(id);
         deps.applyExternalContent(freshContent);
@@ -429,7 +440,10 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
           // also catches a keystroke whose rAF-coalesced onchange hasn't
           // delivered yet (editVersion not bumped) — without it, the adopt
           // below would replace the doc and silently swallow that keystroke.
-          if (!editedDuringSync && !deps.hasOpenDraftChanges()) {
+          // Also skip the adopt while the editor is focused — replacing the
+          // open doc under CM6's live selection/measure state crashes it (see
+          // the watcher guard above); the metadata refresh below still runs.
+          if (!editedDuringSync && !deps.hasOpenDraftChanges() && !deps.isEditorFocused()) {
             deps.applyExternalContent(freshContent);
           }
         }
