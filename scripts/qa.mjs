@@ -180,7 +180,17 @@ function installedSystemImage() {
   if (!images.length)
     die(`no Android system image installed — e.g.: ${SDKMANAGER} "system-images;android-36;google_apis;${IS_MAC ? 'arm64-v8a' : 'x86_64'}"`);
   const arch = process.arch === 'arm64' ? 'arm64-v8a' : 'x86_64';
-  return images.find((i) => i.includes(arch)) || images[0];
+  // Pick the HIGHEST API level for the host arch. sdkmanager lists images
+  // alphabetically, so a plain `.find()` grabs android-30 before android-36 and
+  // silently claims a stale emulator — API-35+ behavior (e.g. enforced
+  // edge-to-edge) then goes untested. Rank by the numeric API in `android-<N>`;
+  // preview/codename images (non-numeric) sort last.
+  const apiLevel = (i) => {
+    const m = i.match(/;android-(\d+);/);
+    return m ? Number(m[1]) : -1;
+  };
+  const candidates = images.filter((i) => i.includes(arch)).sort((a, b) => apiLevel(b) - apiLevel(a));
+  return candidates[0] || images[0];
 }
 
 async function ensureAvd(name) {
