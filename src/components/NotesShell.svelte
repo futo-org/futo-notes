@@ -368,11 +368,13 @@
       return;
     }
     editorFocused = false;
+    void sync.handleEditorFocusChange(false);
   }
 
   function handleEditorFocusChange(focused: boolean): void {
     if (focused) {
       if (noteId) editorFocused = true;
+      void sync.handleEditorFocusChange(true);
       // Moving focus from the title into the body means the user is done
       // naming the note — flush the aggressively-debounced title save now so
       // the rename lands before content edits, instead of waiting out the 10s.

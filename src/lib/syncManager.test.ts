@@ -47,6 +47,7 @@ vi.mock('./notes.svelte', async (importOriginal) => {
     ...actual,
     readNote: vi.fn(async () => ''),
     handleExternalFileChange: vi.fn(async () => {}),
+    refreshNotesFromStorage: vi.fn(async () => {}),
   };
 });
 
@@ -55,7 +56,7 @@ import {
   createSyncManager,
   getSyncErrorMessage,
 } from './syncManager.svelte';
-import { readNote } from './notes.svelte';
+import { readNote, refreshNotesFromStorage } from './notes.svelte';
 import { engineNotify } from './searchEngine';
 import { updateAppState } from './appState';
 import type { SyncManagerDeps } from './syncManager.svelte';
@@ -638,14 +639,16 @@ describe('focus guard: no external adopt into a focused editor', () => {
   beforeEach(() => {
     vi.mocked(readNote).mockReset();
     vi.mocked(readNote).mockResolvedValue('FRESH EXTERNAL CONTENT');
+    vi.mocked(refreshNotesFromStorage).mockClear();
   });
 
-  it('watcher: skips applyExternalContent for the open note when the editor is focused', async () => {
+  it('watcher: defers applyExternalContent for the focused open note until blur', async () => {
     const applyExternalContent = vi.fn();
+    let focused = true;
     const mgr = createSyncManager(
       makeDeps({
         getOriginalId: () => 'FocusNote',
-        isEditorFocused: () => true,
+        isEditorFocused: () => focused,
         applyExternalContent,
       }),
     );
@@ -653,6 +656,9 @@ describe('focus guard: no external adopt into a focused editor', () => {
     await mgr.handleFileChange({ type: 'change', filename: 'FocusNote.md' });
 
     expect(applyExternalContent).not.toHaveBeenCalled();
+    focused = false;
+    await mgr.handleEditorFocusChange(false);
+    expect(applyExternalContent).toHaveBeenCalledWith('FRESH EXTERNAL CONTENT');
   });
 
   it('watcher: still adopts the open note when the editor is NOT focused', async () => {
@@ -670,13 +676,14 @@ describe('focus guard: no external adopt into a focused editor', () => {
     expect(applyExternalContent).toHaveBeenCalledWith('FRESH EXTERNAL CONTENT');
   });
 
-  it('sync-complete: skips applyExternalContent for the open note when the editor is focused', async () => {
+  it('sync-complete: defers applyExternalContent for the focused open note until blur', async () => {
     const applyExternalContent = vi.fn();
+    let focused = true;
     const mgr = createSyncManager(
       makeDeps({
         getOriginalId: () => 'SyncNote',
         getEditorContent: () => 'OLD CONTENT',
-        isEditorFocused: () => true,
+        isEditorFocused: () => focused,
         applyExternalContent,
       }),
     );
@@ -684,6 +691,9 @@ describe('focus guard: no external adopt into a focused editor', () => {
     await mgr.handleSyncComplete({ ...emptySummary, updatedIds: ['SyncNote'] }, 'poll');
 
     expect(applyExternalContent).not.toHaveBeenCalled();
+    focused = false;
+    await mgr.handleEditorFocusChange(false);
+    expect(applyExternalContent).toHaveBeenCalledWith('FRESH EXTERNAL CONTENT');
   });
 
   it('sync-complete: still adopts the open note when the editor is NOT focused', async () => {
@@ -700,5 +710,32 @@ describe('focus guard: no external adopt into a focused editor', () => {
     await mgr.handleSyncComplete({ ...emptySummary, updatedIds: ['SyncNote2'] }, 'poll');
 
     expect(applyExternalContent).toHaveBeenCalledWith('FRESH EXTERNAL CONTENT');
+  });
+
+  it('converts a deferred focused adopt into local-draft preservation when the user edits before blur', async () => {
+    const applyExternalContent = vi.fn();
+    const toasts: string[] = [];
+    let focused = true;
+    let dirty = false;
+    const mgr = createSyncManager(
+      makeDeps({
+        getOriginalId: () => 'DirtyLater',
+        getEditorContent: () => dirty ? 'LOCAL EDIT' : 'OLD CONTENT',
+        isEditorFocused: () => focused,
+        hasOpenDraftChanges: () => dirty,
+        applyExternalContent,
+        showToast: (msg) => toasts.push(msg),
+      }),
+    );
+
+    await mgr.handleFileChange({ type: 'change', filename: 'DirtyLater.md' });
+
+    dirty = true;
+    focused = false;
+    await mgr.handleEditorFocusChange(false);
+
+    expect(applyExternalContent).not.toHaveBeenCalled();
+    expect(toasts).toEqual(['Open note changed externally; keeping local draft']);
+    expect(refreshNotesFromStorage).toHaveBeenCalledTimes(1);
   });
 });
