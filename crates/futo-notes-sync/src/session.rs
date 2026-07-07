@@ -79,9 +79,9 @@ impl SyncSession {
         *self.inner.lock().await = Some(state);
     }
 
-    /// Clear the in-memory state. Does NOT delete the on-disk file — callers
-    /// do that via [`crate::state::delete_state_file`] so disconnect ordering
-    /// stays explicit.
+    /// Clear the in-memory state. Does NOT touch the on-disk file — callers
+    /// do that via [`crate::state::demote_state_to_ancestry`] so disconnect
+    /// ordering stays explicit.
     pub async fn clear(&self) {
         *self.inner.lock().await = None;
     }

@@ -24,7 +24,9 @@ use serde::{Deserialize, Serialize};
 
 const STATE_FILENAME: &str = ".e2ee-state.json";
 const LEGACY_APP_STATE_FILENAME: &str = ".app-state.json";
+const ANCESTRY_FILENAME: &str = ".e2ee-ancestry.json";
 const STATE_FORMAT_VERSION: u8 = 1;
+const ANCESTRY_FORMAT_VERSION: u8 = 1;
 
 // ── Object map entry ─────────────────────────────────────────────────────
 
@@ -146,22 +148,28 @@ impl Loaded {
     /// through the empty-map path, which hash-dedups against local files —
     /// no data loss, no conflict copies for identical content.
     pub fn reset_if_collection_changed(self, current_collection_id: &str) -> Loaded {
+        if self.matches_collection(current_collection_id) {
+            return self;
+        }
+        let prev_desc = self.collection_id.as_deref().unwrap_or("<untagged>");
+        eprintln!(
+            "[sync] persisted sync state is for collection {prev_desc}, connected to {current_collection_id}; resetting cursor + object map"
+        );
+        Loaded {
+            object_map: HashMap::new(),
+            max_version: 0,
+            migrated_legacy: false,
+            collection_id: None,
+        }
+    }
+
+    /// Whether the persisted state is usable as-is for `current_collection_id`:
+    /// tagged with the same collection, or nothing persisted at all. Untagged
+    /// state WITH data is unknown provenance and does not match.
+    pub fn matches_collection(&self, current_collection_id: &str) -> bool {
         match &self.collection_id {
-            Some(prev) if prev == current_collection_id => self,
-            // Empty state resets to itself — skip the scary log line.
-            None if self.max_version == 0 && self.object_map.is_empty() => self,
-            prev => {
-                let prev_desc = prev.as_deref().unwrap_or("<untagged>");
-                eprintln!(
-                    "[sync] persisted sync state is for collection {prev_desc}, connected to {current_collection_id}; resetting cursor + object map"
-                );
-                Loaded {
-                    object_map: HashMap::new(),
-                    max_version: 0,
-                    migrated_legacy: false,
-                    collection_id: None,
-                }
-            }
+            Some(prev) => prev == current_collection_id,
+            None => self.max_version == 0 && self.object_map.is_empty(),
         }
     }
 }
@@ -263,6 +271,128 @@ pub fn delete_state_file(notes_root: &Path) -> Result<(), String> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(e) => Err(e.to_string()),
     }
+}
+
+// ── Ancestry (survives disconnect) ───────────────────────────────────────
+
+/// Last-synced identity of one file, preserved across disconnect / state
+/// reset: enough to prove "this local file is exactly what this device last
+/// synced for this object" (or "the remote hasn't moved since this device
+/// last synced it") WITHOUT keeping the live cursor/object map — a live map
+/// carried across a disconnect would let a reconnect propagate every file
+/// deleted while disconnected as a fleet-wide tombstone.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AncestryEntry {
+    pub object_id: String,
+    /// Content hash (sha-256 of the plaintext) at the last successful sync.
+    pub hash: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PersistedAncestry {
+    #[serde(default = "default_ancestry_version")]
+    version: u8,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    collection_id: Option<String>,
+    #[serde(default)]
+    files: HashMap<String, AncestryEntry>,
+}
+
+fn default_ancestry_version() -> u8 {
+    ANCESTRY_FORMAT_VERSION
+}
+
+pub fn ancestry_file_path(notes_root: &Path) -> PathBuf {
+    notes_root.join(ANCESTRY_FILENAME)
+}
+
+/// Demote the persisted sync state to `.e2ee-ancestry.json` and delete the
+/// live `.e2ee-state.json`. Called on disconnect (instead of a bare delete)
+/// and when the persisted state is dropped because the collection identity
+/// changed. The ancestry file keeps filename → {objectId, lastSyncedHash} so
+/// the next empty-map reconcile can tell "stale here but never edited on this
+/// device" (fast-forward to remote) and "edited here against an unchanged
+/// remote" (push as update) apart from true divergence — instead of parking a
+/// `name (conflict <oid8>).md` copy for every note that drifted while the
+/// device was disconnected (the July 2026 conflict-spam incident).
+///
+/// When there is no persisted state (double disconnect, fresh install) any
+/// existing ancestry file is left untouched.
+///
+/// Deleting the live state is the load-bearing step and must NOT be gated on
+/// the ancestry write succeeding: the object map surviving a disconnect is the
+/// mass-tombstone hazard (a reconnect would read files deleted-while-
+/// disconnected as deletions and propagate them fleet-wide). All three
+/// disconnect callers swallow this function's error, so an early-return before
+/// the delete would silently leave the live map on disk. The ancestry write is
+/// therefore best-effort — a failure only costs the next reconcile its
+/// fast-forward precision (it falls back to the conservative park), never
+/// correctness — while the delete's error is propagated.
+pub fn demote_state_to_ancestry(notes_root: &Path) -> Result<(), String> {
+    if let Some(state) = load_persisted_state(notes_root) {
+        let files: HashMap<String, AncestryEntry> = state
+            .object_map
+            .into_iter()
+            .filter_map(|(name, e)| {
+                e.hash.map(|hash| (name, AncestryEntry { object_id: e.object_id, hash }))
+            })
+            .collect();
+        if !files.is_empty() {
+            let persisted = PersistedAncestry {
+                version: ANCESTRY_FORMAT_VERSION,
+                collection_id: state.collection_id,
+                files,
+            };
+            match serde_json::to_string_pretty(&persisted) {
+                Ok(json) => {
+                    if let Err(e) = write_atomic_text(&ancestry_file_path(notes_root), &json) {
+                        eprintln!("[sync] failed to write ancestry on disconnect: {e}");
+                    }
+                }
+                Err(e) => eprintln!("[sync] failed to serialize ancestry on disconnect: {e}"),
+            }
+        }
+    }
+    delete_state_file(notes_root)
+}
+
+/// Load the ancestry map left behind by the last demote. Empty when absent
+/// or unreadable (ancestry is advisory — worst case the reconcile stays as
+/// conservative as it was before ancestry existed).
+pub fn load_ancestry(notes_root: &Path) -> HashMap<String, AncestryEntry> {
+    let raw = match std::fs::read_to_string(ancestry_file_path(notes_root)) {
+        Ok(raw) => raw,
+        Err(_) => return HashMap::new(),
+    };
+    match serde_json::from_str::<PersistedAncestry>(&raw) {
+        Ok(persisted) => persisted.files,
+        Err(_) => HashMap::new(),
+    }
+}
+
+/// Delete the ancestry file. Missing-file is not an error.
+pub fn delete_ancestry_file(notes_root: &Path) -> Result<(), String> {
+    match std::fs::remove_file(ancestry_file_path(notes_root)) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// Load the persisted state for a connect/resume to `current_collection_id`,
+/// demoting it to ancestry first when it would be reset (different or unknown
+/// collection tag) — see `reset_if_collection_changed`.
+pub fn load_for_collection(notes_root: &Path, current_collection_id: &str) -> Loaded {
+    let loaded = load(notes_root);
+    if !loaded.matches_collection(current_collection_id) {
+        // Preserve merge ancestry before dropping the stale map (best effort —
+        // a failed demote only costs reconcile precision, never correctness).
+        if let Err(e) = demote_state_to_ancestry(notes_root) {
+            eprintln!("[sync] failed to demote stale sync state to ancestry: {e}");
+        }
+    }
+    loaded.reset_if_collection_changed(current_collection_id)
 }
 
 #[cfg(test)]
@@ -442,6 +572,94 @@ mod tests {
         assert_eq!(loaded.max_version, 3);
         assert!(loaded.object_map.contains_key("canonical.md"));
         assert!(!loaded.object_map.contains_key("legacy.md"));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn demote_writes_ancestry_and_deletes_state() {
+        let root = temp_root();
+        let mut map = HashMap::new();
+        map.insert("note.md".to_owned(), entry("o1", 3, "bk1"));
+        let mut hashless = entry("o2", 1, "bk2");
+        hashless.hash = None;
+        map.insert("hashless.md".to_owned(), hashless);
+        persist(&root, &map, 10, "col-1").unwrap();
+
+        demote_state_to_ancestry(&root).unwrap();
+
+        assert!(!state_file_path(&root).exists(), "live state must be gone");
+        let anc = load_ancestry(&root);
+        assert_eq!(
+            anc.get("note.md"),
+            Some(&AncestryEntry { object_id: "o1".into(), hash: "o1-hash".into() })
+        );
+        // Entries with no recorded hash can't prove anything — dropped.
+        assert!(!anc.contains_key("hashless.md"));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn demote_deletes_state_even_when_ancestry_write_fails() {
+        // The live map surviving a disconnect is the mass-tombstone hazard, so
+        // the state delete must not be gated on the ancestry write. Force the
+        // ancestry write to fail by pre-creating `.e2ee-ancestry.json` as a
+        // DIRECTORY (write_atomic_text's rename onto it fails).
+        let root = temp_root();
+        let mut map = HashMap::new();
+        map.insert("note.md".to_owned(), entry("o1", 3, "bk1"));
+        persist(&root, &map, 10, "col-1").unwrap();
+        std::fs::create_dir(ancestry_file_path(&root)).unwrap();
+
+        // Best-effort ancestry write: the demote still succeeds and the live
+        // state is gone.
+        demote_state_to_ancestry(&root).unwrap();
+        assert!(!state_file_path(&root).exists(), "live state must be deleted even if ancestry write fails");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn demote_without_state_keeps_existing_ancestry() {
+        // Double disconnect / disconnect after a fresh install: the second
+        // demote finds no live state and must NOT clobber the ancestry the
+        // first one wrote.
+        let root = temp_root();
+        let mut map = HashMap::new();
+        map.insert("note.md".to_owned(), entry("o1", 3, "bk1"));
+        persist(&root, &map, 10, "col-1").unwrap();
+        demote_state_to_ancestry(&root).unwrap();
+
+        demote_state_to_ancestry(&root).unwrap();
+        assert_eq!(load_ancestry(&root).len(), 1);
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn load_ancestry_missing_or_garbage_is_empty() {
+        let root = temp_root();
+        assert!(load_ancestry(&root).is_empty());
+        std::fs::write(ancestry_file_path(&root), "not json").unwrap();
+        assert!(load_ancestry(&root).is_empty());
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn load_for_collection_demotes_on_mismatch_keeps_on_match() {
+        let root = temp_root();
+        let mut map = HashMap::new();
+        map.insert("note.md".to_owned(), entry("o1", 3, "bk1"));
+        persist(&root, &map, 29, "col-old").unwrap();
+
+        // Same collection: state survives, no ancestry written.
+        let same = load_for_collection(&root, "col-old");
+        assert_eq!(same.max_version, 29);
+        assert!(load_ancestry(&root).is_empty());
+
+        // Different collection: state reset AND demoted to ancestry.
+        let reset = load_for_collection(&root, "col-new");
+        assert_eq!(reset.max_version, 0);
+        assert!(reset.object_map.is_empty());
+        assert!(!state_file_path(&root).exists());
+        assert_eq!(load_ancestry(&root).get("note.md").map(|a| a.object_id.as_str()), Some("o1"));
         std::fs::remove_dir_all(&root).ok();
     }
 

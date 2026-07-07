@@ -371,6 +371,31 @@ client uploads opaque encrypted blobs — note content is encrypted before uploa
   object — instead of recording a divergence entry that the next push pushed
   over the never-reconciled remote (F6). → futo-notes-sync
   `orchestrator::reconcile_empty_map` diverged branch
+- **Disconnect demotes sync state to ancestry; it never just deletes it.**
+  Disconnect (all three clients) replaces `.e2ee-state.json` with
+  `.e2ee-ancestry.json` — filename → {objectId, last-synced content hash} —
+  and the same demotion runs when a persisted state is dropped because the
+  collection identity changed. The live cursor/object map is still discarded,
+  so a reconnect can never propagate while-disconnected deletions as
+  fleet-wide tombstones (missing local files are re-downloaded, as before).
+  → futo-notes-sync `state::demote_state_to_ancestry` /
+  `state::load_for_collection`, ffi `SyncClient::disconnect`, desktop
+  `e2ee_disconnect`
+- **A reconnect after fleet drift does not mint conflict copies for notes the
+  device never edited.** The empty-map reconcile consults the ancestry file:
+  for the same objectId, local hash == last-synced hash ⇒ only the remote
+  moved ⇒ fast-forward to the remote (no park); remote hash == last-synced
+  hash ⇒ only local was edited while disconnected ⇒ keep local and push it as
+  an update to the SAME object (no park, no duplicate object). Both sides
+  changed, or no ancestry (fresh install, notes copied in without dotfiles) ⇒
+  the conservative F6 park above. This closes the July 2026 incident where a
+  password re-login on a device that had been disconnected for days parked a
+  stale `(conflict <oid8>)` copy of every note edited elsewhere in the
+  meantime and synced the copies to the whole fleet. → futo-notes-sync
+  `orchestrator::reconcile_empty_map` ancestry branch; regression tests
+  `reconnect_after_remote_drift_fast_forwards_instead_of_parking`,
+  `reconnect_after_local_edit_updates_same_object_instead_of_parking`,
+  `state::tests::demote_*` / `load_for_collection_*`
 - `write_atomic_text` overwrites a destination that differs only in **filename
   case** from an existing file instead of failing. On case-insensitive
   filesystems (default APFS on macOS/iOS, NTFS) `fs::rename` returns EEXIST for

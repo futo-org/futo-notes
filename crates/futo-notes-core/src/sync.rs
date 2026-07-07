@@ -198,17 +198,54 @@ pub fn conflict_filename(original: &str, date: &str, existing: &HashSet<String>)
 }
 
 fn split_conflict_name_parts(original: &str) -> (&str, &str) {
-    if let Some(base) = original.strip_suffix(".md") {
-        return (base, ".md");
-    }
-
-    if let Some((base, _ext)) = original.rsplit_once('.') {
-        if !base.is_empty() {
-            return (base, &original[base.len()..]);
+    let (base, ext) = if let Some(base) = original.strip_suffix(".md") {
+        (base, ".md")
+    } else if let Some((base, _ext)) = original.rsplit_once('.') {
+        if base.is_empty() {
+            (original, ".md")
+        } else {
+            (base, &original[base.len()..])
         }
-    }
+    } else {
+        (original, ".md")
+    };
 
-    (original, ".md")
+    (strip_trailing_conflict_suffixes(base), ext)
+}
+
+/// Strip any trailing run of ` (conflict <token>)` groups from a base name so
+/// re-conflicting an already-parked copy REPLACES its suffix instead of
+/// stacking a new one on top.
+///
+/// Without this, `foo (conflict A).md` re-conflicts to
+/// `foo (conflict A) (conflict B).md`, then `… (conflict C).md`, and so on:
+/// copies breed copies and a single note explodes into hundreds of
+/// ever-deeper files (the July 2026 combinatorial blow-up — 1081 objects of
+/// one note, names 8 suffixes deep, each round POSTing a new object under a
+/// deeper name). Peeling the run makes the name a pure function of the true
+/// base + the current loser, so the fleet converges to a bounded, flat set.
+///
+/// Idempotent: applying it to an already-stripped base is a no-op. A group is
+/// only peeled when its parenthesized token contains no nested parens, so a
+/// user title like `notes (conflict resolution)` loses at most its own
+/// trailing group when it is itself conflict-copied — never the canonical
+/// note, and never a partial parse.
+fn strip_trailing_conflict_suffixes(mut base: &str) -> &str {
+    const OPEN: &str = " (conflict ";
+    loop {
+        let trimmed = base.trim_end_matches(' ');
+        let Some(without_close) = trimmed.strip_suffix(')') else {
+            return base;
+        };
+        let Some(open_at) = without_close.rfind(OPEN) else {
+            return base;
+        };
+        let inner = &trimmed[open_at + OPEN.len()..trimmed.len() - 1];
+        if inner.contains('(') || inner.contains(')') {
+            return base;
+        }
+        base = &trimmed[..open_at];
+    }
 }
 
 /// Resolve a filename collision against an in-memory set of existing filenames.
@@ -705,6 +742,70 @@ mod tests {
         assert_eq!(
             conflict_filename("image.png", "2026-03-28", &existing),
             "image (conflict 2026-03-28).png"
+        );
+    }
+
+    // ── idempotent conflict naming (July 2026 combinatorial blow-up) ────
+    //
+    // Re-conflicting an already-parked copy must REPLACE the trailing
+    // (conflict …) run, not stack a deeper one — otherwise copies breed
+    // copies and one note explodes into hundreds of ever-deeper files.
+
+    #[test]
+    fn conflict_filename_does_not_stack_on_a_parked_copy() {
+        let existing = HashSet::new();
+        // Date-based path (push 409 conflict copy).
+        assert_eq!(
+            conflict_filename("note (conflict 2026-03-28).md", "2026-03-29", &existing),
+            "note (conflict 2026-03-29).md"
+        );
+    }
+
+    #[test]
+    fn collision_conflict_filename_does_not_stack_on_a_parked_copy() {
+        // oid-based path (pull collision resolver) — the exact shape seen in
+        // the blow-up: `foo (conflict 019f3d55).md` re-conflicting must not
+        // become `foo (conflict 019f3d55) (conflict 019f3d9d).md`.
+        assert_eq!(
+            collision_conflict_filename("futo notes top priorities (conflict 019f3d55).md", "019f3d9d-aaaa"),
+            "futo notes top priorities (conflict 019f3d9d).md"
+        );
+    }
+
+    #[test]
+    fn collision_conflict_filename_peels_deep_stacks_flat() {
+        // A name already 3 suffixes deep collapses to a single suffix.
+        assert_eq!(
+            collision_conflict_filename("foo (conflict A) (conflict B) (conflict C).md", "019f3d9d"),
+            "foo (conflict 019f3d9d).md"
+        );
+    }
+
+    #[test]
+    fn conflict_naming_is_idempotent_across_rounds() {
+        // Applying the collision namer to its own output with the SAME loser
+        // object_id is a fixed point — the loop can't deepen the name.
+        let once = collision_conflict_filename("foo.md", "019f3d9d");
+        let twice = collision_conflict_filename(&once, "019f3d9d");
+        assert_eq!(once, twice, "re-parking the same loser must be a fixed point");
+        assert_eq!(twice, "foo (conflict 019f3d9d).md");
+    }
+
+    #[test]
+    fn conflict_naming_preserves_extension_when_stripping_stack() {
+        assert_eq!(
+            collision_conflict_filename("image (conflict A).png", "019f3d9d"),
+            "image (conflict 019f3d9d).png"
+        );
+    }
+
+    #[test]
+    fn conflict_naming_leaves_user_title_with_nested_parens_untouched() {
+        // A parenthesized token containing parens is not our format — don't
+        // peel it (avoids mangling an unrelated user title).
+        assert_eq!(
+            collision_conflict_filename("plan (conflict (draft)).md", "019f3d9d"),
+            "plan (conflict (draft)) (conflict 019f3d9d).md"
         );
     }
 
