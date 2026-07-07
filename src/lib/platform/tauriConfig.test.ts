@@ -93,6 +93,19 @@ describe('getConfig', () => {
     expect(cfg.graphSidebarWidth).toBe(400);
   });
 
+  it('degrades to defaults when the config read is denied (macOS EPERM)', async () => {
+    setupInvokeMock();
+    const { readTextFile, exists } = await import('@tauri-apps/plugin-fs');
+    vi.mocked(exists).mockResolvedValueOnce(true);
+    // macOS TCC/permission denial opening .app-config.json.
+    vi.mocked(readTextFile).mockRejectedValueOnce(
+      new Error('Operation not permitted (os error 1)'),
+    );
+    const cfg = await getConfig();
+    expect(cfg.notesDir).toBe('/home/user/Documents/futo-notes');
+    expect(cfg.sidebarWidth).toBeUndefined();
+  });
+
   it('handles invalid JSON in config file gracefully', async () => {
     setupInvokeMock();
     const { readTextFile, exists } = await import('@tauri-apps/plugin-fs');

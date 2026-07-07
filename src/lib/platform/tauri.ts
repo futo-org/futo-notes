@@ -536,7 +536,16 @@ export function onMenuAction(callback: (action: string) => void): () => void {
 const APP_CONFIG_PATH = '.app-config.json';
 
 async function loadAppConfigFile(): Promise<AppConfigFile> {
-  const raw = await tauriFS.readAppData(APP_CONFIG_PATH);
+  let raw: string | null;
+  try {
+    raw = await tauriFS.readAppData(APP_CONFIG_PATH);
+  } catch (err) {
+    // On macOS a TCC/permission denial makes the open reject EPERM. Degrade to
+    // defaults so settings still load, and surface the error rather than
+    // letting it become an unhandled rejection / crash report.
+    console.warn(`Failed to read ${APP_CONFIG_PATH}, using defaults:`, err);
+    return {};
+  }
   if (!raw) return {};
   try {
     return JSON.parse(raw) as AppConfigFile;
