@@ -30,12 +30,12 @@ import { createReadStream, copyFileSync, existsSync, mkdirSync, readFileSync, re
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { buildManifest } from './build-updater-manifest.mjs';
+import { readDesktopVersions, restoreDesktopVersions, setDesktopVersion, TAURI_CONF as BASE_CONF } from './desktop-version.mjs';
 import { verifyArtifactFile } from './verify-updater-signature.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const TAURI_DIR = join(ROOT, 'apps', 'tauri');
 const SRC_TAURI = join(TAURI_DIR, 'src-tauri');
-const BASE_CONF = join(SRC_TAURI, 'tauri.conf.json');
 const DEFAULT_PORT = 8787;
 
 const log = (m) => process.stdout.write(`[release-build] ${m}\n`);
@@ -128,17 +128,14 @@ function mesaPatch(dir) {
   run('node', [patch, '--dir', dir]);
 }
 
-/** Stamp tauri.conf.json version (CI's .set-version does this from the tag; here
- *  for local multi-version builds). Only writes when the value actually changes,
- *  so a same-version call can't dirty the file via reformatting. Always paired
- *  with withVersionRestore() so the working tree returns to its committed state. */
+/** Stamp both desktop version sources: Tauri's generated package info reads
+ *  tauri.conf.json, while Rust-only crash reports read CARGO_PKG_VERSION from
+ *  Cargo.toml. CI's .set-version does the same from the tag; this covers local
+ *  multi-version builds. */
 function setVersion(version) {
-  const conf = JSON.parse(readFileSync(BASE_CONF, 'utf8'));
-  if (conf.version === version) return;
-  conf.version = version;
-  writeFileSync(BASE_CONF, JSON.stringify(conf, null, 2) + '\n');
+  setDesktopVersion(version);
 }
-const readBaseVersion = () => JSON.parse(readFileSync(BASE_CONF, 'utf8')).version;
+const readBaseVersion = () => readDesktopVersions().tauriConfig;
 
 /** The minisign pubkey the chosen profile's CLIENT bakes: localdev from its
  *  overlay, prod inherited from the base config (the release overlay adds no
@@ -150,12 +147,12 @@ function profilePubkey(profile) {
   return pk;
 }
 
-/** Run `fn`, then ALWAYS restore tauri.conf.json's version to what it was on
- *  entry — even if `fn` throws (die() throws, so finally runs). Keeps the
- *  working tree clean across local builds and failed builds alike. */
+/** Run `fn`, then ALWAYS restore both desktop version sources to what they
+ *  were on entry — even if `fn` throws (die() throws, so finally runs). Keeps
+ *  the working tree clean across local builds and failed builds alike. */
 function withVersionRestore(fn) {
-  const original = readBaseVersion();
-  try { return fn(); } finally { setVersion(original); }
+  const original = readDesktopVersions();
+  try { return fn(); } finally { restoreDesktopVersions(original); }
 }
 export const bumpPatch = (v) => { const m = String(v).match(/^(\d+)\.(\d+)\.(\d+)(.*)$/); if (!m) die(`unparseable version ${v}`); return `${m[1]}.${m[2]}.${Number(m[3]) + 1}${m[4]}`; };
 
