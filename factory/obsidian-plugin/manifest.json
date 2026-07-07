@@ -1,9 +1,0 @@
-{
-  "id": "futo-notes-factory-driver",
-  "name": "FUTO Notes Factory Driver",
-  "version": "0.0.1",
-  "minAppVersion": "1.4.0",
-  "description": "Exposes Obsidian's CM6 editor state over localhost HTTP for cross-editor scenario comparison.",
-  "author": "FUTO Notes",
-  "isDesktopOnly": true
-}

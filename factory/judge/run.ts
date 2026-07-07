@@ -13,7 +13,7 @@
 
 import { spawn, ChildProcess } from 'child_process';
 import { chromium, Browser, Page } from 'playwright';
-import { writeFileSync, readFileSync, mkdirSync, copyFileSync, existsSync, rmSync, unlinkSync } from 'fs';
+import { writeFileSync, readFileSync, mkdirSync, existsSync, rmSync, unlinkSync } from 'fs';
 import * as net from 'net';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -31,7 +31,6 @@ import type { DriverEvent, DriverState } from '../driver/protocol.ts';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '../..');
 const VAULT_DIR = path.join(REPO, 'factory/captures/obsidian-vault');
-const PLUGIN_SRC = path.join(REPO, 'factory/obsidian-plugin');
 const OBSIDIAN_CDP_PORT = 9876;
 const OBSIDIAN_CONFIG_DIR = path.join(
   process.env.HOME || '',
@@ -975,14 +974,7 @@ async function waitForUrl(url: string, timeoutMs: number): Promise<void> {
 const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 function setupVault() {
-  mkdirSync(path.join(VAULT_DIR, '.obsidian/plugins/futo-notes-factory-driver'), { recursive: true });
-  for (const f of ['manifest.json', 'main.js']) {
-    copyFileSync(path.join(PLUGIN_SRC, f), path.join(VAULT_DIR, '.obsidian/plugins/futo-notes-factory-driver', f));
-  }
-  writeFileSync(
-    path.join(VAULT_DIR, '.obsidian/community-plugins.json'),
-    JSON.stringify(['futo-notes-factory-driver']),
-  );
+  mkdirSync(path.join(VAULT_DIR, '.obsidian'), { recursive: true });
   writeFileSync(
     path.join(VAULT_DIR, '.obsidian/app.json'),
     JSON.stringify({ promptDelete: false, livePreview: true, foldHeading: false, foldIndent: false, safeMode: false, trustedTypes: true }),

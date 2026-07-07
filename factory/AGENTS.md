@@ -1,5 +1,18 @@
 # AGENTS.md - Factory
 
+## Status
+
+Campaign tool. This harness requires a Linux host with flatpak Obsidian.
+The entry point is the `/editor-parity` skill. Do not port or maintain this
+harness unless a parity campaign is active.
+
+The durable regression net is `markdown-spec/cases/` plus
+`tests/markdown-spec.spec.ts`.
+
+If a parity campaign restarts: unify the three copies of `classToKinds` into
+one module consumed by both drivers, drop `--no-moves` from the justfile
+defaults, and build the planned holdout corpus.
+
 A judge that compares FUTO Notes's CodeMirror 6 editor to Obsidian's, scenario by scenario, so we can converge on Obsidian-style live-preview behavior without writing assertions by hand.
 
 ## Why this exists
@@ -53,7 +66,6 @@ Both editors expose the same `__driver` API on their `window`, so the runner is 
 | `factory/judge/visualDiff.ts` | Phase-1 visual oracle: clip-bounded screenshot per editor + pixel diff via `pixelmatch` |
 | `factory/judge/visualReport.ts` | Generates `factory/captures/visual-report.html` — side-by-side SF/OB/diff PNGs sorted by drift |
 | `factory/themes/neutral.css` | Stripped theme injected into both pages so any pixel difference is structural, not chrome |
-| `factory/obsidian-plugin/` | Earlier attempt: an HTTP plugin. Not used (CDP path replaced it). Kept as fallback |
 | `factory/captures/last-run.json` | Most recent report. `{summary: {total, passed, errored, satisfaction, buckets}, reports: [{name, complexity, satisfaction, divergences[], futoNotes, obsidian}]}` |
 | `factory/captures/screenshots/` | `<name>.{sf,ob,diff}.png` for each scenario in the curated visual set (regenerated each `factory-visual` run, gitignored) |
 | `factory/captures/visual-report.html` | Side-by-side viewer + LLM-judge entry point (gitignored) |
@@ -63,7 +75,7 @@ Both editors expose the same `__driver` API on their `window`, so the runner is 
 
 1. Load YAML scenarios via `markdown-spec/loader.ts`. Filters: `--max N`, `--filter <name-substring>`, `--no-moves`.
 2. Start (or reuse) Vite dev on `localhost:5173`.
-3. `setupVault()` writes plugin/config files into `factory/captures/obsidian-vault/.obsidian/` (the factory plugin is copied in too, but the CDP path doesn't need it).
+3. `setupVault()` writes config files into `factory/captures/obsidian-vault/.obsidian/`.
 4. `prepareObsidianRegistry()` backs up `~/.var/app/md.obsidian.Obsidian/config/obsidian/obsidian.json`, sets every existing vault to `open: false`, registers our factory vault under a stable hex id (`fac701ffac701ff0`) with `open: true`. Cleanup restores the original.
 5. `flatpak kill md.obsidian.Obsidian` (in case one is up), then `flatpak run md.obsidian.Obsidian --remote-debugging-port=9876 <vault>`.
 6. Wait for CDP, `chromium.connectOverCDP`, find the renderer page whose title matches `Obsidian`, evaluate that `window.app.workspace` exists.
