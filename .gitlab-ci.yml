@@ -1,7 +1,14 @@
 default:
   tags:
     - dind
-  image: gitlab.futo.org:5050/futocore/ci/kitchensink:latest
+  # Pinned by digest, not `:latest`, so a rebuild of the shared org-wide
+  # kitchensink image can't silently change our CI environment out from under
+  # us. This digest is the `:latest` that all default-image jobs already run
+  # on. Bump it deliberately (resolve via the registry API:
+  # /projects/402/registry/repositories/97/tags/latest) when we want a newer
+  # base. Note: kitchensink does NOT carry the GTK/webkit dev libs, so any job
+  # that compiles the Tauri desktop crate must run `.setup-linux-deps` itself.
+  image: gitlab.futo.org:5050/futocore/ci/kitchensink@sha256:2df4951967506d9dc31ad4dea6d7b03eb4ddea21f3bd5e500ef3d3be924e589f
   interruptible: true
   before_script:
     - . $HOME/.nvm/nvm.sh
@@ -450,6 +457,12 @@ test:rust:workspace:
   cache:
     - !reference [.cache-cargo-tauri, cache]
   script:
+    # `cargo test --workspace` compiles the futo-notes-tauri desktop crate,
+    # which links gtk-sys/gobject-sys and needs the GTK/webkit dev libs. The
+    # default kitchensink image does not ship them, so install them here — the
+    # same pattern the linux build + cross-platform-sync jobs already use.
+    # Without this the job dies at `gobject-2.0 not found`.
+    - !reference [.setup-linux-deps, script]
     - !reference [.setup-rust, script]
     - mkdir -p dist
     - cargo test --workspace
@@ -466,6 +479,10 @@ test:rust:workspace:
         - apps/tauri/Cargo.toml
         - scripts/build-rust-android.sh
         - scripts/build-rust-ios.sh
+        # CI config changes can alter this job's toolchain/system-dep setup
+        # (e.g. the GTK deps it needs to compile the tauri crate) — re-run the
+        # workspace tests so an environment break is caught on that change.
+        - .gitlab-ci.yml
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       changes: *rust-workspace-changes
 
