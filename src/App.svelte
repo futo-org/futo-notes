@@ -48,7 +48,7 @@
   import { flushCrashQueue, setAppVersion, type CrashReport } from '$lib/crashHandler';
   import { sendAllPendingReports, discardAllPendingReports, loadPendingReports, getLastSendError } from '$lib/crashReporter';
   import { installTestSync } from '$lib/testSync';
-  import { searchNotes, isSearchIndexPopulated } from '$lib/searchIndex';
+  import { searchNotes, isSearchIndexPopulated } from '$features/search/searchIndex';
 
   // Synchronous listener install — keeps OS file drops from navigating the
   // webview away from the app (required on Windows where dragDropEnabled is

@@ -5,7 +5,7 @@
 // is NOT removed.
 
 import { invoke } from '@tauri-apps/api/core';
-import { isTauri } from './platform';
+import { isTauri } from '$lib/platform';
 
 /** Mirrors the Rust `futo_notes_search::SearchHit` (serde camelCase). */
 export interface EngineSearchHit {

@@ -23,7 +23,7 @@ import {
 } from '$lib/notes.svelte';
 import { startAutoSyncV2, stopAutoSyncV2, notifySavedV2, type SyncTrigger } from '$lib/autoSyncV2';
 import { updateAppState } from '$lib/appState';
-import { engineNotify } from '$lib/searchEngine';
+import { engineNotify } from '$features/search/searchEngine';
 
 // ── Dependency interface ─────────────────────────────────────────────────
 

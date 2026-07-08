@@ -23,8 +23,8 @@ import {
   persistIndex,
   getMtimeMap,
   clearSearchIndex,
-} from './searchIndex';
-import { engineQuery, engineNotify, engineStatus, engineRebuild } from './searchEngine';
+} from '$features/search/searchIndex';
+import { engineQuery, engineNotify, engineStatus, engineRebuild } from '$features/search/searchEngine';
 import { runPool } from './util/pool';
 import { rewriteWikilinks } from './wikilinks';
 import { refreshEmptyFolders } from './folders.svelte';

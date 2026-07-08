@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { SearchResultItem } from '../types';
+  import type { SearchResultItem } from '../../types';
   import { searchKeyword } from '$lib/notes.svelte';
   import { shouldPreventScrollChaining } from '$lib/touchScrollContain';
 

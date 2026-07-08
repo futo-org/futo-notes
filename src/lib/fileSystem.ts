@@ -1,7 +1,7 @@
 import { getFS } from './platform';
 import type { NoteFile } from './platform';
 import { writeSuppressor } from './writeSuppression';
-import { engineNotify } from './searchEngine';
+import { engineNotify } from '$features/search/searchEngine';
 
 export type { NoteFile };
 

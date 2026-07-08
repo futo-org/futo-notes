@@ -20,7 +20,7 @@ const notify = engineNotify as unknown as ReturnType<typeof vi.fn>;
 // notes.svelte.ts holds module-level state; reset modules for a clean cache.
 async function freshNotes() {
   vi.resetModules();
-  return import('./notes.svelte');
+  return import('$lib/notes.svelte');
 }
 
 beforeEach(() => {
