@@ -24,7 +24,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -42,13 +42,35 @@ use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 
 use crate::client::{
-    parse_iso_ms, AuthMode, ConflictResponse, DeleteResult, E2eeClient, PutResult, ServerObject,
+    parse_iso_ms, AuthMode, BatchBlobStatus, ConflictResponse, DeleteResult, E2eeClient,
+    E2eeHttpError, PutResult, ServerObject,
 };
 use crate::state::{self, ConnectedState, E2eeObjectMapEntry};
 
 const PULL_CONCURRENCY: usize = 8;
 const PUSH_CONCURRENCY: usize = 8;
 const PROGRESS_COALESCE_MS: i64 = 50;
+
+// ── Batch pull tuning ──
+// Blobs are bin-packed (smallest first, using the size_bytes already in the
+// objects listing) into batch requests of ≤TARGET_CHUNK_BYTES/≤MAX_BATCH_KEYS,
+// fetched DOWNLOAD_CONCURRENCY at a time. 4 × 8 MiB bounds peak buffered
+// response memory at ~32 MiB (mobile-safe) while keeping the pipe full; blobs
+// at or over the chunk target gain nothing from batching and go through the
+// per-blob path, sized-timeout'd individually.
+const TARGET_CHUNK_BYTES: u64 = 8 * 1024 * 1024;
+/// Client-side keys-per-batch cap. Deliberately half the server's
+/// MAX_BATCH_KEYS (200) so the two limits can never disagree in practice.
+const MAX_BATCH_KEYS: usize = 100;
+const DOWNLOAD_CONCURRENCY: usize = 4;
+/// Whole-chunk retries (a chunk failure hits up to 100 objects, so unlike
+/// the per-blob path it earns a retry ladder) before degrading that chunk
+/// to per-blob GETs — which isolates a poison blob instead of sinking its
+/// neighbors, and is exactly the pre-batch code path.
+const BATCH_RETRY_BACKOFF: [std::time::Duration; 2] = [
+    std::time::Duration::from_millis(500),
+    std::time::Duration::from_secs(2),
+];
 
 // ── Hook types (Rule 1 + Rule 2 adaptations) ─────────────────────────────
 
@@ -614,6 +636,15 @@ pub enum FailureKind {
     Delete,
     /// An object-map checkpoint persist failure.
     Checkpoint,
+    /// A pull-side blob fetch failure (transport, 5xx, or blob missing on
+    /// the server). Generally transient; the cursor cap guarantees the
+    /// object is retried next cycle instead of silently skipped (issue #11).
+    Download,
+    /// A pulled blob that fetched fine but failed AES-GCM decrypt/unpack —
+    /// wrong key material or corruption, permanent for these bytes. Kept
+    /// distinct from `Download` so the UI can say so instead of blaming the
+    /// network.
+    Decrypt,
 }
 
 impl FailureKind {
@@ -624,6 +655,8 @@ impl FailureKind {
             FailureKind::Upload => "upload",
             FailureKind::Delete => "delete",
             FailureKind::Checkpoint => "checkpoint",
+            FailureKind::Download => "download",
+            FailureKind::Decrypt => "decrypt",
         }
     }
 }
@@ -646,16 +679,33 @@ impl SyncSummary {
     ///
     /// Upload/delete failures are server-bound ("couldn't reach the server",
     /// with the most frequent HTTP status appended when one exists — ties
-    /// keep the first-seen code). Checkpoint failures are local persist
-    /// errors and get their own clause; lumping them into the server count
-    /// would misdirect the user to the network.
+    /// keep the first-seen code). Download failures get a pull-side clause
+    /// (the data exists, this device just couldn't fetch it yet — retried
+    /// next cycle). Decrypt failures get their own clause: they indicate key
+    /// material or corruption, and blaming the network would misdirect the
+    /// user. Checkpoint failures are local persist errors, same reasoning.
     pub fn failure_message(&self) -> Option<String> {
         let server: Vec<&SyncFailure> = self
             .failures
             .iter()
-            .filter(|f| f.kind != FailureKind::Checkpoint)
+            .filter(|f| {
+                f.kind == FailureKind::Upload || f.kind == FailureKind::Delete
+            })
             .collect();
-        let checkpoint_failed = self.failures.len() > server.len();
+        let downloads = self
+            .failures
+            .iter()
+            .filter(|f| f.kind == FailureKind::Download)
+            .count();
+        let decrypts = self
+            .failures
+            .iter()
+            .filter(|f| f.kind == FailureKind::Decrypt)
+            .count();
+        let checkpoint_failed = self
+            .failures
+            .iter()
+            .any(|f| f.kind == FailureKind::Checkpoint);
 
         let mut parts: Vec<String> = Vec::new();
         if !server.is_empty() {
@@ -676,6 +726,16 @@ impl SyncSummary {
                 msg.push_str(&format!(" (HTTP {top})"));
             }
             parts.push(msg);
+        }
+        if downloads > 0 {
+            let noun = if downloads == 1 { "note" } else { "notes" };
+            parts.push(format!(
+                "{downloads} {noun} couldn't be downloaded (will retry)"
+            ));
+        }
+        if decrypts > 0 {
+            let noun = if decrypts == 1 { "note" } else { "notes" };
+            parts.push(format!("{decrypts} {noun} couldn't be decrypted"));
         }
         if checkpoint_failed {
             parts.push("sync state couldn't be saved locally".to_owned());
@@ -851,29 +911,423 @@ struct DownloadedNote {
     modified_at_ms: i64,
 }
 
-async fn download_and_decrypt(
-    http: Arc<E2eeClient>,
-    vault_key: Arc<[u8; KEY_BYTES]>,
-    obj: ServerObject,
-) -> Result<DownloadedNote, String> {
-    let blob_key = obj.blob_key.clone().ok_or("server object has no blob_key")?;
-    let ciphertext = http.get_blob(&blob_key).await.map_err(http_err_to_string)?;
-    // Decrypt + unpack are CPU work; keep them inline — fast enough that
-    // spawn_blocking overhead would dominate for typical 5KB notes.
-    let plaintext = e2ee::aes_gcm_decrypt(&vault_key, &ciphertext).map_err(e2ee_err_to_string)?;
-    let note = e2ee::unpack_note(&plaintext).map_err(e2ee_err_to_string)?;
+/// Why one object's blob failed to land. `Download` (transport/5xx/missing)
+/// is generally transient; `Decrypt` is permanent for these bytes. The kind
+/// feeds `SyncFailure` and the change_seq-based cursor cap (issue #11).
+#[derive(Debug)]
+struct DownloadError {
+    kind: FailureKind,
+    status_code: Option<u16>,
+    message: String,
+}
+
+impl DownloadError {
+    fn download(message: String, status_code: Option<u16>) -> Self {
+        Self { kind: FailureKind::Download, status_code, message }
+    }
+
+    fn from_http(e: E2eeHttpError) -> Self {
+        let status = match &e {
+            E2eeHttpError::Http { status, .. } => Some(*status),
+            _ => None,
+        };
+        Self::download(format!("{e}"), status)
+    }
+
+    fn decrypt(message: String) -> Self {
+        Self { kind: FailureKind::Decrypt, status_code: None, message }
+    }
+}
+
+/// Decrypt + unpack fetched ciphertext into a [`DownloadedNote`]. CPU work,
+/// kept inline — fast enough that spawn_blocking overhead would dominate for
+/// typical 5KB notes. Shared by the batch and per-blob paths.
+fn decrypt_downloaded(
+    vault_key: &[u8; KEY_BYTES],
+    obj: &ServerObject,
+    blob_key: &str,
+    ciphertext: &[u8],
+) -> Result<DownloadedNote, DownloadError> {
+    let plaintext = e2ee::aes_gcm_decrypt(vault_key, ciphertext)
+        .map_err(|e| DownloadError::decrypt(e2ee_err_to_string(e)))?;
+    let note = e2ee::unpack_note(&plaintext)
+        .map_err(|e| DownloadError::decrypt(e2ee_err_to_string(e)))?;
     let hash = hash_sha256(&note.content);
     let modified_at_ms = parse_iso_ms(&obj.updated_at).unwrap_or_else(now_ms);
     Ok(DownloadedNote {
-        object_id: obj.id,
+        object_id: obj.id.clone(),
         version: obj.version,
         change_seq: obj.change_seq,
-        blob_key,
+        blob_key: blob_key.to_owned(),
         filename: note.path,
         content: note.content,
         hash,
         modified_at_ms,
     })
+}
+
+async fn download_and_decrypt(
+    http: Arc<E2eeClient>,
+    vault_key: Arc<[u8; KEY_BYTES]>,
+    obj: ServerObject,
+) -> Result<DownloadedNote, DownloadError> {
+    let blob_key = obj
+        .blob_key
+        .clone()
+        .ok_or_else(|| DownloadError::download("server object has no blob_key".into(), None))?;
+    let ciphertext = http
+        .get_blob_sized(&blob_key, obj.size_bytes.unwrap_or(0))
+        .await
+        .map_err(DownloadError::from_http)?;
+    decrypt_downloaded(&vault_key, &obj, &blob_key, &ciphertext)
+}
+
+// ── Batched download stage (shared by run_pull and reconcile_empty_map) ──
+
+/// One failed object out of a download stage: enough to surface a
+/// [`SyncFailure`] AND cap the persisted cursor below its `change_seq` so
+/// the next pull re-lists and retries it (issue #11).
+struct FailedDownload {
+    change_seq: u64,
+    failure: SyncFailure,
+}
+
+/// One unit of download work after bin-packing.
+enum DownloadJob {
+    /// ≥2 objects fetched in a single `POST /api/blobs/batch` request.
+    Batch(Vec<ServerObject>),
+    /// One object fetched via the classic per-blob GET: oversized (its own
+    /// optimal "chunk" already), unknown-size, blob_key-less (defensive), or
+    /// a leftover singleton — batching a single key buys nothing, and this
+    /// keeps a 1-file sync byte-for-byte identical to the pre-batch client.
+    Single(ServerObject),
+}
+
+/// Greedy bin-packing, smallest first. Sorting ascending by size puts all
+/// the ~5KB notes in the first chunks — on an image-heavy first sync the
+/// full text of the vault lands before the first photo, which is most of
+/// the *perceived* speedup. Sizes come from the objects listing; a stale or
+/// absent size can't break anything (the server's byte cap answers
+/// status=omitted and the object degrades to the per-blob path).
+fn plan_download_jobs(mut objs: Vec<ServerObject>) -> Vec<DownloadJob> {
+    objs.sort_by_key(|o| o.size_bytes.unwrap_or(u64::MAX));
+    let mut jobs: Vec<DownloadJob> = Vec::new();
+    let mut cur: Vec<ServerObject> = Vec::new();
+    let mut cur_bytes: u64 = 0;
+
+    fn flush(cur: &mut Vec<ServerObject>, cur_bytes: &mut u64, jobs: &mut Vec<DownloadJob>) {
+        *cur_bytes = 0;
+        match cur.len() {
+            0 => {}
+            1 => jobs.push(DownloadJob::Single(cur.pop().expect("len checked"))),
+            _ => jobs.push(DownloadJob::Batch(std::mem::take(cur))),
+        }
+    }
+
+    for obj in objs {
+        match (obj.blob_key.is_some(), obj.size_bytes) {
+            (true, Some(s)) if s < TARGET_CHUNK_BYTES => {
+                if cur_bytes + s > TARGET_CHUNK_BYTES || cur.len() >= MAX_BATCH_KEYS {
+                    flush(&mut cur, &mut cur_bytes, &mut jobs);
+                }
+                cur_bytes += s;
+                cur.push(obj);
+            }
+            _ => jobs.push(DownloadJob::Single(obj)),
+        }
+    }
+    flush(&mut cur, &mut cur_bytes, &mut jobs);
+    jobs
+}
+
+/// Issue #11: the cursor a pull may persist, given its failures. Never past
+/// the lowest failed `change_seq`, so the next `list_objects(since)` re-lists
+/// the failed object (and everything after it — cheap and idempotent: the
+/// object_map skip in `first_pass` no-ops the already-landed ones).
+fn cap_cursor(new_max: u64, failed: &[FailedDownload]) -> u64 {
+    match failed.iter().map(|f| f.change_seq).min() {
+        Some(lowest) => new_max.min(lowest.saturating_sub(1)),
+        None => new_max,
+    }
+}
+
+/// Outcome of one batch request's worth of objects.
+struct BatchJobResult {
+    downloaded: Vec<DownloadedNote>,
+    /// Objects to degrade to the per-blob path: endpoint absent (old
+    /// server), retry ladder exhausted, or per-entry status=omitted.
+    retry_as_singles: Vec<ServerObject>,
+    /// Per-entry terminal outcomes: decrypt failures and missing blobs.
+    failed: Vec<(ServerObject, DownloadError)>,
+}
+
+/// Whether a failed batch request is worth the whole-chunk retry ladder.
+/// Transport errors, malformed bodies, and 5xx/408/429 are plausibly
+/// transient; any other 4xx (401, 403, 400…) will fail identically on
+/// retry, so the chunk degrades to per-blob GETs immediately instead of
+/// burning the backoff first. (404 is handled before this: endpoint absent
+/// → per-blob fallback.)
+fn batch_retryable(e: &E2eeHttpError) -> bool {
+    match e {
+        E2eeHttpError::Http { status, .. } => *status >= 500 || *status == 408 || *status == 429,
+        _ => true,
+    }
+}
+
+async fn run_batch_job(
+    http: Arc<E2eeClient>,
+    vault_key: Arc<[u8; KEY_BYTES]>,
+    objs: Vec<ServerObject>,
+    batch_unsupported: Arc<AtomicBool>,
+) -> BatchJobResult {
+    let mut result = BatchJobResult {
+        downloaded: Vec::with_capacity(objs.len()),
+        retry_as_singles: Vec::new(),
+        failed: Vec::new(),
+    };
+    // A sibling job already learned the server has no batch endpoint —
+    // don't burn a round trip rediscovering it.
+    if batch_unsupported.load(Ordering::Relaxed) {
+        result.retry_as_singles = objs;
+        return result;
+    }
+
+    let keys: Vec<String> = objs
+        .iter()
+        .filter_map(|o| o.blob_key.clone())
+        .collect();
+    debug_assert_eq!(keys.len(), objs.len(), "planner only batches keyed objects");
+    let expected_bytes: u64 = objs.iter().filter_map(|o| o.size_bytes).sum();
+
+    let mut attempt = 0usize;
+    let entries = loop {
+        match http.get_blobs_batch(&keys, expected_bytes).await {
+            Ok(entries) => break entries,
+            Err(E2eeHttpError::Http { status: 404, .. }) => {
+                // Old server without the endpoint. Pull-wide flag (fresh per
+                // download_all call): every remaining batch in THIS pull
+                // degrades to the per-blob path; the next pull re-probes once.
+                batch_unsupported.store(true, Ordering::Relaxed);
+                result.retry_as_singles = objs;
+                return result;
+            }
+            Err(e) if attempt < BATCH_RETRY_BACKOFF.len() && batch_retryable(&e) => {
+                eprintln!("[e2ee] batch download attempt {} failed: {e}", attempt + 1);
+                tokio::time::sleep(BATCH_RETRY_BACKOFF[attempt]).await;
+                attempt += 1;
+            }
+            Err(e) => {
+                // Ladder exhausted or non-retryable (e.g. 401) — degrade to
+                // per-blob GETs, which isolate a poison blob instead of
+                // sinking the whole chunk, and produce the per-object
+                // failure attribution.
+                eprintln!("[e2ee] batch download failed: {e}");
+                result.retry_as_singles = objs;
+                return result;
+            }
+        }
+    };
+
+    // Rejoin entries to objects by key (uuid blob keys are unique). Any
+    // object the response didn't cover — protocol violation — degrades to
+    // the per-blob path rather than being dropped.
+    let mut by_key: HashMap<&str, &ServerObject> = HashMap::with_capacity(objs.len());
+    for obj in &objs {
+        if let Some(k) = obj.blob_key.as_deref() {
+            if let Some(prev) = by_key.insert(k, obj) {
+                // Two objects sharing a blob_key (shouldn't happen — server
+                // keys are uuids) would make the rejoin drop one silently
+                // (last-wins + covered check), advancing the cursor past the
+                // dropped object. Degrade the loser to the per-blob path
+                // instead: it fetches the shared blob under its own object.
+                eprintln!("[e2ee] duplicate blob_key {k} across objects; degrading one to per-blob");
+                result.retry_as_singles.push(prev.clone());
+            }
+        }
+    }
+    let mut covered: HashSet<String> = HashSet::with_capacity(entries.len());
+    for entry in entries {
+        let Some(&obj) = by_key.get(entry.key.as_str()) else {
+            eprintln!("[e2ee] batch response contained unrequested key {}", entry.key);
+            continue;
+        };
+        if !covered.insert(entry.key.clone()) {
+            // Duplicate frame for a key (only possible when the request
+            // itself carried duplicates): the first frame already decided
+            // this key's outcome — processing it again would double-download
+            // the winner.
+            continue;
+        }
+        match entry.status {
+            BatchBlobStatus::Ok => {
+                match decrypt_downloaded(&vault_key, obj, &entry.key, &entry.bytes) {
+                    Ok(note) => result.downloaded.push(note),
+                    Err(e) => result.failed.push((obj.clone(), e)),
+                }
+            }
+            BatchBlobStatus::Missing => result.failed.push((
+                obj.clone(),
+                DownloadError::download("blob missing on server".into(), Some(404)),
+            )),
+            BatchBlobStatus::Omitted => result.retry_as_singles.push(obj.clone()),
+        }
+    }
+    for obj in &objs {
+        let key = obj.blob_key.as_deref().unwrap_or_default();
+        if !covered.contains(key) {
+            result.retry_as_singles.push(obj.clone());
+        }
+    }
+    result
+}
+
+/// The shared download stage: fetch + decrypt every object in `to_download`,
+/// batching small blobs and degrading gracefully (old server, chunk failure,
+/// omitted tail) to the per-blob path. Returns the notes that landed plus
+/// per-object failures for the summary + cursor cap. Never errors as a
+/// whole: a total network outage simply returns everything as failed.
+async fn download_all(
+    http: Arc<E2eeClient>,
+    vault_key: Arc<[u8; KEY_BYTES]>,
+    to_download: Vec<ServerObject>,
+    filename_by_object_id: &HashMap<String, String>,
+    progress_emitter: &ProgressEmitter<'_>,
+) -> (Vec<DownloadedNote>, Vec<FailedDownload>) {
+    let mut downloaded: Vec<DownloadedNote> = Vec::with_capacity(to_download.len());
+    let mut failed_raw: Vec<(ServerObject, DownloadError)> = Vec::new();
+    let mut singles: Vec<ServerObject> = Vec::new();
+    let mut batches: Vec<Vec<ServerObject>> = Vec::new();
+    for job in plan_download_jobs(to_download) {
+        match job {
+            DownloadJob::Batch(objs) => batches.push(objs),
+            DownloadJob::Single(obj) => singles.push(obj),
+        }
+    }
+
+    // Phase A: batches. Runs before the singles phase rather than alongside
+    // it — bandwidth is shared, so interleaving wouldn't finish sooner, and
+    // batches (packed smallest-first) landing first means every note is on
+    // disk before the first large blob starts.
+    let batch_unsupported = Arc::new(AtomicBool::new(false));
+    if !batches.is_empty() {
+        let semaphore = Arc::new(Semaphore::new(DOWNLOAD_CONCURRENCY));
+        let mut set: JoinSet<BatchJobResult> = JoinSet::new();
+        let mut spawned: HashMap<tokio::task::Id, Vec<ServerObject>> = HashMap::new();
+        for objs in batches {
+            let permit_sem = semaphore.clone();
+            let http = http.clone();
+            let vault_key = vault_key.clone();
+            let unsupported = batch_unsupported.clone();
+            let objs_for_panic = objs.clone();
+            let handle = set.spawn(async move {
+                let _permit = permit_sem.acquire_owned().await.expect("semaphore closed");
+                run_batch_job(http, vault_key, objs, unsupported).await
+            });
+            spawned.insert(handle.id(), objs_for_panic);
+        }
+        while let Some(joined) = set.join_next_with_id().await {
+            match joined {
+                Ok((id, res)) => {
+                    spawned.remove(&id);
+                    // Landed + terminally-failed objects are done for
+                    // progress purposes; degraded ones bump in phase B.
+                    for _ in 0..(res.downloaded.len() + res.failed.len()) {
+                        progress_emitter.bump();
+                    }
+                    downloaded.extend(res.downloaded);
+                    singles.extend(res.retry_as_singles);
+                    failed_raw.extend(res.failed);
+                }
+                Err(e) => {
+                    // A panicked job must still fail its objects — losing
+                    // them here would advance the cursor past them (the
+                    // exact issue-#11 bug). The task id recovers which
+                    // objects the job owned.
+                    eprintln!("[e2ee] batch job panicked: {e}");
+                    if let Some(objs) = spawned.remove(&e.id()) {
+                        for obj in objs {
+                            // Terminal for this cycle → counts toward
+                            // progress like the failed entries above.
+                            progress_emitter.bump();
+                            failed_raw.push((
+                                obj,
+                                DownloadError::download("batch task panicked".into(), None),
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Phase B: per-blob pool — planned singles (big/unknown-size blobs) plus
+    // everything the batch phase degraded. Identical to the pre-batch client
+    // (semaphore at PULL_CONCURRENCY, one GET per object) except failures are
+    // now attributed per object instead of logged-and-forgotten.
+    if !singles.is_empty() {
+        let semaphore = Arc::new(Semaphore::new(PULL_CONCURRENCY));
+        let mut set: JoinSet<(ServerObject, Result<DownloadedNote, DownloadError>)> =
+            JoinSet::new();
+        for obj in singles {
+            let permit_sem = semaphore.clone();
+            let http = http.clone();
+            let vault_key = vault_key.clone();
+            set.spawn(async move {
+                let _permit = permit_sem.acquire_owned().await.expect("semaphore closed");
+                let res = download_and_decrypt(http, vault_key, obj.clone()).await;
+                (obj, res)
+            });
+        }
+        while let Some(joined) = set.join_next().await {
+            progress_emitter.bump();
+            match joined {
+                Ok((_, Ok(note))) => downloaded.push(note),
+                Ok((obj, Err(e))) => {
+                    eprintln!("[e2ee] blob download failed: {}", e.message);
+                    failed_raw.push((obj, e));
+                }
+                Err(e) => {
+                    // Per-object task panic: the object moved into the task,
+                    // so it can't be attributed — but silently dropping it
+                    // would advance the cursor past it. A cycle-level
+                    // failure with change_seq 0 pins the cursor at `since`,
+                    // which is the conservative correct fallback (next pull
+                    // re-lists everything; idempotent skips make it cheap).
+                    eprintln!("[e2ee] download task panicked: {e}");
+                    failed_raw.push((
+                        ServerObject {
+                            id: String::new(),
+                            collection_id: String::new(),
+                            version: 0,
+                            change_seq: 0,
+                            deleted: false,
+                            blob_key: None,
+                            size_bytes: None,
+                            created_at: String::new(),
+                            updated_at: String::new(),
+                        },
+                        DownloadError::download("download task panicked".into(), None),
+                    ));
+                }
+            }
+        }
+    }
+
+    let failed = failed_raw
+        .into_iter()
+        .map(|(obj, e)| FailedDownload {
+            change_seq: obj.change_seq,
+            failure: SyncFailure {
+                filename: filename_by_object_id
+                    .get(&obj.id)
+                    .cloned()
+                    .unwrap_or_default(),
+                kind: e.kind,
+                status_code: e.status_code,
+            },
+        })
+        .collect();
+    (downloaded, failed)
 }
 
 // ── Path-collision resolution (F4 / F5) ──────────────────────────────────
@@ -1064,40 +1518,18 @@ pub async fn run_pull(
         state_cell.max_version,
     );
 
-    // Spawn one task per object, gated by a semaphore. JoinSet collects
-    // results as they finish so the await loop below is order-independent.
+    // Batched download stage: bin-packed batch requests for small blobs,
+    // per-blob GETs for the rest, per-object failure attribution.
     let total_to_download = to_download.len();
     let progress_emitter = ProgressEmitter::new(progress, "pulling", total_to_download);
-    let semaphore = Arc::new(Semaphore::new(PULL_CONCURRENCY));
-    let mut set: JoinSet<Result<DownloadedNote, String>> = JoinSet::new();
-    for obj in to_download {
-        let permit_sem = semaphore.clone();
-        let http = http.clone();
-        let vault_key = vault_key.clone();
-        set.spawn(async move {
-            // The permit drops at the end of the task scope, freeing a slot.
-            let _permit = permit_sem.acquire_owned().await.expect("semaphore closed");
-            download_and_decrypt(http, vault_key, obj).await
-        });
-    }
-
-    let mut downloaded: Vec<DownloadedNote> = Vec::new();
-    while let Some(joined) = set.join_next().await {
-        match joined {
-            Ok(Ok(note)) => {
-                downloaded.push(note);
-                progress_emitter.bump();
-            }
-            Ok(Err(e)) => {
-                eprintln!("[e2ee] blob download failed: {e}");
-                progress_emitter.bump();
-            }
-            Err(e) => {
-                eprintln!("[e2ee] task panicked: {e}");
-                progress_emitter.bump();
-            }
-        }
-    }
+    let (downloaded, failed_downloads) = download_all(
+        http.clone(),
+        vault_key.clone(),
+        to_download,
+        &filename_by_object_id,
+        &progress_emitter,
+    )
+    .await;
 
     // Build apply-delta input. Renames-in-place: same objectId now points
     // at a different filename — drop the old one as a delete here so the
@@ -1241,10 +1673,18 @@ pub async fn run_pull(
         apply_delta(notes_root_path, pre_write, apply_input)?;
     }
 
-    // Update the working copy's map + max_version, then persist.
+    // Update the working copy's map + max_version, then persist. Issue #11:
+    // the persisted cursor is capped below the lowest failed change_seq so a
+    // failed object is re-listed and retried next pull instead of being
+    // silently skipped forever. The cap must WIN over the state's incoming
+    // cursor: in run_sync the state arrives from run_push, whose own uploads
+    // already advanced `max_version` — possibly past a failed seq — so
+    // merging with `.max(state)` would re-skip the failed object forever.
+    // Floored at `since` so the unknown-seq (0) panic sentinel pins the
+    // cursor at its pre-pull value instead of resetting it to 0.
     let downloaded_count = downloaded.len();
     let deletes_count = deletes.len();
-    let new_max = new_max_version;
+    let new_max = cap_cursor(new_max_version, &failed_downloads).max(since);
     let mut next = state_cell.clone();
     for filename in &deletes {
         next.object_map.remove(filename);
@@ -1284,7 +1724,7 @@ pub async fn run_pull(
             },
         );
     }
-    next.max_version = next.max_version.max(new_max);
+    next.max_version = new_max;
     state::persist(notes_root_path, &next.object_map, next.max_version, &next.collection_id)
         .map_err(SyncErrorKind::Io)?;
 
@@ -1296,6 +1736,7 @@ pub async fn run_pull(
             deleted_ids: deleted_ids.clone(),
             peer_updated_ids: updated_ids,
             peer_deleted_ids: deleted_ids,
+            failures: failed_downloads.into_iter().map(|f| f.failure).collect(),
             deleted_hashes,
             created_hashes,
             hash_to_filenames,
@@ -2648,37 +3089,19 @@ async fn reconcile_empty_map(
         .map(|f| (f.name.clone(), (f.mtime_ms, f.size_bytes)))
         .collect();
 
+    // Batched download stage — same machinery as run_pull. The object map is
+    // empty here, so failures carry no filename (none is known pre-decrypt).
     let total = live.len();
     let progress_emitter = ProgressEmitter::new(progress, "reconciling", total);
-    let semaphore = Arc::new(Semaphore::new(PULL_CONCURRENCY));
-    let mut set: JoinSet<Result<DownloadedNote, String>> = JoinSet::new();
-    for obj in live {
-        let http = http.clone();
-        let vault_key = vault_key.clone();
-        let permit_sem = semaphore.clone();
-        set.spawn(async move {
-            let _permit = permit_sem.acquire_owned().await.expect("semaphore closed");
-            download_and_decrypt(http, vault_key, obj).await
-        });
-    }
-
-    let mut downloaded: Vec<DownloadedNote> = Vec::with_capacity(total);
-    while let Some(joined) = set.join_next().await {
-        match joined {
-            Ok(Ok(d)) => {
-                downloaded.push(d);
-                progress_emitter.bump();
-            }
-            Ok(Err(e)) => {
-                eprintln!("[e2ee] reconcile: download failed: {e}");
-                progress_emitter.bump();
-            }
-            Err(e) => {
-                eprintln!("[e2ee] reconcile: task panicked: {e}");
-                progress_emitter.bump();
-            }
-        }
-    }
+    let no_names: HashMap<String, String> = HashMap::new();
+    let (downloaded, failed_downloads) = download_all(
+        http.clone(),
+        vault_key.clone(),
+        live,
+        &no_names,
+        &progress_emitter,
+    )
+    .await;
 
     // F4/F5: two distinct server objects can carry names that collide on a
     // case/normalization-insensitive FS (same name from two clients; NFC vs
@@ -2841,12 +3264,21 @@ async fn reconcile_empty_map(
         apply_delta(notes_root_path, pre_write, apply_input)?;
     }
 
-    // Populate the map and advance max_version, then persist.
+    // Populate the map and advance max_version, then persist. Issue #11:
+    // capped below the lowest failed change_seq — reconcile's max is computed
+    // from SUCCESSFUL downloads only, but a failed object whose change_seq
+    // sits below a succeeded one would still be jumped without the cap (and
+    // then never re-listed, i.e. never land on this device). The `.max()`
+    // merge is safe here ONLY because run_sync gates this path on
+    // `max_version == 0` — with a nonzero incoming cursor it would defeat
+    // the cap exactly like the pre-fix run_pull persist did.
     let mut next = state_cell.clone();
     for (filename, entry) in upserts {
         next.object_map.insert(filename, entry);
     }
-    next.max_version = next.max_version.max(new_max_version);
+    next.max_version = next
+        .max_version
+        .max(cap_cursor(new_max_version, &failed_downloads));
     state::persist(notes_root_path, &next.object_map, next.max_version, &next.collection_id)
         .map_err(SyncErrorKind::Io)?;
 
@@ -2859,6 +3291,7 @@ async fn reconcile_empty_map(
         downloaded: adopted.len() as u32,
         updated_ids: adopted_ids.clone(),
         peer_updated_ids: adopted_ids,
+        failures: failed_downloads.into_iter().map(|f| f.failure).collect(),
         ..Default::default()
     };
     Ok((summary, next))
@@ -3113,6 +3546,165 @@ mod tests {
             created_at: "2026-05-13T00:00:00.000Z".to_owned(),
             updated_at: "2026-05-13T00:00:00.000Z".to_owned(),
         }
+    }
+
+    fn sized_object(id: &str, change_seq: u64, size_bytes: Option<u64>) -> ServerObject {
+        let mut obj = server_object(id, 1, change_seq, false, Some(&format!("bk-{id}")));
+        obj.size_bytes = size_bytes;
+        obj
+    }
+
+    fn failed_download(change_seq: u64, kind: FailureKind) -> FailedDownload {
+        FailedDownload {
+            change_seq,
+            failure: SyncFailure {
+                filename: String::new(),
+                kind,
+                status_code: None,
+            },
+        }
+    }
+
+    // ── Batch download planning ──
+
+    #[test]
+    fn plan_download_jobs_packs_smallest_first_under_byte_cap() {
+        // 3 notes + a blob that still fits the 8 MiB chunk: everything packs
+        // into ONE batch, ordered ascending by size (notes land first).
+        let objs = vec![
+            sized_object("mid", 4, Some(6 * 1024 * 1024)),
+            sized_object("n1", 1, Some(1024)),
+            sized_object("n2", 2, Some(2048)),
+            sized_object("n3", 3, Some(512)),
+        ];
+        let jobs = plan_download_jobs(objs);
+        assert_eq!(jobs.len(), 1);
+        match &jobs[0] {
+            DownloadJob::Batch(objs) => {
+                let ids: Vec<&str> = objs.iter().map(|o| o.id.as_str()).collect();
+                assert_eq!(ids, vec!["n3", "n1", "n2", "mid"]);
+            }
+            DownloadJob::Single(_) => panic!("expected one packed batch"),
+        }
+    }
+
+    #[test]
+    fn plan_download_jobs_flushes_when_next_object_would_overflow() {
+        // Notes pack into a batch; the 7.9 MiB blob would push the chunk past
+        // 8 MiB, so the notes flush and the blob (a singleton) degrades to a
+        // Single.
+        let objs = vec![
+            sized_object("near", 4, Some(8 * 1024 * 1024 - 1024)),
+            sized_object("n1", 1, Some(1024)),
+            sized_object("n2", 2, Some(2048)),
+        ];
+        let jobs = plan_download_jobs(objs);
+        assert_eq!(jobs.len(), 2);
+        match &jobs[0] {
+            DownloadJob::Batch(objs) => {
+                let ids: Vec<&str> = objs.iter().map(|o| o.id.as_str()).collect();
+                assert_eq!(ids, vec!["n1", "n2"]);
+            }
+            DownloadJob::Single(_) => panic!("notes should batch"),
+        }
+        assert!(matches!(&jobs[1], DownloadJob::Single(o) if o.id == "near"));
+    }
+
+    #[test]
+    fn plan_download_jobs_splits_at_byte_cap_and_demotes_oversize() {
+        // Two 5 MiB blobs can't share an 8 MiB chunk; a 9 MiB blob and an
+        // unknown-size object are never batched at all.
+        let objs = vec![
+            sized_object("a", 1, Some(5 * 1024 * 1024)),
+            sized_object("b", 2, Some(5 * 1024 * 1024)),
+            sized_object("huge", 3, Some(9 * 1024 * 1024)),
+            sized_object("mystery", 4, None),
+        ];
+        let jobs = plan_download_jobs(objs);
+        // a and b flush into singleton "batches" → demoted to singles;
+        // huge and mystery are singles by rule. All four are Single.
+        assert_eq!(jobs.len(), 4);
+        assert!(jobs.iter().all(|j| matches!(j, DownloadJob::Single(_))));
+    }
+
+    #[test]
+    fn plan_download_jobs_splits_at_key_cap() {
+        let objs: Vec<ServerObject> = (0..(MAX_BATCH_KEYS + 5))
+            .map(|i| sized_object(&format!("o{i}"), i as u64 + 1, Some(10)))
+            .collect();
+        let jobs = plan_download_jobs(objs);
+        assert_eq!(jobs.len(), 2);
+        match (&jobs[0], &jobs[1]) {
+            (DownloadJob::Batch(first), DownloadJob::Batch(rest)) => {
+                assert_eq!(first.len(), MAX_BATCH_KEYS);
+                assert_eq!(rest.len(), 5);
+            }
+            _ => panic!("expected two batches"),
+        }
+    }
+
+    #[test]
+    fn plan_download_jobs_single_object_stays_on_legacy_path() {
+        // A 1-file sync must remain byte-for-byte identical to the pre-batch
+        // client: one GET, no batch request.
+        let jobs = plan_download_jobs(vec![sized_object("only", 1, Some(100))]);
+        assert_eq!(jobs.len(), 1);
+        assert!(matches!(&jobs[0], DownloadJob::Single(o) if o.id == "only"));
+    }
+
+    // ── Cursor cap (issue #11) ──
+
+    #[test]
+    fn cap_cursor_holds_below_lowest_failed_change_seq() {
+        let failed = vec![
+            failed_download(7, FailureKind::Download),
+            failed_download(4, FailureKind::Decrypt),
+        ];
+        // Failures at 4 and 7: cursor may only advance to 3, even though
+        // downloads up to 10 succeeded.
+        assert_eq!(cap_cursor(10, &failed), 3);
+    }
+
+    #[test]
+    fn cap_cursor_no_failures_passes_through() {
+        assert_eq!(cap_cursor(42, &[]), 42);
+    }
+
+    #[test]
+    fn cap_cursor_change_seq_zero_pins_cursor() {
+        // A failure with unknown change_seq (task panic) pins the cursor at
+        // its pre-pull value — saturating, not underflowing.
+        let failed = vec![failed_download(0, FailureKind::Download)];
+        assert_eq!(cap_cursor(42, &failed), 0);
+    }
+
+    #[test]
+    fn failure_message_covers_download_and_decrypt_kinds() {
+        let s = SyncSummary {
+            failures: vec![
+                SyncFailure {
+                    filename: "a.md".into(),
+                    kind: FailureKind::Download,
+                    status_code: Some(503),
+                },
+                SyncFailure {
+                    filename: "b.md".into(),
+                    kind: FailureKind::Download,
+                    status_code: None,
+                },
+                SyncFailure {
+                    filename: "c.md".into(),
+                    kind: FailureKind::Decrypt,
+                    status_code: None,
+                },
+            ],
+            ..Default::default()
+        };
+        let msg = s.failure_message().expect("failures present");
+        assert_eq!(
+            msg,
+            "2 notes couldn't be downloaded (will retry); 1 note couldn't be decrypted"
+        );
     }
 
     #[test]
@@ -4133,7 +4725,7 @@ mod tests {
     // assert it returns PushOutcome::TooLarge — the variant run_push's existing
     // handler turns into `conflicts += 1` + `oversize_skip.insert(...)`.
 
-    use wiremock::matchers::{method as wm_method, path as wm_path};
+    use wiremock::matchers::{method as wm_method, path as wm_path, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     const TEST_VAULT_KEY: [u8; KEY_BYTES] = [7u8; KEY_BYTES];
@@ -4159,6 +4751,375 @@ mod tests {
             mtime_ms: None,
             size_bytes: None,
         }
+    }
+
+    fn connected_state(server: &MockServer) -> ConnectedState {
+        ConnectedState {
+            base_url: server.uri(),
+            token: "test-token".into(),
+            user_id: "u1".into(),
+            collection_id: "c1".into(),
+            vault_key: TEST_VAULT_KEY,
+            object_map: HashMap::new(),
+            max_version: 0,
+            oversize_skip: HashMap::new(),
+        }
+    }
+
+    fn no_prog(_p: SyncProgress) {}
+    fn no_pre(_f: &str) {}
+
+    /// Encode one batch-response frame, mirroring the server's encodeFrame.
+    fn batch_frame(key: &str, status: u8, blob: &[u8]) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(&(key.len() as u16).to_be_bytes());
+        out.extend_from_slice(key.as_bytes());
+        out.push(status);
+        out.extend_from_slice(&(blob.len() as u32).to_be_bytes());
+        out.extend_from_slice(blob);
+        out
+    }
+
+    fn wire_object(id: &str, change_seq: u64, size_bytes: Option<u64>) -> serde_json::Value {
+        serde_json::json!({
+            "id": id,
+            "collection_id": "c1",
+            "version": 1,
+            "change_seq": change_seq,
+            "deleted": false,
+            "blob_key": format!("bk-{id}"),
+            "size_bytes": size_bytes,
+            "created_at": "2026-05-13T00:00:00.000Z",
+            "updated_at": "2026-05-13T00:00:00.000Z",
+        })
+    }
+
+    // Full pull through the batch endpoint: sized objects pack into one
+    // batch request; both notes land and the cursor advances. No per-blob
+    // GET mock is mounted, so any fallback would fail the assertions.
+    #[tokio::test]
+    async fn run_pull_lands_notes_via_batch_endpoint() {
+        let server = MockServer::start().await;
+        Mock::given(wm_method("GET"))
+            .and(wm_path("/api/collections/c1/objects"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "objects": [wire_object("o1", 1, Some(64)), wire_object("o2", 2, Some(64))]
+            })))
+            .mount(&server)
+            .await;
+        let mut body = batch_frame("bk-o1", 0, &enc("one.md", "alpha\n").await);
+        body.extend(batch_frame("bk-o2", 0, &enc("two.md", "beta\n").await));
+        Mock::given(wm_method("POST"))
+            .and(wm_path("/api/blobs/batch"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(body))
+            .mount(&server)
+            .await;
+
+        let root = temp_root();
+        let state = connected_state(&server);
+        let (summary, next) = run_pull(&state, &root, 0, &no_prog, &no_pre)
+            .await
+            .expect("pull");
+
+        assert_eq!(summary.downloaded, 2);
+        assert!(summary.failures.is_empty());
+        assert_eq!(next.max_version, 2);
+        assert_eq!(std::fs::read_to_string(root.join("one.md")).unwrap(), "alpha\n");
+        assert_eq!(std::fs::read_to_string(root.join("two.md")).unwrap(), "beta\n");
+    }
+
+    // Old server: the batch endpoint 404s → the pull degrades to per-blob
+    // GETs and still lands everything (compat path).
+    #[tokio::test]
+    async fn run_pull_falls_back_to_per_blob_when_batch_unsupported() {
+        let server = MockServer::start().await;
+        Mock::given(wm_method("GET"))
+            .and(wm_path("/api/collections/c1/objects"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "objects": [wire_object("o1", 1, Some(64)), wire_object("o2", 2, Some(64))]
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(wm_method("POST"))
+            .and(wm_path("/api/blobs/batch"))
+            .respond_with(ResponseTemplate::new(404).set_body_string("not found"))
+            .mount(&server)
+            .await;
+        Mock::given(wm_method("GET"))
+            .and(wm_path("/api/blobs/bk-o1"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(enc("one.md", "alpha\n").await))
+            .mount(&server)
+            .await;
+        Mock::given(wm_method("GET"))
+            .and(wm_path("/api/blobs/bk-o2"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(enc("two.md", "beta\n").await))
+            .mount(&server)
+            .await;
+
+        let root = temp_root();
+        let state = connected_state(&server);
+        let (summary, next) = run_pull(&state, &root, 0, &no_prog, &no_pre)
+            .await
+            .expect("pull");
+
+        assert_eq!(summary.downloaded, 2);
+        assert!(summary.failures.is_empty());
+        assert_eq!(next.max_version, 2);
+        assert!(root.join("one.md").exists() && root.join("two.md").exists());
+    }
+
+    // Issue #11 end-to-end: a failed blob download surfaces a SyncFailure AND
+    // holds the cursor below the failed change_seq, so the NEXT pull re-lists
+    // and lands it. (Objects carry no size hint → per-blob path, so the test
+    // isn't slowed by the batch retry ladder's backoff.)
+    #[tokio::test]
+    async fn run_pull_caps_cursor_on_failed_download_and_retries_next_pull() {
+        let server = MockServer::start().await;
+        Mock::given(wm_method("GET"))
+            .and(wm_path("/api/collections/c1/objects"))
+            .and(query_param("sinceVersion", "0"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "objects": [wire_object("o1", 5, None), wire_object("o2", 9, None)]
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(wm_method("GET"))
+            .and(wm_path("/api/blobs/bk-o1"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(enc("one.md", "alpha\n").await))
+            .mount(&server)
+            .await;
+        // First attempt at o2's blob: 500. (Consumed once, then the healthy
+        // mock below takes over for the second pull.)
+        Mock::given(wm_method("GET"))
+            .and(wm_path("/api/blobs/bk-o2"))
+            .respond_with(ResponseTemplate::new(500).set_body_string("boom"))
+            .up_to_n_times(1)
+            .mount(&server)
+            .await;
+        Mock::given(wm_method("GET"))
+            .and(wm_path("/api/blobs/bk-o2"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(enc("two.md", "beta\n").await))
+            .mount(&server)
+            .await;
+        // Second pull re-lists from the capped cursor (8) → only o2 remains.
+        Mock::given(wm_method("GET"))
+            .and(wm_path("/api/collections/c1/objects"))
+            .and(query_param("sinceVersion", "8"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "objects": [wire_object("o2", 9, None)]
+            })))
+            .mount(&server)
+            .await;
+
+        let root = temp_root();
+        let state = connected_state(&server);
+        let (summary, next) = run_pull(&state, &root, 0, &no_prog, &no_pre)
+            .await
+            .expect("first pull");
+
+        // o1 landed; o2 failed, surfaced, and capped the cursor at 8 (not 9).
+        assert_eq!(summary.downloaded, 1);
+        assert_eq!(summary.failures.len(), 1);
+        assert_eq!(summary.failures[0].kind, FailureKind::Download);
+        assert_eq!(summary.failures[0].status_code, Some(500));
+        assert_eq!(next.max_version, 8, "cursor must stop below the failed change_seq");
+        assert!(!root.join("two.md").exists());
+
+        let (summary2, next2) = run_pull(&next, &root, next.max_version, &no_prog, &no_pre)
+            .await
+            .expect("second pull");
+        assert_eq!(summary2.downloaded, 1, "failed object must be retried and land");
+        assert!(summary2.failures.is_empty());
+        assert_eq!(next2.max_version, 9);
+        assert_eq!(std::fs::read_to_string(root.join("two.md")).unwrap(), "beta\n");
+    }
+
+    // Issue #11, reconcile flavor: reconcile computes its max from
+    // SUCCESSFUL downloads, so a failed object whose change_seq sits BELOW a
+    // succeeded one would be jumped without the cap and never re-listed.
+    #[tokio::test]
+    async fn reconcile_caps_cursor_when_failed_seq_below_succeeded() {
+        let server = MockServer::start().await;
+        Mock::given(wm_method("GET"))
+            .and(wm_path("/api/collections/c1/objects"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                // o1 (seq 5) fails; o2 (seq 9) succeeds.
+                "objects": [wire_object("o1", 5, None), wire_object("o2", 9, None)]
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(wm_method("GET"))
+            .and(wm_path("/api/blobs/bk-o1"))
+            .respond_with(ResponseTemplate::new(500).set_body_string("boom"))
+            .mount(&server)
+            .await;
+        Mock::given(wm_method("GET"))
+            .and(wm_path("/api/blobs/bk-o2"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(enc("two.md", "beta\n").await))
+            .mount(&server)
+            .await;
+
+        let root = temp_root();
+        let state = connected_state(&server);
+        let (summary, next) = reconcile_empty_map(&state, &root, &no_prog, &no_pre)
+            .await
+            .expect("reconcile");
+
+        assert_eq!(summary.downloaded, 1);
+        assert_eq!(summary.failures.len(), 1);
+        assert_eq!(summary.failures[0].kind, FailureKind::Download);
+        assert_eq!(
+            next.max_version, 4,
+            "cursor must hold below the failed seq 5 even though seq 9 landed"
+        );
+        assert!(root.join("two.md").exists());
+    }
+
+    // Regression: the cap must WIN over the state's incoming cursor. In
+    // run_sync the pull's state arrives from run_push, whose own uploads
+    // already advanced max_version (here simulated as 6, e.g. our upload's
+    // change_seq) past a peer object at seq 5 whose blob fails. The old
+    // `.max(state)` merge persisted 6 → seq 5 was never re-listed and never
+    // landed, exactly the issue-#11 bug, now behind "will retry" wording.
+    #[tokio::test]
+    async fn run_pull_cap_wins_when_push_already_advanced_cursor() {
+        let server = MockServer::start().await;
+        Mock::given(wm_method("GET"))
+            .and(wm_path("/api/collections/c1/objects"))
+            .and(query_param("sinceVersion", "4"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "objects": [wire_object("o1", 5, None)]
+            })))
+            .mount(&server)
+            .await;
+        // First attempt fails; the second pull's attempt succeeds.
+        Mock::given(wm_method("GET"))
+            .and(wm_path("/api/blobs/bk-o1"))
+            .respond_with(ResponseTemplate::new(500).set_body_string("boom"))
+            .up_to_n_times(1)
+            .mount(&server)
+            .await;
+        Mock::given(wm_method("GET"))
+            .and(wm_path("/api/blobs/bk-o1"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(enc("one.md", "alpha\n").await))
+            .mount(&server)
+            .await;
+
+        let root = temp_root();
+        let mut state = connected_state(&server);
+        state.max_version = 6; // push already advanced the cursor past seq 5
+
+        let (summary, next) = run_pull(&state, &root, 4, &no_prog, &no_pre)
+            .await
+            .expect("first pull");
+        assert_eq!(summary.failures.len(), 1);
+        assert_eq!(
+            next.max_version, 4,
+            "cap must override the push-advanced cursor, not merge with it"
+        );
+
+        // Next cycle re-lists from 4 → seq 5 is retried and lands.
+        let (summary2, next2) = run_pull(&next, &root, 4, &no_prog, &no_pre)
+            .await
+            .expect("second pull");
+        assert_eq!(summary2.downloaded, 1);
+        assert!(summary2.failures.is_empty());
+        // The clean pull rebuilds the cursor from what it listed (seq 5).
+        // The push-advanced 6 stays overwritten — at worst the own seq-6
+        // upload is re-listed once and skipped idempotently.
+        assert_eq!(next2.max_version, 5, "clean pull advances past the recovered object");
+        assert_eq!(std::fs::read_to_string(root.join("one.md")).unwrap(), "alpha\n");
+    }
+
+    // A non-retryable batch failure (401) must skip the whole-chunk retry
+    // ladder — no 2.5s of backoff — and degrade straight to per-blob GETs.
+    #[tokio::test]
+    async fn batch_4xx_skips_retry_ladder_and_degrades_to_singles() {
+        let server = MockServer::start().await;
+        Mock::given(wm_method("GET"))
+            .and(wm_path("/api/collections/c1/objects"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "objects": [wire_object("o1", 1, Some(64)), wire_object("o2", 2, Some(64))]
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(wm_method("POST"))
+            .and(wm_path("/api/blobs/batch"))
+            .respond_with(ResponseTemplate::new(401).set_body_string("unauthorized"))
+            .mount(&server)
+            .await;
+        Mock::given(wm_method("GET"))
+            .and(wm_path("/api/blobs/bk-o1"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(enc("one.md", "alpha\n").await))
+            .mount(&server)
+            .await;
+        Mock::given(wm_method("GET"))
+            .and(wm_path("/api/blobs/bk-o2"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(enc("two.md", "beta\n").await))
+            .mount(&server)
+            .await;
+
+        let root = temp_root();
+        let state = connected_state(&server);
+        let started = std::time::Instant::now();
+        let (summary, next) = run_pull(&state, &root, 0, &no_prog, &no_pre)
+            .await
+            .expect("pull");
+
+        assert_eq!(summary.downloaded, 2);
+        assert!(summary.failures.is_empty());
+        assert_eq!(next.max_version, 2);
+        assert!(
+            started.elapsed() < std::time::Duration::from_millis(2000),
+            "401 must not burn the retry ladder's backoff (took {:?})",
+            started.elapsed()
+        );
+    }
+
+    // Two objects sharing one blob_key (shouldn't happen — server keys are
+    // uuids, so this is defensive): the rejoin keeps one on the batch path
+    // and degrades the other to a per-blob single instead of silently
+    // dropping it — a dropped object would advance the cursor past it
+    // (issue-#11 shape). The duplicate frame in the response must not
+    // double-download the winner.
+    #[tokio::test]
+    async fn batch_duplicate_blob_key_degrades_loser_to_single() {
+        let server = MockServer::start().await;
+        let ciphertext = enc("dup.md", "hello\n").await;
+        // The request carries the key twice, so the server (one frame per
+        // requested key, in order) answers with two identical frames.
+        let mut body = batch_frame("bk-dup", 0, &ciphertext);
+        body.extend(batch_frame("bk-dup", 0, &ciphertext));
+        Mock::given(wm_method("POST"))
+            .and(wm_path("/api/blobs/batch"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(body))
+            .mount(&server)
+            .await;
+
+        let mut a = server_object("o1", 1, 1, false, Some("bk-dup"));
+        a.size_bytes = Some(64);
+        let mut b = server_object("o2", 1, 2, false, Some("bk-dup"));
+        b.size_bytes = Some(64);
+
+        let http = Arc::new(build_client(&connected_state(&server)).expect("client"));
+        let res = run_batch_job(
+            http,
+            Arc::new(TEST_VAULT_KEY),
+            vec![a, b],
+            Arc::new(AtomicBool::new(false)),
+        )
+        .await;
+
+        assert_eq!(res.downloaded.len(), 1, "winner decrypts exactly once");
+        assert_eq!(res.retry_as_singles.len(), 1, "loser degrades to per-blob");
+        assert!(res.failed.is_empty());
+        let ids: HashSet<&str> = res
+            .downloaded
+            .iter()
+            .map(|d| d.object_id.as_str())
+            .chain(res.retry_as_singles.iter().map(|o| o.id.as_str()))
+            .collect();
+        assert_eq!(ids.len(), 2, "both objects accounted for, neither dropped");
     }
 
     // Conflict-copy POST path: the merge base is unavailable (404), so
