@@ -56,9 +56,7 @@ describe('CreateFolderModal live validation', () => {
     mountModal();
     type('existing');
     expect(confirmBtn().disabled).toBe(true);
-    expect(errorEl()?.textContent).toBe(
-      'A folder with this name already exists',
-    );
+    expect(errorEl()?.textContent).toBe('A folder with this name already exists');
   });
 
   it('re-enables Create and clears the error once the name is unique', () => {

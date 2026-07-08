@@ -12,7 +12,7 @@ function handleEnter(view: EditorView): boolean {
   // Inside a fenced/indented code block, provide an escape hatch:
   // if the current line is empty AND the next line is the closing fence,
   // move the cursor past the fence instead of inserting another \n.
-  for (let node = syntaxTree(state).resolve(pos); ; ) {
+  for (let node = syntaxTree(state).resolve(pos); ;) {
     if (node.name === 'FencedCode' || node.name === 'CodeBlock') {
       const currentLine = state.doc.lineAt(pos);
       const isEmpty = currentLine.text.trim() === '';
@@ -45,7 +45,7 @@ function handleEnter(view: EditorView): boolean {
       view.dispatch({
         changes: { from: line.from, to: line.to, insert: '' },
         selection: EditorSelection.cursor(line.from),
-        scrollIntoView: true
+        scrollIntoView: true,
       });
       return true;
     }
@@ -61,11 +61,14 @@ function handleEnter(view: EditorView): boolean {
       view.dispatch({
         changes: { from: line.from, to: line.to, insert: '' },
         selection: EditorSelection.cursor(line.from),
-        scrollIntoView: true
+        scrollIntoView: true,
       });
       return true;
     }
-    view.dispatch({ ...state.replaceSelection(`\n${indent}${parseInt(num) + 1}. `), scrollIntoView: true });
+    view.dispatch({
+      ...state.replaceSelection(`\n${indent}${parseInt(num) + 1}. `),
+      scrollIntoView: true,
+    });
     return true;
   }
 
@@ -77,7 +80,7 @@ function handleEnter(view: EditorView): boolean {
       view.dispatch({
         changes: { from: line.from, to: line.to, insert: '' },
         selection: EditorSelection.cursor(line.from),
-        scrollIntoView: true
+        scrollIntoView: true,
       });
       return true;
     }
@@ -104,7 +107,7 @@ function handleEnter(view: EditorView): boolean {
         view.dispatch({
           changes: { from: line.from, to: line.to, insert: newMarkers },
           selection: EditorSelection.cursor(line.from + newMarkers.length),
-          scrollIntoView: true
+          scrollIntoView: true,
         });
       } else {
         // Level 1 — exit blockquote entirely. Insert a leading newline so a blank
@@ -114,7 +117,7 @@ function handleEnter(view: EditorView): boolean {
         view.dispatch({
           changes: { from: line.from, to: line.to, insert: '\n' },
           selection: EditorSelection.cursor(line.from + 1),
-          scrollIntoView: true
+          scrollIntoView: true,
         });
       }
       return true;
@@ -243,7 +246,7 @@ function changeQuoteDepth(view: EditorView, delta: 1 | -1): boolean {
     changes.push({
       from: line.from,
       to: line.from + markers.length,
-      insert: nextMarkers
+      insert: nextMarkers,
     });
   }
 
@@ -252,17 +255,19 @@ function changeQuoteDepth(view: EditorView, delta: 1 | -1): boolean {
   const changeSet = state.changes(changes);
   view.dispatch({
     changes: changeSet,
-    selection: state.selection.map(changeSet)
+    selection: state.selection.map(changeSet),
   });
   return true;
 }
 
 // Tab/Shift-Tab go through the normal keymap — those don't have iOS issues.
 // Prec.highest so they run before @codemirror/lang-markdown's defaults.
-const tabKeymap = Prec.highest(keymap.of([
-  { key: 'Tab', run: (view) => changeQuoteDepth(view, 1) },
-  { key: 'Shift-Tab', run: (view) => changeQuoteDepth(view, -1) }
-]));
+const tabKeymap = Prec.highest(
+  keymap.of([
+    { key: 'Tab', run: (view) => changeQuoteDepth(view, 1) },
+    { key: 'Shift-Tab', run: (view) => changeQuoteDepth(view, -1) },
+  ]),
+);
 
 // Enter and Backspace are handled at document-capture phase, NOT via the CM6
 // keymap. iOS's WKWebView intercepts these keys on certain cursor positions
@@ -276,26 +281,28 @@ const tabKeymap = Prec.highest(keymap.of([
 // By listening at document capture phase we get the keydown before iOS
 // applies its default, run our handler directly, and preventDefault to stop
 // the native edit when we handle the event ourselves.
-const listEditCaptureHandler = ViewPlugin.fromClass(class {
-  listener: (e: KeyboardEvent) => void;
-  constructor(view: EditorView) {
-    this.listener = (e: KeyboardEvent) => {
-      if (e.isComposing) return;
-      if (!view.contentDOM.contains(e.target as Node)) return;
-      let handled = false;
-      if (e.key === 'Enter') handled = handleEnter(view);
-      else if (e.key === 'Backspace') handled = handleBackspace(view);
-      if (handled) {
-        e.preventDefault();
-        e.stopPropagation();
-      }
-    };
-    document.addEventListener('keydown', this.listener as EventListener, true);
-  }
-  destroy() {
-    document.removeEventListener('keydown', this.listener as EventListener, true);
-  }
-});
+const listEditCaptureHandler = ViewPlugin.fromClass(
+  class {
+    listener: (e: KeyboardEvent) => void;
+    constructor(view: EditorView) {
+      this.listener = (e: KeyboardEvent) => {
+        if (e.isComposing) return;
+        if (!view.contentDOM.contains(e.target as Node)) return;
+        let handled = false;
+        if (e.key === 'Enter') handled = handleEnter(view);
+        else if (e.key === 'Backspace') handled = handleBackspace(view);
+        if (handled) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      };
+      document.addEventListener('keydown', this.listener as EventListener, true);
+    }
+    destroy() {
+      document.removeEventListener('keydown', this.listener as EventListener, true);
+    }
+  },
+);
 
 export const listContinuationKeymap = [tabKeymap, listEditCaptureHandler];
 
@@ -313,7 +320,7 @@ function findOrderedBlockStart(doc: Text, lineNumber: number, indent: string): n
 
 export function computeOrderedRenumberChanges(
   doc: Text,
-  affectedLines: Iterable<number>
+  affectedLines: Iterable<number>,
 ): ChangeSpec[] {
   const blockStarts = new Set<number>();
   for (const ln of affectedLines) {
@@ -387,6 +394,6 @@ export const orderedListRenumber = EditorView.updateListener.of((update) => {
     annotations: renumberAnnotation.of(true),
     // Don't push the renumber onto the undo stack on its own — make undo of
     // the user's edit also undo the renumber by joining them.
-    userEvent: 'input.renumber'
+    userEvent: 'input.renumber',
   });
 });

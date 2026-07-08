@@ -13,13 +13,15 @@ export async function runPool<T>(
   const poolSize = Math.max(1, Math.min(concurrency, items.length));
   const runners: Promise<void>[] = [];
   for (let i = 0; i < poolSize; i++) {
-    runners.push((async () => {
-      while (true) {
-        const idx = nextIndex++;
-        if (idx >= items.length) return;
-        await worker(items[idx], idx);
-      }
-    })());
+    runners.push(
+      (async () => {
+        while (true) {
+          const idx = nextIndex++;
+          if (idx >= items.length) return;
+          await worker(items[idx], idx);
+        }
+      })(),
+    );
   }
   await Promise.all(runners);
 }

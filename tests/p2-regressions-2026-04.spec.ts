@@ -34,7 +34,8 @@ async function readState(page: Page) {
 
 test.describe('cursor placement past inline-styled spans', () => {
   test('clicking before plain text after bold does not snap to line end', async ({ page }) => {
-    const text = '**Next 7-10 days:** Finish polishing the editor. Should be cutting a release today.';
+    const text =
+      '**Next 7-10 days:** Finish polishing the editor. Should be cutting a release today.';
     await setupEditor(page, text);
 
     const target = await page.evaluate(() => {

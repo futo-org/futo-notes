@@ -2,7 +2,16 @@ import { EditorView } from '@codemirror/view';
 import { getFS, isTauri } from '$lib/platform';
 import { registerLocalImageUrl } from '$lib/liveMarkdownTransform';
 
-const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml', 'image/bmp', 'image/avif', 'image/heic'];
+const IMAGE_TYPES = [
+  'image/png',
+  'image/jpeg',
+  'image/gif',
+  'image/webp',
+  'image/svg+xml',
+  'image/bmp',
+  'image/avif',
+  'image/heic',
+];
 
 export function getImageFile(clipboardData: DataTransfer): File | null {
   for (let i = 0; i < clipboardData.items.length; i++) {

@@ -99,7 +99,10 @@ async function main() {
         })()`,
       });
       const editorVal = String(editorCheck?.result ?? editorCheck?.data ?? editorCheck);
-      if (editorVal.includes('found')) { editorFound = true; break; }
+      if (editorVal.includes('found')) {
+        editorFound = true;
+        break;
+      }
       await sleep(2_000);
     }
     if (!editorFound) {

@@ -56,11 +56,7 @@ export function createSyncCoordinator(
   let syncIndicatorTimer: number | null = null;
 
   function shouldDeferSync(): boolean {
-    return (
-      deps.isSavePending() ||
-      deps.isComposing() ||
-      Date.now() - deps.getLastEditTime() < 1000
-    );
+    return deps.isSavePending() || deps.isComposing() || Date.now() - deps.getLastEditTime() < 1000;
   }
 
   function onSyncStateChange(active: boolean): void {

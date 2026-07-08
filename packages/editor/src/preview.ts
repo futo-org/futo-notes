@@ -31,10 +31,7 @@ export const PREVIEW_MAX_CHARS = 100;
  * budget is spent on visible content, not on whitespace that gets dropped.
  */
 export function makePreview(content: string): string {
-  const collapsed = content
-    .replace(/\r\n/g, " ")
-    .replace(/\n/g, " ")
-    .replace(/\t/g, " ");
+  const collapsed = content.replace(/\r\n/g, ' ').replace(/\n/g, ' ').replace(/\t/g, ' ');
   const trimmed = collapsed.trim();
-  return Array.from(trimmed).slice(0, PREVIEW_MAX_CHARS).join("");
+  return Array.from(trimmed).slice(0, PREVIEW_MAX_CHARS).join('');
 }

@@ -14,7 +14,7 @@
     selectedId = null,
     showPreview = false,
     isDragging = false,
-    onselect
+    onselect,
   }: Props = $props();
 
   const ITEM_HEIGHT = 48;
@@ -32,7 +32,7 @@
     const start = Math.max(0, Math.floor(scrollTop / ITEM_HEIGHT) - BUFFER);
     const end = Math.min(
       items.length,
-      Math.ceil((scrollTop + containerHeight) / ITEM_HEIGHT) + BUFFER
+      Math.ceil((scrollTop + containerHeight) / ITEM_HEIGHT) + BUFFER,
     );
     return { start, end };
   });
@@ -40,8 +40,8 @@
   let visibleItems = $derived(
     items.slice(visibleRange.start, visibleRange.end).map((note, i) => ({
       note,
-      index: visibleRange.start + i
-    }))
+      index: visibleRange.start + i,
+    })),
   );
 
   // Track container size with ResizeObserver
@@ -84,7 +84,11 @@
   }
 
   function handleTouchEnd(id: string): void {
-    if (isDragging) { pressedId = null; pendingSelect = null; return; }
+    if (isDragging) {
+      pressedId = null;
+      pendingSelect = null;
+      return;
+    }
     touchHandled = true;
     if (pressedId === id) {
       pendingSelect = id;
@@ -111,13 +115,11 @@
   }
 </script>
 
-<div
-  bind:this={containerEl}
-  class="notes-list-scroll"
-  onscroll={handleScroll}
->
+<div bind:this={containerEl} class="notes-list-scroll" onscroll={handleScroll}>
   {#if items.length === 0}
-    <div class="flex items-center justify-center h-full text-base text-gray-400 text-center p-8">No notes yet. Tap + to create one.</div>
+    <div class="flex items-center justify-center h-full text-base text-gray-400 text-center p-8">
+      No notes yet. Tap + to create one.
+    </div>
   {:else}
     <div style="height: {totalHeight}px; position: relative;">
       {#each visibleItems as { note, index } (note.id)}
@@ -126,7 +128,10 @@
           class:selected={note.id === selectedId}
           class:pressed={note.id === pressedId}
           style="position: absolute; top: {index * ITEM_HEIGHT}px; width: 100%;"
-          onclick={() => { if (!touchHandled) onselect?.(note.id); touchHandled = false; }}
+          onclick={() => {
+            if (!touchHandled) onselect?.(note.id);
+            touchHandled = false;
+          }}
           ontouchstart={(e) => handleTouchStart(note.id, e)}
           ontouchend={() => handleTouchEnd(note.id)}
           ontouchcancel={handleTouchCancel}
@@ -134,11 +139,23 @@
         >
           {#if showPreview}
             <div class="flex-1 min-w-0">
-              <div class="font-semibold text-base mb-1 overflow-hidden text-ellipsis whitespace-nowrap">{note.title}</div>
-              <div class="note-preview text-sm text-muted overflow-hidden text-ellipsis line-clamp-2">{note.preview}</div>
+              <div
+                class="font-semibold text-base mb-1 overflow-hidden text-ellipsis whitespace-nowrap"
+              >
+                {note.title}
+              </div>
+              <div
+                class="note-preview text-sm text-muted overflow-hidden text-ellipsis line-clamp-2"
+              >
+                {note.preview}
+              </div>
             </div>
           {:else}
-            <div class="note-title font-semibold text-base overflow-hidden text-ellipsis whitespace-nowrap">{note.title}</div>
+            <div
+              class="note-title font-semibold text-base overflow-hidden text-ellipsis whitespace-nowrap"
+            >
+              {note.title}
+            </div>
           {/if}
         </button>
       {/each}

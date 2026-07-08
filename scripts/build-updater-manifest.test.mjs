@@ -5,7 +5,11 @@ const base = {
   version: '1.6.0',
   pubDate: '2026-06-24T00:00:00Z',
   platforms: [
-    { platform: 'linux-x86_64', url: 'https://gitlab.futo.org/x/FUTO-Notes-1.6.0-x86_64.AppImage', signature: 'sig-linux' },
+    {
+      platform: 'linux-x86_64',
+      url: 'https://gitlab.futo.org/x/FUTO-Notes-1.6.0-x86_64.AppImage',
+      signature: 'sig-linux',
+    },
   ],
 };
 
@@ -31,7 +35,11 @@ describe('buildManifest', () => {
         { platform: 'windows-x86_64', url: 'https://h/c-setup.exe', signature: 'c' },
       ],
     });
-    expect(Object.keys(m.platforms).sort()).toEqual(['darwin-aarch64', 'linux-x86_64', 'windows-x86_64']);
+    expect(Object.keys(m.platforms).sort()).toEqual([
+      'darwin-aarch64',
+      'linux-x86_64',
+      'windows-x86_64',
+    ]);
   });
 
   it('lets both macOS arch keys share one universal artifact (same url + sig)', () => {
@@ -79,42 +87,90 @@ describe('buildManifest', () => {
     });
 
     it('rejects an unknown platform key', () => {
-      expect(() => buildManifest({ ...base, platforms: [{ platform: 'solaris-sparc', url: 'https://h/x', signature: 's' }] })).toThrow(/unknown platform/);
+      expect(() =>
+        buildManifest({
+          ...base,
+          platforms: [{ platform: 'solaris-sparc', url: 'https://h/x', signature: 's' }],
+        }),
+      ).toThrow(/unknown platform/);
     });
 
     it('rejects a non-https url (no plaintext download in prod)', () => {
-      expect(() => buildManifest({ ...base, platforms: [{ platform: 'linux-x86_64', url: 'http://h/x', signature: 's' }] })).toThrow(/must be https/);
+      expect(() =>
+        buildManifest({
+          ...base,
+          platforms: [{ platform: 'linux-x86_64', url: 'http://h/x', signature: 's' }],
+        }),
+      ).toThrow(/must be https/);
     });
 
     it('rejects http://localhost by default (prod stays https-only)', () => {
-      expect(() => buildManifest({ ...base, platforms: [{ platform: 'linux-x86_64', url: 'http://localhost:8787/x.AppImage', signature: 's' }] })).toThrow(/must be https/);
+      expect(() =>
+        buildManifest({
+          ...base,
+          platforms: [
+            { platform: 'linux-x86_64', url: 'http://localhost:8787/x.AppImage', signature: 's' },
+          ],
+        }),
+      ).toThrow(/must be https/);
     });
 
     it('allows http://localhost ONLY with allowInsecureLocalhost (the localdev profile)', () => {
-      const m = buildManifest({ ...base, allowInsecureLocalhost: true, platforms: [{ platform: 'linux-x86_64', url: 'http://localhost:8787/x.AppImage', signature: 's' }] });
+      const m = buildManifest({
+        ...base,
+        allowInsecureLocalhost: true,
+        platforms: [
+          { platform: 'linux-x86_64', url: 'http://localhost:8787/x.AppImage', signature: 's' },
+        ],
+      });
       expect(m.platforms['linux-x86_64'].url).toBe('http://localhost:8787/x.AppImage');
-      const m2 = buildManifest({ ...base, allowInsecureLocalhost: true, platforms: [{ platform: 'linux-x86_64', url: 'http://127.0.0.1:8787/x', signature: 's' }] });
+      const m2 = buildManifest({
+        ...base,
+        allowInsecureLocalhost: true,
+        platforms: [{ platform: 'linux-x86_64', url: 'http://127.0.0.1:8787/x', signature: 's' }],
+      });
       expect(m2.platforms['linux-x86_64'].url).toBe('http://127.0.0.1:8787/x');
     });
 
     it('still rejects a non-localhost http url even with allowInsecureLocalhost', () => {
-      expect(() => buildManifest({ ...base, allowInsecureLocalhost: true, platforms: [{ platform: 'linux-x86_64', url: 'http://evil.com/x', signature: 's' }] })).toThrow(/must be https/);
+      expect(() =>
+        buildManifest({
+          ...base,
+          allowInsecureLocalhost: true,
+          platforms: [{ platform: 'linux-x86_64', url: 'http://evil.com/x', signature: 's' }],
+        }),
+      ).toThrow(/must be https/);
       // not fooled by a localhost-prefixed hostname
-      expect(() => buildManifest({ ...base, allowInsecureLocalhost: true, platforms: [{ platform: 'linux-x86_64', url: 'http://localhost.evil.com/x', signature: 's' }] })).toThrow(/must be https/);
+      expect(() =>
+        buildManifest({
+          ...base,
+          allowInsecureLocalhost: true,
+          platforms: [
+            { platform: 'linux-x86_64', url: 'http://localhost.evil.com/x', signature: 's' },
+          ],
+        }),
+      ).toThrow(/must be https/);
     });
 
     it('rejects an empty signature', () => {
-      expect(() => buildManifest({ ...base, platforms: [{ platform: 'linux-x86_64', url: 'https://h/x', signature: '  ' }] })).toThrow(/empty signature/);
+      expect(() =>
+        buildManifest({
+          ...base,
+          platforms: [{ platform: 'linux-x86_64', url: 'https://h/x', signature: '  ' }],
+        }),
+      ).toThrow(/empty signature/);
     });
 
     it('rejects duplicate platform keys', () => {
-      expect(() => buildManifest({
-        ...base,
-        platforms: [
-          { platform: 'linux-x86_64', url: 'https://h/a', signature: 'a' },
-          { platform: 'linux-x86_64', url: 'https://h/b', signature: 'b' },
-        ],
-      })).toThrow(/duplicate platform/);
+      expect(() =>
+        buildManifest({
+          ...base,
+          platforms: [
+            { platform: 'linux-x86_64', url: 'https://h/a', signature: 'a' },
+            { platform: 'linux-x86_64', url: 'https://h/b', signature: 'b' },
+          ],
+        }),
+      ).toThrow(/duplicate platform/);
     });
   });
 });

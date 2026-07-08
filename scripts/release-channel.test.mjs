@@ -21,7 +21,8 @@ const CI = readFileSync(resolve(ROOT, '.gitlab-ci.yml'), 'utf8');
 function extractStableTagRegex() {
   // The only `=~` against $CI_COMMIT_TAG in the file is the release: channel gate.
   const m = CI.match(/\$CI_COMMIT_TAG\s*=~\s*\/(\^v.+?\$)\//);
-  if (!m) throw new Error('could not find the $CI_COMMIT_TAG =~ /.../ release rule in .gitlab-ci.yml');
+  if (!m)
+    throw new Error('could not find the $CI_COMMIT_TAG =~ /.../ release rule in .gitlab-ci.yml');
   return new RegExp(m[1]);
 }
 
@@ -41,7 +42,15 @@ describe('release: channel gate (.gitlab-ci.yml)', () => {
   });
 
   it('rejects build-metadata and malformed tags (publish only exact vX.Y.Z)', () => {
-    for (const tag of ['v1.6.0+meta', 'v1.6', 'v1.6.0.0', '1.6.0', 'vfoo', 'v1.6.0 ', 'release-1.6.0']) {
+    for (const tag of [
+      'v1.6.0+meta',
+      'v1.6',
+      'v1.6.0.0',
+      '1.6.0',
+      'vfoo',
+      'v1.6.0 ',
+      'release-1.6.0',
+    ]) {
       expect(re.test(tag), `${tag} must NOT publish`).toBe(false);
     }
   });

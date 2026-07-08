@@ -10,7 +10,9 @@ const SEMVER_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 
 function assertSemver(version) {
   if (typeof version !== 'string' || !SEMVER_RE.test(version)) {
-    throw new Error(`invalid desktop version: ${JSON.stringify(version)} (expected semver like 1.6.0)`);
+    throw new Error(
+      `invalid desktop version: ${JSON.stringify(version)} (expected semver like 1.6.0)`,
+    );
   }
 }
 
@@ -59,10 +61,13 @@ export function setTauriCargoVersion(version, cargoPath = TAURI_CARGO_TOML) {
   const { start, end } = packageSectionBounds(toml, cargoPath);
   const packageSection = toml.slice(start, end);
   let replaced = false;
-  const nextPackageSection = packageSection.replace(/^version\s*=\s*"([^"]+)"\s*$/m, (line, current) => {
-    replaced = true;
-    return current === version ? line : `version = "${version}"`;
-  });
+  const nextPackageSection = packageSection.replace(
+    /^version\s*=\s*"([^"]+)"\s*$/m,
+    (line, current) => {
+      replaced = true;
+      return current === version ? line : `version = "${version}"`;
+    },
+  );
   if (!replaced) throw new Error(`could not find [package] version in ${cargoPath}`);
   if (nextPackageSection === packageSection) return false;
   writeFileSync(cargoPath, toml.slice(0, start) + nextPackageSection + toml.slice(end));

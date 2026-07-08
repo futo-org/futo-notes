@@ -51,11 +51,7 @@ vi.mock('./notes.svelte', async (importOriginal) => {
   };
 });
 
-import {
-  findActiveSyncRename,
-  createSyncManager,
-  getSyncErrorMessage,
-} from './syncManager.svelte';
+import { findActiveSyncRename, createSyncManager, getSyncErrorMessage } from './syncManager.svelte';
 import { readNote, refreshNotesFromStorage } from './notes.svelte';
 import { engineNotify } from '$features/search/searchEngine';
 import { updateAppState } from './appState';
@@ -64,35 +60,56 @@ import type { SyncSummary } from './syncServiceE2ee';
 
 describe('findActiveSyncRename', () => {
   it('prefers an explicit rename from the sync summary', () => {
-    expect(findActiveSyncRename({
-      updatedIds: [],
-      deletedIds: [],
-      renamed: [{ fromId: 'Old Title', toId: 'New Title' }],
-    }, 'Old Title')).toEqual({ fromId: 'Old Title', toId: 'New Title' });
+    expect(
+      findActiveSyncRename(
+        {
+          updatedIds: [],
+          deletedIds: [],
+          renamed: [{ fromId: 'Old Title', toId: 'New Title' }],
+        },
+        'Old Title',
+      ),
+    ).toEqual({ fromId: 'Old Title', toId: 'New Title' });
   });
 
   it('falls back to a recent recorded rename target', () => {
-    expect(findActiveSyncRename({
-      updatedIds: [],
-      deletedIds: ['Old Title'],
-      renamed: [],
-    }, 'Old Title', 'Recovered Title')).toEqual({ fromId: 'Old Title', toId: 'Recovered Title' });
+    expect(
+      findActiveSyncRename(
+        {
+          updatedIds: [],
+          deletedIds: ['Old Title'],
+          renamed: [],
+        },
+        'Old Title',
+        'Recovered Title',
+      ),
+    ).toEqual({ fromId: 'Old Title', toId: 'Recovered Title' });
   });
 
   it('infers a rename from delete plus collision-suffixed update', () => {
-    expect(findActiveSyncRename({
-      updatedIds: ['Old Title (2)'],
-      deletedIds: ['Old Title'],
-      renamed: [],
-    }, 'Old Title')).toEqual({ fromId: 'Old Title', toId: 'Old Title (2)' });
+    expect(
+      findActiveSyncRename(
+        {
+          updatedIds: ['Old Title (2)'],
+          deletedIds: ['Old Title'],
+          renamed: [],
+        },
+        'Old Title',
+      ),
+    ).toEqual({ fromId: 'Old Title', toId: 'Old Title (2)' });
   });
 
   it('returns null when sync only deleted the note with no recovery target', () => {
-    expect(findActiveSyncRename({
-      updatedIds: [],
-      deletedIds: ['Old Title'],
-      renamed: [],
-    }, 'Old Title')).toBeNull();
+    expect(
+      findActiveSyncRename(
+        {
+          updatedIds: [],
+          deletedIds: ['Old Title'],
+          renamed: [],
+        },
+        'Old Title',
+      ),
+    ).toBeNull();
   });
 });
 
@@ -720,7 +737,7 @@ describe('focus guard: no external adopt into a focused editor', () => {
     const mgr = createSyncManager(
       makeDeps({
         getOriginalId: () => 'DirtyLater',
-        getEditorContent: () => dirty ? 'LOCAL EDIT' : 'OLD CONTENT',
+        getEditorContent: () => (dirty ? 'LOCAL EDIT' : 'OLD CONTENT'),
         isEditorFocused: () => focused,
         hasOpenDraftChanges: () => dirty,
         applyExternalContent,

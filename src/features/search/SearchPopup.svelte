@@ -96,7 +96,12 @@
   }
 
   function resetViewportScroll(): void {
-    if (window.scrollY === 0 && document.documentElement.scrollTop === 0 && document.body.scrollTop === 0) return;
+    if (
+      window.scrollY === 0 &&
+      document.documentElement.scrollTop === 0 &&
+      document.body.scrollTop === 0
+    )
+      return;
     window.scrollTo(0, 0);
     document.documentElement.scrollTop = 0;
     document.body.scrollTop = 0;
@@ -149,13 +154,28 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div bind:this={overlayEl} class="search-overlay" onclick={onclose} onkeydown={handleOverlayKeydown}>
+<div
+  bind:this={overlayEl}
+  class="search-overlay"
+  onclick={onclose}
+  onkeydown={handleOverlayKeydown}
+>
   <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
   <div class="search-panel" onclick={(e) => e.stopPropagation()} onkeydown={handleKeydown}>
     <div class="search-input-row">
-      <svg class="search-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="11" cy="11" r="8"/>
-        <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+      <svg
+        class="search-icon"
+        width="20"
+        height="20"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
+        <circle cx="11" cy="11" r="8" />
+        <line x1="21" y1="21" x2="16.65" y2="16.65" />
       </svg>
       <input
         bind:this={inputEl}
@@ -165,10 +185,26 @@
         bind:value={query}
       />
       {#if query}
-        <button class="search-clear" aria-label="Clear search" onclick={() => { query = ''; inputEl?.focus(); }}>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="18" y1="6" x2="6" y2="18"/>
-            <line x1="6" y1="6" x2="18" y2="18"/>
+        <button
+          class="search-clear"
+          aria-label="Clear search"
+          onclick={() => {
+            query = '';
+            inputEl?.focus();
+          }}
+        >
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
           </svg>
         </button>
       {/if}
@@ -181,8 +217,15 @@
           class:selected={i === selectedIndex}
           bind:this={resultEls[i]}
           onclick={(e) => onselect(result.note.id, e)}
-          onauxclick={(e) => { if (e.button === 1) { e.preventDefault(); onselect(result.note.id, e); } }}
-          onpointerenter={() => { selectedIndex = i; }}
+          onauxclick={(e) => {
+            if (e.button === 1) {
+              e.preventDefault();
+              onselect(result.note.id, e);
+            }
+          }}
+          onpointerenter={() => {
+            selectedIndex = i;
+          }}
         >
           <div class="search-result-title">
             <span class="search-result-leaf">{result.note.title.split('/').pop()}</span>
@@ -231,7 +274,9 @@
     border-radius: 16px;
     width: min(480px, calc(100vw - 32px));
     max-height: 80vh;
-    box-shadow: 0 16px 48px rgba(var(--ink-rgb), 0.2), 0 0 0 1px rgba(var(--ink-rgb), 0.05);
+    box-shadow:
+      0 16px 48px rgba(var(--ink-rgb), 0.2),
+      0 0 0 1px rgba(var(--ink-rgb), 0.05);
     display: flex;
     flex-direction: column;
     overflow: hidden;

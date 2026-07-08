@@ -295,7 +295,11 @@
   function triggerHaptic(): void {
     if (typeof navigator !== 'undefined') {
       const nav = navigator as Navigator & { vibrate?: (pattern: number | number[]) => boolean };
-      try { nav.vibrate?.(20); } catch { /* unsupported */ }
+      try {
+        nav.vibrate?.(20);
+      } catch {
+        /* unsupported */
+      }
     }
   }
 
@@ -338,7 +342,8 @@
     mirror.style.color = computed.color;
     mirror.style.font = computed.font;
     mirror.style.borderRadius = '10px';
-    mirror.style.boxShadow = '0 8px 24px rgba(0, 0, 0, 0.28), 0 0 0 1px var(--color-border, rgba(0,0,0,0.08))';
+    mirror.style.boxShadow =
+      '0 8px 24px rgba(0, 0, 0, 0.28), 0 0 0 1px var(--color-border, rgba(0,0,0,0.08))';
     mirror.style.transformOrigin = 'center';
     mirror.style.transform = `translate(${x - rect.width / 2}px, ${y - rect.height / 2}px) scale(0.96)`;
     mirror.style.transition = 'transform 140ms cubic-bezier(0.2, 0.9, 0.3, 1.4)';
@@ -489,7 +494,9 @@
       // that some webviews fire on touchend so a dropped row doesn't
       // also get selected as a side-effect.
       suppressNextClick = true;
-      window.setTimeout(() => { suppressNextClick = false; }, 350);
+      window.setTimeout(() => {
+        suppressNextClick = false;
+      }, 350);
     }
 
     if (kind && id !== null && target !== null) {
@@ -681,7 +688,9 @@
 
   function teardownDragMirror(): void {
     if (dragMirrorMove) {
-      document.removeEventListener('dragover', dragMirrorMove, { capture: true } as EventListenerOptions);
+      document.removeEventListener('dragover', dragMirrorMove, {
+        capture: true,
+      } as EventListenerOptions);
       dragMirrorMove = null;
     }
     if (dragMirror) {
@@ -891,10 +900,16 @@
             class:dragging={isDragging}
             class:drop-target={dropTarget === node.path}
             class:touch-grabbed={touchDragKind === 'folder' && touchDragId === node.path}
-            class:touch-pressed={pressedRowId === node.path && touchDragKind === null && pressTimer !== null}
+            class:touch-pressed={pressedRowId === node.path &&
+              touchDragKind === null &&
+              pressTimer !== null}
             style="top: {index * ROW_HEIGHT}px; left: {node.depth * DEPTH_INDENT_PX}px"
             onclick={() => handleFolderClick(node)}
-            ondblclick={(e) => { e.preventDefault(); e.stopPropagation(); void beginInlineRename(node.path); }}
+            ondblclick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              void beginInlineRename(node.path);
+            }}
             onkeydown={(e) => handleFolderKeydown(e, node)}
             oncontextmenu={(e) => handleFolderContextMenu(e, node.path)}
             ontouchstart={(e) => handleFolderTouchStart(e, node.path)}
@@ -911,12 +926,34 @@
           >
             <span class="folder-icon" aria-hidden="true">
               {#if isFolderOpen(node.path)}
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M6 14l1.45-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2a2 2 0 0 0 1.66.9H18a2 2 0 0 1 2 2v2"/>
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path
+                    d="M6 14l1.45-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2a2 2 0 0 0 1.66.9H18a2 2 0 0 1 2 2v2"
+                  />
                 </svg>
               {:else}
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path
+                    d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"
+                  />
                 </svg>
               {/if}
             </span>
@@ -936,7 +973,9 @@
                   aria-invalid={editingFolderError !== null}
                   title={editingFolderError ?? 'Folder name'}
                   onkeydown={handleInlineRenameKeydown}
-                  onblur={() => { if (!submittingFolderRename) void submitInlineRename(); }}
+                  onblur={() => {
+                    if (!submittingFolderRename) void submitInlineRename();
+                  }}
                   data-testid="folder-rename-input"
                 />
               </span>
@@ -949,14 +988,27 @@
                 class="folder-add-btn"
                 aria-label="New folder in {node.path}"
                 title="New folder"
-                onclick={(e) => { e.preventDefault(); e.stopPropagation(); oncreatefolder?.(node.path); }}
+                onclick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  oncreatefolder?.(node.path);
+                }}
                 onmousedown={(e) => e.stopPropagation()}
                 ontouchstart={(e) => e.stopPropagation()}
                 data-testid="folder-add-subfolder"
               >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
-                  <line x1="12" y1="5" x2="12" y2="19"/>
-                  <line x1="5" y1="12" x2="19" y2="12"/>
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.4"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <line x1="12" y1="5" x2="12" y2="19" />
+                  <line x1="5" y1="12" x2="19" y2="12" />
                 </svg>
               </button>
             {/if}
@@ -976,7 +1028,9 @@
             ondrop={(e) => handleRowDrop(e, node.parentPath)}
             data-folder-path={node.parentPath}
             data-testid="folder-empty-state"
-          >Nothing here yet</div>
+          >
+            Nothing here yet
+          </div>
         {:else}
           <!-- svelte-ignore a11y_click_events_have_key_events -->
           <button
@@ -985,10 +1039,17 @@
             class:selected={node.note.id === selectedId}
             class:dragging={isDragging}
             class:touch-grabbed={touchDragKind === 'note' && touchDragId === node.note.id}
-            class:touch-pressed={pressedRowId === node.note.id && touchDragKind === null && pressTimer !== null}
+            class:touch-pressed={pressedRowId === node.note.id &&
+              touchDragKind === null &&
+              pressTimer !== null}
             style="top: {index * ROW_HEIGHT}px; left: {node.depth * DEPTH_INDENT_PX}px"
             onclick={(e) => handleNoteClick(node.note.id, e)}
-            onauxclick={(e) => { if (e.button === 1) { e.preventDefault(); handleNoteClick(node.note.id, e); } }}
+            onauxclick={(e) => {
+              if (e.button === 1) {
+                e.preventDefault();
+                handleNoteClick(node.note.id, e);
+              }
+            }}
             oncontextmenu={(e) => handleNoteContextMenu(e, node.note.id)}
             ontouchstart={(e) => handleNoteTouchStart(e, node.note.id)}
             ontouchend={handleRowTouchEnd}
@@ -1063,7 +1124,9 @@
     box-sizing: border-box;
     user-select: none;
     -webkit-tap-highlight-color: transparent;
-    transition: background 0.1s ease, box-shadow 0.1s ease;
+    transition:
+      background 0.1s ease,
+      box-shadow 0.1s ease;
     /* Scope each row's layout/paint to itself so a hover or drop-target
        outline change doesn't trigger reflow/repaint of siblings. Dropped
        p95 frame time noticeably during long drags through 2k-row trees. */

@@ -6,12 +6,7 @@
  * NotesShell.
  */
 import { hasFileSystem, isMobile } from '$lib/platform';
-import {
-  updateNote,
-  readNote,
-  createNote,
-  getNoteById,
-} from '$lib/notes.svelte';
+import { updateNote, readNote, createNote, getNoteById } from '$lib/notes.svelte';
 import { sanitizeFilename } from '$lib/utils';
 import { FORBIDDEN_CHARS_RE, validateTitle } from '$lib/rules';
 import { navigate } from '../router';
@@ -186,7 +181,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
   function getNextUntitledTitle(): string {
     const base = 'Untitled';
     const notes = deps.getNotes();
-    const existingIds = new Set(notes.map(n => n.id));
+    const existingIds = new Set(notes.map((n) => n.id));
     if (!existingIds.has(sanitizeFilename(base))) return base;
     let i = 1;
     while (existingIds.has(sanitizeFilename(`${base} (${i})`))) i++;
@@ -206,15 +201,19 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     })();
     const checkId = parentFolder ? `${parentFolder}/${leaf}` : leaf;
     const notes = deps.getNotes();
-    return notes.some(n => n.id === checkId && n.id !== originalId);
+    return notes.some((n) => n.id === checkId && n.id !== originalId);
   }
 
   function showTitleWarning(message: string, autoHideMs: number | null): void {
     if (titleWarningTimer !== null) clearTimeout(titleWarningTimer);
     titleWarning = message;
-    titleWarningTimer = autoHideMs !== null
-      ? window.setTimeout(() => { titleWarning = ''; titleWarningTimer = null; }, autoHideMs)
-      : null;
+    titleWarningTimer =
+      autoHideMs !== null
+        ? window.setTimeout(() => {
+            titleWarning = '';
+            titleWarningTimer = null;
+          }, autoHideMs)
+        : null;
   }
 
   function clearTitleWarning(): void {
@@ -353,12 +352,14 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
       }
       const newContent = editorContent;
 
-      if (!shouldWriteNoteToDisk({
-        savedTitle,
-        newTitle,
-        content: savedContent,
-        newContent,
-      })) {
+      if (
+        !shouldWriteNoteToDisk({
+          savedTitle,
+          newTitle,
+          content: savedContent,
+          newContent,
+        })
+      ) {
         return false;
       }
 
@@ -636,15 +637,33 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
   // The caller ($effect in NotesShell) drives this. We just expose loadNote.
 
   return {
-    get title() { return title; },
-    set title(v: string) { title = v; },
-    get content() { return content; },
-    get originalId() { return originalId; },
-    get savedTitle() { return savedTitle; },
-    get titleWarning() { return titleWarning; },
-    get loading() { return loading; },
-    get editVersion() { return editVersion; },
-    get lastEditTime() { return lastEditTime; },
+    get title() {
+      return title;
+    },
+    set title(v: string) {
+      title = v;
+    },
+    get content() {
+      return content;
+    },
+    get originalId() {
+      return originalId;
+    },
+    get savedTitle() {
+      return savedTitle;
+    },
+    get titleWarning() {
+      return titleWarning;
+    },
+    get loading() {
+      return loading;
+    },
+    get editVersion() {
+      return editVersion;
+    },
+    get lastEditTime() {
+      return lastEditTime;
+    },
     isSavePending: () => saveTimeout !== null || saveInFlight !== null || saveQueued,
     hasOpenDraftChanges(): boolean {
       const noteId = deps.getNoteId();

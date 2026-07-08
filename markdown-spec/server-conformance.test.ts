@@ -13,8 +13,8 @@ const maxComplexity = process.env.SPEC_MAX_COMPLEXITY
 
 const allCases = loadSpecCases(getCasesDir(), maxComplexity);
 
-const tagCases = allCases.filter(c => c.expect?.tags !== undefined);
-const headerBlockCases = allCases.filter(c => c.expect?.header_tag_block !== undefined);
+const tagCases = allCases.filter((c) => c.expect?.tags !== undefined);
+const headerBlockCases = allCases.filter((c) => c.expect?.header_tag_block !== undefined);
 
 describe('Tag Extraction Conformance', () => {
   for (const specCase of tagCases) {

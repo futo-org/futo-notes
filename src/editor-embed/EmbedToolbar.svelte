@@ -25,17 +25,37 @@
   import type { EditorView } from '@codemirror/view';
   import type { Component } from 'svelte';
   import {
-    Bold, Italic, Strikethrough, Heading, TextQuote,
-    List, ListOrdered, ListChecks, Camera, ImageIcon, ChevronDown,
-    ListIndentDecrease, ListIndentIncrease
+    Bold,
+    Italic,
+    Strikethrough,
+    Heading,
+    TextQuote,
+    List,
+    ListOrdered,
+    ListChecks,
+    Camera,
+    ImageIcon,
+    ChevronDown,
+    ListIndentDecrease,
+    ListIndentIncrease,
   } from '@lucide/svelte';
 
   // Manifest `lucide` names → components. A manifest item naming an icon
   // missing here is caught by the icons() check below at mount time.
   const ICONS: Record<string, Component> = {
-    Bold, Italic, Strikethrough, Heading, TextQuote,
-    List, ListOrdered, ListChecks, Camera, ImageIcon, ChevronDown,
-    ListIndentDecrease, ListIndentIncrease,
+    Bold,
+    Italic,
+    Strikethrough,
+    Heading,
+    TextQuote,
+    List,
+    ListOrdered,
+    ListChecks,
+    Camera,
+    ImageIcon,
+    ChevronDown,
+    ListIndentDecrease,
+    ListIndentIncrease,
   };
 
   interface Props {
@@ -134,36 +154,39 @@
 </script>
 
 {#if editorFocused}
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="markdown-toolbar" style="bottom: {bottomOffset > 0 ? `${bottomOffset}px` : `env(safe-area-inset-bottom, 0px)`}"
-  ontouchstart={handleToolbarTouchStart}
-  ontouchmove={handleToolbarTouchMove}
->
-  <div class="toolbar-scroll" bind:this={scrollEl}>
-    {#each TOOLBAR_GROUPS as group, groupIndex (groupIndex)}
-      {#if groupIndex > 0}
-        <span class="toolbar-separator"></span>
-      {/if}
-      {#each group as item (item.id)}
-        {#if item.when !== 'onListLine' || cursorOnListLine}
-          {@const Icon = icon(item)}
-          <button
-            class="toolbar-btn"
-            onmousedown={preventFocus}
-            ontouchstart={preventFocus}
-            onclick={() => activate(item)}
-            aria-label={item.label}
-          ><Icon size={18} strokeWidth={item.action.kind === 'pickImage' ? 2 : 2.5} /></button>
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div
+    class="markdown-toolbar"
+    style="bottom: {bottomOffset > 0 ? `${bottomOffset}px` : `env(safe-area-inset-bottom, 0px)`}"
+    ontouchstart={handleToolbarTouchStart}
+    ontouchmove={handleToolbarTouchMove}
+  >
+    <div class="toolbar-scroll" bind:this={scrollEl}>
+      {#each TOOLBAR_GROUPS as group, groupIndex (groupIndex)}
+        {#if groupIndex > 0}
+          <span class="toolbar-separator"></span>
         {/if}
+        {#each group as item (item.id)}
+          {#if item.when !== 'onListLine' || cursorOnListLine}
+            {@const Icon = icon(item)}
+            <button
+              class="toolbar-btn"
+              onmousedown={preventFocus}
+              ontouchstart={preventFocus}
+              onclick={() => activate(item)}
+              aria-label={item.label}
+              ><Icon size={18} strokeWidth={item.action.kind === 'pickImage' ? 2 : 2.5} /></button
+            >
+          {/if}
+        {/each}
       {/each}
-    {/each}
+    </div>
+    <button
+      class="toolbar-dismiss"
+      onmousedown={preventFocus}
+      ontouchstart={preventFocus}
+      onclick={() => activate(TOOLBAR_DISMISS)}
+      aria-label={TOOLBAR_DISMISS.label}><DismissIcon size={20} strokeWidth={2.5} /></button
+    >
   </div>
-  <button
-    class="toolbar-dismiss"
-    onmousedown={preventFocus}
-    ontouchstart={preventFocus}
-    onclick={() => activate(TOOLBAR_DISMISS)}
-    aria-label={TOOLBAR_DISMISS.label}
-  ><DismissIcon size={20} strokeWidth={2.5} /></button>
-</div>
 {/if}

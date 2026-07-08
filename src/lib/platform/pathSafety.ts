@@ -13,8 +13,8 @@
 
 import { MAX_FOLDER_DEPTH } from '$lib/rules';
 
-const CONTROL_CHARS = Array.from({ length: 32 }, (_, i) => String.fromCharCode(i)).join('')
-  + String.fromCharCode(127);
+const CONTROL_CHARS =
+  Array.from({ length: 32 }, (_, i) => String.fromCharCode(i)).join('') + String.fromCharCode(127);
 // Per-component forbidden pattern: same as shared minus `/` and `\` since
 // `/` is a legal separator handled at the splitter and `\` is rejected at
 // the top level.

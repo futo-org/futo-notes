@@ -34,9 +34,7 @@ test.describe('Folder support', () => {
     await page.getByTestId('create-folder-confirm').click();
     // Modal closes, the folder appears in the sidebar.
     await expect(page.getByTestId('create-folder-input')).toBeHidden();
-    await expect(
-      page.locator('[data-folder-path="Specs"]').first(),
-    ).toBeVisible();
+    await expect(page.locator('[data-folder-path="Specs"]').first()).toBeVisible();
   });
 
   test('mobile create-folder modal keeps actions above the input', async ({ page }) => {
@@ -84,7 +82,9 @@ test.describe('Folder support', () => {
     await expect(page.locator('.modal-error')).toContainText(/already exists/i);
   });
 
-  test('creating a folder with an empty name keeps Create disabled without an error', async ({ page }) => {
+  test('creating a folder with an empty name keeps Create disabled without an error', async ({
+    page,
+  }) => {
     await openSidebar(page);
     await page.getByTestId('new-folder-btn').click();
     await page.getByTestId('create-folder-input').fill('   ');
@@ -157,7 +157,9 @@ test.describe('Folder support', () => {
     await page.getByTestId('create-folder-input').fill('Work');
     await page.getByTestId('create-folder-confirm').click();
 
-    await expect(page.locator('[data-folder-path="Work"] [data-testid="folder-add-subfolder"]')).toHaveCount(0);
+    await expect(
+      page.locator('[data-folder-path="Work"] [data-testid="folder-add-subfolder"]'),
+    ).toHaveCount(0);
 
     await page.locator('[data-folder-path="Work"]').first().click({ button: 'right' });
     await page.getByRole('menuitem', { name: 'New Folder' }).click();
@@ -171,7 +173,9 @@ test.describe('Folder support', () => {
     await openSidebar(page);
     page.on('dialog', (dialog) => dialog.accept());
     await page.evaluate(async () => {
-      const win = window as unknown as { __testNotes: { createNote: (id: string, body: string) => Promise<unknown> } };
+      const win = window as unknown as {
+        __testNotes: { createNote: (id: string, body: string) => Promise<unknown> };
+      };
       await win.__testNotes.createNote('Work/open-note', 'body');
     });
 
@@ -187,7 +191,9 @@ test.describe('Folder support', () => {
     await expect(page.locator('[data-note-id="open-note"]')).toBeVisible();
   });
 
-  test('folder drag-drop falls back to tracked source when MIME data is hidden', async ({ page }) => {
+  test('folder drag-drop falls back to tracked source when MIME data is hidden', async ({
+    page,
+  }) => {
     await openSidebar(page);
     await page.getByTestId('new-folder-btn').click();
     await page.getByTestId('create-folder-input').fill('work');
@@ -201,27 +207,35 @@ test.describe('Folder support', () => {
       const work = document.querySelector('[data-folder-path="work"]');
       if (!archive || !work) return false;
 
-      archive.dispatchEvent(new DragEvent('dragstart', {
-        bubbles: true,
-        cancelable: true,
-        dataTransfer: new DataTransfer(),
-      }));
-      work.dispatchEvent(new DragEvent('dragover', {
-        bubbles: true,
-        cancelable: true,
-        dataTransfer: new DataTransfer(),
-      }));
-      work.dispatchEvent(new DragEvent('drop', {
-        bubbles: true,
-        cancelable: true,
-        dataTransfer: new DataTransfer(),
-      }));
-      archive.dispatchEvent(new DragEvent('dragend', {
-        bubbles: true,
-        cancelable: true,
-        dataTransfer: new DataTransfer(),
-      }));
-      await new Promise(r => setTimeout(r, 50));
+      archive.dispatchEvent(
+        new DragEvent('dragstart', {
+          bubbles: true,
+          cancelable: true,
+          dataTransfer: new DataTransfer(),
+        }),
+      );
+      work.dispatchEvent(
+        new DragEvent('dragover', {
+          bubbles: true,
+          cancelable: true,
+          dataTransfer: new DataTransfer(),
+        }),
+      );
+      work.dispatchEvent(
+        new DragEvent('drop', {
+          bubbles: true,
+          cancelable: true,
+          dataTransfer: new DataTransfer(),
+        }),
+      );
+      archive.dispatchEvent(
+        new DragEvent('dragend', {
+          bubbles: true,
+          cancelable: true,
+          dataTransfer: new DataTransfer(),
+        }),
+      );
+      await new Promise((r) => setTimeout(r, 50));
       return Boolean(document.querySelector('[data-folder-path="work/archive"]'));
     });
     expect(moved).toBe(true);
@@ -245,7 +259,9 @@ test.describe('Folder support', () => {
     // a nested note to drag back to root, plus several top-level notes
     // to sweep across.
     await page.evaluate(async () => {
-      const win = window as unknown as { __testNotes: { createNote: (id: string, body: string) => Promise<unknown> } };
+      const win = window as unknown as {
+        __testNotes: { createNote: (id: string, body: string) => Promise<unknown> };
+      };
       await win.__testNotes.createNote('seed-folder/inside', 'a');
       for (let i = 0; i < 5; i++) {
         await win.__testNotes.createNote(`top-${i}`, '');
@@ -258,7 +274,7 @@ test.describe('Folder support', () => {
 
     const transitions = await page.evaluate(async () => {
       const noteRows = [...document.querySelectorAll('.note-row')];
-      const nested = noteRows.find(r => r.getAttribute('data-note-id') === 'seed-folder/inside');
+      const nested = noteRows.find((r) => r.getAttribute('data-note-id') === 'seed-folder/inside');
       const scroll = document.querySelector('.folder-tree-scroll') as HTMLElement | null;
       if (!nested || !scroll) return { error: 'setup' };
 
@@ -277,25 +293,36 @@ test.describe('Folder support', () => {
 
       const dt = new DataTransfer();
       dt.setData('application/futo-note-id', 'seed-folder/inside');
-      nested.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: dt }));
-      await new Promise(r => setTimeout(r, 30));
+      nested.dispatchEvent(
+        new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: dt }),
+      );
+      await new Promise((r) => setTimeout(r, 30));
 
-      const topRows = noteRows.filter(r => {
+      const topRows = noteRows.filter((r) => {
         const id = r.getAttribute('data-note-id') ?? '';
         return id.startsWith('top-');
       });
       // Sweep: dragover row N, then dragleave row N with relatedTarget=null
       // (the WebKitGTK pattern), repeat for each row.
       for (const row of topRows) {
-        row.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt }));
-        await new Promise(r => requestAnimationFrame(r));
-        row.dispatchEvent(new DragEvent('dragleave', {
-          bubbles: true, cancelable: true, dataTransfer: dt, relatedTarget: null,
-        }));
-        await new Promise(r => requestAnimationFrame(r));
+        row.dispatchEvent(
+          new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt }),
+        );
+        await new Promise((r) => requestAnimationFrame(r));
+        row.dispatchEvent(
+          new DragEvent('dragleave', {
+            bubbles: true,
+            cancelable: true,
+            dataTransfer: dt,
+            relatedTarget: null,
+          }),
+        );
+        await new Promise((r) => requestAnimationFrame(r));
       }
       obs.disconnect();
-      nested.dispatchEvent(new DragEvent('dragend', { bubbles: true, cancelable: true, dataTransfer: dt }));
+      nested.dispatchEvent(
+        new DragEvent('dragend', { bubbles: true, cancelable: true, dataTransfer: dt }),
+      );
       return { flips, transitionCount: flips.length - 1 };
     });
 

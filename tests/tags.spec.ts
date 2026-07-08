@@ -10,14 +10,17 @@ async function openNewNote(page: Page): Promise<void> {
 }
 
 async function seedNote(page: Page, id: string, body: string): Promise<void> {
-  await page.evaluate(({ noteId, body }) => {
-    const w = window as typeof window & {
-      __notesShellTest: {
-        seedOpenNote: (id: string, body: string) => void;
+  await page.evaluate(
+    ({ noteId, body }) => {
+      const w = window as typeof window & {
+        __notesShellTest: {
+          seedOpenNote: (id: string, body: string) => void;
+        };
       };
-    };
-    w.__notesShellTest.seedOpenNote(noteId, body);
-  }, { noteId: id, body });
+      w.__notesShellTest.seedOpenNote(noteId, body);
+    },
+    { noteId: id, body },
+  );
   await page.waitForTimeout(300);
 }
 
@@ -210,9 +213,9 @@ test.describe('Tag System', () => {
     await blurEditor(page);
 
     // The visible text in the editor should NOT show raw tag text
-    const visibleText = await page.locator('.cm-content').evaluate(
-      (el) => (el as HTMLElement).innerText
-    );
+    const visibleText = await page
+      .locator('.cm-content')
+      .evaluate((el) => (el as HTMLElement).innerText);
     expect(visibleText).toContain('This is the note body');
     // Tags should be hidden (shown via pills instead)
     expect(visibleText).not.toContain('#recipes');

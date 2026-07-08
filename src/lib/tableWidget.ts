@@ -16,7 +16,7 @@ export interface ParsedTable {
  * Parses a markdown table string into structured data
  */
 export function parseMarkdownTable(text: string): ParsedTable | null {
-  const lines = text.split('\n').filter(line => line.trim());
+  const lines = text.split('\n').filter((line) => line.trim());
 
   if (lines.length < 2) return null;
 
@@ -38,7 +38,7 @@ export function parseMarkdownTable(text: string): ParsedTable | null {
   // Apply alignments to headers
   const headerCells: TableCell[] = headers.map((content, i) => ({
     content,
-    align: alignments[i] || 'left'
+    align: alignments[i] || 'left',
   }));
 
   // Parse data rows
@@ -50,7 +50,7 @@ export function parseMarkdownTable(text: string): ParsedTable | null {
     for (let j = 0; j < headers.length; j++) {
       rowCells.push({
         content: cells[j] || '',
-        align: alignments[j] || 'left'
+        align: alignments[j] || 'left',
       });
     }
 
@@ -72,7 +72,7 @@ function parseCells(line: string): string[] {
   const withPlaceholder = trimmed.replace(/\\\|/g, placeholder);
   const cells = withPlaceholder.split('|');
 
-  return cells.map(cell => cell.replace(new RegExp(placeholder, 'g'), '|').trim());
+  return cells.map((cell) => cell.replace(new RegExp(placeholder, 'g'), '|').trim());
 }
 
 function isAlignmentRow(line: string): boolean {
@@ -82,7 +82,7 @@ function isAlignmentRow(line: string): boolean {
 
 function parseAlignments(line: string): ('left' | 'center' | 'right')[] {
   const cells = parseCells(line);
-  return cells.map(cell => {
+  return cells.map((cell) => {
     const trimmed = cell.trim();
     const hasLeft = trimmed.startsWith(':');
     const hasRight = trimmed.endsWith(':');
@@ -112,7 +112,13 @@ function escapeHtml(text: string): string {
  */
 export function sanitizeUrl(url: string): string {
   // Decode HTML entities for scheme check
-  const decoded = url.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#x27;/g, "'").replace(/&#47;/g, '/');
+  const decoded = url
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#x27;/g, "'")
+    .replace(/&#47;/g, '/');
   // eslint-disable-next-line no-control-regex -- intentional: strip C0 control chars from URLs
   const trimmed = decoded.replace(/[\s\x00-\x1f]+/g, '').toLowerCase();
   if (/^(javascript|data|vbscript)\s*:/i.test(trimmed)) return '';
@@ -149,7 +155,7 @@ function renderInlineMarkdown(text: string): string {
       const safe = sanitizeUrl(href);
       if (!safe) return linkText;
       return `<a href="${safe}" class="cm-md-table-link" target="_blank" rel="noopener noreferrer">${linkText}</a>`;
-    }
+    },
   );
 
   return html;
@@ -221,40 +227,52 @@ export class TableWidget extends WidgetType {
     let touchStartY = 0;
     let didScroll = false;
 
-    wrapper.addEventListener('touchstart', (e) => {
-      if (e.touches.length === 1) {
-        touchStartX = e.touches[0].clientX;
-        touchStartY = e.touches[0].clientY;
-        didScroll = false;
-      }
-      // Don't stop propagation - let browser handle scroll setup
-    }, { passive: true });
-
-    wrapper.addEventListener('touchmove', (e) => {
-      if (e.touches.length === 1) {
-        const dx = Math.abs(e.touches[0].clientX - touchStartX);
-        const dy = Math.abs(e.touches[0].clientY - touchStartY);
-        // If moved more than 10px in any direction, it's a scroll
-        if (dx > 10 || dy > 10) {
-          didScroll = true;
+    wrapper.addEventListener(
+      'touchstart',
+      (e) => {
+        if (e.touches.length === 1) {
+          touchStartX = e.touches[0].clientX;
+          touchStartY = e.touches[0].clientY;
+          didScroll = false;
         }
-      }
-      // Don't stop propagation - let browser handle scrolling
-    }, { passive: true });
+        // Don't stop propagation - let browser handle scroll setup
+      },
+      { passive: true },
+    );
 
-    wrapper.addEventListener('touchend', (e) => {
-      const target = e.target as HTMLElement | null;
-      if (target?.closest('a.cm-md-table-link')) {
-        return;
-      }
-      // Only enter edit mode if it was a tap (no scroll movement)
-      if (!didScroll) {
-        view.dispatch({
-          selection: { anchor: this.tableFrom }
-        });
-        view.focus();
-      }
-    }, { passive: true });
+    wrapper.addEventListener(
+      'touchmove',
+      (e) => {
+        if (e.touches.length === 1) {
+          const dx = Math.abs(e.touches[0].clientX - touchStartX);
+          const dy = Math.abs(e.touches[0].clientY - touchStartY);
+          // If moved more than 10px in any direction, it's a scroll
+          if (dx > 10 || dy > 10) {
+            didScroll = true;
+          }
+        }
+        // Don't stop propagation - let browser handle scrolling
+      },
+      { passive: true },
+    );
+
+    wrapper.addEventListener(
+      'touchend',
+      (e) => {
+        const target = e.target as HTMLElement | null;
+        if (target?.closest('a.cm-md-table-link')) {
+          return;
+        }
+        // Only enter edit mode if it was a tap (no scroll movement)
+        if (!didScroll) {
+          view.dispatch({
+            selection: { anchor: this.tableFrom },
+          });
+          view.focus();
+        }
+      },
+      { passive: true },
+    );
 
     // Mouse click handler (for non-touch devices)
     wrapper.addEventListener('click', (e) => {
@@ -271,7 +289,7 @@ export class TableWidget extends WidgetType {
 
       e.preventDefault();
       view.dispatch({
-        selection: { anchor: this.tableFrom }
+        selection: { anchor: this.tableFrom },
       });
       view.focus();
     });
@@ -289,7 +307,7 @@ export class TableWidget extends WidgetType {
     const headerHeight = 40;
     const rowHeight = 36;
     const padding = 16;
-    return headerHeight + (this.table.rows.length * rowHeight) + padding;
+    return headerHeight + this.table.rows.length * rowHeight + padding;
   }
 
   ignoreEvent(): boolean {

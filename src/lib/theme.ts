@@ -24,9 +24,8 @@ export async function applyThemePreference(
   preference: ThemePreference,
   systemThemeOverride?: ResolvedTheme,
 ): Promise<ResolvedTheme> {
-  const resolved = preference === 'auto' && systemThemeOverride
-    ? systemThemeOverride
-    : resolveTheme(preference);
+  const resolved =
+    preference === 'auto' && systemThemeOverride ? systemThemeOverride : resolveTheme(preference);
   applyResolvedTheme(resolved);
   await syncStatusBarTheme(resolved);
   return resolved;
@@ -54,36 +53,51 @@ export function watchSystemThemeTauri(onChange: (theme?: ResolvedTheme) => void)
   let fallbackUnlisten: (() => void) | null = null;
   let disposed = false;
 
-  import('@tauri-apps/api/window').then(({ getCurrentWindow }) => {
-    if (disposed) return;
-    getCurrentWindow().onThemeChanged(({ payload: theme }) => {
-      onChange(theme as ResolvedTheme);
-    }).then(unlisten => {
-      if (disposed) { unlisten(); return; }
-      tauriUnlisten = unlisten;
-    });
-
-    import('@tauri-apps/api/event').then(({ listen }) => {
+  import('@tauri-apps/api/window')
+    .then(({ getCurrentWindow }) => {
       if (disposed) return;
-      listen<string>('linux-theme-changed', (event) => {
-        onChange(event.payload as ResolvedTheme);
-      }).then(unlisten => {
-        if (disposed) { unlisten(); return; }
-        portalUnlisten = unlisten;
-      });
-    }).catch(() => {});
-  }).catch(() => {
-    // Tauri API not available (web mode) — fall back to matchMedia
-    if (disposed) return;
-    fallbackUnlisten = watchSystemTheme(onChange);
-  });
+      getCurrentWindow()
+        .onThemeChanged(({ payload: theme }) => {
+          onChange(theme as ResolvedTheme);
+        })
+        .then((unlisten) => {
+          if (disposed) {
+            unlisten();
+            return;
+          }
+          tauriUnlisten = unlisten;
+        });
+
+      import('@tauri-apps/api/event')
+        .then(({ listen }) => {
+          if (disposed) return;
+          listen<string>('linux-theme-changed', (event) => {
+            onChange(event.payload as ResolvedTheme);
+          }).then((unlisten) => {
+            if (disposed) {
+              unlisten();
+              return;
+            }
+            portalUnlisten = unlisten;
+          });
+        })
+        .catch(() => {});
+    })
+    .catch(() => {
+      // Tauri API not available (web mode) — fall back to matchMedia
+      if (disposed) return;
+      fallbackUnlisten = watchSystemTheme(onChange);
+    });
 
   return () => {
     if (disposed) return;
     disposed = true;
-    const t = tauriUnlisten; tauriUnlisten = null;
-    const p = portalUnlisten; portalUnlisten = null;
-    const f = fallbackUnlisten; fallbackUnlisten = null;
+    const t = tauriUnlisten;
+    tauriUnlisten = null;
+    const p = portalUnlisten;
+    portalUnlisten = null;
+    const f = fallbackUnlisten;
+    fallbackUnlisten = null;
     t?.();
     p?.();
     f?.();

@@ -187,8 +187,15 @@ describe('scanTags (linear) — parity with TAG_REGEX + ReDoS safety', () => {
     '#a #b', // adjacency — zero-width boundaries, both must match
     'word#tag', // not preceded by whitespace → no match
     '##tag',
-    '#tag.', '#tag,', '(#tag)', '#tag!', '#tag?', '#tag]', '#tag}',
-    '#tag@x', '#tag/x', // non-terminator after the name → no match
+    '#tag.',
+    '#tag,',
+    '(#tag)',
+    '#tag!',
+    '#tag?',
+    '#tag]',
+    '#tag}',
+    '#tag@x',
+    '#tag/x', // non-terminator after the name → no match
     '#a-b_c1 ',
     '#1tag #-tag #_tag', // first char after # must be a letter
     'line1\n#tag\nline3', // (?m)^ after a newline

@@ -45,7 +45,9 @@ describe('tauri.windows.conf.json carries no stale VC++ redist workaround', () =
   it('references no NSIS installerHooks file that does not exist', () => {
     const hooks = conf.bundle?.windows?.nsis?.installerHooks;
     if (hooks) {
-      expect(existsSync(resolve(SRC_TAURI, hooks)), `installerHooks file missing: ${hooks}`).toBe(true);
+      expect(existsSync(resolve(SRC_TAURI, hooks)), `installerHooks file missing: ${hooks}`).toBe(
+        true,
+      );
     }
   });
 });

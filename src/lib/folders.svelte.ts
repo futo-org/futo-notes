@@ -70,11 +70,15 @@ function persistOpenFolders(): void {
   // storage purge or an Android WebView reset (localStorage isn't
   // guaranteed durable on either platform). Best-effort, async.
   if (isTauri) {
-    void import('./platform/tauri').then(({ saveConfig }) => {
-      saveConfig({ openFolders: arr }).catch((err) => {
-        console.warn('Failed to persist open folders:', err);
+    void import('./platform/tauri')
+      .then(({ saveConfig }) => {
+        saveConfig({ openFolders: arr }).catch((err) => {
+          console.warn('Failed to persist open folders:', err);
+        });
+      })
+      .catch(() => {
+        /* non-Tauri or import failed */
       });
-    }).catch(() => { /* non-Tauri or import failed */ });
   }
 }
 
@@ -95,7 +99,11 @@ async function hydrateOpenFoldersFromConfig(): Promise<void> {
     }
     openFolders = new Set(stored);
     if (typeof localStorage !== 'undefined') {
-      try { localStorage.setItem(OPEN_FOLDERS_KEY, JSON.stringify(stored)); } catch { /* quota */ }
+      try {
+        localStorage.setItem(OPEN_FOLDERS_KEY, JSON.stringify(stored));
+      } catch {
+        /* quota */
+      }
     }
   } catch {
     // Best-effort — fall through to whatever localStorage gave us.
@@ -499,12 +507,16 @@ export async function deleteFolder(path: string): Promise<{ ok: boolean; error?:
     if (fs.deleteFolder) {
       await fs.deleteFolder(path);
     }
-    const nextOpen = new Set([...openFolders].filter((p) => p !== path && !p.startsWith(`${path}/`)));
+    const nextOpen = new Set(
+      [...openFolders].filter((p) => p !== path && !p.startsWith(`${path}/`)),
+    );
     if (nextOpen.size !== openFolders.size) {
       openFolders = nextOpen;
       persistOpenFolders();
     }
-    const nextEmpty = new Set([...emptyFolders].filter((p) => p !== path && !p.startsWith(`${path}/`)));
+    const nextEmpty = new Set(
+      [...emptyFolders].filter((p) => p !== path && !p.startsWith(`${path}/`)),
+    );
     if (nextEmpty.size !== emptyFolders.size) {
       emptyFolders = nextEmpty;
     }

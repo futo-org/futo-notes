@@ -125,7 +125,7 @@ export function setCellContent(
   t: ParsedTable,
   rowIndex: number,
   colIndex: number,
-  content: string
+  content: string,
 ): ParsedTable {
   const out = cloneTable(t);
   if (rowIndex === -1) {

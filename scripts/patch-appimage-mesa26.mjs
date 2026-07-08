@@ -124,9 +124,7 @@ async function main() {
     }
   }
   if (!targetPath) {
-    console.error(
-      'usage: node scripts/patch-appimage-mesa26.mjs <appimage> | --dir <bundle_dir>',
-    );
+    console.error('usage: node scripts/patch-appimage-mesa26.mjs <appimage> | --dir <bundle_dir>');
     process.exit(2);
   }
   if (!existsSync(targetPath)) throw new Error(`not found: ${targetPath}`);

@@ -34,12 +34,19 @@ import { dirname, resolve } from 'node:path';
 const ED25519_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
 
 function ed25519PublicKey(raw32) {
-  return createPublicKey({ key: Buffer.concat([ED25519_SPKI_PREFIX, raw32]), format: 'der', type: 'spki' });
+  return createPublicKey({
+    key: Buffer.concat([ED25519_SPKI_PREFIX, raw32]),
+    format: 'der',
+    type: 'spki',
+  });
 }
 
 /** Parse a base64 minisign public key (the value baked in tauri.conf.json). */
 export function parseMinisignPubkey(b64) {
-  const lines = Buffer.from(b64, 'base64').toString('utf8').split('\n').filter((l) => l.length > 0);
+  const lines = Buffer.from(b64, 'base64')
+    .toString('utf8')
+    .split('\n')
+    .filter((l) => l.length > 0);
   const raw = Buffer.from(lines[lines.length - 1], 'base64'); // last line = key data
   if (raw.length !== 42) throw new Error(`bad minisign pubkey length ${raw.length} (expected 42)`);
   return { algo: raw.subarray(0, 2), keyId: raw.subarray(2, 10), key: raw.subarray(10, 42) };
@@ -49,7 +56,8 @@ export function parseMinisignPubkey(b64) {
 export function parseTauriSig(sigB64) {
   const lines = Buffer.from(sigB64.trim(), 'base64').toString('utf8').split('\n');
   const blob = Buffer.from(lines[1], 'base64');
-  if (blob.length !== 74) throw new Error(`bad minisign signature length ${blob.length} (expected 74)`);
+  if (blob.length !== 74)
+    throw new Error(`bad minisign signature length ${blob.length} (expected 74)`);
   return {
     algo: blob.subarray(0, 2),
     keyId: blob.subarray(2, 10),
@@ -66,17 +74,32 @@ export function parseTauriSig(sigB64) {
  */
 export function verifyUpdaterSignature({ pubkeyB64, fileBytes, sigB64 }) {
   let pub, s;
-  try { pub = parseMinisignPubkey(pubkeyB64); } catch (e) { return { ok: false, reason: `pubkey parse: ${e.message}` }; }
-  try { s = parseTauriSig(sigB64); } catch (e) { return { ok: false, reason: `signature parse: ${e.message}` }; }
+  try {
+    pub = parseMinisignPubkey(pubkeyB64);
+  } catch (e) {
+    return { ok: false, reason: `pubkey parse: ${e.message}` };
+  }
+  try {
+    s = parseTauriSig(sigB64);
+  } catch (e) {
+    return { ok: false, reason: `signature parse: ${e.message}` };
+  }
   // A different key id means the artifact was signed by a key OTHER than the one
   // the client bakes — the exact wrong-key/rotation foot-gun this guards against.
   if (!pub.keyId.equals(s.keyId)) {
-    return { ok: false, reason: `key id mismatch: signature ${s.keyId.toString('hex')} != baked pubkey ${pub.keyId.toString('hex')}` };
+    return {
+      ok: false,
+      reason: `key id mismatch: signature ${s.keyId.toString('hex')} != baked pubkey ${pub.keyId.toString('hex')}`,
+    };
   }
   const key = ed25519PublicKey(pub.key);
   const message = s.prehashed ? createHash('blake2b512').update(fileBytes).digest() : fileBytes;
   if (!edVerify(null, message, key, s.sig)) {
-    return { ok: false, reason: 'signature does not verify against the artifact bytes + pubkey (stale .sig or tampered artifact)' };
+    return {
+      ok: false,
+      reason:
+        'signature does not verify against the artifact bytes + pubkey (stale .sig or tampered artifact)',
+    };
   }
   if (s.globalSig) {
     const globalMsg = Buffer.concat([s.sig, Buffer.from(s.trustedComment, 'utf8')]);
@@ -98,9 +121,12 @@ export function verifyArtifactFile({ pubkeyB64, artifactPath, sigPath }) {
 
 /** Read the prod pubkey baked into the base tauri.conf.json. */
 export function bakedProdPubkey(root) {
-  const conf = JSON.parse(readFileSync(resolve(root, 'apps/tauri/src-tauri/tauri.conf.json'), 'utf8'));
+  const conf = JSON.parse(
+    readFileSync(resolve(root, 'apps/tauri/src-tauri/tauri.conf.json'), 'utf8'),
+  );
   const pk = conf?.plugins?.updater?.pubkey;
-  if (typeof pk !== 'string' || pk.length === 0) throw new Error('no plugins.updater.pubkey in tauri.conf.json');
+  if (typeof pk !== 'string' || pk.length === 0)
+    throw new Error('no plugins.updater.pubkey in tauri.conf.json');
   return pk;
 }
 
@@ -118,19 +144,36 @@ function main(argv) {
     const a = argv[i];
     if (a === '--pubkey') pubkeyB64 = argv[++i];
     else if (a === '--artifact') pendingArtifact = argv[++i];
-    else if (a === '--sig') { pairs.push({ artifactPath: pendingArtifact, sigPath: argv[++i] }); pendingArtifact = null; }
+    else if (a === '--sig') {
+      pairs.push({ artifactPath: pendingArtifact, sigPath: argv[++i] });
+      pendingArtifact = null;
+    }
   }
-  if (pairs.length === 0) { process.stderr.write('usage: verify-updater-signature.mjs [--pubkey <b64>] (--artifact <f> --sig <f.sig>)+\n'); process.exit(2); }
+  if (pairs.length === 0) {
+    process.stderr.write(
+      'usage: verify-updater-signature.mjs [--pubkey <b64>] (--artifact <f> --sig <f.sig>)+\n',
+    );
+    process.exit(2);
+  }
   pubkeyB64 = pubkeyB64 || bakedProdPubkey(root);
 
   let failed = 0;
   for (const { artifactPath, sigPath } of pairs) {
-    if (!artifactPath || !sigPath) { process.stderr.write('each --sig must follow an --artifact\n'); process.exit(2); }
+    if (!artifactPath || !sigPath) {
+      process.stderr.write('each --sig must follow an --artifact\n');
+      process.exit(2);
+    }
     const r = verifyArtifactFile({ pubkeyB64, artifactPath, sigPath });
     if (r.ok) process.stdout.write(`OK   ${artifactPath}\n`);
-    else { process.stdout.write(`FAIL ${artifactPath}: ${r.reason}\n`); failed++; }
+    else {
+      process.stdout.write(`FAIL ${artifactPath}: ${r.reason}\n`);
+      failed++;
+    }
   }
-  if (failed > 0) { process.stderr.write(`\n${failed} signature(s) failed verification — refusing to publish.\n`); process.exit(1); }
+  if (failed > 0) {
+    process.stderr.write(`\n${failed} signature(s) failed verification — refusing to publish.\n`);
+    process.exit(1);
+  }
   process.stdout.write(`\nAll ${pairs.length} signature(s) verify against the baked pubkey.\n`);
 }
 

@@ -22,8 +22,12 @@ import type { SpecCase, CursorMove } from '../../markdown-spec/schema.ts';
 import { diffStates, summarize, type ScenarioReport } from './diff.ts';
 import { runLayoutInvariants } from './layoutInvariants.ts';
 import {
-  injectNeutralTheme, captureEditorScreenshot, diffScreenshots,
-  VISUAL_SCENARIO_NAMES, VISUAL_DIFF_TOLERANCE, type VisualDiffResult,
+  injectNeutralTheme,
+  captureEditorScreenshot,
+  diffScreenshots,
+  VISUAL_SCENARIO_NAMES,
+  VISUAL_DIFF_TOLERANCE,
+  type VisualDiffResult,
 } from './visualDiff.ts';
 import { writeVisualReport } from './visualReport.ts';
 import type { DriverEvent, DriverState } from '../driver/protocol.ts';
@@ -76,11 +80,16 @@ function parseRunOptions(argv = process.argv): RunOptions {
 async function main() {
   const sub = process.argv[2];
   switch (sub) {
-    case 'daemon': return runDaemon();
-    case 'run':    return clientRun();
-    case 'down':   return clientDown();
-    case 'watch':  return clientWatch();
-    default:       return runOneshot();
+    case 'daemon':
+      return runDaemon();
+    case 'run':
+      return clientRun();
+    case 'down':
+      return clientDown();
+    case 'watch':
+      return clientWatch();
+    default:
+      return runOneshot();
   }
 }
 
@@ -95,23 +104,35 @@ interface Env {
   cleanup: () => Promise<void>;
 }
 
-async function bootEnv({ skipObsidian, headed }: { skipObsidian: boolean; headed: boolean }): Promise<Env> {
+async function bootEnv({
+  skipObsidian,
+  headed,
+}: {
+  skipObsidian: boolean;
+  headed: boolean;
+}): Promise<Env> {
   const cleanups: Array<() => Promise<void> | void> = [];
   const cleanup = async () => {
     for (const fn of cleanups.reverse()) {
-      try { await fn(); } catch {}
+      try {
+        await fn();
+      } catch {}
     }
   };
 
   // 1. Dev server
-  const devAlreadyUp = await tryFetch(DEV_URL).then(() => true).catch(() => false);
+  const devAlreadyUp = await tryFetch(DEV_URL)
+    .then(() => true)
+    .catch(() => false);
   let devProc: ChildProcess | null = null;
   if (!devAlreadyUp) {
     console.log(`[boot] starting pnpm run dev`);
     devProc = spawn('pnpm', ['run', 'dev'], { cwd: REPO, stdio: ['ignore', 'pipe', 'pipe'] });
     devProc.stdout?.on('data', (d) => process.stdout.write(`[dev] ${d}`));
     devProc.stderr?.on('data', (d) => process.stderr.write(`[dev!] ${d}`));
-    cleanups.push(() => { devProc?.kill('SIGINT'); });
+    cleanups.push(() => {
+      devProc?.kill('SIGINT');
+    });
     await waitForUrl(DEV_URL, 30_000);
   } else {
     console.log(`[boot] reusing dev server on ${DEV_URL}`);
@@ -160,7 +181,9 @@ async function openFutoNotesPage(page: Page): Promise<void> {
   await page.goto(`${DEV_URL}/#/note/new`);
   await page.waitForSelector('.cm-editor', { timeout: 15_000 });
   await page.waitForFunction(() => !!(window as any).__driver, null, { timeout: 10_000 });
-  await page.evaluate(() => { (window as any).__name = (fn: any) => fn; });
+  await page.evaluate(() => {
+    (window as any).__name = (fn: any) => fn;
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -169,7 +192,15 @@ async function openFutoNotesPage(page: Page): Promise<void> {
 
 type ProgressEvent =
   | { type: 'started'; total: number; reloaded?: boolean }
-  | { type: 'progress'; index: number; total: number; name: string; divergences: number; firstDiv?: string; error?: string }
+  | {
+      type: 'progress';
+      index: number;
+      total: number;
+      name: string;
+      divergences: number;
+      firstDiv?: string;
+      error?: string;
+    }
   | { type: 'summary'; summary: ReturnType<typeof summarize>; reportPath: string }
   | { type: 'log'; message: string };
 
@@ -195,9 +226,13 @@ async function runOneRound(
   // Inject the neutral theme on both pages once per round so SF and OB
   // render the same source with the same chrome.
   if (opts.visual) {
-    try { await injectNeutralTheme(env.page); } catch {}
+    try {
+      await injectNeutralTheme(env.page);
+    } catch {}
     if (env.obsidianPage) {
-      try { await injectNeutralTheme(env.obsidianPage); } catch {}
+      try {
+        await injectNeutralTheme(env.obsidianPage);
+      } catch {}
     }
   }
 
@@ -246,7 +281,14 @@ async function runOneRound(
         }
       }
       const report: ScenarioReport = ob
-        ? { name: c.name, complexity: c.complexity, satisfaction: 0, divergences, futoNotes: sf, obsidian: ob }
+        ? {
+            name: c.name,
+            complexity: c.complexity,
+            satisfaction: 0,
+            divergences,
+            futoNotes: sf,
+            obsidian: ob,
+          }
         : { name: c.name, complexity: c.complexity, satisfaction: 1, divergences, futoNotes: sf };
       report.satisfaction = report.divergences.length === 0 ? 1 : 0;
       reports.push(report);
@@ -260,8 +302,21 @@ async function runOneRound(
       });
     } catch (e) {
       const error = e instanceof Error ? e.message : String(e);
-      reports.push({ name: c.name, complexity: c.complexity, satisfaction: 0, divergences: [], error });
-      onEvent({ type: 'progress', index: i + 1, total: cases.length, name: c.name, divergences: 0, error });
+      reports.push({
+        name: c.name,
+        complexity: c.complexity,
+        satisfaction: 0,
+        divergences: [],
+        error,
+      });
+      onEvent({
+        type: 'progress',
+        index: i + 1,
+        total: cases.length,
+        name: c.name,
+        divergences: 0,
+        error,
+      });
     }
   }
 
@@ -312,7 +367,9 @@ async function runDaemon(): Promise<void> {
   console.log(`[daemon] ready — listening on ${SOCKET_PATH}`);
 
   if (existsSync(SOCKET_PATH)) {
-    try { unlinkSync(SOCKET_PATH); } catch {}
+    try {
+      unlinkSync(SOCKET_PATH);
+    } catch {}
   }
 
   let busy = false;
@@ -327,7 +384,11 @@ async function runDaemon(): Promise<void> {
         buf = buf.slice(nl + 1);
         if (!line) continue;
         let msg: any;
-        try { msg = JSON.parse(line); } catch { continue; }
+        try {
+          msg = JSON.parse(line);
+        } catch {
+          continue;
+        }
         if (msg.cmd === 'shutdown') {
           send(socket, { type: 'log', message: 'shutting down' });
           socket.end();
@@ -359,7 +420,9 @@ async function runDaemon(): Promise<void> {
   const shutdown = async () => {
     console.log(`[daemon] shutting down`);
     server.close();
-    try { unlinkSync(SOCKET_PATH); } catch {}
+    try {
+      unlinkSync(SOCKET_PATH);
+    } catch {}
     await env.cleanup();
     process.exit(0);
   };
@@ -368,7 +431,9 @@ async function runDaemon(): Promise<void> {
 }
 
 function send(socket: net.Socket, ev: ProgressEvent): void {
-  try { socket.write(JSON.stringify(ev) + '\n'); } catch {}
+  try {
+    socket.write(JSON.stringify(ev) + '\n');
+  } catch {}
 }
 
 async function clientRun(): Promise<never> {
@@ -422,7 +487,10 @@ async function clientWatch(): Promise<never> {
   let running = false;
   let pending = false;
   const trigger = async (reason: string) => {
-    if (running) { pending = true; return; }
+    if (running) {
+      pending = true;
+      return;
+    }
     running = true;
     do {
       pending = false;
@@ -439,7 +507,10 @@ async function clientWatch(): Promise<never> {
   watcher.on('ready', () => trigger('initial run'));
   watcher.on('change', (p: string) => trigger(`change ${path.relative(REPO, p)}`));
 
-  process.on('SIGINT', () => { watcher.close(); process.exit(0); });
+  process.on('SIGINT', () => {
+    watcher.close();
+    process.exit(0);
+  });
   // Keep alive
   await new Promise(() => {});
   process.exit(0);
@@ -468,7 +539,10 @@ async function sendRun(opts: RunOptions, onEvent: (e: ProgressEvent) => void): P
       }
     });
     sock.on('end', () => resolve(lastSummary && lastSummary.satisfaction === 1 ? 0 : 1));
-    sock.on('error', (err) => { console.error(`[client] ${err.message}`); resolve(2); });
+    sock.on('error', (err) => {
+      console.error(`[client] ${err.message}`);
+      resolve(2);
+    });
   });
 }
 
@@ -478,7 +552,11 @@ function prettyPrintEvent(ev: ProgressEvent): void {
       console.log(`[run] ${ev.total} scenarios${ev.reloaded ? ' (reloaded)' : ''}`);
       break;
     case 'progress': {
-      const tag = ev.error ? `ERR ${ev.error}` : ev.divergences === 0 ? 'OK' : `${ev.divergences} div`;
+      const tag = ev.error
+        ? `ERR ${ev.error}`
+        : ev.divergences === 0
+          ? 'OK'
+          : `${ev.divergences} div`;
       const detail = ev.firstDiv && ev.divergences > 0 ? `  — ${ev.firstDiv}` : '';
       const i = `${ev.index}/${ev.total}`.padStart(7);
       console.log(`[${i}] ${ev.name.padEnd(40)} ${tag}${detail}`);
@@ -486,7 +564,9 @@ function prettyPrintEvent(ev: ProgressEvent): void {
     }
     case 'summary': {
       const s = ev.summary;
-      console.log(`\n[summary] ${s.passed}/${s.total} passed (${(s.satisfaction * 100).toFixed(1)}%)`);
+      console.log(
+        `\n[summary] ${s.passed}/${s.total} passed (${(s.satisfaction * 100).toFixed(1)}%)`,
+      );
       console.log(`          buckets: ${JSON.stringify(s.buckets)}`);
       console.log(`          report:  ${ev.reportPath}`);
       break;
@@ -501,9 +581,19 @@ function prettyPrintEvent(ev: ProgressEvent): void {
 // Helpers (unchanged from prior version)
 // ---------------------------------------------------------------------------
 
-function loadAndFilterCases({ max, filter, noMoves }: { max: number; filter?: string; noMoves?: boolean }): SpecCase[] {
+function loadAndFilterCases({
+  max,
+  filter,
+  noMoves,
+}: {
+  max: number;
+  filter?: string;
+  noMoves?: boolean;
+}): SpecCase[] {
   const all = loadSpecCases(getCasesDir());
-  let usable = all.filter((c) => !!c.markdown && (c.cursor !== undefined || c.start_cursor !== undefined));
+  let usable = all.filter(
+    (c) => !!c.markdown && (c.cursor !== undefined || c.start_cursor !== undefined),
+  );
   if (noMoves) usable = usable.filter((c) => !c.moves || c.moves.length === 0);
   const filtered = filter
     ? usable.filter((c) => c.name.includes(filter) || (c as any).markdown?.includes(filter))
@@ -525,12 +615,20 @@ function scenarioToEvents(c: SpecCase): DriverEvent[] {
   return evs;
 }
 
-async function runOnEditor(page: Page, markdown: string, events: DriverEvent[], isObsidian = false): Promise<DriverState> {
-  await page.evaluate(async ({ markdown }) => {
-    const w = window as any;
-    if (!w.__driver) throw new Error('window.__driver missing');
-    await w.__driver.setDoc(markdown);
-  }, { markdown });
+async function runOnEditor(
+  page: Page,
+  markdown: string,
+  events: DriverEvent[],
+  isObsidian = false,
+): Promise<DriverState> {
+  await page.evaluate(
+    async ({ markdown }) => {
+      const w = window as any;
+      if (!w.__driver) throw new Error('window.__driver missing');
+      await w.__driver.setDoc(markdown);
+    },
+    { markdown },
+  );
 
   const wantsFocus = events.some(
     (e) => e.type === 'place_cursor' || e.type === 'focus' || e.type === 'type' || e.type === 'key',
@@ -542,7 +640,9 @@ async function runOnEditor(page: Page, markdown: string, events: DriverEvent[], 
     // is selection-driven and doesn't need the click; skipping it
     // avoids the click landing on a widget at (4,4) which can move
     // the caret off the requested position.
-    await page.locator('.cm-content[data-factory-target="true"]').click({ position: { x: 4, y: 4 }, force: true });
+    await page
+      .locator('.cm-content[data-factory-target="true"]')
+      .click({ position: { x: 4, y: 4 }, force: true });
   } else if (wantsFocus) {
     // FUTO Notes just needs the editor to know it's focused.
     await page.evaluate(async () => {
@@ -566,9 +666,12 @@ async function runOnEditor(page: Page, markdown: string, events: DriverEvent[], 
         await page.keyboard.press('Home');
         for (let i = 0; i < ev.ch; i++) await page.keyboard.press('ArrowRight');
       } else {
-        await page.evaluate(async ({ line, ch }) => {
-          await (window as any).__driver.dispatch([{ type: 'place_cursor', line, ch }]);
-        }, { line: ev.line, ch: ev.ch });
+        await page.evaluate(
+          async ({ line, ch }) => {
+            await (window as any).__driver.dispatch([{ type: 'place_cursor', line, ch }]);
+          },
+          { line: ev.line, ch: ev.ch },
+        );
       }
     } else if (ev.type === 'key') {
       await page.keyboard.press(ev.key);
@@ -577,9 +680,12 @@ async function runOnEditor(page: Page, markdown: string, events: DriverEvent[], 
     } else if (ev.type === 'set_doc' || ev.type === 'blur' || ev.type === 'focus') {
       // Doc/focus changes still go through the in-page driver — these
       // don't depend on real input events.
-      await page.evaluate(async ({ ev }) => {
-        await (window as any).__driver.dispatch([ev]);
-      }, { ev });
+      await page.evaluate(
+        async ({ ev }) => {
+          await (window as any).__driver.dispatch([ev]);
+        },
+        { ev },
+      );
     }
   }
 
@@ -588,11 +694,20 @@ async function runOnEditor(page: Page, markdown: string, events: DriverEvent[], 
   });
 }
 
-async function connectObsidian({ vaultPath, timeoutMs }: { vaultPath: string; timeoutMs: number }): Promise<Page> {
+async function connectObsidian({
+  vaultPath,
+  timeoutMs,
+}: {
+  vaultPath: string;
+  timeoutMs: number;
+}): Promise<Page> {
   const cdpUrl = `http://127.0.0.1:${OBSIDIAN_CDP_PORT}`;
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    try { await tryFetch(`${cdpUrl}/json/version`); break; } catch {}
+    try {
+      await tryFetch(`${cdpUrl}/json/version`);
+      break;
+    } catch {}
     await delay(400);
   }
   if (Date.now() - start >= timeoutMs) throw new Error('timeout waiting for Obsidian CDP');
@@ -607,8 +722,13 @@ async function connectObsidian({ vaultPath, timeoutMs }: { vaultPath: string; ti
       if (!url.startsWith('app://')) continue;
       const title = await p.title().catch(() => '');
       if (/Obsidian/i.test(title)) {
-        const ready = await p.evaluate(() => !!(window as any).app && !!(window as any).app.workspace).catch(() => false);
-        if (ready) { page = p; break; }
+        const ready = await p
+          .evaluate(() => !!(window as any).app && !!(window as any).app.workspace)
+          .catch(() => false);
+        if (ready) {
+          page = p;
+          break;
+        }
       }
     }
     if (page) break;
@@ -621,7 +741,9 @@ async function connectObsidian({ vaultPath, timeoutMs }: { vaultPath: string; ti
     return a && a.vault && a.vault.adapter && a.vault.adapter.basePath;
   });
   if (typeof activeVault !== 'string' || !activeVault.endsWith(vaultName)) {
-    throw new Error(`Obsidian opened wrong vault: got ${activeVault}, expected basename ${vaultName}`);
+    throw new Error(
+      `Obsidian opened wrong vault: got ${activeVault}, expected basename ${vaultName}`,
+    );
   }
 
   await installObsidianDriver(page);
@@ -629,7 +751,9 @@ async function connectObsidian({ vaultPath, timeoutMs }: { vaultPath: string; ti
 }
 
 async function installObsidianDriver(page: Page): Promise<void> {
-  await page.evaluate(() => { (window as any).__name = (fn: any) => fn; });
+  await page.evaluate(() => {
+    (window as any).__name = (fn: any) => fn;
+  });
   await page.evaluate(async () => {
     const w = window as any;
     if (w.__driver) return;
@@ -642,13 +766,16 @@ async function installObsidianDriver(page: Page): Promise<void> {
     // leaf has the freshly-dispatched content.
     let cachedLeaf: any = null;
     const ensureScratchCM = async () => {
-      const file = w.app.vault.getAbstractFileByPath(SCRATCH)
-        ?? await w.app.vault.create(SCRATCH, '');
+      const file =
+        w.app.vault.getAbstractFileByPath(SCRATCH) ?? (await w.app.vault.create(SCRATCH, ''));
       // Validate the cached leaf still exists, has its view, and is
       // pointing at the scratch file. Otherwise rediscover.
       const leafIsLive = (l: any) =>
-        l && l.view && l.view.file && l.view.file.path === SCRATCH
-        && document.body.contains(l.view.contentEl);
+        l &&
+        l.view &&
+        l.view.file &&
+        l.view.file.path === SCRATCH &&
+        document.body.contains(l.view.contentEl);
       if (!leafIsLive(cachedLeaf)) {
         cachedLeaf = null;
         w.app.workspace.iterateAllLeaves((l: any) => {
@@ -660,7 +787,10 @@ async function installObsidianDriver(page: Page): Promise<void> {
         }
         const vs = cachedLeaf.getViewState && cachedLeaf.getViewState();
         if (!vs || vs.type !== 'markdown' || vs?.state?.source !== false) {
-          await cachedLeaf.setViewState({ type: 'markdown', state: { file: SCRATCH, mode: 'source', source: false } });
+          await cachedLeaf.setViewState({
+            type: 'markdown',
+            state: { file: SCRATCH, mode: 'source', source: false },
+          });
         }
       }
       // Bring the scratch leaf to the front so its contentDOM is the
@@ -696,8 +826,18 @@ async function installObsidianDriver(page: Page): Promise<void> {
     };
     const isWidget = (el: Element) => {
       if (el.classList.contains('cm-widgetBuffer')) return false;
-      return ['cm-md-hr-widget','cm-md-image-wrapper','cm-md-image-widget','cm-md-table-wrapper','cm-md-table-rendered','cm-md-task-checkbox-wrapper','sf-table','internal-embed','cm-embed-block','image-embed']
-        .some((c) => el.classList.contains(c));
+      return [
+        'cm-md-hr-widget',
+        'cm-md-image-wrapper',
+        'cm-md-image-widget',
+        'cm-md-table-wrapper',
+        'cm-md-table-rendered',
+        'cm-md-task-checkbox-wrapper',
+        'sf-table',
+        'internal-embed',
+        'cm-embed-block',
+        'image-embed',
+      ].some((c) => el.classList.contains(c));
     };
     // Returns every semantic kind an element belongs to. Obsidian
     // commonly carries multiple kinds on one span (e.g. `cm-em cm-strong`
@@ -735,39 +875,80 @@ async function installObsidianDriver(page: Page): Promise<void> {
           leveledHeading = true;
         }
       }
-      if (!leveledHeading && (set.has('cm-md-h') || set.has('cm-header'))) out.add('heading-text-1');
+      if (!leveledHeading && (set.has('cm-md-h') || set.has('cm-header')))
+        out.add('heading-text-1');
       if (set.has('cm-md-strong') || set.has('cm-strong')) out.add('bold-text');
       if (set.has('cm-md-emphasis') || set.has('cm-em')) out.add('italic-text');
-      if (set.has('cm-md-strikethrough') || set.has('cm-strikethrough')) out.add('strikethrough-text');
-      if (['cm-md-code-block','cm-md-code-block-first','cm-md-code-block-middle','cm-md-code-block-last','cm-md-code-block-single']
-            .some((c) => set.has(c))) out.add('code-block');
+      if (set.has('cm-md-strikethrough') || set.has('cm-strikethrough'))
+        out.add('strikethrough-text');
+      if (
+        [
+          'cm-md-code-block',
+          'cm-md-code-block-first',
+          'cm-md-code-block-middle',
+          'cm-md-code-block-last',
+          'cm-md-code-block-single',
+        ].some((c) => set.has(c))
+      )
+        out.add('code-block');
       const isCodeMarker = set.has('cm-md-code-marker') || set.has('cm-formatting-code');
-      if (!isCodeMarker && (set.has('cm-md-code') || set.has('cm-inline-code'))) out.add('code-inline');
+      if (!isCodeMarker && (set.has('cm-md-code') || set.has('cm-inline-code')))
+        out.add('code-inline');
       const isWikilink = set.has('cm-md-wikilink') || set.has('cm-hmd-internal-link');
       const isBarelink = set.has('cm-hmd-barelink');
       if (isWikilink) out.add('wikilink');
       const isAutolink = set.has('cm-md-autolink');
       if (isAutolink) out.add('link-url');
-      if (!isWikilink && !isBarelink && !isAutolink &&
-          (set.has('cm-md-link') || set.has('cm-link'))) out.add('link-text');
+      if (
+        !isWikilink &&
+        !isBarelink &&
+        !isAutolink &&
+        (set.has('cm-md-link') || set.has('cm-link'))
+      )
+        out.add('link-text');
       if (set.has('cm-url') || set.has('cm-md-link-url')) out.add('link-url');
       // Task widgets/decorations are intentionally not bucketed — see
       // factory/driver/semanticKind.ts for the reasoning.
       if (set.has('cm-md-bullet') || set.has('cm-md-number')) out.add('list-marker');
-      const isQuoteMarker = set.has('cm-formatting-quote') || set.has('cm-md-quote-marker') || set.has('cm-md-quote-marker-hidden');
+      const isQuoteMarker =
+        set.has('cm-formatting-quote') ||
+        set.has('cm-md-quote-marker') ||
+        set.has('cm-md-quote-marker-hidden');
       if (set.has('cm-md-quote-marker')) out.add('quote-marker');
       if (set.has('cm-md-quote-text')) out.add('quote-text');
-      if (!isQuoteMarker && ['cm-md-quote','cm-md-quote-first','cm-md-quote-middle','cm-md-quote-last','cm-md-quote-single','cm-quote']
-            .some((c) => set.has(c))) out.add('quote-text');
+      if (
+        !isQuoteMarker &&
+        [
+          'cm-md-quote',
+          'cm-md-quote-first',
+          'cm-md-quote-middle',
+          'cm-md-quote-last',
+          'cm-md-quote-single',
+          'cm-quote',
+        ].some((c) => set.has(c))
+      )
+        out.add('quote-text');
       if (set.has('cm-md-hr-widget')) out.add('hr-widget');
       if (set.has('hr') && set.has('cm-line')) out.add('hr-widget');
-      if (set.has('cm-md-image-widget') || set.has('cm-md-image-wrapper') ||
-          set.has('image-embed') || set.has('image-wrapper')) out.add('image-widget');
-      if (set.has('cm-md-table-rendered') || set.has('cm-md-table-wrapper') ||
-          set.has('sf-table') || set.has('sf-table__scroll') ||
-          set.has('cm-table-widget') || set.has('table-wrapper')) out.add('table-widget');
+      if (
+        set.has('cm-md-image-widget') ||
+        set.has('cm-md-image-wrapper') ||
+        set.has('image-embed') ||
+        set.has('image-wrapper')
+      )
+        out.add('image-widget');
+      if (
+        set.has('cm-md-table-rendered') ||
+        set.has('cm-md-table-wrapper') ||
+        set.has('sf-table') ||
+        set.has('sf-table__scroll') ||
+        set.has('cm-table-widget') ||
+        set.has('table-wrapper')
+      )
+        out.add('table-widget');
       if (set.has('cm-md-tag')) out.add('tag');
-      if (set.has('cm-hashtag') || set.has('cm-hashtag-end') || set.has('cm-hashtag-begin')) out.add('tag');
+      if (set.has('cm-hashtag') || set.has('cm-hashtag-end') || set.has('cm-hashtag-begin'))
+        out.add('tag');
       if (out.size === 0) return ['unknown'];
       return [...out];
     };
@@ -788,9 +969,13 @@ async function installObsidianDriver(page: Page): Promise<void> {
           const classes = Array.from(node.classList);
           const kinds = classToKinds(classes);
           const isUnknown = kinds.length === 1 && kinds[0] === 'unknown';
-          const interesting = !isUnknown || classes.some((c) =>
-            /^cm-(md-|hashtag|formatting|strong|em|strikethrough|link|url|inline-code|header|quote)/.test(c),
-          );
+          const interesting =
+            !isUnknown ||
+            classes.some((c) =>
+              /^cm-(md-|hashtag|formatting|strong|em|strikethrough|link|url|inline-code|header|quote)/.test(
+                c,
+              ),
+            );
           if (interesting) {
             try {
               const fromPos = cm.posAtDOM(node, 0);
@@ -801,7 +986,11 @@ async function installObsidianDriver(page: Page): Promise<void> {
                   let cur: Element | null = start;
                   while (cur && cur !== cm.contentDOM) {
                     let nx = cur.nextSibling as Element | null;
-                    while (nx && nx.nodeType === 1 && (nx as Element).classList?.contains('cm-widgetBuffer')) {
+                    while (
+                      nx &&
+                      nx.nodeType === 1 &&
+                      (nx as Element).classList?.contains('cm-widgetBuffer')
+                    ) {
                       nx = nx.nextSibling as Element | null;
                     }
                     if (nx && nx.nodeType === 1) return nx as Element;
@@ -824,11 +1013,17 @@ async function installObsidianDriver(page: Page): Promise<void> {
               }
               for (const kind of kinds) {
                 out.push({
-                  from: posToPos(cm, fromPos), to: posToPos(cm, Math.max(toPos, fromPos)),
-                  kind, replaced: widget, classes, text: node.textContent || '',
+                  from: posToPos(cm, fromPos),
+                  to: posToPos(cm, Math.max(toPos, fromPos)),
+                  kind,
+                  replaced: widget,
+                  classes,
+                  text: node.textContent || '',
                 });
               }
-            } catch (_) { /* detached */ }
+            } catch (_) {
+              /* detached */
+            }
           }
         }
         node = walker.nextNode() as Element | null;
@@ -859,16 +1054,25 @@ async function installObsidianDriver(page: Page): Promise<void> {
               const sel = cm.state.selection.main;
               cm.dispatch({
                 changes: { from: sel.from, to: sel.to, insert: ev.text || '' },
-                selection: { anchor: sel.from + (ev.text || '').length, head: sel.from + (ev.text || '').length },
+                selection: {
+                  anchor: sel.from + (ev.text || '').length,
+                  head: sel.from + (ev.text || '').length,
+                },
               });
               break;
             }
             case 'key': {
-              cm.contentDOM.dispatchEvent(new KeyboardEvent('keydown', { key: ev.key, bubbles: true, cancelable: true }));
+              cm.contentDOM.dispatchEvent(
+                new KeyboardEvent('keydown', { key: ev.key, bubbles: true, cancelable: true }),
+              );
               break;
             }
-            case 'blur': cm.contentDOM.blur(); break;
-            case 'focus': cm.focus(); break;
+            case 'blur':
+              cm.contentDOM.blur();
+              break;
+            case 'focus':
+              cm.focus();
+              break;
             case 'set_doc': {
               cm.dispatch({
                 changes: { from: 0, to: cm.state.doc.length, insert: ev.markdown || '' },
@@ -944,7 +1148,18 @@ function prepareObsidianRegistry(): () => void {
   writeFileSync(obsidianJson, JSON.stringify(data));
 
   if (!existsSync(perVaultJson)) {
-    writeFileSync(perVaultJson, JSON.stringify({ x: 100, y: 100, width: 1280, height: 900, isMaximized: false, devTools: false, zoom: 0 }));
+    writeFileSync(
+      perVaultJson,
+      JSON.stringify({
+        x: 100,
+        y: 100,
+        width: 1280,
+        height: 900,
+        isMaximized: false,
+        devTools: false,
+        zoom: 0,
+      }),
+    );
   }
 
   return () => {
@@ -952,7 +1167,9 @@ function prepareObsidianRegistry(): () => void {
       if (origRegistry !== null) writeFileSync(obsidianJson, origRegistry);
       rmSync(backup, { force: true });
       rmSync(perVaultJson, { force: true });
-    } catch (_) { /* best-effort */ }
+    } catch (_) {
+      /* best-effort */
+    }
   };
 }
 
@@ -965,7 +1182,10 @@ async function tryFetch(url: string): Promise<any> {
 async function waitForUrl(url: string, timeoutMs: number): Promise<void> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    try { await tryFetch(url); return; } catch {}
+    try {
+      await tryFetch(url);
+      return;
+    } catch {}
     await delay(300);
   }
   throw new Error(`timeout waiting for ${url}`);
@@ -977,11 +1197,24 @@ function setupVault() {
   mkdirSync(path.join(VAULT_DIR, '.obsidian'), { recursive: true });
   writeFileSync(
     path.join(VAULT_DIR, '.obsidian/app.json'),
-    JSON.stringify({ promptDelete: false, livePreview: true, foldHeading: false, foldIndent: false, safeMode: false, trustedTypes: true }),
+    JSON.stringify({
+      promptDelete: false,
+      livePreview: true,
+      foldHeading: false,
+      foldIndent: false,
+      safeMode: false,
+      trustedTypes: true,
+    }),
   );
   writeFileSync(
     path.join(VAULT_DIR, '.obsidian/workspace.json'),
-    JSON.stringify({ main: { id: 'root', type: 'split', children: [] }, leftSplit: {}, rightSplit: {}, active: '', lastOpenFiles: [] }),
+    JSON.stringify({
+      main: { id: 'root', type: 'split', children: [] },
+      leftSplit: {},
+      rightSplit: {},
+      active: '',
+      lastOpenFiles: [],
+    }),
   );
   writeFileSync(
     path.join(VAULT_DIR, '.obsidian/appearance.json'),

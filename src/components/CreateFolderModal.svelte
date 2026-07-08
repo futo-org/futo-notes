@@ -84,7 +84,9 @@
         bind:value
         type="text"
         class="modal-input"
-        oninput={() => { error = null; }}
+        oninput={() => {
+          error = null;
+        }}
         onkeydown={handleKey}
         autocomplete="off"
         autocapitalize="none"
@@ -103,8 +105,8 @@
         class="modal-btn modal-btn-primary"
         onclick={handleSubmit}
         disabled={submitting || liveError !== null}
-        data-testid="create-folder-confirm"
-      >{confirmLabel}</button>
+        data-testid="create-folder-confirm">{confirmLabel}</button
+      >
     </div>
   </div>
 </div>

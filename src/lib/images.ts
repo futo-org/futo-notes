@@ -3,7 +3,16 @@ import { getFS } from './platform';
 // ── Constants ──────────────────────────────────────────────
 
 const ALLOWED_IMAGE_EXTS = new Set([
-  'jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif', 'heic',
+  'jpg',
+  'jpeg',
+  'png',
+  'gif',
+  'webp',
+  'svg',
+  'bmp',
+  'ico',
+  'avif',
+  'heic',
 ]);
 
 const MAX_EXT_LENGTH = 10;

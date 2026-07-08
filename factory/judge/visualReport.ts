@@ -21,7 +21,9 @@ export function writeVisualReport(results: VisualDiffResult[]): string {
   const sorted = [...results].sort((a, b) => b.diffRatio - a.diffRatio);
   const rel = (p: string) => path.relative(path.dirname(REPORT_PATH), p);
 
-  const rows = sorted.map((r) => `
+  const rows = sorted
+    .map(
+      (r) => `
     <tr>
       <td>${escapeHtml(r.scenarioName)}</td>
       <td class="num">${r.diffPixels.toLocaleString()}</td>
@@ -31,7 +33,9 @@ export function writeVisualReport(results: VisualDiffResult[]): string {
       <td><img src="${rel(r.obPath)}" alt="ob"></td>
       <td><img src="${rel(r.diffPath)}" alt="diff"></td>
     </tr>
-  `).join('\n');
+  `,
+    )
+    .join('\n');
 
   const html = `<!doctype html>
 <html><head>
@@ -66,7 +70,17 @@ export function writeVisualReport(results: VisualDiffResult[]): string {
 }
 
 function escapeHtml(s: string): string {
-  return s.replace(/[&<>"']/g, (c) => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
-  } as Record<string, string>)[c]!);
+  return s.replace(
+    /[&<>"']/g,
+    (c) =>
+      (
+        ({
+          '&': '&amp;',
+          '<': '&lt;',
+          '>': '&gt;',
+          '"': '&quot;',
+          "'": '&#39;',
+        }) as Record<string, string>
+      )[c]!,
+  );
 }

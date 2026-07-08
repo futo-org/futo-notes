@@ -29,8 +29,16 @@ describe('liveMarkdownTransform reveal helpers', () => {
 
   it('computes active cursor lines only when focused', () => {
     expect(getCursorLinesForReveal(false, [{ from: 1, to: 1 }], mockDoc)).toEqual(new Set());
-    expect(getCursorLinesForReveal(true, [{ from: 1, to: 1 }, { from: 6, to: 6 }], mockDoc))
-      .toEqual(new Set([1, 2]));
+    expect(
+      getCursorLinesForReveal(
+        true,
+        [
+          { from: 1, to: 1 },
+          { from: 6, to: 6 },
+        ],
+        mockDoc,
+      ),
+    ).toEqual(new Set([1, 2]));
   });
 
   it('classifies block and inline reveal-sensitive nodes', () => {
@@ -80,8 +88,7 @@ describe('liveMarkdownTransform reveal helpers', () => {
     // contentStart re-renders the bullet/checkbox widget. This mirrors
     // Obsidian's live-preview reveal exactly (ground-truthed via the factory).
     it('reveals a bullet `- ` marker (range 0..2) only at ch 0 and 1', () => {
-      const within = (ch: number) =>
-        selectionWithinMarkerRange(true, [{ from: ch, to: ch }], 0, 2);
+      const within = (ch: number) => selectionWithinMarkerRange(true, [{ from: ch, to: ch }], 0, 2);
       expect(within(0)).toBe(true); // on the dash
       expect(within(1)).toBe(true); // between dash and space
       expect(within(2)).toBe(false); // content start → render bullet
@@ -89,8 +96,7 @@ describe('liveMarkdownTransform reveal helpers', () => {
     });
 
     it('reveals a task `- [ ] ` marker (range 0..6) for ch 0..5, renders at 6+', () => {
-      const within = (ch: number) =>
-        selectionWithinMarkerRange(true, [{ from: ch, to: ch }], 0, 6);
+      const within = (ch: number) => selectionWithinMarkerRange(true, [{ from: ch, to: ch }], 0, 6);
       for (const ch of [0, 1, 2, 3, 4, 5]) expect(within(ch)).toBe(true);
       expect(within(6)).toBe(false); // content start → render checkbox
       expect(within(9)).toBe(false); // in the word → render checkbox

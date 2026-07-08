@@ -30,7 +30,13 @@ describe('getForYouNotes', () => {
   });
 
   it('defaults to limit of 3', () => {
-    const notes = [makeNote('a', 1), makeNote('b', 2), makeNote('c', 3), makeNote('d', 4), makeNote('e', 5)];
+    const notes = [
+      makeNote('a', 1),
+      makeNote('b', 2),
+      makeNote('c', 3),
+      makeNote('d', 4),
+      makeNote('e', 5),
+    ];
     const result = getForYouNotes(notes);
     expect(result).toHaveLength(3);
   });

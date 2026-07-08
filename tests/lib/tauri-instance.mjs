@@ -13,10 +13,7 @@ export async function startDesktopTauriInstance(name, repoRoot) {
   const dataDir = mkdtempSync(join(tmpdir(), `sf-${name}-`));
   const notesDir = mkdtempSync(join(tmpdir(), `sf-notes-${name}-`));
 
-  writeFileSync(
-    join(dataDir, 'notes-dir-override.json'),
-    JSON.stringify({ notesDir }),
-  );
+  writeFileSync(join(dataDir, 'notes-dir-override.json'), JSON.stringify({ notesDir }));
 
   const logFile = join(tmpdir(), `tauri-${name}-${Date.now()}.log`);
   const logFd = openSync(logFile, 'w');
@@ -27,10 +24,18 @@ export async function startDesktopTauriInstance(name, repoRoot) {
   ];
   let binaryPath;
   for (const candidate of candidates) {
-    try { accessSync(candidate); binaryPath = candidate; break; } catch { /* try next */ }
+    try {
+      accessSync(candidate);
+      binaryPath = candidate;
+      break;
+    } catch {
+      /* try next */
+    }
   }
   if (!binaryPath) {
-    throw new Error('Debug binary not found. Run: cd apps/tauri && cargo tauri build --debug --no-bundle');
+    throw new Error(
+      'Debug binary not found. Run: cd apps/tauri && cargo tauri build --debug --no-bundle',
+    );
   }
 
   const proc = spawn(binaryPath, [], {

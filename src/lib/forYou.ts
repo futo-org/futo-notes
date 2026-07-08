@@ -12,10 +12,7 @@ import type { NotePreview } from '../types';
  * Ties broken by id (lexicographic, descending) so results are stable
  * across renders even when several notes share an mtime.
  */
-export function getForYouNotes(
-  notes: NotePreview[],
-  limit: number = 3,
-): NotePreview[] {
+export function getForYouNotes(notes: NotePreview[], limit: number = 3): NotePreview[] {
   if (notes.length === 0 || limit <= 0) return [];
   if (notes.length <= limit) {
     // Small input — sort behaves the same as the original code path.

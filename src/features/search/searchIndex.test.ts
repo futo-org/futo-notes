@@ -236,14 +236,22 @@ describe('persistence', () => {
 
   it('returns false on version mismatch', async () => {
     // Write a file with wrong version
-    await testFS.writeAppData('.search-index-v1.json', JSON.stringify({ version: 999, indexJSON: '{}', mtimeMap: {} }));
+    await testFS.writeAppData(
+      '.search-index-v1.json',
+      JSON.stringify({ version: 999, indexJSON: '{}', mtimeMap: {} }),
+    );
 
     const loaded = await loadPersistedIndex();
     expect(loaded).toBe(false);
   });
 
   it('stored body is accessible after load', async () => {
-    addToSearchIndex({ id: 'bodytest', title: 'bodytest', body: 'the stored body content', mtime: 1000 });
+    addToSearchIndex({
+      id: 'bodytest',
+      title: 'bodytest',
+      body: 'the stored body content',
+      mtime: 1000,
+    });
     persistIndex();
     await flushPersistIndex();
 

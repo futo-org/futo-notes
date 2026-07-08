@@ -35,8 +35,8 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '$lib': path.resolve(__dirname, './src/lib'),
-      '$features': path.resolve(__dirname, './src/features'),
+      $lib: path.resolve(__dirname, './src/lib'),
+      $features: path.resolve(__dirname, './src/features'),
       '@': path.resolve(__dirname, './'),
       '/src': path.resolve(__dirname, './src'),
       '@futo-notes/shared': path.resolve(__dirname, './packages/shared/src'),

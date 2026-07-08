@@ -1,4 +1,9 @@
-import { listPendingCrashLogs, readCrashLog, deleteCrashLog, type CrashReport } from './crashHandler';
+import {
+  listPendingCrashLogs,
+  readCrashLog,
+  deleteCrashLog,
+  type CrashReport,
+} from './crashHandler';
 import { isMobile } from './platform';
 
 function getDevHost(): string {
@@ -25,7 +30,10 @@ export function getLastSendError(): string | null {
   return lastSendError;
 }
 
-async function post(url: string, data: unknown): Promise<{ ok: boolean; status: number; bodyText?: string }> {
+async function post(
+  url: string,
+  data: unknown,
+): Promise<{ ok: boolean; status: number; bodyText?: string }> {
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -36,7 +44,11 @@ async function post(url: string, data: unknown): Promise<{ ok: boolean; status: 
   // piece of diagnostic info we can show.
   let bodyText: string | undefined;
   if (!res.ok) {
-    try { bodyText = (await res.text()).slice(0, 300); } catch { /* ignore */ }
+    try {
+      bodyText = (await res.text()).slice(0, 300);
+    } catch {
+      /* ignore */
+    }
   }
   return { ok: res.ok, status: res.status, bodyText };
 }

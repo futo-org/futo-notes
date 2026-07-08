@@ -90,10 +90,7 @@ function normalizeVisible(s: string): string {
   return (s.match(/[A-Za-z]+|[0-9]+/g) ?? []).join(' ');
 }
 
-export function diffStates(
-  futoNotes: DriverState,
-  obsidian: DriverState,
-): Divergence[] {
+export function diffStates(futoNotes: DriverState, obsidian: DriverState): Divergence[] {
   const out: Divergence[] = [];
 
   if (futoNotes.doc !== obsidian.doc) {

@@ -57,7 +57,7 @@ function collectDecos(view: EditorView): DecoInfo[] {
 }
 
 function withClass(decos: DecoInfo[], cls: string): DecoInfo[] {
-  return decos.filter(d => d.class?.includes(cls));
+  return decos.filter((d) => d.class?.includes(cls));
 }
 
 describe('liveMarkdownTransform decorations', () => {
@@ -73,7 +73,7 @@ describe('liveMarkdownTransform decorations', () => {
       // [[ and ]] are removed from the DOM via Decoration.replace, so no
       // class-bearing decoration should cover those ranges.
       const classDecosOverBrackets = all.filter(
-        (d) => d.class && ((d.from === 5 && d.to === 7) || (d.from === 10 && d.to === 12))
+        (d) => d.class && ((d.from === 5 && d.to === 7) || (d.from === 10 && d.to === 12)),
       );
       expect(classDecosOverBrackets).toEqual([]);
 
@@ -141,7 +141,7 @@ describe('liveMarkdownTransform decorations', () => {
       // header block lines get cm-header-tag-hidden line decorations
       const hiddenLines = withClass(all, 'cm-header-tag-hidden');
       expect(hiddenLines).toHaveLength(2);
-      expect(hiddenLines[0]).toMatchObject({ from: 0, to: 0 });   // line 1
+      expect(hiddenLines[0]).toMatchObject({ from: 0, to: 0 }); // line 1
       expect(hiddenLines[1]).toMatchObject({ from: 12, to: 12 }); // line 2 (separator)
     });
 

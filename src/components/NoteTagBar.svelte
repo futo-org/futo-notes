@@ -26,9 +26,9 @@
   let suggestions = $derived.by(() => {
     if (!adding || !inputValue.trim()) return [];
     const lower = normalizeTagName(inputValue);
-    const currentLower = new Set(tags.map(t => t.toLowerCase().replace(/^#/, '')));
+    const currentLower = new Set(tags.map((t) => t.toLowerCase().replace(/^#/, '')));
     return allTags
-      .filter(t => t.toLowerCase().includes(lower) && !currentLower.has(t.toLowerCase()))
+      .filter((t) => t.toLowerCase().includes(lower) && !currentLower.has(t.toLowerCase()))
       .slice(0, 8);
   });
 
@@ -40,8 +40,8 @@
     if (!adding || !createName) return false;
     if (!isValidTagName(createName)) return false;
     const lower = createName.toLowerCase();
-    if (tags.some(t => t.toLowerCase().replace(/^#/, '') === lower)) return false;
-    if (allTags.some(t => t.toLowerCase() === lower)) return false;
+    if (tags.some((t) => t.toLowerCase().replace(/^#/, '') === lower)) return false;
+    if (allTags.some((t) => t.toLowerCase() === lower)) return false;
     return true;
   });
 
@@ -65,7 +65,7 @@
 
     // Check for duplicate (case-insensitive)
     const lower = name.toLowerCase();
-    if (tags.some(t => t.toLowerCase().replace(/^#/, '') === lower)) {
+    if (tags.some((t) => t.toLowerCase().replace(/^#/, '') === lower)) {
       cancelAdding();
       return;
     }
@@ -136,7 +136,12 @@
 
     // Check if removing this tag leaves the header block empty
     const remaining = (headerText.slice(0, removeFrom) + headerText.slice(removeTo)).trim();
-    const hasTagsLeft = /^#[a-zA-Z]/.test(remaining.split('\n').find(l => l.trim())?.trim() ?? '');
+    const hasTagsLeft = /^#[a-zA-Z]/.test(
+      remaining
+        .split('\n')
+        .find((l) => l.trim())
+        ?.trim() ?? '',
+    );
 
     if (!hasTagsLeft) {
       // Remove entire header block
@@ -194,13 +199,18 @@
   {#each tags as tag}
     <span class="tag-pill">
       <span class="tag-pill-name">{tag.replace(/^#/, '')}</span>
-      <button
-        class="tag-pill-remove"
-        aria-label="Remove tag {tag}"
-        onclick={() => removeTag(tag)}
-      >
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+      <button class="tag-pill-remove" aria-label="Remove tag {tag}" onclick={() => removeTag(tag)}>
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.5"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
         </svg>
       </button>
     </span>
@@ -215,7 +225,9 @@
         bind:value={inputValue}
         bind:this={inputEl}
         onkeydown={handleInputKeydown}
-        onblur={() => { setTimeout(cancelAdding, 150); }}
+        onblur={() => {
+          setTimeout(cancelAdding, 150);
+        }}
         maxlength={50}
       />
       {#if suggestions.length > 0 || isCreatable}
@@ -224,7 +236,10 @@
             <button
               class="tag-suggestion"
               class:selected={i === selectedSuggestion}
-              onmousedown={(e) => { e.preventDefault(); addTag(suggestion); }}
+              onmousedown={(e) => {
+                e.preventDefault();
+                addTag(suggestion);
+              }}
             >
               {suggestion}
             </button>
@@ -233,7 +248,10 @@
             <button
               class="tag-suggestion tag-suggestion-create"
               class:selected={selectedSuggestion === suggestions.length}
-              onmousedown={(e) => { e.preventDefault(); addTag(createName); }}
+              onmousedown={(e) => {
+                e.preventDefault();
+                addTag(createName);
+              }}
             >
               + Create #{createName}
             </button>

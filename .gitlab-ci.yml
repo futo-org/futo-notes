@@ -377,6 +377,7 @@ test:
     - pnpm exec tsx scripts/gen-toolbar-spec.ts --check
     - pnpm run lint
     - pnpm run lint:platform
+    - pnpm run format:check
     - pnpm exec tsx tests/conformance/generate.mjs --check
     - pnpm run test:full
     - pnpm run build

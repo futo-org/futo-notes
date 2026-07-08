@@ -16,7 +16,7 @@ export function loadSpecCases(dir: string, maxComplexity?: number): SpecCase[] {
   }
 
   cases.sort((a, b) => a.complexity - b.complexity);
-  return maxComplexity !== undefined ? cases.filter(c => c.complexity <= maxComplexity) : cases;
+  return maxComplexity !== undefined ? cases.filter((c) => c.complexity <= maxComplexity) : cases;
 }
 
 export function loadSpecFile(filePath: string): SpecCase[] {

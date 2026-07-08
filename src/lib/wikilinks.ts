@@ -176,4 +176,3 @@ export function rewriteWikilinks(
   out += text.slice(cursor);
   return { text: out, rewrites };
 }
-

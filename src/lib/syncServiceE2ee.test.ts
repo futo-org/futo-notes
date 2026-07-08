@@ -4,9 +4,7 @@ import { readFileSync } from 'node:fs';
 // connectE2ee reaches Tauri (invoke/listen) and app-state persistence; mock
 // those so the test exercises only the URL-normalization contract.
 vi.mock('@tauri-apps/api/core', () => ({
-  invoke: vi.fn(() =>
-    Promise.resolve({ token: 't', userId: 'u', collectionId: 'c' }),
-  ),
+  invoke: vi.fn(() => Promise.resolve({ token: 't', userId: 'u', collectionId: 'c' })),
 }));
 vi.mock('@tauri-apps/api/event', () => ({
   listen: vi.fn(() => Promise.resolve(() => {})),

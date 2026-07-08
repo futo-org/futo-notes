@@ -21,13 +21,13 @@ let content = readFileSync(pbxproj, 'utf8');
 content = content.replace(/DEVELOPMENT_TEAM = "";/g, 'DEVELOPMENT_TEAM = "2W7AC6T8T5";');
 content = content.replace(
   /CODE_SIGN_IDENTITY = "iPhone Developer"/g,
-  'CODE_SIGN_IDENTITY = "Apple Distribution"'
+  'CODE_SIGN_IDENTITY = "Apple Distribution"',
 );
 
 // 2. Deployment target
 content = content.replace(
   /IPHONEOS_DEPLOYMENT_TARGET = 14\.0/g,
-  'IPHONEOS_DEPLOYMENT_TARGET = 16.0'
+  'IPHONEOS_DEPLOYMENT_TARGET = 16.0',
 );
 
 // 3. Insert CODE_SIGN_STYLE, PROVISIONING_PROFILE_SPECIFIER, and OTHER_LDFLAGS
@@ -44,7 +44,7 @@ content = content.replace(
     match.trimEnd() +
     '\n\t\t\t\tCODE_SIGN_STYLE = Manual;' +
     '\n\t\t\t\tPROVISIONING_PROFILE_SPECIFIER = "FUTO Notes App Store";' +
-    `\n\t\t\t\tOTHER_LDFLAGS = (${ldflags});`
+    `\n\t\t\t\tOTHER_LDFLAGS = (${ldflags});`,
 );
 
 writeFileSync(pbxproj, content);
@@ -52,5 +52,9 @@ console.log(`Patched ${pbxproj}`);
 
 // Verify
 const lines = readFileSync(pbxproj, 'utf8').split('\n');
-const interesting = /CODE_SIGN_STYLE|DEVELOPMENT_TEAM|CODE_SIGN_IDENTITY|PROVISIONING_PROFILE|DEPLOYMENT_TARGET|OTHER_LDFLAGS/;
-lines.filter(l => interesting.test(l)).slice(0, 30).forEach(l => console.log(l.trim()));
+const interesting =
+  /CODE_SIGN_STYLE|DEVELOPMENT_TEAM|CODE_SIGN_IDENTITY|PROVISIONING_PROFILE|DEPLOYMENT_TARGET|OTHER_LDFLAGS/;
+lines
+  .filter((l) => interesting.test(l))
+  .slice(0, 30)
+  .forEach((l) => console.log(l.trim()));

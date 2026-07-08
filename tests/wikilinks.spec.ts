@@ -70,8 +70,8 @@ test.describe('Wikilink Decorations', () => {
     await expect(wikilink).toBeVisible();
     await expect(wikilink).toHaveText('my note');
 
-    const decoStyle = await wikilink.evaluate(el =>
-      window.getComputedStyle(el).textDecorationStyle
+    const decoStyle = await wikilink.evaluate(
+      (el) => window.getComputedStyle(el).textDecorationStyle,
     );
     expect(decoStyle).toBe('dashed');
   });
@@ -80,9 +80,9 @@ test.describe('Wikilink Decorations', () => {
     await setupEditor(page, 'Check [[my note]] here.\n\nMore text');
     await blurEditor(page);
 
-    const visibleText = await page.locator('.cm-content').evaluate(
-      (el) => (el as HTMLElement).innerText
-    );
+    const visibleText = await page
+      .locator('.cm-content')
+      .evaluate((el) => (el as HTMLElement).innerText);
     expect(visibleText).toContain('my note');
     expect(visibleText).not.toContain('[[');
     expect(visibleText).not.toContain(']]');
@@ -90,9 +90,9 @@ test.describe('Wikilink Decorations', () => {
 
   test('wikilink shows raw syntax when cursor is on the line', async ({ page }) => {
     await setupEditor(page, '[[my note]]');
-    const visibleText = await page.locator('.cm-content').evaluate(
-      (el) => (el as HTMLElement).innerText
-    );
+    const visibleText = await page
+      .locator('.cm-content')
+      .evaluate((el) => (el as HTMLElement).innerText);
     expect(visibleText).toContain('[[my note]]');
   });
 
@@ -142,7 +142,9 @@ test.describe('Wikilink Navigation', () => {
     expect(url).toContain('some%20target%20note');
   });
 
-  test('clicking to the right of a single-line wikilink places the cursor at line end', async ({ page }) => {
+  test('clicking to the right of a single-line wikilink places the cursor at line end', async ({
+    page,
+  }) => {
     await setupEditor(page, '[[FUTO Notes bugs]]');
     await setCursorPosition(page, 0);
     await blurEditor(page);
@@ -152,7 +154,10 @@ test.describe('Wikilink Navigation', () => {
     const lineBox = await page.locator('.cm-line').first().boundingBox();
     expect(lineBox).not.toBeNull();
 
-    await page.mouse.click(wikilinkBox!.x + wikilinkBox!.width + 4, lineBox!.y + lineBox!.height / 2);
+    await page.mouse.click(
+      wikilinkBox!.x + wikilinkBox!.width + 4,
+      lineBox!.y + lineBox!.height / 2,
+    );
     await page.waitForTimeout(150);
 
     const cursor = await getCursorState(page);
@@ -162,7 +167,9 @@ test.describe('Wikilink Navigation', () => {
     await expect(page.locator('.cm-line').first()).toContainText('[[FUTO Notes bugs]]');
   });
 
-  test('clicking to the right of a line ending in a wikilink places the cursor at line end', async ({ page }) => {
+  test('clicking to the right of a line ending in a wikilink places the cursor at line end', async ({
+    page,
+  }) => {
     await setupEditor(page, 'write more of [[Visions of FUTO Notes]]');
     await setCursorPosition(page, 0);
     await blurEditor(page);
@@ -172,14 +179,19 @@ test.describe('Wikilink Navigation', () => {
     const lineBox = await page.locator('.cm-line').first().boundingBox();
     expect(lineBox).not.toBeNull();
 
-    await page.mouse.click(wikilinkBox!.x + wikilinkBox!.width + 4, lineBox!.y + lineBox!.height / 2);
+    await page.mouse.click(
+      wikilinkBox!.x + wikilinkBox!.width + 4,
+      lineBox!.y + lineBox!.height / 2,
+    );
     await page.waitForTimeout(150);
 
     const cursor = await getCursorState(page);
     expect(cursor.lineText).toBe('write more of [[Visions of FUTO Notes]]');
     expect(cursor.line).toBe(0);
     expect(cursor.ch).toBe('write more of [[Visions of FUTO Notes]]'.length);
-    await expect(page.locator('.cm-line').first()).toContainText('write more of [[Visions of FUTO Notes]]');
+    await expect(page.locator('.cm-line').first()).toContainText(
+      'write more of [[Visions of FUTO Notes]]',
+    );
   });
 
   test('triple clicking a plain line above a wikilink selects only that line', async ({ page }) => {
@@ -190,7 +202,10 @@ test.describe('Wikilink Navigation', () => {
     const lineBox = await page.locator('.cm-line').nth(0).boundingBox();
     expect(lineBox).not.toBeNull();
 
-    await page.mouse.click(lineBox!.x + 40, lineBox!.y + lineBox!.height / 2, { clickCount: 3, delay: 50 });
+    await page.mouse.click(lineBox!.x + 40, lineBox!.y + lineBox!.height / 2, {
+      clickCount: 3,
+      delay: 50,
+    });
     await page.waitForTimeout(200);
 
     const selection = await page.evaluate(() => {

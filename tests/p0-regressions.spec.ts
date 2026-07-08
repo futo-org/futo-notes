@@ -53,9 +53,10 @@ test.describe('P0 Crash and IME Regressions', () => {
     // to verify no crash during composition.
     await editor.click();
     await editor.evaluate((el) => {
-      const event = typeof CompositionEvent !== 'undefined'
-        ? new CompositionEvent('compositionstart', { bubbles: true, data: 'あ' })
-        : new Event('compositionstart', { bubbles: true });
+      const event =
+        typeof CompositionEvent !== 'undefined'
+          ? new CompositionEvent('compositionstart', { bubbles: true, data: 'あ' })
+          : new Event('compositionstart', { bubbles: true });
       el.dispatchEvent(event);
     });
     await page.waitForTimeout(100);
@@ -66,9 +67,10 @@ test.describe('P0 Crash and IME Regressions', () => {
     await page.waitForTimeout(100);
 
     await editor.evaluate((el) => {
-      const event = typeof CompositionEvent !== 'undefined'
-        ? new CompositionEvent('compositionend', { bubbles: true, data: 'あ' })
-        : new Event('compositionend', { bubbles: true });
+      const event =
+        typeof CompositionEvent !== 'undefined'
+          ? new CompositionEvent('compositionend', { bubbles: true, data: 'あ' })
+          : new Event('compositionend', { bubbles: true });
       el.dispatchEvent(event);
     });
     await page.waitForTimeout(100);

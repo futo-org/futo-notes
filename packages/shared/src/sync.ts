@@ -1,6 +1,17 @@
 // ── Images ────────────────────────────────────────────
 
-export const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif', 'heic'] as const;
+export const IMAGE_EXTENSIONS = [
+  'jpg',
+  'jpeg',
+  'png',
+  'gif',
+  'webp',
+  'svg',
+  'bmp',
+  'ico',
+  'avif',
+  'heic',
+] as const;
 
 /** Check whether a filename has an image extension (case-insensitive). */
 export function isImageFilename(filename: string): boolean {

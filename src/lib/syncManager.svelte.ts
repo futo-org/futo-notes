@@ -10,7 +10,10 @@
 
 import { listen } from '@tauri-apps/api/event';
 import { hasFileSystem, isTauri } from '$lib/platform';
-import { writeSuppressor as sharedWriteSuppressor, type WriteSuppressor } from '$lib/writeSuppression';
+import {
+  writeSuppressor as sharedWriteSuppressor,
+  type WriteSuppressor,
+} from '$lib/writeSuppression';
 import { createWatcherBatch, type WatcherBatch } from '$lib/watcherBatch';
 import { createSyncCoordinator, type SyncCoordinator } from '$lib/syncCoordinator';
 import type { FileChangeEvent } from '$lib/platform/types';
@@ -155,7 +158,9 @@ export function findActiveSyncRename(
   }
   if (!summary.deletedIds.includes(originalId)) return null;
 
-  const collisionRenameTarget = summary.updatedIds.find((id) => isCollisionVariantId(originalId, id));
+  const collisionRenameTarget = summary.updatedIds.find((id) =>
+    isCollisionVariantId(originalId, id),
+  );
   if (!collisionRenameTarget) return null;
 
   return { fromId: originalId, toId: collisionRenameTarget };
@@ -222,7 +227,9 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
   // the local rename produced.
   const writeSuppressor = sharedWriteSuppressor;
 
-  const notifySaved = () => { notifySavedV2(); };
+  const notifySaved = () => {
+    notifySavedV2();
+  };
 
   // ── External rescan ──
 
@@ -301,7 +308,11 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
     // Suppress change events for open note when save is pending or in-flight
     const originalId = deps.getOriginalId();
     if (id === originalId && deps.isSavePending() && type === 'change') return;
-    if (id === originalId && deps.hasOpenDraftChanges() && (type === 'change' || type === 'unlink')) {
+    if (
+      id === originalId &&
+      deps.hasOpenDraftChanges() &&
+      (type === 'change' || type === 'unlink')
+    ) {
       if (type === 'unlink') {
         deps.showToast('Open note was deleted externally; keeping local draft');
         await refreshNotesFromStorage();
@@ -351,7 +362,7 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
     const originalId = deps.getOriginalId();
     const activeFilename = originalId ? `${originalId}.md` : null;
     if (activeFilename) {
-      const activeEvent = events.find(ev => ev.filename === activeFilename);
+      const activeEvent = events.find((ev) => ev.filename === activeFilename);
       if (activeEvent) {
         await handleSingleWatcherEvent(activeEvent);
       }
@@ -462,23 +473,30 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
 
     const originalId = deps.getOriginalId();
 
-    const activeRename = originalId
-      ? findActiveSyncRename(summary, originalId)
-      : null;
+    const activeRename = originalId ? findActiveSyncRename(summary, originalId) : null;
     if (activeRename) {
       applyActiveRename(activeRename.fromId, activeRename.toId);
-      if (!summary.renamed.some((rename) => rename.fromId === activeRename.fromId && rename.toId === activeRename.toId)) {
+      if (
+        !summary.renamed.some(
+          (rename) => rename.fromId === activeRename.fromId && rename.toId === activeRename.toId,
+        )
+      ) {
         writeSuppressor.recordRemoteRename(activeRename.fromId, activeRename.toId);
       }
     }
 
     // Reload only when sync actually touched the currently-open note.
     const currentOriginalId = deps.getOriginalId();
-    if (currentOriginalId && (summary.updatedIds.includes(currentOriginalId) || summary.deletedIds.includes(currentOriginalId))) {
+    if (
+      currentOriginalId &&
+      (summary.updatedIds.includes(currentOriginalId) ||
+        summary.deletedIds.includes(currentOriginalId))
+    ) {
       try {
         const freshContent = await readNote(currentOriginalId);
         if (freshContent !== deps.getEditorContent()) {
-          const editedDuringSync = deps.getEditVersion() !== (syncCoord?.getSyncStartEditVersion() ?? 0);
+          const editedDuringSync =
+            deps.getEditVersion() !== (syncCoord?.getSyncStartEditVersion() ?? 0);
           // hasOpenDraftChanges reads the LIVE editor doc synchronously, so it
           // also catches a keystroke whose rAF-coalesced onchange hasn't
           // delivered yet (editVersion not bumped) — without it, the adopt
@@ -522,7 +540,8 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
     // never per-item uploaded/downloaded/deleted/conflict counts (sync.md,
     // 2026-06-10). Only surfaced for large syncs so routine polls stay quiet,
     // and never for a cycle with per-item failures — the ⚠ indicator owns that.
-    const totalChanges = summary.updatedIds.length + summary.deletedIds.length + summary.renamed.length;
+    const totalChanges =
+      summary.updatedIds.length + summary.deletedIds.length + summary.renamed.length;
     if (totalChanges > 20 && !summary.failureMessage) {
       syncCoord?.setStatusWithTimeout('Sync complete', 3000);
     } else {
@@ -542,9 +561,15 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
         getLastEditTime: () => deps.getLastEditTime(),
       },
       {
-        onStatusMessage: (msg) => { syncStatusMessage = msg; },
-        onIndicatorChange: (visible) => { syncIndicatorVisible = visible; },
-        onOfflineChange: (offline) => { syncOffline = offline; },
+        onStatusMessage: (msg) => {
+          syncStatusMessage = msg;
+        },
+        onIndicatorChange: (visible) => {
+          syncIndicatorVisible = visible;
+        },
+        onOfflineChange: (offline) => {
+          syncOffline = offline;
+        },
       },
     );
     const coord = syncCoord;
@@ -569,10 +594,12 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
     // bridge — hasFileSystem is true in dev-mode web, where listen() throws.
     let liveUnlisteners: Array<() => void> = [];
     if (isTauri) {
-      void listen('sync:live-synced', (e) => { void handleSyncComplete(e.payload as SyncSummary); })
-        .then((un) => liveUnlisteners.push(un));
-      void listen<LiveStatePayload>('sync:live-state', (e) => handleLiveState(e.payload))
-        .then((un) => liveUnlisteners.push(un));
+      void listen('sync:live-synced', (e) => {
+        void handleSyncComplete(e.payload as SyncSummary);
+      }).then((un) => liveUnlisteners.push(un));
+      void listen<LiveStatePayload>('sync:live-state', (e) => handleLiveState(e.payload)).then(
+        (un) => liveUnlisteners.push(un),
+      );
     }
 
     return () => {
@@ -591,12 +618,24 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
   // ── Public API ──
 
   return {
-    get syncStatusMessage() { return syncStatusMessage; },
-    get syncIndicatorVisible() { return syncIndicatorVisible; },
-    get syncOffline() { return syncOffline; },
-    get syncError() { return syncError; },
-    get syncErrorMessage() { return syncErrorMessage; },
-    get live() { return live; },
+    get syncStatusMessage() {
+      return syncStatusMessage;
+    },
+    get syncIndicatorVisible() {
+      return syncIndicatorVisible;
+    },
+    get syncOffline() {
+      return syncOffline;
+    },
+    get syncError() {
+      return syncError;
+    },
+    get syncErrorMessage() {
+      return syncErrorMessage;
+    },
+    get live() {
+      return live;
+    },
 
     writeSuppressor,
     watcherBatch,

@@ -18,7 +18,7 @@ const codeBlockHighlighter: Highlighter = {
 
     const filtered = classes
       .split(' ')
-      .filter(className => !MARKDOWN_PROSE_TOKEN_CLASSES.has(className));
+      .filter((className) => !MARKDOWN_PROSE_TOKEN_CLASSES.has(className));
     return filtered.length ? filtered.join(' ') : null;
   },
 };
@@ -31,8 +31,5 @@ export function createMarkdownLanguageSupport(): LanguageSupport {
 }
 
 export function markdownEditorLanguageExtensions(): Extension[] {
-  return [
-    createMarkdownLanguageSupport(),
-    syntaxHighlighting(codeBlockHighlighter),
-  ];
+  return [createMarkdownLanguageSupport(), syntaxHighlighting(codeBlockHighlighter)];
 }

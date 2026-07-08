@@ -22,7 +22,9 @@ const SIG = readFileSync(resolve(ROOT, 'scripts/__fixtures__/sample.bin.sig'), '
 
 describe('verifyUpdaterSignature', () => {
   it('accepts a fixture signed by the matching (localdev) key', () => {
-    expect(verifyUpdaterSignature({ pubkeyB64: LOCALDEV_PUB, fileBytes: FILE, sigB64: SIG })).toEqual({ ok: true });
+    expect(
+      verifyUpdaterSignature({ pubkeyB64: LOCALDEV_PUB, fileBytes: FILE, sigB64: SIG }),
+    ).toEqual({ ok: true });
   });
 
   it('REJECTS the prod pubkey — the wrong-baked-key foot-gun that bricks auto-update (#1)', () => {

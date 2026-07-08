@@ -27,7 +27,12 @@ export function toggleCodeInline(view: EditorView): void {
 
   const selected = state.sliceDoc(from, to);
   // If selection already wrapped in single backticks — unwrap
-  if (selected.length >= 2 && selected.startsWith('`') && selected.endsWith('`') && !selected.slice(1, -1).includes('`')) {
+  if (
+    selected.length >= 2 &&
+    selected.startsWith('`') &&
+    selected.endsWith('`') &&
+    !selected.slice(1, -1).includes('`')
+  ) {
     const inner = selected.slice(1, -1);
     view.dispatch({
       changes: { from, to, insert: inner },

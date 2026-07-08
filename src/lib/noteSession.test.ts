@@ -7,17 +7,26 @@ const platformState = vi.hoisted(() => ({ isMobile: false }));
 
 vi.mock('$lib/platform', () => ({
   hasFileSystem: true,
-  get isMobile() { return platformState.isMobile; },
+  get isMobile() {
+    return platformState.isMobile;
+  },
 }));
 
 vi.mock('$lib/notes.svelte', () => ({
   updateNote: vi.fn(),
-  readNote: vi.fn(async () => { throw new Error('note does not exist'); }),
+  readNote: vi.fn(async () => {
+    throw new Error('note does not exist');
+  }),
   createNote: vi.fn(async (id: string) => ({ id, mtime: 0 })),
   getNoteById: vi.fn(() => undefined),
 }));
 
-import { createNoteSession, editorHasUnseenChanges, isEditorChangeEcho, shouldWriteNoteToDisk } from './noteSession.svelte.ts';
+import {
+  createNoteSession,
+  editorHasUnseenChanges,
+  isEditorChangeEcho,
+  shouldWriteNoteToDisk,
+} from './noteSession.svelte.ts';
 import type { NoteSessionDeps } from './noteSession.svelte.ts';
 
 describe('shouldWriteNoteToDisk', () => {
@@ -178,7 +187,9 @@ describe('title debounce vs body debounce (character-loss race)', () => {
   function makeDeps() {
     return {
       getEditorContent: () => editorContent,
-      setEditorContent: vi.fn((text: string) => { editorContent = text; }),
+      setEditorContent: vi.fn((text: string) => {
+        editorContent = text;
+      }),
       focusEditor: vi.fn(),
       focusTitle: vi.fn(),
       getNotes: () => [],
@@ -197,10 +208,7 @@ describe('title debounce vs body debounce (character-loss race)', () => {
   // it mirrors a real user typing into the title field. In the running app the
   // `bind:value={session.title}` binding writes session.title before oninput
   // fires; mirror that here (handleTitleInput's no-issue branch relies on it).
-  function typeTitle(
-    session: ReturnType<typeof createNoteSession>,
-    fullTitle: string,
-  ): void {
+  function typeTitle(session: ReturnType<typeof createNoteSession>, fullTitle: string): void {
     for (let i = 1; i <= fullTitle.length; i++) {
       const value = fullTitle.slice(0, i);
       // `title` is typed readonly on the session API (runtime has a setter for
@@ -220,7 +228,10 @@ describe('title debounce vs body debounce (character-loss race)', () => {
     // The session's first save can re-arm via runQueuedSave microtasks; keep
     // requestAnimationFrame synchronous so handleTitleInput's caret restore
     // doesn't leak real timers into the fake-timer world.
-    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { cb(0); return 0; });
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+      cb(0);
+      return 0;
+    });
   });
 
   afterEach(() => {
@@ -290,7 +301,10 @@ describe('loadNote focus routing', () => {
   beforeEach(() => {
     // loadNote defers focus to the next frame; run it synchronously so the
     // assertions don't need to wait out a real rAF tick.
-    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { cb(0); return 0; });
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+      cb(0);
+      return 0;
+    });
   });
 
   afterEach(() => {
@@ -343,7 +357,9 @@ describe('opening a note is read-only (no autosave on line-ending normalization)
       getEditorContent: () => editorDoc,
       // Mirror CM6: loading a doc with no lineSeparator facet collapses
       // CR/CRLF to LF.
-      setEditorContent: vi.fn((text: string) => { editorDoc = text.replace(/\r\n?/g, '\n'); }),
+      setEditorContent: vi.fn((text: string) => {
+        editorDoc = text.replace(/\r\n?/g, '\n');
+      }),
       focusEditor: vi.fn(),
       focusTitle: vi.fn(),
       getNotes: () => [],
@@ -364,7 +380,10 @@ describe('opening a note is read-only (no autosave on line-ending normalization)
     vi.mocked(updateNote).mockReset();
     vi.mocked(updateNote).mockImplementation(async (id: string) => ({ id, mtime: 0 }));
     vi.useFakeTimers();
-    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { cb(0); return 0; });
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+      cb(0);
+      return 0;
+    });
   });
 
   afterEach(() => {

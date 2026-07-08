@@ -25,12 +25,11 @@ test.describe('Sidebar Collapse/Expand', () => {
       const firstTabBox = await firstTab.boundingBox();
       expect(expandBox).not.toBeNull();
       expect(firstTabBox).not.toBeNull();
-      const boxesIntersect = (
+      const boxesIntersect =
         expandBox!.x < firstTabBox!.x + firstTabBox!.width &&
         expandBox!.x + expandBox!.width > firstTabBox!.x &&
         expandBox!.y < firstTabBox!.y + firstTabBox!.height &&
-        expandBox!.y + expandBox!.height > firstTabBox!.y
-      );
+        expandBox!.y + expandBox!.height > firstTabBox!.y;
       expect(boxesIntersect).toBe(false);
     }
 
@@ -44,7 +43,9 @@ test.describe('Sidebar Collapse/Expand', () => {
     await expect(expandBtn).not.toBeVisible();
     await expect(collapseBtn).toBeVisible();
 
-    const storedAfter = await page.evaluate(() => localStorage.getItem('futo-notes:sidebarCollapsed'));
+    const storedAfter = await page.evaluate(() =>
+      localStorage.getItem('futo-notes:sidebarCollapsed'),
+    );
     expect(storedAfter).toBe('false');
   });
 });

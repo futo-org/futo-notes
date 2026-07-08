@@ -31,7 +31,7 @@ function splitSelectionWhitespace(text: string): { leading: number; trailing: nu
 function findOpeningMarkerOnLine(
   view: EditorView,
   cursorPos: number,
-  prefix: string
+  prefix: string,
 ): number | null {
   const line = view.state.doc.lineAt(cursorPos);
   const lineTextBeforeCursor = view.state.sliceDoc(line.from, cursorPos);
@@ -44,7 +44,7 @@ function findWrappedSyntaxRange(
   view: EditorView,
   from: number,
   to: number,
-  { prefix, suffix, nodeName }: MarkdownSyntax
+  { prefix, suffix, nodeName }: MarkdownSyntax,
 ): WrappedSyntaxRange | null {
   const tree = syntaxTree(view.state);
   let found: WrappedSyntaxRange | null = null;
@@ -70,18 +70,13 @@ function findWrappedSyntaxRange(
       if (selectionMatches) {
         found = { outerFrom, outerTo, innerFrom, innerTo };
       }
-    }
+    },
   });
 
   return found;
 }
 
-function isStandaloneMarker(
-  state: EditorState,
-  from: number,
-  to: number,
-  marker: string
-): boolean {
+function isStandaloneMarker(state: EditorState, from: number, to: number, marker: string): boolean {
   if (state.sliceDoc(from, to) !== marker) return false;
 
   // Single `*` / `_` markers must not be mistaken for one half of `**` / `__`.
@@ -98,7 +93,7 @@ function findMarkerWrappedSelectionFallback(
   view: EditorView,
   from: number,
   to: number,
-  { prefix, suffix }: MarkdownSyntax
+  { prefix, suffix }: MarkdownSyntax,
 ): WrappedSyntaxRange | null {
   const { state } = view;
 
@@ -111,7 +106,7 @@ function findMarkerWrappedSelectionFallback(
       outerFrom: from,
       outerTo: to,
       innerFrom: from + prefix.length,
-      innerTo: to - suffix.length
+      innerTo: to - suffix.length,
     };
   }
 
@@ -127,7 +122,7 @@ function findMarkerWrappedSelectionFallback(
       outerFrom: prefixStart,
       outerTo: suffixEnd,
       innerFrom: from,
-      innerTo: to
+      innerTo: to,
     };
   }
 
@@ -151,9 +146,9 @@ function unwrapSyntaxRange(view: EditorView, range: WrappedSyntaxRange): void {
   view.dispatch({
     changes: [
       { from: range.outerFrom, to: range.innerFrom, insert: '' },
-      { from: range.innerTo, to: range.outerTo, insert: '' }
+      { from: range.innerTo, to: range.outerTo, insert: '' },
     ],
-    selection: { anchor: mapPos(anchor), head: mapPos(head) }
+    selection: { anchor: mapPos(anchor), head: mapPos(head) },
   });
 }
 
@@ -173,7 +168,7 @@ function toggleSyntax(view: EditorView, syntax: MarkdownSyntax): void {
         // Empty markers (e.g. **|**) — remove them
         view.dispatch({
           changes: { from: from - prefix.length, to: from + suffix.length, insert: '' },
-          selection: { anchor: from - prefix.length }
+          selection: { anchor: from - prefix.length },
         });
       } else {
         // Has content (e.g. **word |**) — if there is trailing whitespace before
@@ -190,11 +185,12 @@ function toggleSyntax(view: EditorView, syntax: MarkdownSyntax): void {
               changes: {
                 from: openPos,
                 to: from + suffix.length,
-                insert: replacement
+                insert: replacement,
               },
               selection: {
-                anchor: openPos + prefix.length + trimmedInner.length + suffix.length + trailingWs.length
-              }
+                anchor:
+                  openPos + prefix.length + trimmedInner.length + suffix.length + trailingWs.length,
+              },
             });
             view.focus();
             return;
@@ -211,7 +207,7 @@ function toggleSyntax(view: EditorView, syntax: MarkdownSyntax): void {
     // Not inside markers — insert new pair with cursor in middle
     view.dispatch({
       changes: { from, insert: prefix + suffix },
-      selection: { anchor: from + prefix.length }
+      selection: { anchor: from + prefix.length },
     });
     view.focus();
     return;
@@ -227,9 +223,9 @@ function toggleSyntax(view: EditorView, syntax: MarkdownSyntax): void {
     view.dispatch({
       changes: [
         { from, insert: prefix },
-        { from: to, insert: suffix }
+        { from: to, insert: suffix },
       ],
-      selection: { anchor: from + prefix.length, head: to + prefix.length }
+      selection: { anchor: from + prefix.length, head: to + prefix.length },
     });
     view.focus();
     return;
@@ -247,9 +243,9 @@ function toggleSyntax(view: EditorView, syntax: MarkdownSyntax): void {
     view.dispatch({
       changes: [
         { from: coreFrom, insert: prefix },
-        { from: coreTo, insert: suffix }
+        { from: coreTo, insert: suffix },
       ],
-      selection: { anchor: coreFrom + prefix.length, head: coreTo + prefix.length }
+      selection: { anchor: coreFrom + prefix.length, head: coreTo + prefix.length },
     });
   }
 
@@ -292,7 +288,7 @@ function toggleLinePrefix(
   view: EditorView,
   prefix: string,
   isMatch: (lineText: string) => RegExpMatchArray | null,
-  allPrefixPatterns: RegExp[] = []
+  allPrefixPatterns: RegExp[] = [],
 ): void {
   const { state } = view;
   const { from, to } = state.selection.main;
@@ -367,7 +363,7 @@ export function cycleHeading(view: EditorView): void {
       const oldLen = headingMatch[0].length;
       view.dispatch({
         changes: { from: line.from, to: line.from + oldLen, insert: newPrefix },
-        selection: { anchor: from + (newPrefix.length - oldLen) }
+        selection: { anchor: from + (newPrefix.length - oldLen) },
       });
     } else {
       // At ###, remove heading. Clamp: a cursor INSIDE the '### ' prefix
@@ -375,7 +371,7 @@ export function cycleHeading(view: EditorView): void {
       // stores invalid selections unvalidated and every later command throws.
       view.dispatch({
         changes: { from: line.from, to: line.from + headingMatch[0].length, insert: '' },
-        selection: { anchor: Math.max(line.from, from - headingMatch[0].length) }
+        selection: { anchor: Math.max(line.from, from - headingMatch[0].length) },
       });
     }
   } else {
@@ -387,7 +383,7 @@ export function cycleHeading(view: EditorView): void {
         // cursor inside it.
         view.dispatch({
           changes: { from: line.from, to: line.from + m[0].length, insert: '# ' },
-          selection: { anchor: Math.max(line.from, from + (2 - m[0].length)) }
+          selection: { anchor: Math.max(line.from, from + (2 - m[0].length)) },
         });
         view.focus();
         return;
@@ -396,7 +392,7 @@ export function cycleHeading(view: EditorView): void {
     // Clean line, add H1
     view.dispatch({
       changes: { from: line.from, to: line.from, insert: '# ' },
-      selection: { anchor: from + 2 }
+      selection: { anchor: from + 2 },
     });
   }
   view.focus();

@@ -1,11 +1,5 @@
 <script lang="ts">
-  import {
-    EditorView,
-    keymap,
-    drawSelection,
-    Decoration,
-    ViewPlugin
-  } from '@codemirror/view';
+  import { EditorView, keymap, drawSelection, Decoration, ViewPlugin } from '@codemirror/view';
   import type { DecorationSet, ViewUpdate } from '@codemirror/view';
   import { EditorState, EditorSelection, Transaction } from '@codemirror/state';
   import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
@@ -24,10 +18,15 @@
     clearSelectionRevealFreeze,
     freezeSelectionReveal,
     liveMarkdownRefresh,
-    setSuppressSelectionReveal
+    setSuppressSelectionReveal,
   } from '$lib/liveMarkdownTransform';
   import { getImageWebPath } from '$lib/fileSystem';
-  import { buildSetContentTransaction, readDocContent, type SetEditorContentOptions, type SetContentResult } from '$lib/editorContentSync';
+  import {
+    buildSetContentTransaction,
+    readDocContent,
+    type SetEditorContentOptions,
+    type SetContentResult,
+  } from '$lib/editorContentSync';
   import { hasFileSystem, isIOS, isMobile } from '$lib/platform';
   import { toggleBold, toggleItalic, toggleStrikethrough, isListLine } from '$lib/markdownToolbar';
   import { imagePasteHandler } from '$lib/imagePaste';
@@ -60,7 +59,15 @@
     onopenlink?: (title: string, event: MouseEvent) => void;
   }
 
-  let { content = '', onchange, onfocuschange, oncursorcontext, scrollParent = null, nativeShell = false, onopenlink }: Props = $props();
+  let {
+    content = '',
+    onchange,
+    onfocuschange,
+    oncursorcontext,
+    scrollParent = null,
+    nativeShell = false,
+    onopenlink,
+  }: Props = $props();
 
   let container: HTMLDivElement;
   let view: EditorView | null = $state(null);
@@ -89,7 +96,8 @@
   let scrollTimer: number | null = null;
 
   const PLAIN_URL_REGEX = /\b(?:https?:\/\/|www\.)[^\s<>()]+[^\s<>().,!?;:]/g;
-  const MARKDOWN_LINK_REGEX = /\[([^\]]+)\]\(((?:https?:\/\/|www\.)[^()\s]*(?:\([^)]*\)[^()\s]*)*)(?:\s+"[^"]*")?\)/g;
+  const MARKDOWN_LINK_REGEX =
+    /\[([^\]]+)\]\(((?:https?:\/\/|www\.)[^()\s]*(?:\([^)]*\)[^()\s]*)*)(?:\s+"[^"]*")?\)/g;
 
   function editorHasDomFocus(v: EditorView): boolean {
     const active = document.activeElement;
@@ -114,14 +122,14 @@
         const urlEnd = mdMatch.index + mdMatch[0].length - 1;
         linkUrlRanges.push([from + urlStart, from + urlEnd]);
       }
-      const inMdLink = (pos: number) =>
-        linkUrlRanges.some(([s, e]) => pos >= s && pos < e);
+      const inMdLink = (pos: number) => linkUrlRanges.some(([s, e]) => pos >= s && pos < e);
       // A URL that falls inside a CodeBlock / FencedCode / InlineCode
       // syntax node isn't a link — it's source text.
       const inCode = (pos: number) => {
         let hit = false;
         tree.iterate({
-          from: pos, to: pos + 1,
+          from: pos,
+          to: pos + 1,
           enter: (node) => {
             if (/^(InlineCode|FencedCode|CodeBlock)$/.test(node.name)) hit = true;
           },
@@ -146,19 +154,22 @@
     );
   }
 
-  const autoLinkHighlight = ViewPlugin.fromClass(class {
-    decorations: DecorationSet;
-    constructor(v: EditorView) {
-      this.decorations = buildAutolinkDecorations(v);
-    }
-    update(update: ViewUpdate) {
-      if (update.docChanged || update.viewportChanged) {
-        this.decorations = buildAutolinkDecorations(update.view);
+  const autoLinkHighlight = ViewPlugin.fromClass(
+    class {
+      decorations: DecorationSet;
+      constructor(v: EditorView) {
+        this.decorations = buildAutolinkDecorations(v);
       }
-    }
-  }, {
-    decorations: (v) => v.decorations
-  });
+      update(update: ViewUpdate) {
+        if (update.docChanged || update.viewportChanged) {
+          this.decorations = buildAutolinkDecorations(update.view);
+        }
+      }
+    },
+    {
+      decorations: (v) => v.decorations,
+    },
+  );
 
   function normalizeUrl(url: string): string {
     return url.startsWith('www.') ? `https://${url}` : url;
@@ -200,7 +211,8 @@
     openUrl(url);
   }
 
-  const INLINE_STYLED_SELECTOR = '.cm-md-emphasis, .cm-md-strong, .cm-md-strikethrough, .cm-md-code';
+  const INLINE_STYLED_SELECTOR =
+    '.cm-md-emphasis, .cm-md-strong, .cm-md-strikethrough, .cm-md-code';
   const EXTERNAL_LINK_SELECTOR = '.cm-md-link:not(.cm-md-wikilink)';
   const VISIBLE_LINE_EDGE_SELECTOR = [
     '.cm-md-wikilink',
@@ -208,10 +220,14 @@
     INLINE_STYLED_SELECTOR,
     '.cm-md-tag',
     '.cm-md-task-checkbox-wrapper',
-    '.cm-md-image-wrapper'
+    '.cm-md-image-wrapper',
   ].join(', ');
 
-  function findExternalLinkElementAtPoint(target: Element | null, x: number, y: number): Element | null {
+  function findExternalLinkElementAtPoint(
+    target: Element | null,
+    x: number,
+    y: number,
+  ): Element | null {
     const line = target?.closest('.cm-line');
     if (!line) return null;
 
@@ -346,14 +362,19 @@
       event.stopPropagation();
       dispatchWikilinkOpen(title, event);
       return true;
-    }
+    },
   });
 
-  function getLineHitAtPoint(clientX: number, clientY: number, v: EditorView, targetNode?: Node | null) {
-    const target =
-      targetNode instanceof Element ? targetNode : targetNode?.parentElement ?? null;
+  function getLineHitAtPoint(
+    clientX: number,
+    clientY: number,
+    v: EditorView,
+    targetNode?: Node | null,
+  ) {
+    const target = targetNode instanceof Element ? targetNode : (targetNode?.parentElement ?? null);
     const hit = document.elementFromPoint(clientX, clientY);
-    const lineCandidate = (hit?.closest('.cm-line') ?? target?.closest('.cm-line')) as HTMLElement | null;
+    const lineCandidate = (hit?.closest('.cm-line') ??
+      target?.closest('.cm-line')) as HTMLElement | null;
     if (!lineCandidate) return null;
 
     let linePos: number | null = null;
@@ -371,7 +392,12 @@
     return { line: v.state.doc.lineAt(linePos), lineEl: lineCandidate };
   }
 
-  function getLineAtPoint(clientX: number, clientY: number, v: EditorView, targetNode?: Node | null) {
+  function getLineAtPoint(
+    clientX: number,
+    clientY: number,
+    v: EditorView,
+    targetNode?: Node | null,
+  ) {
     return getLineHitAtPoint(clientX, clientY, v, targetNode)?.line ?? null;
   }
 
@@ -397,7 +423,7 @@
 
   const tripleClickLineSelectionHandler = EditorView.domEventHandlers({
     mousedown: selectLineFromMouseEvent,
-    click: selectLineFromMouseEvent
+    click: selectLineFromMouseEvent,
   });
 
   // Place cursor at end-of-line when the user clicks in the empty space past the
@@ -421,7 +447,7 @@
 
       const targetNode = event.target as Node | null;
       const target =
-        targetNode instanceof Element ? targetNode : targetNode?.parentElement ?? null;
+        targetNode instanceof Element ? targetNode : (targetNode?.parentElement ?? null);
       const lineEl = target?.closest('.cm-line') as HTMLElement | null;
       const hit = document.elementFromPoint(event.clientX, event.clientY);
       const lineCandidate = (hit?.closest('.cm-line') ?? lineEl) as HTMLElement | null;
@@ -467,7 +493,7 @@
       event.preventDefault();
       v.dispatch({ selection: { anchor: pending.lineTo } });
       return true;
-    }
+    },
   });
 
   // Android Chrome's native tap-to-caret in contenteditable falls back to
@@ -503,18 +529,20 @@
   }
 
   const mobileTapCaretCorrection = isMobile
-    ? [EditorView.domEventHandlers({
-        click: (event, v) => {
-          if (event.button !== 0 || event.detail !== 1) return false;
-          if (pendingLinkUrl !== null || lineEndPending !== null) return false;
-          const sel = v.state.selection.main;
-          if (!sel.empty) return false;
-          const desired = resolveTapPosition(event, v);
-          if (desired === null || desired === sel.head) return false;
-          v.dispatch({ selection: { anchor: desired }, scrollIntoView: false });
-          return false;
-        }
-      })]
+    ? [
+        EditorView.domEventHandlers({
+          click: (event, v) => {
+            if (event.button !== 0 || event.detail !== 1) return false;
+            if (pendingLinkUrl !== null || lineEndPending !== null) return false;
+            const sel = v.state.selection.main;
+            if (!sel.empty) return false;
+            const desired = resolveTapPosition(event, v);
+            if (desired === null || desired === sel.head) return false;
+            v.dispatch({ selection: { anchor: desired }, scrollIntoView: false });
+            return false;
+          },
+        }),
+      ]
     : [];
 
   // Resolve a click on an external link element to its URL via the element
@@ -541,7 +569,7 @@
       pendingLinkUrl = null;
       const targetNode = event.target as Node | null;
       const target =
-        targetNode instanceof Element ? targetNode : targetNode?.parentElement ?? null;
+        targetNode instanceof Element ? targetNode : (targetNode?.parentElement ?? null);
       if (target?.closest('a.cm-md-table-link')) return false;
       const hit = document.elementFromPoint(event.clientX, event.clientY);
       const link =
@@ -564,7 +592,7 @@
       event.stopPropagation();
       openExternalUrl(url);
       return true;
-    }
+    },
   });
 
   function updateScrollAnchor(v: EditorView) {
@@ -662,13 +690,13 @@
           from = Math.min(from, outerFrom);
           to = Math.max(to, outerTo);
         }
-      }
+      },
     });
 
     if (from === origFrom && to === origTo) return;
 
     v.dispatch({
-      selection: EditorSelection.single(forward ? from : to, forward ? to : from)
+      selection: EditorSelection.single(forward ? from : to, forward ? to : from),
     });
   }
 
@@ -701,8 +729,11 @@
   function scheduleWarm(): void {
     if (!cmOwnsScroller || warmRafId) return;
     // Escape hatch for diagnostics: lets a probe measure the un-warmed baseline.
-    if (typeof window !== 'undefined' &&
-        (window as { __futoDisableScrollWarm?: boolean }).__futoDisableScrollWarm) return;
+    if (
+      typeof window !== 'undefined' &&
+      (window as { __futoDisableScrollWarm?: boolean }).__futoDisableScrollWarm
+    )
+      return;
     warmRafId = requestAnimationFrame(() => {
       warmRafId = 0;
       if (view) warmHeightMap(view);
@@ -724,9 +755,27 @@
       orderedListRenumber,
       history(),
       keymap.of([
-        { key: 'Mod-b', run: (v) => { toggleBold(v); return true; } },
-        { key: 'Mod-i', run: (v) => { toggleItalic(v); return true; } },
-        { key: 'Mod-Shift-s', run: (v) => { toggleStrikethrough(v); return true; } },
+        {
+          key: 'Mod-b',
+          run: (v) => {
+            toggleBold(v);
+            return true;
+          },
+        },
+        {
+          key: 'Mod-i',
+          run: (v) => {
+            toggleItalic(v);
+            return true;
+          },
+        },
+        {
+          key: 'Mod-Shift-s',
+          run: (v) => {
+            toggleStrikethrough(v);
+            return true;
+          },
+        },
         { key: 'Tab', run: acceptCompletion },
         indentWithTab,
         ...completionKeymap,
@@ -745,13 +794,8 @@
       lineEndClickHandler,
       ...iosTapFocus({
         enabled: isIOS,
-        resolveTapPosition: ({ clientX, clientY, target }, v) => resolveTapPositionAt(
-          clientX,
-          clientY,
-          v,
-          target instanceof Node ? target : null,
-          true,
-        ),
+        resolveTapPosition: ({ clientX, clientY, target }, v) =>
+          resolveTapPositionAt(clientX, clientY, v, target instanceof Node ? target : null, true),
       }),
       ...mobileTapCaretCorrection,
       wikilinkClickHandler,
@@ -760,7 +804,7 @@
         autocorrect: 'on',
         autocapitalize: 'sentences',
         spellcheck: 'false',
-        enterkeyhint: 'return'
+        enterkeyhint: 'return',
       }),
       EditorView.lineWrapping,
       EditorView.theme({
@@ -769,15 +813,21 @@
           padding: '0',
           fontFamily: "'Barlow', system-ui, sans-serif",
         },
-        '.cm-focused': { outline: 'none' }
+        '.cm-focused': { outline: 'none' },
       }),
       // Scroll compensation (see docs/devlog.md)
-      EditorView.updateListener.of(update => {
+      EditorView.updateListener.of((update) => {
         const sp = scrollParent;
         if (!sp) return;
 
         // Only compensate for rendering-induced height changes, not user edits or active scrolling
-        if (update.heightChanged && !update.docChanged && !userScrolling && anchorPos >= 0 && anchorPos <= update.state.doc.length) {
+        if (
+          update.heightChanged &&
+          !update.docChanged &&
+          !userScrolling &&
+          anchorPos >= 0 &&
+          anchorPos <= update.state.doc.length
+        ) {
           try {
             const block = update.view.lineBlockAt(anchorPos);
             const delta = block.top - anchorBlockTop;
@@ -785,14 +835,18 @@
               compensating = true;
               sp.scrollTop += delta;
               anchorBlockTop = block.top;
-              requestAnimationFrame(() => { compensating = false; });
+              requestAnimationFrame(() => {
+                compensating = false;
+              });
             }
-          } catch { /* anchor position might be invalid after large edits */ }
+          } catch {
+            /* anchor position might be invalid after large edits */
+          }
         }
 
         updateScrollAnchor(update.view);
       }),
-      EditorView.updateListener.of(update => {
+      EditorView.updateListener.of((update) => {
         if (update.docChanged && onchange) {
           editorOwnsContent = true;
           // Coalesce rapid changes into one toString() + onchange per frame.
@@ -820,33 +874,35 @@
           }
         }
       }),
-      EditorView.updateListener.of(update => {
+      EditorView.updateListener.of((update) => {
         if (update.focusChanged) {
           onfocuschange?.(editorHasDomFocus(update.view));
         }
       }),
       // Cursor context detection for toolbar
-      EditorView.updateListener.of((() => {
-        let lastOnList = false;
-        return (update: ViewUpdate) => {
-          if (!update.selectionSet && !update.docChanged) return;
-          const line = update.state.doc.lineAt(update.state.selection.main.head);
-          const onList = isListLine(line.text);
-          if (onList !== lastOnList) {
-            lastOnList = onList;
-            // Read lazily — not tracked as $effect dependency
-            oncursorcontext?.({ onListLine: onList });
-          }
-        };
-      })())
+      EditorView.updateListener.of(
+        (() => {
+          let lastOnList = false;
+          return (update: ViewUpdate) => {
+            if (!update.selectionSet && !update.docChanged) return;
+            const line = update.state.doc.lineAt(update.state.selection.main.head);
+            const onList = isListLine(line.text);
+            if (onList !== lastOnList) {
+              lastOnList = onList;
+              // Read lazily — not tracked as $effect dependency
+              oncursorcontext?.({ onListLine: onList });
+            }
+          };
+        })(),
+      ),
     ];
 
     const v = new EditorView({
       state: EditorState.create({
         doc: content,
-        extensions
+        extensions,
       }),
-      parent: container
+      parent: container,
     });
 
     view = v;
@@ -915,7 +971,7 @@
       if (!dragMoved) {
         const dx = event.clientX - mouseDownX;
         const dy = event.clientY - mouseDownY;
-        if ((dx * dx) + (dy * dy) < 9) return;
+        if (dx * dx + dy * dy < 9) return;
       }
       dragMoved = true;
       setPointerSelectionRevealSuppressed(v, true);
@@ -946,7 +1002,11 @@
     if (import.meta.env.DEV) {
       const w = window as any;
       w.__cmToggle = (v: EditorView, name: string) => {
-        const fns: Record<string, (v: EditorView) => void> = { bold: toggleBold, italic: toggleItalic, strikethrough: toggleStrikethrough };
+        const fns: Record<string, (v: EditorView) => void> = {
+          bold: toggleBold,
+          italic: toggleItalic,
+          strikethrough: toggleStrikethrough,
+        };
         fns[name]?.(v);
       };
       w.__cmGetView = () => view;
@@ -958,8 +1018,14 @@
     }
 
     return () => {
-      if (onchangeRafId) { cancelAnimationFrame(onchangeRafId); onchangeRafId = 0; }
-      if (warmRafId) { cancelAnimationFrame(warmRafId); warmRafId = 0; }
+      if (onchangeRafId) {
+        cancelAnimationFrame(onchangeRafId);
+        onchangeRafId = 0;
+      }
+      if (warmRafId) {
+        cancelAnimationFrame(warmRafId);
+        warmRafId = 0;
+      }
       warmResizeObserver?.disconnect();
       clearPointerSelectionSettleTimer();
       v.dom.removeEventListener('mousedown', onEditorMouseDown, true);
@@ -987,7 +1053,6 @@
     setContent(c, EXTERNAL_UPDATE_OPTS);
   });
 
-
   $effect(() => {
     const v = view;
     const sp = scrollParent;
@@ -996,14 +1061,20 @@
     const onScroll = () => {
       userScrolling = true;
       if (scrollTimer !== null) clearTimeout(scrollTimer);
-      scrollTimer = window.setTimeout(() => { userScrolling = false; scrollTimer = null; }, 150);
+      scrollTimer = window.setTimeout(() => {
+        userScrolling = false;
+        scrollTimer = null;
+      }, 150);
       updateScrollAnchor(v);
     };
     sp.addEventListener('scroll', onScroll, { passive: true });
 
     return () => {
       sp.removeEventListener('scroll', onScroll);
-      if (scrollTimer !== null) { clearTimeout(scrollTimer); scrollTimer = null; }
+      if (scrollTimer !== null) {
+        clearTimeout(scrollTimer);
+        scrollTimer = null;
+      }
     };
   });
 

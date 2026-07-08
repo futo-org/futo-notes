@@ -47,7 +47,7 @@ function docMatchesText(state: EditorState, nextText: string): boolean {
   const p2 = len >>> 2;
   const p3 = len >>> 1;
   const p4 = (len >>> 2) * 3;
-  const p5 = len - probeLen;  // len >= 256, so this is >= 224
+  const p5 = len - probeLen; // len >= 256, so this is >= 224
 
   if (state.doc.sliceString(p1, p1 + probeLen) !== nextText.slice(p1, p1 + probeLen)) return false;
   if (state.doc.sliceString(p2, p2 + probeLen) !== nextText.slice(p2, p2 + probeLen)) return false;

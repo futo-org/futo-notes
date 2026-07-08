@@ -92,7 +92,9 @@ describe('localdev overlay (tauri.updater-localdev.conf.json) — the trust boun
 
   it('is the ONLY place localhost + insecure transport are allowed', () => {
     expect(lu.dangerousInsecureTransportProtocol).toBe(true);
-    expect(lu.endpoints.every((e: string) => e.includes('localhost') || e.includes('127.0.0.1'))).toBe(true);
+    expect(
+      lu.endpoints.every((e: string) => e.includes('localhost') || e.includes('127.0.0.1')),
+    ).toBe(true);
   });
 
   it('uses a localdev pubkey that is NOT the production pubkey', () => {
@@ -104,7 +106,10 @@ describe('localdev overlay (tauri.updater-localdev.conf.json) — the trust boun
   it('localdev pubkey matches the committed signing key (keys/localdev-updater.key.pub)', () => {
     // The committed throwaway key MUST be the one the overlay bakes in, or the
     // localdev/e2e flow signs with a key the build does not trust → verify fails.
-    const committedPub = readFileSync(resolve(ROOT, 'keys/localdev-updater.key.pub'), 'utf8').trim();
+    const committedPub = readFileSync(
+      resolve(ROOT, 'keys/localdev-updater.key.pub'),
+      'utf8',
+    ).trim();
     expect(lu.pubkey).toBe(committedPub);
   });
 
@@ -121,7 +126,9 @@ describe('localdev overlay (tauri.updater-localdev.conf.json) — the trust boun
   it('its localhost/insecure/localdev-key NEVER leak into base (prod) or the release overlay', () => {
     // Prod base: https only, no insecure, prod pubkey.
     expect(base.plugins.updater.dangerousInsecureTransportProtocol).toBeFalsy();
-    expect(base.plugins.updater.endpoints.every((e: string) => e.startsWith('https://'))).toBe(true);
+    expect(base.plugins.updater.endpoints.every((e: string) => e.startsWith('https://'))).toBe(
+      true,
+    );
     expect(base.plugins.updater.pubkey).not.toBe(lu.pubkey);
     // Release overlay: no updater override at all (so it can't carry any of them).
     expect(release.plugins?.updater).toBeUndefined();

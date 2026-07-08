@@ -39,7 +39,9 @@ function setup(doc: string): EditorView {
  *  break (point value, non-empty, ending past its start line). */
 function replacesSpanningLineBreak(view: EditorView): Array<{ from: number; to: number }> {
   const plugin = view.plugin(liveMarkdownTransform) as unknown as {
-    decorations: { iter: () => { value: { point: boolean } | null; from: number; to: number; next: () => void } };
+    decorations: {
+      iter: () => { value: { point: boolean } | null; from: number; to: number; next: () => void };
+    };
   };
   if (!plugin) throw new Error('liveMarkdownTransform plugin not found');
   const doc = view.state.doc;

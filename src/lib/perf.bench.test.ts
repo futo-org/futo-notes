@@ -50,18 +50,33 @@ function extractHeaderTagBlock_old(content: string): { tags: string[]; endOffset
 // Old implementation, retained as a baseline for the forYou bench.
 function getForYouNotes_old(notes: NotePreview[], limit = 3): NotePreview[] {
   if (notes.length === 0) return [];
-  return [...notes]
-    .sort((a, b) => b.modificationTime - a.modificationTime)
-    .slice(0, limit);
+  return [...notes].sort((a, b) => b.modificationTime - a.modificationTime).slice(0, limit);
 }
 
 const RUN = process.env.PERF_BENCH === '1';
 
 function makeNotes(n: number, avgTags = 4): NotePreview[] {
   const TAG_POOL = [
-    'work', 'home', 'todo', 'idea', 'reading', 'tech', 'rust', 'svelte',
-    'cooking', 'travel', 'meeting', 'project', 'urgent', 'someday', 'review',
-    'q1', 'q2', 'q3', 'q4', 'inbox',
+    'work',
+    'home',
+    'todo',
+    'idea',
+    'reading',
+    'tech',
+    'rust',
+    'svelte',
+    'cooking',
+    'travel',
+    'meeting',
+    'project',
+    'urgent',
+    'someday',
+    'review',
+    'q1',
+    'q2',
+    'q3',
+    'q4',
+    'inbox',
   ];
   const notes: NotePreview[] = [];
   for (let i = 0; i < n; i++) {
@@ -130,17 +145,13 @@ describe.skipIf(!RUN)('perf bench: tag operations', () => {
 
 describe.skipIf(!RUN)('perf bench: extractHeaderTagBlock', () => {
   it('small note (1KB body, 2 header tags)', () => {
-    const content =
-      '#work #project\n\n' +
-      'lorem ipsum dolor sit amet '.repeat(40);
+    const content = '#work #project\n\n' + 'lorem ipsum dolor sit amet '.repeat(40);
     bench('header_old(1KB)         ', 10_000, () => extractHeaderTagBlock_old(content));
     bench('header_new(1KB)         ', 10_000, () => extractHeaderTagBlock(content));
   });
 
   it('large note (32KB body, 2 header tags)', () => {
-    const content =
-      '#work #project\n\n' +
-      'lorem ipsum dolor sit amet '.repeat(1200);
+    const content = '#work #project\n\n' + 'lorem ipsum dolor sit amet '.repeat(1200);
     bench('header_old(32KB)        ', 1_000, () => extractHeaderTagBlock_old(content));
     bench('header_new(32KB)        ', 1_000, () => extractHeaderTagBlock(content));
   });

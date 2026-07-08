@@ -77,7 +77,9 @@ describe('warmHeightMap', () => {
     Object.defineProperty(view.scrollDOM, 'scrollTop', {
       configurable: true,
       get: () => scrollTopVal,
-      set: (v: number) => { scrollTopVal = v; },
+      set: (v: number) => {
+        scrollTopVal = v;
+      },
     });
     warmHeightMap(view);
     expect(scrollTopVal).toBe(73);

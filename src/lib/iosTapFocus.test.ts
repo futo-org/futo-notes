@@ -8,7 +8,9 @@ const views: EditorView[] = [];
 function setup(enabled = true): EditorView {
   const parent = document.createElement('div');
   document.body.appendChild(parent);
-  const resolveTapPosition = vi.fn(({ clientX, clientY }) => clientX === 12 && clientY === 6 ? 3 : null);
+  const resolveTapPosition = vi.fn(({ clientX, clientY }) =>
+    clientX === 12 && clientY === 6 ? 3 : null,
+  );
   const view = new EditorView({
     doc: 'hello',
     extensions: iosTapFocus({
@@ -17,7 +19,8 @@ function setup(enabled = true): EditorView {
     }),
     parent,
   });
-  (view as EditorView & { resolveTapPosition: typeof resolveTapPosition }).resolveTapPosition = resolveTapPosition;
+  (view as EditorView & { resolveTapPosition: typeof resolveTapPosition }).resolveTapPosition =
+    resolveTapPosition;
   views.push(view);
   return view;
 }
@@ -54,8 +57,9 @@ describe('iosTapFocus', () => {
     expect(view.state.selection.main.head).toBe(3);
     expect(focus).toHaveBeenCalledWith({ preventScroll: true });
     expect(preventDefault).toHaveBeenCalled();
-    expect((view as EditorView & { resolveTapPosition: ReturnType<typeof vi.fn> }).resolveTapPosition)
-      .toHaveBeenCalledWith(expect.objectContaining({ target: expect.any(HTMLSpanElement) }), view);
+    expect(
+      (view as EditorView & { resolveTapPosition: ReturnType<typeof vi.fn> }).resolveTapPosition,
+    ).toHaveBeenCalledWith(expect.objectContaining({ target: expect.any(HTMLSpanElement) }), view);
   });
 
   it('does not focus or prevent default when the tap position cannot be resolved', () => {

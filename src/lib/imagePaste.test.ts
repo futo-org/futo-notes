@@ -15,7 +15,10 @@ describe('looksLikeImagePaste', () => {
     // image/* type), so items.length === 1 and the old empty-items gate missed it.
     expect(
       looksLikeImagePaste(
-        cd(['text/html'], { itemsLen: 1, html: '<meta charset="utf-8"><img src="https://x/y.jpg">' }),
+        cd(['text/html'], {
+          itemsLen: 1,
+          html: '<meta charset="utf-8"><img src="https://x/y.jpg">',
+        }),
       ),
     ).toBe(true);
   });
@@ -69,14 +72,10 @@ describe('pasteImageIntoView', () => {
       arrayBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(8)),
     };
 
-    const result = await pasteImageIntoView(
-      view as never,
-      imageFile,
-      {
-        saveImageBytes: vi.fn().mockResolvedValue('pasted.png'),
-        getImageUrl: vi.fn().mockResolvedValue('asset://pasted.png'),
-      },
-    );
+    const result = await pasteImageIntoView(view as never, imageFile, {
+      saveImageBytes: vi.fn().mockResolvedValue('pasted.png'),
+      getImageUrl: vi.fn().mockResolvedValue('asset://pasted.png'),
+    });
 
     expect(result).toBe(true);
     expect(dispatch).toHaveBeenCalledWith({
