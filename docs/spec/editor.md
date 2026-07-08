@@ -153,6 +153,17 @@ native shells edit tags as text in the body, which is not a gap.
   Rust port pins that behavior. → futo-notes-model wikilinks.rs,
   futo-notes-ffi `NoteStore::relink`
 
+## External links
+
+- Tapping/clicking an external link (`http(s)://`, autolinks, bare URLs) opens
+  it in the system browser, never inside the editor. Android native enforces
+  this in `EditorWebView.kt`: only `file://` editor assets may load in the reused
+  WebView; all other schemes are intercepted and launched with `ACTION_VIEW`.
+  → openUrl.ts, MarkdownEditor.svelte `linkClickHandler`, EditorWebView.kt
+  `shouldOverrideUrlLoading` / `isInAppEditorNavigation`
+  > **Gap:** iOS native still lacks an explicit `WKWebView` navigation-policy
+  > guard for external links.
+
 ## Interactive elements
 
 - Tapping a task checkbox toggles `[ ]`/`[x]` in the source and autosaves —
