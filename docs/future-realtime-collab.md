@@ -28,6 +28,107 @@ FUTO Notes today is built around:
 
 That works well for single-user, multi-device sync. It is not a natural fit for multiple people editing the same note at once.
 
+The current sync server is also deliberately single-user:
+
+- Every collection has one owner
+- Self-hosted password mode has one singleton user
+- Hosted and OSS use the same sync app today
+- All object/blob routes are scoped by `user_id`
+- The server stores opaque encrypted blobs and must not learn note contents
+
+The server design already points to the future shape: shared collections keep a single owner,
+storage and routing follow the owner, and membership/wrapped-key metadata is added as an
+authorization layer. That should be the substrate for sharing as well as collaboration.
+
+## Build-Once Architecture
+
+Build sharing around **owner-authoritative shared targets**, not around separate "simple link"
+and "account sharing" systems.
+
+Each shared target has:
+
+- `authority_url` — the server that owns the target
+- `owner_user_id` — the account that owns storage, billing, and routing on that server
+- `collection_id` plus an optional `document_id` or scoped manifest ID
+- `scope_type` — `vault`, `folder`, or `note`
+- grants — capability-link grants, account/member grants, or both
+- wrapped document/vault keys per grant, if the share preserves E2EE
+- a local projection — optional filename/path placement in a user's app
+
+The invariant is: **the owner's server is authoritative for the shared target**. Other servers do
+not merge their own copies behind the scenes. A collaborator's app may cache shared content locally,
+but writes go back to the authority that owns the target.
+
+This gives one model for every deployment combination:
+
+| Owner | Collaborator | How it works |
+|-------|--------------|--------------|
+| Self-hosted | Self-hosted | Collaborator connects to the owner's public share URL. Their own server is not in the write path unless the note is later mounted as a remote source. |
+| Self-hosted | Hosted | Hosted user connects to the self-hosted owner's server. The self-hosted server must be reachable through public HTTPS, Tailscale/Funnel, or a relay. |
+| Hosted | Self-hosted | Self-hosted app connects to the hosted owner's share authority. |
+| Hosted | Hosted | Same authority model, but the hosted service can use account membership directly because both users exist on the same deployment. |
+
+Do not start with server-to-server replication. Federation can be added later by teaching a vault
+to mount remote authorities (`authority_url + target_id`). That is different from copying the note
+into the collaborator's owned collection and hoping sync conflicts sort it out.
+
+## Share Scope
+
+A share can target exactly one of:
+
+1. **Entire vault** — the grant covers the owner's collection. This is the closest match for future
+   `collection_members` and gives collaborators every current and future note in that vault.
+2. **Folder** — the grant covers a client-maintained set of documents under a folder projection.
+   Because the sync server must not know plaintext paths, the server should not evaluate `"Work/*"`
+   path rules itself. The owner client maintains an encrypted or opaque share manifest containing
+   the document/object IDs currently in scope, and updates that manifest when notes move in or out
+   of the folder.
+3. **Specific note** — the grant covers one canonical document ID plus any attachment/object IDs
+   required to render or edit that note.
+
+The permission check should happen against the resolved target set, not only in the UI. A
+collaborator with a note-scoped or folder-scoped grant must not be able to pull arbitrary objects
+from the owner's collection by changing request parameters.
+
+Folder shares need one explicit product rule: decide whether the share is **dynamic** or
+**snapshot-based**.
+
+- Dynamic folder share: a note moved into the folder becomes shared; a note moved out stops being
+  shared after the owner authority processes the change.
+- Snapshot folder share: the grant covers only the notes present when the share was created.
+
+Dynamic is probably what users expect, but it requires the owner side to keep the share manifest in
+lockstep with note moves, renames, deletes, and restores.
+
+## Grants and Identity
+
+There are two grant types worth supporting under the same model:
+
+1. **Capability grants** — a share token/key in the URL. This is the universal path: it works for
+   anonymous browser visitors, self-hosted-to-self-hosted sharing, and hosted/self-hosted mixes
+   without requiring identity federation.
+2. **Account grants** — a row such as `collection_members` for users known to the authority server.
+   This is best for hosted-to-hosted sharing and for any self-hosted deployment that later supports
+   more than one local account or OIDC.
+
+Both grant types should resolve to the same internal permission shape: read, single-writer edit, or
+live-collab edit. Both should carry enough encrypted key material for the client to decrypt the
+shared document without the server seeing plaintext.
+
+## E2EE Boundary
+
+Sharing needs an explicit privacy choice before implementation:
+
+- **E2EE share:** the server stores encrypted document state and encrypted/wrapped keys. The browser
+  or app receives the key through the URL fragment or an account/device key grant and decrypts
+  locally.
+- **Server-visible share:** the owner intentionally publishes plaintext to the share service. This is
+  much simpler, but it is a different privacy promise from normal sync.
+
+The E2EE share path is the only one that matches the sync server's current threat model. It also
+means a real-time protocol cannot send plaintext CodeMirror updates to the server unless the product
+explicitly labels that share as server-visible.
+
 ## Option 1: Simple Sharing First
 
 The simplest path is:
@@ -96,11 +197,16 @@ This is why a Yjs rewrite should be treated as a product-level architecture deci
 
 ## Recommended Direction
 
-The most conservative path is:
+The implementation order can still be incremental, but it should use the build-once substrate from
+the beginning:
 
-1. **Read-only share links**
-2. **Editable share links with plain markdown persistence**
-3. If real-time collaboration proves important, prototype it in the share client first
+1. Add owner-authoritative share records and capability grants.
+2. Add read-only share links backed by the same grant lookup that account sharing will use later.
+3. Add editable sharing with an explicit single-writer lock and plaintext materialization back into
+   the owner's note.
+4. Add account grants (`collection_members`) for hosted-to-hosted and future multi-user authorities.
+5. If real-time collaboration proves important, add live sessions on the same shared-target
+   authority instead of creating a separate collaboration identity model.
 
 If we do want real-time soon, the next choice is:
 
@@ -121,6 +227,10 @@ If live collaboration exists, the authority boundary needs to be explicit:
 
 - either a single-writer/shared-session lock with plaintext persistence
 - or a true collaborative document model
+
+Also avoid a split where hosted users get account-based sharing while self-hosted users get an
+unrelated link-sharing system. Links and account membership are different grant types on the same
+owner-authoritative document model.
 
 ## Future: Permanent Shares and Multi-Source Vaults
 
