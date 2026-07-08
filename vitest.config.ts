@@ -17,6 +17,7 @@ export default defineConfig({
     conditions: ['browser'],
     alias: {
       '$lib': path.resolve(__dirname, './src/lib'),
+      '$features': path.resolve(__dirname, './src/features'),
       '@': path.resolve(__dirname, './'),
       '@futo-notes/shared': path.resolve(__dirname, './packages/shared/src'),
       '@futo-notes/editor': path.resolve(__dirname, './packages/editor/src'),

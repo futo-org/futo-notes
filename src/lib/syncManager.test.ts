@@ -31,7 +31,7 @@ vi.mock('./appState', async (importOriginal) => {
 // reindexes peer changes into Tantivy. The whole module is replaced, so every
 // export touched by the syncManager module graph (notes.svelte imports the
 // query/status/rebuild trio) must be present.
-vi.mock('./searchEngine', () => ({
+vi.mock('$features/search/searchEngine', () => ({
   isEngineAvailable: () => true,
   engineQuery: vi.fn(async () => []),
   engineStatus: vi.fn(async () => null),
@@ -57,7 +57,7 @@ import {
   getSyncErrorMessage,
 } from './syncManager.svelte';
 import { readNote, refreshNotesFromStorage } from './notes.svelte';
-import { engineNotify } from './searchEngine';
+import { engineNotify } from '$features/search/searchEngine';
 import { updateAppState } from './appState';
 import type { SyncManagerDeps } from './syncManager.svelte';
 import type { SyncSummary } from './syncServiceE2ee';

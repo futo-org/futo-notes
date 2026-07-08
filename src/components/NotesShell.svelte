@@ -20,7 +20,7 @@
     moveNote,
     whenNotesReady,
   } from '$lib/notes.svelte';
-  import { engineNotify } from '$lib/searchEngine';
+  import { engineNotify } from '$features/search/searchEngine';
   import { sanitizeFilename } from '$lib/utils';
   import type { SyncSummary } from '$lib/syncServiceE2ee';
   import { createNoteSession } from '$lib/noteSession.svelte';
@@ -108,7 +108,7 @@
 
   async function openSearch(): Promise<void> {
     if (!SearchPopup) {
-      SearchPopup = (await import('./SearchPopup.svelte')).default;
+      SearchPopup = (await import('$features/search/SearchPopup.svelte')).default;
     }
     searchOpen = true;
   }

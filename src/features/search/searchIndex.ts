@@ -1,6 +1,6 @@
 import MiniSearch from 'minisearch';
-import type { SnippetSegment } from '../types';
-import { getFS } from './platform';
+import type { SnippetSegment } from '../../types';
+import { getFS } from '$lib/platform';
 
 // --- Types ---
 

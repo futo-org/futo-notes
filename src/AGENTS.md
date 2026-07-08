@@ -26,7 +26,7 @@ From the monorepo root, prefer `just build`, `just tauri-dev`, `just test-unit`,
 - **Adding markdown elements**: Edit `liveMarkdownTransform.ts` (processing) + `markdown.css` (styling). Test with `tests/gfm-test-note.md`.
 - **Theme tokens**: `src/styles/app.css` → `@theme` block (primary, text, border, surface, muted, bg).
 - **Platform-specific behavior**: Implement in `PlatformFS` interface, never branch on platform in components.
-- **Search**: Two paths coexist. The Rust `futo-notes-search` engine (Tantivy BM25, reached via `search_query`/`search_status`/`search_rebuild`/`search_notify`) is preferred when available and returning hits; the live client-side **MiniSearch** keyword index (`lib/searchIndex.ts`) is the always-available fallback (and powers first-launch results before the engine is ready). `lib/searchEngine.ts` is the shim that prefers the engine and falls back to MiniSearch; `lib/notes.svelte.ts` drives both. MiniSearch is NOT retired.
+- **Search**: Two paths coexist. The Rust `futo-notes-search` engine (Tantivy BM25, reached via `search_query`/`search_status`/`search_rebuild`/`search_notify`) is preferred when available and returning hits; the live client-side **MiniSearch** keyword index (`features/search/searchIndex.ts`) is the always-available fallback (and powers first-launch results before the engine is ready). `features/search/searchEngine.ts` is the shim that prefers the engine and falls back to MiniSearch; `lib/notes.svelte.ts` drives both. MiniSearch is NOT retired. (The client-side search slice — index, engine shim, and `SearchPopup.svelte` — lives under `src/features/search/`, reached via the `$features` alias; it is the first feature-folder slice.)
 
 ## Tauri MCP Shortcuts
 
