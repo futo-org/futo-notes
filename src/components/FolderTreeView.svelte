@@ -11,7 +11,7 @@
     type TreeNode,
     type FolderNode,
   } from '$lib/folders.svelte';
-  import { isMobile } from '$lib/platform';
+  import { isMobile, isLinux } from '$lib/platform';
   import { idParent, idLeaf } from '$lib/platform/pathSafety';
   import { setItemDragging } from '$lib/dragState';
 
@@ -598,10 +598,20 @@
   // We hand WebKit a 1×1 transparent canvas to suppress its default and
   // maintain our own DOM mirror that `dragover` repositions, so the
   // user-visible ghost is a real DOM node at native DPR.
+  //
+  // This is WebKitGTK-ONLY. macOS WKWebView (and Windows WebView2) render the
+  // native drag image crisply, so they don't need it — and worse, they abort
+  // the drag if it runs: mutating the DOM during `dragstart` (appending the
+  // 1×1 canvas + the cloned mirror to <body>, calling setDragImage on a node
+  // that's then removed) makes WKWebView fire `dragend` immediately with zero
+  // `dragover` events, so no folder ever highlights and drops never land.
+  // (2026-07-08 macOS repro: drag note → folder silently failed.) Gate the
+  // whole hack on Linux; elsewhere let the OS handle the drag image natively.
   let dragMirror: HTMLElement | null = null;
   let dragMirrorMove: ((ev: DragEvent) => void) | null = null;
 
   function setControlledDragImage(e: DragEvent): void {
+    if (!isLinux) return;
     if (!e.dataTransfer) return;
     const src = e.currentTarget as HTMLElement | null;
     if (!src) return;
