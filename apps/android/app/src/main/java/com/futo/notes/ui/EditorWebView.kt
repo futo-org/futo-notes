@@ -2,12 +2,14 @@ package com.futo.notes.ui
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.Intent
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.view.ViewGroup
 import android.webkit.JavascriptInterface
 import android.webkit.RenderProcessGoneDetail
+import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.runtime.Composable
@@ -21,6 +23,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import org.json.JSONObject
+
+/**
+ * Whether a top-level navigation may load inside the reused editor WebView.
+ * Only local `file://` editor assets qualify; external links are handed to the
+ * system browser so they never replace editor.html.
+ */
+internal fun isInAppEditorNavigation(scheme: String?): Boolean =
+    scheme.equals("file", ignoreCase = true)
 
 /**
  * Compose host for the embedded markdown editor — the Android counterpart of
@@ -171,6 +181,23 @@ class EditorHost private constructor(appContext: Context) {
         WebView.setWebContentsDebuggingEnabled(true)
         addJavascriptInterface(bridge, "futoBridge")
         webViewClient = object : WebViewClient() {
+            override fun shouldOverrideUrlLoading(
+                view: WebView?,
+                request: WebResourceRequest?,
+            ): Boolean {
+                val url = request?.url ?: return false
+                if (isInAppEditorNavigation(url.scheme)) return false
+                try {
+                    appContext.startActivity(
+                        Intent(Intent.ACTION_VIEW, url)
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    )
+                } catch (e: Exception) {
+                    Log.w("FutoEditor", "No app to open external URL $url", e)
+                }
+                return true
+            }
+
             // The renderer process died (OOM, or the system reclaimed it while
             // backgrounded). With no override the default returns false, which
             // takes the WHOLE app process down with it — and the editor is the

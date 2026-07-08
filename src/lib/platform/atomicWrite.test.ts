@@ -108,6 +108,50 @@ describe('writeAtomicText', () => {
     expect(temps).toEqual([]);
   });
 
+  it('retries once when rename fails with a not-found error (temp yanked)', async () => {
+    // Simulates a macOS cloud/file-provider yanking the freshly-created temp
+    // file out from under the pending rename: rename rejects ENOENT once, then
+    // succeeds on retry. writeAtomicText must recover instead of propagating.
+    const filePath = path.join(tmpDir, 'race.md');
+    let renameCalls = 0;
+    let writeCalls = 0;
+
+    const raceAdapter: AtomicWriteFS = {
+      ...adapter,
+      async writeTextFile(p: string, content: string) {
+        writeCalls++;
+        await adapter.writeTextFile(p, content);
+      },
+      async rename(oldPath: string, newPath: string) {
+        renameCalls++;
+        if (renameCalls === 1) {
+          throw new Error('No such file or directory (os error 2)');
+        }
+        await adapter.rename(oldPath, newPath);
+      },
+    };
+
+    await writeAtomicText(filePath, 'recovered content', raceAdapter);
+
+    expect(renameCalls).toBe(2);
+    expect(writeCalls).toBe(2);
+    const content = await fs.readFile(filePath, 'utf-8');
+    expect(content).toBe('recovered content');
+  });
+
+  it('handles concurrent writes to the same file without throwing', async () => {
+    const filePath = path.join(tmpDir, 'same-target.md');
+    await Promise.all([
+      writeAtomicText(filePath, 'a', adapter),
+      writeAtomicText(filePath, 'b', adapter),
+    ]);
+    const content = await fs.readFile(filePath, 'utf-8');
+    expect(['a', 'b']).toContain(content);
+    const entries = await fs.readdir(tmpDir);
+    const temps = entries.filter((e) => e.startsWith('.sf-tmp-'));
+    expect(temps).toEqual([]);
+  });
+
   it('propagates rename failure and cleans up temp', async () => {
     const filePath = path.join(tmpDir, 'rename-fail.md');
     let writtenTmpPath: string | null = null;

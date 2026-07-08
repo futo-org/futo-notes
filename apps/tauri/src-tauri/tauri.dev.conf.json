@@ -7,7 +7,8 @@
         "title": "FUTO Notes (Dev)",
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
-        "trafficLightPosition": { "x": 19, "y": 20 }
+        "trafficLightPosition": { "x": 19, "y": 20 },
+        "dragDropEnabled": false
       }
     ],
     "security": {

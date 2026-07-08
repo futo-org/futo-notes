@@ -3,12 +3,14 @@
  * file manager): without this, dropping a file anywhere in the window
  * navigates the webview to that file, killing the app shell.
  *
- * Needed because Windows builds set `dragDropEnabled: false`
- * (tauri.windows.conf.json) so HTML5 drag events work at all on WebView2 —
- * wry's native drag-drop handler swallows them otherwise, which broke
- * dragging notes into folders. With wry no longer intercepting OS drops,
- * they reach the DOM and must be neutralized here. On macOS/Linux wry still
- * intercepts OS drops, so these listeners simply never see a `Files` drag.
+ * Needed because Windows AND macOS builds set `dragDropEnabled: false`
+ * (tauri.windows.conf.json / tauri.macos.conf.json) so HTML5 drag events work
+ * at all — wry's native drag-drop handler otherwise swallows the sidebar's
+ * internal note/folder `dragover`/`drop`, which broke dragging notes into
+ * folders (Windows: WebView2; macOS: WKWebView, fixed 2026-07-08). With wry no
+ * longer intercepting OS drops on those platforms, the drops reach the DOM and
+ * must be neutralized here. On Linux wry still intercepts OS drops, so these
+ * listeners simply never see a `Files` drag there.
  *
  * Internal note/folder drags use custom MIME types (see FolderTreeView), so
  * their `dataTransfer.types` never includes `Files` and they pass through

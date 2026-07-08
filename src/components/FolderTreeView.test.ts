@@ -9,10 +9,15 @@ import type { NotePreview } from '../types';
 // getFS so `refreshEmptyFolders` can report folders that exist on disk
 // without notes; everything else keeps the real (web) implementation.
 const fsState = vi.hoisted(() => ({ folders: [] as { path: string }[] }));
+// Flip per-test to exercise the platform-gated drag-image hack (Linux only).
+const platformState = vi.hoisted(() => ({ isLinux: false }));
 vi.mock('$lib/platform', async (importOriginal) => {
   const mod = await importOriginal<typeof import('$lib/platform')>();
   return {
     ...mod,
+    get isLinux() {
+      return platformState.isLinux;
+    },
     getFS: () => ({ listFolders: async () => fsState.folders }),
   };
 });
@@ -110,5 +115,108 @@ describe('FolderTreeView per-folder empty state', () => {
     app = mount(FolderTreeView, { target, props: { items: [] } });
     flushSync();
     expect(target.querySelector('.empty-state')?.textContent).toContain('No notes yet');
+  });
+});
+
+// Regression (2026-07-08, macOS): dragging a note onto a folder silently
+// failed on the desktop app. `setControlledDragImage` mutated the DOM during
+// `dragstart` (appended a 1×1 canvas + a cloned mirror to <body>, called
+// setDragImage), which WebKitGTK tolerates but macOS WKWebView does not — it
+// aborts the drag immediately (dragstart → dragend, zero dragover), so no
+// folder highlights and drops never land. The hack is now gated to Linux.
+describe('FolderTreeView drag image is WebKitGTK-only', () => {
+  let target: HTMLDivElement;
+  let app: ReturnType<typeof mount> | null = null;
+
+  const NOTE_MIME = 'application/futo-note-id';
+
+  function fakeDataTransfer() {
+    const store: Record<string, string> = {};
+    return {
+      setData: (t: string, v: string) => {
+        store[t] = v;
+      },
+      getData: (t: string) => store[t] ?? '',
+      setDragImage: vi.fn(),
+      effectAllowed: 'uninitialized',
+      dropEffect: 'none',
+      get types() {
+        return Object.keys(store);
+      },
+    };
+  }
+
+  function fireDrag(el: HTMLElement, type: string, dt: ReturnType<typeof fakeDataTransfer>) {
+    const ev = new Event(type, { bubbles: true, cancelable: true });
+    Object.defineProperty(ev, 'dataTransfer', { value: dt, configurable: true });
+    el.dispatchEvent(ev);
+    return ev;
+  }
+
+  beforeEach(() => {
+    target = document.createElement('div');
+    document.body.appendChild(target);
+  });
+
+  afterEach(() => {
+    if (app) {
+      unmount(app);
+      app = null;
+    }
+    target.remove();
+    platformState.isLinux = false;
+    setFolderOpen('Specs', false);
+  });
+
+  it('does NOT mutate the DOM during dragstart on non-Linux (macOS/Windows)', () => {
+    platformState.isLinux = false;
+    app = mount(FolderTreeView, {
+      target,
+      props: { items: [note('Specs/foo'), note('welcome')] },
+    });
+    flushSync();
+
+    const noteRow = target.querySelector('[data-note-id="welcome"]') as HTMLElement;
+    const dt = fakeDataTransfer();
+    fireDrag(noteRow, 'dragstart', dt);
+    flushSync();
+
+    // The drag still initializes (data + effect are set) …
+    expect(dt.getData(NOTE_MIME)).toBe('welcome');
+    expect(dt.effectAllowed).toBe('move');
+    // … but the WebKitGTK-only image hack must be inert: no setDragImage,
+    // no stray canvas, no floating mirror appended to <body>. Any of these
+    // is what aborts the drag on WKWebView.
+    expect(dt.setDragImage).not.toHaveBeenCalled();
+    expect(document.body.querySelector('canvas')).toBeNull();
+    expect(document.body.querySelector(':scope > .note-row')).toBeNull();
+
+    // And the drop path is live: hovering a folder marks it as the target.
+    const folderRow = target.querySelector('[data-folder-path="Specs"]') as HTMLElement;
+    fireDrag(folderRow, 'dragover', dt);
+    flushSync();
+    expect(folderRow.classList.contains('drop-target')).toBe(true);
+  });
+
+  it('installs the drag-image mirror on Linux (WebKitGTK)', () => {
+    platformState.isLinux = true;
+    app = mount(FolderTreeView, {
+      target,
+      props: { items: [note('Specs/foo'), note('welcome')] },
+    });
+    flushSync();
+
+    const noteRow = target.querySelector('[data-note-id="welcome"]') as HTMLElement;
+    const dt = fakeDataTransfer();
+    fireDrag(noteRow, 'dragstart', dt);
+    flushSync();
+
+    expect(dt.setDragImage).toHaveBeenCalled();
+    expect(document.body.querySelector(':scope > .note-row')).not.toBeNull();
+
+    // dragend tears the mirror back down so it can't leak into other tests.
+    fireDrag(noteRow, 'dragend', dt);
+    flushSync();
+    expect(document.body.querySelector(':scope > .note-row')).toBeNull();
   });
 });

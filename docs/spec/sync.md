@@ -96,8 +96,9 @@ client uploads opaque encrypted blobs — note content is encrypted before uploa
   `clearSyncError`), SyncStatusBar.svelte (`onclear`), SettingsScreen.svelte (desktop)
 - **Per-item sync failures surface — a cycle that COMPLETES is not assumed
   healthy.** When individual operations fail (an upload/create/update, a
-  push-side delete, a duplicate-move loser takedown, or an object-map
-  checkpoint persist) but the cycle itself
+  push-side delete, a duplicate-move loser takedown, an object-map
+  checkpoint persist, or a pull-side blob download/decrypt) but the cycle
+  itself
   doesn't throw, they are counted into `SyncSummary.failures` (a channel
   distinct from `conflicts`) and drive the SAME ⚠ indicator + Settings
   line as a whole-cycle failure. Previously these returned `Ok` and were
@@ -108,7 +109,12 @@ client uploads opaque encrypted blobs — note content is encrypted before uploa
   shells: server-bound failures (upload/delete) read "N change(s) couldn't
   reach the server", with the most common HTTP status appended when one
   exists (ties keep the first-seen code, deterministically on every
-  platform); a checkpoint failure is a LOCAL persist error — the data did
+  platform); pull-side download failures read "N note(s) couldn't be
+  downloaded (will retry)" — the retry promise is real, see the cursor-cap
+  bullet below; decrypt failures read "N note(s) couldn't be decrypted",
+  kept out of the network wording because they indicate key material or
+  corruption, not connectivity; a checkpoint failure is a LOCAL persist
+  error — the data did
   reach the server — so it gets its own clause ("sync state couldn't be
   saved locally"), never the server wording, and is recorded at most once
   per cycle even when the interim and final persists both fail.
@@ -116,8 +122,46 @@ client uploads opaque encrypted blobs — note content is encrypted before uploa
   `failures`. Partial cycles report honestly — a cycle can have both
   `uploaded > 0` and failures.
   → futo-notes-sync `orchestrator` (`SyncFailure`, `FailureKind`,
-  `SyncSummary::failure_message`, `run_push`), sync.rs `to_wire_summary`,
-  syncManager.svelte.ts (`handleSyncComplete`)
+  `SyncSummary::failure_message`, `run_push`, `download_all`), sync.rs
+  `to_wire_summary`, syncManager.svelte.ts (`handleSyncComplete`)
+- **A failed blob download never advances the cursor past the object.** The
+  `max_version` persisted by a pull (and by the empty-map reconcile) is
+  capped below the lowest failed `change_seq`, so the next cycle re-lists
+  and retries the failed object — re-listing already-landed objects is
+  idempotent (the object-map version check in `first_pass` skips them).
+  Without the cap, an object whose blob failed to download or decrypt was
+  skipped silently and permanently (never re-listed via `sinceVersion`) —
+  data loss on receive unless the object was edited again server-side. The
+  cap wins over the cycle's incoming cursor — push advances `max_version`
+  for its own uploads before the pull runs, and merging instead of
+  overwriting would re-skip a failed object whenever the same cycle pushed
+  anything. A permanently poisoned blob (decrypt failure) therefore pins the
+  cursor and is re-attempted every cycle by design — the blob re-downloads
+  in full and re-fails each cycle (deliberate: a later server-side repair or
+  key fix is picked up without new state) — with the ⚠ failure line keeping
+  the user informed.
+  → futo-notes-sync `orchestrator` (`cap_cursor`, `download_all`,
+  `run_pull`, `reconcile_empty_map`)
+- **Pull blob downloads are batched; a 1-file sync stays on the classic
+  path.** The shared download stage (`download_all`, used by both `run_pull`
+  and the empty-map reconcile) bin-packs pending blobs — smallest first,
+  using the `size_bytes` already returned by the objects listing — into
+  `POST /api/blobs/batch` requests of ≤8 MiB / ≤100 keys, up to 4 in
+  flight, so first sync of a large vault is no longer one HTTPS GET per
+  note. Smallest-first packing lands every note before the first large
+  image blob starts. Blobs ≥8 MiB, unknown-size objects, and singletons use
+  the classic per-blob GET, with the request timeout scaled to the expected
+  size (a large image on a slow link is no longer killed by the flat 30s
+  timeout). A failed chunk retries twice (0.5s/2s backoff), then degrades to
+  per-blob GETs — isolating a poison blob instead of sinking its chunk —
+  and skips the retry ladder entirely on non-retryable statuses (4xx other
+  than 408/429); a server without the endpoint (404) flips a pull-wide flag
+  and the rest of that pull uses the per-blob path. Old client ↔ new server and new client ↔ old
+  server both keep working, only at the old speed. Per-entry batch statuses
+  (`missing` / `omitted`) mean one bad key can't fail its chunk.
+  → futo-notes-sync `orchestrator` (`plan_download_jobs`, `download_all`,
+  `run_batch_job`), `client` (`get_blobs_batch`, `transfer_timeout`);
+  server: futo-notes-server `src/blobs/routes.ts` (`POST /batch`)
 - **The failure signal also fires a toast, on message change.** A toast —
   prefixed **"Sync error: "** so the source is clear outside the sync UI
   ("Sync error: N change(s) couldn't reach the server …") — appears on the

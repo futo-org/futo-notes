@@ -82,15 +82,8 @@ build_ios_task:
     # Install dependencies
     - pnpm install --frozen-lockfile
 
-    # Set version in tauri.conf.json from git tag
-    - |
-      node -e "
-        const fs = require('fs');
-        const f = 'apps/tauri/src-tauri/tauri.conf.json';
-        const c = JSON.parse(fs.readFileSync(f, 'utf8'));
-        c.version = process.argv[1];
-        fs.writeFileSync(f, JSON.stringify(c, null, 2) + '\n');
-      " "$VERSION"
+    # Set desktop/Tauri version sources from git tag.
+    - node scripts/desktop-version.mjs "$VERSION"
 
     # Initialize and build iOS
     - cd apps/tauri
@@ -236,15 +229,8 @@ build_macos_task:
     # Install dependencies
     - pnpm install --frozen-lockfile
 
-    # Set version in tauri.conf.json from git tag
-    - |
-      node -e "
-        const fs = require('fs');
-        const f = 'apps/tauri/src-tauri/tauri.conf.json';
-        const c = JSON.parse(fs.readFileSync(f, 'utf8'));
-        c.version = process.argv[1];
-        fs.writeFileSync(f, JSON.stringify(c, null, 2) + '\n');
-      " "$VERSION"
+    # Set desktop/Tauri version sources from git tag.
+    - node scripts/desktop-version.mjs "$VERSION"
 
     # Build universal macOS DMG + the updater bundle. The release overlay turns on
     # createUpdaterArtifacts, so Tauri (in this one build) codesigns + notarizes

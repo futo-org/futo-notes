@@ -71,7 +71,9 @@ function persistOpenFolders(): void {
   // guaranteed durable on either platform). Best-effort, async.
   if (isTauri) {
     void import('./platform/tauri').then(({ saveConfig }) => {
-      saveConfig({ openFolders: arr }).catch(() => { /* silent */ });
+      saveConfig({ openFolders: arr }).catch((err) => {
+        console.warn('Failed to persist open folders:', err);
+      });
     }).catch(() => { /* non-Tauri or import failed */ });
   }
 }

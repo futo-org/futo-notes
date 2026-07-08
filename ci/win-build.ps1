@@ -92,10 +92,11 @@ Invoke-Step "Cloning repo (branch: $Branch)" {
 
 Set-Location C:\build\futo-notes
 
-Write-Host "=== Setting version to $Version ==="
-$conf = Get-Content apps\tauri\src-tauri\tauri.conf.json | ConvertFrom-Json
-$conf.version = $Version
-$conf | ConvertTo-Json -Depth 10 | Set-Content apps\tauri\src-tauri\tauri.conf.json
+Write-Host "=== Setting desktop version to $Version ==="
+node scripts\desktop-version.mjs $Version
+if ($LASTEXITCODE -ne 0) {
+    throw "desktop version stamp failed with exit code $LASTEXITCODE"
+}
 
 Invoke-Step "Installing npm dependencies" {
     # The Windows desktop build only needs the root app, Tauri shell, and shared package.

@@ -102,7 +102,8 @@ pub struct SyncSummary {
 }
 
 /// Wire form of a per-item sync failure. `kind` is `"upload" | "delete" |
-/// "checkpoint"`; `statusCode` is the server HTTP status when present.
+/// "checkpoint" | "download" | "decrypt"`; `statusCode` is the server HTTP
+/// status when present.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncFailure {
