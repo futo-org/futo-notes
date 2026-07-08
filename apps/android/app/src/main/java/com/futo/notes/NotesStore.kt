@@ -194,6 +194,14 @@ class NotesStore(notesRoot: File) {
         reload()
     }
 
+    /** Fire-and-forget delete for the editor's `onDispose` (can't suspend; the
+     *  composable's scope is already gone). Runs on the store's scope, which
+     *  outlives the screen — used to discard an untouched quick-capture note on
+     *  back-out (NoteEditorScreen.kt onDispose). Mirrors [flushAsync]. */
+    fun deleteAsync(id: String) {
+        scope.launch { delete(id) }
+    }
+
     suspend fun rename(oldId: String, newId: String): String = try {
         val finalId = withContext(Dispatchers.IO) { core.rename(oldId, newId) }
         reload(); signalLocalChange()

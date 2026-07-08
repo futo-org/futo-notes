@@ -208,6 +208,31 @@ pub fn make_preview(content: String) -> String {
     model::make_preview(&content)
 }
 
+/// A single title-validation issue (FFI mirror of the model's `FilenameIssue`).
+/// `kind` is the stable snake_case identifier — "forbidden_chars", "leading_dots",
+/// "trailing_dots", "too_long", or "empty" — matching the TS `FilenameIssueKind`
+/// union; `message` is the user-facing string (byte-identical to desktop).
+#[derive(uniffi::Record)]
+pub struct TitleIssue {
+    pub kind: String,
+    pub message: String,
+}
+
+/// Validate a note title against the shared filename rules (single source:
+/// futo-notes-model). Returns the issues found (empty when the title is legal),
+/// so the native shells can render desktop's reject-illegal-title UX without
+/// reimplementing the rules. Does NOT modify the title — use `sanitize_title`.
+#[uniffi::export]
+pub fn validate_title(title: String) -> Vec<TitleIssue> {
+    model::validate_title(&title)
+        .into_iter()
+        .map(|i| TitleIssue {
+            kind: i.kind.as_str().to_string(),
+            message: i.message,
+        })
+        .collect()
+}
+
 /// Multi-line, display-oriented preview for native note lists. Drops tables,
 /// strips heading/quote markers, turns task items into ☐/☑ and bullets into •,
 /// and preserves line breaks — while leaving inline `**bold**`/`*italic*` for

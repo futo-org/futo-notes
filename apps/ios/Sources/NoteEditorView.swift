@@ -15,6 +15,8 @@ struct NoteEditorView: View {
     /// file (which would bump its modified date to "now").
     @State private var savedContent = ""
     @State private var saveTask: Task<Void, Never>?
+    /// Debounced inline-title rename (Android parity) — rescheduled per keystroke.
+    @State private var renameTask: Task<Void, Never>?
     /// CRITICAL: never block the editor's first frame on a disk read (F9 / the
     /// never-gate-render rule). The body starts empty and is read OFF the main
     /// actor in `.task`; until it lands, `loaded` is false, which gates the
@@ -30,6 +32,11 @@ struct NoteEditorView: View {
     @State private var showMove = false
     /// Destructive delete is always confirmed (list.md parity).
     @State private var showDeleteConfirm = false
+    /// Inline title-validation warning (desktop parity): a forbidden char shows
+    /// a transient 2 s message; a dot/too-long/duplicate shows a persistent one
+    /// and blocks the rename. Rendered in danger red under the title field.
+    @State private var titleWarning: String?
+    @State private var titleWarningTask: Task<Void, Never>?
 
     /// Path of the enclosing NavigationStack. A resolved-wikilink tap REPLACES
     /// the current editor entry (Back returns to the list, not a chain of
@@ -41,12 +48,19 @@ struct NoteEditorView: View {
     /// the user taps.
     let autoFocus: Bool
 
+    /// The id this editor opened on. A brand-new quick-capture note that is
+    /// never touched (body still empty, never renamed → id unchanged) is
+    /// discarded on back-out so nothing is left behind — desktop parity
+    /// (list.md). Renaming or typing anything keeps it.
+    private let originalId: String
+
     init(noteId: String, autoFocus: Bool = false, navPath: Binding<[Route]>) {
         _noteId = State(initialValue: noteId)
         _titleField = State(initialValue: splitId(id: noteId).title)
         _content = State(initialValue: "")
         _navPath = navPath
         self.autoFocus = autoFocus
+        self.originalId = noteId
     }
 
     private var theme: String {
@@ -54,34 +68,60 @@ struct NoteEditorView: View {
     }
 
     var body: some View {
-        // Full-screen editor: no native title header / tag bar / divider — the
-        // note's heading and #tags already render inside the editor. Only the
-        // standard (inline) nav bar remains for Back + the Rename menu.
-        EditorWebView(
-            content: content,
-            theme: theme,
-            autoFocus: autoFocus,
-            onChange: { newContent in
-                // Data-loss guard: ignore editor change events until the off-main
-                // initial read has landed (`loaded`). The reused WebView mounts
-                // with the new note's content via setContent and can emit an echo
-                // before the disk read returns; saving that echo could clobber the
-                // note on disk. Once loaded, all edits flow through.
-                guard loaded else { return }
-                content = newContent
-                // Publish the live draft so the scenePhase background handler can
-                // flush it before jetsam, even mid-debounce (F8).
-                store.setPendingDraft(
-                    newContent != savedContent ? (id: noteId, content: newContent) : nil)
-                scheduleSave(newContent)
-            },
-            onOpenNote: { id in
-                openLinkedNote(id)
+        // Editor with an inline, tappable title on top (Android parity). The
+        // inline field owns the title now — no native nav-bar title — so only
+        // Back + the ⋯ menu remain in the nav bar. The note's heading/#tags
+        // still render inside the editor body below.
+        VStack(spacing: 0) {
+            // Backed by UITextField so tapping a still-placeholder title
+            // ("Untitled"/"Untitled-N") selects it whole — a keystroke replaces
+            // it — while a real title takes the caret at the tapped character.
+            // Edits rename the file, debounced (scheduleRename). [list.md]
+            TitleTextField(
+                text: $titleField,
+                onChange: { handleTitleChange($0) },
+                onForbidden: {
+                    setTitleWarning(
+                        "That character can't be used in a note title", transient: true)
+                }
+            )
+            .padding(.horizontal, 20)
+            .padding(.top, 4)
+            .padding(.bottom, titleWarning == nil ? 6 : 2)
+            if let warning = titleWarning {
+                Text(warning)
+                    .font(.caption)
+                    .foregroundStyle(Theme.danger)
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
-        )
-        .ignoresSafeArea(.container, edges: .bottom)
+
+            EditorWebView(
+                content: content,
+                theme: theme,
+                autoFocus: autoFocus,
+                onChange: { newContent in
+                    // Data-loss guard: ignore editor change events until the off-main
+                    // initial read has landed (`loaded`). The reused WebView mounts
+                    // with the new note's content via setContent and can emit an echo
+                    // before the disk read returns; saving that echo could clobber the
+                    // note on disk. Once loaded, all edits flow through.
+                    guard loaded else { return }
+                    content = newContent
+                    // Publish the live draft so the scenePhase background handler can
+                    // flush it before jetsam, even mid-debounce (F8).
+                    store.setPendingDraft(
+                        newContent != savedContent ? (id: noteId, content: newContent) : nil)
+                    scheduleSave(newContent)
+                },
+                onOpenNote: { id in
+                    openLinkedNote(id)
+                }
+            )
+            .ignoresSafeArea(.container, edges: .bottom)
+        }
         .background(Theme.background)
-        .navigationTitle(titleField)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -172,7 +212,22 @@ struct NoteEditorView: View {
             // off-main so a note deleted while open is never resurrected, and
             // won't bump mtime on a no-edit open/close.
             saveTask?.cancel()
+            // Drop any pending debounced rename on leave (Android parity — its
+            // rename coroutine is cancelled the same way).
+            renameTask?.cancel()
             store.setPendingDraft(nil)
+            // Discard an untouched quick-capture note: opened brand-new
+            // (autoFocus), never renamed (id unchanged AND title still the
+            // created placeholder), body still empty and never persisted.
+            // Backing out leaves nothing behind (list.md).
+            let untouched =
+                autoFocus && noteId == originalId
+                && titleField == splitId(id: originalId).title
+                && content.isEmpty && savedContent.isEmpty
+            if untouched {
+                store.delete(noteId)
+                return
+            }
             if content != savedContent {
                 store.flushAsync(noteId, content: content)
                 savedContent = content
@@ -196,34 +251,102 @@ struct NoteEditorView: View {
     }
 
     private func commitRename() {
-        Task {
-            let parts = splitId(id: noteId)
-            let trimmed = renameField.trimmingCharacters(in: .whitespacesAndNewlines)
-            // Reject empty (sanitizeTitle would coerce to "Untitled" and lose the
-            // note's identity).
-            guard !trimmed.isEmpty else { return }
-            let sanitized = sanitizeTitle(title: trimmed)
-            guard sanitized != parts.title else { return }
+        Task { await applyRename(renameField) }
+    }
 
-            // GHOST-NOTE FIX (F7): cancel the in-flight debounced save AND flush
-            // any pending body edit to the CURRENT id before the file moves.
-            // Without this, a stale save (which captured the OLD id) would run
-            // after the rename and recreate a ghost note at the old path
-            // (write_note creates files unconditionally) — data loss. Mirrors
-            // Android's NoteEditorScreen.kt rename path.
-            saveTask?.cancel()
-            if content != savedContent {
-                await store.write(noteId, content: content)
-                savedContent = content
-            }
-            // The body is now flushed to the current id; the draft is clean.
-            store.setPendingDraft(nil)
-
-            let targetId = makeId(folder: parts.folder, title: sanitized)
-            let finalId = await store.rename(oldId: noteId, newId: targetId)
-            noteId = finalId
-            titleField = splitId(id: finalId).title
+    /// Debounced inline-title rename (Android parity): reschedule on each
+    /// keystroke and rename once typing settles. Cancelled on leave/delete.
+    private func scheduleRename(_ newTitle: String) {
+        renameTask?.cancel()
+        renameTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 500_000_000)  // 0.5s debounce
+            if Task.isCancelled { return }
+            await applyRename(newTitle)
         }
+    }
+
+    /// Rename the current note from a raw title. Sanitizes; no-ops on an empty
+    /// or unchanged title. Shared by the inline title field and the ⋯ Rename
+    /// alert.
+    ///
+    /// GHOST-NOTE FIX (F7): cancel the in-flight debounced save AND flush any
+    /// pending body edit to the CURRENT id before the file moves. Without this,
+    /// a stale save (which captured the OLD id) would run after the rename and
+    /// recreate a ghost note at the old path (write_note creates files
+    /// unconditionally) — data loss. Mirrors Android's NoteEditorScreen.kt.
+    private func applyRename(_ rawTitle: String) async {
+        let parts = splitId(id: noteId)
+        let trimmed = rawTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Reject empty (sanitizeTitle would coerce to "Untitled" and lose the
+        // note's identity).
+        guard !trimmed.isEmpty else { return }
+        // Block the rename while the title is illegal (dot/too-long — forbidden
+        // chars are already stripped in the field) or would collide with an
+        // existing note. The inline warning stays up; desktop parity.
+        guard validateTitle(title: trimmed).allSatisfy({ $0.kind == "empty" }) else { return }
+        guard !isDuplicateTitle(trimmed) else { return }
+        let sanitized = sanitizeTitle(title: trimmed)
+        guard sanitized != parts.title else { return }
+
+        saveTask?.cancel()
+        if content != savedContent {
+            await store.write(noteId, content: content)
+            savedContent = content
+        }
+        // The body is now flushed to the current id; the draft is clean.
+        store.setPendingDraft(nil)
+
+        let targetId = makeId(folder: parts.folder, title: sanitized)
+        let finalId = await store.rename(oldId: noteId, newId: targetId)
+        noteId = finalId
+        titleField = splitId(id: finalId).title
+    }
+
+    /// Inline title editing (desktop parity): update the persistent warning for
+    /// the current text and (re)schedule the debounced rename. The forbidden-char
+    /// transient warning is raised separately by the field's `onForbidden`.
+    private func handleTitleChange(_ cleaned: String) {
+        // Persistent, rename-blocking issues: leading/trailing dot, too long, or
+        // a duplicate. (`empty` is silent; `forbidden_chars` can't occur — the
+        // field strips them.)
+        let blocking = validateTitle(title: cleaned)
+            .first(where: { $0.kind != "empty" && $0.kind != "forbidden_chars" })
+        if let issue = blocking {
+            setTitleWarning(issue.message, transient: false)
+        } else if isDuplicateTitle(cleaned) {
+            setTitleWarning("A note with this name already exists", transient: false)
+        } else {
+            clearTitleWarning()
+        }
+        scheduleRename(cleaned)
+    }
+
+    /// Would renaming to `raw` collide with a different existing note in the same
+    /// folder? Mirrors desktop's `hasDuplicateTitle`.
+    private func isDuplicateTitle(_ raw: String) -> Bool {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        let parts = splitId(id: noteId)
+        let targetId = makeId(folder: parts.folder, title: sanitizeTitle(title: trimmed))
+        return targetId != noteId && store.notes.contains { $0.id == targetId }
+    }
+
+    /// Show the inline title warning. `transient` messages (forbidden char)
+    /// auto-hide after 2 s; persistent ones (dot/too-long/duplicate) stay until
+    /// the title becomes legal.
+    private func setTitleWarning(_ message: String, transient: Bool) {
+        titleWarningTask?.cancel()
+        titleWarning = message
+        guard transient else { return }
+        titleWarningTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            if !Task.isCancelled { titleWarning = nil }
+        }
+    }
+
+    private func clearTitleWarning() {
+        titleWarningTask?.cancel()
+        titleWarning = nil
     }
 
     /// The open note's list item — for the move sheet. Falls back to a synthetic
@@ -330,10 +453,117 @@ struct NoteEditorView: View {
     /// write creates files unconditionally), then delete and pop the editor.
     private func deleteNote() {
         saveTask?.cancel()
+        renameTask?.cancel()
         store.setPendingDraft(nil)
         // Mark the draft clean so onDisappear's flush is a no-op.
         savedContent = content
         store.delete(noteId)
         if !navPath.isEmpty { navPath.removeLast() }
+    }
+}
+
+/// Characters forbidden in a note title — mirrors the Rust `is_forbidden_char`
+/// (futo-notes-core) and the TS `FORBIDDEN_CHARS_RE`: `< > : " / \ | ? *` plus
+/// all control characters. Used only for live input filtering; the authoritative
+/// validation + messages come from the shared `validateTitle` (FFI).
+private let forbiddenTitleScalars: CharacterSet =
+    CharacterSet(charactersIn: "<>:\"/\\|?*").union(.controlCharacters)
+
+/// Max title length (chars) — matches the shared `MAX_TITLE_LENGTH` (200).
+private let titleMaxLength = 200
+
+/// A note title that is still the auto-assigned placeholder: exactly "Untitled",
+/// or a dedup variant "Untitled-N" (see the Rust `get_unique_note_id`, which
+/// appends `-2`, `-3`, …). Tapping such a title selects it whole so a keystroke
+/// replaces it; any other title takes the caret at the tapped character.
+func isPlaceholderTitle(_ t: String) -> Bool {
+    if t == "Untitled" { return true }
+    guard t.hasPrefix("Untitled-") else { return false }
+    let suffix = t.dropFirst("Untitled-".count)
+    return !suffix.isEmpty && suffix.allSatisfy(\.isNumber)
+}
+
+/// Inline, tappable note title — the iOS counterpart of Android's title
+/// `BasicTextField`. Backed by `UITextField` so the tap behaviour is exact:
+/// beginning to edit a placeholder title selects the whole text (a keystroke
+/// replaces it), while a real title keeps UIKit's tap-positioned caret. Text
+/// edits are reported via `onChange` (the editor debounces the rename).
+private struct TitleTextField: UIViewRepresentable {
+    @Binding var text: String
+    var onChange: (String) -> Void
+    /// A forbidden character was typed and stripped (drives the transient warning).
+    var onForbidden: () -> Void = {}
+
+    func makeUIView(context: Context) -> UITextField {
+        let tf = UITextField()
+        tf.delegate = context.coordinator
+        tf.text = text
+        tf.placeholder = "Untitled"
+        tf.font = .systemFont(ofSize: 22, weight: .semibold)
+        tf.textColor = .label
+        tf.returnKeyType = .done
+        tf.clearButtonMode = .never
+        // Titles are proper nouns as often as sentences; don't fight the user.
+        tf.autocapitalizationType = .sentences
+        tf.addTarget(
+            context.coordinator, action: #selector(Coordinator.editingChanged(_:)),
+            for: .editingChanged)
+        tf.setContentHuggingPriority(.required, for: .vertical)
+        tf.setContentCompressionResistancePriority(.required, for: .vertical)
+        return tf
+    }
+
+    func updateUIView(_ uiView: UITextField, context: Context) {
+        context.coordinator.parent = self
+        // Adopt external title changes (a debounced/remote rename rewrote it)
+        // WITHOUT stomping what the user is actively typing.
+        if !uiView.isFirstResponder, uiView.text != text {
+            uiView.text = text
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    final class Coordinator: NSObject, UITextFieldDelegate {
+        var parent: TitleTextField
+        init(_ parent: TitleTextField) { self.parent = parent }
+
+        @objc func editingChanged(_ tf: UITextField) {
+            let raw = (tf.text ?? "").replacingOccurrences(of: "\n", with: "")
+            // Strip forbidden filesystem chars in-place (desktop parity — the
+            // illegal char never persists) and cap at the title length limit.
+            var cleaned = String(raw.unicodeScalars.filter { !forbiddenTitleScalars.contains($0) })
+            let forbidden = cleaned != raw
+            if cleaned.count > titleMaxLength { cleaned = String(cleaned.prefix(titleMaxLength)) }
+            if tf.text != cleaned {
+                // Keep the caret roughly where it was: a stripped forbidden char
+                // shifts it back one; a length cap clamps it to the end.
+                var prev = cleaned.count
+                if let start = tf.selectedTextRange?.start {
+                    prev = tf.offset(from: tf.beginningOfDocument, to: start)
+                }
+                let target = max(0, min(cleaned.count, prev - (forbidden ? 1 : 0)))
+                tf.text = cleaned
+                if let pos = tf.position(from: tf.beginningOfDocument, offset: target) {
+                    tf.selectedTextRange = tf.textRange(from: pos, to: pos)
+                }
+            }
+            parent.text = cleaned
+            parent.onChange(cleaned)
+            if forbidden { parent.onForbidden() }
+        }
+
+        func textFieldDidBeginEditing(_ tf: UITextField) {
+            // Placeholder title → select all so a keystroke replaces it. Real
+            // title → leave UIKit's tap-positioned caret alone. Async so it runs
+            // AFTER UIKit places the caret from the tap (otherwise the tap wins).
+            guard isPlaceholderTitle(tf.text ?? "") else { return }
+            DispatchQueue.main.async { tf.selectAll(nil) }
+        }
+
+        func textFieldShouldReturn(_ tf: UITextField) -> Bool {
+            tf.resignFirstResponder()
+            return false
+        }
     }
 }

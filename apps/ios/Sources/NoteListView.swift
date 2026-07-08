@@ -192,8 +192,6 @@ struct FolderContentsView: View {
 
     @State private var showingNewFolder = false
     @State private var newFolderName = ""
-    @State private var showingNewNote = false
-    @State private var newNoteTitle = "Untitled"
 
     /// Note being moved (drives the move sheet).
     @State private var moveTarget: NoteItem?
@@ -271,8 +269,9 @@ struct FolderContentsView: View {
             ToolbarItem(id: "create", placement: .topBarTrailing) {
                 Menu {
                     Button {
-                        newNoteTitle = "Untitled"
-                        showingNewNote = true
+                        // Quick capture: create + open straight into the body,
+                        // no blocking title prompt (desktop parity). [list.md]
+                        createNote()
                     } label: {
                         Label("New Note", systemImage: "square.and.pencil")
                     }
@@ -293,13 +292,6 @@ struct FolderContentsView: View {
                 .accessibilityAddTraits(.isButton)
                 .accessibilityIdentifier("nav-create")
             }
-        }
-        .alert("New Note", isPresented: $showingNewNote) {
-            TextField("Title", text: $newNoteTitle)
-            Button("Cancel", role: .cancel) {}
-            Button("Create") { createNote() }
-        } message: {
-            Text("Create a note in \(folder.isEmpty ? "Notes" : title).")
         }
         // NOT a .alert: an alert snapshots its message: closure at presentation,
         // so the duplicate warning required by list.md:182 never appeared while
@@ -452,8 +444,11 @@ struct FolderContentsView: View {
 
     private func createNote() {
         Task {
-            if let id = await store.createNote(title: newNoteTitle, folder: folder) {
-                // .newNote → editor opens focused with the keyboard up.
+            // Quick capture: name it "Untitled" and drop straight into the body.
+            // No title prompt — the editor opens body-focused (.newNote →
+            // autoFocus), the note is renamed later via the ⋯ menu, and an
+            // untouched note is discarded on back-out (NoteEditorView.onDisappear).
+            if let id = await store.createNote(title: "Untitled", folder: folder) {
                 navPath.append(.newNote(id))
             }
         }
