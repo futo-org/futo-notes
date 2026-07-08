@@ -50,7 +50,10 @@ async function completeSync(page: Page, failureMessage: string | null): Promise<
   }, failureMessage);
 }
 
-function liveState(page: Page, payload: { live: boolean; status: string; message?: string }): Promise<void> {
+function liveState(
+  page: Page,
+  payload: { live: boolean; status: string; message?: string },
+): Promise<void> {
   return page.evaluate((p) => {
     const w = window as typeof window & { __notesShellTest: ShellTestHook };
     w.__notesShellTest.handleLiveState(p);
@@ -98,7 +101,9 @@ test.describe('Sync status bar', () => {
     await expect(page.locator('.sync-indicator.sync-idle')).toBeVisible();
   });
 
-  test('a live cycle-error keeps the tick state (live) while raising the error', async ({ page }) => {
+  test('a live cycle-error keeps the tick state (live) while raising the error', async ({
+    page,
+  }) => {
     await openApp(page);
     await liveState(page, { live: true, status: 'connected' });
     await liveState(page, { live: true, status: 'cycle-error', message: 'HTTP 500' });

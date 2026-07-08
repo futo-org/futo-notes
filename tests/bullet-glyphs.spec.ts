@@ -39,13 +39,13 @@ test.describe('Bullet Glyphs by Nesting Level', () => {
 
     // Get all bullet widgets and their text
     const bullets = await page.locator('.cm-md-bullet').all();
-    const texts = await Promise.all(bullets.map(b => b.textContent()));
+    const texts = await Promise.all(bullets.map((b) => b.textContent()));
 
     expect(bullets.length).toBe(4);
-    expect(texts[0]).toBe('•');  // level 0
-    expect(texts[1]).toBe('◦');  // level 1
-    expect(texts[2]).toBe('▪');  // level 2
-    expect(texts[3]).toBe('•');  // level 3 wraps
+    expect(texts[0]).toBe('•'); // level 0
+    expect(texts[1]).toBe('◦'); // level 1
+    expect(texts[2]).toBe('▪'); // level 2
+    expect(texts[3]).toBe('•'); // level 3 wraps
   });
 
   test('indent content position is consistent at multiple nesting levels', async ({ page }) => {
@@ -70,23 +70,25 @@ test.describe('Bullet Glyphs by Nesting Level', () => {
     async function measureTextLefts(): Promise<number[]> {
       return page.evaluate(() => {
         const lines = document.querySelectorAll('.cm-line');
-        return Array.from(lines).slice(0, 4).map(line => {
-          // Walk all text nodes and find the first one containing our "L" content
-          const walker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT);
-          let node: Text | null;
-          while ((node = walker.nextNode() as Text | null)) {
-            const text = node.textContent || '';
-            // Find a text node that contains the actual content (e.g., "L0", "L1")
-            const match = text.match(/L\d/);
-            if (match && match.index !== undefined) {
-              const range = document.createRange();
-              range.setStart(node, match.index);
-              range.setEnd(node, match.index + 1);
-              return range.getBoundingClientRect().left;
+        return Array.from(lines)
+          .slice(0, 4)
+          .map((line) => {
+            // Walk all text nodes and find the first one containing our "L" content
+            const walker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT);
+            let node: Text | null;
+            while ((node = walker.nextNode() as Text | null)) {
+              const text = node.textContent || '';
+              // Find a text node that contains the actual content (e.g., "L0", "L1")
+              const match = text.match(/L\d/);
+              if (match && match.index !== undefined) {
+                const range = document.createRange();
+                range.setStart(node, match.index);
+                range.setEnd(node, match.index + 1);
+                return range.getBoundingClientRect().left;
+              }
             }
-          }
-          return -1;
-        });
+            return -1;
+          });
       });
     }
 
@@ -138,15 +140,18 @@ test.describe('Bullet Glyphs by Nesting Level', () => {
     // Blur editor so cursor-on-line doesn't suppress decorations
     await page.evaluate(() => {
       const view = (window as any).__cmGetView?.();
-      if (view) { view.contentDOM.blur(); view.dom.blur(); }
+      if (view) {
+        view.contentDOM.blur();
+        view.dom.blur();
+      }
     });
     await page.waitForTimeout(200);
 
     const bullets = await page.locator('.cm-md-bullet').all();
-    const texts = await Promise.all(bullets.map(b => b.textContent()));
+    const texts = await Promise.all(bullets.map((b) => b.textContent()));
 
     expect(bullets.length).toBe(2);
-    expect(texts[0]).toBe('•');  // parent - level 0
-    expect(texts[1]).toBe('◦');  // child - level 1
+    expect(texts[0]).toBe('•'); // parent - level 0
+    expect(texts[1]).toBe('◦'); // child - level 1
   });
 });

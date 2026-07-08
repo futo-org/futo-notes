@@ -1,7 +1,11 @@
 // @vitest-environment jsdom
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createSyncCoordinator, type SyncCoordinatorDeps, type SyncCoordinatorUI } from './syncCoordinator';
+import {
+  createSyncCoordinator,
+  type SyncCoordinatorDeps,
+  type SyncCoordinatorUI,
+} from './syncCoordinator';
 import type { WatcherBatch } from './watcherBatch';
 
 function makeDeps(overrides?: Partial<SyncCoordinatorDeps>): SyncCoordinatorDeps {

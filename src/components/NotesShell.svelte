@@ -13,13 +13,7 @@
   // Lazy-loaded: SearchPopup only needed when user opens search (Ctrl+P or button)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let SearchPopup: any = $state(null);
-  import {
-    getAllNotes,
-    createNote,
-    deleteNote,
-    moveNote,
-    whenNotesReady,
-  } from '$lib/notes.svelte';
+  import { getAllNotes, createNote, deleteNote, moveNote, whenNotesReady } from '$lib/notes.svelte';
   import { engineNotify } from '$features/search/searchEngine';
   import { sanitizeFilename } from '$lib/utils';
   import type { SyncSummary } from '$lib/syncServiceE2ee';
@@ -37,7 +31,6 @@
   import { tabsStore, type OpenMode } from '$lib/tabsStore.svelte';
   import { onToast } from '$lib/toast';
 
-
   interface Props {
     noteId: string | null;
   }
@@ -51,7 +44,9 @@
   let drawerOpen = $state(!isMobile);
   let drawerProgress = $state(!isMobile ? 1 : 0);
 
-  $effect(() => { appCtx.activeNoteId = noteId; });
+  $effect(() => {
+    appCtx.activeNoteId = noteId;
+  });
 
   // Mirror notes to appCtx on every change. This fans out to ForYouPage,
   // the tag sidebar, the note list, etc.
@@ -69,7 +64,10 @@
   $effect(() => {
     const notes = appCtx.notes;
     // Sort to canonicalize so insertion order doesn't false-positive.
-    const sig = notes.map((n) => n.id).sort().join('\n');
+    const sig = notes
+      .map((n) => n.id)
+      .sort()
+      .join('\n');
     if (sig === lastIdSignature) return;
     lastIdSignature = sig;
     graphPanel?.clearGraphData();
@@ -130,7 +128,6 @@
   // Note menu
   let noteMenuOpen = $state(false);
   let deleteConfirmOpen = $state(false);
-
 
   // Graph sidebar
   let graphSidebarOpen = $state(false);
@@ -200,7 +197,9 @@
     navigate: (path) => navigate(path),
     getNoteId: () => noteId,
     getPrevNoteId: () => prevNoteId,
-    setPrevNoteId: (id) => { prevNoteId = id; },
+    setPrevNoteId: (id) => {
+      prevNoteId = id;
+    },
     onAnySyncRename: (fromId, toId) => {
       tabsStore.applyRename(fromId, toId);
     },
@@ -231,9 +230,13 @@
     getNoteBody: () => noteBody,
     getTitleTextarea: () => titleTextarea,
     getNoteId: () => noteId,
-    setPrevNoteId: (id) => { prevNoteId = id; },
+    setPrevNoteId: (id) => {
+      prevNoteId = id;
+    },
     getPendingFolder: () => tabsStore.activeTab.pendingFolder ?? null,
-    clearPendingFolder: () => { tabsStore.setPendingFolder(tabsStore.activeTabId, null); },
+    clearPendingFolder: () => {
+      tabsStore.setPendingFolder(tabsStore.activeTabId, null);
+    },
     onNoteRenamed: (savedOriginalId, realId) => {
       // The 'new' sentinel is what brand-new tabs carry until first save.
       const oldKey = savedOriginalId ?? 'new';
@@ -252,7 +255,6 @@
     },
   });
 
-
   // Toast
   let toastMessage = $state('');
   let toastTimer: number | null = null;
@@ -260,7 +262,10 @@
   function showToast(message: string): void {
     if (toastTimer !== null) clearTimeout(toastTimer);
     toastMessage = message;
-    toastTimer = window.setTimeout(() => { toastMessage = ''; toastTimer = null; }, 3000);
+    toastTimer = window.setTimeout(() => {
+      toastMessage = '';
+      toastTimer = null;
+    }, 3000);
   }
 
   // Let non-component code (e.g. queryEmbedder) surface messages as toasts
@@ -325,7 +330,6 @@
     }
     settingsOpen = true;
   }
-
 
   async function createNewNote(): Promise<void> {
     if (isMobile) setDrawerOpen(false);
@@ -400,7 +404,8 @@
     // Let CodeMirror handle taps within the editor so the cursor lands at tap coordinates.
     if (target.closest('.cm-editor')) return;
     // Don't steal focus from title/tag controls or interactive elements.
-    if (target.closest('.note-title-row, .note-tag-bar, a, button, input, textarea, select')) return;
+    if (target.closest('.note-title-row, .note-tag-bar, a, button, input, textarea, select'))
+      return;
 
     // Tap below the rendered editor → caret at end of doc, otherwise the
     // caret stays at its previous position (often 0) and the tap looks
@@ -411,8 +416,6 @@
     }
     editor.focus();
   }
-
-
 
   async function handleDeleteNote(): Promise<void> {
     deleteConfirmOpen = false;
@@ -428,7 +431,9 @@
   function isSwipeExcludedTarget(target: EventTarget | null): boolean {
     if (!(target instanceof Element)) return false;
     return Boolean(
-      target.closest('.cm-md-table-wrapper, .cm-md-table-rendered, .cm-md-table, .markdown-toolbar, .title-input, .graph-sidebar, .graph-fullscreen')
+      target.closest(
+        '.cm-md-table-wrapper, .cm-md-table-rendered, .cm-md-table, .markdown-toolbar, .title-input, .graph-sidebar, .graph-fullscreen',
+      ),
     );
   }
 
@@ -537,8 +542,10 @@
   // when the editor itself owns focus.
   const keyboardInset = $derived(
     isMobile && editorFocused && !searchOpen
-      ? (keyboard.visible ? keyboard.height + TOOLBAR_HEIGHT : TOOLBAR_HEIGHT)
-      : 0
+      ? keyboard.visible
+        ? keyboard.height + TOOLBAR_HEIGHT
+        : TOOLBAR_HEIGHT
+      : 0,
   );
 
   // Scroll cursor into view when keyboard opens or resizes.
@@ -567,7 +574,9 @@
   $effect(() => {
     keyboard.init();
     if (isMobile && !MarkdownToolbar) {
-      import('./MarkdownToolbar.svelte').then(m => { MarkdownToolbar = m.default; });
+      import('./MarkdownToolbar.svelte').then((m) => {
+        MarkdownToolbar = m.default;
+      });
     }
     registerBackSwipeHandler();
     updateDrawerMetrics();
@@ -640,44 +649,54 @@
     const cleanupNativeListeners: Array<() => void> = [];
     if (isTauri) {
       import('$lib/platform/tauri').then(({ onMenuAction, onFileChange }) => {
-        cleanupNativeListeners.push(onMenuAction((action) => {
-          if (action === 'toggle-sidebar') toggleSidebar();
-          else if (action === 'new-note') void createNewNote();
-        }));
+        cleanupNativeListeners.push(
+          onMenuAction((action) => {
+            if (action === 'toggle-sidebar') toggleSidebar();
+            else if (action === 'new-note') void createNewNote();
+          }),
+        );
 
-        cleanupNativeListeners.push(onFileChange((event) => {
-          sync.enqueueFileChange(event);
-          // Keep the Rust search index fresh on external/file changes. The
-          // notify is debounced + mtime-aware in the engine, so this is cheap
-          // on every change (unlike a full rebuild). MiniSearch is kept fresh
-          // independently via the optimistic-cache paths in notes.svelte.ts.
-          void engineNotify(event.type, event.filename, event.from);
-        }));
+        cleanupNativeListeners.push(
+          onFileChange((event) => {
+            sync.enqueueFileChange(event);
+            // Keep the Rust search index fresh on external/file changes. The
+            // notify is debounced + mtime-aware in the engine, so this is cheap
+            // on every change (unlike a full rebuild). MiniSearch is kept fresh
+            // independently via the optimistic-cache paths in notes.svelte.ts.
+            void engineNotify(event.type, event.filename, event.from);
+          }),
+        );
       });
 
       // H10: Await save durability before window closes
-      import('@tauri-apps/api/window').then(({ getCurrentWindow }) => {
-        getCurrentWindow().onCloseRequested(async (e) => {
-          e.preventDefault();
-          // Flush with a 3s timeout so a stuck save never blocks close
-          await Promise.race([session.flushSave(), new Promise((r) => setTimeout(r, 3000))]);
-          try {
-            const { exit } = await import('@tauri-apps/plugin-process');
-            await exit(0);
-          } catch {
-            getCurrentWindow().destroy();
-          }
-        }).then((unlisten) => {
-          // Wrap so a stray double-cleanup doesn't double-unregister
-          // the Tauri event (which throws "listeners[eventId] is undefined").
-          let called = false;
-          cleanupNativeListeners.push(() => {
-            if (called) return;
-            called = true;
-            unlisten();
-          });
+      import('@tauri-apps/api/window')
+        .then(({ getCurrentWindow }) => {
+          getCurrentWindow()
+            .onCloseRequested(async (e) => {
+              e.preventDefault();
+              // Flush with a 3s timeout so a stuck save never blocks close
+              await Promise.race([session.flushSave(), new Promise((r) => setTimeout(r, 3000))]);
+              try {
+                const { exit } = await import('@tauri-apps/plugin-process');
+                await exit(0);
+              } catch {
+                getCurrentWindow().destroy();
+              }
+            })
+            .then((unlisten) => {
+              // Wrap so a stray double-cleanup doesn't double-unregister
+              // the Tauri event (which throws "listeners[eventId] is undefined").
+              let called = false;
+              cleanupNativeListeners.push(() => {
+                if (called) return;
+                called = true;
+                unlisten();
+              });
+            });
+        })
+        .catch(() => {
+          /* non-Tauri environment */
         });
-      }).catch(() => { /* non-Tauri environment */ });
     }
 
     // Global keyboard shortcuts
@@ -806,7 +825,10 @@
       __notesShellTest?: {
         handleSyncComplete: (summary: SyncSummary) => Promise<void>;
         handleLiveState: (payload: { live: boolean; status: string; message?: string }) => void;
-        handleFileChange: (event: { type: 'add' | 'change' | 'unlink'; filename: string }) => Promise<void>;
+        handleFileChange: (event: {
+          type: 'add' | 'change' | 'unlink';
+          filename: string;
+        }) => Promise<void>;
         seedOpenNote: (id: string, body: string) => void;
         flushSave: () => Promise<void>;
         typeInEditor: (text: string) => string;
@@ -859,8 +881,6 @@
     };
   });
   const overlayOpacity = $derived(isMobile ? drawerProgress * 0.5 : 0);
-
-
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -874,7 +894,6 @@
   class:drawer-open={drawerOpen}
   class:drawer-dragging={touch.isDragging}
   class:graph-sidebar-open={!isMobile && graphSidebarOpen}
-
   style="--drawer-offset: {drawerOffset}px; --sidebar-width: {sidebarWidth}px; --graph-sidebar-width: {graphSidebarWidth}px; --vv-offset: {keyboard.offsetTop}px"
   ontouchstart={touch.handleTouchStart}
   ontouchmove={touch.handleTouchMove}
@@ -885,17 +904,19 @@
   <DrawerSidebar
     {drawerOpen}
     {sidebarCollapsed}
-    bind:sidebarWidth={sidebarWidth}
+    bind:sidebarWidth
     isDragging={touch.isDragging}
     onselect={handleDrawerSelect}
-    onsearch={() => { void openSearch(); }}
+    onsearch={() => {
+      void openSearch();
+    }}
     onsettings={handleOpenSettings}
     onnewnote={createNewNote}
     onnewnoteinfolder={createNewNoteInFolder}
     oncreatetestnote={createTestNote}
     ontogglecollapse={toggleSidebar}
     bind:drawerEl={drawer}
-    bind:sidebarResizing={sidebarResizing}
+    bind:sidebarResizing
   />
 
   <!-- Menu button (mobile only) -->
@@ -905,17 +926,29 @@
       class="drawer-toggle floating"
       aria-label="Open notes list"
       aria-expanded={drawerOpen}
-      onclick={() => setDrawerOpen(!drawerOpen)}
-    >&#9776;</button>
+      onclick={() => setDrawerOpen(!drawerOpen)}>&#9776;</button
+    >
   {/if}
 
   <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
   <!-- Main content -->
-  <div bind:this={noteMainEl} class="note-main" style:bottom={keyboardInset > 0 ? `${keyboardInset}px` : undefined} onclick={() => { if (isMobile && drawerOpen) setDrawerOpen(false); }}>
+  <div
+    bind:this={noteMainEl}
+    class="note-main"
+    style:bottom={keyboardInset > 0 ? `${keyboardInset}px` : undefined}
+    onclick={() => {
+      if (isMobile && drawerOpen) setDrawerOpen(false);
+    }}
+  >
     <!-- Note menu button (three-dot) -->
     {#if noteId && noteMenuOpen}
       <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
-      <div class="note-menu-backdrop" onclick={() => { noteMenuOpen = false; }}></div>
+      <div
+        class="note-menu-backdrop"
+        onclick={() => {
+          noteMenuOpen = false;
+        }}
+      ></div>
     {/if}
     {#if noteId}
       <div bind:this={noteMenuAnchorEl} class="note-menu-anchor">
@@ -923,29 +956,68 @@
           class="note-menu-toggle"
           aria-label="Note options"
           aria-expanded={noteMenuOpen}
-          onclick={() => { noteMenuOpen = !noteMenuOpen; }}
-        >&#8942;</button>
+          onclick={() => {
+            noteMenuOpen = !noteMenuOpen;
+          }}>&#8942;</button
+        >
         {#if noteMenuOpen}
           <div class="note-menu-dropdown">
             {#if isTauri}
-              <button onclick={() => { noteMenuOpen = false; void openGraphSidebar(); }}>Graph view</button>
-              <button onclick={() => { noteMenuOpen = false; void copyNotePath(); }}>Copy file path</button>
+              <button
+                onclick={() => {
+                  noteMenuOpen = false;
+                  void openGraphSidebar();
+                }}>Graph view</button
+              >
+              <button
+                onclick={() => {
+                  noteMenuOpen = false;
+                  void copyNotePath();
+                }}>Copy file path</button
+              >
             {/if}
             {#if noteId && noteId !== 'new'}
-              <button onclick={() => { noteMenuOpen = false; openMoveCurrentNoteToFolder(); }} data-testid="note-menu-move">Move to folder</button>
+              <button
+                onclick={() => {
+                  noteMenuOpen = false;
+                  openMoveCurrentNoteToFolder();
+                }}
+                data-testid="note-menu-move">Move to folder</button
+              >
             {/if}
-            <button class="danger" onclick={() => { noteMenuOpen = false; deleteConfirmOpen = true; }}>Delete note</button>
+            <button
+              class="danger"
+              onclick={() => {
+                noteMenuOpen = false;
+                deleteConfirmOpen = true;
+              }}>Delete note</button
+            >
           </div>
         {/if}
       </div>
     {/if}
     {#if !isMobile && !isDesktop && sidebarCollapsed}
-      <button class="sidebar-expand-btn sidebar-expand-fallback-btn" aria-label="Expand sidebar"
-        onclick={() => { toggleSidebar(false); }}>
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <rect x="3" y="3" width="18" height="18" rx="2"/>
-          <line x1="9" y1="3" x2="9" y2="21"/>
-          <polyline points="14 8 17 12 14 16"/>
+      <button
+        class="sidebar-expand-btn sidebar-expand-fallback-btn"
+        aria-label="Expand sidebar"
+        onclick={() => {
+          toggleSidebar(false);
+        }}
+      >
+        <svg
+          width="20"
+          height="20"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.75"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <rect x="3" y="3" width="18" height="18" rx="2" />
+          <line x1="9" y1="3" x2="9" y2="21" />
+          <polyline points="14 8 17 12 14 16" />
         </svg>
       </button>
     {/if}
@@ -960,11 +1032,20 @@
     {#if isDesktop}
       <TabsStrip
         {sidebarCollapsed}
-        onExpandSidebar={() => { toggleSidebar(false); }}
+        onExpandSidebar={() => {
+          toggleSidebar(false);
+        }}
       />
     {/if}
     <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-    <div class="note-body" data-editor-focused={editorFocused ? '' : undefined} bind:this={noteBody} onclick={handleNoteBodyClick} onfocusin={handleNoteBodyFocusIn} onfocusout={handleEditorFocusOut}>
+    <div
+      class="note-body"
+      data-editor-focused={editorFocused ? '' : undefined}
+      bind:this={noteBody}
+      onclick={handleNoteBodyClick}
+      onfocusin={handleNoteBodyFocusIn}
+      onfocusout={handleEditorFocusOut}
+    >
       {#if noteId}
         <div class="note-title-row">
           <textarea
@@ -979,10 +1060,11 @@
             onpointerdown={session.handleTitlePointerDown}
             maxlength={200}
             enterkeyhint="done"
-            bind:this={titleTextarea}
-          ></textarea>
+            bind:this={titleTextarea}></textarea>
           {#if session.titleWarning}
-            <div class="text-xs pt-0.5" style="color: var(--color-danger)">{session.titleWarning}</div>
+            <div class="text-xs pt-0.5" style="color: var(--color-danger)">
+              {session.titleWarning}
+            </div>
           {/if}
         </div>
         <NoteTagBar
@@ -996,7 +1078,9 @@
             content={session.content}
             onchange={session.debouncedSave}
             onfocuschange={handleEditorFocusChange}
-            oncursorcontext={(ctx) => { cursorOnListLine = ctx.onListLine; }}
+            oncursorcontext={(ctx) => {
+              cursorOnListLine = ctx.onListLine;
+            }}
             scrollParent={noteBody ?? null}
             onopenlink={handleWikilinkOpen}
           />
@@ -1005,7 +1089,15 @@
         <ForYouPage onbrowse={() => setDrawerOpen(true)} onquickcapture={createNewNote} />
       {/if}
     </div>
-    <SyncStatusBar statusMessage={sync.syncStatusMessage} indicatorVisible={sync.syncIndicatorVisible} offline={sync.syncOffline} error={sync.syncError} errorMessage={sync.syncErrorMessage} connected={sync.live} onclear={sync.clearSyncError} />
+    <SyncStatusBar
+      statusMessage={sync.syncStatusMessage}
+      indicatorVisible={sync.syncIndicatorVisible}
+      offline={sync.syncOffline}
+      error={sync.syncError}
+      errorMessage={sync.syncErrorMessage}
+      connected={sync.live}
+      onclear={sync.clearSyncError}
+    />
   </div>
 
   {#if isMobile && MarkdownToolbar}
@@ -1013,24 +1105,25 @@
       getView={() => editor?.getView() ?? null}
       {editorFocused}
       {cursorOnListLine}
-      ontoolbartouch={(touching) => toolbarTouching = touching}
+      ontoolbartouch={(touching) => (toolbarTouching = touching)}
     />
   {/if}
-
 
   <!-- Graph sidebar -->
   <GraphSidebarPanel
     bind:this={graphPanel}
     open={graphSidebarOpen}
     currentNoteId={noteId}
-    bind:graphSidebarWidth={graphSidebarWidth}
+    bind:graphSidebarWidth
     notes={appCtx.notes}
     onclose={closeGraphSidebar}
     onnavigate={handleGraphNavigate}
-    onopen={() => { graphSidebarOpen = true; }}
+    onopen={() => {
+      graphSidebarOpen = true;
+    }}
     ontoast={showToast}
-    bind:graphSidebarEl={graphSidebarEl}
-    bind:graphOverlayEl={graphOverlayEl}
+    bind:graphSidebarEl
+    bind:graphOverlayEl
     bind:resizing={graphPanelResizing}
     bind:loading={graphLoading}
   />
@@ -1038,11 +1131,13 @@
 
 {#if settingsOpen && SettingsScreen}
   <SettingsScreen
-    onclose={() => { settingsOpen = false; }}
+    onclose={() => {
+      settingsOpen = false;
+    }}
     onimported={handleImported}
     syncError={sync.syncError}
     syncErrorMessage={sync.syncErrorMessage}
-    {...(import.meta.env.DEV ? { simulateSyncSummary: sync.handleSyncComplete } : {})}
+    {...import.meta.env.DEV ? { simulateSyncSummary: sync.handleSyncComplete } : {}}
   />
 {/if}
 
@@ -1050,15 +1145,30 @@
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     class="delete-confirm-overlay"
-    onclick={() => { deleteConfirmOpen = false; }}
-    onkeydown={(event) => handleDismissWindowKeydown(event, () => { deleteConfirmOpen = false; })}
+    onclick={() => {
+      deleteConfirmOpen = false;
+    }}
+    onkeydown={(event) =>
+      handleDismissWindowKeydown(event, () => {
+        deleteConfirmOpen = false;
+      })}
   >
     <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
-    <div class="delete-confirm-dialog" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={(event) => event.stopPropagation()}>
+    <div
+      class="delete-confirm-dialog"
+      tabindex="-1"
+      onclick={(e) => e.stopPropagation()}
+      onkeydown={(event) => event.stopPropagation()}
+    >
       <h3>Delete this note?</h3>
       <p>This action cannot be undone.</p>
       <div class="delete-confirm-actions">
-        <button class="delete-confirm-cancel" onclick={() => { deleteConfirmOpen = false; }}>Cancel</button>
+        <button
+          class="delete-confirm-cancel"
+          onclick={() => {
+            deleteConfirmOpen = false;
+          }}>Cancel</button
+        >
         <button class="delete-confirm-delete" onclick={handleDeleteNote}>Delete</button>
       </div>
     </div>
@@ -1066,7 +1176,12 @@
 {/if}
 
 {#if searchOpen && SearchPopup}
-  <SearchPopup onclose={() => { searchOpen = false; }} onselect={handleSearchSelect} />
+  <SearchPopup
+    onclose={() => {
+      searchOpen = false;
+    }}
+    onselect={handleSearchSelect}
+  />
 {/if}
 
 {#if movePickerOpen}
@@ -1074,7 +1189,10 @@
     title="Move to folder"
     notes={appCtx.notes}
     onpick={handleMovePick}
-    oncancel={() => { movePickerOpen = false; movePickerNoteId = null; }}
+    oncancel={() => {
+      movePickerOpen = false;
+      movePickerNoteId = null;
+    }}
   />
 {/if}
 

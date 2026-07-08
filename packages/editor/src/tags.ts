@@ -49,12 +49,7 @@ export function isValidTagName(name: string): boolean {
  * - "dog problems" -> "dog_problems"
  */
 export function normalizeTagName(name: string): string {
-  return name
-    .trim()
-    .replace(/^#+/, '')
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, '_');
+  return name.trim().replace(/^#+/, '').trim().toLowerCase().replace(/\s+/g, '_');
 }
 
 /**
@@ -91,7 +86,10 @@ function stripCodeRegions(content: string): string {
       const openLen = open.marker.length;
       // Closing fence must use same char and be at least as long
       if (baseChar === openChar && len >= openLen && fence.rest.trim() === '') {
-        fences.push({ start: open.pos, end: fence.index + fence.marker.length + fence.indent.length + fence.rest.length });
+        fences.push({
+          start: open.pos,
+          end: fence.index + fence.marker.length + fence.indent.length + fence.rest.length,
+        });
         openFences.pop();
         continue;
       }
@@ -190,7 +188,10 @@ export function scanTags(content: string): TagMatch[] {
     let j = nameStart + 1;
     while (j < n && isTagNameCode(content.charCodeAt(j))) j++;
     // (3) length 1..=50 AND right boundary is EOS / \s / terminator punct.
-    if (j - nameStart <= MAX_TAG_LENGTH && (j >= n || /\s/.test(content[j]) || TAG_TERMINATORS.has(content[j]))) {
+    if (
+      j - nameStart <= MAX_TAG_LENGTH &&
+      (j >= n || /\s/.test(content[j]) || TAG_TERMINATORS.has(content[j]))
+    ) {
       out.push({ start: i, end: j, name: content.slice(nameStart, j) });
     }
     // No `#` lives inside a name run, and the `#` at `i` is handled, so resuming

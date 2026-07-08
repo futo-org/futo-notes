@@ -14,7 +14,14 @@ import {
   exists as fsExists,
   stat,
 } from '@tauri-apps/plugin-fs';
-import type { DirFileEntry, FileChangeEvent, PlatformFS, NoteFile, FolderEntry, NotePreviewMeta } from './types';
+import type {
+  DirFileEntry,
+  FileChangeEvent,
+  PlatformFS,
+  NoteFile,
+  FolderEntry,
+  NotePreviewMeta,
+} from './types';
 import { noteParentDir, safeAppdataPath } from './pathSafety';
 import { writeAtomicText } from './atomicWrite';
 import type { AtomicWriteFS } from './atomicWrite';
@@ -28,7 +35,6 @@ import {
   saveNotesDirOverride,
   ensureDir,
 } from './tauriPaths';
-
 
 export interface PersistedTab {
   id: string;
@@ -221,9 +227,10 @@ export const tauriFS: PlatformFS = {
     // used to be 1 + 2N round-trips (readDir + N stat) into one — on iOS
     // with 2000 notes this drops startup wall time by ~1s per call. Size
     // is used by sync to skip unchanged files without reading them.
-    const entries = await invoke<Array<{ name: string; mtimeMs: number; sizeBytes: number }>>(
-      'fs_list_notes_with_meta',
-    );
+    const entries =
+      await invoke<Array<{ name: string; mtimeMs: number; sizeBytes: number }>>(
+        'fs_list_notes_with_meta',
+      );
     return entries.map((e) => ({ name: e.name, mtime: e.mtimeMs, size: e.sizeBytes }));
   },
 
@@ -234,7 +241,14 @@ export const tauriFS: PlatformFS = {
     // getPlatformFS() await is needed in front — eliminating the iOS
     // cold-sandbox plugin-fs hang class on the note path.
     const metas = await invoke<
-      Array<{ id: string; title: string; folder: string; modifiedMs: number; preview: string; tags: string[] }>
+      Array<{
+        id: string;
+        title: string;
+        folder: string;
+        modifiedMs: number;
+        preview: string;
+        tags: string[];
+      }>
     >('notes_scan');
     // NoteMeta → NotePreview shim: drop `folder`, rename `modifiedMs`.
     return metas.map((m) => ({
@@ -293,9 +307,7 @@ export const tauriFS: PlatformFS = {
     const root = await getNotesRoot();
     const entries = await readDir(root);
     await Promise.all(
-      entries
-        .filter((e) => e.name)
-        .map((e) => remove(`${root}/${e.name}`, { recursive: true })),
+      entries.filter((e) => e.name).map((e) => remove(`${root}/${e.name}`, { recursive: true })),
     );
   },
 
@@ -485,7 +497,6 @@ export const tauriFS: PlatformFS = {
   async deleteNoteToTrash(id: string): Promise<void> {
     await invoke('notes_delete_to_trash', { id });
   },
-
 };
 
 export function onFileChange(callback: (event: FileChangeEvent) => void): () => void {
@@ -535,7 +546,9 @@ export function onMenuAction(callback: (action: string) => void): () => void {
 
 const APP_CONFIG_PATH = '.app-config.json';
 
-async function loadAppConfigFile(options: { fallbackOnReadError?: boolean } = {}): Promise<AppConfigFile> {
+async function loadAppConfigFile(
+  options: { fallbackOnReadError?: boolean } = {},
+): Promise<AppConfigFile> {
   const fallbackOnReadError = options.fallbackOnReadError ?? true;
   let raw: string | null;
   try {

@@ -86,7 +86,12 @@ export function createWatcherBatch(options: WatcherBatchOptions): WatcherBatch {
     }
 
     // Rename detection: hold unlink events briefly
-    if (event.type === 'unlink' && event.filename.endsWith('.md') && getFileHash && computeFileHash) {
+    if (
+      event.type === 'unlink' &&
+      event.filename.endsWith('.md') &&
+      getFileHash &&
+      computeFileHash
+    ) {
       const hash = getFileHash(event.filename);
       if (hash) {
         const timer = window.setTimeout(() => {
@@ -100,7 +105,12 @@ export function createWatcherBatch(options: WatcherBatchOptions): WatcherBatch {
     }
 
     // Rename detection: check add events against pending deletes
-    if (event.type === 'add' && event.filename.endsWith('.md') && computeFileHash && pendingDeletes.size > 0) {
+    if (
+      event.type === 'add' &&
+      event.filename.endsWith('.md') &&
+      computeFileHash &&
+      pendingDeletes.size > 0
+    ) {
       // Check asynchronously, then enqueue both events together
       void (async () => {
         const newHash = await computeFileHash(event.filename);
@@ -168,8 +178,9 @@ export function createWatcherBatch(options: WatcherBatchOptions): WatcherBatch {
       // Filter out events caused by our own sync writes AND local writes that
       // were pending when sync started (their isRecentWrite TTL may have expired
       // during the sync round-trip, but they're still our own writes).
-      const unhandled = pendingWatcherEvents.filter(ev =>
-        !suppressor.isRecentSyncWrite(ev.filename) && !suppressor.isPreSyncWrite(ev.filename),
+      const unhandled = pendingWatcherEvents.filter(
+        (ev) =>
+          !suppressor.isRecentSyncWrite(ev.filename) && !suppressor.isPreSyncWrite(ev.filename),
       );
       pendingWatcherEvents = [];
       suppressor.clearPreSyncWrites();

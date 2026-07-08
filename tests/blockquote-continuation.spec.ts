@@ -54,7 +54,6 @@ async function getCursorOffset(page: Page): Promise<number> {
 }
 
 test.describe('Blockquote Continuation', () => {
-
   // ===== LEVEL 1 CONTINUATION =====
 
   test('Enter after level-1 quote continues with "> " (with space)', async ({ page }) => {
@@ -87,7 +86,9 @@ test.describe('Blockquote Continuation', () => {
 
   // ===== LEVEL 2 CONTINUATION =====
 
-  test('Enter after level-2 quote continues with "> > " (spaces at every level)', async ({ page }) => {
+  test('Enter after level-2 quote continues with "> > " (spaces at every level)', async ({
+    page,
+  }) => {
     await openNewNote(page);
     await typeInEditor(page, '>> hello');
     await page.keyboard.press('Enter');

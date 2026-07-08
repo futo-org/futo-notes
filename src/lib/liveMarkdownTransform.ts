@@ -5,7 +5,7 @@ import {
   Decoration,
   DecorationSet,
   WidgetType,
-  ViewUpdate
+  ViewUpdate,
 } from '@codemirror/view';
 import { StateEffect, type Text } from '@codemirror/state';
 import { syntaxTree, ensureSyntaxTree } from '@codemirror/language';
@@ -28,17 +28,16 @@ export function isMarkdownSelectionRevealSuppressed(): boolean {
   return suppressSelectionReveal;
 }
 
-let frozenSelectionReveal:
-  | { hasFocus: boolean; ranges: readonly SelectionRangeLike[] }
-  | null = null;
+let frozenSelectionReveal: { hasFocus: boolean; ranges: readonly SelectionRangeLike[] } | null =
+  null;
 
 export function freezeSelectionReveal(
   hasFocus: boolean,
-  ranges: readonly SelectionRangeLike[]
+  ranges: readonly SelectionRangeLike[],
 ): void {
   frozenSelectionReveal = {
     hasFocus,
-    ranges: ranges.map(({ from, to }) => ({ from, to }))
+    ranges: ranges.map(({ from, to }) => ({ from, to })),
   };
 }
 
@@ -120,12 +119,32 @@ class ExternalLinkWidget extends WidgetType {
 // "python" → "Python"). Falls back to ASCII titlecase for unknown
 // languages so diff coverage is still close to identical.
 const CODE_LANG_LABELS: Record<string, string> = {
-  javascript: 'JavaScript', typescript: 'TypeScript', tsx: 'TypeScript JSX',
-  jsx: 'JavaScript JSX', python: 'Python', ruby: 'Ruby', rust: 'Rust',
-  go: 'Go', java: 'Java', kotlin: 'Kotlin', swift: 'Swift', c: 'C',
-  cpp: 'C++', csharp: 'C#', html: 'HTML', css: 'CSS', json: 'JSON',
-  yaml: 'YAML', xml: 'XML', sql: 'SQL', bash: 'Bash', sh: 'Bash',
-  zsh: 'Zsh', shell: 'Shell', md: 'Markdown', markdown: 'Markdown',
+  javascript: 'JavaScript',
+  typescript: 'TypeScript',
+  tsx: 'TypeScript JSX',
+  jsx: 'JavaScript JSX',
+  python: 'Python',
+  ruby: 'Ruby',
+  rust: 'Rust',
+  go: 'Go',
+  java: 'Java',
+  kotlin: 'Kotlin',
+  swift: 'Swift',
+  c: 'C',
+  cpp: 'C++',
+  csharp: 'C#',
+  html: 'HTML',
+  css: 'CSS',
+  json: 'JSON',
+  yaml: 'YAML',
+  xml: 'XML',
+  sql: 'SQL',
+  bash: 'Bash',
+  sh: 'Bash',
+  zsh: 'Zsh',
+  shell: 'Shell',
+  md: 'Markdown',
+  markdown: 'Markdown',
 };
 
 function formatCodeLang(slug: string): string {
@@ -234,7 +253,10 @@ class TaskCheckboxWidget extends WidgetType {
       if (!match || match.index === undefined) return;
       const charPos = line.from + match.index + 1;
       const newChar = match[1] === ' ' ? 'x' : ' ';
-      view.dispatch({ changes: { from: charPos, to: charPos + 1, insert: newChar }, selection: view.state.selection });
+      view.dispatch({
+        changes: { from: charPos, to: charPos + 1, insert: newChar },
+        selection: view.state.selection,
+      });
       // If editor wasn't focused before, don't let the dispatch steal focus
       if (!hadFocus) {
         view.contentDOM.blur();
@@ -338,7 +360,7 @@ const IMAGE_REGEX = /!\[[^\]]*\]\(([^\s)]+)(?:\s+"[^"]*")?\)/g;
 export function preloadImages(
   markdownText: string,
   getImageWebPath?: (filename: string) => Promise<string>,
-  getView?: () => EditorView | null
+  getView?: () => EditorView | null,
 ): void {
   // Fast-path: skip regex scan entirely if there's no image syntax
   if (!markdownText.includes('![')) return;
@@ -350,15 +372,19 @@ export function preloadImages(
     // For local filenames, resolve to web URL first
     if (!isRemoteSrc(src)) {
       if (!localImageUrlCache.has(src) && getImageWebPath) {
-        getImageWebPath(src).then(webUrl => {
-          setLocalImageUrl(src, webUrl);
-          // Now preload the resolved URL for dimension caching
-          preloadSingleImage(webUrl);
-          const v = getView?.();
-          if (v) {
-            v.dispatch({ effects: imageCacheUpdated.of(null) });
-          }
-        }).catch(() => { /* file missing — ignore */ });
+        getImageWebPath(src)
+          .then((webUrl) => {
+            setLocalImageUrl(src, webUrl);
+            // Now preload the resolved URL for dimension caching
+            preloadSingleImage(webUrl);
+            const v = getView?.();
+            if (v) {
+              v.dispatch({ effects: imageCacheUpdated.of(null) });
+            }
+          })
+          .catch(() => {
+            /* file missing — ignore */
+          });
       } else if (localImageUrlCache.has(src)) {
         preloadSingleImage(localImageUrlCache.get(src)!);
       } else if (localImageBaseUrl) {
@@ -391,7 +417,11 @@ function preloadSingleImage(url: string): void {
 class ImageWidget extends WidgetType {
   private resolvedAtConstruction: string;
 
-  constructor(private alt: string, private src: string, private endPos: number) {
+  constructor(
+    private alt: string,
+    private src: string,
+    private endPos: number,
+  ) {
     super();
     this.resolvedAtConstruction = resolveImageSrc(src);
   }
@@ -453,9 +483,11 @@ class ImageWidget extends WidgetType {
   }
 
   eq(other: any): boolean {
-    return other instanceof ImageWidget &&
+    return (
+      other instanceof ImageWidget &&
       other.src === this.src &&
-      other.resolvedAtConstruction === this.resolvedAtConstruction;
+      other.resolvedAtConstruction === this.resolvedAtConstruction
+    );
   }
 
   ignoreEvent(): boolean {
@@ -491,7 +523,10 @@ class BulletWidget extends WidgetType {
 }
 
 class NumberWidget extends WidgetType {
-  constructor(private num: number, private indent: number = 0) {
+  constructor(
+    private num: number,
+    private indent: number = 0,
+  ) {
     super();
   }
 
@@ -514,7 +549,7 @@ class NumberWidget extends WidgetType {
 }
 
 // List indent constants (pixels)
-const INDENT_STEP = 24;   // extra indent per nesting level
+const INDENT_STEP = 24; // extra indent per nesting level
 
 /**
  * Inline style for a list line. Wrapped list lines are NOT hanging-indented
@@ -544,7 +579,7 @@ interface LineNumberLookup {
 export function getCursorLinesForReveal(
   hasFocus: boolean,
   ranges: readonly SelectionRangeLike[],
-  doc: LineNumberLookup
+  doc: LineNumberLookup,
 ): Set<number> {
   const lines = new Set<number>();
   if (!hasFocus) return lines;
@@ -573,7 +608,7 @@ export function isInlineRevealSensitive(nodeName: string): boolean {
 // selectionWithinMarkerRange (half-open) can't drift on the gate logic.
 function effectiveRevealRanges(
   hasFocus: boolean,
-  ranges: readonly SelectionRangeLike[]
+  ranges: readonly SelectionRangeLike[],
 ): readonly SelectionRangeLike[] | null {
   if (frozenSelectionReveal) {
     return frozenSelectionReveal.hasFocus ? frozenSelectionReveal.ranges : null;
@@ -587,7 +622,7 @@ export function selectionTouchesRange(
   hasFocus: boolean,
   ranges: readonly SelectionRangeLike[],
   from: number,
-  to: number
+  to: number,
 ): boolean {
   const eff = effectiveRevealRanges(hasFocus, ranges);
   return eff !== null && selectionIntersectsRange(eff, from, to);
@@ -596,7 +631,7 @@ export function selectionTouchesRange(
 export function selectionIntersectsRange(
   ranges: readonly SelectionRangeLike[],
   from: number,
-  to: number
+  to: number,
 ): boolean {
   for (const range of ranges) {
     if (range.from === range.to) {
@@ -621,7 +656,7 @@ export function selectionWithinMarkerRange(
   hasFocus: boolean,
   ranges: readonly SelectionRangeLike[],
   markerStart: number,
-  contentStart: number
+  contentStart: number,
 ): boolean {
   const eff = effectiveRevealRanges(hasFocus, ranges);
   return eff !== null && rangesIntersectHalfOpen(eff, markerStart, contentStart);
@@ -630,7 +665,7 @@ export function selectionWithinMarkerRange(
 function rangesIntersectHalfOpen(
   ranges: readonly SelectionRangeLike[],
   start: number,
-  end: number
+  end: number,
 ): boolean {
   for (const range of ranges) {
     if (range.from === range.to) {
@@ -646,37 +681,33 @@ export function shouldRevealMarkdownSyntax(
   hasFocus: boolean,
   ranges: readonly SelectionRangeLike[],
   from: number,
-  to: number
+  to: number,
 ): boolean {
   return selectionTouchesRange(hasFocus, ranges, from, to);
 }
 
-export function shouldRevealInlineMarkers(
-  view: EditorView,
-  from: number,
-  to: number
-): boolean {
+export function shouldRevealInlineMarkers(view: EditorView, from: number, to: number): boolean {
   return selectionTouchesRange(view.hasFocus, view.state.selection.ranges, from, to);
 }
 
 export function shouldSkipBlockDecorations(
   nodeName: string,
   line: number,
-  cursorLines: Set<number>
+  cursorLines: Set<number>,
 ): boolean;
 export function shouldSkipBlockDecorations(
   nodeName: string,
   from: number,
   to: number,
   hasFocus: boolean,
-  ranges: readonly SelectionRangeLike[]
+  ranges: readonly SelectionRangeLike[],
 ): boolean;
 export function shouldSkipBlockDecorations(
   nodeName: string,
   fromOrLine: number,
   toOrCursorLines: number | Set<number>,
   hasFocus?: boolean,
-  ranges?: readonly SelectionRangeLike[]
+  ranges?: readonly SelectionRangeLike[],
 ): boolean {
   if (!isBlockRevealSensitive(nodeName)) return false;
 
@@ -694,15 +725,12 @@ export function shouldSkipInlineDecorations(
   from: number,
   to: number,
   hasFocus: boolean,
-  ranges: readonly SelectionRangeLike[]
+  ranges: readonly SelectionRangeLike[],
 ): boolean {
   return isInlineRevealSensitive(nodeName) && selectionTouchesRange(hasFocus, ranges, from, to);
 }
 
-export function shouldHideHeaderTagBlock(
-  blockLastLine: number,
-  cursorLines: Set<number>
-): boolean {
+export function shouldHideHeaderTagBlock(blockLastLine: number, cursorLines: Set<number>): boolean {
   for (let line = 1; line <= blockLastLine; line += 1) {
     if (cursorLines.has(line)) return false;
   }
@@ -808,8 +836,7 @@ class LiveMarkdownPlugin implements PluginValue {
         // the full rebuild on composition-end recreates a valid one.
         const doc = update.state.doc;
         this.decorations = this.decorations.update({
-          filter: (from, to, value) =>
-            !value.point || from === to || to <= doc.lineAt(from).to,
+          filter: (from, to, value) => !value.point || from === to || to <= doc.lineAt(from).to,
         });
       }
       return;
@@ -826,11 +853,11 @@ class LiveMarkdownPlugin implements PluginValue {
 
     const tree = syntaxTree(update.state);
     const treeGrew = tree.length > this.lastTreeLength;
-    const imageCacheChanged = update.transactions.some(
-      (tr) => tr.effects.some((e) => e.is(imageCacheUpdated))
+    const imageCacheChanged = update.transactions.some((tr) =>
+      tr.effects.some((e) => e.is(imageCacheUpdated)),
     );
-    const refreshRequested = update.transactions.some(
-      (tr) => tr.effects.some((e) => e.is(liveMarkdownRefresh))
+    const refreshRequested = update.transactions.some((tr) =>
+      tr.effects.some((e) => e.is(liveMarkdownRefresh)),
     );
 
     if (treeGrew) {
@@ -853,7 +880,8 @@ class LiveMarkdownPlugin implements PluginValue {
       this.lastCursorPos = curPos;
     }
 
-    const shouldRebuild = update.docChanged ||
+    const shouldRebuild =
+      update.docChanged ||
       cursorLineChanged ||
       selectionMovedWithinLine ||
       update.focusChanged ||
@@ -919,7 +947,8 @@ class LiveMarkdownPlugin implements PluginValue {
         // Skip if selection/caret reveals this block element. The shared
         // predicate handles active mouse-drag suppression and works by source
         // range intersection, so forward/backward selections behave the same.
-        const blockSyntaxRevealed = this.isBlockElement(nodeName) &&
+        const blockSyntaxRevealed =
+          this.isBlockElement(nodeName) &&
           shouldSkipBlockDecorations(nodeName, from, to, view.hasFocus, selectionRanges);
 
         if (blockSyntaxRevealed && !MarkdownParser.isHeading(nodeName)) {
@@ -938,7 +967,7 @@ class LiveMarkdownPlugin implements PluginValue {
 
         // Process element
         this.processElement(nodeName, from, to, view, decorations);
-      }
+      },
     });
 
     // Process wikilinks (not part of markdown syntax tree)
@@ -972,24 +1001,25 @@ class LiveMarkdownPlugin implements PluginValue {
         // reload this module and produce two parallel class identities,
         // which breaks `instanceof` while leaving the name intact.
         const wname = w?.constructor?.name ?? '';
-        const wrapInsideMark = (
+        const wrapInsideMark =
           wname === 'BulletWidget' ||
           wname === 'NumberWidget' ||
           wname === 'TaskCheckboxWidget' ||
           wname === 'HorizontalRuleWidget' ||
           wname === 'ImageWidget' ||
           wname === 'CodeLanguageLabelWidget' ||
-          wname === 'ExternalLinkWidget'
-        );
+          wname === 'ExternalLinkWidget';
         if (!wrapInsideMark) {
           replaceRanges.push({ from: d.from, to: d.to });
         }
       }
     }
     replaceRanges.sort((a, b) => a.from - b.from);
-    const clipMark = (
-      d: { from: number; to: number; value: any },
-    ): Array<{ from: number; to: number; value: any }> => {
+    const clipMark = (d: {
+      from: number;
+      to: number;
+      value: any;
+    }): Array<{ from: number; to: number; value: any }> => {
       let pieces: Array<{ from: number; to: number }> = [{ from: d.from, to: d.to }];
       for (const r of replaceRanges) {
         if (r.to <= d.from || r.from >= d.to) continue;
@@ -1053,7 +1083,9 @@ class LiveMarkdownPlugin implements PluginValue {
     if (headerEndOffset > 0) {
       const doc = view.state.doc;
       if (!shouldRevealMarkdownSyntax(view.hasFocus, selectionRanges, 0, headerEndOffset)) {
-        const blockLastLine = doc.lineAt(Math.max(0, Math.min(headerEndOffset - 1, doc.length))).number;
+        const blockLastLine = doc.lineAt(
+          Math.max(0, Math.min(headerEndOffset - 1, doc.length)),
+        ).number;
         for (let l = 1; l <= blockLastLine; l++) {
           const line = doc.line(l);
           ranges.push(Decoration.line({ class: 'cm-header-tag-hidden' }).range(line.from));
@@ -1108,7 +1140,7 @@ class LiveMarkdownPlugin implements PluginValue {
     from: number,
     to: number,
     view: EditorView,
-    decorations: Array<{ from: number; to: number; value: any }>
+    decorations: Array<{ from: number; to: number; value: any }>,
   ): void {
     const doc = view.state.doc;
     const text = doc.sliceString(from, to);
@@ -1140,7 +1172,7 @@ class LiveMarkdownPlugin implements PluginValue {
     to: number,
     text: string,
     view: EditorView,
-    decorations: Array<{ from: number; to: number; value: any }>
+    decorations: Array<{ from: number; to: number; value: any }>,
   ): void {
     const level = MarkdownParser.getHeadingLevel(nodeName);
     const markerMatch = text.match(/^#+/);
@@ -1149,19 +1181,24 @@ class LiveMarkdownPlugin implements PluginValue {
       const markerLength = markerMatch[0].length;
       const hasSpace = text[markerLength] === ' ';
       const markerEnd = from + markerLength + (hasSpace ? 1 : 0);
-      const revealMarkers = shouldRevealMarkdownSyntax(view.hasFocus, view.state.selection.ranges, from, to);
+      const revealMarkers = shouldRevealMarkdownSyntax(
+        view.hasFocus,
+        view.state.selection.ranges,
+        from,
+        to,
+      );
 
       if (!revealMarkers) {
         decorations.push({
           from,
           to: markerEnd,
-          value: { replace: true }
+          value: { replace: true },
         });
       } else {
         decorations.push({
           from,
           to: markerEnd,
-          value: { class: `cm-md-inline-marker cm-md-h${level}-marker` }
+          value: { class: `cm-md-inline-marker cm-md-h${level}-marker` },
         });
         // Match Obsidian: revealed `#` markers also carry the heading
         // text class so the styling continues across them (Obsidian's
@@ -1169,7 +1206,7 @@ class LiveMarkdownPlugin implements PluginValue {
         decorations.push({
           from,
           to: markerEnd,
-          value: { class: `cm-md-h${level}` }
+          value: { class: `cm-md-h${level}` },
         });
       }
 
@@ -1179,8 +1216,8 @@ class LiveMarkdownPlugin implements PluginValue {
         to: to,
         value: {
           class: `cm-md-h${level}`,
-          attributes: { 'data-heading-level': level.toString() }
-        }
+          attributes: { 'data-heading-level': level.toString() },
+        },
       });
 
       // Line-level decoration so the WHOLE line (not just the inner
@@ -1197,7 +1234,7 @@ class LiveMarkdownPlugin implements PluginValue {
           class: `cm-md-h${level}-line`,
           startSide: 0,
           endSide: 0,
-        }
+        },
       });
     }
   }
@@ -1208,7 +1245,7 @@ class LiveMarkdownPlugin implements PluginValue {
     to: number,
     text: string,
     view: EditorView,
-    decorations: Array<{ from: number; to: number; value: any }>
+    decorations: Array<{ from: number; to: number; value: any }>,
   ): void {
     const isStrong = nodeName === 'StrongEmphasis';
     const cssClass = isStrong ? 'cm-md-strong' : 'cm-md-emphasis';
@@ -1222,13 +1259,13 @@ class LiveMarkdownPlugin implements PluginValue {
         decorations.push({
           from,
           to: from + markerLength,
-          value: { replace: true }
+          value: { replace: true },
         });
 
         decorations.push({
           from: to - markerLength,
           to,
-          value: { replace: true }
+          value: { replace: true },
         });
       } else {
         // Dim the revealed markers so the emphasized text stands out.
@@ -1238,12 +1275,12 @@ class LiveMarkdownPlugin implements PluginValue {
         decorations.push({
           from,
           to: from + markerLength,
-          value: { class: markerClass }
+          value: { class: markerClass },
         });
         decorations.push({
           from: to - markerLength,
           to,
-          value: { class: markerClass }
+          value: { class: markerClass },
         });
         // Match Obsidian: when revealed, the marker spans also carry
         // the emphasis text class so the styling continues visually
@@ -1252,12 +1289,12 @@ class LiveMarkdownPlugin implements PluginValue {
         decorations.push({
           from,
           to: from + markerLength,
-          value: { class: cssClass }
+          value: { class: cssClass },
         });
         decorations.push({
           from: to - markerLength,
           to,
-          value: { class: cssClass }
+          value: { class: cssClass },
         });
       }
 
@@ -1268,7 +1305,7 @@ class LiveMarkdownPlugin implements PluginValue {
       decorations.push({
         from: from + markerLength,
         to: to - markerLength,
-        value: { class: cssClass }
+        value: { class: cssClass },
       });
     }
   }
@@ -1279,7 +1316,7 @@ class LiveMarkdownPlugin implements PluginValue {
     to: number,
     text: string,
     view: EditorView,
-    decorations: Array<{ from: number; to: number; value: any }>
+    decorations: Array<{ from: number; to: number; value: any }>,
   ): void {
     if (nodeName === 'InlineCode') {
       const backticks = text.match(/^`+/)?.[0].length ?? 1;
@@ -1289,31 +1326,31 @@ class LiveMarkdownPlugin implements PluginValue {
         decorations.push({
           from,
           to: from + backticks,
-          value: { replace: true }
+          value: { replace: true },
         });
 
         decorations.push({
           from: to - backticks,
           to,
-          value: { replace: true }
+          value: { replace: true },
         });
       } else {
         decorations.push({
           from,
           to: from + backticks,
-          value: { class: 'cm-md-inline-marker cm-md-code-marker' }
+          value: { class: 'cm-md-inline-marker cm-md-code-marker' },
         });
         decorations.push({
           from: to - backticks,
           to,
-          value: { class: 'cm-md-inline-marker cm-md-code-marker' }
+          value: { class: 'cm-md-inline-marker cm-md-code-marker' },
         });
       }
 
       decorations.push({
         from: from + backticks,
         to: to - backticks,
-        value: { class: 'cm-md-code' }
+        value: { class: 'cm-md-code' },
       });
     } else {
       // FencedCode or CodeBlock — every line in the block gets the styled
@@ -1321,20 +1358,24 @@ class LiveMarkdownPlugin implements PluginValue {
       const doc = view.state.doc;
       const startLine = doc.lineAt(from);
       const endLine = doc.lineAt(to);
-      const hasClosingFence = endLine.number !== startLine.number && /^\s*(`{3,}|~{3,})\s*$/.test(endLine.text);
+      const hasClosingFence =
+        endLine.number !== startLine.number && /^\s*(`{3,}|~{3,})\s*$/.test(endLine.text);
       const contentStartLine = nodeName === 'FencedCode' ? startLine.number + 1 : startLine.number;
-      const contentEndLine = nodeName === 'FencedCode' && hasClosingFence ? endLine.number - 1 : endLine.number;
+      const contentEndLine =
+        nodeName === 'FencedCode' && hasClosingFence ? endLine.number - 1 : endLine.number;
       const contentLineCount = Math.max(0, contentEndLine - contentStartLine + 1);
       const cursorInBlock = selectionTouchesRange(
         view.hasFocus,
         view.state.selection.ranges,
         from,
-        to
+        to,
       );
 
       for (let lineNum = startLine.number; lineNum <= endLine.number; lineNum++) {
         const line = doc.line(lineNum);
-        const openingMatch = lineNum === startLine.number && line.text.match(/^\s*(`{3,}|~{3,})\s*([A-Za-z0-9_+-]*)\s*$/);
+        const openingMatch =
+          lineNum === startLine.number &&
+          line.text.match(/^\s*(`{3,}|~{3,})\s*([A-Za-z0-9_+-]*)\s*$/);
         const isOpening = !!openingMatch;
         const isClosing = lineNum === endLine.number && hasClosingFence;
 
@@ -1346,13 +1387,13 @@ class LiveMarkdownPlugin implements PluginValue {
             decorations.push({
               from: line.from,
               to: line.to,
-              value: { widget: new CodeLanguageLabelWidget(formatCodeLang(openingMatch[2])) }
+              value: { widget: new CodeLanguageLabelWidget(formatCodeLang(openingMatch[2])) },
             });
           } else {
             decorations.push({
               from: line.from,
               to: line.to,
-              value: { replace: true }
+              value: { replace: true },
             });
           }
         }
@@ -1375,7 +1416,7 @@ class LiveMarkdownPlugin implements PluginValue {
         decorations.push({
           from: line.from,
           to: line.from,
-          value: { class: posClass, startSide: 0, endSide: 0 }
+          value: { class: posClass, startSide: 0, endSide: 0 },
         });
       }
     }
@@ -1385,7 +1426,7 @@ class LiveMarkdownPlugin implements PluginValue {
     from: number,
     to: number,
     view: EditorView,
-    decorations: Array<{ from: number; to: number; value: any }>
+    decorations: Array<{ from: number; to: number; value: any }>,
   ): void {
     const revealMarkers = shouldRevealInlineMarkers(view, from, to);
 
@@ -1395,36 +1436,36 @@ class LiveMarkdownPlugin implements PluginValue {
       decorations.push({
         from,
         to: from + 2,
-        value: { replace: true }
+        value: { replace: true },
       });
 
       decorations.push({
         from: to - 2,
         to,
-        value: { replace: true }
+        value: { replace: true },
       });
     } else {
       decorations.push({
         from,
         to: from + 2,
-        value: { class: 'cm-md-inline-marker cm-md-strikethrough-marker' }
+        value: { class: 'cm-md-inline-marker cm-md-strikethrough-marker' },
       });
       decorations.push({
         from: to - 2,
         to,
-        value: { class: 'cm-md-inline-marker cm-md-strikethrough-marker' }
+        value: { class: 'cm-md-inline-marker cm-md-strikethrough-marker' },
       });
       // Match Obsidian: revealed `~~` markers also carry the
       // strikethrough text class so the styling spans them.
       decorations.push({
         from,
         to: from + 2,
-        value: { class: 'cm-md-strikethrough' }
+        value: { class: 'cm-md-strikethrough' },
       });
       decorations.push({
         from: to - 2,
         to,
-        value: { class: 'cm-md-strikethrough' }
+        value: { class: 'cm-md-strikethrough' },
       });
     }
 
@@ -1433,7 +1474,7 @@ class LiveMarkdownPlugin implements PluginValue {
     decorations.push({
       from: from + 2,
       to: to - 2,
-      value: { class: 'cm-md-strikethrough' }
+      value: { class: 'cm-md-strikethrough' },
     });
   }
 
@@ -1442,7 +1483,7 @@ class LiveMarkdownPlugin implements PluginValue {
     to: number,
     text: string,
     view: EditorView,
-    decorations: Array<{ from: number; to: number; value: any }>
+    decorations: Array<{ from: number; to: number; value: any }>,
   ): void {
     // Find the ]( boundary. Can't use a simple regex because URLs may
     // contain parentheses (e.g., Wikipedia links, Colab notebooks).
@@ -1453,7 +1494,7 @@ class LiveMarkdownPlugin implements PluginValue {
     const textStart = from + 1;
     const textEnd = from + closeBracket;
     const urlStart = textEnd + 2; // after ](
-    const urlEnd = to - 1;        // before )
+    const urlEnd = to - 1; // before )
     const reveal = shouldRevealInlineMarkers(view, from, to);
 
     if (!reveal) {
@@ -1461,17 +1502,17 @@ class LiveMarkdownPlugin implements PluginValue {
       decorations.push({
         from,
         to: from + 1,
-        value: { replace: true }
+        value: { replace: true },
       });
       decorations.push({
         from: textEnd,
         to,
-        value: { replace: true }
+        value: { replace: true },
       });
       decorations.push({
         from: textStart,
         to: textEnd,
-        value: { class: 'cm-md-link' }
+        value: { class: 'cm-md-link' },
       });
     } else {
       // Cursor on the link → keep the source visible but style it like
@@ -1483,34 +1524,34 @@ class LiveMarkdownPlugin implements PluginValue {
       decorations.push({
         from,
         to: from + 1,
-        value: { class: 'cm-md-inline-marker cm-md-link-marker cm-md-link' }
+        value: { class: 'cm-md-inline-marker cm-md-link-marker cm-md-link' },
       });
       decorations.push({
         from: textStart,
         to: textEnd,
-        value: { class: 'cm-md-link' }
+        value: { class: 'cm-md-link' },
       });
       decorations.push({
         from: textEnd,
         to: textEnd + 1,
-        value: { class: 'cm-md-inline-marker cm-md-link-marker cm-md-link' }
+        value: { class: 'cm-md-inline-marker cm-md-link-marker cm-md-link' },
       });
       decorations.push({
         from: textEnd + 1,
         to: urlStart,
-        value: { class: 'cm-md-link-url' }
+        value: { class: 'cm-md-link-url' },
       });
       if (urlStart < urlEnd) {
         decorations.push({
           from: urlStart,
           to: urlEnd,
-          value: { class: 'cm-md-link-url' }
+          value: { class: 'cm-md-link-url' },
         });
       }
       decorations.push({
         from: urlEnd,
         to,
-        value: { class: 'cm-md-link-url' }
+        value: { class: 'cm-md-link-url' },
       });
     }
 
@@ -1529,9 +1570,12 @@ class LiveMarkdownPlugin implements PluginValue {
       const tree = syntaxTree(view.state);
       const cursor = tree.cursorAt(to);
       do {
-        if (cursor.name === 'StrongEmphasis' && cursor.from < to && cursor.to > to) enclosingClasses.push('cm-md-strong');
-        else if (cursor.name === 'Emphasis' && cursor.from < to && cursor.to > to) enclosingClasses.push('cm-md-emphasis');
-        else if (cursor.name === 'Strikethrough' && cursor.from < to && cursor.to > to) enclosingClasses.push('cm-md-strikethrough');
+        if (cursor.name === 'StrongEmphasis' && cursor.from < to && cursor.to > to)
+          enclosingClasses.push('cm-md-strong');
+        else if (cursor.name === 'Emphasis' && cursor.from < to && cursor.to > to)
+          enclosingClasses.push('cm-md-emphasis');
+        else if (cursor.name === 'Strikethrough' && cursor.from < to && cursor.to > to)
+          enclosingClasses.push('cm-md-strikethrough');
       } while (cursor.parent());
 
       decorations.push({
@@ -1540,7 +1584,7 @@ class LiveMarkdownPlugin implements PluginValue {
         value: {
           widget: new ExternalLinkWidget(enclosingClasses.join(' ')),
           side: 1,
-        }
+        },
       });
     }
   }
@@ -1549,7 +1593,7 @@ class LiveMarkdownPlugin implements PluginValue {
     from: number,
     to: number,
     text: string,
-    decorations: Array<{ from: number; to: number; value: any }>
+    decorations: Array<{ from: number; to: number; value: any }>,
   ): void {
     // Parse ![alt](url) using indexOf, not regex, because URLs may contain parens.
     if (!text.startsWith('![')) return;
@@ -1566,7 +1610,7 @@ class LiveMarkdownPlugin implements PluginValue {
     decorations.push({
       from,
       to,
-      value: { widget: new ImageWidget(alt, url, to) }
+      value: { widget: new ImageWidget(alt, url, to) },
     });
   }
 
@@ -1574,7 +1618,7 @@ class LiveMarkdownPlugin implements PluginValue {
     from: number,
     to: number,
     view: EditorView,
-    decorations: Array<{ from: number; to: number; value: any }>
+    decorations: Array<{ from: number; to: number; value: any }>,
   ): void {
     const doc = view.state.doc;
     const startLine = doc.lineAt(from).number;
@@ -1611,13 +1655,22 @@ class LiveMarkdownPlugin implements PluginValue {
       }
 
       if (nestLevel > 0) {
-        const revealMarker = shouldRevealMarkdownSyntax(view.hasFocus, selectionRanges, line.from, line.to);
+        const revealMarker = shouldRevealMarkdownSyntax(
+          view.hasFocus,
+          selectionRanges,
+          line.from,
+          line.to,
+        );
         for (const seg of segments) {
           if (seg.from === seg.to) continue;
           decorations.push({
             from: seg.from,
             to: seg.to,
-            value: { class: revealMarker ? `cm-md-quote-marker cm-md-quote-marker-${seg.level}` : `cm-md-quote-marker-hidden cm-md-quote-marker-${seg.level}` }
+            value: {
+              class: revealMarker
+                ? `cm-md-quote-marker cm-md-quote-marker-${seg.level}`
+                : `cm-md-quote-marker-hidden cm-md-quote-marker-${seg.level}`,
+            },
           });
         }
         // Match Obsidian: emit a mark decoration over the quote text body
@@ -1626,7 +1679,7 @@ class LiveMarkdownPlugin implements PluginValue {
           decorations.push({
             from: line.from + pos,
             to: line.to,
-            value: { class: `cm-md-quote-text cm-md-quote-text-${nestLevel}` }
+            value: { class: `cm-md-quote-text cm-md-quote-text-${nestLevel}` },
           });
         }
 
@@ -1655,7 +1708,7 @@ class LiveMarkdownPlugin implements PluginValue {
       decorations.push({
         from: line.from,
         to: line.from,
-        value: { class: posClass, startSide: 0, endSide: 0 }
+        value: { class: posClass, startSide: 0, endSide: 0 },
       });
     }
   }
@@ -1667,7 +1720,7 @@ class LiveMarkdownPlugin implements PluginValue {
   private processListItemIndentOnly(
     from: number,
     view: EditorView,
-    decorations: Array<{ from: number; to: number; value: any }>
+    decorations: Array<{ from: number; to: number; value: any }>,
   ): void {
     const doc = view.state.doc;
     const line = doc.lineAt(from);
@@ -1697,7 +1750,12 @@ class LiveMarkdownPlugin implements PluginValue {
     decorations.push({
       from: line.from,
       to: line.from,
-      value: { class: 'cm-md-list-line', attributes: { style: listLineStyle(indentLevel) }, startSide: 0, endSide: 0 }
+      value: {
+        class: 'cm-md-list-line',
+        attributes: { style: listLineStyle(indentLevel) },
+        startSide: 0,
+        endSide: 0,
+      },
     });
 
     // Match Obsidian: even when the cursor reveals a list line, the
@@ -1707,7 +1765,7 @@ class LiveMarkdownPlugin implements PluginValue {
       decorations.push({
         from,
         to: from + markerSourceLen,
-        value: { class: 'cm-md-bullet cm-md-list-marker' }
+        value: { class: 'cm-md-bullet cm-md-list-marker' },
       });
     }
   }
@@ -1717,7 +1775,7 @@ class LiveMarkdownPlugin implements PluginValue {
     _to: number,
     text: string,
     view: EditorView,
-    decorations: Array<{ from: number; to: number; value: any }>
+    decorations: Array<{ from: number; to: number; value: any }>,
   ): void {
     const doc = view.state.doc;
     const line = doc.lineAt(from);
@@ -1735,7 +1793,10 @@ class LiveMarkdownPlugin implements PluginValue {
       const fullMarkerLen = unorderedTaskMatch[0].length;
       const contentStart = from + fullMarkerLen;
       const revealed = selectionWithinMarkerRange(
-        view.hasFocus, view.state.selection.ranges, from, contentStart
+        view.hasFocus,
+        view.state.selection.ranges,
+        from,
+        contentStart,
       );
 
       if (revealed) {
@@ -1746,7 +1807,7 @@ class LiveMarkdownPlugin implements PluginValue {
         decorations.push({
           from,
           to: contentStart,
-          value: { class: 'cm-md-inline-marker' }
+          value: { class: 'cm-md-inline-marker' },
         });
       } else {
         // Hide bullet and checkbox syntax. `wrapInsideMark` flags this
@@ -1757,7 +1818,7 @@ class LiveMarkdownPlugin implements PluginValue {
         decorations.push({
           from,
           to: contentStart,
-          value: { replace: true, wrapInsideMark: true }
+          value: { replace: true, wrapInsideMark: true },
         });
 
         // Add checkbox widget
@@ -1767,8 +1828,8 @@ class LiveMarkdownPlugin implements PluginValue {
           to: from,
           value: {
             widget: checkbox,
-            side: -1
-          }
+            side: -1,
+          },
         });
       }
 
@@ -1777,7 +1838,7 @@ class LiveMarkdownPlugin implements PluginValue {
         decorations.push({
           from: contentStart,
           to: lineEnd,
-          value: { class: 'cm-md-task' }
+          value: { class: 'cm-md-task' },
         });
       }
 
@@ -1785,7 +1846,12 @@ class LiveMarkdownPlugin implements PluginValue {
       decorations.push({
         from: line.from,
         to: line.from,
-        value: { class: 'cm-md-list-line', attributes: { style: listLineStyle(indentLevel) }, startSide: 0, endSide: 0 }
+        value: {
+          class: 'cm-md-list-line',
+          attributes: { style: listLineStyle(indentLevel) },
+          startSide: 0,
+          endSide: 0,
+        },
       });
       return;
     }
@@ -1798,7 +1864,10 @@ class LiveMarkdownPlugin implements PluginValue {
       const fullMarkerLen = orderedTaskMatch[0].length;
       const contentStart = from + fullMarkerLen;
       const revealed = selectionWithinMarkerRange(
-        view.hasFocus, view.state.selection.ranges, from, contentStart
+        view.hasFocus,
+        view.state.selection.ranges,
+        from,
+        contentStart,
       );
 
       if (revealed) {
@@ -1806,7 +1875,7 @@ class LiveMarkdownPlugin implements PluginValue {
         decorations.push({
           from,
           to: contentStart,
-          value: { class: 'cm-md-inline-marker' }
+          value: { class: 'cm-md-inline-marker' },
         });
       } else {
         // Hide number, dot, and checkbox syntax — see wrapInsideMark
@@ -1814,7 +1883,7 @@ class LiveMarkdownPlugin implements PluginValue {
         decorations.push({
           from,
           to: contentStart,
-          value: { replace: true, wrapInsideMark: true }
+          value: { replace: true, wrapInsideMark: true },
         });
 
         // Add number widget
@@ -1823,8 +1892,8 @@ class LiveMarkdownPlugin implements PluginValue {
           to: from,
           value: {
             widget: new NumberWidget(num, indentLevel),
-            side: -1
-          }
+            side: -1,
+          },
         });
 
         // Add checkbox widget after number
@@ -1834,8 +1903,8 @@ class LiveMarkdownPlugin implements PluginValue {
           to: from,
           value: {
             widget: checkbox,
-            side: -1
-          }
+            side: -1,
+          },
         });
       }
 
@@ -1844,7 +1913,7 @@ class LiveMarkdownPlugin implements PluginValue {
         decorations.push({
           from: contentStart,
           to: lineEnd,
-          value: { class: 'cm-md-task' }
+          value: { class: 'cm-md-task' },
         });
       }
 
@@ -1852,7 +1921,12 @@ class LiveMarkdownPlugin implements PluginValue {
       decorations.push({
         from: line.from,
         to: line.from,
-        value: { class: 'cm-md-list-line', attributes: { style: listLineStyle(indentLevel) }, startSide: 0, endSide: 0 }
+        value: {
+          class: 'cm-md-list-line',
+          attributes: { style: listLineStyle(indentLevel) },
+          startSide: 0,
+          endSide: 0,
+        },
       });
       return;
     }
@@ -1863,7 +1937,10 @@ class LiveMarkdownPlugin implements PluginValue {
       const fullMarkerLen = bulletMatch[0].length;
       const contentStart = from + fullMarkerLen;
       const revealed = selectionWithinMarkerRange(
-        view.hasFocus, view.state.selection.ranges, from, contentStart
+        view.hasFocus,
+        view.state.selection.ranges,
+        from,
+        contentStart,
       );
 
       if (revealed) {
@@ -1873,7 +1950,7 @@ class LiveMarkdownPlugin implements PluginValue {
         decorations.push({
           from,
           to: from + 1,
-          value: { class: 'cm-md-inline-marker' }
+          value: { class: 'cm-md-inline-marker' },
         });
       } else {
         // Replace ONLY the marker character with the bullet widget; leave
@@ -1889,7 +1966,7 @@ class LiveMarkdownPlugin implements PluginValue {
             widget: new BulletWidget(indentLevel),
             // Decoration.replace + widget is a point widget; no `side`
             // override — CM6 places it where the replaced range was.
-          }
+          },
         });
       }
 
@@ -1898,7 +1975,7 @@ class LiveMarkdownPlugin implements PluginValue {
         decorations.push({
           from: contentStart,
           to: lineEnd,
-          value: { class: 'cm-md-ul-item' }
+          value: { class: 'cm-md-ul-item' },
         });
       }
 
@@ -1906,7 +1983,12 @@ class LiveMarkdownPlugin implements PluginValue {
       decorations.push({
         from: line.from,
         to: line.from,
-        value: { class: 'cm-md-list-line', attributes: { style: listLineStyle(indentLevel) }, startSide: 0, endSide: 0 }
+        value: {
+          class: 'cm-md-list-line',
+          attributes: { style: listLineStyle(indentLevel) },
+          startSide: 0,
+          endSide: 0,
+        },
       });
       return;
     }
@@ -1918,7 +2000,10 @@ class LiveMarkdownPlugin implements PluginValue {
       const fullMarkerLen = orderedMatch[0].length;
       const contentStart = from + fullMarkerLen;
       const revealed = selectionWithinMarkerRange(
-        view.hasFocus, view.state.selection.ranges, from, contentStart
+        view.hasFocus,
+        view.state.selection.ranges,
+        from,
+        contentStart,
       );
 
       if (revealed) {
@@ -1926,7 +2011,7 @@ class LiveMarkdownPlugin implements PluginValue {
         decorations.push({
           from,
           to: contentStart,
-          value: { class: 'cm-md-inline-marker' }
+          value: { class: 'cm-md-inline-marker' },
         });
       } else {
         // Replace `N. ` source text with the number widget in a single
@@ -1934,7 +2019,7 @@ class LiveMarkdownPlugin implements PluginValue {
         decorations.push({
           from,
           to: contentStart,
-          value: { widget: new NumberWidget(num, indentLevel) }
+          value: { widget: new NumberWidget(num, indentLevel) },
         });
       }
 
@@ -1943,7 +2028,7 @@ class LiveMarkdownPlugin implements PluginValue {
         decorations.push({
           from: contentStart,
           to: lineEnd,
-          value: { class: 'cm-md-ol-item' }
+          value: { class: 'cm-md-ol-item' },
         });
       }
 
@@ -1951,7 +2036,12 @@ class LiveMarkdownPlugin implements PluginValue {
       decorations.push({
         from: line.from,
         to: line.from,
-        value: { class: 'cm-md-list-line', attributes: { style: listLineStyle(indentLevel) }, startSide: 0, endSide: 0 }
+        value: {
+          class: 'cm-md-list-line',
+          attributes: { style: listLineStyle(indentLevel) },
+          startSide: 0,
+          endSide: 0,
+        },
       });
     }
   }
@@ -1984,7 +2074,7 @@ class LiveMarkdownPlugin implements PluginValue {
 
   private processWikilinks(
     view: EditorView,
-    decorations: Array<{ from: number; to: number; value: any }>
+    decorations: Array<{ from: number; to: number; value: any }>,
   ): void {
     const doc = view.state.doc;
     const tree = syntaxTree(view.state);
@@ -2013,10 +2103,11 @@ class LiveMarkdownPlugin implements PluginValue {
         // Skip if inside code block or inline code
         let inCode = false;
         tree.iterate({
-          from, to: from + 1,
+          from,
+          to: from + 1,
           enter: (node) => {
             if (MarkdownParser.isCode(node.name)) inCode = true;
-          }
+          },
         });
         if (inCode) continue;
 
@@ -2025,9 +2116,7 @@ class LiveMarkdownPlugin implements PluginValue {
         //   2. flag broken links visually.
         const resolvedId = resolveWikilink(title, allNoteIds);
         const displayText =
-          resolvedId !== null
-            ? shortestUniqueSuffix(resolvedId, allNoteIds)
-            : title;
+          resolvedId !== null ? shortestUniqueSuffix(resolvedId, allNoteIds) : title;
         const isBroken = resolvedId === null;
 
         if (!reveal) {
@@ -2035,12 +2124,12 @@ class LiveMarkdownPlugin implements PluginValue {
           decorations.push({
             from,
             to: from + 2,
-            value: { replace: true }
+            value: { replace: true },
           });
           decorations.push({
             from: to - 2,
             to,
-            value: { replace: true }
+            value: { replace: true },
           });
 
           // If the on-disk text differs from the displayed shortest-
@@ -2070,8 +2159,8 @@ class LiveMarkdownPlugin implements PluginValue {
           to: to - 2,
           value: {
             class: wikilinkClass,
-            attributes: { 'data-wikilink': title }
-          }
+            attributes: { 'data-wikilink': title },
+          },
         });
       }
     }
@@ -2120,7 +2209,7 @@ class LiveMarkdownPlugin implements PluginValue {
   private processInlineTags(
     view: EditorView,
     decorations: Array<{ from: number; to: number; value: any }>,
-    _headerEndOffset: number
+    _headerEndOffset: number,
   ): void {
     const doc = view.state.doc;
     const tree = syntaxTree(view.state);
@@ -2150,10 +2239,11 @@ class LiveMarkdownPlugin implements PluginValue {
         // Skip if inside code block or inline code
         let inCode = false;
         tree.iterate({
-          from, to: from + 1,
+          from,
+          to: from + 1,
           enter: (node) => {
             if (MarkdownParser.isCode(node.name)) inCode = true;
-          }
+          },
         });
         if (inCode) continue;
 
@@ -2163,13 +2253,13 @@ class LiveMarkdownPlugin implements PluginValue {
         decorations.push({
           from,
           to: from + 1,
-          value: { class: 'cm-md-tag cm-md-tag-marker' }
+          value: { class: 'cm-md-tag cm-md-tag-marker' },
         });
         if (to > from + 1) {
           decorations.push({
             from: from + 1,
             to,
-            value: { class: 'cm-md-tag cm-md-tag-text' }
+            value: { class: 'cm-md-tag cm-md-tag-text' },
           });
         }
       }
@@ -2179,16 +2269,16 @@ class LiveMarkdownPlugin implements PluginValue {
   private processHorizontalRule(
     from: number,
     to: number,
-    decorations: Array<{ from: number; to: number; value: any }>
+    decorations: Array<{ from: number; to: number; value: any }>,
   ): void {
     decorations.push({
       from,
       to,
-      value: { widget: new HorizontalRuleWidget() }
+      value: { widget: new HorizontalRuleWidget() },
     });
   }
 }
 
 export const liveMarkdownTransform = ViewPlugin.fromClass(LiveMarkdownPlugin, {
-  decorations: (v) => v.decorations
+  decorations: (v) => v.decorations,
 });

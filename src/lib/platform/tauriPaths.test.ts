@@ -9,7 +9,13 @@ vi.mock('@tauri-apps/plugin-fs', () => ({
   mkdir: vi.fn(),
 }));
 
-import { getNotesRoot, getDefaultNotesRoot, loadNotesDirOverride, saveNotesDirOverride, ensureDir } from './tauriPaths';
+import {
+  getNotesRoot,
+  getDefaultNotesRoot,
+  loadNotesDirOverride,
+  saveNotesDirOverride,
+  ensureDir,
+} from './tauriPaths';
 import { invoke } from '@tauri-apps/api/core';
 import { mkdir } from '@tauri-apps/plugin-fs';
 

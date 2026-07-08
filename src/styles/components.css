@@ -51,7 +51,9 @@
   background: rgba(var(--paper-rgb), 0.92);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  box-shadow: 0 2px 8px rgba(var(--ink-rgb), 0.08), 0 0 0 1px rgba(var(--ink-rgb), 0.04);
+  box-shadow:
+    0 2px 8px rgba(var(--ink-rgb), 0.08),
+    0 0 0 1px rgba(var(--ink-rgb), 0.04);
   z-index: 35;
   transform: translateX(var(--drawer-offset));
   transition: transform 0.25s ease;
@@ -309,7 +311,9 @@
   font-weight: 500;
   font-family: var(--font-sans);
   cursor: pointer;
-  box-shadow: 0 2px 8px rgba(var(--primary-rgb), 0.25), 0 0 0 1px rgba(var(--primary-rgb), 0.1);
+  box-shadow:
+    0 2px 8px rgba(var(--primary-rgb), 0.25),
+    0 0 0 1px rgba(var(--primary-rgb), 0.1);
   z-index: 100;
   -webkit-user-select: none;
   user-select: none;
@@ -318,7 +322,9 @@
   justify-content: center;
   gap: 6px;
   padding: 0 20px;
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
 }
 
 .fab:active {
@@ -407,8 +413,7 @@
   flex: 1;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  padding: 8px 8px
-    calc(80px + env(safe-area-inset-bottom, 0));
+  padding: 8px 8px calc(80px + env(safe-area-inset-bottom, 0));
 }
 
 .notes-drawer .note-item {
@@ -632,7 +637,9 @@
   background: rgba(var(--paper-rgb), 0.92);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  box-shadow: 0 2px 8px rgba(var(--ink-rgb), 0.08), 0 0 0 1px rgba(var(--ink-rgb), 0.04);
+  box-shadow:
+    0 2px 8px rgba(var(--ink-rgb), 0.08),
+    0 0 0 1px rgba(var(--ink-rgb), 0.04);
   font-size: 22px;
   cursor: pointer;
   display: flex;
@@ -660,7 +667,9 @@
   min-width: 180px;
   background: var(--color-bg);
   border-radius: 12px;
-  box-shadow: 0 8px 32px rgba(var(--ink-rgb), 0.15), 0 0 0 1px rgba(var(--ink-rgb), 0.05);
+  box-shadow:
+    0 8px 32px rgba(var(--ink-rgb), 0.15),
+    0 0 0 1px rgba(var(--ink-rgb), 0.05);
   z-index: 36;
   overflow: hidden;
 }
@@ -698,7 +707,9 @@
   background: rgba(var(--paper-rgb), 0.92);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  box-shadow: 0 2px 8px rgba(var(--ink-rgb), 0.08), 0 0 0 1px rgba(var(--ink-rgb), 0.04);
+  box-shadow:
+    0 2px 8px rgba(var(--ink-rgb), 0.08),
+    0 0 0 1px rgba(var(--ink-rgb), 0.04);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -797,8 +808,14 @@
 }
 
 @keyframes toast-in {
-  from { opacity: 0; transform: translateX(-50%) translateY(8px); }
-  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
 }
 
 /* ===========================
@@ -827,13 +844,22 @@
 }
 
 @keyframes sync-bar-in {
-  from { transform: translateY(100%); }
-  to { transform: translateY(0); }
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
 }
 
 @keyframes sync-bar-fade {
-  0%, 70% { opacity: 1; }
-  100% { opacity: 0; }
+  0%,
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
 }
 
 .sync-spinner {
@@ -841,7 +867,9 @@
 }
 
 @keyframes sync-spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* ===========================
@@ -854,7 +882,9 @@
 .notes-shell.desktop-layout .notes-drawer {
   position: relative;
   transform: none;
-  transition: flex-basis 0.15s ease, opacity 0.15s ease;
+  transition:
+    flex-basis 0.15s ease,
+    opacity 0.15s ease;
   flex: 0 0 var(--sidebar-width, 280px);
   width: var(--sidebar-width, 280px);
   border-right: 1px solid var(--color-border);
@@ -877,7 +907,9 @@
   will-change: auto;
 }
 
-.notes-shell.desktop-layout .drawer-overlay { display: none; }
+.notes-shell.desktop-layout .drawer-overlay {
+  display: none;
+}
 
 .notes-shell.desktop-layout .note-title-row {
   padding-top: 60px;
@@ -919,8 +951,13 @@
   border-radius: 3px;
 }
 
-.notes-shell.sidebar-resizing .notes-drawer { transition: none; }
-.notes-shell.sidebar-resizing .note-main { pointer-events: none; user-select: none; }
+.notes-shell.sidebar-resizing .notes-drawer {
+  transition: none;
+}
+.notes-shell.sidebar-resizing .note-main {
+  pointer-events: none;
+  user-select: none;
+}
 
 /* Desktop sidebar — no safe-area insets. On macOS the
    `--macos-titlebar-inset` var (set in App.svelte) reserves room at the
@@ -938,9 +975,14 @@
   padding: 8px 8px 80px;
 }
 
-.notes-shell.desktop-layout .notes-drawer .fab { bottom: 16px; right: 16px; }
-.notes-shell.desktop-layout .notes-drawer .settings-fab { bottom: 16px; left: 16px; }
-
+.notes-shell.desktop-layout .notes-drawer .fab {
+  bottom: 16px;
+  right: 16px;
+}
+.notes-shell.desktop-layout .notes-drawer .settings-fab {
+  bottom: 16px;
+  left: 16px;
+}
 
 /* ===========================
    Graph Sidebar
@@ -1060,7 +1102,9 @@
 .notes-shell.desktop-layout .graph-sidebar {
   position: relative;
   transform: none;
-  transition: flex-basis 0.15s ease, opacity 0.15s ease;
+  transition:
+    flex-basis 0.15s ease,
+    opacity 0.15s ease;
   flex: 0 0 var(--graph-sidebar-width, 320px);
   width: var(--graph-sidebar-width, 320px);
   border-left: 1px solid var(--color-border);
@@ -1098,8 +1142,13 @@
   border-radius: 3px;
 }
 
-.notes-shell.graph-resizing .graph-sidebar { transition: none; }
-.notes-shell.graph-resizing .note-main { pointer-events: none; user-select: none; }
+.notes-shell.graph-resizing .graph-sidebar {
+  transition: none;
+}
+.notes-shell.graph-resizing .note-main {
+  pointer-events: none;
+  user-select: none;
+}
 
 .notes-shell.desktop-layout .graph-sidebar-header {
   padding: 16px 12px 12px;
@@ -1123,8 +1172,7 @@
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  background:
-    linear-gradient(180deg, rgba(var(--paper-rgb), 0.98), rgba(var(--paper-rgb), 0.95));
+  background: linear-gradient(180deg, rgba(var(--paper-rgb), 0.98), rgba(var(--paper-rgb), 0.95));
   box-shadow:
     0 28px 60px rgba(var(--ink-rgb), 0.18),
     inset 0 1px 0 rgba(255, 255, 255, 0.4);
@@ -1137,8 +1185,7 @@
   gap: 16px;
   padding: 18px 20px 14px;
   border-bottom: 1px solid rgba(var(--ink-rgb), 0.08);
-  background:
-    linear-gradient(180deg, rgba(var(--paper-rgb), 0.96), rgba(var(--paper-rgb), 0.88));
+  background: linear-gradient(180deg, rgba(var(--paper-rgb), 0.96), rgba(var(--paper-rgb), 0.88));
 }
 
 .graph-fullscreen-eyebrow {
@@ -1299,7 +1346,7 @@
   overflow: hidden;
   z-index: 10;
   min-width: 120px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
 .tag-suggestion {

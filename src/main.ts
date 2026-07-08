@@ -10,7 +10,7 @@ if (import.meta.env.DEV) {
 }
 
 const app = mount(App, {
-  target: document.getElementById('app')!
+  target: document.getElementById('app')!,
 });
 
 export default app;

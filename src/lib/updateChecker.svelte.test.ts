@@ -177,9 +177,11 @@ describe('install', () => {
     const upd = await fresh();
     checkMock.mockResolvedValue(makeUpdate('2.0.0'));
     await upd.check();
-    installMock.mockImplementation(async (_u: PendingUpdate, onProgress: (r: number, t: number | null) => void) => {
-      onProgress(40, 100);
-    });
+    installMock.mockImplementation(
+      async (_u: PendingUpdate, onProgress: (r: number, t: number | null) => void) => {
+        onProgress(40, 100);
+      },
+    );
     await upd.install();
     expect(installMock).toHaveBeenCalledOnce();
     expect(upd.percent).toBe(40);
@@ -213,16 +215,18 @@ describe('install', () => {
     await upd.check();
     // Simulate an unknown content length: progress with total=null, then the
     // onDownloadComplete callback (3rd arg) fires.
-    installMock.mockImplementation(async (
-      _u: PendingUpdate,
-      onProgress: (r: number, t: number | null) => void,
-      onDownloadComplete: () => void,
-    ) => {
-      onProgress(1024, null);
-      expect(upd.phase).toBe('downloading'); // can't compute completion → still downloading
-      onDownloadComplete();
-      expect(upd.phase).toBe('installing'); // flipped by the download-complete signal
-    });
+    installMock.mockImplementation(
+      async (
+        _u: PendingUpdate,
+        onProgress: (r: number, t: number | null) => void,
+        onDownloadComplete: () => void,
+      ) => {
+        onProgress(1024, null);
+        expect(upd.phase).toBe('downloading'); // can't compute completion → still downloading
+        onDownloadComplete();
+        expect(upd.phase).toBe('installing'); // flipped by the download-complete signal
+      },
+    );
     await upd.install();
     expect(installMock).toHaveBeenCalledOnce();
   });
@@ -273,11 +277,15 @@ describe('start', () => {
     // Gate both start()s on one controllable promise so they interleave around
     // the await exactly like an App teardown+remount (HMR) does.
     let resolveGate!: (v: boolean) => void;
-    selfSupportedMock.mockReturnValue(new Promise<boolean>((r) => { resolveGate = r; }));
+    selfSupportedMock.mockReturnValue(
+      new Promise<boolean>((r) => {
+        resolveGate = r;
+      }),
+    );
 
-    const p1 = upd.start();      // claims #started, awaits the gate
-    upd.stop();                  // teardown: clears #started
-    const p2 = upd.start();      // remount: re-claims, awaits the same gate
+    const p1 = upd.start(); // claims #started, awaits the gate
+    upd.stop(); // teardown: clears #started
+    const p2 = upd.start(); // remount: re-claims, awaits the same gate
     resolveGate(true);
     await Promise.all([p1, p2]);
 
@@ -322,7 +330,11 @@ describe('disable', () => {
     const upd = await fresh();
     // Hourly poll in flight (awaiting the network) when the user toggles off.
     let resolveCheck!: (u: PendingUpdate) => void;
-    checkMock.mockReturnValue(new Promise((r) => { resolveCheck = r; }));
+    checkMock.mockReturnValue(
+      new Promise((r) => {
+        resolveCheck = r;
+      }),
+    );
     const inFlight = upd.check({ silent: true });
     upd.disable();
     resolveCheck(makeUpdate('2.0.0'));

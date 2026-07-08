@@ -26,11 +26,26 @@
  */
 import { spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
-import { createReadStream, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import {
+  createReadStream,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { buildManifest } from './build-updater-manifest.mjs';
-import { readDesktopVersions, restoreDesktopVersions, setDesktopVersion, TAURI_CONF as BASE_CONF } from './desktop-version.mjs';
+import {
+  readDesktopVersions,
+  restoreDesktopVersions,
+  setDesktopVersion,
+  TAURI_CONF as BASE_CONF,
+} from './desktop-version.mjs';
 import { verifyArtifactFile } from './verify-updater-signature.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -43,7 +58,9 @@ const log = (m) => process.stdout.write(`[release-build] ${m}\n`);
 // in withVersionRestore — still run when a build step fails. main() catches and
 // exits non-zero. Tagged so main() can print it cleanly without a stack dump.
 class ReleaseBuildError extends Error {}
-const die = (m) => { throw new ReleaseBuildError(m); };
+const die = (m) => {
+  throw new ReleaseBuildError(m);
+};
 
 /** Coerce a flag value to a string, or undefined if it was passed without a
  *  value (parseFlags sets such flags to boolean `true`). Prevents `true.replace`
@@ -79,10 +96,14 @@ const PROFILES = {
 function signingEnv(profile) {
   const p = PROFILES[profile];
   if (p.keyPath) {
-    if (!existsSync(p.keyPath)) die(`localdev signing key missing at ${p.keyPath} (regenerate: cargo tauri signer generate -w ${p.keyPath} -p "" -f --ci)`);
+    if (!existsSync(p.keyPath))
+      die(
+        `localdev signing key missing at ${p.keyPath} (regenerate: cargo tauri signer generate -w ${p.keyPath} -p "" -f --ci)`,
+      );
     return { ...process.env, TAURI_SIGNING_PRIVATE_KEY: readFileSync(p.keyPath, 'utf8') };
   }
-  if (!process.env.TAURI_SIGNING_PRIVATE_KEY) die('prod profile requires TAURI_SIGNING_PRIVATE_KEY in the environment (CI secret)');
+  if (!process.env.TAURI_SIGNING_PRIVATE_KEY)
+    die('prod profile requires TAURI_SIGNING_PRIVATE_KEY in the environment (CI secret)');
   return { ...process.env };
 }
 
@@ -96,11 +117,29 @@ export function hostTarget(platform = process.platform, arch = process.arch) {
     case 'linux':
       // x86_64 only — we don't ship a linux-aarch64 AppImage (and that key isn't
       // in the manifest's KNOWN_PLATFORMS).
-      return { platform: 'linux-x86_64', bundle: 'appimage', dir: join(ROOT, 'target', 'release', 'bundle', 'appimage'), suffix: '.AppImage', mesaPatch: true };
+      return {
+        platform: 'linux-x86_64',
+        bundle: 'appimage',
+        dir: join(ROOT, 'target', 'release', 'bundle', 'appimage'),
+        suffix: '.AppImage',
+        mesaPatch: true,
+      };
     case 'darwin':
-      return { platform: `darwin-${a}`, bundle: 'app', dir: join(ROOT, 'target', 'release', 'bundle', 'macos'), suffix: '.app.tar.gz', mesaPatch: false };
+      return {
+        platform: `darwin-${a}`,
+        bundle: 'app',
+        dir: join(ROOT, 'target', 'release', 'bundle', 'macos'),
+        suffix: '.app.tar.gz',
+        mesaPatch: false,
+      };
     case 'win32':
-      return { platform: `windows-${a}`, bundle: 'nsis', dir: join(ROOT, 'target', 'release', 'bundle', 'nsis'), suffix: '-setup.exe', mesaPatch: false };
+      return {
+        platform: `windows-${a}`,
+        bundle: 'nsis',
+        dir: join(ROOT, 'target', 'release', 'bundle', 'nsis'),
+        suffix: '-setup.exe',
+        mesaPatch: false,
+      };
     default:
       return die(`unsupported platform: ${platform}`);
   }
@@ -108,7 +147,10 @@ export function hostTarget(platform = process.platform, arch = process.arch) {
 
 function findArtifact(dir, suffix) {
   if (!existsSync(dir)) return null;
-  const hits = readdirSync(dir).filter((f) => f.endsWith(suffix)).map((f) => join(dir, f)).sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs);
+  const hits = readdirSync(dir)
+    .filter((f) => f.endsWith(suffix))
+    .map((f) => join(dir, f))
+    .sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs);
   return hits[0] || null;
 }
 
@@ -119,12 +161,18 @@ function resign(file, profile) {
   rmSync(`${file}.sig`, { force: true });
   // -p "": the key has no password; pass the empty passphrase inline so the
   // signer never drops to an interactive prompt (it has no --ci fallback).
-  run('cargo', ['tauri', 'signer', 'sign', '-p', '', file], { cwd: TAURI_DIR, env: signingEnv(profile) });
+  run('cargo', ['tauri', 'signer', 'sign', '-p', '', file], {
+    cwd: TAURI_DIR,
+    env: signingEnv(profile),
+  });
 }
 
 function mesaPatch(dir) {
   const patch = join(ROOT, 'scripts', 'patch-appimage-mesa26.mjs');
-  if (!existsSync(patch)) { log('mesa26 patch script absent — skipping'); return; }
+  if (!existsSync(patch)) {
+    log('mesa26 patch script absent — skipping');
+    return;
+  }
   run('node', [patch, '--dir', dir]);
 }
 
@@ -152,9 +200,17 @@ function profilePubkey(profile) {
  *  the working tree clean across local builds and failed builds alike. */
 function withVersionRestore(fn) {
   const original = readDesktopVersions();
-  try { return fn(); } finally { restoreDesktopVersions(original); }
+  try {
+    return fn();
+  } finally {
+    restoreDesktopVersions(original);
+  }
 }
-export const bumpPatch = (v) => { const m = String(v).match(/^(\d+)\.(\d+)\.(\d+)(.*)$/); if (!m) die(`unparseable version ${v}`); return `${m[1]}.${m[2]}.${Number(m[3]) + 1}${m[4]}`; };
+export const bumpPatch = (v) => {
+  const m = String(v).match(/^(\d+)\.(\d+)\.(\d+)(.*)$/);
+  if (!m) die(`unparseable version ${v}`);
+  return `${m[1]}.${m[2]}.${Number(m[3]) + 1}${m[4]}`;
+};
 
 /**
  * Build one signed updater artifact for the host platform at `version`.
@@ -171,44 +227,72 @@ function buildOne({ profile, version }) {
   rmSync(t.dir, { recursive: true, force: true });
   // --ci: non-interactive + use the key's empty passphrase for createUpdaterArtifacts
   // (no password prompt, no password variable).
-  run('cargo', ['tauri', 'build', '--bundles', t.bundle, '--config', PROFILES[profile].overlay, '--ci'], {
-    cwd: TAURI_DIR,
-    env: { ...signingEnv(profile), NO_STRIP: 'true' },
-  });
+  run(
+    'cargo',
+    ['tauri', 'build', '--bundles', t.bundle, '--config', PROFILES[profile].overlay, '--ci'],
+    {
+      cwd: TAURI_DIR,
+      env: { ...signingEnv(profile), NO_STRIP: 'true' },
+    },
+  );
   const artifact = findArtifact(t.dir, t.suffix);
   if (!artifact) die(`no ${t.suffix} produced in ${t.dir}`);
   // Mesa patch rewrites the AppImage → its build-time .sig is now stale. Re-sign
   // so the .sig matches the bytes the client downloads. (Same shape as the
   // Windows Authenticode / macOS notarize re-sign in CI.)
-  if (t.mesaPatch) { mesaPatch(t.dir); resign(artifact, profile); }
+  if (t.mesaPatch) {
+    mesaPatch(t.dir);
+    resign(artifact, profile);
+  }
   const sig = `${artifact}.sig`;
-  if (!existsSync(sig)) die(`no ${t.suffix}.sig — is createUpdaterArtifacts on in ${PROFILES[profile].overlay} and the signing key valid?`);
+  if (!existsSync(sig))
+    die(
+      `no ${t.suffix}.sig — is createUpdaterArtifacts on in ${PROFILES[profile].overlay} and the signing key valid?`,
+    );
   // Verify the .sig against the pubkey THIS profile's client bakes, exactly as a
   // client will. Catches the irreversible signing-key/baked-pubkey mismatch
   // (#1) and a stale/post-mutation .sig (#3) here, not as a silent client-side
   // rejection after publish. The localdev/e2e flow thus rehearses the real check.
-  const v = verifyArtifactFile({ pubkeyB64: profilePubkey(profile), artifactPath: artifact, sigPath: sig });
+  const v = verifyArtifactFile({
+    pubkeyB64: profilePubkey(profile),
+    artifactPath: artifact,
+    sigPath: sig,
+  });
   if (!v.ok) die(`signature verification failed for ${artifact}: ${v.reason}`);
   log(`verified ${t.platform} .sig against the ${profile} pubkey`);
   return { platform: t.platform, artifact, sig, suffix: t.suffix };
 }
 
 function serveDir(dir, port) {
-  const types = { '.json': 'application/json', '.gz': 'application/gzip', '.tar': 'application/x-tar', '.AppImage': 'application/octet-stream', '.exe': 'application/octet-stream' };
+  const types = {
+    '.json': 'application/json',
+    '.gz': 'application/gzip',
+    '.tar': 'application/x-tar',
+    '.AppImage': 'application/octet-stream',
+    '.exe': 'application/octet-stream',
+  };
   const root = resolve(dir);
   const server = createServer((req, res) => {
     const urlPath = decodeURIComponent((req.url || '/').split('?')[0]);
     const file = resolve(root, urlPath.replace(/^\/+/, ''));
     const within = file === root || file.startsWith(root + sep);
     if (!within || !existsSync(file) || statSync(file).isDirectory()) {
-      res.writeHead(404, { 'content-type': 'text/plain' }); res.end('not found\n'); log(`404 ${urlPath}`); return;
+      res.writeHead(404, { 'content-type': 'text/plain' });
+      res.end('not found\n');
+      log(`404 ${urlPath}`);
+      return;
     }
     const ext = Object.keys(types).find((e) => file.endsWith(e));
-    res.writeHead(200, { 'content-type': ext ? types[ext] : 'application/octet-stream', 'content-length': statSync(file).size });
+    res.writeHead(200, {
+      'content-type': ext ? types[ext] : 'application/octet-stream',
+      'content-length': statSync(file).size,
+    });
     log(`200 ${urlPath}`);
     createReadStream(file).pipe(res);
   });
-  server.listen(port, 'localhost', () => log(`serving ${dir} at http://localhost:${port} (manifest: /latest.json)`));
+  server.listen(port, 'localhost', () =>
+    log(`serving ${dir} at http://localhost:${port} (manifest: /latest.json)`),
+  );
   return server;
 }
 
@@ -228,11 +312,17 @@ export function parseFlags(argv) {
     if (a.startsWith('--')) {
       // Accept both `--key value` and `--key=value`.
       const eq = a.indexOf('=');
-      if (eq !== -1) { f[a.slice(2, eq)] = a.slice(eq + 1); continue; }
+      if (eq !== -1) {
+        f[a.slice(2, eq)] = a.slice(eq + 1);
+        continue;
+      }
       const k = a.slice(2);
       const next = argv[i + 1];
       if (next === undefined || next.startsWith('--')) f[k] = true;
-      else { f[k] = next; i++; }
+      else {
+        f[k] = next;
+        i++;
+      }
     }
   }
   return f;
@@ -242,7 +332,10 @@ function cmdBuild(profile, flags) {
   const p = PROFILES[profile];
   const out = resolve(str(flags.out) || p.defaultOut);
   const baseUrl = (str(flags['base-url']) || p.defaultBaseUrl || '').replace(/\/$/, '');
-  if (!baseUrl) die('prod profile requires --base-url <url> (the release-asset URL prefix that hosts the artifacts)');
+  if (!baseUrl)
+    die(
+      'prod profile requires --base-url <url> (the release-asset URL prefix that hosts the artifacts)',
+    );
   const version = str(flags.version) || readBaseVersion();
 
   withVersionRestore(() => {
@@ -255,7 +348,13 @@ function cmdBuild(profile, flags) {
       version,
       pubDate: new Date().toISOString().replace(/\.\d+Z$/, 'Z'),
       notes: str(flags.notes),
-      platforms: [{ platform: built.platform, url: `${baseUrl}/${name}`, signature: readFileSync(built.sig, 'utf8') }],
+      platforms: [
+        {
+          platform: built.platform,
+          url: `${baseUrl}/${name}`,
+          signature: readFileSync(built.sig, 'utf8'),
+        },
+      ],
       allowInsecureLocalhost: profile === 'localdev',
     });
     writeFileSync(join(out, 'latest.json'), JSON.stringify(manifest, null, 2) + '\n');
@@ -274,7 +373,10 @@ function cmdBuild(profile, flags) {
  *  update. Both use the localdev overlay (localhost endpoint + localdev pubkey),
  *  so the OLD app checks localhost and verifies the NEW artifact's signature. */
 function cmdE2e(flags) {
-  if (process.platform !== 'linux') die('e2e is Linux/AppImage only (it builds the OLD app you run); on mac/Windows build manually');
+  if (process.platform !== 'linux')
+    die(
+      'e2e is Linux/AppImage only (it builds the OLD app you run); on mac/Windows build manually',
+    );
   const out = resolve(str(flags.out) || PROFILES.localdev.defaultOut);
   const baseUrl = (str(flags['base-url']) || PROFILES.localdev.defaultBaseUrl).replace(/\/$/, '');
   const oldVer = str(flags.old) || readBaseVersion();
@@ -297,18 +399,30 @@ function cmdE2e(flags) {
     const manifest = buildManifest({
       version: newVer,
       pubDate: new Date().toISOString().replace(/\.\d+Z$/, 'Z'),
-      platforms: [{ platform: newArt.platform, url: `${baseUrl}/${name}`, signature: readFileSync(newArt.sig, 'utf8') }],
+      platforms: [
+        {
+          platform: newArt.platform,
+          url: `${baseUrl}/${name}`,
+          signature: readFileSync(newArt.sig, 'utf8'),
+        },
+      ],
       allowInsecureLocalhost: true,
     });
     writeFileSync(join(out, 'latest.json'), JSON.stringify(manifest, null, 2) + '\n');
 
     log('');
     log('──────────────────────────────────────────────────────────────');
-    log('READY. In another terminal, run the OLD app (notes isolated under ' + join(out, 'notes') + '):');
+    log(
+      'READY. In another terminal, run the OLD app (notes isolated under ' +
+        join(out, 'notes') +
+        '):',
+    );
     // env VAR=val works in both bash and fish (bash-only VAR=val cmd does not).
     log(`  env FUTO_NOTES_DATA_DIR='${out}' '${oldRun}'`);
     log('Then: Settings → Updates → Check  (or wait for the launch auto-check).');
-    log(`Expect: offers v${newVer} → download → verify → swap → relaunch → version shows v${newVer}.`);
+    log(
+      `Expect: offers v${newVer} → download → verify → swap → relaunch → version shows v${newVer}.`,
+    );
     log('──────────────────────────────────────────────────────────────');
     serveLocaldev(out);
   });

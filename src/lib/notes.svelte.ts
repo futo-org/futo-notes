@@ -24,7 +24,12 @@ import {
   getMtimeMap,
   clearSearchIndex,
 } from '$features/search/searchIndex';
-import { engineQuery, engineNotify, engineStatus, engineRebuild } from '$features/search/searchEngine';
+import {
+  engineQuery,
+  engineNotify,
+  engineStatus,
+  engineRebuild,
+} from '$features/search/searchEngine';
 import { runPool } from './util/pool';
 import { rewriteWikilinks } from './wikilinks';
 import { refreshEmptyFolders } from './folders.svelte';
@@ -188,7 +193,12 @@ async function buildSearchIndexFromScratch(): Promise<void> {
   await runPool(notesCache.slice(), RECONCILE_CONCURRENCY, async (note) => {
     try {
       const body = await fs.readNote(note.id);
-      addToSearchIndex({ id: note.id, title: noteTitleFromId(note.id), body, mtime: note.modificationTime });
+      addToSearchIndex({
+        id: note.id,
+        title: noteTitleFromId(note.id),
+        body,
+        mtime: note.modificationTime,
+      });
     } catch {
       // Skip unreadable files
     }
@@ -218,7 +228,12 @@ async function reconcileSearchIndex(): Promise<void> {
   await runPool(toRead, RECONCILE_CONCURRENCY, async (note) => {
     try {
       const body = await fs.readNote(note.id);
-      addToSearchIndex({ id: note.id, title: noteTitleFromId(note.id), body, mtime: note.modificationTime });
+      addToSearchIndex({
+        id: note.id,
+        title: noteTitleFromId(note.id),
+        body,
+        mtime: note.modificationTime,
+      });
     } catch {
       // Skip unreadable files
     }
@@ -246,7 +261,10 @@ export async function refreshNotesFromStorage(): Promise<void> {
   });
 }
 
-export async function refreshNotesAfterSync(_updatedIds: string[], _deletedIds: string[]): Promise<void> {
+export async function refreshNotesAfterSync(
+  _updatedIds: string[],
+  _deletedIds: string[],
+): Promise<void> {
   await refreshNotesFromStorage();
 }
 
@@ -255,10 +273,14 @@ export function getAllNotes(): NotePreview[] {
 }
 
 export function getNoteById(id: string): NotePreview | undefined {
-  return notesCache.find(n => n.id === id);
+  return notesCache.find((n) => n.id === id);
 }
 
-export async function createNote(id: string, content: string, overrideMtime?: number): Promise<{ id: string; mtime: number }> {
+export async function createNote(
+  id: string,
+  content: string,
+  overrideMtime?: number,
+): Promise<{ id: string; mtime: number }> {
   id = await getUniqueNoteId(id);
   const mtime = await writeNote(id, content, overrideMtime);
 
@@ -302,9 +324,10 @@ export async function updateNote(
   // Prefer the originalId match; if moveNote already optimistically
   // re-keyed the entry to finalId, find it there instead of pushing a
   // duplicate.
-  let idx = notesCache.findIndex(n => n.id === (originalId ?? finalId));
-  if (idx < 0 && originalId) idx = notesCache.findIndex(n => n.id === finalId);
-  if (idx >= 0) notesCache[idx] = preview; else notesCache.push(preview);
+  let idx = notesCache.findIndex((n) => n.id === (originalId ?? finalId));
+  if (idx < 0 && originalId) idx = notesCache.findIndex((n) => n.id === finalId);
+  if (idx >= 0) notesCache[idx] = preview;
+  else notesCache.push(preview);
 
   addToSearchIndex({ id: finalId, title: noteTitleFromId(finalId), body: content, mtime });
 
@@ -319,10 +342,7 @@ export async function updateNote(
  * back if the body changed. The rewrites become regular note edits that
  * sync as content changes.
  */
-export async function rewriteWikilinksForRename(
-  oldId: string,
-  newId: string,
-): Promise<void> {
+export async function rewriteWikilinksForRename(oldId: string, newId: string): Promise<void> {
   if (oldId === newId) return;
   const fs = getFS();
   const allIds = notesCache.map((n) => n.id);
@@ -353,7 +373,12 @@ export async function rewriteWikilinksForRename(
           tags: noteTags(result.text),
         };
       }
-      addToSearchIndex({ id: fileId, title: noteTitleFromId(fileId), body: result.text, mtime: newMtime });
+      addToSearchIndex({
+        id: fileId,
+        title: noteTitleFromId(fileId),
+        body: result.text,
+        mtime: newMtime,
+      });
       // This write goes through getFS() directly (not the fileSystem.ts
       // chokepoint), so notify the Rust engine here to mirror MiniSearch.
       void engineNotify('change', `${fileId}.md`);
@@ -430,10 +455,7 @@ export async function moveNote(
  * In both cases we then refresh notesCache from disk and rewrite every
  * wikilink in every other note that targets one of the moved IDs.
  */
-export async function moveNotesUnderPrefix(
-  fromPrefix: string,
-  toPrefix: string,
-): Promise<void> {
+export async function moveNotesUnderPrefix(fromPrefix: string, toPrefix: string): Promise<void> {
   if (fromPrefix === toPrefix) return;
   const fs = getFS();
   // Snapshot (oldId, newId) pairs from the current cache before any
@@ -477,7 +499,7 @@ export async function moveNotesUnderPrefix(
 export async function deleteNote(id: string): Promise<void> {
   await deleteNoteFile(id);
   removeFromSearchIndex(id);
-  notesCache = notesCache.filter(n => n.id !== id);
+  notesCache = notesCache.filter((n) => n.id !== id);
   void persistIndex();
 }
 
@@ -584,9 +606,7 @@ export async function searchKeyword(query: string): Promise<SearchResultItem[]> 
  * so a partial update can never strand the cache. Bulk/unknown events still go
  * through `refreshNotesFromStorage()` (see syncManager's bulk path).
  */
-export async function handleExternalFileChange(
-  filename: string,
-): Promise<NotePreview | null> {
+export async function handleExternalFileChange(filename: string): Promise<NotePreview | null> {
   // Filename is now the relative path under the notes root (e.g.
   // `Specs/foo.md`); strip `.md` to get the ID.
   const id = filename.replace(/\\/g, '/').replace(/\.md$/, '');

@@ -91,21 +91,20 @@ function sanitize(raw: unknown): AppState {
   const obj = raw as Record<string, unknown>;
 
   const deviceId =
-    typeof obj.deviceId === 'string' && obj.deviceId.length > 0
-      ? obj.deviceId
-      : defaults.deviceId;
+    typeof obj.deviceId === 'string' && obj.deviceId.length > 0 ? obj.deviceId : defaults.deviceId;
 
-  const rawPrefs = (obj.preferences && typeof obj.preferences === 'object'
-    ? obj.preferences
-    : {}) as Record<string, unknown>;
+  const rawPrefs = (
+    obj.preferences && typeof obj.preferences === 'object' ? obj.preferences : {}
+  ) as Record<string, unknown>;
 
-  const rawCrash = (obj.crashReporting && typeof obj.crashReporting === 'object'
-    ? obj.crashReporting
-    : {}) as Record<string, unknown>;
+  const rawCrash = (
+    obj.crashReporting && typeof obj.crashReporting === 'object' ? obj.crashReporting : {}
+  ) as Record<string, unknown>;
 
-  const rawUpdates = (obj.updates && typeof obj.updates === 'object'
-    ? obj.updates
-    : {}) as Record<string, unknown>;
+  const rawUpdates = (obj.updates && typeof obj.updates === 'object' ? obj.updates : {}) as Record<
+    string,
+    unknown
+  >;
 
   return {
     deviceId,
@@ -158,7 +157,8 @@ async function migrateFromLegacy(): Promise<AppState | null> {
           state.crashReporting.alwaysSend = prefs.crashReporting.alwaysSend;
       }
       if (prefs.sync) {
-        if (typeof prefs.sync.lastSyncedAt === 'number') state.lastSyncedAt = prefs.sync.lastSyncedAt;
+        if (typeof prefs.sync.lastSyncedAt === 'number')
+          state.lastSyncedAt = prefs.sync.lastSyncedAt;
         if (typeof prefs.sync.lastError === 'string') state.lastSyncError = prefs.sync.lastError;
       }
       migrated = true;
@@ -216,7 +216,22 @@ export async function saveAppState(state: AppState): Promise<void> {
 }
 
 export async function updateAppState(
-  updates: Partial<Pick<AppState, 'lastSyncedAt' | 'lastSyncError' | 'preferences' | 'crashReporting' | 'updates' | 'e2eeServerUrl' | 'e2eeAuthToken' | 'e2eeUserId' | 'e2eeCollectionId' | 'e2eeSalt' | 'e2eePassword'>>,
+  updates: Partial<
+    Pick<
+      AppState,
+      | 'lastSyncedAt'
+      | 'lastSyncError'
+      | 'preferences'
+      | 'crashReporting'
+      | 'updates'
+      | 'e2eeServerUrl'
+      | 'e2eeAuthToken'
+      | 'e2eeUserId'
+      | 'e2eeCollectionId'
+      | 'e2eeSalt'
+      | 'e2eePassword'
+    >
+  >,
 ): Promise<void> {
   const current = getAppState();
   const next = { ...current, ...updates };

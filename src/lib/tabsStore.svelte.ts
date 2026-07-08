@@ -93,7 +93,9 @@ function persist(): void {
       // Persist per-tab scroll/selection so it survives a restart (tabs.md).
       ...(t.state ? { state: t.state } : {}),
     })),
-    activeTabId: persistable.find((t) => t.id === _activeTabId) ? _activeTabId : (persistable[0]?.id ?? null),
+    activeTabId: persistable.find((t) => t.id === _activeTabId)
+      ? _activeTabId
+      : (persistable[0]?.id ?? null),
   });
 }
 

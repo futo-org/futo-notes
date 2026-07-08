@@ -42,11 +42,23 @@
     document.documentElement.style.setProperty('--macos-titlebar-inset', '0px');
     document.documentElement.style.setProperty('--macos-traffic-lights-width', '0px');
   }
-  import { initNotes, createNote, getAllNotes, _injectTestNote, deleteNote as deleteNoteApp, moveNote as moveNoteWithCollisionHandling } from '$lib/notes.svelte';
+  import {
+    initNotes,
+    createNote,
+    getAllNotes,
+    _injectTestNote,
+    deleteNote as deleteNoteApp,
+    moveNote as moveNoteWithCollisionHandling,
+  } from '$lib/notes.svelte';
   import { loadPreferences, getCachedPreferences, savePreferences } from '$lib/appState';
   import { applyThemePreference, watchSystemThemeTauri } from '$lib/theme';
   import { flushCrashQueue, setAppVersion, type CrashReport } from '$lib/crashHandler';
-  import { sendAllPendingReports, discardAllPendingReports, loadPendingReports, getLastSendError } from '$lib/crashReporter';
+  import {
+    sendAllPendingReports,
+    discardAllPendingReports,
+    loadPendingReports,
+    getLastSendError,
+  } from '$lib/crashReporter';
   import { installTestSync } from '$lib/testSync';
   import { searchNotes, isSearchIndexPopulated } from '$features/search/searchIndex';
 
@@ -72,7 +84,10 @@
   function showToast(message: string): void {
     if (toastTimer !== null) clearTimeout(toastTimer);
     toastMessage = message;
-    toastTimer = window.setTimeout(() => { toastMessage = ''; toastTimer = null; }, 3000);
+    toastTimer = window.setTimeout(() => {
+      toastMessage = '';
+      toastTimer = null;
+    }, 3000);
   }
 
   // The initial URL hash is applied to the store inside `tabsStore.hydrate()`
@@ -154,44 +169,49 @@
       })();
 
       if (hasFileSystem || import.meta.env.DEV) {
-        initNotes((label) => { initStep = label; }).then(() => {
-          if (import.meta.env.DEV || import.meta.env.VITE_INCLUDE_TEST_HOOKS === 'true') {
-            const fs = getFS();
-            (window as any).__testNotes = {
-              createNote,
-              getAllNotes,
-              _injectTestNote,
-              listNoteFiles: () => fs.listNoteFiles(),
-              readNote: (id: string) => fs.readNote(id),
-              writeNote: (id: string, content: string, modifiedAtMs?: number) => fs.writeNote(id, content, modifiedAtMs),
-              deleteNoteFile: (id: string) => fs.deleteNoteFile(id),
-              // App-level delete: prunes notesCache synchronously like a real
-              // user delete. deleteNoteFile above stays raw-FS for scenarios
-              // that simulate external deletions.
-              deleteNote: (id: string) => deleteNoteApp(id),
-              deleteAllContent: () => fs.deleteAllContent(),
-              noteExists: (id: string) => fs.noteExists(id),
-              // Folder ops — exposed for cross-platform sync tests covering
-              // the conflict-resolution table in the folder-support spec.
-              listFolders: () => fs.listFolders?.(),
-              createFolder: (path: string) => fs.createFolder?.(path),
-              renameFolder: (from: string, to: string) => fs.renameFolder?.(from, to),
-              deleteFolder: (path: string) => fs.deleteFolder?.(path),
-              moveNote: (fromId: string, toId: string) => fs.moveNote?.(fromId, toId),
-              // High-level move that suffixes the incoming file when the
-              // destination already exists (Spec § 4 sync conflict row).
-              moveNoteWithCollisions: (fromId: string, toId: string) =>
-                moveNoteWithCollisionHandling(fromId, toId),
-            };
-            installTestSync();
-            (window as any).__testSearch = {
-              search: (query: string) => searchNotes(query),
-              isPopulated: () => isSearchIndexPopulated(),
-            };
-          }
-        }).catch((e) => {
-          console.warn('initNotes failed:', e);
-        });
+        initNotes((label) => {
+          initStep = label;
+        })
+          .then(() => {
+            if (import.meta.env.DEV || import.meta.env.VITE_INCLUDE_TEST_HOOKS === 'true') {
+              const fs = getFS();
+              (window as any).__testNotes = {
+                createNote,
+                getAllNotes,
+                _injectTestNote,
+                listNoteFiles: () => fs.listNoteFiles(),
+                readNote: (id: string) => fs.readNote(id),
+                writeNote: (id: string, content: string, modifiedAtMs?: number) =>
+                  fs.writeNote(id, content, modifiedAtMs),
+                deleteNoteFile: (id: string) => fs.deleteNoteFile(id),
+                // App-level delete: prunes notesCache synchronously like a real
+                // user delete. deleteNoteFile above stays raw-FS for scenarios
+                // that simulate external deletions.
+                deleteNote: (id: string) => deleteNoteApp(id),
+                deleteAllContent: () => fs.deleteAllContent(),
+                noteExists: (id: string) => fs.noteExists(id),
+                // Folder ops — exposed for cross-platform sync tests covering
+                // the conflict-resolution table in the folder-support spec.
+                listFolders: () => fs.listFolders?.(),
+                createFolder: (path: string) => fs.createFolder?.(path),
+                renameFolder: (from: string, to: string) => fs.renameFolder?.(from, to),
+                deleteFolder: (path: string) => fs.deleteFolder?.(path),
+                moveNote: (fromId: string, toId: string) => fs.moveNote?.(fromId, toId),
+                // High-level move that suffixes the incoming file when the
+                // destination already exists (Spec § 4 sync conflict row).
+                moveNoteWithCollisions: (fromId: string, toId: string) =>
+                  moveNoteWithCollisionHandling(fromId, toId),
+              };
+              installTestSync();
+              (window as any).__testSearch = {
+                search: (query: string) => searchNotes(query),
+                isPopulated: () => isSearchIndexPopulated(),
+              };
+            }
+          })
+          .catch((e) => {
+            console.warn('initNotes failed:', e);
+          });
       }
 
       void (async () => {
@@ -260,9 +280,9 @@
         showToast(`Sent ${result.sent} crash report${result.sent > 1 ? 's' : ''}`);
       } else if (result.failed > 0) {
         const reason = getLastSendError();
-        showToast(reason
-          ? `Auto-send failed: ${reason}`
-          : 'Auto-send failed — reports saved locally');
+        showToast(
+          reason ? `Auto-send failed: ${reason}` : 'Auto-send failed — reports saved locally',
+        );
       }
     } else {
       // Show dialog — dismiss keyboard so toolbar hides
@@ -272,7 +292,11 @@
     }
   }
 
-  async function handleCrashDialogResolved(result: { action: 'send' | 'discard'; alwaysSend: boolean; userDescription?: string }): Promise<void> {
+  async function handleCrashDialogResolved(result: {
+    action: 'send' | 'discard';
+    alwaysSend: boolean;
+    userDescription?: string;
+  }): Promise<void> {
     showCrashDialog = false;
 
     if (result.action === 'send') {
@@ -287,9 +311,7 @@
         showToast(`Sent ${sendResult.sent} crash report${sendResult.sent > 1 ? 's' : ''}`);
       } else if (sendResult.failed > 0 && sendResult.sent === 0) {
         const reason = getLastSendError();
-        showToast(reason
-          ? `Failed to send: ${reason}`
-          : 'Failed to send — reports saved locally');
+        showToast(reason ? `Failed to send: ${reason}` : 'Failed to send — reports saved locally');
       }
     } else {
       // User chose "Don't Send" — permanent opt-out
@@ -307,7 +329,8 @@
 {#if error}
   <div style="padding: 20px; font-family: system-ui;">
     <h1>Init Error</h1>
-    <pre style="white-space: pre-wrap; background: #fcfcfc; padding: 10px; border-radius: 8px;">{error}</pre>
+    <pre
+      style="white-space: pre-wrap; background: #fcfcfc; padding: 10px; border-radius: 8px;">{error}</pre>
   </div>
 {:else if initialized}
   {#if showTitlebar}
@@ -367,7 +390,8 @@
   }
 
   @keyframes loading-spin {
-    to { transform: rotate(360deg); }
+    to {
+      transform: rotate(360deg);
+    }
   }
-
 </style>

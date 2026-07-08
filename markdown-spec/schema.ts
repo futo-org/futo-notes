@@ -45,13 +45,7 @@ export interface CursorPosition {
   ch: number;
 }
 
-export type CursorMove =
-  | 'ArrowUp'
-  | 'ArrowDown'
-  | 'ArrowLeft'
-  | 'ArrowRight'
-  | 'Home'
-  | 'End';
+export type CursorMove = 'ArrowUp' | 'ArrowDown' | 'ArrowLeft' | 'ArrowRight' | 'Home' | 'End';
 
 export type CursorVerticalDirection = 'up' | 'down' | 'same';
 

@@ -23,25 +23,44 @@ export interface Selection {
 
 export type ElementKind =
   // Inline emphasis
-  | 'bold-text' | 'bold-marker'
-  | 'italic-text' | 'italic-marker'
-  | 'strikethrough-text' | 'strikethrough-marker'
+  | 'bold-text'
+  | 'bold-marker'
+  | 'italic-text'
+  | 'italic-marker'
+  | 'strikethrough-text'
+  | 'strikethrough-marker'
   // Headings (level 1..6)
-  | 'heading-text-1' | 'heading-text-2' | 'heading-text-3'
-  | 'heading-text-4' | 'heading-text-5' | 'heading-text-6'
+  | 'heading-text-1'
+  | 'heading-text-2'
+  | 'heading-text-3'
+  | 'heading-text-4'
+  | 'heading-text-5'
+  | 'heading-text-6'
   | 'heading-marker'
   // Code
-  | 'code-inline' | 'code-block' | 'code-fence-marker' | 'code-lang'
+  | 'code-inline'
+  | 'code-block'
+  | 'code-fence-marker'
+  | 'code-lang'
   // Links
-  | 'link-text' | 'link-url' | 'link-marker' | 'autolink'
+  | 'link-text'
+  | 'link-url'
+  | 'link-marker'
+  | 'autolink'
   // Lists
-  | 'list-marker' | 'list-task-checkbox' | 'list-task-text'
+  | 'list-marker'
+  | 'list-task-checkbox'
+  | 'list-task-text'
   // Blockquotes
-  | 'quote-marker' | 'quote-text'
+  | 'quote-marker'
+  | 'quote-text'
   // Block-level widgets
-  | 'hr-widget' | 'image-widget' | 'table-widget'
+  | 'hr-widget'
+  | 'image-widget'
+  | 'table-widget'
   // FUTO Notes / Obsidian extras
-  | 'wikilink' | 'tag'
+  | 'wikilink'
+  | 'tag'
   // Fallback
   | 'unknown';
 
@@ -71,7 +90,20 @@ export interface DriverState {
 export type DriverEvent =
   | { type: 'place_cursor'; line: number; ch: number }
   | { type: 'set_doc'; markdown: string }
-  | { type: 'key'; key: 'ArrowUp' | 'ArrowDown' | 'ArrowLeft' | 'ArrowRight' | 'Home' | 'End' | 'Enter' | 'Backspace' | 'Delete' | 'Escape' }
+  | {
+      type: 'key';
+      key:
+        | 'ArrowUp'
+        | 'ArrowDown'
+        | 'ArrowLeft'
+        | 'ArrowRight'
+        | 'Home'
+        | 'End'
+        | 'Enter'
+        | 'Backspace'
+        | 'Delete'
+        | 'Escape';
+    }
   | { type: 'type'; text: string }
   | { type: 'blur' }
   | { type: 'focus' };

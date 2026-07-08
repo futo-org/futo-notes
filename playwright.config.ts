@@ -9,10 +9,7 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: 0,
   workers: 1,
-  reporter: [
-    [isCI ? 'dot' : 'list'],
-    ['json', { outputFile: 'test-results/results.json' }]
-  ],
+  reporter: [[isCI ? 'dot' : 'list'], ['json', { outputFile: 'test-results/results.json' }]],
   use: {
     baseURL: 'http://localhost:5173',
     trace: 'on-first-retry',

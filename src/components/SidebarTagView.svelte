@@ -42,8 +42,9 @@
   function getTagNotes(tag: string): NotePreview[] {
     const cached = tagNotesCache.get(tag);
     if (cached) return cached;
-    const computed = getNotesForTag(notes, tag)
-      .sort((a, b) => a.title.toLowerCase().localeCompare(b.title.toLowerCase()));
+    const computed = getNotesForTag(notes, tag).sort((a, b) =>
+      a.title.toLowerCase().localeCompare(b.title.toLowerCase()),
+    );
     tagNotesCache.set(tag, computed);
     return computed;
   }

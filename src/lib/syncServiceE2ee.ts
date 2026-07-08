@@ -80,11 +80,7 @@ export async function forgetStoredSyncPassword(): Promise<void> {
 export function isE2eeConfigured(): boolean {
   const s = getAppState();
   return Boolean(
-    s.e2eeServerUrl &&
-      s.e2eeAuthToken &&
-      s.e2eeUserId &&
-      s.e2eeCollectionId &&
-      s.e2eePassword,
+    s.e2eeServerUrl && s.e2eeAuthToken && s.e2eeUserId && s.e2eeCollectionId && s.e2eePassword,
   );
 }
 
@@ -132,13 +128,21 @@ let liveStarted = false;
 export async function ensureLiveSync(): Promise<void> {
   if (liveStarted || !isE2eeConfigured()) return;
   liveStarted = true;
-  try { await invoke('e2ee_start_live'); }
-  catch (e) { liveStarted = false; console.warn('start live sync failed:', e); }
+  try {
+    await invoke('e2ee_start_live');
+  } catch (e) {
+    liveStarted = false;
+    console.warn('start live sync failed:', e);
+  }
 }
 
 export async function stopLiveSync(): Promise<void> {
   liveStarted = false;
-  try { await invoke('e2ee_stop_live'); } catch { /* ignore */ }
+  try {
+    await invoke('e2ee_stop_live');
+  } catch {
+    /* ignore */
+  }
 }
 
 /** Signal the Rust live loop that a local note changed (the write-once
@@ -146,7 +150,11 @@ export async function stopLiveSync(): Promise<void> {
  * Rust when no live task is running, so it's safe to call unconditionally
  * after every save. Fire-and-forget. */
 export async function notifyNoteChanged(): Promise<void> {
-  try { await invoke('e2ee_note_changed'); } catch { /* ignore */ }
+  try {
+    await invoke('e2ee_note_changed');
+  } catch {
+    /* ignore */
+  }
 }
 
 /**

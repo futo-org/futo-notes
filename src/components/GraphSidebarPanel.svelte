@@ -37,7 +37,9 @@
 
   export function patchGraphNode(_fromId: string, _toId: string, _newTitle: string): void {}
   export function clearGraphData(): void {}
-  export function hasGraphData(): boolean { return false; }
+  export function hasGraphData(): boolean {
+    return false;
+  }
 
   export async function openGraph(): Promise<void> {
     ontoast('Graph visualization coming soon');
@@ -110,7 +112,7 @@
       onkeydown={(event) => handleDismissWindowKeydown(event, closeGraph)}
     ></div>
   {/if}
-  <aside bind:this={graphSidebarEl} class="graph-sidebar" class:open={open}>
+  <aside bind:this={graphSidebarEl} class="graph-sidebar" class:open>
     {#if !isMobile}
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div
@@ -125,9 +127,18 @@
       <span class="graph-sidebar-title">Graph</span>
       <div class="graph-sidebar-actions">
         <button class="graph-sidebar-close" aria-label="Close graph" onclick={closeGraph}>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="18" y1="6" x2="6" y2="18"/>
-            <line x1="6" y1="6" x2="18" y2="18"/>
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
           </svg>
         </button>
       </div>

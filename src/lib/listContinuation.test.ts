@@ -35,7 +35,7 @@ function pressEnter(view: EditorView): void {
   const ev = new KeyboardEvent('keydown', {
     key: 'Enter',
     bubbles: true,
-    cancelable: true
+    cancelable: true,
   });
   view.contentDOM.dispatchEvent(ev);
 }
@@ -129,11 +129,12 @@ describe('blockquote nesting', () => {
 });
 
 describe('computeOrderedRenumberChanges', () => {
-  function applyChanges(doc: string, changes: ReturnType<typeof computeOrderedRenumberChanges>): string {
+  function applyChanges(
+    doc: string,
+    changes: ReturnType<typeof computeOrderedRenumberChanges>,
+  ): string {
     // Apply right-to-left so earlier offsets stay valid.
-    const sorted = [...changes].sort((a, b) =>
-      ((b as any).from ?? 0) - ((a as any).from ?? 0)
-    );
+    const sorted = [...changes].sort((a, b) => ((b as any).from ?? 0) - ((a as any).from ?? 0));
     let out = doc;
     for (const c of sorted as Array<{ from: number; to: number; insert: string }>) {
       out = out.slice(0, c.from) + c.insert + out.slice(c.to);

@@ -44,7 +44,13 @@ const RFC3339_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}
  *        prod manifest stays https-only.
  * @returns {{version: string, notes: string, pub_date: string, platforms: Record<string, {signature: string, url: string}>}}
  */
-export function buildManifest({ version, pubDate, notes, platforms, allowInsecureLocalhost = false }) {
+export function buildManifest({
+  version,
+  pubDate,
+  notes,
+  platforms,
+  allowInsecureLocalhost = false,
+}) {
   if (typeof version !== 'string' || !SEMVER_RE.test(version)) {
     throw new Error(`invalid version: ${JSON.stringify(version)} (expected semver like 1.6.0)`);
   }
@@ -59,16 +65,22 @@ export function buildManifest({ version, pubDate, notes, platforms, allowInsecur
   for (const entry of platforms) {
     const { platform, url, signature } = entry ?? {};
     if (!KNOWN_PLATFORMS.includes(platform)) {
-      throw new Error(`unknown platform key: ${JSON.stringify(platform)} (one of ${KNOWN_PLATFORMS.join(', ')})`);
+      throw new Error(
+        `unknown platform key: ${JSON.stringify(platform)} (one of ${KNOWN_PLATFORMS.join(', ')})`,
+      );
     }
     if (out[platform]) {
       throw new Error(`duplicate platform key: ${platform}`);
     }
     const httpsOk = typeof url === 'string' && /^https:\/\//.test(url);
-    const localhostOk = allowInsecureLocalhost && typeof url === 'string'
-      && /^http:\/\/(localhost|127\.0\.0\.1)(?::\d+)?(?:\/|$)/.test(url);
+    const localhostOk =
+      allowInsecureLocalhost &&
+      typeof url === 'string' &&
+      /^http:\/\/(localhost|127\.0\.0\.1)(?::\d+)?(?:\/|$)/.test(url);
     if (!httpsOk && !localhostOk) {
-      throw new Error(`platform ${platform}: url must be https${allowInsecureLocalhost ? ' (or http://localhost)' : ''} (got ${JSON.stringify(url)})`);
+      throw new Error(
+        `platform ${platform}: url must be https${allowInsecureLocalhost ? ' (or http://localhost)' : ''} (got ${JSON.stringify(url)})`,
+      );
     }
     if (typeof signature !== 'string' || signature.trim().length === 0) {
       throw new Error(`platform ${platform}: empty signature`);
@@ -92,7 +104,9 @@ function main(argv) {
   const args = {};
   for (let i = 0; i < argv.length; i += 2) args[argv[i].replace(/^--/, '')] = argv[i + 1];
   if (!args.spec || !args.out) {
-    process.stderr.write('usage: build-updater-manifest.mjs --spec <spec.json> --out <latest.json>\n');
+    process.stderr.write(
+      'usage: build-updater-manifest.mjs --spec <spec.json> --out <latest.json>\n',
+    );
     process.exit(1);
   }
   const spec = JSON.parse(readFileSync(args.spec, 'utf8'));
@@ -109,7 +123,9 @@ function main(argv) {
     allowInsecureLocalhost: Boolean(spec.allowInsecureLocalhost),
   });
   writeFileSync(args.out, JSON.stringify(manifest, null, 2) + '\n');
-  process.stdout.write(`wrote ${args.out} (v${manifest.version}, ${Object.keys(manifest.platforms).join(', ')})\n`);
+  process.stdout.write(
+    `wrote ${args.out} (v${manifest.version}, ${Object.keys(manifest.platforms).join(', ')})\n`,
+  );
 }
 
 // Run the CLI only when invoked directly. pathToFileURL builds a correct file://

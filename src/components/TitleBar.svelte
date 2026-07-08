@@ -10,25 +10,13 @@
     <span class="titlebar-title" data-tauri-drag-region>FUTO Notes</span>
   </div>
   <div class="titlebar-controls">
-    <button
-      class="titlebar-btn"
-      onclick={() => appWindow.minimize()}
-      title="Minimize"
-    >
+    <button class="titlebar-btn" onclick={() => appWindow.minimize()} title="Minimize">
       <Minus size={14} strokeWidth={1.5} />
     </button>
-    <button
-      class="titlebar-btn"
-      onclick={() => appWindow.toggleMaximize()}
-      title="Maximize"
-    >
+    <button class="titlebar-btn" onclick={() => appWindow.toggleMaximize()} title="Maximize">
       <Square size={11} strokeWidth={1.5} />
     </button>
-    <button
-      class="titlebar-btn titlebar-btn-close"
-      onclick={() => appWindow.close()}
-      title="Close"
-    >
+    <button class="titlebar-btn titlebar-btn-close" onclick={() => appWindow.close()} title="Close">
       <X size={14} strokeWidth={1.5} />
     </button>
   </div>
@@ -82,7 +70,9 @@
     color: var(--color-muted);
     cursor: default;
     padding: 0;
-    transition: background 0.1s ease, color 0.1s ease;
+    transition:
+      background 0.1s ease,
+      color 0.1s ease;
   }
 
   .titlebar-btn:hover {

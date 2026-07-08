@@ -16,8 +16,8 @@ export default defineConfig({
     // hit `mount(...) is not available on the server`.
     conditions: ['browser'],
     alias: {
-      '$lib': path.resolve(__dirname, './src/lib'),
-      '$features': path.resolve(__dirname, './src/features'),
+      $lib: path.resolve(__dirname, './src/lib'),
+      $features: path.resolve(__dirname, './src/features'),
       '@': path.resolve(__dirname, './'),
       '@futo-notes/shared': path.resolve(__dirname, './packages/shared/src'),
       '@futo-notes/editor': path.resolve(__dirname, './packages/editor/src'),

@@ -38,8 +38,8 @@ test.describe('P1 ForYouPage Regressions', () => {
     await page.waitForTimeout(100);
 
     const noteBody = page.locator('.note-body');
-    const hasEditorFocused = await noteBody.evaluate(
-      (el) => el.hasAttribute('data-editor-focused')
+    const hasEditorFocused = await noteBody.evaluate((el) =>
+      el.hasAttribute('data-editor-focused'),
     );
     expect(hasEditorFocused).toBe(false);
   });
@@ -58,10 +58,7 @@ test.describe('P1 Link Clickability Regressions', () => {
     const markdownLink = page.locator('.cm-md-link', { hasText: 'OpenAI' }).first();
     await expect(markdownLink).toBeVisible();
 
-    const [popup] = await Promise.all([
-      page.waitForEvent('popup'),
-      markdownLink.click()
-    ]);
+    const [popup] = await Promise.all([page.waitForEvent('popup'), markdownLink.click()]);
     await popup.waitForLoadState('domcontentloaded');
     expect(popup.url()).toContain('openai.com');
     await popup.close();
@@ -79,10 +76,7 @@ test.describe('P1 Link Clickability Regressions', () => {
     const autoLink = page.locator('.cm-md-autolink', { hasText: 'https://example.com' }).first();
     await expect(autoLink).toBeVisible();
 
-    const [popup] = await Promise.all([
-      page.waitForEvent('popup'),
-      autoLink.click()
-    ]);
+    const [popup] = await Promise.all([page.waitForEvent('popup'), autoLink.click()]);
     await popup.waitForLoadState('domcontentloaded');
     expect(popup.url()).toContain('example.com');
     await popup.close();
@@ -92,7 +86,9 @@ test.describe('P1 Link Clickability Regressions', () => {
   // mousedown reveals source view synchronously and shifts CM's posAtCoords
   // result. The actual regression target is "no popup opened" — a click past
   // a link must not navigate. Cursor position is implementation detail.
-  test('clicking to the right of an end-of-line markdown link does not open the link', async ({ page }) => {
+  test('clicking to the right of an end-of-line markdown link does not open the link', async ({
+    page,
+  }) => {
     await openNewNote(page);
 
     const editor = page.locator('.cm-content');
@@ -110,7 +106,9 @@ test.describe('P1 Link Clickability Regressions', () => {
     expect(lineBox).not.toBeNull();
 
     let popupOpened = false;
-    page.on('popup', () => { popupOpened = true; });
+    page.on('popup', () => {
+      popupOpened = true;
+    });
 
     await page.mouse.click(linkBox!.x + linkBox!.width + 4, lineBox!.y + lineBox!.height / 2);
     await page.waitForTimeout(250);
@@ -118,7 +116,9 @@ test.describe('P1 Link Clickability Regressions', () => {
     expect(popupOpened).toBe(false);
   });
 
-  test('clicking to the right of an end-of-line plain URL does not open the link', async ({ page }) => {
+  test('clicking to the right of an end-of-line plain URL does not open the link', async ({
+    page,
+  }) => {
     await openNewNote(page);
 
     const editor = page.locator('.cm-content');
@@ -136,7 +136,9 @@ test.describe('P1 Link Clickability Regressions', () => {
     expect(lineBox).not.toBeNull();
 
     let popupOpened = false;
-    page.on('popup', () => { popupOpened = true; });
+    page.on('popup', () => {
+      popupOpened = true;
+    });
 
     await page.mouse.click(linkBox!.x + linkBox!.width + 4, lineBox!.y + lineBox!.height / 2);
     await page.waitForTimeout(250);
@@ -199,10 +201,14 @@ test.describe('P1 Note Selection Regressions', () => {
     // Now select note-beta (this is the action under test)
     await page.goto('/#/note/note-beta');
     await page.waitForSelector('.cm-content', { timeout: 10000 });
-    await page.waitForFunction(() => {
-      const v = (window as any).__cmGetView?.();
-      return v && v.state.doc.toString().includes('Beta note');
-    }, null, { timeout: 10000 });
+    await page.waitForFunction(
+      () => {
+        const v = (window as any).__cmGetView?.();
+        return v && v.state.doc.toString().includes('Beta note');
+      },
+      null,
+      { timeout: 10000 },
+    );
 
     // Wait past the rAF + debounce window (500ms debounce + 200ms buffer)
     await page.waitForTimeout(800);

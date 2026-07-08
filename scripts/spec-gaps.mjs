@@ -103,7 +103,9 @@ const PROBES = [
   {
     match: /Android native has no folder-delete UI/,
     closed: () =>
-      ktScreenFiles().some((f) => /\.deleteFolder\(|Delete folder/i.test(fs.readFileSync(f, 'utf8'))),
+      ktScreenFiles().some((f) =>
+        /\.deleteFolder\(|Delete folder/i.test(fs.readFileSync(f, 'utf8')),
+      ),
     hint: 'an Android screen now references folder deletion.',
   },
   {
@@ -186,7 +188,7 @@ if (mode === '--write') {
           `Closure probe fired for ${gap.file}:${gap.line}\n` +
             `  gap:  ${gap.text.slice(0, 100)}…\n` +
             `  hint: ${probe.hint}\n` +
-            `  → verify the behavior, then update/remove the Gap note (and run \`just spec-gaps\`).`
+            `  → verify the behavior, then update/remove the Gap note (and run \`just spec-gaps\`).`,
         );
         failed = true;
       }
@@ -200,15 +202,14 @@ if (mode === '--write') {
     const age = (today - new Date(`${m[0]}T00:00:00Z`)) / 86_400_000;
     if (age > MAX_AGE_DAYS) {
       console.warn(
-        `note: ${gap.file}:${gap.line} was observed ${m[0]} (${Math.round(age)}d ago) — consider re-verifying.`
+        `note: ${gap.file}:${gap.line} was observed ${m[0]} (${Math.round(age)}d ago) — consider re-verifying.`,
       );
     }
   }
 
   if (failed) process.exit(1);
   console.log(`Gap inventory OK (${gaps.length} gaps, ${PROBES.length} probes).`);
-}
-else {
+} else {
   console.error('usage: node scripts/spec-gaps.mjs --write | --check');
   process.exit(2);
 }

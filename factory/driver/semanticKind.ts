@@ -74,9 +74,14 @@ export function classToKinds(classes: string[]): ElementKind[] {
   if (set.has('cm-md-strikethrough') || set.has('cm-strikethrough')) out.add('strikethrough-text');
 
   // ---- Code ----
-  if (set.has('cm-md-code-block') || set.has('cm-md-code-block-first') ||
-      set.has('cm-md-code-block-middle') || set.has('cm-md-code-block-last') ||
-      set.has('cm-md-code-block-single')) out.add('code-block');
+  if (
+    set.has('cm-md-code-block') ||
+    set.has('cm-md-code-block-first') ||
+    set.has('cm-md-code-block-middle') ||
+    set.has('cm-md-code-block-last') ||
+    set.has('cm-md-code-block-single')
+  )
+    out.add('code-block');
   const isCodeMarker = set.has('cm-md-code-marker') || set.has('cm-formatting-code');
   if (!isCodeMarker && (set.has('cm-md-code') || set.has('cm-inline-code'))) out.add('code-inline');
 
@@ -104,8 +109,8 @@ export function classToKinds(classes: string[]): ElementKind[] {
   // SF also emits cm-md-link on autolinks, but Obsidian doesn't put
   // link-text on bare URLs (it's a URL, not a labeled link), so we
   // suppress the link-text mapping in that case too.
-  if (!isWikilink && !isBarelink && !isAutolink &&
-      (set.has('cm-md-link') || set.has('cm-link'))) out.add('link-text');
+  if (!isWikilink && !isBarelink && !isAutolink && (set.has('cm-md-link') || set.has('cm-link')))
+    out.add('link-text');
   if (set.has('cm-url') || set.has('cm-md-link-url')) out.add('link-url');
 
   // ---- Lists ----
@@ -122,12 +127,21 @@ export function classToKinds(classes: string[]): ElementKind[] {
   // the same span as the `>` glyph. The marker rule above already adds
   // `quote-marker`; suppress the redundant `quote-text` here so the
   // marker glyph isn't double-counted as quoted text.
-  const isQuoteMarker = set.has('cm-formatting-quote') || set.has('cm-md-quote-marker') || set.has('cm-md-quote-marker-hidden');
+  const isQuoteMarker =
+    set.has('cm-formatting-quote') ||
+    set.has('cm-md-quote-marker') ||
+    set.has('cm-md-quote-marker-hidden');
   if (set.has('cm-md-quote-marker')) out.add('quote-marker');
   if (set.has('cm-md-quote-text')) out.add('quote-text');
-  if (!isQuoteMarker && (set.has('cm-md-quote') ||
-      set.has('cm-md-quote-first') || set.has('cm-md-quote-middle') ||
-      set.has('cm-md-quote-last')  || set.has('cm-md-quote-single'))) out.add('quote-text');
+  if (
+    !isQuoteMarker &&
+    (set.has('cm-md-quote') ||
+      set.has('cm-md-quote-first') ||
+      set.has('cm-md-quote-middle') ||
+      set.has('cm-md-quote-last') ||
+      set.has('cm-md-quote-single'))
+  )
+    out.add('quote-text');
   if (!isQuoteMarker && set.has('cm-quote')) out.add('quote-text');
 
   // ---- Block widgets ----
@@ -136,15 +150,27 @@ export function classToKinds(classes: string[]): ElementKind[] {
   // map the `hr` class on a cm-line div, plus the bare `<hr>` tag's
   // emptiness, to hr-widget so the bucket lines up with SF's widget.
   if (set.has('hr') && set.has('cm-line')) out.add('hr-widget');
-  if (set.has('cm-md-image-widget') || set.has('cm-md-image-wrapper') ||
-      set.has('image-embed') || set.has('image-wrapper')) out.add('image-widget');
-  if (set.has('cm-md-table-rendered') || set.has('cm-md-table-wrapper') ||
-      set.has('sf-table') || set.has('sf-table__scroll') ||
-      set.has('cm-table-widget') || set.has('table-wrapper')) out.add('table-widget');
+  if (
+    set.has('cm-md-image-widget') ||
+    set.has('cm-md-image-wrapper') ||
+    set.has('image-embed') ||
+    set.has('image-wrapper')
+  )
+    out.add('image-widget');
+  if (
+    set.has('cm-md-table-rendered') ||
+    set.has('cm-md-table-wrapper') ||
+    set.has('sf-table') ||
+    set.has('sf-table__scroll') ||
+    set.has('cm-table-widget') ||
+    set.has('table-wrapper')
+  )
+    out.add('table-widget');
 
   // ---- Tags ----
   if (set.has('cm-md-tag')) out.add('tag');
-  if (set.has('cm-hashtag') || set.has('cm-hashtag-end') || set.has('cm-hashtag-begin')) out.add('tag');
+  if (set.has('cm-hashtag') || set.has('cm-hashtag-end') || set.has('cm-hashtag-begin'))
+    out.add('tag');
 
   if (out.size === 0) return ['unknown'];
   return [...out];

@@ -1,0 +1,4 @@
+# Enable with: git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+# style: apply Prettier to the codebase
+25e8fd1c48cb3ecece2752fdd0719ce444298b2a

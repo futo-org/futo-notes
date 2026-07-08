@@ -161,7 +161,9 @@ describe('inputHandler trigger', () => {
     // Call the inputHandler facet directly
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const facet = (v.state as any).facet(EditorView.inputHandler);
-    const handlers = facet as Array<(v: EditorView, from: number, to: number, text: string) => boolean>;
+    const handlers = facet as Array<
+      (v: EditorView, from: number, to: number, text: string) => boolean
+    >;
     const handled = handlers.some((h) => h(v, 0, 0, '/'));
     expect(handled).toBe(true);
     expect(isOpen(v)).toBe(true);
@@ -172,7 +174,9 @@ describe('inputHandler trigger', () => {
     const v = setup('hello', 5);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const facet = (v.state as any).facet(EditorView.inputHandler);
-    const handlers = facet as Array<(v: EditorView, from: number, to: number, text: string) => boolean>;
+    const handlers = facet as Array<
+      (v: EditorView, from: number, to: number, text: string) => boolean
+    >;
     const handled = handlers.some((h) => h(v, 5, 5, '/'));
     expect(handled).toBe(false);
     expect(isOpen(v)).toBe(false);
@@ -182,7 +186,9 @@ describe('inputHandler trigger', () => {
     const v = setup('  ', 2);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const facet = (v.state as any).facet(EditorView.inputHandler);
-    const handlers = facet as Array<(v: EditorView, from: number, to: number, text: string) => boolean>;
+    const handlers = facet as Array<
+      (v: EditorView, from: number, to: number, text: string) => boolean
+    >;
     const handled = handlers.some((h) => h(v, 2, 2, '/'));
     expect(handled).toBe(true);
     expect(isOpen(v)).toBe(true);
@@ -234,7 +240,9 @@ describe('menu item mouse activation (editor.md)', () => {
     const v = setup('');
     openWithQuery(v, 'head');
     const item = v.dom.querySelector('[data-command-id="heading-2"]');
-    item!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 2 }));
+    item!.dispatchEvent(
+      new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 2 }),
+    );
     item!.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 2 }));
     expect(isOpen(v)).toBe(true);
     expect(v.state.doc.toString()).toBe('/head');

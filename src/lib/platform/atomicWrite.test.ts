@@ -58,12 +58,8 @@ describe('writeAtomicText', () => {
   });
 
   it('handles concurrent writes to different files', async () => {
-    const files = Array.from({ length: 10 }, (_, i) =>
-      path.join(tmpDir, `concurrent-${i}.md`),
-    );
-    await Promise.all(
-      files.map((f, i) => writeAtomicText(f, `content-${i}`, adapter)),
-    );
+    const files = Array.from({ length: 10 }, (_, i) => path.join(tmpDir, `concurrent-${i}.md`));
+    await Promise.all(files.map((f, i) => writeAtomicText(f, `content-${i}`, adapter)));
     for (let i = 0; i < files.length; i++) {
       const content = await fs.readFile(files[i], 'utf-8');
       expect(content).toBe(`content-${i}`);
@@ -72,7 +68,8 @@ describe('writeAtomicText', () => {
 
   it('preserves Unicode content exactly', async () => {
     const filePath = path.join(tmpDir, 'unicode.md');
-    const unicode = '# Hello \u4e16\u754c \ud83c\udf0d\n\nCaf\u00e9 \u00fc\u00f6\u00e4 \u2603\ufe0f \u2764\ufe0f\u200d\ud83d\udd25';
+    const unicode =
+      '# Hello \u4e16\u754c \ud83c\udf0d\n\nCaf\u00e9 \u00fc\u00f6\u00e4 \u2603\ufe0f \u2764\ufe0f\u200d\ud83d\udd25';
     await writeAtomicText(filePath, unicode, adapter);
     const content = await fs.readFile(filePath, 'utf-8');
     expect(content).toBe(unicode);
@@ -86,9 +83,7 @@ describe('writeAtomicText', () => {
   });
 
   it('throws on invalid path (no parent)', async () => {
-    await expect(writeAtomicText('/', 'x', adapter)).rejects.toThrow(
-      'invalid file path',
-    );
+    await expect(writeAtomicText('/', 'x', adapter)).rejects.toThrow('invalid file path');
   });
 
   it('cleans up temp file on write failure', async () => {
@@ -99,9 +94,7 @@ describe('writeAtomicText', () => {
         throw new Error('disk full');
       },
     };
-    await expect(
-      writeAtomicText(filePath, 'content', failingAdapter),
-    ).rejects.toThrow('disk full');
+    await expect(writeAtomicText(filePath, 'content', failingAdapter)).rejects.toThrow('disk full');
 
     const entries = await fs.readdir(tmpDir);
     const temps = entries.filter((e) => e.startsWith('.sf-tmp-'));
@@ -170,9 +163,9 @@ describe('writeAtomicText', () => {
       },
     };
 
-    await expect(
-      writeAtomicText(filePath, 'content', failRenameAdapter),
-    ).rejects.toThrow('rename failed');
+    await expect(writeAtomicText(filePath, 'content', failRenameAdapter)).rejects.toThrow(
+      'rename failed',
+    );
 
     // Temp file should be cleaned up
     expect(writtenTmpPath).not.toBeNull();

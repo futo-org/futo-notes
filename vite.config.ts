@@ -28,14 +28,14 @@ export default defineConfig({
           if (id.includes('@tauri-apps')) {
             return 'tauri-vendor';
           }
-        }
-      }
-    }
+        },
+      },
+    },
   },
   resolve: {
     alias: {
-      '$lib': path.resolve(__dirname, './src/lib'),
-      '$features': path.resolve(__dirname, './src/features'),
+      $lib: path.resolve(__dirname, './src/lib'),
+      $features: path.resolve(__dirname, './src/features'),
       '@': path.resolve(__dirname, './'),
       '/src': path.resolve(__dirname, './src'),
       '@futo-notes/shared': path.resolve(__dirname, './packages/shared/src'),
@@ -54,6 +54,6 @@ export default defineConfig({
     // transform errors on the <script> block ("Invalid declaration"). Serving
     // everything no-store forces the webview to re-fetch parents first, so
     // the compile cache is always populated in dependency order.
-    headers: { 'Cache-Control': 'no-store' }
-  }
+    headers: { 'Cache-Control': 'no-store' },
+  },
 });

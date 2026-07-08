@@ -15,10 +15,13 @@ export async function waitForTestHooks(
   let lastError = null;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {
-      const result = await executeJs(ws, `JSON.stringify({
+      const result = await executeJs(
+        ws,
+        `JSON.stringify({
         testSync: typeof window.__testSync,
         notesShell: typeof window.__notesShellTest,
-      })`);
+      })`,
+      );
       const parsed = JSON.parse(String(result));
       if (parsed.testSync === 'object' && parsed.notesShell === 'object') return;
       lastError = null;
@@ -30,7 +33,7 @@ export async function waitForTestHooks(
     await sleep(intervalMs);
   }
 
-  const totalMs = initialDelayMs + (attempts * intervalMs);
+  const totalMs = initialDelayMs + attempts * intervalMs;
   const suffix = lastError ? ` Last probe error: ${lastError.message}` : '';
   throw new Error(
     `${name}: test hooks not available after ${Math.round(totalMs / 1000)}s. Was the frontend built with VITE_INCLUDE_TEST_HOOKS=true?${suffix}`,
@@ -75,13 +78,18 @@ export class TauriTestClient {
 
   async externalWriteNote(id, content) {
     if (!this.capabilities.supportsHostExternalMutation || !this.notesDir) {
-      throw new Error(`${this.name}: external host note mutation is not supported on ${this.platform}`);
+      throw new Error(
+        `${this.name}: external host note mutation is not supported on ${this.platform}`,
+      );
     }
     writeFileSync(join(this.notesDir, `${id}.md`), content);
   }
 
   async writeNote(id, content) {
-    return executeJs(this.ws, `window.__testNotes.writeNote(${JSON.stringify(id)}, ${JSON.stringify(content)})`);
+    return executeJs(
+      this.ws,
+      `window.__testNotes.writeNote(${JSON.stringify(id)}, ${JSON.stringify(content)})`,
+    );
   }
 
   async readNote(id) {
@@ -123,7 +131,10 @@ export class TauriTestClient {
   }
 
   async renameFolder(from, to) {
-    return executeJs(this.ws, `window.__testNotes.renameFolder(${JSON.stringify(from)}, ${JSON.stringify(to)})`);
+    return executeJs(
+      this.ws,
+      `window.__testNotes.renameFolder(${JSON.stringify(from)}, ${JSON.stringify(to)})`,
+    );
   }
 
   async deleteFolder(path) {
@@ -131,15 +142,20 @@ export class TauriTestClient {
   }
 
   async moveNote(fromId, toId) {
-    return executeJs(this.ws, `window.__testNotes.moveNote(${JSON.stringify(fromId)}, ${JSON.stringify(toId)})`);
+    return executeJs(
+      this.ws,
+      `window.__testNotes.moveNote(${JSON.stringify(fromId)}, ${JSON.stringify(toId)})`,
+    );
   }
 
   /** Like moveNote, but if the target ID already exists the incoming
    *  file is suffixed (`A/note` → `A/note-2`). Mirrors the UI-driven
    *  `moveNote` flow in `src/lib/notes.svelte.ts`. */
   async moveNoteWithCollisions(fromId, toId) {
-    return executeJs(this.ws,
-      `window.__testNotes.moveNoteWithCollisions(${JSON.stringify(fromId)}, ${JSON.stringify(toId)})`);
+    return executeJs(
+      this.ws,
+      `window.__testNotes.moveNoteWithCollisions(${JSON.stringify(fromId)}, ${JSON.stringify(toId)})`,
+    );
   }
 
   async openNewNote() {
@@ -157,7 +173,9 @@ export class TauriTestClient {
   }
 
   async setTitle(title) {
-    return executeJs(this.ws, `(() => {
+    return executeJs(
+      this.ws,
+      `(() => {
       const input = document.querySelector('.title-input');
       if (!(input instanceof HTMLTextAreaElement)) {
         throw new Error('title input not found');
@@ -166,7 +184,8 @@ export class TauriTestClient {
       input.value = ${JSON.stringify(title)};
       input.dispatchEvent(new Event('input', { bubbles: true }));
       return input.value;
-    })()`);
+    })()`,
+    );
   }
 
   async typeInEditor(text) {
@@ -186,7 +205,9 @@ export class TauriTestClient {
   // so we kick off the promise into a window slot and poll for completion.
 
   async _kickOffAsync(slotRef, expression) {
-    await executeJs(this.ws, `(() => {
+    await executeJs(
+      this.ws,
+      `(() => {
       const slot = '__crossPlatformSyncCall_' + Math.random().toString(36).slice(2);
       window[slot] = { done: false };
       Promise.resolve(${expression}).then(
@@ -195,7 +216,8 @@ export class TauriTestClient {
       );
       window[${JSON.stringify(slotRef)}] = slot;
       return 'started';
-    })()`);
+    })()`,
+    );
   }
 
   async _kickOffSync(slotRef) {
@@ -205,14 +227,17 @@ export class TauriTestClient {
   async _awaitAsyncSlot(slotRef, timeoutMs, label) {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
-      const status = await executeJs(this.ws, `(() => {
+      const status = await executeJs(
+        this.ws,
+        `(() => {
         const slot = window[${JSON.stringify(slotRef)}];
         if (!slot) return { missing: true };
         const state = window[slot];
         if (!state) return { missing: true };
         if (!state.done) return { pending: true };
         return state;
-      })()`);
+      })()`,
+      );
       if (status?.done) {
         if (status.error) throw new Error(`${label} failed: ${status.error}`);
         return status.value;
@@ -235,24 +260,28 @@ export class TauriTestClient {
   }
 
   async waitForOpenNote(id, timeoutMs = 10_000) {
-    return this.waitForCondition(`(() => {
+    return this.waitForCondition(
+      `(() => {
       const state = window.__notesShellTest?.getState?.();
       return Boolean(state && state.originalId === ${JSON.stringify(id)});
-    })()`, timeoutMs, `open note ${id}`);
-  }
-
-  async waitForRoute(path, timeoutMs = 10_000) {
-    return this.waitForCondition(
-      `window.location.hash === '#${path}'`,
+    })()`,
       timeoutMs,
-      `route ${path}`,
+      `open note ${id}`,
     );
   }
 
+  async waitForRoute(path, timeoutMs = 10_000) {
+    return this.waitForCondition(`window.location.hash === '#${path}'`, timeoutMs, `route ${path}`);
+  }
+
   async waitForEditorReady(timeoutMs = 10_000) {
-    return this.waitForCondition(`(() => {
+    return this.waitForCondition(
+      `(() => {
       return Boolean(document.querySelector('.cm-editor') && document.querySelector('.cm-content') && document.querySelector('.title-input'));
-    })()`, timeoutMs, 'editor ready');
+    })()`,
+      timeoutMs,
+      'editor ready',
+    );
   }
 
   async waitForCondition(script, timeoutMs, label) {
@@ -266,8 +295,10 @@ export class TauriTestClient {
   }
 
   async connectSync(serverUrl, password, { timeoutMs = 180_000 } = {}) {
-    await this._kickOffAsync('__lastConnectSlot',
-      `window.__testSync.connect(${JSON.stringify(this.normalizeServerUrl(serverUrl))}, ${JSON.stringify(password)})`);
+    await this._kickOffAsync(
+      '__lastConnectSlot',
+      `window.__testSync.connect(${JSON.stringify(this.normalizeServerUrl(serverUrl))}, ${JSON.stringify(password)})`,
+    );
     return this._awaitAsyncSlot('__lastConnectSlot', timeoutMs, 'connectSync');
   }
 
@@ -293,15 +324,39 @@ export class TauriTestClient {
   }
 
   async reset() {
-    try { await this.disconnectSync(); } catch { /* may not be connected */ }
-    try { await this.deleteAllNotes(); } catch { /* may have no notes */ }
+    try {
+      await this.disconnectSync();
+    } catch {
+      /* may not be connected */
+    }
+    try {
+      await this.deleteAllNotes();
+    } catch {
+      /* may have no notes */
+    }
     // A scenario may have paused auto-sync; restore default for the next one.
-    try { await this.resumeAutoSync(); } catch { /* hook may be missing */ }
+    try {
+      await this.resumeAutoSync();
+    } catch {
+      /* hook may be missing */
+    }
   }
 
   stop() {
-    try { this.ws.close(); } catch { /* ignore */ }
-    try { this.stopProc?.(); } catch { /* ignore */ }
-    try { this.proc?.kill('SIGTERM'); } catch { /* ignore */ }
+    try {
+      this.ws.close();
+    } catch {
+      /* ignore */
+    }
+    try {
+      this.stopProc?.();
+    } catch {
+      /* ignore */
+    }
+    try {
+      this.proc?.kill('SIGTERM');
+    } catch {
+      /* ignore */
+    }
   }
 }

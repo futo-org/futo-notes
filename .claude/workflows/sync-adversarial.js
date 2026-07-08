@@ -9,20 +9,23 @@ export const meta = {
     { title: 'Generate', detail: 'one agent per adversarial sync scenario' },
     { title: 'Verify', detail: 'adversarially confirm each scenario verdict' },
   ],
-}
+};
 
 // ── Phase 1: deterministic baseline ──────────────────────────────────────
-phase('Baseline')
+phase('Baseline');
 const BASE_SCHEMA = {
   type: 'object',
   required: ['rustPass', 'crossPlatformRan', 'crossPlatformPass', 'notes'],
   properties: {
     rustPass: { type: 'boolean', description: 'cargo test -p futo-notes-sync passes' },
-    crossPlatformRan: { type: 'boolean', description: 'just test-cross-platform actually ran (needs Docker + server)' },
+    crossPlatformRan: {
+      type: 'boolean',
+      description: 'just test-cross-platform actually ran (needs Docker + server)',
+    },
     crossPlatformPass: { type: 'boolean' },
     notes: { type: 'string' },
   },
-}
+};
 const baseline = await agent(
   `From the repo root:
    1. Run \`cargo test -p futo-notes-sync\` → rustPass.
@@ -32,10 +35,10 @@ const baseline = await agent(
       failure. If it runs, report crossPlatformPass.
    Do not modify files.`,
   { label: 'baseline', phase: 'Baseline', schema: BASE_SCHEMA },
-)
+);
 if (baseline && !baseline.rustPass) {
-  log('⚠ sync unit tests are RED — fix before adversarial scenarios')
-  return { baseline, verdict: 'fail' }
+  log('⚠ sync unit tests are RED — fix before adversarial scenarios');
+  return { baseline, verdict: 'fail' };
 }
 
 // ── Phase 2/3: adversarial scenarios, pipelined (generate → verify) ──────
@@ -64,7 +67,7 @@ const SCENARIOS = [
     key: 'legacy-app-state-migration',
     spec: 'A vault has a pre-port `.app-state.json` with `e2eeObjectMap` but no `.e2ee-state.json`. On first connect, expect: the map is imported (migrated_legacy=true) so the first sync does NOT re-upload every local note as new.',
   },
-]
+];
 const VERDICT_SCHEMA = {
   type: 'object',
   required: ['scenario', 'expected', 'actual', 'pass', 'evidence'],
@@ -75,7 +78,7 @@ const VERDICT_SCHEMA = {
     pass: { type: 'boolean' },
     evidence: { type: 'string', description: 'commands/files that establish the verdict' },
   },
-}
+};
 const REFUTE_SCHEMA = {
   type: 'object',
   required: ['refuted', 'why'],
@@ -83,7 +86,7 @@ const REFUTE_SCHEMA = {
     refuted: { type: 'boolean', description: 'true if the pass verdict does NOT hold up' },
     why: { type: 'string' },
   },
-}
+};
 
 const results = await pipeline(
   SCENARIOS,
@@ -107,15 +110,15 @@ const results = await pipeline(
           { label: `refute:${s.key}`, phase: 'Verify', schema: REFUTE_SCHEMA },
         ).then((r) => ({ ...verdict, refuted: r?.refuted ?? true, refuteWhy: r?.why }))
       : Promise.resolve(verdict),
-)
+);
 
-const confirmed = results.filter(Boolean).filter((r) => r.pass && !r.refuted)
-const failed = results.filter(Boolean).filter((r) => !r.pass || r.refuted)
-log(`sync-adversarial: ${confirmed.length} confirmed, ${failed.length} need attention`)
+const confirmed = results.filter(Boolean).filter((r) => r.pass && !r.refuted);
+const failed = results.filter(Boolean).filter((r) => !r.pass || r.refuted);
+log(`sync-adversarial: ${confirmed.length} confirmed, ${failed.length} need attention`);
 
 return {
   baseline,
   confirmed: confirmed.map((r) => r.scenario),
   failed,
   verdict: failed.length === 0 ? 'pass' : 'attention',
-}
+};

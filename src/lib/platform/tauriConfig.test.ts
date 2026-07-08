@@ -126,7 +126,9 @@ describe('saveConfig', () => {
     const mockWriteTextFile = vi.mocked(writeTextFile);
     const mockRename = vi.mocked(rename);
     vi.mocked(exists).mockResolvedValueOnce(true);
-    mockReadTextFile.mockResolvedValueOnce(JSON.stringify({ sidebarWidth: 280, graphSidebarWidth: 320 }));
+    mockReadTextFile.mockResolvedValueOnce(
+      JSON.stringify({ sidebarWidth: 280, graphSidebarWidth: 320 }),
+    );
 
     await saveConfig({ sidebarWidth: 350 });
     expect(mockWriteTextFile).toHaveBeenCalledTimes(1);

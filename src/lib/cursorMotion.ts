@@ -42,10 +42,7 @@ function closestPositionOnAdjacentVisualRow(
   for (const [key, top] of rowTops) {
     const isCandidate = direction === 'up' ? top < fromTop - 0.5 : top > fromTop + 0.5;
     if (!isCandidate) continue;
-    if (
-      targetTop === null ||
-      (direction === 'up' ? top > targetTop : top < targetTop)
-    ) {
+    if (targetTop === null || (direction === 'up' ? top > targetTop : top < targetTop)) {
       targetTop = top;
       targetKey = key;
     }
@@ -111,7 +108,15 @@ function moveByVisualLine(view: EditorView, direction: 'up' | 'down'): boolean {
   return true;
 }
 
-export const cursorMotionKeymap = Prec.high(keymap.of([
-  { key: 'ArrowUp', run: (view) => moveAcrossEmptyLine(view, 'up') || moveByVisualLine(view, 'up') },
-  { key: 'ArrowDown', run: (view) => moveAcrossEmptyLine(view, 'down') || moveByVisualLine(view, 'down') },
-]));
+export const cursorMotionKeymap = Prec.high(
+  keymap.of([
+    {
+      key: 'ArrowUp',
+      run: (view) => moveAcrossEmptyLine(view, 'up') || moveByVisualLine(view, 'up'),
+    },
+    {
+      key: 'ArrowDown',
+      run: (view) => moveAcrossEmptyLine(view, 'down') || moveByVisualLine(view, 'down'),
+    },
+  ]),
+);

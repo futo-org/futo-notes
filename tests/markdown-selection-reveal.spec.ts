@@ -43,7 +43,7 @@ async function getSelectionState(page: Page): Promise<{ empty: boolean; text: st
 async function startLineMutationObserver(page: Page, text: string): Promise<void> {
   await page.evaluate((lineText) => {
     const line = Array.from(document.querySelectorAll('.cm-line')).find((el) =>
-      (el as HTMLElement).innerText.includes(lineText)
+      (el as HTMLElement).innerText.includes(lineText),
     );
     if (!line) throw new Error(`Line not found: ${lineText}`);
 
@@ -82,51 +82,57 @@ async function getVisibleTextPoint(
   substring: string,
   side: 'start' | 'end',
 ): Promise<{ x: number; y: number }> {
-  return page.evaluate(({ substring, side }) => {
-    const lines = document.querySelectorAll('.cm-line');
-    for (const line of Array.from(lines)) {
-      const walker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT);
-      const nodes: Text[] = [];
-      let n: Node | null;
-      while ((n = walker.nextNode())) nodes.push(n as Text);
-      const concatenated = nodes.map((t) => t.textContent ?? '').join('');
-      const start = concatenated.indexOf(substring);
-      if (start === -1) continue;
+  return page.evaluate(
+    ({ substring, side }) => {
+      const lines = document.querySelectorAll('.cm-line');
+      for (const line of Array.from(lines)) {
+        const walker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT);
+        const nodes: Text[] = [];
+        let n: Node | null;
+        while ((n = walker.nextNode())) nodes.push(n as Text);
+        const concatenated = nodes.map((t) => t.textContent ?? '').join('');
+        const start = concatenated.indexOf(substring);
+        if (start === -1) continue;
 
-      const target = side === 'start' ? start : start + substring.length;
-      const from = side === 'start'
-        ? Math.min(target, Math.max(0, concatenated.length - 1))
-        : Math.max(0, target - 1);
-      const to = side === 'start'
-        ? Math.min(concatenated.length, from + 1)
-        : Math.min(concatenated.length, target);
+        const target = side === 'start' ? start : start + substring.length;
+        const from =
+          side === 'start'
+            ? Math.min(target, Math.max(0, concatenated.length - 1))
+            : Math.max(0, target - 1);
+        const to =
+          side === 'start'
+            ? Math.min(concatenated.length, from + 1)
+            : Math.min(concatenated.length, target);
 
-      const locate = (offset: number): { node: Text; offset: number } => {
-        let remaining = offset;
-        for (const t of nodes) {
-          const len = t.textContent?.length ?? 0;
-          if (remaining <= len) return { node: t, offset: remaining };
-          remaining -= len;
-        }
-        const last = nodes[nodes.length - 1];
-        return { node: last, offset: last.textContent?.length ?? 0 };
-      };
-      const a = locate(from);
-      const b = locate(to);
-      const range = document.createRange();
-      range.setStart(a.node, a.offset);
-      range.setEnd(b.node, b.offset);
-      const rect = Array.from(range.getClientRects()).at(side === 'start' ? 0 : -1)
-        ?? range.getBoundingClientRect();
+        const locate = (offset: number): { node: Text; offset: number } => {
+          let remaining = offset;
+          for (const t of nodes) {
+            const len = t.textContent?.length ?? 0;
+            if (remaining <= len) return { node: t, offset: remaining };
+            remaining -= len;
+          }
+          const last = nodes[nodes.length - 1];
+          return { node: last, offset: last.textContent?.length ?? 0 };
+        };
+        const a = locate(from);
+        const b = locate(to);
+        const range = document.createRange();
+        range.setStart(a.node, a.offset);
+        range.setEnd(b.node, b.offset);
+        const rect =
+          Array.from(range.getClientRects()).at(side === 'start' ? 0 : -1) ??
+          range.getBoundingClientRect();
 
-      return {
-        x: side === 'start' ? rect.left + 1 : rect.right - 1,
-        y: (rect.top + rect.bottom) / 2,
-      };
-    }
+        return {
+          x: side === 'start' ? rect.left + 1 : rect.right - 1,
+          y: (rect.top + rect.bottom) / 2,
+        };
+      }
 
-    throw new Error(`Visible substring not found: ${substring}`);
-  }, { substring, side });
+      throw new Error(`Visible substring not found: ${substring}`);
+    },
+    { substring, side },
+  );
 }
 
 async function getElementDragPoints(
@@ -164,7 +170,8 @@ interface SelectionRevealCase {
 
 type DragDirection = 'forward' | 'backward';
 
-const IMAGE_SRC = 'data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20width=%2232%22%20height=%2218%22%3E%3Crect%20width=%2232%22%20height=%2218%22%20fill=%22%23000%22/%3E%3C/svg%3E';
+const IMAGE_SRC =
+  'data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20width=%2232%22%20height=%2218%22%3E%3Crect%20width=%2232%22%20height=%2218%22%20fill=%22%23000%22/%3E%3C/svg%3E';
 
 const revealCases: SelectionRevealCase[] = [
   {
@@ -252,9 +259,7 @@ async function getDragPoints(
 ): Promise<{ start: { x: number; y: number }; end: { x: number; y: number } }> {
   if (drag.kind === 'element') {
     const points = await getElementDragPoints(page, drag.selector);
-    return direction === 'forward'
-      ? points
-      : { start: points.end, end: points.start };
+    return direction === 'forward' ? points : { start: points.end, end: points.start };
   }
 
   if (direction === 'forward') {
@@ -297,12 +302,21 @@ async function dragSelectionAndReadStates(
   const afterSelection = await getSelectionState(page);
   const afterQuoteMarkerVisible = await quoteMarkerVisibility(page);
 
-  return { duringText, duringSelection, duringQuoteMarkerVisible, afterText, afterSelection, afterQuoteMarkerVisible };
+  return {
+    duringText,
+    duringSelection,
+    duringQuoteMarkerVisible,
+    afterText,
+    afterSelection,
+    afterQuoteMarkerVisible,
+  };
 }
 
 async function quoteMarkerVisibility(page: Page): Promise<boolean | null> {
   return page.evaluate(() => {
-    const marker = document.querySelector('.cm-md-quote-marker, .cm-md-quote-marker-hidden') as HTMLElement | null;
+    const marker = document.querySelector(
+      '.cm-md-quote-marker, .cm-md-quote-marker-hidden',
+    ) as HTMLElement | null;
     if (!marker) return null;
     const style = window.getComputedStyle(marker);
     return style.fontSize !== '0px' && style.color !== 'rgba(0, 0, 0, 0)';
@@ -312,7 +326,9 @@ async function quoteMarkerVisibility(page: Page): Promise<boolean | null> {
 test.describe('Markdown selection reveal timing', () => {
   for (const revealCase of revealCases) {
     for (const direction of ['forward', 'backward'] as const) {
-      test(`${revealCase.name} syntax stays hidden during ${direction} drag and reveals after mouseup`, async ({ page }) => {
+      test(`${revealCase.name} syntax stays hidden during ${direction} drag and reveals after mouseup`, async ({
+        page,
+      }) => {
         await setupEditor(page, revealCase.markdown);
 
         const beforeText = await getVisibleEditorText(page);
@@ -323,23 +339,61 @@ test.describe('Markdown selection reveal timing', () => {
         }
 
         const points = await getDragPoints(page, revealCase.drag, direction);
-        const { duringText, duringSelection, duringQuoteMarkerVisible, afterText, afterSelection, afterQuoteMarkerVisible } =
-          await dragSelectionAndReadStates(page, points);
+        const {
+          duringText,
+          duringSelection,
+          duringQuoteMarkerVisible,
+          afterText,
+          afterSelection,
+          afterQuoteMarkerVisible,
+        } = await dragSelectionAndReadStates(page, points);
 
-        expect.soft(duringSelection.empty, `${revealCase.name} should create a ${direction} selection while dragging`).toBe(false);
-        expect.soft(afterSelection.empty, `${revealCase.name} should keep a ${direction} selection after mouseup`).toBe(false);
+        expect
+          .soft(
+            duringSelection.empty,
+            `${revealCase.name} should create a ${direction} selection while dragging`,
+          )
+          .toBe(false);
+        expect
+          .soft(
+            afterSelection.empty,
+            `${revealCase.name} should keep a ${direction} selection after mouseup`,
+          )
+          .toBe(false);
         if (revealCase.assertVisibleTextSyntax === false) {
-          expect.soft(duringQuoteMarkerVisible, `${revealCase.name} marker should stay hidden during ${direction} drag`).toBe(false);
-          expect.soft(afterQuoteMarkerVisible, `${revealCase.name} marker should reveal after mouseup after ${direction} drag`).toBe(true);
+          expect
+            .soft(
+              duringQuoteMarkerVisible,
+              `${revealCase.name} marker should stay hidden during ${direction} drag`,
+            )
+            .toBe(false);
+          expect
+            .soft(
+              afterQuoteMarkerVisible,
+              `${revealCase.name} marker should reveal after mouseup after ${direction} drag`,
+            )
+            .toBe(true);
         } else {
-          expect.soft(duringText, `${revealCase.name} should not reveal before mouseup during ${direction} drag`).not.toContain(revealCase.rawSyntax);
-          expect.soft(afterText, `${revealCase.name} should reveal after mouseup after ${direction} drag`).toContain(revealCase.rawSyntax);
+          expect
+            .soft(
+              duringText,
+              `${revealCase.name} should not reveal before mouseup during ${direction} drag`,
+            )
+            .not.toContain(revealCase.rawSyntax);
+          expect
+            .soft(
+              afterText,
+              `${revealCase.name} should reveal after mouseup after ${direction} drag`,
+            )
+            .toContain(revealCase.rawSyntax);
         }
       });
     }
   }
 
-  test('heading selection reveals after forward drag from heading line to next line', async ({ page }) => {
+  test('heading selection reveals after forward drag from heading line to next line', async ({
+    page,
+  }) => {
     await setupEditor(page, '# Howdy\nyes');
 
     const beforeText = await getVisibleEditorText(page);
@@ -352,33 +406,48 @@ test.describe('Markdown selection reveal timing', () => {
     const { duringText, duringSelection, afterText, afterSelection } =
       await dragSelectionAndReadStates(page, points);
 
-    expect.soft(duringSelection.empty, 'heading forward selection should exist during drag').toBe(false);
-    expect.soft(afterSelection.empty, 'heading forward selection should remain after mouseup').toBe(false);
-    expect.soft(afterSelection.text, 'heading forward selection should include the hidden marker').toContain('# Howdy');
-    expect.soft(duringText, 'heading marker should stay hidden during forward drag').not.toContain('# Howdy');
-    expect.soft(afterText, 'heading marker should reveal after forward mouseup').toContain('# Howdy');
+    expect
+      .soft(duringSelection.empty, 'heading forward selection should exist during drag')
+      .toBe(false);
+    expect
+      .soft(afterSelection.empty, 'heading forward selection should remain after mouseup')
+      .toBe(false);
+    expect
+      .soft(afterSelection.text, 'heading forward selection should include the hidden marker')
+      .toContain('# Howdy');
+    expect
+      .soft(duringText, 'heading marker should stay hidden during forward drag')
+      .not.toContain('# Howdy');
+    expect
+      .soft(afterText, 'heading marker should reveal after forward mouseup')
+      .toContain('# Howdy');
     await expect(page.locator('.cm-md-h1', { hasText: 'Howdy' })).toBeVisible();
   });
 
-  test('blockquote line does not re-render while drag-selecting its visible text', async ({ page }) => {
-    await setupEditor(page, [
-      '**hey man** how is it *going*.',
-      '',
-      '# Howdy',
-      'yes',
-      '',
-      '- meow',
-      '- haha',
-      '',
-      '> four score and seven years ago',
-      '',
-      '```',
-      'code goes here',
-      'and why',
-      '```',
-      '',
-      '`yes` maam',
-    ].join('\n'));
+  test('blockquote line does not re-render while drag-selecting its visible text', async ({
+    page,
+  }) => {
+    await setupEditor(
+      page,
+      [
+        '**hey man** how is it *going*.',
+        '',
+        '# Howdy',
+        'yes',
+        '',
+        '- meow',
+        '- haha',
+        '',
+        '> four score and seven years ago',
+        '',
+        '```',
+        'code goes here',
+        'and why',
+        '```',
+        '',
+        '`yes` maam',
+      ].join('\n'),
+    );
 
     await startLineMutationObserver(page, 'four score and seven years ago');
 
@@ -419,7 +488,9 @@ test.describe('Markdown selection reveal timing', () => {
     await page.mouse.up();
   });
 
-  test('drag from already-revealed bold text keeps markers visible during selection', async ({ page }) => {
+  test('drag from already-revealed bold text keeps markers visible during selection', async ({
+    page,
+  }) => {
     await setupEditor(page, 'This is **bold text** here.');
 
     const start = await getVisibleTextPoint(page, 'bold', 'start');
@@ -439,7 +510,9 @@ test.describe('Markdown selection reveal timing', () => {
     await page.mouse.up();
   });
 
-  test('non-drag mousedown on hidden bold markers waits until mouseup to reveal', async ({ page }) => {
+  test('non-drag mousedown on hidden bold markers waits until mouseup to reveal', async ({
+    page,
+  }) => {
     await setupEditor(page, 'This is **bold** text.');
 
     const point = await getVisibleTextPoint(page, 'bold', 'start');
@@ -457,7 +530,9 @@ test.describe('Markdown selection reveal timing', () => {
     expect(await getVisibleEditorText(page)).toContain('**bold**');
   });
 
-  test('non-drag mousedown after revealing a blockquote marker keeps it visible', async ({ page }) => {
+  test('non-drag mousedown after revealing a blockquote marker keeps it visible', async ({
+    page,
+  }) => {
     await setupEditor(page, '> Quote text');
 
     const point = await getVisibleTextPoint(page, 'Quote', 'start');
@@ -475,7 +550,9 @@ test.describe('Markdown selection reveal timing', () => {
     await page.mouse.up();
   });
 
-  test('drag from already-revealed blockquote keeps marker visible during selection', async ({ page }) => {
+  test('drag from already-revealed blockquote keeps marker visible during selection', async ({
+    page,
+  }) => {
     await setupEditor(page, '> four score and seven years ago');
 
     const start = await getVisibleTextPoint(page, 'years', 'start');
@@ -495,7 +572,9 @@ test.describe('Markdown selection reveal timing', () => {
     await page.mouse.up();
   });
 
-  test('non-drag mousedown at blockquote line end waits until mouseup to reveal marker', async ({ page }) => {
+  test('non-drag mousedown at blockquote line end waits until mouseup to reveal marker', async ({
+    page,
+  }) => {
     await setupEditor(page, '> four score and seven years ago');
 
     const agoEnd = await getVisibleTextPoint(page, 'ago', 'end');
@@ -514,7 +593,9 @@ test.describe('Markdown selection reveal timing', () => {
     expect(await quoteMarkerVisibility(page)).toBe(true);
   });
 
-  test('heading selection reveals after backward drag from next line to heading line', async ({ page }) => {
+  test('heading selection reveals after backward drag from next line to heading line', async ({
+    page,
+  }) => {
     await setupEditor(page, '# Howdy\nyes');
 
     const beforeText = await getVisibleEditorText(page);
@@ -527,15 +608,27 @@ test.describe('Markdown selection reveal timing', () => {
     const { duringText, duringSelection, afterText, afterSelection } =
       await dragSelectionAndReadStates(page, points);
 
-    expect.soft(duringSelection.empty, 'heading backward selection should exist during drag').toBe(false);
-    expect.soft(afterSelection.empty, 'heading backward selection should remain after mouseup').toBe(false);
-    expect.soft(afterSelection.text, 'heading backward selection should include the hidden marker').toContain('# Howdy');
-    expect.soft(duringText, 'heading marker should stay hidden during backward drag').not.toContain('# Howdy');
-    expect.soft(afterText, 'heading marker should reveal after backward mouseup').toContain('# Howdy');
+    expect
+      .soft(duringSelection.empty, 'heading backward selection should exist during drag')
+      .toBe(false);
+    expect
+      .soft(afterSelection.empty, 'heading backward selection should remain after mouseup')
+      .toBe(false);
+    expect
+      .soft(afterSelection.text, 'heading backward selection should include the hidden marker')
+      .toContain('# Howdy');
+    expect
+      .soft(duringText, 'heading marker should stay hidden during backward drag')
+      .not.toContain('# Howdy');
+    expect
+      .soft(afterText, 'heading marker should reveal after backward mouseup')
+      .toContain('# Howdy');
     await expect(page.locator('.cm-md-h1', { hasText: 'Howdy' })).toBeVisible();
   });
 
-  test('heading selection reveals after backward drag that extends above the heading', async ({ page }) => {
+  test('heading selection reveals after backward drag that extends above the heading', async ({
+    page,
+  }) => {
     await setupEditor(page, 'above\n# Howdy\nyes');
 
     const beforeText = await getVisibleEditorText(page);
@@ -548,11 +641,27 @@ test.describe('Markdown selection reveal timing', () => {
     const { duringText, duringSelection, afterText, afterSelection } =
       await dragSelectionAndReadStates(page, points);
 
-    expect.soft(duringSelection.empty, 'extended backward heading selection should exist during drag').toBe(false);
-    expect.soft(afterSelection.empty, 'extended backward heading selection should remain after mouseup').toBe(false);
-    expect.soft(afterSelection.text, 'extended backward heading selection should include the hidden marker').toContain('# Howdy');
-    expect.soft(duringText, 'heading marker should stay hidden while dragging above the heading').not.toContain('# Howdy');
-    expect.soft(afterText, 'heading marker should reveal after mouseup when selection spans the heading').toContain('# Howdy');
+    expect
+      .soft(duringSelection.empty, 'extended backward heading selection should exist during drag')
+      .toBe(false);
+    expect
+      .soft(afterSelection.empty, 'extended backward heading selection should remain after mouseup')
+      .toBe(false);
+    expect
+      .soft(
+        afterSelection.text,
+        'extended backward heading selection should include the hidden marker',
+      )
+      .toContain('# Howdy');
+    expect
+      .soft(duringText, 'heading marker should stay hidden while dragging above the heading')
+      .not.toContain('# Howdy');
+    expect
+      .soft(
+        afterText,
+        'heading marker should reveal after mouseup when selection spans the heading',
+      )
+      .toContain('# Howdy');
     await expect(page.locator('.cm-md-h1', { hasText: 'Howdy' })).toBeVisible();
   });
 
@@ -569,11 +678,30 @@ test.describe('Markdown selection reveal timing', () => {
     const { duringText, duringSelection, afterText, afterSelection } =
       await dragSelectionAndReadStates(page, points);
 
-    expect.soft(duringSelection.empty, 'forward heading selection from above should exist during drag').toBe(false);
-    expect.soft(afterSelection.empty, 'forward heading selection from above should remain after mouseup').toBe(false);
-    expect.soft(afterSelection.text, 'forward heading selection from above should include the hidden marker').toContain('# Howdy');
-    expect.soft(duringText, 'heading marker should stay hidden while dragging from above the heading').not.toContain('# Howdy');
-    expect.soft(afterText, 'heading marker should reveal after mouseup when forward selection spans the heading').toContain('# Howdy');
+    expect
+      .soft(duringSelection.empty, 'forward heading selection from above should exist during drag')
+      .toBe(false);
+    expect
+      .soft(
+        afterSelection.empty,
+        'forward heading selection from above should remain after mouseup',
+      )
+      .toBe(false);
+    expect
+      .soft(
+        afterSelection.text,
+        'forward heading selection from above should include the hidden marker',
+      )
+      .toContain('# Howdy');
+    expect
+      .soft(duringText, 'heading marker should stay hidden while dragging from above the heading')
+      .not.toContain('# Howdy');
+    expect
+      .soft(
+        afterText,
+        'heading marker should reveal after mouseup when forward selection spans the heading',
+      )
+      .toContain('# Howdy');
     await expect(page.locator('.cm-md-h1', { hasText: 'Howdy' })).toBeVisible();
   });
 
@@ -605,10 +733,21 @@ test.describe('Markdown selection reveal timing', () => {
       const afterSelection = await getSelectionState(page);
       const afterTagCount = await page.locator('.cm-md-tag').count();
 
-      expect.soft(duringSelection.empty, `inline tag should create a ${direction} selection while dragging`).toBe(false);
-      expect.soft(afterSelection.empty, `inline tag should keep a ${direction} selection after mouseup`).toBe(false);
-      expect.soft(duringTagCount, `inline tag should keep the tag decoration during ${direction} drag`).toBe(2);
-      expect.soft(afterTagCount, `inline tag should keep the tag decoration after ${direction} mouseup`).toBe(2);
+      expect
+        .soft(
+          duringSelection.empty,
+          `inline tag should create a ${direction} selection while dragging`,
+        )
+        .toBe(false);
+      expect
+        .soft(afterSelection.empty, `inline tag should keep a ${direction} selection after mouseup`)
+        .toBe(false);
+      expect
+        .soft(duringTagCount, `inline tag should keep the tag decoration during ${direction} drag`)
+        .toBe(2);
+      expect
+        .soft(afterTagCount, `inline tag should keep the tag decoration after ${direction} mouseup`)
+        .toBe(2);
     });
   }
 });

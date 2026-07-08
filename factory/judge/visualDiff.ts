@@ -27,21 +27,35 @@ const NEUTRAL_THEME = readFileSync(path.join(REPO, 'factory/themes/neutral.css')
 // the screenshot/diff cost.
 export const VISUAL_SCENARIO_NAMES = new Set([
   // Headings
-  'h1-basic', 'h2-basic', 'h3-basic', 'h4-basic', 'h5-basic', 'h6-basic',
+  'h1-basic',
+  'h2-basic',
+  'h3-basic',
+  'h4-basic',
+  'h5-basic',
+  'h6-basic',
   'heading-with-emphasis',
   // Inline emphasis
-  'bold-basic', 'italic-basic', 'strikethrough-basic',
+  'bold-basic',
+  'italic-basic',
+  'strikethrough-basic',
   'bold-italic-basic',
-  'italic-underscore-basic', 'bold-underscore-basic',
+  'italic-underscore-basic',
+  'bold-underscore-basic',
   // Code
-  'inline-code-basic', 'fenced-code-basic', 'fenced-code-ruby',
+  'inline-code-basic',
+  'fenced-code-basic',
+  'fenced-code-ruby',
   // Links / wikilinks
-  'link-basic', 'wikilink-basic',
+  'link-basic',
+  'wikilink-basic',
   // Lists
-  'ul-basic', 'ol-basic',
-  'task-unchecked', 'task-checked',
+  'ul-basic',
+  'ol-basic',
+  'task-unchecked',
+  'task-checked',
   // Blockquotes
-  'blockquote-basic', 'nested-blockquote',
+  'blockquote-basic',
+  'nested-blockquote',
   // Block-level
   'hr-basic',
   // Tags
@@ -78,9 +92,13 @@ export async function captureEditorScreenshot(
     const root = document.querySelector('.cm-content[data-factory-target="true"]');
     if (!root) return null;
     const rootRect = root.getBoundingClientRect();
-    const elements = Array.from(root.querySelectorAll('.cm-line, .cm-md-code-lang-label')) as HTMLElement[];
+    const elements = Array.from(
+      root.querySelectorAll('.cm-line, .cm-md-code-lang-label'),
+    ) as HTMLElement[];
     if (elements.length === 0) return null;
-    let top = Infinity, right = -Infinity, bottom = -Infinity;
+    let top = Infinity,
+      right = -Infinity,
+      bottom = -Infinity;
     for (const el of elements) {
       const r = el.getBoundingClientRect();
       // Skip empty trailing lines that have no rendered text.
@@ -134,7 +152,7 @@ export interface VisualDiffResult {
 // is a structural divergence worth opening the report for. The
 // LLM-judge phase doesn't care about the threshold — it reads the
 // pair regardless.
-export const VISUAL_DIFF_TOLERANCE = 0.10;
+export const VISUAL_DIFF_TOLERANCE = 0.1;
 
 export function diffScreenshots(
   scenarioName: string,
@@ -155,24 +173,32 @@ export function diffScreenshots(
   const obCropped = cropToCommon(ob, w, h);
   const diff = new PNG({ width: w, height: h });
 
-  const diffPixels = pixelmatch(
-    sfCropped.data, obCropped.data, diff.data, w, h,
-    { threshold: 0.1, includeAA: false },
-  );
+  const diffPixels = pixelmatch(sfCropped.data, obCropped.data, diff.data, w, h, {
+    threshold: 0.1,
+    includeAA: false,
+  });
 
   const diffPath = path.join(SCREENSHOTS_DIR, `${scenarioName}.diff.png`);
   writeFileSync(diffPath, PNG.sync.write(diff));
 
   return {
-    scenarioName, sfPath, obPath, diffPath,
+    scenarioName,
+    sfPath,
+    obPath,
+    diffPath,
     diffPixels,
     diffRatio: diffPixels / (w * h),
     sizesMatched,
-    width: w, height: h,
+    width: w,
+    height: h,
   };
 }
 
-function cropToCommon(src: PNG, w: number, h: number): { data: Buffer; width: number; height: number } {
+function cropToCommon(
+  src: PNG,
+  w: number,
+  h: number,
+): { data: Buffer; width: number; height: number } {
   if (src.width === w && src.height === h) return src;
   const out = new PNG({ width: w, height: h });
   for (let y = 0; y < h; y++) {

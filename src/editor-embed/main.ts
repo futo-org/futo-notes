@@ -164,7 +164,10 @@ const editor = mount(MarkdownEditor, {
     onopenlink: (title: string, _event: MouseEvent) => {
       // Resolve the raw wikilink target against the host-fed universe; only
       // RESOLVED links navigate — taps on broken links do nothing.
-      const resolved = resolveWikilink(title, getAllNotes().map((n) => n.id));
+      const resolved = resolveWikilink(
+        title,
+        getAllNotes().map((n) => n.id),
+      );
       if (resolved !== null) {
         post({ type: 'openNote', id: resolved });
       }
@@ -419,8 +422,7 @@ warmEditorFonts();
 // would otherwise surface as a momentum-killing anchor correction). A second
 // call should return grew≈0, confirming the map stays warm. Used by the iOS
 // scroll-jank probe (see /tmp/build-scroll-probe.mjs).
-(window as unknown as { __scrollDiag?: () => unknown }).__scrollDiag = () =>
-  editor.warmScroll();
+(window as unknown as { __scrollDiag?: () => unknown }).__scrollDiag = () => editor.warmScroll();
 
 // Signal readiness after the editor is mounted. requestAnimationFrame gives
 // the CodeMirror view a frame to attach before native pushes initial content.

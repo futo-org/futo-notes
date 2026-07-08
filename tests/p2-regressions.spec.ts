@@ -30,9 +30,9 @@ test.describe('P2 Header + Formatting Regressions', () => {
     });
     await page.waitForTimeout(100);
 
-    const focused = await page.locator('.cm-editor').evaluate((el) =>
-      el.classList.contains('cm-focused')
-    );
+    const focused = await page
+      .locator('.cm-editor')
+      .evaluate((el) => el.classList.contains('cm-focused'));
     expect(focused).toBe(true);
 
     const cursorDisplay = await page.evaluate(() => {
@@ -51,7 +51,7 @@ test.describe('P2 Header + Formatting Regressions', () => {
     await titleInput.press('Enter');
 
     const editorFocused = await page.evaluate(() =>
-      Boolean(document.activeElement?.closest('.cm-editor'))
+      Boolean(document.activeElement?.closest('.cm-editor')),
     );
     expect(editorFocused).toBe(true);
 
@@ -85,7 +85,7 @@ test.describe('P2 Header + Formatting Regressions', () => {
       const input = el as HTMLInputElement;
       return {
         start: input.selectionStart,
-        end: input.selectionEnd
+        end: input.selectionEnd,
       };
     });
 
@@ -128,7 +128,7 @@ test.describe('P2 Header + Formatting Regressions', () => {
 
     // Verify editor is not focused
     const focusedBefore = await page.evaluate(() =>
-      Boolean(document.activeElement?.closest('.cm-editor'))
+      Boolean(document.activeElement?.closest('.cm-editor')),
     );
     expect(focusedBefore).toBe(false);
 
@@ -144,7 +144,7 @@ test.describe('P2 Header + Formatting Regressions', () => {
 
     // Editor should still NOT be focused
     const focusedAfter = await page.evaluate(() =>
-      Boolean(document.activeElement?.closest('.cm-editor'))
+      Boolean(document.activeElement?.closest('.cm-editor')),
     );
     expect(focusedAfter).toBe(false);
 
@@ -159,7 +159,7 @@ test.describe('P2 Header + Formatting Regressions', () => {
   const formattingCases = [
     { fn: 'bold', cssClass: '.cm-md-strong', sample: 'boldword', marker: '**' },
     { fn: 'italic', cssClass: '.cm-md-emphasis', sample: 'italicword', marker: '*' },
-    { fn: 'strikethrough', cssClass: '.cm-md-strikethrough', sample: 'strikeword', marker: '~~' }
+    { fn: 'strikethrough', cssClass: '.cm-md-strikethrough', sample: 'strikeword', marker: '~~' },
   ];
 
   for (const tc of formattingCases) {
@@ -188,15 +188,18 @@ test.describe('P2 Header + Formatting Regressions', () => {
       await openNewNote(page);
 
       const marked = `${tc.marker}${tc.sample}${tc.marker}`;
-      await page.evaluate(({ text }) => {
-        const w = window as any;
-        const view = w.__cmGetView?.();
-        if (!view) throw new Error('CM EditorView not found');
-        view.dispatch({
-          changes: { from: 0, to: view.state.doc.length, insert: text },
-          selection: { anchor: 0, head: text.length }
-        });
-      }, { text: marked });
+      await page.evaluate(
+        ({ text }) => {
+          const w = window as any;
+          const view = w.__cmGetView?.();
+          if (!view) throw new Error('CM EditorView not found');
+          view.dispatch({
+            changes: { from: 0, to: view.state.doc.length, insert: text },
+            selection: { anchor: 0, head: text.length },
+          });
+        },
+        { text: marked },
+      );
 
       await toggleFormatting(page, tc.fn);
 
@@ -214,16 +217,21 @@ test.describe('P2 Header + Formatting Regressions', () => {
   // a related interaction with the mount-time auto-focus; the desktop
   // assertion here guards against any future regression that surfaces
   // when posAtCoords interacts with the hidden header block.
-  test('clicking body of a note with header tags places cursor at the click point', async ({ page }) => {
+  test('clicking body of a note with header tags places cursor at the click point', async ({
+    page,
+  }) => {
     await openNewNote(page);
 
     const body = 'Body line one\nBody line two\nBody line three\nBody line four';
-    await page.evaluate(({ text }) => {
-      const w = window as typeof window & {
-        __notesShellTest: { seedOpenNote: (id: string, body: string) => void };
-      };
-      w.__notesShellTest.seedOpenNote('tagged regression', `#alpha #beta\n\n${text}`);
-    }, { text: body });
+    await page.evaluate(
+      ({ text }) => {
+        const w = window as typeof window & {
+          __notesShellTest: { seedOpenNote: (id: string, body: string) => void };
+        };
+        w.__notesShellTest.seedOpenNote('tagged regression', `#alpha #beta\n\n${text}`);
+      },
+      { text: body },
+    );
 
     // Blur so the header tag block hides — this is the state that breaks
     // coord-to-position mapping in the buggy implementation.

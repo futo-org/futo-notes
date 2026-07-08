@@ -15,18 +15,28 @@ class FakeWs extends EventEmitter {
     const response = this.responses.shift();
     queueMicrotask(() => {
       if (response instanceof Error) {
-        this.emit('message', Buffer.from(JSON.stringify({
-          id,
-          success: false,
-          error: response.message,
-        })));
+        this.emit(
+          'message',
+          Buffer.from(
+            JSON.stringify({
+              id,
+              success: false,
+              error: response.message,
+            }),
+          ),
+        );
         return;
       }
-      this.emit('message', Buffer.from(JSON.stringify({
-        id,
-        success: true,
-        data: { result: response },
-      })));
+      this.emit(
+        'message',
+        Buffer.from(
+          JSON.stringify({
+            id,
+            success: true,
+            data: { result: response },
+          }),
+        ),
+      );
     });
   }
 }
@@ -38,11 +48,13 @@ describe('waitForTestHooks', () => {
       JSON.stringify({ testSync: 'object', notesShell: 'object' }),
     ]);
 
-    await expect(waitForTestHooks(ws, 'client-a', {
-      initialDelayMs: 0,
-      attempts: 2,
-      intervalMs: 0,
-    })).resolves.toBeUndefined();
+    await expect(
+      waitForTestHooks(ws, 'client-a', {
+        initialDelayMs: 0,
+        attempts: 2,
+        intervalMs: 0,
+      }),
+    ).resolves.toBeUndefined();
     expect(ws.sent).toHaveLength(2);
   });
 });

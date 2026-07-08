@@ -13,7 +13,11 @@ export async function readNote(id: string): Promise<string> {
   return getFS().readNote(id);
 }
 
-export async function writeNote(id: string, content: string, modifiedAtMs?: number): Promise<number> {
+export async function writeNote(
+  id: string,
+  content: string,
+  modifiedAtMs?: number,
+): Promise<number> {
   // Record before the write so the OS-emitted watcher event for our own
   // write doesn't bubble back to syncManager as "changed externally".
   writeSuppressor.recordWrite(`${id}.md`);
@@ -54,7 +58,12 @@ export async function getUniqueNoteId(baseId: string, excludeId?: string): Promi
   return candidateId;
 }
 
-export async function renameNote(oldId: string, newId: string, content: string, modifiedAtMs?: number): Promise<number> {
+export async function renameNote(
+  oldId: string,
+  newId: string,
+  content: string,
+  modifiedAtMs?: number,
+): Promise<number> {
   // writeNote + deleteNoteFile each record their own path, suppressing
   // the watcher events that would otherwise surface as "changed/deleted
   // externally" on the active note. Watcher debounce (50ms) is well

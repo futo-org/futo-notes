@@ -21,7 +21,10 @@ import { EditorState } from '@codemirror/state';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { ensureSyntaxTree, Language } from '@codemirror/language';
 import { liveMarkdownTransform } from './liveMarkdownTransform';
-import { createMarkdownLanguageSupport, markdownEditorLanguageExtensions } from './codeMirrorMarkdown';
+import {
+  createMarkdownLanguageSupport,
+  markdownEditorLanguageExtensions,
+} from './codeMirrorMarkdown';
 
 /**
  * Create an EditorView with the same extension stack as MarkdownEditor.svelte,
@@ -60,7 +63,7 @@ async function waitForSelector(container: ParentNode, selector: string): Promise
   for (let i = 0; i < 50; i++) {
     const el = container.querySelector(selector);
     if (el) return el;
-    await new Promise(resolve => setTimeout(resolve, 20));
+    await new Promise((resolve) => setTimeout(resolve, 20));
   }
   throw new Error(`Timed out waiting for ${selector}`);
 }
@@ -88,7 +91,7 @@ describe('Markdown rendering (liveMarkdownTransform decorations)', () => {
     expect(
       mdSupport.language instanceof Language,
       '@codemirror/language is duplicated: markdownLanguage is not instanceof Language. ' +
-      'Pin @codemirror/language in package.json to force a single copy.',
+        'Pin @codemirror/language in package.json to force a single copy.',
     ).toBe(true);
 
     // Verify the parser actually produces a syntax tree
@@ -124,7 +127,9 @@ describe('Markdown rendering (liveMarkdownTransform decorations)', () => {
     expect(string.textContent).toContain('redcarpet');
 
     expect(
-      container.querySelector('.cm-md-code-block .tok-variableName, .cm-md-code-block .tok-propertyName'),
+      container.querySelector(
+        '.cm-md-code-block .tok-variableName, .cm-md-code-block .tok-propertyName',
+      ),
       'Expected nested Ruby language token classes inside the fenced block',
     ).toBeTruthy();
 
@@ -134,17 +139,16 @@ describe('Markdown rendering (liveMarkdownTransform decorations)', () => {
   });
 
   it('leaves unknown fenced code languages unhighlighted', async () => {
-    const doc = [
-      '```doesnotexist',
-      'const value = "plain";',
-      '```',
-    ].join('\n');
+    const doc = ['```doesnotexist', 'const value = "plain";', '```'].join('\n');
 
     ({ view, container } = createEditorWithRendering(doc));
 
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await new Promise((resolve) => setTimeout(resolve, 100));
 
-    expect(container.querySelector('.cm-md-code-block'), 'Expected code block styling to remain').toBeTruthy();
+    expect(
+      container.querySelector('.cm-md-code-block'),
+      'Expected code block styling to remain',
+    ).toBeTruthy();
     expect(container.querySelector('.cm-md-code-block .tok-string')).toBeNull();
   });
 

@@ -49,7 +49,9 @@ function assert(condition, message) {
 
 function assertEqual(actual, expected, message) {
   if (actual !== expected) {
-    throw new Error(`${message}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+    throw new Error(
+      `${message}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`,
+    );
   }
 }
 
@@ -60,7 +62,9 @@ async function waitForOpenNoteTitle(client, expectedTitle, timeoutMs = 10_000) {
     if (state.title === expectedTitle) return state;
     await sleep(100);
   }
-  throw new Error(`${client.name}: title did not become ${JSON.stringify(expectedTitle)} after ${timeoutMs}ms`);
+  throw new Error(
+    `${client.name}: title did not become ${JSON.stringify(expectedTitle)} after ${timeoutMs}ms`,
+  );
 }
 
 async function waitForEditorContent(client, expectedContent, timeoutMs = 10_000) {
@@ -70,7 +74,9 @@ async function waitForEditorContent(client, expectedContent, timeoutMs = 10_000)
     if (state.editorContent === expectedContent) return state;
     await sleep(100);
   }
-  throw new Error(`${client.name}: editor content did not become ${JSON.stringify(expectedContent)} after ${timeoutMs}ms`);
+  throw new Error(
+    `${client.name}: editor content did not become ${JSON.stringify(expectedContent)} after ${timeoutMs}ms`,
+  );
 }
 
 async function waitForSavePending(client, expected, timeoutMs = 5_000) {
@@ -96,7 +102,9 @@ async function waitForToastMessage(client, expectedMessage, timeoutMs = 10_000) 
     if (state.toastMessage === expectedMessage) return state;
     await sleep(100);
   }
-  throw new Error(`${client.name}: toast did not become ${JSON.stringify(expectedMessage)} after ${timeoutMs}ms`);
+  throw new Error(
+    `${client.name}: toast did not become ${JSON.stringify(expectedMessage)} after ${timeoutMs}ms`,
+  );
 }
 
 async function waitForToastClear(client, timeoutMs = 10_000) {
@@ -117,17 +125,21 @@ async function externalWriteNote(client, id, content) {
 async function waitForNoteInSidebar(client, titleSubstring, timeoutMs = 5_000) {
   for (let elapsed = 0; elapsed < timeoutMs; elapsed += 500) {
     await sleep(500);
-    const items = await executeJs(client.ws,
-      `[...document.querySelectorAll('.note-row, [data-note-id]')].map(el => (el.getAttribute('data-note-id') || el.textContent.trim()))`);
-    if (items.some(t => t.includes(titleSubstring))) return;
+    const items = await executeJs(
+      client.ws,
+      `[...document.querySelectorAll('.note-row, [data-note-id]')].map(el => (el.getAttribute('data-note-id') || el.textContent.trim()))`,
+    );
+    if (items.some((t) => t.includes(titleSubstring))) return;
   }
   throw new Error(`"${titleSubstring}" not found in ${client.name}'s sidebar after ${timeoutMs}ms`);
 }
 
 /** Get all note titles currently visible in the sidebar. */
 async function getSidebarTitles(client) {
-  return executeJs(client.ws,
-    `[...document.querySelectorAll('.note-row, [data-note-id]')].map(el => (el.getAttribute('data-note-id') || el.textContent.trim()))`);
+  return executeJs(
+    client.ws,
+    `[...document.querySelectorAll('.note-row, [data-note-id]')].map(el => (el.getAttribute('data-note-id') || el.textContent.trim()))`,
+  );
 }
 
 // ── Scenarios ───────────────────────────────────────────────────
@@ -154,18 +166,29 @@ async function editorRoundtripThroughRealSync(a, b, server) {
   // A creates a new note through the actual editor path and syncs before the debounce fires.
   await createNoteViaEditor(a, noteId, body);
   const pendingState = await waitForSavePending(a, true);
-  assertEqual(pendingState.originalId, null, 'new note should still be unsaved before manual sync flush');
+  assertEqual(
+    pendingState.originalId,
+    null,
+    'new note should still be unsaved before manual sync flush',
+  );
   const aResult = await a.syncNow();
   assert(aResult.summary.uploaded === 1, `A uploaded=${aResult.summary.uploaded}, expected 1`);
 
   const postSyncState = await waitForSavePending(a, false);
-  assertEqual(postSyncState.originalId, noteId, 'manual sync should flush the pending editor save before syncing');
+  assertEqual(
+    postSyncState.originalId,
+    noteId,
+    'manual sync should flush the pending editor save before syncing',
+  );
 
   // B syncs — gets the note (auto-sync may have already fetched it, so
   // downloaded can be 0 or 1 depending on timing).  The important thing
   // is that B has the correct file on disk afterwards.
   const bResult = await b.syncNow();
-  assert(bResult.summary.downloaded <= 1, `B downloaded=${bResult.summary.downloaded}, expected 0 or 1`);
+  assert(
+    bResult.summary.downloaded <= 1,
+    `B downloaded=${bResult.summary.downloaded}, expected 0 or 1`,
+  );
 
   const diskContent = await b.readNote(noteId);
   assertEqual(diskContent, body, `${noteId} content mismatch`);
@@ -176,7 +199,7 @@ async function editorRoundtripThroughRealSync(a, b, server) {
   await waitForOpenNoteTitle(b, noteId);
   await waitForEditorContent(b, body);
   const bSidebar = await getSidebarTitles(b);
-  const syncedCount = bSidebar.filter(t => t.includes(noteId)).length;
+  const syncedCount = bSidebar.filter((t) => t.includes(noteId)).length;
   assertEqual(syncedCount, 1, `B sidebar should show exactly one synced editor note`);
 }
 
@@ -206,26 +229,34 @@ async function concurrentEditConflict(a, b, server) {
 
   // B syncs — gets conflict
   const bResult = await b.syncNow();
-  assert(bResult.summary.conflicts > 0, `B should have conflicts, got ${bResult.summary.conflicts}`);
+  assert(
+    bResult.summary.conflicts > 0,
+    `B should have conflicts, got ${bResult.summary.conflicts}`,
+  );
 
   // B should have A's version as the canonical copy
   const bCanonical = await b.readNote('shared note');
-  assertEqual(bCanonical, "# A's version", 'B canonical should be A\'s version');
+  assertEqual(bCanonical, "# A's version", "B canonical should be A's version");
 
   // A picks up conflict copy so both have identical file sets
   await a.syncNow();
   const aFiles = await a.listNotes();
   const bFiles = await b.listNotes();
-  const aNames = new Set(aFiles.map(f => f.filename || f.name || f));
-  const bNames = new Set(bFiles.map(f => f.filename || f.name || f));
+  const aNames = new Set(aFiles.map((f) => f.filename || f.name || f));
+  const bNames = new Set(bFiles.map((f) => f.filename || f.name || f));
   assertEqual(aNames.size, bNames.size, 'A and B should have same number of files');
 
   // Verify both clients' sidebars show the shared note + conflict copy
   await waitForNoteInSidebar(b, 'shared note');
   const bSidebar = await getSidebarTitles(b);
-  assert(bSidebar.length >= 2, `B sidebar should show at least 2 notes (original + conflict), got ${bSidebar.length}`);
-  assert(bSidebar.some(t => t.includes('conflict')),
-    `B sidebar should show a conflict copy, got: ${JSON.stringify(bSidebar)}`);
+  assert(
+    bSidebar.length >= 2,
+    `B sidebar should show at least 2 notes (original + conflict), got ${bSidebar.length}`,
+  );
+  assert(
+    bSidebar.some((t) => t.includes('conflict')),
+    `B sidebar should show a conflict copy, got: ${JSON.stringify(bSidebar)}`,
+  );
 }
 
 async function threeWayMerge(a, b, server) {
@@ -277,7 +308,7 @@ async function threeWayMerge(a, b, server) {
 
   // No conflict copies should exist
   const aFiles = await a.listNotes();
-  const conflictFiles = aFiles.filter(f => {
+  const conflictFiles = aFiles.filter((f) => {
     const name = f.filename || f.name || f;
     return name.includes('conflict');
   });
@@ -314,11 +345,23 @@ async function renamePropagation(a, b, server) {
   assertEqual(content, '# My Note', 'new name content mismatch');
   const state = await waitForOpenNoteTitle(b, 'new name');
   assertEqual(state.originalId, 'new name', 'open note should track the remote rename');
-  assertEqual(state.hash, `#/note/${encodeURIComponent('new name')}`, 'route should follow the renamed note');
+  assertEqual(
+    state.hash,
+    `#/note/${encodeURIComponent('new name')}`,
+    'route should follow the renamed note',
+  );
   await sleep(1200);
   const stableState = await b.getOpenNoteState();
-  assertEqual(stableState.originalId, 'new name', 'open note should remain stable after watcher aftermath');
-  assertEqual(stableState.hash, `#/note/${encodeURIComponent('new name')}`, 'route should remain stable after watcher aftermath');
+  assertEqual(
+    stableState.originalId,
+    'new name',
+    'open note should remain stable after watcher aftermath',
+  );
+  assertEqual(
+    stableState.hash,
+    `#/note/${encodeURIComponent('new name')}`,
+    'route should remain stable after watcher aftermath',
+  );
   assert(
     stableState.toastMessage === '' || stableState.toastMessage === 'Sync complete',
     `remote rename should not surface a delete/change toast, got ${JSON.stringify(stableState.toastMessage)}`,
@@ -340,9 +383,16 @@ async function activeNoteReload(a, b, server) {
   await a.syncNow();
 
   const bResult = await b.syncNow();
-  assert(bResult.summary.downloaded <= 1, `B downloaded=${bResult.summary.downloaded}, expected 0 or 1`);
+  assert(
+    bResult.summary.downloaded <= 1,
+    `B downloaded=${bResult.summary.downloaded}, expected 0 or 1`,
+  );
   const state = await waitForEditorContent(b, '# Version 2\nRemote update');
-  assertEqual(state.originalId, 'shared live', 'open note should remain the same note after remote update');
+  assertEqual(
+    state.originalId,
+    'shared live',
+    'open note should remain the same note after remote update',
+  );
   // The remote content reload triggers a change event in the editor which starts
   // the save debounce.  Wait for it to settle before asserting no pending save.
   const settled = await waitForSavePending(b, false);
@@ -390,11 +440,22 @@ async function editDuringSyncKeepsLocalDraft(a, b, server) {
   const draftDuringSync = (await b.getOpenNoteState()).editorContent;
 
   const bResult = await b.awaitStartedSync();
-  assert(bResult.summary.downloaded === 1, `B downloaded=${bResult.summary.downloaded}, expected 1`);
+  assert(
+    bResult.summary.downloaded === 1,
+    `B downloaded=${bResult.summary.downloaded}, expected 1`,
+  );
 
   const preservedState = await waitForEditorContent(b, draftDuringSync);
-  assertEqual(preservedState.originalId, 'during sync', 'open note should remain on the local draft during sync');
-  assertEqual(preservedState.hash, `#/note/${encodeURIComponent('during sync')}`, 'route should stay on the edited note during sync');
+  assertEqual(
+    preservedState.originalId,
+    'during sync',
+    'open note should remain on the local draft during sync',
+  );
+  assertEqual(
+    preservedState.hash,
+    `#/note/${encodeURIComponent('during sync')}`,
+    'route should stay on the edited note during sync',
+  );
 
   await b.setTitle('during sync');
   await b.flushSave();
@@ -402,7 +463,11 @@ async function editDuringSyncKeepsLocalDraft(a, b, server) {
   await b.syncNow();
   await a.syncNow();
   const aContent = await a.readNote('during sync');
-  assertEqual(aContent, draftDuringSync, 'local draft should still be persistable after being protected from sync clobbering');
+  assertEqual(
+    aContent,
+    draftDuringSync,
+    'local draft should still be persistable after being protected from sync clobbering',
+  );
 }
 
 async function externalWatcherReloadsCleanNote(a, _b, _server) {
@@ -421,9 +486,21 @@ async function externalWatcherReloadsCleanNote(a, _b, _server) {
   // Longer timeout than the 10s default: under Docker/xvfb the inotify
   // notification arrives slower than on a dev machine.
   const state = await waitForEditorContent(a, '# Changed externally', 30_000);
-  assertEqual(state.originalId, 'watch clean', 'clean external change should keep the same note open');
-  assertEqual(state.hash, `#/note/${encodeURIComponent('watch clean')}`, 'clean external change should keep the same route');
-  assertEqual(state.toastMessage, '', 'clean external change should not show a draft-preservation toast');
+  assertEqual(
+    state.originalId,
+    'watch clean',
+    'clean external change should keep the same note open',
+  );
+  assertEqual(
+    state.hash,
+    `#/note/${encodeURIComponent('watch clean')}`,
+    'clean external change should keep the same route',
+  );
+  assertEqual(
+    state.toastMessage,
+    '',
+    'clean external change should not show a draft-preservation toast',
+  );
 }
 
 async function externalWatcherKeepsDirtyDraft(a, _b, _server) {
@@ -449,13 +526,37 @@ async function externalWatcherKeepsDirtyDraft(a, _b, _server) {
 
   await externalWriteNote(a, 'watch dirty', '# Changed on disk');
 
-  const protectedState = await waitForToastMessage(a, 'Open note changed externally; keeping local draft', 30_000);
-  assertEqual(protectedState.originalId, 'watch dirty', 'dirty external change should keep the original note open');
-  assertEqual(protectedState.hash, `#/note/${encodeURIComponent('watch dirty')}`, 'dirty external change should keep the same route');
-  assertEqual(protectedState.title, 'taken title', 'dirty external change should keep the unsaved title draft');
-  assertEqual(protectedState.editorContent, localDraft, 'dirty external change should keep the unsaved editor draft');
+  const protectedState = await waitForToastMessage(
+    a,
+    'Open note changed externally; keeping local draft',
+    30_000,
+  );
+  assertEqual(
+    protectedState.originalId,
+    'watch dirty',
+    'dirty external change should keep the original note open',
+  );
+  assertEqual(
+    protectedState.hash,
+    `#/note/${encodeURIComponent('watch dirty')}`,
+    'dirty external change should keep the same route',
+  );
+  assertEqual(
+    protectedState.title,
+    'taken title',
+    'dirty external change should keep the unsaved title draft',
+  );
+  assertEqual(
+    protectedState.editorContent,
+    localDraft,
+    'dirty external change should keep the unsaved editor draft',
+  );
   const diskContent = await a.readNote('watch dirty');
-  assertEqual(diskContent, '# Changed on disk', 'external disk content should still land on disk while the UI keeps the draft');
+  assertEqual(
+    diskContent,
+    '# Changed on disk',
+    'external disk content should still land on disk while the UI keeps the draft',
+  );
 }
 
 async function deleteVsEdit(a, b, server) {
@@ -487,7 +588,7 @@ async function deleteVsEdit(a, b, server) {
     await a.syncNow();
     aContent = await a.readNote('contested');
   }
-  assertEqual(aContent, '# B edited this', 'A should get B\'s edit back');
+  assertEqual(aContent, '# B edited this', "A should get B's edit back");
 }
 
 async function lostStateRecovery(a, _b, server) {
@@ -505,8 +606,10 @@ async function lostStateRecovery(a, _b, server) {
 
   // Sync again — should recover without conflicts
   const result = await a.syncNow();
-  assert(result.summary.conflicts === 0,
-    `Recovery should not create conflicts, got ${result.summary.conflicts}`);
+  assert(
+    result.summary.conflicts === 0,
+    `Recovery should not create conflicts, got ${result.summary.conflicts}`,
+  );
 
   // All notes still exist
   assert(await a.noteExists('recover 1'), 'recover 1 should exist');
@@ -523,17 +626,21 @@ async function rapidReconnect(a, _b, server) {
       throw new Error(`Connect failed on iteration ${i} (server ${server.url}): ${err.message}`);
     }
     const status = await a.syncStatus();
-    assert(status.appState.serverUrl || status.preferences?.sync?.serverUrl,
-      `Iteration ${i}: should have server URL after connect`);
+    assert(
+      status.appState.serverUrl || status.preferences?.sync?.serverUrl,
+      `Iteration ${i}: should have server URL after connect`,
+    );
     await a.disconnectSync();
   }
 
   // Final connect — verify clean state
   await a.connectSync(server.url, server.password);
   const finalStatus = await a.syncStatus();
-  assert(finalStatus.appState.fileHashes === undefined
-    || Object.keys(finalStatus.appState.fileHashes || {}).length === 0,
-    'fileHashes should be empty after fresh connect');
+  assert(
+    finalStatus.appState.fileHashes === undefined ||
+      Object.keys(finalStatus.appState.fileHashes || {}).length === 0,
+    'fileHashes should be empty after fresh connect',
+  );
 }
 
 async function offlineAccumulation(a, b, server) {
@@ -557,11 +664,17 @@ async function offlineAccumulation(a, b, server) {
   // B syncs (uploads its 10, downloads A's 10 — auto-sync may have handled some)
   const bResult = await b.syncNow();
   assert(bResult.summary.uploaded <= 10, `B uploaded=${bResult.summary.uploaded}, expected ≤10`);
-  assert(bResult.summary.downloaded <= 10, `B downloaded=${bResult.summary.downloaded}, expected ≤10`);
+  assert(
+    bResult.summary.downloaded <= 10,
+    `B downloaded=${bResult.summary.downloaded}, expected ≤10`,
+  );
 
   // A syncs again to pick up B's notes
   const aResult2 = await a.syncNow();
-  assert(aResult2.summary.downloaded <= 10, `A second sync downloaded=${aResult2.summary.downloaded}, expected ≤10`);
+  assert(
+    aResult2.summary.downloaded <= 10,
+    `A second sync downloaded=${aResult2.summary.downloaded}, expected ≤10`,
+  );
 
   // Both should have all 20 notes
   for (let i = 0; i < 10; i++) {
@@ -572,7 +685,16 @@ async function offlineAccumulation(a, b, server) {
 
 /** Generate realistic note content with varying length (500–2000 bytes). */
 function generateNoteContent(i) {
-  const topics = ['meeting notes', 'project plan', 'research', 'journal', 'recipe', 'book notes', 'travel log', 'todo list'];
+  const topics = [
+    'meeting notes',
+    'project plan',
+    'research',
+    'journal',
+    'recipe',
+    'book notes',
+    'travel log',
+    'todo list',
+  ];
   const topic = topics[i % topics.length];
   const paragraphs = [
     `This is a ${topic} entry created on day ${i}. It contains the kind of freeform markdown that a real user would write — not just a header and two lines.`,
@@ -606,7 +728,10 @@ async function largeSync(a, b, server) {
 
   // A syncs (auto-sync may have handled some already)
   const aResult = await a.syncNow();
-  assert(aResult.summary.uploaded <= COUNT, `A uploaded=${aResult.summary.uploaded}, expected ≤${COUNT}`);
+  assert(
+    aResult.summary.uploaded <= COUNT,
+    `A uploaded=${aResult.summary.uploaded}, expected ≤${COUNT}`,
+  );
 
   // B syncs — may need multiple passes because auto-sync and manual sync can
   // race on who fetches first, and the server may batch-deliver across passes.
@@ -616,12 +741,16 @@ async function largeSync(a, b, server) {
     const listed = await b.listNotes();
     for (const f of listed) {
       const name = f.filename || f.name || f;
-      if (typeof name === 'string' && name.startsWith('bulk ')) bFiles.add(name.replace(/\.md$/, ''));
+      if (typeof name === 'string' && name.startsWith('bulk '))
+        bFiles.add(name.replace(/\.md$/, ''));
     }
     if (bFiles.size >= COUNT) break;
     await sleep(500);
   }
-  assert(bFiles.size === COUNT, `B ended with ${bFiles.size} bulk notes on disk, expected ${COUNT}`);
+  assert(
+    bFiles.size === COUNT,
+    `B ended with ${bFiles.size} bulk notes on disk, expected ${COUNT}`,
+  );
 
   // Spot check a few — verify full content round-tripped correctly
   for (const i of [0, 499, 999]) {
@@ -730,12 +859,32 @@ async function fileMoveOnAEditOnB(a, b, server) {
   await b.syncNow();
   await a.syncNow();
   // After convergence, the peer edit should land on the moved path only.
-  const aFiles = (await a.listNotes()).map((f) => (f.name || f.filename || f).replace(/\.md$/, '')).sort();
-  const bFiles = (await b.listNotes()).map((f) => (f.name || f.filename || f).replace(/\.md$/, '')).sort();
-  assertEqual(JSON.stringify(aFiles), JSON.stringify(['Lists/grocery']), 'A should keep only the moved path');
-  assertEqual(JSON.stringify(bFiles), JSON.stringify(['Lists/grocery']), 'B should keep only the moved path');
-  assertEqual(await a.readNote('Lists/grocery'), '# Grocery\nupdated', 'A should have B edit at moved path');
-  assertEqual(await b.readNote('Lists/grocery'), '# Grocery\nupdated', 'B should have B edit at moved path');
+  const aFiles = (await a.listNotes())
+    .map((f) => (f.name || f.filename || f).replace(/\.md$/, ''))
+    .sort();
+  const bFiles = (await b.listNotes())
+    .map((f) => (f.name || f.filename || f).replace(/\.md$/, ''))
+    .sort();
+  assertEqual(
+    JSON.stringify(aFiles),
+    JSON.stringify(['Lists/grocery']),
+    'A should keep only the moved path',
+  );
+  assertEqual(
+    JSON.stringify(bFiles),
+    JSON.stringify(['Lists/grocery']),
+    'B should keep only the moved path',
+  );
+  assertEqual(
+    await a.readNote('Lists/grocery'),
+    '# Grocery\nupdated',
+    'A should have B edit at moved path',
+  );
+  assertEqual(
+    await b.readNote('Lists/grocery'),
+    '# Grocery\nupdated',
+    'B should have B edit at moved path',
+  );
 }
 
 async function fileMovedToTwoFoldersByAandB(a, b, server) {
@@ -759,10 +908,22 @@ async function fileMovedToTwoFoldersByAandB(a, b, server) {
   await a.syncNow();
 
   // After convergence both clients should agree on the later server write.
-  const aFiles = (await a.listNotes()).map((f) => (f.name || f.filename || f).replace(/\.md$/, '')).sort();
-  const bFiles = (await b.listNotes()).map((f) => (f.name || f.filename || f).replace(/\.md$/, '')).sort();
-  assertEqual(JSON.stringify(aFiles), JSON.stringify(['FolderB/contested']), 'A should converge to B move destination');
-  assertEqual(JSON.stringify(bFiles), JSON.stringify(['FolderB/contested']), 'B should converge to B move destination');
+  const aFiles = (await a.listNotes())
+    .map((f) => (f.name || f.filename || f).replace(/\.md$/, ''))
+    .sort();
+  const bFiles = (await b.listNotes())
+    .map((f) => (f.name || f.filename || f).replace(/\.md$/, ''))
+    .sort();
+  assertEqual(
+    JSON.stringify(aFiles),
+    JSON.stringify(['FolderB/contested']),
+    'A should converge to B move destination',
+  );
+  assertEqual(
+    JSON.stringify(bFiles),
+    JSON.stringify(['FolderB/contested']),
+    'B should converge to B move destination',
+  );
 }
 
 async function concurrentOfflineFolderRename(a, b, server) {
@@ -784,11 +945,23 @@ async function concurrentOfflineFolderRename(a, b, server) {
   await b.syncNow();
   await a.syncNow();
 
-  const aFiles = (await a.listNotes()).map((f) => (f.name || f.filename || f).replace(/\.md$/, '')).sort();
-  const bFiles = (await b.listNotes()).map((f) => (f.name || f.filename || f).replace(/\.md$/, '')).sort();
+  const aFiles = (await a.listNotes())
+    .map((f) => (f.name || f.filename || f).replace(/\.md$/, ''))
+    .sort();
+  const bFiles = (await b.listNotes())
+    .map((f) => (f.name || f.filename || f).replace(/\.md$/, ''))
+    .sort();
   const expected = ['Archive/alpha', 'Archive/beta'];
-  assertEqual(JSON.stringify(aFiles), JSON.stringify(expected), 'A should converge to the later folder rename');
-  assertEqual(JSON.stringify(bFiles), JSON.stringify(expected), 'B should converge to the later folder rename');
+  assertEqual(
+    JSON.stringify(aFiles),
+    JSON.stringify(expected),
+    'A should converge to the later folder rename',
+  );
+  assertEqual(
+    JSON.stringify(bFiles),
+    JSON.stringify(expected),
+    'B should converge to the later folder rename',
+  );
 }
 
 async function moveNoteIntoFolderDeleteFolder(a, b, server) {
@@ -808,12 +981,32 @@ async function moveNoteIntoFolderDeleteFolder(a, b, server) {
   await b.syncNow();
   await a.syncNow();
 
-  const aFiles = (await a.listNotes()).map((f) => (f.name || f.filename || f).replace(/\.md$/, '')).sort();
-  const bFiles = (await b.listNotes()).map((f) => (f.name || f.filename || f).replace(/\.md$/, '')).sort();
-  assertEqual(JSON.stringify(aFiles), JSON.stringify(['X/draft-note-01']), 'A should have one moved draft path');
-  assertEqual(JSON.stringify(bFiles), JSON.stringify(['X/draft-note-01']), 'B should have one moved draft path');
-  assertEqual(await a.readNote('X/draft-note-01'), '# Draft\n\nedited while X was deleted', 'A should have merged edit at moved path');
-  assertEqual(await b.readNote('X/draft-note-01'), '# Draft\n\nedited while X was deleted', 'B should have merged edit at moved path');
+  const aFiles = (await a.listNotes())
+    .map((f) => (f.name || f.filename || f).replace(/\.md$/, ''))
+    .sort();
+  const bFiles = (await b.listNotes())
+    .map((f) => (f.name || f.filename || f).replace(/\.md$/, ''))
+    .sort();
+  assertEqual(
+    JSON.stringify(aFiles),
+    JSON.stringify(['X/draft-note-01']),
+    'A should have one moved draft path',
+  );
+  assertEqual(
+    JSON.stringify(bFiles),
+    JSON.stringify(['X/draft-note-01']),
+    'B should have one moved draft path',
+  );
+  assertEqual(
+    await a.readNote('X/draft-note-01'),
+    '# Draft\n\nedited while X was deleted',
+    'A should have merged edit at moved path',
+  );
+  assertEqual(
+    await b.readNote('X/draft-note-01'),
+    '# Draft\n\nedited while X was deleted',
+    'B should have merged edit at moved path',
+  );
 }
 
 async function localRenameAndEditInSameSync(a, b, server) {
@@ -836,12 +1029,32 @@ async function localRenameAndEditInSameSync(a, b, server) {
   await a.syncNow();
   await b.syncNow();
 
-  const aFiles = (await a.listNotes()).map((f) => (f.name || f.filename || f).replace(/\.md$/, '')).sort();
-  const bFiles = (await b.listNotes()).map((f) => (f.name || f.filename || f).replace(/\.md$/, '')).sort();
-  assertEqual(JSON.stringify(aFiles), JSON.stringify(['Lists/grocery']), 'A should have only the renamed path');
-  assertEqual(JSON.stringify(bFiles), JSON.stringify(['Lists/grocery']), 'B should pick up the rename');
-  assertEqual(await a.readNote('Lists/grocery'), '# Grocery\n\nMilk, eggs, bread', 'A should see the edited content');
-  assertEqual(await b.readNote('Lists/grocery'), '# Grocery\n\nMilk, eggs, bread', 'B should see the edited content');
+  const aFiles = (await a.listNotes())
+    .map((f) => (f.name || f.filename || f).replace(/\.md$/, ''))
+    .sort();
+  const bFiles = (await b.listNotes())
+    .map((f) => (f.name || f.filename || f).replace(/\.md$/, ''))
+    .sort();
+  assertEqual(
+    JSON.stringify(aFiles),
+    JSON.stringify(['Lists/grocery']),
+    'A should have only the renamed path',
+  );
+  assertEqual(
+    JSON.stringify(bFiles),
+    JSON.stringify(['Lists/grocery']),
+    'B should pick up the rename',
+  );
+  assertEqual(
+    await a.readNote('Lists/grocery'),
+    '# Grocery\n\nMilk, eggs, bread',
+    'A should see the edited content',
+  );
+  assertEqual(
+    await b.readNote('Lists/grocery'),
+    '# Grocery\n\nMilk, eggs, bread',
+    'B should see the edited content',
+  );
 }
 
 async function multipleLocalMovesInOneSync(a, b, server) {
@@ -869,10 +1082,22 @@ async function multipleLocalMovesInOneSync(a, b, server) {
   await b.syncNow();
 
   const expected = ['Fruit/apple', 'Fruit/banana', 'Fruit/cherry'];
-  const aFiles = (await a.listNotes()).map((f) => (f.name || f.filename || f).replace(/\.md$/, '')).sort();
-  const bFiles = (await b.listNotes()).map((f) => (f.name || f.filename || f).replace(/\.md$/, '')).sort();
-  assertEqual(JSON.stringify(aFiles), JSON.stringify(expected), 'A should have all three moved paths');
-  assertEqual(JSON.stringify(bFiles), JSON.stringify(expected), 'B should converge to all three moved paths');
+  const aFiles = (await a.listNotes())
+    .map((f) => (f.name || f.filename || f).replace(/\.md$/, ''))
+    .sort();
+  const bFiles = (await b.listNotes())
+    .map((f) => (f.name || f.filename || f).replace(/\.md$/, ''))
+    .sort();
+  assertEqual(
+    JSON.stringify(aFiles),
+    JSON.stringify(expected),
+    'A should have all three moved paths',
+  );
+  assertEqual(
+    JSON.stringify(bFiles),
+    JSON.stringify(expected),
+    'B should converge to all three moved paths',
+  );
 }
 
 async function bothClientsRenameToSameDestination(a, b, server) {
@@ -899,10 +1124,22 @@ async function bothClientsRenameToSameDestination(a, b, server) {
   await b.syncNow();
   await a.syncNow();
 
-  const aFiles = (await a.listNotes()).map((f) => (f.name || f.filename || f).replace(/\.md$/, '')).sort();
-  const bFiles = (await b.listNotes()).map((f) => (f.name || f.filename || f).replace(/\.md$/, '')).sort();
-  assertEqual(JSON.stringify(aFiles), JSON.stringify(['Docs/shared']), 'A should have only the moved path');
-  assertEqual(JSON.stringify(bFiles), JSON.stringify(['Docs/shared']), 'B should have only the moved path');
+  const aFiles = (await a.listNotes())
+    .map((f) => (f.name || f.filename || f).replace(/\.md$/, ''))
+    .sort();
+  const bFiles = (await b.listNotes())
+    .map((f) => (f.name || f.filename || f).replace(/\.md$/, ''))
+    .sort();
+  assertEqual(
+    JSON.stringify(aFiles),
+    JSON.stringify(['Docs/shared']),
+    'A should have only the moved path',
+  );
+  assertEqual(
+    JSON.stringify(bFiles),
+    JSON.stringify(['Docs/shared']),
+    'B should have only the moved path',
+  );
   assertEqual(await a.readNote('Docs/shared'), '# Shared', 'A content unchanged');
   assertEqual(await b.readNote('Docs/shared'), '# Shared', 'B content unchanged');
 }
@@ -943,7 +1180,10 @@ async function moveIntoFolderWithExistingFilename(a, _b, _server) {
   assert(await a.noteExists('A/note'), 'original A/note should still exist');
   const files = (await a.listNotes()).map((f) => (f.name || f.filename || f).replace(/\.md$/, ''));
   const suffixed = files.filter((id) => id.startsWith('A/note') && id !== 'A/note');
-  assert(suffixed.length === 1, `expected one suffixed copy under A/, got ${JSON.stringify(suffixed)}`);
+  assert(
+    suffixed.length === 1,
+    `expected one suffixed copy under A/, got ${JSON.stringify(suffixed)}`,
+  );
 }
 
 async function emptyFolderDoesNotSync(a, b, server) {
@@ -1040,24 +1280,69 @@ async function imageSyncRoundtrip(a, b, server) {
 
 const scenarios = [
   { name: 'image sync roundtrip', fn: imageSyncRoundtrip, matrices: ['desktop-desktop'] },
-  { name: 'editor roundtrip through real sync', fn: editorRoundtripThroughRealSync, matrices: ['desktop-desktop'] },
-  { name: 'edit during sync keeps local draft', fn: editDuringSyncKeepsLocalDraft, serverOptions: { syncDelayMs: 1500 }, matrices: ['desktop-desktop'] },
+  {
+    name: 'editor roundtrip through real sync',
+    fn: editorRoundtripThroughRealSync,
+    matrices: ['desktop-desktop'],
+  },
+  {
+    name: 'edit during sync keeps local draft',
+    fn: editDuringSyncKeepsLocalDraft,
+    serverOptions: { syncDelayMs: 1500 },
+    matrices: ['desktop-desktop'],
+  },
   { name: 'concurrent edit conflict', fn: concurrentEditConflict, matrices: ['desktop-desktop'] },
   { name: 'three way merge', fn: threeWayMerge, matrices: ['desktop-desktop'] },
   { name: 'rename propagation', fn: renamePropagation, matrices: ['desktop-desktop'] },
   { name: 'active note reload', fn: activeNoteReload, matrices: ['desktop-desktop'] },
   // Folder-support v1 scenarios — see Specs § Sync conflict resolution.
-  { name: 'folder rename on A edit on B', fn: folderRenameOnAEditOnB, matrices: ['desktop-desktop'] },
+  {
+    name: 'folder rename on A edit on B',
+    fn: folderRenameOnAEditOnB,
+    matrices: ['desktop-desktop'],
+  },
   { name: 'file move on A edit on B', fn: fileMoveOnAEditOnB, matrices: ['desktop-desktop'] },
-  { name: 'file moved to two folders by A and B', fn: fileMovedToTwoFoldersByAandB, matrices: ['desktop-desktop'] },
-  { name: 'concurrent offline folder rename', fn: concurrentOfflineFolderRename, matrices: ['desktop-desktop'] },
-  { name: 'move note into folder delete folder', fn: moveNoteIntoFolderDeleteFolder, matrices: ['desktop-desktop'] },
+  {
+    name: 'file moved to two folders by A and B',
+    fn: fileMovedToTwoFoldersByAandB,
+    matrices: ['desktop-desktop'],
+  },
+  {
+    name: 'concurrent offline folder rename',
+    fn: concurrentOfflineFolderRename,
+    matrices: ['desktop-desktop'],
+  },
+  {
+    name: 'move note into folder delete folder',
+    fn: moveNoteIntoFolderDeleteFolder,
+    matrices: ['desktop-desktop'],
+  },
   // Adversarial scenarios targeting pair_local_moved_objects edge cases.
-  { name: 'local rename and edit in same sync', fn: localRenameAndEditInSameSync, matrices: ['desktop-desktop'] },
-  { name: 'multiple local moves in one sync', fn: multipleLocalMovesInOneSync, matrices: ['desktop-desktop'] },
-  { name: 'both clients rename to same destination', fn: bothClientsRenameToSameDestination, matrices: ['desktop-desktop'] },
-  { name: 'folder X and file X coexist at same level', fn: folderXVsFileXAtSameLevel, matrices: ['desktop-desktop'] },
-  { name: 'move into folder with existing filename suffixes', fn: moveIntoFolderWithExistingFilename, matrices: ['desktop-desktop'] },
+  {
+    name: 'local rename and edit in same sync',
+    fn: localRenameAndEditInSameSync,
+    matrices: ['desktop-desktop'],
+  },
+  {
+    name: 'multiple local moves in one sync',
+    fn: multipleLocalMovesInOneSync,
+    matrices: ['desktop-desktop'],
+  },
+  {
+    name: 'both clients rename to same destination',
+    fn: bothClientsRenameToSameDestination,
+    matrices: ['desktop-desktop'],
+  },
+  {
+    name: 'folder X and file X coexist at same level',
+    fn: folderXVsFileXAtSameLevel,
+    matrices: ['desktop-desktop'],
+  },
+  {
+    name: 'move into folder with existing filename suffixes',
+    fn: moveIntoFolderWithExistingFilename,
+    matrices: ['desktop-desktop'],
+  },
   { name: 'empty folder does not sync', fn: emptyFolderDoesNotSync, matrices: ['desktop-desktop'] },
   // TODO(justin): both external-watcher scenarios race under Docker/xvfb.
   // They swap which one hits the inotify delay run-to-run; one or the other
@@ -1065,14 +1350,28 @@ const scenarios = [
   // keep them enabled off-CI. Investigate separately — the notify crate's
   // event loop may be starved while the single-threaded xvfb renders, or
   // the CodeMirror update path may be blocked by unrelated IPC traffic.
-  { name: 'external watcher reloads clean note', fn: externalWatcherReloadsCleanNote, matrices: ['desktop-desktop'], skipOnCi: true },
-  { name: 'external watcher keeps dirty draft', fn: externalWatcherKeepsDirtyDraft, matrices: ['desktop-desktop'], skipOnCi: true },
+  {
+    name: 'external watcher reloads clean note',
+    fn: externalWatcherReloadsCleanNote,
+    matrices: ['desktop-desktop'],
+    skipOnCi: true,
+  },
+  {
+    name: 'external watcher keeps dirty draft',
+    fn: externalWatcherKeepsDirtyDraft,
+    matrices: ['desktop-desktop'],
+    skipOnCi: true,
+  },
   { name: 'delete vs edit', fn: deleteVsEdit, matrices: ['desktop-desktop'] },
   { name: 'lost state recovery', fn: lostStateRecovery, matrices: ['desktop-desktop'] },
   { name: 'rapid reconnect', fn: rapidReconnect, matrices: ['desktop-desktop'] },
   { name: 'offline accumulation', fn: offlineAccumulation, matrices: ['desktop-desktop'] },
   { name: 'large sync', fn: largeSync, matrices: ['desktop-desktop'] },
-  { name: 'tombstone does not block new note', fn: tombstoneDoesNotBlockNewNote, matrices: ['desktop-desktop'] },
+  {
+    name: 'tombstone does not block new note',
+    fn: tombstoneDoesNotBlockNewNote,
+    matrices: ['desktop-desktop'],
+  },
 ];
 
 // ── Main ────────────────────────────────────────────────────────
@@ -1082,16 +1381,20 @@ const managedStops = [];
 const matrixLaunchers = {
   'desktop-desktop': {
     label: 'desktop ↔ desktop',
-    startClients: async () => ([
+    startClients: async () => [
       await startDesktopTauriInstance('client-a', REPO_ROOT),
       await startDesktopTauriInstance('client-b', REPO_ROOT),
-    ]),
+    ],
   },
 };
 
 function cleanup() {
   for (const stop of [...managedStops].reverse()) {
-    try { stop(); } catch { /* ignore */ }
+    try {
+      stop();
+    } catch {
+      /* ignore */
+    }
   }
 }
 
@@ -1133,7 +1436,9 @@ function ensureDesktopDebugBinary() {
   const stamp = join(REPO_ROOT, 'target', 'debug', '.harness-binary-stamp');
   const binMtime = String(statSync(binPath).mtimeMs);
   if (!existsSync(stamp) || readFileSync(stamp, 'utf8').trim() !== binMtime) {
-    console.log('Desktop binary was rebuilt outside the harness (likely `cargo tauri dev`) — rebuilding with harness config…');
+    console.log(
+      'Desktop binary was rebuilt outside the harness (likely `cargo tauri dev`) — rebuilding with harness config…',
+    );
     rebuildDesktopBinary();
   }
 }
@@ -1161,7 +1466,9 @@ function findDistIndexJs() {
 function fileContains(path, needle) {
   try {
     return readFileSync(path, 'utf8').includes(needle);
-  } catch { return false; }
+  } catch {
+    return false;
+  }
 }
 
 function runOrThrow(cmd, argv, opts) {
@@ -1176,14 +1483,24 @@ function killStalePreviewAndClients() {
   // 5181 busy; a leftover debug binary will hold an MCP port. Clear them so
   // the harness boots cleanly every time.
   const lsofOut = spawnSync('lsof', ['-ti', 'tcp:5181'], { encoding: 'utf8' });
-  const pids = (lsofOut.stdout || '').split('\n').map((s) => s.trim()).filter(Boolean);
+  const pids = (lsofOut.stdout || '')
+    .split('\n')
+    .map((s) => s.trim())
+    .filter(Boolean);
   for (const pid of pids) {
-    try { process.kill(Number(pid), 'SIGTERM'); } catch { /* already gone */ }
+    try {
+      process.kill(Number(pid), 'SIGTERM');
+    } catch {
+      /* already gone */
+    }
   }
   // Only kill debug binaries spawned with the multi-instance flag — that's
   // how the harness launches them, so this won't touch a user's open app.
   const ps = spawnSync('pgrep', ['-af', 'futo-notes-tauri'], { encoding: 'utf8' });
-  const lines = (ps.stdout || '').split('\n').map((s) => s.trim()).filter(Boolean);
+  const lines = (ps.stdout || '')
+    .split('\n')
+    .map((s) => s.trim())
+    .filter(Boolean);
   for (const line of lines) {
     const match = line.match(/^(\d+)\s+(.*)$/);
     if (!match) continue;
@@ -1191,7 +1508,11 @@ function killStalePreviewAndClients() {
     // Only kill binaries from this repo's target/debug — a conservative check
     // that excludes the user's installed FUTO Notes.
     if (cmdline.includes(`${REPO_ROOT}/target/debug/futo-notes-tauri`)) {
-      try { process.kill(Number(pidStr), 'SIGTERM'); } catch { /* ignore */ }
+      try {
+        process.kill(Number(pidStr), 'SIGTERM');
+      } catch {
+        /* ignore */
+      }
     }
   }
 }
@@ -1201,7 +1522,9 @@ async function main() {
 
   const matrix = matrixLaunchers[args.matrix];
   if (!matrix) {
-    throw new Error(`Unknown matrix "${args.matrix}". Expected one of: ${Object.keys(matrixLaunchers).join(', ')}`);
+    throw new Error(
+      `Unknown matrix "${args.matrix}". Expected one of: ${Object.keys(matrixLaunchers).join(', ')}`,
+    );
   }
   console.log(`Matrix: ${matrix.label}\n`);
 
@@ -1211,7 +1534,7 @@ async function main() {
 
   // Filter scenarios if --scenario is set
   const selected = args.scenario
-    ? scenarios.filter(s => s.name.toLowerCase().includes(args.scenario.toLowerCase()))
+    ? scenarios.filter((s) => s.name.toLowerCase().includes(args.scenario.toLowerCase()))
     : scenarios;
 
   if (selected.length === 0) {
@@ -1222,7 +1545,11 @@ async function main() {
   const toRun = [];
   for (const scenario of selected) {
     if (!scenario.matrices.includes(args.matrix)) {
-      results.push({ name: scenario.name, skip: true, reason: `not included in matrix ${args.matrix}` });
+      results.push({
+        name: scenario.name,
+        skip: true,
+        reason: `not included in matrix ${args.matrix}`,
+      });
       console.log(`  - ${scenario.name} (skipped: not included in matrix ${args.matrix})`);
     } else if (scenario.skipOnCi && process.env.CI) {
       results.push({ name: scenario.name, skip: true, reason: 'skipOnCi' });
@@ -1276,9 +1603,9 @@ async function main() {
 
   // ── Report ────────────────────────────────────────────────────
   console.log('');
-  const passed = results.filter(r => r.pass).length;
-  const failed = results.filter(r => r.pass === false).length;
-  const skipped = results.filter(r => r.skip).length;
+  const passed = results.filter((r) => r.pass).length;
+  const failed = results.filter((r) => r.pass === false).length;
+  const skipped = results.filter((r) => r.skip).length;
   const totalRun = passed + failed;
   console.log(`Results: ${passed}/${totalRun} passed, ${failed} failed, ${skipped} skipped`);
 

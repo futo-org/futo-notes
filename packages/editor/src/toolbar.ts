@@ -194,6 +194,6 @@ export const TOOLBAR_DISMISS: ToolbarItem = {
 export const TOOLBAR_ITEMS: ToolbarItem[] = [...TOOLBAR_GROUPS.flat(), TOOLBAR_DISMISS];
 
 /** Ids of the `exec` items — the command ids `FutoEditor.exec` must accept. */
-export const TOOLBAR_EXEC_IDS: string[] = TOOLBAR_ITEMS.filter(
-  (i) => i.action.kind === 'exec'
-).map((i) => i.id);
+export const TOOLBAR_EXEC_IDS: string[] = TOOLBAR_ITEMS.filter((i) => i.action.kind === 'exec').map(
+  (i) => i.id,
+);

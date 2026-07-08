@@ -91,10 +91,12 @@ describe('deleteAllNotes', () => {
   it('stops live sync and disconnects before wiping the vault', async () => {
     await testFS.writeNote('reset-me', 'body');
     const realDeleteAllContent = testFS.deleteAllContent.bind(testFS);
-    const deleteAllContentSpy = vi.spyOn(testFS, 'deleteAllContent').mockImplementation(async () => {
-      autoSyncMocks.events.push('delete-all');
-      await realDeleteAllContent();
-    });
+    const deleteAllContentSpy = vi
+      .spyOn(testFS, 'deleteAllContent')
+      .mockImplementation(async () => {
+        autoSyncMocks.events.push('delete-all');
+        await realDeleteAllContent();
+      });
 
     try {
       const { initNotes, deleteAllNotes, getAllNotes } = await freshNotes();
@@ -457,9 +459,7 @@ describe('handleExternalFileChange (F18: incremental, no full rescan)', () => {
     // Force the incremental path to throw on the existence probe, proving the
     // fallback keeps the cache coherent rather than stranding it.
     await testFS.writeNote('crashy', 'crashy body');
-    const existsSpy = vi
-      .spyOn(testFS, 'noteExists')
-      .mockRejectedValueOnce(new Error('boom'));
+    const existsSpy = vi.spyOn(testFS, 'noteExists').mockRejectedValueOnce(new Error('boom'));
     const scanSpy = vi.spyOn(testFS, 'scanNotes');
 
     const result = await handleExternalFileChange('crashy.md');
@@ -481,7 +481,9 @@ describe('folder support: path-as-ID', () => {
     const { initNotes, getAllNotes, getNoteById } = await freshNotes();
     await initNotes();
 
-    const ids = getAllNotes().map((n) => n.id).sort();
+    const ids = getAllNotes()
+      .map((n) => n.id)
+      .sort();
     expect(ids).toEqual(['Specs/folder-support', 'flat']);
 
     const nested = getNoteById('Specs/folder-support');
@@ -572,7 +574,9 @@ describe('folder support: path-as-ID', () => {
     expect(result.id).not.toBe('A/note'); // would have collided
     expect(result.id.startsWith('A/')).toBe(true);
 
-    const ids = getAllNotes().map((n) => n.id).sort();
+    const ids = getAllNotes()
+      .map((n) => n.id)
+      .sort();
     expect(ids).toContain('A/note');
     expect(ids).toContain(result.id);
   });
@@ -587,7 +591,9 @@ describe('folder support: path-as-ID', () => {
 
     await moveNotesUnderPrefix('Specs', 'Designs');
 
-    const ids = getAllNotes().map((n) => n.id).sort();
+    const ids = getAllNotes()
+      .map((n) => n.id)
+      .sort();
     expect(ids).toContain('Designs/a');
     expect(ids).toContain('Designs/sub/b');
     expect(ids).toContain('top');
@@ -612,7 +618,9 @@ describe('folder support: path-as-ID', () => {
     // Now reconcile in-memory state. Must not throw, must end with new IDs.
     await moveNotesUnderPrefix('Specs', 'Designs');
 
-    const ids = getAllNotes().map((n) => n.id).sort();
+    const ids = getAllNotes()
+      .map((n) => n.id)
+      .sort();
     expect(ids).toEqual(['Designs/a', 'Designs/sub/b']);
 
     // Wikilink targeting the old ID should have been rewritten.

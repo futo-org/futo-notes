@@ -59,16 +59,16 @@ describe('SidebarTagView', () => {
     });
     flushSync();
 
-    const header = [...target.querySelectorAll('.sidebar-tag-header')].find(
-      (h) => h.textContent?.includes('#project')
+    const header = [...target.querySelectorAll('.sidebar-tag-header')].find((h) =>
+      h.textContent?.includes('#project'),
     ) as HTMLButtonElement;
     expect(header).toBeTruthy();
 
     header.click();
     flushSync();
 
-    const items = [...target.querySelectorAll('.sidebar-tag-note')].map(
-      (el) => el.textContent?.trim()
+    const items = [...target.querySelectorAll('.sidebar-tag-note')].map((el) =>
+      el.textContent?.trim(),
     );
     expect(items).toEqual(['alpha', 'zebra']);
 

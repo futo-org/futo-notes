@@ -24,7 +24,11 @@ function note(id: string, mtime = Date.now()): NotePreview {
 
 function flatten(nodes: TreeNode[]): string[] {
   return flattenTree(nodes).map((n) =>
-    n.type === 'folder' ? `D:${n.path}` : n.type === 'empty' ? `E:${n.parentPath}` : `N:${n.note.id}`,
+    n.type === 'folder'
+      ? `D:${n.path}`
+      : n.type === 'empty'
+        ? `E:${n.parentPath}`
+        : `N:${n.note.id}`,
   );
 }
 
@@ -94,12 +98,7 @@ describe('buildFolderTree', () => {
   });
 
   it('sorts folders alphabetically and folders-before-notes', () => {
-    const notes = [
-      note('zebra'),
-      note('Alpha/foo'),
-      note('Beta/bar'),
-      note('apple'),
-    ];
+    const notes = [note('zebra'), note('Alpha/foo'), note('Beta/bar'), note('apple')];
     const tree = buildFolderTree(notes);
     const ids = tree.map((n) => (n.type === 'folder' ? `D:${n.path}` : `N:${n.note.id}`));
     // Folders first (alphabetic), then notes preserving input order

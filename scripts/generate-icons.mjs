@@ -1,5 +1,14 @@
 #!/usr/bin/env node
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -23,7 +32,9 @@ const run = (cmd, args, options = {}) => {
     stdio: options.stdio ?? 'pipe',
   });
   if (result.status !== 0) {
-    throw new Error(`${cmd} ${args.join(' ')} failed\n${result.stdout ?? ''}${result.stderr ?? ''}`);
+    throw new Error(
+      `${cmd} ${args.join(' ')} failed\n${result.stdout ?? ''}${result.stderr ?? ''}`,
+    );
   }
   return result;
 };
@@ -115,7 +126,13 @@ const writeAndroidBackground = (outputDir) => {
 };
 
 const generateAndroidIcons = (outputDir, legacySourcePng, foregroundSourcePng) => {
-  for (const density of ['mipmap-mdpi', 'mipmap-hdpi', 'mipmap-xhdpi', 'mipmap-xxhdpi', 'mipmap-xxxhdpi']) {
+  for (const density of [
+    'mipmap-mdpi',
+    'mipmap-hdpi',
+    'mipmap-xhdpi',
+    'mipmap-xxhdpi',
+    'mipmap-xxxhdpi',
+  ]) {
     const densityDir = join(outputDir, density);
     for (const file of ['ic_launcher.png', 'ic_launcher_round.png']) {
       const output = join(densityDir, file);
@@ -241,11 +258,22 @@ writeFileSync(
   ),
 );
 
-run('pnpm', ['exec', 'tauri', 'icon', manifestPath, '--output', 'apps/tauri/src-tauri/icons'], { stdio: 'inherit' });
+run('pnpm', ['exec', 'tauri', 'icon', manifestPath, '--output', 'apps/tauri/src-tauri/icons'], {
+  stdio: 'inherit',
+});
 
 const iosIconDir = join(repoRoot, 'apps', 'tauri', 'src-tauri', 'icons', 'ios');
 const nativeIosIconDir = join(repoRoot, 'apps', 'ios', 'Assets.xcassets', 'AppIcon.appiconset');
-const generatedAppleIconDir = join(repoRoot, 'apps', 'tauri', 'src-tauri', 'gen', 'apple', 'Assets.xcassets', 'AppIcon.appiconset');
+const generatedAppleIconDir = join(
+  repoRoot,
+  'apps',
+  'tauri',
+  'src-tauri',
+  'gen',
+  'apple',
+  'Assets.xcassets',
+  'AppIcon.appiconset',
+);
 const iosContentsPath = join(nativeIosIconDir, 'Contents.json');
 generateIosIconSet(iosIconDir, squarePng, iosContentsPath, { writeContentsJson: false });
 generateIosIconSet(nativeIosIconDir, squarePng, iosContentsPath);
@@ -254,7 +282,10 @@ generateIosIconSet(generatedAppleIconDir, squarePng, iosContentsPath);
 const androidIconDir = join(repoRoot, 'apps', 'tauri', 'src-tauri', 'icons', 'android');
 generateAndroidIcons(androidIconDir, androidRoundedPng, androidForegroundPng);
 copyDirFiles(androidIconDir, join(repoRoot, 'apps', 'android', 'app', 'src', 'main', 'res'));
-copyDirFiles(androidIconDir, join(repoRoot, 'apps', 'tauri', 'src-tauri', 'gen', 'android', 'app', 'src', 'main', 'res'));
+copyDirFiles(
+  androidIconDir,
+  join(repoRoot, 'apps', 'tauri', 'src-tauri', 'gen', 'android', 'app', 'src', 'main', 'res'),
+);
 
 const desktopSizes = new Map([
   ['32x32.png', 32],

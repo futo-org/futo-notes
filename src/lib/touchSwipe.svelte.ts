@@ -206,7 +206,8 @@ export function createTouchSwipe(config: TouchSwipeConfig) {
       if (overlayEl) overlayEl.style.opacity = config.isMobile ? `${dragProgress * 0.5}` : '0';
       isDragging = false;
       const velocityThreshold = edgeSwipe ? 0.3 : 0.5;
-      const shouldOpen = Math.abs(velocity) > velocityThreshold ? velocity > 0 : dragProgress >= 0.3;
+      const shouldOpen =
+        Math.abs(velocity) > velocityThreshold ? velocity > 0 : dragProgress >= 0.3;
       requestAnimationFrame(() => {
         config.setDrawerOpen(shouldOpen);
       });
@@ -220,7 +221,9 @@ export function createTouchSwipe(config: TouchSwipeConfig) {
   }
 
   return {
-    get isDragging() { return isDragging; },
+    get isDragging() {
+      return isDragging;
+    },
     handleTouchStart,
     handleTouchMove,
     handleTouchEnd,

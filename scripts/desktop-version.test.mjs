@@ -15,12 +15,21 @@ function fixture() {
   tmp = mkdtempSync(join(tmpdir(), 'futo-desktop-version-'));
   const confPath = join(tmp, 'tauri.conf.json');
   const cargoPath = join(tmp, 'Cargo.toml');
-  writeFileSync(confPath, JSON.stringify({
-    productName: 'FUTO Notes',
-    version: '0.1.0',
-    identifier: 'com.futo.notes',
-  }, null, 2) + '\n');
-  writeFileSync(cargoPath, `[package]
+  writeFileSync(
+    confPath,
+    JSON.stringify(
+      {
+        productName: 'FUTO Notes',
+        version: '0.1.0',
+        identifier: 'com.futo.notes',
+      },
+      null,
+      2,
+    ) + '\n',
+  );
+  writeFileSync(
+    cargoPath,
+    `[package]
 name = "futo-notes-tauri"
 version = "0.1.0"
 edition = "2021"
@@ -30,7 +39,8 @@ tauri-build = { version = "2.0.2", features = [] }
 
 [dependencies]
 tauri = { version = "2.9.1", features = ["protocol-asset"] }
-`);
+`,
+  );
   return { confPath, cargoPath };
 }
 

@@ -4,7 +4,11 @@ import { StateField, RangeSet, StateEffect } from '@codemirror/state';
 import type { EditorState } from '@codemirror/state';
 import { syntaxTree } from '@codemirror/language';
 import { parseMarkdownTable } from '$lib/tableWidget';
-import { isMarkdownSelectionRevealSuppressed, liveMarkdownRefresh, selectionTouchesRange } from '$lib/liveMarkdownTransform';
+import {
+  isMarkdownSelectionRevealSuppressed,
+  liveMarkdownRefresh,
+  selectionTouchesRange,
+} from '$lib/liveMarkdownTransform';
 import type { ParsedTable } from '$lib/tableWidget';
 import {
   addColumn,
@@ -156,7 +160,7 @@ class TableEditorWidget extends WidgetType {
     this.headerEls = Array.from(ths);
     const trs = root.querySelectorAll<HTMLElement>('tbody tr');
     this.cellEls = Array.from(trs).map((tr) =>
-      Array.from(tr.querySelectorAll<HTMLElement>('.sf-table__cell'))
+      Array.from(tr.querySelectorAll<HTMLElement>('.sf-table__cell')),
     );
   }
 
@@ -219,7 +223,7 @@ class TableEditorWidget extends WidgetType {
     align: Align,
     row: number,
     col: number,
-    header: boolean
+    header: boolean,
   ): HTMLElement {
     const div = document.createElement('div');
     div.className = 'sf-table__cell';
@@ -278,7 +282,9 @@ class TableEditorWidget extends WidgetType {
   /** Overlay controls — row controls down the left, column controls along the top. */
   private attachOverlays(root: HTMLElement): void {
     // Remove any existing
-    root.querySelectorAll('.sf-table__row-controls, .sf-table__col-controls').forEach((n) => n.remove());
+    root
+      .querySelectorAll('.sf-table__row-controls, .sf-table__col-controls')
+      .forEach((n) => n.remove());
 
     // Column controls
     this.table.headers.forEach((_, col) => {
@@ -406,7 +412,10 @@ class TableEditorWidget extends WidgetType {
       const target = e.target as HTMLElement;
       if (e.dataTransfer.types.includes(DRAG_MIME_ROW)) {
         const fromStr = e.dataTransfer.getData(DRAG_MIME_ROW);
-        const toRow = parseInt((target.closest('tr') as HTMLElement | null)?.dataset.rowIndex ?? '-1', 10);
+        const toRow = parseInt(
+          (target.closest('tr') as HTMLElement | null)?.dataset.rowIndex ?? '-1',
+          10,
+        );
         const fromRow = parseInt(fromStr, 10);
         if (!Number.isNaN(fromRow) && toRow >= 0) {
           e.preventDefault();
@@ -526,12 +535,15 @@ class TableEditorWidget extends WidgetType {
       // ArrowUp: move to same column one row up (or header)
       if (row > 0) this.focusCell(row - 1, col);
       else if (row === 0) this.focusCell(-1, col);
-      else if (row === -1) { /* already at top */ }
+      else if (row === -1) {
+        /* already at top */
+      }
       return;
     }
 
     // Tab-linear navigation: headers → row 0 → row 1 → ... → append row
-    let r = row, c = col;
+    let r = row,
+      c = col;
     c += delta;
     if (c >= colCount) {
       c = 0;
@@ -737,14 +749,23 @@ function buildTableDecorations(state: EditorState, hasFocus: boolean): Decoratio
   return RangeSet.of(decos.map((d) => d.deco.range(d.from, d.to)));
 }
 
-function selectionRevealsRange(state: EditorState, from: number, to: number, hasFocus: boolean): boolean {
+function selectionRevealsRange(
+  state: EditorState,
+  from: number,
+  to: number,
+  hasFocus: boolean,
+): boolean {
   return selectionTouchesRange(hasFocus, state.selection.ranges, from, to);
 }
 
 const tableEditorField = StateField.define<TableFieldValue>({
   create(state): TableFieldValue {
     const tree = syntaxTree(state);
-    return { decorations: buildTableDecorations(state, false), treeLength: tree.length, hasFocus: false };
+    return {
+      decorations: buildTableDecorations(state, false),
+      treeLength: tree.length,
+      hasFocus: false,
+    };
   },
   update(value, tr): TableFieldValue {
     const tree = syntaxTree(tr.state);
@@ -760,7 +781,11 @@ const tableEditorField = StateField.define<TableFieldValue>({
       }
     }
     if (tr.docChanged || selectionNeedsRebuild || treeGrew || refreshRequested || focusChanged) {
-      return { decorations: buildTableDecorations(tr.state, hasFocus), treeLength: tree.length, hasFocus };
+      return {
+        decorations: buildTableDecorations(tr.state, hasFocus),
+        treeLength: tree.length,
+        hasFocus,
+      };
     }
     return { ...value, hasFocus };
   },
@@ -769,6 +794,8 @@ const tableEditorField = StateField.define<TableFieldValue>({
   },
 });
 
-const tableFocusTracker = EditorView.focusChangeEffect.of((_state, focusing) => setTableFocus.of(focusing));
+const tableFocusTracker = EditorView.focusChangeEffect.of((_state, focusing) =>
+  setTableFocus.of(focusing),
+);
 
 export const interactiveTableEditor = [tableEditorField, tableFocusTracker];

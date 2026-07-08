@@ -9,7 +9,9 @@ const mockWriteAppData = vi.fn<(path: string, content: string) => Promise<void>>
 const platformState = { hasFileSystem: true };
 
 vi.mock('$lib/platform', () => ({
-  get hasFileSystem() { return platformState.hasFileSystem; },
+  get hasFileSystem() {
+    return platformState.hasFileSystem;
+  },
   getFS: () => ({
     writeAppData: mockWriteAppData,
     listAppData: vi.fn().mockResolvedValue([]),
@@ -65,7 +67,11 @@ describe('flushCrashQueue', () => {
     vi.resetModules();
     const { flushCrashQueue } = await import('./crashHandler');
 
-    const reports = [makeCrashReport('error1'), makeCrashReport('error2'), makeCrashReport('error3')];
+    const reports = [
+      makeCrashReport('error1'),
+      makeCrashReport('error2'),
+      makeCrashReport('error3'),
+    ];
     localStorage.setItem(LS_QUEUE_KEY, JSON.stringify(reports));
 
     // First call succeeds, second fails, third succeeds

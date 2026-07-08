@@ -17,13 +17,14 @@ const maxComplexity = process.env.SPEC_MAX_COMPLEXITY
   ? parseInt(process.env.SPEC_MAX_COMPLEXITY)
   : undefined;
 
-const clientCases = loadSpecCases(getCasesDir(), maxComplexity).filter(c =>
-  c.moves?.length ||
-  c.expect?.decorations ||
-  c.expect?.visible_text !== undefined ||
-  c.expect?.visible_text_contains ||
-  c.expect?.visible_text_excludes ||
-  c.expect?.widgets
+const clientCases = loadSpecCases(getCasesDir(), maxComplexity).filter(
+  (c) =>
+    c.moves?.length ||
+    c.expect?.decorations ||
+    c.expect?.visible_text !== undefined ||
+    c.expect?.visible_text_contains ||
+    c.expect?.visible_text_excludes ||
+    c.expect?.widgets,
 );
 
 async function setupEditor(page: Page, content: string): Promise<void> {
@@ -47,7 +48,9 @@ async function setupEditor(page: Page, content: string): Promise<void> {
 
 async function pinMovementLayout(page: Page): Promise<void> {
   await page.setViewportSize({ width: 900, height: 900 });
-  await page.evaluate(async () => { await document.fonts.ready; });
+  await page.evaluate(async () => {
+    await document.fonts.ready;
+  });
   await page.evaluate(() => {
     const editor = document.querySelector('.cm-editor') as HTMLElement | null;
     const content = document.querySelector('.cm-content') as HTMLElement | null;
@@ -90,15 +93,18 @@ async function setCursor(page: Page, line: number, ch: number): Promise<void> {
   await page.locator('.title-input').blur();
   await page.waitForTimeout(100);
 
-  await page.evaluate(({ line, ch }) => {
-    const view = (window as any).__cmGetView?.();
-    if (!view) throw new Error('CM EditorView not found');
-    const doc = view.state.doc;
-    const lineObj = doc.line(Math.min(line + 1, doc.lines));
-    const pos = Math.min(lineObj.from + ch, lineObj.to);
-    view.dispatch({ selection: { anchor: pos } });
-    view.focus();
-  }, { line, ch });
+  await page.evaluate(
+    ({ line, ch }) => {
+      const view = (window as any).__cmGetView?.();
+      if (!view) throw new Error('CM EditorView not found');
+      const doc = view.state.doc;
+      const lineObj = doc.line(Math.min(line + 1, doc.lines));
+      const pos = Math.min(lineObj.from + ch, lineObj.to);
+      view.dispatch({ selection: { anchor: pos } });
+      view.focus();
+    },
+    { line, ch },
+  );
   await page.waitForTimeout(300);
 }
 
@@ -176,7 +182,9 @@ async function assertCursorExpectation(
 
 async function runMovementCase(page: Page, specCase: SpecCase): Promise<void> {
   if (!specCase.start_cursor || !specCase.moves?.length || !specCase.expect_final) {
-    throw new Error(`Movement case "${specCase.name}" is missing start_cursor, moves, or expect_final`);
+    throw new Error(
+      `Movement case "${specCase.name}" is missing start_cursor, moves, or expect_final`,
+    );
   }
 
   await pinMovementLayout(page);
@@ -222,7 +230,7 @@ async function checkDecorations(page: Page, expectations: DecorationExpectation[
 
     if (exp.text !== undefined) {
       const texts = await elements.allInnerTexts();
-      expect(texts.some(t => t.trim() === exp.text)).toBe(true);
+      expect(texts.some((t) => t.trim() === exp.text)).toBe(true);
     }
 
     if (exp.attrs) {
@@ -262,7 +270,8 @@ async function runStaticCase(page: Page, specCase: SpecCase): Promise<void> {
     await checkWidgets(page, specCase.expect.widgets);
   }
 
-  const needsText = specCase.expect.visible_text !== undefined ||
+  const needsText =
+    specCase.expect.visible_text !== undefined ||
     specCase.expect.visible_text_contains ||
     specCase.expect.visible_text_excludes;
 
@@ -270,7 +279,11 @@ async function runStaticCase(page: Page, specCase: SpecCase): Promise<void> {
     const visibleText = await getVisibleText(page);
 
     if (specCase.expect.visible_text !== undefined) {
-      const normalized = visibleText.split('\n').map(l => l.trimEnd()).join('\n').trim();
+      const normalized = visibleText
+        .split('\n')
+        .map((l) => l.trimEnd())
+        .join('\n')
+        .trim();
       expect(normalized).toBe(specCase.expect.visible_text.trim());
     }
     if (specCase.expect.visible_text_contains) {

@@ -1,6 +1,13 @@
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { hasFileSystem, isTauri } from './platform';
-import { syncE2eeAuto, isE2eeConfigured, ensureLiveSync, stopLiveSync, notifyNoteChanged, type SyncSummary } from './syncServiceE2ee';
+import {
+  syncE2eeAuto,
+  isE2eeConfigured,
+  ensureLiveSync,
+  stopLiveSync,
+  notifyNoteChanged,
+  type SyncSummary,
+} from './syncServiceE2ee';
 
 export type { SyncSummary } from './syncServiceE2ee';
 
@@ -60,7 +67,10 @@ function isBackgroundTrigger(trigger: SyncTrigger): boolean {
   return trigger === 'poll' || trigger === 'resume' || trigger === 'initial';
 }
 
-async function performSync(trigger: SyncTrigger, options: { propagateErrors?: boolean; requireExecution?: boolean } = {}): Promise<SyncSummary | null> {
+async function performSync(
+  trigger: SyncTrigger,
+  options: { propagateErrors?: boolean; requireExecution?: boolean } = {},
+): Promise<SyncSummary | null> {
   const backgroundTrigger = isBackgroundTrigger(trigger);
   if (!navigator.onLine) {
     callbacks?.onOfflineChange?.(true);
@@ -69,7 +79,13 @@ async function performSync(trigger: SyncTrigger, options: { propagateErrors?: bo
   }
   const blockedByAutoPause = autoPaused && backgroundTrigger;
   if (syncing || paused || blockedByAutoPause || !callbacks || !isE2eeConfigured()) {
-    if (!options.requireExecution && backgroundTrigger && callbacks && isE2eeConfigured() && (syncing || paused || blockedByAutoPause)) {
+    if (
+      !options.requireExecution &&
+      backgroundTrigger &&
+      callbacks &&
+      isE2eeConfigured() &&
+      (syncing || paused || blockedByAutoPause)
+    ) {
       scheduleBackgroundRetry(trigger);
     }
     if (syncing && trigger === 'local-save') {
@@ -147,8 +163,12 @@ export function notifySavedV2(filename?: string): void {
 // satisfy the `notifySavedV2` caller above.
 async function markDirtyUpsert(_filename: string): Promise<void> {}
 
-export function pauseSyncV2(): void { paused = true; }
-export function resumeSyncV2(): void { paused = false; }
+export function pauseSyncV2(): void {
+  paused = true;
+}
+export function resumeSyncV2(): void {
+  paused = false;
+}
 
 /** Test-only: pause background (poll/resume/initial) syncs while still
  * allowing manual/local-save syncs. Used to make scenario timing deterministic.
@@ -162,11 +182,14 @@ export async function pauseAutoSyncV2(): Promise<void> {
   // raced the test's explicit syncNow().
   await stopLiveSync();
 }
-export function resumeAutoSyncV2(): void { autoPaused = false; void ensureLiveSync(); }
+export function resumeAutoSyncV2(): void {
+  autoPaused = false;
+  void ensureLiveSync();
+}
 
 export async function waitForSyncIdleV2(): Promise<void> {
   while (syncing) {
-    await new Promise(resolve => setTimeout(resolve, 50));
+    await new Promise((resolve) => setTimeout(resolve, 50));
   }
 }
 
@@ -179,7 +202,9 @@ export async function requestSyncV2(): Promise<SyncSummary> {
   if (syncing) await waitForSyncIdleV2();
   const summary = await performSync('manual', { propagateErrors: true, requireExecution: true });
   if (!summary) {
-    throw new Error(navigator.onLine ? 'Manual sync did not execute' : 'Offline — reconnect to sync');
+    throw new Error(
+      navigator.onLine ? 'Manual sync did not execute' : 'Offline — reconnect to sync',
+    );
   }
   return summary;
 }
@@ -271,7 +296,7 @@ function scheduleInitialRetry(): void {
   initialRetryCount++;
   initialRetryTimer = window.setTimeout(() => {
     initialRetryTimer = null;
-    performSync('initial').then(summary => {
+    performSync('initial').then((summary) => {
       if (!summary) scheduleInitialRetry();
     });
   }, delay);
@@ -292,7 +317,9 @@ export function startAutoSyncV2(cb: AutoSyncCallbacks): void {
 
   // Offline detection
   if (!navigator.onLine) callbacks.onOfflineChange?.(!navigator.onLine);
-  const offlineHandler = () => { callbacks?.onOfflineChange?.(true); };
+  const offlineHandler = () => {
+    callbacks?.onOfflineChange?.(true);
+  };
   const onlineHandler = () => {
     callbacks?.onOfflineChange?.(false);
     void performSync('resume');
@@ -309,7 +336,7 @@ export function startAutoSyncV2(cb: AutoSyncCallbacks): void {
 
   initialSyncTimer = window.setTimeout(() => {
     initialSyncTimer = null;
-    performSync('initial').then(summary => {
+    performSync('initial').then((summary) => {
       if (!summary) scheduleInitialRetry();
     });
   }, INITIAL_SYNC_DELAY_MS);

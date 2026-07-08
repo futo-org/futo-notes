@@ -107,7 +107,7 @@ describe('openNote', () => {
     expect(tabsStore.activeNoteId).toBe('second');
   });
 
-  it("background tab inserts immediately after the active tab, not at the end", () => {
+  it('background tab inserts immediately after the active tab, not at the end', () => {
     tabsStore.openNote('a', 'current');
     tabsStore.openNote('b', 'foreground');
     tabsStore.openNote('c', 'foreground');
@@ -371,7 +371,7 @@ describe('hydrate', () => {
     expect(tabsStore.tabs[0]!.noteId).toBe('a');
   });
 
-  it("refuses to clobber state if user has already navigated", () => {
+  it('refuses to clobber state if user has already navigated', () => {
     tabsStore.openNote('user-action', 'current');
     const snap: PersistedTabs = {
       tabs: [{ id: 't1', noteId: 'a' }],
@@ -381,7 +381,7 @@ describe('hydrate', () => {
     expect(tabsStore.activeNoteId).toBe('user-action');
   });
 
-  it("falls back to first tab if activeTabId is missing in cleaned set", () => {
+  it('falls back to first tab if activeTabId is missing in cleaned set', () => {
     const snap: PersistedTabs = {
       tabs: [
         { id: 't1', noteId: 'a' },
@@ -393,7 +393,7 @@ describe('hydrate', () => {
     expect(tabsStore.activeTabId).toBe('t1');
   });
 
-  it("refuses to apply an empty cleaned list (would leave 0 tabs)", () => {
+  it('refuses to apply an empty cleaned list (would leave 0 tabs)', () => {
     const snap: PersistedTabs = {
       tabs: [{ id: 't1', noteId: 'gone' }],
       activeTabId: 't1',
@@ -501,7 +501,7 @@ describe('replaceTabNoteId and applyRename', () => {
     expect(ids).toContain('b');
   });
 
-  it("applyRename also rewrites recentlyClosed entries", () => {
+  it('applyRename also rewrites recentlyClosed entries', () => {
     // Close 'a' so it's in the reopen queue, then a peer rename arrives.
     const t = tabsStore.openNote('a', 'foreground');
     tabsStore.closeTab(t.id);
@@ -510,7 +510,7 @@ describe('replaceTabNoteId and applyRename', () => {
     expect(tabsStore.recentlyClosed[0]?.noteId).toBe('a-renamed');
   });
 
-  it("pruneMissingNoteIds nulls out tabs whose note no longer exists", () => {
+  it('pruneMissingNoteIds nulls out tabs whose note no longer exists', () => {
     tabsStore.openNote('a', 'current');
     tabsStore.openNote('gone', 'background');
     tabsStore.pruneMissingNoteIds((id) => id === 'a');
@@ -518,7 +518,7 @@ describe('replaceTabNoteId and applyRename', () => {
     expect(ids).toEqual(['a', null]);
   });
 
-  it("pruneMissingNoteIds also drops dead entries from recentlyClosed", () => {
+  it('pruneMissingNoteIds also drops dead entries from recentlyClosed', () => {
     const t = tabsStore.openNote('gone', 'foreground');
     tabsStore.closeTab(t.id);
     expect(tabsStore.recentlyClosed[0]?.noteId).toBe('gone');

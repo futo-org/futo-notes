@@ -1,0 +1,21 @@
+# Build output & deps
+dist/
+node_modules/
+target/
+apps/ios/.build*/
+apps/android/app/build/
+apps/android/build/
+
+# Generated code
+apps/ios/Sources/Generated/
+tests/conformance/*.json
+docs/spec/GAPS.md
+pnpm-lock.yaml
+
+# Fixtures (byte-exact test inputs)
+markdown-spec/cases/
+factory/captures/
+
+# Single-file editor bundle input (hand-tuned inline HTML)
+editor.html
+apps/ios/Resources/editor.html

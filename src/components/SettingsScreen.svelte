@@ -3,7 +3,13 @@
   import { deleteAllNotes } from '$lib/notes.svelte';
   import { getAppState, getCachedPreferences, savePreferences } from '$lib/appState';
   import { applyThemePreference, type ThemePreference } from '$lib/theme';
-  import { connectE2ee, disconnectE2ee, hasStoredSyncPassword, forgetStoredSyncPassword, setSyncProgressListener } from '$lib/syncServiceE2ee';
+  import {
+    connectE2ee,
+    disconnectE2ee,
+    hasStoredSyncPassword,
+    forgetStoredSyncPassword,
+    setSyncProgressListener,
+  } from '$lib/syncServiceE2ee';
   import type { SyncSummary } from '$lib/syncServiceE2ee';
   import { requestSyncV2, wasSyncErrorReported } from '$lib/autoSyncV2';
   import { getSyncErrorMessage } from '$lib/syncErrorMessage';
@@ -71,7 +77,10 @@
 
   // Sync MVP preferences
   const appState = getAppState();
-  let syncUrl = $state(appState.e2eeServerUrl || (import.meta.env.DEV && !appState.e2eeAuthToken ? 'http://127.0.0.1:3100' : ''));
+  let syncUrl = $state(
+    appState.e2eeServerUrl ||
+      (import.meta.env.DEV && !appState.e2eeAuthToken ? 'http://127.0.0.1:3100' : ''),
+  );
   let syncPassword = $state('');
   let syncBusy = $state(false);
   let syncStatus = $state(prefs.sync.lastError ? `Last error: ${prefs.sync.lastError}` : '');
@@ -98,7 +107,7 @@
         notesDir = cfg.notesDir;
         isCustomDir = cfg.isCustomDir;
         defaultNotesDir = cfg.defaultNotesDir;
-      })
+      }),
     );
   }
 
@@ -129,7 +138,7 @@
     if (typeof picked !== 'string') return;
     const confirmed = await confirmDialog(
       `Move your notes directory to:\n${picked}\n\nExisting notes in the current directory will NOT be moved. The app will restart.`,
-      { title: 'Change notes directory', kind: 'warning' }
+      { title: 'Change notes directory', kind: 'warning' },
     );
     if (!confirmed) return;
     const { setNotesDir } = await import('$lib/platform/tauri');
@@ -141,7 +150,7 @@
   async function handleResetDir(): Promise<void> {
     const confirmed = await confirmDialog(
       `Reset notes directory to the default location?\n${defaultNotesDir}\n\nThe app will restart.`,
-      { title: 'Reset notes directory', kind: 'warning' }
+      { title: 'Reset notes directory', kind: 'warning' },
     );
     if (!confirmed) return;
     const { setNotesDir } = await import('$lib/platform/tauri');
@@ -172,9 +181,12 @@
       // that's what triggers the notes-list refresh after new files land.
       // connectE2ee has already cached the vault key, so no password needed.
       setSyncProgressListener((p) => {
-        const label = p.phase === 'reconciling' ? 'Reconciling'
-          : p.phase === 'pushing' ? 'Uploading'
-          : 'Downloading';
+        const label =
+          p.phase === 'reconciling'
+            ? 'Reconciling'
+            : p.phase === 'pushing'
+              ? 'Uploading'
+              : 'Downloading';
         connectSyncPhase = `${label} ${p.current}/${p.total}…`;
       });
       try {
@@ -220,7 +232,10 @@
   }
 
   async function confirmResetConnection(): Promise<void> {
-    const confirmed = await confirmDialog('Are you sure you want to reset the connection?', { title: 'Reset connection', kind: 'warning' });
+    const confirmed = await confirmDialog('Are you sure you want to reset the connection?', {
+      title: 'Reset connection',
+      kind: 'warning',
+    });
     if (!confirmed) return;
     hasSyncToken = false;
     syncPassword = '';
@@ -232,7 +247,7 @@
   async function handleForgetPassword(): Promise<void> {
     const confirmed = await confirmDialog(
       'Forget the saved sync password? You will be asked to re-enter it to sync after the next restart.',
-      { title: 'Forget password', kind: 'warning' }
+      { title: 'Forget password', kind: 'warning' },
     );
     if (!confirmed) return;
     await forgetStoredSyncPassword();
@@ -348,358 +363,417 @@
   }
 </script>
 
-<div class="settings-overlay" role="button" tabindex="-1" onpointerdown={(e) => (overlayPressed = e.target === e.currentTarget)} onclick={() => overlayPressed && !connectSyncing && !nuking && onclose()} onkeydown={(e) => e.key === 'Escape' && !connectSyncing && !nuking && onclose()}>
-  <div class="settings-panel" role="dialog" aria-modal="true" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
+<div
+  class="settings-overlay"
+  role="button"
+  tabindex="-1"
+  onpointerdown={(e) => (overlayPressed = e.target === e.currentTarget)}
+  onclick={() => overlayPressed && !connectSyncing && !nuking && onclose()}
+  onkeydown={(e) => e.key === 'Escape' && !connectSyncing && !nuking && onclose()}
+>
+  <div
+    class="settings-panel"
+    role="dialog"
+    aria-modal="true"
+    tabindex="-1"
+    onclick={(e) => e.stopPropagation()}
+    onkeydown={(e) => e.stopPropagation()}
+  >
     <!-- The scroller is a child so the blocking overlays (siblings below)
          anchor to the panel's VISIBLE box. When the panel itself scrolled,
          `inset: 0` resolved against the scrolled content box and the overlay
          could sit entirely off-screen — an invisible blocking state. -->
     <div class="settings-scroll">
-    <div class="settings-header">
-      <h2 class="settings-title">Settings</h2>
-      {#if !connectSyncing && !nuking}
-        <button class="settings-close" aria-label="Close settings" onclick={onclose}>&times;</button>
-      {/if}
-    </div>
+      <div class="settings-header">
+        <h2 class="settings-title">Settings</h2>
+        {#if !connectSyncing && !nuking}
+          <button class="settings-close" aria-label="Close settings" onclick={onclose}
+            >&times;</button
+          >
+        {/if}
+      </div>
 
-    <div class="settings-content">
-      {#if isDesktop && notesDir}
-      <section class="settings-section">
-        <h3 class="settings-section-title">Storage</h3>
-        <div class="settings-card">
-          <p class="settings-btn-desc">{notesDir}</p>
-          <div class="settings-actions" style="margin-top: 10px">
-            <button class="settings-btn settings-btn-inline" onclick={() => void handleChangeDir()}>Change directory</button>
-          </div>
-          {#if isCustomDir}
-            <button class="settings-link-btn" onclick={() => void handleResetDir()}>Reset to default</button>
-          {/if}
-        </div>
-      </section>
-      {/if}
-
-      <section class="settings-section">
-        <h3 class="settings-section-title">Appearance</h3>
-        <div class="settings-card">
-          <div class="settings-segmented" role="tablist" aria-label="Theme">
-            <button
-              class="settings-segment"
-              class:active={themePreference === 'auto'}
-              onclick={() => void setThemePreference('auto')}
-              aria-pressed={themePreference === 'auto'}
-            >Auto</button>
-            <button
-              class="settings-segment"
-              class:active={themePreference === 'dark'}
-              onclick={() => void setThemePreference('dark')}
-              aria-pressed={themePreference === 'dark'}
-            >Dark</button>
-            <button
-              class="settings-segment"
-              class:active={themePreference === 'light'}
-              onclick={() => void setThemePreference('light')}
-              aria-pressed={themePreference === 'light'}
-            >Light</button>
-          </div>
-          <p class="settings-btn-desc settings-hint">Auto follows your system theme.</p>
-        </div>
-      </section>
-
-      {#if hasFileSystem}
-      <section class="settings-section">
-        <h3 class="settings-section-title">Sync</h3>
-        <div class="settings-card">
-          <label class="settings-input-label" for="sync-url">Server URL</label>
-          <input
-            id="sync-url"
-            class="settings-input"
-            class:settings-input-readonly={hasSyncToken}
-            type="text"
-            bind:value={syncUrl}
-            onblur={persistSyncUrl}
-            onclick={handleUrlClick}
-            readonly={hasSyncToken}
-            placeholder="notes.example.com"
-            autocapitalize="off"
-            autocomplete="off"
-            spellcheck="false"
-          />
-
-          {#if !hasSyncToken}
-            <label class="settings-input-label" for="sync-password">Password</label>
-            <input
-              id="sync-password"
-              class="settings-input"
-              type="password"
-              bind:value={syncPassword}
-              placeholder="Server password"
-              autocapitalize="off"
-              autocomplete="current-password"
-              spellcheck="false"
-            />
-
-            <p class="settings-btn-desc settings-hint">
-              Use the password you configured when installing your FUTO Notes server.
-            </p>
-
-            <div class="settings-actions">
-              <button class="settings-btn settings-btn-inline" onclick={handleConnectSync} disabled={syncBusy}>
-                {syncBusy ? 'Working...' : 'Connect'}
-              </button>
+      <div class="settings-content">
+        {#if isDesktop && notesDir}
+          <section class="settings-section">
+            <h3 class="settings-section-title">Storage</h3>
+            <div class="settings-card">
+              <p class="settings-btn-desc">{notesDir}</p>
+              <div class="settings-actions" style="margin-top: 10px">
+                <button
+                  class="settings-btn settings-btn-inline"
+                  onclick={() => void handleChangeDir()}>Change directory</button
+                >
+              </div>
+              {#if isCustomDir}
+                <button class="settings-link-btn" onclick={() => void handleResetDir()}
+                  >Reset to default</button
+                >
+              {/if}
             </div>
-          {:else}
-            {#if !passwordSaved}
-              <label class="settings-input-label" for="sync-password">Vault password</label>
+          </section>
+        {/if}
+
+        <section class="settings-section">
+          <h3 class="settings-section-title">Appearance</h3>
+          <div class="settings-card">
+            <div class="settings-segmented" role="tablist" aria-label="Theme">
+              <button
+                class="settings-segment"
+                class:active={themePreference === 'auto'}
+                onclick={() => void setThemePreference('auto')}
+                aria-pressed={themePreference === 'auto'}>Auto</button
+              >
+              <button
+                class="settings-segment"
+                class:active={themePreference === 'dark'}
+                onclick={() => void setThemePreference('dark')}
+                aria-pressed={themePreference === 'dark'}>Dark</button
+              >
+              <button
+                class="settings-segment"
+                class:active={themePreference === 'light'}
+                onclick={() => void setThemePreference('light')}
+                aria-pressed={themePreference === 'light'}>Light</button
+              >
+            </div>
+            <p class="settings-btn-desc settings-hint">Auto follows your system theme.</p>
+          </div>
+        </section>
+
+        {#if hasFileSystem}
+          <section class="settings-section">
+            <h3 class="settings-section-title">Sync</h3>
+            <div class="settings-card">
+              <label class="settings-input-label" for="sync-url">Server URL</label>
               <input
-                id="sync-password"
+                id="sync-url"
                 class="settings-input"
-                type="password"
-                bind:value={syncPassword}
-                placeholder="Required after restart"
+                class:settings-input-readonly={hasSyncToken}
+                type="text"
+                bind:value={syncUrl}
+                onblur={persistSyncUrl}
+                onclick={handleUrlClick}
+                readonly={hasSyncToken}
+                placeholder="notes.example.com"
                 autocapitalize="off"
-                autocomplete="current-password"
+                autocomplete="off"
                 spellcheck="false"
               />
-            {:else}
-              <p class="settings-btn-desc settings-hint">Password saved on this device.</p>
-            {/if}
 
-            <div class="settings-actions">
-              <button class="settings-btn settings-btn-inline" onclick={handleSyncNow} disabled={syncBusy}>
-                {syncBusy ? 'Working...' : 'Sync now'}
-              </button>
-            </div>
+              {#if !hasSyncToken}
+                <label class="settings-input-label" for="sync-password">Password</label>
+                <input
+                  id="sync-password"
+                  class="settings-input"
+                  type="password"
+                  bind:value={syncPassword}
+                  placeholder="Server password"
+                  autocapitalize="off"
+                  autocomplete="current-password"
+                  spellcheck="false"
+                />
 
-            {#if passwordSaved}
-              <button class="settings-link-btn" onclick={() => void handleForgetPassword()}>Forget password</button>
-            {/if}
-            <button class="settings-link-btn" onclick={() => void confirmResetConnection()}>Reset connection</button>
-          {/if}
+                <p class="settings-btn-desc settings-hint">
+                  Use the password you configured when installing your FUTO Notes server.
+                </p>
 
-          <p class="settings-btn-desc settings-hint">Last sync: {syncLastAt ? formatRelativeTime(syncLastAt) : 'never'}</p>
-          {#if syncStatus}
-            <p class="settings-btn-desc settings-hint">{syncStatus}</p>
-          {:else if syncError}
-            <!-- F15: live auto/background sync failure (no manual status taking
+                <div class="settings-actions">
+                  <button
+                    class="settings-btn settings-btn-inline"
+                    onclick={handleConnectSync}
+                    disabled={syncBusy}
+                  >
+                    {syncBusy ? 'Working...' : 'Connect'}
+                  </button>
+                </div>
+              {:else}
+                {#if !passwordSaved}
+                  <label class="settings-input-label" for="sync-password">Vault password</label>
+                  <input
+                    id="sync-password"
+                    class="settings-input"
+                    type="password"
+                    bind:value={syncPassword}
+                    placeholder="Required after restart"
+                    autocapitalize="off"
+                    autocomplete="current-password"
+                    spellcheck="false"
+                  />
+                {:else}
+                  <p class="settings-btn-desc settings-hint">Password saved on this device.</p>
+                {/if}
+
+                <div class="settings-actions">
+                  <button
+                    class="settings-btn settings-btn-inline"
+                    onclick={handleSyncNow}
+                    disabled={syncBusy}
+                  >
+                    {syncBusy ? 'Working...' : 'Sync now'}
+                  </button>
+                </div>
+
+                {#if passwordSaved}
+                  <button class="settings-link-btn" onclick={() => void handleForgetPassword()}
+                    >Forget password</button
+                  >
+                {/if}
+                <button class="settings-link-btn" onclick={() => void confirmResetConnection()}
+                  >Reset connection</button
+                >
+              {/if}
+
+              <p class="settings-btn-desc settings-hint">
+                Last sync: {syncLastAt ? formatRelativeTime(syncLastAt) : 'never'}
+              </p>
+              {#if syncStatus}
+                <p class="settings-btn-desc settings-hint">{syncStatus}</p>
+              {:else if syncError}
+                <!-- F15: live auto/background sync failure (no manual status taking
                  precedence). Mirrors the status-bar error indicator wording. -->
-            <p class="settings-btn-desc settings-hint">Sync failed: {syncErrorMessage}</p>
-          {/if}
-        </div>
-      </section>
-      {/if}
+                <p class="settings-btn-desc settings-hint">Sync failed: {syncErrorMessage}</p>
+              {/if}
+            </div>
+          </section>
+        {/if}
 
-      <!-- Dev-only sync-error test harness (stripped from production builds,
+        <!-- Dev-only sync-error test harness (stripped from production builds,
            same gate as the "Test crash" button). Routes a fabricated
            SyncSummary through the manager's real handleSyncComplete so the
            indicator/toast are indistinguishable from a real server-thrown
            failure. -->
-      {#if import.meta.env.DEV && simulateSyncSummary}
-        <section class="settings-section">
-          <h3 class="settings-section-title">Sync error test (dev)</h3>
-          <div class="settings-card">
-            <p class="settings-btn-desc settings-hint">
-              Fires a fabricated sync result through the real handler — the ⚠
-              indicator, toast, and "Sync failed" line behave exactly as a
-              server-thrown error. "Successful sync" clears it (or click the ⚠).
-            </p>
-            <div class="settings-actions" style="flex-wrap: wrap; gap: 8px; margin-top: 10px">
-              <button
-                class="settings-btn settings-btn-inline"
-                onclick={() =>
-                  void simulateSyncSummary(
-                    fakeSyncSummary(
-                      [{ filename: 'note.md', kind: 'upload', statusCode: 500 }],
-                      "1 change couldn't reach the server (HTTP 500)",
-                    ),
-                  )}
-              >
-                Upload 500
-              </button>
-              <button
-                class="settings-btn settings-btn-inline"
-                onclick={() =>
-                  void simulateSyncSummary(
-                    fakeSyncSummary(
-                      [{ filename: 'note.md', kind: 'upload', statusCode: 403 }],
-                      "1 change couldn't reach the server (HTTP 403)",
-                    ),
-                  )}
-              >
-                Upload 403
-              </button>
-              <button
-                class="settings-btn settings-btn-inline"
-                onclick={() =>
-                  void simulateSyncSummary(
-                    fakeSyncSummary(
-                      [{ filename: 'note.md', kind: 'delete', statusCode: 500 }],
-                      "1 change couldn't reach the server (HTTP 500)",
-                    ),
-                  )}
-              >
-                Delete 500
-              </button>
-              <button
-                class="settings-btn settings-btn-inline"
-                onclick={() =>
-                  void simulateSyncSummary(
-                    fakeSyncSummary(
-                      [{ filename: 'note.md', kind: 'upload' }],
-                      "1 change couldn't reach the server",
-                    ),
-                  )}
-              >
-                Network (no status)
-              </button>
-              <button
-                class="settings-btn settings-btn-inline"
-                onclick={() =>
-                  void simulateSyncSummary(
-                    fakeSyncSummary(
-                      [
-                        { filename: 'a.md', kind: 'upload', statusCode: 500 },
-                        { filename: 'b.md', kind: 'upload', statusCode: 500 },
-                        { filename: 'c.md', kind: 'delete', statusCode: 500 },
-                      ],
-                      "3 changes couldn't reach the server (HTTP 500)",
-                    ),
-                  )}
-              >
-                3 failures
-              </button>
-              <button
-                class="settings-btn settings-btn-inline"
-                onclick={() => void simulateSyncSummary(fakeSyncSummary([]), 'manual')}
-              >
-                Successful sync
-              </button>
+        {#if import.meta.env.DEV && simulateSyncSummary}
+          <section class="settings-section">
+            <h3 class="settings-section-title">Sync error test (dev)</h3>
+            <div class="settings-card">
+              <p class="settings-btn-desc settings-hint">
+                Fires a fabricated sync result through the real handler — the ⚠ indicator, toast,
+                and "Sync failed" line behave exactly as a server-thrown error. "Successful sync"
+                clears it (or click the ⚠).
+              </p>
+              <div class="settings-actions" style="flex-wrap: wrap; gap: 8px; margin-top: 10px">
+                <button
+                  class="settings-btn settings-btn-inline"
+                  onclick={() =>
+                    void simulateSyncSummary(
+                      fakeSyncSummary(
+                        [{ filename: 'note.md', kind: 'upload', statusCode: 500 }],
+                        "1 change couldn't reach the server (HTTP 500)",
+                      ),
+                    )}
+                >
+                  Upload 500
+                </button>
+                <button
+                  class="settings-btn settings-btn-inline"
+                  onclick={() =>
+                    void simulateSyncSummary(
+                      fakeSyncSummary(
+                        [{ filename: 'note.md', kind: 'upload', statusCode: 403 }],
+                        "1 change couldn't reach the server (HTTP 403)",
+                      ),
+                    )}
+                >
+                  Upload 403
+                </button>
+                <button
+                  class="settings-btn settings-btn-inline"
+                  onclick={() =>
+                    void simulateSyncSummary(
+                      fakeSyncSummary(
+                        [{ filename: 'note.md', kind: 'delete', statusCode: 500 }],
+                        "1 change couldn't reach the server (HTTP 500)",
+                      ),
+                    )}
+                >
+                  Delete 500
+                </button>
+                <button
+                  class="settings-btn settings-btn-inline"
+                  onclick={() =>
+                    void simulateSyncSummary(
+                      fakeSyncSummary(
+                        [{ filename: 'note.md', kind: 'upload' }],
+                        "1 change couldn't reach the server",
+                      ),
+                    )}
+                >
+                  Network (no status)
+                </button>
+                <button
+                  class="settings-btn settings-btn-inline"
+                  onclick={() =>
+                    void simulateSyncSummary(
+                      fakeSyncSummary(
+                        [
+                          { filename: 'a.md', kind: 'upload', statusCode: 500 },
+                          { filename: 'b.md', kind: 'upload', statusCode: 500 },
+                          { filename: 'c.md', kind: 'delete', statusCode: 500 },
+                        ],
+                        "3 changes couldn't reach the server (HTTP 500)",
+                      ),
+                    )}
+                >
+                  3 failures
+                </button>
+                <button
+                  class="settings-btn settings-btn-inline"
+                  onclick={() => void simulateSyncSummary(fakeSyncSummary([]), 'manual')}
+                >
+                  Successful sync
+                </button>
+              </div>
             </div>
-          </div>
-        </section>
-      {/if}
+          </section>
+        {/if}
 
-      <section class="settings-section">
-        <h3 class="settings-section-title">Crash Reporting</h3>
-        <div class="settings-toggle-row" onclick={toggleCrashEnabled} role="button" tabindex="0" onkeydown={(e) => e.key === 'Enter' && toggleCrashEnabled()}>
-          <span class="settings-toggle-text">
-            <span class="settings-btn-label">Share crash reports</span>
-            <span class="settings-btn-desc">Help improve FUTO Notes by sharing anonymous crash logs when they occur</span>
-          </span>
-          <div class="settings-switch" class:on={crashEnabled}>
-            <div class="settings-switch-thumb"></div>
-          </div>
-        </div>
-        {#if crashEnabled}
-          <div class="settings-toggle-row sub" onclick={toggleCrashAlwaysSend} role="button" tabindex="0" onkeydown={(e) => e.key === 'Enter' && toggleCrashAlwaysSend()}>
+        <section class="settings-section">
+          <h3 class="settings-section-title">Crash Reporting</h3>
+          <div
+            class="settings-toggle-row"
+            onclick={toggleCrashEnabled}
+            role="button"
+            tabindex="0"
+            onkeydown={(e) => e.key === 'Enter' && toggleCrashEnabled()}
+          >
             <span class="settings-toggle-text">
-              <span class="settings-btn-label">Always send automatically</span>
-              <span class="settings-btn-desc">Send reports without asking each time</span>
+              <span class="settings-btn-label">Share crash reports</span>
+              <span class="settings-btn-desc"
+                >Help improve FUTO Notes by sharing anonymous crash logs when they occur</span
+              >
             </span>
-            <div class="settings-switch" class:on={crashAlwaysSend}>
+            <div class="settings-switch" class:on={crashEnabled}>
               <div class="settings-switch-thumb"></div>
             </div>
           </div>
-        {/if}
-      </section>
+          {#if crashEnabled}
+            <div
+              class="settings-toggle-row sub"
+              onclick={toggleCrashAlwaysSend}
+              role="button"
+              tabindex="0"
+              onkeydown={(e) => e.key === 'Enter' && toggleCrashAlwaysSend()}
+            >
+              <span class="settings-toggle-text">
+                <span class="settings-btn-label">Always send automatically</span>
+                <span class="settings-btn-desc">Send reports without asking each time</span>
+              </span>
+              <div class="settings-switch" class:on={crashAlwaysSend}>
+                <div class="settings-switch-thumb"></div>
+              </div>
+            </div>
+          {/if}
+        </section>
 
-      {#if showUpdates}
-      <section class="settings-section">
-        <h3 class="settings-section-title">Updates</h3>
-        <div
-          class="settings-toggle-row"
-          class:disabled={updatesLocked}
-          onclick={toggleUpdatesEnabled}
-          role="button"
-          tabindex="0"
-          onkeydown={(e) => e.key === 'Enter' && toggleUpdatesEnabled()}
-        >
-          <span class="settings-toggle-text">
-            <span class="settings-btn-label">Automatically check for updates</span>
-            <span class="settings-btn-desc">Periodically check for new versions and notify you when one is available</span>
-          </span>
-          <div class="settings-switch" class:on={updatesEnabled}>
-            <div class="settings-switch-thumb"></div>
-          </div>
-        </div>
-        {#if updatesEnabled}
-        <button
-          class="settings-btn"
-          onclick={upd.phase === 'restart'
-            ? () => upd.restart()
-            : upd.phase === 'available' || (upd.phase === 'error' && upd.pending)
-              ? () => upd.install()
-              : () => upd.check()}
-          disabled={upd.busy}
-        >
-          <span class="settings-btn-text">
-            <span class="settings-btn-label">
-              {#if upd.phase === 'checking'}
-                Checking for updates…
-              {:else if upd.phase === 'available'}
-                Update &amp; restart
-              {:else if upd.phase === 'downloading'}
-                Downloading…{upd.percent != null ? ` ${upd.percent}%` : ''}
-              {:else if upd.phase === 'installing'}
-                Installing…
-              {:else if upd.phase === 'restart'}
-                Restart now to finish
-              {:else if upd.phase === 'error' && upd.pending}
-                Retry update — v{upd.pending?.currentVersion} → v{upd.pending?.version}
-              {:else}
-                Check for updates
+        {#if showUpdates}
+          <section class="settings-section">
+            <h3 class="settings-section-title">Updates</h3>
+            <div
+              class="settings-toggle-row"
+              class:disabled={updatesLocked}
+              onclick={toggleUpdatesEnabled}
+              role="button"
+              tabindex="0"
+              onkeydown={(e) => e.key === 'Enter' && toggleUpdatesEnabled()}
+            >
+              <span class="settings-toggle-text">
+                <span class="settings-btn-label">Automatically check for updates</span>
+                <span class="settings-btn-desc"
+                  >Periodically check for new versions and notify you when one is available</span
+                >
+              </span>
+              <div class="settings-switch" class:on={updatesEnabled}>
+                <div class="settings-switch-thumb"></div>
+              </div>
+            </div>
+            {#if updatesEnabled}
+              <button
+                class="settings-btn"
+                onclick={upd.phase === 'restart'
+                  ? () => upd.restart()
+                  : upd.phase === 'available' || (upd.phase === 'error' && upd.pending)
+                    ? () => upd.install()
+                    : () => upd.check()}
+                disabled={upd.busy}
+              >
+                <span class="settings-btn-text">
+                  <span class="settings-btn-label">
+                    {#if upd.phase === 'checking'}
+                      Checking for updates…
+                    {:else if upd.phase === 'available'}
+                      Update &amp; restart
+                    {:else if upd.phase === 'downloading'}
+                      Downloading…{upd.percent != null ? ` ${upd.percent}%` : ''}
+                    {:else if upd.phase === 'installing'}
+                      Installing…
+                    {:else if upd.phase === 'restart'}
+                      Restart now to finish
+                    {:else if upd.phase === 'error' && upd.pending}
+                      Retry update — v{upd.pending?.currentVersion} → v{upd.pending?.version}
+                    {:else}
+                      Check for updates
+                    {/if}
+                  </span>
+                  <span class="settings-btn-desc">
+                    {#if upd.phase === 'up-to-date'}
+                      You're on the latest version (v{getAppVersion()}).
+                    {:else if upd.phase === 'available'}
+                      v{upd.pending?.currentVersion} → v{upd.pending?.version}
+                    {:else if upd.phase === 'downloading' || upd.phase === 'installing'}
+                      Please wait — the app will restart automatically.
+                    {:else if upd.phase === 'restart'}
+                      Update installed. Restart to finish.
+                    {:else if upd.phase === 'error'}
+                      {upd.error || 'Update failed.'}
+                    {:else}
+                      Currently running v{getAppVersion()}.
+                    {/if}
+                  </span>
+                </span>
+              </button>
+              {#if (upd.phase === 'available' || upd.phase === 'error') && upd.pending?.notes}
+                <p class="settings-update-notes">{upd.pending.notes}</p>
               {/if}
-            </span>
-            <span class="settings-btn-desc">
-              {#if upd.phase === 'up-to-date'}
-                You're on the latest version (v{getAppVersion()}).
-              {:else if upd.phase === 'available'}
-                v{upd.pending?.currentVersion} → v{upd.pending?.version}
-              {:else if upd.phase === 'downloading' || upd.phase === 'installing'}
-                Please wait — the app will restart automatically.
-              {:else if upd.phase === 'restart'}
-                Update installed. Restart to finish.
-              {:else if upd.phase === 'error'}
-                {upd.error || 'Update failed.'}
-              {:else}
-                Currently running v{getAppVersion()}.
-              {/if}
-            </span>
-          </span>
-        </button>
-        {#if (upd.phase === 'available' || upd.phase === 'error') && upd.pending?.notes}
-          <p class="settings-update-notes">{upd.pending.notes}</p>
+            {/if}
+          </section>
         {/if}
-        {/if}
-      </section>
-      {/if}
 
-      <!-- Danger zone is always the last section (see docs/spec/settings.md). -->
-      <section class="settings-section">
-        <h3 class="settings-section-title">Danger zone</h3>
-        <button class="settings-btn settings-btn-danger" onclick={() => void handleNukeTap()} disabled={nuking}>
-          <span class="settings-btn-text">
-            <span class="settings-btn-label">Full reset</span>
-            <span class="settings-btn-desc">
-              {#if nuking}
-                Deleting...
-              {:else}
-                Permanently remove all notes and app data
-              {/if}
-            </span>
-          </span>
-        </button>
-        {#if import.meta.env.DEV}
-          <button class="settings-btn settings-btn-danger" style="margin-top: 8px" onclick={testCrash}>
+        <!-- Danger zone is always the last section (see docs/spec/settings.md). -->
+        <section class="settings-section">
+          <h3 class="settings-section-title">Danger zone</h3>
+          <button
+            class="settings-btn settings-btn-danger"
+            onclick={() => void handleNukeTap()}
+            disabled={nuking}
+          >
             <span class="settings-btn-text">
-              <span class="settings-btn-label">Test crash</span>
-              <span class="settings-btn-desc">Throw an error to test crash reporting</span>
+              <span class="settings-btn-label">Full reset</span>
+              <span class="settings-btn-desc">
+                {#if nuking}
+                  Deleting...
+                {:else}
+                  Permanently remove all notes and app data
+                {/if}
+              </span>
             </span>
           </button>
-        {/if}
-      </section>
+          {#if import.meta.env.DEV}
+            <button
+              class="settings-btn settings-btn-danger"
+              style="margin-top: 8px"
+              onclick={testCrash}
+            >
+              <span class="settings-btn-text">
+                <span class="settings-btn-label">Test crash</span>
+                <span class="settings-btn-desc">Throw an error to test crash reporting</span>
+              </span>
+            </button>
+          {/if}
+        </section>
 
-      <p class="settings-version">FUTO Notes v{getAppVersion()}</p>
-    </div>
+        <p class="settings-version">FUTO Notes v{getAppVersion()}</p>
+      </div>
     </div>
 
     {#if connectSyncing}
@@ -845,7 +919,9 @@
     padding: 9px 8px;
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
-    transition: background 0.15s ease, color 0.15s ease;
+    transition:
+      background 0.15s ease,
+      color 0.15s ease;
   }
 
   .settings-segment:active {
@@ -1082,7 +1158,9 @@
   }
 
   @keyframes connect-spin {
-    to { transform: rotate(360deg); }
+    to {
+      transform: rotate(360deg);
+    }
   }
 
   .connect-sync-phase {

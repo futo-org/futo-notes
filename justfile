@@ -26,6 +26,12 @@ preview:
 lint:
   pnpm run lint
 
+format:
+  pnpm run format
+
+format-check:
+  pnpm run format:check
+
 # Lint the hand-written Swift sources (read-only) with swift-format, which
 # ships with Xcode 16+ (`xcrun swift-format`). The generated UniFFI bindings
 # (Sources/Generated) are excluded — they are not ours to style.
@@ -393,6 +399,7 @@ clean:
 
 check: spec-gaps-check toolbar-spec-check test-rust
   pnpm run lint
+  pnpm run format:check
   pnpm run test:minimal
   pnpm exec tsc --noEmit | head -30
   pnpm run build | tail -20

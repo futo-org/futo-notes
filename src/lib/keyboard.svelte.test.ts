@@ -3,7 +3,9 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 type Listener = (ev: Event) => void;
 
-function installVisualViewport(initial: { height: number; offsetTop: number } = { height: 800, offsetTop: 0 }) {
+function installVisualViewport(
+  initial: { height: number; offsetTop: number } = { height: 800, offsetTop: 0 },
+) {
   const listeners: Record<string, Set<Listener>> = {};
   const vv = {
     height: initial.height,
@@ -18,7 +20,11 @@ function installVisualViewport(initial: { height: number; offsetTop: number } = 
       listeners[type]?.forEach((cb) => cb(new Event(type)));
     },
   };
-  Object.defineProperty(window, 'visualViewport', { value: vv, configurable: true, writable: true });
+  Object.defineProperty(window, 'visualViewport', {
+    value: vv,
+    configurable: true,
+    writable: true,
+  });
   Object.defineProperty(window, 'innerHeight', { value: 800, configurable: true, writable: true });
   return vv;
 }
@@ -86,8 +92,15 @@ describe('keyboard.offsetTop', () => {
   it('clamps iOS layout viewport panning while the keyboard is visible', async () => {
     vi.spyOn(navigator, 'platform', 'get').mockReturnValue('iPhone');
     const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
-    Object.defineProperty(window, 'innerHeight', { value: 565, configurable: true, writable: true });
-    Object.defineProperty(document.documentElement, 'clientHeight', { value: 800, configurable: true });
+    Object.defineProperty(window, 'innerHeight', {
+      value: 565,
+      configurable: true,
+      writable: true,
+    });
+    Object.defineProperty(document.documentElement, 'clientHeight', {
+      value: 800,
+      configurable: true,
+    });
     document.documentElement.scrollTop = 120;
     document.body.scrollTop = 120;
 

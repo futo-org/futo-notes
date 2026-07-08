@@ -47,10 +47,7 @@ describe('testSync', () => {
 
     const status = await testSync.testConnectSync('http://new-server', 'testing123');
 
-    expect(e2eeMocks.connectE2ee).toHaveBeenCalledWith(
-      'http://new-server',
-      'testing123',
-    );
+    expect(e2eeMocks.connectE2ee).toHaveBeenCalledWith('http://new-server', 'testing123');
     expect(typeof status.preferences).toBe('object');
   });
 

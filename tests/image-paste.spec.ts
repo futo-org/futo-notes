@@ -32,7 +32,9 @@ async function getDocText(page: Page): Promise<string> {
  * the handler does NOT swallow normal paste (no-op path).
  */
 test.describe('Image Paste', () => {
-  test('paste handler does not interfere with plain text paste when saveImageBytes is unavailable', async ({ page }) => {
+  test('paste handler does not interfere with plain text paste when saveImageBytes is unavailable', async ({
+    page,
+  }) => {
     await setupEditor(page, '');
 
     // Simulate typing then pasting plain text
@@ -42,7 +44,11 @@ test.describe('Image Paste', () => {
       if (!view) throw new Error('no view');
       const dt = new DataTransfer();
       dt.setData('text/plain', 'pasted text');
-      const event = new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true });
+      const event = new ClipboardEvent('paste', {
+        clipboardData: dt,
+        bubbles: true,
+        cancelable: true,
+      });
       view.contentDOM.dispatchEvent(event);
     });
 
@@ -53,7 +59,9 @@ test.describe('Image Paste', () => {
     expect(doc).not.toContain('![](');
   });
 
-  test('paste with image clipboard data does not insert image markdown without saveImageBytes', async ({ page }) => {
+  test('paste with image clipboard data does not insert image markdown without saveImageBytes', async ({
+    page,
+  }) => {
     await setupEditor(page, 'some text');
 
     // In web dev mode, saveImageBytes is not available, so our handler
@@ -63,10 +71,16 @@ test.describe('Image Paste', () => {
       if (!view) throw new Error('no view');
 
       const dt = new DataTransfer();
-      const file = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], 'screenshot.png', { type: 'image/png' });
+      const file = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], 'screenshot.png', {
+        type: 'image/png',
+      });
       dt.items.add(file);
 
-      const event = new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true });
+      const event = new ClipboardEvent('paste', {
+        clipboardData: dt,
+        bubbles: true,
+        cancelable: true,
+      });
       view.contentDOM.dispatchEvent(event);
     });
 
@@ -74,7 +88,9 @@ test.describe('Image Paste', () => {
     expect(doc).not.toContain('![](');
   });
 
-  test('paste with mixed text and image does not insert image without saveImageBytes', async ({ page }) => {
+  test('paste with mixed text and image does not insert image without saveImageBytes', async ({
+    page,
+  }) => {
     await setupEditor(page, '');
 
     await page.evaluate(() => {
@@ -83,10 +99,16 @@ test.describe('Image Paste', () => {
 
       const dt = new DataTransfer();
       dt.setData('text/plain', 'fallback text');
-      const file = new File([new Uint8Array([0xff, 0xd8, 0xff])], 'photo.jpg', { type: 'image/jpeg' });
+      const file = new File([new Uint8Array([0xff, 0xd8, 0xff])], 'photo.jpg', {
+        type: 'image/jpeg',
+      });
       dt.items.add(file);
 
-      const event = new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true });
+      const event = new ClipboardEvent('paste', {
+        clipboardData: dt,
+        bubbles: true,
+        cancelable: true,
+      });
       view.contentDOM.dispatchEvent(event);
     });
 

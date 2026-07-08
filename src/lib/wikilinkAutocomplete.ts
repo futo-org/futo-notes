@@ -11,7 +11,7 @@ function makeApply(fullPath: string) {
     // even when the displayed/dropdown text is just the shortest
     // unique suffix.
     view.dispatch({
-      changes: { from, to, insert: `${fullPath}]]` }
+      changes: { from, to, insert: `${fullPath}]]` },
     });
   };
 }
@@ -67,7 +67,7 @@ function wikilinkCompletions(context: CompletionContext): CompletionResult | nul
     // `from` must be after [[ so CM filters against the typed query, not [[
     from: match.from + 2,
     options,
-    validFor: /^[^\]]*$/
+    validFor: /^[^\]]*$/,
   };
 }
 
@@ -76,18 +76,16 @@ function wikilinkCompletions(context: CompletionContext): CompletionResult | nul
  * CM's `activateOnTyping` may not reliably re-trigger for non-word characters,
  * so we detect the `[[` pattern on input and call `startCompletion` directly.
  */
-const wikilinkInputHandler = EditorView.inputHandler.of(
-  (view, from, _to, text) => {
-    if (text === '[') {
-      const before = from > 0 ? view.state.doc.sliceString(from - 1, from) : '';
-      if (before === '[') {
-        // Let the `[` be inserted first, then trigger completion
-        setTimeout(() => startCompletion(view), 0);
-      }
+const wikilinkInputHandler = EditorView.inputHandler.of((view, from, _to, text) => {
+  if (text === '[') {
+    const before = from > 0 ? view.state.doc.sliceString(from - 1, from) : '';
+    if (before === '[') {
+      // Let the `[` be inserted first, then trigger completion
+      setTimeout(() => startCompletion(view), 0);
     }
-    return false; // Don't consume the input — let CM handle it normally
   }
-);
+  return false; // Don't consume the input — let CM handle it normally
+});
 
 export function wikilinkAutocomplete() {
   return [
@@ -96,8 +94,8 @@ export function wikilinkAutocomplete() {
       activateOnTyping: true,
       icons: false,
       closeOnBlur: true,
-      tooltipClass: () => 'cm-wikilink-tooltip'
+      tooltipClass: () => 'cm-wikilink-tooltip',
     }),
-    wikilinkInputHandler
+    wikilinkInputHandler,
   ];
 }

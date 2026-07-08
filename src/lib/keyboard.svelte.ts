@@ -6,12 +6,19 @@ let initialized = false;
 let refreshImpl: (() => void) | null = null;
 
 function isIOSWebKit(): boolean {
-  return /iP(hone|ad|od)/.test(navigator.platform) || /\biP(hone|ad|od)\b/.test(navigator.userAgent);
+  return (
+    /iP(hone|ad|od)/.test(navigator.platform) || /\biP(hone|ad|od)\b/.test(navigator.userAgent)
+  );
 }
 
 function resetLayoutViewportScroll(): void {
   if (!isIOSWebKit()) return;
-  if (window.scrollY === 0 && document.documentElement.scrollTop === 0 && document.body.scrollTop === 0) return;
+  if (
+    window.scrollY === 0 &&
+    document.documentElement.scrollTop === 0 &&
+    document.body.scrollTop === 0
+  )
+    return;
   try {
     window.scrollTo(0, 0);
   } catch {
@@ -25,7 +32,7 @@ function getLayoutViewportHeight(): number {
   return Math.max(
     document.documentElement.clientHeight,
     document.body.clientHeight,
-    window.innerHeight
+    window.innerHeight,
   );
 }
 
@@ -92,9 +99,15 @@ function hide(): void {
 }
 
 export const keyboard = {
-  get height() { return _height; },
-  get visible() { return _visible; },
-  get offsetTop() { return _offsetTop; },
+  get height() {
+    return _height;
+  },
+  get visible() {
+    return _visible;
+  },
+  get offsetTop() {
+    return _offsetTop;
+  },
   init,
   refresh,
   hide,

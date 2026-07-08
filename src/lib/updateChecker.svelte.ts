@@ -64,11 +64,7 @@ class UpdateChecker {
 
   /** A check/download/install is in flight — disables the action buttons. */
   get busy(): boolean {
-    return (
-      this.phase === 'checking' ||
-      this.phase === 'downloading' ||
-      this.phase === 'installing'
-    );
+    return this.phase === 'checking' || this.phase === 'downloading' || this.phase === 'installing';
   }
 
   /** Download progress as 0–100, or null when the total is unknown. */
@@ -248,7 +244,9 @@ class UpdateChecker {
         },
         // Advance to 'installing' once the download finishes even when the
         // content length was unknown (total stays null → the check above never trips).
-        () => { this.phase = 'installing'; },
+        () => {
+          this.phase = 'installing';
+        },
       );
       // installUpdate() relaunches on success, so we normally never get here.
       // If the relaunch resolved without killing the process, finish the job
@@ -272,7 +270,6 @@ class UpdateChecker {
       this.phase = 'error';
     }
   }
-
 }
 
 /** App-wide singleton. */

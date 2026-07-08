@@ -40,7 +40,7 @@ async function selectRange(page: Page, from: number, to: number): Promise<void> 
       view.dispatch({ selection: { anchor: from, head: to } });
       view.focus();
     },
-    { from, to }
+    { from, to },
   );
   await page.waitForTimeout(60);
 }
@@ -277,8 +277,8 @@ after`;
     for (const c of 'abcd') {
       await page.keyboard.type(c);
       await page.waitForTimeout(220); // > sync debounce (180ms)
-      const focusedIsCell = await page.evaluate(() =>
-        document.activeElement?.classList.contains('sf-table__cell') ?? false
+      const focusedIsCell = await page.evaluate(
+        () => document.activeElement?.classList.contains('sf-table__cell') ?? false,
       );
       expect(focusedIsCell).toBe(true);
     }

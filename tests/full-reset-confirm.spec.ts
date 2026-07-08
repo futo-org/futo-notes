@@ -26,9 +26,11 @@ test.describe('Danger zone — Full reset confirmation', () => {
     await page.goto('/');
     await page.waitForLoadState('domcontentloaded');
     await page.evaluate(async () => {
-      await (window as unknown as {
-        __testNotes: { createNote: (id: string, body: string) => Promise<unknown> };
-      }).__testNotes.createNote('keep-me', 'precious');
+      await (
+        window as unknown as {
+          __testNotes: { createNote: (id: string, body: string) => Promise<unknown> };
+        }
+      ).__testNotes.createNote('keep-me', 'precious');
     });
 
     await page.locator('.sidebar-settings-btn').click();
@@ -45,8 +47,10 @@ test.describe('Danger zone — Full reset confirmation', () => {
     await expect(page.locator('.settings-title')).toBeVisible();
     // ...and the seeded note survived the dismissed dialog.
     const stillThere = await page.evaluate(() =>
-      (window as unknown as { __testNotes: { noteExists: (id: string) => Promise<boolean> } })
-        .__testNotes.noteExists('keep-me'));
+      (
+        window as unknown as { __testNotes: { noteExists: (id: string) => Promise<boolean> } }
+      ).__testNotes.noteExists('keep-me'),
+    );
     expect(stillThere).toBe(true);
   });
 

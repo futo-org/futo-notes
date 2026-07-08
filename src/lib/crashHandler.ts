@@ -39,7 +39,9 @@ function buildReport(
   let platform = 'web';
   try {
     platform = getFS().getPlatformName();
-  } catch { /* FS not initialized yet */ }
+  } catch {
+    /* FS not initialized yet */
+  }
 
   return {
     error,
@@ -74,7 +76,11 @@ export function installGlobalHandlers(): void {
     queueToLocalStorage(report);
     // Belt-and-suspenders: attempt immediate file write if FS is ready
     if (hasFileSystem) {
-      try { writeCrashReport(report).catch(() => {}); } catch { /* FS not ready */ }
+      try {
+        writeCrashReport(report).catch(() => {});
+      } catch {
+        /* FS not ready */
+      }
     }
     if (existingErrorHandler) {
       existingErrorHandler.call(window, message, source, lineno, colno, error);
@@ -90,7 +96,11 @@ export function installGlobalHandlers(): void {
     queueToLocalStorage(report);
     // Belt-and-suspenders: attempt immediate file write if FS is ready
     if (hasFileSystem) {
-      try { writeCrashReport(report).catch(() => {}); } catch { /* FS not ready */ }
+      try {
+        writeCrashReport(report).catch(() => {});
+      } catch {
+        /* FS not ready */
+      }
     }
     if (existingRejectionHandler) {
       existingRejectionHandler.call(window, event);
@@ -156,7 +166,7 @@ export async function listPendingCrashLogs(): Promise<string[]> {
   if (!hasFileSystem) return [];
   try {
     const files = await getFS().listAppData(CRASHLOGS_DIR);
-    return files.filter(f => f.endsWith('.json'));
+    return files.filter((f) => f.endsWith('.json'));
   } catch {
     return [];
   }

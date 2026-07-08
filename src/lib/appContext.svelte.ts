@@ -25,11 +25,23 @@ export function createAppContext(): AppContext {
   let syncActive = $state(false);
 
   return {
-    get activeNoteId() { return activeNoteId; },
-    set activeNoteId(id: string | null) { activeNoteId = id; },
-    get notes() { return notes; },
-    set notes(n: NotePreview[]) { notes = n; },
-    get syncActive() { return syncActive; },
-    set syncActive(v: boolean) { syncActive = v; },
+    get activeNoteId() {
+      return activeNoteId;
+    },
+    set activeNoteId(id: string | null) {
+      activeNoteId = id;
+    },
+    get notes() {
+      return notes;
+    },
+    set notes(n: NotePreview[]) {
+      notes = n;
+    },
+    get syncActive() {
+      return syncActive;
+    },
+    set syncActive(v: boolean) {
+      syncActive = v;
+    },
   };
 }

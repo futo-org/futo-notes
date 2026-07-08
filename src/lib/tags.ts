@@ -23,7 +23,9 @@ export function buildTagIndex(notes: NotePreview[]): Map<string, string[]> {
  * Get all unique tags sorted alphabetically (case-insensitive),
  * preserving the first-seen casing.
  */
-export function getSortedTags(notes: NotePreview[]): Array<{ tag: string; display: string; count: number }> {
+export function getSortedTags(
+  notes: NotePreview[],
+): Array<{ tag: string; display: string; count: number }> {
   const index = new Map<string, { display: string; count: number }>();
   for (const note of notes) {
     for (const tag of note.tags) {
@@ -47,9 +49,7 @@ export function getSortedTags(notes: NotePreview[]): Array<{ tag: string; displa
  */
 export function getNotesForTag(notes: NotePreview[], tag: string): NotePreview[] {
   const lower = tag.toLowerCase();
-  return notes.filter(note =>
-    note.tags.some(t => t.toLowerCase() === lower)
-  );
+  return notes.filter((note) => note.tags.some((t) => t.toLowerCase() === lower));
 }
 
 /**

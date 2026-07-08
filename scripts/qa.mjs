@@ -125,7 +125,9 @@ function claimPoolName(platform, root) {
     const name = `futo-qa-${(start + k) % POOL}`;
     if (tryClaimOwner(platform, name, root)) return name;
   }
-  die(`all ${POOL} ${platform} pool devices are owned by live worktrees — release one (just qa-release) or run just qa-gc`);
+  die(
+    `all ${POOL} ${platform} pool devices are owned by live worktrees — release one (just qa-release) or run just qa-gc`,
+  );
 }
 
 // ── iOS simulators ─────────────────────────────────────────────────────────
@@ -178,7 +180,9 @@ function installedSystemImage() {
   const list = tryRun(SDKMANAGER, ['--list_installed']) || '';
   const images = [...list.matchAll(/^\s*(system-images;\S+)/gm)].map((m) => m[1]);
   if (!images.length)
-    die(`no Android system image installed — e.g.: ${SDKMANAGER} "system-images;android-36;google_apis;${IS_MAC ? 'arm64-v8a' : 'x86_64'}"`);
+    die(
+      `no Android system image installed — e.g.: ${SDKMANAGER} "system-images;android-36;google_apis;${IS_MAC ? 'arm64-v8a' : 'x86_64'}"`,
+    );
   const arch = process.arch === 'arm64' ? 'arm64-v8a' : 'x86_64';
   // Pick the HIGHEST API level for the host arch. sdkmanager lists images
   // alphabetically, so a plain `.find()` grabs android-30 before android-36 and
@@ -189,7 +193,9 @@ function installedSystemImage() {
     const m = i.match(/;android-(\d+);/);
     return m ? Number(m[1]) : -1;
   };
-  const candidates = images.filter((i) => i.includes(arch)).sort((a, b) => apiLevel(b) - apiLevel(a));
+  const candidates = images
+    .filter((i) => i.includes(arch))
+    .sort((a, b) => apiLevel(b) - apiLevel(a));
   return candidates[0] || images[0];
 }
 
@@ -215,7 +221,9 @@ async function ensureAvd(name) {
     }
     if (!serial) die(`emulator ${name} did not appear in adb devices`);
     for (let i = 0; i < 90; i++) {
-      const boot = (tryRun('adb', ['-s', serial, 'shell', 'getprop', 'sys.boot_completed']) || '').trim();
+      const boot = (
+        tryRun('adb', ['-s', serial, 'shell', 'getprop', 'sys.boot_completed']) || ''
+      ).trim();
       if (boot === '1') break;
       await sleep(2000);
       if (i === 89) die(`emulator ${name} (${serial}) did not finish booting`);
@@ -345,7 +353,9 @@ function cmdStatus() {
       if (!meta) continue;
       const pid = readPid(path.join(SRV_DIR, d, 'server.pid'));
       const alive = pid && pidAlive(pid);
-      info(`  ${d}: ${alive ? `running pid ${pid} port ${meta.port}` : 'stopped'} db ${meta.db} — ${meta.worktree}`);
+      info(
+        `  ${d}: ${alive ? `running pid ${pid} port ${meta.port}` : 'stopped'} db ${meta.db} — ${meta.worktree}`,
+      );
     }
   }
 }
@@ -382,7 +392,9 @@ function serverRepo() {
     process.env.FUTO_NOTES_E2EE_SERVER_REPO || path.join(HOME, 'Developer', 'futo-notes-server'),
   );
   if (!fs.existsSync(path.join(repo, 'package.json')))
-    die(`futo-notes-server not found at ${repo} — set FUTO_NOTES_E2EE_SERVER_REPO to your checkout`);
+    die(
+      `futo-notes-server not found at ${repo} — set FUTO_NOTES_E2EE_SERVER_REPO to your checkout`,
+    );
   return repo;
 }
 
@@ -408,7 +420,9 @@ async function cmdServerStart() {
 
   const existing = readPid(pidFile);
   if (existing && pidAlive(existing)) {
-    info(`already running: http://127.0.0.1:${port} (pid ${existing}, db ${db}, password testing123)`);
+    info(
+      `already running: http://127.0.0.1:${port} (pid ${existing}, db ${db}, password testing123)`,
+    );
     return;
   }
   fs.mkdirSync(path.join(dir, 'blobs'), { recursive: true });
@@ -437,7 +451,8 @@ async function cmdServerStart() {
     encoding: 'utf8',
     env: { ...process.env, DATABASE_URL: dbUrl },
   });
-  if (migrate.status !== 0) die(`migrations failed for ${db}:\n${migrate.stderr || migrate.stdout}`);
+  if (migrate.status !== 0)
+    die(`migrations failed for ${db}:\n${migrate.stderr || migrate.stdout}`);
 
   const hash = run('bun', ['src/index.ts', 'hash', 'testing123'], { cwd: repo }).trim();
   const log = fs.openSync(path.join(dir, 'server.log'), 'a');
@@ -519,5 +534,7 @@ switch (cmd) {
     serverStop(worktreeRoot(), args.includes('--drop'));
     break;
   default:
-    die('usage: qa.mjs claim [ios|android|all] | status | release [--shutdown] | gc | server-start | server-stop [--drop]');
+    die(
+      'usage: qa.mjs claim [ios|android|all] | status | release [--shutdown] | gc | server-start | server-stop [--drop]',
+    );
 }

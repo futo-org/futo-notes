@@ -80,8 +80,9 @@ export async function startServer(port, repoRoot, options = {}) {
     ...process.env,
     PORT: String(serverPort),
     BLOB_DIR: blobDir,
-    DATABASE_URL: process.env.FUTO_NOTES_E2EE_DATABASE_URL
-      || 'postgres://futo_notes:futo_notes@localhost:5433/futo_notes',
+    DATABASE_URL:
+      process.env.FUTO_NOTES_E2EE_DATABASE_URL ||
+      'postgres://futo_notes:futo_notes@localhost:5433/futo_notes',
     AUTH_MODE: 'password',
     FUTO_NOTES_PASSWORD_HASH: passwordHash,
   };
@@ -95,8 +96,12 @@ export async function startServer(port, repoRoot, options = {}) {
   // Collect stderr for diagnostics on failure
   let stdout = '';
   let stderr = '';
-  proc.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
-  proc.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
+  proc.stdout.on('data', (chunk) => {
+    stdout += chunk.toString();
+  });
+  proc.stderr.on('data', (chunk) => {
+    stderr += chunk.toString();
+  });
 
   // Wait for the server to be healthy
   const upstreamUrl = `http://127.0.0.1:${serverPort}`;
@@ -112,10 +117,23 @@ export async function startServer(port, repoRoot, options = {}) {
     ? spawnSync('psql', [process.env.FUTO_NOTES_E2EE_DATABASE_URL, '-c', truncateSql], {
         encoding: 'utf8',
       })
-    : spawnSync('docker', [
-        'compose', 'exec', '-T', 'postgres', 'psql',
-        '-U', 'futo_notes', '-d', 'futo_notes', '-c', truncateSql,
-      ], { cwd: serverRepo, encoding: 'utf8' });
+    : spawnSync(
+        'docker',
+        [
+          'compose',
+          'exec',
+          '-T',
+          'postgres',
+          'psql',
+          '-U',
+          'futo_notes',
+          '-d',
+          'futo_notes',
+          '-c',
+          truncateSql,
+        ],
+        { cwd: serverRepo, encoding: 'utf8' },
+      );
   if (reset.status !== 0) {
     proc.kill('SIGKILL');
     throw new Error(`Failed to reset E2EE server database:\n${reset.stderr || reset.stdout}`);
@@ -129,9 +147,9 @@ export async function startServer(port, repoRoot, options = {}) {
         const body = await readRequestBody(req);
 
         if (
-          syncDelayMs > 0
-          && targetUrl.pathname.includes('/objects')
-          && ['GET', 'POST', 'PUT', 'DELETE'].includes(req.method ?? '')
+          syncDelayMs > 0 &&
+          targetUrl.pathname.includes('/objects') &&
+          ['GET', 'POST', 'PUT', 'DELETE'].includes(req.method ?? '')
         ) {
           await new Promise((resolve) => setTimeout(resolve, syncDelayMs));
         }
@@ -152,7 +170,9 @@ export async function startServer(port, repoRoot, options = {}) {
         // /objects responses alike.
         if (upstream.body) {
           const upstreamStream = Readable.fromWeb(upstream.body);
-          upstreamStream.on('error', () => { if (!res.writableEnded) res.end(); });
+          upstreamStream.on('error', () => {
+            if (!res.writableEnded) res.end();
+          });
           res.on('close', () => upstreamStream.destroy());
           upstreamStream.pipe(res);
         } else {
@@ -186,8 +206,16 @@ export async function startServer(port, repoRoot, options = {}) {
     url,
     password: PASSWORD,
     stop() {
-      try { proxyServer?.close(); } catch { /* already closed */ }
-      try { proc.kill('SIGTERM'); } catch { /* already dead */ }
+      try {
+        proxyServer?.close();
+      } catch {
+        /* already closed */
+      }
+      try {
+        proc.kill('SIGTERM');
+      } catch {
+        /* already dead */
+      }
     },
   };
 }

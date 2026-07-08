@@ -216,7 +216,12 @@ export function extractSnippet(hit: SearchHit): SnippetSegment[] {
 
   const matchedTerms = hit.terms;
   if (matchedTerms.length === 0) {
-    return [{ text: body.slice(0, 120).replace(/\n/g, ' ') + (body.length > 120 ? '...' : ''), highlight: false }];
+    return [
+      {
+        text: body.slice(0, 120).replace(/\n/g, ' ') + (body.length > 120 ? '...' : ''),
+        highlight: false,
+      },
+    ];
   }
 
   // Find first occurrence of any matched term in body

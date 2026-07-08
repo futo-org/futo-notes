@@ -39,22 +39,43 @@ describe('bumpPatch', () => {
 describe('hostTarget — per-OS updater artifact shape', () => {
   it('maps linux → AppImage (and re-signs after the mesa patch)', () => {
     const t = hostTarget('linux', 'x64');
-    expect(t).toMatchObject({ platform: 'linux-x86_64', bundle: 'appimage', suffix: '.AppImage', mesaPatch: true });
+    expect(t).toMatchObject({
+      platform: 'linux-x86_64',
+      bundle: 'appimage',
+      suffix: '.AppImage',
+      mesaPatch: true,
+    });
   });
 
   it('maps macOS → app.tar.gz (NOT the .dmg), per-arch key, no mesa patch', () => {
-    expect(hostTarget('darwin', 'arm64')).toMatchObject({ platform: 'darwin-aarch64', bundle: 'app', suffix: '.app.tar.gz', mesaPatch: false });
+    expect(hostTarget('darwin', 'arm64')).toMatchObject({
+      platform: 'darwin-aarch64',
+      bundle: 'app',
+      suffix: '.app.tar.gz',
+      mesaPatch: false,
+    });
     expect(hostTarget('darwin', 'x64')).toMatchObject({ platform: 'darwin-x86_64' });
   });
 
   it('maps Windows → NSIS setup.exe, per-arch key', () => {
-    expect(hostTarget('win32', 'x64')).toMatchObject({ platform: 'windows-x86_64', bundle: 'nsis', suffix: '-setup.exe', mesaPatch: false });
+    expect(hostTarget('win32', 'x64')).toMatchObject({
+      platform: 'windows-x86_64',
+      bundle: 'nsis',
+      suffix: '-setup.exe',
+      mesaPatch: false,
+    });
     expect(hostTarget('win32', 'arm64')).toMatchObject({ platform: 'windows-aarch64' });
   });
 
   it('every shipped target yields a platform key the manifest accepts', () => {
     // linux-aarch64 is intentionally not shipped, so skip it.
-    for (const [plat, arch] of [['linux', 'x64'], ['darwin', 'arm64'], ['darwin', 'x64'], ['win32', 'x64'], ['win32', 'arm64']]) {
+    for (const [plat, arch] of [
+      ['linux', 'x64'],
+      ['darwin', 'arm64'],
+      ['darwin', 'x64'],
+      ['win32', 'x64'],
+      ['win32', 'arm64'],
+    ]) {
       expect(KNOWN_PLATFORMS).toContain(hostTarget(plat, arch).platform);
     }
   });

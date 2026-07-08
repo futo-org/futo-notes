@@ -1,12 +1,6 @@
 import { EditorView } from '@codemirror/view';
 import { EditorSelection } from '@codemirror/state';
-import type {
-  Driver,
-  DriverEvent,
-  DriverState,
-  DecoratedRange,
-  Position,
-} from './protocol';
+import type { Driver, DriverEvent, DriverState, DecoratedRange, Position } from './protocol';
 import { classToKinds } from './semanticKind';
 
 // Convert an absolute doc position to {line, ch, pos}. Both cm-lines
@@ -68,7 +62,14 @@ function extractDecorations(view: EditorView): DecoratedRange[] {
       const classes = Array.from(node.classList);
       const kinds = classToKinds(classes);
       const isUnknown = kinds.length === 1 && kinds[0] === 'unknown';
-      if (!isUnknown || classes.some((c) => /^cm-(md-|hashtag|formatting|strong|em|strikethrough|link|url|inline-code|header|quote)/.test(c))) {
+      if (
+        !isUnknown ||
+        classes.some((c) =>
+          /^cm-(md-|hashtag|formatting|strong|em|strikethrough|link|url|inline-code|header|quote)/.test(
+            c,
+          ),
+        )
+      ) {
         try {
           // Range bounds: the doc positions of the first and last
           // characters this DOM element represents.
@@ -90,7 +91,11 @@ function extractDecorations(view: EditorView): DecoratedRange[] {
               let cur: Element | null = start;
               while (cur && cur !== view.contentDOM) {
                 let n = cur.nextSibling as Element | null;
-                while (n && n.nodeType === Node.ELEMENT_NODE && (n as Element).classList?.contains('cm-widgetBuffer')) {
+                while (
+                  n &&
+                  n.nodeType === Node.ELEMENT_NODE &&
+                  (n as Element).classList?.contains('cm-widgetBuffer')
+                ) {
                   n = n.nextSibling as Element | null;
                 }
                 if (n && n.nodeType === Node.ELEMENT_NODE) return n as Element;
@@ -173,21 +178,30 @@ async function applyEvent(view: EditorView, ev: DriverEvent): Promise<void> {
     }
     case 'key': {
       const map: Record<string, string> = {
-        ArrowUp: 'ArrowUp', ArrowDown: 'ArrowDown',
-        ArrowLeft: 'ArrowLeft', ArrowRight: 'ArrowRight',
-        Home: 'Home', End: 'End',
-        Enter: 'Enter', Backspace: 'Backspace',
-        Delete: 'Delete', Escape: 'Escape',
+        ArrowUp: 'ArrowUp',
+        ArrowDown: 'ArrowDown',
+        ArrowLeft: 'ArrowLeft',
+        ArrowRight: 'ArrowRight',
+        Home: 'Home',
+        End: 'End',
+        Enter: 'Enter',
+        Backspace: 'Backspace',
+        Delete: 'Delete',
+        Escape: 'Escape',
       };
       const key = map[ev.key];
       if (!key) return;
       view.contentDOM.dispatchEvent(
-        new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
+        new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }),
       );
       break;
     }
-    case 'blur': view.contentDOM.blur(); break;
-    case 'focus': view.focus(); break;
+    case 'blur':
+      view.contentDOM.blur();
+      break;
+    case 'focus':
+      view.focus();
+      break;
   }
   // Let Svelte/CM flush any pending RAF work before the judge reads state.
   await new Promise((r) => requestAnimationFrame(() => r(null)));

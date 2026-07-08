@@ -1,5 +1,5 @@
 #!/bin/sh
-# Pre-commit hook: run ESLint on staged .ts files, and ensure every
+# Pre-commit hook: Prettier + ESLint on staged files, and ensure every
 # AGENTS.md has a sibling CLAUDE.md.
 # Installed via: git config core.hooksPath .githooks
 
@@ -16,6 +16,16 @@ git ls-files -z -- '**/AGENTS.md' 'AGENTS.md' | while IFS= read -r -d '' agents;
     created=1
   fi
 done
+
+STAGED_FMT=$(git diff --cached --name-only --diff-filter=ACM -- '*.ts' '*.tsx' '*.svelte' '*.js' '*.mjs' '*.cjs' '*.css')
+
+if [ -n "$STAGED_FMT" ]; then
+  echo "Running Prettier on staged files..."
+  echo "$STAGED_FMT" | tr '\n' '\0' | xargs -0 pnpm exec prettier --check --ignore-unknown || {
+    echo "Prettier check failed — run: pnpm run format" >&2
+    exit 1
+  }
+fi
 
 STAGED_TS=$(git diff --cached --name-only --diff-filter=ACM -- '*.ts' '*.tsx')
 

@@ -3,8 +3,9 @@
  * Used by both client and server.
  */
 
-const CONTROL_CHARS = Array.from({ length: 32 }, (_, index) => String.fromCharCode(index)).join('')
-  + String.fromCharCode(127);
+const CONTROL_CHARS =
+  Array.from({ length: 32 }, (_, index) => String.fromCharCode(index)).join('') +
+  String.fromCharCode(127);
 const FORBIDDEN_PATTERN = `[<>:"/\\\\|?*${CONTROL_CHARS}]`;
 
 /** Global regex for replacing forbidden characters (use with `.replace()`). */
@@ -47,9 +48,28 @@ export const MAX_FOLDER_DEPTH = 10;
  * syncs cleanly to a Windows client without the OS blocking a write.
  */
 const WINDOWS_RESERVED_NAMES = new Set<string>([
-  'CON', 'PRN', 'AUX', 'NUL',
-  'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9',
-  'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9',
+  'CON',
+  'PRN',
+  'AUX',
+  'NUL',
+  'COM1',
+  'COM2',
+  'COM3',
+  'COM4',
+  'COM5',
+  'COM6',
+  'COM7',
+  'COM8',
+  'COM9',
+  'LPT1',
+  'LPT2',
+  'LPT3',
+  'LPT4',
+  'LPT5',
+  'LPT6',
+  'LPT7',
+  'LPT8',
+  'LPT9',
 ]);
 
 /** True if `name` (sans extension) is a Windows-reserved device name. */
@@ -185,7 +205,10 @@ export function validateFolderPath(relPath: string): FilenameIssue[] {
   }
   for (const component of components) {
     if (component === '' || component === '.' || component === '..') {
-      issues.push({ kind: 'forbidden_chars', message: 'Folder path contains an invalid component' });
+      issues.push({
+        kind: 'forbidden_chars',
+        message: 'Folder path contains an invalid component',
+      });
       continue;
     }
     for (const issue of validateFolderName(component)) {

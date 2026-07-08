@@ -1,10 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  ensureSafeNoteId,
-  safeNotePath,
-  safeAppdataPath,
-  noteIdFromFilename,
-} from './pathSafety';
+import { ensureSafeNoteId, safeNotePath, safeAppdataPath, noteIdFromFilename } from './pathSafety';
 
 // ── ensureSafeNoteId ──────────────────────────────────────────────────
 

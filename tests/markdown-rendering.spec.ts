@@ -89,17 +89,24 @@ async function openSavedNote(page: Page, title: string, content: string): Promis
   await page.goto('/');
   await page.waitForLoadState('domcontentloaded');
   await page.waitForFunction(() => !!(window as any).__testNotes, null, { timeout: 10000 });
-  await page.evaluate(async ({ noteTitle, body }) => {
-    await (window as any).__testNotes.createNote(noteTitle, body);
-  }, { noteTitle: title, body: content });
+  await page.evaluate(
+    async ({ noteTitle, body }) => {
+      await (window as any).__testNotes.createNote(noteTitle, body);
+    },
+    { noteTitle: title, body: content },
+  );
   await page.goto(`/#/note/${encodeURIComponent(title)}`);
   await page.waitForLoadState('domcontentloaded');
   await page.waitForSelector('.cm-editor', { timeout: 10000 });
   await page.waitForSelector('.cm-content', { timeout: 10000 });
-  await page.waitForFunction((expected) => {
-    const view = (window as any).__cmGetView?.();
-    return view?.state.doc.toString() === expected;
-  }, content, { timeout: 10000 });
+  await page.waitForFunction(
+    (expected) => {
+      const view = (window as any).__cmGetView?.();
+      return view?.state.doc.toString() === expected;
+    },
+    content,
+    { timeout: 10000 },
+  );
 }
 
 async function blurEditor(page: Page): Promise<void> {
@@ -119,14 +126,22 @@ async function getDocText(page: Page): Promise<string> {
 }
 
 async function getVisibleLineText(page: Page, lineIndex: number): Promise<string> {
-  return page.locator('.cm-line').nth(lineIndex).evaluate((el) => (el as HTMLElement).innerText.trim());
+  return page
+    .locator('.cm-line')
+    .nth(lineIndex)
+    .evaluate((el) => (el as HTMLElement).innerText.trim());
 }
 
-async function clickRenderedTextBoundary(page: Page, selector: string, visibleOffset: number): Promise<void> {
+async function clickRenderedTextBoundary(
+  page: Page,
+  selector: string,
+  visibleOffset: number,
+): Promise<void> {
   const target = page.locator(selector);
   await expect(target).toBeVisible();
   const clickPoint = await target.evaluate((el, offset) => {
-    const textNode = Array.from(el.childNodes).find((node) => node.nodeType === Node.TEXT_NODE) as Text | undefined;
+    const textNode = Array.from(el.childNodes).find((node) => node.nodeType === Node.TEXT_NODE) as
+      Text | undefined;
     if (!textNode) throw new Error('Rendered text node not found');
     const range = document.createRange();
     range.setStart(textNode, offset as number);
@@ -156,7 +171,9 @@ async function getCursorState(page: Page): Promise<{ line: number; ch: number; t
   });
 }
 
-async function getSelectionState(page: Page): Promise<{ from: number; to: number; empty: boolean; text: string }> {
+async function getSelectionState(
+  page: Page,
+): Promise<{ from: number; to: number; empty: boolean; text: string }> {
   return page.evaluate(() => {
     const view = (window as any).__cmGetView?.();
     if (!view) throw new Error('CM EditorView not found');
@@ -170,31 +187,40 @@ async function getSelectionState(page: Page): Promise<{ from: number; to: number
   });
 }
 
-async function getVisibleTextPoint(page: Page, substring: string, offset = 0): Promise<{ x: number; y: number }> {
-  return page.evaluate(({ substring, offset }) => {
-    const root = document.querySelector('.cm-content');
-    if (!root) throw new Error('CM content not found');
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-    let node: Node | null;
-    while ((node = walker.nextNode())) {
-      const text = node.textContent ?? '';
-      const start = text.indexOf(substring);
-      if (start === -1) continue;
-      const range = document.createRange();
-      const pos = start + offset;
-      range.setStart(node, pos);
-      range.setEnd(node, pos);
-      const rect = range.getClientRects()[0] ?? range.getBoundingClientRect();
-      return {
-        x: rect.left + 1,
-        y: (rect.top + rect.bottom) / 2,
-      };
-    }
-    throw new Error(`Visible substring not found: ${substring}`);
-  }, { substring, offset });
+async function getVisibleTextPoint(
+  page: Page,
+  substring: string,
+  offset = 0,
+): Promise<{ x: number; y: number }> {
+  return page.evaluate(
+    ({ substring, offset }) => {
+      const root = document.querySelector('.cm-content');
+      if (!root) throw new Error('CM content not found');
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      let node: Node | null;
+      while ((node = walker.nextNode())) {
+        const text = node.textContent ?? '';
+        const start = text.indexOf(substring);
+        if (start === -1) continue;
+        const range = document.createRange();
+        const pos = start + offset;
+        range.setStart(node, pos);
+        range.setEnd(node, pos);
+        const rect = range.getClientRects()[0] ?? range.getBoundingClientRect();
+        return {
+          x: rect.left + 1,
+          y: (rect.top + rect.bottom) / 2,
+        };
+      }
+      throw new Error(`Visible substring not found: ${substring}`);
+    },
+    { substring, offset },
+  );
 }
 
-async function getLocatorCenter(locator: ReturnType<Page['locator']>): Promise<{ x: number; y: number }> {
+async function getLocatorCenter(
+  locator: ReturnType<Page['locator']>,
+): Promise<{ x: number; y: number }> {
   const box = await locator.boundingBox();
   if (!box) throw new Error('Expected locator bounding box');
   return {
@@ -217,14 +243,10 @@ test.describe('Headings', () => {
     expect(await getVisibleLineText(page, 0)).toBe('Heading 1');
     expect(await getDocText(page)).toContain('# Heading 1');
 
-    const fontSize = await h1.evaluate(el =>
-      window.getComputedStyle(el).fontSize
-    );
+    const fontSize = await h1.evaluate((el) => window.getComputedStyle(el).fontSize);
     expect(parseInt(fontSize)).toBeGreaterThanOrEqual(24); // 28px desktop, 24px mobile
 
-    const fontWeight = await h1.evaluate(el =>
-      window.getComputedStyle(el).fontWeight
-    );
+    const fontWeight = await h1.evaluate((el) => window.getComputedStyle(el).fontWeight);
     // H1-H3 use --font-serif at weight 700 (size creates hierarchy)
     expect(parseInt(fontWeight)).toBeGreaterThanOrEqual(400);
   });
@@ -238,9 +260,7 @@ test.describe('Headings', () => {
     expect(await getVisibleLineText(page, 0)).toBe('Heading 2');
     expect(await getDocText(page)).toContain('## Heading 2');
 
-    const fontSize = await h2.evaluate(el =>
-      window.getComputedStyle(el).fontSize
-    );
+    const fontSize = await h2.evaluate((el) => window.getComputedStyle(el).fontSize);
     expect(parseInt(fontSize)).toBeGreaterThanOrEqual(20);
   });
 
@@ -278,9 +298,7 @@ test.describe('Emphasis (Bold/Italic)', () => {
     expect(await getVisibleLineText(page, 0)).toBe('This is italic text.');
     expect(await getDocText(page)).toContain('*italic*');
 
-    const fontStyle = await italic.evaluate(el =>
-      window.getComputedStyle(el).fontStyle
-    );
+    const fontStyle = await italic.evaluate((el) => window.getComputedStyle(el).fontStyle);
     expect(fontStyle).toBe('italic');
   });
 
@@ -293,9 +311,7 @@ test.describe('Emphasis (Bold/Italic)', () => {
     expect(await getVisibleLineText(page, 0)).toBe('This is bold text.');
     expect(await getDocText(page)).toContain('**bold**');
 
-    const fontWeight = await bold.evaluate(el =>
-      window.getComputedStyle(el).fontWeight
-    );
+    const fontWeight = await bold.evaluate((el) => window.getComputedStyle(el).fontWeight);
     expect(parseInt(fontWeight)).toBeGreaterThanOrEqual(700);
   });
 
@@ -308,7 +324,9 @@ test.describe('Emphasis (Bold/Italic)', () => {
     expect(await getVisibleLineText(page, 0)).not.toContain('**');
   });
 
-  test('clicking inside italic text places the cursor at the clicked character', async ({ page }) => {
+  test('clicking inside italic text places the cursor at the clicked character', async ({
+    page,
+  }) => {
     await setupEditor(page, '*Why*');
     await blurEditor(page);
 
@@ -378,8 +396,8 @@ test.describe('Strikethrough', () => {
     const strike = page.locator('.cm-md-strikethrough');
     await expect(strike).toBeVisible();
 
-    const textDecoration = await strike.evaluate(el =>
-      window.getComputedStyle(el).textDecorationLine
+    const textDecoration = await strike.evaluate(
+      (el) => window.getComputedStyle(el).textDecorationLine,
     );
     expect(textDecoration).toContain('line-through');
   });
@@ -393,7 +411,9 @@ test.describe('Strikethrough', () => {
     expect(text).not.toContain('~~');
   });
 
-  test('clicking inside strikethrough text places the cursor at the clicked character', async ({ page }) => {
+  test('clicking inside strikethrough text places the cursor at the clicked character', async ({
+    page,
+  }) => {
     await setupEditor(page, '~~Why~~');
     await blurEditor(page);
 
@@ -405,7 +425,9 @@ test.describe('Strikethrough', () => {
     expect(cursor.ch).toBe(3);
   });
 
-  test('holding mouse down on rendered strikethrough keeps the line-through visible', async ({ page }) => {
+  test('holding mouse down on rendered strikethrough keeps the line-through visible', async ({
+    page,
+  }) => {
     await setupEditor(page, 'This is ~~struck~~ text.');
 
     const strike = page.locator('.cm-md-strikethrough');
@@ -439,14 +461,10 @@ test.describe('Inline Code', () => {
     const code = page.locator('.cm-md-code');
     await expect(code).toBeVisible();
 
-    const fontFamily = await code.evaluate(el =>
-      window.getComputedStyle(el).fontFamily
-    );
+    const fontFamily = await code.evaluate((el) => window.getComputedStyle(el).fontFamily);
     expect(fontFamily.toLowerCase()).toMatch(/monaco|menlo|mono/);
 
-    const background = await code.evaluate(el =>
-      window.getComputedStyle(el).backgroundColor
-    );
+    const background = await code.evaluate((el) => window.getComputedStyle(el).backgroundColor);
     expect(background).not.toBe('rgba(0, 0, 0, 0)'); // Has background
   });
 
@@ -549,7 +567,9 @@ test.describe('Inline Code', () => {
     expect(during).not.toBe('rgba(0, 0, 0, 0)');
   });
 
-  test('holding mouse down without dragging does not flatten unrelated code and strikethrough decorations', async ({ page }) => {
+  test('holding mouse down without dragging does not flatten unrelated code and strikethrough decorations', async ({
+    page,
+  }) => {
     await setupEditor(page, 'Alpha ~~strike~~ beta `code` gamma');
 
     const strike = page.locator('.cm-md-strikethrough');
@@ -585,9 +605,7 @@ test.describe('Code Blocks', () => {
     const codeBlock = page.locator('.cm-md-code-block:not(.cm-md-code-block-fence)').first();
     await expect(codeBlock).toBeVisible();
 
-    const fontFamily = await codeBlock.evaluate(el =>
-      window.getComputedStyle(el).fontFamily
-    );
+    const fontFamily = await codeBlock.evaluate((el) => window.getComputedStyle(el).fontFamily);
     expect(fontFamily.toLowerCase()).toMatch(/monaco|menlo|mono/);
   });
 
@@ -622,10 +640,19 @@ test.describe('Code Blocks', () => {
     await blurEditor(page);
 
     await expect(page.locator('.cm-md-code-lang-label')).toHaveText('Ruby');
-    await expect(page.locator('.cm-md-code-block .tok-string', { hasText: 'redcarpet' })).toBeVisible();
-    await expect(page.locator('.cm-md-code-block .tok-variableName, .cm-md-code-block .tok-propertyName').first()).toBeVisible();
+    await expect(
+      page.locator('.cm-md-code-block .tok-string', { hasText: 'redcarpet' }),
+    ).toBeVisible();
+    await expect(
+      page
+        .locator('.cm-md-code-block .tok-variableName, .cm-md-code-block .tok-propertyName')
+        .first(),
+    ).toBeVisible();
 
-    const blockBox = await page.locator('.cm-md-code-block:not(.cm-md-code-block-fence)').first().boundingBox();
+    const blockBox = await page
+      .locator('.cm-md-code-block:not(.cm-md-code-block-fence)')
+      .first()
+      .boundingBox();
     const labelBox = await page.locator('.cm-md-code-lang-label').boundingBox();
     expect(blockBox).not.toBeNull();
     expect(labelBox).not.toBeNull();
@@ -634,13 +661,7 @@ test.describe('Code Blocks', () => {
   });
 
   test('clicking into highlighted code reveals the raw fence for editing', async ({ page }) => {
-    const rubyBlock = [
-      '```ruby',
-      "require 'redcarpet'",
-      '```',
-      '',
-      'More text',
-    ].join('\n');
+    const rubyBlock = ['```ruby', "require 'redcarpet'", '```', '', 'More text'].join('\n');
 
     await setupEditor(page, rubyBlock);
     await blurEditor(page);
@@ -664,14 +685,12 @@ test.describe('Links', () => {
     const link = page.locator('.cm-md-link:not(.cm-md-autolink)', { hasText: 'link' }).first();
     await expect(link).toBeVisible();
 
-    const color = await link.evaluate(el =>
-      window.getComputedStyle(el).color
-    );
+    const color = await link.evaluate((el) => window.getComputedStyle(el).color);
     // Should have a blue-ish color, not default black
     expect(color).not.toBe('rgb(0, 0, 0)');
 
-    const textDecoration = await link.evaluate(el =>
-      window.getComputedStyle(el).textDecorationLine
+    const textDecoration = await link.evaluate(
+      (el) => window.getComputedStyle(el).textDecorationLine,
     );
     expect(textDecoration).toContain('underline');
   });
@@ -708,8 +727,8 @@ test.describe('Blockquotes', () => {
     // The > should be hidden
     // Check that we have the quote class applied but marker isn't visible
     const quoteLines = page.locator('.cm-line').first();
-    await quoteLines.evaluate(el =>
-      el.classList.contains('cm-md-quote') || el.querySelector('.cm-md-quote') !== null
+    await quoteLines.evaluate(
+      (el) => el.classList.contains('cm-md-quote') || el.querySelector('.cm-md-quote') !== null,
     );
     // Either the line has the class or contains an element with it
   });
@@ -747,9 +766,9 @@ test.describe('Lists', () => {
     expect(count).toBeGreaterThanOrEqual(1);
 
     // Verify it's an actual checkbox input
-    const isCheckbox = await checkbox.first().evaluate(el =>
-      el.tagName === 'INPUT' && (el as HTMLInputElement).type === 'checkbox'
-    );
+    const isCheckbox = await checkbox
+      .first()
+      .evaluate((el) => el.tagName === 'INPUT' && (el as HTMLInputElement).type === 'checkbox');
     expect(isCheckbox).toBe(true);
   });
 
@@ -758,9 +777,9 @@ test.describe('Lists', () => {
     await blurEditor(page);
 
     const checkboxes = page.locator('.cm-md-task-checkbox');
-    const firstChecked = await checkboxes.first().evaluate(el =>
-      (el as HTMLInputElement).checked
-    );
+    const firstChecked = await checkboxes
+      .first()
+      .evaluate((el) => (el as HTMLInputElement).checked);
     expect(firstChecked).toBe(true);
   });
 
@@ -772,17 +791,22 @@ test.describe('Lists', () => {
     const LONG =
       'this sentence is deliberately long enough that it has to wrap onto at ' +
       'least two visual rows inside a pinned four hundred and twenty pixel wide editor view';
-    await setupEditor(
-      page,
-      `- ${LONG}\n  - ${LONG}\n1. ${LONG}\n- [ ] ${LONG}\n\n${LONG}`,
-    );
+    await setupEditor(page, `- ${LONG}\n  - ${LONG}\n1. ${LONG}\n- [ ] ${LONG}\n\n${LONG}`);
     await blurEditor(page);
 
     // Pin the editor width so every long line wraps deterministically.
     await page.setViewportSize({ width: 900, height: 900 });
-    await page.evaluate(async () => { await document.fonts.ready; });
+    await page.evaluate(async () => {
+      await document.fonts.ready;
+    });
     await page.evaluate(() => {
-      for (const sel of ['.cm-editor', '.cm-scroller', '.cm-content', '.cm-lineWrapping', '.note-main']) {
+      for (const sel of [
+        '.cm-editor',
+        '.cm-scroller',
+        '.cm-content',
+        '.cm-lineWrapping',
+        '.note-main',
+      ]) {
         const el = document.querySelector(sel) as HTMLElement | null;
         if (!el) continue;
         el.style.width = '420px';
@@ -840,8 +864,10 @@ test.describe('Lists', () => {
       if (!view) throw new Error('CM EditorView not found');
       return [0, 1, 5].map((ln) => {
         const lineInfo = view.state.doc.line(ln + 1);
-        const el = (view.domAtPos(lineInfo.from).node as HTMLElement | Text).parentElement
-          ?.closest?.('.cm-line') ?? view.domAtPos(lineInfo.from).node;
+        const el =
+          (view.domAtPos(lineInfo.from).node as HTMLElement | Text).parentElement?.closest?.(
+            '.cm-line',
+          ) ?? view.domAtPos(lineInfo.from).node;
         const cs = window.getComputedStyle(el as HTMLElement);
         return {
           inlinePaddingLeft: (el as HTMLElement).style?.paddingLeft ?? '',
@@ -927,9 +953,7 @@ test.describe('Tables', () => {
     await blurEditor(page);
 
     const header = page.locator('.sf-table th').first();
-    const fontWeight = await header.evaluate(el =>
-      window.getComputedStyle(el).fontWeight
-    );
+    const fontWeight = await header.evaluate((el) => window.getComputedStyle(el).fontWeight);
     expect(parseInt(fontWeight)).toBeGreaterThanOrEqual(600);
   });
 });
@@ -954,13 +978,15 @@ test.describe('Horizontal Rule', () => {
   // gap the moment the rule scrolled back into the measured range and yanked
   // scrollTop — a visible scroll "jump" on iOS momentum scrolling.
   // See docs/learnings/hr-scroll-jank.md.
-  test('horizontal rule rendered height matches its CM6 estimate (no scroll jank)', async ({ page }) => {
+  test('horizontal rule rendered height matches its CM6 estimate (no scroll jank)', async ({
+    page,
+  }) => {
     await setupEditor(page, 'Text above\n\n---\n\nText below');
     await blurEditor(page);
 
-    const height = await page.locator('.cm-md-hr-widget').evaluate(
-      (el) => el.getBoundingClientRect().height,
-    );
+    const height = await page
+      .locator('.cm-md-hr-widget')
+      .evaluate((el) => el.getBoundingClientRect().height);
 
     // Must equal HorizontalRuleWidget.estimatedHeight (50). When the rendered
     // height and the estimate diverged, CM6 corrected the gap as the rule

@@ -33,12 +33,8 @@ export function computeMenuPlacement(
   const spaceAbove = anchor.top;
 
   // Prefer below; flip above if menu won't fit below and there's more room above.
-  const flipAbove =
-    spaceBelow < menuSize.height + gap &&
-    spaceAbove > spaceBelow;
-  const top = flipAbove
-    ? Math.max(gap, anchor.top - menuSize.height - gap)
-    : anchor.bottom + gap;
+  const flipAbove = spaceBelow < menuSize.height + gap && spaceAbove > spaceBelow;
+  const top = flipAbove ? Math.max(gap, anchor.top - menuSize.height - gap) : anchor.bottom + gap;
 
   // Clamp horizontally — right edge must fit inside viewport with an 8px margin.
   const margin = 8;
@@ -107,23 +103,21 @@ function canOpenAt(state: EditorState, from: number): boolean {
  * Intercept `/` insertion and open the menu when appropriate.
  * Lets the `/` character land in the doc as normal — the menu reads it back as the query prefix.
  */
-export const slashInputHandler = EditorView.inputHandler.of(
-  (view, from, to, text) => {
-    if (text !== '/') return false;
-    if (from !== to) return false; // replacing a selection — not a trigger case
-    if (!canOpenAt(view.state, from)) return false;
-    // Already open? Just let the `/` be inserted normally.
-    if (view.state.field(slashMenuField, false)?.open) return false;
+export const slashInputHandler = EditorView.inputHandler.of((view, from, to, text) => {
+  if (text !== '/') return false;
+  if (from !== to) return false; // replacing a selection — not a trigger case
+  if (!canOpenAt(view.state, from)) return false;
+  // Already open? Just let the `/` be inserted normally.
+  if (view.state.field(slashMenuField, false)?.open) return false;
 
-    view.dispatch({
-      changes: { from, to, insert: '/' },
-      selection: EditorSelection.cursor(from + 1),
-      effects: openSlashMenuEffect.of({ from }),
-      userEvent: 'input.type',
-    });
-    return true;
-  }
-);
+  view.dispatch({
+    changes: { from, to, insert: '/' },
+    selection: EditorSelection.cursor(from + 1),
+    effects: openSlashMenuEffect.of({ from }),
+    userEvent: 'input.type',
+  });
+  return true;
+});
 
 /**
  * Commit the currently-selected command: remove `/query` then run the command.
@@ -197,8 +191,7 @@ class SlashMenuRenderer implements PluginValue {
 
     // Reset selected index if the filtered list shrank below it, or if the list changed
     const listChanged =
-      next.length !== this.filtered.length ||
-      next.some((c, i) => c.id !== this.filtered[i]?.id);
+      next.length !== this.filtered.length || next.some((c, i) => c.id !== this.filtered[i]?.id);
     if (listChanged) {
       this.selectedIndex = 0;
     }
@@ -351,7 +344,7 @@ const slashNavigationKeymap = Prec.highest(
     { key: 'Enter', run: commit },
     { key: 'Tab', run: commit },
     { key: 'Escape', run: close },
-  ])
+  ]),
 );
 
 /** Transaction filter: close if the user deletes back past the `/`. */
@@ -361,7 +354,8 @@ const slashClosingFilter = EditorState.transactionFilter.of((tr: Transaction) =>
   // If doc still has `/` at `field.from` after the change, leave alone; otherwise close
   if (!tr.docChanged) return tr;
   const newFrom = tr.changes.mapPos(field.from, -1);
-  if (newFrom < 0 || newFrom >= tr.newDoc.length) return [tr, { effects: closeSlashMenuEffect.of() }];
+  if (newFrom < 0 || newFrom >= tr.newDoc.length)
+    return [tr, { effects: closeSlashMenuEffect.of() }];
   const ch = tr.newDoc.sliceString(newFrom, newFrom + 1);
   if (ch !== '/') return [tr, { effects: closeSlashMenuEffect.of() }];
   return tr;

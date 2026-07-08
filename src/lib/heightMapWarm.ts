@@ -67,7 +67,7 @@ export function warmHeightMap(view: EditorView): { grew: number; steps: number }
   const startHeight = scroller.scrollHeight;
   const docLen = view.state.doc.length;
 
-  let pos = 0;        // doc position currently parked at the top of the viewport
+  let pos = 0; // doc position currently parked at the top of the viewport
   let steps = 0;
   let lastPos = -1;
   // Bounded loop: each step advances `pos` to the bottom of the just-rendered

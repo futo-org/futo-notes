@@ -4,7 +4,11 @@
 
   interface Props {
     reports: CrashReport[];
-    onresolved: (result: { action: 'send' | 'discard'; alwaysSend: boolean; userDescription?: string }) => void;
+    onresolved: (result: {
+      action: 'send' | 'discard';
+      alwaysSend: boolean;
+      userDescription?: string;
+    }) => void;
   }
 
   let { reports, onresolved }: Props = $props();
@@ -37,7 +41,9 @@
     ].filter(Boolean);
     await navigator.clipboard.writeText(lines.join('\n'));
     copyFeedback = true;
-    setTimeout(() => { copyFeedback = false; }, 2000);
+    setTimeout(() => {
+      copyFeedback = false;
+    }, 2000);
   }
 
   const reportCount = $derived(reports.length);
@@ -45,18 +51,30 @@
 </script>
 
 <div class="crash-overlay" role="presentation" style="padding-bottom: {keyboard.height + 24}px">
-  <div class="crash-panel" role="dialog" aria-modal="true" tabindex="-1" onkeydown={(e) => e.key === 'Escape' && handleDiscard()}>
+  <div
+    class="crash-panel"
+    role="dialog"
+    aria-modal="true"
+    tabindex="-1"
+    onkeydown={(e) => e.key === 'Escape' && handleDiscard()}
+  >
     <div class="crash-header">
       <h2 class="crash-title">Crash Report</h2>
     </div>
 
     <div class="crash-content">
       <p class="crash-message">
-        The app crashed{reportCount > 1 ? ` (${reportCount} reports)` : ''}. Send a report to help us fix it?
+        The app crashed{reportCount > 1 ? ` (${reportCount} reports)` : ''}. Send a report to help
+        us fix it?
       </p>
 
       {#if firstReport}
-        <button class="crash-toggle" onclick={() => { showDetails = !showDetails; }}>
+        <button
+          class="crash-toggle"
+          onclick={() => {
+            showDetails = !showDetails;
+          }}
+        >
           <span class="crash-toggle-arrow" class:open={showDetails}>&#9656;</span>
           View report
         </button>
@@ -80,7 +98,12 @@
         {/if}
       {/if}
 
-      <button class="crash-toggle" onclick={() => { showContext = !showContext; }}>
+      <button
+        class="crash-toggle"
+        onclick={() => {
+          showContext = !showContext;
+        }}
+      >
         <span class="crash-toggle-arrow" class:open={showContext}>&#9656;</span>
         What were you doing?
       </button>
@@ -90,8 +113,7 @@
           class="crash-textarea"
           placeholder="Optional: describe what you were doing when the crash happened"
           bind:value={userDescription}
-          rows="3"
-        ></textarea>
+          rows="3"></textarea>
       {/if}
 
       <label class="crash-checkbox-row">
@@ -258,7 +280,7 @@
     -webkit-tap-highlight-color: transparent;
   }
 
-  .crash-checkbox-row input[type="checkbox"] {
+  .crash-checkbox-row input[type='checkbox'] {
     width: 18px;
     height: 18px;
     accent-color: var(--color-primary);

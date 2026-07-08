@@ -56,9 +56,17 @@
         <div class="for-you-empty-title">FUTO Notes</div>
         {#if isMobile}
           <div class="for-you-empty-subtitle">Create your first note to get started.</div>
-          <button class="for-you-browse-btn" onclick={(e: MouseEvent) => { e.stopPropagation(); onbrowse?.(); }}>Browse notes</button>
+          <button
+            class="for-you-browse-btn"
+            onclick={(e: MouseEvent) => {
+              e.stopPropagation();
+              onbrowse?.();
+            }}>Browse notes</button
+          >
         {:else}
-          <div class="for-you-empty-subtitle">Create your first note from the sidebar to get started.</div>
+          <div class="for-you-empty-subtitle">
+            Create your first note from the sidebar to get started.
+          </div>
         {/if}
       </div>
     {/if}
@@ -125,7 +133,10 @@
     text-align: left;
     overflow: hidden;
     box-shadow: 0 1px 3px rgba(var(--ink-rgb), 0.04);
-    transition: box-shadow 0.2s ease, transform 0.2s ease, background 0.15s ease;
+    transition:
+      box-shadow 0.2s ease,
+      transform 0.2s ease,
+      background 0.15s ease;
   }
 
   @media (hover: hover) {

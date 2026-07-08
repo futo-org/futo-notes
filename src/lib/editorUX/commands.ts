@@ -36,7 +36,10 @@ export interface EditorCommand {
 function setLinePrefix(view: EditorView, at: number, prefix: string): void {
   const line = view.state.doc.lineAt(at);
   // Strip any existing heading/list/quote prefix
-  const stripped = line.text.replace(/^(\s*)(#{1,6}\s+|[-*+]\s+\[([ xX])\]\s+|[-*+]\s+|\d+\.\s+|>\s+)/, '$1');
+  const stripped = line.text.replace(
+    /^(\s*)(#{1,6}\s+|[-*+]\s+\[([ xX])\]\s+|[-*+]\s+|\d+\.\s+|>\s+)/,
+    '$1',
+  );
   const leading = (stripped.match(/^\s*/) || [''])[0];
   const body = stripped.slice(leading.length);
   const newText = `${leading}${prefix}${body}`;
@@ -210,7 +213,10 @@ export const EDITOR_COMMANDS: EditorCommand[] = [
  * Substring + prefix scoring filter. Prefix matches on label rank highest, then
  * substring matches on label, then keyword matches. Case-insensitive.
  */
-export function filterCommands(query: string, commands: EditorCommand[] = EDITOR_COMMANDS): EditorCommand[] {
+export function filterCommands(
+  query: string,
+  commands: EditorCommand[] = EDITOR_COMMANDS,
+): EditorCommand[] {
   const q = query.trim().toLowerCase();
   if (!q) return commands;
 

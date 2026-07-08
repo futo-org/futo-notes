@@ -22,12 +22,30 @@
  * The `.cm-md-hN` mark below carries family/weight/color for the
  * text; the line class is what makes wrapped content inside the
  * heading sit on the correct baseline. */
-.cm-md-h1-line { font-size: 28px !important; line-height: 1.1 !important; }
-.cm-md-h2-line { font-size: 23px !important; line-height: 1.15 !important; }
-.cm-md-h3-line { font-size: 20px !important; line-height: 1.2 !important; }
-.cm-md-h4-line { font-size: 18px !important; line-height: 1.25 !important; }
-.cm-md-h5-line { font-size: 16px !important; line-height: 1.3 !important; }
-.cm-md-h6-line { font-size: 14px !important; line-height: 1.4 !important; }
+.cm-md-h1-line {
+  font-size: 28px !important;
+  line-height: 1.1 !important;
+}
+.cm-md-h2-line {
+  font-size: 23px !important;
+  line-height: 1.15 !important;
+}
+.cm-md-h3-line {
+  font-size: 20px !important;
+  line-height: 1.2 !important;
+}
+.cm-md-h4-line {
+  font-size: 18px !important;
+  line-height: 1.25 !important;
+}
+.cm-md-h5-line {
+  font-size: 16px !important;
+  line-height: 1.3 !important;
+}
+.cm-md-h6-line {
+  font-size: 14px !important;
+  line-height: 1.4 !important;
+}
 
 .cm-md-h1 {
   font-size: 28px;
@@ -489,7 +507,6 @@
 .cm-md-table-rendered del {
   color: var(--color-muted);
 }
-
 
 /* Focus state — show hidden elements when editing */
 .cm-editor:focus-within .cm-md-h1 .cm-md-h1-marker,
