@@ -9,7 +9,8 @@
 //! `stop_live` aborts through it).
 //!
 //! Persistence is the crate's concern: `connect` / `run_sync` persist
-//! internally, and `e2ee_disconnect` calls `futo_notes_sync::state::delete_state_file`.
+//! internally, and `e2ee_disconnect` calls
+//! `futo_notes_sync::state::demote_state_to_ancestry`.
 
 use std::ops::Deref;
 

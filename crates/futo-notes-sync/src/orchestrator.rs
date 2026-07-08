@@ -476,7 +476,7 @@ pub async fn connect(
         }
     };
 
-    let loaded = state::load(notes_root).reset_if_collection_changed(&collection_id);
+    let loaded = state::load_for_collection(notes_root, &collection_id);
     let connected = ConnectedState {
         base_url: server_url.to_owned(),
         token: login.token.clone(),
@@ -554,7 +554,7 @@ pub async fn resume(
         .await
         .map_err(SyncErrorKind::crypto)?;
 
-    let loaded = state::load(notes_root).reset_if_collection_changed(collection_id);
+    let loaded = state::load_for_collection(notes_root, collection_id);
     Ok(ConnectedState {
         base_url: server_url.to_owned(),
         token: token.to_owned(),
@@ -2010,6 +2010,35 @@ async fn resolve_update_conflict(
         }
     }
 
+    // Identical content is not a conflict. If our local bytes already match
+    // the remote we just fetched (same hash), the 409 was a spurious race: a
+    // peer advanced the object to the exact content we hold. This is common
+    // when the merge-base blob has been GC'd (the clean-merge branch above is
+    // skipped for a missing base), so without this guard identical content
+    // falls straight through to a conflict copy — minting a byte-identical new
+    // object every cycle, which the pull-side collision resolver then re-parks
+    // under an ever-deeper name (the July 2026 combinatorial blow-up). Adopt
+    // the remote object state instead: no copy, no new object. Reuses the
+    // MergedClean outcome (target now holds this content; map adopts the
+    // remote object), which also drops `previous_filename` on a peer rename.
+    if local_hash == remote_hash {
+        return Ok(PushOutcome::MergedClean {
+            filename: target_filename,
+            previous_filename,
+            merged_content: remote.content,
+            merged_hash: remote_hash.clone(),
+            entry: E2eeObjectMapEntry {
+                object_id: existing.object_id.clone(),
+                version: conflict.current_version,
+                blob_key: current_blob_key,
+                hash: Some(remote_hash),
+                mtime_ms: None,
+                size_bytes: None,
+            },
+            modified_at: now_ms(),
+        });
+    }
+
     // Conflict-copy path: keep the remote on the target filename and
     // park the user's local edits in `note (conflict YYYY-MM-DD).md`.
     let date = current_date_yyyy_mm_dd();
@@ -3076,6 +3105,14 @@ async fn reconcile_empty_map(
         return Ok((SyncSummary::default(), state_cell.clone()));
     }
 
+    // Ancestry left behind by a disconnect / collection reset: filename →
+    // last-synced {objectId, hash}. Lets the diverged branch below separate
+    // "drifted while this device was disconnected, never edited here" and
+    // "edited here against an unchanged remote" from true divergence, so
+    // neither mints a `(conflict <oid8>)` copy. Advisory: absent or stale
+    // entries just fall through to the conservative park.
+    let ancestry = state::load_ancestry(notes_root_path);
+
     // Index local files by name so we can compare without re-walking
     // disk per object. list_notes_with_meta already filters to
     // `.md` and skips dotfile dirs.
@@ -3087,6 +3124,11 @@ async fn reconcile_empty_map(
         .iter()
         .filter(|f| f.name.ends_with(".md") || is_image_filename(&f.name))
         .map(|f| (f.name.clone(), (f.mtime_ms, f.size_bytes)))
+        .collect();
+    let ancestry_by_object_id: HashMap<String, (String, state::AncestryEntry)> = ancestry
+        .iter()
+        .filter(|(filename, _)| local_by_name.contains_key(filename.as_str()))
+        .map(|(filename, entry)| (entry.object_id.clone(), (filename.clone(), entry.clone())))
         .collect();
 
     // Batched download stage — same machinery as run_pull. The object map is
@@ -3118,6 +3160,7 @@ async fn reconcile_empty_map(
     // whether to write, skip, or omit mtime/size to flag divergence.
     let mut updates: Vec<V2IncomingUpdate> = Vec::new();
     let mut timestamps: HashMap<String, i64> = HashMap::new();
+    let mut deletes: Vec<String> = Vec::new();
     let mut upserts: Vec<(String, E2eeObjectMapEntry)> = Vec::new();
     // Filenames adopted from the server (written to disk) — these are
     // genuine peer-driven downloads and must be surfaced in the summary so
@@ -3147,6 +3190,79 @@ async fn reconcile_empty_map(
 
         match local_by_name.get(&target_name) {
             None => {
+                if let Some((previous_name, anc)) = ancestry_by_object_id.get(&note.object_id) {
+                    if previous_name != &target_name {
+                        if let Ok(content) = read_local_note(notes_root_path, previous_name).await {
+                            let local_hash = hash_sha256(&content);
+                            if anc.hash == local_hash {
+                                // The object moved while this device was
+                                // disconnected, and the old local path is
+                                // still exactly what this device last synced.
+                                // Adopt the remote at its new path and delete
+                                // the stale old path so it cannot be POSTed as
+                                // a duplicate on the push phase.
+                                deletes.push(previous_name.clone());
+                                updates.push(V2IncomingUpdate {
+                                    filename: target_name.clone(),
+                                    content: note.content.clone(),
+                                    hash: note.hash.clone(),
+                                    modified_at: note.modified_at_ms,
+                                });
+                                upserts.push((
+                                    target_name.clone(),
+                                    entry_common(Some(note.modified_at_ms), Some(remote_size)),
+                                ));
+                                adopted.push(target_name.clone());
+                                continue;
+                            }
+                            if anc.hash == note.hash {
+                                // The peer renamed the object without changing
+                                // its content; this device edited the old path
+                                // while disconnected. Move the local edit to
+                                // the peer's new path and map it to the same
+                                // object with no fast-path fields so the next
+                                // push updates that object instead of minting a
+                                // duplicate.
+                                deletes.push(previous_name.clone());
+                                updates.push(V2IncomingUpdate {
+                                    filename: target_name.clone(),
+                                    content,
+                                    hash: local_hash,
+                                    modified_at: 0,
+                                });
+                                upserts.push((target_name.clone(), entry_common(None, None)));
+                                adopted.push(target_name.clone());
+                                continue;
+                            }
+
+                            // Both sides changed: keep the remote at its new
+                            // path, preserve the local edit as a conflict copy,
+                            // and remove the stale old path so it cannot upload
+                            // as an unrelated new object.
+                            let copy_name =
+                                collision_conflict_filename(&target_name, &note.object_id);
+                            deletes.push(previous_name.clone());
+                            updates.push(V2IncomingUpdate {
+                                filename: copy_name,
+                                content,
+                                hash: local_hash,
+                                modified_at: 0,
+                            });
+                            updates.push(V2IncomingUpdate {
+                                filename: target_name.clone(),
+                                content: note.content.clone(),
+                                hash: note.hash.clone(),
+                                modified_at: note.modified_at_ms,
+                            });
+                            upserts.push((
+                                target_name.clone(),
+                                entry_common(Some(note.modified_at_ms), Some(remote_size)),
+                            ));
+                            adopted.push(target_name.clone());
+                            continue;
+                        }
+                    }
+                }
                 // No local file → adopt the remote at its (collision-resolved)
                 // target name.
                 updates.push(V2IncomingUpdate {
@@ -3189,6 +3305,50 @@ async fn reconcile_empty_map(
                         timestamps.insert(target_name.clone(), note.modified_at_ms);
                     }
                     Some(content) => {
+                        let local_hash = hash_sha256(&content);
+                        // Ancestry (written on disconnect / collection reset)
+                        // can prove the divergence is one-sided for THIS
+                        // object; a one-sided change is a fast-forward, not a
+                        // conflict. Without it, a device that reconnected
+                        // after fleet drift parked a conflict copy of every
+                        // note it never touched (July 2026 incident).
+                        let anc = ancestry
+                            .get(&target_name)
+                            .filter(|a| a.object_id == note.object_id);
+                        if let Some(anc) = anc {
+                            if anc.hash == local_hash {
+                                // Local is bit-for-bit what this device last
+                                // synced for this object; only the remote
+                                // moved. Fast-forward: adopt the remote, no
+                                // conflict copy.
+                                updates.push(V2IncomingUpdate {
+                                    filename: target_name.clone(),
+                                    content: note.content.clone(),
+                                    hash: note.hash.clone(),
+                                    modified_at: note.modified_at_ms,
+                                });
+                                upserts.push((
+                                    target_name.clone(),
+                                    entry_common(
+                                        Some(note.modified_at_ms),
+                                        Some(remote_size),
+                                    ),
+                                ));
+                                adopted.push(target_name.clone());
+                                continue;
+                            }
+                            if anc.hash == note.hash {
+                                // The remote is still exactly what this device
+                                // last synced; only local was edited (while
+                                // disconnected). Keep local and record a
+                                // divergence entry (no mtime/size) so the next
+                                // push uploads it as an UPDATE to this same
+                                // object — safe because the remote content IS
+                                // the common ancestor.
+                                upserts.push((target_name.clone(), entry_common(None, None)));
+                                continue;
+                            }
+                        }
                         // F6: local diverges from an UNSEEN remote (empty map).
                         // The old code recorded the entry with no mtime/size so
                         // the next push would re-upload LOCAL as an update —
@@ -3205,7 +3365,6 @@ async fn reconcile_empty_map(
                             &note.object_id,
                         );
                         // Write the local edits to the conflict copy.
-                        let local_hash = hash_sha256(&content);
                         updates.push(V2IncomingUpdate {
                             filename: copy_name.clone(),
                             content,
@@ -3254,10 +3413,10 @@ async fn reconcile_empty_map(
     // Apply file writes for remote-only adoptions — plus mtime corrections
     // for identical-content matches — via the shared apply path so watcher
     // suppressions are recorded.
-    if !updates.is_empty() || !timestamps.is_empty() {
+    if !updates.is_empty() || !timestamps.is_empty() || !deletes.is_empty() {
         let apply_input = V2SyncApplyInput {
             update: updates,
-            delete: Vec::new(),
+            delete: deletes,
             conflicts: Vec::new(),
             timestamps,
         };
@@ -3281,6 +3440,14 @@ async fn reconcile_empty_map(
         .max(cap_cursor(new_max_version, &failed_downloads));
     state::persist(notes_root_path, &next.object_map, next.max_version, &next.collection_id)
         .map_err(SyncErrorKind::Io)?;
+
+    // The reconcile consumed the ancestry — drop it so it can't linger for
+    // months and feed a much later reconcile stale (if still exact-match)
+    // pairs. Best effort: a leftover file only ever changes fast-forward
+    // decisions when object_id AND content hash both still match.
+    if let Err(e) = state::delete_ancestry_file(notes_root_path) {
+        eprintln!("[e2ee] reconcile: failed to delete consumed ancestry file: {e}");
+    }
 
     // Surface adoptions as real downloads. Without this the empty-map
     // reconcile path writes peer content to disk but contributes nothing
@@ -5183,6 +5350,78 @@ mod tests {
             }
             other => panic!("expected PushOutcome::TooLarge, got {other:?}"),
         }
+    }
+
+    // Identical-content 409: the base blob is GC'd (404, so the clean-merge
+    // branch is skipped) but our local bytes already equal the remote we
+    // fetched. This is NOT a conflict — resolution must adopt the remote
+    // object (MergedClean, same object_id) and must NOT POST a conflict copy.
+    // Regression for the July 2026 combinatorial blow-up, whose engine was a
+    // byte-identical conflict copy minted as a new object every cycle.
+    #[tokio::test]
+    async fn resolve_update_conflict_identical_content_adopts_remote_no_copy() {
+        let server = MockServer::start().await;
+        let filename = "futo notes top priorities.md";
+        let content = "same bytes on both sides\n";
+        let remote_ct = enc(filename, content).await;
+
+        // remote blob → the peer's content, byte-identical to ours.
+        Mock::given(wm_method("GET"))
+            .and(wm_path("/api/blobs/bk-remote"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(remote_ct))
+            .mount(&server)
+            .await;
+        // base blob GC'd → 404, so the clean-merge branch is skipped and we
+        // reach the identical-content guard.
+        Mock::given(wm_method("GET"))
+            .and(wm_path("/api/blobs/bk-base"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+        // A conflict-copy POST must NEVER fire on identical content. wiremock
+        // verifies expect(0) when the server drops at end of scope.
+        Mock::given(wm_method("POST"))
+            .and(wm_path("/api/collections/c1/blob-objects"))
+            .respond_with(ResponseTemplate::new(201))
+            .expect(0)
+            .mount(&server)
+            .await;
+
+        let http = test_client(&server);
+        let vault_key = Arc::new(TEST_VAULT_KEY);
+        let existing = map_entry_for("o1", 3, "bk-base");
+        let conflict = ConflictResponse {
+            error: "conflict".into(),
+            current_version: 9,
+            current_blob_key: Some("bk-remote".into()),
+        };
+
+        let outcome = resolve_update_conflict(
+            http,
+            vault_key,
+            "c1",
+            filename,
+            content.to_owned(),
+            hash_sha256(content),
+            existing,
+            conflict,
+            HashSet::new(),
+            false,
+            12345,
+        )
+        .await
+        .expect("identical content must resolve, not error");
+
+        match outcome {
+            PushOutcome::MergedClean { filename: f, entry, previous_filename, .. } => {
+                assert_eq!(f, filename, "adopts the note at its own filename");
+                assert_eq!(entry.object_id, "o1", "same object — no new object minted");
+                assert_eq!(entry.version, 9, "adopts the server's current version");
+                assert!(previous_filename.is_none(), "no peer rename here");
+            }
+            other => panic!("expected MergedClean (adopt remote), got {other:?}"),
+        }
+        // `.expect(0)` on the POST mock is asserted here when `server` drops.
     }
 
     // Clean-merge re-PUT path: base + remote are both available and merge

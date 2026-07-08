@@ -669,12 +669,17 @@ impl SyncClient {
         self.session.stop_live();
     }
 
-    /// Disconnect: stop live sync, clear the in-memory session, and delete the
-    /// persisted `.e2ee-state.json`.
+    /// Disconnect: stop live sync, clear the in-memory session, and demote the
+    /// persisted `.e2ee-state.json` to `.e2ee-ancestry.json` — the live
+    /// cursor/object map is dropped (so a reconnect can never propagate
+    /// while-disconnected deletions), but the last-synced filename →
+    /// {objectId, hash} pairs survive so the reconnect's empty-map reconcile
+    /// can fast-forward drifted-but-unedited notes instead of parking a
+    /// `(conflict <oid8>)` copy of each one.
     pub async fn disconnect(&self) -> Result<(), SyncError> {
         self.session.stop_live();
         self.session.clear().await;
-        sync::state::delete_state_file(&self.notes_root).map_err(SyncError::Io)?;
+        sync::state::demote_state_to_ancestry(&self.notes_root).map_err(SyncError::Io)?;
         Ok(())
     }
 }

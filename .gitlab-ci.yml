@@ -565,6 +565,25 @@ test:cross-platform-sync:
     - !reference [.setup-rust, script]
     - DEBIAN_FRONTEND=noninteractive apt-get install -y xvfb postgresql-client
     - !reference [.setup-futo-notes-server, script]
+    # Rust server-backed integration suite (futo-notes-sync orchestrator
+    # against a REAL server — e.g. the disconnect→reconnect conflict-spam
+    # regressions). Dev-mode server instance on its own database so it can't
+    # interfere with the password-mode server the cross-platform run boots.
+    - psql -h postgres -U futo_notes -d postgres -c 'CREATE DATABASE futo_notes_rust_it'
+    - export PATH="${BUN_INSTALL:-$HOME/.bun}/bin:$PATH"
+    - >-
+      (cd "$CI_PROJECT_DIR/.futo-notes-server" &&
+      AUTH_MODE=dev PORT=3009 BLOB_DIR=/tmp/rust-it-blobs
+      DATABASE_URL=postgres://futo_notes:futo_notes@postgres:5432/futo_notes_rust_it
+      bun src/index.ts &> /tmp/rust-it-server.log &)
+    - for i in $(seq 1 30); do curl -sf http://127.0.0.1:3009/health && break; sleep 1; done
+    - >-
+      FUTO_TEST_SERVER=http://127.0.0.1:3009
+      cargo test -p futo-notes-sync --test server_integration --test sse_live
+      -- --ignored --test-threads=1
+      || { tail -50 /tmp/rust-it-server.log; exit 1; }
+    # (the dev-mode server is left running — own port + database, reaped with
+    # the job container)
     # cargo clean -p so the tauri build script re-runs and re-embeds dist/
     # with the test hooks: a futo-notes-tauri crate cached in
     # .cache-cargo-tauri from a build without VITE_INCLUDE_TEST_HOOKS can

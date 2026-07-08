@@ -267,8 +267,11 @@ pub async fn e2ee_disconnect(app: AppHandle, state: State<'_, SyncState>) -> Res
     let root = root_for(&app)?;
     state.stop_live();
     state.clear().await;
-    // Ignore missing-file: delete_state_file already treats NotFound as Ok.
-    futo_notes_sync::state::delete_state_file(&root)
+    // Demote rather than delete: keep last-synced {objectId, hash} ancestry in
+    // `.e2ee-ancestry.json` so a later reconnect's empty-map reconcile can
+    // fast-forward drifted-but-unedited notes instead of parking a
+    // `(conflict <oid8>)` copy of each. Missing-file is not an error.
+    futo_notes_sync::state::demote_state_to_ancestry(&root)
 }
 
 #[tauri::command]
