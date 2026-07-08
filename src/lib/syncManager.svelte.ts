@@ -362,7 +362,12 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
     // first await below: saveAppState updates its in-memory cache synchronously,
     // so handleSyncNow's getCachedPreferences() read (right after the
     // un-awaited onSyncComplete returns) sees the fresh value.
-    void updateAppState({ lastSyncedAt: Date.now() });
+    void updateAppState({ lastSyncedAt: Date.now() }).catch((err) => {
+      // Non-critical (the in-memory cache is already updated synchronously), but
+      // don't let a rejected appState write become an unhandled rejection /
+      // crash report — log it so a genuine persistence failure is still visible.
+      console.warn('Failed to persist lastSyncedAt:', err);
+    });
     function applyActiveRename(fromId: string, toId: string): void {
       const meta = getNoteById(toId);
       const newTitle = meta?.title ?? toId;

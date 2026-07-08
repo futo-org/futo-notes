@@ -451,7 +451,9 @@
   function persistSidebarWidth(width: number): void {
     if (isDesktop) {
       import('$lib/platform/tauri').then(({ saveConfig }) => {
-        saveConfig({ sidebarWidth: width });
+        saveConfig({ sidebarWidth: width }).catch((err) => {
+          console.warn('Failed to persist sidebar width:', err);
+        });
       });
     } else {
       localStorage.setItem('futo-notes:sidebarWidth', String(width));

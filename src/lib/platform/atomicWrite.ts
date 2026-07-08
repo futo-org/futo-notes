@@ -1,5 +1,7 @@
 /** Atomic file write: write to temp then rename. Prevents corruption on crash/power loss. */
 
+import { isNotFound } from './fsErrors';
+
 export interface AtomicWriteFS {
   writeTextFile(path: string, content: string): Promise<void>;
   rename(oldPath: string, newPath: string): Promise<void>;
@@ -29,7 +31,17 @@ export async function writeAtomicText(
 
   try {
     await fs.writeTextFile(tmpPath, content);
-    await fs.rename(tmpPath, path);
+    try {
+      await fs.rename(tmpPath, path);
+    } catch (renameErr) {
+      // On macOS, cloud/file-provider agents (iCloud, Dropbox, antivirus) can
+      // consume the freshly-created temp file before the rename, making rename
+      // reject ENOENT. Re-materialize the temp and rename once more. Only retry
+      // not-found errors so genuine disk-full/EPERM on the target still surface.
+      if (!isNotFound(renameErr)) throw renameErr;
+      await fs.writeTextFile(tmpPath, content);
+      await fs.rename(tmpPath, path);
+    }
   } catch (err) {
     // Best-effort cleanup of the temp file
     try {
