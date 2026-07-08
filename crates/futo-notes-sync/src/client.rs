@@ -22,6 +22,19 @@ use url::Url;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// Assumed worst-case sustained bandwidth used to scale per-request timeouts
+/// for known-size transfers (batch pulls, large image blobs). 128 KiB/s
+/// (~1 Mbit/s) is deliberately pessimistic: a too-generous timeout only delays
+/// failure detection, while the old flat 30s made any blob over ~4 MB
+/// undownloadable on slow links.
+const TRANSFER_FLOOR_BYTES_PER_SEC: u64 = 128 * 1024;
+
+/// Request timeout for a transfer of `expected_bytes`: the flat base plus
+/// time to move the payload at the pessimistic bandwidth floor.
+pub(crate) fn transfer_timeout(expected_bytes: u64) -> Duration {
+    REQUEST_TIMEOUT + Duration::from_secs(expected_bytes / TRANSFER_FLOOR_BYTES_PER_SEC)
+}
+
 // ── Errors ───────────────────────────────────────────────────────────────
 
 #[derive(Debug, thiserror::Error)]
@@ -36,6 +49,11 @@ pub enum E2eeHttpError {
     Http { status: u16, body: String },
     #[error("server returned non-JSON body: {0}")]
     InvalidJson(String),
+    /// A structurally malformed non-JSON body (e.g. the binary frame stream
+    /// from the batch blob endpoint). Kept apart from [`Self::InvalidJson`]
+    /// so JSON-shape errors and wire-framing errors stay distinguishable.
+    #[error("server returned malformed body: {0}")]
+    InvalidBody(String),
     #[error("invalid password")]
     BadPassword,
     #[error("missing field in response: {0}")]
@@ -185,6 +203,79 @@ pub struct ServerObject {
 #[derive(Debug, Clone, Deserialize)]
 struct ListObjectsResponse {
     objects: Vec<ServerObject>,
+}
+
+// ── Batch blob fetch (POST /api/blobs/batch) wire format ────────────────
+//
+// The response is a sequence of binary frames, one per requested key, in
+// request order, integers big-endian:
+//
+//   [u16 keyLen][key utf8][u8 status][u32 blobLen][blob bytes]
+//
+// Missing/omitted frames carry blobLen = 0. Mirrors the server's
+// encodeFrame in futo-notes-server src/blobs/routes.ts.
+
+/// Per-key outcome inside a batch response.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BatchBlobStatus {
+    /// Blob bytes follow.
+    Ok,
+    /// Absent, malformed, or not owned — the batch analogue of the single
+    /// GET's 404 (no existence leak). Permanent for this key.
+    Missing,
+    /// The response hit the server's cumulative byte cap before this key.
+    /// Not an error: re-request the key in a fresh batch.
+    Omitted,
+}
+
+/// One parsed batch-response frame.
+#[derive(Debug, Clone)]
+pub struct BatchBlobEntry {
+    pub key: String,
+    pub status: BatchBlobStatus,
+    pub bytes: Vec<u8>,
+}
+
+/// Strict parser for a batch response body. Any structural defect —
+/// truncated header, key/blob running past the body, unknown status,
+/// non-UTF-8 key — fails the WHOLE body: a frame boundary we can't trust
+/// poisons everything after it, and the caller's retry ladder (retry, then
+/// per-blob fallback) is the recovery path, not salvaging a prefix.
+fn parse_batch_frames(body: &[u8]) -> Result<Vec<BatchBlobEntry>, String> {
+    let mut entries = Vec::new();
+    let mut off = 0usize;
+    while off < body.len() {
+        if off + 2 > body.len() {
+            return Err(format!("truncated frame header at offset {off}"));
+        }
+        let key_len = u16::from_be_bytes([body[off], body[off + 1]]) as usize;
+        off += 2;
+        if off + key_len + 1 + 4 > body.len() {
+            return Err(format!("truncated frame at offset {off}"));
+        }
+        let key = std::str::from_utf8(&body[off..off + key_len])
+            .map_err(|_| format!("non-UTF-8 key at offset {off}"))?
+            .to_owned();
+        off += key_len;
+        let status = match body[off] {
+            0 => BatchBlobStatus::Ok,
+            1 => BatchBlobStatus::Missing,
+            2 => BatchBlobStatus::Omitted,
+            other => return Err(format!("unknown frame status {other} for key {key}")),
+        };
+        off += 1;
+        let blob_len =
+            u32::from_be_bytes([body[off], body[off + 1], body[off + 2], body[off + 3]])
+                as usize;
+        off += 4;
+        if off + blob_len > body.len() {
+            return Err(format!("blob for key {key} runs past end of body"));
+        }
+        let bytes = body[off..off + blob_len].to_vec();
+        off += blob_len;
+        entries.push(BatchBlobEntry { key, status, bytes });
+    }
+    Ok(entries)
 }
 
 /// Successful create or update of a blob-backed object.
@@ -492,14 +583,73 @@ impl E2eeClient {
     // ── Endpoint 9: GET /api/blobs/{key} (raw binary) ──
 
     pub async fn get_blob(&self, blob_key: &str) -> Result<Vec<u8>, E2eeHttpError> {
+        self.get_blob_sized(blob_key, 0).await
+    }
+
+    /// Like [`get_blob`], with the request timeout scaled to the expected
+    /// payload size so a large image blob on a slow link isn't killed by the
+    /// flat 30s default. `expected_bytes = 0` keeps the flat timeout.
+    pub async fn get_blob_sized(
+        &self,
+        blob_key: &str,
+        expected_bytes: u64,
+    ) -> Result<Vec<u8>, E2eeHttpError> {
         let url = self.join(&format!("api/blobs/{blob_key}"))?;
-        let res = self.http.get(url).headers(self.auth_header()?).send().await?;
+        let res = self
+            .http
+            .get(url)
+            .headers(self.auth_header()?)
+            .timeout(transfer_timeout(expected_bytes))
+            .send()
+            .await?;
         if !res.status().is_success() {
             let status = res.status().as_u16();
             let body = res.text().await.unwrap_or_default();
             return Err(E2eeHttpError::Http { status, body });
         }
         Ok(res.bytes().await?.to_vec())
+    }
+
+    // ── Endpoint 9b: POST /api/blobs/batch (raw binary frames) ──
+
+    /// Fetch up to [`MAX_BATCH_KEYS`](crate::orchestrator) blobs in one
+    /// request. Returns one entry per requested key, in request order —
+    /// per-key absence/omission comes back as a status, never an error, so
+    /// one bad key can't sink the batch. An older server without the
+    /// endpoint answers 404, which callers treat as "fall back to per-blob
+    /// GETs". `expected_bytes` scales the request timeout.
+    pub async fn get_blobs_batch(
+        &self,
+        keys: &[String],
+        expected_bytes: u64,
+    ) -> Result<Vec<BatchBlobEntry>, E2eeHttpError> {
+        let url = self.join("api/blobs/batch")?;
+        let mut headers = self.auth_header()?;
+        headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+        let res = self
+            .http
+            .post(url)
+            .headers(headers)
+            .timeout(transfer_timeout(expected_bytes))
+            .json(&serde_json::json!({ "keys": keys }))
+            .send()
+            .await?;
+        if !res.status().is_success() {
+            let status = res.status().as_u16();
+            let body = res.text().await.unwrap_or_default();
+            return Err(E2eeHttpError::Http { status, body });
+        }
+        let body = res.bytes().await?;
+        let entries = parse_batch_frames(&body)
+            .map_err(|e| E2eeHttpError::InvalidBody(format!("batch frames: {e}")))?;
+        if entries.len() != keys.len() {
+            return Err(E2eeHttpError::InvalidBody(format!(
+                "batch frames: expected {} entries, got {}",
+                keys.len(),
+                entries.len()
+            )));
+        }
+        Ok(entries)
     }
 
     // ── Endpoint 10: POST /api/collections/{cid}/blob-objects (raw body) ──
@@ -880,6 +1030,112 @@ mod tests {
             .await;
         let err = client_for(&server).get_blob("missing").await.unwrap_err();
         assert!(matches!(err, E2eeHttpError::Http { status: 404, .. }));
+    }
+
+    // ── Batch blob fetch ──
+
+    /// Encode one server-side frame, mirroring encodeFrame in
+    /// futo-notes-server src/blobs/routes.ts.
+    fn frame(key: &str, status: u8, blob: &[u8]) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(&(key.len() as u16).to_be_bytes());
+        out.extend_from_slice(key.as_bytes());
+        out.push(status);
+        out.extend_from_slice(&(blob.len() as u32).to_be_bytes());
+        out.extend_from_slice(blob);
+        out
+    }
+
+    #[test]
+    fn parse_batch_frames_roundtrips_all_statuses() {
+        let mut body = frame("u1/k1", 0, b"\x01\x02\x03");
+        body.extend(frame("u1/k2", 1, b""));
+        body.extend(frame("u1/k3", 2, b""));
+        let entries = parse_batch_frames(&body).unwrap();
+        assert_eq!(entries.len(), 3);
+        assert_eq!(entries[0].key, "u1/k1");
+        assert_eq!(entries[0].status, BatchBlobStatus::Ok);
+        assert_eq!(entries[0].bytes, vec![1, 2, 3]);
+        assert_eq!(entries[1].status, BatchBlobStatus::Missing);
+        assert!(entries[1].bytes.is_empty());
+        assert_eq!(entries[2].status, BatchBlobStatus::Omitted);
+    }
+
+    #[test]
+    fn parse_batch_frames_rejects_structural_defects() {
+        // Truncated blob: header promises 3 bytes, body has 1.
+        let mut truncated = frame("u1/k1", 0, b"\x01\x02\x03");
+        truncated.truncate(truncated.len() - 2);
+        assert!(parse_batch_frames(&truncated).is_err());
+
+        // Truncated header: half a keyLen.
+        assert!(parse_batch_frames(&[0x00]).is_err());
+
+        // Unknown status byte.
+        let bad_status = frame("u1/k1", 9, b"");
+        assert!(parse_batch_frames(&bad_status).is_err());
+
+        // Empty body is a valid zero-frame response.
+        assert_eq!(parse_batch_frames(&[]).unwrap().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn get_blobs_batch_returns_entries_in_request_order() {
+        let server = MockServer::start().await;
+        let mut body = frame("u1/k1", 0, b"\xaa\xbb");
+        body.extend(frame("u1/k2", 1, b""));
+        Mock::given(method("POST"))
+            .and(path("/api/blobs/batch"))
+            .and(header("authorization", "Bearer test-token"))
+            .and(body_json(serde_json::json!({"keys": ["u1/k1", "u1/k2"]})))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(body))
+            .mount(&server)
+            .await;
+        let entries = client_for(&server)
+            .get_blobs_batch(&["u1/k1".into(), "u1/k2".into()], 2)
+            .await
+            .unwrap();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].bytes, vec![0xaa, 0xbb]);
+        assert_eq!(entries[1].status, BatchBlobStatus::Missing);
+    }
+
+    #[tokio::test]
+    async fn get_blobs_batch_rejects_entry_count_mismatch() {
+        let server = MockServer::start().await;
+        // Server answers with ONE frame for a TWO-key request.
+        Mock::given(method("POST"))
+            .and(path("/api/blobs/batch"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(frame("u1/k1", 0, b"x")))
+            .mount(&server)
+            .await;
+        let err = client_for(&server)
+            .get_blobs_batch(&["u1/k1".into(), "u1/k2".into()], 0)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, E2eeHttpError::InvalidBody(_)));
+    }
+
+    #[tokio::test]
+    async fn get_blobs_batch_propagates_404_for_fallback_detection() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/api/blobs/batch"))
+            .respond_with(ResponseTemplate::new(404).set_body_string("not found"))
+            .mount(&server)
+            .await;
+        let err = client_for(&server)
+            .get_blobs_batch(&["u1/k1".into()], 0)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, E2eeHttpError::Http { status: 404, .. }));
+    }
+
+    #[test]
+    fn transfer_timeout_scales_with_expected_bytes() {
+        assert_eq!(transfer_timeout(0), Duration::from_secs(30));
+        // 32 MiB at the 128 KiB/s floor = 256s on top of the base.
+        assert_eq!(transfer_timeout(32 * 1024 * 1024), Duration::from_secs(30 + 256));
     }
 
     #[tokio::test]

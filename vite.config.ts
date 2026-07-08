@@ -44,6 +44,16 @@ export default defineConfig({
   },
   server: {
     port: 5173,
-    strictPort: false
+    strictPort: false,
+    // Dev only. The Tauri WebKitGTK webview heuristically disk-caches module
+    // responses across app restarts. After a dev-server restart the cached
+    // parent-component JS executes without a server hit and imports its
+    // `?svelte&type=style&lang.css` virtual module BEFORE the fresh server
+    // has compiled the component — vite-plugin-svelte then has no compiled
+    // style, vite falls back to the raw .svelte file, and Tailwind's CSS
+    // transform errors on the <script> block ("Invalid declaration"). Serving
+    // everything no-store forces the webview to re-fetch parents first, so
+    // the compile cache is always populated in dependency order.
+    headers: { 'Cache-Control': 'no-store' }
   }
 });

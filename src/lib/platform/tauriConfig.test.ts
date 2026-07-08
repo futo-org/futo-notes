@@ -93,6 +93,19 @@ describe('getConfig', () => {
     expect(cfg.graphSidebarWidth).toBe(400);
   });
 
+  it('degrades to defaults when the config read is denied (macOS EPERM)', async () => {
+    setupInvokeMock();
+    const { readTextFile, exists } = await import('@tauri-apps/plugin-fs');
+    vi.mocked(exists).mockResolvedValueOnce(true);
+    // macOS TCC/permission denial opening .app-config.json.
+    vi.mocked(readTextFile).mockRejectedValueOnce(
+      new Error('Operation not permitted (os error 1)'),
+    );
+    const cfg = await getConfig();
+    expect(cfg.notesDir).toBe('/home/user/Documents/futo-notes');
+    expect(cfg.sidebarWidth).toBeUndefined();
+  });
+
   it('handles invalid JSON in config file gracefully', async () => {
     setupInvokeMock();
     const { readTextFile, exists } = await import('@tauri-apps/plugin-fs');
@@ -151,6 +164,19 @@ describe('saveConfig', () => {
     expect(written.openFolders).toEqual(['Projects', 'Projects/2026']);
     // Doesn't clobber existing fields
     expect(written.sidebarWidth).toBe(280);
+  });
+
+  it('does not write a partial config when the existing config read is denied', async () => {
+    setupInvokeMock();
+    const { readTextFile, writeTextFile, rename, exists } = await import('@tauri-apps/plugin-fs');
+    vi.mocked(exists).mockResolvedValueOnce(true);
+    vi.mocked(readTextFile).mockRejectedValueOnce(
+      new Error('Operation not permitted (os error 1)'),
+    );
+
+    await expect(saveConfig({ sidebarWidth: 360 })).rejects.toThrow('Operation not permitted');
+    expect(writeTextFile).not.toHaveBeenCalled();
+    expect(rename).not.toHaveBeenCalled();
   });
 });
 

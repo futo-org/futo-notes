@@ -34,9 +34,9 @@ export interface SyncSummary {
   peerDeletedIds: string[];
 }
 
-/** One per-item sync failure. `kind` is `'upload' | 'delete' | 'checkpoint'`;
- *  `statusCode` is the server HTTP status when the failure came from a
- *  response (absent for transport/local errors). */
+/** One per-item sync failure. `kind` is `'upload' | 'delete' | 'checkpoint'
+ *  | 'download' | 'decrypt'`; `statusCode` is the server HTTP status when
+ *  the failure came from a response (absent for transport/local errors). */
 export interface SyncFailure {
   filename: string;
   kind: string;

@@ -4,8 +4,8 @@
   "version": "0.1.0",
   "identifier": "com.futo.notes",
   "build": {
-    "beforeDevCommand": "npm run dev --prefix ../.. -- --host 127.0.0.1 --port 5180 --strictPort",
-    "beforeBuildCommand": "npm run build --prefix ../..",
+    "beforeDevCommand": "pnpm --dir ../.. run dev --host 127.0.0.1 --port 5180 --strictPort",
+    "beforeBuildCommand": "pnpm --dir ../.. run build",
     "devUrl": "http://127.0.0.1:5180",
     "frontendDist": "../../../dist"
   },

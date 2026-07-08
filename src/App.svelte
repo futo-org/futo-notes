@@ -51,8 +51,9 @@
   import { searchNotes, isSearchIndexPopulated } from '$features/search/searchIndex';
 
   // Synchronous listener install — keeps OS file drops from navigating the
-  // webview away from the app (required on Windows where dragDropEnabled is
-  // off; see tauri.windows.conf.json and externalFileDropGuard.ts).
+  // webview away from the app (required on Windows and macOS where
+  // dragDropEnabled is off; see tauri.windows.conf.json /
+  // tauri.macos.conf.json and externalFileDropGuard.ts).
   installExternalFileDropGuard();
 
   let initialized = $state(false);

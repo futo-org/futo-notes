@@ -1,8 +1,10 @@
 package com.futo.notes
 
+import android.content.ActivityNotFoundException
 import android.content.ContentResolver
 import android.net.Uri
 import android.webkit.MimeTypeMap
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -55,7 +57,19 @@ class ImagePicker(private val activity: ComponentActivity) {
         val file = File(dir, "capture-${System.currentTimeMillis()}.jpg")
         val uri = FileProvider.getUriForFile(activity, "${activity.packageName}.fileprovider", file)
         cameraUri = uri
-        takePicture.launch(uri)
+        try {
+            takePicture.launch(uri)
+        } catch (e: ActivityNotFoundException) {
+            // No camera app can service ACTION_IMAGE_CAPTURE (e.g. no default
+            // camera resolvable under Android 11+ package visibility). launch()
+            // throws synchronously here, so nothing downstream catches it — reset
+            // the picker state and tell the user instead of crashing.
+            onPicked = null
+            cameraUri = null
+            android.util.Log.w("ImagePicker", "no camera activity for IMAGE_CAPTURE", e)
+            Toast.makeText(activity, "No camera app available", Toast.LENGTH_LONG).show()
+            callback(null)
+        }
     }
 }
 

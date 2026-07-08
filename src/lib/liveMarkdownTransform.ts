@@ -798,6 +798,19 @@ class LiveMarkdownPlugin implements PluginValue {
       this.compositionSuspended = true;
       if (update.docChanged) {
         this.decorations = this.decorations.map(update.changes);
+        // RangeSet.map does not re-validate CM6's rule that a plugin-provided
+        // replace may not span a line break: an edit inserting a "\n" inside a
+        // range covered by a Decoration.replace (e.g. a hidden fenced-code fence
+        // line) stretches that replace across the new break, which CM6 rejects
+        // ("Decorations that replace line breaks may not be specified via
+        // plugins") and which underflows the heightmap tile stack. Strip any
+        // point (replace/widget) decoration that now crosses a line boundary;
+        // the full rebuild on composition-end recreates a valid one.
+        const doc = update.state.doc;
+        this.decorations = this.decorations.update({
+          filter: (from, to, value) =>
+            !value.point || from === to || to <= doc.lineAt(from).to,
+        });
       }
       return;
     }

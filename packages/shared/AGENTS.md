@@ -9,9 +9,16 @@ From the monorepo root, prefer `just test-shared` for shared-package coverage, t
 
 ## Contents
 
-- **`filename.ts`**: Title sanitization (`sanitizeTitle`, `validateTitle`, `isValidTitle`), forbidden character rules, max length constants. `futo-notes-model` is the canonical source of these rules; this TS copy is kept deliberately (the desktop client's per-keystroke paths and the external sync server) and must stay bit-for-bit in lockstep with `futo-notes-model` — enforced by `tests/conformance/*`. There are no `rules_*` Tauri commands.
 - **`sync.ts`**: Auth protocol types (`SetupRequest`, `LoginRequest`, `LoginResponse`, `ChangePasswordRequest`, etc.), image extension validation (`IMAGE_EXTENSIONS`, `isImageFilename`). These are genuinely cross-process (client + server) and stay in TS.
-- **`tags.ts`**: Tag parsing and validation (`extractTags`, `extractHeaderTagBlock`, `TAG_REGEX`, `MAX_TAG_LENGTH`). Same as `filename.ts`: a deliberate TS copy for the desktop client and the sync server, kept in lockstep with `futo-notes-model`'s canonical rules via `tests/conformance/*` (no `rules_extract_tags` Tauri command exists).
+- **`index.ts`**: Re-exports.
+
+**The filename/tag rules do NOT live here anymore.** The canonical TS copies of the note rules
+(`sanitizeTitle`, `validateTitle`, `extractTags`, `TAG_REGEX`, …) moved to
+`packages/editor/src/{filename,tags,preview}.ts` and are imported by the app via the
+`src/lib/rules.ts` shim. `futo-notes-model` (Rust) remains the canonical source; the TS copies are
+held bit-for-bit in lockstep via `tests/conformance/*`. If you came here to change a title or tag
+rule, edit `packages/editor` + the Rust crate and regenerate the fixtures — see root AGENTS.md
+§7.3.
 
 ## Verification (Required)
 

@@ -191,6 +191,7 @@
 
     getEditorContent: () => editor?.getContent(),
     isComposing: () => Boolean(editor?.isComposing?.()),
+    isEditorFocused: () => editor?.hasFocus?.() ?? false,
 
     patchGraphNode: (from, to, title) => graphPanel?.patchGraphNode(from, to, title),
     clearGraphData: () => graphPanel?.clearGraphData(),
@@ -367,11 +368,13 @@
       return;
     }
     editorFocused = false;
+    void sync.handleEditorFocusChange(false);
   }
 
   function handleEditorFocusChange(focused: boolean): void {
     if (focused) {
       if (noteId) editorFocused = true;
+      void sync.handleEditorFocusChange(true);
       // Moving focus from the title into the body means the user is done
       // naming the note — flush the aggressively-debounced title save now so
       // the rename lands before content edits, instead of waiting out the 10s.
@@ -605,7 +608,9 @@
             if (tabsPersistTimer !== null) clearTimeout(tabsPersistTimer);
             tabsPersistTimer = window.setTimeout(() => {
               tabsPersistTimer = null;
-              void saveConfig({ openTabs: snapshot });
+              void saveConfig({ openTabs: snapshot }).catch((err) => {
+                console.warn('Failed to persist open tabs:', err);
+              });
             }, 250);
           });
         })
