@@ -296,6 +296,8 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             // keep its web toolbar hidden. Per page load, so re-sent on every
             // fresh 'ready'.
             pushNativeToolbar()
+            // Align the note body's left edge with the inline title field.
+            pushContentPadding()
             pushContent(desiredContent)
             if let json = desiredNotesJson { pushNotes(json) }
             onReady?()
@@ -490,6 +492,16 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     private func pushNativeToolbar() {
         webView.evaluateJavaScript(
             "window.FutoEditor && window.FutoEditor.setNativeToolbar(true);",
+            completionHandler: nil)
+    }
+
+    /// Set the CSS var that drives the note body's left inset so it lines up
+    /// with the inline title field (NoteEditorView's TitleTextField, 20pt).
+    /// The `.cm-line` contributes its own 6px, so the content padding is 14px.
+    /// Re-sent on every fresh 'ready' (survives a WebContent reload).
+    private func pushContentPadding() {
+        webView.evaluateJavaScript(
+            "document.documentElement.style.setProperty('--futo-cm-pad-inline','14px');",
             completionHandler: nil)
     }
 }

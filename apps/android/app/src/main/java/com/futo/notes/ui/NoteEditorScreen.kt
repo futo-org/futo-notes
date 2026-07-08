@@ -42,13 +42,14 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import com.futo.notes.ImagePicker
 import com.futo.notes.NotesStore
@@ -71,10 +72,28 @@ import org.json.JSONObject
 import uniffi.futo_notes_ffi.makeId
 import uniffi.futo_notes_ffi.sanitizeTitle
 import uniffi.futo_notes_ffi.splitId
+import uniffi.futo_notes_ffi.validateTitle
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+/** A note title that is still the auto-assigned placeholder: exactly "Untitled",
+ *  or a dedup variant "Untitled-N" (the Rust `get_unique_note_id` appends `-2`,
+ *  `-3`, …). Tapping such a title selects it whole so a keystroke replaces it;
+ *  any other title takes the caret at the tapped character. */
+private val UNTITLED_PLACEHOLDER = Regex("""^Untitled(-\d+)?$""")
+
+internal fun isPlaceholderTitle(title: String): Boolean = UNTITLED_PLACEHOLDER.matches(title)
+
+/** Characters forbidden in a note title — mirrors the Rust `is_forbidden_char`
+ *  (futo-notes-core) and the TS `FORBIDDEN_CHARS_RE`: `< > : " / \ | ? *` plus
+ *  all control characters. Live input filtering only; the authoritative
+ *  validation + messages come from the shared `validateTitle` (FFI). */
+private val FORBIDDEN_TITLE_CHARS = Regex("[<>:\"/\\\\|?*\\x00-\\x1F\\x7F]")
+
+/** Max title length (chars) — matches the shared `MAX_TITLE_LENGTH` (200). */
+private const val TITLE_MAX_LENGTH = 200
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class, FlowPreview::class)
 @Composable
@@ -97,7 +116,17 @@ fun NoteEditorScreen(
     val host = remember { EditorHost.get(context) }
 
     var noteId by remember(initialNoteId) { mutableStateOf(initialNoteId) }
-    var title by remember(initialNoteId) { mutableStateOf(splitId(initialNoteId).title) }
+    // TextFieldValue (not String) so we can control the selection: tapping a
+    // still-placeholder title selects it whole (see the select-all effect below).
+    var titleValue by remember(initialNoteId) {
+        mutableStateOf(TextFieldValue(splitId(initialNoteId).title))
+    }
+    var titleFocused by remember(initialNoteId) { mutableStateOf(false) }
+    // Inline title-validation warning (desktop parity): forbidden char → transient
+    // 2 s; dot/too-long/duplicate → persistent + blocks the rename. Shown in
+    // danger red under the title field.
+    var titleWarning by remember(initialNoteId) { mutableStateOf<String?>(null) }
+    var warningJob by remember { mutableStateOf<Job?>(null) }
     // CRITICAL: never block the editor's first frame on a disk read. Start empty
     // and load the note body off the main thread; the WebView mounts immediately
     // and receives the content reactively once the read lands.
@@ -141,7 +170,17 @@ fun NoteEditorScreen(
     DisposableEffect(noteId) {
         onDispose {
             saveJob?.cancel()
-            if (loaded && content != savedContent) store.flushAsync(noteId, content)
+            // Discard an untouched quick-capture note: opened brand-new
+            // (autoFocus), never renamed (id unchanged AND title still the
+            // created placeholder), body still empty. Backing out leaves nothing
+            // behind — desktop parity (list.md). deleteAsync runs on the store's
+            // scope (onDispose can't suspend and the composable scope is gone).
+            if (autoFocus && noteId == initialNoteId && content.isEmpty()
+                && titleValue.text == splitId(initialNoteId).title) {
+                store.deleteAsync(noteId)
+            } else if (loaded && content != savedContent) {
+                store.flushAsync(noteId, content)
+            }
         }
     }
 
@@ -189,21 +228,28 @@ fun NoteEditorScreen(
     // Debounced rename (500 ms) — the filename IS the title; Rust resolves
     // collisions and returns the final id.
     LaunchedEffect(initialNoteId) {
-        snapshotFlow { title }.debounce(500).collectLatest { next ->
+        snapshotFlow { titleValue.text }.debounce(500).collectLatest { next ->
             val parts = splitId(noteId)
-            val clean = sanitizeTitle(next.trim())
-            if (clean.isNotEmpty() && clean != parts.title) {
-                // Flush any pending body edit to the CURRENT id and cancel the
-                // in-flight save before the file moves — otherwise a stale save
-                // would recreate a ghost note at the old id (data loss).
-                saveJob?.cancel()
-                if (content != savedContent) { store.write(noteId, content); savedContent = content }
-                val oldId = noteId
-                noteId = store.rename(noteId, makeId(parts.folder, clean))
-                // Repoint every wikilink at the renamed note [editor.md:88] —
-                // fire-and-forget on the store's scope (vault-wide rewrite).
-                if (noteId != oldId) store.relink(oldId, noteId)
-            }
+            val trimmed = next.trim()
+            if (trimmed.isEmpty()) return@collectLatest
+            // Block the rename while the title is illegal (dot/too-long — forbidden
+            // chars are stripped in the field) or would collide with another note.
+            // The inline warning stays up; desktop parity.
+            if (validateTitle(trimmed).any { it.kind != "empty" }) return@collectLatest
+            val clean = sanitizeTitle(trimmed)
+            if (clean == parts.title) return@collectLatest
+            val target = makeId(parts.folder, clean)
+            if (target != noteId && store.notes.any { it.id == target }) return@collectLatest
+            // Flush any pending body edit to the CURRENT id and cancel the
+            // in-flight save before the file moves — otherwise a stale save
+            // would recreate a ghost note at the old id (data loss).
+            saveJob?.cancel()
+            if (content != savedContent) { store.write(noteId, content); savedContent = content }
+            val oldId = noteId
+            noteId = store.rename(noteId, target)
+            // Repoint every wikilink at the renamed note [editor.md:88] —
+            // fire-and-forget on the store's scope (vault-wide rewrite).
+            if (noteId != oldId) store.relink(oldId, noteId)
         }
     }
 
@@ -252,10 +298,15 @@ fun NoteEditorScreen(
         }
     }
 
-    // New note → focus the title so the user can name it immediately.
-    val titleFocus = remember { FocusRequester() }
-    LaunchedEffect(initialNoteId) {
-        if (autoFocus) { delay(250); runCatching { titleFocus.requestFocus() } }
+    // Select the whole title when the field gains focus AND is still a
+    // placeholder ("Untitled"/"Untitled-N"), so a keystroke replaces it; a real
+    // title keeps the tapped caret. Keyed on the focus transition so it fires
+    // once per focus (after the tap's caret placement settles — otherwise the
+    // tap's collapsed selection would win), not on every tap while focused.
+    LaunchedEffect(titleFocused) {
+        if (titleFocused && isPlaceholderTitle(titleValue.text)) {
+            titleValue = titleValue.copy(selection = TextRange(0, titleValue.text.length))
+        }
     }
 
     Scaffold(
@@ -272,7 +323,7 @@ fun NoteEditorScreen(
                     IconButton(onClick = {
                         val share = Intent(Intent.ACTION_SEND).apply {
                             type = "text/plain"
-                            putExtra(Intent.EXTRA_TITLE, title)
+                            putExtra(Intent.EXTRA_TITLE, titleValue.text)
                             putExtra(Intent.EXTRA_TEXT, content)
                         }
                         context.startActivity(Intent.createChooser(share, "Share note"))
@@ -322,26 +373,68 @@ fun NoteEditorScreen(
                 .imePadding(),
         ) {
             BasicTextField(
-                value = title,
-                onValueChange = { title = it.replace("\n", "") },
+                value = titleValue,
+                onValueChange = { v ->
+                    // Strip forbidden filesystem chars in-place (desktop parity —
+                    // the illegal char never persists) + cap at the length limit.
+                    val noNewline = v.text.replace("\n", "")
+                    val cleaned = FORBIDDEN_TITLE_CHARS.replace(noNewline, "")
+                    val forbidden = cleaned != noNewline
+                    val capped = if (cleaned.length > TITLE_MAX_LENGTH) cleaned.take(TITLE_MAX_LENGTH) else cleaned
+                    titleValue =
+                        if (capped == v.text) v
+                        else TextFieldValue(capped, TextRange(minOf(v.selection.end, capped.length)))
+                    if (forbidden) {
+                        // Transient warning (auto-hide after 2 s).
+                        titleWarning = "That character can't be used in a note title"
+                        warningJob?.cancel()
+                        warningJob = scope.launch { delay(2000); titleWarning = null }
+                    } else {
+                        // Persistent warning for dot/too-long; else duplicate; else clear.
+                        warningJob?.cancel()
+                        val blocking = validateTitle(capped)
+                            .firstOrNull { it.kind != "empty" && it.kind != "forbidden_chars" }
+                        val dup = capped.trim().let { t ->
+                            t.isNotEmpty() && makeId(splitId(noteId).folder, sanitizeTitle(t)).let { tgt ->
+                                tgt != noteId && store.notes.any { it.id == tgt }
+                            }
+                        }
+                        titleWarning = blocking?.message
+                            ?: if (dup) "A note with this name already exists" else null
+                    }
+                },
                 singleLine = true,
                 textStyle = FutoType.h3.copy(fontWeight = FontWeight.SemiBold, color = c.textPrimary),
                 cursorBrush = SolidColor(c.accent),
-                modifier = Modifier.fillMaxWidth().padding(start = 22.dp, end = 22.dp, top = 4.dp).focusRequester(titleFocus),
+                modifier = Modifier.fillMaxWidth().padding(start = 22.dp, end = 22.dp, top = 4.dp)
+                    .onFocusChanged { titleFocused = it.isFocused },
                 decorationBox = { inner ->
-                    if (title.isEmpty()) {
+                    if (titleValue.text.isEmpty()) {
                         Text("Untitled", style = FutoType.h3.copy(fontWeight = FontWeight.SemiBold), color = c.textMuted)
                     }
                     inner()
                 },
             )
+            titleWarning?.let { w ->
+                Text(
+                    w,
+                    style = FutoType.caption,
+                    color = c.danger,
+                    modifier = Modifier.fillMaxWidth().padding(start = 22.dp, end = 22.dp, top = 2.dp),
+                )
+            }
             Spacer(Modifier.size(8.dp))
 
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 EditorWebView(
                     content = content,
+                    // Quick capture: a brand-new note (autoFocus) opens with the
+                    // BODY focused — keyboard on the editor, not the title field —
+                    // so the first keystrokes are the note, not its name. Opening
+                    // an existing note leaves the keyboard down (autoFocus false).
+                    // [list.md]
                     theme = theme,
-                    autoFocus = false,
+                    autoFocus = autoFocus,
                     notesJson = notesJson,
                     // Local ![](image.png) resolves against the vault root
                     // [editor.md:121] (allowFileAccess stays on, see EditorHost).

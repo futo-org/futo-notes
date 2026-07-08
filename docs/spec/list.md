@@ -118,8 +118,8 @@ confirmation, not surfaced as a per-folder count. → NoteListView.swift
 ## New note
 
 - The FAB creates an "Untitled" note in the current folder (the vault root when
-  "All notes" is selected) and opens it with the title autofocused. →
-  NoteListScreen.kt
+  "All notes" is selected) and opens it with the **body** focused for quick
+  capture (keyboard on the note text, not the title). → NoteListScreen.kt
 - On mobile-width shells, "+ New" opens the note with the **title** focused and
   "Untitled" select-all'd so typing replaces it immediately. Desktop keeps body
   focus; the wikilink-to-missing-note create path keeps body focus everywhere.
@@ -161,18 +161,35 @@ confirmation, not surfaced as a per-folder count. → NoteListView.swift
   Folder…") and applies the move + backlink relink immediately, with a
   "Moved to {folder}" toast (verified on emulator 2026-06-09). →
   NoteListScreen.kt, FolderPickerSheet.kt
-- **iOS native** creates notes via a title dialog (prefilled "Untitled",
-  Cancel/Create) from a "+" menu offering New Note / New Folder; the editor
-  then opens with the **body** focused. Android native opens the editor with
-  the title focused instead; the title-dialog flow is iOS-only. →
-  NoteListView.swift
-
-  > **Gap:** Android native — the autofocused title places the cursor at the
-  > start of the prefilled "Untitled", so typing prepends ("XUntitled")
-  > instead of replacing the placeholder the way the mobile-width web shell's
-  > select-all does. Found in the emulator QA pass (2026-06); still present in
-  > code 2026-07-01 — the title `BasicTextField` in NoteEditorScreen.kt takes
-  > a plain String and never sets a selection. → NoteEditorScreen.kt
+- **Both native shells create notes as quick capture** (iOS "+" menu → New
+  Note; Android FAB → New note): an "Untitled" note is created in the current
+  folder and the editor opens with the **body** focused — no blocking title
+  prompt, keyboard straight on the note text (desktop parity). An **untouched**
+  quick-capture note — opened brand-new, never renamed, body still empty — is
+  **discarded on back-out** so nothing is left behind, matching desktop. →
+  NoteListView.swift / NoteEditorView.swift `onDisappear`, NoteListScreen.kt /
+  NoteEditorScreen.kt `onDispose`
+- **Both native shells have an inline, tappable title field** above the editor
+  body (iOS via a `UITextField`-backed `TitleTextField`, Android via a
+  `BasicTextField`); tapping it edits the title in place and renames the file,
+  debounced (500 ms). Tapping a title that is still the auto-assigned
+  placeholder — "Untitled" or a dedup "Untitled-N" — **selects the whole title**
+  so the next keystroke replaces it; tapping any other title places the caret at
+  the tapped character. iOS also keeps a ⋯ → Rename alert as a secondary path. →
+  NoteEditorView.swift `TitleTextField` / `isPlaceholderTitle`,
+  NoteEditorScreen.kt `isPlaceholderTitle`
+- **The native title fields detect and reject illegal titles, matching desktop.**
+  A forbidden filesystem char (`< > : " / \ | ? *` or a control char) is stripped
+  in place as you type, with a transient (~2 s) warning "That character can't be
+  used in a note title"; a leading/trailing dot or a >200-char title shows a
+  persistent warning and blocks the rename; a title that duplicates another note
+  in the same folder shows "A note with this name already exists" and blocks the
+  rename; an empty title is left un-renamed. The rules + messages come from the
+  shared `validate_title` exposed over FFI (futo-notes-ffi) — the same
+  conformance-locked source as desktop's `validateTitle`; only the forbidden-char
+  input filter is mirrored locally per shell. → futo-notes-ffi `validate_title`,
+  NoteEditorView.swift, NoteEditorScreen.kt; desktop NotesShell.svelte /
+  noteSession.svelte.ts `handleTitleInput`
 - **Android native**'s FAB opens a New note / New folder menu; New folder
   shows a name dialog that sanitizes via the shared rules and rejects
   case-insensitive sibling duplicates inline (verified on emulator

@@ -331,6 +331,11 @@
 .futo-native .cm-content {
   max-width: 46rem !important;
   margin-inline: auto !important;
-  padding-inline: 1.25rem !important;
+  /* Left inset of the note body. Each native shell sets `--futo-cm-pad-inline`
+   * on <html> so the body text lines up with its inline title field (the title
+   * sits at the shell's own padding; the `.cm-line` adds its own 6px, so the
+   * shell passes titlePad − 6). Falls back to 1.25rem on desktop/tablet where
+   * no shell sets it. → EditorWebView.swift / EditorWebView.kt (on 'ready'). */
+  padding-inline: var(--futo-cm-pad-inline, 1.25rem) !important;
   box-sizing: border-box !important;
 }
