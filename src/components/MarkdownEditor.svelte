@@ -936,6 +936,7 @@
       clearSelectionRevealFreeze();
       setPointerSelectionRevealSuppressed(v, false);
       clearPointerSelectionSettleTimer();
+      onfocuschange?.(false);
     };
     v.dom.addEventListener('mousedown', onEditorMouseDown, true);
     window.addEventListener('mousemove', onGlobalPointerMove, true);

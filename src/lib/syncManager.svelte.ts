@@ -43,6 +43,10 @@ export interface SyncManagerDeps {
   // Editor
   getEditorContent: () => string | undefined;
   isComposing: () => boolean;
+  /** Whether the editor currently holds focus. Adopting external content into
+   *  a focused editor desyncs CM6's async selection/scroll/measure machinery
+   *  from the replaced doc and crashes it — see the guards below. */
+  isEditorFocused: () => boolean;
 
   // Graph
   patchGraphNode: (from: string, to: string, title: string) => void;
@@ -82,6 +86,10 @@ export interface SyncManager {
 
   /** Enqueue a file-system change event from the native watcher. */
   enqueueFileChange: (event: FileChangeEvent) => void;
+
+  /** Notify the manager when editor focus changes so deferred external adopts
+   *  can be reconciled after CM6's focused document state is gone. */
+  handleEditorFocusChange: (focused: boolean) => Promise<void>;
 
   /** Notify auto-sync that a local change happened (save, delete, etc). */
   notifySaved: () => void;
@@ -205,6 +213,7 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
   let externalRescanTimer: number | null = null;
   let externalRescanInFlight = false;
   let externalRescanQueued = false;
+  let pendingExternalAdopt: { id: string; content: string } | null = null;
 
   // ── Write suppressor ──
   // Shared module-level singleton — local note ops (drag-drop folder
@@ -241,10 +250,42 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
     if (externalRescanTimer !== null) {
       clearTimeout(externalRescanTimer);
     }
-    externalRescanTimer = window.setTimeout(() => {
+    externalRescanTimer = setTimeout(() => {
       externalRescanTimer = null;
       void runExternalRescan();
     }, delayMs);
+  }
+
+  function deferExternalAdopt(id: string, content: string): void {
+    pendingExternalAdopt = { id, content };
+  }
+
+  async function preserveLocalDraftAfterExternalChange(): Promise<void> {
+    deps.showToast('Open note changed externally; keeping local draft');
+    await refreshNotesFromStorage();
+    scheduleExternalRescan(250);
+  }
+
+  async function reconcilePendingExternalAdopt(): Promise<void> {
+    if (!pendingExternalAdopt) return;
+
+    const pending = pendingExternalAdopt;
+    pendingExternalAdopt = null;
+
+    if (deps.getOriginalId() !== pending.id) return;
+    if (pending.content === deps.getEditorContent()) return;
+
+    if (deps.hasOpenDraftChanges()) {
+      await preserveLocalDraftAfterExternalChange();
+      return;
+    }
+
+    deps.applyExternalContent(pending.content);
+  }
+
+  async function handleEditorFocusChange(focused: boolean): Promise<void> {
+    if (focused) return;
+    await reconcilePendingExternalAdopt();
   }
 
   // ── Watcher event handlers ──
@@ -261,14 +302,11 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
     const originalId = deps.getOriginalId();
     if (id === originalId && deps.isSavePending() && type === 'change') return;
     if (id === originalId && deps.hasOpenDraftChanges() && (type === 'change' || type === 'unlink')) {
-      deps.showToast(
-        type === 'unlink'
-          ? 'Open note was deleted externally; keeping local draft'
-          : 'Open note changed externally; keeping local draft',
-      );
-      await refreshNotesFromStorage();
-      if (type === 'change') {
-        scheduleExternalRescan(250);
+      if (type === 'unlink') {
+        deps.showToast('Open note was deleted externally; keeping local draft');
+        await refreshNotesFromStorage();
+      } else {
+        await preserveLocalDraftAfterExternalChange();
       }
       return;
     }
@@ -277,9 +315,20 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
       deps.cancelAndClear();
       deps.showToast('Note was deleted externally');
     } else if (type === 'change' && id === originalId) {
+      // Never replace the open note's document while its editor is focused:
+      // CM6's async DOM-selection/scroll/measure machinery still references
+      // pre-update positions, and once the adopted doc shrinks under it CM6
+      // throws (RangeError "Selection points outside of document" / "No tile at
+      // position N" / "Invalid position N in document"). The single-note cache
+      // update below still runs so the note list tracks the change; the editor
+      // keeps its current doc until it loses focus, then reconciles below.
       try {
         const freshContent = await readNote(id);
-        deps.applyExternalContent(freshContent);
+        if (deps.isEditorFocused()) {
+          deferExternalAdopt(id, freshContent);
+        } else {
+          deps.applyExternalContent(freshContent);
+        }
       } catch {
         // Ignore read errors for transient file events.
       }
@@ -434,8 +483,15 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
           // also catches a keystroke whose rAF-coalesced onchange hasn't
           // delivered yet (editVersion not bumped) — without it, the adopt
           // below would replace the doc and silently swallow that keystroke.
+          // Also defer the adopt while the editor is focused — replacing the
+          // open doc under CM6's live selection/measure state crashes it (see
+          // the watcher guard above); the metadata refresh below still runs.
           if (!editedDuringSync && !deps.hasOpenDraftChanges()) {
-            deps.applyExternalContent(freshContent);
+            if (deps.isEditorFocused()) {
+              deferExternalAdopt(currentOriginalId, freshContent);
+            } else {
+              deps.applyExternalContent(freshContent);
+            }
           }
         }
         // H13: Always refresh metadata even when content was skipped.
@@ -546,6 +602,7 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
     watcherBatch,
 
     enqueueFileChange: (event: FileChangeEvent) => watcherBatch.enqueue(event),
+    handleEditorFocusChange,
     notifySaved,
     clearSyncError,
 
