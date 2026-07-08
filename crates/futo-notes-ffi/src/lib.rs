@@ -360,9 +360,9 @@ pub struct SyncSummary {
     pub failure_message: Option<String>,
 }
 
-/// One per-item sync failure. `kind` is `"upload" | "delete" | "checkpoint"`;
-/// `status_code` is the server HTTP status when the failure came from a
-/// response (`None` for transport/local errors).
+/// One per-item sync failure. `kind` is `"upload" | "delete" | "checkpoint"
+/// | "download" | "decrypt"`; `status_code` is the server HTTP status when
+/// the failure came from a response (`None` for transport/local errors).
 #[derive(uniffi::Record)]
 pub struct SyncFailure {
     pub filename: String,

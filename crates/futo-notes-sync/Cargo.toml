@@ -11,7 +11,10 @@ name = "futo_notes_sync"
 futo-notes-core = { path = "../futo-notes-core" }
 # `stream` enables Response::bytes_stream() for the long-lived SSE connection
 # (live.rs); it adds no new transitive crates (bytes/futures-util already pulled).
-reqwest = { version = "0.12.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+# `http2` restores ALPN-negotiated HTTP/2 (dropped with default-features = false):
+# multiplexes the pull fan-out over one connection when the TLS terminator
+# speaks h2 (Caddy/Funnel do by default); falls back to HTTP/1.1 everywhere else.
+reqwest = { version = "0.12.12", default-features = false, features = ["json", "rustls-tls", "stream", "http2"] }
 # StreamExt (.next()) + BoxFuture for the live-sync watch loop / LiveHandle.
 futures-util = "0.3"
 tokio = { version = "1", features = ["sync", "macros", "rt-multi-thread", "time"] }
