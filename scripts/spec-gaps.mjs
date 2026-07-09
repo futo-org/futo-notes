@@ -109,6 +109,20 @@ const PROBES = [
     hint: 'an Android screen now references folder deletion.',
   },
   {
+    match: /native shells expose no folder-rename affordance/,
+    closed: () =>
+      /renameFolder|Rename Folder/i.test(read('apps/ios/Sources/NoteListView.swift')) ||
+      ktScreenFiles().some((f) => /renameFolder|Rename folder/i.test(fs.readFileSync(f, 'utf8'))),
+    hint: 'a native shell now references folder rename — the folder-rename gap may be closed.',
+  },
+  {
+    match: /native shells .* expose no folder-move affordance/,
+    closed: () =>
+      /moveFolder|Move Folder/i.test(read('apps/ios/Sources/NoteListView.swift')) ||
+      ktScreenFiles().some((f) => /moveFolder|Move folder/i.test(fs.readFileSync(f, 'utf8'))),
+    hint: 'a native shell now references folder move — the folder-move gap may be closed.',
+  },
+  {
     match: /iOS.* app has no Settings surface/,
     closed: () =>
       fs.existsSync(path.join(ROOT, 'apps/ios/Sources')) &&

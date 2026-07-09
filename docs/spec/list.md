@@ -226,14 +226,23 @@ confirmation, not surfaced as a per-folder count. → NoteListView.swift
   shared Rust `sanitizeTitle`. A hard guard in `createFolder` also blocks the
   idempotent `create_dir_all` from silently merging into an existing folder. →
   folders.svelte.ts, NewFolderDialog.kt, NoteListView.swift
-- A folder can be renamed *(Tauri only — the native shells expose no
-  folder-rename affordance by design; long-press offers Delete only)*; the
-  rename updates every note path beneath it and rewrites wikilinks pointing at
-  those notes. → folders.svelte.ts
+- A folder can be renamed; the rename updates every note path beneath it and
+  rewrites wikilinks pointing at those notes. On **Tauri** rename is in the
+  folder context menu; on the native shells it belongs in the folder long-press
+  menu alongside Move and Delete. → folders.svelte.ts
+  > **Gap:** the native shells expose no folder-rename affordance yet — the
+  > folder long-press menu offers Delete only (iOS `NoteListView.swift`, Android
+  > `NoteListScreen.kt`), and the shared `NoteStore` FFI facade has no
+  > rename-folder primitive. *(native shells)*
 - Notes and folders can be moved by drag-and-drop in the tree (note → folder,
   folder → folder, folder → root). A name collision on move resolves with a
   `-2`/`-3` suffix. Hovering a folder while dragging auto-expands it. →
   FolderTreeView.svelte *(desktop)*
+  > **Gap:** the native shells can move a *note* into a folder ("Move to
+  > Folder…") but expose no folder-move affordance — moving a folder itself
+  > belongs in the folder long-press menu alongside Rename and Delete, and the
+  > shared `NoteStore` FFI facade has no move-folder primitive. *(native
+  > shells)*
 - A folder can be **deleted**, behind a destructive confirmation ("Delete
   this folder? Notes inside it will be moved to the parent folder."), with
   **one converged semantic on every surface**: non-destructive move-up —
