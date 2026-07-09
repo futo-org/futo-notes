@@ -57,6 +57,14 @@
      * modifier / button state. If omitted, falls back to in-place navigation.
      */
     onopenlink?: (title: string, event: MouseEvent) => void;
+    /**
+     * Called when the user taps/clicks an EXTERNAL link (markdown link,
+     * autolink, or bare URL). Lets the native embed hand the URL to its host
+     * (which opens the system browser) instead of `window.open`, which is a
+     * no-op inside a WKWebView. If omitted, opens via `openUrl` directly
+     * (Tauri opener on desktop, `window.open` in a plain browser).
+     */
+    onopenurl?: (url: string) => void;
   }
 
   let {
@@ -67,6 +75,7 @@
     scrollParent = null,
     nativeShell = false,
     onopenlink,
+    onopenurl,
   }: Props = $props();
 
   let container: HTMLDivElement;
@@ -208,7 +217,13 @@
   }
 
   function openExternalUrl(url: string): void {
-    openUrl(url);
+    // Native embed: hand off to the host (opens the system browser). A plain
+    // `window.open` is a no-op inside a WKWebView, so the tap would look dead.
+    if (onopenurl) {
+      onopenurl(url);
+    } else {
+      openUrl(url);
+    }
   }
 
   const INLINE_STYLED_SELECTOR =
@@ -564,7 +579,48 @@
   // mousedown and click (which would leave no `.cm-md-link` to target).
   let pendingLinkUrl: string | null = null;
 
+  // External links need the SAME dedicated touch path as wikilinks (see the
+  // note above wikilinkClickHandler): on iOS WebKit, preventDefault'ing the
+  // link `mousedown` cancels the synthetic `click`, so the mouse-only handler
+  // below dead-ends on a finger tap — the tap only ever placed the caret.
+  // Navigate on `touchend` (small-movement guard so scrolls don't open the
+  // link), preventDefault to suppress the synthetic click on engines that
+  // would still send it.
+  let externalLinkTouch: { x: number; y: number } | null = null;
+
   const linkClickHandler = EditorView.domEventHandlers({
+    touchstart: (event) => {
+      const target = event.target as HTMLElement | null;
+      // Only claim taps on external links, not wikilinks (handled above).
+      if (target?.closest(EXTERNAL_LINK_SELECTOR) && !target.closest('.cm-md-wikilink')) {
+        const t = event.touches[0];
+        externalLinkTouch = t ? { x: t.clientX, y: t.clientY } : null;
+      } else {
+        externalLinkTouch = null;
+      }
+      return false;
+    },
+    touchend: (event, v) => {
+      const start = externalLinkTouch;
+      externalLinkTouch = null;
+      if (!start) return false;
+      const t = event.changedTouches[0];
+      if (!t || Math.hypot(t.clientX - start.x, t.clientY - start.y) > 8) return false;
+      const target = event.target as HTMLElement | null;
+      const hit = document.elementFromPoint(t.clientX, t.clientY);
+      const link =
+        findExternalLinkElementAtPoint(hit, t.clientX, t.clientY) ??
+        findExternalLinkElementAtPoint(target, t.clientX, t.clientY) ??
+        hit?.closest(EXTERNAL_LINK_SELECTOR) ??
+        target?.closest(EXTERNAL_LINK_SELECTOR);
+      if (!link || link.closest('.cm-md-wikilink')) return false;
+      const url = resolveLinkUrlFromElement(v, link);
+      if (!url) return false;
+      event.preventDefault();
+      event.stopPropagation();
+      openExternalUrl(url);
+      return true;
+    },
     mousedown: (event, v) => {
       pendingLinkUrl = null;
       const targetNode = event.target as Node | null;
@@ -796,6 +852,18 @@
         enabled: isIOS,
         resolveTapPosition: ({ clientX, clientY, target }, v) =>
           resolveTapPositionAt(clientX, clientY, v, target instanceof Node ? target : null, true),
+        // A tap on a NAVIGABLE link should follow it on the first tap, so don't
+        // consume that tap to focus the editor (wikilinkClickHandler /
+        // linkClickHandler run after this and act on it). A BROKEN wikilink
+        // doesn't navigate, so keep focusing it so the user can edit it.
+        shouldIgnoreTap: (target) => {
+          const el =
+            target instanceof Element ? target : ((target as Node | null)?.parentElement ?? null);
+          if (!el) return false;
+          const wikilink = el.closest('.cm-md-wikilink');
+          if (wikilink) return !wikilink.classList.contains('cm-md-wikilink-broken');
+          return !!el.closest('.cm-md-link');
+        },
       }),
       ...mobileTapCaretCorrection,
       wikilinkClickHandler,

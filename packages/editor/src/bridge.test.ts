@@ -9,12 +9,12 @@ import {
 describe('futoBridge contract', () => {
   it('pins the contract version', () => {
     // Bumping this is a deliberate, breaking change — update all three hosts.
-    expect(BRIDGE_VERSION).toBe(5);
+    expect(BRIDGE_VERSION).toBe(6);
   });
 
   it('ready message carries the version', () => {
     const msg: FutoEditorOutboundMessage = { type: 'ready', version: BRIDGE_VERSION };
-    expect(msg).toEqual({ type: 'ready', version: 5 });
+    expect(msg).toEqual({ type: 'ready', version: 6 });
   });
 
   it('outbound messages are a discriminated union over `type`', () => {
@@ -23,6 +23,7 @@ describe('futoBridge contract', () => {
       { type: 'change', content: '# hi' },
       { type: 'focus', focused: true },
       { type: 'openNote', id: 'folder/note' },
+      { type: 'openUrl', url: 'https://futo.org' },
       { type: 'pickImage', source: 'camera' },
       { type: 'pickImage', source: 'library' },
       { type: 'cursorContext', onListLine: true },
@@ -34,6 +35,7 @@ describe('futoBridge contract', () => {
       'change',
       'focus',
       'openNote',
+      'openUrl',
       'pickImage',
       'pickImage',
       'cursorContext',
@@ -122,6 +124,21 @@ describe('postToHost routing', () => {
     postToHost({ type: 'saveImageData', data: 'aGk=', ext: 'png' });
     expect(android).toHaveBeenCalledWith(
       JSON.stringify({ type: 'saveImageData', data: 'aGk=', ext: 'png' }),
+    );
+  });
+
+  it('serializes an openUrl (external-link follow) message for both transports', () => {
+    const ios = vi.fn();
+    g.webkit = { messageHandlers: { futoBridge: { postMessage: ios } } };
+    postToHost({ type: 'openUrl', url: 'https://futo.org' });
+    expect(ios).toHaveBeenCalledWith({ type: 'openUrl', url: 'https://futo.org' });
+    delete g.webkit;
+
+    const android = vi.fn();
+    g.futoBridge = { postMessage: android };
+    postToHost({ type: 'openUrl', url: 'https://futo.org' });
+    expect(android).toHaveBeenCalledWith(
+      JSON.stringify({ type: 'openUrl', url: 'https://futo.org' }),
     );
   });
 

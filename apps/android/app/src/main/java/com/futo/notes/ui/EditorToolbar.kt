@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.FormatQuote
 import androidx.compose.material.icons.filled.FormatStrikethrough
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.KeyboardHide
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Title
 import androidx.compose.material3.HorizontalDivider
@@ -262,6 +263,7 @@ private fun materialIcon(name: String): ImageVector = when (name) {
     "format_bold" -> Icons.Filled.FormatBold
     "format_italic" -> Icons.Filled.FormatItalic
     "format_strikethrough" -> Icons.Filled.FormatStrikethrough
+    "link" -> Icons.Filled.Link
     "format_h1" -> Icons.Filled.Title
     "format_quote" -> Icons.Filled.FormatQuote
     "format_list_bulleted" -> Icons.AutoMirrored.Filled.FormatListBulleted

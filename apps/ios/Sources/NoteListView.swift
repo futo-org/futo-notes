@@ -109,10 +109,11 @@ struct NoteListView: View {
                     FolderContentsView(folder: path, navPath: $navPath)
                         .environmentObject(store)
                 case .note(let id):
-                    // .id(id): a wikilink tap REPLACES the top path entry in
-                    // place (openLinkedNote), and without an explicit identity
-                    // SwiftUI reuses the destination view — @State (title,
-                    // content, loaded) would survive from the previous note.
+                    // .id(id): a wikilink tap PUSHES a new editor entry
+                    // (openLinkedNote), so several .note editors can sit in the
+                    // stack at once. Each needs its own identity or SwiftUI would
+                    // share one view's @State (title, content, loaded) across the
+                    // whole chain and Back would show the wrong note's text.
                     NoteEditorView(noteId: id, autoFocus: false, navPath: $navPath)
                         .environmentObject(store)
                         .id(id)

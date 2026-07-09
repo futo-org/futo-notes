@@ -154,4 +154,27 @@ describe('TOOLBAR_EXEC registry', () => {
     TOOLBAR_EXEC['outdent'](view);
     expect(view.state.doc.toString()).toBe('- item');
   });
+
+  it('link wraps a selection into a scaffold WITHOUT prompting (native WebViews have no window.prompt)', () => {
+    // Regression: the mobile Link button must not depend on window.prompt (a
+    // no-op in WKWebView / Android WebView). It wraps the selection and drops
+    // the caret in the empty URL slot so the user types the URL inline.
+    const view = setup('futo', { anchor: 0, head: 4 });
+
+    TOOLBAR_EXEC['link'](view);
+
+    expect(view.state.doc.toString()).toBe('[futo]()');
+    const sel = view.state.selection.main;
+    expect(sel.empty).toBe(true);
+    expect(sel.head).toBe('[futo]('.length); // caret between ( and )
+  });
+
+  it('link inserts an empty scaffold with the caret between the brackets when there is no selection', () => {
+    const view = setup('', { anchor: 0 });
+
+    TOOLBAR_EXEC['link'](view);
+
+    expect(view.state.doc.toString()).toBe('[]()');
+    expect(view.state.selection.main.head).toBe(1); // [|]()
+  });
 });

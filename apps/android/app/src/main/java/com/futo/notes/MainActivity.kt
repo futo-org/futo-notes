@@ -335,10 +335,14 @@ class MainActivity : ComponentActivity() {
                     autoFocus = top.autoFocus,
                     darkTheme = dark,
                     onBack = { pop() },
-                    // Wikilink tap [editor.md:77]: REPLACE the current editor entry
-                    // (pop + push) so Back returns to the list, not a chain of editors.
+                    // Wikilink tap [editor.md:77]: PUSH a new editor entry so Back
+                    // returns to the note you came FROM (not straight to the list).
+                    // Only the top screen is composed (AnimatedContent(stack.last())),
+                    // so the shared editor WebView still binds exactly one note at a
+                    // time even as the stack of visited notes grows. Skip a self-link
+                    // (a wikilink to the note you're already on) so Back isn't a no-op.
                     onOpenNote = { id ->
-                        stack[stack.lastIndex] = Screen.Editor(id, autoFocus = false)
+                        if (id != top.noteId) push(Screen.Editor(id, autoFocus = false))
                     },
                     imagePicker = imagePicker,
                 )

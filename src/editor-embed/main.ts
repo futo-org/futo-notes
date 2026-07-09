@@ -172,6 +172,17 @@ const editor = mount(MarkdownEditor, {
         post({ type: 'openNote', id: resolved });
       }
     },
+    onopenurl: (url: string) => {
+      // External link tapped. A native host opens it in the system browser
+      // (window.open is a no-op inside a WKWebView, and the native shells never
+      // let a non-editor URL load in the reused WebView). With no host present
+      // (marketing-site embed / Playwright), fall back to a new browser tab.
+      if (hasNativeHost()) {
+        post({ type: 'openUrl', url });
+      } else {
+        window.open(url, '_blank', 'noopener,noreferrer');
+      }
+    },
   },
 }) as unknown as {
   setContent: (text: string, options?: SetEditorContentOptions) => void;

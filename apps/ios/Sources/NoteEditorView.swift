@@ -38,9 +38,17 @@ struct NoteEditorView: View {
     @State private var titleWarning: String?
     @State private var titleWarningTask: Task<Void, Never>?
 
-    /// Path of the enclosing NavigationStack. A resolved-wikilink tap REPLACES
-    /// the current editor entry (Back returns to the list, not a chain of
-    /// editors); a delete pops it.
+    /// Whether this editor is the visible top of the stack. With wikilink pushes
+    /// several editors coexist; only the visible one may drive the single shared
+    /// WebView (an off-screen editor's live-sync adopt would clobber the visible
+    /// note's text). Tracked via onAppear/onDisappear.
+    @State private var isVisible = false
+
+    /// Path of the enclosing NavigationStack. A resolved-wikilink tap PUSHES a
+    /// new editor entry (Back returns to the note you came from — a chain of
+    /// editors, like a browser history); a delete pops it. The single shared
+    /// editor WebView (EditorHost.shared) re-adopts into whichever editor is
+    /// visible, so multiple editors can coexist in the stack — see EditorWebView.
     @Binding var navPath: [Route]
 
     /// Auto-focus the editor (and raise the keyboard) on open — only for a
@@ -206,7 +214,11 @@ struct NoteEditorView: View {
             guard loaded else { return }
             Task { await adoptExternalChange() }
         }
+        .onAppear { isVisible = true }
         .onDisappear {
+            // Covered (a wikilink pushed a new editor) or popped: no longer the
+            // visible editor, so it must stop driving the shared WebView.
+            isVisible = false
             // Stop providing a draft once this editor is gone, then flush a
             // pending save (only if changed). `flushAsync` re-checks existence
             // off-main so a note deleted while open is never resurrected, and
@@ -372,7 +384,9 @@ struct NoteEditorView: View {
         if content == savedContent {
             // Clean draft: adopt silently, caret/scroll preserved.
             guard disk != savedContent else { return }
-            EditorHost.shared.applyExternal(content: disk)
+            // Only push into the shared WebView when visible; a stacked-but-
+            // hidden editor updates its in-memory state and re-pushes on Back.
+            if isVisible { EditorHost.shared.applyExternal(content: disk) }
             content = disk
             savedContent = disk
         } else if disk == savedContent {
@@ -396,7 +410,7 @@ struct NoteEditorView: View {
             {
                 await store.write(conflictId, content: draft)
             }
-            EditorHost.shared.applyExternal(content: disk)
+            if isVisible { EditorHost.shared.applyExternal(content: disk) }
             content = disk
             savedContent = disk
         }
@@ -420,17 +434,16 @@ struct NoteEditorView: View {
         EditorHost.shared.setNotes(String(data: data, encoding: .utf8) ?? "[]")
     }
 
-    /// Bridge 'openNote': the user tapped a RESOLVED wikilink. REPLACE the
-    /// current editor entry in the nav path (not push) so Back returns to the
-    /// list. The outgoing view's onDisappear flushes any pending draft to the
-    /// old id before the new editor's first save can fire.
+    /// Bridge 'openNote': the user tapped a RESOLVED wikilink. PUSH a new editor
+    /// entry so Back returns to the note you came FROM (not straight to the
+    /// list). This view's onDisappear flushes any pending draft to the old id
+    /// before the pushed editor's first save can fire. The editor WebView is a
+    /// single shared instance (EditorHost.shared); EditorWebView re-adopts it
+    /// into whichever editor is visible, so the stacked editors stay correct on
+    /// Back. Skip a self-link (a wikilink to the note you're already on).
     private func openLinkedNote(_ id: String) {
         guard id != noteId else { return }
-        if navPath.isEmpty {
-            navPath.append(.note(id))
-        } else {
-            navPath[navPath.count - 1] = .note(id)
-        }
+        navPath.append(.note(id))
     }
 
     /// Nav-bar "Move to Folder…": flush the pending body edit to the CURRENT id

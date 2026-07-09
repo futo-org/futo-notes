@@ -4,6 +4,7 @@ import { indentLess, indentMore } from '@codemirror/commands';
 import { syntaxTree } from '@codemirror/language';
 import { getFS } from '$lib/platform';
 import { registerLocalImageUrl } from '$lib/liveMarkdownTransform';
+import { toggleLink } from '$lib/editorUX/linkCommand';
 
 interface MarkdownSyntax {
   prefix: string;
@@ -504,6 +505,15 @@ export const TOOLBAR_EXEC: Record<string, (view: EditorView) => void> = {
   bold: toggleBold,
   italic: toggleItalic,
   strikethrough: toggleStrikethrough,
+  // This registry runs ONLY on the mobile surfaces (native toolbars + the
+  // mobile-width web embed), where `window.prompt` is a no-op — WKWebView and
+  // Android WebView install no JS-dialog handler, so a prompt returns null
+  // instantly and the wrap would silently do nothing. Pass a URL-less getter so
+  // Link drops a scaffold instead: a selection becomes `[selected](|)` with the
+  // caret in the empty URL slot, and no selection becomes `[]()` with the caret
+  // between the brackets. (Desktop keeps its own prompting Link in the selection
+  // toolbar — see editorUX/selectionToolbar.ts.)
+  link: (view) => toggleLink(view, () => ''),
   heading: cycleHeading,
   quote: toggleBlockquote,
   'bullet-list': toggleBulletList,

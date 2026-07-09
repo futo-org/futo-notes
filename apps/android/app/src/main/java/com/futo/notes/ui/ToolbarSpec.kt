@@ -54,6 +54,13 @@ object ToolbarSpec {
                 onlyOnListLine = false,
                 action = ToolbarItemAction.Exec,
             ),
+            ToolbarItemSpec(
+                id = "link",
+                label = "Link",
+                material = "link",
+                onlyOnListLine = false,
+                action = ToolbarItemAction.Exec,
+            ),
         ),
         listOf(
             ToolbarItemSpec(

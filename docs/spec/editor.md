@@ -108,8 +108,11 @@ native shells edit tags as text in the body, which is not a gap.
   2026-06-09). → wikilinks.ts, packages/editor bridge v2,
   EditorWebView.kt / EditorWebView.swift
 - Typing `[[` opens autocomplete over all note ids; selecting inserts the full
-  path. Works on Tauri and both native shells (same embed; verified on
-  emulator + simulator 2026-06-09). → wikilinkAutocomplete.ts
+  path, **closes the `]]`, and drops the caret AFTER the link** (`[[Title]]|`)
+  so typing continues past the link, not inside it (a bare change dispatch left
+  the caret stranded after `[[`). Works on Tauri and both native shells (same
+  embed; verified on emulator + simulator 2026-06-09; caret-after-`]]` verified
+  emulator + simulator 2026-07-08). → wikilinkAutocomplete.ts `makeApply`
 - A wikilink whose target does not resolve is still decorated, styled **broken**
   (`cm-md-link cm-md-wikilink cm-md-wikilink-broken`) — not undecorated, and
   **visually distinct from a resolved link** (muted/dimmed styling so a dead
@@ -126,15 +129,29 @@ native shells edit tags as text in the body, which is not a gap.
   editor-embed/main.ts
 - On the native shells, tapping a resolved wikilink navigates: the embed
   resolves the raw target against the pushed note list and posts `openNote`
-  to the host, which swaps the open editor in place (Back returns to the
-  list); a broken link posts nothing. Taps navigate via a dedicated
-  `touchend` path — WebKit cancels the synthetic `click` after the handler's
-  prevented `mousedown`, so a click-only handler dead-ends on iOS while
-  Chromium double-fires; the touchend path covers both (verified Android
-  native + iOS simulator 2026-06-09). On iOS the replaced nav entry needs an
-  explicit `.id(noteId)` identity or SwiftUI reuses the editor view's @State
-  from the previous note. → MarkdownEditor.svelte `wikilinkClickHandler`,
-  NoteEditorScreen.kt / NoteEditorView.swift `openLinkedNote`
+  to the host, which **PUSHES a new editor onto the nav stack** — so **Back
+  returns to the note you came from, not straight to the list** (a browser-like
+  history of visited notes). A broken link posts nothing; a self-link (a
+  wikilink to the note you are already on) is a no-op. Taps navigate via a
+  dedicated `touchend` path — WebKit cancels the synthetic `click` after the
+  handler's prevented `mousedown`, so a click-only handler dead-ends on iOS
+  while Chromium double-fires; the touchend path covers both. A tap on a
+  navigable link follows it on the **first** tap even when the editor is
+  unfocused: on iOS the tap-to-focus handler (`iosTapFocus`) yields taps that
+  land on a resolved wikilink or external link so the link handler acts on them,
+  instead of consuming the tap to place the caret (a *broken* wikilink still
+  focuses, so it can be edited). Android has no such interceptor, so it already
+  follows on the first tap (verified emulator 2026-07-08). Each pushed iOS
+  editor needs an explicit `.id(noteId)` identity or SwiftUI would share one
+  view's @State across the chain. Because the editor WebView is a single shared
+  instance, iOS re-adopts it into whichever editor is visible on push/Back
+  (`EditorContainerView.onEnterWindow`), and off-screen editors never drive it;
+  Android composes only the top of the stack, so one note binds the WebView at
+  a time by construction. Verified emulator + simulator 2026-07-08 (A → wikilink
+  → B → Back returns to A with A's content intact and the editor still
+  interactive; Back again returns to the list). → MarkdownEditor.svelte
+  `wikilinkClickHandler`, MainActivity.kt `onOpenNote` (push),
+  NoteEditorView.swift `openLinkedNote` + EditorWebView.swift `Coordinator.adopt`
 - **Renaming or moving a note rewrites every wikilink that points at it,
   across all notes** — including folder moves (`[[Markdown demo]]` →
   `[[Archive/Markdown demo]]`) and **self-referencing links inside the renamed
@@ -156,13 +173,25 @@ native shells edit tags as text in the body, which is not a gap.
 ## External links
 
 - Tapping/clicking an external link (`http(s)://`, autolinks, bare URLs) opens
-  it in the system browser, never inside the editor. Android native enforces
-  this in `EditorWebView.kt`: only `file://` editor assets may load in the reused
-  WebView; all other schemes are intercepted and launched with `ACTION_VIEW`.
-  → openUrl.ts, MarkdownEditor.svelte `linkClickHandler`, EditorWebView.kt
+  it in the system browser, never inside the editor. On the native shells a tap
+  is detected via a dedicated `touchend` path in `linkClickHandler` (mirroring
+  wikilinks — a click-only handler dead-ends on iOS WebKit) and the resolved URL
+  is posted to the host via the `openUrl` bridge message (bridge v6); the host
+  opens it in the system browser (iOS `UIApplication.open`, Android
+  `ACTION_VIEW`), scheme-guarded to `http/https/mailto/tel`. `window.open` is a
+  no-op inside a WKWebView, which is why the bridge round-trip is required.
+  Android additionally enforces in `EditorWebView.kt` that only `file://` editor
+  assets may load in the reused WebView; all other schemes are intercepted and
+  launched with `ACTION_VIEW`. Verified emulator + simulator 2026-07-08 (tapping
+  a rendered link opens Safari / Chrome to the target; iOS `openUrl` case and
+  Android `ACTION_VIEW` intent both fire).
+  → openUrl.ts, MarkdownEditor.svelte `linkClickHandler` (`onopenurl`),
+  editor-embed/main.ts, packages/editor bridge v6 `openUrl`,
+  EditorWebView.swift `openUrl` case, EditorWebView.kt `openExternalUrl` /
   `shouldOverrideUrlLoading` / `isInAppEditorNavigation`
   > **Gap:** iOS native still lacks an explicit `WKWebView` navigation-policy
-  > guard for external links.
+  > guard (the `openUrl` bridge covers taps on decorated links, but a
+  > programmatic top-level navigation inside the WebView is not yet policed).
 
 ## Interactive elements
 
@@ -194,10 +223,16 @@ its platform module hardcodes `isMobile = false`, so there is no live
 breakpoint that could reveal it. → src/lib/platform/index.ts
 
 - When the editor body is focused, a formatting toolbar docks above the soft
-  keyboard: Bold, Italic, Strikethrough, Heading, Quote, Bullet/Ordered/Task
+  keyboard: Bold, Italic, Strikethrough, Link, Heading, Quote, Bullet/Ordered/Task
   list, Indent/Outdent (shown when the cursor is on a list line), Camera,
   Image — horizontally scrollable, with a collapse chevron that blurs the
-  editor (dropping both the keyboard and the toolbar). → MarkdownToolbar.svelte
+  editor (dropping both the keyboard and the toolbar). Link wraps the selection
+  as `[selected](url)` (or inserts an empty `[]()` scaffold) with the caret in
+  the URL slot — it does NOT prompt, since `window.prompt` is a no-op in the
+  native WebViews. Verified emulator + simulator 2026-07-08 (Link sits after
+  Strikethrough; no-selection inserts `[]()`, a selection wraps to `[sel]()`
+  with the caret in the URL slot; no dialog appears). → MarkdownToolbar.svelte,
+  markdownToolbar.ts `TOOLBAR_EXEC` `link`, editorUX/linkCommand.ts `toggleLink`
 - The toolbar SURFACE — items, order, grouping, accessibility labels,
   per-platform icons, visibility rules — is defined once in the
   `@futo-notes/editor` manifest, and the editing BEHAVIOR behind every

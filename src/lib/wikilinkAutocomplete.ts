@@ -5,13 +5,20 @@ import { getAllNotes } from '$lib/notes.svelte';
 import { searchNotes } from '$features/search/searchIndex';
 import { shortestUniqueSuffix } from '$lib/wikilinks';
 
-function makeApply(fullPath: string) {
+/** Exported for unit testing the inserted text + caret placement. */
+export function makeApply(fullPath: string) {
   return (view: EditorView, _completion: Completion, from: number, to: number) => {
     // Insert the full path so the on-disk wikilink is unambiguous,
     // even when the displayed/dropdown text is just the shortest
-    // unique suffix.
+    // unique suffix. Close the `]]` and drop the cursor AFTER it
+    // (`[[Note]]|`) — a bare `changes` dispatch maps the caret to the
+    // FRONT of the inserted text (`[[|Note]]`), stranding it inside the
+    // link, so the selection must be set explicitly.
+    const insert = `${fullPath}]]`;
     view.dispatch({
-      changes: { from, to, insert: `${fullPath}]]` },
+      changes: { from, to, insert },
+      selection: { anchor: from + insert.length },
+      userEvent: 'input.complete',
     });
   };
 }

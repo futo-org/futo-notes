@@ -3,6 +3,7 @@ package com.futo.notes.ui
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -39,7 +40,8 @@ internal fun isInAppEditorNavigation(scheme: String?): Boolean =
  *
  *   - editor → host: messages posted to `window.futoBridge.postMessage(json)`
  *     (the injected `@JavascriptInterface`) — `ready` / `change` / `focus` /
- *     `openNote` / `pickImage` (bridge v2) / `cursorContext` (bridge v3).
+ *     `openNote` / `pickImage` (bridge v2) / `cursorContext` (bridge v3) /
+ *     `openUrl` (bridge v6).
  *   - host → editor: `window.FutoEditor.setContent/getContent/focus/setTheme/
  *     setNotes/applyExternalContent/insertImage/setImageBaseUrl` plus the
  *     bridge-v3 native-toolbar calls `exec/blur/setNativeToolbar` via
@@ -272,6 +274,13 @@ class EditorHost private constructor(appContext: Context) {
             // User tapped a RESOLVED wikilink — id is the target note's id
             // (vault-relative path sans .md) [editor.md:77].
             "openNote" -> onOpenNote(msg.optString("id"))
+            // User tapped an EXTERNAL link — open it in the system browser. The
+            // embed posts the URL instead of navigating, so shouldOverrideUrlLoading
+            // never sees it; open it here through the SAME ACTION_VIEW path.
+            "openUrl" -> {
+                val url = msg.optString("url")
+                if (url.isNotEmpty()) openExternalUrl(url)
+            }
             // User tapped a toolbar image button; the host runs the native
             // picker and calls back via insertImage [editor.md:121].
             "pickImage" -> onPickImage(msg.optString("source"))
@@ -373,6 +382,25 @@ class EditorHost private constructor(appContext: Context) {
      *  message) hides the native toolbar. The toolbar's dismiss chevron. */
     fun blur() {
         eval("window.FutoEditor && window.FutoEditor.blur();")
+    }
+
+    /** Open an external link (`openUrl` bridge message) in the system browser —
+     *  the counterpart of [shouldOverrideUrlLoading]'s interception, for links
+     *  the editor posts instead of navigating. Scheme-guarded so a crafted note
+     *  can't reach file:/javascript:/futo-asset: through this path. */
+    private fun openExternalUrl(url: String) {
+        val uri = runCatching { Uri.parse(url) }.getOrNull() ?: return
+        when (uri.scheme?.lowercase()) {
+            "http", "https", "mailto", "tel" -> Unit
+            else -> return
+        }
+        try {
+            appContext.startActivity(
+                Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+        } catch (e: Exception) {
+            Log.w("FutoEditor", "No app to open external URL $url", e)
+        }
     }
 
     private fun pushContent(content: String) {

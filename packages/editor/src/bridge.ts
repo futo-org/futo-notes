@@ -38,8 +38,14 @@
  *      message) for WebViews (iOS WKWebView) that hide the bitmap from the JS
  *      paste event, so no image File reaches `saveImageData`. Additive — a host
  *      that doesn't handle it just drops the message (paste is a no-op).
+ * - 6: external-link follow (openUrl outbound message). A tap on a markdown
+ *      link / autolink / bare URL posts the URL so the host opens it in the
+ *      system browser — `window.open` is a no-op inside a WKWebView, and the
+ *      native shells never let a non-editor URL load in the reused WebView.
+ *      Additive — a host that doesn't handle it just drops the message (the tap
+ *      is a no-op, exactly the pre-v6 behavior).
  */
-export const BRIDGE_VERSION = 5 as const;
+export const BRIDGE_VERSION = 6 as const;
 
 /** Editor color theme. */
 export type EditorTheme = 'light' | 'dark';
@@ -199,6 +205,19 @@ export interface PasteClipboardImageMessage {
 }
 
 /**
+ * Emitted when the user taps an EXTERNAL link — a markdown link `[t](url)`, an
+ * autolink `<url>`, or a bare URL. The host opens `url` in the system browser
+ * (iOS `UIApplication.open`, Android `ACTION_VIEW`); it never loads inside the
+ * editor WebView. Wikilinks use {@link OpenNoteMessage} instead — this is only
+ * for links that leave the app. `url` is already normalized (a bare `www.…`
+ * gains an `https://` scheme editor-side).
+ */
+export interface OpenUrlMessage {
+  type: 'openUrl';
+  url: string;
+}
+
+/**
  * Editor → host messages, posted to the host's `futoBridge` message handler.
  * Discriminated on `type`.
  */
@@ -207,6 +226,7 @@ export type FutoEditorOutboundMessage =
   | ChangeMessage
   | FocusMessage
   | OpenNoteMessage
+  | OpenUrlMessage
   | PickImageMessage
   | CursorContextMessage
   | SaveImageDataMessage

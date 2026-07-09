@@ -89,6 +89,15 @@ export const TOOLBAR_GROUPS: ToolbarItem[][] = [
       when: 'always',
       action: EXEC,
     },
+    {
+      id: 'link',
+      label: 'Link',
+      lucide: 'Link',
+      sfSymbol: 'link',
+      material: 'link',
+      when: 'always',
+      action: EXEC,
+    },
   ],
   [
     {

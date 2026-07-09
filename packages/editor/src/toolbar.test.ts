@@ -23,7 +23,7 @@ describe('toolbar manifest', () => {
     expect(
       TOOLBAR_GROUPS.map((g) => g.map((i) => (i.when === 'onListLine' ? `${i.id}?` : i.id))),
     ).toEqual([
-      ['bold', 'italic', 'strikethrough'],
+      ['bold', 'italic', 'strikethrough', 'link'],
       ['heading', 'quote'],
       ['bullet-list', 'ordered-list', 'task-list', 'outdent?', 'indent?'],
       ['camera', 'image'],
@@ -37,6 +37,7 @@ describe('toolbar manifest', () => {
       'bold',
       'italic',
       'strikethrough',
+      'link',
       'heading',
       'quote',
       'bullet-list',

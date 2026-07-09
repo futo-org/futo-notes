@@ -17,9 +17,17 @@ import os
 /// single [EditorHost] owns ONE WKWebView, pre-warmed once at app start
 /// ([EditorHost.prewarm]). Opening a note reparents that already-`ready`
 /// WebView into the current view and resets content with a single `setContent`
-/// — no boot on the open path. Reuse is safe because the nav stack never holds
-/// two editors at once (List/Search ↔ Editor only), so exactly one note binds
-/// the shared WebView at a time.
+/// — no boot on the open path.
+///
+/// Following a wikilink PUSHES a new editor onto the NavigationStack (so Back
+/// returns to the note you came from), and SwiftUI keeps every stacked editor
+/// alive. So more than one [NoteEditorView] can exist at once, but there is
+/// still exactly ONE WebView: each [EditorWebView] hosts it inside a plain
+/// container and re-adopts it (reparent + rebind + re-push its note's content)
+/// whenever it (re)enters the window — see [EditorContainerView.onEnterWindow]
+/// and [Coordinator.adopt]. Off-screen editors never touch the shared WebView
+/// (their reparent + external-sync adopt are gated on visibility), so the
+/// visible editor always owns it.
 ///
 /// The page exposes `window.FutoEditor` (setContent/getContent/focus/setTheme
 /// plus the v2 additions setNotes/applyExternalContent/insertImage/
@@ -29,6 +37,7 @@ import os
 ///   { type: 'change', content: <markdown> }
 ///   { type: 'focus', focused: <bool> }
 ///   { type: 'openNote', id: <resolved note id> }
+///   { type: 'openUrl', url: <external url> }                    (v6)
 ///   { type: 'pickImage', source: 'camera' | 'library' }
 ///   { type: 'cursorContext', onListLine: <bool> }
 ///   { type: 'saveImageData', data: <base64>, ext: <string> }   (v4)
@@ -59,34 +68,114 @@ struct EditorWebView: UIViewRepresentable {
         Coordinator()
     }
 
-    func makeUIView(context: Context) -> WKWebView {
-        let host = EditorHost.shared
-        // Bind this note's callbacks to the shared host for the lifetime of this
-        // view. A generation token guards against a future nav change attaching a
-        // new note before this view's dismantle runs.
-        context.coordinator.token = host.attach(
-            autoFocus: autoFocus, onChange: onChange, onReady: onReady,
-            onOpenNote: onOpenNote)
-        // Detach the shared WebView from any previous holder, then adopt it.
-        host.webView.removeFromSuperview()
-        return host.webView
+    func makeUIView(context: Context) -> EditorContainerView {
+        let coord = context.coordinator
+        coord.sync(
+            content: content, theme: theme, autoFocus: autoFocus,
+            onChange: onChange, onReady: onReady, onOpenNote: onOpenNote)
+        let container = EditorContainerView()
+        container.backgroundColor = .clear
+        coord.container = container
+        // Re-adopt the shared WebView whenever this editor (re)enters the window
+        // — e.g. Back after a wikilink push, where the shared WebView is
+        // currently hosted by the note we navigated away from.
+        container.onEnterWindow = { [weak coord] in coord?.adoptIfNeeded() }
+        coord.adopt()
+        return container
     }
 
-    func updateUIView(_ uiView: WKWebView, context: Context) {
-        // Keep the host's desired state in sync so post-ready pushes use current
-        // values, and push live updates (theme/external content adopt) if ready.
+    func updateUIView(_ uiView: EditorContainerView, context: Context) {
+        let coord = context.coordinator
+        coord.sync(
+            content: content, theme: theme, autoFocus: autoFocus,
+            onChange: onChange, onReady: onReady, onOpenNote: onOpenNote)
+        // Only the VISIBLE editor drives the shared WebView. Gating on `window`
+        // stops an off-screen editor (covered by a pushed one) from stealing the
+        // WebView or pushing its content over the visible note — e.g. when a
+        // live-sync `$notes` publish re-renders a stacked-but-hidden editor.
+        guard uiView.window != nil else { return }
+        coord.adoptIfNeeded()
         EditorHost.shared.updateDesired(content: content, theme: theme)
     }
 
-    static func dismantleUIView(_ uiView: WKWebView, coordinator: Coordinator) {
+    static func dismantleUIView(_ uiView: EditorContainerView, coordinator: Coordinator) {
         // Unbind this view's callbacks unless a newer attach already took over.
         // The shared WebView itself is NEVER torn down — it lives for the whole
         // app so the next note-open reuses it.
         EditorHost.shared.detach(coordinator.token)
     }
 
+    /// Per-view binding state. The container's `onEnterWindow` re-adopts using
+    /// the LATEST values (refreshed each `updateUIView`), so a re-adopt on Back
+    /// rebinds the correct note's callbacks + content, not a stale snapshot.
+    /// `@MainActor` because it drives `EditorHost.shared` (main-actor-isolated)
+    /// synchronously from `adopt()`/`adoptIfNeeded()`, including from
+    /// `EditorContainerView.onEnterWindow`, a UIKit callback that always runs
+    /// on main.
+    @MainActor
     final class Coordinator {
         var token: Int = 0
+        weak var container: EditorContainerView?
+        private var didInitialAdopt = false
+
+        private var content = ""
+        private var theme = "light"
+        private var autoFocus = false
+        private var onChange: (String) -> Void = { _ in }
+        private var onReady: (() -> Void)?
+        private var onOpenNote: ((String) -> Void)?
+
+        func sync(
+            content: String, theme: String, autoFocus: Bool,
+            onChange: @escaping (String) -> Void, onReady: (() -> Void)?,
+            onOpenNote: ((String) -> Void)?
+        ) {
+            self.content = content
+            self.theme = theme
+            self.autoFocus = autoFocus
+            self.onChange = onChange
+            self.onReady = onReady
+            self.onOpenNote = onOpenNote
+        }
+
+        /// Reclaim the shared WebView for this container unless it already hosts it.
+        func adoptIfNeeded() {
+            guard let container, EditorHost.shared.webView.superview !== container else { return }
+            adopt()
+        }
+
+        func adopt() {
+            guard let container else { return }
+            let host = EditorHost.shared
+            host.webView.removeFromSuperview()
+            host.webView.frame = container.bounds
+            host.webView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            container.addSubview(host.webView)
+            // Point the host at THIS note before (re)binding so attach's re-push
+            // shows this note's text, not whatever note last drove the host.
+            host.updateDesired(content: content, theme: theme)
+            // autoFocus / onReady fire only on the FIRST adopt: a re-adopt on
+            // Back must not re-pop the keyboard or re-run the ready hook.
+            token = host.attach(
+                autoFocus: didInitialAdopt ? false : autoFocus,
+                onChange: onChange,
+                onReady: didInitialAdopt ? nil : onReady,
+                onOpenNote: onOpenNote)
+            didInitialAdopt = true
+        }
+    }
+}
+
+/// Hosts the single shared editor WKWebView. Reports when it becomes visible
+/// (added to a window) so its [EditorWebView] can re-adopt the shared WebView —
+/// which is one instance migrating between the stacked editors (List ↔ Editor ↔
+/// wikilinked Editor …). `didMoveToWindow` fires with a non-nil window on show
+/// and a nil window on cover/pop, so the re-adopt is driven exactly on show.
+final class EditorContainerView: UIView {
+    var onEnterWindow: (() -> Void)?
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window != nil { onEnterWindow?() }
     }
 }
 
@@ -321,6 +410,17 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             // User tapped a RESOLVED wikilink — the bound note view navigates.
             if let id = body["id"] as? String {
                 onOpenNote?(id)
+            }
+        case "openUrl":
+            // User tapped an EXTERNAL link — open it in the system browser.
+            // window.open is a no-op inside a WKWebView, and the reused editor
+            // WebView must never load a non-editor URL, so it leaves the app.
+            // Scheme-guarded so a crafted link can't reach file:/javascript:.
+            if let urlString = body["url"] as? String,
+               let url = URL(string: urlString),
+               let scheme = url.scheme?.lowercased(),
+               scheme == "http" || scheme == "https" || scheme == "mailto" || scheme == "tel" {
+                UIApplication.shared.open(url)
             }
         case "pickImage":
             // Toolbar image button: open the native picker, save the bytes into

@@ -37,6 +37,11 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
   focuses the native title field; desktop and iOS focus the editor body/heading);
   opening an existing note pushes it without autofocus. → MainActivity.kt /
   NoteEditorScreen.kt, noteSession.svelte.ts `loadNote('new')`, NoteListView.swift
+- Following a wikilink PUSHES another editor onto the stack (it does not replace
+  the current one), so System Back returns to the note you came from rather than
+  to the List — a browser-like history of visited notes. See the wikilink
+  navigation rule in [editor.md](editor.md). → MainActivity.kt `onOpenNote`
+  (push), NoteEditorView.swift `openLinkedNote`
 - The editor WebView is pre-warmed while the list is showing, so opening a note
   is a warm mount, not a cold renderer boot. Both native shells keep ONE shared
   pre-warmed WebView and swap content via `setContent` on open. →

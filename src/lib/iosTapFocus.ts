@@ -10,6 +10,14 @@ interface TapPoint {
 export interface IosTapFocusOptions {
   enabled: boolean;
   resolveTapPosition: (point: TapPoint, view: EditorView) => number | null;
+  /**
+   * Return true if a tap on this target should NOT be consumed to focus the
+   * editor — its own handler (registered after this one) will act on the tap
+   * instead. Used so a tap on a link FOLLOWS it on the first tap rather than
+   * merely placing the caret (which the user then has to tap again to follow).
+   * When omitted, every tap focuses.
+   */
+  shouldIgnoreTap?: (target: EventTarget | null) => boolean;
 }
 
 function pointFromTouchList(touches: TouchList): TapPoint | null {
@@ -57,6 +65,11 @@ export function iosTapFocus(options: IosTapFocusOptions): Extension[] {
         start = null;
         moved = false;
         if (!isTap || view.hasFocus) return false;
+
+        // Yield a tap on a link so its own handler follows it on the FIRST tap.
+        // Otherwise this handler would consume the tap to focus + place the
+        // caret, and the link would only follow on a second tap.
+        if (end && options.shouldIgnoreTap?.(end.target)) return false;
 
         const pos = options.resolveTapPosition(end, view);
         if (pos === null) return false;

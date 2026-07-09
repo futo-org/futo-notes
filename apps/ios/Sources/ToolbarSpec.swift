@@ -49,6 +49,13 @@ enum ToolbarSpec {
                 onlyOnListLine: false,
                 action: .exec
             ),
+            ToolbarItemSpec(
+                id: "link",
+                label: "Link",
+                sfSymbol: "link",
+                onlyOnListLine: false,
+                action: .exec
+            ),
         ],
         [
             ToolbarItemSpec(
