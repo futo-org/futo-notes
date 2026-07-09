@@ -51,5 +51,5 @@ MiniSearch index remains as the warm-up and non-Tauri fallback.
 - Native shells use the same crate through the `futo-notes-ffi` `SearchEngine`
   facade. Both native shells query the Rust engine, map hits back onto their
   live note lists, and fall back to substring filtering while the index warms.
-- SPLADE / learned-sparse search is preserved on the `splade-search` branch and
+- SPLADE / learned-sparse search is preserved on the `splade-merge` branch and
   is not part of `main`.
