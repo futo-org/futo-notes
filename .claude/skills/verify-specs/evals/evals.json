@@ -1,0 +1,50 @@
+{
+  "notes": "Trigger + scoping evals for the verify-specs skill. Behavioral verification is manual — this skill drives real pooled devices and cannot be cheaply graded by a headless subagent. These cases document (a) which prompts SHOULD load the skill, (b) which should NOT, and (c) the scope each phrasing implies. Grade a run by whether the skill loaded, the scope was derived correctly, and the topology/durability steps were followed — not by re-running device QA.",
+  "cases": [
+    {
+      "prompt": "/verify-specs",
+      "should_trigger": true,
+      "expected_scope": "full",
+      "assert": "Full run: all 9 surfaces × all platforms this OS supports + sync mesh. Provisions the 4-worktree default topology (or downshifts on a small machine) and fans out via workflow.js at Sonnet effort=low."
+    },
+    {
+      "prompt": "/verify-specs everything since the last tagged release",
+      "should_trigger": true,
+      "expected_scope": "diff v<lasttag>..HEAD",
+      "assert": "Runs `git describe --tags --abbrev=0`, diffs since it, maps changed files to surfaces via spec `→` refs + fallback table, derives platforms, reports the derived scope to the user before provisioning, and provisions only what the scope needs."
+    },
+    {
+      "prompt": "run the specs on this branch",
+      "should_trigger": true,
+      "expected_scope": "diff branch-base..HEAD",
+      "assert": "Scoped run against the branch diff; sync mesh included iff sync/core/editor touched."
+    },
+    {
+      "prompt": "do a full spec QA pass across all three clients",
+      "should_trigger": true,
+      "expected_scope": "full",
+      "assert": "Full run, exhaustive, max-parallel topology."
+    },
+    {
+      "prompt": "verify just the editor specs on iOS",
+      "should_trigger": true,
+      "expected_scope": "surfaces=[editor], platforms=[ios]",
+      "assert": "Single leg — recognizes this is below the fan-out threshold and spawns one app-qa directly rather than standing up the Workflow (per references/scoping.md)."
+    },
+    {
+      "prompt": "run just check before I merge",
+      "should_trigger": false,
+      "assert": "That's the static pre-merge chain (`just check`), not device-driven spec QA. Do not load verify-specs; run the justfile recipe."
+    },
+    {
+      "prompt": "update docs/spec/editor.md to record this gap",
+      "should_trigger": false,
+      "assert": "Spec-editing lifecycle → /spec-sync, not verify-specs (which reads specs to QA against, not to edit)."
+    },
+    {
+      "prompt": "test MR !214 on android",
+      "should_trigger": false,
+      "assert": "MR-scoped QA is /mr-qa's job (worktree-per-MR from a GitLab branch). verify-specs is spec-scoped, not MR-scoped — though it shares the app-qa fan-out."
+    }
+  ]
+}
