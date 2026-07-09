@@ -116,17 +116,19 @@ native shells edit tags as text in the body, which is not a gap.
 - A wikilink whose target does not resolve is still decorated, styled **broken**
   (`cm-md-link cm-md-wikilink cm-md-wikilink-broken`) — not undecorated, and
   **visually distinct from a resolved link** (muted/dimmed styling so a dead
-  link is identifiable before tapping, not only by its no-op). The
+  link is identifiable before you tap it). The
   resolver (`resolveWikilink`) treats an **ambiguous** target (a bare filename
   matching more than one note) exactly like an absent one: both return `null` and
-  render broken. On **desktop**, clicking a broken wikilink navigates to
-  `/note/<target>`, which creates the target note on the fly (the documented
-  create-on-missing path — **lazily**: a note session opens immediately, but the
-  file is only written on the first body edit and appears in the sidebar then).
-  The **native** shells no-op a broken tap: only a
-  resolved link posts `openNote`. → liveMarkdownTransform.ts, wikilinks.ts
-  `resolveWikilink`, noteSession.svelte.ts `loadNote` (create-on-missing),
-  editor-embed/main.ts
+  render broken. Tapping a broken wikilink immediately creates a new note whose
+  title is the wikilink's target text and opens it — an **eager** create-on-missing
+  path: the note file is written and its sidebar entry appears at navigation time,
+  not deferred to a first body edit (verified desktop 2026-07-09).
+  → liveMarkdownTransform.ts, wikilinks.ts `resolveWikilink`,
+  noteSession.svelte.ts `loadNote` (create-on-missing), editor-embed/main.ts
+  > **Gap:** the **native** shells (iOS/Android) no-op a broken wikilink tap —
+  > the editor embed posts `openNote` only for a *resolved* link, so a broken
+  > tap neither creates nor opens the target note the way desktop does.
+  > *(native shells)* → editor-embed/main.ts
 - On the native shells, tapping a resolved wikilink navigates: the embed
   resolves the raw target against the pushed note list and posts `openNote`
   to the host, which **PUSHES a new editor onto the nav stack** — so **Back

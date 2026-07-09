@@ -148,6 +148,20 @@ const PROBES = [
       ),
     hint: 'the Android sync-pull path now references an at-top re-pin — the live-pull anchoring gap may be closed.',
   },
+  {
+    match: /native shells.*no-op a broken wikilink tap/s,
+    closed: () => {
+      const embed = read('src/editor-embed/main.ts');
+      // Today the embed posts `openNote` ONLY when `resolved !== null`; a broken
+      // tap posts nothing. The gap closes when the embed acts on the broken case
+      // (an else-branch post, or a create-on-missing message for the raw target).
+      return (
+        /resolved === null[\s\S]{0,300}?\bpost\(/.test(embed) ||
+        /\b(createNote|openOrCreate\w*|createOnMissing)\b/.test(embed)
+      );
+    },
+    hint: 'editor-embed/main.ts now appears to act on a broken wikilink tap — native create-on-broken-tap may be implemented; verify and close the gap.',
+  },
 ];
 
 // ── render ─────────────────────────────────────────────────────────────────
