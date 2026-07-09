@@ -117,6 +117,28 @@ test.describe('Selection toolbar', () => {
     const toolbar = page.locator('.sf-selection-toolbar');
     await expect(toolbar).toHaveCount(0);
   });
+
+  // Regression: the selection toolbar is a DESKTOP feature and must NOT show
+  // inside the native iOS/Android WebView embed (editor.html mounts
+  // MarkdownEditor with nativeShell:true). It leaked back onto the native apps
+  // because the gate keyed on `isMobile`, which is a Tauri-only flag that is
+  // false in the native WebView. See MarkdownEditor.svelte selectionToolbar gate.
+  test('stays hidden in the native embed (nativeShell)', async ({ page }) => {
+    await page.goto('/editor.html');
+    await page.waitForSelector('.cm-editor', { timeout: 10000 });
+    await page.waitForFunction(() => typeof (window as any).__cmGetView === 'function');
+    await page.evaluate(() => {
+      const view = (window as any).__cmGetView?.();
+      if (!view) throw new Error('CM EditorView not found');
+      view.dispatch({
+        changes: { from: 0, to: view.state.doc.length, insert: 'hello world' },
+        selection: { anchor: 0, head: 5 },
+      });
+      view.focus();
+    });
+    await page.waitForTimeout(200);
+    await expect(page.locator('.sf-selection-toolbar')).toHaveCount(0);
+  });
 });
 
 // ============================================================================

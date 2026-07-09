@@ -842,7 +842,11 @@
       liveMarkdownTransform,
       autoLinkHighlight,
       interactiveTableEditor,
-      ...(isMobile ? [] : selectionToolbar),
+      // Desktop-only. `isMobile` is a Tauri-only flag and is FALSE inside the
+      // native iOS/Android WebView embed (no Tauri runtime) — so gate on
+      // `nativeShell` too, or this toolbar reappears on the native apps. Same
+      // reasoning as `cmOwnsScroller` above.
+      ...(isMobile || nativeShell ? [] : selectionToolbar),
       slashMenu,
       wikilinkAutocomplete(),
       imagePasteHandler,

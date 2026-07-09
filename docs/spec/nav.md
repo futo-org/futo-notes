@@ -37,6 +37,17 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
   focuses the native title field; desktop and iOS focus the editor body/heading);
   opening an existing note pushes it without autofocus. → MainActivity.kt /
   NoteEditorScreen.kt, noteSession.svelte.ts `loadNote('new')`, NoteListView.swift
+  > **Gap:** the shared editor's mount-time auto-focus (`MarkdownEditor.svelte`,
+  > `if (!isMobile)`) is NOT gated for the native embed. `isMobile` is a
+  > Tauri-only flag and is false inside the native WebView (the correct signal is
+  > the `nativeShell` prop), so the native editor auto-focuses itself on mount
+  > rather than staying unfocused until the host asks. The sibling
+  > selection-toolbar leak from the same `isMobile`-is-false-in-native-embed class
+  > was fixed 2026-07-09 by OR-ing in `nativeShell`; this one is left pending
+  > because its runtime effect on the pre-warmed native WebView (whether/when it
+  > pops the soft keyboard) is unverified and needs on-device QA before the same
+  > `nativeShell` gate is applied. → MarkdownEditor.svelte mount auto-focus
+  > *(native shells)*
 - Following a wikilink PUSHES another editor onto the stack (it does not replace
   the current one), so System Back returns to the note you came from rather than
   to the List — a browser-like history of visited notes. See the wikilink
