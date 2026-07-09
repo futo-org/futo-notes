@@ -1,6 +1,9 @@
 # GFM Syntax Test Note
 
-This note tests GitHub Flavored Markdown features commonly used by LLMs.
+Canonical manual Markdown fixture for editor syntax and styling checks.
+Use this when spot-checking changes to Markdown rendering, cursor reveal, or
+theme CSS. Automated coverage lives in `markdown-spec/cases/` and the
+Playwright specs; this file is intentionally a human-readable broad sample.
 
 ## ATX Headings (1-6 levels)
 
@@ -217,3 +220,12 @@ Escaped pipes:
 | A | B | C | D | E | F | G |
 |---|---|---|---|---|---|---|
 | 1 | 2 | 3 | 4 | 5 | 6 | 7 |
+
+## Visual QA Checklist
+
+- Heading levels should be visually distinct without clipping or overlap.
+- Inline styles should remain readable in light and dark themes.
+- Code blocks, blockquotes, lists, task items, tables, and horizontal rules
+  should keep stable spacing while scrolling.
+- Long links, long code lines, and wide tables should not break the editor
+  layout on narrow or wide viewports.

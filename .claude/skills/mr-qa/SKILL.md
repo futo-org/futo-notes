@@ -45,6 +45,76 @@ model in the `/verify` skill is what makes that safe. Battle-tested
    that MR. Pool devices persist unclaimed for instant reuse; `just qa-gc`
    reaps devices belonging to deleted worktrees.
 
+## Learnings from practice (added 2026-07-08, 7-MR run on a Linux host)
+
+- **Check host capability before choosing a topology.** The pool/topology
+  assume an M-series Mac. On a **Linux host there is no Xcode → iOS QA is
+  impossible** (`xcrun` absent). First probe: `xcrun` (iOS), `adb devices` +
+  `just qa-status` (Android pool), desktop (always available on Linux). Map
+  each MR to the platforms its diff actually needs and state impossible
+  coverage **explicitly per-MR** in the report — don't silently drop it.
+
+- **Idle ≠ progress — never passively wait on `idle_notification`s.** app-qa
+  agents emit `idle_notification {reason: available}` BOTH while parked on a
+  long cold build AND when they have stalled/died; the signal does not
+  distinguish them. Passively waiting will hang the whole run (it did this
+  run). On each idle — or on a timer — verify **actual** progress:
+  `pgrep -af "worktrees/mr-<iid>" | grep -E 'cargo|gradle|tauri|vite'` for a
+  live build, plus `stat -c %y .../.qa-ledger.md` + tail for ledger movement.
+  Idle + no matching process + no ledger movement = **stalled**. Re-engage
+  once via `SendMessage`; on a **second stall (two-strikes), take over the
+  remaining checks yourself** — the agent leaves its Tauri instances +
+  qa-server running, so drive them directly (Tauri MCP
+  `driver_session`/`webview_execute_js`) or just run
+  `pnpm run test:cross-platform` (it spins its own instances). This run's !43
+  mesh result (26/26) came from an orchestrator takeover after two stalls.
+
+- **Pre-empt the three isolation-layer bugs in the agent brief** (they recur;
+  tell every agent up front so they don't burn time rediscovering):
+  1. **Slot-hash collision** — `/verify`'s `md5(worktree_path)%50` collides at
+     ~5 concurrent worktrees (mr-40 ↔ mr-42 both → slot 0: same Vite 5200 +
+     identifier `com.futo.notes.verify.s0`, and `driver_session` silently
+     reused the *other* app). Brief agents to fall back to a **unique
+     identifier `com.futo.notes.verify.mr<iid>` + a manually-picked free
+     port** on any collision. (Infra fix: widen slot space or hash path+PID.)
+     Related MCP trap: when >1 Tauri app is connected via `driver_session`,
+     the **last-connected becomes the "default"** and un-qualified
+     `webview_execute_js`/`read_logs` calls hit it — so an agent's actions and
+     log reads can silently land on **another MR's app** (mr-44 read mr-45's
+     console error as its own this run). Always pass `appIdentifier: <port>`
+     explicitly once more than one app may be connected.
+  2. **`tests/cross-platform-sync.mjs` is NOT per-worktree isolated** — it
+     shells to a **machine-global** Postgres container (no slot namespacing,
+     unlike qa-server), so it deadlocks/401s under parallel load. Expect it
+     BLOCKED during high concurrency; run it when contention is low, or mark
+     BLOCKED (pre-existing infra, not the MR).
+  3. **F-series `server_integration` needs `AUTH_MODE=dev`** but `just
+     qa-server` runs `AUTH_MODE=password` (correct for the mesh — native
+     shells have no email field). Agents must spin their **own** isolated
+     dev-mode server for the F-series suite.
+
+- **Route non-app MRs away from device QA.** An MR touching only CI/infra
+  (e.g. `.gitlab-ci.yml`) is **not** device QA. Verify by (a) confirming a
+  **green pipeline on the MR head sha** AND that the **specific job the MR
+  fixes actually ran** (not skipped by rules), and (b) a static review
+  against the repo's CI failure classes (AGENTS.md M11–M16). Do not spin up
+  app-qa agents. (!46 this run: pipeline on head sha, `test:rust:workspace` =
+  SUCCESS, self-triggered via its own `changes: .gitlab-ci.yml` rule.)
+
+- **Cheap static gate first, concurrently, before any device build.** Across
+  all worktrees at once: `tsc --noEmit` + the MR's targeted unit tests. For a
+  **dependency bump**, add a duplicate-dependency check
+  (`find node_modules/.pnpm -maxdepth 1 -name '@codemirror+view@*'` — M22's
+  blank-editor failure mode). For an editor/CM change the **markdown-spec
+  corpus** (`pnpm run test:markdown-spec`) is the key gate but runs in
+  **Chromium** — the agent must still confirm decorations live in Tauri's
+  **WebKit**. Seconds of signal that shrink what the expensive builds prove.
+
+- **Re-query open MRs at the start of every pass.** The open set drifts
+  mid-session (this run: !43 merged, !44–!46 appeared between passes).
+  Re-list `state=opened` and diff against what's already reviewed rather than
+  trusting an earlier enumeration.
+
 ## Capacity and budgets (measured 2026-07)
 
 - Device pool: 7 per platform; port slots: 50. The practical ceiling for
