@@ -184,7 +184,7 @@ describe('Markdown rendering (liveMarkdownTransform decorations)', () => {
     expect(code, 'Expected .cm-md-code decoration for "`code`"').toBeTruthy();
   });
 
-  it('renders multiple markdown elements together', () => {
+  it('renders multiple markdown elements together', async () => {
     const doc = [
       '# Title',
       '',
@@ -197,11 +197,16 @@ describe('Markdown rendering (liveMarkdownTransform decorations)', () => {
 
     ({ view, container } = createEditorWithRendering(doc));
 
-    expect(container.querySelector('.cm-md-h1'), 'h1 decoration missing').toBeTruthy();
-    expect(container.querySelector('.cm-md-h2'), 'h2 decoration missing').toBeTruthy();
-    expect(container.querySelector('.cm-md-strong'), 'bold decoration missing').toBeTruthy();
-    expect(container.querySelector('.cm-md-emphasis'), 'italic decoration missing').toBeTruthy();
-    expect(container.querySelector('.cm-md-code'), 'code decoration missing').toBeTruthy();
+    // Under a loaded CI worker, CodeMirror may finish its initial syntax parse
+    // and decoration pass asynchronously. Wait on the actual DOM conditions
+    // instead of assuming every decoration is present in the constructor turn.
+    await Promise.all([
+      waitForSelector(container, '.cm-md-h1'),
+      waitForSelector(container, '.cm-md-h2'),
+      waitForSelector(container, '.cm-md-strong'),
+      waitForSelector(container, '.cm-md-emphasis'),
+      waitForSelector(container, '.cm-md-code'),
+    ]);
   });
 
   it('renders decorations after content is replaced via transaction', () => {
