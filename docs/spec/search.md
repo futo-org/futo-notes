@@ -47,7 +47,8 @@ MiniSearch index remains as the warm-up and non-Tauri fallback.
 
 - Implemented in the shared `crates/futo-notes-search` crate as a Tantivy BM25
   index plus background reconciler, consumed by Tauri through
-  `apps/tauri/src-tauri/src/search.rs`.
+  `apps/tauri/src-tauri/src/search_commands.rs`. Desktop startup/state/module
+  ownership is fixed by [desktop-rust.md](desktop-rust.md).
 - Native shells use the same crate through the `futo-notes-ffi` `SearchEngine`
   facade. Both native shells query the Rust engine, map hits back onto their
   live note lists, and fall back to substring filtering while the index warms.

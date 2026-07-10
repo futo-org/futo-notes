@@ -1,7 +1,7 @@
 //! Tauri-free E2EE sync orchestrator.
 //!
 //! This is the FULL orchestrator relocated verbatim from the desktop's
-//! `apps/tauri/src-tauri/src/sync.rs` so the crate is the single source of
+//! the desktop adapter in `apps/tauri/src-tauri/src/sync/` so the crate is the single source of
 //! truth for BOTH the Tauri desktop app and the native iOS/Android shells
 //! (via `futo-notes-ffi`).
 //!
@@ -267,7 +267,7 @@ fn safe_relative_sync_path(base: &Path, rel: &str) -> Result<PathBuf, String> {
 
 /// Apply a batch of sync writes/deletes/conflict-copies to disk.
 ///
-/// Relocated from `core.rs::apply_sync_delta_v2_impl` with Rule 2 applied:
+/// Relocated from the former desktop adapter's delta-apply implementation with Rule 2 applied:
 /// the Tauri watcher-suppression map + local `suppress_filename` closure are
 /// replaced by the `pre_write` hook, called at exactly the same points. Every
 /// other behavior — delete-then-write-then-conflict ordering, atomic write,
@@ -3691,7 +3691,7 @@ mod tests {
 
     // ── Relocated desktop unit tests (the PARITY ORACLE) ─────────────────
     //
-    // Migrated unchanged from apps/tauri/src-tauri/src/sync.rs's test module
+    // Migrated unchanged from the former desktop sync adapter's test module.
     // (everything EXCEPT status_when_* and input_output_serde_camel_case,
     // which test the Tauri command structs that stay in the desktop).
 

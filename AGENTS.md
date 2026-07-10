@@ -145,7 +145,7 @@ file (auth headers, try/parse/catch, validation), check whether a shared helper 
   `Result<T, String>`, errors mapped with `task_join_err`. Commands wrap a pure
   `*_impl(base: &Path, ...)` that the `#[cfg(test)]` module tests directly.
 - Every note-tree mutation registers its filenames in the watcher-suppression map (5s window)
-  **before** writing, so the app doesn't react to its own writes (see `notes.rs` head comment).
+  **before** writing, so the app doesn't react to its own writes (see `note_commands.rs` head comment).
 - Tempdirs in tests are hand-rolled (`temp_dir().join(format!(...))` + `AtomicU32` counter + pid)
   — no `tempfile` crate. Env-var tests serialize on a `static Mutex`.
 - FFI errors are `#[derive(uniffi::Error, thiserror::Error)]` enums. The FFI builds use the dev
@@ -199,7 +199,7 @@ to do one, stop and apply the rule.
   resolving the same path. This burned badly enough to become three layered guards.
   **Rule:** dev/debug = bundle id `com.futo.notes.dev` ("FUTO Notes Dev") + notes root
   `~/Documents/fake-notes` (release: `com.futo.notes` + `~/Documents/futo-notes`). The split lives
-  in Rust `default_notes_root` (`apps/tauri/src-tauri/src/core.rs`), iOS
+  in Rust `default_root` (`apps/tauri/src-tauri/src/vault_location.rs`), iOS
   `#if FUTO_DEBUG_BUILD`, Android `BuildConfig.DEBUG`. The TS resolver MUST delegate to the Rust
   `resolve_default_notes_root` command — `documentDir()` looks identical in dev and release, so
   resolving in JS silently points dev at prod. `FUTO_NOTES_DATA_DIR` overrides both (worktree/test
@@ -410,8 +410,8 @@ behavior.
 | Desktop smoke | `just test-desktop-smoke` | MCP-bridge 4-check smoke |
 | Everything local | `just check` | the pre-merge umbrella |
 
-Where tests live: Rust → `#[cfg(test)]` + `crates/*/tests/`; Tauri `_impl` tests →
-`apps/tauri/src-tauri/src/core.rs`; TS → `src/lib/*.test.ts`; shared → `packages/shared/src`;
+Where tests live: Rust → inline `#[cfg(test)]` modules + `crates/*/tests/`; Tauri `_impl` tests live
+at the bottom of their owning files in `apps/tauri/src-tauri/src/`; TS → `src/lib/*.test.ts`; shared → `packages/shared/src`;
 editor rules/bridge → `packages/editor/src`; E2E → `tests/*.spec.ts`; sync scenarios →
 `tests/cross-platform-sync.mjs` (helpers in `tests/lib/`).
 
@@ -497,12 +497,12 @@ Conformance-locked (safe, but regenerate fixtures on change): note rules TS↔Ru
 toolbar manifest → generated native specs.
 
 **Not locked — real drift risk.** If you touch one, touch all, and say so in the commit:
-- `src/lib/platform/pathSafety.ts` ↔ `futo_notes_core::files` (+ `safe_folder_path` in
-  `core.rs`) — traversal safety, security-relevant.
-- Default notes-root split, 3 independent copies: Rust `core.rs`, iOS `NotesStore.swift`,
+- `src/lib/platform/pathSafety.ts` ↔ `futo_notes_core::files` + folder validation in
+  `futo-notes-model` — traversal safety, security-relevant.
+- Default notes-root split, 3 independent copies: Rust `vault_location.rs`, iOS `NotesStore.swift`,
   Android `NotesStore.kt`.
-- Image-extension set: `@futo-notes/shared/sync.ts`, `tauri.ts` MIME map, `core.rs`
-  `ALLOWED_IMAGE_EXTS`, picker filter.
+- Image-extension set: `@futo-notes/shared/sync.ts`, `tauri.ts` MIME map, `image_commands.rs`
+  `ALLOWED_IMAGE_EXTENSIONS`, picker filter.
 - Note sort order (`modified desc, id asc`): `notes.svelte.ts`, Rust `scan_notes`, iOS
   `resortInPlace`.
 - `SyncSummary`/`SyncFailure` shape: TS, orchestrator, FFI facade.

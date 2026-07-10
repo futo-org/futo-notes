@@ -1655,7 +1655,6 @@ dependencies = [
 name = "futo-notes-tauri"
 version = "0.1.0"
 dependencies = [
- "filetime",
  "futo-notes-core",
  "futo-notes-model",
  "futo-notes-search",
@@ -1664,13 +1663,8 @@ dependencies = [
  "libc",
  "notify",
  "png 0.17.16",
- "rand 0.9.4",
- "rand_chacha 0.9.0",
- "rayon",
- "reqwest 0.12.28",
  "serde",
  "serde_json",
- "sha2",
  "tauri",
  "tauri-build",
  "tauri-plugin-clipboard-manager",
@@ -1681,12 +1675,9 @@ dependencies = [
  "tauri-plugin-process",
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
- "thiserror 1.0.69",
  "time",
  "tokio",
  "trash",
- "url",
- "walkdir",
 ]
 
 [[package]]

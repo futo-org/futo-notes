@@ -34,7 +34,10 @@ Behaviors and constraints that hold across every surface and platform.
   direct `std::fs` path I/O, so SAF / content-URIs are not viable — a
   user-visible vault must be a real filesystem path.
 - **Desktop:** the vault is a normal folder (`~/Documents/futo-notes`), always
-  browsable; changeable in Settings.
+  browsable; changeable in Settings. Rust resolves the active/default folder
+  only through `vault_location.rs`; debug builds retain the separate
+  `~/Documents/fake-notes` root. → [desktop-rust.md](desktop-rust.md) "Vault
+  and desktop safety boundaries"
 - **iOS:** the vault lives in the app's Documents container
   (`Documents/futo-notes`) and is exposed in the Files app under
   "On My iPhone → FUTO Notes" via `UIFileSharingEnabled` +
@@ -82,6 +85,10 @@ Behaviors and constraints that hold across every surface and platform.
 - Deterministic editor rules (filename/tag parsing) may keep a synchronous TS
   copy in `packages/editor` to avoid a per-keystroke IPC/FFI hop, but it is
   conformance-locked bit-for-bit against the Rust impl. → tests/conformance
+- The Tauri desktop Rust shell is a named adapter, not another domain layer.
+  Its final module names, ownership boundaries, stable command/event surface,
+  compatibility commands, watcher suppression, and inline-test convention are
+  specified in [desktop-rust.md](desktop-rust.md).
 
 ## Performance
 
@@ -97,7 +104,8 @@ Behaviors and constraints that hold across every surface and platform.
 
 - Dev/debug builds must never overwrite the production app or notes: a distinct
   bundle id (`com.futo.notes.dev`) and a distinct notes root
-  (`~/Documents/fake-notes` on desktop). → CLAUDE.md
+  (`~/Documents/fake-notes` on desktop). → CLAUDE.md,
+  `apps/tauri/src-tauri/src/vault_location.rs`
 - Production native mobile builds use the production package/bundle id
   `com.futo.notes`; native debug builds use `com.futo.notes.dev` so local
   installs keep separate app data and credentials.
@@ -148,7 +156,7 @@ Behaviors and constraints that hold across every surface and platform.
   check or install from either is reflected in the other. The checker is
   started from App.svelte's background init and never gates render; it no-ops
   where self-update isn't possible (mobile/web, deb/rpm). → updates in
-  settings.md, App.svelte
+  settings.md, App.svelte, `apps/tauri/src-tauri/src/updater_commands.rs`
 
 ## Feedback & crash reporting
 
@@ -161,7 +169,9 @@ Behaviors and constraints that hold across every surface and platform.
   dialog: expandable "View report", an optional "What were you doing?" field,
   an "Always send crash reports" checkbox, and Send / Don't Send. "Always
   send" (also a Settings toggle) auto-sends future reports without the
-  dialog. → CrashReportDialog.svelte, crashHandler.ts *(Tauri)*
+  dialog. Rust-side panics persist the same schema under `.crashlogs` before
+  the next-launch scan. → CrashReportDialog.svelte, crashHandler.ts,
+  `apps/tauri/src-tauri/src/panic_reporter.rs` *(Tauri)*
 - The native shells run the same pipeline: an uncaught-exception handler
   (Android `Thread.setDefaultUncaughtExceptionHandler`; iOS
   `NSSetUncaughtExceptionHandler` plus fatal-signal handlers with

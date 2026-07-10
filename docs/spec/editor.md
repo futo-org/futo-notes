@@ -370,7 +370,8 @@ EditorWebView.swift, EditorWebView.kt
   `text/plain` to paste" (plain/rich-text pastes are left untouched).
   Verified on Linux (WebKitGTK) and Windows (WebView2), both image types,
   2026-06-22. → imagePaste.ts `handlePasteEvent` / `looksLikeImagePaste` /
-  `pasteFromNativeClipboard`; core.rs `fs_paste_clipboard_image`
+  `pasteFromNativeClipboard`;
+  `apps/tauri/src-tauri/src/image_commands.rs` `fs_paste_clipboard_image`
 - Images render inline in live preview via the Tauri asset protocol, with a
   `readFile`→blob-URL fallback when the asset protocol can't actually decode an
   `<img>` (macOS WKWebView / Linux WebKitGTK answer the request but paint a

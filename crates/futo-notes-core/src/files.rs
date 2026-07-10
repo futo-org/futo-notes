@@ -148,7 +148,7 @@ pub fn is_valid_title(title: &str) -> bool {
     validate_title(title).is_empty()
 }
 
-// ── Path safety (from core.rs) ──────────────────────────────────────────
+// ── Path safety ─────────────────────────────────────────────────────────
 
 /// Maximum folder depth for note paths. Matches `MAX_FOLDER_DEPTH` in
 /// `packages/shared/src/filename.ts`. A note at the root has depth 0;

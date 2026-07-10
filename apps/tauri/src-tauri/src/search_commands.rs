@@ -1,4 +1,4 @@
-//! Desktop Tauri shim over the platform-agnostic BM25 search engine.
+//! Tauri commands over the platform-agnostic BM25 search engine.
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -7,7 +7,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use futo_notes_search::{SearchConfig, SearchEngine, SearchHit, SearchStatus};
 
-/// Search-subsystem state, `manage()`d on the Tauri app alongside `CoreState`.
+/// Search-subsystem state stored inside the single managed desktop `AppState`.
 ///
 /// The engine is started lazily off the main thread so opening the Tantivy index
 /// never blocks app setup. Until it is installed, commands return empty
@@ -44,7 +44,7 @@ fn search_index_dir(app: &AppHandle) -> Result<PathBuf, String> {
 
 fn build_config(app: &AppHandle) -> Result<SearchConfig, String> {
     Ok(SearchConfig {
-        notes_root: crate::core::notes_root(app)?,
+        notes_root: crate::vault_location::root(app)?,
         index_dir: search_index_dir(app)?,
     })
 }
@@ -53,68 +53,78 @@ fn build_config(app: &AppHandle) -> Result<SearchConfig, String> {
 /// Idempotent. Runs the Tantivy-index open + initial reconcile spawn on a
 /// background thread so app setup is never blocked.
 pub fn init_on_startup(app: &AppHandle) {
-    let state: State<'_, SearchState> = app.state();
-    if state.is_initialized() {
+    let state: State<'_, crate::application_state::AppState> = app.state();
+    if state.search.is_initialized() {
         return;
     }
     let app = app.clone();
-    std::thread::Builder::new()
-        .name("futo-search-init".into())
-        .spawn(move || {
-            let config = match build_config(&app) {
-                Ok(c) => c,
-                Err(e) => {
-                    eprintln!("[search] cannot build config: {e}");
-                    return;
-                }
-            };
-            let emit_app = app.clone();
-            let on_status: futo_notes_search::StatusObserver =
-                Arc::new(move |status: &SearchStatus| {
-                    let _ = emit_app.emit("search:status", status);
-                });
-            match SearchEngine::start(config, on_status) {
-                Ok(engine) => {
-                    let state: State<'_, SearchState> = app.state();
-                    state.install(engine);
-                }
-                Err(e) => eprintln!("[search] failed to start engine: {e}"),
+    let _ = crate::background_tasks::spawn("futo-search-init", move || {
+        let config = match build_config(&app) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("[search] cannot build config: {e}");
+                return;
             }
-        })
-        .ok();
+        };
+        let emit_app = app.clone();
+        let on_status: futo_notes_search::StatusObserver =
+            Arc::new(move |status: &SearchStatus| {
+                let _ = emit_app.emit("search:status", status);
+            });
+        match SearchEngine::start(config, on_status) {
+            Ok(engine) => {
+                let state: State<'_, crate::application_state::AppState> = app.state();
+                state.search.install(engine);
+            }
+            Err(e) => eprintln!("[search] failed to start engine: {e}"),
+        }
+    });
 }
 
 /// Run a BM25 query over note titles, bodies, tags, and folder names.
 #[tauri::command]
 pub async fn search_query(
-    state: State<'_, SearchState>,
+    state: State<'_, crate::application_state::AppState>,
     query: String,
     limit: Option<usize>,
 ) -> Result<Vec<SearchHit>, String> {
-    let engine = state.engine.clone();
+    let engine = state.search.engine.clone();
     let limit = limit.unwrap_or(futo_notes_search::DEFAULT_TOPK);
-    tauri::async_runtime::spawn_blocking(move || {
-        let guard = engine.lock().map_err(|_| "search lock poisoned".to_string())?;
+    crate::background_tasks::blocking(move || {
+        let guard = engine
+            .lock()
+            .map_err(|_| "search lock poisoned".to_string())?;
         match guard.as_ref() {
             Some(engine) => engine.query(&query, limit),
             None => Ok(Vec::new()),
         }
     })
     .await
-    .map_err(|e| format!("join error: {e}"))?
 }
 
 /// Current indexing status.
 #[tauri::command]
-pub async fn search_status(state: State<'_, SearchState>) -> Result<SearchStatus, String> {
-    let guard = state.engine.lock().map_err(|_| "search lock poisoned".to_string())?;
+pub async fn search_status(
+    state: State<'_, crate::application_state::AppState>,
+) -> Result<SearchStatus, String> {
+    let guard = state
+        .search
+        .engine
+        .lock()
+        .map_err(|_| "search lock poisoned".to_string())?;
     Ok(guard.as_ref().map(|e| e.status()).unwrap_or_default())
 }
 
 /// Force a full corpus rescan. Exposed for Settings/tests, not routine edits.
 #[tauri::command]
-pub async fn search_rebuild(state: State<'_, SearchState>) -> Result<(), String> {
-    let guard = state.engine.lock().map_err(|_| "search lock poisoned".to_string())?;
+pub async fn search_rebuild(
+    state: State<'_, crate::application_state::AppState>,
+) -> Result<(), String> {
+    let guard = state
+        .search
+        .engine
+        .lock()
+        .map_err(|_| "search lock poisoned".to_string())?;
     if let Some(engine) = guard.as_ref() {
         engine.rescan();
     }
@@ -126,12 +136,16 @@ pub async fn search_rebuild(state: State<'_, SearchState>) -> Result<(), String>
 /// relative to the vault root, and `from` carries the old path for renames.
 #[tauri::command]
 pub async fn search_notify(
-    state: State<'_, SearchState>,
+    state: State<'_, crate::application_state::AppState>,
     kind: String,
     rel_path: String,
     from: Option<String>,
 ) -> Result<(), String> {
-    let guard = state.engine.lock().map_err(|_| "search lock poisoned".to_string())?;
+    let guard = state
+        .search
+        .engine
+        .lock()
+        .map_err(|_| "search lock poisoned".to_string())?;
     let Some(engine) = guard.as_ref() else {
         return Ok(());
     };
@@ -145,4 +159,15 @@ pub async fn search_notify(
         _ => {}
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    //! Tests for search command state.
+    use super::*;
+
+    #[test]
+    fn search_state_starts_uninitialized() {
+        assert!(!SearchState::default().is_initialized());
+    }
 }

@@ -140,7 +140,8 @@ confirmation, not surfaced as a per-folder count. → NoteListView.swift
   shared Rust `delete_note` (which prunes since 2026-07-02; it previously
   left empty parents behind, native-only). →
   platform/tauri.ts `deleteNoteFile` (a `notes_delete_to_trash` command exists
-  but no UI calls it), futo-notes-model `crud::delete_note`
+  but no UI calls it), `apps/tauri/src-tauri/src/note_commands.rs`,
+  futo-notes-model `crud::delete_note`
 - A note row in the folder tree offers the same Move/Delete via context menu
   (desktop right-click / mobile long-press). → FolderTreeView.svelte
 - The native editor menus reach parity: **Android** ⋮ offers Move to
@@ -229,7 +230,8 @@ confirmation, not surfaced as a per-folder count. → NoteListView.swift
 - A folder can be renamed; the rename updates every note path beneath it and
   rewrites wikilinks pointing at those notes. On **Tauri** rename is in the
   folder context menu; on the native shells it belongs in the folder long-press
-  menu alongside Move and Delete. → folders.svelte.ts
+  menu alongside Move and Delete. → folders.svelte.ts,
+  `apps/tauri/src-tauri/src/folder_commands.rs`
   > **Gap:** the native shells expose no folder-rename affordance yet — the
   > folder long-press menu offers Delete only (iOS `NoteListView.swift`, Android
   > `NoteListScreen.kt`), and the shared `NoteStore` FFI facade has no
@@ -254,8 +256,11 @@ confirmation, not surfaced as a per-folder count. → NoteListView.swift
   removed. (An earlier note here describing an iOS-native recursive-destroy
   delete was stale — no native folder delete existed in code until this
   one.) Verified on emulator + simulator 2026-06-09.
-  - **Tauri**: folder context menu → Delete. → DrawerSidebar.svelte
-    `confirmDeleteFolder`
+  - **Tauri**: folder context menu → Delete. The frontend first moves/relinks
+    every note, then the Rust folder command removes the empty tree through the
+    desktop trash policy. → DrawerSidebar.svelte `confirmDeleteFolder`,
+    `apps/tauri/src-tauri/src/folder_commands.rs`,
+    `apps/tauri/src-tauri/src/system_trash.rs`
   - **iOS native**: folder row swipe or long-press "Delete Folder…". →
     NoteListView.swift
   - **Android native**: drawer folder row long-press → "Delete folder",

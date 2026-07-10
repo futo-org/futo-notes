@@ -32,22 +32,13 @@ futo-notes-sync = { path = "../../../crates/futo-notes-sync" }
 # #[tauri::command] wrappers so desktop consumes the SAME Rust as native.
 futo-notes-model = { path = "../../../crates/futo-notes-model" }
 # Platform-agnostic on-device BM25 search engine. Thin Tauri shim in
-# src/search.rs over this.
+# src/search_commands.rs over this.
 futo-notes-search = { path = "../../../crates/futo-notes-search" }
-rand = "0.9"
-rand_chacha = "0.9"
-rayon = "1.11.0"
-sha2 = "0.10.9"
-filetime = "0.2.26"
 time = { version = "0.3", features = ["formatting"] }
 notify = "8.2.0"
-walkdir = "2.5"
-reqwest = { version = "0.12.12", default-features = false, features = ["json", "rustls-tls"] }
 png = "0.17"
 libc = "0.2"
 tauri-plugin-mcp-bridge = "0.10.0"
-url = "2.5"
-thiserror = "1"
 tokio = { version = "1", features = ["sync", "macros", "rt-multi-thread", "time"] }
 
 # Route folder/note deletes through the desktop system trash so users can

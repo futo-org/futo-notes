@@ -30,6 +30,7 @@ satisfy it yet — that's what makes gaps visible.
 | File | Surface |
 |---|---|
 | [app.md](app.md) | Cross-cutting: render lifecycle, data safety, where logic lives |
+| [desktop-rust.md](desktop-rust.md) | Desktop Rust adapter architecture, naming, IPC/event stability, and compatibility rules |
 | [editor.md](editor.md) | The Markdown editor (shared CodeMirror 6 WebView) |
 | [list.md](list.md) | Note list, home feed, folder drawer, note/folder ops |
 | [nav.md](nav.md) | Navigation / screen stack / drawer |
@@ -42,6 +43,9 @@ satisfy it yet — that's what makes gaps visible.
 ## Layering (don't confuse these)
 
 - **This** (`docs/spec/`) — behavioral requirements: what the user experiences.
+- `desktop-rust.md` also fixes the desktop adapter's intentional organizational
+  contract because its module names and ownership boundaries are part of this
+  rewrite's acceptance criteria.
 - `tests/conformance/*.json` — TS↔Rust pure-rule parity (filename/tags/image).
 - `markdown-spec/cases/*.yaml` — fine-grained editor decoration/cursor fixtures.
 
