@@ -102,6 +102,7 @@ target/
 # Codex
 .codex
 .context
+.agents/
 
 # Python bytecode (e.g. scripts/win-vm tooling)
 __pycache__/

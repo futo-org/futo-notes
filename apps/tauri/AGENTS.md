@@ -10,22 +10,33 @@ From the monorepo root, prefer the `just` wrappers: `just tauri-dev`, `just taur
 
 **The note domain lives in Rust.** CRUD, the note rules (title/tag/id/wikilink/preview), and full-text search are single-sourced in `futo-notes-model` / `futo-notes-core` / `futo-notes-search` — the same crates the native iOS/Android shells consume via the `futo-notes-ffi` UniFFI facade (see root AGENTS.md "Where Logic Lives"). Do not re-implement CRUD or search in TypeScript; call the commands. (The note rules are shared from `futo-notes-model` via the conformance-locked TS copy `src/lib/rules.ts` / the FFI facade rather than a Tauri command — see root AGENTS.md.) **TypeScript owns the UI and reactive state** (Svelte components, `notesCache` in `notes.svelte.ts`, tab/session state, sync coordination, the platform shell). Reserve net-new Rust for the note domain and existing compute-heavy paths.
 
-The command surface (registered in `lib.rs` via `tauri::generate_handler!`) is split by module:
+`lib.rs` is only the crate map and public `run()` entry. `application.rs` is the composition root: it registers plugins, manages one `AppState`, installs startup services, and declares the complete `generate_handler!` surface. Long-lived watcher, search, and sync state are fields of `AppState`; commands never discover or manage independent state cells.
 
-- **`notes.rs`**: `notes_*` — note CRUD + scanning over `futo-notes-model::crud` (`notes_scan`, `notes_read`, `notes_write`, `notes_create`, `notes_delete`, `notes_rename`, `notes_move`, folder ops, trash). Mirrors the FFI `NoteStore` 1:1.
-- **`search.rs`**: `search_*` — desktop shim over `futo-notes-search` (Tantivy BM25 plus a background indexer). The heavy lifting lives in the crate; this layer resolves paths, emits `search:status`, and exposes the commands. (Supersearch vector ops are gone — replaced by this engine.)
-- **`sync.rs`** / **`sync_state.rs`**: `e2ee_*` — the E2EE sync command surface over `futo-notes-sync`, plus the JS↔Rust state and watcher-suppression map.
-- **`core.rs`**: the remaining `fs_*` / path / device commands — filesystem watcher (`notify` crate, emits `fs:change`), image save/paste, folder ops not yet on the model, notes-dir override, default path resolution. Every public command wraps an `_impl` function for testability.
-- **`lib.rs`**: App setup — plugin registration, the `tauri::generate_handler!` `invoke_handler`, Linux GTK decorations, fd limit bump.
-- **`main.rs`**: Entry point. Disables WebKitGTK DMA-BUF renderer on Linux for Wayland stability.
+The desktop adapter is split by responsibility:
+
+- **`note_commands.rs`**: `notes_*` scanning and note CRUD over `futo-notes-model`; desktop note-trash routing is the only shell-specific mutation here.
+- **`folder_commands.rs`**: folder create/rename/delete commands, including pre-write watcher suppression for every note affected by a subtree mutation.
+- **`search_commands.rs`**: `search_*` adapter over `futo-notes-search`; startup remains backgrounded and emits `search:status`.
+- **`sync/`**: `mod.rs` is only the module map. `tauri_commands.rs` owns the stable `e2ee_*` command surface, `cycle_runner.rs` wires manual/live push-first cycles, `frontend_contract.rs` owns serialization, `tauri_events.rs` translates callbacks, and `session_state.rs` bridges session/task state.
+- **`vault_location.rs`**: the only authority for environment overrides, persisted custom roots, and the CRITICAL debug (`fake-notes`) / release (`futo-notes`) default split.
+- **`filesystem_watcher.rs`**: `notify` lifecycle, rename-cookie pairing, relative-path normalization, `fs:change` emission, and the typed one-shot `WatcherSuppression` service shared by note/folder/sync commands.
+- **`image_commands.rs`**: image file import and native clipboard-to-PNG ingestion.
+- **`system_trash.rs`**: recoverable desktop delete policy plus the headless hard-delete fallback.
+- **`legacy_filesystem_commands.rs`**: legacy `fs_*` command names. These are compatibility adapters only and delegate to the same note/folder services; never add a second rule implementation here.
+- **`platform_integration.rs`**: Linux log/theme/decorations, single-instance setup, and Unix file-descriptor preparation.
+- **`updater_commands.rs`**, **`panic_reporter.rs`**: updater capability and Rust crash persistence.
+- **`background_tasks.rs`**: the shared `spawn_blocking`/thread boundary and uniform join/I/O error mapping.
+- **`main.rs`**: process entry point; disables WebKitGTK DMA-BUF on Linux before calling `run()`.
+
+Unit tests live inline at the bottom of their owning module in a `#[cfg(test)] mod tests { ... }` block. This keeps private `_impl` functions directly testable without adding test-only directories; IDE folding can hide the blocks when navigating production code.
 
 TypeScript handles: reactive note state (`notes.svelte.ts`, `notesCache`), app state/preferences (`src/lib/appState.ts`), sync coordination (`src/lib/syncManager.svelte.ts`), and the search shim (`src/lib/searchEngine.ts`, which prefers the Rust engine and falls back to the live MiniSearch keyword index in `src/lib/searchIndex.ts`). Note I/O goes through the `notes_*` commands rather than `@tauri-apps/plugin-fs`.
 
 ## Key Patterns
 
 - **Atomic writes**: Note writes go through `notes_write`, which uses `write_atomic_text()` (`futo_notes_core::files`) — temp file + rename for crash safety. The TS `atomicWrite.ts` helper remains for the rare non-note file the TS layer still writes directly.
-- **Path safety**: pushed DOWN into the crate — `futo_notes_core::files::safe_note_path` (used by `notes.rs`/`core.rs`) and `futo-notes-model`'s folder-path validation block `..`, `.`, `/`, `\`. TypeScript has `pathSafety.ts` for any path it forms before a command call. Never bypass for user-supplied paths.
-- **Filesystem watcher**: `notify` crate in Rust watches the notes dir for external edits and emits `fs:change` events; the Svelte store re-reads via command. Sync/note writes register the touched filename in the watcher-suppression map for 5s (`WATCHER_SUPPRESSION_MS`) so a Rust-driven write doesn't loop back as an external change.
+- **Path safety**: pushed DOWN into the crates — `futo_notes_core::files::safe_note_path` and `futo-notes-model`'s folder primitives. Desktop code resolves the vault only through `vault_location.rs`; compatibility commands may not hand-build paths. TypeScript has `pathSafety.ts` for paths it forms before a command call.
+- **Filesystem watcher**: `filesystem_watcher.rs` watches the vault for external edits and emits `fs:change`; the Svelte store re-reads through commands. Every note-tree mutation receives a clone of `WatcherSuppression` and registers all affected relative filenames before touching disk. Suppression is one-shot, so it cannot hide a later external edit inside the five-second expiry window.
 - **Platform configs**: `#[cfg(target_os = "...")]` and `#[cfg(debug_assertions)]` for platform/build-specific behavior.
 
 ## Dev Ports
@@ -70,7 +81,7 @@ just test-rust       # Rust unit tests (creates dist/ first)
 
 | What changed | Run |
 |---|---|
-| Rust logic (`core.rs`) | `just test-rust` |
+| Desktop adapter logic (`apps/tauri/src-tauri/src`) | `cargo test -p futo-notes-tauri --lib` + `just test-rust-full` |
 | New `#[tauri::command]` | Add unit test for `_impl` function, then `just test-rust` |
 | Tauri config / capabilities | `just tauri-dev` → manual smoke test |
 

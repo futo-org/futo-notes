@@ -3,9 +3,12 @@
 E2EE sync. **All sync logic lives in the Rust `futo-notes-sync` crate**; every
 shell only drives it. Native (iOS/Android) goes through the `futo-notes-ffi`
 `SyncClient`; Tauri desktop goes through the `e2ee_*` Tauri commands (a thin
-`sync.rs` wrapper) + `syncServiceE2ee` + coordinator — both now run the **same**
+`apps/tauri/src-tauri/src/sync/tauri_commands.rs` wrapper) +
+`syncServiceE2ee` + coordinator — both now run the **same**
 orchestrator (`connect`/`run_sync`/`run_pull`/`run_push`/`live::watch`). The
-client uploads opaque encrypted blobs — note content is encrypted before upload.
+client uploads opaque encrypted blobs — note content is encrypted before
+upload. Desktop sync module ownership and serialization boundaries are fixed by
+[desktop-rust.md](desktop-rust.md).
 
 ## Connect / run
 
@@ -122,8 +125,10 @@ client uploads opaque encrypted blobs — note content is encrypted before uploa
   `failures`. Partial cycles report honestly — a cycle can have both
   `uploaded > 0` and failures.
   → futo-notes-sync `orchestrator` (`SyncFailure`, `FailureKind`,
-  `SyncSummary::failure_message`, `run_push`, `download_all`), sync.rs
-  `to_wire_summary`, syncManager.svelte.ts (`handleSyncComplete`)
+  `SyncSummary::failure_message`, `run_push`, `download_all`),
+  `apps/tauri/src-tauri/src/sync/frontend_contract.rs` `SyncSummary::from`,
+  syncManager.svelte.ts
+  (`handleSyncComplete`)
 - **A failed blob download never advances the cursor past the object.** The
   `max_version` persisted by a pull (and by the empty-map reconcile) is
   capped below the lowest failed `change_seq`, so the next cycle re-lists
@@ -185,7 +190,8 @@ client uploads opaque encrypted blobs — note content is encrypted before uploa
   with `live: true` (only a real stream drop reports `live: false`), so one
   transient cycle error can't blank the tick until the next stream reconnect.
   Desktop only — native shells surface sync state on their Sync screen. →
-  SyncStatusBar.svelte (`connected` = `sync.live`), sync.rs (`on_cycle_error`),
+  SyncStatusBar.svelte (`connected` = `sync.live`),
+  `apps/tauri/src-tauri/src/sync/tauri_events.rs` (`on_cycle_error`),
   futo-notes-sync `live::run_cycle`
 
 - **Native shells surface per-item failures on their Sync screen.** The FFI
@@ -321,7 +327,10 @@ client uploads opaque encrypted blobs — note content is encrypted before uploa
   (carries the per-note `SyncSummary`, which the JS routes through the normal
   `handleSyncComplete` reconciliation so the open note + list refresh live).
   `ensureLiveSync()` starts the stream after the first successful sync; the 15 s
-  poll remains the fallback. → sync.rs, syncServiceE2ee.ts, syncManager.svelte.ts
+  poll remains the fallback. →
+  `apps/tauri/src-tauri/src/sync/cycle_runner.rs`,
+  `apps/tauri/src-tauri/src/sync/tauri_events.rs`,
+  syncServiceE2ee.ts, syncManager.svelte.ts
 - When a live pull (or the cold-launch / manual catch-up sync) brings in remote
   changes, the note list refreshes automatically so the pulled note appears
   without any user action — on **both** platforms. → `SyncManager.onLivePull` →
@@ -333,7 +342,8 @@ client uploads opaque encrypted blobs — note content is encrypted before uploa
   - Desktop: a local save triggers a debounced push (`notifySavedV2` → `run_sync`),
     and the desktop live loop runs a full `run_sync` (push + pull) on each event,
     so a desktop edit propagates to peers automatically (debounce + SSE pull on the
-    peer, well under a couple seconds). → autoSyncV2.ts, sync.rs `run_sync`
+    peer, well under a couple seconds). → autoSyncV2.ts,
+    `apps/tauri/src-tauri/src/sync/cycle_runner.rs`
   - Native (iOS/Android): every `NotesStore` mutation (write/create/delete/rename/
     move/createFolder) fires `NotesStore.onLocalChange` → `SyncManager.noteChanged()`
     → the Rust `SyncClient::note_changed()` write-once auto-push signal. The live

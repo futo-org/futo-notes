@@ -1,4 +1,4 @@
-//! E2EE sync state — Tauri-free port of `sync_state.rs`.
+//! E2EE sync state shared by every platform adapter.
 //!
 //! Owns the in-memory connection (URL, token, derived key, object map,
 //! `change_seq` cursor) plus disk persistence for the bookkeeping that must

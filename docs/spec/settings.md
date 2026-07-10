@@ -65,8 +65,8 @@ SettingsScreen.kt *(Android)*, SettingsView.swift *(iOS)*
   only where the running install can self-update: dev builds always (so the
   button is reachable for manual testing), release builds only on AppImage /
   macOS / Windows (NOT deb/rpm, which update via the system package repo), gated
-  by the Rust `app_self_update_supported` command. Installing relaunches into the new
-  version. The button and the global update banner (see app.md) share one state
+  by the Rust `app_self_update_supported` command. Installing relaunches into
+  the new version. The button and the global update banner (see app.md) share one state
   machine (`updateChecker`), so a check in either surface reflects in the other.
   An **Automatically check for updates** toggle (persisted in app state, default
   on) gates the section: off stops the hourly background poll, clears any pending
@@ -74,7 +74,8 @@ SettingsScreen.kt *(Android)*, SettingsView.swift *(iOS)*
   checks. The toggle locks while an update is downloading/installing or staged
   awaiting restart — those bytes are already on disk and can't be un-staged.
   → SettingsScreen.svelte, updater.ts, updateChecker.svelte.ts,
-  core.rs `app_self_update_supported`
+  `apps/tauri/src-tauri/src/updater_commands.rs`
+  `app_self_update_supported`, [desktop-rust.md](desktop-rust.md)
 - **Danger zone — Full reset**: permanently removes all notes and app data.
   Tapping **Full reset** opens a confirmation dialog ("Permanently delete all
   notes and app data? This cannot be undone."); only confirming deletes, with

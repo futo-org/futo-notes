@@ -25,7 +25,9 @@ pub fn install(crashlog_dir: PathBuf) {
 }
 
 fn write_report(info: &std::panic::PanicHookInfo<'_>) {
-    let Some(dir) = CRASHLOG_DIR.get() else { return };
+    let Some(dir) = CRASHLOG_DIR.get() else {
+        return;
+    };
     let _ = std::fs::create_dir_all(dir);
 
     let msg = if let Some(s) = info.payload().downcast_ref::<&'static str>() {
@@ -82,34 +84,38 @@ mod tests {
 
     #[test]
     fn report_json_matches_crash_report_interface() {
-        let r = build_report_json(
+        let report = build_report_json(
             "something went wrong",
             "src/foo.rs:10:5",
             "fake backtrace",
             "2026-05-11T20:00:00Z",
         );
-        // All required CrashReport fields present and non-null.
-        assert!(r["error"].as_str().unwrap().contains("src/foo.rs:10:5"));
-        assert!(r["error"].as_str().unwrap().contains("something went wrong"));
-        assert_eq!(r["stack"].as_str().unwrap(), "fake backtrace");
-        assert_eq!(r["type"].as_str().unwrap(), "rust_panic");
-        assert_eq!(r["timestamp"].as_str().unwrap(), "2026-05-11T20:00:00Z");
-        assert!(!r["app_version"].as_str().unwrap().is_empty());
-        assert!(!r["platform"].as_str().unwrap().is_empty());
-        assert!(!r["device_info"].as_str().unwrap().is_empty());
+        assert!(report["error"]
+            .as_str()
+            .unwrap()
+            .contains("src/foo.rs:10:5"));
+        assert!(report["error"]
+            .as_str()
+            .unwrap()
+            .contains("something went wrong"));
+        assert_eq!(report["stack"].as_str().unwrap(), "fake backtrace");
+        assert_eq!(report["type"].as_str().unwrap(), "rust_panic");
+        assert_eq!(
+            report["timestamp"].as_str().unwrap(),
+            "2026-05-11T20:00:00Z"
+        );
+        assert!(!report["app_version"].as_str().unwrap().is_empty());
+        assert!(!report["platform"].as_str().unwrap().is_empty());
+        assert!(!report["device_info"].as_str().unwrap().is_empty());
     }
 
     #[test]
     fn install_creates_target_dir_and_returns_idempotently() {
-        let tmp = std::env::temp_dir().join(format!(
-            "futo-panic-test-{}",
-            std::process::id()
-        ));
-        std::fs::create_dir_all(&tmp).unwrap();
-        // First install captures the dir; second is a no-op (OnceLock).
-        install(tmp.clone());
-        install(tmp.join("ignored"));
-        assert_eq!(CRASHLOG_DIR.get(), Some(&tmp));
-        let _ = std::fs::remove_dir_all(&tmp);
+        let temp = std::env::temp_dir().join(format!("futo-panic-test-{}", std::process::id()));
+        std::fs::create_dir_all(&temp).unwrap();
+        install(temp.clone());
+        install(temp.join("ignored"));
+        assert_eq!(CRASHLOG_DIR.get(), Some(&temp));
+        let _ = std::fs::remove_dir_all(&temp);
     }
 }

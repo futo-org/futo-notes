@@ -2,7 +2,8 @@
  * Thin shim over the Rust-side E2EE sync orchestrator.
  *
  * All the heavy work (PBKDF2, AES-GCM, blob HTTP, push/pull, 3-way merge,
- * conflict resolution, persistence) lives in `apps/tauri/src-tauri/src/sync.rs`
+ * conflict resolution, persistence) lives in `crates/futo-notes-sync`; the
+ * desktop IPC adapter lives in `apps/tauri/src-tauri/src/sync/`
  * and `crates/futo-notes-core/src/e2ee.rs`. This file exists so the rest of
  * the app's import path stays stable: `connectE2ee`, `syncE2eeAuto`,
  * `disconnectE2ee`, `setSyncProgressListener`, and the `SyncSummary` /

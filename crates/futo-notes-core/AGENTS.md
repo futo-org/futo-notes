@@ -2,7 +2,7 @@
 
 Shared Rust crate imported across the workspace — by the Tauri app and, via the `futo-notes-ffi` UniFFI facade, the native iOS/Android shells. Contains performance-critical, platform-agnostic logic — hashing, E2EE crypto, sync payload computation, search helpers, filesystem invariants, and text merge.
 
-**Do not reimplement logic that exists here.** Tauri's `core.rs` imports functions directly from this crate. If you need something this crate provides in TypeScript, check whether a TS equivalent already exists in `src/lib/` before adding one.
+**Do not reimplement logic that exists here.** The desktop Tauri adapter imports functions directly from this crate. If you need something this crate provides in TypeScript, check whether a TS equivalent already exists in `src/lib/` before adding one.
 
 ## Modules
 

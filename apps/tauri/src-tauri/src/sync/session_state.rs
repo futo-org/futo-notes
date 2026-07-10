@@ -1,4 +1,4 @@
-//! Tauri-managed E2EE sync state.
+//! Sync session state and the Tauri task-handle bridge.
 //!
 //! Thin wrapper around the shared `futo-notes-sync` crate. The crate owns the
 //! orchestrator, the `ConnectedState` type, the on-disk `.e2ee-state.json`
@@ -16,7 +16,7 @@ use std::ops::Deref;
 
 use futo_notes_sync::{AbortableTask, SyncSession};
 
-/// Tauri-managed sync state cell. Derefs to the shared [`SyncSession`] so the
+/// Desktop sync state cell. Derefs to the shared [`SyncSession`] so the
 /// command handlers call its `snapshot`/`set_connected`/`lock_sync_gate`/
 /// `start_live_with`/`stop_live`/`note_changed` methods directly.
 #[derive(Default)]
@@ -44,6 +44,7 @@ impl AbortableTask for TauriTask {
 
 #[cfg(test)]
 mod tests {
+    //! Tests for sync session state.
     use super::*;
     use futo_notes_sync::{ConnectedState, E2eeObjectMapEntry};
     use std::collections::HashMap;
@@ -75,28 +76,25 @@ mod tests {
 
     #[tokio::test]
     async fn snapshot_set_clear_round_trip() {
-        let s = SyncState::default();
-        assert!(s.snapshot().await.is_none());
-        assert!(!s.is_connected().await);
-
-        s.set_connected(make_connected()).await;
-        assert!(s.is_connected().await);
-        let snap = s.snapshot().await.unwrap();
-        assert_eq!(snap.max_version, 10);
-        assert_eq!(snap.object_map.len(), 1);
-        assert_eq!(snap.collection_id, "c1");
-
-        s.clear().await;
-        assert!(!s.is_connected().await);
-        assert!(s.snapshot().await.is_none());
+        let state = SyncState::default();
+        assert!(state.snapshot().await.is_none());
+        assert!(!state.is_connected().await);
+        state.set_connected(make_connected()).await;
+        assert!(state.is_connected().await);
+        let snapshot = state.snapshot().await.unwrap();
+        assert_eq!(snapshot.max_version, 10);
+        assert_eq!(snapshot.object_map.len(), 1);
+        assert_eq!(snapshot.collection_id, "c1");
+        state.clear().await;
+        assert!(!state.is_connected().await);
+        assert!(state.snapshot().await.is_none());
     }
 
     #[tokio::test]
     async fn stop_live_and_note_changed_are_safe_when_not_running() {
-        let s = SyncState::default();
-        // No live task: must be no-ops, not panic.
-        s.stop_live();
-        s.note_changed();
-        s.stop_live();
+        let state = SyncState::default();
+        state.stop_live();
+        state.note_changed();
+        state.stop_live();
     }
 }

@@ -243,7 +243,7 @@ async function reconcileSearchIndex(): Promise<void> {
 export async function refreshNotesFromStorage(): Promise<void> {
   // Coarse re-scan via the Rust command (one IPC) — matches today's
   // behavior on the watcher-driven re-feed path. The watcher debounces at
-  // the OS level and core.rs collapses rename pairs, so a full re-scan per
+  // the OS level and filesystem_watcher.rs collapses rename pairs, so a full re-scan per
   // change is acceptable.
   const previews = await getFS().scanNotes();
   notesCache = previews;
