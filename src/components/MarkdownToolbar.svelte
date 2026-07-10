@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { isMobile, isDesktop } from '$lib/platform';
+  import { isDesktop } from '$lib/platform';
   import {
     toggleBold,
     toggleItalic,
@@ -9,7 +9,6 @@
     toggleTaskList,
     cycleHeading,
     toggleBlockquote,
-    insertImageFromCamera,
     insertImageFromFile,
   } from '$lib/markdownToolbar';
   import { keyboard } from '$lib/keyboard.svelte';
@@ -24,7 +23,6 @@
     List,
     ListOrdered,
     ListChecks,
-    Camera,
     ImageIcon,
     ChevronDown,
     ListIndentDecrease,
@@ -83,11 +81,6 @@
     if (e.touches.length !== 1 || !scrollEl) return;
     const dx = e.touches[0].clientX - touchStartX;
     scrollEl.scrollLeft = touchStartScrollLeft - dx;
-  }
-
-  async function handleCameraImage(source: 'camera' | 'photos') {
-    const view = getView();
-    if (view) await insertImageFromCamera(view, source);
   }
 
   async function handleFileImage() {
@@ -190,25 +183,6 @@
             indentMore(v);
           })}
           aria-label="Indent"><ListIndentIncrease size={18} strokeWidth={2.5} /></button
-        >
-      {/if}
-
-      {#if isMobile}
-        <span class="toolbar-separator"></span>
-
-        <button
-          class="toolbar-btn"
-          onmousedown={preventFocus}
-          ontouchstart={preventFocus}
-          onclick={() => handleCameraImage('camera')}
-          aria-label="Take photo"><Camera size={18} strokeWidth={2} /></button
-        >
-        <button
-          class="toolbar-btn"
-          onmousedown={preventFocus}
-          ontouchstart={preventFocus}
-          onclick={() => handleCameraImage('photos')}
-          aria-label="Choose from library"><ImageIcon size={18} strokeWidth={2} /></button
         >
       {/if}
 

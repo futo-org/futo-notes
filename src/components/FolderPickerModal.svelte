@@ -10,7 +10,6 @@
 
   import { buildFolderTree, type TreeNode, type FolderNode } from '$lib/folders.svelte';
   import { portal } from '$lib/util/portal';
-  import { isMobile } from '$lib/platform';
   import type { NotePreview } from '../types';
 
   interface Props {
@@ -59,7 +58,7 @@
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div use:portal class="modal-backdrop" class:mobile={isMobile} onclick={oncancel}>
+<div use:portal class="modal-backdrop" onclick={oncancel}>
   <div class="modal-card" onclick={(e) => e.stopPropagation()}>
     <h2 class="modal-title">{title}</h2>
     <div class="picker-list">
@@ -188,21 +187,5 @@
     background: transparent;
     color: inherit;
     cursor: pointer;
-  }
-
-  /* Mobile: full-sheet modal that fills the viewport instead of a
-     centered card. Honors safe-area insets so content doesn't hide
-     under the status bar / home indicator. */
-  .modal-backdrop.mobile {
-    align-items: stretch;
-    justify-content: stretch;
-  }
-  .modal-backdrop.mobile .modal-card {
-    width: 100%;
-    max-width: 100%;
-    height: 100%;
-    max-height: 100%;
-    border-radius: 0;
-    padding: max(20px, env(safe-area-inset-top, 0)) 20px max(20px, env(safe-area-inset-bottom, 0));
   }
 </style>

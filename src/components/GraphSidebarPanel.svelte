@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { isMobile, isDesktop } from '$lib/platform';
+  import { isDesktop } from '$lib/platform';
   import type { NotePreview } from '../types';
 
   interface Props {
@@ -50,24 +50,6 @@
     onclose();
   }
 
-  function handleDismissWindowKeydown(event: KeyboardEvent, dismiss: () => void): void {
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      dismiss();
-    }
-  }
-
-  $effect(() => {
-    if (!(isMobile && (open || loading))) return;
-
-    const handleWindowKeydown = (event: KeyboardEvent) => {
-      handleDismissWindowKeydown(event, closeGraph);
-    };
-
-    window.addEventListener('keydown', handleWindowKeydown);
-    return () => window.removeEventListener('keydown', handleWindowKeydown);
-  });
-
   // Resize handlers
   function handleGraphResizeStart(e: PointerEvent): void {
     e.preventDefault();
@@ -102,27 +84,15 @@
 </script>
 
 {#if open || loading}
-  {#if isMobile}
+  <aside bind:this={graphSidebarEl} class="graph-sidebar" class:open>
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
-      bind:this={graphOverlayEl}
-      class="graph-overlay"
-      class:active={open}
-      onclick={closeGraph}
-      onkeydown={(event) => handleDismissWindowKeydown(event, closeGraph)}
+      class="graph-resize-handle"
+      onpointerdown={handleGraphResizeStart}
+      onpointermove={handleGraphResizeMove}
+      onpointerup={handleGraphResizeEnd}
+      onpointercancel={handleGraphResizeEnd}
     ></div>
-  {/if}
-  <aside bind:this={graphSidebarEl} class="graph-sidebar" class:open>
-    {#if !isMobile}
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <div
-        class="graph-resize-handle"
-        onpointerdown={handleGraphResizeStart}
-        onpointermove={handleGraphResizeMove}
-        onpointerup={handleGraphResizeEnd}
-        onpointercancel={handleGraphResizeEnd}
-      ></div>
-    {/if}
     <div class="graph-sidebar-header">
       <span class="graph-sidebar-title">Graph</span>
       <div class="graph-sidebar-actions">

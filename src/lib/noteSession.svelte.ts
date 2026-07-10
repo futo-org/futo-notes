@@ -5,7 +5,7 @@
  * title‑validation state. MarkdownEditor bindings and scrollParent stay in
  * NotesShell.
  */
-import { hasFileSystem, isMobile } from '$lib/platform';
+import { hasFileSystem } from '$lib/platform';
 import { updateNote, readNote, createNote, getNoteById } from '$lib/notes.svelte';
 import { sanitizeFilename } from '$lib/utils';
 import { FORBIDDEN_CHARS_RE, validateTitle } from '$lib/rules';
@@ -433,14 +433,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
       requestAnimationFrame(() => {
         if (loadVersion !== noteLoadVersion) return;
         autoResizeTitleTextarea();
-        if (isMobile) {
-          // Mobile '+ New' / quick capture: land focus on the title so the
-          // select-all-on-focus behavior (handleTitleFocus) lets typing
-          // replace "Untitled" immediately. Desktop keeps body focus.
-          deps.focusTitle();
-        } else {
-          deps.focusEditor();
-        }
+        deps.focusEditor();
       });
     } else if (hasFileSystem) {
       try {

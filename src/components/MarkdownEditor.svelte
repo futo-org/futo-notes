@@ -27,7 +27,7 @@
     type SetEditorContentOptions,
     type SetContentResult,
   } from '$lib/editorContentSync';
-  import { hasFileSystem, isIOS, isMobile } from '$lib/platform';
+  import { hasFileSystem, isIOS } from '$lib/platform';
   import { toggleBold, toggleItalic, toggleStrikethrough, isListLine } from '$lib/markdownToolbar';
   import { imagePasteHandler } from '$lib/imagePaste';
   import { openUrl } from '$lib/openUrl';
@@ -44,10 +44,10 @@
     scrollParent?: HTMLElement | null;
     /**
      * True when hosted inside a native shell's WebView (iOS/Android), where CM6
-     * owns its own scroller. The native WebView has no Tauri runtime, so the
-     * `isMobile` flag (which is `isTauri && …`) is FALSE there — components must
-     * use this prop, not `isMobile`, to detect the native embed. Enables
-     * height-map warming (CM6 owns its scroller here). See
+     * owns its own scroller. The native WebView has no Tauri runtime, so
+     * components must use this prop to detect the native embed. Enables
+     * height-map warming (CM6 owns its scroller here) and gates off desktop-only
+     * pointer affordances (selection toolbar, marker-snapping). See
      * docs/learnings/hr-scroll-jank.md.
      */
     nativeShell?: boolean;
@@ -543,23 +543,6 @@
     return resolveTapPositionAt(event.clientX, event.clientY, v, event.target as Node | null);
   }
 
-  const mobileTapCaretCorrection = isMobile
-    ? [
-        EditorView.domEventHandlers({
-          click: (event, v) => {
-            if (event.button !== 0 || event.detail !== 1) return false;
-            if (pendingLinkUrl !== null || lineEndPending !== null) return false;
-            const sel = v.state.selection.main;
-            if (!sel.empty) return false;
-            const desired = resolveTapPosition(event, v);
-            if (desired === null || desired === sel.head) return false;
-            v.dispatch({ selection: { anchor: desired }, scrollIntoView: false });
-            return false;
-          },
-        }),
-      ]
-    : [];
-
   // Resolve a click on an external link element to its URL via the element
   // itself — posAtCoords is unreliable when the live-markdown decoration
   // hasn't yet been dropped/re-applied by focus changes.
@@ -769,12 +752,10 @@
     v.dom.toggleAttribute('data-selection-reveal-suppressed', suppressed);
   }
 
-  // True when CM6 owns its own scroller (native iOS/Android WebView, or the
-  // legacy Tauri-mobile shell). Desktop scrolls inside an external `scrollParent`
-  // with its own compensation, so height-map warming is neither needed nor wired
-  // there. The native WebView has no Tauri runtime → `isMobile` is false there,
-  // hence the explicit `nativeShell` term.
-  const cmOwnsScroller = nativeShell || isMobile;
+  // True when CM6 owns its own scroller (native iOS/Android WebView). Desktop
+  // scrolls inside an external `scrollParent` with its own compensation, so
+  // height-map warming is neither needed nor wired there.
+  const cmOwnsScroller = nativeShell;
 
   // Coalesce height-map warming to one rAF. Warming walks the viewport across
   // the whole doc so every off-screen line gets a REAL measured height (instead
@@ -842,11 +823,10 @@
       liveMarkdownTransform,
       autoLinkHighlight,
       interactiveTableEditor,
-      // Desktop-only. `isMobile` is a Tauri-only flag and is FALSE inside the
-      // native iOS/Android WebView embed (no Tauri runtime) — so gate on
-      // `nativeShell` too, or this toolbar reappears on the native apps. Same
-      // reasoning as `cmOwnsScroller` above.
-      ...(isMobile || nativeShell ? [] : selectionToolbar),
+      // Desktop-only. Inside the native iOS/Android WebView embed the system
+      // owns text selection, so this floating toolbar must not appear there;
+      // `nativeShell` detects the embed. Same reasoning as `cmOwnsScroller`.
+      ...(nativeShell ? [] : selectionToolbar),
       slashMenu,
       wikilinkAutocomplete(),
       imagePasteHandler,
@@ -869,7 +849,6 @@
           return !!el.closest('.cm-md-link');
         },
       }),
-      ...mobileTapCaretCorrection,
       wikilinkClickHandler,
       linkClickHandler,
       EditorView.contentAttributes.of({
@@ -998,30 +977,32 @@
       warmResizeObserver.observe(v.scrollDOM);
     }
 
-    // Focus the editor on mount so .cm-cursor renders immediately on
-    // desktop. Skip on mobile: programmatic contenteditable focus pops
-    // the soft keyboard, which is unwanted when opening an existing note.
-    // The new-note path in noteSession explicitly calls focusEditor()
-    // when the keyboard is actually wanted.
+    // Focus the editor on mount so .cm-cursor renders immediately on desktop.
+    // NOTE: this was intended to be desktop-only (programmatic contenteditable
+    // focus pops the soft keyboard, unwanted when opening an existing note on
+    // the native embed), but it has always run unconditionally — the old
+    // `!isMobile` guard was a Tauri-only flag that was never true. Gating it on
+    // `!nativeShell` is a native behavior change deferred pending on-device QA;
+    // see the auto-focus gap in docs/spec/nav.md. Left unconditional here so
+    // this flag-removal keeps behavior identical. The new-note path in
+    // noteSession explicitly calls focusEditor() when the keyboard is wanted.
     //
     // Defer to the next frame so CM6 has finished wiring its focus tracker
     // (the `cm-focused` class on `.cm-editor`) before we focus. Calling
     // synchronously here can leave activeElement = .cm-content while
     // `.cm-focused` is still missing, which hides the cursor.
-    if (!isMobile) {
-      requestAnimationFrame(() => {
-        if (!view) return;
-        view.focus();
-        // Belt-and-braces: if CM6 didn't pick up the focus event (can happen
-        // when synthetic events bypass the trusted-event path in tests, or
-        // when the view mounts inside a hidden ancestor that briefly fires
-        // blur), nudge the focus tracker explicitly.
-        if (!view.hasFocus) {
-          view.contentDOM.dispatchEvent(new FocusEvent('focus', { bubbles: true }));
-        }
-        onfocuschange?.(editorHasDomFocus(view));
-      });
-    }
+    requestAnimationFrame(() => {
+      if (!view) return;
+      view.focus();
+      // Belt-and-braces: if CM6 didn't pick up the focus event (can happen
+      // when synthetic events bypass the trusted-event path in tests, or
+      // when the view mounts inside a hidden ancestor that briefly fires
+      // blur), nudge the focus tracker explicitly.
+      if (!view.hasFocus) {
+        view.contentDOM.dispatchEvent(new FocusEvent('focus', { bubbles: true }));
+      }
+      onfocuschange?.(editorHasDomFocus(view));
+    });
 
     // Suppress marker reveal only after a real pointer drag starts. Plain
     // clicks/double-clicks should not make already-revealed markers blink.
@@ -1066,10 +1047,22 @@
       clearPointerSelectionSettleTimer();
       onfocuschange?.(false);
     };
-    v.dom.addEventListener('mousedown', onEditorMouseDown, true);
-    window.addEventListener('mousemove', onGlobalPointerMove, true);
-    window.addEventListener('mouseup', onGlobalMouseUp, true);
-    window.addEventListener('blur', onGlobalBlur);
+    // These pointer-driven selection behaviors — freezing marker reveal while a
+    // drag grows the selection, and snapping the selection past hidden markdown
+    // markers on release — exist to make MOUSE drag-select feel right on
+    // desktop. The native iOS/Android WebView provides its own touch text
+    // selection (loupe, grab handles, callout bar); WebKit still synthesizes
+    // mouse events for those touch gestures, so if we listened here we'd
+    // `v.dispatch` the selection out from under the user's native handles — our
+    // own selection fighting the system's. `nativeShell` detects the embed —
+    // same reasoning as `cmOwnsScroller` and the selection toolbar above. On
+    // native, leave text selection entirely to the system.
+    if (!nativeShell) {
+      v.dom.addEventListener('mousedown', onEditorMouseDown, true);
+      window.addEventListener('mousemove', onGlobalPointerMove, true);
+      window.addEventListener('mouseup', onGlobalMouseUp, true);
+      window.addEventListener('blur', onGlobalBlur);
+    }
 
     if (import.meta.env.DEV) {
       const w = window as any;

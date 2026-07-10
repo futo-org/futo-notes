@@ -1,15 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-// loadNote's focus routing branches on isMobile, which $lib/platform exports
-// as a const — expose it through a hoisted getter so each test can flip it.
-const platformState = vi.hoisted(() => ({ isMobile: false }));
-
 vi.mock('$lib/platform', () => ({
   hasFileSystem: true,
-  get isMobile() {
-    return platformState.isMobile;
-  },
 }));
 
 vi.mock('$lib/notes.svelte', () => ({
@@ -309,31 +302,20 @@ describe('loadNote focus routing', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
-    platformState.isMobile = false;
   });
 
-  it("focuses the title for '+ New' / quick capture on mobile", async () => {
-    // On mobile-width shells a fresh note should land focus on the title —
-    // handleTitleFocus select-alls "Untitled" so typing replaces it —
-    // instead of dropping the user into the body.
-    platformState.isMobile = true;
-    const deps = makeDeps();
-    await createNoteSession(deps).loadNote('new');
-    expect(deps.focusTitle).toHaveBeenCalledOnce();
-    expect(deps.focusEditor).not.toHaveBeenCalled();
-  });
-
-  it("keeps body focus for '+ New' on desktop", async () => {
+  it("focuses the body when opening '+ New'", async () => {
+    // A fresh note drops focus straight into the body. The new-note path
+    // explicitly focuses the editor (the keyboard is wanted here).
     const deps = makeDeps();
     await createNoteSession(deps).loadNote('new');
     expect(deps.focusEditor).toHaveBeenCalledOnce();
     expect(deps.focusTitle).not.toHaveBeenCalled();
   });
 
-  it('keeps body focus when a wikilink creates a missing note, even on mobile', async () => {
+  it('keeps body focus when a wikilink creates a missing note', async () => {
     // Following [[missing note]] already names the note — the user's next
-    // keystroke belongs in the body on every platform.
-    platformState.isMobile = true;
+    // keystroke belongs in the body.
     const deps = makeDeps('missing note');
     await createNoteSession(deps).loadNote('missing note');
     expect(deps.focusEditor).toHaveBeenCalledOnce();

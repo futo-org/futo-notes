@@ -37,29 +37,6 @@ test.describe('Folder support', () => {
     await expect(page.locator('[data-folder-path="Specs"]').first()).toBeVisible();
   });
 
-  test('mobile create-folder modal keeps actions above the input', async ({ page }) => {
-    await page.setViewportSize({ width: 390, height: 640 });
-    await openSidebar(page);
-    await page.getByTestId('new-folder-btn').click();
-    await page.locator('.modal-backdrop').evaluate((el) => el.classList.add('mobile'));
-
-    const actions = page.locator('.modal-actions');
-    const input = page.getByTestId('create-folder-input');
-    const confirm = page.getByTestId('create-folder-confirm');
-    await expect(actions).toBeVisible();
-    await expect(confirm).toBeVisible();
-
-    const actionBox = await actions.boundingBox();
-    const inputBox = await input.boundingBox();
-    const confirmBox = await confirm.boundingBox();
-    expect(actionBox).not.toBeNull();
-    expect(inputBox).not.toBeNull();
-    expect(confirmBox).not.toBeNull();
-    expect(actionBox!.y).toBeLessThan(inputBox!.y);
-    expect(confirmBox!.y - actionBox!.y).toBeGreaterThanOrEqual(20);
-    expect(actionBox!.y + actionBox!.height).toBeLessThanOrEqual(90);
-  });
-
   test('creating a folder with a Windows-reserved name surfaces an error', async ({ page }) => {
     await openSidebar(page);
     await page.getByTestId('new-folder-btn').click();

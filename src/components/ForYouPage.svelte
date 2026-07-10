@@ -2,37 +2,15 @@
   import { getContext } from 'svelte';
   import { APP_CONTEXT_KEY, type AppContext } from '$lib/appContext.svelte';
   import { getForYouNotes } from '$lib/forYou';
-  import { isMobile } from '$lib/platform';
-  import { PenLine } from '@lucide/svelte';
   import { navigate } from '../router';
   import { formatRelativeTime } from '$lib/utils';
 
   const appCtx = getContext<AppContext>(APP_CONTEXT_KEY);
 
-  interface Props {
-    onbrowse?: () => void;
-    onquickcapture?: () => void;
-  }
-
-  let { onbrowse, onquickcapture }: Props = $props();
-
   const forYouNotes = $derived(getForYouNotes(appCtx.notes));
 
   function handleCardClick(id: string): void {
     navigate(`/note/${encodeURIComponent(id)}`);
-  }
-
-  function triggerLightHaptic(): void {
-    // No-op for now on Tauri builds.
-  }
-
-  function handleQuickCapture(): void {
-    if (onquickcapture) {
-      onquickcapture();
-      return;
-    }
-    triggerLightHaptic();
-    navigate('/note/new');
   }
 </script>
 
@@ -54,30 +32,12 @@
     {:else}
       <div class="for-you-empty">
         <div class="for-you-empty-title">FUTO Notes</div>
-        {#if isMobile}
-          <div class="for-you-empty-subtitle">Create your first note to get started.</div>
-          <button
-            class="for-you-browse-btn"
-            onclick={(e: MouseEvent) => {
-              e.stopPropagation();
-              onbrowse?.();
-            }}>Browse notes</button
-          >
-        {:else}
-          <div class="for-you-empty-subtitle">
-            Create your first note from the sidebar to get started.
-          </div>
-        {/if}
+        <div class="for-you-empty-subtitle">
+          Create your first note from the sidebar to get started.
+        </div>
       </div>
     {/if}
   </div>
-
-  {#if isMobile}
-    <button class="quick-capture-btn" aria-label="Quick capture" onclick={handleQuickCapture}>
-      <PenLine size={16} strokeWidth={2.25} />
-      <span>Quick capture</span>
-    </button>
-  {/if}
 </div>
 
 <style>
@@ -200,40 +160,5 @@
   .for-you-empty-subtitle {
     font-size: 14px;
     color: var(--color-muted);
-  }
-
-  .for-you-browse-btn {
-    border: none;
-    border-radius: 9999px;
-    padding: 0.625rem 1.25rem;
-    font-size: 14px;
-    font-weight: 500;
-    cursor: pointer;
-    background: var(--color-primary);
-    color: var(--color-bg);
-  }
-
-  .for-you-browse-btn:active {
-    opacity: 0.8;
-  }
-
-  .quick-capture-btn {
-    border: none;
-    border-radius: 9999px;
-    padding: 0.7rem 1.25rem;
-    font-size: 14px;
-    font-weight: 600;
-    line-height: 1;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.45rem;
-    cursor: pointer;
-    background: var(--color-primary);
-    color: var(--color-bg);
-    box-shadow: 0 4px 12px rgba(var(--ink-rgb), 0.15);
-  }
-
-  .quick-capture-btn:active {
-    opacity: 0.85;
   }
 </style>

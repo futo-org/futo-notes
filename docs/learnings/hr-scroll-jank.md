@@ -128,12 +128,12 @@ near the top, so a raw `scrollTop` write is reverted on the next measure (the ve
 anchor correction we're fighting) and the viewport never actually moves —
 `scrollIntoView` re-targets the anchor so it sticks. Because measured heights
 persist, the anchor `diff` is then ~0 forever after and the momentum-killing write
-never executes. `MarkdownEditor.svelte` runs it (gated on `nativeShell || isMobile`,
-i.e. whenever CM6 owns its scroller) after every full-load `setContent`, after
-Barlow finishes decoding (font swap re-flows metrics), and on any scroller
-**width** change (rotation / resize re-flows wrapping — the only non-edit
-invalidation). `MarkdownEditor.warmScroll()` exposes it, and the editor embed
-exposes `window.__scrollDiag()` for probes.
+never executes. `MarkdownEditor.svelte` runs it when `nativeShell` identifies
+the native embed (where CM6 owns its scroller), after every full-load
+`setContent`, after Barlow finishes decoding (font swap re-flows metrics), and
+on any scroller **width** change (rotation / resize re-flows wrapping — the only
+non-edit invalidation). `MarkdownEditor.warmScroll()` exposes it, and the editor
+embed exposes `window.__scrollDiag()` for probes.
 
 Bounce restored too: `.cm-scroller` went from `overscroll-behavior: none` (only
 there to keep the deleted guard's "a big reversal must be a correction" premise

@@ -41,6 +41,15 @@ this file states the behaviors a human cares about.
 - Pressing Enter in a continued list item scrolls the new item into view (don't
   bypass CM's `scrollIntoView`). → docs/learnings/ios-keyboard-editor-jump.md
   *(iOS)*
+- Text selection is the platform's native selection. On the native shells the
+  system owns it entirely (loupe, grab handles, callout) — the editor never
+  re-dispatches or "snaps" the selection, so it must not fight the native
+  handles. On desktop ONLY, a mouse drag-select that covers the visible content
+  of a markdown element whose source markers are hidden snaps outward through
+  those markers so copy/delete carry valid markdown; the pointer-selection
+  listeners are disabled whenever `nativeShell` identifies the native embed.
+  Verified on Android and iOS devices 2026-07-10.
+  → MarkdownEditor.svelte (pointer-selection gate) *(native shells / desktop snap)*
 
 ## Markdown elements (rendered / decorated)
 
@@ -217,12 +226,14 @@ native shells edit tags as text in the body, which is not a gap.
   dead-end as the wikilink `touchend` note above). → editorUX/slashMenu.ts
   *(desktop)*
 
-## Markdown toolbar *(native shells / mobile-width web editor)*
+## Markdown toolbar *(native shells / editor-embed fallback)*
 
-This surface exists on the native shells and the mobile-width **web** build
-only. The Tauri **desktop** shell never shows it regardless of window size —
-its platform module hardcodes `isMobile = false`, so there is no live
-breakpoint that could reveal it. → src/lib/platform/index.ts
+The shipping toolbar surface belongs to the native shells. The Tauri desktop
+shell never switches to a mobile layout or renders a mobile toolbar based on
+viewport width. The standalone editor embed retains a web toolbar as a bridge
+fallback, but iOS and Android call `setNativeToolbar(true)` and render native
+toolbar chrome instead. → src/editor-embed/EmbedToolbar.svelte,
+EditorWebView.swift, EditorWebView.kt
 
 - When the editor body is focused, a formatting toolbar docks above the soft
   keyboard: Bold, Italic, Strikethrough, Link, Heading, Quote, Bullet/Ordered/Task
@@ -233,7 +244,7 @@ breakpoint that could reveal it. → src/lib/platform/index.ts
   the URL slot — it does NOT prompt, since `window.prompt` is a no-op in the
   native WebViews. Verified emulator + simulator 2026-07-08 (Link sits after
   Strikethrough; no-selection inserts `[]()`, a selection wraps to `[sel]()`
-  with the caret in the URL slot; no dialog appears). → MarkdownToolbar.svelte,
+  with the caret in the URL slot; no dialog appears). → EmbedToolbar.svelte,
   markdownToolbar.ts `TOOLBAR_EXEC` `link`, editorUX/linkCommand.ts `toggleLink`
 - The toolbar SURFACE — items, order, grouping, accessibility labels,
   per-platform icons, visibility rules — is defined once in the

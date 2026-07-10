@@ -1,7 +1,7 @@
 <script lang="ts">
   import { getContext } from 'svelte';
   import { APP_CONTEXT_KEY, type AppContext } from '$lib/appContext.svelte';
-  import { isMobile, isDesktop } from '$lib/platform';
+  import { isDesktop } from '$lib/platform';
   import FolderTreeView from './FolderTreeView.svelte';
   import SidebarTagView from './SidebarTagView.svelte';
   import SidebarImageView from './SidebarImageView.svelte';
@@ -28,7 +28,6 @@
     drawerOpen: boolean;
     sidebarCollapsed: boolean;
     sidebarWidth: number;
-    isDragging: boolean;
     onselect: (id: string, event?: MouseEvent) => void;
     onsearch: () => void;
     onsettings: () => void;
@@ -44,7 +43,6 @@
     drawerOpen,
     sidebarCollapsed,
     sidebarWidth = $bindable(280),
-    isDragging,
     onselect,
     onsearch,
     onsettings,
@@ -124,12 +122,6 @@
         onclick: () => requestInlineRename(path),
       },
     ];
-    if (isMobile) {
-      items.push({
-        label: 'Move folder',
-        onclick: () => openMoveFolderPicker(path),
-      });
-    }
     items.push({
       label: 'Delete',
       destructive: true,
@@ -168,32 +160,6 @@
     await moveNotesUnderPrefix(path, newPath);
     await refreshEmptyFolders(getAllNotes());
     return null;
-  }
-
-  function openMoveFolderPicker(path: string): void {
-    folderPicker = {
-      title: 'Move folder',
-      excludePaths: [path],
-      onpick: async (target: string) => {
-        const tail = idLeaf(path);
-        const newPath = target ? `${target}/${tail}` : tail;
-        if (newPath === path) {
-          folderPicker = null;
-          return;
-        }
-        const siblings = collectSiblings(target);
-        const result = await renameOrMoveFolder(path, newPath, siblings);
-        if (!result.ok) {
-          showToast(result.error ?? 'Failed to move folder');
-          folderPicker = null;
-          return;
-        }
-        await moveNotesUnderPrefix(path, newPath);
-        await refreshEmptyFolders(getAllNotes());
-        folderPicker = null;
-        showToast(target ? `Moved to ${target}` : 'Moved to Notes');
-      },
-    };
   }
 
   function openMoveNotePicker(noteId: string): void {
@@ -485,30 +451,28 @@
           <circle cx="12" cy="12" r="3" />
         </svg>
       </button>
-      {#if !isMobile}
-        <button
-          class="sidebar-collapse-btn"
-          aria-label="Collapse sidebar"
-          onclick={() => {
-            ontogglecollapse(true);
-          }}
+      <button
+        class="sidebar-collapse-btn"
+        aria-label="Collapse sidebar"
+        onclick={() => {
+          ontogglecollapse(true);
+        }}
+      >
+        <svg
+          width="18"
+          height="18"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.75"
+          stroke-linecap="round"
+          stroke-linejoin="round"
         >
-          <svg
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1.75"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <rect x="3" y="3" width="18" height="18" rx="2" />
-            <line x1="9" y1="3" x2="9" y2="21" />
-            <polyline points="15 8 12 12 15 16" />
-          </svg>
-        </button>
-      {/if}
+          <rect x="3" y="3" width="18" height="18" rx="2" />
+          <line x1="9" y1="3" x2="9" y2="21" />
+          <polyline points="15 8 12 12 15 16" />
+        </svg>
+      </button>
     </div>
   </div>
   <div class="drawer-search-area">
@@ -613,10 +577,8 @@
       items={appCtx.notes}
       selectedId={appCtx.activeNoteId !== 'new' ? appCtx.activeNoteId : null}
       {onselect}
-      {isDragging}
       onfoldercontextmenu={showFolderContextMenu}
       onnotecontextmenu={showNoteContextMenu}
-      oncreatefolder={openCreateFolder}
       onrenamefolder={handleRenameFolder}
       {renameRequest}
       ondropnoteonfolder={handleDropNoteOnFolder}
@@ -699,16 +661,14 @@
       onclose={() => (contextMenu = null)}
     />
   {/if}
-  {#if !isMobile}
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div
-      class="sidebar-resize-handle"
-      onpointerdown={handleResizeStart}
-      onpointermove={handleResizeMove}
-      onpointerup={handleResizeEnd}
-      onpointercancel={handleResizeEnd}
-    ></div>
-  {/if}
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div
+    class="sidebar-resize-handle"
+    onpointerdown={handleResizeStart}
+    onpointermove={handleResizeMove}
+    onpointerup={handleResizeEnd}
+    onpointercancel={handleResizeEnd}
+  ></div>
 </aside>
 
 <style>

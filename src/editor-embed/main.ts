@@ -137,9 +137,9 @@ const editor = mount(MarkdownEditor, {
   target,
   props: {
     content: '',
-    // This is the native shell's WebView (no Tauri runtime → `isMobile` is
-    // false here); tell the editor so it enables behavior for the case where CM6
-    // owns its own scroller, such as height-map warming.
+    // This is the native shell's WebView; tell the editor so it enables the
+    // native-embed behavior (CM6 owns its own scroller → height-map warming,
+    // and desktop-only pointer affordances are gated off).
     nativeShell: true,
     onchange: (_content: string) => {
       // The editor already coalesces doc changes via requestAnimationFrame

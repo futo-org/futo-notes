@@ -142,6 +142,80 @@ test.describe('Selection toolbar', () => {
 });
 
 // ============================================================================
+// POINTER SELECTION (marker snapping)
+// ============================================================================
+
+// Fire the synthetic mouse-drag sequence WebKit/Chromium emit around a pointer
+// selection (mousedown on the content → mousemove past the 3px drag threshold →
+// mouseup), so the pointer-selection settle runs and `snapSelectionPastMarkdownMarkers`
+// gets a chance to re-dispatch the selection.
+async function fireDragSelect(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const view = (window as any).__cmGetView?.();
+    if (!view) throw new Error('CM EditorView not found');
+    const dom = view.dom as HTMLElement;
+    const r = dom.getBoundingClientRect();
+    const x = r.left + 5;
+    const y = r.top + 5;
+    dom.dispatchEvent(
+      new MouseEvent('mousedown', { button: 0, clientX: x, clientY: y, bubbles: true }),
+    );
+    window.dispatchEvent(
+      new MouseEvent('mousemove', { button: 0, clientX: x + 20, clientY: y, bubbles: true }),
+    );
+    window.dispatchEvent(
+      new MouseEvent('mouseup', { button: 0, clientX: x + 20, clientY: y, bubbles: true }),
+    );
+  });
+  // Snapping is scheduled on a 0ms timeout after mouseup.
+  await page.waitForTimeout(60);
+}
+
+async function getSelection(page: Page): Promise<{ from: number; to: number } | null> {
+  return page.evaluate(() => {
+    const s = (window as any).__cmGetView?.()?.state.selection.main;
+    return s ? { from: s.from, to: s.to } : null;
+  });
+}
+
+test.describe('Pointer selection (marker snapping)', () => {
+  // Desktop: dragging a selection over the visible content of a markdown element
+  // whose source markers are hidden extends the selection through those markers,
+  // so copy/delete carry valid markdown. This is a MOUSE affordance.
+  test('desktop drag-select snaps through hidden markers', async ({ page }) => {
+    await setupEditor(page, '**hello**');
+    await selectRange(page, 2, 7); // inner "hello", markers hidden
+    await fireDragSelect(page);
+    expect(await getSelection(page)).toEqual({ from: 0, to: 9 });
+  });
+
+  // Regression: the native iOS/Android WebView (editor.html, nativeShell:true)
+  // must leave text selection entirely to the system. The pointer-selection
+  // listeners keyed on synthetic mouse events, which WebKit also emits for touch
+  // gestures — so we were re-dispatching the selection out from under the user's
+  // native grab handles. They are now desktop-only; the selection must stay put.
+  // See MarkdownEditor.svelte's pointer-selection gate (`if (!nativeShell)`).
+  test('native embed leaves selection to the system (nativeShell)', async ({ page }) => {
+    await page.goto('/editor.html');
+    await page.waitForSelector('.cm-editor', { timeout: 10000 });
+    await page.waitForFunction(() => typeof (window as any).__cmGetView === 'function');
+    await page.evaluate(() => {
+      const view = (window as any).__cmGetView?.();
+      if (!view) throw new Error('CM EditorView not found');
+      view.dispatch({
+        changes: { from: 0, to: view.state.doc.length, insert: '**hello**' },
+        selection: { anchor: 2, head: 7 },
+      });
+      view.focus();
+    });
+    await page.waitForTimeout(200);
+    await fireDragSelect(page);
+    // Unchanged — no programmatic snapping fought the native selection.
+    expect(await getSelection(page)).toEqual({ from: 2, to: 7 });
+  });
+});
+
+// ============================================================================
 // SLASH MENU
 // ============================================================================
 

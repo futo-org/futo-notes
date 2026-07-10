@@ -25,7 +25,6 @@ export const platformName: PlatformName = detectPlatform();
 export const isTauri = platformName === 'tauri';
 
 export const isDesktop = isTauri;
-export const isMobile = false;
 export const isLinux = typeof navigator !== 'undefined' && /\blinux\b/i.test(navigator.userAgent);
 // True on iOS hardware — the native-shell embed's WKWebView and iOS Safari.
 // iPads masquerade as "Macintosh" in modern WebKit UAs, so also treat

@@ -26,7 +26,6 @@ import { noteParentDir, safeAppdataPath } from './pathSafety';
 import { writeAtomicText } from './atomicWrite';
 import type { AtomicWriteFS } from './atomicWrite';
 import { isNotFound } from './fsErrors';
-import { isMobile } from './index';
 import { generateImageFilename, isImageFilename } from '$lib/images';
 import {
   getNotesRoot as resolveNotesRoot,
@@ -202,12 +201,6 @@ async function assetUrlDecodes(url: string): Promise<boolean> {
 
 async function ensureWatcherStarted(): Promise<void> {
   if (watcherStarted) return;
-  // Mobile: app is the sole writer; kqueue rescan on every appdata write
-  // (.app-state lives in the notes dir) pinned a tokio worker.
-  if (isMobile) {
-    watcherStarted = true;
-    return;
-  }
   await invoke('fs_start_watcher');
   watcherStarted = true;
 }
