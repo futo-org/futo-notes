@@ -520,6 +520,14 @@ class BulletWidget extends WidgetType {
   eq(other: any): boolean {
     return other instanceof BulletWidget && other.indent === this.indent;
   }
+
+  // The marker span is contenteditable=false, so with the default
+  // ignoreEvent() === true a tap on it goes nowhere: CM ignores it and the
+  // browser can't place a caret in a non-editable span. Hand the event to
+  // CM so it places the caret (same contract as HorizontalRuleWidget).
+  ignoreEvent(): boolean {
+    return false;
+  }
 }
 
 class NumberWidget extends WidgetType {
@@ -545,6 +553,11 @@ class NumberWidget extends WidgetType {
 
   eq(other: any): boolean {
     return other instanceof NumberWidget && other.num === this.num && other.indent === this.indent;
+  }
+
+  // See BulletWidget.ignoreEvent — taps must reach CM to place the caret.
+  ignoreEvent(): boolean {
+    return false;
   }
 }
 

@@ -102,6 +102,24 @@ Behaviors and constraints that hold across every surface and platform.
   `com.futo.notes`; native debug builds use `com.futo.notes.dev` so local
   installs keep separate app data and credentials.
 
+## Soft keyboard *(Android)*
+
+- Dismissing the soft keyboard by the system back gesture/button drops the
+  focused field's caret, app-wide — Android hides the IME without clearing
+  focus, and a caret with no keyboard has no function (#24). The drop is
+  INSTANT: it keys off `imeAnimationTarget` (the hide animation's START),
+  not the live IME inset (its end) — waiting out the slide-down reads as
+  lag. The root `ClearFocusOnImeDismiss` covers every screen in the
+  Activity window, and its `onDismiss` hook blurs the editor WebView over
+  the bridge (its DOM caret survives a view-level clearFocus — see
+  [editor.md](editor.md)); a dialog hosting a text field installs its own
+  (a Dialog is its own window). → ui/components/ImeDismiss.kt,
+  MainActivity.kt, NewFolderDialog.kt, CrashReportDialog.kt,
+  EditorImeDismissBlurTest.kt
+- iOS can't hit this: hiding the keyboard means resigning first responder,
+  which drops the caret with it — the two are coupled on iOS, and the editor's
+  only dismiss affordance (the toolbar chevron) blurs over the bridge.
+
 ## Dialogs *(desktop)*
 
 - `window.confirm()` / `window.alert()` don't block in Tauri's webview — use

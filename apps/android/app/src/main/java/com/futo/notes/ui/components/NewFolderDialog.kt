@@ -52,6 +52,9 @@ fun NewFolderDialog(
         title = { Text("New folder", style = FutoType.title, color = c.textPrimary) },
         text = {
             Column {
+                // The dialog is its own window — the app-root install (#24)
+                // can't reach its focus manager.
+                ClearFocusOnImeDismiss()
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it.replace("\n", "") },

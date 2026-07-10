@@ -167,8 +167,10 @@ async function fireDragSelect(page: Page): Promise<void> {
       new MouseEvent('mouseup', { button: 0, clientX: x + 20, clientY: y, bubbles: true }),
     );
   });
-  // Snapping is scheduled on a 0ms timeout after mouseup.
-  await page.waitForTimeout(60);
+  // Snapping is scheduled on a 0ms timeout after mouseup
+  // (schedulePointerSelectionSettle). Queue our own macrotask BEHIND it —
+  // when this resolves, the snap (if any) has already run. No fixed wait.
+  await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 0)));
 }
 
 async function getSelection(page: Page): Promise<{ from: number; to: number } | null> {
@@ -208,7 +210,12 @@ test.describe('Pointer selection (marker snapping)', () => {
       });
       view.focus();
     });
-    await page.waitForTimeout(200);
+    // dispatch/focus are synchronous — wait only for the selection to be
+    // observable, then fire the drag.
+    await page.waitForFunction(() => {
+      const s = (window as any).__cmGetView?.()?.state.selection.main;
+      return s && s.from === 2 && s.to === 7;
+    });
     await fireDragSelect(page);
     // Unchanged — no programmatic snapping fought the native selection.
     expect(await getSelection(page)).toEqual({ from: 2, to: 7 });

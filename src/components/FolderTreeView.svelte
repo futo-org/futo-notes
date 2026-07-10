@@ -250,12 +250,7 @@
     onfoldercontextmenu?.(path, e.clientX, e.clientY);
   }
 
-  // Retained as a permanently-false flag: its only writer was the
-  // (now-removed) mobile touch-drag path. handleNoteClick still reads it.
-  let suppressNextClick = false;
-
   function handleNoteClick(id: string, event?: MouseEvent): void {
-    if (suppressNextClick) return;
     onselect?.(id, event);
   }
 
