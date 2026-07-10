@@ -27,9 +27,8 @@ export type ToolbarAction =
   /** Run the shared editor command: `FutoEditor.exec(item.id)`. */
   | { kind: 'exec' }
   /**
-   * Ask the host for an image (`pickImage` outbound message on native; the
-   * Tauri camera/file plugins on Tauri mobile). The host saves the bytes
-   * into the vault and calls `insertImage(filename)` back.
+   * Ask the host for an image (`pickImage` outbound message on native). The
+   * host saves the bytes into the vault and calls `insertImage(filename)` back.
    */
   | { kind: 'pickImage'; source: 'camera' | 'library' }
   /** Blur the editor — drops the soft keyboard and hides the toolbar. */

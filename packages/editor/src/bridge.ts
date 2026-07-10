@@ -192,13 +192,12 @@ export interface SaveImageDataMessage {
 /**
  * Emitted when the user pastes an image but the WebView hid the bitmap from the
  * JS paste event (no image File — iOS WKWebView, like WebKitGTK), yet the paste
- * still `looksLikeImagePaste`. Carries no payload: the host reads the image off
- * the NATIVE pasteboard (`UIPasteboard.general` on iOS), saves it into the
- * vault root through the SAME path as `saveImageData`/`pickImage`, then calls
- * {@link FutoEditorApi.insertImage} with the saved filename. A host that can't
- * read the pasteboard just drops the message (the paste is a no-op). Android's
- * WebView always exposes the File, so it never receives this — it uses
- * {@link SaveImageDataMessage}.
+ * still `looksLikeImagePaste`. Carries no payload: a supporting host reads the
+ * image off the NATIVE pasteboard (`UIPasteboard.general` on iOS), saves it into
+ * the vault root through the SAME path as `saveImageData`/`pickImage`, then
+ * calls {@link FutoEditorApi.insertImage} with the saved filename. Android's
+ * Chromium WebView normally exposes the File and uses
+ * {@link SaveImageDataMessage}; its host intentionally ignores this fallback.
  */
 export interface PasteClipboardImageMessage {
   type: 'pasteClipboardImage';

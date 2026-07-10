@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Embedded CodeMirror editor bundle (editor.html) + the versioned futoBridge contract shared by the Tauri, iOS, and Android hosts.",
+  "description": "Shared CodeMirror editor code plus the editor.html/futoBridge contract for the native iOS and Android hosts.",
   "exports": {
     ".": "./src/index.ts",
     "./bridge": "./src/bridge.ts"

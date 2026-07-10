@@ -1,4 +1,4 @@
-// Embedded editor entry for the native-iOS spike.
+// Embedded editor entry for the native iOS/Android shells.
 //
 // Mounts the REAL FUTO Notes MarkdownEditor.svelte into a bare HTML page and
 // exposes the `window.FutoEditor` JS bridge consumed by the native Swift host

@@ -480,10 +480,8 @@ export const tauriFS: PlatformFS = {
   },
 
   async moveNote(fromId: string, toId: string): Promise<void> {
-    // Explicit old→new relocation (atomic rename, preserves mtime). Maps to
-    // notes_rename, which takes (oldId, newId) — the 1:1 replacement for the
-    // prior fs_move_note(fromId, toId). Rust resolves any collision and
-    // suppresses both filename echoes.
+    // Explicit old→new relocation (atomic rename, preserves mtime). Rust
+    // resolves any collision and suppresses both filename echoes.
     await invoke<string>('notes_rename', { oldId: fromId, newId: toId });
   },
 

@@ -1,8 +1,11 @@
 # @futo-notes/editor
 
-The embedded markdown editor — the **one** CodeMirror 6 / Svelte editor bundle
-(`editor.html`) hosted by all three runtimes (Tauri desktop, native iOS, native
-Android) — plus the **versioned `futoBridge` contract** they all depend on.
+The shared markdown editor code and the native embed contract.
+
+Desktop Tauri consumes the editor as Svelte/TypeScript source and mounts
+`MarkdownEditor.svelte` directly. Native iOS and Android load the generated
+`editor.html` bundle in a WebView and drive it through the versioned
+`futoBridge` contract.
 
 Consumed as TypeScript source (no build step), like `@futo-notes/shared`.
 Path alias: `@futo-notes/editor` → `packages/editor/src`.
@@ -19,8 +22,8 @@ Path alias: `@futo-notes/editor` → `packages/editor/src`.
   it so a host can refuse a bundle it doesn't understand.
 
 The editor entry point (`src/editor-embed/main.ts`) implements this contract;
-the iOS host wires it in `apps/ios/Sources/EditorWebView.swift`.
-Android (Phase 4) and Tauri reuse the identical contract.
+the native hosts wire it in `apps/ios/Sources/EditorWebView.swift` and
+`apps/android/app/src/main/java/com/futo/notes/ui/EditorWebView.kt`.
 
 ## The bundle — `editor.html`
 
@@ -30,14 +33,13 @@ inlined) so a WKWebView / Android WebView can load it without module-loading or
 
 ```bash
 # From the repo root:
-pnpm exec vite build --config vite.editor.config.ts
-# → apps/ios/Resources/editor.html
+just build-ios-native      # builds apps/ios/Resources/editor.html
+just build-android-native  # also stages it into apps/android/app/src/main/assets/
 ```
 
 `vite.editor.config.ts` still lives at the repo root (it shares the root
-`src/` and Tailwind setup). Formalizing the full build pipeline into this
-package — and pointing every host at one checksum-verified artifact — is
-tracked for Phase 4 (Android), per the migration plan §9.
+`src/` and Tailwind setup). The native `just` recipes regenerate the bundle
+before compiling their shells.
 
 ## Test
 
