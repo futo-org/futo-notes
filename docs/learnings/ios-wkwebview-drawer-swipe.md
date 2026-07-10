@@ -137,8 +137,8 @@ in `main`:
   0.3→0.255. A clean 15 % reduction across the board.
 - **Removed the right-edge swipe**: it triggered the
   `graphPanel.openGraph()` toast ("Graph visualization coming soon").
-  The right-swipe path in `touchSwipe.svelte.ts` is dead code worth
-  removing if you touch that file for any reason.
+  This path lived in the legacy shared-app mobile swipe subsystem, which was
+  later deleted when that unreachable mobile layout was removed.
 
 ## Validation lesson
 
@@ -147,9 +147,10 @@ work. The simulator's WKWebView scroll-recognizer behavior is close
 but not identical to real device. **Validate on physical hardware** —
 the difference here was the entire bug.
 
-## Files involved (on `main`, for reference)
+## Files involved at the time of the investigation
 
-- `src/lib/touchSwipe.svelte.ts` — gesture handler factory
+- `src/lib/touchSwipe.svelte.ts` — gesture handler factory (later deleted with
+  the unreachable shared-app mobile layout)
 - `src/components/NotesShell.svelte` — wires the handler to the root
   shell element's touch events
 - `src/components/FolderTreeView.svelte` — owns `.folder-tree-scroll`,

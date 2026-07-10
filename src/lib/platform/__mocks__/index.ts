@@ -33,7 +33,6 @@ export type { TestPlatformFS };
 export const platformName: PlatformName = 'web';
 export const isTauri = false;
 export const isDesktop = false;
-export const isMobile = false;
 export const hasFileSystem = true;
 
 export async function getPlatformFS(): Promise<PlatformFS> {

@@ -1,12 +1,8 @@
 <script lang="ts">
-  import { hasFileSystem, isMobile, isDesktop, isTauri, isMac } from '$lib/platform';
+  import { hasFileSystem, isDesktop, isTauri, isMac } from '$lib/platform';
   import { setContext } from 'svelte';
   import { createAppContext, APP_CONTEXT_KEY } from '$lib/appContext.svelte';
-  import { createTouchSwipe } from '$lib/touchSwipe.svelte';
   import MarkdownEditor from './MarkdownEditor.svelte';
-  // Lazy-loaded: MarkdownToolbar only shown on mobile
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let MarkdownToolbar: any = $state(null);
   // Lazy-loaded: SettingsScreen only needed when user opens settings
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let SettingsScreen: any = $state(null);
@@ -41,8 +37,8 @@
   const appCtx = createAppContext();
   setContext(APP_CONTEXT_KEY, appCtx);
 
-  let drawerOpen = $state(!isMobile);
-  let drawerProgress = $state(!isMobile ? 1 : 0);
+  let drawerOpen = $state(true);
+  let drawerProgress = $state(1);
 
   $effect(() => {
     appCtx.activeNoteId = noteId;
@@ -78,7 +74,6 @@
   let graphPanel: ReturnType<typeof GraphSidebarPanel> | null = $state(null);
   let editorFocused = $state(false);
   let toolbarTouching = $state(false);
-  let cursorOnListLine = $state(false);
   let shell: HTMLElement | undefined = $state(undefined);
   let drawer: HTMLElement | undefined = $state(undefined);
   let noteBody: HTMLElement | undefined = $state(undefined);
@@ -122,7 +117,6 @@
   function handleSearchSelect(id: string, event?: MouseEvent): void {
     const mode = openFromEvent(id, event);
     if (mode === 'current') searchOpen = false;
-    if (isMobile) setDrawerOpen(false);
   }
 
   // Note menu
@@ -136,34 +130,6 @@
 
   let graphSidebarEl: HTMLElement | undefined = $state(undefined);
   let graphOverlayEl: HTMLElement | undefined = $state(undefined);
-
-  // Direct DOM refs for bypassing reactivity during drag
-  let noteMainEl: HTMLElement | undefined = $state(undefined);
-  let menuButtonEl: HTMLElement | undefined = $state(undefined);
-  let noteMenuAnchorEl: HTMLElement | undefined = $state(undefined);
-  let overlayEl: HTMLElement | undefined = $state(undefined);
-
-  // ── Touch/swipe gesture handler ──────────────────────────
-  const touch = createTouchSwipe({
-    getDrawerWidth: () => drawerWidth,
-    getDrawerOpen: () => drawerOpen,
-    getGraphSidebarOpen: () => graphSidebarOpen,
-    getGraphSidebarEl: () => graphSidebarEl,
-    getGraphOverlayEl: () => graphOverlayEl,
-    getNoteMainEl: () => noteMainEl,
-    getDrawerEl: () => drawer,
-    getMenuButtonEl: () => menuButtonEl,
-    getNoteMenuAnchorEl: () => noteMenuAnchorEl,
-    getOverlayEl: () => overlayEl,
-    isSwipeExcluded: isSwipeExcludedTarget,
-    isComposing: () => editor?.isComposing?.() ?? false,
-    blurEditor: () => editor?.blur(),
-    setDrawerOpen,
-    setDrawerProgress,
-    openGraphSidebar: () => graphPanel?.openGraph(),
-    closeGraphSidebar,
-    isMobile,
-  });
 
   // prevNoteId is tracked here because the $effect that calls session.loadNote
   // compares it against the current noteId prop to detect real transitions.
@@ -311,14 +277,12 @@
   }
 
   function handleNoteSelect(id: string, event?: MouseEvent): void {
-    const mode = openFromEvent(id, event);
-    if (isMobile && mode === 'current') setDrawerOpen(false);
+    openFromEvent(id, event);
   }
 
   function handleDrawerSelect(id: string, event?: MouseEvent): void {
     if (id === '__home__') {
-      const mode = openFromEvent(null, event);
-      if (isMobile && mode === 'current') setDrawerOpen(false);
+      openFromEvent(null, event);
     } else {
       handleNoteSelect(id, event);
     }
@@ -332,7 +296,6 @@
   }
 
   async function createNewNote(): Promise<void> {
-    if (isMobile) setDrawerOpen(false);
     await session.flushSave();
     tabsStore.openNote('new', 'current');
   }
@@ -344,7 +307,6 @@
    * instead of the root.
    */
   async function createNewNoteInFolder(folderPath: string): Promise<void> {
-    if (isMobile) setDrawerOpen(false);
     await session.flushSave();
     const tab = tabsStore.openNote('new', 'current');
     tabsStore.setPendingFolder(tab.id, folderPath);
@@ -398,8 +360,6 @@
 
   function handleNoteBodyClick(event: MouseEvent): void {
     if (!editor) return;
-    // On mobile, clicking the dimmed area behind the drawer closes it — don't focus
-    if (isMobile && drawerOpen) return;
     const target = event.target as HTMLElement;
     // Let CodeMirror handle taps within the editor so the cursor lands at tap coordinates.
     if (target.closest('.cm-editor')) return;
@@ -426,15 +386,6 @@
     await deleteNote(idToDelete);
     sync.notifySaved();
     showToast('Note deleted');
-  }
-
-  function isSwipeExcludedTarget(target: EventTarget | null): boolean {
-    if (!(target instanceof Element)) return false;
-    return Boolean(
-      target.closest(
-        '.cm-md-table-wrapper, .cm-md-table-rendered, .cm-md-table, .markdown-toolbar, .title-input, .graph-sidebar, .graph-fullscreen',
-      ),
-    );
   }
 
   // Move-to-folder for the currently open note. Reuses the FolderPickerModal
@@ -534,19 +485,9 @@
     await session.loadNote(id);
   }
 
-  // Toolbar height constant (matches .markdown-toolbar height in components.css)
-  const TOOLBAR_HEIGHT = 44;
-
-  // Total bottom inset for the mobile editor toolbar. Search and other
-  // focused inputs may also raise the keyboard; only move the editor chrome
-  // when the editor itself owns focus.
-  const keyboardInset = $derived(
-    isMobile && editorFocused && !searchOpen
-      ? keyboard.visible
-        ? keyboard.height + TOOLBAR_HEIGHT
-        : TOOLBAR_HEIGHT
-      : 0,
-  );
+  // Bottom inset for the editor chrome. Always 0 on desktop (the mobile
+  // editor toolbar / on-screen keyboard that raised this no longer exists).
+  const keyboardInset = $derived(0);
 
   // Scroll cursor into view when keyboard opens or resizes.
   // CM's scrollIntoView is a no-op here because .cm-scroller has overflow:visible,
@@ -573,11 +514,6 @@
 
   $effect(() => {
     keyboard.init();
-    if (isMobile && !MarkdownToolbar) {
-      import('./MarkdownToolbar.svelte').then((m) => {
-        MarkdownToolbar = m.default;
-      });
-    }
     registerBackSwipeHandler();
     updateDrawerMetrics();
 
@@ -880,32 +816,24 @@
       delete win.__notesShellTest;
     };
   });
-  const overlayOpacity = $derived(isMobile ? drawerProgress * 0.5 : 0);
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   bind:this={shell}
-  class="notes-shell"
-  class:desktop-layout={!isMobile}
-  class:sidebar-collapsed={!isMobile && sidebarCollapsed}
+  class="notes-shell desktop-layout"
+  class:sidebar-collapsed={sidebarCollapsed}
   class:sidebar-resizing={sidebarResizing}
   class:graph-resizing={graphPanelResizing}
   class:drawer-open={drawerOpen}
-  class:drawer-dragging={touch.isDragging}
-  class:graph-sidebar-open={!isMobile && graphSidebarOpen}
+  class:graph-sidebar-open={graphSidebarOpen}
   style="--drawer-offset: {drawerOffset}px; --sidebar-width: {sidebarWidth}px; --graph-sidebar-width: {graphSidebarWidth}px; --vv-offset: {keyboard.offsetTop}px"
-  ontouchstart={touch.handleTouchStart}
-  ontouchmove={touch.handleTouchMove}
-  ontouchend={touch.handleTouchEnd}
-  ontouchcancel={touch.handleTouchEnd}
 >
   <!-- Drawer -->
   <DrawerSidebar
     {drawerOpen}
     {sidebarCollapsed}
     bind:sidebarWidth
-    isDragging={touch.isDragging}
     onselect={handleDrawerSelect}
     onsearch={() => {
       void openSearch();
@@ -919,27 +847,8 @@
     bind:sidebarResizing
   />
 
-  <!-- Menu button (mobile only) -->
-  {#if isMobile}
-    <button
-      bind:this={menuButtonEl}
-      class="drawer-toggle floating"
-      aria-label="Open notes list"
-      aria-expanded={drawerOpen}
-      onclick={() => setDrawerOpen(!drawerOpen)}>&#9776;</button
-    >
-  {/if}
-
-  <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
   <!-- Main content -->
-  <div
-    bind:this={noteMainEl}
-    class="note-main"
-    style:bottom={keyboardInset > 0 ? `${keyboardInset}px` : undefined}
-    onclick={() => {
-      if (isMobile && drawerOpen) setDrawerOpen(false);
-    }}
-  >
+  <div class="note-main" style:bottom={keyboardInset > 0 ? `${keyboardInset}px` : undefined}>
     <!-- Note menu button (three-dot) -->
     {#if noteId && noteMenuOpen}
       <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
@@ -951,7 +860,7 @@
       ></div>
     {/if}
     {#if noteId}
-      <div bind:this={noteMenuAnchorEl} class="note-menu-anchor">
+      <div class="note-menu-anchor">
         <button
           class="note-menu-toggle"
           aria-label="Note options"
@@ -996,7 +905,7 @@
         {/if}
       </div>
     {/if}
-    {#if !isMobile && !isDesktop && sidebarCollapsed}
+    {#if !isDesktop && sidebarCollapsed}
       <button
         class="sidebar-expand-btn sidebar-expand-fallback-btn"
         aria-label="Expand sidebar"
@@ -1021,14 +930,6 @@
         </svg>
       </button>
     {/if}
-    <!-- Overlay replaces filter: brightness/contrast for GPU-composited dimming -->
-    <div
-      bind:this={overlayEl}
-      class="drawer-overlay"
-      class:active={isMobile && drawerOpen}
-      style="opacity: {overlayOpacity}"
-      onclick={() => setDrawerOpen(false)}
-    ></div>
     {#if isDesktop}
       <TabsStrip
         {sidebarCollapsed}
@@ -1078,15 +979,12 @@
             content={session.content}
             onchange={session.debouncedSave}
             onfocuschange={handleEditorFocusChange}
-            oncursorcontext={(ctx) => {
-              cursorOnListLine = ctx.onListLine;
-            }}
             scrollParent={noteBody ?? null}
             onopenlink={handleWikilinkOpen}
           />
         </div>
       {:else}
-        <ForYouPage onbrowse={() => setDrawerOpen(true)} onquickcapture={createNewNote} />
+        <ForYouPage />
       {/if}
     </div>
     <SyncStatusBar
@@ -1099,15 +997,6 @@
       onclear={sync.clearSyncError}
     />
   </div>
-
-  {#if isMobile && MarkdownToolbar}
-    <MarkdownToolbar
-      getView={() => editor?.getView() ?? null}
-      {editorFocused}
-      {cursorOnListLine}
-      ontoolbartouch={(touching) => (toolbarTouching = touching)}
-    />
-  {/if}
 
   <!-- Graph sidebar -->
   <GraphSidebarPanel

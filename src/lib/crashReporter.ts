@@ -4,13 +4,7 @@ import {
   deleteCrashLog,
   type CrashReport,
 } from './crashHandler';
-import { isMobile } from './platform';
-
 function getDevHost(): string {
-  if (isMobile && typeof navigator !== 'undefined' && /android/i.test(navigator.userAgent)) {
-    // Android emulator uses 10.0.2.2 to reach host machine
-    return '10.0.2.2';
-  }
   return 'localhost';
 }
 
