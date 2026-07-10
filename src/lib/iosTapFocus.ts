@@ -40,6 +40,20 @@ function focusWithoutScroll(view: EditorView): void {
   }
 }
 
+/**
+ * Places the caret at the tapped position when the editor is UNFOCUSED.
+ * On refocus of a contenteditable, both WebKit and Blink restore the
+ * selection saved at blur instead of honoring the tap — the caret snaps
+ * back to wherever it was when the keyboard was dismissed. Resolve the tap
+ * on `touchend` (a real tap only), focus with `preventScroll`, then set the
+ * CM selection AFTER focus so the browser's restore cannot override it.
+ * iOS/WebKit ONLY: Android WebView does not raise the IME for a JS focus
+ * when the native tap was preventDefault-ed — there, the native tap path
+ * must run (focus + IME) and the click-time caret correction in
+ * MarkdownEditor handles the restored selection instead. Taps while already
+ * focused fall through to the normal path.
+ * See docs/learnings/ios-keyboard-editor-jump.md.
+ */
 export function iosTapFocus(options: IosTapFocusOptions): Extension[] {
   if (!options.enabled) return [];
 
@@ -76,8 +90,9 @@ export function iosTapFocus(options: IosTapFocusOptions): Extension[] {
 
         event.preventDefault();
         focusWithoutScroll(view);
-        // Focus can cause WebKit to install its own contenteditable selection.
-        // Set the CM selection after focus so the browser cannot reset it to 0.
+        // Focus can cause the browser (WebKit and Blink alike) to install its
+        // own contenteditable selection — typically the one saved at blur.
+        // Set the CM selection after focus so it cannot be overridden.
         view.dispatch({ selection: { anchor: pos }, scrollIntoView: false });
         return true;
       },

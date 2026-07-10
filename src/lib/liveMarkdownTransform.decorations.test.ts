@@ -207,4 +207,31 @@ describe('liveMarkdownTransform decorations', () => {
       check(); // after second cursor move
     });
   });
+
+  describe('list marker widgets accept editor events (tap-to-caret)', () => {
+    // The bullet/number markers replace their source with
+    // contenteditable=false spans. With CM's default ignoreEvent() === true
+    // the editor ignores taps on them, and the browser cannot place a caret
+    // inside a non-editable span — the tap is swallowed and the cursor stays
+    // wherever it was. ignoreEvent() === false hands the tap to CM, which
+    // places the caret itself (same contract as HorizontalRuleWidget).
+    it('bullet and number markers return ignoreEvent() === false', () => {
+      const view = setup('- alpha\n- beta\n  - nested\n1. one\n2. two');
+      const plugin: any = view.plugin(liveMarkdownTransform);
+      const widgets: any[] = [];
+      const cur = plugin.decorations.iter();
+      while (cur.value) {
+        if (cur.value.spec.widget) widgets.push(cur.value.spec.widget);
+        cur.next();
+      }
+      const markers = widgets.filter((w) => {
+        const cls = w.toDOM(view).className ?? '';
+        return cls.includes('cm-md-bullet') || cls.includes('cm-md-number');
+      });
+      expect(markers.length).toBeGreaterThanOrEqual(5);
+      for (const w of markers) {
+        expect(w.ignoreEvent()).toBe(false);
+      }
+    });
+  });
 });

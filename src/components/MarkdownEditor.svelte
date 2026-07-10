@@ -516,7 +516,7 @@
   // syntax. posAtCoords lenient-mode returns the nearest doc position but
   // can still drift to a neighbour when the tap lands in the vertical gap
   // between a tall paragraph and a short empty line. Resolve the .cm-line
-  // under the tap explicitly, then map x within that exact line.
+  // under the tap explicitly, then map x/y within that exact line's box.
   function resolveTapPositionAt(
     clientX: number,
     clientY: number,
@@ -530,7 +530,10 @@
     if (line.from === line.to) return line.from;
     const rect = lineEl.getBoundingClientRect();
     const x = Math.min(Math.max(clientX, rect.left + 1), rect.right - 1);
-    const y = rect.top + rect.height / 2;
+    // Clamp the tap's own y into the line box — the rect midpoint would map
+    // every tap on a wrapped line (several visual rows in one .cm-line) to
+    // the middle row, yanking the caret off the tapped row.
+    const y = Math.min(Math.max(clientY, rect.top + 1), rect.bottom - 1);
     const pos = v.posAtCoords({ x, y }, false);
     if (pos !== null && pos >= line.from && pos <= line.to) return pos;
 
@@ -542,6 +545,35 @@
   function resolveTapPosition(event: MouseEvent, v: EditorView): number | null {
     return resolveTapPositionAt(event.clientX, event.clientY, v, event.target as Node | null);
   }
+
+  // Click-time caret correction, Android only. Blink drops to position 0 on
+  // empty/widget lines even while focused, and restores the blur-saved
+  // selection on refocus (a touchend intercept is impossible there: JS focus
+  // can't raise the IME), so every single tap is re-placed at the exact
+  // tapped character. iOS is untouched: WebKit's native placement is
+  // authoritative, and the refocus-restore window is handled by iosTapFocus.
+  // Only single taps (`detail === 1`) are corrected — double/triple-tap
+  // word/line selection stays native. Native embeds only (`nativeShell`);
+  // desktop mouse placement is already character-precise.
+  // svelte-ignore state_referenced_locally -- nativeShell is a mount-time
+  // constant (the embed passes a literal), never reassigned.
+  const mobileTapCaretCorrection =
+    nativeShell && !isIOS
+      ? [
+          EditorView.domEventHandlers({
+            click: (event, v) => {
+              if (event.button !== 0 || event.detail !== 1) return false;
+              if (pendingLinkUrl !== null || lineEndPending !== null) return false;
+              const sel = v.state.selection.main;
+              if (!sel.empty) return false;
+              const desired = resolveTapPosition(event, v);
+              if (desired === null || desired === sel.head) return false;
+              v.dispatch({ selection: { anchor: desired }, scrollIntoView: false });
+              return false;
+            },
+          }),
+        ]
+      : [];
 
   // Resolve a click on an external link element to its URL via the element
   // itself — posAtCoords is unreliable when the live-markdown decoration
@@ -755,6 +787,8 @@
   // True when CM6 owns its own scroller (native iOS/Android WebView). Desktop
   // scrolls inside an external `scrollParent` with its own compensation, so
   // height-map warming is neither needed nor wired there.
+  // svelte-ignore state_referenced_locally -- nativeShell is a mount-time
+  // constant (the embed passes a literal), never reassigned.
   const cmOwnsScroller = nativeShell;
 
   // Coalesce height-map warming to one rAF. Warming walks the viewport across
@@ -832,6 +866,14 @@
       imagePasteHandler,
       tripleClickLineSelectionHandler,
       lineEndClickHandler,
+      // Unfocused-tap caret placement, per engine. iOS ONLY takes this
+      // touchend-intercept path (it exists to dodge WKWebView's native
+      // tap-focus scroll-jump; WebKit still raises the keyboard for the
+      // JS focus). Android must NOT: preventDefault-ing the touchend
+      // suppresses the IME for the JS focus, leaving a caret with no
+      // keyboard — Blink's native tap handles focus + IME, and
+      // mobileTapCaretCorrection re-places the caret on click when the
+      // browser restores the pre-blur selection instead.
       ...iosTapFocus({
         enabled: isIOS,
         resolveTapPosition: ({ clientX, clientY, target }, v) =>
@@ -849,6 +891,7 @@
           return !!el.closest('.cm-md-link');
         },
       }),
+      ...mobileTapCaretCorrection,
       wikilinkClickHandler,
       linkClickHandler,
       EditorView.contentAttributes.of({
@@ -977,32 +1020,32 @@
       warmResizeObserver.observe(v.scrollDOM);
     }
 
-    // Focus the editor on mount so .cm-cursor renders immediately on desktop.
-    // NOTE: this was intended to be desktop-only (programmatic contenteditable
-    // focus pops the soft keyboard, unwanted when opening an existing note on
-    // the native embed), but it has always run unconditionally — the old
-    // `!isMobile` guard was a Tauri-only flag that was never true. Gating it on
-    // `!nativeShell` is a native behavior change deferred pending on-device QA;
-    // see the auto-focus gap in docs/spec/nav.md. Left unconditional here so
-    // this flag-removal keeps behavior identical. The new-note path in
-    // noteSession explicitly calls focusEditor() when the keyboard is wanted.
+    // Focus the editor on mount so .cm-cursor renders immediately on
+    // desktop. Skip in the native embeds: programmatic contenteditable focus
+    // pops the soft keyboard, which is unwanted when opening an existing
+    // note (nav.md — existing notes open without autofocus). The new-note
+    // path explicitly asks for focus (noteSession focusEditor() / the host's
+    // autoFocus request) when the keyboard is actually wanted. `nativeShell`
+    // is host-asserted, so this gate cannot rot with UA sniffing.
     //
     // Defer to the next frame so CM6 has finished wiring its focus tracker
     // (the `cm-focused` class on `.cm-editor`) before we focus. Calling
     // synchronously here can leave activeElement = .cm-content while
     // `.cm-focused` is still missing, which hides the cursor.
-    requestAnimationFrame(() => {
-      if (!view) return;
-      view.focus();
-      // Belt-and-braces: if CM6 didn't pick up the focus event (can happen
-      // when synthetic events bypass the trusted-event path in tests, or
-      // when the view mounts inside a hidden ancestor that briefly fires
-      // blur), nudge the focus tracker explicitly.
-      if (!view.hasFocus) {
-        view.contentDOM.dispatchEvent(new FocusEvent('focus', { bubbles: true }));
-      }
-      onfocuschange?.(editorHasDomFocus(view));
-    });
+    if (!nativeShell) {
+      requestAnimationFrame(() => {
+        if (!view) return;
+        view.focus();
+        // Belt-and-braces: if CM6 didn't pick up the focus event (can happen
+        // when synthetic events bypass the trusted-event path in tests, or
+        // when the view mounts inside a hidden ancestor that briefly fires
+        // blur), nudge the focus tracker explicitly.
+        if (!view.hasFocus) {
+          view.contentDOM.dispatchEvent(new FocusEvent('focus', { bubbles: true }));
+        }
+        onfocuschange?.(editorHasDomFocus(view));
+      });
+    }
 
     // Suppress marker reveal only after a real pointer drag starts. Plain
     // clicks/double-clicks should not make already-revealed markers blink.

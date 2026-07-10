@@ -109,3 +109,6 @@ __pycache__/
 
 # VC++ redistributable, fetched at Windows build time by ci/win-build.ps1
 apps/tauri/src-tauri/redist/
+
+# Agent-tooling skill mirror (synced into the worktree by session tooling)
+.agents/

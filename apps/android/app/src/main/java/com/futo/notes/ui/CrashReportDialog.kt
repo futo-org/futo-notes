@@ -24,6 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import com.futo.notes.ui.components.ClearFocusOnImeDismiss
 import com.futo.notes.ui.theme.FutoRadius
 import com.futo.notes.ui.theme.FutoTheme
 import com.futo.notes.ui.theme.FutoType
@@ -51,6 +52,9 @@ fun CrashReportDialog(
         title = { Text("Crash Report", style = FutoType.title, color = c.textPrimary) },
         text = {
             Column {
+                // The dialog is its own window — the app-root install (#24)
+                // can't reach its focus manager.
+                ClearFocusOnImeDismiss()
                 Text(
                     "FUTO Notes crashed last time it ran. Send the report so it can be fixed?",
                     style = FutoType.small,

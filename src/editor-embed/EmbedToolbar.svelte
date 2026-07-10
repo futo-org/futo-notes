@@ -1,9 +1,9 @@
 <script lang="ts">
   // Native-shell markdown toolbar for the embedded editor (editor.html).
   //
-  // Mirrors components/MarkdownToolbar.svelte (same commands, same
-  // .markdown-toolbar / .toolbar-* CSS from styles/components.css — the embed
-  // already imports app.css) but with the host-dependent pieces swapped out:
+  // Reuses the .markdown-toolbar / .toolbar-* CSS from styles/components.css
+  // (the embed already imports app.css) with the host-dependent pieces swapped
+  // out:
   //  - image buttons post {type:'pickImage'} to the native host instead of
   //    calling the Tauri camera/file plugins,
   //  - the dismiss chevron blurs the editor (dropping the soft keyboard)

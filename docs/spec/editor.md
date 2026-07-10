@@ -30,17 +30,35 @@ this file states the behaviors a human cares about.
 ## Cursor
 
 - **Tapping in the editor places the cursor at the tapped character** — not the
-  start/end of the line or document.
+  start/end of the line or document. → MarkdownEditor.svelte
 - The first tap that opens the editor resolves the tapped CM line on `touchend`,
   focuses with `preventScroll`, then sets the selection — it must NOT use the
   native contenteditable tap-focus path, which scroll-jumps the whole app during
-  keyboard presentation. → docs/learnings/ios-keyboard-editor-jump.md *(iOS)*
+  keyboard presentation. → docs/learnings/ios-keyboard-editor-jump.md _(iOS)_
+- **Tapping an UNFOCUSED editor places the caret at the tap AND raises the
+  keyboard** — on refocus, WebKit and Blink restore the selection saved at
+  blur (e.g. the header the cursor was on when the keyboard was dismissed,
+  #24). The mechanism differs per engine: iOS intercepts the touchend
+  (`iosTapFocus`, also dodging WKWebView's tap-focus scroll-jump); Android
+  must let the NATIVE tap run — preventDefault-ing it suppresses the IME for
+  a JS focus — and re-places the caret on click
+  (`mobileTapCaretCorrection`, which also fixes Android Chrome dropping to
+  position 0 on empty/widget lines — that fallback bites even while focused,
+  so Android corrects ALL single taps; iOS focused taps are left to WebKit's
+  native placement). The correction is anchored on the host-asserted
+  `nativeShell` prop, never a UA-sniffed flag alone — pinned-false flags
+  silently disabled tap paths in the native embeds twice. On a WRAPPED line
+  the tap resolves within the tapped visual row (the tap's own y, clamped
+  into the line box — never the line-rect midpoint, which yanked the caret
+  to the middle row and made repeated corrective taps read as
+  double/triple-tap selections). Double/triple-tap word/line selection stays
+  native on both shells. → src/lib/iosTapFocus.ts, MarkdownEditor.svelte
 - Arrow up/down on a wrapped line moves by visual row, not logical line.
   Arrowing past a block widget (HR) lands in the adjacent paragraph, not inside
   the widget. → markdown-spec/cases/10-cursor-reveal
 - Pressing Enter in a continued list item scrolls the new item into view (don't
   bypass CM's `scrollIntoView`). → docs/learnings/ios-keyboard-editor-jump.md
-  *(iOS)*
+  _(iOS)_
 - Text selection is the platform's native selection. On the native shells the
   system owns it entirely (loupe, grab handles, callout) — the editor never
   re-dispatches or "snaps" the selection, so it must not fight the native
@@ -62,6 +80,15 @@ this file states the behaviors a human cares about.
   the line.
 - Lists: ordered, unordered, nested, and task checkboxes (checked / unchecked /
   uppercase `X`).
+- Tapping/clicking a bullet or number marker places the caret at the marker
+  (revealing the dimmed `-`/`N.` source — the same state as arrowing onto
+  it); a marker tap must never be a no-op. The markers are
+  contenteditable=false widget spans, so the browser can't place a caret in
+  them and CM's default `ignoreEvent() === true` would swallow the tap —
+  both marker widgets return `false` (same contract as the HR widget).
+  Checkbox and image widgets intentionally keep `true` + their own handlers
+  (toggle / place-at-line-end). → liveMarkdownTransform.ts
+  BulletWidget/NumberWidget, liveMarkdownTransform.decorations.test.ts
 - A list item that wraps does **not** hanging-indent its continuation lines:
   wrapped lines start at the left margin — only the first visual line carries
   the nesting indent + marker. Applies to bullets, ordered items, and task
@@ -91,7 +118,7 @@ this file states the behaviors a human cares about.
 - Tags dedup case-insensitively (`#Project` + `#project` → one `#project`).
 - A leading header tag block is recognized and hidden when the cursor is away.
 
-## Tag bar *(desktop)*
+## Tag bar _(desktop)_
 
 The tag bar is a **desktop-only surface by decision (2026-06-09)** — mobile
 native shells edit tags as text in the body, which is not a gap.
@@ -135,9 +162,9 @@ native shells edit tags as text in the body, which is not a gap.
   → liveMarkdownTransform.ts, wikilinks.ts `resolveWikilink`,
   noteSession.svelte.ts `loadNote` (create-on-missing), editor-embed/main.ts
   > **Gap:** the **native** shells (iOS/Android) no-op a broken wikilink tap —
-  > the editor embed posts `openNote` only for a *resolved* link, so a broken
+  > the editor embed posts `openNote` only for a _resolved_ link, so a broken
   > tap neither creates nor opens the target note the way desktop does.
-  > *(native shells)* → editor-embed/main.ts
+  > _(native shells)_ → editor-embed/main.ts
 - On the native shells, tapping a resolved wikilink navigates: the embed
   resolves the raw target against the pushed note list and posts `openNote`
   to the host, which **PUSHES a new editor onto the nav stack** — so **Back
@@ -150,7 +177,7 @@ native shells edit tags as text in the body, which is not a gap.
   navigable link follows it on the **first** tap even when the editor is
   unfocused: on iOS the tap-to-focus handler (`iosTapFocus`) yields taps that
   land on a resolved wikilink or external link so the link handler acts on them,
-  instead of consuming the tap to place the caret (a *broken* wikilink still
+  instead of consuming the tap to place the caret (a _broken_ wikilink still
   focuses, so it can be edited). Android has no such interceptor, so it already
   follows on the first tap (verified emulator 2026-07-08). Each pushed iOS
   editor needs an explicit `.id(noteId)` identity or SwiftUI would share one
@@ -217,14 +244,14 @@ native shells edit tags as text in the body, which is not a gap.
   Backspace in an empty item deletes it. → listContinuation.ts
 - Selecting text (desktop, single-line) raises a floating toolbar: Bold,
   Italic, Strikethrough, Code, Link. It hides for empty/multi-line selections
-  and inside tables/code. → editorUX/selectionToolbar.ts *(desktop)*
+  and inside tables/code. → editorUX/selectionToolbar.ts _(desktop)_
 - Typing `/` at the start of an empty block opens a block-command menu
   (headings, lists, tasks, quote, code, table, HR). Arrow keys move the
   highlight; a menu item activates on BOTH mouse click and Enter — the item
   must commit on the press (`mousedown`), because WebKit cancels the `click`
   that follows the menu's focus-guard `preventDefault`ed mousedown (same
   dead-end as the wikilink `touchend` note above). → editorUX/slashMenu.ts
-  *(desktop)*
+  _(desktop)_
 
 ## Markdown toolbar *(native shells / editor-embed fallback)*
 
@@ -276,6 +303,15 @@ EditorWebView.swift, EditorWebView.kt
   appear only on list lines; pickers open natively; chevron blurs, dropping
   keyboard + toolbar). → EditorToolbar.kt, NoteEditorScreen.kt,
   EditorWebView.kt `EditorHost`
+- Android native: dismissing the soft keyboard by the system back
+  gesture/button (not just the chevron) also blurs the editor — the caret
+  and selection handle must not linger on screen with no keyboard (#24).
+  The app-root `ClearFocusOnImeDismiss` ([app.md](app.md) "Soft keyboard")
+  drops native-field focus, and its root install also blurs the editor over
+  the bridge on the same IME visible→hidden transition — the editor's DOM
+  caret survives a view-level clearFocus. (iOS can't hit this: keyboard and
+  first-responder caret are coupled.) → MainActivity.kt,
+  ui/components/ImeDismiss.kt, EditorImeDismissBlurTest.kt
 - **Toolbar docking + height (both native shells).** The bar is exactly
   **44 pt** tall on iOS / **44 dp** on Android, its 36 pt/dp icons centered
   with ~4 pt top/bottom, and it sits **FLUSH against the top of the on-screen
@@ -339,7 +375,7 @@ EditorWebView.swift, EditorWebView.kt
   `readFile`→blob-URL fallback when the asset protocol can't actually decode an
   `<img>` (macOS WKWebView / Linux WebKitGTK answer the request but paint a
   blank white box; the gate is a real image-decode probe, not a HEAD probe).
-  → tauri.ts `getImageUrl` / `assetUrlDecodes`. *(Tauri)*
+  → tauri.ts `getImageUrl` / `assetUrlDecodes`. _(Tauri)_
 - The native shells render local images inline through a host-registered
   image base URL (`setImageBaseUrl`): iOS serves the vault root through a
   `futo-asset://` WKURLSchemeHandler (path-traversal- and image-extension-
@@ -389,7 +425,7 @@ EditorWebView.swift, EditorWebView.kt
 - Wikilinks and tags inside inline code or fenced blocks are NOT decorated and
   NOT extracted. → markdown-spec/cases/03-code, 08-wikilinks, 09-tags
 
-## Saving & rename *(native shells)*
+## Saving & rename _(native shells)_
 
 - Body edits autosave on a debounce (~400 ms). The save re-reads the current
   note id at fire time, so a save landing **after** a rename writes to the
@@ -397,7 +433,7 @@ EditorWebView.swift, EditorWebView.kt
   `scheduleSave`
 - Title edits debounce (~500 ms) into a rename (iOS commits via the rename
   dialog instead). Before the file moves, any pending body save is flushed to
-  the *current* id and the in-flight save is cancelled — otherwise a stale save
+  the _current_ id and the in-flight save is cancelled — otherwise a stale save
   recreates a ghost note at the old id (data loss). → NoteEditorScreen.kt /
   NoteEditorView.swift `commitRename`
 - Leaving the editor flushes a pending save only if the content changed and the
@@ -405,7 +441,7 @@ EditorWebView.swift, EditorWebView.kt
 - Backgrounding the app flushes the open editor's pending edit before the OS
   can jetsam the process, so an edit caught inside the autosave debounce is not
   lost. → FutoNotesApp scenePhase `.inactive`/`.background` → NotesStore
-  `flushPendingEditor` *(iOS)*
+  `flushPendingEditor` _(iOS)_
 - An empty title shows the placeholder "Untitled"; the title field strips
   newlines.
 - The editor chrome shows **no word count** (or any other document
@@ -423,8 +459,8 @@ EditorWebView.swift, EditorWebView.kt
 
 ## Android — IME
 
-- Backspace on an empty note must not crash the WebView renderer. *(Android)*
-  - *History (resolved):* Chromium 147's empty-editable surrounding-text path
+- Backspace on an empty note must not crash the WebView renderer. _(Android)_
+  - _History (resolved):_ Chromium 147's empty-editable surrounding-text path
     tripped a `CHECK()` (`SIGTRAP`) when FUTO Keyboard queried it on backspace.
     This was **fixed upstream by a FUTO Keyboard update**, so the in-app IME
     shield is no longer required. → docs/learnings/ime-shield-workaround.md

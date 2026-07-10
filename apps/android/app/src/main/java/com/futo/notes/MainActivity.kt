@@ -37,6 +37,7 @@ import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
 import com.futo.notes.ui.CrashReportDialog
 import com.futo.notes.ui.EditorHost
+import com.futo.notes.ui.components.ClearFocusOnImeDismiss
 import com.futo.notes.ui.NoteEditorScreen
 import com.futo.notes.ui.NoteListScreen
 import com.futo.notes.ui.isAtListTop
@@ -228,6 +229,14 @@ class MainActivity : ComponentActivity() {
 
             FutoNotesTheme(darkTheme = dark) {
                 SystemBarAppearance(dark)
+                // App-wide: back-gesture keyboard dismissal must drop the
+                // focused field's caret (#24) — native fields via clearFocus,
+                // the editor WebView's DOM caret via a bridge blur (it
+                // survives clearFocus). Dialog windows install their own.
+                val editorHost = remember { EditorHost.get(this) }
+                ClearFocusOnImeDismiss {
+                    if (editorHost.editorFocused) editorHost.blur()
+                }
                 Surface(modifier = Modifier.fillMaxSize()) {
                     val s = store.value
                     when {

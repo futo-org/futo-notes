@@ -11,8 +11,6 @@
     onnavigate: (noteId: string, event?: MouseEvent) => void;
     onopen: () => void;
     ontoast: (message: string) => void;
-    graphSidebarEl?: HTMLElement | undefined;
-    graphOverlayEl?: HTMLElement | undefined;
     resizing?: boolean;
     loading?: boolean;
   }
@@ -26,8 +24,6 @@
     onnavigate,
     onopen,
     ontoast,
-    graphSidebarEl = $bindable(undefined),
-    graphOverlayEl = $bindable(undefined),
     resizing = $bindable(false),
     loading = $bindable(false),
   }: Props = $props();
@@ -84,7 +80,7 @@
 </script>
 
 {#if open || loading}
-  <aside bind:this={graphSidebarEl} class="graph-sidebar" class:open>
+  <aside class="graph-sidebar" class:open>
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
       class="graph-resize-handle"

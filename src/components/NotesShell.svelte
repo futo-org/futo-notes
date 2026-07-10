@@ -73,7 +73,6 @@
   let editor: ReturnType<typeof MarkdownEditor> | null = $state(null);
   let graphPanel: ReturnType<typeof GraphSidebarPanel> | null = $state(null);
   let editorFocused = $state(false);
-  let toolbarTouching = $state(false);
   let shell: HTMLElement | undefined = $state(undefined);
   let drawer: HTMLElement | undefined = $state(undefined);
   let noteBody: HTMLElement | undefined = $state(undefined);
@@ -127,9 +126,6 @@
   let graphSidebarOpen = $state(false);
   let graphLoading = $state(false);
   let graphPanelResizing = $state(false);
-
-  let graphSidebarEl: HTMLElement | undefined = $state(undefined);
-  let graphOverlayEl: HTMLElement | undefined = $state(undefined);
 
   // prevNoteId is tracked here because the $effect that calls session.loadNote
   // compares it against the current noteId prop to detect real transitions.
@@ -324,19 +320,6 @@
     }
   }
 
-  function handleEditorFocusOut(): void {
-    if (toolbarTouching) {
-      // Don't drop editorFocused — user is interacting with the toolbar.
-      // Refocus the editor so the keyboard doesn't dismiss.
-      requestAnimationFrame(() => {
-        if (toolbarTouching) editor?.focus();
-      });
-      return;
-    }
-    editorFocused = false;
-    void sync.handleEditorFocusChange(false);
-  }
-
   function handleEditorFocusChange(focused: boolean): void {
     if (focused) {
       if (noteId) editorFocused = true;
@@ -346,7 +329,8 @@
       // the rename lands before content edits, instead of waiting out the 10s.
       void session.flushSave();
     } else {
-      handleEditorFocusOut();
+      editorFocused = false;
+      void sync.handleEditorFocusChange(false);
     }
   }
 
@@ -484,33 +468,6 @@
     if (!id) editorFocused = false;
     await session.loadNote(id);
   }
-
-  // Bottom inset for the editor chrome. Always 0 on desktop (the mobile
-  // editor toolbar / on-screen keyboard that raised this no longer exists).
-  const keyboardInset = $derived(0);
-
-  // Scroll cursor into view when keyboard opens or resizes.
-  // CM's scrollIntoView is a no-op here because .cm-scroller has overflow:visible,
-  // so we manually scroll the external .note-body container.
-  $effect(() => {
-    const inset = keyboardInset;
-    if (inset > 0) {
-      const v = editor?.getView();
-      const scrollEl = noteBody;
-      if (v && scrollEl) {
-        requestAnimationFrame(() => {
-          const cursor = v.coordsAtPos(v.state.selection.main.head);
-          if (!cursor) return;
-          const scrollRect = scrollEl.getBoundingClientRect();
-          // If cursor is below the visible area, scroll it into view
-          const visibleBottom = scrollRect.bottom;
-          if (cursor.bottom > visibleBottom) {
-            scrollEl.scrollTop += cursor.bottom - visibleBottom + 20;
-          }
-        });
-      }
-    }
-  });
 
   $effect(() => {
     keyboard.init();
@@ -848,10 +805,10 @@
   />
 
   <!-- Main content -->
-  <div class="note-main" style:bottom={keyboardInset > 0 ? `${keyboardInset}px` : undefined}>
+  <div class="note-main">
     <!-- Note menu button (three-dot) -->
     {#if noteId && noteMenuOpen}
-      <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
+      <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
       <div
         class="note-menu-backdrop"
         onclick={() => {
@@ -938,14 +895,13 @@
         }}
       />
     {/if}
-    <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+    <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
     <div
       class="note-body"
       data-editor-focused={editorFocused ? '' : undefined}
       bind:this={noteBody}
       onclick={handleNoteBodyClick}
       onfocusin={handleNoteBodyFocusIn}
-      onfocusout={handleEditorFocusOut}
     >
       {#if noteId}
         <div class="note-title-row">
@@ -1011,8 +967,6 @@
       graphSidebarOpen = true;
     }}
     ontoast={showToast}
-    bind:graphSidebarEl
-    bind:graphOverlayEl
     bind:resizing={graphPanelResizing}
     bind:loading={graphLoading}
   />
@@ -1042,7 +996,7 @@
         deleteConfirmOpen = false;
       })}
   >
-    <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
+    <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
     <div
       class="delete-confirm-dialog"
       tabindex="-1"
