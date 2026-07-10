@@ -65,6 +65,21 @@ describe('buildSetContentTransaction', () => {
     expect(buildSetContentTransaction(state, 'hello world')).toBeNull();
   });
 
+  it('does not mistake an unsampled same-length edit in a long document for equality', () => {
+    // Regression proof: docMatchesText samples only five 32-character windows
+    // once the document reaches 256 characters. A same-length remote edit
+    // between those windows is therefore reported as "unchanged", so
+    // setContent/applyExternalContent never dispatches it to CodeMirror.
+    const before = 'a'.repeat(400);
+    const after = `${before.slice(0, 50)}b${before.slice(51)}`;
+    const state = EditorState.create({ doc: before });
+
+    const result = buildSetContentTransaction(state, after, { preserveSelection: true });
+
+    expect(result).not.toBeNull();
+    expect(state.update(result!.spec).state.doc.toString()).toBe(after);
+  });
+
   it('returns only the inserted text for incremental changes', () => {
     const state = EditorState.create({ doc: 'hello world' });
     const result = buildSetContentTransaction(state, 'hello brave world', {

@@ -22,39 +22,10 @@ export function readDocContent(view: { state: EditorState } | null): string | un
   return view ? view.state.doc.toString() : undefined;
 }
 
-/**
- * Check whether the CM6 document matches nextText without materializing
- * the full string. Uses length check + sampled slices (O(log n) each).
- *
- * For short documents (< 256 chars) we compare via sliceString since the
- * cost is negligible. For longer documents, 5 spread probes covering
- * 160 chars total are statistically certain to catch any real difference.
- */
+/** Check whether the CM6 document exactly matches nextText. */
 function docMatchesText(state: EditorState, nextText: string): boolean {
   if (state.doc.length !== nextText.length) return false;
-
-  const len = nextText.length;
-
-  // Short docs: compare directly via sliceString (avoids toString allocation)
-  if (len < 256) {
-    return state.doc.sliceString(0) === nextText;
-  }
-
-  // Sample 5 positions spread across the document — unrolled to avoid
-  // array allocation. Each sliceString is O(log n).
-  const probeLen = 32;
-  const p1 = 0;
-  const p2 = len >>> 2;
-  const p3 = len >>> 1;
-  const p4 = (len >>> 2) * 3;
-  const p5 = len - probeLen; // len >= 256, so this is >= 224
-
-  if (state.doc.sliceString(p1, p1 + probeLen) !== nextText.slice(p1, p1 + probeLen)) return false;
-  if (state.doc.sliceString(p2, p2 + probeLen) !== nextText.slice(p2, p2 + probeLen)) return false;
-  if (state.doc.sliceString(p3, p3 + probeLen) !== nextText.slice(p3, p3 + probeLen)) return false;
-  if (state.doc.sliceString(p4, p4 + probeLen) !== nextText.slice(p4, p4 + probeLen)) return false;
-  if (state.doc.sliceString(p5, p5 + probeLen) !== nextText.slice(p5, p5 + probeLen)) return false;
-  return true;
+  return state.doc.sliceString(0) === nextText;
 }
 
 export interface SetContentResult {
