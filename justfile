@@ -112,8 +112,6 @@ build-android-native: build-rust-android
   #!/usr/bin/env bash
   set -euo pipefail
   node_modules/.bin/vite build --config vite.editor.config.ts
-  mkdir -p apps/android/app/src/main/assets
-  cp apps/ios/Resources/editor.html apps/android/app/src/main/assets/editor.html
   cd apps/android
   ./gradlew :app:assembleDebug
 

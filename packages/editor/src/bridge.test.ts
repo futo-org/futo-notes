@@ -142,7 +142,7 @@ describe('postToHost routing', () => {
     );
   });
 
-  it('serializes a pasteClipboardImage (native pasteboard) message for both transports', () => {
+  it('serializes pasteClipboardImage even though Android normally ignores the fallback', () => {
     const ios = vi.fn();
     g.webkit = { messageHandlers: { futoBridge: { postMessage: ios } } };
     postToHost({ type: 'pasteClipboardImage' });
