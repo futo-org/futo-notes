@@ -181,3 +181,33 @@ fn preview_conformance() {
 fn wikilinks_conformance() {
     check_fixture("wikilinks");
 }
+
+/// Cross-language constants gate (architecture-hardening.md PKT-7 gate 3).
+/// `tests/conformance/constants.json` also asserted from
+/// `apps/tauri/src-tauri/src/filesystem_watcher.rs` (SUPPRESSION_WINDOW_MS —
+/// a different crate, not reachable from here) and
+/// `src/lib/constantsConformance.test.ts` (TS side of all fields).
+#[test]
+fn constants_conformance() {
+    let fixture = load("constants");
+    let expected_exts: Vec<String> = fixture["imageExtensions"]
+        .as_array()
+        .expect("imageExtensions array")
+        .iter()
+        .map(|v| v.as_str().expect("extension is a string").to_string())
+        .collect();
+    let actual_exts: Vec<String> =
+        model::IMAGE_EXTENSIONS.iter().map(|e| e.to_string()).collect();
+    assert_eq!(
+        actual_exts, expected_exts,
+        "futo_notes_model::IMAGE_EXTENSIONS drifted from tests/conformance/constants.json"
+    );
+
+    let expected_max_title_length = fixture["maxTitleLength"]
+        .as_u64()
+        .expect("maxTitleLength") as usize;
+    assert_eq!(
+        model::MAX_TITLE_LENGTH, expected_max_title_length,
+        "futo_notes_model::MAX_TITLE_LENGTH drifted from tests/conformance/constants.json"
+    );
+}

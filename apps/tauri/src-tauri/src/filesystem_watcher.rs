@@ -324,6 +324,33 @@ mod tests {
     //! Tests for filesystem watcher event handling and suppression.
     use super::*;
 
+    /// Cross-language constants gate (architecture-hardening.md PKT-7 gate 3).
+    /// `tests/conformance/constants.json`'s `watcherSuppressionWindowMs` is
+    /// also asserted from `futo-notes-model`'s conformance test (image set,
+    /// title length — this crate isn't a dependency of that one) and from
+    /// `src/lib/constantsConformance.test.ts` (TS side). Runs under
+    /// `cargo test --workspace` (`just test-rust-full`), not the fast
+    /// model-only `just test-rust`, because compiling this crate needs
+    /// `dist/` to exist (tauri::generate_context!).
+    #[test]
+    fn suppression_window_matches_cross_language_constant() {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../tests/conformance/constants.json")
+            .canonicalize()
+            .expect("tests/conformance/constants.json must exist");
+        let text = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+        let json: serde_json::Value =
+            serde_json::from_str(&text).expect("fixture is valid JSON");
+        let expected = json["watcherSuppressionWindowMs"]
+            .as_i64()
+            .expect("watcherSuppressionWindowMs");
+        assert_eq!(
+            SUPPRESSION_WINDOW_MS, expected,
+            "SUPPRESSION_WINDOW_MS drifted from tests/conformance/constants.json"
+        );
+    }
+
     #[test]
     fn suppression_is_one_shot() {
         let suppression = WatcherSuppression::default();
