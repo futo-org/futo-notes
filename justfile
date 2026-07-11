@@ -388,6 +388,13 @@ toolbar-spec:
 toolbar-spec-check:
   pnpm exec tsx scripts/gen-toolbar-spec.ts --check
 
+# Fail on a registered-but-uncalled Tauri command not in the allowlist, a
+# stale allowlist entry (command now has a caller, or was deleted from Rust),
+# or an invoke() of a name that isn't registered at all (architecture-
+# hardening.md F24 / L2-4 gate 1).
+check-command-reachability:
+  node scripts/check-command-reachability.mjs
+
 # Remove native build artifacts (Xcode DerivedData + Gradle output + web dist)
 # to reclaim disk. Leaves cargo `target/` alone (expensive to rebuild + shared).
 clean:
@@ -395,7 +402,7 @@ clean:
   rm -rf apps/ios/.build apps/ios/.build-device apps/ios/.build-device-release
   rm -rf apps/android/app/build apps/android/build
 
-check: spec-gaps-check toolbar-spec-check test-rust
+check: spec-gaps-check toolbar-spec-check check-command-reachability test-rust
   pnpm run lint
   pnpm run format:check
   pnpm run test:minimal
