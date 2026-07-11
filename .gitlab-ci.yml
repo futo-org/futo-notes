@@ -362,9 +362,12 @@ collect-secrets-from-op:
 
 # ─────────────────────────────────────────────────────────────
 # Tests
-# Release tag pipelines run the full validation set automatically. MR/default
-# branch pipelines keep broader browser/device suites manual unless their
-# per-job rules say otherwise.
+# Release tag pipelines run the full validation set automatically. MR
+# pipelines auto-run every suite whose `changes:` paths the MR touches; a
+# trailing manual+allow_failure rule keeps each suite one click away on
+# unrelated MRs. Manual-only is reserved for jobs that publish something
+# (build:ci-android-image) or need protected secrets that don't exist on MR
+# pipelines (the Windows Proxmox chain — see windows:provision).
 # ─────────────────────────────────────────────────────────────
 
 test:
@@ -421,6 +424,19 @@ test:e2e:markdown-spec:
     - pnpm run test:markdown-spec
   rules:
     - if: $CI_COMMIT_TAG
+    # Deterministic editor corpus, already blocking on tags — auto-run and
+    # block on the MRs that can break it.
+    - if: $CI_MERGE_REQUEST_IID
+      changes:
+        - src/**/*
+        - packages/editor/**/*
+        - markdown-spec/**/*
+        - tests/markdown-spec.spec.ts
+        - tests/lib/**/*
+        - playwright.config.ts
+        - package.json
+        - pnpm-lock.yaml
+        - .gitlab-ci.yml
     - if: $CI_MERGE_REQUEST_IID
       when: manual
       allow_failure: true
@@ -436,6 +452,19 @@ test:e2e:rest:
     - pnpm run test:e2e:rest
   rules:
     - if: $CI_COMMIT_TAG
+    # Same web surface as test:e2e:smoke, plus any spec edit re-runs the
+    # suite that contains it.
+    - if: $CI_MERGE_REQUEST_IID
+      changes:
+        - src/**/*
+        - packages/editor/**/*
+        - packages/shared/**/*
+        - tests/**/*.spec.ts
+        - tests/lib/**/*
+        - playwright.config.ts
+        - package.json
+        - pnpm-lock.yaml
+        - .gitlab-ci.yml
     - if: $CI_MERGE_REQUEST_IID
       when: manual
       allow_failure: true
@@ -539,6 +568,12 @@ test:rust:macos:
     - cirrus run testRustMacOS --artifacts-dir . --env-file .cienv
   rules:
     - if: $CI_COMMIT_TAG
+    # Auto on Rust-touching MRs. allow_failure stays: this runs through
+    # Cirrus on the single macscript runner, and infra flakiness must not
+    # block merges — but the result is now visible instead of opt-in.
+    - if: $CI_MERGE_REQUEST_IID
+      changes: *rust-workspace-changes
+      allow_failure: true
     - if: $CI_MERGE_REQUEST_IID
       when: manual
       allow_failure: true
@@ -609,6 +644,21 @@ test:cross-platform-sync:
   timeout: 60m
   rules:
     - if: $CI_COMMIT_TAG
+    # Sync-critical paths auto-run and BLOCK the merge — this suite guards
+    # user data, and a failure here nearly shipped a broken release twice.
+    # First MR run on the cold non-protected-ref cache namespace is slow
+    # (up to the 60m wall); caches upload when: always, so subsequent MRs
+    # warm-start.
+    - if: $CI_MERGE_REQUEST_IID
+      changes:
+        - crates/futo-notes-sync/**/*
+        - crates/futo-notes-core/**/*
+        - src/lib/syncServiceE2ee.ts
+        - src/lib/sync*
+        - tests/cross-platform-sync.mjs
+        - tests/lib/**/*
+        - .gitlab-ci.yml
+    # Anything else that could plausibly affect sync stays one click away.
     - if: $CI_MERGE_REQUEST_IID
       when: manual
       allow_failure: true
@@ -618,8 +668,6 @@ test:cross-platform-sync:
         - crates/**/*
         - packages/shared/**/*
         - packages/editor/**/*
-        - tests/cross-platform-sync.mjs
-        - tests/lib/**
 
 test:desktop-smoke:macos:
   stage: test
@@ -633,12 +681,16 @@ test:desktop-smoke:macos:
     - cirrus run testDesktopSmokeMacOS --artifacts-dir . --env-file .cienv
   rules:
     - if: $CI_COMMIT_TAG
+    # Auto on desktop-touching MRs; allow_failure stays (single macscript
+    # runner via Cirrus — see test:rust:macos).
     - if: $CI_MERGE_REQUEST_IID
-      when: manual
-      allow_failure: true
       changes:
         - apps/tauri/**/*
         - src/**/*
+      allow_failure: true
+    - if: $CI_MERGE_REQUEST_IID
+      when: manual
+      allow_failure: true
 
 # ─────────────────────────────────────────────────────────────
 # Builds (tags only)
@@ -1080,6 +1132,14 @@ windows:provision:
     # without cutting a tag. publish/release jobs are tag-only, so an MR
     # pipeline can never publish. Manual ⇒ never auto-runs on every MR push;
     # playing this one job starts the provision→build→cleanup chain.
+    #
+    # This chain is the deliberate EXCEPTION to the MR auto-run policy: the
+    # PROXMOX_* credentials are PROTECTED CI variables, which don't exist on
+    # MR pipelines from non-protected branches — an auto rule would fail
+    # every single run. If this ever becomes auto (vars unprotected or
+    # protected-branch MRs), windows:cleanup's MR rule must switch to
+    # when: always under the same changes: in the SAME commit, or a failed
+    # build orphans the VM.
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
       when: manual
       allow_failure: true
