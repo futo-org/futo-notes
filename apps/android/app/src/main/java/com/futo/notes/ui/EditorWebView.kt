@@ -13,6 +13,7 @@ import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.Toast
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -23,6 +24,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
+import com.futo.notes.BuildConfig
 import org.json.JSONObject
 
 /**
@@ -246,6 +248,26 @@ class EditorHost private constructor(appContext: Context) {
         when (msg.optString("type")) {
             "ready" -> {
                 isReady = true
+                // Bridge version handshake (bridge.ts BRIDGE_VERSION /
+                // architecture-hardening.md F11) — a stale editor.html bundle
+                // vs a newer native binary (or vice versa) used to degrade to
+                // silent no-ops with nobody reading `ready.version`. Loud now.
+                val editorBridgeVersion = msg.optInt("version", -1)
+                if (editorBridgeVersion != BridgeSpec.BRIDGE_VERSION) {
+                    Log.e(
+                        "FutoBridgeDBG",
+                        "Bridge version mismatch: editor.html reports v$editorBridgeVersion, " +
+                            "native expects v${BridgeSpec.BRIDGE_VERSION}",
+                    )
+                    if (BuildConfig.DEBUG) {
+                        Toast.makeText(
+                            appContext,
+                            "Bridge version mismatch: editor v$editorBridgeVersion vs native " +
+                                "v${BridgeSpec.BRIDGE_VERSION}",
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    }
+                }
                 // Suppress the embed's web toolbar — this shell renders the
                 // native Compose toolbar (EditorToolbar.kt) [editor.md].
                 eval("window.FutoEditor && window.FutoEditor.setNativeToolbar(true);")

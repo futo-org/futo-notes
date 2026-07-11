@@ -401,6 +401,15 @@ check-command-reachability:
 check-platform-discipline:
   node scripts/check-platform-discipline.mjs
 
+# Regenerate the Android bridge-coverage spec (BridgeSpec.kt) from the
+# @futo-notes/editor futoBridge contract (packages/editor/src/bridge.ts).
+bridge-spec:
+  pnpm exec tsx scripts/gen-bridge-spec.ts --write
+
+# Fail if the generated Android bridge spec has drifted from bridge.ts.
+bridge-spec-check:
+  pnpm exec tsx scripts/gen-bridge-spec.ts --check
+
 # Remove native build artifacts (Xcode DerivedData + Gradle output + web dist)
 # to reclaim disk. Leaves cargo `target/` alone (expensive to rebuild + shared).
 clean:
@@ -408,7 +417,7 @@ clean:
   rm -rf apps/ios/.build apps/ios/.build-device apps/ios/.build-device-release
   rm -rf apps/android/app/build apps/android/build
 
-check: spec-gaps-check toolbar-spec-check check-command-reachability check-platform-discipline test-rust
+check: spec-gaps-check toolbar-spec-check bridge-spec-check check-command-reachability check-platform-discipline test-rust
   pnpm run lint
   pnpm run format:check
   pnpm run test:minimal
