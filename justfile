@@ -395,6 +395,12 @@ toolbar-spec-check:
 check-command-reachability:
   node scripts/check-command-reachability.mjs
 
+# Fail on an `invoke(`/`@tauri-apps` import outside src/lib/platform/** and
+# the frozen allowlist, or a stale allowlist entry (F29 / L2-4 gate 2) —
+# `lint:platform` only greps for removed Electron/Capacitor strings.
+check-platform-discipline:
+  node scripts/check-platform-discipline.mjs
+
 # Remove native build artifacts (Xcode DerivedData + Gradle output + web dist)
 # to reclaim disk. Leaves cargo `target/` alone (expensive to rebuild + shared).
 clean:
@@ -402,7 +408,7 @@ clean:
   rm -rf apps/ios/.build apps/ios/.build-device apps/ios/.build-device-release
   rm -rf apps/android/app/build apps/android/build
 
-check: spec-gaps-check toolbar-spec-check check-command-reachability test-rust
+check: spec-gaps-check toolbar-spec-check check-command-reachability check-platform-discipline test-rust
   pnpm run lint
   pnpm run format:check
   pnpm run test:minimal

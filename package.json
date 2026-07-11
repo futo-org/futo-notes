@@ -25,6 +25,7 @@
     "format:check": "prettier --check \"**/*.{ts,svelte,js,mjs,cjs,css}\"",
     "lint:platform": "! git grep -n -E \"platform/(electron|capacitor)|isElectron|isCapacitor\" -- src ':(exclude)src/lib/platform/**' ':(exclude)src/**/__mocks__/**' ':(exclude)src/**/*.test.ts'",
     "check:command-reachability": "node scripts/check-command-reachability.mjs",
+    "check:platform-discipline": "node scripts/check-platform-discipline.mjs",
     "test": "pnpm run test:minimal",
     "test:minimal": "pnpm exec tsx tests/conformance/generate.mjs --check && pnpm run test:unit:minimal && pnpm run test:shared:minimal && pnpm run test:editor:minimal",
     "test:full": "pnpm run test:unit:full && pnpm run test:shared:full && pnpm run test:editor:full",
