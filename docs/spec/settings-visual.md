@@ -24,7 +24,7 @@ not a requirement for every platform.
 Each shell renders settings with its own native idioms. These differences are
 **expected and allowed** — they should not be "fixed" to match desktop.
 
-| Concern | Desktop / Tauri (`SettingsScreen.svelte`) | Native Android (`apps/android/.../ui/SettingsScreen.kt`) | Native iOS (`apps/ios/SettingsView.swift`) |
+| Concern | Desktop / Tauri (`SettingsScreen.svelte`) | Native Android (`apps/android/.../ui/SettingsScreen.kt`) | Native iOS (`apps/ios/Sources/SettingsView.swift`) |
 |---|---|---|---|
 | Presentation | Modal **bottom sheet** — dim overlay, panel rises from bottom, ≤600px centered, rounded top corners, ≤85vh, internal scroll | **Full screen** — Compose `Scaffold` with a `TopAppBar` ("Settings" + back arrow) | **Sheet** — a `NavigationStack` wrapping a grouped `Form` (title "Settings", inline display mode) |
 | Dismissal | Click overlay / `Escape` / `×` close button in the sticky header | Back arrow (and system back) | **"Done"** trailing toolbar button + interactive drag-to-dismiss (both suppressed while resetting) |
