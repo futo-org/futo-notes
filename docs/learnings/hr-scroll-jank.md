@@ -192,6 +192,7 @@ This is a recurring trap. Internalize these:
 6. **Android can run JS in the WebView via CDP; the iOS simulator cannot.** On
    Android: forward `webview_devtools_remote_<pid>` and use `scripts/cdp-invoke.mjs`.
    On the iOS sim: hot-swap an instrumented `editor.html` into the installed `.app`
-   and read a DOM overlay via screenshots (see
-   docs/learnings/ios-editor-hotswap-and-scroll-probe, memory). Drive real flings
+   and read a DOM overlay via screenshots (a planned fuller write-up,
+   `ios-editor-hotswap-and-scroll-probe`, was never landed — this summary is the
+   only description of the technique). Drive real flings
    with `adb shell input swipe` / the simulator's `ui_swipe`.
