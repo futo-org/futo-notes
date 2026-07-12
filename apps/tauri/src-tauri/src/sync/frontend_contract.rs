@@ -44,7 +44,6 @@ pub(crate) struct E2eeStatusOutput {
     pub(crate) collection_id: Option<String>,
     pub(crate) max_version: u64,
     pub(crate) object_count: usize,
-    pub(crate) migrated_legacy: bool,
 }
 
 impl E2eeStatusOutput {
@@ -57,7 +56,6 @@ impl E2eeStatusOutput {
                 collection_id: None,
                 max_version: 0,
                 object_count: 0,
-                migrated_legacy: false,
             },
             Some(state) => Self {
                 connected: true,
@@ -66,7 +64,6 @@ impl E2eeStatusOutput {
                 collection_id: Some(state.collection_id),
                 max_version: state.max_version,
                 object_count: state.object_map.len(),
-                migrated_legacy: false,
             },
         }
     }
@@ -174,7 +171,6 @@ mod tests {
         assert!(!status.connected);
         assert_eq!(status.max_version, 0);
         assert_eq!(status.object_count, 0);
-        assert!(!status.migrated_legacy);
     }
 
     #[test]
