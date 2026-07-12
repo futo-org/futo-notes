@@ -363,16 +363,26 @@ upload. Desktop sync module ownership and serialization boundaries are fixed by
   password is **never** written to disk in plaintext — desktop previously kept
   it as `e2eePassword` in `.app-state.json` under the notes root (F6); on first
   load a legacy value is migrated into the keyring and the JSON field scrubbed
-  (only after the keyring write is confirmed). When the desktop secret store is
-  unavailable (e.g. headless Linux with no Secret Service), the app never falls
-  back to disk plaintext: it runs the session password-less and prompts for the
-  password again on the next launch. The tradeoff is shared and deliberate:
+  (only after the keyring write is confirmed; an interleaved save can't strand
+  the password, and a failed keyring write leaves the plaintext in place for a
+  retry rather than losing it). When the desktop secret store is unavailable
+  (e.g. headless Linux with no Secret Service), the app never falls back to disk
+  plaintext: it runs the session password-less. There is no proactive prompt on
+  the next launch — the connection metadata still marks sync as configured, so
+  the Settings sync section keeps the password field available for the user to
+  re-enter it on demand. A failed keyring *delete* on disconnect/forget/Full
+  reset surfaces a toast and sets a non-secret `pendingKeyringDeletion` marker
+  in `.app-state.json` that the next launch retries. The tradeoff is shared and
+  deliberate:
   storing the password on-device means device compromise → password → vault key.
   The stored password is cleared on explicit disconnect (after which a relaunch
   stays local) and by Full reset (desktop `deleteAllNotes` → `disconnectE2ee`
   deletes the keyring entry, M4). Verified on the emulator 2026-06-09: connect →
   `am force-stop` → relaunch reconnects silently (SYNCED); disconnect → relaunch
   stays LOCAL.
+  On web (non-Tauri, not a shipping sync surface) there is no OS keyring, so the
+  password is held in memory only and is deliberately not persisted across a
+  page reload.
   → Keychain.swift *(iOS)*, SecureStore.kt *(Android)*,
   sync/password_store.rs + syncServiceE2ee.ts *(desktop)*
 

@@ -13,8 +13,16 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import { getAppState, loadAppState, saveAppState, takeLegacyE2eePassword } from './appState';
+import {
+  clearLegacyE2eePassword,
+  getAppState,
+  getLegacyE2eePassword,
+  loadAppState,
+  saveAppState,
+} from './appState';
 import { isTauri } from './platform';
+import { getSyncErrorMessage } from './syncErrorMessage';
+import { showGlobalToast } from './toast';
 
 // ── Public types ────────────────────────────────────────────────────────
 
@@ -82,34 +90,99 @@ interface E2eeStatusOutput {
 
 let cachedPassword: string | null = null;
 
+// Every credential-store mutation — the boot migration, connect, disconnect,
+// forget, and the pending-deletion retry — runs through this single serial
+// queue so their keyring writes, `cachedPassword` assignments, and app-state
+// scrubs can never interleave (K2). `credentialGeneration` bumps whenever a
+// user-driven op establishes new authoritative state; a boot `initSyncPassword`
+// that captured the pre-lock world and then lost the race for the lock detects
+// the change and abandons its now-stale commit, so it can't resurrect a
+// disconnected credential or clobber a fresh connect.
+let credentialLock: Promise<unknown> = Promise.resolve();
+let credentialGeneration = 0;
+
+function withCredentialLock<T>(fn: () => Promise<T>): Promise<T> {
+  const run = credentialLock.then(fn, fn);
+  // Keep the chain alive regardless of this op's outcome.
+  credentialLock = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
+/** Delete the keyring entry; on failure surface it and mark a retry (K3). */
+async function deleteStoredPassword(): Promise<void> {
+  if (!isTauri) return;
+  try {
+    await invoke('e2ee_password_delete');
+    if (getAppState().pendingKeyringDeletion) {
+      // Clear the marker (undefined → dropped by JSON.stringify, not persisted).
+      await saveAppState({ ...getAppState(), pendingKeyringDeletion: undefined });
+    }
+  } catch (e) {
+    // Orphaned OS credential: don't fail the flow, but don't let it vanish
+    // silently either — tell the user and persist a marker so the next launch
+    // retries the delete (see initSyncPassword).
+    showGlobalToast(`Couldn't remove the saved sync password: ${getSyncErrorMessage(e)}`);
+    console.warn('[e2ee] could not delete vault password from keyring:', e);
+    await saveAppState({ ...getAppState(), pendingKeyringDeletion: true });
+  }
+}
+
 /**
- * One-time boot hook: migrate a legacy plaintext `e2eePassword` from
- * `.app-state.json` into the OS keyring (scrubbing the JSON only after the
- * keyring write is confirmed), then load the stored password into memory.
+ * One-time boot hook: retry any outstanding keyring deletion (K3), migrate a
+ * legacy plaintext `e2eePassword` from `.app-state.json` into the OS keyring
+ * (scrubbing the JSON only after the keyring write is confirmed, K1), then
+ * load the stored password into memory.
  *
  * Never throws — a keyring failure (e.g. headless Linux with no Secret
  * Service) leaves any legacy value in place for a later retry and runs the
- * session password-less, so the user is prompted to re-enter it rather than
- * ever falling back to disk plaintext. Safe to call un-awaited at startup.
+ * session password-less; the user can re-enter it from Settings, and it is
+ * never written back to disk in plaintext. Safe to call un-awaited at startup.
  */
 export async function initSyncPassword(): Promise<void> {
   await loadAppState();
   if (!isTauri) return;
-  const legacy = takeLegacyE2eePassword();
-  try {
-    if (legacy != null) {
-      // Keyring write MUST succeed before we scrub the plaintext.
-      await invoke('e2ee_password_set', { password: legacy });
-      cachedPassword = legacy;
-      // getAppState() is already sanitized (no e2eePassword) — this save
-      // rewrites the file without the legacy field.
-      await saveAppState(getAppState());
+
+  // Finish a delete that a prior disconnect/forget couldn't complete.
+  if (getAppState().pendingKeyringDeletion) {
+    await withCredentialLock(async () => {
+      if (getAppState().pendingKeyringDeletion) await deleteStoredPassword();
+    });
+  }
+
+  const gen = credentialGeneration;
+  await withCredentialLock(async () => {
+    // A connect/disconnect/forget won the lock ahead of us: its credential is
+    // authoritative, so drop our stale migration/load entirely. If a legacy
+    // plaintext holdover is still pinning the old password to disk, scrub it —
+    // the old password is moot now (replaced or cleared), and leaving the
+    // holdover set would keep re-writing plaintext forever, defeating F6.
+    if (gen !== credentialGeneration) {
+      if (getLegacyE2eePassword() !== undefined) {
+        clearLegacyE2eePassword();
+        await saveAppState(getAppState());
+      }
       return;
     }
-    cachedPassword = (await invoke<string | null>('e2ee_password_get')) ?? null;
-  } catch (e) {
-    console.warn('[e2ee] keyring unavailable; vault password not loaded:', e);
-  }
+    const legacy = getLegacyE2eePassword();
+    try {
+      if (legacy != null) {
+        // Keyring write MUST succeed before we stop re-injecting + scrub.
+        await invoke('e2ee_password_set', { password: legacy });
+        cachedPassword = legacy;
+        clearLegacyE2eePassword();
+        // getAppState() is sanitized (no e2eePassword) and the holdover is now
+        // cleared, so this save rewrites the file without the plaintext field.
+        await saveAppState(getAppState());
+        return;
+      }
+      cachedPassword = (await invoke<string | null>('e2ee_password_get')) ?? null;
+    } catch (e) {
+      console.warn('[e2ee] keyring unavailable; vault password not loaded:', e);
+    }
+  });
 }
 
 export function hasStoredSyncPassword(): boolean {
@@ -117,8 +190,11 @@ export function hasStoredSyncPassword(): boolean {
 }
 
 export async function forgetStoredSyncPassword(): Promise<void> {
-  if (isTauri) await invoke('e2ee_password_delete');
-  cachedPassword = null;
+  await withCredentialLock(async () => {
+    credentialGeneration++;
+    cachedPassword = null;
+    await deleteStoredPassword();
+  });
 }
 
 export function isE2eeConfigured(): boolean {
@@ -233,23 +309,29 @@ export async function connectE2ee(serverUrl: string, password: string): Promise<
   const out = await invoke<E2eeConnectOutput>('e2ee_connect', {
     input: { serverUrl: normalizedUrl, password },
   });
-  await saveAppState({
-    ...getAppState(),
-    e2eeServerUrl: normalizedUrl,
-    e2eeAuthToken: out.token,
-    e2eeUserId: out.userId,
-    e2eeCollectionId: out.collectionId,
+  await withCredentialLock(async () => {
+    // A fresh credential is now authoritative — invalidate any in-flight boot
+    // migration/load and any stale pending-deletion marker (K2).
+    credentialGeneration++;
+    await saveAppState({
+      ...getAppState(),
+      e2eeServerUrl: normalizedUrl,
+      e2eeAuthToken: out.token,
+      e2eeUserId: out.userId,
+      e2eeCollectionId: out.collectionId,
+      pendingKeyringDeletion: undefined,
+    });
+    // Keep the session working from memory first, then persist to the keyring.
+    // A keyring failure must not fail an otherwise-successful connect — it only
+    // means the password won't survive a restart (re-enter from Settings),
+    // never a fallback to disk plaintext (F6).
+    cachedPassword = password;
+    try {
+      await invoke('e2ee_password_set', { password });
+    } catch (e) {
+      console.warn('[e2ee] could not persist vault password to keyring:', e);
+    }
   });
-  // Keep the session working from memory first, then persist to the keyring.
-  // A keyring failure must not fail an otherwise-successful connect — it only
-  // means the password won't survive a restart (re-prompt), never a fallback
-  // to disk plaintext (F6).
-  cachedPassword = password;
-  try {
-    await invoke('e2ee_password_set', { password });
-  } catch (e) {
-    console.warn('[e2ee] could not persist vault password to keyring:', e);
-  }
 }
 
 export async function disconnectE2ee(): Promise<void> {
@@ -261,25 +343,23 @@ export async function disconnectE2ee(): Promise<void> {
   } catch {
     // Disconnecting a non-connected client is fine.
   }
-  // Drop the stored password too: disconnect / "reset connection" and the
-  // Full reset (deleteAllNotes → disconnectE2ee) must clear every trace of
-  // the vault credential, including the keyring entry (M4). Best-effort so a
-  // keyring hiccup can't wedge disconnect.
-  cachedPassword = null;
-  if (isTauri) {
-    try {
-      await invoke('e2ee_password_delete');
-    } catch (e) {
-      console.warn('[e2ee] could not delete vault password from keyring:', e);
-    }
-  }
-  await saveAppState({
-    ...getAppState(),
-    e2eeServerUrl: undefined,
-    e2eeAuthToken: undefined,
-    e2eeUserId: undefined,
-    e2eeCollectionId: undefined,
-    e2eeSalt: undefined,
+  await withCredentialLock(async () => {
+    // Disconnect / "reset connection" / Full reset (deleteAllNotes →
+    // disconnectE2ee) must clear every trace of the vault credential, including
+    // the keyring entry (M4). Bumping the generation invalidates a racing boot
+    // migration so it can't resurrect the credential we're clearing (K2).
+    credentialGeneration++;
+    cachedPassword = null;
+    // deleteStoredPassword handles a failed delete (toast + retry marker, K3).
+    await deleteStoredPassword();
+    await saveAppState({
+      ...getAppState(),
+      e2eeServerUrl: undefined,
+      e2eeAuthToken: undefined,
+      e2eeUserId: undefined,
+      e2eeCollectionId: undefined,
+      e2eeSalt: undefined,
+    });
   });
 }
 
