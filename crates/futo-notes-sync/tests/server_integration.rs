@@ -29,7 +29,7 @@ async fn fresh_client(server: &str) -> (ConnectedState, PathBuf) {
 }
 
 async fn pull(state: &ConnectedState, vault: &Path) -> ConnectedState {
-    futo_notes_sync::run_pull(state, vault, state.max_version, &no_progress, &no_pre_write)
+    futo_notes_sync::run_pull(state, vault, state.pull_cursor, &no_progress, &no_pre_write)
         .await
         .expect("pull")
         .1
