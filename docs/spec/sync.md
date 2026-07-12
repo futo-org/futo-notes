@@ -234,8 +234,8 @@ upload. Desktop sync module ownership and serialization boundaries are fixed by
   re-reconciles from scratch. Without this, the stale `max_version` can sit
   beyond the new collection's head and every pull silently comes back empty —
   the client never sees remote changes again (observed 2026-06-04 on all three
-  clients). Untagged pre-existing state files (and legacy imports) are
-  UNKNOWN provenance and reset the same way — trusting them once (the
+  clients). Untagged pre-existing `.e2ee-state.json` files are UNKNOWN
+  provenance and reset the same way — trusting them once (the
   original behavior) re-persisted a possibly-stale cursor tagged with the new
   collection, permanently burying the corruption for exactly the cohort the
   tag was meant to heal; a stale object map is equally bad on the push side
@@ -243,6 +243,18 @@ upload. Desktop sync module ownership and serialization boundaries are fixed by
   costs one re-reconcile through the empty-map path, which hash-dedups
   against local files. → futo-notes-sync
   `state::Loaded::reset_if_collection_changed`
+- The one-time legacy import of a pre-port `.app-state.json` object map is
+  TAGGED with the vault's `e2eeCollectionId` (written next to the map in the
+  same file), so reconnecting to that same collection KEEPS the imported map
+  instead of resetting it — a note edited offline before the port lands as a
+  clean update to its existing object (same object_id, PUT at the next
+  version) rather than a conflict copy or a re-POSTed duplicate. Importing
+  then connecting to a *different* collection still resets, and an older
+  pre-port file that predates `e2eeCollectionId` carries no tag and resets as
+  UNKNOWN provenance (the empty-map reconcile then hash-dedups). → futo-notes-sync
+  `state::import_legacy_state`; regression tests
+  `state::tests::legacy_import_tagged_with_collection_survives_load_for_collection`,
+  `orchestrator::tests::legacy_import_offline_edit_lands_as_clean_update`
 - **A server instance holds exactly one vault (collection) per account.** The
   protocol is single-vault, but the server used to mint a fresh collection on
   every `POST /api/collections`, so two devices connecting *concurrently* each
