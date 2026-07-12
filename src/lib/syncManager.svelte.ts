@@ -64,6 +64,12 @@ export interface SyncManagerDeps {
   /** Called once per remote-driven rename so the tabs store (and any
    *  other consumer) can patch references that aren't the active note. */
   onAnySyncRename?: (fromId: string, toId: string) => void;
+  /** Clear any tab (background or the just-closed active one) still pointing at
+   *  a note this sync deleted and did NOT recreate, so switching to that tab
+   *  can't resurrect the note via a `loadNote` that reads "" for the missing
+   *  file (F4 background-tab vector). The note whose unsaved draft was kept
+   *  open is intentionally excluded by the caller. */
+  pruneTabsForDeletedIds?: (goneIds: string[]) => void;
 }
 
 // ── Return type ──────────────────────────────────────────────────────────
@@ -487,7 +493,18 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
 
     // Reload only when sync actually touched the currently-open note.
     const currentOriginalId = deps.getOriginalId();
-    if (currentOriginalId && summary.deletedIds.includes(currentOriginalId)) {
+    // W1: a peer can delete note X and recreate the SAME filename before this
+    // client pulls, so the combined push+pull summary can carry X in BOTH
+    // deletedIds and updatedIds. Treat the open note as deleted only when it is
+    // NOT also updated — otherwise adopt the replacement rather than closing.
+    const openNoteDeleted =
+      !!currentOriginalId &&
+      summary.deletedIds.includes(currentOriginalId) &&
+      !summary.updatedIds.includes(currentOriginalId);
+    // The id of the open note whose unsaved draft we deliberately keep open
+    // (edit-wins); it must be excluded from tab pruning below.
+    let keptDeletedDraftId: string | null = null;
+    if (openNoteDeleted) {
       // F4: a peer deleted the currently-open note. Renames were already
       // resolved by the activeRename block above (a collision-rename shows the
       // old id in deletedIds), so a still-deleted open id here is a genuine
@@ -499,6 +516,7 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
       // local-watcher unlink-of-open-note path instead: keep an unsaved draft,
       // otherwise close the session.
       if (deps.hasOpenDraftChanges()) {
+        keptDeletedDraftId = currentOriginalId;
         deps.showToast('Open note was deleted during sync; keeping local draft');
         await refreshNotesFromStorage();
       } else {
@@ -541,6 +559,16 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
         deps.showToast('Open note changed during sync; keeping local draft');
       }
     }
+
+    // W2: prune any tab still pointing at a note this sync deleted and did not
+    // recreate (W1), so switching to a background tab — or back to the tab of
+    // the note just closed above — can't resurrect it via loadNote reading ""
+    // for the missing file. The note whose unsaved draft we kept open is
+    // intentionally left valid. Renames already re-pointed their tabs above.
+    const goneIds = summary.deletedIds.filter(
+      (id) => !summary.updatedIds.includes(id) && id !== keptDeletedDraftId,
+    );
+    if (goneIds.length > 0) deps.pruneTabsForDeletedIds?.(goneIds);
 
     // Sync status banner. A successful sync reports just "Sync complete" —
     // never per-item uploaded/downloaded/deleted/conflict counts (sync.md,

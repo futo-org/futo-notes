@@ -908,4 +908,114 @@ describe('F4: peer-delete of the open note closes the session, never adopts ""',
     expect(cancelAndClear).not.toHaveBeenCalled();
     vi.unstubAllGlobals();
   });
+
+  // W1: a peer can delete note X and recreate the same filename before this
+  // client pulls, so the combined push+pull summary can carry X in BOTH
+  // deletedIds and updatedIds. The open note must adopt the replacement, not
+  // close.
+  it('adopts the replacement when the open note is deleted AND recreated in the same summary', async () => {
+    vi.mocked(readNote).mockResolvedValue('# Recreated content');
+    const applyExternalContent = vi.fn();
+    const cancelAndClear = vi.fn();
+    const toasts: string[] = [];
+    const mgr = createSyncManager(
+      makeDeps({
+        getOriginalId: () => 'RecreatedNote',
+        getEditorContent: () => 'OLD CONTENT',
+        isEditorFocused: () => false,
+        applyExternalContent,
+        cancelAndClear,
+        showToast: (m) => toasts.push(m),
+      }),
+    );
+
+    await mgr.handleSyncComplete(
+      {
+        ...emptySummary,
+        updatedIds: ['RecreatedNote'],
+        deletedIds: ['RecreatedNote'],
+        peerUpdatedIds: ['RecreatedNote'],
+        peerDeletedIds: ['RecreatedNote'],
+      },
+      'poll',
+    );
+
+    expect(cancelAndClear).not.toHaveBeenCalled();
+    expect(toasts).not.toContain('Note was deleted during sync');
+    expect(applyExternalContent).toHaveBeenCalledWith('# Recreated content');
+  });
+
+  // W2: a peer-deleted note left open in a BACKGROUND tab would resurrect when
+  // the user switches to it (loadNote reads "" → blank editor bound to the id →
+  // first keystroke re-creates). Prune such tabs; exclude notes this sync
+  // recreated (W1) and the open note whose draft was intentionally kept.
+  it('prunes tabs for notes deleted-and-not-recreated by this sync (excludes recreated)', async () => {
+    const pruneTabsForDeletedIds = vi.fn();
+    const mgr = createSyncManager(
+      makeDeps({
+        getOriginalId: () => null,
+        pruneTabsForDeletedIds,
+      }),
+    );
+
+    await mgr.handleSyncComplete(
+      {
+        ...emptySummary,
+        deletedIds: ['BgGone', 'Recreated'],
+        updatedIds: ['Recreated'],
+        peerDeletedIds: ['BgGone', 'Recreated'],
+        peerUpdatedIds: ['Recreated'],
+      },
+      'poll',
+    );
+
+    expect(pruneTabsForDeletedIds).toHaveBeenCalledWith(['BgGone']);
+  });
+
+  it('prunes the closed active-note tab (no draft) so it cannot resurrect', async () => {
+    const pruneTabsForDeletedIds = vi.fn();
+    const cancelAndClear = vi.fn();
+    const mgr = createSyncManager(
+      makeDeps({
+        getOriginalId: () => 'ClosedActive',
+        isEditorFocused: () => false,
+        cancelAndClear,
+        pruneTabsForDeletedIds,
+      }),
+    );
+
+    await mgr.handleSyncComplete(
+      { ...emptySummary, deletedIds: ['ClosedActive'], peerDeletedIds: ['ClosedActive'] },
+      'poll',
+    );
+
+    expect(cancelAndClear).toHaveBeenCalledTimes(1);
+    expect(pruneTabsForDeletedIds).toHaveBeenCalledWith(['ClosedActive']);
+  });
+
+  it('does NOT prune the open note whose unsaved draft was kept', async () => {
+    const pruneTabsForDeletedIds = vi.fn();
+    const cancelAndClear = vi.fn();
+    const mgr = createSyncManager(
+      makeDeps({
+        getOriginalId: () => 'DirtyDoomed',
+        hasOpenDraftChanges: () => true,
+        isEditorFocused: () => false,
+        cancelAndClear,
+        pruneTabsForDeletedIds,
+      }),
+    );
+
+    await mgr.handleSyncComplete(
+      {
+        ...emptySummary,
+        deletedIds: ['DirtyDoomed', 'BgGone'],
+        peerDeletedIds: ['DirtyDoomed', 'BgGone'],
+      },
+      'poll',
+    );
+
+    expect(cancelAndClear).not.toHaveBeenCalled();
+    expect(pruneTabsForDeletedIds).toHaveBeenCalledWith(['BgGone']);
+  });
 });
