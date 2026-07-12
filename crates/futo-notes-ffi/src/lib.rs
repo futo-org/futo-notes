@@ -145,13 +145,15 @@ impl NoteStore {
         model::write_note(&self.root, &id, &content).map_err(NoteError::Io)
     }
 
-    /// Compare-and-swap flush for a backgrounded editor: write `content` only
-    /// if the note still holds `expected_prev`. One call replaces the shell's
-    /// old `exists()`-then-`write()` sequence, closing its TOCTOU — a note
-    /// deleted while backgrounded returns [`FlushOutcome::SkippedMissing`]
+    /// Conditional flush for a backgrounded editor: write `content` only if the
+    /// note still holds `expected_prev`. One call replaces the shell's old
+    /// `exists()`-then-`write()` sequence, collapsing its cross-FFI TOCTOU — a
+    /// note deleted while backgrounded returns [`FlushOutcome::SkippedMissing`]
     /// (never resurrected), and content adopted by a live-sync pull since the
     /// editor's last read returns [`FlushOutcome::SkippedChanged`] (never
-    /// clobbered). See `model::write_note_if_unchanged`.
+    /// clobbered). Check-then-atomic-write, NOT a true CAS — a narrow residual
+    /// single-process syscall window remains and is accepted; see
+    /// `model::write_note_if_unchanged` for the full rationale.
     pub fn write_if_unchanged(
         &self,
         id: String,

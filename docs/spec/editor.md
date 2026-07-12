@@ -446,21 +446,25 @@ EditorWebView.swift, EditorWebView.kt
   write — true on both native shells. → Android MainActivity `onPause` →
   `NotesStore.flushPendingEditor`; iOS FutoNotesApp scenePhase
   `.inactive`/`.background` → `NotesStore.flushPendingEditor`
-- A leave/background flush is a **compare-and-swap write**: it persists only if
-  the note still holds the content the editor last saw. A note deleted while the
+- A leave/background flush is a **conditional write**: it persists only if the
+  note still holds the content the editor last saw. A note deleted while the
   editor was backgrounded is never recreated by the flush, and content a live
   pull adopted since the editor's last read is never clobbered by a stale flush.
-  *(Android)* → `futo_notes_model::write_note_if_unchanged` via FFI
-  `write_if_unchanged`; `NotesStore.flushAsync`.
+  (Check-then-atomic-write, so a narrow single-process syscall window remains —
+  accepted; not a true compare-and-swap.) *(Android)* →
+  `futo_notes_model::write_note_if_unchanged` via FFI `write_if_unchanged`;
+  `NotesStore.flushAsync`.
   > **Gap:** iOS still flushes with a plain exists-then-write and a hand-synced
-  > pending-draft register — no compare-and-swap, so a delete/adopt racing the
-  > flush can resurrect or clobber. iOS adopts the compare-and-swap primitive +
-  > the derived register in PKT-10 (needs a macOS host).
+  > pending-draft register — no conditional write, so a delete/adopt racing the
+  > flush can resurrect or clobber. iOS adopts the `write_if_unchanged` primitive
+  > + the derived register in PKT-10 (needs a macOS host).
 - The open editor's unsaved-draft register is **derived** from the editor's live
-  state (note id, buffer, saved content, loaded) rather than hand-synced, and is
-  owner-scoped so a screen leaving during the nav cross-fade can't wipe the
-  incoming screen's draft. *(Android)* → NoteEditorScreen.kt snapshotFlow →
-  `NotesStore.updateDraft`/`claimDraftOwnership`.
+  state (note id, buffer, saved content, loaded) rather than hand-synced: the
+  screen registers one derivation closure that the flush pulls synchronously, so
+  an edit landing right before backgrounding is always seen. It is owner-scoped
+  so a screen leaving during the nav cross-fade can't drop the incoming screen's
+  provider. *(Android)* → NoteEditorScreen.kt →
+  `NotesStore.setDraftProvider`/`claimDraftOwnership`.
 - An empty title shows the placeholder "Untitled"; the title field strips
   newlines.
 - The editor chrome shows **no word count** (or any other document
