@@ -645,6 +645,10 @@ upload. Desktop sync module ownership and serialization boundaries are fixed by
   `<title> (conflict YYYY-MM-DD)` copy (uniqued like every create), the
   remote content is adopted into the editor, and a "Conflicting edits saved
   to a copy" toast fires. A draft that already reached disk is covered by
-  the push-first 409 machinery above instead. Verified on the emulator
-  2026-06-09 (held-dirty draft + peer edit → copy contained the draft,
-  editor showed the remote). → NoteEditorScreen.kt / NoteEditorView.swift
+  the push-first 409 machinery above instead. On Android the local edit is
+  captured immediately before the remote is adopted, so any keystroke typed up
+  to the moment of adoption is folded into the conflict copy (PKT-12 item 5);
+  the remote is adopted first so a background flush during the copy write can't
+  clobber it. Verified on the emulator 2026-06-09 (held-dirty draft + peer edit
+  → copy contained the draft, editor showed the remote).
+  → NoteEditorScreen.kt / NoteEditorView.swift

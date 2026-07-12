@@ -428,6 +428,62 @@ pub fn write_note(base: &Path, id: &str, content: &str) -> Result<(), String> {
     write_atomic_text(&path, content)
 }
 
+/// Outcome of [`write_note_if_unchanged`] — a conditional write.
+#[derive(Debug, PartialEq, Eq)]
+pub enum FlushOutcome {
+    /// The note still held `expected_prev`; `content` was written.
+    Wrote,
+    /// The note no longer exists — nothing written (anti-resurrection guard).
+    SkippedMissing,
+    /// The note's on-disk content differs from `expected_prev` — nothing
+    /// written, so a change made since the caller's snapshot is preserved.
+    SkippedChanged,
+}
+
+/// Conditional write for a backgrounded editor flush: read the note at `id` and
+/// write `content` **only if** its current on-disk content still equals
+/// `expected_prev`. This collapses the editor's old "check `note_exists`, then
+/// `write_note`" two-call sequence into one operation whose decision is made from
+/// a single read:
+///   * the note was deleted while the editor was backgrounded → `SkippedMissing`
+///     (never resurrect it — the two-call sequence's cross-FFI TOCTOU could
+///     recreate it);
+///   * a live-sync pull adopted remote content since the editor's last read →
+///     `SkippedChanged` (never clobber the adopted remote with a stale flush).
+/// A genuinely-clean note (`current == expected_prev`) is overwritten atomically.
+///
+/// NOT a true compare-and-swap. This is check-then-atomic-write: the guard read
+/// and the `write_atomic_text` rename are separate syscalls, so a delete or write
+/// landing in the sub-syscall window between them is not prevented — the write
+/// can still recreate a note deleted in that instant, or land on top of a change
+/// applied in it. The residual window is accepted (PKT-12): it is single-process
+/// and syscall-tight, strictly narrower than the two-FFI-hop gap it replaces, and
+/// the only thing that would close it fully is per-vault mutation serialization
+/// (the op-queue shape deliberately rejected as too invasive for the sync
+/// orchestrator). If device QA ever shows real loss through this window, a
+/// crash-safe journal is the escalation, not a lock.
+///
+/// `expected_prev` is the content the flushing editor believes is on disk (its
+/// `savedContent`). Note bodies are small, so comparing the full string (rather
+/// than a hash) keeps the semantics exact with no ambiguity.
+pub fn write_note_if_unchanged(
+    base: &Path,
+    id: &str,
+    expected_prev: &str,
+    content: &str,
+) -> Result<FlushOutcome, String> {
+    let path = safe_note_path(base, id)?;
+    match std::fs::read_to_string(&path) {
+        Ok(current) if current == expected_prev => {
+            write_atomic_text(&path, content)?;
+            Ok(FlushOutcome::Wrote)
+        }
+        Ok(_) => Ok(FlushOutcome::SkippedChanged),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(FlushOutcome::SkippedMissing),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
 /// Create a new note from a title (+ optional folder). Returns the final,
 /// collision-resolved id. Mirrors `NotesStore.createNote`.
 pub fn create_note(base: &Path, folder: &str, title: &str) -> Result<String, String> {

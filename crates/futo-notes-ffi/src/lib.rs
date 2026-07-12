@@ -76,6 +76,29 @@ pub enum NoteError {
     Io(String),
 }
 
+/// Outcome of `NoteStore::write_if_unchanged` (the FFI mirror of
+/// `model::FlushOutcome`).
+#[derive(Debug, PartialEq, Eq, uniffi::Enum)]
+pub enum FlushOutcome {
+    /// The note still held the expected content; the flush was written.
+    Wrote,
+    /// The note no longer exists — nothing written (never resurrected).
+    SkippedMissing,
+    /// The note changed since the editor's last read — nothing written (the
+    /// change, e.g. a live-sync adoption, is preserved).
+    SkippedChanged,
+}
+
+impl From<model::FlushOutcome> for FlushOutcome {
+    fn from(o: model::FlushOutcome) -> Self {
+        match o {
+            model::FlushOutcome::Wrote => FlushOutcome::Wrote,
+            model::FlushOutcome::SkippedMissing => FlushOutcome::SkippedMissing,
+            model::FlushOutcome::SkippedChanged => FlushOutcome::SkippedChanged,
+        }
+    }
+}
+
 /// The note vault, rooted at a directory on disk. All methods are synchronous
 /// filesystem operations — the Swift/Kotlin shell owns reactive state and
 /// debouncing on top.
@@ -120,6 +143,26 @@ impl NoteStore {
     /// Atomically write a note's content.
     pub fn write(&self, id: String, content: String) -> Result<(), NoteError> {
         model::write_note(&self.root, &id, &content).map_err(NoteError::Io)
+    }
+
+    /// Conditional flush for a backgrounded editor: write `content` only if the
+    /// note still holds `expected_prev`. One call replaces the shell's old
+    /// `exists()`-then-`write()` sequence, collapsing its cross-FFI TOCTOU — a
+    /// note deleted while backgrounded returns [`FlushOutcome::SkippedMissing`]
+    /// (never resurrected), and content adopted by a live-sync pull since the
+    /// editor's last read returns [`FlushOutcome::SkippedChanged`] (never
+    /// clobbered). Check-then-atomic-write, NOT a true CAS — a narrow residual
+    /// single-process syscall window remains and is accepted; see
+    /// `model::write_note_if_unchanged` for the full rationale.
+    pub fn write_if_unchanged(
+        &self,
+        id: String,
+        expected_prev: String,
+        content: String,
+    ) -> Result<FlushOutcome, NoteError> {
+        model::write_note_if_unchanged(&self.root, &id, &expected_prev, &content)
+            .map(FlushOutcome::from)
+            .map_err(NoteError::Io)
     }
 
     /// Seed the welcome note iff the vault is empty. Returns the number of

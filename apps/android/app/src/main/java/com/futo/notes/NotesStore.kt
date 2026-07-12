@@ -37,11 +37,29 @@ data class NoteItem(
 internal val noteListOrder: Comparator<NoteItem> =
     compareByDescending<NoteItem> { it.modifiedMs }.thenBy { it.id }
 
-/** An open editor's unsaved draft: the note [id] to persist and the [content]
- *  to write to it. The editor publishes this on every keystroke and the
- *  Activity's onPause flushes it before the OS can jetsam the backgrounded
- *  process (F8 parity with iOS). Mirrors the iOS `pendingDraft` tuple. */
-data class PendingDraft(val id: String, val content: String)
+/** An open editor's unsaved draft: the note [id] to persist, the [content] to
+ *  write, and [base] — the content the editor believes is on disk (its
+ *  savedContent). [base] is the expected-previous for the conditional flush
+ *  (see [NotesStore.flushAsync] → `write_if_unchanged`): the flush writes only
+ *  if the note still holds [base], so a note deleted or sync-adopted while
+ *  backgrounded is neither resurrected nor clobbered. Mirrors the iOS
+ *  `pendingDraft` tuple. */
+data class PendingDraft(val id: String, val base: String, val content: String)
+
+/** The open editor's unsaved-draft derivation — the ONE definition of "is there
+ *  an unsaved draft, for which note" (PKT-12 R5). Returns a draft keyed on the
+ *  LIVE [noteId] (so it re-keys by construction after a rename) whenever the body
+ *  has loaded and diverges from what's on disk; null when clean or not yet
+ *  loaded. [savedContent] is both the dirty check and the flush's expected-prev
+ *  [base]. Pulled synchronously at flush time by [PendingEditorDraft]. Pure +
+ *  top-level so it is unit-testable without composition. */
+internal fun derivePendingDraft(
+    loaded: Boolean,
+    noteId: String,
+    savedContent: String,
+    content: String,
+): PendingDraft? =
+    if (loaded && content != savedContent) PendingDraft(noteId, savedContent, content) else null
 
 /**
  * The open editor's unsaved-draft register and its leave-foreground flush,
@@ -49,38 +67,67 @@ data class PendingDraft(val id: String, val content: String)
  * unit-testable — apps/android ships JUnit only (no Robolectric/coroutines-test),
  * so the FFI-backed [NotesStore] can't be constructed in a JVM test.
  *
- * The open editor publishes its draft on every keystroke via [set] (or null when
- * the body goes clean / the editor closes); MainActivity.onPause calls [flush] at
- * the FIRST leave-foreground signal. Idempotent, and a no-op when the draft is
- * clean. Mirrors iOS `NotesStore.pendingDraft` + `flushPendingEditor` [editor.md].
+ * The register is DERIVED and PULL-based: each open editor registers ONE
+ * derivation closure (`{ if (loaded && content != savedContent) draft else null }`)
+ * via [setProvider]; [flush] invokes them SYNCHRONOUSLY at the leave-foreground
+ * edge to read each editor's live state (PKT-12 R5). One source of truth instead
+ * of ~7 imperative set/clear sites that raced the editor (PKT-1 R1-R4). Pulling
+ * at flush time (rather than an async snapshotFlow that pushes updates) closes
+ * the publication-window gap: an edit landing immediately before onPause is
+ * always seen, because the provider reads the current snapshot state when the
+ * flush runs, not whenever a conflated async collector last happened to fire.
+ *
+ * The register is a MAP of generation-token → provider, NOT a single slot. During
+ * the AnimatedContent cross-fade the incoming editor composes (and registers its
+ * provider) before the outgoing one disposes, so both are briefly live. A single
+ * slot would let the incoming editor's registration EVICT the outgoing (still
+ * dirty) editor's provider — and since the incoming editor is unloaded it derives
+ * null, so a pause+kill before the outgoing's dispose would flush nothing and
+ * lose its edit (PKT-1 R2 / PKT-12 G1). Keeping every live provider and flushing
+ * ALL of them (at most two during a cross-fade) kills that eviction by
+ * construction; [release] removes only the caller's own entry.
+ *
+ * MainActivity.onPause calls [flush] at the FIRST leave-foreground signal.
+ * Idempotent, and a no-op when every open editor is clean / closed. Mirrors iOS
+ * `NotesStore.pendingDraft` + `flushPendingEditor` [editor.md].
  */
-internal class PendingEditorDraft(private val persist: (id: String, content: String) -> Unit) {
-    private var draft: PendingDraft? = null
+internal class PendingEditorDraft(private val persist: (draft: PendingDraft) -> Unit) {
+    private var seq: Long = 0
+    private val providers = LinkedHashMap<Long, () -> PendingDraft?>()
 
-    fun set(draft: PendingDraft?) {
-        this.draft = draft
+    /** A newly-composed editor claims an entry; returns its unique generation
+     *  token (the map key). Registration/removal are keyed by it, so editors
+     *  overlapping during a cross-fade never touch each other's entry. */
+    fun claim(): Long = ++seq
+
+    /** The editor registers (or re-registers) its derivation closure under its
+     *  own [token]. Never evicts another editor's entry. */
+    fun setProvider(token: Long, provider: () -> PendingDraft?) {
+        providers[token] = provider
     }
 
-    /** Persist the pending draft, if any. No-op when clean / closed; safe to
-     *  call at every leave-foreground signal. */
+    /** The editor left composition — removes only its own entry, leaving any
+     *  overlapping editor's provider intact. */
+    fun release(token: Long) {
+        providers.remove(token)
+    }
+
+    /** Persist every live editor's current draft by pulling each provider
+     *  SYNCHRONOUSLY (so the newest keystroke is always seen). Flushes all live
+     *  providers — at most two during a cross-fade — so an outgoing dirty editor
+     *  is never dropped. No-op when every provider derives clean / closed; safe to
+     *  call at every leave-foreground signal.
+     *
+     *  Derivations are COALESCED by note id before dispatching, so two editors
+     *  overlapping on the SAME note during a cross-fade (e.g. rename + self-link
+     *  navigation, both dirty) never fire two conditional writes that read the
+     *  same base and race — exactly one flush per note. The winner is the
+     *  LAST-registered provider's draft (LinkedHashMap insertion order): the
+     *  incoming editor is the user's current view, so its content wins. */
     fun flush() {
-        draft?.let { persist(it.id, it.content) }
-    }
-
-    /** Clear the register ONLY if it still holds exactly [expected] (id AND
-     *  content). Compare-and-clear: a keystroke that republished a newer draft
-     *  while a save was suspended mid-write is preserved — an unconditional
-     *  clear would wipe it and lose that edit on the next background. */
-    fun clearIf(expected: PendingDraft) {
-        if (draft == expected) draft = null
-    }
-
-    /** Clear the register ONLY if its draft is for note [id]. Lets a screen drop
-     *  its OWN note's draft (dispose / adopt) without wiping a draft the next
-     *  screen already published for a different note during the AnimatedContent
-     *  cross-fade overlap. */
-    fun clearIfNoteId(id: String) {
-        if (draft?.id == id) draft = null
+        val byId = LinkedHashMap<String, PendingDraft>()
+        providers.values.toList().forEach { provider -> provider()?.let { byId[it.id] = it } }
+        byId.values.forEach { persist(it) }
     }
 }
 
@@ -169,26 +216,64 @@ class NotesStore(notesRoot: File) {
     suspend fun read(id: String): String = withContext(Dispatchers.IO) { core.read(id) }
     suspend fun exists(id: String): Boolean = withContext(Dispatchers.IO) { core.exists(id) }
 
-    /** Fire-and-forget flush for the editor's `onDispose`: a composable's dispose
-     *  callback can't suspend, and the editor's own scope is gone by then, so the
-     *  final save runs on the store's scope (which outlives the screen). The
-     *  exists-check + write happen on IO; `write` keeps `notes` in sync. */
-    fun flushAsync(id: String, content: String) {
+    /** Fire-and-forget flush for the editor's leave paths (`onDispose` on pop,
+     *  and the register's onPause flush): a composable's dispose callback can't
+     *  suspend, so the final save runs on the store's scope (which outlives the
+     *  screen).
+     *
+     *  A conditional write (`write_if_unchanged`): persist `draft.content` only
+     *  if the note still holds `draft.base` (the content the editor last saw).
+     *  One FFI call replaces the old `exists()`-then-`write()` sequence,
+     *  collapsing its cross-FFI TOCTOU — a note deleted while backgrounded
+     *  returns SkippedMissing (never resurrected), and content a live-sync pull
+     *  adopted since the editor's last read returns SkippedChanged (never
+     *  clobbered). Check-then-atomic-write, not a true CAS (a narrow residual
+     *  syscall window is accepted — see the Rust doc). Only a genuine write
+     *  (WROTE) updates in-memory state. */
+    fun flushAsync(draft: PendingDraft) {
         scope.launch {
-            if (withContext(Dispatchers.IO) { core.exists(id) }) write(id, content)
+            // Swallow-and-log, mirroring [write]. `writeIfUnchanged` throws
+            // NoteException on a non-NotFound IO error (temp-write ENOSPC, EACCES
+            // read); this runs on a fire-and-forget scope with no exception
+            // handler, so an uncaught throw here would crash the process at
+            // leave-foreground. A failed background flush must degrade to "not
+            // flushed" (the debounce / next flush retries), never crash.
+            try {
+                val outcome = withContext(Dispatchers.IO) {
+                    core.writeIfUnchanged(draft.id, draft.base, draft.content)
+                }
+                if (outcome == uniffi.futo_notes_ffi.FlushOutcome.WROTE) {
+                    applyWrittenContent(draft.id, draft.content)
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("NotesStore", "flush failed for ${draft.id}", e)
+            }
         }
     }
 
-    /** The open editor's unsaved-draft register (F8 jetsam guard). The editor
-     *  publishes its draft here on every keystroke via [setPendingDraft]; the
-     *  Activity's onPause calls [flushPendingEditor] so an edit caught inside the
-     *  400 ms autosave debounce is persisted before the OS can kill the
-     *  backgrounded process. Mirrors iOS `NotesStore.pendingDraft`. */
-    private val pendingEditor = PendingEditorDraft { id, content -> flushAsync(id, content) }
+    /** The open editors' unsaved-draft register (F8 jetsam guard). Each editor
+     *  registers ONE derivation closure via [setDraftProvider] under its own
+     *  token; the Activity's onPause calls [flushPendingEditor], which pulls every
+     *  live closure synchronously so an edit caught inside the 400 ms autosave
+     *  debounce — even one landing right before onPause, and even in an editor
+     *  still overlapping during a nav cross-fade — is persisted before the OS can
+     *  kill the backgrounded process. Mirrors iOS `NotesStore.pendingDraft`. */
+    private val pendingEditor = PendingEditorDraft { draft -> flushAsync(draft) }
 
-    /** The editor publishes its current unsaved draft (id + content), or null
-     *  when the body is clean / the editor is closed. Mirrors iOS `setPendingDraft`. */
-    fun setPendingDraft(draft: PendingDraft?) = pendingEditor.set(draft)
+    /** A newly-composed editor claims a register entry; returns its unique token.
+     *  Entries are keyed by it, so editors overlapping during the AnimatedContent
+     *  cross-fade never evict each other's provider (PKT-1 R2 / PKT-12 G1). */
+    fun claimDraftOwnership(): Long = pendingEditor.claim()
+
+    /** The editor registers its derivation closure under its [token] — evaluated
+     *  synchronously at flush time (onPause). Replaces the old hand-synced
+     *  set/clear sites: the register reflects the editor's live state on demand. */
+    fun setDraftProvider(token: Long, provider: () -> PendingDraft?) =
+        pendingEditor.setProvider(token, provider)
+
+    /** The editor left composition — removes only its own entry, leaving any
+     *  overlapping editor's provider intact. */
+    fun releaseDraftOwnership(token: Long) = pendingEditor.release(token)
 
     /** Flush the open editor's pending draft to disk if it has unsaved edits.
      *  Called from MainActivity.onPause (the first leave-foreground signal).
@@ -198,48 +283,48 @@ class NotesStore(notesRoot: File) {
      *  can still beat it (same on iOS). */
     fun flushPendingEditor() = pendingEditor.flush()
 
-    /** Compare-and-clear: drop the register only if it still holds exactly
-     *  [expected]. Used after a save completes so a newer draft published while
-     *  the write was suspended survives (see [PendingEditorDraft.clearIf]). */
-    fun clearPendingDraft(expected: PendingDraft) = pendingEditor.clearIf(expected)
-
-    /** Clear the register only if its draft is for note [id]. Used on editor
-     *  dispose / remote-adopt so a screen drops its own note's draft without
-     *  wiping the next screen's during the nav cross-fade overlap. */
-    fun clearPendingDraftForNote(id: String) = pendingEditor.clearIfNoteId(id)
-
     /** Write a note, updating the in-memory row in place (no full rescan) so the
      *  list's identity/order stays stable while typing — mirrors the iOS
      *  in-place optimization. Preview + tags come from the same Rust rules. The
      *  FFI write + preview/tag derivation run on IO; the state swap is on main. */
     suspend fun write(id: String, content: String) {
         try {
-            val derived = withContext(Dispatchers.IO) {
-                core.write(id, content)
-                Triple(
-                    uniffi.futo_notes_ffi.makePreview(content),
-                    uniffi.futo_notes_ffi.makeRichPreview(content),
-                    uniffi.futo_notes_ffi.extractTags(content),
-                )
-            }
-            val idx = notes.indexOfFirst { it.id == id }
-            if (idx >= 0) {
-                val old = notes[idx]
-                val updated = old.copy(
-                    modifiedMs = System.currentTimeMillis(),
-                    preview = derived.first,
-                    richPreview = derived.second,
-                    tags = derived.third,
-                )
-                notes = notes.toMutableList().also { it[idx] = updated }
-            } else {
-                reload()
-            }
-            signalLocalChange()
-            notifyEngine { it.notifyChanged("$id.md") }
+            withContext(Dispatchers.IO) { core.write(id, content) }
+            applyWrittenContent(id, content)
         } catch (e: Exception) {
             android.util.Log.e("NotesStore", "write failed for $id", e)
         }
+    }
+
+    /** Reflect a write of [content] to [id] that already landed on disk into the
+     *  in-memory list, search engine, and auto-push signal — the post-write
+     *  bookkeeping shared by [write] and [flushAsync]'s conditional write.
+     *  Updates the row IN PLACE (stable identity/order while typing); a note not
+     *  in the list yet triggers a rescan. Preview + tags come from the same Rust
+     *  rules the scan uses. */
+    private suspend fun applyWrittenContent(id: String, content: String) {
+        val derived = withContext(Dispatchers.IO) {
+            Triple(
+                uniffi.futo_notes_ffi.makePreview(content),
+                uniffi.futo_notes_ffi.makeRichPreview(content),
+                uniffi.futo_notes_ffi.extractTags(content),
+            )
+        }
+        val idx = notes.indexOfFirst { it.id == id }
+        if (idx >= 0) {
+            val old = notes[idx]
+            val updated = old.copy(
+                modifiedMs = System.currentTimeMillis(),
+                preview = derived.first,
+                richPreview = derived.second,
+                tags = derived.third,
+            )
+            notes = notes.toMutableList().also { it[idx] = updated }
+        } else {
+            reload()
+        }
+        signalLocalChange()
+        notifyEngine { it.notifyChanged("$id.md") }
     }
 
     /** Re-sort the in-memory list most-recently-modified first WITHOUT a rescan
