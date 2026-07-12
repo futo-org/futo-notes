@@ -46,13 +46,16 @@ vi.mock('./notes.svelte', async (importOriginal) => {
   return {
     ...actual,
     readNote: vi.fn(async () => ''),
+    // Default: a note this cycle deleted is GONE from disk (the F4 case). Tests
+    // that model a recreate override this to true for the recreated id.
+    noteExists: vi.fn(async () => false),
     handleExternalFileChange: vi.fn(async () => {}),
     refreshNotesFromStorage: vi.fn(async () => {}),
   };
 });
 
 import { findActiveSyncRename, createSyncManager, getSyncErrorMessage } from './syncManager.svelte';
-import { readNote, refreshNotesFromStorage } from './notes.svelte';
+import { readNote, noteExists, refreshNotesFromStorage } from './notes.svelte';
 import { engineNotify } from '$features/search/searchEngine';
 import { updateAppState } from './appState';
 import type { SyncManagerDeps } from './syncManager.svelte';
@@ -754,5 +757,514 @@ describe('focus guard: no external adopt into a focused editor', () => {
     expect(applyExternalContent).not.toHaveBeenCalled();
     expect(toasts).toEqual(['Open note changed externally; keeping local draft']);
     expect(refreshNotesFromStorage).toHaveBeenCalledTimes(1);
+  });
+});
+
+// Regression (F4): a peer that deletes the currently-open note used to blank
+// the editor and resurrect the file. read_note returns "" for a missing file
+// on Tauri (crud.rs scan-time tolerance, contract §8.3), so the post-sync adopt
+// path read "" and called applyExternalContent("") — leaving the session bound
+// to the deleted id, so the next keystroke re-created the file and undid the
+// peer's delete fleet-wide. handleSyncComplete must instead branch on
+// summary.deletedIds and close the open session (never adopt ""), mirroring the
+// local-watcher unlink-of-open-note path.
+describe('F4: peer-delete of the open note closes the session, never adopts ""', () => {
+  const emptySummary: SyncSummary = {
+    uploaded: 0,
+    downloaded: 0,
+    deleted: 0,
+    conflicts: 0,
+    failures: [],
+    failureMessage: null,
+    updatedIds: [],
+    deletedIds: [],
+    renamed: [],
+    peerUpdatedIds: [],
+    peerDeletedIds: [],
+  };
+
+  function makeDeps(overrides: Partial<SyncManagerDeps>): SyncManagerDeps {
+    return {
+      getOriginalId: () => null,
+      getEditVersion: () => 0,
+      isSavePending: () => false,
+      hasOpenDraftChanges: () => false,
+      getLastEditTime: () => 0,
+      applyExternalContent: () => {},
+      applyRemoteRename: () => {},
+      cancelAndClear: () => {},
+      flushSave: async () => {},
+      getEditorContent: () => undefined,
+      isComposing: () => false,
+      isEditorFocused: () => false,
+      patchGraphNode: () => {},
+      clearGraphData: () => {},
+      showToast: () => {},
+      navigate: () => {},
+      getNoteId: () => null,
+      getPrevNoteId: () => null,
+      setPrevNoteId: () => {},
+      ...overrides,
+    };
+  }
+
+  beforeEach(() => {
+    // Tauri production semantics: read_note returns "" for a missing file.
+    vi.mocked(readNote).mockReset();
+    vi.mocked(readNote).mockResolvedValue('');
+    // Default: a deleted note is gone from disk (F4). Recreate tests override.
+    vi.mocked(noteExists).mockReset();
+    vi.mocked(noteExists).mockResolvedValue(false);
+    vi.mocked(refreshNotesFromStorage).mockClear();
+  });
+
+  it('closes the open session and toasts instead of blanking the editor', async () => {
+    const applyExternalContent = vi.fn();
+    const cancelAndClear = vi.fn();
+    const toasts: string[] = [];
+    const mgr = createSyncManager(
+      makeDeps({
+        getOriginalId: () => 'Doomed',
+        getEditorContent: () => 'OLD CONTENT',
+        isEditorFocused: () => false,
+        applyExternalContent,
+        cancelAndClear,
+        showToast: (m) => toasts.push(m),
+      }),
+    );
+
+    await mgr.handleSyncComplete(
+      { ...emptySummary, deleted: 1, deletedIds: ['Doomed'], peerDeletedIds: ['Doomed'] },
+      'poll',
+    );
+
+    expect(applyExternalContent).not.toHaveBeenCalled();
+    expect(cancelAndClear).toHaveBeenCalledTimes(1);
+    expect(toasts).toEqual(['Note was deleted during sync']);
+  });
+
+  it('keeps an unsaved local draft (never closes) when the deleted open note has draft changes', async () => {
+    const applyExternalContent = vi.fn();
+    const cancelAndClear = vi.fn();
+    const toasts: string[] = [];
+    const mgr = createSyncManager(
+      makeDeps({
+        getOriginalId: () => 'DirtyDoomed',
+        getEditorContent: () => 'LOCAL EDIT',
+        hasOpenDraftChanges: () => true,
+        isEditorFocused: () => false,
+        applyExternalContent,
+        cancelAndClear,
+        showToast: (m) => toasts.push(m),
+      }),
+    );
+
+    await mgr.handleSyncComplete(
+      {
+        ...emptySummary,
+        deleted: 1,
+        deletedIds: ['DirtyDoomed'],
+        peerDeletedIds: ['DirtyDoomed'],
+      },
+      'poll',
+    );
+
+    expect(cancelAndClear).not.toHaveBeenCalled();
+    expect(applyExternalContent).not.toHaveBeenCalled();
+    expect(toasts).toEqual(['Open note was deleted during sync; keeping local draft']);
+    expect(refreshNotesFromStorage).toHaveBeenCalledTimes(1);
+  });
+
+  it('still follows a collision-rename of the open note rather than closing it', async () => {
+    // fromId shows up in deletedIds but a collision-suffixed variant is in
+    // updatedIds — that is a rename, resolved by the activeRename block before
+    // the delete branch, so the session must NOT be closed.
+    // applyActiveRename reads window.location.hash (node env has no window).
+    vi.stubGlobal('window', { location: { hash: '' } });
+    const applyExternalContent = vi.fn();
+    const cancelAndClear = vi.fn();
+    // The real noteSession moves originalId to the new id when a remote rename
+    // is applied; model that so the re-read after the rename sees 'Renamed (2)'.
+    let currentId = 'Renamed';
+    const mgr = createSyncManager(
+      makeDeps({
+        getOriginalId: () => currentId,
+        getEditorContent: () => 'OLD CONTENT',
+        isEditorFocused: () => false,
+        applyExternalContent,
+        cancelAndClear,
+        applyRemoteRename: (newId: string) => {
+          currentId = newId;
+        },
+      }),
+    );
+
+    await mgr.handleSyncComplete(
+      {
+        ...emptySummary,
+        updatedIds: ['Renamed (2)'],
+        deletedIds: ['Renamed'],
+        renamed: [{ fromId: 'Renamed', toId: 'Renamed (2)' }],
+        peerUpdatedIds: ['Renamed (2)'],
+        peerDeletedIds: ['Renamed'],
+      },
+      'poll',
+    );
+
+    expect(cancelAndClear).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  // Regression (remote-rename.spec.ts "delete plus collision-suffixed update"):
+  // a COLLISION-INFERRED rename (old id in deletedIds + a suffixed successor in
+  // updatedIds, with renamed:[] so the explicit-rename loop never fired) must
+  // retarget the tabs store too. Otherwise the tab keeps pointing at the old id
+  // and the W2 tab-prune nulls it, sending the just-followed editor to Home.
+  it('retargets tabs (onAnySyncRename) for a collision-inferred rename and does not prune the old id', async () => {
+    vi.stubGlobal('window', { location: { hash: '' } });
+    vi.mocked(noteExists).mockImplementation(async (id: string) => id === 'Old Title (2)');
+    vi.mocked(readNote).mockResolvedValue('Body content');
+    const onAnySyncRename = vi.fn();
+    const pruneTabsForDeletedIds = vi.fn();
+    const cancelAndClear = vi.fn();
+    let currentId = 'Old Title';
+    const mgr = createSyncManager(
+      makeDeps({
+        getOriginalId: () => currentId,
+        getEditorContent: () => 'Body content',
+        isEditorFocused: () => false,
+        cancelAndClear,
+        applyRemoteRename: (newId: string) => {
+          currentId = newId;
+        },
+        onAnySyncRename,
+        pruneTabsForDeletedIds,
+      }),
+    );
+
+    await mgr.handleSyncComplete(
+      {
+        ...emptySummary,
+        updatedIds: ['Old Title (2)'],
+        deletedIds: ['Old Title'],
+        renamed: [], // collision-inferred, NOT an explicit rename
+        peerUpdatedIds: ['Old Title (2)'],
+        peerDeletedIds: ['Old Title'],
+      },
+      'poll',
+    );
+
+    expect(onAnySyncRename).toHaveBeenCalledWith('Old Title', 'Old Title (2)');
+    expect(cancelAndClear).not.toHaveBeenCalled();
+    // The retarget must run BEFORE the tab-prune. The prune still lists the old
+    // id (it is gone from disk), but by then the tab points at the successor, so
+    // pruneMissingNoteIds is a no-op on it (verified end-to-end by the Playwright
+    // remote-rename spec). Ordering is what the seam can prove.
+    if (pruneTabsForDeletedIds.mock.calls.length > 0) {
+      expect(onAnySyncRename.mock.invocationCallOrder[0]).toBeLessThan(
+        pruneTabsForDeletedIds.mock.invocationCallOrder[0],
+      );
+    }
+    vi.unstubAllGlobals();
+  });
+
+  // W1: a peer can delete note X and recreate the same filename before this
+  // client pulls, so the combined push+pull summary can carry X in BOTH
+  // deletedIds and updatedIds. Existence — not updatedIds membership — decides:
+  // if X is on disk it was recreated → adopt; if gone it was tombstoned → close.
+  it('adopts the replacement when the open note was deleted then recreated ON DISK', async () => {
+    vi.mocked(readNote).mockResolvedValue('# Recreated content');
+    vi.mocked(noteExists).mockResolvedValue(true); // recreated → present on disk
+    const applyExternalContent = vi.fn();
+    const cancelAndClear = vi.fn();
+    const toasts: string[] = [];
+    const mgr = createSyncManager(
+      makeDeps({
+        getOriginalId: () => 'RecreatedNote',
+        getEditorContent: () => 'OLD CONTENT',
+        isEditorFocused: () => false,
+        applyExternalContent,
+        cancelAndClear,
+        showToast: (m) => toasts.push(m),
+      }),
+    );
+
+    await mgr.handleSyncComplete(
+      {
+        ...emptySummary,
+        updatedIds: ['RecreatedNote'],
+        deletedIds: ['RecreatedNote'],
+        peerUpdatedIds: ['RecreatedNote'],
+        peerDeletedIds: ['RecreatedNote'],
+      },
+      'poll',
+    );
+
+    expect(cancelAndClear).not.toHaveBeenCalled();
+    expect(toasts).not.toContain('Note was deleted during sync');
+    expect(applyExternalContent).toHaveBeenCalledWith('# Recreated content');
+  });
+
+  // W1 P1 (the round-2 Codex finding): updatedIds aggregates push AND pull, so
+  // it contains ids WE uploaded. This client pushes an edit to X (X → updatedIds
+  // via push) while a peer tombstones X the same cycle; the pull removes X from
+  // disk. The old "in both lists ⇒ recreated" rule wrongly adopted "" and left
+  // the editor/tab bound → resurrection. Existence is authoritative: file ABSENT
+  // ⇒ close + prune.
+  it('closes and prunes when the open note is in BOTH lists but is GONE from disk (our push + peer tombstone)', async () => {
+    vi.mocked(noteExists).mockResolvedValue(false); // tombstone won — file gone
+    const applyExternalContent = vi.fn();
+    const cancelAndClear = vi.fn();
+    const pruneTabsForDeletedIds = vi.fn();
+    const toasts: string[] = [];
+    const mgr = createSyncManager(
+      makeDeps({
+        getOriginalId: () => 'Contested',
+        getEditorContent: () => 'MY PUSHED EDIT',
+        isEditorFocused: () => false,
+        applyExternalContent,
+        cancelAndClear,
+        pruneTabsForDeletedIds,
+        showToast: (m) => toasts.push(m),
+      }),
+    );
+
+    await mgr.handleSyncComplete(
+      {
+        ...emptySummary,
+        uploaded: 1,
+        updatedIds: ['Contested'], // our own push echoed back
+        deletedIds: ['Contested'], // peer tombstone applied by the pull
+        peerDeletedIds: ['Contested'],
+      },
+      'poll',
+    );
+
+    expect(applyExternalContent).not.toHaveBeenCalled();
+    expect(cancelAndClear).toHaveBeenCalledTimes(1);
+    expect(toasts).toContain('Note was deleted during sync');
+    expect(pruneTabsForDeletedIds).toHaveBeenCalledWith(['Contested']);
+  });
+
+  // W2: a peer-deleted note left open in a BACKGROUND tab would resurrect when
+  // the user switches to it (loadNote reads "" → blank editor bound to the id →
+  // first keystroke re-creates). Prune such tabs; exclude notes this sync
+  // recreated (W1) and the open note whose draft was intentionally kept.
+  it('prunes tabs only for deleted notes that are GONE from disk (recreated ones stay)', async () => {
+    // BgGone: tombstoned, absent. Recreated: deleted then recreated, present.
+    // updatedIds membership is irrelevant — existence decides.
+    vi.mocked(noteExists).mockImplementation(async (id: string) => id === 'Recreated');
+    const pruneTabsForDeletedIds = vi.fn();
+    const mgr = createSyncManager(
+      makeDeps({
+        getOriginalId: () => null,
+        pruneTabsForDeletedIds,
+      }),
+    );
+
+    await mgr.handleSyncComplete(
+      {
+        ...emptySummary,
+        deletedIds: ['BgGone', 'Recreated'],
+        updatedIds: ['Recreated'],
+        peerDeletedIds: ['BgGone', 'Recreated'],
+        peerUpdatedIds: ['Recreated'],
+      },
+      'poll',
+    );
+
+    expect(pruneTabsForDeletedIds).toHaveBeenCalledWith(['BgGone']);
+  });
+
+  it('prunes the closed active-note tab (no draft) so it cannot resurrect', async () => {
+    const pruneTabsForDeletedIds = vi.fn();
+    const cancelAndClear = vi.fn();
+    const mgr = createSyncManager(
+      makeDeps({
+        getOriginalId: () => 'ClosedActive',
+        isEditorFocused: () => false,
+        cancelAndClear,
+        pruneTabsForDeletedIds,
+      }),
+    );
+
+    await mgr.handleSyncComplete(
+      { ...emptySummary, deletedIds: ['ClosedActive'], peerDeletedIds: ['ClosedActive'] },
+      'poll',
+    );
+
+    expect(cancelAndClear).toHaveBeenCalledTimes(1);
+    expect(pruneTabsForDeletedIds).toHaveBeenCalledWith(['ClosedActive']);
+  });
+
+  it('does NOT prune the open note whose unsaved draft was kept', async () => {
+    const pruneTabsForDeletedIds = vi.fn();
+    const cancelAndClear = vi.fn();
+    const mgr = createSyncManager(
+      makeDeps({
+        getOriginalId: () => 'DirtyDoomed',
+        hasOpenDraftChanges: () => true,
+        isEditorFocused: () => false,
+        cancelAndClear,
+        pruneTabsForDeletedIds,
+      }),
+    );
+
+    await mgr.handleSyncComplete(
+      {
+        ...emptySummary,
+        deletedIds: ['DirtyDoomed', 'BgGone'],
+        peerDeletedIds: ['DirtyDoomed', 'BgGone'],
+      },
+      'poll',
+    );
+
+    expect(cancelAndClear).not.toHaveBeenCalled();
+    expect(pruneTabsForDeletedIds).toHaveBeenCalledWith(['BgGone']);
+  });
+
+  // P1-a: handleSyncComplete runs un-awaited from auto/live sync, so a rejected
+  // existence probe must not become an unhandled rejection that leaves the
+  // peer-deleted open note bound to its missing id. Fail safe: treat "cannot
+  // confirm recreated" as deleted → close the clean session, skip pruning.
+  it('closes cleanly (no unhandled rejection) when the existence check errors', async () => {
+    vi.mocked(noteExists).mockRejectedValue(new Error('vault root unresolved'));
+    const applyExternalContent = vi.fn();
+    const cancelAndClear = vi.fn();
+    const pruneTabsForDeletedIds = vi.fn();
+    const toasts: string[] = [];
+    const mgr = createSyncManager(
+      makeDeps({
+        getOriginalId: () => 'Doomed',
+        getEditorContent: () => 'OLD CONTENT',
+        isEditorFocused: () => false,
+        applyExternalContent,
+        cancelAndClear,
+        pruneTabsForDeletedIds,
+        showToast: (m) => toasts.push(m),
+      }),
+    );
+
+    await expect(
+      mgr.handleSyncComplete(
+        { ...emptySummary, deletedIds: ['Doomed'], peerDeletedIds: ['Doomed'] },
+        'poll',
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(cancelAndClear).toHaveBeenCalledTimes(1);
+    expect(applyExternalContent).not.toHaveBeenCalled();
+    expect(toasts).toContain('Note was deleted during sync');
+    // Prune probe also errored → skip pruning rather than crash or wrongly prune.
+    expect(pruneTabsForDeletedIds).not.toHaveBeenCalled();
+  });
+
+  // P1-b TOCTOU: noteExists() says present, the file vanishes (external unlink /
+  // overlapping live-sync cycle), then readNote() returns "" for the now-missing
+  // file. Adopting that "" is the F4 shape again. Re-verify after the read.
+  it('closes when a deleted-id note vanishes between the exists-check and the read (TOCTOU)', async () => {
+    // present at the first check, gone at the re-verify.
+    vi.mocked(noteExists).mockResolvedValueOnce(true).mockResolvedValue(false);
+    vi.mocked(readNote).mockResolvedValue(''); // read after the file vanished
+    const applyExternalContent = vi.fn();
+    const cancelAndClear = vi.fn();
+    const toasts: string[] = [];
+    const mgr = createSyncManager(
+      makeDeps({
+        getOriginalId: () => 'Vanisher',
+        getEditorContent: () => 'OLD CONTENT',
+        isEditorFocused: () => false,
+        applyExternalContent,
+        cancelAndClear,
+        showToast: (m) => toasts.push(m),
+      }),
+    );
+
+    await mgr.handleSyncComplete(
+      {
+        ...emptySummary,
+        deletedIds: ['Vanisher'],
+        updatedIds: ['Vanisher'],
+        peerDeletedIds: ['Vanisher'],
+      },
+      'poll',
+    );
+
+    expect(applyExternalContent).not.toHaveBeenCalled();
+    expect(cancelAndClear).toHaveBeenCalledTimes(1);
+    expect(toasts).toContain('Note was deleted during sync');
+  });
+
+  it('still adopts a legitimately-empty recreated note (re-verify says present)', async () => {
+    // A deleted-then-recreated note that is genuinely empty must NOT be treated
+    // as deleted — the re-verify confirms it is present, so adopt "".
+    vi.mocked(noteExists).mockResolvedValue(true);
+    vi.mocked(readNote).mockResolvedValue('');
+    const applyExternalContent = vi.fn();
+    const cancelAndClear = vi.fn();
+    const mgr = createSyncManager(
+      makeDeps({
+        getOriginalId: () => 'EmptyRecreated',
+        getEditorContent: () => 'OLD CONTENT',
+        isEditorFocused: () => false,
+        applyExternalContent,
+        cancelAndClear,
+      }),
+    );
+
+    await mgr.handleSyncComplete(
+      {
+        ...emptySummary,
+        deletedIds: ['EmptyRecreated'],
+        updatedIds: ['EmptyRecreated'],
+        peerDeletedIds: ['EmptyRecreated'],
+      },
+      'poll',
+    );
+
+    expect(cancelAndClear).not.toHaveBeenCalled();
+    expect(applyExternalContent).toHaveBeenCalledWith('');
+  });
+
+  // If the user switches/renames the active note WHILE an async probe (readNote
+  // / re-verify) is pending, the active-note reconcile must bail — but that bail
+  // must NOT abort the whole completion handler, or the tab-prune for OTHER
+  // notes deleted this same sync never runs and a stale tab resurrects later
+  // (defeating W2). The bail is scoped; pruning still runs.
+  it('still prunes OTHER deleted notes when the active note is switched mid-probe', async () => {
+    let openId: string | null = 'ActiveNote';
+    // ActiveNote is present; OtherDeleted is gone.
+    vi.mocked(noteExists).mockImplementation(async (id: string) => id !== 'OtherDeleted');
+    // The user switches away DURING the active note's readNote probe.
+    vi.mocked(readNote).mockImplementation(async () => {
+      openId = 'SomethingElse';
+      return '# fresh';
+    });
+    const pruneTabsForDeletedIds = vi.fn();
+    const cancelAndClear = vi.fn();
+    const mgr = createSyncManager(
+      makeDeps({
+        getOriginalId: () => openId,
+        getEditorContent: () => 'OLD CONTENT',
+        isEditorFocused: () => false,
+        cancelAndClear,
+        pruneTabsForDeletedIds,
+      }),
+    );
+
+    await mgr.handleSyncComplete(
+      {
+        ...emptySummary,
+        deletedIds: ['ActiveNote', 'OtherDeleted'],
+        updatedIds: ['ActiveNote'],
+        peerDeletedIds: ['ActiveNote', 'OtherDeleted'],
+        peerUpdatedIds: ['ActiveNote'],
+      },
+      'poll',
+    );
+
+    // The active-note reconcile bailed (originalId changed mid-probe), but the
+    // OTHER deleted-and-gone note is still pruned.
+    expect(pruneTabsForDeletedIds).toHaveBeenCalledWith(['OtherDeleted']);
   });
 });

@@ -20,6 +20,7 @@ import type { FileChangeEvent } from '$lib/platform/types';
 import type { SyncSummary } from '$lib/syncServiceE2ee';
 import {
   readNote,
+  noteExists,
   getNoteById,
   handleExternalFileChange,
   refreshNotesFromStorage,
@@ -64,6 +65,12 @@ export interface SyncManagerDeps {
   /** Called once per remote-driven rename so the tabs store (and any
    *  other consumer) can patch references that aren't the active note. */
   onAnySyncRename?: (fromId: string, toId: string) => void;
+  /** Clear any tab (background or the just-closed active one) still pointing at
+   *  a note this sync deleted and did NOT recreate, so switching to that tab
+   *  can't resurrect the note via a `loadNote` that reads "" for the missing
+   *  file (F4 background-tab vector). The note whose unsaved draft was kept
+   *  open is intentionally excluded by the caller. */
+  pruneTabsForDeletedIds?: (goneIds: string[]) => void;
 }
 
 // ── Return type ──────────────────────────────────────────────────────────
@@ -482,18 +489,100 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
         )
       ) {
         writeSuppressor.recordRemoteRename(activeRename.fromId, activeRename.toId);
+        // A collision-inferred (or recent-hint) rename is NOT in summary.renamed,
+        // so the loop above never retargeted the tabs store for it — do it here.
+        // Otherwise the tab keeps pointing at the old (now-deleted) id and the W2
+        // tab-prune below nulls it, sending the just-followed editor to Home
+        // (regression: remote-rename.spec.ts "delete plus collision-suffixed
+        // update"). The editor session already followed via applyActiveRename.
+        deps.onAnySyncRename?.(activeRename.fromId, activeRename.toId);
       }
     }
 
-    // Reload only when sync actually touched the currently-open note.
-    const currentOriginalId = deps.getOriginalId();
-    if (
-      currentOriginalId &&
-      (summary.updatedIds.includes(currentOriginalId) ||
-        summary.deletedIds.includes(currentOriginalId))
-    ) {
+    // Reload only when sync actually touched the currently-open note. This is
+    // scoped into its own function so its early bails (a local rename racing the
+    // async existence/read probes) return from HERE only — the tab-prune and
+    // status logic for OTHER notes deleted this cycle must still run. Returns
+    // the id of an open note whose unsaved draft we deliberately kept (edit-wins,
+    // excluded from pruning), or null.
+    const reconcileOpenNote = async (): Promise<string | null> => {
+      const openId = deps.getOriginalId();
+      const openDeleted = !!openId && summary.deletedIds.includes(openId);
+      const openUpdated = !!openId && summary.updatedIds.includes(openId);
+      if (!openId || !(openDeleted || openUpdated)) return null;
+
+      let keptDraftId: string | null = null;
+      // Close (or, for an unsaved draft, keep) the open note deleted this cycle.
+      // hasOpenDraftChanges → cancelAndClear stays await-free so a keystroke
+      // can't slip in between the check and the close (the reviewer-verified
+      // atomicity). Mirrors the local-watcher unlink-of-open-note path.
+      const closeOrKeepDeletedOpenNote = async (): Promise<void> => {
+        if (deps.hasOpenDraftChanges()) {
+          keptDraftId = openId;
+          deps.showToast('Open note was deleted during sync; keeping local draft');
+          await refreshNotesFromStorage();
+        } else {
+          deps.cancelAndClear();
+          deps.showToast('Note was deleted during sync');
+        }
+      };
+
+      // W1: `updatedIds` is NOT evidence the open note survived — it aggregates
+      // push AND pull, so it also contains ids WE uploaded this cycle. A peer
+      // can tombstone note X while this same cycle pushed our edit to X: X lands
+      // in both lists yet the pull deleted the file from disk. Ask the
+      // filesystem authoritatively instead. handleSyncComplete runs un-awaited
+      // from auto/live sync, so a rejected existence probe (vault-root
+      // resolution, spawn_blocking, IPC) must NOT escape as an unhandled
+      // rejection — fail toward the SAFE side: treat "cannot confirm" as gone so
+      // we never adopt "" into a session bound to a possibly-missing id.
+      let openNoteGone = false;
+      if (openDeleted) {
+        try {
+          openNoteGone = !(await noteExists(openId));
+        } catch {
+          openNoteGone = true;
+        }
+      }
+      // The existence read above is the only await before the close decision, so
+      // re-verify the open note didn't change under us (a local rename racing
+      // readNote/noteExists) — the old id is no longer open, nothing to do.
+      if (deps.getOriginalId() !== openId) return keptDraftId;
+
+      if (openNoteGone) {
+        // F4: a peer deleted the currently-open note and it is gone from disk.
+        // read_note returns "" for a missing file on Tauri (crud.rs scan-time
+        // tolerance — the contract stays ""), so feeding this id into the adopt
+        // path would blank the editor while the session stayed bound to the
+        // deleted id; the next keystroke would re-create the file and undo the
+        // peer's delete fleet-wide. Never adopt "".
+        await closeOrKeepDeletedOpenNote();
+        return keptDraftId;
+      }
+
+      // The open note was updated, or was deleted-then-recreated on disk —
+      // either way it existed a moment ago, so adopt its on-disk content.
       try {
-        const freshContent = await readNote(currentOriginalId);
+        const freshContent = await readNote(openId);
+        // TOCTOU: the file can vanish between the noteExists check and this read
+        // (external unlink / an overlapping live-sync cycle), and read_note
+        // returns "" for a missing file — adopting that "" is the literal F4
+        // shape again. If a note deleted THIS cycle reads back empty, re-verify
+        // existence before adopting; a legitimately-empty recreated note
+        // re-verifies as present and still adopts. (Fail safe on a probe error.)
+        let vanished = false;
+        if (openDeleted && freshContent === '') {
+          try {
+            vanished = !(await noteExists(openId));
+          } catch {
+            vanished = true;
+          }
+        }
+        if (deps.getOriginalId() !== openId) return keptDraftId;
+        if (vanished) {
+          await closeOrKeepDeletedOpenNote();
+          return keptDraftId;
+        }
         if (freshContent !== deps.getEditorContent()) {
           const editedDuringSync =
             deps.getEditVersion() !== (syncCoord?.getSyncStartEditVersion() ?? 0);
@@ -506,35 +595,46 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
           // the watcher guard above); the metadata refresh below still runs.
           if (!editedDuringSync && !deps.hasOpenDraftChanges()) {
             if (deps.isEditorFocused()) {
-              deferExternalAdopt(currentOriginalId, freshContent);
+              deferExternalAdopt(openId, freshContent);
             } else {
               deps.applyExternalContent(freshContent);
             }
           }
         }
         // H13: Always refresh metadata even when content was skipped.
-        const meta = getNoteById(currentOriginalId);
+        const meta = getNoteById(openId);
         if (meta) {
-          deps.applyRemoteRename(currentOriginalId, meta.title);
+          deps.applyRemoteRename(openId, meta.title);
         }
       } catch {
-        // If originalId changed during the await (local rename raced with readNote),
-        // the file legitimately no longer exists under the old name — skip silently.
-        if (deps.getOriginalId() !== currentOriginalId) return;
-
-        const recoveredRename = findActiveSyncRename(
-          summary,
-          currentOriginalId,
-          writeSuppressor.getRecentRemoteRename(currentOriginalId)?.toId ?? null,
-        );
-        if (recoveredRename && recoveredRename.toId !== currentOriginalId) {
-          writeSuppressor.recordRemoteRename(recoveredRename.fromId, recoveredRename.toId);
-          applyActiveRename(recoveredRename.fromId, recoveredRename.toId);
-        } else {
-          deps.showToast('Open note changed during sync; keeping local draft');
-        }
+        // The note existed, so read_note only rejects on a genuine IPC failure —
+        // or originalId changed mid-await because a local rename raced. Either
+        // way, keep the local draft rather than clobber it.
+        if (deps.getOriginalId() !== openId) return keptDraftId;
+        deps.showToast('Open note changed during sync; keeping local draft');
       }
-    }
+      return keptDraftId;
+    };
+
+    // The open note whose unsaved draft we deliberately kept (excluded from tab
+    // pruning below), or null.
+    const keptDeletedDraftId = await reconcileOpenNote();
+
+    // W2: prune any tab still pointing at a note this sync deleted that is now
+    // gone from disk, so switching to a background tab — or back to the tab of
+    // the note just closed above — can't resurrect it via loadNote reading ""
+    // for the missing file. Existence is authoritative (same W1 reason: a
+    // deleted id can also be in updatedIds via our own push). A deleted note
+    // still on disk was recreated, so it stays. The open note whose unsaved
+    // draft we kept is excluded; renames already re-pointed their tabs above.
+    // A rejected existence probe must not crash the un-awaited handler and must
+    // not wrongly prune a live tab — treat "cannot confirm" as present (skip).
+    const pruneCandidates = summary.deletedIds.filter((id) => id !== keptDeletedDraftId);
+    const pruneExistence = await Promise.all(
+      pruneCandidates.map((id) => noteExists(id).catch(() => true)),
+    );
+    const goneIds = pruneCandidates.filter((_, i) => !pruneExistence[i]);
+    if (goneIds.length > 0) deps.pruneTabsForDeletedIds?.(goneIds);
 
     // Sync status banner. A successful sync reports just "Sync complete" —
     // never per-item uploaded/downloaded/deleted/conflict counts (sync.md,

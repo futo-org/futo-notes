@@ -165,6 +165,10 @@
     onAnySyncRename: (fromId, toId) => {
       tabsStore.applyRename(fromId, toId);
     },
+    pruneTabsForDeletedIds: (goneIds) => {
+      const gone = new Set(goneIds);
+      tabsStore.pruneMissingNoteIds((id) => !gone.has(id));
+    },
   });
 
   // Note session controller — owns title, content, save queue, title validation

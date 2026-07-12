@@ -7,9 +7,10 @@ vi.mock('$lib/platform', () => ({
 
 vi.mock('$lib/notes.svelte', () => ({
   updateNote: vi.fn(),
-  readNote: vi.fn(async () => {
-    throw new Error('note does not exist');
-  }),
+  // Missing reads as "" on every platform (Tauri notes_read, web.ts, nodeFS) —
+  // read_note never throws for a missing file. The default mirrors that; tests
+  // that need specific bytes queue them with mockResolvedValueOnce.
+  readNote: vi.fn(async () => ''),
   createNote: vi.fn(async (id: string) => ({ id, mtime: 0 })),
   getNoteById: vi.fn(() => undefined),
 }));
@@ -313,13 +314,22 @@ describe('loadNote focus routing', () => {
     expect(deps.focusTitle).not.toHaveBeenCalled();
   });
 
-  it('keeps body focus when a wikilink creates a missing note', async () => {
-    // Following [[missing note]] already names the note — the user's next
-    // keystroke belongs in the body.
+  it('opens a broken-wikilink target as an empty deferred note (no eager create, no forced focus)', async () => {
+    // Tapping [[missing note]] opens an empty editor bound to the target title;
+    // the file is created on the FIRST edit/save, not eagerly (2026-07-11
+    // decision — docs/spec/editor.md). read_note returns "" for the missing
+    // file, so loadNote takes the normal read path: no createNote, and opening
+    // does not grab editor focus (same as opening any existing note — only the
+    // '+ New' path forces body focus).
+    const { readNote, createNote } = await import('$lib/notes.svelte');
+    vi.mocked(readNote).mockResolvedValueOnce('');
     const deps = makeDeps('missing note');
-    await createNoteSession(deps).loadNote('missing note');
-    expect(deps.focusEditor).toHaveBeenCalledOnce();
-    expect(deps.focusTitle).not.toHaveBeenCalled();
+    const session = createNoteSession(deps);
+    await session.loadNote('missing note');
+    expect(createNote).not.toHaveBeenCalled();
+    expect(deps.setEditorContent).toHaveBeenCalledWith('');
+    expect(session.originalId).toBe('missing note');
+    expect(deps.focusEditor).not.toHaveBeenCalled();
   });
 });
 
@@ -377,7 +387,7 @@ describe('opening a note is read-only (no autosave on line-ending normalization)
     const deps = makeDeps();
     const { updateNote, readNote } = await import('$lib/notes.svelte');
     // mockResolvedValueOnce queues a one-time return ahead of the default
-    // throwing impl, so loadNote's single readNote call gets these bytes.
+    // empty-string impl, so loadNote's single readNote call gets these bytes.
     vi.mocked(readNote).mockResolvedValueOnce('line one\r\nline two\r\n');
 
     const session = createNoteSession(deps);
