@@ -13,7 +13,8 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import { getAppState, saveAppState } from './appState';
+import { getAppState, loadAppState, saveAppState, takeLegacyE2eePassword } from './appState';
+import { isTauri } from './platform';
 
 // ── Public types ────────────────────────────────────────────────────────
 
@@ -68,20 +69,62 @@ interface E2eeStatusOutput {
   objectCount: number;
 }
 
-// ── Password helpers (state still JS-owned) ─────────────────────────────
+// ── Password store (OS keyring, held in memory for the session) ─────────
+//
+// The vault password lives in the OS keyring (Secret Service / Keychain /
+// Credential Manager) via the `e2ee_password_*` Tauri commands — never in
+// plaintext on disk (F6). `cachedPassword` is the in-memory copy for this
+// session (the same posture as iOS Keychain / Android Keystore, where the
+// secret is read out and kept in memory to re-derive the vault key); it lets
+// the synchronous `isE2eeConfigured()` / `hasStoredSyncPassword()` checks —
+// hit on every auto-sync trigger — stay synchronous. `null` means "no stored
+// password" (fresh install, forgotten, or keyring unavailable).
+
+let cachedPassword: string | null = null;
+
+/**
+ * One-time boot hook: migrate a legacy plaintext `e2eePassword` from
+ * `.app-state.json` into the OS keyring (scrubbing the JSON only after the
+ * keyring write is confirmed), then load the stored password into memory.
+ *
+ * Never throws — a keyring failure (e.g. headless Linux with no Secret
+ * Service) leaves any legacy value in place for a later retry and runs the
+ * session password-less, so the user is prompted to re-enter it rather than
+ * ever falling back to disk plaintext. Safe to call un-awaited at startup.
+ */
+export async function initSyncPassword(): Promise<void> {
+  await loadAppState();
+  if (!isTauri) return;
+  const legacy = takeLegacyE2eePassword();
+  try {
+    if (legacy != null) {
+      // Keyring write MUST succeed before we scrub the plaintext.
+      await invoke('e2ee_password_set', { password: legacy });
+      cachedPassword = legacy;
+      // getAppState() is already sanitized (no e2eePassword) — this save
+      // rewrites the file without the legacy field.
+      await saveAppState(getAppState());
+      return;
+    }
+    cachedPassword = (await invoke<string | null>('e2ee_password_get')) ?? null;
+  } catch (e) {
+    console.warn('[e2ee] keyring unavailable; vault password not loaded:', e);
+  }
+}
 
 export function hasStoredSyncPassword(): boolean {
-  return getAppState().e2eePassword != null;
+  return cachedPassword != null;
 }
 
 export async function forgetStoredSyncPassword(): Promise<void> {
-  await saveAppState({ ...getAppState(), e2eePassword: undefined });
+  if (isTauri) await invoke('e2ee_password_delete');
+  cachedPassword = null;
 }
 
 export function isE2eeConfigured(): boolean {
   const s = getAppState();
   return Boolean(
-    s.e2eeServerUrl && s.e2eeAuthToken && s.e2eeUserId && s.e2eeCollectionId && s.e2eePassword,
+    s.e2eeServerUrl && s.e2eeAuthToken && s.e2eeUserId && s.e2eeCollectionId && cachedPassword,
   );
 }
 
@@ -92,7 +135,7 @@ async function ensureConnected(passwordOverride?: string): Promise<void> {
   if (status.connected && passwordOverride == null) return;
 
   const s = getAppState();
-  const password = passwordOverride ?? s.e2eePassword;
+  const password = passwordOverride ?? cachedPassword ?? undefined;
   if (!s.e2eeServerUrl || !s.e2eeAuthToken || !s.e2eeUserId || !s.e2eeCollectionId || !password) {
     throw new Error('E2EE sync not configured');
   }
@@ -196,8 +239,17 @@ export async function connectE2ee(serverUrl: string, password: string): Promise<
     e2eeAuthToken: out.token,
     e2eeUserId: out.userId,
     e2eeCollectionId: out.collectionId,
-    e2eePassword: password,
   });
+  // Keep the session working from memory first, then persist to the keyring.
+  // A keyring failure must not fail an otherwise-successful connect — it only
+  // means the password won't survive a restart (re-prompt), never a fallback
+  // to disk plaintext (F6).
+  cachedPassword = password;
+  try {
+    await invoke('e2ee_password_set', { password });
+  } catch (e) {
+    console.warn('[e2ee] could not persist vault password to keyring:', e);
+  }
 }
 
 export async function disconnectE2ee(): Promise<void> {
@@ -209,6 +261,18 @@ export async function disconnectE2ee(): Promise<void> {
   } catch {
     // Disconnecting a non-connected client is fine.
   }
+  // Drop the stored password too: disconnect / "reset connection" and the
+  // Full reset (deleteAllNotes → disconnectE2ee) must clear every trace of
+  // the vault credential, including the keyring entry (M4). Best-effort so a
+  // keyring hiccup can't wedge disconnect.
+  cachedPassword = null;
+  if (isTauri) {
+    try {
+      await invoke('e2ee_password_delete');
+    } catch (e) {
+      console.warn('[e2ee] could not delete vault password from keyring:', e);
+    }
+  }
   await saveAppState({
     ...getAppState(),
     e2eeServerUrl: undefined,
@@ -216,7 +280,6 @@ export async function disconnectE2ee(): Promise<void> {
     e2eeUserId: undefined,
     e2eeCollectionId: undefined,
     e2eeSalt: undefined,
-    e2eePassword: undefined,
   });
 }
 
@@ -232,9 +295,9 @@ export async function syncE2eeAuto(): Promise<SyncSummary> {
     // the survivor, and retry the sync once. The post-sync `ensureLiveSync`
     // (autoSyncV2) then restarts the live stream on the new session.
     const s = getAppState();
-    if (String(e).includes('collection-gone') && s.e2eeServerUrl && s.e2eePassword) {
+    if (String(e).includes('collection-gone') && s.e2eeServerUrl && cachedPassword) {
       await stopLiveSync();
-      await connectE2ee(s.e2eeServerUrl, s.e2eePassword);
+      await connectE2ee(s.e2eeServerUrl, cachedPassword);
       return await invoke<SyncSummary>('e2ee_sync_run');
     }
     throw e;

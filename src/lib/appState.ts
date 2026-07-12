@@ -37,13 +37,11 @@ export interface AppState {
   e2eeUserId?: string;
   e2eeCollectionId?: string;
   e2eeSalt?: string;
-  /**
-   * Remembered vault password (plaintext). Stored so auto-sync can re-derive
-   * the vault key after an app restart without prompting. Lives in the app
-   * data file — anyone with disk access to the profile directory can read
-   * it. Cleared on disconnect or via "Forget password" in Settings.
-   */
-  e2eePassword?: string;
+  // The vault password is NEVER stored here. It used to live in plaintext as
+  // `e2eePassword` (F6) — any vault backup/Syncthing/Dropbox/`git init` leaked
+  // it. It now lives in the OS keyring, owned by `syncServiceE2ee.ts` via the
+  // `e2ee_password_*` Tauri commands. `sanitize()` drops any legacy field so a
+  // pre-migration file can never re-persist it (see `takeLegacyE2eePassword`).
   // E2EE bookkeeping (`e2eeObjectMap`, `e2eeMaxVersion`) lives in
   // `.e2ee-state.json` owned by Rust now. Legacy values in
   // `.app-state.json` are migrated on first sync (see Rust
@@ -83,6 +81,20 @@ function defaultState(): AppState {
 // ── In-memory cache ────────────────────────────────────────────────────
 
 let cached: AppState | null = null;
+
+// Legacy plaintext vault password read out of `.app-state.json` on load,
+// held only until `syncServiceE2ee.initSyncPassword()` migrates it into the
+// OS keyring. `sanitize()` never keeps it, so this is the sole path by which
+// the old value survives long enough to be moved — and it is cleared as soon
+// as it is consumed.
+let legacyE2eePassword: string | undefined;
+
+/** Return and clear the legacy plaintext password captured during load. */
+export function takeLegacyE2eePassword(): string | undefined {
+  const pw = legacyE2eePassword;
+  legacyE2eePassword = undefined;
+  return pw;
+}
 
 // ── Sanitization ───────────────────────────────────────────────────────
 
@@ -130,7 +142,9 @@ function sanitize(raw: unknown): AppState {
     ...(typeof obj.e2eeUserId === 'string' ? { e2eeUserId: obj.e2eeUserId } : {}),
     ...(typeof obj.e2eeCollectionId === 'string' ? { e2eeCollectionId: obj.e2eeCollectionId } : {}),
     ...(typeof obj.e2eeSalt === 'string' ? { e2eeSalt: obj.e2eeSalt } : {}),
-    ...(typeof obj.e2eePassword === 'string' ? { e2eePassword: obj.e2eePassword } : {}),
+    // `e2eePassword` is intentionally NOT passed through — dropping it here
+    // scrubs the legacy plaintext field on the next save (F6). The value is
+    // captured for one-time keyring migration by `loadAppState` below.
     // `e2eeObjectMap` / `e2eeMaxVersion` from old builds: Rust migrates
     // them on first connect (see `sync_state::load_or_migrate`) and the
     // next saveAppState() drops them by not reading them back here.
@@ -186,7 +200,11 @@ export async function loadAppState(): Promise<AppState> {
   try {
     const data = await fs.readAppData(APP_STATE_PATH);
     if (data) {
-      cached = sanitize(JSON.parse(data));
+      const parsed = JSON.parse(data);
+      if (typeof parsed?.e2eePassword === 'string' && parsed.e2eePassword.length > 0) {
+        legacyE2eePassword = parsed.e2eePassword;
+      }
+      cached = sanitize(parsed);
       return cached;
     }
   } catch {
@@ -230,7 +248,6 @@ export async function updateAppState(
       | 'e2eeUserId'
       | 'e2eeCollectionId'
       | 'e2eeSalt'
-      | 'e2eePassword'
     >
   >,
 ): Promise<void> {
