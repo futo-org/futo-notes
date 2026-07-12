@@ -52,13 +52,57 @@ function walk(dir, exts, out = []) {
 // multi-line generic type argument (e.g. `invoke<Array<{ ... }>>(\n  'x',`).
 const INVOKE_RE = /invoke\s*(?:<[\s\S]*?>)?\s*\(\s*['"]([a-zA-Z_][a-zA-Z0-9_]*)['"]/g;
 
+// Strips `// ...` and `/* ... */` comments so a commented-out invoke() call
+// doesn't count as a live caller (a registered command whose only remaining
+// reference was commented out must still fail as unreachable). Tracks
+// string/template-literal state so `//` inside a string (e.g. a URL) isn't
+// mistaken for a line comment; doesn't parse `${...}` interpolation inside
+// template literals, which is fine here since we only care whether a
+// `//`/`/*` falls inside quotes.
+function stripComments(text) {
+  let out = '';
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    const c2 = text[i + 1];
+    if (c === '/' && c2 === '/') {
+      while (i < text.length && text[i] !== '\n') i++;
+      i--; // let the loop's i++ land back on the newline
+      continue;
+    }
+    if (c === '/' && c2 === '*') {
+      i += 2;
+      while (i < text.length && !(text[i] === '*' && text[i + 1] === '/')) i++;
+      i++; // i now on the '/'; loop's i++ moves past it
+      continue;
+    }
+    if (c === "'" || c === '"' || c === '`') {
+      const quote = c;
+      out += c;
+      i++;
+      while (i < text.length && text[i] !== quote) {
+        if (text[i] === '\\' && i + 1 < text.length) {
+          out += text[i] + text[i + 1];
+          i++;
+        } else {
+          out += text[i];
+        }
+        i++;
+      }
+      out += text[i] ?? '';
+      continue;
+    }
+    out += c;
+  }
+  return out;
+}
+
 function readInvokedNames() {
   const files = walk(SRC_DIR, ['.ts', '.svelte']).filter(
     (f) => !f.endsWith('.test.ts') && !f.split(path.sep).includes('__mocks__'),
   );
   const invoked = new Map(); // command name -> [relative file paths]
   for (const file of files) {
-    const text = fs.readFileSync(file, 'utf8');
+    const text = stripComments(fs.readFileSync(file, 'utf8'));
     for (const match of text.matchAll(INVOKE_RE)) {
       const name = match[1];
       const rel = path.relative(ROOT, file);

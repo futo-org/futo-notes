@@ -21,12 +21,16 @@ const SRC_DIR = path.join(ROOT, 'src');
 const PLATFORM_DIR = path.join(SRC_DIR, 'lib', 'platform') + path.sep;
 const ALLOWLIST_PATH = path.join(ROOT, 'scripts/platform-discipline-allowlist.json');
 
-// Matches the line carrying the actual specifier, not a prose mention of
-// "@tauri-apps" in a comment (which lacks a quote/paren immediately before
-// the package name). Catches both single- and multi-line static imports
-// (the closing `} from '@tauri-apps/x';` line still matches on its own) and
-// dynamic `import('@tauri-apps/x')`, including type-only `import('x').Type`.
-const TAURI_IMPORT_RE = /(?:from\s+['"]|import\(\s*['"])@tauri-apps\//;
+// Matches a quote/paren immediately before the package name — not a prose
+// mention of "@tauri-apps" in a comment. Tested against the WHOLE file text
+// (not line-by-line), so it catches: static named/default/namespace imports
+// (`from '@tauri-apps/x'`), side-effect imports (`import '@tauri-apps/x'`,
+// no `from`), CommonJS `require('@tauri-apps/x')`, and dynamic
+// `import('@tauri-apps/x')` — including the type-only `import('x').Type`
+// form and the case where the specifier sits on a line after `import(`
+// (`\s*` spans newlines), e.g. `import(\n  '@tauri-apps/x'\n)`.
+const TAURI_IMPORT_RE =
+  /(?:\bimport\s*\(\s*['"]|\bfrom\s+['"]|\brequire\s*\(\s*['"]|\bimport\s+['"])@tauri-apps\//;
 
 function walk(dir, exts, out = []) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -48,7 +52,7 @@ const files = walk(SRC_DIR, ['.ts', '.svelte']).filter(
 const usesTauri = new Set();
 for (const file of files) {
   const text = fs.readFileSync(file, 'utf8');
-  if (text.split('\n').some((line) => TAURI_IMPORT_RE.test(line))) {
+  if (TAURI_IMPORT_RE.test(text)) {
     usesTauri.add(path.relative(ROOT, file));
   }
 }
