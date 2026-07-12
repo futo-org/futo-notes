@@ -166,25 +166,26 @@ fun NoteEditorScreen(
     }
 
     // The unsaved-draft register (F8 jetsam guard) is DERIVED, not hand-synced
-    // (PKT-12 R5). Claim ownership for this editor instance, then feed the
-    // register from ONE snapshotFlow over the editor's real state — so "is there
-    // an unsaved draft, for which note" has a single source of truth instead of
-    // ~7 imperative set/clear sites that raced the editor (PKT-1 R1-R4). The
-    // register nulls itself the instant content==savedContent (save completes /
+    // (PKT-12 R5). Claim ownership for this editor instance, then register ONE
+    // derivation closure — so "is there an unsaved draft, for which note" has a
+    // single source of truth instead of ~7 imperative set/clear sites that raced
+    // the editor (PKT-1 R1-R4). The closure is pulled SYNCHRONOUSLY at flush time
+    // (onPause), reading the editor's live snapshot state, so an edit landing
+    // immediately before onPause is always seen (no async publication-window
+    // gap). It returns null the instant content==savedContent (save completes /
     // remote adopted) and re-keys to the new id on rename (content follows the
     // live noteId), both by construction. `base` = savedContent is the flush's
-    // compare-and-swap expected-previous.
+    // conditional-write expected-previous.
     val ownerToken = remember(initialNoteId) { store.claimDraftOwnership() }
-    LaunchedEffect(initialNoteId) {
-        snapshotFlow {
+    // Relinquish ownership only on TRUE disposal (keyed on ownerToken, stable for
+    // this instance, so a rename doesn't release mid-life). A superseded editor's
+    // release is a no-op, so the incoming editor's provider survives the
+    // cross-fade overlap (PKT-1 R2).
+    DisposableEffect(ownerToken) {
+        store.setDraftProvider(ownerToken) {
             if (loaded && content != savedContent) PendingDraft(noteId, savedContent, content)
             else null
-        }.collect { store.updateDraft(ownerToken, it) }
-    }
-    // Relinquish ownership only on TRUE disposal (keyed on Unit, not noteId, so a
-    // rename doesn't release mid-life). A superseded editor's release is a no-op,
-    // so the incoming editor's draft survives the cross-fade overlap (PKT-1 R2).
-    DisposableEffect(Unit) {
+        }
         onDispose { store.releaseDraftOwnership(ownerToken) }
     }
 
@@ -285,7 +286,14 @@ fun NoteEditorScreen(
             // register re-keys to the new id after the rename (its content follows
             // the live noteId), so no manual draft repointing is needed (PKT-1 R4).
             saveJob?.cancel()
-            if (content != savedContent) { store.write(noteId, content); savedContent = content }
+            // Snapshot the body BEFORE the suspending write and advance savedContent
+            // to exactly that snapshot — never to the live `content`. If the user
+            // types during the suspended write, `content` moves ahead of the bytes
+            // on disk; assigning savedContent from live `content` would mark that
+            // newer keystroke as saved and the register would go clean, losing it on
+            // background/process death (PKT-12 F1).
+            val flushed = content
+            if (flushed != savedContent) { store.write(noteId, flushed); savedContent = flushed }
             val oldId = noteId
             noteId = store.rename(noteId, target)
             // Repoint every wikilink at the renamed note [editor.md:88] —
@@ -573,7 +581,12 @@ fun NoteEditorScreen(
                     // derived register re-keys to the moved id afterwards (its
                     // content follows the live noteId), so no manual clear (R4).
                     saveJob?.cancel()
-                    if (content != savedContent) { store.write(noteId, content); savedContent = content }
+                    // Snapshot before the suspending write; advance savedContent to
+                    // the snapshot, not live `content`, so a keystroke typed during
+                    // the write stays dirty in the register and survives a later
+                    // background flush (PKT-12 F1 — same as the rename path).
+                    val flushed = content
+                    if (flushed != savedContent) { store.write(noteId, flushed); savedContent = flushed }
                     if (isNew) store.createFolder(folder)
                     val oldId = noteId
                     val moved = store.moveNote(noteId, folder)

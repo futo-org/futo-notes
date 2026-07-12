@@ -39,9 +39,9 @@ internal val noteListOrder: Comparator<NoteItem> =
 
 /** An open editor's unsaved draft: the note [id] to persist, the [content] to
  *  write, and [base] — the content the editor believes is on disk (its
- *  savedContent). [base] is the compare-and-swap expected-previous for the
- *  flush (see [NotesStore.flushAsync] → `write_if_unchanged`): the flush writes
- *  only if the note still holds [base], so a note deleted or sync-adopted while
+ *  savedContent). [base] is the expected-previous for the conditional flush
+ *  (see [NotesStore.flushAsync] → `write_if_unchanged`): the flush writes only
+ *  if the note still holds [base], so a note deleted or sync-adopted while
  *  backgrounded is neither resurrected nor clobbered. Mirrors the iOS
  *  `pendingDraft` tuple. */
 data class PendingDraft(val id: String, val base: String, val content: String)
@@ -52,56 +52,59 @@ data class PendingDraft(val id: String, val base: String, val content: String)
  * unit-testable — apps/android ships JUnit only (no Robolectric/coroutines-test),
  * so the FFI-backed [NotesStore] can't be constructed in a JVM test.
  *
- * The register is DERIVED, not hand-synced: the open editor drives a single
- * `snapshotFlow { (noteId, content, savedContent, loaded) }` that [update]s the
- * register on every change (PKT-12 R5) — so the "is there an unsaved draft, for
- * which note" question has one source of truth instead of ~7 imperative
- * set/clear sites that raced the editor's real state (PKT-1 R1-R4).
+ * The register is DERIVED and PULL-based: the open editor registers ONE
+ * derivation closure (`{ if (loaded && content != savedContent) draft else null }`)
+ * via [setProvider]; [flush] invokes it SYNCHRONOUSLY at the leave-foreground
+ * edge to read the editor's live state (PKT-12 R5). One source of truth instead
+ * of ~7 imperative set/clear sites that raced the editor (PKT-1 R1-R4). Pulling
+ * at flush time (rather than an async snapshotFlow that pushes updates) closes
+ * the publication-window gap: an edit landing immediately before onPause is
+ * always seen, because the provider reads the current snapshot state when the
+ * flush runs, not whenever a conflated async collector last happened to fire.
  *
  * [claim]/[release] express OWNERSHIP: during the AnimatedContent cross-fade the
  * incoming editor composes before the outgoing one disposes, so both are briefly
  * live. Each editor claims a generation token on entry; only the current owner's
- * [update]/[release] take effect, so a disposing editor can never wipe the
- * incoming editor's just-derived draft (PKT-1 R2). Mirrors EditorHost's
- * generation token.
+ * [setProvider]/[release] take effect, so a disposing editor can never unregister
+ * the incoming editor's provider (PKT-1 R2). Mirrors EditorHost's generation token.
  *
  * MainActivity.onPause calls [flush] at the FIRST leave-foreground signal.
- * Idempotent, and a no-op when the register is clean. Mirrors iOS
+ * Idempotent, and a no-op when the editor is clean / closed. Mirrors iOS
  * `NotesStore.pendingDraft` + `flushPendingEditor` [editor.md].
  */
 internal class PendingEditorDraft(private val persist: (draft: PendingDraft) -> Unit) {
     private var owner: Long = 0
     private var seq: Long = 0
-    private var draft: PendingDraft? = null
+    private var provider: (() -> PendingDraft?)? = null
 
     /** A newly-composed editor claims the register, becoming the owner. Returns
-     *  its generation token. Does NOT touch the current draft — the claiming
-     *  editor's own derivation sets it — so a claim during the cross-fade
-     *  overlap never drops the incoming editor's draft. */
+     *  its generation token. Does NOT clear the current provider — the incoming
+     *  editor sets its own — so a claim during the cross-fade overlap never drops
+     *  the register. */
     fun claim(): Long {
         owner = ++seq
         return owner
     }
 
-    /** The owning editor's derivation publishes its current draft (or null when
-     *  the body is clean / not yet loaded). A superseded editor ([token] !=
-     *  [owner]) is a no-op: the incoming editor already claimed, so the
-     *  disposing one can't clobber the register. */
-    fun update(token: Long, draft: PendingDraft?) {
-        if (token == owner) this.draft = draft
+    /** The owning editor registers its derivation closure. A superseded editor
+     *  ([token] != [owner]) is a no-op: the incoming editor already claimed, so
+     *  the disposing one can't overwrite the register. */
+    fun setProvider(token: Long, provider: () -> PendingDraft?) {
+        if (token == owner) this.provider = provider
     }
 
-    /** The owning editor left composition. Clears the register only if it still
-     *  owns it — a superseded editor's release is a no-op (the incoming editor's
-     *  draft survives). */
+    /** The owning editor left composition. Drops the provider only if it still
+     *  owns the register — a superseded editor's release is a no-op (the incoming
+     *  editor's provider survives). */
     fun release(token: Long) {
-        if (token == owner) draft = null
+        if (token == owner) provider = null
     }
 
-    /** Persist the current draft, if any. No-op when clean / closed; safe to
-     *  call at every leave-foreground signal. */
+    /** Persist the editor's current draft by pulling the provider SYNCHRONOUSLY
+     *  (so the newest keystroke is always seen). No-op when clean / closed; safe
+     *  to call at every leave-foreground signal. */
     fun flush() {
-        draft?.let { persist(it) }
+        provider?.invoke()?.let { persist(it) }
     }
 }
 
@@ -195,13 +198,15 @@ class NotesStore(notesRoot: File) {
      *  suspend, so the final save runs on the store's scope (which outlives the
      *  screen).
      *
-     *  A compare-and-swap write (`write_if_unchanged`): persist `draft.content`
-     *  only if the note still holds `draft.base` (the content the editor last
-     *  saw). One FFI call replaces the old `exists()`-then-`write()` sequence,
-     *  closing its TOCTOU — a note deleted while backgrounded returns
-     *  SkippedMissing (never resurrected), and content a live-sync pull adopted
-     *  since the editor's last read returns SkippedChanged (never clobbered).
-     *  Only a genuine write (WROTE) updates in-memory state. */
+     *  A conditional write (`write_if_unchanged`): persist `draft.content` only
+     *  if the note still holds `draft.base` (the content the editor last saw).
+     *  One FFI call replaces the old `exists()`-then-`write()` sequence,
+     *  collapsing its cross-FFI TOCTOU — a note deleted while backgrounded
+     *  returns SkippedMissing (never resurrected), and content a live-sync pull
+     *  adopted since the editor's last read returns SkippedChanged (never
+     *  clobbered). Check-then-atomic-write, not a true CAS (a narrow residual
+     *  syscall window is accepted — see the Rust doc). Only a genuine write
+     *  (WROTE) updates in-memory state. */
     fun flushAsync(draft: PendingDraft) {
         scope.launch {
             val outcome = withContext(Dispatchers.IO) {
@@ -214,26 +219,27 @@ class NotesStore(notesRoot: File) {
     }
 
     /** The open editor's unsaved-draft register (F8 jetsam guard). The editor
-     *  DERIVES its draft into the register via [updateDraft] from a single
-     *  snapshotFlow over (noteId, content, savedContent, loaded); the Activity's
-     *  onPause calls [flushPendingEditor] so an edit caught inside the 400 ms
-     *  autosave debounce is persisted before the OS can kill the backgrounded
+     *  registers ONE derivation closure via [setDraftProvider]; the Activity's
+     *  onPause calls [flushPendingEditor], which pulls the closure synchronously
+     *  so an edit caught inside the 400 ms autosave debounce — even one landing
+     *  right before onPause — is persisted before the OS can kill the backgrounded
      *  process. Mirrors iOS `NotesStore.pendingDraft`. */
     private val pendingEditor = PendingEditorDraft { draft -> flushAsync(draft) }
 
     /** A newly-composed editor claims the register; returns its ownership token.
-     *  Only the current owner's [updateDraft]/[releaseDraftOwnership] take effect,
-     *  so an editor disposing during the AnimatedContent cross-fade can't wipe the
-     *  incoming editor's draft (PKT-1 R2). */
+     *  Only the current owner's [setDraftProvider]/[releaseDraftOwnership] take
+     *  effect, so an editor disposing during the AnimatedContent cross-fade can't
+     *  unregister the incoming editor's provider (PKT-1 R2). */
     fun claimDraftOwnership(): Long = pendingEditor.claim()
 
-    /** The owning editor's derivation publishes its current draft, or null when
-     *  the body is clean / not yet loaded. Replaces the old hand-synced
-     *  set/clear sites — the register mirrors the editor's real state. */
-    fun updateDraft(token: Long, draft: PendingDraft?) = pendingEditor.update(token, draft)
+    /** The owning editor registers its derivation closure — evaluated
+     *  synchronously at flush time (onPause). Replaces the old hand-synced
+     *  set/clear sites: the register reflects the editor's live state on demand. */
+    fun setDraftProvider(token: Long, provider: () -> PendingDraft?) =
+        pendingEditor.setProvider(token, provider)
 
-    /** The owning editor left composition — clears the register if it still owns
-     *  it (a superseded editor's release is a no-op). */
+    /** The owning editor left composition — drops the provider if it still owns
+     *  the register (a superseded editor's release is a no-op). */
     fun releaseDraftOwnership(token: Long) = pendingEditor.release(token)
 
     /** Flush the open editor's pending draft to disk if it has unsaved edits.
@@ -259,7 +265,7 @@ class NotesStore(notesRoot: File) {
 
     /** Reflect a write of [content] to [id] that already landed on disk into the
      *  in-memory list, search engine, and auto-push signal — the post-write
-     *  bookkeeping shared by [write] and [flushAsync]'s compare-and-swap write.
+     *  bookkeeping shared by [write] and [flushAsync]'s conditional write.
      *  Updates the row IN PLACE (stable identity/order while typing); a note not
      *  in the list yet triggers a rescan. Preview + tags come from the same Rust
      *  rules the scan uses. */
