@@ -1,0 +1,19 @@
+{
+  "_comment": "Cross-language constants verified to agree today (architecture-hardening.md PKT-7 gate 3 / findings F7, F21). Consumers: crates/futo-notes-model/tests/conformance.rs (imageExtensions, maxTitleLength), apps/tauri/src-tauri/src/filesystem_watcher.rs's test module (watcherSuppressionWindowMs), src/lib/constantsConformance.test.ts (all fields). TODO(PKT-6): extend imageExtensions coverage to crates/futo-notes-core/src/invariants.rs's legacy 13-ext set and src/lib/platform/tauri.ts's image-picker filter once F7 unifies them onto this canonical 10-set — they are known to diverge today and are out of scope for this gate.",
+  "imageExtensions": [
+    "jpg",
+    "jpeg",
+    "png",
+    "gif",
+    "webp",
+    "svg",
+    "bmp",
+    "ico",
+    "avif",
+    "heic"
+  ],
+  "maxTitleLength": 200,
+  "watcherSuppressionWindowMs": 5000,
+  "writeSuppressionLocalTtlMs": 1000,
+  "writeSuppressionSyncTtlMs": 5000
+}

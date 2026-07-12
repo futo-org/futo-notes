@@ -13,6 +13,14 @@
  *   the unlink event for the old filename
  */
 
+/** TTL for `recentWrites` (local saves). Asserted against
+ *  `tests/conformance/constants.json` by `constantsConformance.test.ts`. */
+export const LOCAL_WRITE_TTL_MS = 1000;
+/** TTL for `recentSyncWrites`/`recentRemoteRenames` (sync-originated writes).
+ *  Also the Rust watcher's `SUPPRESSION_WINDOW_MS` — same value, independent
+ *  constant (F21); asserted against `tests/conformance/constants.json`. */
+export const SYNC_WRITE_TTL_MS = 5000;
+
 export interface WriteSuppressor {
   recordWrite(filename: string): void;
   isRecentWrite(filename: string): boolean;
@@ -43,32 +51,32 @@ export function createWriteSuppressor(): WriteSuppressor {
 
   function isRecentWrite(filename: string): boolean {
     const ts = recentWrites.get(filename);
-    return ts !== undefined && Date.now() - ts < 1000;
+    return ts !== undefined && Date.now() - ts < LOCAL_WRITE_TTL_MS;
   }
 
   function recordSyncWrite(filename: string): void {
     recentSyncWrites.set(filename, Date.now());
     for (const [key, ts] of recentSyncWrites) {
-      if (Date.now() - ts > 5000) recentSyncWrites.delete(key);
+      if (Date.now() - ts > SYNC_WRITE_TTL_MS) recentSyncWrites.delete(key);
     }
   }
 
   function isRecentSyncWrite(filename: string): boolean {
     const ts = recentSyncWrites.get(filename);
-    return ts !== undefined && Date.now() - ts < 5000;
+    return ts !== undefined && Date.now() - ts < SYNC_WRITE_TTL_MS;
   }
 
   function recordRemoteRename(fromId: string, toId: string): void {
     recentRemoteRenames.set(fromId, { toId, ts: Date.now() });
     for (const [key, value] of recentRemoteRenames) {
-      if (Date.now() - value.ts > 5000) recentRemoteRenames.delete(key);
+      if (Date.now() - value.ts > SYNC_WRITE_TTL_MS) recentRemoteRenames.delete(key);
     }
   }
 
   function getRecentRemoteRename(id: string): { toId: string; ts: number } | null {
     const entry = recentRemoteRenames.get(id);
     if (!entry) return null;
-    if (Date.now() - entry.ts > 5000) {
+    if (Date.now() - entry.ts > SYNC_WRITE_TTL_MS) {
       recentRemoteRenames.delete(id);
       return null;
     }

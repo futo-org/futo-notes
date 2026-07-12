@@ -232,6 +232,37 @@ export type FutoEditorOutboundMessage =
   | PasteClipboardImageMessage;
 
 /**
+ * Every `type` value {@link FutoEditorOutboundMessage} can carry. Consumed by
+ * `scripts/gen-bridge-spec.ts` to generate the native coverage spec (Android:
+ * `BridgeSpec.kt`, source of truth for the JUnit test asserting
+ * `EditorWebView.kt` handles — or explicitly exempts — every type; iOS via
+ * PKT-10). Also used below as a compile-time exhaustiveness check: if a
+ * message type is added to (or removed from) the union without updating this
+ * array, `_OutboundMessageTypesCoverExactly` fails to compile.
+ */
+export const OUTBOUND_MESSAGE_TYPES = [
+  'ready',
+  'change',
+  'focus',
+  'openNote',
+  'openUrl',
+  'pickImage',
+  'cursorContext',
+  'saveImageData',
+  'pasteClipboardImage',
+] as const;
+
+// Distributive-conditional mutual-extends trick for exact type equality —
+// robust for unions, unlike a plain `A extends B` check (which can pass for
+// non-exact overlaps and miss both a missing and an extra member).
+type Equals<A, B> =
+  (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
+type AssertTrue<T extends true> = T;
+export type _OutboundMessageTypesCoverExactly = AssertTrue<
+  Equals<(typeof OUTBOUND_MESSAGE_TYPES)[number], FutoEditorOutboundMessage['type']>
+>;
+
+/**
  * The iOS host message sink: `window.webkit.messageHandlers.futoBridge`, a
  * `WKScriptMessageHandler` whose `postMessage` accepts a structured object.
  */
