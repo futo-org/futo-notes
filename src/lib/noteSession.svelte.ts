@@ -6,7 +6,7 @@
  * NotesShell.
  */
 import { hasFileSystem } from '$lib/platform';
-import { updateNote, readNote, createNote, getNoteById } from '$lib/notes.svelte';
+import { updateNote, readNote, getNoteById } from '$lib/notes.svelte';
 import { sanitizeFilename } from '$lib/utils';
 import { FORBIDDEN_CHARS_RE, validateTitle } from '$lib/rules';
 import { navigate } from '../router';
@@ -471,31 +471,19 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
           autoResizeTitleTextarea();
         });
       } catch {
+        // read_note returns "" for a missing file on every platform (Tauri
+        // notes_read over futo-notes-model::read_note, web.ts, nodeFS), so a
+        // wikilink to a not-yet-created note takes the try-path above: it opens
+        // an empty editor bound to the target title, and the file is created on
+        // the FIRST edit/save — deferred, not eager (2026-07-11 decision;
+        // docs/spec/editor.md). This catch therefore only fires on a genuine
+        // backend/IPC read failure; we can't open the note, so reset and return
+        // home rather than leave the editor stuck loading (and never
+        // create-on-missing, which used to resurrect deleted notes).
         if (loadVersion !== noteLoadVersion) return;
-        // Note doesn't exist — create it (e.g. wikilink to new note)
-        try {
-          const result = await createNote(id, '');
-          if (loadVersion !== noteLoadVersion) return;
-          const slash = result.id.lastIndexOf('/');
-          const newTitle = slash === -1 ? result.id : result.id.slice(slash + 1);
-          title = newTitle;
-          content = '';
-          savedContent = '';
-          savedTitle = newTitle;
-          originalId = result.id;
-          deps.setEditorContent('');
-          loading = false;
-          requestAnimationFrame(() => {
-            if (loadVersion !== noteLoadVersion) return;
-            autoResizeTitleTextarea();
-            deps.focusEditor();
-          });
-          return;
-        } catch {
-          loading = false;
-          navigate('/');
-          return;
-        }
+        loading = false;
+        navigate('/');
+        return;
       }
       loading = false;
     }

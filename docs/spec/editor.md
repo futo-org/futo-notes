@@ -155,16 +155,19 @@ native shells edit tags as text in the body, which is not a gap.
   link is identifiable before you tap it). The
   resolver (`resolveWikilink`) treats an **ambiguous** target (a bare filename
   matching more than one note) exactly like an absent one: both return `null` and
-  render broken. Tapping a broken wikilink immediately creates a new note whose
-  title is the wikilink's target text and opens it — an **eager** create-on-missing
-  path: the note file is written and its sidebar entry appears at navigation time,
-  not deferred to a first body edit (verified desktop 2026-07-09).
+  render broken. Tapping a broken wikilink opens an empty editor bound to the
+  wikilink's target text as the title; the note file is **created on the first
+  edit/save**, not eagerly at navigation time — a **deferred** create-on-missing
+  path (2026-07-11 decision). The earlier "eager" wording was already false on
+  shipped desktop: `read_note` returns `""` for a missing file (never throws), so
+  the create-on-missing catch in `loadNote` was dead and the empty note simply
+  opened via the normal read path; the file appeared only once the user edited.
   → liveMarkdownTransform.ts, wikilinks.ts `resolveWikilink`,
-  noteSession.svelte.ts `loadNote` (create-on-missing), editor-embed/main.ts
+  noteSession.svelte.ts `loadNote`, editor-embed/main.ts
   > **Gap:** the **native** shells (iOS/Android) no-op a broken wikilink tap —
   > the editor embed posts `openNote` only for a _resolved_ link, so a broken
-  > tap neither creates nor opens the target note the way desktop does.
-  > _(native shells)_ → editor-embed/main.ts
+  > tap neither opens nor (on first edit) creates the target note the way
+  > desktop does. _(native shells)_ → editor-embed/main.ts
 - On the native shells, tapping a resolved wikilink navigates: the embed
   resolves the raw target against the pushed note list and posts `openNote`
   to the host, which **PUSHES a new editor onto the nav stack** — so **Back
