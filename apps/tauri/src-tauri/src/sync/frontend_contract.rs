@@ -161,6 +161,7 @@ mod tests {
             vault_key: [1u8; 32],
             object_map,
             max_version: 12,
+            pull_cursor: 12,
             oversize_skip: HashMap::new(),
         }
     }

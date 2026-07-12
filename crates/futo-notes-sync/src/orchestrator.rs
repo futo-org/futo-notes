@@ -495,6 +495,7 @@ pub async fn connect(
         vault_key,
         object_map: loaded.object_map,
         max_version: loaded.max_version,
+        pull_cursor: loaded.pull_cursor,
         oversize_skip: HashMap::new(),
     };
 
@@ -503,6 +504,7 @@ pub async fn connect(
         notes_root,
         &connected.object_map,
         connected.max_version,
+        connected.pull_cursor,
         &connected.collection_id,
     )
     .map_err(SyncErrorKind::Io)?;
@@ -573,6 +575,7 @@ pub async fn resume(
         vault_key,
         object_map: loaded.object_map,
         max_version: loaded.max_version,
+        pull_cursor: loaded.pull_cursor,
         oversize_skip: HashMap::new(),
     })
 }
@@ -1874,8 +1877,18 @@ pub async fn run_pull(
         );
     }
     next.max_version = new_max;
-    state::persist(notes_root_path, &next.object_map, next.max_version, &next.collection_id)
-        .map_err(SyncErrorKind::Io)?;
+    // A completed pull is the one place the pull cursor may advance: everything
+    // up to `new_max` has now been listed and reconciled (F32). Capped exactly
+    // like max_version so a failed download re-lists next pull.
+    next.pull_cursor = new_max;
+    state::persist(
+        notes_root_path,
+        &next.object_map,
+        next.max_version,
+        next.pull_cursor,
+        &next.collection_id,
+    )
+    .map_err(SyncErrorKind::Io)?;
 
     Ok((
         SyncSummary {
@@ -2734,9 +2747,15 @@ pub async fn run_push(
                         next.object_map.insert(k, v);
                     }
                     next.max_version = next.max_version.max(max_now);
-                    if let Err(e) =
-                        state::persist(notes_root_path, &next.object_map, next.max_version, &next.collection_id)
-                    {
+                    // Push advances only max_version; the pull cursor is
+                    // preserved so a crash here can't blind the next pull (F32).
+                    if let Err(e) = state::persist(
+                        notes_root_path,
+                        &next.object_map,
+                        next.max_version,
+                        next.pull_cursor,
+                        &next.collection_id,
+                    ) {
                         eprintln!("[e2ee] push checkpoint persist failed: {e}");
                         checkpoint_failed = true;
                     }
@@ -2774,7 +2793,13 @@ pub async fn run_push(
             next.object_map.insert(k, v);
         }
         next.max_version = next.max_version.max(max_tail);
-        if let Err(e) = state::persist(notes_root_path, &next.object_map, next.max_version, &next.collection_id) {
+        if let Err(e) = state::persist(
+            notes_root_path,
+            &next.object_map,
+            next.max_version,
+            next.pull_cursor,
+            &next.collection_id,
+        ) {
             eprintln!("[e2ee] push final checkpoint persist failed: {e}");
             checkpoint_failed = true;
         }
@@ -3129,8 +3154,16 @@ pub async fn run_push(
         next.object_map.insert(filename.clone(), entry.clone());
     }
     next.max_version = next.max_version.max(new_max);
-    state::persist(notes_root_path, &next.object_map, next.max_version, &next.collection_id)
-        .map_err(SyncErrorKind::Io)?;
+    // Push leaves the pull cursor where the last completed pull set it; the
+    // following run_pull re-observes our own pushed objects and advances it.
+    state::persist(
+        notes_root_path,
+        &next.object_map,
+        next.max_version,
+        next.pull_cursor,
+        &next.collection_id,
+    )
+    .map_err(SyncErrorKind::Io)?;
 
     Ok((
         SyncSummary {
@@ -3314,8 +3347,14 @@ fn remove_duplicate_loser_locally(
     apply_delta(notes_root_path, pre_write, apply_input)?;
 
     state.object_map.remove(filename);
-    state::persist(notes_root_path, &state.object_map, state.max_version, &state.collection_id)
-        .map_err(SyncErrorKind::Io)?;
+    state::persist(
+        notes_root_path,
+        &state.object_map,
+        state.max_version,
+        state.pull_cursor,
+        &state.collection_id,
+    )
+    .map_err(SyncErrorKind::Io)?;
     Ok(true)
 }
 
@@ -4265,8 +4304,17 @@ async fn reconcile_empty_map(
         None => new_max_version,
     };
     next.max_version = next.max_version.max(capped);
-    state::persist(notes_root_path, &next.object_map, next.max_version, &next.collection_id)
-        .map_err(SyncErrorKind::Io)?;
+    // The empty-map reconcile is a completed pull over the whole collection, so
+    // the pull cursor advances with it (F32).
+    next.pull_cursor = next.max_version;
+    state::persist(
+        notes_root_path,
+        &next.object_map,
+        next.max_version,
+        next.pull_cursor,
+        &next.collection_id,
+    )
+    .map_err(SyncErrorKind::Io)?;
 
     // Consume the ancestry only when EVERY tombstone was verified — a leftover
     // failed tombstone must keep its ancestry entry for a retry (S5). Retention
@@ -4351,16 +4399,21 @@ pub async fn run_sync(
         }
     }
 
-    // Capture the pre-push cursor BEFORE push runs. Push advances
-    // `max_version` for our own writes; using the post-push value for
-    // `since` would silently drop any peer changes whose `change_seq`
-    // landed in the interval. (Mirrors `prePushMaxVersion` in TS.)
-    let pre_push_max = working.max_version;
+    // The pull `since` is the persisted pull cursor — the highest change_seq we
+    // have actually pulled and reconciled. It is NOT `max_version`: push
+    // advances max_version for our own writes and persists it mid-push, so
+    // deriving `since` from it would drop peer changes whose change_seq landed
+    // below our pushed seqs — and a crash between the push persist and pull
+    // completion would make that loss permanent (F32). `pull_cursor` only
+    // advances when a pull completes, so it survives a crash pointing at the
+    // last fully-reconciled position. (In-process this equals the old
+    // pre_push_max capture; the distinction only bites across a crash.)
+    let pull_since = working.pull_cursor;
 
     let (push_summary, after_push) =
         run_push(&working, notes_root_path, progress, pre_write).await?;
     let (pull_summary, after_pull) =
-        run_pull(&after_push, notes_root_path, pre_push_max, progress, pre_write).await?;
+        run_pull(&after_push, notes_root_path, pull_since, progress, pre_write).await?;
     working = after_pull;
 
     // Concurrent-move dedup runs BEFORE rename detection so any losers
@@ -5904,6 +5957,7 @@ mod tests {
             vault_key: TEST_VAULT_KEY,
             object_map: HashMap::new(),
             max_version: 0,
+            pull_cursor: 0,
             oversize_skip: HashMap::new(),
         }
     }
@@ -6701,7 +6755,7 @@ mod tests {
                 size_bytes: None,
             },
         );
-        state::persist(root, &map, 1, "c1").unwrap();
+        state::persist(root, &map, 1, 1, "c1").unwrap();
         state::demote_state_to_ancestry(root).unwrap();
     }
 
@@ -6826,6 +6880,7 @@ mod tests {
             vault_key: TEST_VAULT_KEY,
             object_map: loaded.object_map,
             max_version: loaded.max_version,
+            pull_cursor: loaded.pull_cursor,
             oversize_skip: HashMap::new(),
         };
 
@@ -7968,5 +8023,105 @@ mod tests {
         assert!(!state.object_map.contains_key("Bbb/contested.md"), "loser unmapped");
         assert_eq!(state.object_map["Aaa/contested.md"].object_id, "o1");
         // `.expect(0)` on the DELETE mock is asserted here when `server` drops.
+    }
+
+    // PKT-16 regression (F32): a crash between run_push's state persist and the
+    // pull phase must NOT permanently hide a peer change that was un-pulled
+    // before the crash. run_push folds the pushed blobs' change_seqs into the
+    // persisted cursor mid-push (the interim checkpoint, the tail flush, and the
+    // final persist); if the process dies before the pull completes, the restart
+    // must still derive a pull `since` low enough to re-list the un-pulled peer
+    // object. The in-process `pre_push_max` guard only protects one run_sync
+    // call — across a crash the persisted cursor is all that survives, so
+    // persisting only the elevated push watermark defeats it.
+    //
+    // Setup: a peer object at change_seq 3 sits un-pulled on the server (our
+    // cursor is 0). We push 55 local notes (> PUSH_CHECKPOINT_EVERY = 50) which
+    // the server stamps at change_seq 100 — firing the interim checkpoint — then
+    // CRASH before pulling. On restart, a full run_sync must still deliver the
+    // peer object.
+    #[tokio::test]
+    async fn crash_between_push_persist_and_pull_still_delivers_peer_change() {
+        let server = MockServer::start().await;
+
+        // Every pushed object is stamped change_seq 100 — well above the peer's 3.
+        Mock::given(wm_method("POST"))
+            .and(wm_path("/api/collections/c1/blob-objects"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "object": {
+                    "id": "pushed", "version": 1, "change_seq": 100,
+                    "blob_key": "bk-pushed", "deleted": false,
+                    "updated_at": "2026-05-13T00:00:00.000Z"
+                },
+                "collectionVersion": 100
+            })))
+            .mount(&server)
+            .await;
+        // The un-pulled peer object (change_seq 3): visible from since=0,
+        // invisible from the crash-elevated since=100.
+        Mock::given(wm_method("GET"))
+            .and(wm_path("/api/collections/c1/objects"))
+            .and(query_param("sinceVersion", "0"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "objects": [wire_object("peer", 3, None)]
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(wm_method("GET"))
+            .and(wm_path("/api/collections/c1/objects"))
+            .and(query_param("sinceVersion", "100"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "objects": []
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(wm_method("GET"))
+            .and(wm_path("/api/blobs/bk-peer"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_bytes(enc("peer.md", "peer body\n").await),
+            )
+            .mount(&server)
+            .await;
+
+        let root = temp_root();
+        for i in 0..55 {
+            std::fs::write(root.join(format!("note{i:02}.md")), format!("body {i}\n")).unwrap();
+        }
+
+        // Phase 1: push, then CRASH — discard the returned in-memory state, so
+        // the pre_push_max guard dies with the process exactly as it would on a
+        // real crash. Only what run_push persisted to disk survives.
+        let (_summary, _after_push) = run_push(&connected_state(&server), &root, &no_prog, &no_pre)
+            .await
+            .expect("push");
+
+        // Phase 2: RESTART — reload the persisted state exactly as connect/resume
+        // do, then run a full sync. The populated map means the restart does NOT
+        // take the empty-map reconcile path; it must still deliver the peer edit.
+        let loaded = state::load(&root);
+        assert!(
+            !loaded.object_map.is_empty(),
+            "restart avoids the empty-map reconcile path"
+        );
+        let restart = ConnectedState {
+            base_url: server.uri(),
+            token: "test-token".into(),
+            user_id: "u1".into(),
+            collection_id: "c1".into(),
+            vault_key: TEST_VAULT_KEY,
+            object_map: loaded.object_map,
+            max_version: loaded.max_version,
+            pull_cursor: loaded.pull_cursor,
+            oversize_skip: HashMap::new(),
+        };
+        run_sync(&restart, &root, &no_prog, &no_pre)
+            .await
+            .expect("restart sync");
+
+        assert!(
+            root.join("peer.md").exists(),
+            "peer object (change_seq 3) was un-pulled before the crash and must \
+             still be delivered on the restart sync"
+        );
     }
 }

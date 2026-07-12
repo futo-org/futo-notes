@@ -521,6 +521,25 @@ upload. Desktop sync module ownership and serialization boundaries are fixed by
   `SyncClient::sync_now` + live `pull`/`push` closures, both calling
   `orchestrator::run_sync`; regression test
   `f1_native_sync_is_push_first_no_silent_overwrite`
+- **The persisted pull cursor never advances past changes we have actually
+  pulled — even across a crash mid-push.** State carries TWO watermarks:
+  `max_version` (the highest `change_seq` seen; push folds its uploads in and
+  persists it mid-push via the interim checkpoint / tail flush / final persist)
+  and `pull_cursor` (the `since` for the next pull). `run_sync` derives `since`
+  from `pull_cursor`, and ONLY a completed pull (`run_pull` /
+  `reconcile_empty_map`) advances it; push leaves it untouched. So a crash
+  between a push state-persist and pull completion leaves `pull_cursor` at the
+  last fully-reconciled position, and the restart still re-lists any peer object
+  whose `change_seq` sat below our pushed seqs. Persisting only `max_version`
+  (the pre-fix behavior) elevated the pull cursor past un-pulled peer changes,
+  hiding them permanently until the peer re-touched the note or a disconnect
+  forced an empty-map reconcile (F32). State-file compatibility: `pull_cursor`
+  is an additive serde-default field; a pre-field `.e2ee-state.json` defaults it
+  to `max_version` on load (accepting the pre-fix behavior once for state
+  already on disk). → futo-notes-sync `state` (`PersistedState::pull_cursor`,
+  `persist`), `orchestrator::{run_sync,run_push,run_pull,reconcile_empty_map}`;
+  regression tests `crash_between_push_persist_and_pull_still_delivers_peer_change`,
+  `pre_field_state_defaults_pull_cursor_to_max_version`
 - **A pure case-only / NFC-vs-NFD rename keeps its requested form.** Renaming
   `note` → `Note` (or a composed↔decomposed accent) on a
   case/normalization-insensitive filesystem (default APFS on macOS/iOS, NTFS)
