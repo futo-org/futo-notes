@@ -620,6 +620,16 @@ pub struct SyncSummary {
     pub peer_updated_ids: Vec<String>,
     pub peer_deleted_ids: Vec<String>,
     pub renamed: Vec<RenamePair>,
+    /// Count of note files this cycle wrote to the LOCAL notes tree
+    /// (downloads, push-side clean merges `MergedClean`, conflict copies,
+    /// edit-wins restores, reconcile adoptions). Distinct from `uploaded`
+    /// (local→server) and from `downloaded`/`deleted` (which miss push-side
+    /// merges): a `MergedClean` bumps `uploaded` only, so a shell gating an
+    /// editor reload on `downloaded`/`deleted` treats it as a no-op and lets
+    /// its next autosave clobber the merged-in peer edit (F2). This is a
+    /// core-computed reload signal — shells render it, they never re-derive
+    /// "did the disk change" from the semantic counts.
+    pub local_writes_applied: u32,
     /// Per-item sync operations that failed but did NOT abort the cycle
     /// (upload/delete/checkpoint errors). Distinct from `conflicts`, which
     /// carries expected/handled outcomes (413 oversize, dirty-merge conflict
@@ -1812,6 +1822,10 @@ pub async fn run_pull(
         timestamps: HashMap::new(),
     };
 
+    // Local content writes this pull applied (peer downloads + moved-aside
+    // collision copies). Feeds `SyncSummary::local_writes_applied`.
+    let local_writes_applied = apply_input.update.len() as u32;
+
     // The apply path writes files atomically + records watcher suppressions
     // (via pre_write). Runs synchronously; pure disk work.
     if !apply_input.update.is_empty() || !apply_input.delete.is_empty() {
@@ -1885,6 +1899,7 @@ pub async fn run_pull(
             deleted_ids: deleted_ids.clone(),
             peer_updated_ids: updated_ids,
             peer_deleted_ids: deleted_ids,
+            local_writes_applied,
             failures: {
                 let mut failures: Vec<SyncFailure> =
                     failed_downloads.into_iter().map(|f| f.failure).collect();
@@ -3108,6 +3123,12 @@ pub async fn run_push(
         }
     }
 
+    // Count local disk writes BEFORE the vectors are moved into apply_delta.
+    // Every push-side content write (MergedClean, ConflictCopy, edit-wins
+    // restore) lands in `updates`/`conflict_writes`, so this is the exact set
+    // a stale open editor must reload for — see `SyncSummary::local_writes_applied`.
+    let local_writes_applied = (updates.len() + conflict_writes.len()) as u32;
+
     // Apply file writes + deletes + mtime stamps in one batched call.
     if !updates.is_empty() || !deletes_to_apply.is_empty() || !conflict_writes.is_empty() || !timestamps.is_empty()
     {
@@ -3143,6 +3164,7 @@ pub async fn run_push(
             deleted_ids,
             peer_updated_ids,
             peer_deleted_ids,
+            local_writes_applied,
             deleted_hashes,
             created_hashes,
             hash_to_filenames,
@@ -3364,6 +3386,7 @@ fn combine_summaries(
     push.downloaded += pull.downloaded;
     push.deleted += pull.deleted + dup.deleted_ids.len() as u32;
     push.conflicts += pull.conflicts + dup.conflicts;
+    push.local_writes_applied += pull.local_writes_applied;
     push.failures.extend(pull.failures);
     push.failures.extend(dup.failures);
     push.updated_ids.extend(pull.updated_ids);
@@ -4306,6 +4329,8 @@ async fn reconcile_empty_map(
         peer_updated_ids: adopted_ids,
         deleted_ids: peer_deleted_ids.clone(),
         peer_deleted_ids,
+        // Each adopted note was written to local disk (F2).
+        local_writes_applied: adopted.len() as u32,
         failures,
         ..Default::default()
     };
@@ -4421,6 +4446,7 @@ fn fold_reconcile_summary(mut combined: SyncSummary, mut reconcile: SyncSummary)
         return combined;
     }
     combined.downloaded += reconcile.downloaded;
+    combined.local_writes_applied += reconcile.local_writes_applied;
     dedup_append(&mut combined.updated_ids, reconcile.updated_ids);
     dedup_append(&mut combined.peer_updated_ids, reconcile.peer_updated_ids);
     combined
@@ -5160,6 +5186,53 @@ mod tests {
         let combined = combine_summaries(push, pull, Vec::new(), DuplicateResolution::default());
         assert_eq!(combined.downloaded, 1);
         assert_eq!(combined.peer_updated_ids, vec!["during sync".to_string()]);
+    }
+
+    #[test]
+    fn combine_summaries_carries_local_writes_applied() {
+        // F2: a push-side clean merge (MergedClean) writes merged text to the
+        // LOCAL disk but bumps `uploaded`, not `downloaded`/`deleted`. The
+        // count of those local writes must survive combine so a native shell
+        // that gates its editor reload on it never treats a merge as a no-op
+        // and lets its next autosave clobber the merged-in peer edit.
+        let push = SyncSummary {
+            uploaded: 1,
+            local_writes_applied: 1,
+            ..Default::default()
+        };
+        let pull = SyncSummary {
+            downloaded: 2,
+            local_writes_applied: 2,
+            ..Default::default()
+        };
+        let combined = combine_summaries(push, pull, Vec::new(), DuplicateResolution::default());
+        assert_eq!(combined.local_writes_applied, 3);
+        // The bug's fingerprint: local writes with no downloads/deletes.
+        let merge_only = combine_summaries(
+            SyncSummary { uploaded: 1, local_writes_applied: 1, ..Default::default() },
+            SyncSummary::default(),
+            Vec::new(),
+            DuplicateResolution::default(),
+        );
+        assert_eq!(merge_only.downloaded, 0);
+        assert_eq!(merge_only.deleted, 0);
+        assert_eq!(merge_only.local_writes_applied, 1);
+    }
+
+    #[test]
+    fn fold_reconcile_carries_local_writes_applied() {
+        // Reconcile adoptions write server content to local disk; the count
+        // must fold in alongside the download count it also surfaces.
+        let combined = SyncSummary::default();
+        let reconcile = SyncSummary {
+            downloaded: 1,
+            local_writes_applied: 1,
+            updated_ids: vec!["adopted".into()],
+            peer_updated_ids: vec!["adopted".into()],
+            ..Default::default()
+        };
+        let folded = fold_reconcile_summary(combined, reconcile);
+        assert_eq!(folded.local_writes_applied, 1);
     }
 
     #[test]
@@ -5964,6 +6037,9 @@ mod tests {
             .expect("pull");
 
         assert_eq!(summary.downloaded, 2);
+        // Every downloaded blob is a local disk write — the native reload
+        // signal must reflect it (F2).
+        assert_eq!(summary.local_writes_applied, 2);
         assert!(summary.failures.is_empty());
         assert_eq!(next.max_version, 2);
         assert_eq!(std::fs::read_to_string(root.join("one.md")).unwrap(), "alpha\n");
@@ -6524,6 +6600,8 @@ mod tests {
             .expect("reconcile");
 
         assert_eq!(summary.downloaded, 1);
+        // The single adoption is a local disk write (F2).
+        assert_eq!(summary.local_writes_applied, 1);
         assert_eq!(summary.failures.len(), 1);
         assert_eq!(summary.failures[0].kind, FailureKind::Download);
         assert_eq!(
