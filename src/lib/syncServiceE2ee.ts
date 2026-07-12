@@ -44,6 +44,11 @@ export interface SyncSummary {
   renamed: Array<{ fromId: string; toId: string }>;
   peerUpdatedIds: string[];
   peerDeletedIds: string[];
+  /** Count of note files this cycle wrote to the local tree — the native
+   *  shells' editor-reload signal for push-side merges (F2). Kept in lockstep
+   *  with the Rust wire struct (F22 hand-maintained); optional here because
+   *  desktop reloads on `updatedIds` and never gates on this. */
+  localWritesApplied?: number;
 }
 
 /** One per-item sync failure. `kind` is `'upload' | 'delete' | 'checkpoint'
