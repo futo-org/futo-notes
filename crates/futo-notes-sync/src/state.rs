@@ -69,9 +69,12 @@ struct PersistedState {
     /// push persist and pull completion would otherwise leave the pull cursor
     /// past peer changes we never pulled, hiding them forever (F32). Only a
     /// COMPLETED pull (`run_pull` / `reconcile_empty_map`) advances this; push
-    /// leaves it untouched. `None` on files written before this field existed —
-    /// `load` then defaults it to `max_version`, accepting the pre-fix behavior
-    /// once for that already-persisted state.
+    /// leaves it untouched. `None` on files written before this field existed:
+    /// such a file may have been written by a pre-fix build mid-push crash, so
+    /// its `max_version` can already hide un-pulled peer changes. `load`
+    /// therefore DISTRUSTS an absent field and seeds the pull cursor at 0,
+    /// forcing a one-time full re-list that retroactively heals that damage
+    /// (idempotent — `first_pass` hash/identity-dedupes, so no churn).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pull_cursor: Option<u64>,
     /// Server collection this cursor/object-map describes. `None` on files
@@ -142,8 +145,9 @@ pub struct Loaded {
     pub object_map: HashMap<String, E2eeObjectMapEntry>,
     pub max_version: u64,
     /// The `since` cursor for the next pull (see `PersistedState::pull_cursor`).
-    /// Defaults to `max_version` for state files written before the field
-    /// existed and for legacy imports.
+    /// Seeded to 0 for state files written before the field existed and for
+    /// legacy imports — an untrusted max_version there would strand hidden peer
+    /// changes, so a one-time full re-list heals instead.
     pub pull_cursor: u64,
     /// True when the map came from a legacy `.app-state.json` migration rather
     /// than `.e2ee-state.json` (the caller persists it forward on connect).
@@ -201,10 +205,13 @@ impl Loaded {
 /// falls back to a one-time legacy `.app-state.json` import; otherwise empty.
 pub fn load(notes_root: &Path) -> Loaded {
     if let Some(state) = load_persisted_state(notes_root) {
-        // Pre-field files carry no pull_cursor — default to max_version, which
-        // accepts the pre-fix behavior exactly once for that already-persisted
-        // state (see PersistedState::pull_cursor).
-        let pull_cursor = state.pull_cursor.unwrap_or(state.max_version);
+        // A pre-field file carries no pull_cursor AND may have been written by a
+        // pre-fix build mid-push crash, so its max_version can already be
+        // elevated past un-pulled peer changes (F32). Distrust an absent field:
+        // seed 0 so the first post-upgrade pull re-lists from scratch and
+        // delivers anything the crash hid. The re-list is idempotent
+        // (hash/identity-deduped in first_pass), so it heals without churn.
+        let pull_cursor = state.pull_cursor.unwrap_or(0);
         return Loaded {
             object_map: state.object_map,
             max_version: state.max_version,
@@ -214,10 +221,14 @@ pub fn load(notes_root: &Path) -> Loaded {
         };
     }
     if let Some(state) = import_legacy_state(notes_root) {
+        // Same distrust for a legacy import: the pre-port TS client also folded
+        // its own pushed change_seqs into `e2eeMaxVersion` and checkpointed it
+        // mid-push (syncServiceE2ee.ts @ 49d79659~1), so the imported max carries
+        // the identical F32 hazard. Seed 0 → one-time heal re-list.
         return Loaded {
             object_map: state.object_map,
             max_version: state.max_version,
-            pull_cursor: state.max_version,
+            pull_cursor: 0,
             migrated_legacy: true,
             collection_id: state.collection_id,
         };
@@ -281,10 +292,10 @@ fn import_legacy_state(notes_root: &Path) -> Option<PersistedState> {
         version: STATE_FORMAT_VERSION,
         object_map,
         max_version,
-        // A legacy import has never pulled under this client; seed the pull
-        // cursor at the imported max so the first sync behaves as the pre-port
-        // client did.
-        pull_cursor: Some(max_version),
+        // No pull cursor: `load` distrusts a legacy import's max_version (it
+        // carries the same F32 conflation as a pre-fix `.e2ee-state.json`) and
+        // seeds the pull cursor at 0 for a one-time heal re-list.
+        pull_cursor: None,
         collection_id,
     })
 }
@@ -547,13 +558,16 @@ mod tests {
         std::fs::remove_dir_all(&root).ok();
     }
 
-    // PKT-16 migration: a state file written before the pull_cursor field
-    // existed carries no `pull_cursor` key. Load must default it to
-    // `max_version` — the pre-fix behavior — so existing installs are not
-    // forced into a full re-pull, accepting the crash-window blindness at most
-    // once for state already on disk.
+    // PKT-16 migration (F32 retroactive heal): a state file written before the
+    // pull_cursor field existed carries no `pull_cursor` key AND may have been
+    // written by a pre-fix build during a mid-push crash — its `max_version` is
+    // already elevated past un-pulled peer changes. Seeding pull_cursor from
+    // that elevated max would make the F32 damage PERMANENT. So an absent
+    // pull_cursor is UNTRUSTED: seed 0 so the first post-upgrade pull re-lists
+    // from scratch (idempotent: hash/identity-deduped) and delivers anything the
+    // crash hid.
     #[test]
-    fn pre_field_state_defaults_pull_cursor_to_max_version() {
+    fn pre_field_state_distrusts_absent_pull_cursor_seeds_zero() {
         let root = temp_root();
         std::fs::write(
             state_file_path(&root),
@@ -562,7 +576,7 @@ mod tests {
         .unwrap();
         let loaded = load(&root);
         assert_eq!(loaded.max_version, 42);
-        assert_eq!(loaded.pull_cursor, 42, "absent pull_cursor defaults to max_version");
+        assert_eq!(loaded.pull_cursor, 0, "absent pull_cursor is untrusted → 0 (full re-list)");
         std::fs::remove_dir_all(&root).ok();
     }
 
@@ -620,6 +634,9 @@ mod tests {
         let loaded = load(&root);
         assert!(loaded.migrated_legacy);
         assert_eq!(loaded.max_version, 7);
+        // The imported max carries the same F32 conflation as a pre-fix state
+        // file, so the pull cursor is distrusted → 0 (one-time heal re-list).
+        assert_eq!(loaded.pull_cursor, 0);
         assert_eq!(loaded.object_map.len(), 1); // broken.md dropped
         assert_eq!(loaded.object_map.get("good.md").unwrap().object_id, "o9");
         std::fs::remove_dir_all(&root).ok();

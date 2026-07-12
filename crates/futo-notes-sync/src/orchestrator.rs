@@ -8124,4 +8124,112 @@ mod tests {
              still be delivered on the restart sync"
         );
     }
+
+    // PKT-16 migration (F32 retroactive heal): an install upgrading from a
+    // pre-fix build may carry a `.e2ee-state.json` with NO `pull_cursor` field
+    // and a `max_version` already elevated by a pre-fix mid-push crash — hiding
+    // un-pulled peer changes. The first post-upgrade sync must HEAL this by
+    // re-listing from 0 and delivering the hidden peer object, WITHOUT churning
+    // (no re-downloads / conflict copies) the already-synced objects. This
+    // reproduces a realistic pre-field file by pushing notes (which writes a
+    // proper state file), stripping the `pull_cursor` key, then syncing.
+    #[tokio::test]
+    async fn pre_field_state_first_sync_heals_hidden_peer_no_churn() {
+        let server = MockServer::start().await;
+
+        Mock::given(wm_method("POST"))
+            .and(wm_path("/api/collections/c1/blob-objects"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "object": {
+                    "id": "pushed", "version": 1, "change_seq": 100,
+                    "blob_key": "bk-pushed", "deleted": false,
+                    "updated_at": "2026-05-13T00:00:00.000Z"
+                },
+                "collectionVersion": 100
+            })))
+            .mount(&server)
+            .await;
+        // Post-upgrade heal pull (since=0) lists only the hidden peer object.
+        // The already-pushed objects are NOT re-listed here, so any attempt to
+        // re-download them would 404 (no blob mock) and surface as a failure —
+        // the assertions below therefore also prove "no churn".
+        Mock::given(wm_method("GET"))
+            .and(wm_path("/api/collections/c1/objects"))
+            .and(query_param("sinceVersion", "0"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "objects": [wire_object("peer", 3, None)]
+            })))
+            .mount(&server)
+            .await;
+        // The pre-fix (buggy) path would pull from the elevated cursor (100) and
+        // find nothing — this mock makes that path observable as a RED failure.
+        Mock::given(wm_method("GET"))
+            .and(wm_path("/api/collections/c1/objects"))
+            .and(query_param("sinceVersion", "100"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "objects": []
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(wm_method("GET"))
+            .and(wm_path("/api/blobs/bk-peer"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_bytes(enc("peer.md", "peer body\n").await),
+            )
+            .mount(&server)
+            .await;
+
+        let root = temp_root();
+        for i in 0..3 {
+            std::fs::write(root.join(format!("note{i}.md")), format!("body {i}\n")).unwrap();
+        }
+        // Write a realistic state file (correct hashes/mtimes, elevated
+        // max_version=100) by pushing.
+        run_push(&connected_state(&server), &root, &no_prog, &no_pre)
+            .await
+            .expect("seed push");
+
+        // Downgrade the file to a PRE-FIELD one: strip the pull_cursor key so
+        // load() treats it as untrusted. Assert the max_version really is
+        // elevated (the F32 hazard) before we strip.
+        let path = state::state_file_path(&root);
+        let raw = std::fs::read_to_string(&path).unwrap();
+        let mut json: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        assert!(json.get("pull_cursor").is_some(), "push wrote a pull_cursor");
+        assert_eq!(json["max_version"].as_u64(), Some(100), "cursor elevated by push");
+        json.as_object_mut().unwrap().remove("pull_cursor");
+        std::fs::write(&path, serde_json::to_string(&json).unwrap()).unwrap();
+
+        // First post-upgrade sync (load exactly as connect/resume do).
+        let loaded = state::load(&root);
+        assert_eq!(loaded.max_version, 100, "elevated max survives load");
+        assert_eq!(loaded.pull_cursor, 0, "absent pull_cursor is distrusted → 0");
+        let state = ConnectedState {
+            base_url: server.uri(),
+            token: "test-token".into(),
+            user_id: "u1".into(),
+            collection_id: "c1".into(),
+            vault_key: TEST_VAULT_KEY,
+            object_map: loaded.object_map,
+            max_version: loaded.max_version,
+            pull_cursor: loaded.pull_cursor,
+            oversize_skip: HashMap::new(),
+        };
+        let (summary, _after) = run_sync(&state, &root, &no_prog, &no_pre)
+            .await
+            .expect("heal sync");
+
+        // The hidden peer edit is delivered.
+        assert!(root.join("peer.md").exists(), "F32 heal: hidden peer object delivered");
+        // No churn: only the peer downloaded, no failures, no conflict copies.
+        assert_eq!(summary.downloaded, 1, "only the hidden peer is downloaded, not the synced notes");
+        assert!(summary.failures.is_empty(), "no re-download failures: {:?}", summary.failures);
+        assert_eq!(summary.conflicts, 0, "no conflict copies minted for already-synced notes");
+        let md_files: Vec<_> = std::fs::read_dir(&root)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("md"))
+            .collect();
+        assert_eq!(md_files.len(), 4, "3 synced notes + peer.md, no conflict copies: {md_files:?}");
+    }
 }

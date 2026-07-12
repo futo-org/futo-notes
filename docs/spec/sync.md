@@ -533,13 +533,20 @@ upload. Desktop sync module ownership and serialization boundaries are fixed by
   whose `change_seq` sat below our pushed seqs. Persisting only `max_version`
   (the pre-fix behavior) elevated the pull cursor past un-pulled peer changes,
   hiding them permanently until the peer re-touched the note or a disconnect
-  forced an empty-map reconcile (F32). State-file compatibility: `pull_cursor`
-  is an additive serde-default field; a pre-field `.e2ee-state.json` defaults it
-  to `max_version` on load (accepting the pre-fix behavior once for state
-  already on disk). → futo-notes-sync `state` (`PersistedState::pull_cursor`,
-  `persist`), `orchestrator::{run_sync,run_push,run_pull,reconcile_empty_map}`;
-  regression tests `crash_between_push_persist_and_pull_still_delivers_peer_change`,
-  `pre_field_state_defaults_pull_cursor_to_max_version`
+  forced an empty-map reconcile (F32). State-file compatibility + retroactive
+  heal: `pull_cursor` is an additive serde-default field; a pre-field
+  `.e2ee-state.json` (or a legacy `.app-state.json` import — the pre-port TS
+  client folded its own pushes into `e2eeMaxVersion` the same way) may itself
+  carry a crash-elevated cursor, so an absent `pull_cursor` is DISTRUSTED and
+  seeded to 0. The first post-upgrade sync therefore re-lists from scratch —
+  idempotent (`first_pass` hash/identity-dedupes, no re-downloads or conflict
+  copies for already-synced notes) — and RETROACTIVELY heals any install already
+  carrying hidden F32 damage. → futo-notes-sync `state`
+  (`PersistedState::pull_cursor`, `load`, `persist`),
+  `orchestrator::{run_sync,run_push,run_pull,reconcile_empty_map}`; regression
+  tests `crash_between_push_persist_and_pull_still_delivers_peer_change`,
+  `pre_field_state_first_sync_heals_hidden_peer_no_churn`,
+  `pre_field_state_distrusts_absent_pull_cursor_seeds_zero`
 - **A pure case-only / NFC-vs-NFD rename keeps its requested form.** Renaming
   `note` → `Note` (or a composed↔decomposed accent) on a
   case/normalization-insensitive filesystem (default APFS on macOS/iOS, NTFS)
