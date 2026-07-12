@@ -193,11 +193,23 @@ class NotesStore(notesRoot: File) {
     /** Fire-and-forget flush for the editor's leave paths (`onDispose` on pop,
      *  and the register's onPause flush): a composable's dispose callback can't
      *  suspend, so the final save runs on the store's scope (which outlives the
-     *  screen). The exists-check + write happen on IO; `write` keeps `notes` in
-     *  sync. */
+     *  screen).
+     *
+     *  A compare-and-swap write (`write_if_unchanged`): persist `draft.content`
+     *  only if the note still holds `draft.base` (the content the editor last
+     *  saw). One FFI call replaces the old `exists()`-then-`write()` sequence,
+     *  closing its TOCTOU — a note deleted while backgrounded returns
+     *  SkippedMissing (never resurrected), and content a live-sync pull adopted
+     *  since the editor's last read returns SkippedChanged (never clobbered).
+     *  Only a genuine write (WROTE) updates in-memory state. */
     fun flushAsync(draft: PendingDraft) {
         scope.launch {
-            if (withContext(Dispatchers.IO) { core.exists(draft.id) }) write(draft.id, draft.content)
+            val outcome = withContext(Dispatchers.IO) {
+                core.writeIfUnchanged(draft.id, draft.base, draft.content)
+            }
+            if (outcome == uniffi.futo_notes_ffi.FlushOutcome.WROTE) {
+                applyWrittenContent(draft.id, draft.content)
+            }
         }
     }
 
@@ -238,32 +250,42 @@ class NotesStore(notesRoot: File) {
      *  FFI write + preview/tag derivation run on IO; the state swap is on main. */
     suspend fun write(id: String, content: String) {
         try {
-            val derived = withContext(Dispatchers.IO) {
-                core.write(id, content)
-                Triple(
-                    uniffi.futo_notes_ffi.makePreview(content),
-                    uniffi.futo_notes_ffi.makeRichPreview(content),
-                    uniffi.futo_notes_ffi.extractTags(content),
-                )
-            }
-            val idx = notes.indexOfFirst { it.id == id }
-            if (idx >= 0) {
-                val old = notes[idx]
-                val updated = old.copy(
-                    modifiedMs = System.currentTimeMillis(),
-                    preview = derived.first,
-                    richPreview = derived.second,
-                    tags = derived.third,
-                )
-                notes = notes.toMutableList().also { it[idx] = updated }
-            } else {
-                reload()
-            }
-            signalLocalChange()
-            notifyEngine { it.notifyChanged("$id.md") }
+            withContext(Dispatchers.IO) { core.write(id, content) }
+            applyWrittenContent(id, content)
         } catch (e: Exception) {
             android.util.Log.e("NotesStore", "write failed for $id", e)
         }
+    }
+
+    /** Reflect a write of [content] to [id] that already landed on disk into the
+     *  in-memory list, search engine, and auto-push signal — the post-write
+     *  bookkeeping shared by [write] and [flushAsync]'s compare-and-swap write.
+     *  Updates the row IN PLACE (stable identity/order while typing); a note not
+     *  in the list yet triggers a rescan. Preview + tags come from the same Rust
+     *  rules the scan uses. */
+    private suspend fun applyWrittenContent(id: String, content: String) {
+        val derived = withContext(Dispatchers.IO) {
+            Triple(
+                uniffi.futo_notes_ffi.makePreview(content),
+                uniffi.futo_notes_ffi.makeRichPreview(content),
+                uniffi.futo_notes_ffi.extractTags(content),
+            )
+        }
+        val idx = notes.indexOfFirst { it.id == id }
+        if (idx >= 0) {
+            val old = notes[idx]
+            val updated = old.copy(
+                modifiedMs = System.currentTimeMillis(),
+                preview = derived.first,
+                richPreview = derived.second,
+                tags = derived.third,
+            )
+            notes = notes.toMutableList().also { it[idx] = updated }
+        } else {
+            reload()
+        }
+        signalLocalChange()
+        notifyEngine { it.notifyChanged("$id.md") }
     }
 
     /** Re-sort the in-memory list most-recently-modified first WITHOUT a rescan
