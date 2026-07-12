@@ -6154,6 +6154,106 @@ mod tests {
         );
     }
 
+    // PKT-17 (user-visible regression): a pre-port vault carries its E2EE
+    // object map in `.app-state.json` (tagged with `e2eeCollectionId`). A note
+    // edited OFFLINE before the port must, on first connect+sync, land as a
+    // CLEAN UPDATE to the existing server object — same object_id, PUT at the
+    // next version — not a conflict copy and not a version fork.
+    //
+    // Before the fix, `import_legacy_state` tagged the imported state with
+    // `collection_id: None`, so `load_for_collection` reset the map to empty;
+    // `run_sync` then took the empty-map reconcile path and POSTed the edit as
+    // a brand-new object (no PUT mock is mounted here, so that POST would 404
+    // and leave `note.md` out of the map entirely — the assertion below fails).
+    #[tokio::test]
+    async fn legacy_import_offline_edit_lands_as_clean_update() {
+        let server = MockServer::start().await;
+
+        // The pull phase (run after push) lists peer changes since our cursor;
+        // there are none.
+        Mock::given(wm_method("GET"))
+            .and(wm_path("/api/collections/c1/objects"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "objects": []
+            })))
+            .mount(&server)
+            .await;
+        // The clean update: PUT onto the EXISTING object o9 succeeds at v5.
+        Mock::given(wm_method("PUT"))
+            .and(wm_path("/api/collections/c1/blob-objects/o9"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "object": {
+                    "id": "o9", "version": 5, "change_seq": 8,
+                    "updated_at": "2026-07-12T00:00:00.000Z",
+                    "blob_key": "bk-o9-v5", "deleted": false
+                },
+                "collectionVersion": 8
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let root = temp_root();
+        // The pre-port state file: object map tagged with the collection the
+        // vault synced to, plus a stale hash so the offline edit reads dirty.
+        std::fs::write(
+            root.join(".app-state.json"),
+            r#"{
+                "e2eeCollectionId": "c1",
+                "e2eeMaxVersion": 7,
+                "e2eeObjectMap": {
+                    "note.md": {"objectId":"o9","version":4,"blobKey":"bk-o9-v4","hash":"stale-pre-edit-hash","mtimeMs":1700000000000,"sizeBytes":5}
+                }
+            }"#,
+        )
+        .unwrap();
+        // The offline edit on disk (content differs from the recorded hash).
+        std::fs::write(root.join("note.md"), "edited while offline before the port\n").unwrap();
+
+        // Exactly what connect/resume do: load the persisted map for the
+        // collection we're connecting to.
+        let loaded = state::load_for_collection(&root, "c1");
+        assert!(
+            loaded.object_map.contains_key("note.md"),
+            "precondition: the legacy import must survive load_for_collection",
+        );
+        let state = ConnectedState {
+            base_url: server.uri(),
+            token: "test-token".into(),
+            user_id: "u1".into(),
+            collection_id: "c1".into(),
+            vault_key: TEST_VAULT_KEY,
+            object_map: loaded.object_map,
+            max_version: loaded.max_version,
+            oversize_skip: HashMap::new(),
+        };
+
+        let (summary, next) = run_sync(&state, &root, &no_prog, &no_pre)
+            .await
+            .expect("first connect+sync");
+
+        assert_eq!(summary.uploaded, 1, "the offline edit uploads exactly once");
+        assert_eq!(summary.conflicts, 0, "a clean update must not park a conflict copy");
+        assert!(summary.failures.is_empty(), "no push/pull failures: {:?}", summary.failures);
+
+        // Same object, next version — no fork.
+        let entry = next
+            .object_map
+            .get("note.md")
+            .expect("note.md must map to the existing object after a clean update");
+        assert_eq!(entry.object_id, "o9", "must update the EXISTING object, not mint a new one");
+        assert_eq!(entry.version, 5, "PUT advanced the object to v5");
+
+        // No conflict copy was written to disk.
+        let has_conflict_copy = std::fs::read_dir(&root)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .any(|e| e.file_name().to_string_lossy().contains("(conflict"));
+        assert!(!has_conflict_copy, "no `(conflict …)` copy must be created");
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
     // F1 diverged branch: the note was edited on this device while it was
     // disconnected, then a peer deleted it. The local edit must be PRESERVED as
     // a conflict copy (re-uploaded as a new object), not silently deleted.

@@ -211,6 +211,132 @@ describe('K1 — migration scrub race', () => {
   });
 });
 
+// PKT-17: on a DIRECT upgrade from a pre-port build, `.app-state.json` holds
+// both the plaintext `e2eePassword` AND the legacy `e2eeObjectMap` /
+// `e2eeMaxVersion`. Boot runs initSyncPassword(), which migrates the password
+// and then saves the sanitized state — which does NOT carry the legacy map. That
+// save must NOT erase the map before the user's first connect runs the Rust
+// import, or the whole pre-port cohort lands on the empty-map conflict path.
+const LEGACY_MAP = {
+  'note.md': {
+    objectId: 'o9',
+    version: 4,
+    blobKey: 'bk-o9-v4',
+    hash: 'stale',
+    mtimeMs: 1,
+    sizeBytes: 5,
+  },
+};
+
+describe('PKT-17 — legacy sync-state holdover across the boot keyring migration', () => {
+  it('preserves e2eeObjectMap / e2eeMaxVersion when the boot migration scrubs the password', async () => {
+    const { platform, svc } = await fresh();
+    await platform.testFS.writeAppData(
+      '.app-state.json',
+      seedAppState({ e2eePassword: 'hunter2', e2eeObjectMap: LEGACY_MAP, e2eeMaxVersion: 7 }),
+    );
+
+    await svc.initSyncPassword();
+
+    const parsed = JSON.parse((await platform.testFS.readAppData('.app-state.json'))!);
+    // The password migrated to the keyring and was scrubbed from disk …
+    expect(kr.store.get('pw')).toBe('hunter2');
+    expect(parsed.e2eePassword).toBeUndefined();
+    // … but the legacy object map + cursor + collection tag survive for the
+    // Rust import that has not run yet (no `.e2ee-state.json` exists).
+    expect(parsed.e2eeObjectMap).toEqual(LEGACY_MAP);
+    expect(parsed.e2eeMaxVersion).toBe(7);
+    expect(parsed.e2eeCollectionId).toBe('collection');
+  });
+
+  it('keeps the map across an unrelated interleaved save until the import runs', async () => {
+    const { platform, appState, svc } = await fresh();
+    await platform.testFS.writeAppData(
+      '.app-state.json',
+      seedAppState({ e2eeObjectMap: LEGACY_MAP, e2eeMaxVersion: 7 }),
+    );
+    await svc.initSyncPassword(); // no password to migrate; loads app-state
+
+    // A totally unrelated save (e.g. a theme change) must not drop the map.
+    await appState.savePreferences(PREFS);
+
+    const parsed = JSON.parse((await platform.testFS.readAppData('.app-state.json'))!);
+    expect(parsed.e2eeObjectMap).toEqual(LEGACY_MAP);
+    expect(parsed.e2eeMaxVersion).toBe(7);
+  });
+
+  it('does NOT scrub the map while .e2ee-state.json is still absent (import not yet run)', async () => {
+    const { platform, svc } = await fresh();
+    await platform.testFS.writeAppData(
+      '.app-state.json',
+      seedAppState({ e2eeObjectMap: LEGACY_MAP, e2eeMaxVersion: 7 }),
+    );
+    await svc.initSyncPassword();
+
+    // A connect whose Rust side has NOT persisted `.e2ee-state.json` (the mock
+    // e2ee_connect is a no-op): the holdover must stay so the map is not lost.
+    await svc.connectE2ee('http://server', 'pw');
+
+    const parsed = JSON.parse((await platform.testFS.readAppData('.app-state.json'))!);
+    expect(parsed.e2eeObjectMap).toEqual(LEGACY_MAP);
+  });
+
+  it('scrubs the map once .e2ee-state.json exists (import consumed it)', async () => {
+    const { platform, svc } = await fresh();
+    await platform.testFS.writeAppData(
+      '.app-state.json',
+      seedAppState({ e2eeObjectMap: LEGACY_MAP, e2eeMaxVersion: 7 }),
+    );
+    await svc.initSyncPassword();
+    // Rust connect/sync persists this after importing the legacy map.
+    await platform.testFS.writeAppData(
+      '.e2ee-state.json',
+      '{"version":1,"object_map":{},"max_version":0,"collection_id":"collection"}',
+    );
+
+    await svc.connectE2ee('http://server', 'pw');
+
+    const parsed = JSON.parse((await platform.testFS.readAppData('.app-state.json'))!);
+    expect(parsed.e2eeObjectMap).toBeUndefined();
+    expect(parsed.e2eeMaxVersion).toBeUndefined();
+  });
+
+  it('best-effort: a rejected scrub write does not fail the committed sync, holdover kept', async () => {
+    const { platform, appState, svc } = await fresh();
+    await platform.testFS.writeAppData(
+      '.app-state.json',
+      seedAppState({ e2eeObjectMap: LEGACY_MAP, e2eeMaxVersion: 7 }),
+    );
+    await svc.initSyncPassword();
+    // Rust imported + persisted `.e2ee-state.json`, so the scrub would fire …
+    await platform.testFS.writeAppData(
+      '.e2ee-state.json',
+      '{"version":1,"object_map":{},"max_version":0,"collection_id":"collection"}',
+    );
+
+    // … but the scrub's app-state write transiently rejects. The sync itself has
+    // already committed server-side, so a failed cleanup must NOT reject it.
+    const failingFS = {
+      ...platform.testFS,
+      async writeAppData() {
+        throw new Error('disk full');
+      },
+    };
+    platform.setActiveFS(failingFS);
+    try {
+      await expect(svc.syncE2ee('pw')).resolves.toBeUndefined();
+      // Holdover retained → the map is not lost and the scrub retries next cycle.
+      expect(appState.getLegacySyncState()).toBeDefined();
+    } finally {
+      platform.resetActiveFS();
+    }
+
+    // The map is still on disk (the failed scrub wrote nothing).
+    const parsed = JSON.parse((await platform.testFS.readAppData('.app-state.json'))!);
+    expect(parsed.e2eeObjectMap).toEqual(LEGACY_MAP);
+  });
+});
+
 describe('K2 — serialization + generation guard', () => {
   it('a disconnect that races an in-flight boot load is not resurrected', async () => {
     const { platform, svc } = await fresh();

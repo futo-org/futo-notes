@@ -236,11 +236,22 @@ fn import_legacy_state(notes_root: &Path) -> Option<PersistedState> {
         eprintln!("[sync] legacy import: dropped {dropped} object_map entries with missing/invalid fields");
     }
     let max_version = v.get("e2eeMaxVersion").and_then(|x| x.as_u64()).unwrap_or(0);
+    // Tag the import with the collection the pre-port vault synced to
+    // (`e2eeCollectionId`, written right next to the legacy map in
+    // `.app-state.json`). Without the tag, `matches_collection` treats the
+    // imported map as unknown provenance and resets it on the first connect —
+    // the migration would be dead on arrival. Older pre-port files that predate
+    // this field carry no tag (`None`) and still reset, which is safe: the
+    // empty-map reconcile hash-dedups against local files.
+    let collection_id = v
+        .get("e2eeCollectionId")
+        .and_then(|x| x.as_str())
+        .map(|s| s.to_owned());
     Some(PersistedState {
         version: STATE_FORMAT_VERSION,
         object_map,
         max_version,
-        collection_id: None,
+        collection_id,
     })
 }
 
@@ -552,6 +563,88 @@ mod tests {
         assert_eq!(loaded.max_version, 7);
         assert_eq!(loaded.object_map.len(), 1); // broken.md dropped
         assert_eq!(loaded.object_map.get("good.md").unwrap().object_id, "o9");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    // PKT-17: a pre-port `.app-state.json` carries `e2eeCollectionId` right
+    // next to the legacy object map. The import must TAG the state with it so
+    // `load_for_collection` for that same collection keeps the map instead of
+    // resetting it — otherwise the migration is dead on arrival (every pre-port
+    // note is treated as new: unchanged ones survive only via reconcile
+    // hash-dedup, and an offline pre-port edit gets conflict-parked).
+    #[test]
+    fn legacy_import_tagged_with_collection_survives_load_for_collection() {
+        let root = temp_root();
+        std::fs::write(
+            root.join(".app-state.json"),
+            r#"{
+                "e2eeCollectionId": "col-C",
+                "e2eeMaxVersion": 7,
+                "e2eeObjectMap": {
+                    "note.md": {"objectId":"o9","version":4,"blobKey":"bk9","hash":"h","mtimeMs":1700000000000,"sizeBytes":12}
+                }
+            }"#,
+        )
+        .unwrap();
+
+        // Reconnecting to the SAME collection the pre-port vault synced to: the
+        // imported map must survive, tagged with that collection.
+        let loaded = load_for_collection(&root, "col-C");
+        assert!(loaded.migrated_legacy, "migrated flag must survive the collection match");
+        assert_eq!(loaded.max_version, 7);
+        assert_eq!(loaded.object_map.len(), 1);
+        assert_eq!(loaded.object_map.get("note.md").unwrap().object_id, "o9");
+        assert_eq!(loaded.collection_id.as_deref(), Some("col-C"));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    // The reset-for-a-DIFFERENT-collection semantics (commit 46374b9) must NOT
+    // be weakened by the tag: importing tagged with col-C and connecting to
+    // col-D still resets to an empty map.
+    #[test]
+    fn legacy_import_resets_for_different_collection() {
+        let root = temp_root();
+        std::fs::write(
+            root.join(".app-state.json"),
+            r#"{
+                "e2eeCollectionId": "col-C",
+                "e2eeMaxVersion": 7,
+                "e2eeObjectMap": {
+                    "note.md": {"objectId":"o9","version":4,"blobKey":"bk9","hash":"h"}
+                }
+            }"#,
+        )
+        .unwrap();
+
+        let loaded = load_for_collection(&root, "col-D");
+        assert_eq!(loaded.max_version, 0);
+        assert!(loaded.object_map.is_empty());
+        assert!(!loaded.migrated_legacy);
+        assert_eq!(loaded.collection_id, None);
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    // A pre-port file that predates `e2eeCollectionId` (older builds) carries a
+    // map but no collection tag — unknown provenance, so it resets like before.
+    // We cannot know which collection it belonged to, and a reset is safe (the
+    // empty-map reconcile hash-dedups against local files).
+    #[test]
+    fn legacy_import_without_collection_id_resets() {
+        let root = temp_root();
+        std::fs::write(
+            root.join(".app-state.json"),
+            r#"{
+                "e2eeMaxVersion": 7,
+                "e2eeObjectMap": {
+                    "note.md": {"objectId":"o9","version":4,"blobKey":"bk9","hash":"h"}
+                }
+            }"#,
+        )
+        .unwrap();
+
+        let loaded = load_for_collection(&root, "col-C");
+        assert!(loaded.object_map.is_empty());
+        assert_eq!(loaded.max_version, 0);
         std::fs::remove_dir_all(&root).ok();
     }
 
