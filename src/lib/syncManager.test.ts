@@ -1172,4 +1172,46 @@ describe('F4: peer-delete of the open note closes the session, never adopts ""',
     expect(cancelAndClear).not.toHaveBeenCalled();
     expect(applyExternalContent).toHaveBeenCalledWith('');
   });
+
+  // If the user switches/renames the active note WHILE an async probe (readNote
+  // / re-verify) is pending, the active-note reconcile must bail — but that bail
+  // must NOT abort the whole completion handler, or the tab-prune for OTHER
+  // notes deleted this same sync never runs and a stale tab resurrects later
+  // (defeating W2). The bail is scoped; pruning still runs.
+  it('still prunes OTHER deleted notes when the active note is switched mid-probe', async () => {
+    let openId: string | null = 'ActiveNote';
+    // ActiveNote is present; OtherDeleted is gone.
+    vi.mocked(noteExists).mockImplementation(async (id: string) => id !== 'OtherDeleted');
+    // The user switches away DURING the active note's readNote probe.
+    vi.mocked(readNote).mockImplementation(async () => {
+      openId = 'SomethingElse';
+      return '# fresh';
+    });
+    const pruneTabsForDeletedIds = vi.fn();
+    const cancelAndClear = vi.fn();
+    const mgr = createSyncManager(
+      makeDeps({
+        getOriginalId: () => openId,
+        getEditorContent: () => 'OLD CONTENT',
+        isEditorFocused: () => false,
+        cancelAndClear,
+        pruneTabsForDeletedIds,
+      }),
+    );
+
+    await mgr.handleSyncComplete(
+      {
+        ...emptySummary,
+        deletedIds: ['ActiveNote', 'OtherDeleted'],
+        updatedIds: ['ActiveNote'],
+        peerDeletedIds: ['ActiveNote', 'OtherDeleted'],
+        peerUpdatedIds: ['ActiveNote'],
+      },
+      'poll',
+    );
+
+    // The active-note reconcile bailed (originalId changed mid-probe), but the
+    // OTHER deleted-and-gone note is still pruned.
+    expect(pruneTabsForDeletedIds).toHaveBeenCalledWith(['OtherDeleted']);
+  });
 });

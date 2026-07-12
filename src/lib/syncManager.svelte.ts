@@ -492,22 +492,26 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
       }
     }
 
-    // Reload only when sync actually touched the currently-open note.
-    const currentOriginalId = deps.getOriginalId();
-    const openDeleted = !!currentOriginalId && summary.deletedIds.includes(currentOriginalId);
-    const openUpdated = !!currentOriginalId && summary.updatedIds.includes(currentOriginalId);
-    // The id of the open note whose unsaved draft we deliberately keep open
-    // (edit-wins); it must be excluded from tab pruning below.
-    let keptDeletedDraftId: string | null = null;
-    if (currentOriginalId && (openDeleted || openUpdated)) {
-      const openId = currentOriginalId;
+    // Reload only when sync actually touched the currently-open note. This is
+    // scoped into its own function so its early bails (a local rename racing the
+    // async existence/read probes) return from HERE only — the tab-prune and
+    // status logic for OTHER notes deleted this cycle must still run. Returns
+    // the id of an open note whose unsaved draft we deliberately kept (edit-wins,
+    // excluded from pruning), or null.
+    const reconcileOpenNote = async (): Promise<string | null> => {
+      const openId = deps.getOriginalId();
+      const openDeleted = !!openId && summary.deletedIds.includes(openId);
+      const openUpdated = !!openId && summary.updatedIds.includes(openId);
+      if (!openId || !(openDeleted || openUpdated)) return null;
+
+      let keptDraftId: string | null = null;
       // Close (or, for an unsaved draft, keep) the open note deleted this cycle.
       // hasOpenDraftChanges → cancelAndClear stays await-free so a keystroke
       // can't slip in between the check and the close (the reviewer-verified
       // atomicity). Mirrors the local-watcher unlink-of-open-note path.
       const closeOrKeepDeletedOpenNote = async (): Promise<void> => {
         if (deps.hasOpenDraftChanges()) {
-          keptDeletedDraftId = openId;
+          keptDraftId = openId;
           deps.showToast('Open note was deleted during sync; keeping local draft');
           await refreshNotesFromStorage();
         } else {
@@ -515,6 +519,7 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
           deps.showToast('Note was deleted during sync');
         }
       };
+
       // W1: `updatedIds` is NOT evidence the open note survived — it aggregates
       // push AND pull, so it also contains ids WE uploaded this cycle. A peer
       // can tombstone note X while this same cycle pushed our edit to X: X lands
@@ -535,73 +540,78 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
       // The existence read above is the only await before the close decision, so
       // re-verify the open note didn't change under us (a local rename racing
       // readNote/noteExists) — the old id is no longer open, nothing to do.
-      if (deps.getOriginalId() === openId) {
-        if (openNoteGone) {
-          // F4: a peer deleted the currently-open note and it is gone from disk.
-          // read_note returns "" for a missing file on Tauri (crud.rs scan-time
-          // tolerance — the contract stays ""), so feeding this id into the adopt
-          // path would blank the editor while the session stayed bound to the
-          // deleted id; the next keystroke would re-create the file and undo the
-          // peer's delete fleet-wide. Never adopt "".
-          await closeOrKeepDeletedOpenNote();
-        } else {
-          // The open note was updated, or was deleted-then-recreated on disk —
-          // either way it existed a moment ago, so adopt its on-disk content.
+      if (deps.getOriginalId() !== openId) return keptDraftId;
+
+      if (openNoteGone) {
+        // F4: a peer deleted the currently-open note and it is gone from disk.
+        // read_note returns "" for a missing file on Tauri (crud.rs scan-time
+        // tolerance — the contract stays ""), so feeding this id into the adopt
+        // path would blank the editor while the session stayed bound to the
+        // deleted id; the next keystroke would re-create the file and undo the
+        // peer's delete fleet-wide. Never adopt "".
+        await closeOrKeepDeletedOpenNote();
+        return keptDraftId;
+      }
+
+      // The open note was updated, or was deleted-then-recreated on disk —
+      // either way it existed a moment ago, so adopt its on-disk content.
+      try {
+        const freshContent = await readNote(openId);
+        // TOCTOU: the file can vanish between the noteExists check and this read
+        // (external unlink / an overlapping live-sync cycle), and read_note
+        // returns "" for a missing file — adopting that "" is the literal F4
+        // shape again. If a note deleted THIS cycle reads back empty, re-verify
+        // existence before adopting; a legitimately-empty recreated note
+        // re-verifies as present and still adopts. (Fail safe on a probe error.)
+        let vanished = false;
+        if (openDeleted && freshContent === '') {
           try {
-            const freshContent = await readNote(openId);
-            // TOCTOU: the file can vanish between the noteExists check and this
-            // read (external unlink / an overlapping live-sync cycle), and
-            // read_note returns "" for a missing file — adopting that "" is the
-            // literal F4 shape again. If a note deleted THIS cycle reads back
-            // empty, re-verify existence before adopting; a legitimately-empty
-            // recreated note re-verifies as present and still adopts. (Fail safe
-            // on a probe error, as above.)
-            let vanished = false;
-            if (openDeleted && freshContent === '') {
-              try {
-                vanished = !(await noteExists(openId));
-              } catch {
-                vanished = true;
-              }
-            }
-            if (deps.getOriginalId() !== openId) return;
-            if (vanished) {
-              await closeOrKeepDeletedOpenNote();
-            } else if (freshContent !== deps.getEditorContent()) {
-              const editedDuringSync =
-                deps.getEditVersion() !== (syncCoord?.getSyncStartEditVersion() ?? 0);
-              // hasOpenDraftChanges reads the LIVE editor doc synchronously, so it
-              // also catches a keystroke whose rAF-coalesced onchange hasn't
-              // delivered yet (editVersion not bumped) — without it, the adopt
-              // below would replace the doc and silently swallow that keystroke.
-              // Also defer the adopt while the editor is focused — replacing the
-              // open doc under CM6's live selection/measure state crashes it (see
-              // the watcher guard above); the metadata refresh below still runs.
-              if (!editedDuringSync && !deps.hasOpenDraftChanges()) {
-                if (deps.isEditorFocused()) {
-                  deferExternalAdopt(openId, freshContent);
-                } else {
-                  deps.applyExternalContent(freshContent);
-                }
-              }
-            }
-            if (!vanished) {
-              // H13: Always refresh metadata even when content was skipped.
-              const meta = getNoteById(openId);
-              if (meta) {
-                deps.applyRemoteRename(openId, meta.title);
-              }
-            }
+            vanished = !(await noteExists(openId));
           } catch {
-            // The note existed, so read_note only rejects on a genuine IPC
-            // failure — or originalId changed mid-await because a local rename
-            // raced. Either way, keep the local draft rather than clobber it.
-            if (deps.getOriginalId() !== openId) return;
-            deps.showToast('Open note changed during sync; keeping local draft');
+            vanished = true;
           }
         }
+        if (deps.getOriginalId() !== openId) return keptDraftId;
+        if (vanished) {
+          await closeOrKeepDeletedOpenNote();
+          return keptDraftId;
+        }
+        if (freshContent !== deps.getEditorContent()) {
+          const editedDuringSync =
+            deps.getEditVersion() !== (syncCoord?.getSyncStartEditVersion() ?? 0);
+          // hasOpenDraftChanges reads the LIVE editor doc synchronously, so it
+          // also catches a keystroke whose rAF-coalesced onchange hasn't
+          // delivered yet (editVersion not bumped) — without it, the adopt
+          // below would replace the doc and silently swallow that keystroke.
+          // Also defer the adopt while the editor is focused — replacing the
+          // open doc under CM6's live selection/measure state crashes it (see
+          // the watcher guard above); the metadata refresh below still runs.
+          if (!editedDuringSync && !deps.hasOpenDraftChanges()) {
+            if (deps.isEditorFocused()) {
+              deferExternalAdopt(openId, freshContent);
+            } else {
+              deps.applyExternalContent(freshContent);
+            }
+          }
+        }
+        // H13: Always refresh metadata even when content was skipped.
+        const meta = getNoteById(openId);
+        if (meta) {
+          deps.applyRemoteRename(openId, meta.title);
+        }
+      } catch {
+        // The note existed, so read_note only rejects on a genuine IPC failure —
+        // or originalId changed mid-await because a local rename raced. Either
+        // way, keep the local draft rather than clobber it.
+        if (deps.getOriginalId() !== openId) return keptDraftId;
+        deps.showToast('Open note changed during sync; keeping local draft');
       }
-    }
+      return keptDraftId;
+    };
+
+    // The open note whose unsaved draft we deliberately kept (excluded from tab
+    // pruning below), or null.
+    const keptDeletedDraftId = await reconcileOpenNote();
 
     // W2: prune any tab still pointing at a note this sync deleted that is now
     // gone from disk, so switching to a background tab — or back to the tab of
