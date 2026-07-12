@@ -1,5 +1,5 @@
 {
-  "_comment": "Cross-language constants verified to agree today (architecture-hardening.md PKT-7 gate 3 / findings F7, F21). Consumers: crates/futo-notes-model/tests/conformance.rs (imageExtensions, maxTitleLength), apps/tauri/src-tauri/src/filesystem_watcher.rs's test module (watcherSuppressionWindowMs), src/lib/constantsConformance.test.ts (all fields). TODO(PKT-6): extend imageExtensions coverage to crates/futo-notes-core/src/invariants.rs's legacy 13-ext set and src/lib/platform/tauri.ts's image-picker filter once F7 unifies them onto this canonical 10-set — they are known to diverge today and are out of scope for this gate.",
+  "_comment": "Cross-language constants verified to agree today (architecture-hardening.md PKT-7 gate 3 / findings F7, F21). Consumers: crates/futo-notes-model/tests/conformance.rs (imageExtensions, maxTitleLength), apps/tauri/src-tauri/src/filesystem_watcher.rs's test module (watcherSuppressionWindowMs), src/lib/constantsConformance.test.ts (all fields). PKT-6/D4 (landed): the ext set is now unified on the canonical crates/futo-notes-core/src/image.rs (model::IMAGE_EXTENSIONS re-exports it); invariants.rs delegates and the tauri.ts picker derives from @futo-notes/shared, so both are no longer independent copies (see drift-registry.json image-extension-set).",
   "imageExtensions": [
     "jpg",
     "jpeg",

@@ -720,11 +720,10 @@ mod tests {
 
     #[test]
     fn blob_extension_all_image_types() {
-        // Canonical 10-set (D4). `.tiff/.tif/.heif` are intentionally absent.
-        let exts = [
-            "jpg", "jpeg", "png", "gif", "webp", "svg", "bmp", "ico", "avif", "heic",
-        ];
-        for ext in &exts {
+        // Iterate the CANONICAL set (not a hand copy) so this test can never
+        // drift from `crate::image::IMAGE_EXTENSIONS` and the drift-registry
+        // scan sees only the one canonical literal.
+        for ext in crate::image::IMAGE_EXTENSIONS {
             let notes = vec![NoteRecord {
                 filename: format!("photo.{ext}"),
                 content_hash: "x".to_string(),
