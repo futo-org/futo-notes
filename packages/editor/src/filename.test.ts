@@ -29,12 +29,19 @@ describe('sanitizeTitle', () => {
     expect(sanitizeTitle('a<b>c:d"e|f?g*h')).toBe('abcdefgh');
   });
 
-  it('preserves leading dots', () => {
-    expect(sanitizeTitle('..hidden')).toBe('..hidden');
+  it('strips leading dots (a leading dot makes a hidden dotfile the scan skips)', () => {
+    expect(sanitizeTitle('..hidden')).toBe('hidden');
+    expect(sanitizeTitle('.env')).toBe('env');
   });
 
-  it('preserves trailing dots', () => {
-    expect(sanitizeTitle('file..')).toBe('file..');
+  it('strips trailing dots (Windows silently drops them)', () => {
+    expect(sanitizeTitle('file..')).toBe('file');
+  });
+
+  it('de-reserves Windows device names', () => {
+    expect(sanitizeTitle('CON')).toBe('CON_');
+    expect(sanitizeTitle('CON.bak')).toBe('CON_.bak');
+    expect(sanitizeTitle('CONSOLE')).toBe('CONSOLE');
   });
 
   it('preserves interior dots', () => {
