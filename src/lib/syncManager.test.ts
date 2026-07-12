@@ -915,6 +915,59 @@ describe('F4: peer-delete of the open note closes the session, never adopts ""',
     vi.unstubAllGlobals();
   });
 
+  // Regression (remote-rename.spec.ts "delete plus collision-suffixed update"):
+  // a COLLISION-INFERRED rename (old id in deletedIds + a suffixed successor in
+  // updatedIds, with renamed:[] so the explicit-rename loop never fired) must
+  // retarget the tabs store too. Otherwise the tab keeps pointing at the old id
+  // and the W2 tab-prune nulls it, sending the just-followed editor to Home.
+  it('retargets tabs (onAnySyncRename) for a collision-inferred rename and does not prune the old id', async () => {
+    vi.stubGlobal('window', { location: { hash: '' } });
+    vi.mocked(noteExists).mockImplementation(async (id: string) => id === 'Old Title (2)');
+    vi.mocked(readNote).mockResolvedValue('Body content');
+    const onAnySyncRename = vi.fn();
+    const pruneTabsForDeletedIds = vi.fn();
+    const cancelAndClear = vi.fn();
+    let currentId = 'Old Title';
+    const mgr = createSyncManager(
+      makeDeps({
+        getOriginalId: () => currentId,
+        getEditorContent: () => 'Body content',
+        isEditorFocused: () => false,
+        cancelAndClear,
+        applyRemoteRename: (newId: string) => {
+          currentId = newId;
+        },
+        onAnySyncRename,
+        pruneTabsForDeletedIds,
+      }),
+    );
+
+    await mgr.handleSyncComplete(
+      {
+        ...emptySummary,
+        updatedIds: ['Old Title (2)'],
+        deletedIds: ['Old Title'],
+        renamed: [], // collision-inferred, NOT an explicit rename
+        peerUpdatedIds: ['Old Title (2)'],
+        peerDeletedIds: ['Old Title'],
+      },
+      'poll',
+    );
+
+    expect(onAnySyncRename).toHaveBeenCalledWith('Old Title', 'Old Title (2)');
+    expect(cancelAndClear).not.toHaveBeenCalled();
+    // The retarget must run BEFORE the tab-prune. The prune still lists the old
+    // id (it is gone from disk), but by then the tab points at the successor, so
+    // pruneMissingNoteIds is a no-op on it (verified end-to-end by the Playwright
+    // remote-rename spec). Ordering is what the seam can prove.
+    if (pruneTabsForDeletedIds.mock.calls.length > 0) {
+      expect(onAnySyncRename.mock.invocationCallOrder[0]).toBeLessThan(
+        pruneTabsForDeletedIds.mock.invocationCallOrder[0],
+      );
+    }
+    vi.unstubAllGlobals();
+  });
+
   // W1: a peer can delete note X and recreate the same filename before this
   // client pulls, so the combined push+pull summary can carry X in BOTH
   // deletedIds and updatedIds. Existence — not updatedIds membership — decides:

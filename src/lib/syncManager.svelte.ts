@@ -489,6 +489,13 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
         )
       ) {
         writeSuppressor.recordRemoteRename(activeRename.fromId, activeRename.toId);
+        // A collision-inferred (or recent-hint) rename is NOT in summary.renamed,
+        // so the loop above never retargeted the tabs store for it — do it here.
+        // Otherwise the tab keeps pointing at the old (now-deleted) id and the W2
+        // tab-prune below nulls it, sending the just-followed editor to Home
+        // (regression: remote-rename.spec.ts "delete plus collision-suffixed
+        // update"). The editor session already followed via applyActiveRename.
+        deps.onAnySyncRename?.(activeRename.fromId, activeRename.toId);
       }
     }
 
