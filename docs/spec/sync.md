@@ -395,13 +395,20 @@ upload. Desktop sync module ownership and serialization boundaries are fixed by
   `apps/tauri/src-tauri/src/sync/cycle_runner.rs`,
   `apps/tauri/src-tauri/src/sync/tauri_events.rs`,
   syncServiceE2ee.ts, syncManager.svelte.ts
-- When a live pull (or the cold-launch / manual catch-up sync) brings in remote
-  changes, the note list refreshes automatically so the pulled note appears
-  without any user action — on **both** platforms. → `SyncManager.onLivePull` →
+- When a sync cycle changes the local notes tree, the note list (and the open
+  editor's on-disk base) refreshes automatically so the change appears without
+  any user action — on **both** platforms. → `SyncManager.onLivePull` →
   `NotesStore.reload()`, wired in iOS `FutoNotesApp` and Android `MainActivity`.
   A live pull also reindexes the pulled changes into the search engine so
   synced-in notes are immediately searchable (peer changes → `change`,
   deletions → `unlink`, renames → `rename`); see [search.md](search.md).
+  - The reload fires on the core-computed `SyncSummary.localWritesApplied`, not
+    only `downloaded`/`deleted` — a **push-side** clean merge (`MergedClean`)
+    writes merged text to local disk while reporting `uploaded`, so gating on
+    downloads/deletes alone let a stale open native editor's next autosave
+    clobber the peer's merged-in edit (F2). → `SyncManager.wroteLocalChanges`
+    (iOS/Android), guarded by `SyncManagerReloadGateTest` (Android) +
+    `combine_summaries_carries_local_writes_applied` (core).
 - **Local edits auto-push on Tauri desktop AND the native shells.**
   - Desktop: a local save triggers a debounced push (`notifySavedV2` → `run_sync`),
     and the desktop live loop runs a full `run_sync` (push + pull) on each event,
