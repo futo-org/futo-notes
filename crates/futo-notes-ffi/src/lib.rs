@@ -417,6 +417,15 @@ pub struct SyncSummary {
     pub downloaded: u32,
     pub deleted: u32,
     pub conflicts: u32,
+    /// Count of note files this cycle wrote to the LOCAL notes tree — peer
+    /// downloads AND push-side clean merges / conflict copies / restores.
+    /// A push-side merge (`MergedClean`) bumps `uploaded` only, NOT
+    /// `downloaded`/`deleted`, so a shell that reloads its open editor on
+    /// `downloaded`/`deleted` alone silently drops the merged-in peer edit
+    /// (F2). Gate the reload on this instead/additionally: it is the
+    /// core-computed "the disk changed" decision — shells render it, they
+    /// don't re-derive it from the semantic counts.
+    pub local_writes_applied: u32,
     /// Per-item operations that failed WITHOUT aborting the cycle (upload /
     /// delete / checkpoint errors — a channel distinct from `conflicts`).
     /// Non-empty means the cycle "completed" but not cleanly; the shells
@@ -500,6 +509,7 @@ impl From<sync::orchestrator::SyncSummary> for SyncSummary {
             downloaded: s.downloaded,
             deleted: s.deleted,
             conflicts: s.conflicts,
+            local_writes_applied: s.local_writes_applied,
             failure_message: s.failure_message(),
             failures: s
                 .failures

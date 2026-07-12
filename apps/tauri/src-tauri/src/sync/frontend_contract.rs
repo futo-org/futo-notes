@@ -76,6 +76,10 @@ pub(crate) struct SyncSummary {
     pub(crate) downloaded: usize,
     pub(crate) deleted: usize,
     pub(crate) conflicts: usize,
+    /// Count of note files this cycle wrote to the local tree (F2). Desktop
+    /// already reloads on `updated_ids`, so it doesn't gate on this; it is
+    /// carried for wire parity with the native FFI summary.
+    pub(crate) local_writes_applied: usize,
     pub(crate) failures: Vec<SyncFailure>,
     pub(crate) failure_message: Option<String>,
     pub(crate) updated_ids: Vec<String>,
@@ -107,6 +111,7 @@ impl From<&futo_notes_sync::SyncSummary> for SyncSummary {
             downloaded: summary.downloaded as usize,
             deleted: summary.deleted as usize,
             conflicts: summary.conflicts as usize,
+            local_writes_applied: summary.local_writes_applied as usize,
             failure_message: summary.failure_message(),
             failures: summary
                 .failures
@@ -197,6 +202,7 @@ mod tests {
             downloaded: 2,
             deleted: 3,
             conflicts: 4,
+            local_writes_applied: 2,
             failures: vec![SyncFailure {
                 filename: "note.md".into(),
                 kind: "upload".into(),
@@ -221,6 +227,7 @@ mod tests {
             "toId",
             "failureMessage",
             "statusCode",
+            "localWritesApplied",
         ] {
             assert!(
                 json.contains(&format!("\"{key}\"")),

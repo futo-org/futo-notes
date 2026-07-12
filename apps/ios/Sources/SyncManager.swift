@@ -88,6 +88,18 @@ final class SyncManager: ObservableObject {
         return nil
     }
 
+    /// Did this cycle change the local notes tree such that the open editor
+    /// must reload from disk? Peer downloads/deletes are obvious; the subtle
+    /// case is a PUSH-side clean merge, which writes merged text to disk but
+    /// reports only `uploaded` — the core surfaces those in `localWritesApplied`.
+    /// Gating on `downloaded`/`deleted` alone let a stale editor keep a base
+    /// whose next autosave clobbered the peer's merged-in edit (F2). A
+    /// core-computed decision the shell renders — not re-derived from counts.
+    /// Mirrors Android `SyncManager.wroteLocalChanges`.
+    static func wroteLocalChanges(_ s: SyncSummary) -> Bool {
+        s.downloaded > 0 || s.deleted > 0 || s.localWritesApplied > 0
+    }
+
     /// Connect (login + unwrap vault key) then run an initial sync.
     func connectAndSync(notesRoot: String, password: String) async {
         busy = true
@@ -120,10 +132,11 @@ final class SyncManager: ObservableObject {
             status = "Connected (\(info.authMode)) · syncing…"
             let summary = try await c.syncNow()
             applyOutcome(summary)
-            // Refresh the list if the initial (catch-up) sync pulled changes —
-            // covers `restoreSession` on a cold launch, where there's no Sync
-            // view to reload the store afterward.
-            if summary.downloaded > 0 || summary.deleted > 0 { onLivePull?() }
+            // Refresh the list/editor if the initial (catch-up) sync changed
+            // the local tree — pulls OR push-side merges (F2). Covers
+            // `restoreSession` on a cold launch, where there's no Sync view to
+            // reload the store afterward.
+            if Self.wroteLocalChanges(summary) { onLivePull?() }
             await startLive()
         } catch {
             connected = client != nil
@@ -225,9 +238,9 @@ final class SyncManager: ObservableObject {
     func applyLiveSummary(_ s: SyncSummary) {
         applyOutcome(s)
         liveError = nil  // a completed live pull means the stream is healthy
-        // A live pull wrote to disk — refresh the note list (only when there's
-        // an actual change, to skip needless rescans on no-op pulls).
-        if s.downloaded > 0 || s.deleted > 0 { onLivePull?() }
+        // A live cycle wrote to disk — refresh the note list + open editor
+        // (only on an actual change, incl. push-side merges; F2).
+        if Self.wroteLocalChanges(s) { onLivePull?() }
     }
 
     fileprivate func setLive(_ v: Bool) {

@@ -22,6 +22,7 @@ class SyncManagerOutcomeTest {
         downloaded = 0u,
         deleted = 0u,
         conflicts = 0u,
+        localWritesApplied = 0u,
         failures = failures,
         failureMessage = failureMessage,
     )

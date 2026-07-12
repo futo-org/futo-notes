@@ -620,6 +620,16 @@ pub struct SyncSummary {
     pub peer_updated_ids: Vec<String>,
     pub peer_deleted_ids: Vec<String>,
     pub renamed: Vec<RenamePair>,
+    /// Count of note files this cycle wrote to the LOCAL notes tree
+    /// (downloads, push-side clean merges `MergedClean`, conflict copies,
+    /// edit-wins restores, reconcile adoptions). Distinct from `uploaded`
+    /// (local→server) and from `downloaded`/`deleted` (which miss push-side
+    /// merges): a `MergedClean` bumps `uploaded` only, so a shell gating an
+    /// editor reload on `downloaded`/`deleted` treats it as a no-op and lets
+    /// its next autosave clobber the merged-in peer edit (F2). This is a
+    /// core-computed reload signal — shells render it, they never re-derive
+    /// "did the disk change" from the semantic counts.
+    pub local_writes_applied: u32,
     /// Per-item sync operations that failed but did NOT abort the cycle
     /// (upload/delete/checkpoint errors). Distinct from `conflicts`, which
     /// carries expected/handled outcomes (413 oversize, dirty-merge conflict
@@ -1812,6 +1822,10 @@ pub async fn run_pull(
         timestamps: HashMap::new(),
     };
 
+    // Local content writes this pull applied (peer downloads + moved-aside
+    // collision copies). Feeds `SyncSummary::local_writes_applied`.
+    let local_writes_applied = apply_input.update.len() as u32;
+
     // The apply path writes files atomically + records watcher suppressions
     // (via pre_write). Runs synchronously; pure disk work.
     if !apply_input.update.is_empty() || !apply_input.delete.is_empty() {
@@ -1885,6 +1899,7 @@ pub async fn run_pull(
             deleted_ids: deleted_ids.clone(),
             peer_updated_ids: updated_ids,
             peer_deleted_ids: deleted_ids,
+            local_writes_applied,
             failures: {
                 let mut failures: Vec<SyncFailure> =
                     failed_downloads.into_iter().map(|f| f.failure).collect();
@@ -3108,6 +3123,12 @@ pub async fn run_push(
         }
     }
 
+    // Count local disk writes BEFORE the vectors are moved into apply_delta.
+    // Every push-side content write (MergedClean, ConflictCopy, edit-wins
+    // restore) lands in `updates`/`conflict_writes`, so this is the exact set
+    // a stale open editor must reload for — see `SyncSummary::local_writes_applied`.
+    let local_writes_applied = (updates.len() + conflict_writes.len()) as u32;
+
     // Apply file writes + deletes + mtime stamps in one batched call.
     if !updates.is_empty() || !deletes_to_apply.is_empty() || !conflict_writes.is_empty() || !timestamps.is_empty()
     {
@@ -3143,6 +3164,7 @@ pub async fn run_push(
             deleted_ids,
             peer_updated_ids,
             peer_deleted_ids,
+            local_writes_applied,
             deleted_hashes,
             created_hashes,
             hash_to_filenames,
@@ -3364,6 +3386,7 @@ fn combine_summaries(
     push.downloaded += pull.downloaded;
     push.deleted += pull.deleted + dup.deleted_ids.len() as u32;
     push.conflicts += pull.conflicts + dup.conflicts;
+    push.local_writes_applied += pull.local_writes_applied;
     push.failures.extend(pull.failures);
     push.failures.extend(dup.failures);
     push.updated_ids.extend(pull.updated_ids);
@@ -3451,6 +3474,11 @@ struct TombstoneApplyResult {
     /// originals). Surfaced as `deleted`/`deletedIds` so the rescan gate fires.
     deleted: Vec<String>,
     failed: Vec<FailedTombstone>,
+    /// Count of diverged-tombstone conflict copies written to local disk. Folds
+    /// into `SyncSummary::local_writes_applied` so the field stays a true count
+    /// of local writes (F2) — a parked copy is a new on-disk file the shells
+    /// must reload for, even though it always rides alongside a `deleted`.
+    parked: u32,
 }
 
 /// Tombstone-claim dotfile prefix. A claim is the note's ONLY on-disk copy
@@ -3681,6 +3709,7 @@ fn apply_tombstone_reconcile(
 
     let mut deleted: Vec<String> = Vec::new();
     let mut failed: Vec<FailedTombstone> = Vec::new();
+    let mut parked: u32 = 0;
     let fail = |t: &TombstoneTarget| FailedTombstone {
         filename: t.filename.clone(),
         change_seq: t.change_seq,
@@ -3797,6 +3826,12 @@ fn apply_tombstone_reconcile(
                 failed.push(fail(t));
                 continue;
             }
+            // The conflict copy is now on disk — count it as a local write
+            // IMMEDIATELY (F2), before the claim cleanup below. If that cleanup
+            // fails this target still becomes a FAILED tombstone (restore +
+            // retry), but the copy file already exists, so the reload signal
+            // MUST fire or the new copy stays invisible until a later sync.
+            parked += 1;
             // Edit preserved in the conflict copy. Consuming the claim drops the
             // tombstoned name; if that removal fails the claim still holds the
             // only copy of the original bytes → FAILED tombstone (item 3, same
@@ -3814,7 +3849,7 @@ fn apply_tombstone_reconcile(
             deleted.push(t.filename.clone());
         }
     }
-    TombstoneApplyResult { deleted, failed }
+    TombstoneApplyResult { deleted, failed, parked }
 }
 
 /// Rule 3: takes `&ConnectedState`, mutates a clone, persists, returns the
@@ -4223,6 +4258,7 @@ async fn reconcile_empty_map(
     // (transient read/remove error) are returned as failures — they must not
     // advance the cursor or consume ancestry (S2/S5).
     let tomb_result = apply_tombstone_reconcile(notes_root_path, pre_write, &tombstone_targets);
+    let parked_writes = tomb_result.parked;
     let peer_deleted = tomb_result.deleted;
 
     // Populate the map and advance max_version, then persist. Issue #11:
@@ -4306,6 +4342,9 @@ async fn reconcile_empty_map(
         peer_updated_ids: adopted_ids,
         deleted_ids: peer_deleted_ids.clone(),
         peer_deleted_ids,
+        // Adopted notes + diverged-tombstone conflict copies were all written
+        // to local disk (F2).
+        local_writes_applied: adopted.len() as u32 + parked_writes,
         failures,
         ..Default::default()
     };
@@ -4421,6 +4460,7 @@ fn fold_reconcile_summary(mut combined: SyncSummary, mut reconcile: SyncSummary)
         return combined;
     }
     combined.downloaded += reconcile.downloaded;
+    combined.local_writes_applied += reconcile.local_writes_applied;
     dedup_append(&mut combined.updated_ids, reconcile.updated_ids);
     dedup_append(&mut combined.peer_updated_ids, reconcile.peer_updated_ids);
     combined
@@ -5160,6 +5200,53 @@ mod tests {
         let combined = combine_summaries(push, pull, Vec::new(), DuplicateResolution::default());
         assert_eq!(combined.downloaded, 1);
         assert_eq!(combined.peer_updated_ids, vec!["during sync".to_string()]);
+    }
+
+    #[test]
+    fn combine_summaries_carries_local_writes_applied() {
+        // F2: a push-side clean merge (MergedClean) writes merged text to the
+        // LOCAL disk but bumps `uploaded`, not `downloaded`/`deleted`. The
+        // count of those local writes must survive combine so a native shell
+        // that gates its editor reload on it never treats a merge as a no-op
+        // and lets its next autosave clobber the merged-in peer edit.
+        let push = SyncSummary {
+            uploaded: 1,
+            local_writes_applied: 1,
+            ..Default::default()
+        };
+        let pull = SyncSummary {
+            downloaded: 2,
+            local_writes_applied: 2,
+            ..Default::default()
+        };
+        let combined = combine_summaries(push, pull, Vec::new(), DuplicateResolution::default());
+        assert_eq!(combined.local_writes_applied, 3);
+        // The bug's fingerprint: local writes with no downloads/deletes.
+        let merge_only = combine_summaries(
+            SyncSummary { uploaded: 1, local_writes_applied: 1, ..Default::default() },
+            SyncSummary::default(),
+            Vec::new(),
+            DuplicateResolution::default(),
+        );
+        assert_eq!(merge_only.downloaded, 0);
+        assert_eq!(merge_only.deleted, 0);
+        assert_eq!(merge_only.local_writes_applied, 1);
+    }
+
+    #[test]
+    fn fold_reconcile_carries_local_writes_applied() {
+        // Reconcile adoptions write server content to local disk; the count
+        // must fold in alongside the download count it also surfaces.
+        let combined = SyncSummary::default();
+        let reconcile = SyncSummary {
+            downloaded: 1,
+            local_writes_applied: 1,
+            updated_ids: vec!["adopted".into()],
+            peer_updated_ids: vec!["adopted".into()],
+            ..Default::default()
+        };
+        let folded = fold_reconcile_summary(combined, reconcile);
+        assert_eq!(folded.local_writes_applied, 1);
     }
 
     #[test]
@@ -5964,6 +6051,9 @@ mod tests {
             .expect("pull");
 
         assert_eq!(summary.downloaded, 2);
+        // Every downloaded blob is a local disk write — the native reload
+        // signal must reflect it (F2).
+        assert_eq!(summary.local_writes_applied, 2);
         assert!(summary.failures.is_empty());
         assert_eq!(next.max_version, 2);
         assert_eq!(std::fs::read_to_string(root.join("one.md")).unwrap(), "alpha\n");
@@ -6524,6 +6614,8 @@ mod tests {
             .expect("reconcile");
 
         assert_eq!(summary.downloaded, 1);
+        // The single adoption is a local disk write (F2).
+        assert_eq!(summary.local_writes_applied, 1);
         assert_eq!(summary.failures.len(), 1);
         assert_eq!(summary.failures[0].kind, FailureKind::Download);
         assert_eq!(
@@ -7091,7 +7183,85 @@ mod tests {
         );
         // Already gone → converged, no failure.
         assert!(res.failed.is_empty(), "no failures for match/diverge/gone");
+        // The single diverged park is a local disk write, counted for the F2
+        // reload signal (folds into SyncSummary::local_writes_applied).
+        assert_eq!(res.parked, 1, "one diverged conflict copy written");
         assert_eq!(orphan_claims(&root), 0, "no claim dotfile left behind");
+    }
+
+    // T2/P2 (F2): if the conflict-copy WRITE succeeds but the claim cleanup then
+    // FAILS, the copy is on disk and MUST still be counted (parked) so the shell
+    // rescans and the new copy becomes visible — even though the tombstone
+    // becomes a FAILED (retried) delete. The note lives in a subdir so the copy
+    // write (in sub/) and the claim removal (a dotfile at the vault ROOT) touch
+    // different directories; the pre_write hook fires exactly at the copy write
+    // and drops the root's write bit, failing ONLY the subsequent claim removal.
+    // Red against the pre-fix code, which incremented `parked` after the claim
+    // cleanup (this path never reached it → parked==0, copy invisible).
+    #[cfg(unix)]
+    #[test]
+    fn apply_tombstone_reconcile_counts_park_even_when_claim_cleanup_fails() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = temp_root();
+
+        // Skip under CI-root / CAP_DAC_OVERRIDE, where a read-only dir does not
+        // block writes (the claim removal would succeed and this race can't
+        // occur). Probe with a throwaway dir.
+        let probe = root.join("perm-probe");
+        std::fs::create_dir(&probe).unwrap();
+        std::fs::set_permissions(&probe, std::fs::Permissions::from_mode(0o555)).unwrap();
+        let write_blocked = std::fs::write(probe.join("x"), b"x").is_err();
+        let _ = std::fs::set_permissions(&probe, std::fs::Permissions::from_mode(0o755));
+        let _ = std::fs::remove_dir_all(&probe);
+        if !write_blocked {
+            eprintln!(
+                "SKIP apply_tombstone_reconcile_counts_park_even_when_claim_cleanup_fails: \
+                 environment does not enforce directory write permissions (running as root?)"
+            );
+            return;
+        }
+
+        std::fs::create_dir(root.join("sub")).unwrap();
+        std::fs::write(root.join("sub/note.md"), "edited since last sync").unwrap();
+        let targets = vec![TombstoneTarget {
+            filename: "sub/note.md".into(),
+            object_id: "o2".into(),
+            // Diverged: on-disk bytes differ from the delete's expected hash.
+            expected_hash: hash_sha256("original before the edit"),
+            change_seq: 6,
+        }];
+
+        // Fail ONLY the claim removal: strip the vault root's write bit at the
+        // moment the copy (in sub/) is written. The claim dotfile lives at root,
+        // so the following remove_file(root/.claim) fails with EACCES.
+        let pre: Box<PreWriteFn> = {
+            let root = root.clone();
+            Box::new(move |f: &str| {
+                if f.contains("(conflict ") {
+                    let _ = std::fs::set_permissions(
+                        &root,
+                        std::fs::Permissions::from_mode(0o555),
+                    );
+                }
+            })
+        };
+
+        let res = apply_tombstone_reconcile(&root, pre.as_ref(), &targets);
+
+        // Restore write perms so the temp tree is inspectable + cleanable.
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        // The park write happened → counted, regardless of the cleanup failure.
+        assert_eq!(res.parked, 1, "the on-disk conflict copy must be counted (F2)");
+        // The tombstone delete was NOT verified (claim survived) → a retry.
+        assert!(res.deleted.is_empty(), "delete not confirmed when claim cleanup fails");
+        assert_eq!(res.failed.len(), 1, "unverified tombstone is a failure/retry");
+        // The conflict copy is really on disk.
+        let copy = collision_conflict_filename("sub/note.md", "o2");
+        assert_eq!(
+            std::fs::read_to_string(root.join(&copy)).unwrap(),
+            "edited since last sync",
+        );
     }
 
     // P1-b (non-NotFound error ≠ convergence): a target the reconcile cannot
@@ -7663,6 +7833,120 @@ mod tests {
             }
             other => panic!("expected MergedClean (fresh live object + local write), got {other:?}"),
         }
+    }
+
+    // F2 source-level guard for the push-side count
+    // (`local_writes_applied = updates.len() + conflict_writes.len()`): a full
+    // run_push producing a MergedClean must report the local write via
+    // `local_writes_applied` WITHOUT bumping `downloaded`/`deleted` — the exact
+    // signal native shells reload on. Without it a stale open editor never
+    // reloads and its next autosave clobbers the merged-in peer edit.
+    #[tokio::test]
+    async fn run_push_merged_clean_counts_local_write_not_download() {
+        let server = MockServer::start().await;
+        let filename = "note.md";
+        // Local bytes already equal the remote the peer advanced to (a spurious
+        // 409); the merge base is GC'd (404), so resolution adopts the remote
+        // as a MergedClean that writes the note to local disk.
+        let shared = "shared content\n";
+        Mock::given(wm_method("PUT"))
+            .and(wm_path("/api/collections/c1/blob-objects/o1"))
+            .respond_with(ResponseTemplate::new(409).set_body_json(serde_json::json!({
+                "error": "conflict",
+                "currentVersion": 9,
+                "currentBlobKey": "bk-remote"
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(wm_method("GET"))
+            .and(wm_path("/api/blobs/bk-remote"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(enc(filename, shared).await))
+            .mount(&server)
+            .await;
+        Mock::given(wm_method("GET"))
+            .and(wm_path("/api/blobs/bk-base"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+
+        let root = temp_root();
+        std::fs::write(root.join(filename), shared).unwrap();
+        let mut state = connected_state(&server);
+        state
+            .object_map
+            .insert(filename.to_owned(), map_entry_for("o1", 3, "bk-base"));
+
+        let (summary, _next) = run_push(&state, &root, &no_prog, &no_pre)
+            .await
+            .expect("push");
+
+        assert_eq!(summary.local_writes_applied, 1, "the adopt/merge wrote note.md locally");
+        assert_eq!(summary.downloaded, 0, "a push-side merge is not a pull download");
+        assert_eq!(summary.deleted, 0);
+        assert_eq!(summary.uploaded, 1);
+    }
+
+    // F2 source-level guard, conflict-copy arm: a ConflictCopy writes the
+    // remote to the canonical name AND parks the local edit in a copy file —
+    // TWO local writes (updates + conflict_writes). Pins that BOTH terms of the
+    // count are live (dropping `conflict_writes.len()` would report 1, not 2).
+    #[tokio::test]
+    async fn run_push_conflict_copy_counts_both_local_writes() {
+        let server = MockServer::start().await;
+        let filename = "note.md";
+        let local = "local edit\n";
+        let remote = "remote edit\n";
+        Mock::given(wm_method("PUT"))
+            .and(wm_path("/api/collections/c1/blob-objects/o1"))
+            .respond_with(ResponseTemplate::new(409).set_body_json(serde_json::json!({
+                "error": "conflict",
+                "currentVersion": 9,
+                "currentBlobKey": "bk-remote"
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(wm_method("GET"))
+            .and(wm_path("/api/blobs/bk-remote"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(enc(filename, remote).await))
+            .mount(&server)
+            .await;
+        // Base GC'd → clean-merge branch skipped; local != remote → conflict copy.
+        Mock::given(wm_method("GET"))
+            .and(wm_path("/api/blobs/bk-base"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+        Mock::given(wm_method("POST"))
+            .and(wm_path("/api/collections/c1/blob-objects"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "object": {
+                    "id": "o-copy", "version": 1, "change_seq": 10,
+                    "updated_at": "2026-07-11T00:00:00.000Z",
+                    "blob_key": "bk-copy", "deleted": false
+                },
+                "collectionVersion": 10
+            })))
+            .mount(&server)
+            .await;
+
+        let root = temp_root();
+        std::fs::write(root.join(filename), local).unwrap();
+        let mut state = connected_state(&server);
+        state
+            .object_map
+            .insert(filename.to_owned(), map_entry_for("o1", 3, "bk-base"));
+
+        let (summary, _next) = run_push(&state, &root, &no_prog, &no_pre)
+            .await
+            .expect("push");
+
+        assert_eq!(
+            summary.local_writes_applied, 2,
+            "remote→note.md + local→copy file = two local writes"
+        );
+        assert_eq!(summary.downloaded, 0);
+        assert_eq!(summary.deleted, 0);
+        assert_eq!(summary.conflicts, 1);
     }
 
     // Clean-merge re-PUT path: base + remote are both available and merge
