@@ -10,7 +10,6 @@ Shared Rust crate imported across the workspace — by the Tauri app and, via th
 - **`hash.rs`**: SHA-256 content hashing for sync — `hash_sha256()` and `hash_sha256_bytes()`. Any hash change breaks sync protocol compatibility.
 - **`sync.rs`**: Client-side sync payload preparation and delta application (`prepare_sync_payload_v2`, `apply_sync_delta_v2`). Computes inventory from disk, builds changed/new/deleted lists, applies server response. This is the hot path called from Tauri commands.
 - **`merge.rs`**: Three-way text merge for conflict resolution when both client and server modified the same note.
-- **`search.rs`**: Dormant — content chunking (`chunk_content`), Reciprocal Rank Fusion (`SearchHit`/RRF), and embedding-text construction (`build_embedding_text`), a SPLADE-era remnant with zero production callers today. The lexical search **engine** (Tantivy/BM25) is unrelated and lives in the separate `futo-notes-search` crate.
 - **`e2ee.rs`**: End-to-end-encrypted sync primitives — a pure-Rust port of `src/lib/e2eeCrypto.ts` (salt/IV/vault-key generation, PBKDF2 password-key derivation, AES-GCM encrypt/decrypt).
 - **`invariants.rs`**: Filesystem invariant checks — detects and repairs inconsistencies between notes on disk and sync state (orphaned files, missing hashes, stale entries).
 
@@ -29,4 +28,3 @@ just test-rust    # or: cargo test -p futo-notes-core
 | File operations | `just test-rust` (Tauri tests also exercise file ops) |
 | Sync logic | `just test-rust` + `just test-cross-platform` (end-to-end sync validation) |
 | Hash computation | `just test-rust` — any hash change breaks sync protocol compatibility |
-| Search helpers | `just test-rust` |
