@@ -1,0 +1,9 @@
+{
+  "_comment": "AGENTS.md-adjacent R2 ratchet counters (architecture-hardening.md PKT-8). Checked-in baseline for the 'fuzzy' debt that isn't (yet) a per-entry allowlist like PKT-7's gates. scripts/debt-ratchet.mjs recomputes each count fresh and FAILS on ANY mismatch: an increase means new debt was added (fix it, don't just bump this file); a decrease means real progress was made and this file must be updated to the new, lower number in the SAME commit — that's what makes the ratchet only turn one way. Ratchets to zero over time; grandfathers today's backlog, makes new instances of it impossible.",
+  "counts": {
+    "tauriImportsOutsideShims": 10,
+    "invokeCallsOutsideShims": 2,
+    "specGapsCount": 11,
+    "unlockedDriftRegistryEntries": 5
+  }
+}
