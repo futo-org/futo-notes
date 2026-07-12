@@ -244,20 +244,38 @@ export function getAppState(): AppState {
   return defaultState();
 }
 
+// Serialize the actual file writes so they COMPLETE in call order (R1). The
+// payload is snapshotted synchronously at call time (below), but two writes
+// whose I/O overlaps could otherwise finish out of order — e.g. an earlier
+// save that captured the plaintext holdover finishing AFTER the migration's
+// post-confirm scrub, restoring the plaintext as the final on-disk state.
+let writeChain: Promise<void> = Promise.resolve();
+
 export async function saveAppState(state: AppState): Promise<void> {
   cached = state;
   if (!hasFileSystem) return;
-  const fs = await getPlatformFS();
   const serialized: Record<string, unknown> = { ...state };
   // K1: while a legacy plaintext password is mid-migration to the keyring,
   // keep re-writing it to disk so an interleaved save can't strand the user
   // with the password in neither place. Confirmed migration calls
   // `clearLegacyE2eePassword()`, after which this stops and the field is
-  // scrubbed on the next write.
+  // scrubbed on the next write. The holdover is read HERE (call time), so the
+  // scrub's payload is fixed before it joins the write chain.
   if (legacyE2eePassword !== undefined) {
     serialized.e2eePassword = legacyE2eePassword;
   }
-  await fs.writeAppData(APP_STATE_PATH, JSON.stringify(serialized));
+  const payload = JSON.stringify(serialized);
+  const run = writeChain.then(async () => {
+    const fs = await getPlatformFS();
+    await fs.writeAppData(APP_STATE_PATH, payload);
+  });
+  // Keep the chain alive even if this write rejects, so one failure doesn't
+  // wedge every later save.
+  writeChain = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
 }
 
 export async function updateAppState(

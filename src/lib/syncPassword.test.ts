@@ -103,7 +103,9 @@ const PREFS = {
   sync: { serverUrl: '', token: '', lastSyncedAt: null, lastError: '' },
 };
 
-beforeEach(() => {
+beforeEach(async () => {
+  const platform = await import('$lib/platform');
+  platform.resetActiveFS(); // undo any custom FS a prior test installed
   kr.store.clear();
   kr.gate.set = kr.gate.get = kr.gate.delete = null;
   kr.fail.set = kr.fail.get = kr.fail.delete = false;
@@ -360,5 +362,106 @@ describe('K5 — named coverage gaps', () => {
     expect(svc.hasStoredSyncPassword()).toBe(true);
     const raw = await platform.testFS.readAppData('.app-state.json');
     expect(JSON.parse(raw!).e2eePassword).toBeUndefined();
+  });
+});
+
+describe('R1 — app-state file writes complete in call order', () => {
+  it('a post-confirm scrub is never overwritten by an in-flight earlier save', async () => {
+    const { platform, appState } = await fresh();
+    const seed = seedAppState({ e2eePassword: 'PW' });
+
+    // Custom FS whose writes only complete when the test releases them.
+    let persisted = seed;
+    const writes: Array<{ content: string; resolve: () => void }> = [];
+    const gatedFS = {
+      ...platform.testFS,
+      async readAppData() {
+        return persisted;
+      },
+      writeAppData(_rel: string, content: string) {
+        return new Promise<void>((res) => {
+          writes.push({
+            content,
+            resolve: () => {
+              persisted = content;
+              res();
+            },
+          });
+        });
+      },
+    };
+    platform.setActiveFS(gatedFS);
+
+    try {
+      await appState.loadAppState(); // captures the 'PW' holdover
+      const state = appState.getAppState();
+
+      // Save #1 captures the still-set holdover → payload carries 'PW'.
+      const p1 = appState.saveAppState(state);
+      await flush();
+      // Migration confirms the keyring write, then scrubs.
+      appState.clearLegacyE2eePassword();
+      const p2 = appState.saveAppState(state);
+      await flush();
+
+      // Serialized: only the first write is in flight; the scrub is queued.
+      expect(writes.length).toBe(1);
+      expect(writes[0].content).toContain('PW');
+
+      // Finish the older (plaintext) write FIRST — it must not win.
+      writes[0].resolve();
+      await flush();
+      expect(writes.length).toBe(2);
+      writes[1].resolve();
+      await Promise.all([p1, p2]);
+
+      // The scrub is the final on-disk state.
+      expect(persisted).not.toContain('PW');
+      expect(JSON.parse(persisted).e2eePassword).toBeUndefined();
+    } finally {
+      platform.resetActiveFS();
+    }
+  });
+});
+
+describe('R2 — pending deletion must not load a forgotten credential', () => {
+  it('a still-failing delete retry leaves the password unloaded (no sync resume)', async () => {
+    const { svc } = await fresh();
+    await svc.connectE2ee('http://server', 'secret');
+
+    kr.fail.delete = true;
+    await svc.forgetStoredSyncPassword(); // delete fails → marker set, keyring keeps 'secret'
+    expect(kr.store.get('pw')).toBe('secret'); // orphan still present
+
+    // Relaunch; the keyring delete still fails.
+    const b = await reboot();
+    await b.svc.initSyncPassword();
+
+    // The forgotten credential must NOT be loaded back into memory.
+    expect(b.svc.hasStoredSyncPassword()).toBe(false);
+    expect(b.svc.isE2eeConfigured()).toBe(false);
+  });
+});
+
+describe('R3 — reconnect clears the deletion marker only after the keyring write', () => {
+  it('a failing set keeps the marker; a succeeding set clears it', async () => {
+    const { platform, svc } = await fresh();
+    await svc.connectE2ee('http://server', 'OLD');
+    kr.fail.delete = true;
+    await svc.forgetStoredSyncPassword(); // marker set, 'OLD' orphaned in keyring
+    kr.fail.delete = false;
+
+    // Reconnect but the keyring set fails → marker must survive for the retry.
+    kr.fail.set = true;
+    await svc.connectE2ee('http://server', 'NEW');
+    let raw = await platform.testFS.readAppData('.app-state.json');
+    expect(JSON.parse(raw!).pendingKeyringDeletion).toBe(true);
+
+    // Reconnect with a working keyring → new password persisted, marker cleared.
+    kr.fail.set = false;
+    await svc.connectE2ee('http://server', 'NEW');
+    raw = await platform.testFS.readAppData('.app-state.json');
+    expect(JSON.parse(raw!).pendingKeyringDeletion).toBeUndefined();
+    expect(kr.store.get('pw')).toBe('NEW');
   });
 });

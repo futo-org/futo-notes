@@ -150,6 +150,10 @@ export async function initSyncPassword(): Promise<void> {
     await withCredentialLock(async () => {
       if (getAppState().pendingKeyringDeletion) await deleteStoredPassword();
     });
+    // If the delete still hasn't succeeded, do NOT load the credential the
+    // user asked us to forget — leaving it unloaded keeps sync from resuming
+    // and the delete is retried again next boot (R2).
+    if (getAppState().pendingKeyringDeletion) return;
   }
 
   const gen = credentialGeneration;
@@ -311,26 +315,33 @@ export async function connectE2ee(serverUrl: string, password: string): Promise<
   });
   await withCredentialLock(async () => {
     // A fresh credential is now authoritative — invalidate any in-flight boot
-    // migration/load and any stale pending-deletion marker (K2).
+    // migration/load (K2).
     credentialGeneration++;
+    // Keep the session working from memory first, then persist to the keyring.
+    // A keyring failure must not fail an otherwise-successful connect — it only
+    // means the password won't survive a restart (re-enter from Settings),
+    // never a fallback to disk plaintext (F6).
+    cachedPassword = password;
+    let persisted = false;
+    try {
+      await invoke('e2ee_password_set', { password });
+      persisted = true;
+    } catch (e) {
+      console.warn('[e2ee] could not persist vault password to keyring:', e);
+    }
     await saveAppState({
       ...getAppState(),
       e2eeServerUrl: normalizedUrl,
       e2eeAuthToken: out.token,
       e2eeUserId: out.userId,
       e2eeCollectionId: out.collectionId,
-      pendingKeyringDeletion: undefined,
+      // Clear a stale orphan-delete marker ONLY once the NEW password is
+      // actually in the keyring — a failed set leaves the marker so the boot
+      // retry still removes the old orphaned entry (R3). Otherwise, if a prior
+      // marker was cleared here and the set failed, a restart would load the
+      // stale old entry against the new connection metadata.
+      ...(persisted ? { pendingKeyringDeletion: undefined } : {}),
     });
-    // Keep the session working from memory first, then persist to the keyring.
-    // A keyring failure must not fail an otherwise-successful connect — it only
-    // means the password won't survive a restart (re-enter from Settings),
-    // never a fallback to disk plaintext (F6).
-    cachedPassword = password;
-    try {
-      await invoke('e2ee_password_set', { password });
-    } catch (e) {
-      console.warn('[e2ee] could not persist vault password to keyring:', e);
-    }
   });
 }
 
