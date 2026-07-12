@@ -37,11 +37,14 @@ data class NoteItem(
 internal val noteListOrder: Comparator<NoteItem> =
     compareByDescending<NoteItem> { it.modifiedMs }.thenBy { it.id }
 
-/** An open editor's unsaved draft: the note [id] to persist and the [content]
- *  to write to it. The editor publishes this on every keystroke and the
- *  Activity's onPause flushes it before the OS can jetsam the backgrounded
- *  process (F8 parity with iOS). Mirrors the iOS `pendingDraft` tuple. */
-data class PendingDraft(val id: String, val content: String)
+/** An open editor's unsaved draft: the note [id] to persist, the [content] to
+ *  write, and [base] — the content the editor believes is on disk (its
+ *  savedContent). [base] is the compare-and-swap expected-previous for the
+ *  flush (see [NotesStore.flushAsync] → `write_if_unchanged`): the flush writes
+ *  only if the note still holds [base], so a note deleted or sync-adopted while
+ *  backgrounded is neither resurrected nor clobbered. Mirrors the iOS
+ *  `pendingDraft` tuple. */
+data class PendingDraft(val id: String, val base: String, val content: String)
 
 /**
  * The open editor's unsaved-draft register and its leave-foreground flush,
@@ -49,38 +52,56 @@ data class PendingDraft(val id: String, val content: String)
  * unit-testable — apps/android ships JUnit only (no Robolectric/coroutines-test),
  * so the FFI-backed [NotesStore] can't be constructed in a JVM test.
  *
- * The open editor publishes its draft on every keystroke via [set] (or null when
- * the body goes clean / the editor closes); MainActivity.onPause calls [flush] at
- * the FIRST leave-foreground signal. Idempotent, and a no-op when the draft is
- * clean. Mirrors iOS `NotesStore.pendingDraft` + `flushPendingEditor` [editor.md].
+ * The register is DERIVED, not hand-synced: the open editor drives a single
+ * `snapshotFlow { (noteId, content, savedContent, loaded) }` that [update]s the
+ * register on every change (PKT-12 R5) — so the "is there an unsaved draft, for
+ * which note" question has one source of truth instead of ~7 imperative
+ * set/clear sites that raced the editor's real state (PKT-1 R1-R4).
+ *
+ * [claim]/[release] express OWNERSHIP: during the AnimatedContent cross-fade the
+ * incoming editor composes before the outgoing one disposes, so both are briefly
+ * live. Each editor claims a generation token on entry; only the current owner's
+ * [update]/[release] take effect, so a disposing editor can never wipe the
+ * incoming editor's just-derived draft (PKT-1 R2). Mirrors EditorHost's
+ * generation token.
+ *
+ * MainActivity.onPause calls [flush] at the FIRST leave-foreground signal.
+ * Idempotent, and a no-op when the register is clean. Mirrors iOS
+ * `NotesStore.pendingDraft` + `flushPendingEditor` [editor.md].
  */
-internal class PendingEditorDraft(private val persist: (id: String, content: String) -> Unit) {
+internal class PendingEditorDraft(private val persist: (draft: PendingDraft) -> Unit) {
+    private var owner: Long = 0
+    private var seq: Long = 0
     private var draft: PendingDraft? = null
 
-    fun set(draft: PendingDraft?) {
-        this.draft = draft
+    /** A newly-composed editor claims the register, becoming the owner. Returns
+     *  its generation token. Does NOT touch the current draft — the claiming
+     *  editor's own derivation sets it — so a claim during the cross-fade
+     *  overlap never drops the incoming editor's draft. */
+    fun claim(): Long {
+        owner = ++seq
+        return owner
     }
 
-    /** Persist the pending draft, if any. No-op when clean / closed; safe to
+    /** The owning editor's derivation publishes its current draft (or null when
+     *  the body is clean / not yet loaded). A superseded editor ([token] !=
+     *  [owner]) is a no-op: the incoming editor already claimed, so the
+     *  disposing one can't clobber the register. */
+    fun update(token: Long, draft: PendingDraft?) {
+        if (token == owner) this.draft = draft
+    }
+
+    /** The owning editor left composition. Clears the register only if it still
+     *  owns it — a superseded editor's release is a no-op (the incoming editor's
+     *  draft survives). */
+    fun release(token: Long) {
+        if (token == owner) draft = null
+    }
+
+    /** Persist the current draft, if any. No-op when clean / closed; safe to
      *  call at every leave-foreground signal. */
     fun flush() {
-        draft?.let { persist(it.id, it.content) }
-    }
-
-    /** Clear the register ONLY if it still holds exactly [expected] (id AND
-     *  content). Compare-and-clear: a keystroke that republished a newer draft
-     *  while a save was suspended mid-write is preserved — an unconditional
-     *  clear would wipe it and lose that edit on the next background. */
-    fun clearIf(expected: PendingDraft) {
-        if (draft == expected) draft = null
-    }
-
-    /** Clear the register ONLY if its draft is for note [id]. Lets a screen drop
-     *  its OWN note's draft (dispose / adopt) without wiping a draft the next
-     *  screen already published for a different note during the AnimatedContent
-     *  cross-fade overlap. */
-    fun clearIfNoteId(id: String) {
-        if (draft?.id == id) draft = null
+        draft?.let { persist(it) }
     }
 }
 
@@ -169,26 +190,39 @@ class NotesStore(notesRoot: File) {
     suspend fun read(id: String): String = withContext(Dispatchers.IO) { core.read(id) }
     suspend fun exists(id: String): Boolean = withContext(Dispatchers.IO) { core.exists(id) }
 
-    /** Fire-and-forget flush for the editor's `onDispose`: a composable's dispose
-     *  callback can't suspend, and the editor's own scope is gone by then, so the
-     *  final save runs on the store's scope (which outlives the screen). The
-     *  exists-check + write happen on IO; `write` keeps `notes` in sync. */
-    fun flushAsync(id: String, content: String) {
+    /** Fire-and-forget flush for the editor's leave paths (`onDispose` on pop,
+     *  and the register's onPause flush): a composable's dispose callback can't
+     *  suspend, so the final save runs on the store's scope (which outlives the
+     *  screen). The exists-check + write happen on IO; `write` keeps `notes` in
+     *  sync. */
+    fun flushAsync(draft: PendingDraft) {
         scope.launch {
-            if (withContext(Dispatchers.IO) { core.exists(id) }) write(id, content)
+            if (withContext(Dispatchers.IO) { core.exists(draft.id) }) write(draft.id, draft.content)
         }
     }
 
     /** The open editor's unsaved-draft register (F8 jetsam guard). The editor
-     *  publishes its draft here on every keystroke via [setPendingDraft]; the
-     *  Activity's onPause calls [flushPendingEditor] so an edit caught inside the
-     *  400 ms autosave debounce is persisted before the OS can kill the
-     *  backgrounded process. Mirrors iOS `NotesStore.pendingDraft`. */
-    private val pendingEditor = PendingEditorDraft { id, content -> flushAsync(id, content) }
+     *  DERIVES its draft into the register via [updateDraft] from a single
+     *  snapshotFlow over (noteId, content, savedContent, loaded); the Activity's
+     *  onPause calls [flushPendingEditor] so an edit caught inside the 400 ms
+     *  autosave debounce is persisted before the OS can kill the backgrounded
+     *  process. Mirrors iOS `NotesStore.pendingDraft`. */
+    private val pendingEditor = PendingEditorDraft { draft -> flushAsync(draft) }
 
-    /** The editor publishes its current unsaved draft (id + content), or null
-     *  when the body is clean / the editor is closed. Mirrors iOS `setPendingDraft`. */
-    fun setPendingDraft(draft: PendingDraft?) = pendingEditor.set(draft)
+    /** A newly-composed editor claims the register; returns its ownership token.
+     *  Only the current owner's [updateDraft]/[releaseDraftOwnership] take effect,
+     *  so an editor disposing during the AnimatedContent cross-fade can't wipe the
+     *  incoming editor's draft (PKT-1 R2). */
+    fun claimDraftOwnership(): Long = pendingEditor.claim()
+
+    /** The owning editor's derivation publishes its current draft, or null when
+     *  the body is clean / not yet loaded. Replaces the old hand-synced
+     *  set/clear sites — the register mirrors the editor's real state. */
+    fun updateDraft(token: Long, draft: PendingDraft?) = pendingEditor.update(token, draft)
+
+    /** The owning editor left composition — clears the register if it still owns
+     *  it (a superseded editor's release is a no-op). */
+    fun releaseDraftOwnership(token: Long) = pendingEditor.release(token)
 
     /** Flush the open editor's pending draft to disk if it has unsaved edits.
      *  Called from MainActivity.onPause (the first leave-foreground signal).
@@ -197,16 +231,6 @@ class NotesStore(notesRoot: File) {
      *  Best-effort: the write is fire-and-forget, so an immediate process death
      *  can still beat it (same on iOS). */
     fun flushPendingEditor() = pendingEditor.flush()
-
-    /** Compare-and-clear: drop the register only if it still holds exactly
-     *  [expected]. Used after a save completes so a newer draft published while
-     *  the write was suspended survives (see [PendingEditorDraft.clearIf]). */
-    fun clearPendingDraft(expected: PendingDraft) = pendingEditor.clearIf(expected)
-
-    /** Clear the register only if its draft is for note [id]. Used on editor
-     *  dispose / remote-adopt so a screen drops its own note's draft without
-     *  wiping the next screen's during the nav cross-fade overlap. */
-    fun clearPendingDraftForNote(id: String) = pendingEditor.clearIfNoteId(id)
 
     /** Write a note, updating the in-memory row in place (no full rescan) so the
      *  list's identity/order stays stable while typing — mirrors the iOS
