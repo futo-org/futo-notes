@@ -3826,6 +3826,12 @@ fn apply_tombstone_reconcile(
                 failed.push(fail(t));
                 continue;
             }
+            // The conflict copy is now on disk — count it as a local write
+            // IMMEDIATELY (F2), before the claim cleanup below. If that cleanup
+            // fails this target still becomes a FAILED tombstone (restore +
+            // retry), but the copy file already exists, so the reload signal
+            // MUST fire or the new copy stays invisible until a later sync.
+            parked += 1;
             // Edit preserved in the conflict copy. Consuming the claim drops the
             // tombstoned name; if that removal fails the claim still holds the
             // only copy of the original bytes → FAILED tombstone (item 3, same
@@ -3841,7 +3847,6 @@ fn apply_tombstone_reconcile(
             }
             prune_empty_parent_dirs(notes_root, &path);
             deleted.push(t.filename.clone());
-            parked += 1; // a conflict copy was written to local disk (F2)
         }
     }
     TombstoneApplyResult { deleted, failed, parked }
@@ -7182,6 +7187,81 @@ mod tests {
         // reload signal (folds into SyncSummary::local_writes_applied).
         assert_eq!(res.parked, 1, "one diverged conflict copy written");
         assert_eq!(orphan_claims(&root), 0, "no claim dotfile left behind");
+    }
+
+    // T2/P2 (F2): if the conflict-copy WRITE succeeds but the claim cleanup then
+    // FAILS, the copy is on disk and MUST still be counted (parked) so the shell
+    // rescans and the new copy becomes visible — even though the tombstone
+    // becomes a FAILED (retried) delete. The note lives in a subdir so the copy
+    // write (in sub/) and the claim removal (a dotfile at the vault ROOT) touch
+    // different directories; the pre_write hook fires exactly at the copy write
+    // and drops the root's write bit, failing ONLY the subsequent claim removal.
+    // Red against the pre-fix code, which incremented `parked` after the claim
+    // cleanup (this path never reached it → parked==0, copy invisible).
+    #[cfg(unix)]
+    #[test]
+    fn apply_tombstone_reconcile_counts_park_even_when_claim_cleanup_fails() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = temp_root();
+
+        // Skip under CI-root / CAP_DAC_OVERRIDE, where a read-only dir does not
+        // block writes (the claim removal would succeed and this race can't
+        // occur). Probe with a throwaway dir.
+        let probe = root.join("perm-probe");
+        std::fs::create_dir(&probe).unwrap();
+        std::fs::set_permissions(&probe, std::fs::Permissions::from_mode(0o555)).unwrap();
+        let write_blocked = std::fs::write(probe.join("x"), b"x").is_err();
+        let _ = std::fs::set_permissions(&probe, std::fs::Permissions::from_mode(0o755));
+        let _ = std::fs::remove_dir_all(&probe);
+        if !write_blocked {
+            eprintln!(
+                "SKIP apply_tombstone_reconcile_counts_park_even_when_claim_cleanup_fails: \
+                 environment does not enforce directory write permissions (running as root?)"
+            );
+            return;
+        }
+
+        std::fs::create_dir(root.join("sub")).unwrap();
+        std::fs::write(root.join("sub/note.md"), "edited since last sync").unwrap();
+        let targets = vec![TombstoneTarget {
+            filename: "sub/note.md".into(),
+            object_id: "o2".into(),
+            // Diverged: on-disk bytes differ from the delete's expected hash.
+            expected_hash: hash_sha256("original before the edit"),
+            change_seq: 6,
+        }];
+
+        // Fail ONLY the claim removal: strip the vault root's write bit at the
+        // moment the copy (in sub/) is written. The claim dotfile lives at root,
+        // so the following remove_file(root/.claim) fails with EACCES.
+        let pre: Box<PreWriteFn> = {
+            let root = root.clone();
+            Box::new(move |f: &str| {
+                if f.contains("(conflict ") {
+                    let _ = std::fs::set_permissions(
+                        &root,
+                        std::fs::Permissions::from_mode(0o555),
+                    );
+                }
+            })
+        };
+
+        let res = apply_tombstone_reconcile(&root, pre.as_ref(), &targets);
+
+        // Restore write perms so the temp tree is inspectable + cleanable.
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        // The park write happened → counted, regardless of the cleanup failure.
+        assert_eq!(res.parked, 1, "the on-disk conflict copy must be counted (F2)");
+        // The tombstone delete was NOT verified (claim survived) → a retry.
+        assert!(res.deleted.is_empty(), "delete not confirmed when claim cleanup fails");
+        assert_eq!(res.failed.len(), 1, "unverified tombstone is a failure/retry");
+        // The conflict copy is really on disk.
+        let copy = collision_conflict_filename("sub/note.md", "o2");
+        assert_eq!(
+            std::fs::read_to_string(root.join(&copy)).unwrap(),
+            "edited since last sync",
+        );
     }
 
     // P1-b (non-NotFound error ≠ convergence): a target the reconcile cannot
