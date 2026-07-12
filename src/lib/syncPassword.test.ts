@@ -465,3 +465,44 @@ describe('R3 — reconnect clears the deletion marker only after the keyring wri
     expect(kr.store.get('pw')).toBe('NEW');
   });
 });
+
+describe('P2 — reconnect persists metadata before the keyring password', () => {
+  it('a metadata-write failure never leaves a keyring password without matching metadata', async () => {
+    const { platform, svc } = await fresh();
+    // FS that rejects every .app-state.json write.
+    const failingFS = {
+      ...platform.testFS,
+      async writeAppData() {
+        throw new Error('disk full');
+      },
+    };
+    platform.setActiveFS(failingFS);
+    try {
+      await expect(svc.connectE2ee('http://server', 'NEW')).rejects.toThrow(/disk full/);
+      // The keyring set must NOT have run, since the metadata never landed —
+      // otherwise a restart would resume the OLD vault with the NEW password.
+      expect(kr.store.has('pw')).toBe(false);
+    } finally {
+      platform.resetActiveFS();
+    }
+  });
+
+  it('a stale marker after a failed marker-clear costs a re-entry, never a mismatch', async () => {
+    const { platform, svc } = await fresh();
+    // Degenerate post-failure state: NEW metadata persisted, keyring holds NEW,
+    // but the marker-clearing save never landed so the marker is still set.
+    await platform.testFS.writeAppData(
+      '.app-state.json',
+      seedAppState({ pendingKeyringDeletion: true }),
+    );
+    kr.store.set('pw', 'NEW');
+
+    await svc.initSyncPassword();
+
+    // Boot retry removes the entry and loads nothing → the user re-enters the
+    // password; no mismatched credential ever resumes.
+    expect(kr.store.has('pw')).toBe(false);
+    expect(svc.hasStoredSyncPassword()).toBe(false);
+    expect(svc.isE2eeConfigured()).toBe(false);
+  });
+});

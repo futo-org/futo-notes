@@ -317,11 +317,26 @@ export async function connectE2ee(serverUrl: string, password: string): Promise<
     // A fresh credential is now authoritative — invalidate any in-flight boot
     // migration/load (K2).
     credentialGeneration++;
-    // Keep the session working from memory first, then persist to the keyring.
-    // A keyring failure must not fail an otherwise-successful connect — it only
-    // means the password won't survive a restart (re-enter from Settings),
-    // never a fallback to disk plaintext (F6).
+    // Session works from memory immediately (like the native shells).
     cachedPassword = password;
+    // Persist the connection metadata FIRST, so we can never end up with a
+    // keyring password that has no matching metadata on disk (P2). If this
+    // write fails, the on-disk state stays consistently OLD and the keyring is
+    // untouched — a restart resumes the old vault correctly rather than the old
+    // vault with the new password. Preserve any existing orphan-delete marker
+    // here; it is cleared below only after the new keyring write is confirmed.
+    await saveAppState({
+      ...getAppState(),
+      e2eeServerUrl: normalizedUrl,
+      e2eeAuthToken: out.token,
+      e2eeUserId: out.userId,
+      e2eeCollectionId: out.collectionId,
+    });
+    // Then persist the password. A keyring failure must not fail an otherwise
+    // successful connect — it only means the password won't survive a restart
+    // (re-enter from Settings), never a fallback to disk plaintext (F6). Leave
+    // the orphan-delete marker in place so the boot retry still removes the old
+    // entry (R3).
     let persisted = false;
     try {
       await invoke('e2ee_password_set', { password });
@@ -329,19 +344,13 @@ export async function connectE2ee(serverUrl: string, password: string): Promise<
     } catch (e) {
       console.warn('[e2ee] could not persist vault password to keyring:', e);
     }
-    await saveAppState({
-      ...getAppState(),
-      e2eeServerUrl: normalizedUrl,
-      e2eeAuthToken: out.token,
-      e2eeUserId: out.userId,
-      e2eeCollectionId: out.collectionId,
-      // Clear a stale orphan-delete marker ONLY once the NEW password is
-      // actually in the keyring — a failed set leaves the marker so the boot
-      // retry still removes the old orphaned entry (R3). Otherwise, if a prior
-      // marker was cleared here and the set failed, a restart would load the
-      // stale old entry against the new connection metadata.
-      ...(persisted ? { pendingKeyringDeletion: undefined } : {}),
-    });
+    // Drop a stale orphan-delete marker ONLY once the NEW password is confirmed
+    // in the keyring (R3). Worst case if THIS write fails: the marker lingers
+    // and the next boot's retry deletes the (valid) new entry, costing a
+    // re-entry — never a mismatched credential.
+    if (persisted && getAppState().pendingKeyringDeletion) {
+      await saveAppState({ ...getAppState(), pendingKeyringDeletion: undefined });
+    }
   });
 }
 
