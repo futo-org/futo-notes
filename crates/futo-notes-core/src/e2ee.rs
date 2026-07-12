@@ -1,8 +1,9 @@
 //! End-to-end-encrypted sync primitives.
 //!
-//! Pure-Rust port of `src/lib/e2eeCrypto.ts` so the new Rust sync
-//! orchestrator emits + decodes the exact same wire format as older
-//! TS-built clients.
+//! Pure-Rust port of the client-side E2EE crypto (originally
+//! `src/lib/e2eeCrypto.ts`, since deleted as dead code — runtime crypto is
+//! Rust-only) so the Rust sync orchestrator emits + decodes the exact same
+//! wire format as older TS-built clients.
 //!
 //! Wire shapes that MUST stay byte-for-byte identical with the TS path:
 //! - AES-256-GCM blob: `[12-byte IV][ciphertext || 16-byte tag]`
