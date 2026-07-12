@@ -500,42 +500,74 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
     // (edit-wins); it must be excluded from tab pruning below.
     let keptDeletedDraftId: string | null = null;
     if (currentOriginalId && (openDeleted || openUpdated)) {
+      const openId = currentOriginalId;
+      // Close (or, for an unsaved draft, keep) the open note deleted this cycle.
+      // hasOpenDraftChanges → cancelAndClear stays await-free so a keystroke
+      // can't slip in between the check and the close (the reviewer-verified
+      // atomicity). Mirrors the local-watcher unlink-of-open-note path.
+      const closeOrKeepDeletedOpenNote = async (): Promise<void> => {
+        if (deps.hasOpenDraftChanges()) {
+          keptDeletedDraftId = openId;
+          deps.showToast('Open note was deleted during sync; keeping local draft');
+          await refreshNotesFromStorage();
+        } else {
+          deps.cancelAndClear();
+          deps.showToast('Note was deleted during sync');
+        }
+      };
       // W1: `updatedIds` is NOT evidence the open note survived — it aggregates
       // push AND pull, so it also contains ids WE uploaded this cycle. A peer
       // can tombstone note X while this same cycle pushed our edit to X: X lands
       // in both lists yet the pull deleted the file from disk. Ask the
-      // filesystem authoritatively instead. If a note deleted this cycle is gone
-      // from disk, the tombstone won (close/keep-draft); if it is present, it
-      // was recreated and we adopt the on-disk content.
-      const openNoteGone = openDeleted && !(await noteExists(currentOriginalId));
+      // filesystem authoritatively instead. handleSyncComplete runs un-awaited
+      // from auto/live sync, so a rejected existence probe (vault-root
+      // resolution, spawn_blocking, IPC) must NOT escape as an unhandled
+      // rejection — fail toward the SAFE side: treat "cannot confirm" as gone so
+      // we never adopt "" into a session bound to a possibly-missing id.
+      let openNoteGone = false;
+      if (openDeleted) {
+        try {
+          openNoteGone = !(await noteExists(openId));
+        } catch {
+          openNoteGone = true;
+        }
+      }
       // The existence read above is the only await before the close decision, so
       // re-verify the open note didn't change under us (a local rename racing
       // readNote/noteExists) — the old id is no longer open, nothing to do.
-      if (deps.getOriginalId() === currentOriginalId) {
+      if (deps.getOriginalId() === openId) {
         if (openNoteGone) {
           // F4: a peer deleted the currently-open note and it is gone from disk.
           // read_note returns "" for a missing file on Tauri (crud.rs scan-time
           // tolerance — the contract stays ""), so feeding this id into the adopt
           // path would blank the editor while the session stayed bound to the
           // deleted id; the next keystroke would re-create the file and undo the
-          // peer's delete fleet-wide. Never adopt "" — mirror the local-watcher
-          // unlink-of-open-note path: keep an unsaved draft, otherwise close.
-          // (hasOpenDraftChanges → cancelAndClear stays await-free so a keystroke
-          // can't slip in between the check and the close.)
-          if (deps.hasOpenDraftChanges()) {
-            keptDeletedDraftId = currentOriginalId;
-            deps.showToast('Open note was deleted during sync; keeping local draft');
-            await refreshNotesFromStorage();
-          } else {
-            deps.cancelAndClear();
-            deps.showToast('Note was deleted during sync');
-          }
+          // peer's delete fleet-wide. Never adopt "".
+          await closeOrKeepDeletedOpenNote();
         } else {
           // The open note was updated, or was deleted-then-recreated on disk —
-          // either way it exists, so adopt its on-disk content.
+          // either way it existed a moment ago, so adopt its on-disk content.
           try {
-            const freshContent = await readNote(currentOriginalId);
-            if (freshContent !== deps.getEditorContent()) {
+            const freshContent = await readNote(openId);
+            // TOCTOU: the file can vanish between the noteExists check and this
+            // read (external unlink / an overlapping live-sync cycle), and
+            // read_note returns "" for a missing file — adopting that "" is the
+            // literal F4 shape again. If a note deleted THIS cycle reads back
+            // empty, re-verify existence before adopting; a legitimately-empty
+            // recreated note re-verifies as present and still adopts. (Fail safe
+            // on a probe error, as above.)
+            let vanished = false;
+            if (openDeleted && freshContent === '') {
+              try {
+                vanished = !(await noteExists(openId));
+              } catch {
+                vanished = true;
+              }
+            }
+            if (deps.getOriginalId() !== openId) return;
+            if (vanished) {
+              await closeOrKeepDeletedOpenNote();
+            } else if (freshContent !== deps.getEditorContent()) {
               const editedDuringSync =
                 deps.getEditVersion() !== (syncCoord?.getSyncStartEditVersion() ?? 0);
               // hasOpenDraftChanges reads the LIVE editor doc synchronously, so it
@@ -547,22 +579,24 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
               // the watcher guard above); the metadata refresh below still runs.
               if (!editedDuringSync && !deps.hasOpenDraftChanges()) {
                 if (deps.isEditorFocused()) {
-                  deferExternalAdopt(currentOriginalId, freshContent);
+                  deferExternalAdopt(openId, freshContent);
                 } else {
                   deps.applyExternalContent(freshContent);
                 }
               }
             }
-            // H13: Always refresh metadata even when content was skipped.
-            const meta = getNoteById(currentOriginalId);
-            if (meta) {
-              deps.applyRemoteRename(currentOriginalId, meta.title);
+            if (!vanished) {
+              // H13: Always refresh metadata even when content was skipped.
+              const meta = getNoteById(openId);
+              if (meta) {
+                deps.applyRemoteRename(openId, meta.title);
+              }
             }
           } catch {
-            // The note exists, so read_note only rejects on a genuine IPC failure
-            // — or originalId changed mid-await because a local rename raced.
-            // Either way, keep the local draft rather than risk clobbering it.
-            if (deps.getOriginalId() !== currentOriginalId) return;
+            // The note existed, so read_note only rejects on a genuine IPC
+            // failure — or originalId changed mid-await because a local rename
+            // raced. Either way, keep the local draft rather than clobber it.
+            if (deps.getOriginalId() !== openId) return;
             deps.showToast('Open note changed during sync; keeping local draft');
           }
         }
@@ -576,8 +610,12 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
     // deleted id can also be in updatedIds via our own push). A deleted note
     // still on disk was recreated, so it stays. The open note whose unsaved
     // draft we kept is excluded; renames already re-pointed their tabs above.
+    // A rejected existence probe must not crash the un-awaited handler and must
+    // not wrongly prune a live tab — treat "cannot confirm" as present (skip).
     const pruneCandidates = summary.deletedIds.filter((id) => id !== keptDeletedDraftId);
-    const pruneExistence = await Promise.all(pruneCandidates.map((id) => noteExists(id)));
+    const pruneExistence = await Promise.all(
+      pruneCandidates.map((id) => noteExists(id).catch(() => true)),
+    );
     const goneIds = pruneCandidates.filter((_, i) => !pruneExistence[i]);
     if (goneIds.length > 0) deps.pruneTabsForDeletedIds?.(goneIds);
 

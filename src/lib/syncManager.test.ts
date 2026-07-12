@@ -1069,4 +1069,107 @@ describe('F4: peer-delete of the open note closes the session, never adopts ""',
     expect(cancelAndClear).not.toHaveBeenCalled();
     expect(pruneTabsForDeletedIds).toHaveBeenCalledWith(['BgGone']);
   });
+
+  // P1-a: handleSyncComplete runs un-awaited from auto/live sync, so a rejected
+  // existence probe must not become an unhandled rejection that leaves the
+  // peer-deleted open note bound to its missing id. Fail safe: treat "cannot
+  // confirm recreated" as deleted → close the clean session, skip pruning.
+  it('closes cleanly (no unhandled rejection) when the existence check errors', async () => {
+    vi.mocked(noteExists).mockRejectedValue(new Error('vault root unresolved'));
+    const applyExternalContent = vi.fn();
+    const cancelAndClear = vi.fn();
+    const pruneTabsForDeletedIds = vi.fn();
+    const toasts: string[] = [];
+    const mgr = createSyncManager(
+      makeDeps({
+        getOriginalId: () => 'Doomed',
+        getEditorContent: () => 'OLD CONTENT',
+        isEditorFocused: () => false,
+        applyExternalContent,
+        cancelAndClear,
+        pruneTabsForDeletedIds,
+        showToast: (m) => toasts.push(m),
+      }),
+    );
+
+    await expect(
+      mgr.handleSyncComplete(
+        { ...emptySummary, deletedIds: ['Doomed'], peerDeletedIds: ['Doomed'] },
+        'poll',
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(cancelAndClear).toHaveBeenCalledTimes(1);
+    expect(applyExternalContent).not.toHaveBeenCalled();
+    expect(toasts).toContain('Note was deleted during sync');
+    // Prune probe also errored → skip pruning rather than crash or wrongly prune.
+    expect(pruneTabsForDeletedIds).not.toHaveBeenCalled();
+  });
+
+  // P1-b TOCTOU: noteExists() says present, the file vanishes (external unlink /
+  // overlapping live-sync cycle), then readNote() returns "" for the now-missing
+  // file. Adopting that "" is the F4 shape again. Re-verify after the read.
+  it('closes when a deleted-id note vanishes between the exists-check and the read (TOCTOU)', async () => {
+    // present at the first check, gone at the re-verify.
+    vi.mocked(noteExists).mockResolvedValueOnce(true).mockResolvedValue(false);
+    vi.mocked(readNote).mockResolvedValue(''); // read after the file vanished
+    const applyExternalContent = vi.fn();
+    const cancelAndClear = vi.fn();
+    const toasts: string[] = [];
+    const mgr = createSyncManager(
+      makeDeps({
+        getOriginalId: () => 'Vanisher',
+        getEditorContent: () => 'OLD CONTENT',
+        isEditorFocused: () => false,
+        applyExternalContent,
+        cancelAndClear,
+        showToast: (m) => toasts.push(m),
+      }),
+    );
+
+    await mgr.handleSyncComplete(
+      {
+        ...emptySummary,
+        deletedIds: ['Vanisher'],
+        updatedIds: ['Vanisher'],
+        peerDeletedIds: ['Vanisher'],
+      },
+      'poll',
+    );
+
+    expect(applyExternalContent).not.toHaveBeenCalled();
+    expect(cancelAndClear).toHaveBeenCalledTimes(1);
+    expect(toasts).toContain('Note was deleted during sync');
+  });
+
+  it('still adopts a legitimately-empty recreated note (re-verify says present)', async () => {
+    // A deleted-then-recreated note that is genuinely empty must NOT be treated
+    // as deleted — the re-verify confirms it is present, so adopt "".
+    vi.mocked(noteExists).mockResolvedValue(true);
+    vi.mocked(readNote).mockResolvedValue('');
+    const applyExternalContent = vi.fn();
+    const cancelAndClear = vi.fn();
+    const mgr = createSyncManager(
+      makeDeps({
+        getOriginalId: () => 'EmptyRecreated',
+        getEditorContent: () => 'OLD CONTENT',
+        isEditorFocused: () => false,
+        applyExternalContent,
+        cancelAndClear,
+      }),
+    );
+
+    await mgr.handleSyncComplete(
+      {
+        ...emptySummary,
+        deletedIds: ['EmptyRecreated'],
+        updatedIds: ['EmptyRecreated'],
+        peerDeletedIds: ['EmptyRecreated'],
+      },
+      'poll',
+    );
+
+    expect(cancelAndClear).not.toHaveBeenCalled();
+    expect(applyExternalContent).toHaveBeenCalledWith('');
+  });
 });
