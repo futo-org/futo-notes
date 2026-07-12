@@ -51,9 +51,10 @@ export interface AppState {
    */
   pendingKeyringDeletion?: boolean;
   // E2EE bookkeeping (`e2eeObjectMap`, `e2eeMaxVersion`) lives in
-  // `.e2ee-state.json` owned by Rust now. Legacy values in
-  // `.app-state.json` are migrated on first sync (see Rust
-  // `sync_state::load_or_migrate`) and dropped on the next save.
+  // `.e2ee-state.json` owned by Rust now. Legacy values in a pre-port
+  // `.app-state.json` are imported by Rust on first connect; until then they are
+  // held over (see `legacySyncState`) and re-injected on every save so they are
+  // NOT scrubbed prematurely — only after the import persists `.e2ee-state.json`.
 }
 
 const APP_STATE_PATH = '.app-state.json';
@@ -109,6 +110,33 @@ export function getLegacyE2eePassword(): string | undefined {
  *  is confirmed, so the next `saveAppState()` scrubs it from disk. */
 export function clearLegacyE2eePassword(): void {
   legacyE2eePassword = undefined;
+}
+
+// Legacy E2EE sync bookkeeping (`e2eeObjectMap` + `e2eeMaxVersion`) read out of a
+// pre-port `.app-state.json` on load, held as a "holdover" until the Rust import
+// consumes it into `.e2ee-state.json`. `sanitize()` drops these fields, so a
+// naive save would erase the object map — and the boot keyring migration
+// (`initSyncPassword`) performs exactly such a save BEFORE the user's first
+// connect runs the Rust import. Erasing it strands the whole pre-port cohort on
+// the empty-map reconcile path: unchanged notes survive only by hash-dedup and a
+// note edited offline before the port is conflict-parked (PKT-17). While this is
+// set, `saveAppState()` re-injects both fields on every write; the sync service
+// clears it only once `.e2ee-state.json` exists (see
+// `syncServiceE2ee.scrubLegacySyncStateIfConsumed`). `e2eeCollectionId` is NOT
+// held here — it is a real `AppState` field that `sanitize()` already preserves.
+let legacySyncState: { e2eeObjectMap: unknown; e2eeMaxVersion?: number } | undefined;
+
+/** Peek at the legacy sync bookkeeping captured during load (no clear). */
+export function getLegacySyncState():
+  { e2eeObjectMap: unknown; e2eeMaxVersion?: number } | undefined {
+  return legacySyncState;
+}
+
+/** Stop re-injecting the legacy sync bookkeeping — call ONLY once the Rust
+ *  import has persisted `.e2ee-state.json`, so the next `saveAppState()` scrubs
+ *  the now-dead fields from `.app-state.json`. */
+export function clearLegacySyncState(): void {
+  legacySyncState = undefined;
 }
 
 // ── Sanitization ───────────────────────────────────────────────────────
@@ -221,6 +249,19 @@ export async function loadAppState(): Promise<AppState> {
       if (typeof parsed?.e2eePassword === 'string' && parsed.e2eePassword.length > 0) {
         legacyE2eePassword = parsed.e2eePassword;
       }
+      // Capture the pre-port sync bookkeeping before `sanitize()` drops it, so
+      // saves re-inject it until the Rust import consumes it (see the holdover
+      // note above). A subsequent boot that still finds the fields (no
+      // `.e2ee-state.json` yet) re-captures them — the migration self-heals
+      // across restarts until one connect/sync persists.
+      if (parsed?.e2eeObjectMap != null && typeof parsed.e2eeObjectMap === 'object') {
+        legacySyncState = {
+          e2eeObjectMap: parsed.e2eeObjectMap,
+          ...(typeof parsed.e2eeMaxVersion === 'number'
+            ? { e2eeMaxVersion: parsed.e2eeMaxVersion }
+            : {}),
+        };
+      }
       cached = sanitize(parsed);
       return cached;
     }
@@ -263,6 +304,18 @@ export async function saveAppState(state: AppState): Promise<void> {
   // scrub's payload is fixed before it joins the write chain.
   if (legacyE2eePassword !== undefined) {
     serialized.e2eePassword = legacyE2eePassword;
+  }
+  // PKT-17: while a pre-port object map is awaiting the Rust import, re-inject
+  // it on every write so an interleaved save (notably the boot keyring
+  // migration's) can't erase it before the first connect imports it. Confirmed
+  // consumption calls `clearLegacySyncState()`, after which this stops and
+  // `sanitize()`'s drop takes effect on the next write. Read HERE (call time),
+  // so the payload is fixed before it joins the write chain.
+  if (legacySyncState !== undefined) {
+    serialized.e2eeObjectMap = legacySyncState.e2eeObjectMap;
+    if (legacySyncState.e2eeMaxVersion !== undefined) {
+      serialized.e2eeMaxVersion = legacySyncState.e2eeMaxVersion;
+    }
   }
   const payload = JSON.stringify(serialized);
   const run = writeChain.then(async () => {

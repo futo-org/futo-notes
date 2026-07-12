@@ -15,12 +15,14 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import {
   clearLegacyE2eePassword,
+  clearLegacySyncState,
   getAppState,
   getLegacyE2eePassword,
+  getLegacySyncState,
   loadAppState,
   saveAppState,
 } from './appState';
-import { isTauri } from './platform';
+import { getPlatformFS, isTauri } from './platform';
 import { getSyncErrorMessage } from './syncErrorMessage';
 import { showGlobalToast } from './toast';
 
@@ -208,6 +210,30 @@ export function isE2eeConfigured(): boolean {
   );
 }
 
+/**
+ * PKT-17: once the Rust import has persisted `.e2ee-state.json`, the legacy
+ * `e2eeObjectMap` / `e2eeMaxVersion` in `.app-state.json` are dead (`load`
+ * prefers `.e2ee-state.json`), so stop re-injecting them and let the next save
+ * scrub them. The trigger is the ACTUAL existence of `.e2ee-state.json`, not
+ * "a connect/resume returned": `e2ee_resume` (the path the pre-port cohort hits
+ * on boot) does NOT persist — only `e2ee_connect` and a completed sync cycle
+ * do — so clearing on resume alone could drop the map if the app dies before
+ * the first cycle. A read error leaves the holdover in place to retry.
+ */
+async function scrubLegacySyncStateIfConsumed(): Promise<void> {
+  if (!isTauri || getLegacySyncState() === undefined) return;
+  let persisted: string | null;
+  try {
+    persisted = await (await getPlatformFS()).readAppData('.e2ee-state.json');
+  } catch {
+    return;
+  }
+  if (persisted != null) {
+    clearLegacySyncState();
+    await saveAppState(getAppState());
+  }
+}
+
 // ── Sync runner ─────────────────────────────────────────────────────────
 
 async function ensureConnected(passwordOverride?: string): Promise<void> {
@@ -352,6 +378,9 @@ export async function connectE2ee(serverUrl: string, password: string): Promise<
       await saveAppState({ ...getAppState(), pendingKeyringDeletion: undefined });
     }
   });
+  // `e2ee_connect` persisted `.e2ee-state.json` (importing any pre-port map), so
+  // the legacy holdover is now dead — scrub it (PKT-17).
+  await scrubLegacySyncStateIfConsumed();
 }
 
 export async function disconnectE2ee(): Promise<void> {
@@ -386,7 +415,11 @@ export async function disconnectE2ee(): Promise<void> {
 export async function syncE2eeAuto(): Promise<SyncSummary> {
   await ensureConnected();
   try {
-    return await invoke<SyncSummary>('e2ee_sync_run');
+    const summary = await invoke<SyncSummary>('e2ee_sync_run');
+    // The cycle persisted `.e2ee-state.json`; the pre-port map (imported by the
+    // resume inside ensureConnected) is now durable — scrub the holdover (PKT-17).
+    await scrubLegacySyncStateIfConsumed();
+    return summary;
   } catch (e) {
     // The vault was collapsed/deleted server-side while we were already
     // connected (e.g. the single-vault migration during a server upgrade).
@@ -411,7 +444,9 @@ export async function syncE2eeAuto(): Promise<SyncSummary> {
  */
 export async function syncE2ee(password: string): Promise<SyncSummary> {
   await ensureConnected(password);
-  return await invoke<SyncSummary>('e2ee_sync_run');
+  const summary = await invoke<SyncSummary>('e2ee_sync_run');
+  await scrubLegacySyncStateIfConsumed();
+  return summary;
 }
 
 // ── Progress events ─────────────────────────────────────────────────────
