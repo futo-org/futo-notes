@@ -1,5 +1,5 @@
 //! Tag parsing + validation. Ported bit-for-bit from
-//! `packages/shared/src/tags.ts`.
+//! `packages/editor/src/tags.ts`.
 //!
 //! Tag syntax: `#[a-z][a-z0-9_-]*` (≤ 50 chars after `#`), must follow
 //! whitespace or start-of-line, must not sit inside a code fence or inline

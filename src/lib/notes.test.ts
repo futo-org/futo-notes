@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterAll, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from 'vitest';
 
 const autoSyncMocks = vi.hoisted(() => ({
   events: [] as string[],
@@ -187,6 +187,10 @@ describe('updateNote', () => {
 });
 
 describe('deleteNote', () => {
+  afterEach(() => {
+    delete (testFS as { deleteNoteToTrash?: unknown }).deleteNoteToTrash;
+  });
+
   it('removes file and cache', async () => {
     await testFS.writeNote('doomed', 'goodbye');
 
@@ -198,6 +202,22 @@ describe('deleteNote', () => {
 
     expect(getNoteById('doomed')).toBeUndefined();
     expect(await testFS.noteExists('doomed')).toBe(false);
+  });
+
+  it('routes through deleteNoteToTrash instead of the hard-delete path when the platform provides it', async () => {
+    await testFS.writeNote('doomed', 'goodbye');
+    const trashSpy = vi.fn(async () => {});
+    testFS.deleteNoteToTrash = trashSpy;
+    const hardDeleteSpy = vi.spyOn(testFS, 'deleteNoteFile');
+
+    const { initNotes, deleteNote, getNoteById } = await freshNotes();
+    await initNotes();
+
+    await deleteNote('doomed');
+
+    expect(trashSpy).toHaveBeenCalledWith('doomed');
+    expect(hardDeleteSpy).not.toHaveBeenCalled();
+    expect(getNoteById('doomed')).toBeUndefined();
   });
 });
 

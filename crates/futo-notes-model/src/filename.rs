@@ -1,5 +1,5 @@
 //! Folder-name and folder-path rules, layered on `core::files`'s title
-//! primitives. Ported bit-for-bit from `packages/shared/src/filename.ts`.
+//! primitives. Ported bit-for-bit from `packages/editor/src/filename.ts`.
 
 use futo_notes_core::files::{validate_title, FilenameIssue, FilenameIssueKind, MAX_FOLDER_DEPTH};
 

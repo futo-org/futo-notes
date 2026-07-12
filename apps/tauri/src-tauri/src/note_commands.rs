@@ -3,8 +3,12 @@
 //! through the `futo-notes-ffi` `NoteStore`. This is the Tauri adapter: it
 //! consumes the crate directly, it never touches the UniFFI objects.
 //!
-//! The command set mirrors the FFI `NoteStore` method set 1:1, plus
-//! desktop-only note-trash routing. Folder commands live in `folder_commands.rs`. Every
+//! The command set largely mirrors the FFI `NoteStore` methods, plus
+//! desktop-only note-trash routing — not a strict 1:1: the FFI's `relink`
+//! has no Tauri sibling, and `notes_create`/`notes_move`/
+//! `notes_scan_folders` are registered here but have no TS caller today
+//! (desktop create/rename go through `notes_write`/`notes_rename`). Folder
+//! commands live in `folder_commands.rs`. Every
 //! command wraps a testable `_impl` fn over the resolved vault root, runs the
 //! filesystem work in `spawn_blocking`, and returns `Result<_, String>`.
 //!
