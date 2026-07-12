@@ -262,6 +262,15 @@ async function concurrentEditConflict(a, b, server) {
 async function threeWayMerge(a, b, server) {
   await a.connectSync(server.url, server.password);
   await b.connectSync(server.url, server.password);
+  // Own the push/pull: B asserts conflicts===0 and no conflict copies on its
+  // explicit syncNow after both edit the SAME note. With either live loop up,
+  // A's edit auto-pushes and B's live loop auto-pulls/auto-pushes B's edit at
+  // uncontrolled times, so the 3-way merge can run in a background cycle and
+  // spawn a conflict copy that the explicit-sync assertion then sees. The merge
+  // is trigger-agnostic, so the explicit syncs exercise the same merge code
+  // deterministically. Same family as activeNoteReload/editorRoundtrip.
+  await a.pauseAutoSync();
+  await b.pauseAutoSync();
 
   // Both get a shared note with distinct sections
   const baseContent = [
@@ -318,6 +327,20 @@ async function threeWayMerge(a, b, server) {
 async function renamePropagation(a, b, server) {
   await a.connectSync(server.url, server.password);
   await b.connectSync(server.url, server.password);
+
+  // Own the push/pull on both clients (same live-sync race as activeNoteReload).
+  //  - B: with its SSE live loop up, A's rename push wakes it and it pulls
+  //    concurrently with b.syncNow(); if the delete ('old name') and the create
+  //    ('new name') land on separate B pull cycles, B sees a lone deletion of
+  //    the OPEN note first — it closes the note and surfaces a delete toast,
+  //    failing both the "note follows the rename" and the "no delete/change
+  //    toast" assertions. Owning the pull lands delete+create in one cycle that
+  //    handleSyncComplete recognizes as a rename.
+  //  - A: A does deleteNote then writeNote then syncNow; with A's live loop up,
+  //    its auto-push can ship the lone delete before the create, so B pulls a
+  //    bare deletion. Pausing A pushes both together in the explicit syncNow.
+  await a.pauseAutoSync();
+  await b.pauseAutoSync();
 
   // A creates and syncs
   await a.writeNote('old name', '# My Note');
@@ -383,6 +406,17 @@ async function activeNoteReload(a, b, server) {
   // explicit sync the sole puller exercises the same reload code, just
   // deterministically. Mirrors editDuringSyncKeepsLocalDraft's guard.
   await b.pauseAutoSync();
+  // Also pause A. A's second write ("# Version 2") fires e2ee_note_changed and
+  // A's Rust live loop (still up when only B was paused) debounces ~1s and
+  // pushes it. Under a loaded runner that debounced push lands LATE and
+  // interleaves with A's explicit syncNow below: the two writers of the
+  // 'shared live' object can reorder so the server keeps Version 1, or the
+  // explicit syncNow returns before the handed-off live-loop push completes —
+  // either way B's owned pull downloads 0/V1 and the editor never reaches
+  // Version 2 (job 185887 recurred on MR !66 after the B-only pause of
+  // abfbf34). Pausing A makes the explicit syncNows the sole, ordered pushers.
+  // Mirrors editorRoundtripThroughRealSync, which pauses A for this reason.
+  await a.pauseAutoSync();
 
   await a.writeNote('shared live', '# Version 1');
   await a.syncNow();
@@ -831,6 +865,12 @@ async function folderRenameOnAEditOnB(a, b, server) {
   // "Folder rename on A + note edit inside on B → both apply"
   await a.connectSync(server.url, server.password);
   await b.connectSync(server.url, server.password);
+  // Own the a→b→a sync ordering: A's folder rename (delete+create) and B's edit
+  // must reconcile in that order. Either live loop auto-pushing/pulling out of
+  // order can orphan content or duplicate the note. Same contended-convergence
+  // family as fileMoveOnAEditOnB.
+  await a.pauseAutoSync();
+  await b.pauseAutoSync();
   await a.writeNote('Specs/folder-support', '# Folders');
   await a.syncNow();
   await b.syncNow();
@@ -858,6 +898,16 @@ async function fileMoveOnAEditOnB(a, b, server) {
   // "File move to folder on A + edit on B → both apply"
   await a.connectSync(server.url, server.password);
   await b.connectSync(server.url, server.password);
+  // Own the whole push/pull on both clients: convergence here depends on the
+  // exact a→b→a explicit sync ordering (A's move, then B's edit reconciled onto
+  // the moved path, then A pulls it back). With either live loop up, A's move
+  // (delete+create) or B's edit auto-pushes at an uncontrolled time and the
+  // peer's live loop auto-pulls out of order, so a background cycle can strand
+  // the edit on the deleted flat path or leave a transient duplicate path
+  // (flake on MR !66 run-1). Pausing both makes the explicit syncs the sole
+  // driver.
+  await a.pauseAutoSync();
+  await b.pauseAutoSync();
   await a.writeNote('grocery', '# Grocery');
   await a.syncNow();
   await b.syncNow();
@@ -905,6 +955,11 @@ async function fileMovedToTwoFoldersByAandB(a, b, server) {
   // "Same file moved to two different folders by A and B → last-write-wins"
   await a.connectSync(server.url, server.password);
   await b.connectSync(server.url, server.password);
+  // Own the a→b→a ordering that LWW convergence depends on; a background live
+  // loop auto-pushing/pulling either move out of order breaks the deterministic
+  // last-write. Same contended-convergence family as fileMoveOnAEditOnB.
+  await a.pauseAutoSync();
+  await b.pauseAutoSync();
   await a.writeNote('contested', '# Original');
   await a.syncNow();
   await b.syncNow();
@@ -943,6 +998,12 @@ async function fileMovedToTwoFoldersByAandB(a, b, server) {
 async function concurrentOfflineFolderRename(a, b, server) {
   await a.connectSync(server.url, server.password);
   await b.connectSync(server.url, server.password);
+  // Own the a→b→a ordering: both clients move the same notes to different
+  // folders and convergence is to the later server write. A background live
+  // loop reordering the pushes/pulls breaks it. Same contended-convergence
+  // family as fileMovedToTwoFoldersByAandB.
+  await a.pauseAutoSync();
+  await b.pauseAutoSync();
   await a.writeNote('Specs/alpha', '# Alpha');
   await a.writeNote('Specs/beta', '# Beta');
   await a.syncNow();
@@ -981,6 +1042,14 @@ async function concurrentOfflineFolderRename(a, b, server) {
 async function moveNoteIntoFolderDeleteFolder(a, b, server) {
   await a.connectSync(server.url, server.password);
   await b.connectSync(server.url, server.password);
+  // Own the push/pull on both clients: convergence depends on the a→b→a
+  // explicit sync ordering (A's move into X, B's create+delete-X plus edit,
+  // then A pulls the merged result). With either live loop up, the moves/edits
+  // auto-push and the peer auto-pulls out of order, which can strand the edit
+  // or leave a transient extra path (flake on MR !64 run-1). Pausing both makes
+  // the explicit syncs the sole driver.
+  await a.pauseAutoSync();
+  await b.pauseAutoSync();
   await a.writeNote('draft-note-01', '# Draft');
   await a.syncNow();
   await b.syncNow();
@@ -1031,6 +1100,13 @@ async function localRenameAndEditInSameSync(a, b, server) {
   // tombstone the object and lose the peer-visible history.
   await a.connectSync(server.url, server.password);
   await b.connectSync(server.url, server.password);
+  // Own the push: pair_local_moved_objects only collapses the rename+edit into
+  // one in-place PUT if A's single explicit syncNow carries BOTH together. With
+  // A's live loop up, its ~1s debounced auto-push can ship the rename before the
+  // edit (or as a separate cycle), defeating the pairing the scenario asserts.
+  // Pause B too so its explicit pull owns the download. Same family.
+  await a.pauseAutoSync();
+  await b.pauseAutoSync();
   await a.writeNote('grocery', '# Grocery');
   await a.syncNow();
   await b.syncNow();
@@ -1078,6 +1154,12 @@ async function multipleLocalMovesInOneSync(a, b, server) {
   // tombstone+create pairs.
   await a.connectSync(server.url, server.password);
   await b.connectSync(server.url, server.password);
+  // Own the push so all three renames land in ONE explicit syncNow (the "in one
+  // sync" this scenario is named for). A's live loop would auto-push each
+  // debounced save separately, so pair_local_moved_objects would never see them
+  // as a batch. Pause B too so its explicit pull owns the download. Same family.
+  await a.pauseAutoSync();
+  await b.pauseAutoSync();
   await a.writeNote('apple', '# Apple');
   await a.writeNote('banana', '# Banana');
   await a.writeNote('cherry', '# Cherry');
@@ -1123,6 +1205,12 @@ async function bothClientsRenameToSameDestination(a, b, server) {
   // have identical content), and converges without producing a copy.
   await a.connectSync(server.url, server.password);
   await b.connectSync(server.url, server.password);
+  // Own the a→b→a ordering so the second client's PUT deterministically 409s
+  // and drives resolve_update_conflict (the path this scenario exercises). A
+  // background live loop pushing either rename early scrambles which PUT
+  // conflicts. Same contended-convergence family.
+  await a.pauseAutoSync();
+  await b.pauseAutoSync();
   await a.writeNote('shared', '# Shared');
   await a.syncNow();
   await b.syncNow();
