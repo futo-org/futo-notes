@@ -67,18 +67,20 @@ state, exposed internally as the clear field names `watcher`, `search`, and
 
 ## Stable Tauri IPC surface
 
-The organizational rewrite preserves all **37** command names. These names are
-an external frontend/automation contract:
+The organizational rewrite preserves all **34** command names (37 minus the
+3 genuinely-dead commands removed as part of the architecture-hardening
+dead-code sweep — `notes_scan_folders`, `fs_move_note`, `fs_delete_folder` —
+which had zero TS callers). These names are an external frontend/automation
+contract:
 
 - Legacy/filesystem and image: `fs_list_notes_with_meta`, `fs_save_image`,
-  `fs_paste_clipboard_image`, `fs_start_watcher`, `fs_list_folders`,
-  `fs_delete_folder`, `fs_move_note`.
+  `fs_paste_clipboard_image`, `fs_start_watcher`, `fs_list_folders`.
 - Vault and updater: `notes_dir_override_load`, `notes_dir_override_save`,
   `resolve_default_notes_root`, `app_self_update_supported`.
 - Sync: `e2ee_connect`, `e2ee_resume`, `e2ee_disconnect`, `e2ee_status`,
   `e2ee_sync_run`, `e2ee_start_live`, `e2ee_stop_live`,
   `e2ee_note_changed`.
-- Note/folder domain adapters: `notes_scan`, `notes_scan_folders`,
+- Note/folder domain adapters: `notes_scan`,
   `notes_seed_if_empty`, `notes_read`, `notes_exists`, `notes_write`,
   `notes_create`, `notes_delete`, `notes_rename`, `notes_move`,
   `notes_create_folder`, `notes_delete_to_trash`, `notes_rename_folder`,
@@ -157,9 +159,13 @@ on Tauri event types. → `filesystem_watcher.rs`, `search_commands.rs`,
 
 ## Legacy compatibility rules
 
-The `fs_*` commands remain because released frontend builds, test automation,
-or external callers may still invoke them. They are compatibility adapters,
-not a second preferred API.
+The remaining `fs_*` commands stay because released frontend builds, test
+automation, or external callers may still invoke them. They are
+compatibility adapters, not a second preferred API. (`fs_delete_folder` and
+`fs_move_note` were removed as dead code — zero TS callers — in the
+architecture-hardening dead-code sweep; folder delete and exact-id move are
+reached through the modern `notes_delete_folder`/`notes_move`/`notes_rename`
+commands only.)
 
 - `fs_list_notes_with_meta` performs a metadata-only recursive filesystem walk.
   It does not read or parse note contents. It returns visible lowercase-`.md`
@@ -169,13 +175,6 @@ not a second preferred API.
 - `fs_list_folders` recursively returns visible folders in lexicographic order,
   skips hidden entries and symlinks, normalizes separators, and preserves the
   legacy depth bound.
-- `fs_delete_folder` preserves the strict legacy path validator: empty,
-  absolute, trailing-slash, empty-component, `.`, `..`, traversal, and
-  over-depth inputs are rejected rather than sanitized into a different target.
-- `fs_move_note` is an exact old-ID→new-ID move. A missing source or existing
-  destination is an error; it does not collision-suffix the destination.
-- Legacy delete/move commands delegate to the same trash, path-safety, and
-  watcher-suppression services as the modern commands.
 
 ## Vault and desktop safety boundaries
 

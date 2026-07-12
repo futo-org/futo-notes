@@ -1,4 +1,11 @@
 @import 'tailwindcss' source('../');
+/* index.html lives outside the src/ scan root above, so its own utility
+   classes (the #app shell div) are otherwise invisible to the content
+   scanner — nothing protected them from silently disappearing if their
+   last incidental match inside src/ ever got deleted (see git history:
+   deleting VirtualList.svelte dropped `.h-full` and collapsed the app
+   shell to zero height in both dev and the production build). */
+@source '../../index.html';
 @import './components.css' layer(components);
 @import './markdown.css' layer(components);
 @import './editor-ux.css';

@@ -62,7 +62,7 @@ src/                    ← Shared Svelte 5 app (UI, reactive state, sync coordi
   editor-embed/         ← Entry for the single-file editor.html embedded in the native shells
 crates/
   futo-notes-core/      ← Hashing, E2EE crypto, sync payload prep/apply, 3-way merge,
-                          path safety + title primitives (files.rs); search.rs (RRF) is dormant
+                          path safety + title primitives (files.rs)
   futo-notes-model/     ← THE NOTE DOMAIN: CRUD, rules (id/tags/wikilinks/preview), scan
   futo-notes-sync/      ← E2EE sync orchestrator (push-first run_sync), SSE live loop
   futo-notes-search/    ← Tantivy BM25 engine + background indexer

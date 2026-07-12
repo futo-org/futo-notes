@@ -67,17 +67,3 @@ export function getFS(): PlatformFS {
 
 // Whether this platform has real file I/O (web dev mode uses in-memory store)
 export const hasFileSystem = platformName !== 'web' || import.meta.env.DEV;
-
-/** Narrow accessor: core file I/O only (no supersearch/graph methods). */
-export function getFileSystem(): import('./types').FileSystem {
-  return getFS();
-}
-
-/** Narrow accessor: platform-specific capabilities (supersearch, graph, etc.). */
-export function getNativeCapabilities(): import('./types').NativeCapabilities {
-  return getFS();
-}
-
-export async function ensureNotesFolder(): Promise<void> {
-  // Tauri and web do not need explicit folder setup.
-}

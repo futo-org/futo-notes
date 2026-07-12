@@ -5,9 +5,9 @@
 //!
 //! The command set largely mirrors the FFI `NoteStore` methods, plus
 //! desktop-only note-trash routing — not a strict 1:1: the FFI's `relink`
-//! has no Tauri sibling, and `notes_create`/`notes_move`/
-//! `notes_scan_folders` are registered here but have no TS caller today
-//! (desktop create/rename go through `notes_write`/`notes_rename`). Folder
+//! has no Tauri sibling, and `notes_create`/`notes_move` are registered
+//! here but have no TS caller today (desktop create/rename go through
+//! `notes_write`/`notes_rename`). Folder
 //! commands live in `folder_commands.rs`. Every
 //! command wraps a testable `_impl` fn over the resolved vault root, runs the
 //! filesystem work in `spawn_blocking`, and returns `Result<_, String>`.
@@ -81,20 +81,6 @@ pub async fn notes_scan(app: AppHandle) -> Result<Vec<NoteMeta>, String> {
     blocking(move || {
         let base = crate::vault_location::root(&app)?;
         Ok(notes_scan_impl(&base))
-    })
-    .await
-}
-
-/// All folder paths (note ancestors + empty dirs), sorted.
-fn notes_scan_folders_impl(base: &Path) -> Vec<String> {
-    model::scan_folders(base)
-}
-
-#[tauri::command]
-pub async fn notes_scan_folders(app: AppHandle) -> Result<Vec<String>, String> {
-    blocking(move || {
-        let base = crate::vault_location::root(&app)?;
-        Ok(notes_scan_folders_impl(&base))
     })
     .await
 }
@@ -278,30 +264,6 @@ fn planned_rename_id(base: &Path, old_id: &str, new_id: &str) -> Result<String, 
         return Ok(new_id.to_owned());
     }
     futo_notes_core::files::get_unique_note_id(base, new_id, None)
-}
-
-/// Exact-id move retained for the legacy `fs_move_note` IPC contract. Unlike
-/// `notes_rename`, this endpoint rejects collisions instead of resolving them.
-pub(crate) fn move_exact_impl(
-    base: &Path,
-    suppression: &WatcherSuppression,
-    from_id: &str,
-    to_id: &str,
-) -> Result<(), String> {
-    let from = safe_note_path(base, from_id)?;
-    let to = safe_note_path(base, to_id)?;
-    if !from.exists() {
-        return Err("source note does not exist".to_owned());
-    }
-    if to.exists() {
-        return Err("target note already exists".to_owned());
-    }
-    suppression.register(&format!("{from_id}.md"));
-    suppression.register(&format!("{to_id}.md"));
-    crate::vault_location::ensure_parent(&to)?;
-    std::fs::rename(&from, &to).map_err(io_error)?;
-    model::prune_empty_parent_dirs(base, &from);
-    Ok(())
 }
 
 #[tauri::command]
@@ -503,19 +465,6 @@ mod tests {
     }
 
     #[test]
-    fn exact_legacy_move_rejects_collision_without_mutating_either_note() {
-        let base = temp_notes_dir();
-        let suppression = empty_suppressed();
-        notes_write_impl(&base, &suppression, "a", "a-body", None).unwrap();
-        notes_write_impl(&base, &suppression, "b", "b-body", None).unwrap();
-        let error = move_exact_impl(&base, &suppression, "a", "b").unwrap_err();
-        assert!(error.contains("already exists"));
-        assert_eq!(notes_read_impl(&base, "a"), "a-body");
-        assert_eq!(notes_read_impl(&base, "b"), "b-body");
-        cleanup_temp_dir(&base);
-    }
-
-    #[test]
     fn delete_is_idempotent_on_missing() {
         let base = temp_notes_dir();
         let suppressed = empty_suppressed();
@@ -531,16 +480,6 @@ mod tests {
         notes_delete_to_trash_impl(&base, &suppressed, "Specs/only").unwrap();
         assert!(!model::note_exists(&base, "Specs/only"));
         assert!(!base.join("Specs").exists());
-        cleanup_temp_dir(&base);
-    }
-
-    #[test]
-    fn scan_folders_lists_ancestors_and_empty_dirs() {
-        let base = temp_notes_dir();
-        let suppressed = empty_suppressed();
-        notes_write_impl(&base, &suppressed, "A/B/note", "x", None).unwrap();
-        model::create_folder(&base, "Empty").unwrap();
-        assert_eq!(notes_scan_folders_impl(&base), vec!["A", "A/B", "Empty"]);
         cleanup_temp_dir(&base);
     }
 
