@@ -7,9 +7,8 @@
 use std::path::Path;
 
 use serde::Serialize;
-use tauri::{AppHandle, State};
+use tauri::AppHandle;
 
-use crate::application_state::AppState;
 use crate::background_tasks::blocking;
 
 #[derive(Debug, Clone, Serialize)]
@@ -118,27 +117,6 @@ fn collect_folders(root: &Path, directory: &Path, depth: usize, folders: &mut Ve
     }
 }
 
-fn validate_legacy_folder_path(path: &str) -> Result<String, String> {
-    if path.is_empty() {
-        return Err("empty folder path".to_owned());
-    }
-    let normalized = path.replace('\\', "/");
-    if normalized.starts_with('/') || normalized.ends_with('/') {
-        return Err("invalid folder path".to_owned());
-    }
-    let components = normalized.split('/').collect::<Vec<_>>();
-    if components.len() > futo_notes_core::files::MAX_FOLDER_DEPTH {
-        return Err("folder depth exceeded".to_owned());
-    }
-    if components
-        .iter()
-        .any(|component| component.is_empty() || *component == "." || *component == "..")
-    {
-        return Err("invalid folder component".to_owned());
-    }
-    Ok(normalized)
-}
-
 #[tauri::command]
 pub async fn fs_list_notes_with_meta(app: AppHandle) -> Result<Vec<NoteFileMeta>, String> {
     blocking(move || Ok(list_note_files(&crate::vault_location::root(&app)?))).await
@@ -147,39 +125,6 @@ pub async fn fs_list_notes_with_meta(app: AppHandle) -> Result<Vec<NoteFileMeta>
 #[tauri::command]
 pub async fn fs_list_folders(app: AppHandle) -> Result<Vec<FolderEntry>, String> {
     blocking(move || Ok(list_folders(&crate::vault_location::root(&app)?))).await
-}
-
-#[tauri::command]
-pub async fn fs_delete_folder(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    path: String,
-) -> Result<(), String> {
-    let suppression = state.watcher.suppression();
-    blocking(move || {
-        let path = validate_legacy_folder_path(&path)?;
-        crate::folder_commands::delete_folder_at_path(
-            &crate::vault_location::root(&app)?,
-            &suppression,
-            &path,
-        )
-    })
-    .await
-}
-
-#[tauri::command]
-pub async fn fs_move_note(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    from_id: String,
-    to_id: String,
-) -> Result<(), String> {
-    let suppression = state.watcher.suppression();
-    blocking(move || {
-        let root = crate::vault_location::root(&app)?;
-        crate::note_commands::move_exact_impl(&root, &suppression, &from_id, &to_id)
-    })
-    .await
 }
 
 #[cfg(test)]
@@ -267,16 +212,5 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(folders, vec!["A", "B", "B/Nested"]);
         fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn legacy_folder_validation_preserves_strict_traversal_rejection() {
-        assert_eq!(validate_legacy_folder_path("A\\B").unwrap(), "A/B");
-        for path in ["", "/absolute", "trailing/", "a//b", ".", "..", "a/../b"] {
-            assert!(
-                validate_legacy_folder_path(path).is_err(),
-                "accepted unsafe path {path}"
-            );
-        }
     }
 }

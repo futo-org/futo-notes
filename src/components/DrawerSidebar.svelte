@@ -226,7 +226,7 @@
       }
     }
     // CRITICAL: never call deleteFolder() while notes inside it still
-    // failed to move out. On mobile fs_delete_folder is a hard
+    // failed to move out. On mobile notes_delete_folder is a hard
     // remove_dir_all; on desktop it routes to the system trash. Either
     // way the orphan notes go with it — silent data loss. Bail and
     // surface the partial move to the user.
