@@ -1,19 +1,12 @@
+import { IMAGE_EXTENSIONS } from '@futo-notes/shared';
 import { getFS } from './platform';
 
 // ── Constants ──────────────────────────────────────────────
 
-const ALLOWED_IMAGE_EXTS = new Set([
-  'jpg',
-  'jpeg',
-  'png',
-  'gif',
-  'webp',
-  'svg',
-  'bmp',
-  'ico',
-  'avif',
-  'heic',
-]);
+// Single source of truth: the canonical set lives in `@futo-notes/shared`
+// (conformance-locked against Rust `futo_notes_core::image`). Derive the
+// lookup Set from it rather than keeping a hand-maintained copy that drifts.
+const ALLOWED_IMAGE_EXTS = new Set<string>(IMAGE_EXTENSIONS);
 
 const MAX_EXT_LENGTH = 10;
 
