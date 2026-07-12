@@ -3474,6 +3474,11 @@ struct TombstoneApplyResult {
     /// originals). Surfaced as `deleted`/`deletedIds` so the rescan gate fires.
     deleted: Vec<String>,
     failed: Vec<FailedTombstone>,
+    /// Count of diverged-tombstone conflict copies written to local disk. Folds
+    /// into `SyncSummary::local_writes_applied` so the field stays a true count
+    /// of local writes (F2) — a parked copy is a new on-disk file the shells
+    /// must reload for, even though it always rides alongside a `deleted`.
+    parked: u32,
 }
 
 /// Tombstone-claim dotfile prefix. A claim is the note's ONLY on-disk copy
@@ -3704,6 +3709,7 @@ fn apply_tombstone_reconcile(
 
     let mut deleted: Vec<String> = Vec::new();
     let mut failed: Vec<FailedTombstone> = Vec::new();
+    let mut parked: u32 = 0;
     let fail = |t: &TombstoneTarget| FailedTombstone {
         filename: t.filename.clone(),
         change_seq: t.change_seq,
@@ -3835,9 +3841,10 @@ fn apply_tombstone_reconcile(
             }
             prune_empty_parent_dirs(notes_root, &path);
             deleted.push(t.filename.clone());
+            parked += 1; // a conflict copy was written to local disk (F2)
         }
     }
-    TombstoneApplyResult { deleted, failed }
+    TombstoneApplyResult { deleted, failed, parked }
 }
 
 /// Rule 3: takes `&ConnectedState`, mutates a clone, persists, returns the
@@ -4246,6 +4253,7 @@ async fn reconcile_empty_map(
     // (transient read/remove error) are returned as failures — they must not
     // advance the cursor or consume ancestry (S2/S5).
     let tomb_result = apply_tombstone_reconcile(notes_root_path, pre_write, &tombstone_targets);
+    let parked_writes = tomb_result.parked;
     let peer_deleted = tomb_result.deleted;
 
     // Populate the map and advance max_version, then persist. Issue #11:
@@ -4329,8 +4337,9 @@ async fn reconcile_empty_map(
         peer_updated_ids: adopted_ids,
         deleted_ids: peer_deleted_ids.clone(),
         peer_deleted_ids,
-        // Each adopted note was written to local disk (F2).
-        local_writes_applied: adopted.len() as u32,
+        // Adopted notes + diverged-tombstone conflict copies were all written
+        // to local disk (F2).
+        local_writes_applied: adopted.len() as u32 + parked_writes,
         failures,
         ..Default::default()
     };
@@ -7169,6 +7178,9 @@ mod tests {
         );
         // Already gone → converged, no failure.
         assert!(res.failed.is_empty(), "no failures for match/diverge/gone");
+        // The single diverged park is a local disk write, counted for the F2
+        // reload signal (folds into SyncSummary::local_writes_applied).
+        assert_eq!(res.parked, 1, "one diverged conflict copy written");
         assert_eq!(orphan_claims(&root), 0, "no claim dotfile left behind");
     }
 
@@ -7741,6 +7753,120 @@ mod tests {
             }
             other => panic!("expected MergedClean (fresh live object + local write), got {other:?}"),
         }
+    }
+
+    // F2 source-level guard for the push-side count
+    // (`local_writes_applied = updates.len() + conflict_writes.len()`): a full
+    // run_push producing a MergedClean must report the local write via
+    // `local_writes_applied` WITHOUT bumping `downloaded`/`deleted` — the exact
+    // signal native shells reload on. Without it a stale open editor never
+    // reloads and its next autosave clobbers the merged-in peer edit.
+    #[tokio::test]
+    async fn run_push_merged_clean_counts_local_write_not_download() {
+        let server = MockServer::start().await;
+        let filename = "note.md";
+        // Local bytes already equal the remote the peer advanced to (a spurious
+        // 409); the merge base is GC'd (404), so resolution adopts the remote
+        // as a MergedClean that writes the note to local disk.
+        let shared = "shared content\n";
+        Mock::given(wm_method("PUT"))
+            .and(wm_path("/api/collections/c1/blob-objects/o1"))
+            .respond_with(ResponseTemplate::new(409).set_body_json(serde_json::json!({
+                "error": "conflict",
+                "currentVersion": 9,
+                "currentBlobKey": "bk-remote"
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(wm_method("GET"))
+            .and(wm_path("/api/blobs/bk-remote"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(enc(filename, shared).await))
+            .mount(&server)
+            .await;
+        Mock::given(wm_method("GET"))
+            .and(wm_path("/api/blobs/bk-base"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+
+        let root = temp_root();
+        std::fs::write(root.join(filename), shared).unwrap();
+        let mut state = connected_state(&server);
+        state
+            .object_map
+            .insert(filename.to_owned(), map_entry_for("o1", 3, "bk-base"));
+
+        let (summary, _next) = run_push(&state, &root, &no_prog, &no_pre)
+            .await
+            .expect("push");
+
+        assert_eq!(summary.local_writes_applied, 1, "the adopt/merge wrote note.md locally");
+        assert_eq!(summary.downloaded, 0, "a push-side merge is not a pull download");
+        assert_eq!(summary.deleted, 0);
+        assert_eq!(summary.uploaded, 1);
+    }
+
+    // F2 source-level guard, conflict-copy arm: a ConflictCopy writes the
+    // remote to the canonical name AND parks the local edit in a copy file —
+    // TWO local writes (updates + conflict_writes). Pins that BOTH terms of the
+    // count are live (dropping `conflict_writes.len()` would report 1, not 2).
+    #[tokio::test]
+    async fn run_push_conflict_copy_counts_both_local_writes() {
+        let server = MockServer::start().await;
+        let filename = "note.md";
+        let local = "local edit\n";
+        let remote = "remote edit\n";
+        Mock::given(wm_method("PUT"))
+            .and(wm_path("/api/collections/c1/blob-objects/o1"))
+            .respond_with(ResponseTemplate::new(409).set_body_json(serde_json::json!({
+                "error": "conflict",
+                "currentVersion": 9,
+                "currentBlobKey": "bk-remote"
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(wm_method("GET"))
+            .and(wm_path("/api/blobs/bk-remote"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(enc(filename, remote).await))
+            .mount(&server)
+            .await;
+        // Base GC'd → clean-merge branch skipped; local != remote → conflict copy.
+        Mock::given(wm_method("GET"))
+            .and(wm_path("/api/blobs/bk-base"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+        Mock::given(wm_method("POST"))
+            .and(wm_path("/api/collections/c1/blob-objects"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "object": {
+                    "id": "o-copy", "version": 1, "change_seq": 10,
+                    "updated_at": "2026-07-11T00:00:00.000Z",
+                    "blob_key": "bk-copy", "deleted": false
+                },
+                "collectionVersion": 10
+            })))
+            .mount(&server)
+            .await;
+
+        let root = temp_root();
+        std::fs::write(root.join(filename), local).unwrap();
+        let mut state = connected_state(&server);
+        state
+            .object_map
+            .insert(filename.to_owned(), map_entry_for("o1", 3, "bk-base"));
+
+        let (summary, _next) = run_push(&state, &root, &no_prog, &no_pre)
+            .await
+            .expect("push");
+
+        assert_eq!(
+            summary.local_writes_applied, 2,
+            "remote→note.md + local→copy file = two local writes"
+        );
+        assert_eq!(summary.downloaded, 0);
+        assert_eq!(summary.deleted, 0);
+        assert_eq!(summary.conflicts, 1);
     }
 
     // Clean-merge re-PUT path: base + remote are both available and merge
