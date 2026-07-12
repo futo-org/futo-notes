@@ -26,6 +26,8 @@
     "lint:platform": "! git grep -n -E \"platform/(electron|capacitor)|isElectron|isCapacitor\" -- src ':(exclude)src/lib/platform/**' ':(exclude)src/**/__mocks__/**' ':(exclude)src/**/*.test.ts'",
     "check:command-reachability": "node scripts/check-command-reachability.mjs",
     "check:platform-discipline": "node scripts/check-platform-discipline.mjs",
+    "check:drift": "node scripts/drift-check.mjs",
+    "check:debt-ratchet": "node scripts/debt-ratchet.mjs",
     "bridge-spec": "tsx scripts/gen-bridge-spec.ts --write",
     "bridge-spec:check": "tsx scripts/gen-bridge-spec.ts --check",
     "test": "pnpm run test:minimal",

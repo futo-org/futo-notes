@@ -410,6 +410,19 @@ bridge-spec:
 bridge-spec-check:
   pnpm exec tsx scripts/gen-bridge-spec.ts --check
 
+# Fail on a stale drift-registry.json entry (copy missing / pattern no longer
+# matches / lock file missing / lockStatus inconsistent), or a NEW file
+# matching a registered concept's scan pattern outside its registered copies
+# (architecture-hardening.md R1 — AGENTS.md §12 as code, deny-by-default).
+check-drift:
+  node scripts/drift-check.mjs
+
+# Fail if any of the 4 checked-in debt counts (scripts/debt-ratchet.json)
+# increased, or if one decreased without the file being updated to match
+# (architecture-hardening.md R2 — the ratchet only turns one way).
+check-debt-ratchet:
+  node scripts/debt-ratchet.mjs
+
 # Remove native build artifacts (Xcode DerivedData + Gradle output + web dist)
 # to reclaim disk. Leaves cargo `target/` alone (expensive to rebuild + shared).
 clean:
@@ -417,7 +430,7 @@ clean:
   rm -rf apps/ios/.build apps/ios/.build-device apps/ios/.build-device-release
   rm -rf apps/android/app/build apps/android/build
 
-check: spec-gaps-check toolbar-spec-check bridge-spec-check check-command-reachability check-platform-discipline test-rust
+check: spec-gaps-check toolbar-spec-check bridge-spec-check check-command-reachability check-platform-discipline check-drift check-debt-ratchet test-rust
   pnpm run lint
   pnpm run format:check
   pnpm run test:minimal
