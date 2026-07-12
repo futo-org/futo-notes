@@ -67,59 +67,59 @@ internal fun derivePendingDraft(
  * unit-testable — apps/android ships JUnit only (no Robolectric/coroutines-test),
  * so the FFI-backed [NotesStore] can't be constructed in a JVM test.
  *
- * The register is DERIVED and PULL-based: the open editor registers ONE
+ * The register is DERIVED and PULL-based: each open editor registers ONE
  * derivation closure (`{ if (loaded && content != savedContent) draft else null }`)
- * via [setProvider]; [flush] invokes it SYNCHRONOUSLY at the leave-foreground
- * edge to read the editor's live state (PKT-12 R5). One source of truth instead
+ * via [setProvider]; [flush] invokes them SYNCHRONOUSLY at the leave-foreground
+ * edge to read each editor's live state (PKT-12 R5). One source of truth instead
  * of ~7 imperative set/clear sites that raced the editor (PKT-1 R1-R4). Pulling
  * at flush time (rather than an async snapshotFlow that pushes updates) closes
  * the publication-window gap: an edit landing immediately before onPause is
  * always seen, because the provider reads the current snapshot state when the
  * flush runs, not whenever a conflated async collector last happened to fire.
  *
- * [claim]/[release] express OWNERSHIP: during the AnimatedContent cross-fade the
- * incoming editor composes before the outgoing one disposes, so both are briefly
- * live. Each editor claims a generation token on entry; only the current owner's
- * [setProvider]/[release] take effect, so a disposing editor can never unregister
- * the incoming editor's provider (PKT-1 R2). Mirrors EditorHost's generation token.
+ * The register is a MAP of generation-token → provider, NOT a single slot. During
+ * the AnimatedContent cross-fade the incoming editor composes (and registers its
+ * provider) before the outgoing one disposes, so both are briefly live. A single
+ * slot would let the incoming editor's registration EVICT the outgoing (still
+ * dirty) editor's provider — and since the incoming editor is unloaded it derives
+ * null, so a pause+kill before the outgoing's dispose would flush nothing and
+ * lose its edit (PKT-1 R2 / PKT-12 G1). Keeping every live provider and flushing
+ * ALL of them (at most two during a cross-fade) kills that eviction by
+ * construction; [release] removes only the caller's own entry.
  *
  * MainActivity.onPause calls [flush] at the FIRST leave-foreground signal.
- * Idempotent, and a no-op when the editor is clean / closed. Mirrors iOS
+ * Idempotent, and a no-op when every open editor is clean / closed. Mirrors iOS
  * `NotesStore.pendingDraft` + `flushPendingEditor` [editor.md].
  */
 internal class PendingEditorDraft(private val persist: (draft: PendingDraft) -> Unit) {
-    private var owner: Long = 0
     private var seq: Long = 0
-    private var provider: (() -> PendingDraft?)? = null
+    private val providers = LinkedHashMap<Long, () -> PendingDraft?>()
 
-    /** A newly-composed editor claims the register, becoming the owner. Returns
-     *  its generation token. Does NOT clear the current provider — the incoming
-     *  editor sets its own — so a claim during the cross-fade overlap never drops
-     *  the register. */
-    fun claim(): Long {
-        owner = ++seq
-        return owner
-    }
+    /** A newly-composed editor claims an entry; returns its unique generation
+     *  token (the map key). Registration/removal are keyed by it, so editors
+     *  overlapping during a cross-fade never touch each other's entry. */
+    fun claim(): Long = ++seq
 
-    /** The owning editor registers its derivation closure. A superseded editor
-     *  ([token] != [owner]) is a no-op: the incoming editor already claimed, so
-     *  the disposing one can't overwrite the register. */
+    /** The editor registers (or re-registers) its derivation closure under its
+     *  own [token]. Never evicts another editor's entry. */
     fun setProvider(token: Long, provider: () -> PendingDraft?) {
-        if (token == owner) this.provider = provider
+        providers[token] = provider
     }
 
-    /** The owning editor left composition. Drops the provider only if it still
-     *  owns the register — a superseded editor's release is a no-op (the incoming
-     *  editor's provider survives). */
+    /** The editor left composition — removes only its own entry, leaving any
+     *  overlapping editor's provider intact. */
     fun release(token: Long) {
-        if (token == owner) provider = null
+        providers.remove(token)
     }
 
-    /** Persist the editor's current draft by pulling the provider SYNCHRONOUSLY
-     *  (so the newest keystroke is always seen). No-op when clean / closed; safe
-     *  to call at every leave-foreground signal. */
+    /** Persist every live editor's current draft by pulling each provider
+     *  SYNCHRONOUSLY (so the newest keystroke is always seen). Flushes all live
+     *  providers — at most two during a cross-fade — so an outgoing dirty editor
+     *  is never dropped. No-op when every provider derives clean / closed; safe to
+     *  call at every leave-foreground signal. Snapshots the values first so a
+     *  re-entrant registration during persist can't concurrently modify the map. */
     fun flush() {
-        provider?.invoke()?.let { persist(it) }
+        providers.values.toList().forEach { provider -> provider()?.let { persist(it) } }
     }
 }
 
@@ -243,28 +243,28 @@ class NotesStore(notesRoot: File) {
         }
     }
 
-    /** The open editor's unsaved-draft register (F8 jetsam guard). The editor
-     *  registers ONE derivation closure via [setDraftProvider]; the Activity's
-     *  onPause calls [flushPendingEditor], which pulls the closure synchronously
-     *  so an edit caught inside the 400 ms autosave debounce — even one landing
-     *  right before onPause — is persisted before the OS can kill the backgrounded
-     *  process. Mirrors iOS `NotesStore.pendingDraft`. */
+    /** The open editors' unsaved-draft register (F8 jetsam guard). Each editor
+     *  registers ONE derivation closure via [setDraftProvider] under its own
+     *  token; the Activity's onPause calls [flushPendingEditor], which pulls every
+     *  live closure synchronously so an edit caught inside the 400 ms autosave
+     *  debounce — even one landing right before onPause, and even in an editor
+     *  still overlapping during a nav cross-fade — is persisted before the OS can
+     *  kill the backgrounded process. Mirrors iOS `NotesStore.pendingDraft`. */
     private val pendingEditor = PendingEditorDraft { draft -> flushAsync(draft) }
 
-    /** A newly-composed editor claims the register; returns its ownership token.
-     *  Only the current owner's [setDraftProvider]/[releaseDraftOwnership] take
-     *  effect, so an editor disposing during the AnimatedContent cross-fade can't
-     *  unregister the incoming editor's provider (PKT-1 R2). */
+    /** A newly-composed editor claims a register entry; returns its unique token.
+     *  Entries are keyed by it, so editors overlapping during the AnimatedContent
+     *  cross-fade never evict each other's provider (PKT-1 R2 / PKT-12 G1). */
     fun claimDraftOwnership(): Long = pendingEditor.claim()
 
-    /** The owning editor registers its derivation closure — evaluated
+    /** The editor registers its derivation closure under its [token] — evaluated
      *  synchronously at flush time (onPause). Replaces the old hand-synced
      *  set/clear sites: the register reflects the editor's live state on demand. */
     fun setDraftProvider(token: Long, provider: () -> PendingDraft?) =
         pendingEditor.setProvider(token, provider)
 
-    /** The owning editor left composition — drops the provider if it still owns
-     *  the register (a superseded editor's release is a no-op). */
+    /** The editor left composition — removes only its own entry, leaving any
+     *  overlapping editor's provider intact. */
     fun releaseDraftOwnership(token: Long) = pendingEditor.release(token)
 
     /** Flush the open editor's pending draft to disk if it has unsaved edits.

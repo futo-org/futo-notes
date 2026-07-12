@@ -126,48 +126,59 @@ class EditorLifecycleFlushTest {
         assertNotEquals(pending.claim(), pending.claim())
     }
 
+    /**
+     * PKT-12 G1: the cross-fade must not evict the outgoing dirty editor. A
+     * wikilink opens editor B while dirty editor A is still composed in
+     * AnimatedContent; B registers its provider while unloaded (derives null). A
+     * pause+kill before A's dispose must still flush A's edit. A single-slot
+     * register would have let B's registration evict A's provider and lose it.
+     */
     @Test
-    fun supersededEditorSetProviderIsNoOp() {
+    fun crossFadeFlushesOutgoingDirtyEditor() {
         val rec = Recorder()
         val pending = PendingEditorDraft(rec::persist)
-        val outgoing = pending.claim()
-        val outgoingState = EditorState(noteId = "todo", savedContent = "", content = "old note")
-        pending.setProvider(outgoing, outgoingState::derive)
-        // The incoming editor composes (AnimatedContent overlap) and claims.
-        val incoming = pending.claim()
-        val incomingState = EditorState(noteId = "groceries", savedContent = "", content = "eggs")
-        pending.setProvider(incoming, incomingState::derive)
-        // The outgoing editor's effect fires once more before it disposes — it
-        // must NOT overwrite the incoming editor's provider.
-        pending.setProvider(outgoing, outgoingState::derive)
+        // Editor A: dirty, still composed.
+        val a = pending.claim()
+        val aState = EditorState(noteId = "todo", savedContent = "saved", content = "saved + dirty")
+        pending.setProvider(a, aState::derive)
+        // Editor B: just opened via a wikilink, not loaded yet → derives null.
+        val b = pending.claim()
+        val bState = EditorState(loaded = false, noteId = "groceries", savedContent = "", content = "")
+        pending.setProvider(b, bState::derive)
+        // Background+kill before A disposes.
         pending.flush()
-        assertEquals(listOf(PendingDraft("groceries", "", "eggs")), rec.writes)
+        assertEquals(
+            "A's dirty edit must survive the cross-fade (single-slot would lose it)",
+            listOf(PendingDraft("todo", "saved", "saved + dirty")),
+            rec.writes,
+        )
     }
 
     @Test
-    fun supersededEditorReleaseIsNoOp() {
+    fun releaseRemovesOnlyItsOwnEntry() {
         val rec = Recorder()
         val pending = PendingEditorDraft(rec::persist)
-        val outgoing = pending.claim()
-        val incoming = pending.claim()
-        val incomingState = EditorState(noteId = "groceries", savedContent = "", content = "eggs")
-        pending.setProvider(incoming, incomingState::derive)
-        // The outgoing editor disposes AFTER the incoming one claimed — its
-        // release must not drop the incoming editor's provider (R2).
-        pending.release(outgoing)
+        val a = pending.claim()
+        val aState = EditorState(noteId = "a", savedContent = "", content = "edit A")
+        pending.setProvider(a, aState::derive)
+        val b = pending.claim()
+        val bState = EditorState(noteId = "b", savedContent = "", content = "edit B")
+        pending.setProvider(b, bState::derive)
+        // A disposes; its release must not touch B's entry.
+        pending.release(a)
         pending.flush()
-        assertEquals(listOf(PendingDraft("groceries", "", "eggs")), rec.writes)
+        assertEquals(listOf(PendingDraft("b", "", "edit B")), rec.writes)
     }
 
     @Test
-    fun ownerReleaseClearsTheRegister() {
+    fun lastEditorReleaseClearsTheRegister() {
         val rec = Recorder()
         val pending = PendingEditorDraft(rec::persist)
         val token = pending.claim()
         val st = EditorState(savedContent = "", content = "buy milk")
         pending.setProvider(token, st::derive)
-        // The only/last editor left composition (true pop) → provider dropped, so
-        // a later background flush is a no-op.
+        // The only/last editor left composition (true pop) → entry removed, so a
+        // later background flush is a no-op.
         pending.release(token)
         pending.flush()
         assertTrue(rec.writes.isEmpty())

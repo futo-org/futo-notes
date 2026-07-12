@@ -245,24 +245,28 @@ fun NoteEditorScreen(
                 }
                 disk != savedContent -> {
                     // Dirty draft + a real remote change: park the local edit as a
-                    // conflict copy, then adopt the remote content — neither side
-                    // is lost. Capture the local edit FIRST, as late as possible
-                    // before touching the buffer, so any keystroke typed up to this
-                    // point is folded into the copy (PKT-12 item 5). Then write the
-                    // copy to DISK before adopting in-memory (copy-first, PKT-12
-                    // F5): the conditional flush already makes a stale-flush clobber
-                    // impossible in either order (its base is the pre-adopt content,
-                    // so post-adopt it resolves SkippedChanged), so ordering is
-                    // decided by crash durability — persisting the captured edit
-                    // before the adopt means a process death mid-adoption can't lose
-                    // it. iOS adoptExternalChange parity.
+                    // conflict copy, then adopt the remote content — neither side is
+                    // lost. Ordering absorbs all three review rounds' constraints:
+                    //  * createNote FIRST — its suspension captures nothing, so a
+                    //    keystroke typed while the id is being minted is NOT lost
+                    //    (PKT-12 G2: capturing before createNote enlarged the window);
+                    //  * THEN capture localEdit from the live buffer, as late as
+                    //    possible, folding in every keystroke up to now (item 5);
+                    //  * write the copy to DISK before adopting in-memory (copy-first,
+                    //    F5) so a process death mid-adoption can't lose the captured
+                    //    edit;
+                    //  * adopt last.
+                    // The only residual window is the copy write itself — unavoidable
+                    // without freezing input, which we must not do (M5). A background
+                    // flush during any of this can't clobber: the conditional write's
+                    // base is the pre-adopt saved content, which differs from the
+                    // on-disk remote → SkippedChanged. iOS adoptExternalChange parity.
                     saveJob?.cancel()
-                    val localEdit = content
                     val parts = splitId(noteId)
                     val date = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
-                    store.createNote("${parts.title} (conflict $date)", parts.folder)?.let { copyId ->
-                        store.write(copyId, localEdit)
-                    }
+                    val copyId = store.createNote("${parts.title} (conflict $date)", parts.folder)
+                    val localEdit = content
+                    if (copyId != null) store.write(copyId, localEdit)
                     host.applyExternalContent(disk)
                     content = disk
                     savedContent = disk
