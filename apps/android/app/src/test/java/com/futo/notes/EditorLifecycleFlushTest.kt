@@ -154,6 +154,31 @@ class EditorLifecycleFlushTest {
         )
     }
 
+    /**
+     * PKT-12 round-3 P2: two editors overlapping on the SAME note during a
+     * cross-fade (rename + self-link nav, both dirty) must not fire two
+     * conditional writes that read the same base and race. flush() coalesces by
+     * note id → exactly one dispatch, carrying the LAST-registered provider's
+     * content (the incoming editor is the user's current view).
+     */
+    @Test
+    fun sameNoteIdCoalescesToLastRegisteredProvider() {
+        val rec = Recorder()
+        val pending = PendingEditorDraft(rec::persist)
+        val first = pending.claim()
+        val firstState = EditorState(noteId = "note", savedContent = "base", content = "base + first")
+        pending.setProvider(first, firstState::derive)
+        val second = pending.claim()
+        val secondState = EditorState(noteId = "note", savedContent = "base", content = "base + second")
+        pending.setProvider(second, secondState::derive)
+        pending.flush()
+        assertEquals(
+            "exactly one flush per note, carrying the later-registered content",
+            listOf(PendingDraft("note", "base", "base + second")),
+            rec.writes,
+        )
+    }
+
     @Test
     fun releaseRemovesOnlyItsOwnEntry() {
         val rec = Recorder()

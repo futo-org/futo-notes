@@ -116,10 +116,18 @@ internal class PendingEditorDraft(private val persist: (draft: PendingDraft) -> 
      *  SYNCHRONOUSLY (so the newest keystroke is always seen). Flushes all live
      *  providers — at most two during a cross-fade — so an outgoing dirty editor
      *  is never dropped. No-op when every provider derives clean / closed; safe to
-     *  call at every leave-foreground signal. Snapshots the values first so a
-     *  re-entrant registration during persist can't concurrently modify the map. */
+     *  call at every leave-foreground signal.
+     *
+     *  Derivations are COALESCED by note id before dispatching, so two editors
+     *  overlapping on the SAME note during a cross-fade (e.g. rename + self-link
+     *  navigation, both dirty) never fire two conditional writes that read the
+     *  same base and race — exactly one flush per note. The winner is the
+     *  LAST-registered provider's draft (LinkedHashMap insertion order): the
+     *  incoming editor is the user's current view, so its content wins. */
     fun flush() {
-        providers.values.toList().forEach { provider -> provider()?.let { persist(it) } }
+        val byId = LinkedHashMap<String, PendingDraft>()
+        providers.values.toList().forEach { provider -> provider()?.let { byId[it.id] = it } }
+        byId.values.forEach { persist(it) }
     }
 }
 
