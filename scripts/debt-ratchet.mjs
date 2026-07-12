@@ -46,7 +46,7 @@ const DEDICATED_SHIMS = new Set([
 ]);
 
 const TAURI_IMPORT_RE = /(?:from\s+['"]|import\(\s*['"])@tauri-apps\//;
-const INVOKE_RE = /invoke\s*(?:<[\s\S]*?>)?\s*\(\s*['"][a-zA-Z_][a-zA-Z0-9_]*['"]/;
+const INVOKE_RE = /invoke\s*(?:<[\s\S]*?>)?\s*\(\s*['"][a-zA-Z_][a-zA-Z0-9_]*['"]/g;
 
 function walk(dir, exts, out = []) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -88,7 +88,7 @@ function countInvokeCallsOutsideShims() {
     const rel = path.relative(ROOT, file).split(path.sep).join('/');
     if (isDedicatedShim(rel)) continue;
     const text = fs.readFileSync(file, 'utf8');
-    if (INVOKE_RE.test(text)) count++;
+    count += [...text.matchAll(INVOKE_RE)].length;
   }
   return count;
 }
