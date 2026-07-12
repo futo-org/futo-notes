@@ -236,23 +236,37 @@ upload. Desktop sync module ownership and serialization boundaries are fixed by
   independent 13-entry copy with `.tiff/.tif/.heif`; D4 unified them.) →
   futo-notes-core `image.rs`; tests/conformance/image.json
 - **Legacy image blobs (pre-D4 `.tiff/.tif/.heif`, or any non-syncable
-  extension) are left untouched, never destroyed or mis-materialized.** A pull
-  ignores such a server object — never writes it as a note, never maps it,
-  never tombstones it, never errors the cycle; a push never tombstones a
-  non-syncable map entry (the local scan no longer surfaces it, so without the
+  extension) are left untouched, never destroyed or mis-materialized.** BOTH
+  incoming write paths (`run_pull` and the empty-map `reconcile_empty_map`)
+  ignore such a server object — never write it as a note, never map it, never
+  count it, never tombstone it, never error the cycle; a push never tombstones
+  a non-syncable map entry (the local scan no longer surfaces it, so without the
   guard it would look "deleted locally" and be erased on the server and every
-  peer). → futo-notes-sync `orchestrator` (`run_pull` `is_syncable_filename`
-  skip, `plan_push_with_moves`); guarded by `run_pull_ignores_legacy_image_blob`
-  and `plan_push_never_tombstones_non_syncable_map_entry`
-- **Incoming sync paths are validated against local CRUD's filename rules.** A
-  name pushed by a buggy or older peer that local creation would refuse —
-  Windows-reserved device name (`CON`), forbidden character, leading/trailing
-  dot or space, traversal, excess folder depth — is skipped and recorded as a
-  per-item failure (surfaced, never silently dropped), never written and never
-  aborting the cycle. → futo-notes-core `files::ensure_safe_incoming_sync_path`
-  (+ `is_windows_reserved_name`), applied in futo-notes-sync `orchestrator`
-  `run_pull`; guarded by `run_pull_skips_unsafe_incoming_name` and the core
-  `incoming_sync_path_*` unit tests
+  peer). → futo-notes-sync `orchestrator` (`triage_downloaded`,
+  `plan_push_with_moves`); guarded by `run_pull_ignores_legacy_image_blob`,
+  `reconcile_empty_map_heals_ignores_and_rejects`, and
+  `plan_push_never_tombstones_non_syncable_map_entry`
+- **Every incoming name is screened before it is written, and a name local
+  creation legitimately produces is HEALED rather than dropped.** A single
+  classifier (`classify_incoming_sync_path`) runs on all three incoming write
+  paths (`run_pull`, `reconcile_empty_map`, the edit-wins delete restore) before
+  collision planning: (a) a Windows-reserved device name (`CON`), a leading/
+  trailing dot, or a trailing space — all of which macOS/Linux creation
+  produces but Windows cannot hold — is HEALED to the same safe name
+  `sanitize_title` would mint (`CON`→`CON_`, `.env`→`env`, `note.`→`note`),
+  written under that name, and NOT reported as a failure (the note is never
+  lost); (b) a name creation could never produce — traversal, a forbidden
+  character, a component past `MAX_TITLE_LENGTH`/`NAME_MAX`, excess depth — is
+  REJECTED: skipped, never written, surfaced as a permanent `rejected` failure
+  (not the retryable `download`), never cursor-capped, never aborting the cycle.
+  The heal is deterministic + idempotent, so re-runs never re-rename. →
+  futo-notes-core `files::classify_incoming_sync_path` (+ `sanitize_title`,
+  `is_windows_reserved_name`, `NAME_MAX`), applied via
+  futo-notes-sync `orchestrator::triage_downloaded`; guarded by the core
+  `incoming_*` unit tests, `run_pull_heals_creatable_but_unsyncable_name`,
+  `run_pull_heal_is_idempotent_across_cycles`,
+  `run_pull_rejects_structurally_unsafe_name`, and
+  `run_push_rejects_hostile_restored_filename`
 - The persisted sync state (`.e2ee-state.json`) is tagged with the server
   collection it describes; connecting to a **different** collection (vault
   reset, account recreation, server wipe) resets the cursor + object map and

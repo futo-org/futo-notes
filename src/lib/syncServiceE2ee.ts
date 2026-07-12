@@ -47,8 +47,9 @@ export interface SyncSummary {
 }
 
 /** One per-item sync failure. `kind` is `'upload' | 'delete' | 'checkpoint'
- *  | 'download' | 'decrypt'`; `statusCode` is the server HTTP status when
- *  the failure came from a response (absent for transport/local errors). */
+ *  | 'download' | 'decrypt' | 'rejected'`; `statusCode` is the server HTTP
+ *  status when the failure came from a response (absent for transport/local
+ *  errors). `'rejected'` is a permanent unsupported-name skip (not retried). */
 export interface SyncFailure {
   filename: string;
   kind: string;

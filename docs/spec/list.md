@@ -197,6 +197,16 @@ confirmation, not surfaced as a per-folder count. → NoteListView.swift
   input filter is mirrored locally per shell. → futo-notes-ffi `validate_title`,
   NoteEditorView.swift, NoteEditorScreen.kt; desktop NotesShell.svelte /
   noteSession.svelte.ts `handleTitleInput`
+- **The canonical title→filename sanitizer produces a name legal on EVERY
+  platform.** `sanitizeTitle` strips forbidden characters and surrounding
+  whitespace, then leading/trailing dots (Windows drops trailing dots; a
+  leading dot makes a hidden dotfile the vault scan skips), then de-reserves
+  Windows device names (`CON`→`CON_`, `CON.bak`→`CON_.bak`) — so no client mints
+  a name that a Windows peer can't hold, and the sync boundary reuses the exact
+  same function to HEAL such names on ingress. It is deterministic + idempotent.
+  Conformance-locked TS↔Rust (`sanitizeTitle` / `sanitize_title`). → packages/
+  editor `filename.ts`, futo-notes-core `files::sanitize_title`;
+  tests/conformance/filename.json
 - **Android native**'s FAB opens a New note / New folder menu; New folder
   shows a name dialog that sanitizes via the shared rules and rejects
   case-insensitive sibling duplicates inline (verified on emulator

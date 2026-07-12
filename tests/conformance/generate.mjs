@@ -103,6 +103,14 @@ const filename = {
       'a\x00b\x1fc',
       'a\x7fb',
       '  hello  ',
+      // D4/B2b: Windows-reserved de-reservation + leading/trailing-dot strip.
+      'CON',
+      'con',
+      'CON.bak',
+      'NUL.txt',
+      'CONSOLE',
+      '.env',
+      'note .',
     ]),
     group('validateTitle', 'validateTitle', (s) => kinds(validateTitle(s)), [
       'my note',

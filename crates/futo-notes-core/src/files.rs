@@ -85,15 +85,26 @@ fn contains_forbidden(s: &str) -> bool {
 /// surrounding whitespace. Does not rewrite dots or silently truncate.
 pub fn sanitize_title(title: &str) -> String {
     let result: String = title.chars().filter(|c| !is_forbidden_char(*c)).collect();
-    let trimmed = result.trim();
-    // If all-dots after stripping, treat as empty
-    if trimmed.chars().all(|c| c == '.') && !trimmed.is_empty() {
+    // Strip surrounding whitespace, then leading/trailing dots (Windows drops
+    // trailing dots; a leading dot makes a hidden dotfile the vault scan skips),
+    // then any whitespace those dots exposed. This is IDEMPOTENT — the sync
+    // boundary reuses it to heal peer-pushed names, so a second pass must be a
+    // no-op (see `classify_incoming_sync_path`).
+    let stripped = result.trim().trim_matches('.').trim();
+    if stripped.is_empty() {
         return FALLBACK_TITLE.to_string();
     }
-    if trimmed.is_empty() {
-        return FALLBACK_TITLE.to_string();
+    // De-reserve Windows device names (CON → CON_, CON.bak → CON_.bak) so the
+    // title is a legal filename on every platform, not just macOS/Linux. Insert
+    // the marker after the reserved stem (before its first dot) so the result
+    // is itself no longer reserved (keeping the transform idempotent).
+    if is_windows_reserved_name(stripped) {
+        return match stripped.find('.') {
+            Some(idx) => format!("{}_{}", &stripped[..idx], &stripped[idx..]),
+            None => format!("{stripped}_"),
+        };
     }
-    trimmed.to_string()
+    stripped.to_string()
 }
 
 /// Validate a title and return a list of specific issues found.
@@ -247,69 +258,104 @@ pub fn is_windows_reserved_name(name: &str) -> bool {
     WINDOWS_RESERVED_NAMES.iter().any(|r| *r == upper)
 }
 
-/// Strip the final `.ext` from a leaf filename, returning the stem. No dot →
-/// the whole name.
-fn strip_final_extension(name: &str) -> &str {
+/// Maximum bytes in a single path component. The common floor across
+/// ext4/APFS/NTFS is 255 bytes; a component past it fails `write_atomic_text`
+/// with ENAMETOOLONG, which — unguarded — aborts the pull and wedges the cursor
+/// (see PKT-2's round-4 NAME_MAX blocker). The sync boundary rejects such names
+/// before they reach the writer.
+pub const NAME_MAX: usize = 255;
+
+/// Split a syncable leaf filename into `(stem, ext_with_dot)`. `.md` is matched
+/// as a whole suffix; an image leaf splits at its last dot. Callers pass only
+/// leaves already known syncable (`is_syncable_filename`).
+fn split_leaf_ext(name: &str) -> (&str, &str) {
+    if let Some(stem) = name.strip_suffix(".md") {
+        return (stem, ".md");
+    }
     match name.rfind('.') {
-        Some(idx) => &name[..idx],
-        None => name,
+        Some(idx) => (&name[..idx], &name[idx..]),
+        None => (name, ""),
     }
 }
 
-/// True if a single INCOMING sync-path component (a folder segment, or the
-/// leaf's stem with its extension already removed) is unsafe. Stricter than
-/// [`ensure_safe_note_id`]'s per-component check: on top of the empty / `.` /
-/// `..` / forbidden-character rules it also rejects Windows-reserved device
-/// names and the leading dot / trailing dot-or-space that Windows silently
-/// strips (so `note ` and `note.` would collide with `note`). These are the
-/// same rules local note/folder creation enforces via `validate_title` +
-/// `validate_folder_name`; applying them at the sync boundary stops a buggy or
-/// older peer from landing a name local CRUD would refuse.
-fn incoming_component_invalid(stem: &str) -> bool {
-    if stem.is_empty() || stem == "." || stem == ".." {
-        return true;
-    }
-    if stem.chars().any(is_forbidden_in_component) {
-        return true;
-    }
-    if is_windows_reserved_name(stem) {
-        return true;
-    }
-    // Windows drops trailing dots/spaces; a leading dot marks a hidden file.
-    stem.starts_with('.') || stem.ends_with('.') || stem.ends_with(' ')
+/// The disposition of an INCOMING sync path (a filename a peer pushed, which
+/// arrives already trusted only for its object id, never its name).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum IncomingSyncPath {
+    /// Non-syncable extension (legacy `.tiff/.tif/.heif`, or foreign) — leave
+    /// it untouched on wire and disk (never write, tombstone, or error).
+    Ignore,
+    /// Safe exactly as received; write at the original path.
+    Accept,
+    /// Creatable-but-unsyncable (Windows-reserved device name, leading/trailing
+    /// dot, trailing space) — write at this HEALED path instead. Deterministic
+    /// + idempotent and byte-identical to what `sanitize_title` produces at
+    /// creation, so ingress and creation agree and re-runs never re-rename.
+    Sanitize(String),
+    /// Structurally unsafe — a buggy or older peer only: traversal, excess
+    /// folder depth, a forbidden character (local creation strips these), or a
+    /// component past [`MAX_TITLE_LENGTH`] / [`NAME_MAX`]. Skip + record; never
+    /// written, never aborts the cycle.
+    Reject(&'static str),
 }
 
-/// Validate a relative INCOMING sync path (as pushed by a peer, forward- or
-/// back-slashed). Rejects traversal, excess depth, and — per
-/// [`incoming_component_invalid`] — any folder component or leaf stem that
-/// local CRUD would refuse. Does NOT check the extension: the note-vs-blob-vs-
-/// ignore decision is [`crate::image::is_syncable_filename`]'s job, applied by
-/// the caller before this so legacy-image blobs are silently ignored (not
-/// reported as invalid). Returns `Err(reason)` naming the bad component.
-pub fn ensure_safe_incoming_sync_path(rel: &str) -> Result<(), String> {
+/// Classify a relative INCOMING sync path (forward- or back-slashed). This is
+/// the single note-vs-blob-vs-heal-vs-reject decision for every incoming write
+/// path (`run_pull`, `reconcile_empty_map`, the edit-wins restore). It applies
+/// the SAME component rules local note/folder creation enforces (via
+/// [`sanitize_title`] + [`is_windows_reserved_name`]): names creation would
+/// legitimately produce on macOS/Linux (reserved, dotted) are HEALED so they're
+/// legal on Windows too, never dropped; names creation could never produce
+/// (traversal, forbidden chars, over-length) are rejected.
+pub fn classify_incoming_sync_path(rel: &str) -> IncomingSyncPath {
     if rel.is_empty() {
-        return Err("empty path".to_string());
+        return IncomingSyncPath::Reject("empty path");
+    }
+    if !crate::image::is_syncable_filename(rel) {
+        return IncomingSyncPath::Ignore;
     }
     let normalized = rel.replace('\\', "/");
     if normalized.starts_with('/') || normalized.ends_with('/') {
-        return Err("leading or trailing slash".to_string());
+        return IncomingSyncPath::Reject("leading or trailing slash");
     }
     let components: Vec<&str> = normalized.split('/').collect();
     if components.len().saturating_sub(1) > MAX_FOLDER_DEPTH {
-        return Err("exceeds maximum folder depth".to_string());
+        return IncomingSyncPath::Reject("exceeds maximum folder depth");
     }
     let last = components.len() - 1;
+    let mut healed: Vec<String> = Vec::with_capacity(components.len());
+    let mut changed = false;
     for (i, component) in components.iter().enumerate() {
-        let stem = if i == last {
-            strip_final_extension(component)
-        } else {
-            component
-        };
-        if incoming_component_invalid(stem) {
-            return Err(format!("unsafe path component: {component:?}"));
+        if component.is_empty() || *component == "." || *component == ".." {
+            return IncomingSyncPath::Reject("traversal or empty component");
         }
+        let (stem, ext) = if i == last {
+            split_leaf_ext(component)
+        } else {
+            (*component, "")
+        };
+        // Structural rejects — creation could never mint these.
+        if stem.chars().any(is_forbidden_in_component) {
+            return IncomingSyncPath::Reject("forbidden character");
+        }
+        if stem.encode_utf16().count() > MAX_TITLE_LENGTH {
+            return IncomingSyncPath::Reject("component exceeds maximum title length");
+        }
+        if component.len() > NAME_MAX {
+            return IncomingSyncPath::Reject("component exceeds filesystem name limit");
+        }
+        // Heal creatable-but-unsyncable stems exactly as creation would.
+        let healed_stem = sanitize_title(stem);
+        if healed_stem != stem {
+            changed = true;
+        }
+        healed.push(format!("{healed_stem}{ext}"));
     }
-    Ok(())
+    if changed {
+        IncomingSyncPath::Sanitize(healed.join("/"))
+    } else {
+        IncomingSyncPath::Accept
+    }
 }
 
 /// Build a path under `base` from a relative path, rejecting traversal.
@@ -1038,6 +1084,43 @@ mod tests {
     fn sanitize_preserves_normal_text() {
         assert_eq!(sanitize_title("My grocery list"), "My grocery list");
         assert_eq!(sanitize_title("café notes"), "café notes");
+        // Interior dots are preserved — only leading/trailing dots are stripped.
+        assert_eq!(sanitize_title("Dr. Smith"), "Dr. Smith");
+        assert_eq!(sanitize_title("v2.0 notes"), "v2.0 notes");
+    }
+
+    #[test]
+    fn sanitize_strips_leading_and_trailing_dots() {
+        assert_eq!(sanitize_title("file.."), "file");
+        assert_eq!(sanitize_title("..hidden"), "hidden");
+        assert_eq!(sanitize_title(".env"), "env");
+        // Trailing dot exposes a trailing space → also trimmed.
+        assert_eq!(sanitize_title("note ."), "note");
+    }
+
+    #[test]
+    fn sanitize_de_reserves_windows_device_names() {
+        assert_eq!(sanitize_title("CON"), "CON_");
+        assert_eq!(sanitize_title("con"), "con_");
+        assert_eq!(sanitize_title("NUL"), "NUL_");
+        assert_eq!(sanitize_title("LPT9"), "LPT9_");
+        // Marker goes after the reserved stem, before the first dot.
+        assert_eq!(sanitize_title("CON.bak"), "CON_.bak");
+        // Non-reserved lookalikes are untouched.
+        assert_eq!(sanitize_title("CONSOLE"), "CONSOLE");
+        assert_eq!(sanitize_title("COM0"), "COM0");
+    }
+
+    #[test]
+    fn sanitize_title_is_idempotent() {
+        for input in [
+            "CON", "con", "CON.bak", ".env", "file..", "note .", "Dr. Smith", "hello<world>",
+            "...", "", "NUL.txt",
+        ] {
+            let once = sanitize_title(input);
+            let twice = sanitize_title(&once);
+            assert_eq!(once, twice, "sanitize_title not idempotent for {input:?}");
+        }
     }
 
     // ── validate_title ──────────────────────────────────────────────
@@ -1566,9 +1649,11 @@ mod tests {
         assert!(!is_windows_reserved_name("COM0"));
     }
 
-    // ── ensure_safe_incoming_sync_path ──────────────────────────────
+    // ── classify_incoming_sync_path ─────────────────────────────────
+    use IncomingSyncPath::{Accept, Ignore, Reject, Sanitize};
+
     #[test]
-    fn incoming_sync_path_accepts_valid_names() {
+    fn incoming_accepts_clean_syncable_names() {
         for ok in [
             "note.md",
             "Specs/folder-support.md",
@@ -1577,63 +1662,125 @@ mod tests {
             "folder/photo.JPG",
             "weird.but.fine.name.md",
         ] {
-            assert!(
-                ensure_safe_incoming_sync_path(ok).is_ok(),
-                "expected ok: {ok}"
-            );
+            assert_eq!(classify_incoming_sync_path(ok), Accept, "{ok}");
         }
     }
 
     #[test]
-    fn incoming_sync_path_rejects_traversal_and_slashes() {
-        for bad in ["../secret.md", "foo/../bar.md", "/abs.md", "trailing/", ""] {
+    fn incoming_ignores_non_syncable() {
+        // Legacy images + foreign extensions — left untouched, not rejected.
+        assert_eq!(classify_incoming_sync_path("scan.tiff"), Ignore);
+        assert_eq!(classify_incoming_sync_path("scan.heif"), Ignore);
+        assert_eq!(classify_incoming_sync_path("archive.zip"), Ignore);
+    }
+
+    #[test]
+    fn incoming_rejects_structurally_unsafe() {
+        // Traversal / leading slash / empty. (A trailing slash can't be
+        // syncable, so it classifies as Ignore, not Reject — covered elsewhere.)
+        for bad in ["../secret.md", "foo/../bar.md", "/abs.md", ""] {
             assert!(
-                ensure_safe_incoming_sync_path(bad).is_err(),
-                "expected err: {bad:?}"
+                matches!(classify_incoming_sync_path(bad), Reject(_)),
+                "expected reject: {bad:?}"
             );
         }
-        // Backslash traversal is normalized to forward slashes first.
-        assert!(ensure_safe_incoming_sync_path("foo\\..\\bar.md").is_err());
-    }
-
-    #[test]
-    fn incoming_sync_path_rejects_windows_reserved() {
-        assert!(ensure_safe_incoming_sync_path("CON.md").is_err());
-        assert!(ensure_safe_incoming_sync_path("nul.png").is_err());
-        assert!(ensure_safe_incoming_sync_path("folder/COM1.md").is_err());
-    }
-
-    #[test]
-    fn incoming_sync_path_rejects_forbidden_chars() {
-        assert!(ensure_safe_incoming_sync_path("a<b.md").is_err());
-        assert!(ensure_safe_incoming_sync_path("a:b.md").is_err());
-        assert!(ensure_safe_incoming_sync_path("a\"b.md").is_err());
-        assert!(ensure_safe_incoming_sync_path("a|b.md").is_err());
-        assert!(ensure_safe_incoming_sync_path("a*b.md").is_err());
-        assert!(ensure_safe_incoming_sync_path("ctrl\u{0007}bell.md").is_err());
-        // Forbidden char in a folder component, not just the leaf.
-        assert!(ensure_safe_incoming_sync_path("a<b/note.md").is_err());
-    }
-
-    #[test]
-    fn incoming_sync_path_rejects_trailing_dot_or_space() {
-        // `note..md` → leaf stem `note.` ends with a dot.
-        assert!(ensure_safe_incoming_sync_path("note..md").is_err());
-        // trailing space in the leaf stem
-        assert!(ensure_safe_incoming_sync_path("note .md").is_err());
-        // trailing dot/space in a folder component
-        assert!(ensure_safe_incoming_sync_path("folder./note.md").is_err());
-        assert!(ensure_safe_incoming_sync_path("folder /note.md").is_err());
-        // leading dot (hidden) in a component
-        assert!(ensure_safe_incoming_sync_path(".hidden.md").is_err());
-    }
-
-    #[test]
-    fn incoming_sync_path_rejects_excess_depth() {
-        // MAX_FOLDER_DEPTH folder components above the leaf is the limit.
-        let ok = format!("{}leaf.md", "d/".repeat(MAX_FOLDER_DEPTH));
-        assert!(ensure_safe_incoming_sync_path(&ok).is_ok());
+        assert!(matches!(
+            classify_incoming_sync_path("foo\\..\\bar.md"),
+            Reject(_)
+        ));
+        // Forbidden chars (leaf AND folder) — creation strips these, so a peer
+        // sending them is buggy.
+        for bad in [
+            "a<b.md",
+            "a:b.md",
+            "a\"b.md",
+            "a|b.md",
+            "a*b.md",
+            "ctrl\u{0007}bell.md",
+            "a<b/note.md",
+        ] {
+            assert!(
+                matches!(classify_incoming_sync_path(bad), Reject(_)),
+                "expected reject: {bad:?}"
+            );
+        }
+        // Excess depth.
         let too_deep = format!("{}leaf.md", "d/".repeat(MAX_FOLDER_DEPTH + 1));
-        assert!(ensure_safe_incoming_sync_path(&too_deep).is_err());
+        assert!(matches!(classify_incoming_sync_path(&too_deep), Reject(_)));
+    }
+
+    #[test]
+    fn incoming_heals_creatable_but_unsyncable_names() {
+        // Reserved device names → de-reserved (matches sanitize_title).
+        assert_eq!(
+            classify_incoming_sync_path("CON.md"),
+            Sanitize("CON_.md".into())
+        );
+        assert_eq!(
+            classify_incoming_sync_path("nul.png"),
+            Sanitize("nul_.png".into())
+        );
+        assert_eq!(
+            classify_incoming_sync_path("folder/COM1.md"),
+            Sanitize("folder/COM1_.md".into())
+        );
+        // Leading/trailing dot + trailing space in the leaf stem.
+        assert_eq!(
+            classify_incoming_sync_path("note..md"),
+            Sanitize("note.md".into())
+        );
+        assert_eq!(
+            classify_incoming_sync_path("note .md"),
+            Sanitize("note.md".into())
+        );
+        assert_eq!(
+            classify_incoming_sync_path(".hidden.md"),
+            Sanitize("hidden.md".into())
+        );
+        // Dotted/spaced folder components heal too.
+        assert_eq!(
+            classify_incoming_sync_path("folder./note.md"),
+            Sanitize("folder/note.md".into())
+        );
+        assert_eq!(
+            classify_incoming_sync_path("folder /note.md"),
+            Sanitize("folder/note.md".into())
+        );
+    }
+
+    #[test]
+    fn incoming_heal_is_idempotent() {
+        // A healed path re-classifies as Accept (no re-rename loop across cycles).
+        for input in ["CON.md", "note..md", ".hidden.md", "folder./x.md", "nul.png"] {
+            if let Sanitize(healed) = classify_incoming_sync_path(input) {
+                assert_eq!(
+                    classify_incoming_sync_path(&healed),
+                    Accept,
+                    "healed {healed:?} must be Accept"
+                );
+            } else {
+                panic!("{input:?} should heal");
+            }
+        }
+    }
+
+    #[test]
+    fn incoming_rejects_over_length_components() {
+        // B3: MAX_TITLE_LENGTH is UTF-16 code units of the stem; NAME_MAX is
+        // bytes of the whole component. 200 ok, 201 rejected; over-NAME_MAX
+        // (bytes) rejected even under the code-unit cap.
+        let at_limit = format!("{}.md", "a".repeat(MAX_TITLE_LENGTH));
+        assert_eq!(classify_incoming_sync_path(&at_limit), Accept);
+        let over_limit = format!("{}.md", "a".repeat(MAX_TITLE_LENGTH + 1));
+        assert!(matches!(
+            classify_incoming_sync_path(&over_limit),
+            Reject(_)
+        ));
+        // A multibyte stem under 200 code units but over 255 bytes.
+        let multibyte = format!("{}.md", "é".repeat(150)); // 150 units, 300 bytes
+        assert!(matches!(
+            classify_incoming_sync_path(&multibyte),
+            Reject(_)
+        ));
     }
 }
