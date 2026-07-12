@@ -224,6 +224,94 @@ pub fn safe_note_path(base: &Path, id: &str) -> Result<PathBuf, String> {
     Ok(path)
 }
 
+/// Windows reserved device names. Matched case-insensitively. Enforced on
+/// every platform so a vault created on macOS/Linux still syncs cleanly to a
+/// Windows client. Matches `WINDOWS_RESERVED_NAMES` in `filename.ts`; the note
+/// domain (`futo-notes-model::filename`) re-exports [`is_windows_reserved_name`]
+/// so folder validation and the sync boundary share one definition.
+const WINDOWS_RESERVED_NAMES: &[&str] = &[
+    "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
+    "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+];
+
+/// True if `name` (sans extension) is a Windows-reserved device name.
+///
+/// Mirrors TS `isWindowsReservedName`: take the stem up to the FIRST `.`
+/// (`CON.md` → `CON`), uppercase, then membership-test.
+pub fn is_windows_reserved_name(name: &str) -> bool {
+    let stem = match name.find('.') {
+        Some(idx) => &name[..idx],
+        None => name,
+    };
+    let upper = stem.to_uppercase();
+    WINDOWS_RESERVED_NAMES.iter().any(|r| *r == upper)
+}
+
+/// Strip the final `.ext` from a leaf filename, returning the stem. No dot →
+/// the whole name.
+fn strip_final_extension(name: &str) -> &str {
+    match name.rfind('.') {
+        Some(idx) => &name[..idx],
+        None => name,
+    }
+}
+
+/// True if a single INCOMING sync-path component (a folder segment, or the
+/// leaf's stem with its extension already removed) is unsafe. Stricter than
+/// [`ensure_safe_note_id`]'s per-component check: on top of the empty / `.` /
+/// `..` / forbidden-character rules it also rejects Windows-reserved device
+/// names and the leading dot / trailing dot-or-space that Windows silently
+/// strips (so `note ` and `note.` would collide with `note`). These are the
+/// same rules local note/folder creation enforces via `validate_title` +
+/// `validate_folder_name`; applying them at the sync boundary stops a buggy or
+/// older peer from landing a name local CRUD would refuse.
+fn incoming_component_invalid(stem: &str) -> bool {
+    if stem.is_empty() || stem == "." || stem == ".." {
+        return true;
+    }
+    if stem.chars().any(is_forbidden_in_component) {
+        return true;
+    }
+    if is_windows_reserved_name(stem) {
+        return true;
+    }
+    // Windows drops trailing dots/spaces; a leading dot marks a hidden file.
+    stem.starts_with('.') || stem.ends_with('.') || stem.ends_with(' ')
+}
+
+/// Validate a relative INCOMING sync path (as pushed by a peer, forward- or
+/// back-slashed). Rejects traversal, excess depth, and — per
+/// [`incoming_component_invalid`] — any folder component or leaf stem that
+/// local CRUD would refuse. Does NOT check the extension: the note-vs-blob-vs-
+/// ignore decision is [`crate::image::is_syncable_filename`]'s job, applied by
+/// the caller before this so legacy-image blobs are silently ignored (not
+/// reported as invalid). Returns `Err(reason)` naming the bad component.
+pub fn ensure_safe_incoming_sync_path(rel: &str) -> Result<(), String> {
+    if rel.is_empty() {
+        return Err("empty path".to_string());
+    }
+    let normalized = rel.replace('\\', "/");
+    if normalized.starts_with('/') || normalized.ends_with('/') {
+        return Err("leading or trailing slash".to_string());
+    }
+    let components: Vec<&str> = normalized.split('/').collect();
+    if components.len().saturating_sub(1) > MAX_FOLDER_DEPTH {
+        return Err("exceeds maximum folder depth".to_string());
+    }
+    let last = components.len() - 1;
+    for (i, component) in components.iter().enumerate() {
+        let stem = if i == last {
+            strip_final_extension(component)
+        } else {
+            component
+        };
+        if incoming_component_invalid(stem) {
+            return Err(format!("unsafe path component: {component:?}"));
+        }
+    }
+    Ok(())
+}
+
 /// Build a path under `base` from a relative path, rejecting traversal.
 pub fn safe_appdata_path(base: &Path, rel_path: &str) -> Result<PathBuf, String> {
     let rel = Path::new(rel_path);
@@ -1462,5 +1550,90 @@ mod tests {
         assert!(issues
             .iter()
             .any(|i| i.kind == FilenameIssueKind::ForbiddenChars));
+    }
+
+    // ── is_windows_reserved_name ────────────────────────────────────
+    #[test]
+    fn windows_reserved_names() {
+        assert!(is_windows_reserved_name("CON"));
+        assert!(is_windows_reserved_name("con"));
+        assert!(is_windows_reserved_name("CON.md"));
+        assert!(is_windows_reserved_name("Nul.txt"));
+        assert!(is_windows_reserved_name("COM1"));
+        assert!(is_windows_reserved_name("LPT9.png"));
+        assert!(!is_windows_reserved_name("CONSOLE"));
+        assert!(!is_windows_reserved_name("note"));
+        assert!(!is_windows_reserved_name("COM0"));
+    }
+
+    // ── ensure_safe_incoming_sync_path ──────────────────────────────
+    #[test]
+    fn incoming_sync_path_accepts_valid_names() {
+        for ok in [
+            "note.md",
+            "Specs/folder-support.md",
+            "a/b/c/deep.md",
+            "image-1742345678901-xk7.png",
+            "folder/photo.JPG",
+            "weird.but.fine.name.md",
+        ] {
+            assert!(
+                ensure_safe_incoming_sync_path(ok).is_ok(),
+                "expected ok: {ok}"
+            );
+        }
+    }
+
+    #[test]
+    fn incoming_sync_path_rejects_traversal_and_slashes() {
+        for bad in ["../secret.md", "foo/../bar.md", "/abs.md", "trailing/", ""] {
+            assert!(
+                ensure_safe_incoming_sync_path(bad).is_err(),
+                "expected err: {bad:?}"
+            );
+        }
+        // Backslash traversal is normalized to forward slashes first.
+        assert!(ensure_safe_incoming_sync_path("foo\\..\\bar.md").is_err());
+    }
+
+    #[test]
+    fn incoming_sync_path_rejects_windows_reserved() {
+        assert!(ensure_safe_incoming_sync_path("CON.md").is_err());
+        assert!(ensure_safe_incoming_sync_path("nul.png").is_err());
+        assert!(ensure_safe_incoming_sync_path("folder/COM1.md").is_err());
+    }
+
+    #[test]
+    fn incoming_sync_path_rejects_forbidden_chars() {
+        assert!(ensure_safe_incoming_sync_path("a<b.md").is_err());
+        assert!(ensure_safe_incoming_sync_path("a:b.md").is_err());
+        assert!(ensure_safe_incoming_sync_path("a\"b.md").is_err());
+        assert!(ensure_safe_incoming_sync_path("a|b.md").is_err());
+        assert!(ensure_safe_incoming_sync_path("a*b.md").is_err());
+        assert!(ensure_safe_incoming_sync_path("ctrl\u{0007}bell.md").is_err());
+        // Forbidden char in a folder component, not just the leaf.
+        assert!(ensure_safe_incoming_sync_path("a<b/note.md").is_err());
+    }
+
+    #[test]
+    fn incoming_sync_path_rejects_trailing_dot_or_space() {
+        // `note..md` → leaf stem `note.` ends with a dot.
+        assert!(ensure_safe_incoming_sync_path("note..md").is_err());
+        // trailing space in the leaf stem
+        assert!(ensure_safe_incoming_sync_path("note .md").is_err());
+        // trailing dot/space in a folder component
+        assert!(ensure_safe_incoming_sync_path("folder./note.md").is_err());
+        assert!(ensure_safe_incoming_sync_path("folder /note.md").is_err());
+        // leading dot (hidden) in a component
+        assert!(ensure_safe_incoming_sync_path(".hidden.md").is_err());
+    }
+
+    #[test]
+    fn incoming_sync_path_rejects_excess_depth() {
+        // MAX_FOLDER_DEPTH folder components above the leaf is the limit.
+        let ok = format!("{}leaf.md", "d/".repeat(MAX_FOLDER_DEPTH));
+        assert!(ensure_safe_incoming_sync_path(&ok).is_ok());
+        let too_deep = format!("{}leaf.md", "d/".repeat(MAX_FOLDER_DEPTH + 1));
+        assert!(ensure_safe_incoming_sync_path(&too_deep).is_err());
     }
 }

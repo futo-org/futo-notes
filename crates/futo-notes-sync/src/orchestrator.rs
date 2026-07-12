@@ -33,11 +33,11 @@ use futo_notes_core::e2ee::{
     KEY_BYTES,
 };
 use futo_notes_core::files::{
-    file_mtime_ms, now_ms, read_blob_as_base64, set_file_mtime_ms, write_atomic_text,
-    write_base64_as_blob,
+    ensure_safe_incoming_sync_path, file_mtime_ms, now_ms, read_blob_as_base64, set_file_mtime_ms,
+    write_atomic_text, write_base64_as_blob,
 };
 use futo_notes_core::hash::hash_sha256;
-use futo_notes_core::invariants::is_image_filename;
+use futo_notes_core::image::{is_image_filename, is_syncable_filename};
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 
@@ -301,7 +301,14 @@ fn apply_delta(
     // Write updates
     for update in &input.update {
         pre_write(&update.filename);
-        let path = safe_relative_sync_path(notes_root, &update.filename)?;
+        // Defense in depth: run_pull already rejects unsafe incoming names
+        // (ensure_safe_incoming_sync_path) before they reach here, so a path
+        // that still fails resolution is skipped rather than aborting the whole
+        // apply — one bad name must never cost the rest of the batch.
+        let path = match safe_relative_sync_path(notes_root, &update.filename) {
+            Ok(p) => p,
+            Err(_) => continue,
+        };
         // Both writers call fs::create_dir_all on the parent. Image content
         // arrives base64-encoded in the note frame; decode it back to bytes.
         if is_image_filename(&update.filename) {
@@ -321,7 +328,10 @@ fn apply_delta(
     // Write conflict copies
     for conflict in &input.conflicts {
         pre_write(&conflict.filename);
-        let path = safe_relative_sync_path(notes_root, &conflict.filename)?;
+        let path = match safe_relative_sync_path(notes_root, &conflict.filename) {
+            Ok(p) => p,
+            Err(_) => continue,
+        };
         if is_image_filename(&conflict.filename) {
             write_base64_as_blob(&path, &conflict.content)?;
         } else {
@@ -1675,10 +1685,38 @@ pub async fn run_pull(
     let mut created_hashes: HashMap<String, String> = HashMap::new();
     let mut hash_to_filenames: HashMap<String, Vec<HashFilenameEntry>> = HashMap::new();
 
+    // Incoming objects we refuse to materialize (skipped in BOTH this loop and
+    // the map-insert loop below). `path_failures` surfaces the F8 rejections in
+    // the summary; the F7 legacy-image skips are silent (an expected migration
+    // state, not an error).
+    let mut ignored_downloads: HashSet<usize> = HashSet::new();
+    let mut path_failures: Vec<SyncFailure> = Vec::new();
+
     for (idx, note) in downloaded.iter().enumerate() {
         // Identical-content collision loser: the winner already writes these
         // exact bytes at the canonical name — skip it (no write, no map entry).
         if collision_plan.download_skips.contains(&idx) {
+            continue;
+        }
+        // F7 migration: a non-syncable extension (a foreign type, or a legacy
+        // `.tiff/.tif/.heif` blob an older client uploaded before D4 narrowed
+        // the image set) must never be written as a note, tombstoned, or error
+        // the cycle — leave it on the server untouched.
+        if !is_syncable_filename(&note.filename) {
+            ignored_downloads.insert(idx);
+            continue;
+        }
+        // F8: a syncable-extension name that local CRUD would refuse (reserved
+        // device name, forbidden char, traversal, trailing dot/space — a buggy
+        // or older peer) is skipped and recorded, never written, never aborting
+        // the cycle.
+        if ensure_safe_incoming_sync_path(&note.filename).is_err() {
+            ignored_downloads.insert(idx);
+            path_failures.push(SyncFailure {
+                filename: note.filename.clone(),
+                kind: FailureKind::Download,
+                status_code: None,
+            });
             continue;
         }
         let on_disk = effective_filename(idx, note);
@@ -1770,6 +1808,10 @@ pub async fn run_pull(
         if collision_plan.download_skips.contains(&idx) {
             continue;
         }
+        // Non-syncable (F7 legacy) or unsafe (F8) — not written, so not mapped.
+        if ignored_downloads.contains(&idx) {
+            continue;
+        }
         let on_disk = effective_filename(idx, note);
         // Sweep stale rename source from the map too.
         if let Some(prev) = filename_by_object_id.get(&note.object_id) {
@@ -1801,7 +1843,15 @@ pub async fn run_pull(
             deleted_ids: deleted_ids.clone(),
             peer_updated_ids: updated_ids,
             peer_deleted_ids: deleted_ids,
-            failures: failed_downloads.into_iter().map(|f| f.failure).collect(),
+            failures: {
+                let mut failures: Vec<SyncFailure> =
+                    failed_downloads.into_iter().map(|f| f.failure).collect();
+                // F8: incoming names we refused to write, surfaced but not
+                // cursor-capped (a permanently-invalid name shouldn't re-list
+                // every cycle — recording it once is "not silently dropped").
+                failures.extend(path_failures);
+                failures
+            },
             deleted_hashes,
             created_hashes,
             hash_to_filenames,
@@ -1870,6 +1920,15 @@ fn plan_push_with_moves(
 
     let mut deletes = Vec::new();
     for (filename, entry) in object_map {
+        // F7 migration: a legacy-image (pre-D4 `.tiff/.tif/.heif`) or otherwise
+        // non-syncable map entry is no longer produced by the local scan
+        // (`list_notes_with_meta` filters to `.md` + canonical images), so it
+        // would look "deleted locally" and get tombstoned — destroying it on
+        // the server and every peer. Never tombstone a non-syncable entry; it
+        // is left on the server untouched.
+        if !is_syncable_filename(filename) {
+            continue;
+        }
         if !local_names.contains(filename.as_str()) {
             deletes.push((filename.clone(), entry.clone()));
         }
@@ -4707,6 +4766,26 @@ mod tests {
         assert!(plan.candidates.is_empty());
     }
 
+    // F7 migration: a legacy `.tiff` (or otherwise non-syncable) map entry is
+    // no longer produced by the local scan, so it looks "deleted locally" and
+    // would be tombstoned — destroying it on the server and every peer. It must
+    // NEVER be tombstoned; a genuinely-gone `.md` still is.
+    #[test]
+    fn plan_push_never_tombstones_non_syncable_map_entry() {
+        let local = vec![local("kept.md", 1, 1)];
+        let mut map = HashMap::new();
+        map.insert("kept.md".into(), map_entry(1, Some("h"), Some(1), Some(1)));
+        map.insert("scan.tiff".into(), map_entry(2, Some("h"), Some(1), Some(1)));
+        map.insert("gone.md".into(), map_entry(3, Some("h"), Some(1), Some(1)));
+        let plan = plan_push(&local, &map);
+        let delete_names: Vec<_> = plan.deletes.iter().map(|(f, _)| f.as_str()).collect();
+        assert_eq!(
+            delete_names,
+            vec!["gone.md"],
+            "only the genuinely-gone .md is tombstoned; the legacy .tiff is left alone"
+        );
+    }
+
     #[test]
     fn plan_push_uploads_brand_new_files() {
         let local = vec![local("new.md", 5, 5)];
@@ -5783,6 +5862,97 @@ mod tests {
         assert_eq!(next.max_version, 2);
         assert_eq!(std::fs::read_to_string(root.join("one.md")).unwrap(), "alpha\n");
         assert_eq!(std::fs::read_to_string(root.join("two.md")).unwrap(), "beta\n");
+    }
+
+    // F7 migration: a server listing that includes a legacy `.tiff` blob (an
+    // older client uploaded it before D4 narrowed IMAGE_EXTENSIONS to 10). The
+    // pull must land the valid note and IGNORE the legacy blob — never write it
+    // as a note, never record a failure, never tombstone it, never error the
+    // cycle. Guards `is_syncable_filename` in run_pull's downloaded loop.
+    #[tokio::test]
+    async fn run_pull_ignores_legacy_image_blob() {
+        let server = MockServer::start().await;
+        Mock::given(wm_method("GET"))
+            .and(wm_path("/api/collections/c1/objects"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "objects": [wire_object("o1", 1, Some(64)), wire_object("o2", 2, Some(64))]
+            })))
+            .mount(&server)
+            .await;
+        let mut body = batch_frame("bk-o1", 0, &enc("one.md", "alpha\n").await);
+        // Legacy image blob: an older client's `.tiff`, no longer syncable.
+        body.extend(batch_frame("bk-o2", 0, &enc("scan.tiff", "AAAA").await));
+        Mock::given(wm_method("POST"))
+            .and(wm_path("/api/blobs/batch"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(body))
+            .mount(&server)
+            .await;
+
+        let root = temp_root();
+        let state = connected_state(&server);
+        let (summary, next) = run_pull(&state, &root, 0, &no_prog, &no_pre)
+            .await
+            .expect("pull must not error on a legacy image blob");
+
+        assert_eq!(std::fs::read_to_string(root.join("one.md")).unwrap(), "alpha\n");
+        assert!(!root.join("scan.tiff").exists(), "legacy blob must not be written");
+        assert!(
+            summary.failures.is_empty(),
+            "a legacy blob is an expected migration state, not a failure"
+        );
+        assert_eq!(summary.deleted, 0, "legacy blob must not be tombstoned");
+        assert!(
+            !next.object_map.contains_key("scan.tiff"),
+            "legacy blob must not enter the map"
+        );
+        // Cursor still advances past the ignored object.
+        assert_eq!(next.max_version, 2);
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    // F8: a buggy or older peer pushes a name local CRUD would refuse (here a
+    // Windows-reserved device name). The pull skips it (never written, never
+    // mapped), records a failure so it surfaces, and still lands the valid
+    // sibling without aborting the cycle. Guards `ensure_safe_incoming_sync_path`.
+    #[tokio::test]
+    async fn run_pull_skips_unsafe_incoming_name() {
+        let server = MockServer::start().await;
+        Mock::given(wm_method("GET"))
+            .and(wm_path("/api/collections/c1/objects"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "objects": [wire_object("o1", 1, Some(64)), wire_object("o2", 2, Some(64))]
+            })))
+            .mount(&server)
+            .await;
+        let mut body = batch_frame("bk-o1", 0, &enc("good.md", "alpha\n").await);
+        body.extend(batch_frame("bk-o2", 0, &enc("CON.md", "evil\n").await));
+        Mock::given(wm_method("POST"))
+            .and(wm_path("/api/blobs/batch"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(body))
+            .mount(&server)
+            .await;
+
+        let root = temp_root();
+        let state = connected_state(&server);
+        let (summary, next) = run_pull(&state, &root, 0, &no_prog, &no_pre)
+            .await
+            .expect("pull must not error on an unsafe incoming name");
+
+        assert_eq!(std::fs::read_to_string(root.join("good.md")).unwrap(), "alpha\n");
+        assert!(!root.join("CON.md").exists(), "unsafe name must not be written");
+        assert!(
+            !next.object_map.contains_key("CON.md"),
+            "unsafe name must not enter the map"
+        );
+        assert_eq!(
+            summary.failures.len(),
+            1,
+            "the unsafe name surfaces as one recorded failure"
+        );
+        assert_eq!(summary.failures[0].filename, "CON.md");
+        assert_eq!(summary.failures[0].kind, FailureKind::Download);
+        assert_eq!(summary.deleted, 0, "unsafe name must not be tombstoned");
+        std::fs::remove_dir_all(&root).ok();
     }
 
     // Old server: the batch endpoint 404s → the pull degrades to per-blob
