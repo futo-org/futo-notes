@@ -30,16 +30,43 @@ class EditorLifecycleFlushTest {
     }
 
     /** A mutable stand-in for the editor's live Compose state; the provider
-     *  closure reads it, exactly as the real derivation reads (loaded, noteId,
-     *  content, savedContent). */
+     *  closure reads it through the REAL derivation ([derivePendingDraft]),
+     *  exactly as the production provider closure does. */
     private class EditorState(
         var loaded: Boolean = true,
         var noteId: String = "todo",
         var savedContent: String = "",
         var content: String = "",
     ) {
-        fun derive(): PendingDraft? =
-            if (loaded && content != savedContent) PendingDraft(noteId, savedContent, content) else null
+        fun derive(): PendingDraft? = derivePendingDraft(loaded, noteId, savedContent, content)
+    }
+
+    // ── the derivation predicate itself (single source of truth) ──
+
+    @Test
+    fun derivationIsDirtyWhenContentDivergesFromSaved() {
+        assertEquals(
+            PendingDraft("todo", "saved", "saved + edit"),
+            derivePendingDraft(loaded = true, noteId = "todo", savedContent = "saved", content = "saved + edit"),
+        )
+    }
+
+    @Test
+    fun derivationIsNullWhenCleanOrNotLoaded() {
+        // Clean: content == savedContent.
+        assertNull(derivePendingDraft(loaded = true, noteId = "todo", savedContent = "x", content = "x"))
+        // Not yet loaded: the WebView's empty mount echo must never look dirty.
+        assertNull(derivePendingDraft(loaded = false, noteId = "todo", savedContent = "", content = "typed"))
+    }
+
+    @Test
+    fun derivationReKeysToTheLiveNoteIdAfterRename() {
+        // After a rename the composable's noteId state changes; the derivation
+        // follows it, so a dirty draft is keyed on the NEW id (PKT-1 R4 / item 2b).
+        assertEquals(
+            "renamed",
+            derivePendingDraft(loaded = true, noteId = "renamed", savedContent = "A", content = "AB")!!.id,
+        )
     }
 
     // ── pull derivation: flush persists whatever the closure derives NOW ──

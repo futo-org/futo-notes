@@ -46,6 +46,21 @@ internal val noteListOrder: Comparator<NoteItem> =
  *  `pendingDraft` tuple. */
 data class PendingDraft(val id: String, val base: String, val content: String)
 
+/** The open editor's unsaved-draft derivation — the ONE definition of "is there
+ *  an unsaved draft, for which note" (PKT-12 R5). Returns a draft keyed on the
+ *  LIVE [noteId] (so it re-keys by construction after a rename) whenever the body
+ *  has loaded and diverges from what's on disk; null when clean or not yet
+ *  loaded. [savedContent] is both the dirty check and the flush's expected-prev
+ *  [base]. Pulled synchronously at flush time by [PendingEditorDraft]. Pure +
+ *  top-level so it is unit-testable without composition. */
+internal fun derivePendingDraft(
+    loaded: Boolean,
+    noteId: String,
+    savedContent: String,
+    content: String,
+): PendingDraft? =
+    if (loaded && content != savedContent) PendingDraft(noteId, savedContent, content) else null
+
 /**
  * The open editor's unsaved-draft register and its leave-foreground flush,
  * factored out of [NotesStore]/Compose so the F8 jetsam-guard decision is
@@ -209,11 +224,21 @@ class NotesStore(notesRoot: File) {
      *  (WROTE) updates in-memory state. */
     fun flushAsync(draft: PendingDraft) {
         scope.launch {
-            val outcome = withContext(Dispatchers.IO) {
-                core.writeIfUnchanged(draft.id, draft.base, draft.content)
-            }
-            if (outcome == uniffi.futo_notes_ffi.FlushOutcome.WROTE) {
-                applyWrittenContent(draft.id, draft.content)
+            // Swallow-and-log, mirroring [write]. `writeIfUnchanged` throws
+            // NoteException on a non-NotFound IO error (temp-write ENOSPC, EACCES
+            // read); this runs on a fire-and-forget scope with no exception
+            // handler, so an uncaught throw here would crash the process at
+            // leave-foreground. A failed background flush must degrade to "not
+            // flushed" (the debounce / next flush retries), never crash.
+            try {
+                val outcome = withContext(Dispatchers.IO) {
+                    core.writeIfUnchanged(draft.id, draft.base, draft.content)
+                }
+                if (outcome == uniffi.futo_notes_ffi.FlushOutcome.WROTE) {
+                    applyWrittenContent(draft.id, draft.content)
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("NotesStore", "flush failed for ${draft.id}", e)
             }
         }
     }

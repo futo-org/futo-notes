@@ -54,6 +54,7 @@ import androidx.compose.ui.unit.dp
 import com.futo.notes.ImagePicker
 import com.futo.notes.NotesStore
 import com.futo.notes.PendingDraft
+import com.futo.notes.derivePendingDraft
 import com.futo.notes.saveImageDataIntoVault
 import com.futo.notes.saveImageIntoVault
 import com.futo.notes.ui.components.ConfirmDialog
@@ -176,15 +177,19 @@ fun NoteEditorScreen(
     // remote adopted) and re-keys to the new id on rename (content follows the
     // live noteId), both by construction. `base` = savedContent is the flush's
     // conditional-write expected-previous.
-    val ownerToken = remember(initialNoteId) { store.claimDraftOwnership() }
-    // Relinquish ownership only on TRUE disposal (keyed on ownerToken, stable for
-    // this instance, so a rename doesn't release mid-life). A superseded editor's
-    // release is a no-op, so the incoming editor's provider survives the
-    // cross-fade overlap (PKT-1 R2).
-    DisposableEffect(ownerToken) {
+    // Claim ownership + register the provider inside the effect (NOT in remember —
+    // remember must stay pure; claiming there would advance the generation counter
+    // for a composition that is later abandoned without ever releasing, PKT-12 F6).
+    // Keyed on initialNoteId (stable for this editor instance, so a rename doesn't
+    // re-claim mid-life). The effect body runs before any leave-foreground flush
+    // can occur, so first-publish ordering holds. A superseded editor's release is
+    // a no-op, so the incoming editor's provider survives the cross-fade overlap
+    // (PKT-1 R2). The provider is the single derivation (derivePendingDraft),
+    // pulled synchronously at flush time.
+    DisposableEffect(initialNoteId) {
+        val ownerToken = store.claimDraftOwnership()
         store.setDraftProvider(ownerToken) {
-            if (loaded && content != savedContent) PendingDraft(noteId, savedContent, content)
-            else null
+            derivePendingDraft(loaded, noteId, savedContent, content)
         }
         onDispose { store.releaseDraftOwnership(ownerToken) }
     }
@@ -241,24 +246,26 @@ fun NoteEditorScreen(
                 disk != savedContent -> {
                     // Dirty draft + a real remote change: park the local edit as a
                     // conflict copy, then adopt the remote content — neither side
-                    // is lost. Capture the local edit and adopt FIRST (buffer +
-                    // content==savedContent==disk) so the register goes clean
-                    // immediately; the copy is then written from the captured
-                    // edit. Capturing as late as possible before applyExternalContent
-                    // folds in any keystroke typed up to this point (PKT-12 item 5),
-                    // and adopting before the awaited createNote/write closes the
-                    // window where a background flush could clobber the adopted
-                    // remote (PKT-1 R3). iOS adoptExternalChange parity.
+                    // is lost. Capture the local edit FIRST, as late as possible
+                    // before touching the buffer, so any keystroke typed up to this
+                    // point is folded into the copy (PKT-12 item 5). Then write the
+                    // copy to DISK before adopting in-memory (copy-first, PKT-12
+                    // F5): the conditional flush already makes a stale-flush clobber
+                    // impossible in either order (its base is the pre-adopt content,
+                    // so post-adopt it resolves SkippedChanged), so ordering is
+                    // decided by crash durability — persisting the captured edit
+                    // before the adopt means a process death mid-adoption can't lose
+                    // it. iOS adoptExternalChange parity.
                     saveJob?.cancel()
                     val localEdit = content
                     val parts = splitId(noteId)
-                    host.applyExternalContent(disk)
-                    content = disk
-                    savedContent = disk
                     val date = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
                     store.createNote("${parts.title} (conflict $date)", parts.folder)?.let { copyId ->
                         store.write(copyId, localEdit)
                     }
+                    host.applyExternalContent(disk)
+                    content = disk
+                    savedContent = disk
                     Toast.makeText(context, "Conflicting edits saved to a copy", Toast.LENGTH_SHORT).show()
                 }
             }
