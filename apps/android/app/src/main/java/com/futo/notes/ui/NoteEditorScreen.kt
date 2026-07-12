@@ -53,6 +53,7 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import com.futo.notes.ImagePicker
 import com.futo.notes.NotesStore
+import com.futo.notes.PendingDraft
 import com.futo.notes.saveImageDataIntoVault
 import com.futo.notes.saveImageIntoVault
 import com.futo.notes.ui.components.ConfirmDialog
@@ -170,6 +171,13 @@ fun NoteEditorScreen(
     DisposableEffect(noteId) {
         onDispose {
             saveJob?.cancel()
+            // Stop providing a draft once this editor is gone, so a later
+            // leave-foreground flush can't rewrite this note (iOS onDisappear
+            // parity). Id-guarded: a cross-fade (AnimatedContent) can compose the
+            // next screen before this one disposes, so only clear THIS note's
+            // draft — never the incoming screen's. The explicit flush below still
+            // persists a dirty exit.
+            store.clearPendingDraftForNote(noteId)
             // Discard an untouched quick-capture note: opened brand-new
             // (autoFocus), never renamed (id unchanged AND title still the
             // created placeholder), body still empty. Backing out leaves nothing
@@ -200,17 +208,27 @@ fun NoteEditorScreen(
                         host.applyExternalContent(disk)
                         content = disk
                         savedContent = disk
+                        // Adopted the remote content: any draft for this note is
+                        // now pre-adopt-stale, so a background flush of it would
+                        // clobber the peer's edit (CRITICAL). Id-guarded so it
+                        // never touches another note's draft.
+                        store.clearPendingDraftForNote(noteId)
                     }
                 }
                 disk == content -> {
                     // Our own save echoed back through the rescan — mark clean.
                     savedContent = disk
+                    store.clearPendingDraftForNote(noteId)
                 }
                 disk != savedContent -> {
                     // Dirty draft + a real remote change: cancel the pending
                     // save, park the draft as a conflict copy (Rust uniques the
-                    // title), then adopt the remote content.
+                    // title), then adopt the remote content. Drop the pending
+                    // draft FIRST — otherwise a leave-foreground flush would
+                    // rewrite the parked local edit over the adopted remote
+                    // content (data loss). iOS adoptExternalChange parity.
                     saveJob?.cancel()
+                    store.setPendingDraft(null)
                     val date = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
                     val parts = splitId(noteId)
                     store.createNote("${parts.title} (conflict $date)", parts.folder)?.let { copyId ->
@@ -219,6 +237,10 @@ fun NoteEditorScreen(
                     host.applyExternalContent(disk)
                     content = disk
                     savedContent = disk
+                    // A keystroke during the awaited createNote/write window
+                    // republishes a draft that was never re-cleared; drop it now
+                    // that the remote content is adopted (id-guarded).
+                    store.clearPendingDraftForNote(noteId)
                     Toast.makeText(context, "Conflicting edits saved to a copy", Toast.LENGTH_SHORT).show()
                 }
             }
@@ -244,7 +266,12 @@ fun NoteEditorScreen(
             // in-flight save before the file moves — otherwise a stale save
             // would recreate a ghost note at the old id (data loss).
             saveJob?.cancel()
+            // Capture what we're persisting BEFORE the suspending write so a
+            // keystroke that republishes a newer draft mid-write survives the
+            // compare-and-clear (an unconditional clear would lose that edit).
+            val flushed = PendingDraft(noteId, content)
             if (content != savedContent) { store.write(noteId, content); savedContent = content }
+            store.clearPendingDraft(flushed)
             val oldId = noteId
             noteId = store.rename(noteId, target)
             // Repoint every wikilink at the renamed note [editor.md:88] —
@@ -451,14 +478,30 @@ fun NoteEditorScreen(
                         // note on disk. Once loaded, all edits flow through.
                         if (loaded) {
                             content = newContent
+                            // Publish the live draft so MainActivity.onPause can
+                            // flush it before the OS jetsams a backgrounded process,
+                            // even mid-debounce (F8 [editor.md]). Null once the edit
+                            // brings the body back to the saved content — mirrors
+                            // the iOS onChange setPendingDraft.
+                            store.setPendingDraft(
+                                if (newContent != savedContent) PendingDraft(noteId, newContent) else null
+                            )
                             saveJob?.cancel()
                             saveJob = scope.launch {
                                 delay(400)
                                 // Re-read noteId at fire time so a save that lands
                                 // after a rename writes to the renamed note, not the
                                 // stale id.
+                                val flushed = PendingDraft(noteId, newContent)
                                 store.write(noteId, newContent)
                                 savedContent = newContent
+                                // Clear only the draft we just persisted. A keystroke
+                                // that republished a newer draft while write was
+                                // suspended survives (compare-and-clear) — otherwise
+                                // every background after a save would rewrite identical
+                                // content (mtime bump + spurious sync push), and a
+                                // stale draft could clobber a later adopt.
+                                store.clearPendingDraft(flushed)
                             }
                         }
                     },
@@ -504,6 +547,10 @@ fun NoteEditorScreen(
                 // store.delete swallows its own errors (never throws), so there's
                 // no failure state to withhold the confirmation for.
                 savedContent = content
+                // Drop this note's pending draft so a leave-foreground flush can't
+                // resurrect the deleted note. Id-guarded for the same reason as
+                // onDispose — never wipe another screen's draft. iOS deleteNote parity.
+                store.clearPendingDraftForNote(noteId)
                 scope.launch { store.delete(noteId) }
                 Toast.makeText(context, "Note deleted", Toast.LENGTH_SHORT).show()
                 onBack()
@@ -522,7 +569,11 @@ fun NoteEditorScreen(
                     // Flush the draft to the CURRENT id before the file moves —
                     // a stale save would recreate a ghost at the old id.
                     saveJob?.cancel()
+                    // Capture before the suspending write; compare-and-clear so a
+                    // mid-write keystroke's newer draft is not wiped (iOS prepareMove parity).
+                    val flushed = PendingDraft(noteId, content)
                     if (content != savedContent) { store.write(noteId, content); savedContent = content }
+                    store.clearPendingDraft(flushed)
                     if (isNew) store.createFolder(folder)
                     val oldId = noteId
                     val moved = store.moveNote(noteId, folder)

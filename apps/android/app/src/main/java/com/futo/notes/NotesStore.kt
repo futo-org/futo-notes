@@ -37,6 +37,53 @@ data class NoteItem(
 internal val noteListOrder: Comparator<NoteItem> =
     compareByDescending<NoteItem> { it.modifiedMs }.thenBy { it.id }
 
+/** An open editor's unsaved draft: the note [id] to persist and the [content]
+ *  to write to it. The editor publishes this on every keystroke and the
+ *  Activity's onPause flushes it before the OS can jetsam the backgrounded
+ *  process (F8 parity with iOS). Mirrors the iOS `pendingDraft` tuple. */
+data class PendingDraft(val id: String, val content: String)
+
+/**
+ * The open editor's unsaved-draft register and its leave-foreground flush,
+ * factored out of [NotesStore]/Compose so the F8 jetsam-guard decision is
+ * unit-testable — apps/android ships JUnit only (no Robolectric/coroutines-test),
+ * so the FFI-backed [NotesStore] can't be constructed in a JVM test.
+ *
+ * The open editor publishes its draft on every keystroke via [set] (or null when
+ * the body goes clean / the editor closes); MainActivity.onPause calls [flush] at
+ * the FIRST leave-foreground signal. Idempotent, and a no-op when the draft is
+ * clean. Mirrors iOS `NotesStore.pendingDraft` + `flushPendingEditor` [editor.md].
+ */
+internal class PendingEditorDraft(private val persist: (id: String, content: String) -> Unit) {
+    private var draft: PendingDraft? = null
+
+    fun set(draft: PendingDraft?) {
+        this.draft = draft
+    }
+
+    /** Persist the pending draft, if any. No-op when clean / closed; safe to
+     *  call at every leave-foreground signal. */
+    fun flush() {
+        draft?.let { persist(it.id, it.content) }
+    }
+
+    /** Clear the register ONLY if it still holds exactly [expected] (id AND
+     *  content). Compare-and-clear: a keystroke that republished a newer draft
+     *  while a save was suspended mid-write is preserved — an unconditional
+     *  clear would wipe it and lose that edit on the next background. */
+    fun clearIf(expected: PendingDraft) {
+        if (draft == expected) draft = null
+    }
+
+    /** Clear the register ONLY if its draft is for note [id]. Lets a screen drop
+     *  its OWN note's draft (dispose / adopt) without wiping a draft the next
+     *  screen already published for a different note during the AnimatedContent
+     *  cross-fade overlap. */
+    fun clearIfNoteId(id: String) {
+        if (draft?.id == id) draft = null
+    }
+}
+
 /**
  * Reactive shell around the Rust note domain (`NoteStore`, UniFFI) — the exact
  * counterpart of the iOS `NotesStore.swift`. ALL business logic (filename/tag
@@ -131,6 +178,35 @@ class NotesStore(notesRoot: File) {
             if (withContext(Dispatchers.IO) { core.exists(id) }) write(id, content)
         }
     }
+
+    /** The open editor's unsaved-draft register (F8 jetsam guard). The editor
+     *  publishes its draft here on every keystroke via [setPendingDraft]; the
+     *  Activity's onPause calls [flushPendingEditor] so an edit caught inside the
+     *  400 ms autosave debounce is persisted before the OS can kill the
+     *  backgrounded process. Mirrors iOS `NotesStore.pendingDraft`. */
+    private val pendingEditor = PendingEditorDraft { id, content -> flushAsync(id, content) }
+
+    /** The editor publishes its current unsaved draft (id + content), or null
+     *  when the body is clean / the editor is closed. Mirrors iOS `setPendingDraft`. */
+    fun setPendingDraft(draft: PendingDraft?) = pendingEditor.set(draft)
+
+    /** Flush the open editor's pending draft to disk if it has unsaved edits.
+     *  Called from MainActivity.onPause (the first leave-foreground signal).
+     *  Fire-and-forget via [flushAsync], which re-checks existence off-main so a
+     *  note deleted while open is never resurrected. Mirrors iOS `flushPendingEditor`.
+     *  Best-effort: the write is fire-and-forget, so an immediate process death
+     *  can still beat it (same on iOS). */
+    fun flushPendingEditor() = pendingEditor.flush()
+
+    /** Compare-and-clear: drop the register only if it still holds exactly
+     *  [expected]. Used after a save completes so a newer draft published while
+     *  the write was suspended survives (see [PendingEditorDraft.clearIf]). */
+    fun clearPendingDraft(expected: PendingDraft) = pendingEditor.clearIf(expected)
+
+    /** Clear the register only if its draft is for note [id]. Used on editor
+     *  dispose / remote-adopt so a screen drops its own note's draft without
+     *  wiping the next screen's during the nav cross-fade overlap. */
+    fun clearPendingDraftForNote(id: String) = pendingEditor.clearIfNoteId(id)
 
     /** Write a note, updating the in-memory row in place (no full rescan) so the
      *  list's identity/order stays stable while typing — mirrors the iOS

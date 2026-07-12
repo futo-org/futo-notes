@@ -439,10 +439,13 @@ EditorWebView.swift, EditorWebView.kt
   NoteEditorView.swift `commitRename`
 - Leaving the editor flushes a pending save only if the content changed and the
   note still exists.
-- Backgrounding the app flushes the open editor's pending edit before the OS
-  can jetsam the process, so an edit caught inside the autosave debounce is not
-  lost. → FutoNotesApp scenePhase `.inactive`/`.background` → NotesStore
-  `flushPendingEditor` _(iOS)_
+- Backgrounding the app makes a **best-effort** flush of the open editor's
+  pending edit at the first leave-foreground signal, so an edit caught inside the
+  autosave debounce is usually persisted before the OS jetsams the process. The
+  flush is fire-and-forget, so an immediate process death can still beat the
+  write — true on both native shells. → Android MainActivity `onPause` →
+  `NotesStore.flushPendingEditor`; iOS FutoNotesApp scenePhase
+  `.inactive`/`.background` → `NotesStore.flushPendingEditor`
 - An empty title shows the placeholder "Untitled"; the title field strips
   newlines.
 - The editor chrome shows **no word count** (or any other document
