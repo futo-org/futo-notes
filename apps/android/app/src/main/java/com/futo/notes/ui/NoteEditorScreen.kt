@@ -223,6 +223,12 @@ fun NoteEditorScreen(
     // preserved, history suppressed); a dirty draft against a REAL remote
     // change is parked as a conflict copy first — neither side's edit is lost.
     LaunchedEffect(initialNoteId) {
+        // This emits when `store.notes` changes by list equality. A sync write
+        // (including a PUSH-side merge, F2) is seen because apply_delta stamps
+        // the merged file's mtime (orchestrator.rs:312-314) → NoteItem.modifiedMs
+        // differs → the list is unequal → collect fires and re-reads disk. If a
+        // future refactor stops stamping merged-write mtimes, this reload chain
+        // breaks silently for a same-length merge — keep the stamp.
         snapshotFlow { store.notes }.collect {
             if (!loaded || !store.exists(noteId)) return@collect
             val disk = store.read(noteId)
