@@ -49,6 +49,35 @@ function walk(dir, exts, out = []) {
   return out;
 }
 
+// Plain single-regex scan mode (default): the concept's occurrence is a
+// distinctive, name-bound token (a function definition, a named constant) —
+// order/spelling variance isn't a concern.
+function regexMatcher({ pattern, flags }) {
+  const re = new RegExp(pattern, flags ?? '');
+  return (text) => re.test(text);
+}
+
+// Token-cluster scan mode: for a concept whose occurrence is an unordered
+// SET of literal tokens (e.g. the image-extension list), a single ordered
+// regex is too brittle — a copy with the tokens dotted, re-sorted, or
+// wrapped in `new Set([...])` instead of a bare array silently slips past
+// it. Finds every bracketed literal region ([...] — covers TS arrays, Rust
+// `&[...]` slices, and `Set([...])` since the inner `[...]` still matches),
+// then flags a region containing >= minDistinct DISTINCT tokens (case-
+// insensitive, optional leading dot, either quote style) as an occurrence —
+// regardless of order, dottedness, or quote style.
+function tokenClusterMatcher({ tokens, minDistinct }) {
+  const tokenRe = new RegExp(`['"]\\.?(${tokens.join('|')})['"]`, 'gi');
+  const bracketRe = /\[[^[\]]*\]/g;
+  return (text) => {
+    for (const [region] of text.matchAll(bracketRe)) {
+      const distinct = new Set([...region.matchAll(tokenRe)].map((m) => m[1].toLowerCase()));
+      if (distinct.size >= minDistinct) return true;
+    }
+    return false;
+  };
+}
+
 const registry = JSON.parse(fs.readFileSync(REGISTRY_PATH, 'utf8'));
 const failures = [];
 const rel = (p) => path.relative(ROOT, p);
@@ -104,12 +133,15 @@ for (const entry of registry.entries) {
 
   // (c) no NEW unregistered occurrence of the concept's detection pattern.
   if (entry.scan) {
-    const { dirs, extensions, pattern, flags } = entry.scan;
+    const { dirs, extensions } = entry.scan;
     const files = dirs.flatMap((d) => walk(path.join(ROOT, d), extensions));
-    const scanRe = new RegExp(pattern, flags ?? '');
+    const matcher =
+      entry.scan.mode === 'token-cluster'
+        ? tokenClusterMatcher(entry.scan)
+        : regexMatcher(entry.scan);
     for (const file of files) {
       const text = fs.readFileSync(file, 'utf8');
-      if (!scanRe.test(text)) continue;
+      if (!matcher(text)) continue;
       const fileRel = rel(file);
       if (!registeredLocations.has(fileRel)) {
         failures.push(

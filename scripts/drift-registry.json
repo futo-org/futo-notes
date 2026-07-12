@@ -79,7 +79,9 @@
       "scan": {
         "dirs": ["src", "packages/shared/src", "apps/tauri/src-tauri/src", "crates"],
         "extensions": [".ts", ".rs"],
-        "pattern": "\\[\\s*['\"]jpg['\"]\\s*,\\s*['\"]jpeg['\"]\\s*,\\s*['\"]png['\"]|&\\[\\s*\"jpg\",\\s*\"jpeg\",\\s*\"png\""
+        "mode": "token-cluster",
+        "tokens": ["jpg", "jpeg", "png", "gif", "webp"],
+        "minDistinct": 3
       }
     },
     {
