@@ -60,6 +60,7 @@
     getLastSendError,
   } from '$lib/crashReporter';
   import { installTestSync } from '$lib/testSync';
+  import { initSyncPassword } from '$lib/syncServiceE2ee';
   import { searchNotes, isSearchIndexPopulated } from '$features/search/searchIndex';
 
   // Synchronous listener install — keeps OS file drops from navigating the
@@ -167,6 +168,13 @@
           console.warn('Theme/prefs init failed:', e);
         }
       })();
+
+      // Migrate any legacy plaintext vault password into the OS keyring and
+      // load the stored password into memory (F6). Un-awaited: never blocks
+      // render (M1), and initSyncPassword() never throws. Auto-sync gates on
+      // isE2eeConfigured(), which reads the loaded password, so it simply
+      // starts syncing once this resolves.
+      void initSyncPassword();
 
       if (hasFileSystem || import.meta.env.DEV) {
         initNotes((label) => {

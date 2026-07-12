@@ -41,6 +41,12 @@ libc = "0.2"
 tauri-plugin-mcp-bridge = "0.10.0"
 tokio = { version = "1", features = ["sync", "macros", "rt-multi-thread", "time"] }
 
+# OS secret store for the E2EE vault password (F6) lives in the per-OS target
+# tables below. Desktop-only, and deliberately NOT in the portable crates —
+# the note domain must stay free of platform secret-store deps (CI
+# test:rust:dep-guard). Each OS pulls only its own native backend so no
+# D-Bus/Secret-Service code compiles on macOS/Windows.
+
 # Route folder/note deletes through the desktop system trash so users can
 # recover from accidental deletes.
 [target.'cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))'.dependencies]
@@ -54,9 +60,16 @@ tauri-plugin-updater = "2"
 [target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
 tauri-plugin-single-instance = "2"
 
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3", features = ["apple-native"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "3", features = ["windows-native"] }
+
 [target.'cfg(target_os = "linux")'.dependencies]
 tauri-plugin-single-instance = "2"
 glib = "0.18"
+keyring = { version = "3", features = ["sync-secret-service", "crypto-rust"] }
 
 [lints.clippy]
 too_many_lines = "warn"

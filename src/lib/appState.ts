@@ -37,13 +37,19 @@ export interface AppState {
   e2eeUserId?: string;
   e2eeCollectionId?: string;
   e2eeSalt?: string;
+  // The vault password is NEVER stored here. It used to live in plaintext as
+  // `e2eePassword` (F6) — any vault backup/Syncthing/Dropbox/`git init` leaked
+  // it. It now lives in the OS keyring, owned by `syncServiceE2ee.ts` via the
+  // `e2ee_password_*` Tauri commands. `sanitize()` drops any legacy field so a
+  // pre-migration file can never re-persist it (see `getLegacyE2eePassword`).
   /**
-   * Remembered vault password (plaintext). Stored so auto-sync can re-derive
-   * the vault key after an app restart without prompting. Lives in the app
-   * data file — anyone with disk access to the profile directory can read
-   * it. Cleared on disconnect or via "Forget password" in Settings.
+   * Non-secret marker: a disconnect / "forget password" / Full reset could not
+   * reach the keyring to delete the stored vault password, so an orphaned OS
+   * credential remains. `syncServiceE2ee.initSyncPassword()` retries the delete
+   * on the next launch and clears this once it succeeds (K3). Never holds the
+   * password itself — only the fact that a deletion is outstanding.
    */
-  e2eePassword?: string;
+  pendingKeyringDeletion?: boolean;
   // E2EE bookkeeping (`e2eeObjectMap`, `e2eeMaxVersion`) lives in
   // `.e2ee-state.json` owned by Rust now. Legacy values in
   // `.app-state.json` are migrated on first sync (see Rust
@@ -83,6 +89,27 @@ function defaultState(): AppState {
 // ── In-memory cache ────────────────────────────────────────────────────
 
 let cached: AppState | null = null;
+
+// Legacy plaintext vault password read out of `.app-state.json` on load, held
+// as a "holdover" until `syncServiceE2ee.initSyncPassword()` confirms it into
+// the OS keyring. `sanitize()` never keeps it in `cached`, so while this is
+// set `saveAppState()` re-injects it on every write — otherwise any save that
+// interleaves the keyring migration (theme change, sync timestamp, …) would
+// scrub the field, and a subsequent keyring-write failure would leave the
+// password in NEITHER place (K1). Cleared only by `clearLegacyE2eePassword()`,
+// after the keyring write is confirmed, after which the next save scrubs it.
+let legacyE2eePassword: string | undefined;
+
+/** Peek at the legacy plaintext password captured during load (no clear). */
+export function getLegacyE2eePassword(): string | undefined {
+  return legacyE2eePassword;
+}
+
+/** Stop re-injecting the legacy password — call ONLY after the keyring write
+ *  is confirmed, so the next `saveAppState()` scrubs it from disk. */
+export function clearLegacyE2eePassword(): void {
+  legacyE2eePassword = undefined;
+}
 
 // ── Sanitization ───────────────────────────────────────────────────────
 
@@ -130,7 +157,11 @@ function sanitize(raw: unknown): AppState {
     ...(typeof obj.e2eeUserId === 'string' ? { e2eeUserId: obj.e2eeUserId } : {}),
     ...(typeof obj.e2eeCollectionId === 'string' ? { e2eeCollectionId: obj.e2eeCollectionId } : {}),
     ...(typeof obj.e2eeSalt === 'string' ? { e2eeSalt: obj.e2eeSalt } : {}),
-    ...(typeof obj.e2eePassword === 'string' ? { e2eePassword: obj.e2eePassword } : {}),
+    // Only persist the deletion marker while it is actually outstanding (K3).
+    ...(obj.pendingKeyringDeletion === true ? { pendingKeyringDeletion: true } : {}),
+    // `e2eePassword` is intentionally NOT passed through — dropping it here
+    // scrubs the legacy plaintext field on the next save (F6). The value is
+    // captured for one-time keyring migration by `loadAppState` below.
     // `e2eeObjectMap` / `e2eeMaxVersion` from old builds: Rust migrates
     // them on first connect (see `sync_state::load_or_migrate`) and the
     // next saveAppState() drops them by not reading them back here.
@@ -186,7 +217,11 @@ export async function loadAppState(): Promise<AppState> {
   try {
     const data = await fs.readAppData(APP_STATE_PATH);
     if (data) {
-      cached = sanitize(JSON.parse(data));
+      const parsed = JSON.parse(data);
+      if (typeof parsed?.e2eePassword === 'string' && parsed.e2eePassword.length > 0) {
+        legacyE2eePassword = parsed.e2eePassword;
+      }
+      cached = sanitize(parsed);
       return cached;
     }
   } catch {
@@ -209,11 +244,38 @@ export function getAppState(): AppState {
   return defaultState();
 }
 
+// Serialize the actual file writes so they COMPLETE in call order (R1). The
+// payload is snapshotted synchronously at call time (below), but two writes
+// whose I/O overlaps could otherwise finish out of order — e.g. an earlier
+// save that captured the plaintext holdover finishing AFTER the migration's
+// post-confirm scrub, restoring the plaintext as the final on-disk state.
+let writeChain: Promise<void> = Promise.resolve();
+
 export async function saveAppState(state: AppState): Promise<void> {
   cached = state;
   if (!hasFileSystem) return;
-  const fs = await getPlatformFS();
-  await fs.writeAppData(APP_STATE_PATH, JSON.stringify(state));
+  const serialized: Record<string, unknown> = { ...state };
+  // K1: while a legacy plaintext password is mid-migration to the keyring,
+  // keep re-writing it to disk so an interleaved save can't strand the user
+  // with the password in neither place. Confirmed migration calls
+  // `clearLegacyE2eePassword()`, after which this stops and the field is
+  // scrubbed on the next write. The holdover is read HERE (call time), so the
+  // scrub's payload is fixed before it joins the write chain.
+  if (legacyE2eePassword !== undefined) {
+    serialized.e2eePassword = legacyE2eePassword;
+  }
+  const payload = JSON.stringify(serialized);
+  const run = writeChain.then(async () => {
+    const fs = await getPlatformFS();
+    await fs.writeAppData(APP_STATE_PATH, payload);
+  });
+  // Keep the chain alive even if this write rejects, so one failure doesn't
+  // wedge every later save.
+  writeChain = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
 }
 
 export async function updateAppState(
@@ -230,7 +292,6 @@ export async function updateAppState(
       | 'e2eeUserId'
       | 'e2eeCollectionId'
       | 'e2eeSalt'
-      | 'e2eePassword'
     >
   >,
 ): Promise<void> {
