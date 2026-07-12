@@ -394,6 +394,63 @@ fn delete_folder_removes_tree_and_spares_siblings() {
     fs::remove_dir_all(&root).ok();
 }
 
+// ── write_note_if_unchanged: compare-and-swap flush (PKT-12) ─────────────
+use futo_notes_model::FlushOutcome;
+
+// A clean note (disk still matches the caller's snapshot) is overwritten.
+#[test]
+fn write_if_unchanged_writes_when_base_matches() {
+    let root = temp_root();
+    model::write_note(&root, "Note", "v1").unwrap();
+    let out = model::write_note_if_unchanged(&root, "Note", "v1", "v2").unwrap();
+    assert_eq!(out, FlushOutcome::Wrote);
+    assert_eq!(model::read_note(&root, "Note"), "v2");
+    fs::remove_dir_all(&root).ok();
+}
+
+// A note deleted while the editor was backgrounded is NEVER resurrected — the
+// key regression: the old `note_exists`-then-`write_note` sequence would
+// recreate the file if the delete landed between the two calls. This asserts
+// the primitive's SkippedMissing branch creates nothing.
+#[test]
+fn write_if_unchanged_never_resurrects_missing_note() {
+    let root = temp_root();
+    // Note was never created (or was deleted while the editor was open).
+    let out = model::write_note_if_unchanged(&root, "Gone", "stale", "flushed").unwrap();
+    assert_eq!(out, FlushOutcome::SkippedMissing);
+    assert!(!model::note_exists(&root, "Gone"));
+    assert!(!root.join("Gone.md").exists(), "flush must not create the file");
+    fs::remove_dir_all(&root).ok();
+}
+
+// Content adopted from a live-sync pull since the editor's last read is
+// preserved: the stale flush is dropped, the adopted bytes survive.
+#[test]
+fn write_if_unchanged_preserves_content_changed_since_snapshot() {
+    let root = temp_root();
+    model::write_note(&root, "Note", "base").unwrap();
+    // A live pull adopted the peer's content after the editor last saved.
+    model::write_note(&root, "Note", "remote-adopted").unwrap();
+    // The backgrounded editor flushes against its now-stale base.
+    let out = model::write_note_if_unchanged(&root, "Note", "base", "local-stale").unwrap();
+    assert_eq!(out, FlushOutcome::SkippedChanged);
+    assert_eq!(
+        model::read_note(&root, "Note"),
+        "remote-adopted",
+        "adopted remote content must not be clobbered by a stale flush"
+    );
+    fs::remove_dir_all(&root).ok();
+}
+
+// Traversal ids are rejected before any fs work (same guard as write_note).
+#[test]
+fn write_if_unchanged_rejects_path_traversal() {
+    let root = temp_root();
+    assert!(model::write_note_if_unchanged(&root, "../escape", "", "x").is_err());
+    assert!(!root.parent().unwrap().join("escape.md").exists());
+    fs::remove_dir_all(&root).ok();
+}
+
 // ── first-run seeding: shared across every shell ─────────────────────────
 #[test]
 fn seed_if_empty_writes_one_welcome_note_then_is_idempotent() {
