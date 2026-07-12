@@ -705,9 +705,22 @@ upload. Desktop sync module ownership and serialization boundaries are fixed by
   remote content is adopted into the editor, and a "Conflicting edits saved
   to a copy" toast fires. A draft that already reached disk is covered by
   the push-first 409 machinery above instead. On Android the local edit is
-  captured immediately before the remote is adopted, so any keystroke typed up
-  to the moment of adoption is folded into the conflict copy (PKT-12 item 5);
-  the remote is adopted first so a background flush during the copy write can't
-  clobber it. Verified on the emulator 2026-06-09 (held-dirty draft + peer edit
-  → copy contained the draft, editor showed the remote).
+  captured after the conflict-copy id is minted and immediately before the
+  copy is written; the copy lands on DISK first and the remote is adopted
+  last (crash-durable: a process death mid-flow never loses the captured
+  edit; a stale background flush can't clobber the adopted remote because
+  the conditional write skips on changed base — PKT-12 final ordering).
+  Verified on the emulator 2026-06-09 (held-dirty draft + peer edit → copy
+  contained the draft, editor showed the remote).
   → NoteEditorScreen.kt / NoteEditorView.swift
+- A peer **deleting the currently-open note** closes the open session (route →
+  home, "Note was deleted during sync" toast) instead of adopting its content;
+  an unsaved local draft is kept open with an "Open note was deleted during
+  sync; keeping local draft" toast rather than closed *(desktop)*. The path
+  branches on `summary.deletedIds` — `read_note` returns `""` for a missing
+  file on Tauri, so reading a deleted id yields `""`, and the old adopt-`""`
+  path blanked the editor while the session stayed bound to the deleted id, so
+  the next keystroke re-created the file and undid the delete fleet-wide (F4).
+  → syncManager `handleSyncComplete` (guarded by "peer delete of open note
+  closes editor" in tests/cross-platform-sync.mjs + the F4 seam tests in
+  src/lib/syncManager.test.ts)

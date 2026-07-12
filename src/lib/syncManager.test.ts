@@ -756,3 +756,156 @@ describe('focus guard: no external adopt into a focused editor', () => {
     expect(refreshNotesFromStorage).toHaveBeenCalledTimes(1);
   });
 });
+
+// Regression (F4): a peer that deletes the currently-open note used to blank
+// the editor and resurrect the file. read_note returns "" for a missing file
+// on Tauri (crud.rs scan-time tolerance, contract §8.3), so the post-sync adopt
+// path read "" and called applyExternalContent("") — leaving the session bound
+// to the deleted id, so the next keystroke re-created the file and undid the
+// peer's delete fleet-wide. handleSyncComplete must instead branch on
+// summary.deletedIds and close the open session (never adopt ""), mirroring the
+// local-watcher unlink-of-open-note path.
+describe('F4: peer-delete of the open note closes the session, never adopts ""', () => {
+  const emptySummary: SyncSummary = {
+    uploaded: 0,
+    downloaded: 0,
+    deleted: 0,
+    conflicts: 0,
+    failures: [],
+    failureMessage: null,
+    updatedIds: [],
+    deletedIds: [],
+    renamed: [],
+    peerUpdatedIds: [],
+    peerDeletedIds: [],
+  };
+
+  function makeDeps(overrides: Partial<SyncManagerDeps>): SyncManagerDeps {
+    return {
+      getOriginalId: () => null,
+      getEditVersion: () => 0,
+      isSavePending: () => false,
+      hasOpenDraftChanges: () => false,
+      getLastEditTime: () => 0,
+      applyExternalContent: () => {},
+      applyRemoteRename: () => {},
+      cancelAndClear: () => {},
+      flushSave: async () => {},
+      getEditorContent: () => undefined,
+      isComposing: () => false,
+      isEditorFocused: () => false,
+      patchGraphNode: () => {},
+      clearGraphData: () => {},
+      showToast: () => {},
+      navigate: () => {},
+      getNoteId: () => null,
+      getPrevNoteId: () => null,
+      setPrevNoteId: () => {},
+      ...overrides,
+    };
+  }
+
+  beforeEach(() => {
+    // Tauri production semantics: read_note returns "" for a missing file.
+    vi.mocked(readNote).mockReset();
+    vi.mocked(readNote).mockResolvedValue('');
+    vi.mocked(refreshNotesFromStorage).mockClear();
+  });
+
+  it('closes the open session and toasts instead of blanking the editor', async () => {
+    const applyExternalContent = vi.fn();
+    const cancelAndClear = vi.fn();
+    const toasts: string[] = [];
+    const mgr = createSyncManager(
+      makeDeps({
+        getOriginalId: () => 'Doomed',
+        getEditorContent: () => 'OLD CONTENT',
+        isEditorFocused: () => false,
+        applyExternalContent,
+        cancelAndClear,
+        showToast: (m) => toasts.push(m),
+      }),
+    );
+
+    await mgr.handleSyncComplete(
+      { ...emptySummary, deleted: 1, deletedIds: ['Doomed'], peerDeletedIds: ['Doomed'] },
+      'poll',
+    );
+
+    expect(applyExternalContent).not.toHaveBeenCalled();
+    expect(cancelAndClear).toHaveBeenCalledTimes(1);
+    expect(toasts).toEqual(['Note was deleted during sync']);
+  });
+
+  it('keeps an unsaved local draft (never closes) when the deleted open note has draft changes', async () => {
+    const applyExternalContent = vi.fn();
+    const cancelAndClear = vi.fn();
+    const toasts: string[] = [];
+    const mgr = createSyncManager(
+      makeDeps({
+        getOriginalId: () => 'DirtyDoomed',
+        getEditorContent: () => 'LOCAL EDIT',
+        hasOpenDraftChanges: () => true,
+        isEditorFocused: () => false,
+        applyExternalContent,
+        cancelAndClear,
+        showToast: (m) => toasts.push(m),
+      }),
+    );
+
+    await mgr.handleSyncComplete(
+      {
+        ...emptySummary,
+        deleted: 1,
+        deletedIds: ['DirtyDoomed'],
+        peerDeletedIds: ['DirtyDoomed'],
+      },
+      'poll',
+    );
+
+    expect(cancelAndClear).not.toHaveBeenCalled();
+    expect(applyExternalContent).not.toHaveBeenCalled();
+    expect(toasts).toEqual(['Open note was deleted during sync; keeping local draft']);
+    expect(refreshNotesFromStorage).toHaveBeenCalledTimes(1);
+  });
+
+  it('still follows a collision-rename of the open note rather than closing it', async () => {
+    // fromId shows up in deletedIds but a collision-suffixed variant is in
+    // updatedIds — that is a rename, resolved by the activeRename block before
+    // the delete branch, so the session must NOT be closed.
+    // applyActiveRename reads window.location.hash (node env has no window).
+    vi.stubGlobal('window', { location: { hash: '' } });
+    const applyExternalContent = vi.fn();
+    const cancelAndClear = vi.fn();
+    // The real noteSession moves originalId to the new id when a remote rename
+    // is applied; model that so the re-read after the rename sees 'Renamed (2)'.
+    let currentId = 'Renamed';
+    const mgr = createSyncManager(
+      makeDeps({
+        getOriginalId: () => currentId,
+        getEditorContent: () => 'OLD CONTENT',
+        isEditorFocused: () => false,
+        applyExternalContent,
+        cancelAndClear,
+        applyRemoteRename: (newId: string) => {
+          currentId = newId;
+        },
+      }),
+    );
+
+    await mgr.handleSyncComplete(
+      {
+        ...emptySummary,
+        updatedIds: ['Renamed (2)'],
+        deletedIds: ['Renamed'],
+        renamed: [{ fromId: 'Renamed', toId: 'Renamed (2)' }],
+        peerUpdatedIds: ['Renamed (2)'],
+        peerDeletedIds: ['Renamed'],
+      },
+      'poll',
+    );
+
+    expect(cancelAndClear).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+});

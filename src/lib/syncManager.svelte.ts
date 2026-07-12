@@ -487,11 +487,25 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
 
     // Reload only when sync actually touched the currently-open note.
     const currentOriginalId = deps.getOriginalId();
-    if (
-      currentOriginalId &&
-      (summary.updatedIds.includes(currentOriginalId) ||
-        summary.deletedIds.includes(currentOriginalId))
-    ) {
+    if (currentOriginalId && summary.deletedIds.includes(currentOriginalId)) {
+      // F4: a peer deleted the currently-open note. Renames were already
+      // resolved by the activeRename block above (a collision-rename shows the
+      // old id in deletedIds), so a still-deleted open id here is a genuine
+      // delete, not a rename. read_note returns "" for a missing file on Tauri
+      // (crud.rs scan-time tolerance — the contract stays ""), so feeding this
+      // id into the adopt path below would blank the editor while the session
+      // stayed bound to the deleted id; the next keystroke would re-create the
+      // file and undo the peer's delete fleet-wide. Never adopt "" — mirror the
+      // local-watcher unlink-of-open-note path instead: keep an unsaved draft,
+      // otherwise close the session.
+      if (deps.hasOpenDraftChanges()) {
+        deps.showToast('Open note was deleted during sync; keeping local draft');
+        await refreshNotesFromStorage();
+      } else {
+        deps.cancelAndClear();
+        deps.showToast('Note was deleted during sync');
+      }
+    } else if (currentOriginalId && summary.updatedIds.includes(currentOriginalId)) {
       try {
         const freshContent = await readNote(currentOriginalId);
         if (freshContent !== deps.getEditorContent()) {
@@ -518,21 +532,13 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
           deps.applyRemoteRename(currentOriginalId, meta.title);
         }
       } catch {
-        // If originalId changed during the await (local rename raced with readNote),
-        // the file legitimately no longer exists under the old name — skip silently.
+        // The open note was updated (it exists), so read_note only rejects on a
+        // genuine IPC failure — or originalId changed mid-await because a local
+        // rename raced. Either way, keep the local draft rather than risk
+        // clobbering it. (The deleted-open-note case is handled above and never
+        // reaches this catch.)
         if (deps.getOriginalId() !== currentOriginalId) return;
-
-        const recoveredRename = findActiveSyncRename(
-          summary,
-          currentOriginalId,
-          writeSuppressor.getRecentRemoteRename(currentOriginalId)?.toId ?? null,
-        );
-        if (recoveredRename && recoveredRename.toId !== currentOriginalId) {
-          writeSuppressor.recordRemoteRename(recoveredRename.fromId, recoveredRename.toId);
-          applyActiveRename(recoveredRename.fromId, recoveredRename.toId);
-        } else {
-          deps.showToast('Open note changed during sync; keeping local draft');
-        }
+        deps.showToast('Open note changed during sync; keeping local draft');
       }
     }
 

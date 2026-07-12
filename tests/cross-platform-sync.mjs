@@ -639,6 +639,56 @@ async function deleteVsEdit(a, b, server) {
   assertEqual(aContent, '# B edited this', "A should get B's edit back");
 }
 
+// F4: a peer deletes the note the observer currently has open. read_note
+// returns "" for a missing file on Tauri, so the old post-sync reload adopted
+// "" into the editor while the session stayed bound to the deleted id — the
+// next keystroke re-created the file and undid the delete fleet-wide. The
+// deleted-open-note branch must instead CLOSE the session (route → '/', toast)
+// and leave the note deleted on both clients.
+async function peerDeleteOfOpenNoteClosesEditor(a, b, server) {
+  await a.connectSync(server.url, server.password);
+  await b.connectSync(server.url, server.password);
+
+  // Pause B's background sync so B's explicit syncNow deterministically OWNS
+  // the pull of A's delete — the deleted-open-note branch only fires for the
+  // cycle whose summary.deletedIds contains the note (mirrors activeNoteReload).
+  await b.pauseAutoSync();
+
+  await a.writeNote('peer deletes me', '# Doomed content');
+  await a.syncNow();
+  await b.syncNow();
+
+  await b.openNote('peer deletes me');
+  await waitForEditorContent(b, '# Doomed content');
+  // A read-only open can start a save debounce; let it settle so the note is
+  // NOT dirty (a dirty draft would take the keep-local-draft branch instead).
+  await waitForSavePending(b, false);
+
+  // A deletes and pushes the tombstone.
+  await a.deleteNote('peer deletes me');
+  await a.syncNow();
+
+  // B pulls the delete — its open editor must close.
+  const bResult = await b.syncNow();
+  assert(
+    bResult.summary.deletedIds?.includes('peer deletes me'),
+    `B should pull the delete; deletedIds=${JSON.stringify(bResult.summary.deletedIds)}`,
+  );
+
+  const closed = await waitForToastMessage(b, 'Note was deleted during sync');
+  assertEqual(closed.originalId, null, 'peer-deleted open note should no longer be the open note');
+  assert(
+    closed.hash !== `#/note/${encodeURIComponent('peer deletes me')}`,
+    `route should leave the deleted note; hash=${closed.hash}`,
+  );
+
+  // No resurrection: the note stays gone on both clients across more syncs.
+  await b.syncNow();
+  await a.syncNow();
+  assert(!(await b.noteExists('peer deletes me')), 'B must not resurrect the deleted note');
+  assert(!(await a.noteExists('peer deletes me')), 'A must not see the note resurrected');
+}
+
 async function lostStateRecovery(a, _b, server) {
   await a.connectSync(server.url, server.password);
 
@@ -1591,6 +1641,11 @@ const scenarios = [
     skipOnCi: true,
   },
   { name: 'delete vs edit', fn: deleteVsEdit, matrices: ['desktop-desktop'] },
+  {
+    name: 'peer delete of open note closes editor',
+    fn: peerDeleteOfOpenNoteClosesEditor,
+    matrices: ['desktop-desktop'],
+  },
   { name: 'lost state recovery', fn: lostStateRecovery, matrices: ['desktop-desktop'] },
   { name: 'rapid reconnect', fn: rapidReconnect, matrices: ['desktop-desktop'] },
   { name: 'offline accumulation', fn: offlineAccumulation, matrices: ['desktop-desktop'] },
