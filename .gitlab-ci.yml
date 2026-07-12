@@ -389,14 +389,17 @@ test:
     - if: $CI_MERGE_REQUEST_IID
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
-# Permanent anti-duplication gates (architecture-hardening.md PKT-7 / L2-4):
-# command reachability (F24 — every registered Tauri command has a caller or
-# an allowlisted reason), platform discipline (F29 — @tauri-apps access stays
-# behind src/lib/platform/** + a frozen allowlist), bridge coverage + version
-# (F11 — the generated Android BridgeSpec.kt matches packages/editor/src/
-# bridge.ts). The constants-conformance gate (F7/F21) and the bridge
-# exhaustiveness type check ride in the `test`/`test:rust`/`test:rust:
-# workspace` jobs already, as ordinary Rust/vitest tests and a tsc error.
+# Permanent anti-duplication gates (architecture-hardening.md PKT-7 / L2-4,
+# PKT-8 / R1-R2): command reachability (F24 — every registered Tauri command
+# has a caller or an allowlisted reason), platform discipline (F29 —
+# @tauri-apps access stays behind src/lib/platform/** + a frozen allowlist),
+# bridge coverage + version (F11 — the generated Android BridgeSpec.kt
+# matches packages/editor/src/bridge.ts), the drift registry (R1 — AGENTS.md
+# §12's permitted-duplicate list as code, deny-by-default) and the debt
+# ratchet (R2 — 4 fuzzy debt counts that can only go down). The
+# constants-conformance gate (F7/F21) and the bridge exhaustiveness type
+# check ride in the `test`/`test:rust`/`test:rust:workspace` jobs already,
+# as ordinary Rust/vitest tests and a tsc error.
 test:arch-gates:
   stage: test
   cache:
@@ -406,6 +409,8 @@ test:arch-gates:
     - node scripts/check-command-reachability.mjs
     - node scripts/check-platform-discipline.mjs
     - pnpm exec tsx scripts/gen-bridge-spec.ts --check
+    - node scripts/drift-check.mjs
+    - node scripts/debt-ratchet.mjs
   rules:
     - if: $CI_COMMIT_TAG
     - if: $CI_MERGE_REQUEST_IID
