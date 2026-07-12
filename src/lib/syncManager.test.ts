@@ -46,13 +46,16 @@ vi.mock('./notes.svelte', async (importOriginal) => {
   return {
     ...actual,
     readNote: vi.fn(async () => ''),
+    // Default: a note this cycle deleted is GONE from disk (the F4 case). Tests
+    // that model a recreate override this to true for the recreated id.
+    noteExists: vi.fn(async () => false),
     handleExternalFileChange: vi.fn(async () => {}),
     refreshNotesFromStorage: vi.fn(async () => {}),
   };
 });
 
 import { findActiveSyncRename, createSyncManager, getSyncErrorMessage } from './syncManager.svelte';
-import { readNote, refreshNotesFromStorage } from './notes.svelte';
+import { readNote, noteExists, refreshNotesFromStorage } from './notes.svelte';
 import { engineNotify } from '$features/search/searchEngine';
 import { updateAppState } from './appState';
 import type { SyncManagerDeps } from './syncManager.svelte';
@@ -809,6 +812,9 @@ describe('F4: peer-delete of the open note closes the session, never adopts ""',
     // Tauri production semantics: read_note returns "" for a missing file.
     vi.mocked(readNote).mockReset();
     vi.mocked(readNote).mockResolvedValue('');
+    // Default: a deleted note is gone from disk (F4). Recreate tests override.
+    vi.mocked(noteExists).mockReset();
+    vi.mocked(noteExists).mockResolvedValue(false);
     vi.mocked(refreshNotesFromStorage).mockClear();
   });
 
@@ -911,10 +917,11 @@ describe('F4: peer-delete of the open note closes the session, never adopts ""',
 
   // W1: a peer can delete note X and recreate the same filename before this
   // client pulls, so the combined push+pull summary can carry X in BOTH
-  // deletedIds and updatedIds. The open note must adopt the replacement, not
-  // close.
-  it('adopts the replacement when the open note is deleted AND recreated in the same summary', async () => {
+  // deletedIds and updatedIds. Existence — not updatedIds membership — decides:
+  // if X is on disk it was recreated → adopt; if gone it was tombstoned → close.
+  it('adopts the replacement when the open note was deleted then recreated ON DISK', async () => {
     vi.mocked(readNote).mockResolvedValue('# Recreated content');
+    vi.mocked(noteExists).mockResolvedValue(true); // recreated → present on disk
     const applyExternalContent = vi.fn();
     const cancelAndClear = vi.fn();
     const toasts: string[] = [];
@@ -945,11 +952,55 @@ describe('F4: peer-delete of the open note closes the session, never adopts ""',
     expect(applyExternalContent).toHaveBeenCalledWith('# Recreated content');
   });
 
+  // W1 P1 (the round-2 Codex finding): updatedIds aggregates push AND pull, so
+  // it contains ids WE uploaded. This client pushes an edit to X (X → updatedIds
+  // via push) while a peer tombstones X the same cycle; the pull removes X from
+  // disk. The old "in both lists ⇒ recreated" rule wrongly adopted "" and left
+  // the editor/tab bound → resurrection. Existence is authoritative: file ABSENT
+  // ⇒ close + prune.
+  it('closes and prunes when the open note is in BOTH lists but is GONE from disk (our push + peer tombstone)', async () => {
+    vi.mocked(noteExists).mockResolvedValue(false); // tombstone won — file gone
+    const applyExternalContent = vi.fn();
+    const cancelAndClear = vi.fn();
+    const pruneTabsForDeletedIds = vi.fn();
+    const toasts: string[] = [];
+    const mgr = createSyncManager(
+      makeDeps({
+        getOriginalId: () => 'Contested',
+        getEditorContent: () => 'MY PUSHED EDIT',
+        isEditorFocused: () => false,
+        applyExternalContent,
+        cancelAndClear,
+        pruneTabsForDeletedIds,
+        showToast: (m) => toasts.push(m),
+      }),
+    );
+
+    await mgr.handleSyncComplete(
+      {
+        ...emptySummary,
+        uploaded: 1,
+        updatedIds: ['Contested'], // our own push echoed back
+        deletedIds: ['Contested'], // peer tombstone applied by the pull
+        peerDeletedIds: ['Contested'],
+      },
+      'poll',
+    );
+
+    expect(applyExternalContent).not.toHaveBeenCalled();
+    expect(cancelAndClear).toHaveBeenCalledTimes(1);
+    expect(toasts).toContain('Note was deleted during sync');
+    expect(pruneTabsForDeletedIds).toHaveBeenCalledWith(['Contested']);
+  });
+
   // W2: a peer-deleted note left open in a BACKGROUND tab would resurrect when
   // the user switches to it (loadNote reads "" → blank editor bound to the id →
   // first keystroke re-creates). Prune such tabs; exclude notes this sync
   // recreated (W1) and the open note whose draft was intentionally kept.
-  it('prunes tabs for notes deleted-and-not-recreated by this sync (excludes recreated)', async () => {
+  it('prunes tabs only for deleted notes that are GONE from disk (recreated ones stay)', async () => {
+    // BgGone: tombstoned, absent. Recreated: deleted then recreated, present.
+    // updatedIds membership is irrelevant — existence decides.
+    vi.mocked(noteExists).mockImplementation(async (id: string) => id === 'Recreated');
     const pruneTabsForDeletedIds = vi.fn();
     const mgr = createSyncManager(
       makeDeps({
