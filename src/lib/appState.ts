@@ -132,11 +132,28 @@ export function getLegacySyncState():
   return legacySyncState;
 }
 
-/** Stop re-injecting the legacy sync bookkeeping — call ONLY once the Rust
- *  import has persisted `.e2ee-state.json`, so the next `saveAppState()` scrubs
- *  the now-dead fields from `.app-state.json`. */
-export function clearLegacySyncState(): void {
-  legacySyncState = undefined;
+/**
+ * Scrub the legacy sync bookkeeping from `.app-state.json` — call ONLY once the
+ * Rust import has persisted `.e2ee-state.json` (the fields are then dead, since
+ * `load` prefers `.e2ee-state.json`). Clears the holdover so the write is not
+ * re-injected, then persists.
+ *
+ * BEST-EFFORT: this runs after a connect/sync that has ALREADY committed, so a
+ * transient write failure must never surface as an error. On failure it restores
+ * the holdover (re-captured next boot, re-scrubbed next cycle) and returns
+ * `false`; a no-op when nothing is held returns `true`. Never throws.
+ */
+export async function commitLegacySyncStateScrub(): Promise<boolean> {
+  const held = legacySyncState;
+  if (held === undefined) return true;
+  legacySyncState = undefined; // stop re-injection so the write actually scrubs
+  try {
+    await saveAppState(getAppState());
+    return true;
+  } catch {
+    legacySyncState = held; // keep it — the scrub retries next cycle / boot
+    return false;
+  }
 }
 
 // ── Sanitization ───────────────────────────────────────────────────────

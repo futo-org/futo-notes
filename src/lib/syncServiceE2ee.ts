@@ -15,7 +15,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import {
   clearLegacyE2eePassword,
-  clearLegacySyncState,
+  commitLegacySyncStateScrub,
   getAppState,
   getLegacyE2eePassword,
   getLegacySyncState,
@@ -218,19 +218,23 @@ export function isE2eeConfigured(): boolean {
  * "a connect/resume returned": `e2ee_resume` (the path the pre-port cohort hits
  * on boot) does NOT persist — only `e2ee_connect` and a completed sync cycle
  * do — so clearing on resume alone could drop the map if the app dies before
- * the first cycle. A read error leaves the holdover in place to retry.
+ * the first cycle.
+ *
+ * BEST-EFFORT: this is called AFTER a connect/sync that has already committed,
+ * so it must never turn a completed operation into a reported failure — every
+ * path (the read, the scrub write) is swallowed and logged. A retained holdover
+ * is fully recoverable (re-captured next boot, re-scrubbed next cycle).
  */
 async function scrubLegacySyncStateIfConsumed(): Promise<void> {
   if (!isTauri || getLegacySyncState() === undefined) return;
-  let persisted: string | null;
   try {
-    persisted = await (await getPlatformFS()).readAppData('.e2ee-state.json');
-  } catch {
-    return;
-  }
-  if (persisted != null) {
-    clearLegacySyncState();
-    await saveAppState(getAppState());
+    const persisted = await (await getPlatformFS()).readAppData('.e2ee-state.json');
+    if (persisted == null) return;
+    if (!(await commitLegacySyncStateScrub())) {
+      console.warn('[e2ee] legacy sync-state scrub write failed; will retry next cycle');
+    }
+  } catch (e) {
+    console.warn('[e2ee] legacy sync-state scrub deferred; will retry next cycle:', e);
   }
 }
 

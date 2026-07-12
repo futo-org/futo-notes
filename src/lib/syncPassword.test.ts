@@ -300,6 +300,41 @@ describe('PKT-17 — legacy sync-state holdover across the boot keyring migratio
     expect(parsed.e2eeObjectMap).toBeUndefined();
     expect(parsed.e2eeMaxVersion).toBeUndefined();
   });
+
+  it('best-effort: a rejected scrub write does not fail the committed sync, holdover kept', async () => {
+    const { platform, appState, svc } = await fresh();
+    await platform.testFS.writeAppData(
+      '.app-state.json',
+      seedAppState({ e2eeObjectMap: LEGACY_MAP, e2eeMaxVersion: 7 }),
+    );
+    await svc.initSyncPassword();
+    // Rust imported + persisted `.e2ee-state.json`, so the scrub would fire …
+    await platform.testFS.writeAppData(
+      '.e2ee-state.json',
+      '{"version":1,"object_map":{},"max_version":0,"collection_id":"collection"}',
+    );
+
+    // … but the scrub's app-state write transiently rejects. The sync itself has
+    // already committed server-side, so a failed cleanup must NOT reject it.
+    const failingFS = {
+      ...platform.testFS,
+      async writeAppData() {
+        throw new Error('disk full');
+      },
+    };
+    platform.setActiveFS(failingFS);
+    try {
+      await expect(svc.syncE2ee('pw')).resolves.toBeUndefined();
+      // Holdover retained → the map is not lost and the scrub retries next cycle.
+      expect(appState.getLegacySyncState()).toBeDefined();
+    } finally {
+      platform.resetActiveFS();
+    }
+
+    // The map is still on disk (the failed scrub wrote nothing).
+    const parsed = JSON.parse((await platform.testFS.readAppData('.app-state.json'))!);
+    expect(parsed.e2eeObjectMap).toEqual(LEGACY_MAP);
+  });
 });
 
 describe('K2 — serialization + generation guard', () => {
