@@ -607,6 +607,11 @@ test:rust:macos:
 
 test:cross-platform-sync:
   stage: test
+  # Serialize across pipelines: two concurrent runs = 4 Tauri instances + 2
+  # servers on the same pinned runner, which starves the suite into flaking
+  # ("active note reload" et al. — reliably green single-pipeline, red only
+  # when overlapping). Root-cause fix per M15: contention, not timeouts.
+  resource_group: cross-platform-sync
   # Pin to the fast office runner — see build:android-native.
   tags:
     - dind_fast
