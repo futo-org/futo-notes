@@ -338,9 +338,12 @@ pub fn classify_incoming_sync_path(rel: &str) -> IncomingSyncPath {
         if stem.chars().any(is_forbidden_in_component) {
             return IncomingSyncPath::Reject("forbidden character");
         }
-        if stem.encode_utf16().count() > MAX_TITLE_LENGTH {
-            return IncomingSyncPath::Reject("component exceeds maximum title length");
-        }
+        // Only the FILESYSTEM's hard limit is a rejection: a component past
+        // NAME_MAX bytes fails the write with ENAMETOOLONG and would wedge the
+        // pull. The UI's MAX_TITLE_LENGTH (title character budget) is NOT a
+        // sync-boundary concern — a valid 201–251-byte file dropped straight
+        // into the vault is uploaded by the local scanner and every peer must
+        // accept it, so the boundary stays no stricter than production (B2/C3).
         if component.len() > NAME_MAX {
             return IncomingSyncPath::Reject("component exceeds filesystem name limit");
         }
@@ -1765,22 +1768,20 @@ mod tests {
     }
 
     #[test]
-    fn incoming_rejects_over_length_components() {
-        // B3: MAX_TITLE_LENGTH is UTF-16 code units of the stem; NAME_MAX is
-        // bytes of the whole component. 200 ok, 201 rejected; over-NAME_MAX
-        // (bytes) rejected even under the code-unit cap.
-        let at_limit = format!("{}.md", "a".repeat(MAX_TITLE_LENGTH));
-        assert_eq!(classify_incoming_sync_path(&at_limit), Accept);
-        let over_limit = format!("{}.md", "a".repeat(MAX_TITLE_LENGTH + 1));
-        assert!(matches!(
-            classify_incoming_sync_path(&over_limit),
-            Reject(_)
-        ));
-        // A multibyte stem under 200 code units but over 255 bytes.
-        let multibyte = format!("{}.md", "é".repeat(150)); // 150 units, 300 bytes
-        assert!(matches!(
-            classify_incoming_sync_path(&multibyte),
-            Reject(_)
-        ));
+    fn incoming_length_gate_is_name_max_bytes_only() {
+        // C3: the ONLY length rejection is the filesystem NAME_MAX (255 bytes).
+        // The UI title-character budget (MAX_TITLE_LENGTH) is NOT a sync-boundary
+        // concern — a valid 201-code-unit ASCII name (well under NAME_MAX bytes)
+        // that a peer legitimately produced must ingress, not be rejected.
+        let past_title_budget = format!("{}.md", "a".repeat(MAX_TITLE_LENGTH + 1));
+        assert!(past_title_budget.len() <= NAME_MAX);
+        assert_eq!(classify_incoming_sync_path(&past_title_budget), Accept);
+        // A component past NAME_MAX bytes still rejects (ENAMETOOLONG guard).
+        let over_name_max = format!("{}.md", "a".repeat(NAME_MAX));
+        assert!(matches!(classify_incoming_sync_path(&over_name_max), Reject(_)));
+        // Multibyte: 150×"é" = 300 bytes (> NAME_MAX) rejects even though it is
+        // only 150 UTF-16 units.
+        let multibyte = format!("{}.md", "é".repeat(150));
+        assert!(matches!(classify_incoming_sync_path(&multibyte), Reject(_)));
     }
 }

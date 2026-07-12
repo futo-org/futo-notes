@@ -3052,10 +3052,24 @@ pub async fn run_push(
                 };
                 match safe_restored {
                     Some(restored) => {
+                        // C1: the restore name (server-renamed during the race,
+                        // or healed above) can collide with an UNRELATED note
+                        // already tracked under that name. Writing it there would
+                        // overwrite that note AND replace its map entry — data
+                        // loss. If the target is owned by a DIFFERENT object,
+                        // park the restore at a deterministic conflict copy, the
+                        // same way pull collisions resolve; the existing note
+                        // keeps the canonical name.
+                        let restored = match next.object_map.get(&restored) {
+                            Some(existing) if existing.object_id != entry.object_id => {
+                                collision_conflict_filename(&restored, &entry.object_id)
+                            }
+                            _ => restored,
+                        };
                         // Remove the old (deleted-locally) entry and write the
                         // restored blob in its place. If the restore landed on a
-                        // different filename (server-renamed during the race, or
-                        // healed above) the old filename is dropped from the map.
+                        // different filename (rename/heal/park) the old filename
+                        // is dropped from the map.
                         if filename != restored {
                             removes.insert(filename.clone());
                         }
@@ -3076,9 +3090,13 @@ pub async fn run_push(
                         downloaded += 1;
                     }
                     None => {
-                        // Can't safely materialize the restore — surface it as
-                        // a permanent rejection, don't abort the push, don't
-                        // write a hostile name.
+                        // Can't safely materialize the restore — surface it,
+                        // don't abort the push, don't write a hostile name. C2:
+                        // DROP the stale map entry for the locally-deleted file
+                        // so the next cycle doesn't re-plan the same delete →
+                        // 409 → re-reject forever; the object is left on the
+                        // server (the pull side rejects it once and advances).
+                        removes.insert(filename.clone());
                         failures.push(SyncFailure {
                             filename: restored,
                             kind: FailureKind::Rejected,
@@ -6276,6 +6294,95 @@ mod tests {
             "hostile restore surfaces as a rejection: {:?}",
             summary.failures
         );
+        // C2: the stale map entry for the locally-deleted note is dropped, so
+        // the cycle converges — a second push does NOT re-plan the delete.
+        assert!(
+            !_next.object_map.contains_key("gone.md"),
+            "rejected restore must drop the stale map entry so the delete isn't re-attempted"
+        );
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    // C1 (data loss): a delete-vs-edit restore whose name HEALS onto an
+    // unrelated existing note must NOT overwrite it. The healed restore is
+    // parked at a conflict copy; the existing note keeps its name + content +
+    // map entry, and both survive.
+    #[tokio::test]
+    async fn run_push_heal_restore_parks_on_collision_with_unrelated_note() {
+        let server = MockServer::start().await;
+        // Deleting object oB 409s; its peer edit's path "note .md" heals to
+        // "note.md" — the name an UNRELATED live note (oA) already holds.
+        Mock::given(wm_method("DELETE"))
+            .and(wm_path("/api/collections/c1/objects/oB"))
+            .respond_with(ResponseTemplate::new(409).set_body_json(serde_json::json!({
+                "error": "conflict",
+                "currentVersion": 2,
+                "currentBlobKey": "bk-b"
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(wm_method("GET"))
+            .and(wm_path("/api/blobs/bk-b"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_bytes(enc("note .md", "restored\n").await),
+            )
+            .mount(&server)
+            .await;
+
+        let root = temp_root();
+        std::fs::write(root.join("note.md"), "original\n").unwrap();
+        let meta = std::fs::metadata(root.join("note.md")).unwrap();
+        let mut state = connected_state(&server);
+        // oA: the unrelated live note, fast-pathed (matches disk → not a push
+        // candidate).
+        state.object_map.insert(
+            "note.md".to_owned(),
+            E2eeObjectMapEntry {
+                object_id: "oA".to_owned(),
+                version: 1,
+                blob_key: "bk-a".to_owned(),
+                hash: Some(hash_sha256("original\n")),
+                mtime_ms: Some(file_mtime_ms(&meta)),
+                size_bytes: Some(meta.len()),
+            },
+        );
+        // oB: locally-deleted note (in map, absent on disk) → a delete candidate.
+        state.object_map.insert(
+            "note .md".to_owned(),
+            E2eeObjectMapEntry {
+                object_id: "oB".to_owned(),
+                version: 1,
+                blob_key: "bk-b-old".to_owned(),
+                hash: Some("h".to_owned()),
+                mtime_ms: Some(1),
+                size_bytes: Some(1),
+            },
+        );
+
+        let (_summary, next) = run_push(&state, &root, &no_prog, &no_pre)
+            .await
+            .expect("push");
+
+        // The unrelated note survives untouched, in place and in the map.
+        assert_eq!(
+            std::fs::read_to_string(root.join("note.md")).unwrap(),
+            "original\n",
+            "unrelated note must not be overwritten"
+        );
+        assert_eq!(next.object_map.get("note.md").unwrap().object_id, "oA");
+        // The restore landed at a conflict copy carrying its own content.
+        let parked: Vec<_> = std::fs::read_dir(&root)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n.ends_with(".md") && n != "note.md")
+            .collect();
+        assert_eq!(parked.len(), 1, "restore parked at a conflict copy: {parked:?}");
+        assert_eq!(
+            std::fs::read_to_string(root.join(&parked[0])).unwrap(),
+            "restored\n"
+        );
+        assert_eq!(next.object_map.get(&parked[0]).unwrap().object_id, "oB");
         std::fs::remove_dir_all(&root).ok();
     }
 

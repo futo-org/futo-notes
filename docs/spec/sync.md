@@ -259,8 +259,12 @@ upload. Desktop sync module ownership and serialization boundaries are fixed by
   character, a component past `MAX_TITLE_LENGTH`/`NAME_MAX`, excess depth — is
   REJECTED: skipped, never written, surfaced as a permanent `rejected` failure
   (not the retryable `download`), never cursor-capped, never aborting the cycle.
-  The heal is deterministic + idempotent, so re-runs never re-rename. →
-  futo-notes-core `files::classify_incoming_sync_path` (+ `sanitize_title`,
+  The heal is deterministic + idempotent, so re-runs never re-rename. The ONLY
+  length rejection is the filesystem's `NAME_MAX` (255 bytes) — the UI title
+  budget (`MAX_TITLE_LENGTH`) is deliberately NOT enforced here, so a valid
+  201–251-byte file a peer legitimately holds still syncs (the boundary stays
+  no stricter than production). → futo-notes-core
+  `files::classify_incoming_sync_path` (+ `sanitize_title`,
   `is_windows_reserved_name`, `NAME_MAX`), applied via
   futo-notes-sync `orchestrator::triage_downloaded`; guarded by the core
   `incoming_*` unit tests, `run_pull_heals_creatable_but_unsyncable_name`,
