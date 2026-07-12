@@ -228,6 +228,31 @@ upload. Desktop sync module ownership and serialization boundaries are fixed by
   (scan/`safe_relative_sync_path`/`read_local_note`/`apply_delta`),
   futo-notes-core `files::{read_blob_as_base64,write_base64_as_blob}`;
   tests/cross-platform-sync.mjs `imageSyncRoundtrip`
+- **The image set has ONE definition (canonical 10: png/jpg/jpeg/gif/webp/svg/
+  bmp/ico/avif/heic).** Sync classifies blob-vs-note with
+  `futo_notes_core::image::{is_image_filename,is_syncable_filename}` — the same
+  set `futo-notes-model` and `@futo-notes/shared` expose, conformance-locked by
+  `tests/conformance/image.json`. (Historically `core::invariants` kept an
+  independent 13-entry copy with `.tiff/.tif/.heif`; D4 unified them.) →
+  futo-notes-core `image.rs`; tests/conformance/image.json
+- **Legacy image blobs (pre-D4 `.tiff/.tif/.heif`, or any non-syncable
+  extension) are left untouched, never destroyed or mis-materialized.** A pull
+  ignores such a server object — never writes it as a note, never maps it,
+  never tombstones it, never errors the cycle; a push never tombstones a
+  non-syncable map entry (the local scan no longer surfaces it, so without the
+  guard it would look "deleted locally" and be erased on the server and every
+  peer). → futo-notes-sync `orchestrator` (`run_pull` `is_syncable_filename`
+  skip, `plan_push_with_moves`); guarded by `run_pull_ignores_legacy_image_blob`
+  and `plan_push_never_tombstones_non_syncable_map_entry`
+- **Incoming sync paths are validated against local CRUD's filename rules.** A
+  name pushed by a buggy or older peer that local creation would refuse —
+  Windows-reserved device name (`CON`), forbidden character, leading/trailing
+  dot or space, traversal, excess folder depth — is skipped and recorded as a
+  per-item failure (surfaced, never silently dropped), never written and never
+  aborting the cycle. → futo-notes-core `files::ensure_safe_incoming_sync_path`
+  (+ `is_windows_reserved_name`), applied in futo-notes-sync `orchestrator`
+  `run_pull`; guarded by `run_pull_skips_unsafe_incoming_name` and the core
+  `incoming_sync_path_*` unit tests
 - The persisted sync state (`.e2ee-state.json`) is tagged with the server
   collection it describes; connecting to a **different** collection (vault
   reset, account recreation, server wipe) resets the cursor + object map and
