@@ -286,6 +286,12 @@ pub struct ObjectWriteResponse {
     pub change_seq: u64,
     pub blob_key: String,
     pub updated_at: i64,
+    /// Whether the written object is (still) a server-side tombstone. A PUT that
+    /// targets a peer-deleted object succeeds but leaves `deleted = true` (the
+    /// server's DELETE keeps the blob_key and PUT does not un-delete), so the
+    /// caller must treat a `deleted` write as an edit-vs-delete and preserve the
+    /// content on a fresh live object (F3).
+    pub deleted: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -315,6 +321,11 @@ struct ObjectWriteObject {
     // see `wire_to_write_response`.
     #[serde(default)]
     blob_key: Option<String>,
+    // Present on POST/PUT object rows. A PUT onto a peer-deleted object
+    // succeeds but the row stays `deleted: true`; the orchestrator reads this
+    // to detect edit-vs-delete (F3).
+    #[serde(default)]
+    deleted: bool,
 }
 
 /// 409 conflict body returned by PUT / DELETE on version mismatch. The
@@ -787,6 +798,7 @@ fn wire_to_write_response(wire: ObjectWriteWire) -> Result<ObjectWriteResponse, 
         change_seq,
         blob_key,
         updated_at,
+        deleted: wire.object.deleted,
     })
 }
 
