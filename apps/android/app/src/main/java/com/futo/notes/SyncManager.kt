@@ -83,8 +83,9 @@ class SyncManager(
                 // didn't reach the server) is not success — route it to the
                 // red error line instead [sync.md].
                 applyOutcome(summary)
-                // A live pull wrote to disk — refresh the list (skip no-op pulls).
-                if (summary.downloaded > 0u || summary.deleted > 0u) onLivePull?.invoke()
+                // A live cycle wrote to disk — refresh the list + open editor
+                // (skip no-op pulls). Includes push-side merges (F2).
+                if (wroteLocalChanges(summary)) onLivePull?.invoke()
             }
         }
         override fun onConnected() {
@@ -135,8 +136,9 @@ class SyncManager(
             status = "Connected (${info.authMode}) · syncing…"
             val initial = c.syncNow()
             applyOutcome(initial)
-            // Refresh the list if the initial (catch-up) sync pulled changes.
-            if (initial.downloaded > 0u || initial.deleted > 0u) onLivePull?.invoke()
+            // Refresh the list/editor if the initial (catch-up) sync changed
+            // the local tree — pulls OR push-side merges (F2).
+            if (wroteLocalChanges(initial)) onLivePull?.invoke()
             c.startLive(LiveListener()) // onConnected flips `live` when the stream is up
         } catch (e: Exception) {
             connected = client != null
@@ -287,6 +289,17 @@ class SyncManager(
         /** Pure seed selection — testable without BuildConfig. */
         internal fun defaultServer(isDebug: Boolean): String =
             if (isDebug) DEFAULT_SERVER else ""
+
+        /** Did this cycle change the local notes tree such that the open editor
+         *  must reload from disk? Peer downloads and deletes are obvious; the
+         *  subtle case is a PUSH-side clean merge, which writes merged text to
+         *  disk but reports only `uploaded` — the core surfaces those in
+         *  `localWritesApplied`. Gating on `downloaded`/`deleted` alone let the
+         *  editor keep a stale base whose next autosave clobbered the peer's
+         *  merged-in edit (F2). This is a core-computed decision the shell
+         *  renders — never re-derived from the semantic counts. */
+        internal fun wroteLocalChanges(summary: SyncSummary): Boolean =
+            summary.downloaded > 0u || summary.deleted > 0u || summary.localWritesApplied > 0u
 
         /** Validate a user-entered server URL before attempting a connection.
          *  Returns a friendly, actionable error message, or `null` when the URL
