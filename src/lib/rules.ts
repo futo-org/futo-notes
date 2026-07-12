@@ -13,29 +13,17 @@
 export {
   // filename / title
   FORBIDDEN_CHARS_RE,
-  FORBIDDEN_CHARS_DISPLAY,
-  MAX_TITLE_LENGTH,
   MAX_FOLDER_DEPTH,
-  FALLBACK_TITLE,
-  REPLACEMENT_CHAR,
   sanitizeTitle,
   validateTitle,
-  isValidTitle,
-  isWindowsReservedName,
   validateFolderName,
   isValidFolderName,
   hasCaseInsensitiveSiblingCollision,
-  validateFolderPath,
-  isValidFolderPath,
-  pathDepth,
   // tags
   TAG_REGEX,
-  MAX_TAG_LENGTH,
   isValidTagName,
   normalizeTagName,
   extractTags,
   extractHeaderTagBlock,
   scanTags,
-  tagRegexMatches,
 } from '@futo-notes/editor';
-export type { FilenameIssue, FilenameIssueKind, TagMatch } from '@futo-notes/editor';

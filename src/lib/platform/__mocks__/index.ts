@@ -42,7 +42,3 @@ export async function getPlatformFS(): Promise<PlatformFS> {
 export function getFS(): PlatformFS {
   return g.__futoActiveFS!;
 }
-
-export async function ensureNotesFolder(): Promise<void> {
-  // no-op in tests
-}
