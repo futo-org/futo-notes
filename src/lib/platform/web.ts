@@ -41,9 +41,11 @@ export const webFS: PlatformFS = {
   },
 
   async readNote(id: string): Promise<string> {
-    const note = noteStore.get(id);
-    if (!note) throw new Error(`Note not found: ${id}`);
-    return note.content;
+    // Missing reads as "" to match Tauri (futo-notes-model::read_note) — a
+    // peer-deleted note must NOT throw, or callers that treat a throw as a
+    // recoverable signal drift from production (F4). Existence is asked
+    // separately via noteExists().
+    return noteStore.get(id)?.content ?? '';
   },
 
   async writeNote(id: string, content: string, modifiedAtMs?: number): Promise<number> {

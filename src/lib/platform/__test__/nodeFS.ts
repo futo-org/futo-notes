@@ -85,9 +85,9 @@ export function createNodeFS(): TestPlatformFS {
 
     async readNote(id: string): Promise<string> {
       const filePath = path.join(tmpDir, `${id}.md`);
-      if (!fs.existsSync(filePath)) {
-        throw new Error(`Note not found: ${id}`);
-      }
+      // Missing reads as "" to match production (Tauri notes_read over
+      // futo-notes-model::read_note; web.ts). Existence is asked via noteExists.
+      if (!fs.existsSync(filePath)) return '';
       return fs.readFileSync(filePath, 'utf-8');
     },
 

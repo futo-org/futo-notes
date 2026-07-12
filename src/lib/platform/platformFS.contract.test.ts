@@ -51,8 +51,13 @@ function platformFSContractTests(name: string, createFS: () => TestPlatformFS) {
       expect(await fs.noteExists('doomed')).toBe(false);
     });
 
-    it('readNote throws for nonexistent', async () => {
-      await expect(fs.readNote('missing')).rejects.toThrow();
+    // The real contract: a missing note reads as "" on every impl (Tauri
+    // notes_read over futo-notes-model::read_note, web.ts, and this nodeFS
+    // stand-in). Existence is a separate question — ask noteExists(). A caller
+    // must NEVER infer "deleted" from a throw; the sync path's deleted-open-note
+    // handling branches on the sync summary instead (F4).
+    it('readNote returns "" for nonexistent (never throws)', async () => {
+      expect(await fs.readNote('missing')).toBe('');
     });
 
     it('mtime preservation via modifiedAtMs', async () => {
