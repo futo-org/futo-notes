@@ -256,7 +256,7 @@ upload. Desktop sync module ownership and serialization boundaries are fixed by
   `sanitize_title` would mint (`CON`→`CON_`, `.env`→`env`, `note.`→`note`),
   written under that name, and NOT reported as a failure (the note is never
   lost); (b) a name creation could never produce — traversal, a forbidden
-  character, a component past `MAX_TITLE_LENGTH`/`NAME_MAX`, excess depth — is
+  character, a component past `NAME_MAX`, excess depth — is
   REJECTED: skipped, never written, surfaced as a permanent `rejected` failure
   (not the retryable `download`), never cursor-capped, never aborting the cycle.
   The heal is deterministic + idempotent, so re-runs never re-rename. The ONLY
@@ -271,6 +271,15 @@ upload. Desktop sync module ownership and serialization boundaries are fixed by
   `run_pull_heal_is_idempotent_across_cycles`,
   `run_pull_rejects_structurally_unsafe_name`, and
   `run_push_rejects_hostile_restored_filename`
+- **A healed incoming name is a LOCAL alias, not pushed back to the server.**
+  The healing client writes + maps the object under the safe name but does not
+  re-upload it, so the server object keeps its original path until someone edits
+  it. Until every client runs the healing version, one object can therefore
+  display under different names across the fleet (e.g. `CON.md` on an old client,
+  `CON_.md` on a healed one) — the CONTENT still converges (same object id, same
+  bytes) and no duplicate is created; only the displayed filename differs. →
+  futo-notes-sync `orchestrator::triage_downloaded`; guarded by
+  `run_pull_heals_creatable_but_unsyncable_name` (S1 class)
 - The persisted sync state (`.e2ee-state.json`) is tagged with the server
   collection it describes; connecting to a **different** collection (vault
   reset, account recreation, server wipe) resets the cursor + object map and
