@@ -59,6 +59,30 @@
           "expected": true
         },
         {
+          "input": "scan.tiff",
+          "expected": false
+        },
+        {
+          "input": "scan.tif",
+          "expected": false
+        },
+        {
+          "input": "photo.heif",
+          "expected": false
+        },
+        {
+          "input": "photo.TIFF",
+          "expected": false
+        },
+        {
+          "input": "x.tiff.md",
+          "expected": false
+        },
+        {
+          "input": "x.tiff.png",
+          "expected": true
+        },
+        {
           "input": "note.md",
           "expected": false
         },

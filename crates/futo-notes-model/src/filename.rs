@@ -3,26 +3,10 @@
 
 use futo_notes_core::files::{validate_title, FilenameIssue, FilenameIssueKind, MAX_FOLDER_DEPTH};
 
-/// Windows reserved device names. Matched case-insensitively. Enforced on
-/// every platform so a vault created on macOS/Linux still syncs cleanly to a
-/// Windows client. Matches `WINDOWS_RESERVED_NAMES` in `filename.ts`.
-const WINDOWS_RESERVED_NAMES: &[&str] = &[
-    "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
-    "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
-];
-
-/// True if `name` (sans extension) is a Windows-reserved device name.
-///
-/// Mirrors TS `isWindowsReservedName`: take the stem up to the FIRST `.`
-/// (`CON.md` → `CON`), uppercase, then membership-test.
-pub fn is_windows_reserved_name(name: &str) -> bool {
-    let stem = match name.find('.') {
-        Some(idx) => &name[..idx],
-        None => name,
-    };
-    let upper = stem.to_uppercase();
-    WINDOWS_RESERVED_NAMES.iter().any(|r| *r == upper)
-}
+// The Windows-reserved-name predicate is canonical in `futo-notes-core::files`
+// (shared with the sync boundary's incoming-path validator); re-export it so
+// `model::is_windows_reserved_name` and folder validation resolve unchanged.
+pub use futo_notes_core::files::is_windows_reserved_name;
 
 /// Validate a single folder name (one path component): the same
 /// character/length/dots rules as a title, plus Windows-reserved rejection.

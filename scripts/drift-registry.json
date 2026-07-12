@@ -10,27 +10,60 @@
           "location": "packages/editor/src/filename.ts",
           "pattern": "export function validateTitle"
         },
-        { "location": "packages/editor/src/tags.ts", "pattern": "export function scanTags" },
-        { "location": "packages/editor/src/preview.ts", "pattern": "export function makePreview" },
-        { "location": "src/lib/wikilinks.ts", "pattern": "export function resolveWikilink" },
-        { "location": "crates/futo-notes-core/src/files.rs", "pattern": "pub fn sanitize_title" },
+        {
+          "location": "packages/editor/src/tags.ts",
+          "pattern": "export function scanTags"
+        },
+        {
+          "location": "packages/editor/src/preview.ts",
+          "pattern": "export function makePreview"
+        },
+        {
+          "location": "src/lib/wikilinks.ts",
+          "pattern": "export function resolveWikilink"
+        },
+        {
+          "location": "crates/futo-notes-core/src/files.rs",
+          "pattern": "pub fn sanitize_title"
+        },
         {
           "location": "crates/futo-notes-model/src/tags.rs",
           "pattern": "pub fn tag_regex_matches"
         },
-        { "location": "crates/futo-notes-model/src/crud.rs", "pattern": "pub fn make_preview" },
+        {
+          "location": "crates/futo-notes-model/src/crud.rs",
+          "pattern": "pub fn make_preview"
+        },
         {
           "location": "crates/futo-notes-model/src/wikilinks.rs",
           "pattern": "pub fn resolve_wikilink"
         }
       ],
       "locks": [
-        { "path": "tests/conformance/filename.json", "kind": "fixture" },
-        { "path": "tests/conformance/tags.json", "kind": "fixture" },
-        { "path": "tests/conformance/preview.json", "kind": "fixture" },
-        { "path": "tests/conformance/wikilinks.json", "kind": "fixture" },
-        { "path": "tests/conformance/generate.mjs", "kind": "generator" },
-        { "path": "crates/futo-notes-model/tests/conformance.rs", "kind": "test" }
+        {
+          "path": "tests/conformance/filename.json",
+          "kind": "fixture"
+        },
+        {
+          "path": "tests/conformance/tags.json",
+          "kind": "fixture"
+        },
+        {
+          "path": "tests/conformance/preview.json",
+          "kind": "fixture"
+        },
+        {
+          "path": "tests/conformance/wikilinks.json",
+          "kind": "fixture"
+        },
+        {
+          "path": "tests/conformance/generate.mjs",
+          "kind": "generator"
+        },
+        {
+          "path": "crates/futo-notes-model/tests/conformance.rs",
+          "kind": "test"
+        }
       ]
     },
     {
@@ -38,14 +71,25 @@
       "description": "Mobile toolbar surface: packages/editor/src/toolbar.ts is the source of truth; the native specs are GENERATED from it (M8) — not a hand copy, but registered because a hand-edit of either generated file would be a silent second source.",
       "lockStatus": "locked",
       "copies": [
-        { "location": "packages/editor/src/toolbar.ts", "pattern": "export const TOOLBAR_GROUPS" },
-        { "location": "apps/ios/Sources/ToolbarSpec.swift", "pattern": "GENERATED" },
+        {
+          "location": "packages/editor/src/toolbar.ts",
+          "pattern": "export const TOOLBAR_GROUPS"
+        },
+        {
+          "location": "apps/ios/Sources/ToolbarSpec.swift",
+          "pattern": "GENERATED"
+        },
         {
           "location": "apps/android/app/src/main/java/com/futo/notes/ui/ToolbarSpec.kt",
           "pattern": "GENERATED"
         }
       ],
-      "locks": [{ "path": "scripts/gen-toolbar-spec.ts", "kind": "generator" }]
+      "locks": [
+        {
+          "path": "scripts/gen-toolbar-spec.ts",
+          "kind": "generator"
+        }
+      ]
     },
     {
       "concept": "validate-server-url",
@@ -53,59 +97,107 @@
       "lockStatus": "partial",
       "note": "PARTIAL: TS is fully locked against the fixture. Kotlin's SyncManagerDefaultsTest.kt hand-mirrors a 5-case subset instead of reading server-url.json (L1-5 plan: make it read the full fixture). Swift is genuinely UNLOCKED pending an iOS test target (L1-4).",
       "copies": [
-        { "location": "src/lib/syncServiceE2ee.ts", "pattern": "function validateSyncServerUrl" },
+        {
+          "location": "src/lib/syncServiceE2ee.ts",
+          "pattern": "function validateSyncServerUrl"
+        },
         {
           "location": "apps/android/app/src/main/java/com/futo/notes/SyncManager.kt",
           "pattern": "fun validateServerUrl"
         },
-        { "location": "apps/ios/Sources/SyncManager.swift", "pattern": "func validateServerURL" }
+        {
+          "location": "apps/ios/Sources/SyncManager.swift",
+          "pattern": "func validateServerURL"
+        }
       ],
       "locks": [
-        { "path": "tests/conformance/server-url.json", "kind": "fixture" },
-        { "path": "src/lib/syncServiceE2ee.test.ts", "kind": "test" },
+        {
+          "path": "tests/conformance/server-url.json",
+          "kind": "fixture"
+        },
+        {
+          "path": "src/lib/syncServiceE2ee.test.ts",
+          "kind": "test"
+        },
         {
           "path": "apps/android/app/src/test/java/com/futo/notes/SyncManagerDefaultsTest.kt",
           "kind": "test"
         }
       ],
       "scan": {
-        "dirs": ["src", "apps/ios/Sources", "apps/android/app/src/main"],
-        "extensions": [".ts", ".swift", ".kt"],
+        "dirs": [
+          "src",
+          "apps/ios/Sources",
+          "apps/android/app/src/main"
+        ],
+        "extensions": [
+          ".ts",
+          ".swift",
+          ".kt"
+        ],
         "pattern": "(function validateSyncServerUrl|fun validateServerUrl|func validateServerURL)\\b"
       }
     },
     {
       "concept": "image-extension-set",
-      "description": "The accepted-image-extension list, independently defined in 7 places. Three agree on the canonical 10-ext set (two locked via tests/conformance/constants.json, PKT-7 gate 3; one — model/image.rs, an explicit Rust port of the TS set per its own header comment — not yet wired into that fixture); the other four are known to diverge today (a legacy 13-ext set incl. tiff/tif, a Set-based TS copy in src/lib/images.ts, and two narrower MIME/picker subsets) and are explicitly out of scope for that gate pending PKT-6.",
+      "description": "The accepted-image-extension list. PKT-6 (D4) unified it onto a SINGLE canonical Rust definition (crates/futo-notes-core/src/image.rs) + its conformance-locked TS mirror (packages/shared/src/sync.ts); futo-notes-model, apps/tauri image_commands.rs, src/lib/images.ts, and the tauri.ts picker all now DERIVE from those (import/re-export, cannot drift) and are no longer independent copies. The remaining hand-maintained listings are the tauri.ts MIME map (keys) and the two native shells (Swift/Kotlin), which have no Rust/TS binding to import.",
       "lockStatus": "partial",
-      "note": "PARTIAL: packages/shared/src/sync.ts and image_commands.rs's ALLOWED_IMAGE_EXTENSIONS are locked (constants.json). crates/futo-notes-model/src/image.rs::IMAGE_EXTENSIONS (agrees with the canonical set, ported from the TS side per its own doc comment) and src/lib/images.ts::ALLOWED_IMAGE_EXTS (also agrees) are UNLOCKED — not yet wired into constants.json. crates/futo-notes-core/src/invariants.rs (legacy 13-ext set) and src/lib/platform/tauri.ts (IMAGE_EXTENSION_MIME map + the file-picker filter, both narrower subsets) are UNLOCKED and genuinely diverge. PKT-6 is unifying all of these onto the canonical set in a sibling worktree as of 2026-07-11; shrink this entry once that lands. The 'model/image.rs' and 'src/lib/images.ts' copies were found by this gate's own scan (not by the original AGENTS.md §12 list) — proof the scan catches what prose misses.",
+      "note": "PARTIAL. LOCKED: packages/shared/src/sync.ts and crates/futo-notes-core/src/image.rs agree bit-for-bit via tests/conformance/constants.json (imageExtensions) — model::IMAGE_EXTENSIONS re-exports core, so conformance.rs's constants gate + constantsConformance.test.ts pin both. UNLOCKED hand-copies: src/lib/platform/tauri.ts's IMAGE_EXTENSION_MIME map (keys are the ext set; an object literal, so the token-cluster scan can't see it), apps/ios/Sources/EditorImages.swift, and apps/android/app/src/main/java/com/futo/notes/ImagePicker.kt (native, no shared-package import; PKT-10 / L1-3 territory). Copies DROPPED as pure derivations post-PKT-6: crates/futo-notes-model/src/image.rs (re-exports core), apps/tauri/src-tauri/src/image_commands.rs (uses core), src/lib/images.ts (derives from @futo-notes/shared), and the tauri.ts picker filter (spreads @futo-notes/shared IMAGE_EXTENSIONS).",
       "copies": [
-        { "location": "packages/shared/src/sync.ts", "pattern": "export const IMAGE_EXTENSIONS" },
         {
-          "location": "apps/tauri/src-tauri/src/image_commands.rs",
-          "pattern": "const ALLOWED_IMAGE_EXTENSIONS"
-        },
-        {
-          "location": "crates/futo-notes-model/src/image.rs",
+          "location": "crates/futo-notes-core/src/image.rs",
           "pattern": "pub const IMAGE_EXTENSIONS"
         },
-        { "location": "src/lib/images.ts", "pattern": "const ALLOWED_IMAGE_EXTS" },
         {
-          "location": "crates/futo-notes-core/src/invariants.rs",
-          "pattern": "\\.tiff.*\\.tif.*\\.heic"
+          "location": "packages/shared/src/sync.ts",
+          "pattern": "export const IMAGE_EXTENSIONS"
         },
-        { "location": "src/lib/platform/tauri.ts", "pattern": "IMAGE_EXTENSION_MIME" }
+        {
+          "location": "src/lib/platform/tauri.ts",
+          "pattern": "IMAGE_EXTENSION_MIME"
+        },
+        {
+          "location": "apps/ios/Sources/EditorImages.swift",
+          "pattern": "private let futoImageExtensions"
+        },
+        {
+          "location": "apps/android/app/src/main/java/com/futo/notes/ImagePicker.kt",
+          "pattern": "val IMAGE_EXTENSIONS = setOf"
+        }
       ],
       "locks": [
-        { "path": "tests/conformance/constants.json", "kind": "fixture" },
-        { "path": "crates/futo-notes-model/tests/conformance.rs", "kind": "test" },
-        { "path": "src/lib/constantsConformance.test.ts", "kind": "test" }
+        {
+          "path": "tests/conformance/constants.json",
+          "kind": "fixture"
+        },
+        {
+          "path": "crates/futo-notes-model/tests/conformance.rs",
+          "kind": "test"
+        },
+        {
+          "path": "src/lib/constantsConformance.test.ts",
+          "kind": "test"
+        }
       ],
       "scan": {
-        "dirs": ["src", "packages/shared/src", "apps/tauri/src-tauri/src", "crates"],
-        "extensions": [".ts", ".rs"],
+        "dirs": [
+          "src",
+          "packages/shared/src",
+          "apps/tauri/src-tauri/src",
+          "crates"
+        ],
+        "extensions": [
+          ".ts",
+          ".rs"
+        ],
         "mode": "token-cluster",
-        "tokens": ["jpg", "jpeg", "png", "gif", "webp"],
+        "tokens": [
+          "jpg",
+          "jpeg",
+          "png",
+          "gif",
+          "webp"
+        ],
         "minDistinct": 3
       }
     },
@@ -122,7 +214,10 @@
           "location": "crates/futo-notes-model/src/crud.rs",
           "pattern": "b\\.modified_ms\\.cmp\\(&a\\.modified_ms\\)\\.then\\(a\\.id\\.cmp\\(&b\\.id\\)\\)"
         },
-        { "location": "apps/ios/Sources/NotesStore.swift", "pattern": "func resortInPlace" },
+        {
+          "location": "apps/ios/Sources/NotesStore.swift",
+          "pattern": "func resortInPlace"
+        },
         {
           "location": "apps/android/app/src/main/java/com/futo/notes/NotesStore.kt",
           "pattern": "compareByDescending<NoteItem>\\s*\\{\\s*it\\.modifiedMs\\s*\\}\\.thenBy\\s*\\{\\s*it\\.id\\s*\\}"
@@ -135,8 +230,14 @@
       "lockStatus": "unlocked",
       "note": "Deliberately accepted duplication (M3 CRITICAL guard) per AGENTS.md §6 non-goals — do not attempt to unify or lock this; it is registered so the drift registry documents ALL permitted duplicates, including the ones that stay prose-only. CORRECTION to AGENTS.md §12: the Android copy is NOT in NotesStore.kt (that class only takes a resolved `notesRoot: File`) — the actual dev/prod guard lives in NotesStorage.kt's `deviceFolderName`, and Android's split works differently (a distinct DEVICE-mode folder name, 'FUTO Notes Dev' vs 'FUTO Notes', since its APP/INTERNAL modes already isolate via the `.dev` applicationId on package-scoped paths) rather than the desktop/iOS 'fake-notes' vs 'futo-notes' directory-name split.",
       "copies": [
-        { "location": "apps/tauri/src-tauri/src/vault_location.rs", "pattern": "fake-notes" },
-        { "location": "apps/ios/Sources/NotesStore.swift", "pattern": "fake-notes" },
+        {
+          "location": "apps/tauri/src-tauri/src/vault_location.rs",
+          "pattern": "fake-notes"
+        },
+        {
+          "location": "apps/ios/Sources/NotesStore.swift",
+          "pattern": "fake-notes"
+        },
         {
           "location": "apps/android/app/src/main/java/com/futo/notes/NotesStorage.kt",
           "pattern": "FUTO Notes Dev"
@@ -158,8 +259,14 @@
         }
       ],
       "locks": [
-        { "path": "tests/conformance/constants.json", "kind": "fixture" },
-        { "path": "src/lib/constantsConformance.test.ts", "kind": "test" }
+        {
+          "path": "tests/conformance/constants.json",
+          "kind": "fixture"
+        },
+        {
+          "path": "src/lib/constantsConformance.test.ts",
+          "kind": "test"
+        }
       ]
     },
     {
@@ -176,12 +283,18 @@
           "location": "crates/futo-notes-sync/src/orchestrator.rs",
           "pattern": "pub struct SyncFailure\\b"
         },
-        { "location": "src/lib/syncServiceE2ee.ts", "pattern": "SyncSummary\\b" },
+        {
+          "location": "src/lib/syncServiceE2ee.ts",
+          "pattern": "SyncSummary\\b"
+        },
         {
           "location": "apps/tauri/src-tauri/src/sync/frontend_contract.rs",
           "pattern": "SyncSummary\\b"
         },
-        { "location": "crates/futo-notes-ffi/src/lib.rs", "pattern": "SyncSummary\\b" }
+        {
+          "location": "crates/futo-notes-ffi/src/lib.rs",
+          "pattern": "SyncSummary\\b"
+        }
       ]
     },
     {
@@ -193,7 +306,10 @@
           "location": "src/lib/platform/pathSafety.ts",
           "pattern": "export function ensureSafeNoteId"
         },
-        { "location": "crates/futo-notes-core/src/files.rs", "pattern": "pub fn safe_note_path" }
+        {
+          "location": "crates/futo-notes-core/src/files.rs",
+          "pattern": "pub fn safe_note_path"
+        }
       ]
     },
     {
@@ -201,7 +317,10 @@
       "description": "The '-2, -3, ...' unique-id suffix resolver, independently implemented in TS (fileSystem.ts) and Rust (futo-notes-core/src/files.rs) with separate unit tests but no shared fixture.",
       "lockStatus": "unlocked",
       "copies": [
-        { "location": "src/lib/fileSystem.ts", "pattern": "export async function getUniqueNoteId" },
+        {
+          "location": "src/lib/fileSystem.ts",
+          "pattern": "export async function getUniqueNoteId"
+        },
         {
           "location": "crates/futo-notes-core/src/files.rs",
           "pattern": "pub fn get_unique_note_id"
@@ -232,12 +351,28 @@
         }
       ],
       "locks": [
-        { "path": "tests/conformance/constants.json", "kind": "fixture" },
-        { "path": "src/lib/constantsConformance.test.ts", "kind": "test" }
+        {
+          "path": "tests/conformance/constants.json",
+          "kind": "fixture"
+        },
+        {
+          "path": "src/lib/constantsConformance.test.ts",
+          "kind": "test"
+        }
       ],
       "scan": {
-        "dirs": ["packages/editor/src", "crates", "apps/ios/Sources", "apps/android/app/src/main"],
-        "extensions": [".ts", ".rs", ".swift", ".kt"],
+        "dirs": [
+          "packages/editor/src",
+          "crates",
+          "apps/ios/Sources",
+          "apps/android/app/src/main"
+        ],
+        "extensions": [
+          ".ts",
+          ".rs",
+          ".swift",
+          ".kt"
+        ],
         "pattern": "MAX_TITLE_LENGTH\\s*[:=]\\s*(usize\\s*=\\s*)?200|TITLE_MAX_LENGTH\\s*=\\s*200|titleMaxLength\\s*=\\s*200"
       }
     },
@@ -255,7 +390,10 @@
           "location": "apps/android/app/src/main/java/com/futo/notes/ui/EditorWebView.kt",
           "pattern": "\"ready\"\\s*->"
         },
-        { "location": "apps/ios/Sources/EditorWebView.swift", "pattern": "\"ready\"" }
+        {
+          "location": "apps/ios/Sources/EditorWebView.swift",
+          "pattern": "\"ready\""
+        }
       ],
       "locks": [
         {
@@ -266,7 +404,10 @@
           "path": "apps/android/app/src/test/java/com/futo/notes/BridgeCoverageTest.kt",
           "kind": "test"
         },
-        { "path": "scripts/gen-bridge-spec.ts", "kind": "generator" }
+        {
+          "path": "scripts/gen-bridge-spec.ts",
+          "kind": "generator"
+        }
       ]
     }
   ]

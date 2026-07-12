@@ -10,12 +10,12 @@ describe('sanitizeFilename', () => {
     expect(sanitizeFilename('a<b>c:d')).toBe('abcd');
   });
 
-  it('preserves leading dots', () => {
-    expect(sanitizeFilename('..hidden')).toBe('..hidden');
+  it('strips leading dots (a leading dot makes a hidden dotfile the scan skips)', () => {
+    expect(sanitizeFilename('..hidden')).toBe('hidden');
   });
 
-  it('preserves trailing dots', () => {
-    expect(sanitizeFilename('file..')).toBe('file..');
+  it('strips trailing dots (Windows silently drops them)', () => {
+    expect(sanitizeFilename('file..')).toBe('file');
   });
 
   it('does not truncate long names', () => {

@@ -22,6 +22,7 @@ import type {
   FolderEntry,
   NotePreviewMeta,
 } from './types';
+import { IMAGE_EXTENSIONS } from '@futo-notes/shared';
 import { noteParentDir, safeAppdataPath } from './pathSafety';
 import { writeAtomicText } from './atomicWrite';
 import type { AtomicWriteFS } from './atomicWrite';
@@ -456,7 +457,7 @@ export const tauriFS: PlatformFS = {
     const { open } = await import('@tauri-apps/plugin-dialog');
     const picked = await open({
       multiple: false,
-      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'] }],
+      filters: [{ name: 'Images', extensions: [...IMAGE_EXTENSIONS] }],
     });
     return typeof picked === 'string' ? picked : null;
   },

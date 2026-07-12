@@ -84,14 +84,22 @@ export interface FilenameIssue {
 }
 
 /**
- * Canonical title sanitization.
- * Only strips filesystem-breaking characters and surrounding whitespace.
- * It does not rewrite dots or silently truncate long titles.
+ * Canonical title sanitization. Strips filesystem-breaking characters, then
+ * leading/trailing dots (Windows drops trailing dots; a leading dot makes a
+ * hidden dotfile the vault scan skips) and the whitespace those dots expose,
+ * then de-reserves Windows device names (CON → CON_) so the result is a legal
+ * filename on EVERY platform, not just macOS/Linux. IDEMPOTENT — the sync
+ * boundary reuses it to heal peer-pushed names. Does not silently truncate.
  */
 export function sanitizeTitle(title: string): string {
   let result = title.replace(FORBIDDEN_CHARS_RE, '').trim();
-  if (/^\.+$/.test(result)) result = '';
-  return result || FALLBACK_TITLE;
+  result = result.replace(/^\.+|\.+$/g, '').trim();
+  if (!result) return FALLBACK_TITLE;
+  if (isWindowsReservedName(result)) {
+    const dot = result.indexOf('.');
+    return dot >= 0 ? `${result.slice(0, dot)}_${result.slice(dot)}` : `${result}_`;
+  }
+  return result;
 }
 
 /**

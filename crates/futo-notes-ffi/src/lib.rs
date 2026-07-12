@@ -429,8 +429,9 @@ pub struct SyncSummary {
 }
 
 /// One per-item sync failure. `kind` is `"upload" | "delete" | "checkpoint"
-/// | "download" | "decrypt"`; `status_code` is the server HTTP status when
-/// the failure came from a response (`None` for transport/local errors).
+/// | "download" | "decrypt" | "rejected"`; `status_code` is the server HTTP
+/// status when the failure came from a response (`None` for transport/local
+/// errors). `"rejected"` is a permanent unsupported-name skip (not retried).
 #[derive(uniffi::Record)]
 pub struct SyncFailure {
     pub filename: String,

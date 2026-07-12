@@ -20,11 +20,11 @@
         },
         {
           "input": "..hidden",
-          "expected": "..hidden"
+          "expected": "hidden"
         },
         {
           "input": "file..",
-          "expected": "file.."
+          "expected": "file"
         },
         {
           "input": "v2.0 notes",
@@ -65,6 +65,34 @@
         {
           "input": "  hello  ",
           "expected": "hello"
+        },
+        {
+          "input": "CON",
+          "expected": "CON_"
+        },
+        {
+          "input": "con",
+          "expected": "con_"
+        },
+        {
+          "input": "CON.bak",
+          "expected": "CON_.bak"
+        },
+        {
+          "input": "NUL.txt",
+          "expected": "NUL_.txt"
+        },
+        {
+          "input": "CONSOLE",
+          "expected": "CONSOLE"
+        },
+        {
+          "input": ".env",
+          "expected": "env"
+        },
+        {
+          "input": "note .",
+          "expected": "note"
         }
       ]
     },

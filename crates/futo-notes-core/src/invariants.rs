@@ -40,15 +40,11 @@ pub enum InvariantViolation {
 
 // ── Image extension check ───────────────────────────────────────────────
 
-pub const IMAGE_EXTENSIONS: &[&str] = &[
-    ".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".bmp", ".ico", ".tiff", ".tif", ".heic",
-    ".heif", ".avif",
-];
-
-pub fn is_image_filename(filename: &str) -> bool {
-    let lower = filename.to_lowercase();
-    IMAGE_EXTENSIONS.iter().any(|ext| lower.ends_with(ext))
-}
+// The image classifier is canonical in `crate::image` (the conformance-locked
+// 10-entry set shared with `futo-notes-model` and the TS copy). This module
+// used to keep an independent 13-entry copy that disagreed on
+// `.tiff/.tif/.heif`; D4 unified them, so delegate.
+pub use crate::image::is_image_filename;
 
 // ── Individual invariant checks ─────────────────────────────────────────
 
@@ -724,11 +720,10 @@ mod tests {
 
     #[test]
     fn blob_extension_all_image_types() {
-        let exts = [
-            "jpg", "jpeg", "png", "gif", "webp", "svg", "bmp", "ico", "tiff", "tif", "heic",
-            "heif", "avif",
-        ];
-        for ext in &exts {
+        // Iterate the CANONICAL set (not a hand copy) so this test can never
+        // drift from `crate::image::IMAGE_EXTENSIONS` and the drift-registry
+        // scan sees only the one canonical literal.
+        for ext in crate::image::IMAGE_EXTENSIONS {
             let notes = vec![NoteRecord {
                 filename: format!("photo.{ext}"),
                 content_hash: "x".to_string(),

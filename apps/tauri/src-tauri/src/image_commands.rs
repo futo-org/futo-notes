@@ -7,9 +7,9 @@ use tauri::AppHandle;
 
 use crate::background_tasks::{blocking, io_error};
 
-const ALLOWED_IMAGE_EXTENSIONS: &[&str] = &[
-    "jpg", "jpeg", "png", "gif", "webp", "svg", "bmp", "ico", "avif", "heic",
-];
+// Canonical set lives in `futo_notes_core::image` (shared with the sync layer,
+// the note domain, and `@futo-notes/shared`); no local copy to drift.
+use futo_notes_core::image::IMAGE_EXTENSIONS;
 
 fn validate_extension(extension: &str) -> Result<String, String> {
     if extension.len() > 10 {
@@ -19,7 +19,7 @@ fn validate_extension(extension: &str) -> Result<String, String> {
         return Err("image extension contains invalid characters".to_owned());
     }
     let extension = extension.to_lowercase();
-    if !ALLOWED_IMAGE_EXTENSIONS.contains(&extension.as_str()) {
+    if !IMAGE_EXTENSIONS.contains(&extension.as_str()) {
         return Err(format!("disallowed image extension: {extension}"));
     }
     Ok(extension)

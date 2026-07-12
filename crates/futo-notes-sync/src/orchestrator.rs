@@ -33,11 +33,11 @@ use futo_notes_core::e2ee::{
     KEY_BYTES,
 };
 use futo_notes_core::files::{
-    file_mtime_ms, now_ms, read_blob_as_base64, set_file_mtime_ms, write_atomic_text,
-    write_base64_as_blob,
+    classify_incoming_sync_path, file_mtime_ms, now_ms, read_blob_as_base64, set_file_mtime_ms,
+    write_atomic_text, write_base64_as_blob, IncomingSyncPath,
 };
 use futo_notes_core::hash::hash_sha256;
-use futo_notes_core::invariants::is_image_filename;
+use futo_notes_core::image::{is_image_filename, is_syncable_filename};
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 
@@ -301,7 +301,14 @@ fn apply_delta(
     // Write updates
     for update in &input.update {
         pre_write(&update.filename);
-        let path = safe_relative_sync_path(notes_root, &update.filename)?;
+        // Defense in depth: run_pull already rejects unsafe incoming names
+        // (ensure_safe_incoming_sync_path) before they reach here, so a path
+        // that still fails resolution is skipped rather than aborting the whole
+        // apply — one bad name must never cost the rest of the batch.
+        let path = match safe_relative_sync_path(notes_root, &update.filename) {
+            Ok(p) => p,
+            Err(_) => continue,
+        };
         // Both writers call fs::create_dir_all on the parent. Image content
         // arrives base64-encoded in the note frame; decode it back to bytes.
         if is_image_filename(&update.filename) {
@@ -321,7 +328,10 @@ fn apply_delta(
     // Write conflict copies
     for conflict in &input.conflicts {
         pre_write(&conflict.filename);
-        let path = safe_relative_sync_path(notes_root, &conflict.filename)?;
+        let path = match safe_relative_sync_path(notes_root, &conflict.filename) {
+            Ok(p) => p,
+            Err(_) => continue,
+        };
         if is_image_filename(&conflict.filename) {
             write_base64_as_blob(&path, &conflict.content)?;
         } else {
@@ -645,6 +655,11 @@ pub enum FailureKind {
     /// distinct from `Download` so the UI can say so instead of blaming the
     /// network.
     Decrypt,
+    /// An incoming name a peer pushed that this client refuses to materialize
+    /// (traversal, forbidden chars, over-length). Unlike `Download`, this is
+    /// PERMANENT for that exact name — the cursor is not capped, so it is not
+    /// retried; the honest wording must not promise a retry.
+    Rejected,
 }
 
 impl FailureKind {
@@ -657,6 +672,7 @@ impl FailureKind {
             FailureKind::Checkpoint => "checkpoint",
             FailureKind::Download => "download",
             FailureKind::Decrypt => "decrypt",
+            FailureKind::Rejected => "rejected",
         }
     }
 }
@@ -702,6 +718,11 @@ impl SyncSummary {
             .iter()
             .filter(|f| f.kind == FailureKind::Decrypt)
             .count();
+        let rejected = self
+            .failures
+            .iter()
+            .filter(|f| f.kind == FailureKind::Rejected)
+            .count();
         let checkpoint_failed = self
             .failures
             .iter()
@@ -736,6 +757,16 @@ impl SyncSummary {
         if decrypts > 0 {
             let noun = if decrypts == 1 { "note" } else { "notes" };
             parts.push(format!("{decrypts} {noun} couldn't be decrypted"));
+        }
+        if rejected > 0 {
+            // Permanent: an unsupported name on a peer's object. NOT retried
+            // (the cursor is not capped), so the wording must not promise one.
+            let clause = if rejected == 1 {
+                "1 note had an unsupported name and was skipped".to_owned()
+            } else {
+                format!("{rejected} notes had unsupported names and were skipped")
+            };
+            parts.push(clause);
         }
         if checkpoint_failed {
             parts.push("sync state couldn't be saved locally".to_owned());
@@ -1530,6 +1561,46 @@ fn resolve_pull_collisions(
 
 // ── Pull / reconcile orchestrator ────────────────────────────────────────
 
+/// The result of screening a freshly-downloaded set against the incoming-path
+/// classifier. Every incoming write path (`run_pull`, `reconcile_empty_map`)
+/// runs this BEFORE collision planning, so an ignored/unsafe object can never
+/// win a collision against — and thereby delete — a valid sibling (B4).
+struct DownloadTriage {
+    /// Notes to materialize, each with its filename already HEALED to a safe
+    /// form (`sanitize_title`-equivalent) where the peer sent a creatable-but-
+    /// unsyncable name.
+    kept: Vec<DownloadedNote>,
+    /// Names we refuse to write (structurally unsafe: traversal, forbidden
+    /// chars, over-length). Surfaced as failures, never cursor-capped, never
+    /// abort the cycle. Non-syncable (legacy/foreign) objects are dropped
+    /// silently — an expected migration state, not a failure.
+    rejected: Vec<SyncFailure>,
+}
+
+/// Screen downloaded objects through [`classify_incoming_sync_path`]. Healed
+/// names are rewritten in place on the kept notes; ignored (non-syncable)
+/// objects are dropped; rejected (unsafe) names become `Download` failures.
+fn triage_downloaded(downloaded: Vec<DownloadedNote>) -> DownloadTriage {
+    let mut kept = Vec::with_capacity(downloaded.len());
+    let mut rejected = Vec::new();
+    for mut note in downloaded {
+        match classify_incoming_sync_path(&note.filename) {
+            IncomingSyncPath::Ignore => {}
+            IncomingSyncPath::Accept => kept.push(note),
+            IncomingSyncPath::Sanitize(healed) => {
+                note.filename = healed;
+                kept.push(note);
+            }
+            IncomingSyncPath::Reject(_) => rejected.push(SyncFailure {
+                filename: note.filename,
+                kind: FailureKind::Rejected,
+                status_code: None,
+            }),
+        }
+    }
+    DownloadTriage { kept, rejected }
+}
+
 /// Run the pull side of a sync from a specific `since` cursor. The
 /// orchestrator captures `pre_push_max_version` BEFORE push and feeds it
 /// here so peer changes whose `change_seq` lands between our last sync
@@ -1576,6 +1647,17 @@ pub async fn run_pull(
         &progress_emitter,
     )
     .await;
+
+    // Screen the download set BEFORE anything else looks at it: legacy/foreign
+    // blobs drop out, creatable-but-unsyncable names heal, and structurally
+    // unsafe names become recorded failures. Everything downstream (collision
+    // planning, the write loop, the map, the count) then operates only on
+    // syncable + safe notes, so an ignored/unsafe object can never win a
+    // collision and delete a valid sibling (B1/B2/B4).
+    let DownloadTriage {
+        kept: downloaded,
+        rejected: path_failures,
+    } = triage_downloaded(downloaded);
 
     // Build apply-delta input. Renames-in-place: same objectId now points
     // at a different filename — drop the old one as a delete here so the
@@ -1678,6 +1760,8 @@ pub async fn run_pull(
     for (idx, note) in downloaded.iter().enumerate() {
         // Identical-content collision loser: the winner already writes these
         // exact bytes at the canonical name — skip it (no write, no map entry).
+        // (Non-syncable/unsafe objects were already screened out by
+        // `triage_downloaded` before collision planning.)
         if collision_plan.download_skips.contains(&idx) {
             continue;
         }
@@ -1801,7 +1885,15 @@ pub async fn run_pull(
             deleted_ids: deleted_ids.clone(),
             peer_updated_ids: updated_ids,
             peer_deleted_ids: deleted_ids,
-            failures: failed_downloads.into_iter().map(|f| f.failure).collect(),
+            failures: {
+                let mut failures: Vec<SyncFailure> =
+                    failed_downloads.into_iter().map(|f| f.failure).collect();
+                // F8: incoming names we refused to write, surfaced but not
+                // cursor-capped (a permanently-invalid name shouldn't re-list
+                // every cycle — recording it once is "not silently dropped").
+                failures.extend(path_failures);
+                failures
+            },
             deleted_hashes,
             created_hashes,
             hash_to_filenames,
@@ -1870,6 +1962,15 @@ fn plan_push_with_moves(
 
     let mut deletes = Vec::new();
     for (filename, entry) in object_map {
+        // F7 migration: a legacy-image (pre-D4 `.tiff/.tif/.heif`) or otherwise
+        // non-syncable map entry is no longer produced by the local scan
+        // (`list_notes_with_meta` filters to `.md` + canonical images), so it
+        // would look "deleted locally" and get tombstoned — destroying it on
+        // the server and every peer. Never tombstone a non-syncable entry; it
+        // is left on the server untouched.
+        if !is_syncable_filename(filename) {
+            continue;
+        }
         if !local_names.contains(filename.as_str()) {
             deletes.push((filename.clone(), entry.clone()));
         }
@@ -2938,28 +3039,71 @@ pub async fn run_push(
                 entry,
                 modified_at,
             } => {
-                // Remove the old (deleted-locally) entry and write the
-                // restored blob in its place. If the restore landed on a
-                // different filename (server-renamed during the race) the
-                // old filename gets dropped from the map too.
-                if filename != restored {
-                    removes.insert(filename.clone());
+                // The restored filename is peer/server-controlled (the object
+                // was restored during a delete-vs-edit race), so screen it
+                // through the same classifier as any incoming write before it
+                // reaches the writer (B5): heal a creatable-but-unsyncable name,
+                // and refuse a structurally-unsafe or non-syncable one rather
+                // than write a hostile name or abort the push.
+                let safe_restored = match classify_incoming_sync_path(&restored) {
+                    IncomingSyncPath::Accept => Some(restored.clone()),
+                    IncomingSyncPath::Sanitize(healed) => Some(healed),
+                    IncomingSyncPath::Ignore | IncomingSyncPath::Reject(_) => None,
+                };
+                match safe_restored {
+                    Some(restored) => {
+                        // C1: the restore name (server-renamed during the race,
+                        // or healed above) can collide with an UNRELATED note
+                        // already tracked under that name. Writing it there would
+                        // overwrite that note AND replace its map entry — data
+                        // loss. If the target is owned by a DIFFERENT object,
+                        // park the restore at a deterministic conflict copy, the
+                        // same way pull collisions resolve; the existing note
+                        // keeps the canonical name.
+                        let restored = match next.object_map.get(&restored) {
+                            Some(existing) if existing.object_id != entry.object_id => {
+                                collision_conflict_filename(&restored, &entry.object_id)
+                            }
+                            _ => restored,
+                        };
+                        // Remove the old (deleted-locally) entry and write the
+                        // restored blob in its place. If the restore landed on a
+                        // different filename (rename/heal/park) the old filename
+                        // is dropped from the map.
+                        if filename != restored {
+                            removes.insert(filename.clone());
+                        }
+                        updates.push(V2IncomingUpdate {
+                            filename: restored.clone(),
+                            content,
+                            hash,
+                            modified_at,
+                        });
+                        upserts.push((restored.clone(), entry));
+                        updated_ids.push(filename_to_id(&restored));
+                        peer_updated_ids.push(filename_to_id(&restored));
+                        // The peer's content was just written back to disk via
+                        // the edit-wins restore. This is a real peer download —
+                        // count it so totals are honest. The subsequent run_pull
+                        // sees this object already at the restored version and
+                        // skips it, so there's no double-counting.
+                        downloaded += 1;
+                    }
+                    None => {
+                        // Can't safely materialize the restore — surface it,
+                        // don't abort the push, don't write a hostile name. C2:
+                        // DROP the stale map entry for the locally-deleted file
+                        // so the next cycle doesn't re-plan the same delete →
+                        // 409 → re-reject forever; the object is left on the
+                        // server (the pull side rejects it once and advances).
+                        removes.insert(filename.clone());
+                        failures.push(SyncFailure {
+                            filename: restored,
+                            kind: FailureKind::Rejected,
+                            status_code: None,
+                        });
+                    }
                 }
-                updates.push(V2IncomingUpdate {
-                    filename: restored.clone(),
-                    content,
-                    hash,
-                    modified_at,
-                });
-                upserts.push((restored.clone(), entry));
-                updated_ids.push(filename_to_id(&restored));
-                peer_updated_ids.push(filename_to_id(&restored));
-                // The peer's content was just written back to disk via the
-                // edit-wins restore. This is a real peer download — count it
-                // so totals are honest. The subsequent run_pull sees this
-                // object already at the restored version and skips it, so
-                // there's no double-counting.
-                downloaded += 1;
             }
         }
     }
@@ -3747,6 +3891,20 @@ async fn reconcile_empty_map(
     )
     .await;
 
+    // The cursor must advance past objects we ignore/reject too (they were
+    // fetched successfully, just not materialized) so the next reconcile does
+    // not re-list them. Captured BEFORE triage drops them from `downloaded`.
+    let fetched_max_seq = downloaded.iter().map(|n| n.change_seq).max().unwrap_or(0);
+    // Screen the download set through the SAME classifier `run_pull` uses,
+    // BEFORE collision planning (B1/B4): legacy/foreign blobs drop out (never
+    // written as notes, never phantom-mapped, never counted), creatable-but-
+    // unsyncable names heal, and structurally unsafe names become recorded
+    // failures — all without aborting this fresh-device first sync.
+    let DownloadTriage {
+        kept: downloaded,
+        rejected: path_failures,
+    } = triage_downloaded(downloaded);
+
     // F4/F5: two distinct server objects can carry names that collide on a
     // case/normalization-insensitive FS (same name from two clients; NFC vs
     // NFD). On a fresh empty-map reconcile they would BOTH adopt the same
@@ -4091,6 +4249,10 @@ async fn reconcile_empty_map(
             new_max_version = t.change_seq;
         }
     }
+    // Advance past ignored/rejected (successfully-fetched but not materialized)
+    // objects so they are not re-listed next reconcile. Genuinely-failed
+    // downloads are still handled by the cap below.
+    new_max_version = new_max_version.max(fetched_max_seq);
     // Cap below the lowest failed change_seq of EITHER a failed download or a
     // failed tombstone (same rule as `cap_cursor`, extended to tombstones).
     let capped = match failed_downloads
@@ -4125,6 +4287,9 @@ async fn reconcile_empty_map(
     let peer_deleted_ids: Vec<String> = peer_deleted.iter().map(|f| filename_to_id(f)).collect();
     let mut failures: Vec<SyncFailure> =
         failed_downloads.into_iter().map(|f| f.failure).collect();
+    // Incoming names we refused to write (structurally unsafe) — surfaced,
+    // never cursor-capped, never abort this first sync (B1).
+    failures.extend(path_failures);
     // Unverified tombstone effects are real per-item failures (S2): they drive
     // the UI failure indicator and keep the cycle honest about not-yet-done work.
     for f in tomb_result.failed {
@@ -4705,6 +4870,26 @@ mod tests {
         let delete_names: Vec<_> = plan.deletes.iter().map(|(f, _)| f.as_str()).collect();
         assert_eq!(delete_names, vec!["gone.md"]);
         assert!(plan.candidates.is_empty());
+    }
+
+    // F7 migration: a legacy `.tiff` (or otherwise non-syncable) map entry is
+    // no longer produced by the local scan, so it looks "deleted locally" and
+    // would be tombstoned — destroying it on the server and every peer. It must
+    // NEVER be tombstoned; a genuinely-gone `.md` still is.
+    #[test]
+    fn plan_push_never_tombstones_non_syncable_map_entry() {
+        let local = vec![local("kept.md", 1, 1)];
+        let mut map = HashMap::new();
+        map.insert("kept.md".into(), map_entry(1, Some("h"), Some(1), Some(1)));
+        map.insert("scan.tiff".into(), map_entry(2, Some("h"), Some(1), Some(1)));
+        map.insert("gone.md".into(), map_entry(3, Some("h"), Some(1), Some(1)));
+        let plan = plan_push(&local, &map);
+        let delete_names: Vec<_> = plan.deletes.iter().map(|(f, _)| f.as_str()).collect();
+        assert_eq!(
+            delete_names,
+            vec!["gone.md"],
+            "only the genuinely-gone .md is tombstoned; the legacy .tiff is left alone"
+        );
     }
 
     #[test]
@@ -5783,6 +5968,422 @@ mod tests {
         assert_eq!(next.max_version, 2);
         assert_eq!(std::fs::read_to_string(root.join("one.md")).unwrap(), "alpha\n");
         assert_eq!(std::fs::read_to_string(root.join("two.md")).unwrap(), "beta\n");
+    }
+
+    // F7 migration: a server listing that includes a legacy `.tiff` blob (an
+    // older client uploaded it before D4 narrowed IMAGE_EXTENSIONS to 10). The
+    // pull must land the valid note and IGNORE the legacy blob — never write it
+    // as a note, never record a failure, never tombstone it, never error the
+    // cycle. Guards `is_syncable_filename` in run_pull's downloaded loop.
+    #[tokio::test]
+    async fn run_pull_ignores_legacy_image_blob() {
+        let server = MockServer::start().await;
+        Mock::given(wm_method("GET"))
+            .and(wm_path("/api/collections/c1/objects"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "objects": [wire_object("o1", 1, Some(64)), wire_object("o2", 2, Some(64))]
+            })))
+            .mount(&server)
+            .await;
+        let mut body = batch_frame("bk-o1", 0, &enc("one.md", "alpha\n").await);
+        // Legacy image blob: an older client's `.tiff`, no longer syncable.
+        body.extend(batch_frame("bk-o2", 0, &enc("scan.tiff", "AAAA").await));
+        Mock::given(wm_method("POST"))
+            .and(wm_path("/api/blobs/batch"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(body))
+            .mount(&server)
+            .await;
+
+        let root = temp_root();
+        let state = connected_state(&server);
+        let (summary, next) = run_pull(&state, &root, 0, &no_prog, &no_pre)
+            .await
+            .expect("pull must not error on a legacy image blob");
+
+        assert_eq!(std::fs::read_to_string(root.join("one.md")).unwrap(), "alpha\n");
+        assert!(!root.join("scan.tiff").exists(), "legacy blob must not be written");
+        assert!(
+            summary.failures.is_empty(),
+            "a legacy blob is an expected migration state, not a failure"
+        );
+        assert_eq!(summary.deleted, 0, "legacy blob must not be tombstoned");
+        assert!(
+            !next.object_map.contains_key("scan.tiff"),
+            "legacy blob must not enter the map"
+        );
+        // Cursor still advances past the ignored object.
+        assert_eq!(next.max_version, 2);
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    // B2a: a peer pushes a name local creation legitimately produces on
+    // macOS/Linux but Windows can't hold (a reserved device name). The pull
+    // HEALS it — writes it under the safe `sanitize_title`-equivalent name,
+    // maps the object there, and records NO failure — so the note is never
+    // dropped and the healed name is legal on every platform.
+    #[tokio::test]
+    async fn run_pull_heals_creatable_but_unsyncable_name() {
+        let server = MockServer::start().await;
+        Mock::given(wm_method("GET"))
+            .and(wm_path("/api/collections/c1/objects"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "objects": [wire_object("o1", 1, Some(64)), wire_object("o2", 2, Some(64))]
+            })))
+            .mount(&server)
+            .await;
+        let mut body = batch_frame("bk-o1", 0, &enc("good.md", "alpha\n").await);
+        body.extend(batch_frame("bk-o2", 0, &enc("CON.md", "device\n").await));
+        Mock::given(wm_method("POST"))
+            .and(wm_path("/api/blobs/batch"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(body))
+            .mount(&server)
+            .await;
+
+        let root = temp_root();
+        let state = connected_state(&server);
+        let (summary, next) = run_pull(&state, &root, 0, &no_prog, &no_pre)
+            .await
+            .expect("pull must heal, not error");
+
+        assert_eq!(std::fs::read_to_string(root.join("good.md")).unwrap(), "alpha\n");
+        assert_eq!(
+            std::fs::read_to_string(root.join("CON_.md")).unwrap(),
+            "device\n",
+            "reserved name healed to CON_.md"
+        );
+        assert!(!root.join("CON.md").exists(), "raw reserved name never written");
+        assert!(next.object_map.contains_key("CON_.md"), "healed name is mapped");
+        assert!(!next.object_map.contains_key("CON.md"));
+        assert!(summary.failures.is_empty(), "a heal is not a failure");
+        assert_eq!(summary.deleted, 0);
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    // B2a idempotency: a second pull of the SAME healed object does not
+    // re-download, re-write, or re-mint — the map already points the object at
+    // its healed name, so it is skipped in `first_pass`.
+    #[tokio::test]
+    async fn run_pull_heal_is_idempotent_across_cycles() {
+        let server = MockServer::start().await;
+        // Unknown size (None) → the singleton takes the classic per-blob GET.
+        Mock::given(wm_method("GET"))
+            .and(wm_path("/api/collections/c1/objects"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "objects": [wire_object("o2", 2, None)]
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(wm_method("GET"))
+            .and(wm_path("/api/blobs/bk-o2"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_bytes(enc("CON.md", "device\n").await),
+            )
+            .mount(&server)
+            .await;
+
+        let root = temp_root();
+        let state = connected_state(&server);
+        let (_s1, next1) = run_pull(&state, &root, 0, &no_prog, &no_pre).await.expect("pull 1");
+        assert!(root.join("CON_.md").exists());
+        // Second pull from the advanced cursor with the healed map: nothing new.
+        let (s2, next2) = run_pull(&next1, &root, 0, &no_prog, &no_pre).await.expect("pull 2");
+        assert_eq!(s2.downloaded, 0, "healed object is not re-downloaded");
+        assert!(s2.failures.is_empty());
+        assert_eq!(next2.object_map.len(), 1);
+        assert!(next2.object_map.contains_key("CON_.md"));
+        assert!(!root.join("CON.md").exists());
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    // A structurally-unsafe incoming name (a buggy/older peer only — local
+    // creation could never mint traversal) is REJECTED: skipped, never written,
+    // surfaced as a permanent `Rejected` failure (not the retryable `Download`),
+    // and the valid sibling still lands without aborting the cycle.
+    #[tokio::test]
+    async fn run_pull_rejects_structurally_unsafe_name() {
+        let server = MockServer::start().await;
+        Mock::given(wm_method("GET"))
+            .and(wm_path("/api/collections/c1/objects"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "objects": [wire_object("o1", 1, Some(64)), wire_object("o2", 2, Some(64))]
+            })))
+            .mount(&server)
+            .await;
+        let mut body = batch_frame("bk-o1", 0, &enc("good.md", "alpha\n").await);
+        body.extend(batch_frame("bk-o2", 0, &enc("../escape.md", "evil\n").await));
+        Mock::given(wm_method("POST"))
+            .and(wm_path("/api/blobs/batch"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(body))
+            .mount(&server)
+            .await;
+
+        let root = temp_root();
+        let state = connected_state(&server);
+        let (summary, next) = run_pull(&state, &root, 0, &no_prog, &no_pre)
+            .await
+            .expect("pull must not error on an unsafe incoming name");
+
+        assert_eq!(std::fs::read_to_string(root.join("good.md")).unwrap(), "alpha\n");
+        assert!(!root.join("escape.md").exists());
+        assert_eq!(summary.failures.len(), 1, "the unsafe name surfaces once");
+        assert_eq!(summary.failures[0].kind, FailureKind::Rejected);
+        assert_eq!(summary.deleted, 0, "unsafe name must not be tombstoned");
+        // Rejected → the honest message must NOT promise a retry.
+        let msg = summary.failure_message().unwrap();
+        assert!(msg.contains("skipped") && !msg.contains("will retry"), "msg: {msg}");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    // B4: two incoming objects whose names HEAL to the same on-disk name reach
+    // collision planning AFTER healing (triage runs first), so they resolve as
+    // a normal collision — winner keeps the canonical name, loser is parked at
+    // a conflict copy — and NEITHER note is dropped.
+    #[tokio::test]
+    async fn run_pull_healed_names_collide_and_both_survive() {
+        let server = MockServer::start().await;
+        Mock::given(wm_method("GET"))
+            .and(wm_path("/api/collections/c1/objects"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "objects": [wire_object("o1", 1, Some(64)), wire_object("o2", 2, Some(64))]
+            })))
+            .mount(&server)
+            .await;
+        // o1 = clean "note.md"; o2 = "note .md" (trailing space heals to note.md).
+        let mut body = batch_frame("bk-o1", 0, &enc("note.md", "clean\n").await);
+        body.extend(batch_frame("bk-o2", 0, &enc("note .md", "healed\n").await));
+        Mock::given(wm_method("POST"))
+            .and(wm_path("/api/blobs/batch"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(body))
+            .mount(&server)
+            .await;
+
+        let root = temp_root();
+        let state = connected_state(&server);
+        let (summary, _next) = run_pull(&state, &root, 0, &no_prog, &no_pre)
+            .await
+            .expect("pull");
+
+        assert!(summary.failures.is_empty());
+        // Both notes survive on disk: the canonical winner + one conflict copy,
+        // carrying both contents. Neither was dropped.
+        let md: Vec<_> = std::fs::read_dir(&root)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n.ends_with(".md"))
+            .collect();
+        assert_eq!(md.len(), 2, "winner + parked loser, got {md:?}");
+        assert!(root.join("note.md").exists(), "canonical winner kept");
+        let contents: std::collections::HashSet<String> = md
+            .iter()
+            .map(|n| std::fs::read_to_string(root.join(n)).unwrap())
+            .collect();
+        assert!(contents.contains("clean\n") && contents.contains("healed\n"));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    // B1: a fresh device (empty map, cursor 0 → reconcile path) pulls a listing
+    // with a valid note + a reserved name + a legacy .tiff + a traversal name.
+    // The valid note lands, the reserved name heals, the legacy blob is ignored,
+    // the traversal name is rejected — none phantom-mapped or counted — and the
+    // cycle completes with the cursor advanced past every object.
+    #[tokio::test]
+    async fn reconcile_empty_map_heals_ignores_and_rejects() {
+        let server = MockServer::start().await;
+        Mock::given(wm_method("GET"))
+            .and(wm_path("/api/collections/c1/objects"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "objects": [
+                    wire_object("o1", 1, Some(64)),
+                    wire_object("o2", 2, Some(64)),
+                    wire_object("o3", 3, Some(64)),
+                    wire_object("o4", 4, Some(64)),
+                ]
+            })))
+            .mount(&server)
+            .await;
+        let mut body = batch_frame("bk-o1", 0, &enc("good.md", "a1\n").await);
+        body.extend(batch_frame("bk-o2", 0, &enc("CON.md", "a2\n").await));
+        body.extend(batch_frame("bk-o3", 0, &enc("scan.tiff", "AAAA").await));
+        body.extend(batch_frame("bk-o4", 0, &enc("../evil.md", "a4\n").await));
+        Mock::given(wm_method("POST"))
+            .and(wm_path("/api/blobs/batch"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(body))
+            .mount(&server)
+            .await;
+
+        let root = temp_root();
+        let state = connected_state(&server);
+        let (summary, next) = reconcile_empty_map(&state, &root, &no_prog, &no_pre)
+            .await
+            .expect("reconcile must complete over an unsafe listing");
+
+        assert_eq!(std::fs::read_to_string(root.join("good.md")).unwrap(), "a1\n");
+        assert_eq!(
+            std::fs::read_to_string(root.join("CON_.md")).unwrap(),
+            "a2\n",
+            "reserved name healed"
+        );
+        assert!(!root.join("CON.md").exists());
+        assert!(!root.join("scan.tiff").exists(), "legacy blob ignored");
+        assert!(!root.join("evil.md").exists() && !root.join("../evil.md").exists());
+        // Map holds only the two materialized notes — no phantom legacy entry.
+        assert!(next.object_map.contains_key("good.md"));
+        assert!(next.object_map.contains_key("CON_.md"));
+        assert!(!next.object_map.contains_key("scan.tiff"));
+        assert!(!next.object_map.contains_key("CON.md"));
+        assert_eq!(next.object_map.len(), 2);
+        // Count reflects only materialized notes (aligned with run_pull).
+        assert_eq!(summary.downloaded, 2);
+        // The traversal name surfaces as one permanent rejection.
+        assert_eq!(summary.failures.len(), 1);
+        assert_eq!(summary.failures[0].kind, FailureKind::Rejected);
+        // Cursor advanced past every object, including the ignored/rejected ones.
+        assert_eq!(next.max_version, 4);
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    // B5: the edit-wins delete restore writes a PEER-CONTROLLED filename. A
+    // hostile restored name (traversal) is refused — never written, surfaced as
+    // a rejection — and the push completes without aborting.
+    #[tokio::test]
+    async fn run_push_rejects_hostile_restored_filename() {
+        let server = MockServer::start().await;
+        // DELETE of our locally-gone note 409s (a peer edited it); the restore
+        // then fetches the peer's current blob, whose decrypted path is hostile.
+        Mock::given(wm_method("DELETE"))
+            .and(wm_path("/api/collections/c1/objects/og"))
+            .respond_with(ResponseTemplate::new(409).set_body_json(serde_json::json!({
+                "error": "conflict",
+                "currentVersion": 2,
+                "currentBlobKey": "bk-restored"
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(wm_method("GET"))
+            .and(wm_path("/api/blobs/bk-restored"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_bytes(enc("../evil.md", "hostile\n").await),
+            )
+            .mount(&server)
+            .await;
+
+        let root = temp_root();
+        let mut state = connected_state(&server);
+        // A note present in the map but absent on disk → a delete candidate.
+        state.object_map.insert(
+            "gone.md".to_owned(),
+            E2eeObjectMapEntry {
+                object_id: "og".to_owned(),
+                version: 1,
+                blob_key: "bk-gone".to_owned(),
+                hash: Some("h".to_owned()),
+                mtime_ms: Some(1),
+                size_bytes: Some(1),
+            },
+        );
+
+        let (summary, _next) = run_push(&state, &root, &no_prog, &no_pre)
+            .await
+            .expect("push must not abort on a hostile restored name");
+
+        assert!(!root.join("evil.md").exists(), "hostile restore never written");
+        assert!(
+            summary.failures.iter().any(|f| f.kind == FailureKind::Rejected),
+            "hostile restore surfaces as a rejection: {:?}",
+            summary.failures
+        );
+        // C2: the stale map entry for the locally-deleted note is dropped, so
+        // the cycle converges — a second push does NOT re-plan the delete.
+        assert!(
+            !_next.object_map.contains_key("gone.md"),
+            "rejected restore must drop the stale map entry so the delete isn't re-attempted"
+        );
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    // C1 (data loss): a delete-vs-edit restore whose name HEALS onto an
+    // unrelated existing note must NOT overwrite it. The healed restore is
+    // parked at a conflict copy; the existing note keeps its name + content +
+    // map entry, and both survive.
+    #[tokio::test]
+    async fn run_push_heal_restore_parks_on_collision_with_unrelated_note() {
+        let server = MockServer::start().await;
+        // Deleting object oB 409s; its peer edit's path "note .md" heals to
+        // "note.md" — the name an UNRELATED live note (oA) already holds.
+        Mock::given(wm_method("DELETE"))
+            .and(wm_path("/api/collections/c1/objects/oB"))
+            .respond_with(ResponseTemplate::new(409).set_body_json(serde_json::json!({
+                "error": "conflict",
+                "currentVersion": 2,
+                "currentBlobKey": "bk-b"
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(wm_method("GET"))
+            .and(wm_path("/api/blobs/bk-b"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_bytes(enc("note .md", "restored\n").await),
+            )
+            .mount(&server)
+            .await;
+
+        let root = temp_root();
+        std::fs::write(root.join("note.md"), "original\n").unwrap();
+        let meta = std::fs::metadata(root.join("note.md")).unwrap();
+        let mut state = connected_state(&server);
+        // oA: the unrelated live note, fast-pathed (matches disk → not a push
+        // candidate).
+        state.object_map.insert(
+            "note.md".to_owned(),
+            E2eeObjectMapEntry {
+                object_id: "oA".to_owned(),
+                version: 1,
+                blob_key: "bk-a".to_owned(),
+                hash: Some(hash_sha256("original\n")),
+                mtime_ms: Some(file_mtime_ms(&meta)),
+                size_bytes: Some(meta.len()),
+            },
+        );
+        // oB: locally-deleted note (in map, absent on disk) → a delete candidate.
+        state.object_map.insert(
+            "note .md".to_owned(),
+            E2eeObjectMapEntry {
+                object_id: "oB".to_owned(),
+                version: 1,
+                blob_key: "bk-b-old".to_owned(),
+                hash: Some("h".to_owned()),
+                mtime_ms: Some(1),
+                size_bytes: Some(1),
+            },
+        );
+
+        let (_summary, next) = run_push(&state, &root, &no_prog, &no_pre)
+            .await
+            .expect("push");
+
+        // The unrelated note survives untouched, in place and in the map.
+        assert_eq!(
+            std::fs::read_to_string(root.join("note.md")).unwrap(),
+            "original\n",
+            "unrelated note must not be overwritten"
+        );
+        assert_eq!(next.object_map.get("note.md").unwrap().object_id, "oA");
+        // The restore landed at a conflict copy carrying its own content.
+        let parked: Vec<_> = std::fs::read_dir(&root)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n.ends_with(".md") && n != "note.md")
+            .collect();
+        assert_eq!(parked.len(), 1, "restore parked at a conflict copy: {parked:?}");
+        assert_eq!(
+            std::fs::read_to_string(root.join(&parked[0])).unwrap(),
+            "restored\n"
+        );
+        assert_eq!(next.object_map.get(&parked[0]).unwrap().object_id, "oB");
+        std::fs::remove_dir_all(&root).ok();
     }
 
     // Old server: the batch endpoint 404s → the pull degrades to per-blob

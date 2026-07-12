@@ -103,6 +103,14 @@ const filename = {
       'a\x00b\x1fc',
       'a\x7fb',
       '  hello  ',
+      // D4/B2b: Windows-reserved de-reservation + leading/trailing-dot strip.
+      'CON',
+      'con',
+      'CON.bak',
+      'NUL.txt',
+      'CONSOLE',
+      '.env',
+      'note .',
     ]),
     group('validateTitle', 'validateTitle', (s) => kinds(validateTitle(s)), [
       'my note',
@@ -269,6 +277,14 @@ const image = {
       'photo.JPG',
       'photo.Png',
       'photo.WEBP',
+      // D4 boundary: legacy formats dropped from the canonical set + the
+      // exact-extension rule (extension is only what follows the LAST dot).
+      'scan.tiff',
+      'scan.tif',
+      'photo.heif',
+      'photo.TIFF',
+      'x.tiff.md',
+      'x.tiff.png',
       'note.md',
       'file.txt',
       'script.js',
