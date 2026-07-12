@@ -369,12 +369,59 @@ upload. Desktop sync module ownership and serialization boundaries are fixed by
 - A dirty-merge (local edits plus a remote change to the same note) parks the
   local edits in a `note (conflict YYYY-MM-DD).md` copy rather than discarding
   them. → futo-notes-sync orchestrator (`resolve_update_conflict`)
+- **A local edit to a note a peer deleted is preserved, not discarded.** When a
+  dirty local edit is pushed but the server object was tombstoned by a peer, the
+  edit is re-POSTed as a fresh LIVE object at its own filename instead of being
+  dropped. The server's DELETE keeps the object's blob_key and bumps its version,
+  so the push PUT 409s with a blob present (not `None`) and the 3-way merge
+  re-PUT "succeeds" — but the row is still `deleted: true` (a PUT does not
+  un-delete). Mapping the note to that tombstone would let the same cycle's pull
+  immediate-delete erase the merged edit. The resolver reads the `deleted` flag
+  on the re-PUT response and, when set, re-POSTs the content as a fresh object;
+  it also handles the degenerate `current_blob_key: None` shape the same way.
+  Re-mapping the filename to the new object stops the tombstone (old object id)
+  from matching any local file, so the pull cannot re-delete it, and the edit
+  propagates back to the peer. Symmetric with the edit-wins delete-conflict (a
+  peer edit to a note WE delete keeps the peer edit). The old code returned an
+  `UnresolvedConflict` that wrote nothing / mapped the note to the tombstone, and
+  the edit was silently lost. (F3) → futo-notes-sync
+  `orchestrator::resolve_update_conflict` + `repost_as_fresh_object`
+  (`ObjectWriteResponse::deleted`); regression tests
+  `resolve_update_conflict_merge_onto_tombstone_reposts_fresh`,
+  `resolve_update_conflict_peer_delete_preserves_edit_as_fresh_object`,
+  cross-platform scenario "edit vs peer delete preserves edit"
+- A direct PUT that "succeeds" onto a still-deleted server row (the server's
+  DELETE bumps the version, so a concurrent editor's expected-version can
+  collide and no 409 fires) is detected via the response's `deleted` flag and
+  the edit is re-POSTed as a fresh live object — never mapped to the tombstone
+  where the puller's own pull would delete it. → futo-notes-sync
+  `orchestrator::push_one_file` (direct-PUT arm); regression test
+  `push_one_file_direct_put_onto_tombstone_reposts_fresh`
+- Pull-side filename collisions between byte-identical objects adopt silently
+  (smallest object id stays canonical; the identical loser mints NO
+  `(conflict <oid8>)` copy and its map entry is dropped without tombstoning
+  the live server object) — only genuinely divergent content is parked. →
+  futo-notes-sync `orchestrator::resolve_pull_collisions`; regression tests
+  `collision_identical_content_adopts_silently_no_conflict_copy`,
+  `collision_identical_map_only_loser_is_dropped_not_parked`
 - Renames are paired — a rename is not seen as delete + create. → migration plan
   Phase 5
 - A push checkpoint is written every 50 objects. → migration plan Phase 5
 - A legacy `.app-state.json` is migrated on first run. → migration plan Phase 5
-- Concurrent moves of the same note dedup to a single winner
-  (`pick_duplicate_move_losers`). → migration plan Phase 5
+- **Concurrent-move dedup keys on OBJECT IDENTITY, never on (content-hash,
+  basename).** When the SAME server object surfaces under two on-disk filenames
+  in one cycle, it collapses to the highest-`change_seq` name and the redundant
+  local copy is removed (local file + map entry only — no server DELETE, since
+  the object survives under the winner and a DELETE would tombstone it). Two
+  LEGITIMATELY DISTINCT notes that merely share a basename and content (e.g. two
+  empty `Untitled.md` in different folders) are different objects and BOTH
+  survive — the old (content-hash, basename) key deleted one of them on
+  server+disk when a same-content delete happened in the same cycle (F9). →
+  futo-notes-sync `orchestrator::{pick_duplicate_move_losers,
+  resolve_concurrent_move_duplicates, remove_duplicate_loser_locally}`;
+  regression tests `dup_losers_keeps_distinct_objects_sharing_basename_and_content`,
+  `dedup_loser_takedown_is_local_only_and_winner_survives`; cross-platform
+  scenario "distinct same basename survives move dedup"
 - **Sync is push-first on every client and every trigger.** The native (iOS /
   Android) FFI `sync_now`, the SSE live loop, and the debounced auto-push all
   run the full push-first `run_sync` cycle — identical to the desktop
@@ -452,6 +499,25 @@ upload. Desktop sync module ownership and serialization boundaries are fixed by
   `reconnect_after_local_edit_updates_same_object_instead_of_parking`,
   `reconnect_after_remote_rename_deletes_stale_old_path_no_duplicate`,
   `state::tests::demote_*` / `load_for_collection_*`
+- **A reconnect honors peer deletes made while this device was disconnected —
+  it does not resurrect them.** The empty-map reconcile inspects server
+  TOMBSTONES (deleted objects), not just live ones. For each tombstone it
+  matches the ancestry (object_id → last-synced filename + hash): if the local
+  file is unchanged since the last sync it is deleted (the peer's delete wins);
+  if it diverged (edited while disconnected) the local edit is preserved in a
+  deterministic `name (conflict <oid8>).md` copy that push re-uploads as its own
+  new object, and the tombstoned name is removed; a tombstone with no ancestry
+  entry is left alone. Before the fix the `live`-only filter dropped every
+  tombstone, so the local file survived and the next push re-POSTed it as a
+  brand-new object — resurrecting the deleted note on every device permanently.
+  The reconcile deletes are folded into the summary (deleted count + deletedIds)
+  so the client rescan gate fires. (F1) → futo-notes-sync
+  `orchestrator::reconcile_empty_map` tombstone branch (folded by
+  `fold_reconcile_summary`); regression tests
+  `reconcile_honors_peer_tombstone_deletes_unchanged_local`,
+  `reconcile_parks_local_edit_when_tombstoned_object_diverged`,
+  `reconcile_leaves_tombstoned_file_without_ancestry_alone`; cross-platform
+  scenario "peer deletes while disconnected"
 - `write_atomic_text` overwrites a destination that differs only in **filename
   case** from an existing file instead of failing. On case-insensitive
   filesystems (default APFS on macOS/iOS, NTFS) `fs::rename` returns EEXIST for

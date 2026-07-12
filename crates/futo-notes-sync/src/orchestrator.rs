@@ -43,7 +43,7 @@ use tokio::task::JoinSet;
 
 use crate::client::{
     parse_iso_ms, AuthMode, BatchBlobStatus, ConflictResponse, DeleteResult, E2eeClient,
-    E2eeHttpError, PutResult, ServerObject,
+    E2eeHttpError, ObjectWriteResponse, PutResult, ServerObject,
 };
 use crate::state::{self, ConnectedState, E2eeObjectMapEntry};
 
@@ -612,8 +612,8 @@ pub struct SyncSummary {
     pub renamed: Vec<RenamePair>,
     /// Per-item sync operations that failed but did NOT abort the cycle
     /// (upload/delete/checkpoint errors). Distinct from `conflicts`, which
-    /// carries expected/handled outcomes (413 oversize, unresolved merges).
-    /// Empty in a healthy cycle; a non-empty vec drives the UI failure
+    /// carries expected/handled outcomes (413 oversize, dirty-merge conflict
+    /// copies). Empty in a healthy cycle; a non-empty vec drives the UI failure
     /// indicator + toast. Count = `failures.len()`.
     pub failures: Vec<SyncFailure>,
 
@@ -752,6 +752,11 @@ impl SyncSummary {
 pub struct HashFilenameEntry {
     pub filename: String,
     pub change_seq: u64,
+    /// Server object this filename maps to. The concurrent-move dedup keys on
+    /// this so it only collapses copies of the SAME object surfacing under two
+    /// names — never two distinct notes that merely share content + basename
+    /// (F9).
+    pub object_id: String,
 }
 
 #[derive(Debug, Clone)]
@@ -776,10 +781,11 @@ fn add_hash_filename(
     hash: String,
     filename: String,
     change_seq: u64,
+    object_id: String,
 ) {
     map.entry(hash)
         .or_default()
-        .push(HashFilenameEntry { filename, change_seq });
+        .push(HashFilenameEntry { filename, change_seq, object_id });
 }
 
 /// Detect 1-to-1 local renames before push. For each basename where the
@@ -1347,6 +1353,11 @@ struct CollisionCandidate {
     object_id: String,
     /// The object's own (canonical) filename as it wants to appear on disk.
     filename: String,
+    /// Content hash, when known: `Some` for a download, the recorded hash for a
+    /// map entry (may be `None` if the fast-path fields were cleared). Two
+    /// colliding objects with the SAME known hash are byte-identical, so the
+    /// loser is adopted silently instead of parked at a conflict copy.
+    hash: Option<String>,
     source: CandidateSource,
 }
 
@@ -1367,6 +1378,17 @@ struct CollisionPlan {
     /// A map-only object that lost: rename it on disk + in the map from
     /// `old_filename` to `new_filename`.
     map_renames: Vec<MapRename>,
+    /// Download indices to SKIP entirely: an identical-content collision loser.
+    /// The winner already materializes the byte-identical content at the
+    /// canonical name, so writing the loser would only mint a redundant
+    /// `(conflict <oid>)` copy (the twice-postmortemed conflict-copy spam).
+    /// The loser object is left untouched on the server.
+    download_skips: HashSet<usize>,
+    /// Map-only losers whose content is byte-identical to the winner: drop the
+    /// old on-disk file + map entry (the winner is the sole survivor). Removing
+    /// the map entry keeps the push phase from tombstoning the still-live server
+    /// object — it is simply left on the server.
+    identical_map_drops: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -1420,6 +1442,7 @@ fn resolve_pull_collisions(
             .push(CollisionCandidate {
                 object_id: d.object_id.clone(),
                 filename: d.filename.clone(),
+                hash: Some(d.hash.clone()),
                 source: CandidateSource::Download(idx),
             });
     }
@@ -1440,6 +1463,7 @@ fn resolve_pull_collisions(
             .push(CollisionCandidate {
                 object_id: entry.object_id.clone(),
                 filename: filename.clone(),
+                hash: entry.hash.clone(),
                 source: CandidateSource::MapEntry(filename.clone()),
             });
     }
@@ -1459,7 +1483,29 @@ fn resolve_pull_collisions(
         // filename. Everyone else is a loser parked at a deterministic name
         // derived from the WINNER's canonical name + the LOSER's object_id.
         let winner_filename = members[0].filename.clone();
+        let winner_hash = members[0].hash.clone();
         for loser in &members[1..] {
+            // Identical content is NOT a real conflict. A byte-identical loser
+            // must be adopted SILENTLY (no `(conflict <oid>)` copy): the winner
+            // already materializes the same bytes at the canonical name. This
+            // is the guard the push 409 path already has — its absence here let
+            // crash-window orphan objects (uploaded-but-unpersisted POSTs that
+            // re-list on restart) collide with the re-POSTed live entry and mint
+            // user-visible conflict copies that then propagate fleet-wide (the
+            // twice-postmortemed conflict-copy-spam class).
+            if let (Some(w), Some(l)) = (&winner_hash, &loser.hash) {
+                if w == l {
+                    match &loser.source {
+                        CandidateSource::Download(idx) => {
+                            plan.download_skips.insert(*idx);
+                        }
+                        CandidateSource::MapEntry(old) => {
+                            plan.identical_map_drops.push(old.clone());
+                        }
+                    }
+                    continue;
+                }
+            }
             let conflict_name =
                 collision_conflict_filename(&winner_filename, &loser.object_id);
             match &loser.source {
@@ -1604,6 +1650,15 @@ pub async fn run_pull(
         deleted_ids.push(filename_to_id(&mv.old_filename));
     }
 
+    // Identical-content map-only losers: drop the old on-disk file + map entry
+    // so the winner is the sole survivor. The removal from the map (below, via
+    // `deletes`) keeps the push phase from tombstoning the still-live server
+    // object — it is simply left on the server.
+    for old in &collision_plan.identical_map_drops {
+        deletes.insert(old.clone());
+        deleted_ids.push(filename_to_id(old));
+    }
+
     // Rename detection for the pull side. `deleted_hashes` covers
     // tombstones we just observed (look up the soon-to-be-removed map
     // entry's hash) and `created_hashes` covers everything we just
@@ -1621,6 +1676,11 @@ pub async fn run_pull(
     let mut hash_to_filenames: HashMap<String, Vec<HashFilenameEntry>> = HashMap::new();
 
     for (idx, note) in downloaded.iter().enumerate() {
+        // Identical-content collision loser: the winner already writes these
+        // exact bytes at the canonical name — skip it (no write, no map entry).
+        if collision_plan.download_skips.contains(&idx) {
+            continue;
+        }
         let on_disk = effective_filename(idx, note);
         let previous_filename = filename_by_object_id.get(&note.object_id);
         if let Some(prev) = previous_filename {
@@ -1649,6 +1709,7 @@ pub async fn run_pull(
             note.hash.clone(),
             on_disk.clone(),
             note.change_seq,
+            note.object_id.clone(),
         );
     }
 
@@ -1705,6 +1766,10 @@ pub async fn run_pull(
         }
     }
     for (idx, note) in downloaded.iter().enumerate() {
+        // Identical-content collision loser: not written, so not mapped either.
+        if collision_plan.download_skips.contains(&idx) {
+            continue;
+        }
         let on_disk = effective_filename(idx, note);
         // Sweep stale rename source from the map too.
         if let Some(prev) = filename_by_object_id.get(&note.object_id) {
@@ -1860,9 +1925,6 @@ enum PushOutcome {
         copy_hash: String,
         copy_entry: E2eeObjectMapEntry,
     },
-    /// Tried to resolve but couldn't (e.g. merge-base GC'd AND inline
-    /// retry failed). Counted toward `conflicts` so the UI can surface it.
-    UnresolvedConflict { filename: String },
     /// Server rejected the blob with HTTP 413 (exceeds `MAX_BLOB_BYTES`).
     /// Counted toward `conflicts` so the UI surfaces it, and the file's mtime
     /// is recorded in `oversize_skip` so we don't re-encrypt/re-upload it every
@@ -1904,6 +1966,88 @@ async fn encrypt_note(
     e2ee::aes_gcm_encrypt(vault_key, &packed).map_err(e2ee_err_to_string)
 }
 
+/// Outcome of the shared "POST a new object" arm. `Created` carries the server
+/// write response for the caller to build its own outcome (Wrote vs MergedClean,
+/// with the caller's size accounting); `Terminal` is a non-fatal PushOutcome
+/// (413 / server error) the caller returns as-is.
+// A short-lived intermediate, always matched immediately by the caller; both
+// variants wrap types this module already moves by value (PushOutcome is passed
+// unboxed everywhere), so boxing to equalize sizes would add churn for no
+// runtime benefit.
+#[allow(clippy::large_enum_variant)]
+enum PostNewOutcome {
+    Created(ObjectWriteResponse),
+    Terminal(PushOutcome),
+}
+
+/// Encrypt + POST `content` as a brand-new object, with the shared 413/error
+/// handling. The single copy of push's POST arm (S7): callers build the entry
+/// (and the note-vs-image `size_bytes` accounting) themselves so the image
+/// special-case can never drift between call sites.
+async fn post_new_blob_object(
+    http: &Arc<E2eeClient>,
+    vault_key: &[u8; KEY_BYTES],
+    collection_id: &str,
+    filename: &str,
+    content: &str,
+    mtime_ms: i64,
+) -> Result<PostNewOutcome, String> {
+    let ciphertext = encrypt_note(vault_key, filename, content).await?;
+    match http.post_blob_object(collection_id, ciphertext).await {
+        Ok(r) => Ok(PostNewOutcome::Created(r)),
+        Err(e) if e.is_payload_too_large() => {
+            eprintln!("[e2ee] {filename} exceeds the server blob size limit (413); not synced");
+            Ok(PostNewOutcome::Terminal(PushOutcome::TooLarge {
+                filename: filename.to_owned(),
+                mtime_ms,
+            }))
+        }
+        Err(e) => {
+            eprintln!("[e2ee] failed to create {filename}: {e}");
+            Ok(PostNewOutcome::Terminal(PushOutcome::Error {
+                filename: filename.to_owned(),
+                status_code: e.status_code(),
+            }))
+        }
+    }
+}
+
+/// Re-POST `content` as a brand-new object and return a `Wrote` outcome (no
+/// local write — the caller's disk already holds `content`). Used by the
+/// edit-vs-delete `current_blob_key: None` branch, where the local file already
+/// holds the dirty edit. Keeping the note on a FRESH object means the tombstone's
+/// object_id no longer matches any local file, so the same cycle's pull cannot
+/// immediate-delete it — edit wins, symmetric with `resolve_delete_conflict`.
+async fn repost_as_fresh_object(
+    http: &Arc<E2eeClient>,
+    vault_key: &[u8; KEY_BYTES],
+    collection_id: &str,
+    filename: &str,
+    content: &str,
+    hash: String,
+    mtime_ms: i64,
+) -> Result<PushOutcome, String> {
+    match post_new_blob_object(http, vault_key, collection_id, filename, content, mtime_ms).await? {
+        PostNewOutcome::Terminal(outcome) => Ok(outcome),
+        PostNewOutcome::Created(created) => Ok(PushOutcome::Wrote {
+            filename: filename.to_owned(),
+            entry: E2eeObjectMapEntry {
+                object_id: created.object_id,
+                version: created.version,
+                blob_key: created.blob_key,
+                hash: Some(hash),
+                mtime_ms: Some(created.updated_at),
+                // Note-only path (images never reach an edit-vs-delete): the
+                // content IS the on-disk bytes, so its byte length is the size.
+                size_bytes: Some(content.as_bytes().len() as u64),
+            },
+            modified_at: created.updated_at,
+            change_seq: created.change_seq,
+            peer_resolved: false,
+        }),
+    }
+}
+
 /// 409 path on PUT: download both the current remote blob and our recorded
 /// base blob, attempt a 3-way merge. Clean merge → re-PUT with the bumped
 /// version. Dirty merge or missing base → conflict-copy fallback.
@@ -1923,7 +2067,20 @@ async fn resolve_update_conflict(
 ) -> Result<PushOutcome, String> {
     let current_blob_key = match conflict.current_blob_key.clone() {
         Some(k) => k,
-        None => return Ok(PushOutcome::UnresolvedConflict { filename: filename.to_owned() }),
+        None => {
+            // F3: the peer DELETED this object (tombstone) while we held a dirty
+            // local edit and the 409 carries no current blob to merge against.
+            // (Some servers keep the blob_key on a delete — that case is caught
+            // by the `deleted`-flag check on the re-PUT below.) Preserve the
+            // edit by re-POSTing it as a FRESH object instead of dropping it:
+            // the old code returned an UnresolvedConflict that wrote nothing, so
+            // the same cycle's pull immediate-delete then erased the file and the
+            // edit was silently lost.
+            return repost_as_fresh_object(
+                &http, &vault_key, collection_id, filename, &local_content, local_hash, mtime_ms,
+            )
+            .await;
+        }
     };
 
     // Pull the new remote content so we either merge it or copy it down.
@@ -1986,6 +2143,50 @@ async fn resolve_update_conflict(
             };
             match put_result {
                 PutResult::Ok(resp) => {
+                    if resp.deleted {
+                        // F3 (real-server edit-vs-delete): the peer had DELETED
+                        // this object. The server's DELETE keeps the blob_key and
+                        // bumps the version, so our 409 carried a blob to merge
+                        // against and the re-PUT "succeeded" — but the row is
+                        // still a tombstone (PUT does not un-delete). Mapping the
+                        // note to this object would let the same cycle's pull
+                        // immediate-delete erase it and lose the merged edit.
+                        // Re-POST the merged content as a FRESH live object and
+                        // yield a MergedClean-shaped outcome: `merged` can differ
+                        // from BOTH the local bytes and the remote (a genuine
+                        // 3-way merge incorporating the peer's pre-delete edit), so
+                        // it MUST be written to disk — a bare Wrote never writes
+                        // locally, so the next cycle would re-upload the stale
+                        // local bytes over the merge and erase the peer's
+                        // contribution fleet-wide (S9).
+                        return match post_new_blob_object(
+                            &http,
+                            &vault_key,
+                            collection_id,
+                            &target_filename,
+                            &merged,
+                            mtime_ms,
+                        )
+                        .await?
+                        {
+                            PostNewOutcome::Terminal(outcome) => Ok(outcome),
+                            PostNewOutcome::Created(created) => Ok(PushOutcome::MergedClean {
+                                filename: target_filename,
+                                previous_filename,
+                                merged_content: merged,
+                                merged_hash: merged_hash.clone(),
+                                entry: E2eeObjectMapEntry {
+                                    object_id: created.object_id,
+                                    version: created.version,
+                                    blob_key: created.blob_key,
+                                    hash: Some(merged_hash),
+                                    mtime_ms: Some(created.updated_at),
+                                    size_bytes: Some(merged_size),
+                                },
+                                modified_at: created.updated_at,
+                            }),
+                        };
+                    }
                     return Ok(PushOutcome::MergedClean {
                         filename: target_filename,
                         previous_filename,
@@ -2160,39 +2361,34 @@ async fn push_one_file(
         }
     }
 
-    let ciphertext = encrypt_note(&vault_key, &filename, &content).await?;
-
-    // No prior entry → POST as a new object.
+    // No prior entry → POST as a new object (shared POST arm; `size` carries
+    // the note-vs-image special-case so it can't drift from the F3 re-POST).
     if existing.is_none() {
-        let created = match http.post_blob_object(&collection_id, ciphertext).await {
-            Ok(r) => r,
-            Err(e) if e.is_payload_too_large() => {
-                eprintln!("[e2ee] {filename} exceeds the server blob size limit (413); not synced");
-                return Ok(PushOutcome::TooLarge { filename, mtime_ms: file.mtime_ms });
-            }
-            Err(e) => {
-                eprintln!("[e2ee] failed to create {filename}: {e}");
-                return Ok(PushOutcome::Error { filename, status_code: e.status_code() });
-            }
-        };
-        let entry = E2eeObjectMapEntry {
-            object_id: created.object_id,
-            version: created.version,
-            blob_key: created.blob_key,
-            hash: Some(hash),
-            mtime_ms: Some(created.updated_at),
-            size_bytes: Some(size),
-        };
-        return Ok(PushOutcome::Wrote {
-            filename,
-            entry,
-            modified_at: created.updated_at,
-            change_seq: created.change_seq,
-            peer_resolved: false,
-        });
+        return Ok(
+            match post_new_blob_object(&http, &vault_key, &collection_id, &filename, &content, file.mtime_ms)
+                .await?
+            {
+                PostNewOutcome::Terminal(outcome) => outcome,
+                PostNewOutcome::Created(created) => PushOutcome::Wrote {
+                    filename,
+                    entry: E2eeObjectMapEntry {
+                        object_id: created.object_id,
+                        version: created.version,
+                        blob_key: created.blob_key,
+                        hash: Some(hash),
+                        mtime_ms: Some(created.updated_at),
+                        size_bytes: Some(size),
+                    },
+                    modified_at: created.updated_at,
+                    change_seq: created.change_seq,
+                    peer_resolved: false,
+                },
+            },
+        );
     }
 
     // Update path: PUT with expected_version; 409 → resolve.
+    let ciphertext = encrypt_note(&vault_key, &filename, &content).await?;
     let existing = existing.unwrap();
     match http
         .put_blob_object(
@@ -2204,6 +2400,37 @@ async fn push_one_file(
         .await
     {
         Ok(PutResult::Ok(r)) => {
+            if r.deleted {
+                // Direct-PUT-onto-tombstone (edit-vs-delete, silent-loss half):
+                // a peer DELETED this object while we were disconnected. The
+                // server's DELETE bumps the version, so our expected_version
+                // (recorded + 1) MATCHED the post-delete version and the PUT
+                // "succeeded" WITHOUT a 409 — but the row is still a tombstone
+                // (PUT does not un-delete). Mapping the note to this deleted
+                // object would let the SAME cycle's pull apply the tombstone and
+                // delete our just-edited file: silent loss, no conflict copy.
+                // Re-POST as a FRESH live object so the tombstone's object_id no
+                // longer matches any local file (edit wins — symmetric with the
+                // merge-onto-tombstone arm in resolve_update_conflict, and with
+                // the F3 `current_blob_key: None` branch).
+                //
+                // Wrote-shaped (NOT MergedClean) is correct here: unlike the
+                // merge arm — whose `merged` can differ from BOTH disk and remote
+                // and so MUST be written back — `content` is the VERBATIM on-disk
+                // bytes we just read, so the local file already holds exactly what
+                // we re-POST. There is nothing to write locally; repost_as_fresh_object
+                // returns a `Wrote` (no local write), which is precisely right.
+                return repost_as_fresh_object(
+                    &http,
+                    &vault_key,
+                    &collection_id,
+                    &filename,
+                    &content,
+                    hash,
+                    file.mtime_ms,
+                )
+                .await;
+            }
             let entry = E2eeObjectMapEntry {
                 object_id: existing.object_id.clone(),
                 version: r.version,
@@ -2581,7 +2808,13 @@ pub async fn run_push(
                     }
                 }
                 if let Some(h) = entry.hash.clone() {
-                    add_hash_filename(&mut hash_to_filenames, h, filename.clone(), change_seq);
+                    add_hash_filename(
+                        &mut hash_to_filenames,
+                        h,
+                        filename.clone(),
+                        change_seq,
+                        entry.object_id.clone(),
+                    );
                 }
                 upserts.push((filename.clone(), entry));
                 updated_ids.push(filename_to_id(&filename));
@@ -2664,14 +2897,10 @@ pub async fn run_push(
                 peer_updated_ids.push(filename_to_id(&original_filename));
                 peer_updated_ids.push(filename_to_id(&copy_filename));
             }
-            PushOutcome::UnresolvedConflict { filename } => {
-                conflicts += 1;
-                eprintln!("[e2ee] unresolved conflict on {filename}");
-            }
             PushOutcome::TooLarge { filename, mtime_ms } => {
-                // Surface to the user via the conflict count (same channel as
-                // UnresolvedConflict) and remember the mtime so we skip the
-                // re-upload next cycle until the user edits the note.
+                // Surface to the user via the conflict count and remember the
+                // mtime so we skip the re-upload next cycle until the user edits
+                // the note.
                 conflicts += 1;
                 next.oversize_skip.insert(filename, mtime_ms);
             }
@@ -2807,33 +3036,31 @@ fn checkpointable_upsert(out: &PushOutcome) -> Option<(String, E2eeObjectMapEntr
     }
 }
 
-/// Result of a duplicate-move resolution pass. `deleted_ids` are the
-/// note ids whose synced filename we just took down (locally + on the
-/// server); `conflicts` matches the legacy TS counter for the user-
-/// facing "N conflicts resolved" badge.
+/// Result of a duplicate-move resolution pass. `deleted_ids` are the note ids
+/// whose redundant local copy we removed; `conflicts` matches the legacy TS
+/// counter for the user-facing "N conflicts resolved" badge.
 #[derive(Debug, Default)]
 struct DuplicateResolution {
     conflicts: u32,
     deleted_ids: Vec<String>,
-    /// Loser takedowns whose server delete failed (transport / non-409 HTTP) —
-    /// the duplicate survives silently, so these fold into `SyncSummary.failures`.
+    /// Kept for the `SyncSummary.failures` fold; empty in practice now that
+    /// loser takedown is a local file/map cleanup (no server call to fail).
     failures: Vec<SyncFailure>,
 }
 
-/// Concurrent-move convergence: when two clients in the same cycle move
-/// the same content to two different paths, both creations land on the
-/// server side-by-side and pull happily writes both locally. Mirrors
-/// `resolveConcurrentMoveDuplicates` from the deleted TS implementation.
+/// Concurrent-move convergence: when the SAME object surfaces under two on-disk
+/// filenames in one cycle (our push wrote it at one path, the pull re-listed it
+/// at another), collapse to the highest-`change_seq` name and remove the
+/// redundant local copies. Mirrors `resolveConcurrentMoveDuplicates` from the
+/// deleted TS implementation.
 ///
-/// For each hash that was deleted somewhere in this cycle (push or pull
-/// side), pull the union of pushed + pulled creates with that same hash
-/// whose filename differs from the deleted one AND shares its basename.
-/// If two or more distinct filenames qualify, the highest-`change_seq`
-/// wins (server-side last-write-wins) and the losers are deleted on
-/// both server and local disk.
+/// S3: the losers `pick_duplicate_move_losers` returns share the winner's
+/// `object_id` (it groups by object identity — F9). That object legitimately
+/// survives on the server under the WINNER's filename, so a loser takedown is a
+/// LOCAL cleanup only (its file + map entry). Issuing a server DELETE on the
+/// loser would delete the shared object and tombstone the winner.
 ///
-/// Rule 3: mutates the caller's owned working `state` in place (and
-/// persists), since `delete_synced_filename` re-reads + advances it.
+/// Rule 3: mutates the caller's owned working `state` in place (and persists).
 async fn resolve_concurrent_move_duplicates(
     state: &mut ConnectedState,
     notes_root_path: &Path,
@@ -2844,26 +3071,12 @@ async fn resolve_concurrent_move_duplicates(
 ) -> Result<DuplicateResolution, SyncErrorKind> {
     let mut out = DuplicateResolution::default();
 
-    let http = Arc::new(build_client(state)?);
-
     for (hash, from_filename) in deleted_hashes {
         let losers = pick_duplicate_move_losers(from_filename, hash, push_h2f, pull_h2f);
         for loser in losers {
-            match delete_synced_filename(&http, state, notes_root_path, pre_write, &loser.filename)
-                .await?
-            {
-                DeleteSyncedOutcome::Deleted => {
-                    out.conflicts += 1;
-                    out.deleted_ids.push(filename_to_id(&loser.filename));
-                }
-                DeleteSyncedOutcome::Skipped => {}
-                DeleteSyncedOutcome::Failed { status_code } => {
-                    out.failures.push(SyncFailure {
-                        filename: loser.filename.clone(),
-                        kind: FailureKind::Delete,
-                        status_code,
-                    });
-                }
+            if remove_duplicate_loser_locally(state, notes_root_path, pre_write, &loser.filename)? {
+                out.conflicts += 1;
+                out.deleted_ids.push(filename_to_id(&loser.filename));
             }
         }
     }
@@ -2873,6 +3086,16 @@ async fn resolve_concurrent_move_duplicates(
 /// Pure candidate selection: returns the loser filenames for one
 /// `(hash, from_filename)` deletion. Split out so the resolution logic
 /// is unit-testable without an HTTP client.
+///
+/// F9: keys on OBJECT IDENTITY, not `(content-hash, basename)`. Two notes that
+/// merely share content + basename (e.g. two empty `Untitled.md` in different
+/// folders) are DISTINCT objects, so a same-content delete in the same cycle
+/// must not collapse them — that deleted a real note on server + disk. A true
+/// concurrent-move duplicate is the SAME object surfacing under two on-disk
+/// names in one cycle (our push wrote it at one path, the pull re-listed it at
+/// another); only within one `object_id` do we keep the highest change_seq and
+/// take down the rest. The `(hash, basename)` filter is retained purely to
+/// narrow the candidate set to the deleted note's move family before grouping.
 fn pick_duplicate_move_losers(
     from_filename: &str,
     hash: &str,
@@ -2880,7 +3103,10 @@ fn pick_duplicate_move_losers(
     pull_h2f: &HashMap<String, Vec<HashFilenameEntry>>,
 ) -> Vec<HashFilenameEntry> {
     let from_base = filename_basename(from_filename);
-    let mut unique: HashMap<String, HashFilenameEntry> = HashMap::new();
+    // Dedupe by filename first (the same name can appear in both push and pull
+    // maps — a self-push the pull re-listed — which is one on-disk copy, not a
+    // collision).
+    let mut by_filename: HashMap<String, HashFilenameEntry> = HashMap::new();
     for src in [push_h2f.get(hash), pull_h2f.get(hash)].into_iter().flatten() {
         for cand in src {
             if cand.filename == from_filename {
@@ -2889,73 +3115,51 @@ fn pick_duplicate_move_losers(
             if filename_basename(&cand.filename) != from_base {
                 continue;
             }
-            unique.insert(cand.filename.clone(), cand.clone());
+            by_filename.insert(cand.filename.clone(), cand.clone());
         }
     }
-    if unique.len() <= 1 {
-        return Vec::new();
+    // Group by object identity. Only names sharing ONE object_id are the same
+    // object at two paths; distinct object_ids are distinct notes → keep all.
+    let mut by_object: HashMap<String, Vec<HashFilenameEntry>> = HashMap::new();
+    for entry in by_filename.into_values() {
+        by_object.entry(entry.object_id.clone()).or_default().push(entry);
     }
-    let mut sorted: Vec<HashFilenameEntry> = unique.into_values().collect();
-    // Highest change_seq wins; lexicographic filename order breaks ties
-    // (matches `localeCompare` close enough for ASCII paths).
-    sorted.sort_by(|a, b| {
-        b.change_seq
-            .cmp(&a.change_seq)
-            .then_with(|| a.filename.cmp(&b.filename))
-    });
-    sorted.into_iter().skip(1).collect()
+    let mut losers: Vec<HashFilenameEntry> = Vec::new();
+    for (_object_id, mut group) in by_object {
+        if group.len() <= 1 {
+            continue;
+        }
+        // Highest change_seq wins; lexicographic filename order breaks ties
+        // (matches `localeCompare` close enough for ASCII paths).
+        group.sort_by(|a, b| {
+            b.change_seq
+                .cmp(&a.change_seq)
+                .then_with(|| a.filename.cmp(&b.filename))
+        });
+        losers.extend(group.into_iter().skip(1));
+    }
+    losers
 }
 
-/// Delete a single synced file on both the server and locally, updating
-/// the working object map (and persisting it). Returns true if the delete
-/// went through; false if there was nothing to delete or the server
-/// refused. Mirrors the legacy TS `deleteSyncedFilename`.
+/// Remove a duplicate-move LOSER locally: its on-disk file + its object_map
+/// entry, persisting the map. Returns `true` if a copy was removed, `false` if
+/// the loser had no map entry (already gone).
 ///
-/// Rule 3: mutates the caller's owned working `state` in place where the
-/// desktop did `state.with_map_mut` + `state.persist`.
-/// Outcome of a duplicate-move loser takedown. `Skipped` covers the benign
-/// non-deletes (no map entry; 409 refusal, where leaving the file alone is the
-/// deliberate convergence-safety behavior). `Failed` is a real server error
-/// (transport / non-409 HTTP) — the duplicate silently survives, so it must be
-/// recorded into `SyncSummary.failures`.
-enum DeleteSyncedOutcome {
-    Deleted,
-    Skipped,
-    Failed { status_code: Option<u16> },
-}
-
-async fn delete_synced_filename(
-    http: &Arc<E2eeClient>,
+/// No server call (S3): the loser shares the winner's `object_id`, so the
+/// object survives on the server under the winner's filename — a server DELETE
+/// would tombstone the winner. Only the redundant SECOND local filename for the
+/// one object is taken down.
+///
+/// Rule 3: mutates the caller's owned working `state` in place + persists.
+fn remove_duplicate_loser_locally(
     state: &mut ConnectedState,
     notes_root_path: &Path,
     pre_write: &PreWriteFn,
     filename: &str,
-) -> Result<DeleteSyncedOutcome, SyncErrorKind> {
-    let (collection_id, entry) = match state.object_map.get(filename).cloned() {
-        Some(e) => (state.collection_id.clone(), e),
-        None => return Ok(DeleteSyncedOutcome::Skipped),
-    };
-
-    let change_seq = match http
-        .delete_object(&collection_id, &entry.object_id, entry.version)
-        .await
-    {
-        Ok(DeleteResult::Ok(ok)) => ok.change_seq,
-        Ok(DeleteResult::Conflict(_)) => {
-            eprintln!(
-                "[e2ee] duplicate-move delete refused (409) for {filename}; leaving alone"
-            );
-            return Ok(DeleteSyncedOutcome::Skipped);
-        }
-        Err(e) => {
-            let status_code = e.status_code();
-            eprintln!(
-                "[e2ee] duplicate-move delete failed for {filename}: {}",
-                http_err_to_string(e)
-            );
-            return Ok(DeleteSyncedOutcome::Failed { status_code });
-        }
-    };
+) -> Result<bool, SyncErrorKind> {
+    if !state.object_map.contains_key(filename) {
+        return Ok(false);
+    }
 
     let apply_input = V2SyncApplyInput {
         update: Vec::new(),
@@ -2966,12 +3170,9 @@ async fn delete_synced_filename(
     apply_delta(notes_root_path, pre_write, apply_input)?;
 
     state.object_map.remove(filename);
-    if change_seq > state.max_version {
-        state.max_version = change_seq;
-    }
     state::persist(notes_root_path, &state.object_map, state.max_version, &state.collection_id)
         .map_err(SyncErrorKind::Io)?;
-    Ok(DeleteSyncedOutcome::Deleted)
+    Ok(true)
 }
 
 /// Detect renames by content-hash equality across the union of delete +
@@ -3080,6 +3281,398 @@ fn combine_summaries(
 ///          merge.
 ///   4. Persist the map + advance max_version.
 ///
+/// One peer tombstone matched to the ancestry it was last synced under. The
+/// read/hash/decide/act happens together in `apply_tombstone_reconcile` so the
+/// file is never deleted on a stale hash (S1 TOCTOU).
+struct TombstoneTarget {
+    filename: String,
+    object_id: String,
+    /// The content hash this device last synced for this object. The local file
+    /// is deleted only if it STILL hashes to this; otherwise it diverged and is
+    /// parked.
+    expected_hash: String,
+    change_seq: u64,
+}
+
+/// A tombstone whose local effect could not be verified (transient read/remove
+/// error). Recorded as a failure; its `change_seq` caps the cursor and blocks
+/// ancestry consumption so the next cycle retries (S2/S5).
+struct FailedTombstone {
+    filename: String,
+    change_seq: u64,
+}
+
+struct TombstoneApplyResult {
+    /// Filenames actually removed from disk (unchanged deletes + parked
+    /// originals). Surfaced as `deleted`/`deletedIds` so the rescan gate fires.
+    deleted: Vec<String>,
+    failed: Vec<FailedTombstone>,
+}
+
+/// Tombstone-claim dotfile prefix. A claim is the note's ONLY on-disk copy
+/// during the (synchronous, no-persist) window between the claim `rename` and
+/// its cleanup, so the recovery sweep must be able to recover the note's
+/// ORIGINAL relative path from whatever was left behind by a crash inside that
+/// window (P1-1). Claims live at the notes root (single-readdir sweep) and are
+/// dotfiles (ignored by scans/sync).
+///
+/// Two encodings, because a claim name must stay under NAME_MAX (255 bytes on
+/// every shipping filesystem) while a legal note path can be far longer (a
+/// 200-char title alone hex-encodes to 400+ bytes):
+///   • **hex (self-describing)** — `.sf-tomb-<hex(rel)>`: lowercase hex of the
+///     UTF-8 bytes of the relative path. Used whenever it fits comfortably under
+///     NAME_MAX (the common short-name case); no sidecar, one atomic rename, and
+///     the path is readable straight off disk.
+///   • **hashed (overflow) + sidecar** — `.sf-tomb-h<sha>` (fixed 42 bytes) plus
+///     an atomic sidecar `.sf-tomb-h<sha>.path` whose CONTENT is the original
+///     relative path. The `h` marker can never collide with the hex form (hex
+///     payloads are `0-9a-f`, never start with `h`).
+const CLAIM_PREFIX: &str = ".sf-tomb-";
+/// Marks the hashed (overflow) claim form `.sf-tomb-h<sha>`.
+const CLAIM_HASH_MARKER: &str = "h";
+/// Suffix of the hashed form's sidecar file (holds the original path as content).
+const CLAIM_SIDECAR_SUFFIX: &str = ".path";
+/// Upper bound for a claim dotfile name, kept well under the universal
+/// NAME_MAX of 255 bytes. The self-describing hex form is used only while it
+/// fits this bound; longer paths take the fixed-size hashed form + sidecar.
+const MAX_CLAIM_NAME_BYTES: usize = 200;
+
+/// Self-describing hex claim name for `rel`.
+fn claim_hex(rel: &str) -> String {
+    let mut s = String::with_capacity(CLAIM_PREFIX.len() + rel.len() * 2);
+    s.push_str(CLAIM_PREFIX);
+    for b in rel.as_bytes() {
+        s.push(char::from_digit((b >> 4) as u32, 16).unwrap());
+        s.push(char::from_digit((b & 0x0f) as u32, 16).unwrap());
+    }
+    s
+}
+
+/// The claim name for `rel`, plus a sidecar name when the path is too long to
+/// encode in the name itself (see [`CLAIM_PREFIX`]). `Some(sidecar)` means the
+/// hashed form is in use and the sidecar MUST be written (holding `rel`) before
+/// the claim rename, so a crash never leaves a claim whose path is unrecoverable.
+fn claim_names_for(rel: &str) -> (String, Option<String>) {
+    let hex = claim_hex(rel);
+    if hex.len() <= MAX_CLAIM_NAME_BYTES {
+        (hex, None)
+    } else {
+        // 32 hex chars = 128 bits of sha256: collision-free for the handful of
+        // concurrent tombstones. The sidecar content is the authoritative path.
+        let digest = &hash_sha256(rel)[..32];
+        let claim = format!("{CLAIM_PREFIX}{CLAIM_HASH_MARKER}{digest}");
+        let sidecar = format!("{claim}{CLAIM_SIDECAR_SUFFIX}");
+        (claim, Some(sidecar))
+    }
+}
+
+/// Recover the original relative filename encoded IN a hex claim name, or `None`
+/// when `name` is not a well-formed hex claim (the hashed form, a sidecar, or a
+/// foreign dotfile). The hashed form is decoded from its sidecar, not here.
+fn claim_decode(name: &str) -> Option<String> {
+    let hex = name.strip_prefix(CLAIM_PREFIX)?;
+    if hex.is_empty() || hex.len() % 2 != 0 {
+        return None;
+    }
+    let bytes = hex.as_bytes();
+    let mut out = Vec::with_capacity(hex.len() / 2);
+    let mut i = 0;
+    while i < bytes.len() {
+        let hi = (bytes[i] as char).to_digit(16)?;
+        let lo = (bytes[i + 1] as char).to_digit(16)?;
+        out.push((hi * 16 + lo) as u8);
+        i += 2;
+    }
+    String::from_utf8(out).ok()
+}
+
+/// Recovery sweep (P1-1). Restore every STALE tombstone claim left on disk by a
+/// crash inside `apply_tombstone_reconcile`. A claim only ever exists between
+/// the claim `rename` and its cleanup, both of which complete INSIDE
+/// `apply_tombstone_reconcile` — synchronously, with no persist between them —
+/// BEFORE the caller advances the cursor / consumes ancestry (see the ordering
+/// note on `reconcile_empty_map`). So a claim surviving to the next run implies
+/// the prior run crashed BEFORE that persist: its tombstone was NOT consumed and
+/// WILL re-list. Restoring unconditionally is therefore safe — it can never
+/// resurrect a consumed tombstone. Restore to the original name unless that name
+/// already exists (a re-created / re-synced file wins → drop the stale claim).
+/// A failed restore LEAVES the claim for the next sweep — never delete the only
+/// copy (item 2 invariant).
+///
+/// Fail-safe rules for the hashed (overflow) form:
+///   • a hashed claim with NO sidecar → its original path is unrecoverable, so
+///     LEAVE it (the bytes survive as a dotfile; never delete or misplace it);
+///   • a sidecar with NO claim → harmless leftover (the claim was already
+///     consumed or never renamed) → delete it.
+///
+/// Finding 2 (close-out, ACCEPTED not fixed): if BOTH the claim rename-back and
+/// its retention somehow fail — a double filesystem failure — a claim can be
+/// stranded on disk after the cursor already advanced past change_seq 0, so it
+/// is only re-examined on the next FULL empty-map reconcile rather than the next
+/// incremental cycle. This is fail-safe: the note's bytes persist verbatim as
+/// the claim dotfile and are recovered by that later sweep; nothing is lost.
+fn recover_stale_claims(notes_root: &Path, pre_write: &PreWriteFn) {
+    let Ok(entries) = std::fs::read_dir(notes_root) else {
+        return;
+    };
+    // Collect first so we don't mutate the directory while iterating it.
+    let all: Vec<String> = entries
+        .flatten()
+        .filter_map(|e| {
+            let name = e.file_name().to_string_lossy().into_owned();
+            name.starts_with(CLAIM_PREFIX).then_some(name)
+        })
+        .collect();
+    let claims: Vec<&String> =
+        all.iter().filter(|n| !n.ends_with(CLAIM_SIDECAR_SUFFIX)).collect();
+    let sidecars: HashSet<&str> = all
+        .iter()
+        .filter(|n| n.ends_with(CLAIM_SIDECAR_SUFFIX))
+        .map(String::as_str)
+        .collect();
+
+    for name in &claims {
+        // Resolve the original path (+ optional sidecar) for this claim.
+        let (rel, sidecar_path) = if let Some(rel) = claim_decode(name) {
+            // Self-describing hex form — no sidecar.
+            (rel, None)
+        } else {
+            // Hashed form: the path lives in the sidecar. No/unreadable sidecar
+            // ⇒ unrecoverable ⇒ LEAVE the claim untouched.
+            let sc_name = format!("{name}{CLAIM_SIDECAR_SUFFIX}");
+            if !sidecars.contains(sc_name.as_str()) {
+                continue;
+            }
+            let sc_path = notes_root.join(&sc_name);
+            match std::fs::read_to_string(&sc_path) {
+                Ok(rel) => (rel, Some(sc_path)),
+                Err(_) => continue,
+            }
+        };
+        let Ok(orig) = safe_relative_sync_path(notes_root, &rel) else {
+            continue;
+        };
+        pre_write(&rel);
+        restore_or_discard_claim(&notes_root.join(name), &orig, sidecar_path.as_deref());
+    }
+
+    // Delete orphan sidecars (a sidecar whose claim is gone — already consumed,
+    // or the claim rename never happened). Harmless leftover; safe to remove.
+    for sc in &sidecars {
+        let claim_name = sc.strip_suffix(CLAIM_SIDECAR_SUFFIX).unwrap_or(sc);
+        if !claims.iter().any(|c| c.as_str() == claim_name) {
+            let _ = std::fs::remove_file(notes_root.join(sc));
+        }
+    }
+}
+
+/// Put a claimed tombstone file back at its original path, or discard it ONLY
+/// when a replacement is POSITIVELY confirmed (a concurrent save re-created the
+/// note — newer content wins). Best-effort recovery for the near-impossible
+/// case where the claim succeeded but a follow-up read/write/remove failed.
+///
+/// INVARIANT (item 2): a claim may be deleted ONLY when the tombstone outcome
+/// deliberately consumed it (hash match → discarded after the delete is
+/// recorded; diverged → discarded after the edit is parked) OR a replacement is
+/// positively confirmed here. On the no-replacement path we NEVER delete the
+/// claim — if the restore `rename` fails we leave it, and `recover_stale_claims`
+/// recovers it next cycle. `symlink_metadata(Ok)` is the confirmation:
+/// `Path::exists()` maps metadata errors (e.g. EACCES on the parent) to `false`
+/// and could drop the note's only copy.
+///
+/// `sidecar` is the hashed form's `.path` companion (if any). It is removed
+/// alongside the claim on the confirmed-drop path, and after a SUCCESSFUL
+/// restore. On a failed restore both the claim AND its sidecar are left in place
+/// so the next sweep can still recover the original path.
+fn restore_or_discard_claim(claim: &Path, orig: &Path, sidecar: Option<&Path>) {
+    if std::fs::symlink_metadata(orig).is_ok() {
+        // Replacement positively confirmed → recreated file wins; drop claim.
+        let _ = std::fs::remove_file(claim);
+        if let Some(sc) = sidecar {
+            let _ = std::fs::remove_file(sc);
+        }
+    } else {
+        // No confirmed replacement: restore. A failed restore LEAVES the claim
+        // (and its sidecar) for the sweep — never delete the only copy.
+        if let Some(dir) = orig.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        if std::fs::rename(claim, orig).is_ok() {
+            if let Some(sc) = sidecar {
+                let _ = std::fs::remove_file(sc);
+            }
+        }
+    }
+}
+
+/// Claim-and-delete-or-park each peer tombstone (S1/S2/S5 + P1-a/P1-b). For each
+/// target, CLAIM the file first — atomically `rename` it to a dotfile-prefixed
+/// sibling — then hash the CLAIMED bytes and act on the claim:
+///   • current hash == expected → the peer's delete wins; discard the claim;
+///   • diverged (edited since last sync) → park the CLAIMED bytes in a
+///     deterministic conflict copy keyed on the tombstoned object_id, then
+///     discard the claim (the tombstoned name stays gone);
+///   • `rename` returns `NotFound` → the file is already gone; the delete is
+///     satisfied; no-op (this is the ONLY convergence signal — a permission /
+///     metadata error is NOT "gone", P1-b);
+///   • any other error → recorded as a failure (NOT deleted, does not advance
+///     the cursor, retains ancestry, S2/S5).
+///
+/// Claiming first closes the race a bare read→hash→remove left open (P1-a): a
+/// concurrent editor save that lands AFTER the claim recreates the note at the
+/// original path and survives untouched (the editor's newer content wins),
+/// while the frozen claimed bytes are what we compare and either delete or park.
+/// The claim is a dotfile in the same directory (same filesystem → atomic
+/// rename; scans/sync ignore dotfiles) and is cleaned up on every exit path.
+/// Synchronous like `apply_delta`; `pre_write` records watcher suppression.
+fn apply_tombstone_reconcile(
+    notes_root: &Path,
+    pre_write: &PreWriteFn,
+    targets: &[TombstoneTarget],
+) -> TombstoneApplyResult {
+    // Recover any claim orphaned by a crash in a PRIOR run before doing new
+    // work (P1-1) — safe because a surviving claim means that run never
+    // persisted its cursor/ancestry (see `recover_stale_claims`).
+    recover_stale_claims(notes_root, pre_write);
+
+    let mut deleted: Vec<String> = Vec::new();
+    let mut failed: Vec<FailedTombstone> = Vec::new();
+    let fail = |t: &TombstoneTarget| FailedTombstone {
+        filename: t.filename.clone(),
+        change_seq: t.change_seq,
+    };
+    for t in targets {
+        let path = match safe_relative_sync_path(notes_root, &t.filename) {
+            Ok(p) => p,
+            // An unsafe/relative name should never reach here (ancestry names
+            // came from a local scan); treat as unverifiable rather than delete.
+            Err(_) => {
+                failed.push(fail(t));
+                continue;
+            }
+        };
+        // Claim: a dotfile at the notes ROOT so a single-readdir sweep finds it
+        // after a crash (P1-1). The name encodes the path directly (hex) when
+        // short, else a fixed-size hashed name + a sidecar holding the path —
+        // either way BOUNDED under NAME_MAX (an unbounded hex name overflowed
+        // ENAMETOOLONG for long titles/deep paths, failing the claim and
+        // re-opening F1 resurrection). Same filesystem as the target → the
+        // rename is atomic; scans/sync ignore dotfiles.
+        let (claim_name, sidecar_name) = claim_names_for(&t.filename);
+        let claim_path = notes_root.join(&claim_name);
+        let sidecar_path = sidecar_name.as_ref().map(|n| notes_root.join(n));
+
+        // The sidecar (overflow form) MUST exist BEFORE the claim rename so a
+        // crash between them leaves a harmless sidecar-without-claim, never a
+        // claim whose original path can't be recovered.
+        if let Some(sc) = &sidecar_path {
+            if write_atomic_text(sc, &t.filename).is_err() {
+                // Couldn't record the path → don't claim; leave the note in place.
+                failed.push(fail(t));
+                continue;
+            }
+        }
+
+        // Suppress the watcher for the original's disappearance, then CLAIM it.
+        pre_write(&t.filename);
+        match std::fs::rename(&path, &claim_path) {
+            Ok(()) => {}
+            // ONLY NotFound is convergence: the peer's delete is already
+            // satisfied. A permission/metadata error is NOT "gone" (P1-b).
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                // The note is gone; the sidecar we just wrote is now an orphan.
+                if let Some(sc) = &sidecar_path {
+                    let _ = std::fs::remove_file(sc);
+                }
+                continue;
+            }
+            Err(_) => {
+                if let Some(sc) = &sidecar_path {
+                    let _ = std::fs::remove_file(sc);
+                }
+                failed.push(fail(t));
+                continue;
+            }
+        }
+
+        let is_blob = is_image_filename(&t.filename);
+        let read = if is_blob {
+            read_blob_as_base64(&claim_path)
+        } else {
+            std::fs::read_to_string(&claim_path).map_err(|e| e.to_string())
+        };
+        let content = match read {
+            Ok(c) => c,
+            // Near-impossible right after a successful rename. Put the bytes back
+            // (unless a concurrent save reclaimed the path) and retry next cycle.
+            Err(_) => {
+                restore_or_discard_claim(&claim_path, &path, sidecar_path.as_deref());
+                failed.push(fail(t));
+                continue;
+            }
+        };
+
+        if hash_sha256(&content) == t.expected_hash {
+            // Unchanged since last sync → peer delete wins; consume the claim
+            // (+ its sidecar). If the claim can't be removed, the delete is NOT
+            // done (the claim still holds the note's only bytes): a FAILED
+            // tombstone — no deleted-report, no cursor advance, ancestry retained
+            // (item 3). Restore so the note isn't stranded; a failed restore
+            // leaves it for the sweep.
+            if std::fs::remove_file(&claim_path).is_err() {
+                restore_or_discard_claim(&claim_path, &path, sidecar_path.as_deref());
+                failed.push(fail(t));
+                continue;
+            }
+            if let Some(sc) = &sidecar_path {
+                let _ = std::fs::remove_file(sc);
+            }
+            prune_empty_parent_dirs(notes_root, &path);
+            deleted.push(t.filename.clone());
+        } else {
+            // Diverged → park the CLAIMED bytes as the conflict copy, then
+            // discard the claim.
+            let copy = collision_conflict_filename(&t.filename, &t.object_id);
+            let copy_path = match safe_relative_sync_path(notes_root, &copy) {
+                Ok(p) => p,
+                Err(_) => {
+                    restore_or_discard_claim(&claim_path, &path, sidecar_path.as_deref());
+                    failed.push(fail(t));
+                    continue;
+                }
+            };
+            pre_write(&copy);
+            let write_res = if is_blob {
+                write_base64_as_blob(&copy_path, &content)
+            } else {
+                write_atomic_text(&copy_path, &content)
+            };
+            if write_res.is_err() {
+                // Couldn't preserve the edit — restore rather than lose it.
+                restore_or_discard_claim(&claim_path, &path, sidecar_path.as_deref());
+                failed.push(fail(t));
+                continue;
+            }
+            // Edit preserved in the conflict copy. Consuming the claim drops the
+            // tombstoned name; if that removal fails the claim still holds the
+            // only copy of the original bytes → FAILED tombstone (item 3, same
+            // rule as the matched path). Restore + retry; the next cycle re-parks
+            // to the same deterministic conflict name idempotently.
+            if std::fs::remove_file(&claim_path).is_err() {
+                restore_or_discard_claim(&claim_path, &path, sidecar_path.as_deref());
+                failed.push(fail(t));
+                continue;
+            }
+            if let Some(sc) = &sidecar_path {
+                let _ = std::fs::remove_file(sc);
+            }
+            prune_empty_parent_dirs(notes_root, &path);
+            deleted.push(t.filename.clone());
+        }
+    }
+    TombstoneApplyResult { deleted, failed }
+}
+
 /// Rule 3: takes `&ConnectedState`, mutates a clone, persists, returns the
 /// new state alongside the count.
 async fn reconcile_empty_map(
@@ -3096,12 +3689,21 @@ async fn reconcile_empty_map(
         .await
         .map_err(SyncErrorKind::collection_http)?;
 
-    // Live objects only (deleted tombstones contribute no blob to reconcile).
-    let live: Vec<ServerObject> = server_objects
-        .into_iter()
-        .filter(|o| !o.deleted && o.blob_key.is_some())
-        .collect();
-    if live.is_empty() {
+    // Split the listing: live objects carry a blob to reconcile; tombstones
+    // (deleted) carry only an object id, which the F1 pass below matches back to
+    // an ancestry entry so a peer delete made while this device was disconnected
+    // is honored instead of re-POSTed (resurrected fleet-wide).
+    let mut live: Vec<ServerObject> = Vec::new();
+    let mut tombstones: Vec<ServerObject> = Vec::new();
+    for o in server_objects {
+        if o.deleted {
+            tombstones.push(o);
+        } else if o.blob_key.is_some() {
+            live.push(o);
+        }
+        // A non-deleted object with no blob_key is skipped, as before.
+    }
+    if live.is_empty() && tombstones.is_empty() {
         return Ok((SyncSummary::default(), state_cell.clone()));
     }
 
@@ -3170,6 +3772,11 @@ async fn reconcile_empty_map(
     for (idx, note) in downloaded.iter().enumerate() {
         if note.change_seq > new_max_version {
             new_max_version = note.change_seq;
+        }
+        // Identical-content collision loser: the winner writes these exact bytes
+        // at the canonical name — skip it (no write, no map upsert, no adopt).
+        if collision_plan.download_skips.contains(&idx) {
+            continue;
         }
         // The on-disk name this object lands at: its conflict copy if it lost a
         // collision, else its canonical name.
@@ -3410,6 +4017,36 @@ async fn reconcile_empty_map(
         }
     }
 
+    // F1: honor peer tombstones. A server object deleted while this device was
+    // disconnected never appears in `live`, so the loop above leaves its local
+    // file untouched — and run_push then re-POSTs it as a brand-new object,
+    // resurrecting the note on every device permanently. Collect one target per
+    // tombstone we can match to the ancestry it was last synced under (object_id
+    // → filename + last-synced hash). No I/O here and NO cursor advance yet: the
+    // read/hash/decide/act happens together in `apply_tombstone_reconcile` below
+    // (closing the TOCTOU window), and only a VERIFIED effect may advance the
+    // cursor / consume ancestry (S1/S2/S5).
+    //
+    // A name a live object is adopting this cycle is skipped — the adopt (and
+    // its own F6 divergence handling) owns that file; the delete-before-write
+    // apply order would otherwise fight it.
+    let adopted_set: HashSet<&String> = adopted.iter().collect();
+    let mut tombstone_targets: Vec<TombstoneTarget> = Vec::new();
+    for tomb in &tombstones {
+        let Some((filename, anc)) = ancestry_by_object_id.get(&tomb.id) else {
+            continue;
+        };
+        if adopted_set.contains(filename) {
+            continue;
+        }
+        tombstone_targets.push(TombstoneTarget {
+            filename: filename.clone(),
+            object_id: tomb.id.clone(),
+            expected_hash: anc.hash.clone(),
+            change_seq: tomb.change_seq,
+        });
+    }
+
     // Apply file writes for remote-only adoptions — plus mtime corrections
     // for identical-content matches — via the shared apply path so watcher
     // suppressions are recorded.
@@ -3423,6 +4060,13 @@ async fn reconcile_empty_map(
         apply_delta(notes_root_path, pre_write, apply_input)?;
     }
 
+    // Compare-and-delete-or-park each tombstone target (S1 TOCTOU: re-read +
+    // hash immediately before acting). Deletes that could not be VERIFIED
+    // (transient read/remove error) are returned as failures — they must not
+    // advance the cursor or consume ancestry (S2/S5).
+    let tomb_result = apply_tombstone_reconcile(notes_root_path, pre_write, &tombstone_targets);
+    let peer_deleted = tomb_result.deleted;
+
     // Populate the map and advance max_version, then persist. Issue #11:
     // capped below the lowest failed change_seq — reconcile's max is computed
     // from SUCCESSFUL downloads only, but a failed object whose change_seq
@@ -3435,30 +4079,69 @@ async fn reconcile_empty_map(
     for (filename, entry) in upserts {
         next.object_map.insert(filename, entry);
     }
-    next.max_version = next
-        .max_version
-        .max(cap_cursor(new_max_version, &failed_downloads));
+    // A VERIFIED tombstone effect (deleted/parked, or the file was already
+    // gone) may advance the cursor; a FAILED one must not — and it caps the
+    // cursor below its change_seq so the next cycle re-lists it (cap_cursor
+    // idiom, S5). Successful tombstone change_seqs are folded into new_max_version;
+    // failed ones become synthetic cap entries alongside the failed downloads.
+    let failed_tombstone_seqs: HashSet<u64> =
+        tomb_result.failed.iter().map(|f| f.change_seq).collect();
+    for t in &tombstone_targets {
+        if !failed_tombstone_seqs.contains(&t.change_seq) && t.change_seq > new_max_version {
+            new_max_version = t.change_seq;
+        }
+    }
+    // Cap below the lowest failed change_seq of EITHER a failed download or a
+    // failed tombstone (same rule as `cap_cursor`, extended to tombstones).
+    let capped = match failed_downloads
+        .iter()
+        .map(|f| f.change_seq)
+        .chain(tomb_result.failed.iter().map(|f| f.change_seq))
+        .min()
+    {
+        Some(lowest) => new_max_version.min(lowest.saturating_sub(1)),
+        None => new_max_version,
+    };
+    next.max_version = next.max_version.max(capped);
     state::persist(notes_root_path, &next.object_map, next.max_version, &next.collection_id)
         .map_err(SyncErrorKind::Io)?;
 
-    // The reconcile consumed the ancestry — drop it so it can't linger for
-    // months and feed a much later reconcile stale (if still exact-match)
-    // pairs. Best effort: a leftover file only ever changes fast-forward
-    // decisions when object_id AND content hash both still match.
-    if let Err(e) = state::delete_ancestry_file(notes_root_path) {
-        eprintln!("[e2ee] reconcile: failed to delete consumed ancestry file: {e}");
+    // Consume the ancestry only when EVERY tombstone was verified — a leftover
+    // failed tombstone must keep its ancestry entry for a retry (S5). Retention
+    // is coarse (whole file) but safe: ancestry is advisory and only ever
+    // changes a fast-forward decision when object_id AND hash both still match,
+    // and consumed entries whose files are now gone are ignored next time.
+    if tomb_result.failed.is_empty() {
+        if let Err(e) = state::delete_ancestry_file(notes_root_path) {
+            eprintln!("[e2ee] reconcile: failed to delete consumed ancestry file: {e}");
+        }
     }
 
-    // Surface adoptions as real downloads. Without this the empty-map
-    // reconcile path writes peer content to disk but contributes nothing
-    // to the SyncSummary, so the TS rescan gate (`hasPeerNoteChanges`)
-    // never fires and the sidebar misses the new note.
+    // Surface adoptions as real downloads AND tombstone deletes as real
+    // deletes. Without this the empty-map reconcile path mutates disk but
+    // contributes nothing to the SyncSummary, so the TS rescan gate
+    // (`hasPeerNoteChanges`) never fires and the sidebar misses the change.
     let adopted_ids: Vec<String> = adopted.iter().map(|f| filename_to_id(f)).collect();
+    let peer_deleted_ids: Vec<String> = peer_deleted.iter().map(|f| filename_to_id(f)).collect();
+    let mut failures: Vec<SyncFailure> =
+        failed_downloads.into_iter().map(|f| f.failure).collect();
+    // Unverified tombstone effects are real per-item failures (S2): they drive
+    // the UI failure indicator and keep the cycle honest about not-yet-done work.
+    for f in tomb_result.failed {
+        failures.push(SyncFailure {
+            filename: f.filename,
+            kind: FailureKind::Delete,
+            status_code: None,
+        });
+    }
     let summary = SyncSummary {
         downloaded: adopted.len() as u32,
+        deleted: peer_deleted.len() as u32,
         updated_ids: adopted_ids.clone(),
         peer_updated_ids: adopted_ids,
-        failures: failed_downloads.into_iter().map(|f| f.failure).collect(),
+        deleted_ids: peer_deleted_ids.clone(),
+        peer_deleted_ids,
+        failures,
         ..Default::default()
     };
     Ok((summary, next))
@@ -3549,23 +4232,32 @@ pub async fn run_sync(
 /// `run_pull` (it sees them already at the recorded version and skips
 /// them). Without folding these in, the reconcile-driven disk writes are
 /// never counted as downloads — the exact bug behind scenario 1.
+/// Append `src` ids to `dst`, skipping ones already present (order-preserving).
+fn dedup_append(dst: &mut Vec<String>, src: Vec<String>) {
+    for id in src {
+        if !dst.iter().any(|x| x == &id) {
+            dst.push(id);
+        }
+    }
+}
+
 fn fold_reconcile_summary(mut combined: SyncSummary, mut reconcile: SyncSummary) -> SyncSummary {
     // Reconcile failures (if any) fold in regardless of the download count.
     combined.failures.append(&mut reconcile.failures);
+    // F1 tombstone-reconcile deletes must fold in even when nothing was adopted
+    // (a reconnect can observe only peer deletes), so this runs before the
+    // download-count early-return below.
+    if reconcile.deleted > 0 {
+        combined.deleted += reconcile.deleted;
+        dedup_append(&mut combined.deleted_ids, reconcile.deleted_ids);
+        dedup_append(&mut combined.peer_deleted_ids, reconcile.peer_deleted_ids);
+    }
     if reconcile.downloaded == 0 {
         return combined;
     }
     combined.downloaded += reconcile.downloaded;
-    for id in reconcile.updated_ids {
-        if !combined.updated_ids.iter().any(|x| x == &id) {
-            combined.updated_ids.push(id);
-        }
-    }
-    for id in reconcile.peer_updated_ids {
-        if !combined.peer_updated_ids.iter().any(|x| x == &id) {
-            combined.peer_updated_ids.push(id);
-        }
-    }
+    dedup_append(&mut combined.updated_ids, reconcile.updated_ids);
+    dedup_append(&mut combined.peer_updated_ids, reconcile.peer_updated_ids);
     combined
 }
 
@@ -4319,9 +5011,21 @@ mod tests {
     }
 
     fn h2f(filename: &str, change_seq: u64) -> HashFilenameEntry {
+        // Legacy helper: distinct filenames get distinct synthetic object ids,
+        // so a bare h2f models two DIFFERENT notes. Tests that need the SAME
+        // object surfacing under two names use `h2f_oid`.
         HashFilenameEntry {
             filename: filename.to_owned(),
             change_seq,
+            object_id: format!("obj-{filename}"),
+        }
+    }
+
+    fn h2f_oid(filename: &str, change_seq: u64, object_id: &str) -> HashFilenameEntry {
+        HashFilenameEntry {
+            filename: filename.to_owned(),
+            change_seq,
+            object_id: object_id.to_owned(),
         }
     }
 
@@ -4337,15 +5041,39 @@ mod tests {
 
     #[test]
     fn dup_losers_picks_lower_change_seq_when_two_folders_compete() {
-        // A moves contested → FolderA at change_seq=3, B moves it →
-        // FolderB at change_seq=5. B wins; FolderA must lose.
+        // The SAME object (o1) surfaced under two names in one cycle: our push
+        // wrote it at FolderB/contested (change_seq=5), the pull re-listed it at
+        // FolderA/contested (change_seq=3). One object, two on-disk copies →
+        // collapse to the higher change_seq. B wins; FolderA must lose.
         let mut push = HashMap::new();
-        push.insert("hX".to_owned(), vec![h2f("FolderB/contested.md", 5)]);
+        push.insert("hX".to_owned(), vec![h2f_oid("FolderB/contested.md", 5, "o1")]);
         let mut pull = HashMap::new();
-        pull.insert("hX".to_owned(), vec![h2f("FolderA/contested.md", 3)]);
+        pull.insert("hX".to_owned(), vec![h2f_oid("FolderA/contested.md", 3, "o1")]);
         let losers = pick_duplicate_move_losers("contested.md", "hX", &push, &pull);
         assert_eq!(losers.len(), 1);
         assert_eq!(losers[0].filename, "FolderA/contested.md");
+    }
+
+    #[test]
+    fn dup_losers_keeps_distinct_objects_sharing_basename_and_content() {
+        // F9: two LEGITIMATELY DISTINCT notes with the same basename and the
+        // same content (e.g. two empty `Untitled.md` in different folders) plus
+        // a same-content delete in the cycle. They are different objects, so
+        // the move-dedup must keep BOTH — deleting one is silent data loss.
+        let mut push = HashMap::new();
+        push.insert(
+            "hEmpty".to_owned(),
+            vec![
+                h2f_oid("FolderA/Untitled.md", 5, "oa"),
+                h2f_oid("FolderB/Untitled.md", 7, "ob"),
+            ],
+        );
+        let losers =
+            pick_duplicate_move_losers("Trash/Untitled.md", "hEmpty", &push, &HashMap::new());
+        assert!(
+            losers.is_empty(),
+            "distinct objects sharing basename+content must both survive, got {losers:?}"
+        );
     }
 
     #[test]
@@ -4364,13 +5092,16 @@ mod tests {
 
     #[test]
     fn dup_losers_tiebreaks_lexicographically_on_same_change_seq() {
-        // Both creates at the same change_seq → tie-break by filename
-        // (Aaa wins, Bbb loses) so the result is deterministic across
-        // clients.
+        // The same object (o1) at two names with the same change_seq → tie-break
+        // by filename (Aaa wins, Bbb loses) so the result is deterministic
+        // across clients.
         let mut push = HashMap::new();
         push.insert(
             "hX".to_owned(),
-            vec![h2f("Bbb/contested.md", 7), h2f("Aaa/contested.md", 7)],
+            vec![
+                h2f_oid("Bbb/contested.md", 7, "o1"),
+                h2f_oid("Aaa/contested.md", 7, "o1"),
+            ],
         );
         let losers = pick_duplicate_move_losers("contested.md", "hX", &push, &HashMap::new());
         assert_eq!(losers.len(), 1);
@@ -4697,6 +5428,10 @@ mod tests {
 
     // ── resolve_pull_collisions (F4 / F5) ──────────────────────────────
 
+    // Distinct objects get DISTINCT content hashes (derived from object_id) so
+    // a name collision between them is a REAL conflict (→ conflict copy). The
+    // identical-content adoption path is exercised by a dedicated test that
+    // gives the colliding objects the same hash explicitly.
     fn dnote(object_id: &str, filename: &str) -> DownloadedNote {
         DownloadedNote {
             object_id: object_id.to_owned(),
@@ -4705,7 +5440,7 @@ mod tests {
             blob_key: "bk".to_owned(),
             filename: filename.to_owned(),
             content: "x".to_owned(),
-            hash: "h".to_owned(),
+            hash: format!("h-{object_id}"),
             modified_at_ms: 1,
         }
     }
@@ -4715,7 +5450,7 @@ mod tests {
             object_id: object_id.to_owned(),
             version: 1,
             blob_key: "bk".to_owned(),
-            hash: Some("h".to_owned()),
+            hash: Some(format!("h-{object_id}")),
             mtime_ms: Some(1),
             size_bytes: Some(1),
         }
@@ -4839,6 +5574,61 @@ mod tests {
         assert_eq!(
             plan_y.download_overrides.get(&0).unwrap(),
             "welcome (conflict objbbb).md"
+        );
+    }
+
+    // Item 4: two DISTINCT live server objects share a filename AND have
+    // IDENTICAL content (the crash-window orphan-object case: an
+    // uploaded-but-unpersisted POST re-lists and collides with the re-POSTed
+    // live entry). No `(conflict <oid>)` copy may be minted — the winner is the
+    // sole canonical survivor and the identical loser is adopted silently. Red
+    // before the fix: it produced a download_override for the loser.
+    #[test]
+    fn collision_identical_content_adopts_silently_no_conflict_copy() {
+        let mut a = dnote("obj-aaa", "welcome.md");
+        let mut b = dnote("obj-bbb", "welcome.md");
+        // Byte-identical content on both objects → same hash.
+        a.hash = "same-hash".to_owned();
+        b.hash = "same-hash".to_owned();
+        let dl = vec![a, b];
+        let plan = resolve_pull_collisions(&dl, &HashMap::new(), &HashSet::new());
+
+        // obj-aaa (idx 0) wins the canonical name; obj-bbb (idx 1) is the
+        // identical loser → skipped, NOT parked at a conflict copy.
+        assert!(
+            plan.download_overrides.is_empty(),
+            "no conflict copy for a byte-identical loser",
+        );
+        assert!(plan.map_renames.is_empty());
+        assert_eq!(
+            plan.download_skips.iter().copied().collect::<Vec<_>>(),
+            vec![1],
+            "the identical loser download is skipped (winner is the sole survivor)",
+        );
+    }
+
+    // Item 4, map-only variant: the winner arrives in this pull, an
+    // identical-content rival is already on disk (map-only). The stale on-disk
+    // loser is dropped (winner is the sole survivor) — no conflict copy, and its
+    // map entry is dropped so push never tombstones the still-live server object.
+    #[test]
+    fn collision_identical_map_only_loser_is_dropped_not_parked() {
+        let mut d = dnote("obj-aaa", "welcome.md"); // winner (smaller object_id)
+        d.hash = "same-hash".to_owned();
+        let dl = vec![d];
+        let mut map = HashMap::new();
+        let mut loser = map_entry_oid("obj-bbb");
+        loser.hash = Some("same-hash".to_owned());
+        map.insert("Welcome.md".to_owned(), loser);
+
+        let plan = resolve_pull_collisions(&dl, &map, &HashSet::new());
+
+        assert!(plan.download_overrides.is_empty());
+        assert!(plan.map_renames.is_empty(), "no conflict-copy rename for identical content");
+        assert_eq!(
+            plan.identical_map_drops,
+            vec!["Welcome.md".to_owned()],
+            "the identical map-only loser is dropped, winner survives",
         );
     }
 
@@ -5289,6 +6079,588 @@ mod tests {
         assert_eq!(ids.len(), 2, "both objects accounted for, neither dropped");
     }
 
+    // ── F1: empty-map reconcile honors peer tombstones ──────────────────
+    //
+    // Seed an ancestry file (the disconnect artifact) that records a note this
+    // device last synced as object `o1`, drop it out of the live object map to
+    // mimic a reconnect, and have the server return a TOMBSTONE for `o1`.
+
+    /// Write `.e2ee-ancestry.json` the way a disconnect would: persist a state
+    /// with the given map, then demote it to ancestry.
+    fn seed_ancestry(root: &Path, filename: &str, object_id: &str, content: &str) {
+        let mut map = HashMap::new();
+        map.insert(
+            filename.to_owned(),
+            E2eeObjectMapEntry {
+                object_id: object_id.to_owned(),
+                version: 1,
+                blob_key: format!("bk-{object_id}"),
+                hash: Some(hash_sha256(content)),
+                mtime_ms: None,
+                size_bytes: None,
+            },
+        );
+        state::persist(root, &map, 1, "c1").unwrap();
+        state::demote_state_to_ancestry(root).unwrap();
+    }
+
+    // F1 (the resurrection bug): A pushed a note then disconnected (state
+    // demoted to ancestry). A peer deleted it (server tombstone). On reconnect
+    // the empty-map reconcile must DELETE the local copy — not drop the
+    // tombstone and let run_push re-POST it, resurrecting the note fleet-wide.
+    #[tokio::test]
+    async fn reconcile_honors_peer_tombstone_deletes_unchanged_local() {
+        let server = MockServer::start().await;
+        Mock::given(wm_method("GET"))
+            .and(wm_path("/api/collections/c1/objects"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "objects": [{
+                    "id": "o1",
+                    "collection_id": "c1",
+                    "version": 2,
+                    "change_seq": 5,
+                    "deleted": true,
+                    "blob_key": null,
+                    "size_bytes": null,
+                    "created_at": "2026-07-10T00:00:00.000Z",
+                    "updated_at": "2026-07-10T00:00:00.000Z"
+                }]
+            })))
+            .mount(&server)
+            .await;
+
+        let root = temp_root();
+        std::fs::write(root.join("doomed.md"), "# Doomed").unwrap();
+        seed_ancestry(&root, "doomed.md", "o1", "# Doomed");
+
+        let state = connected_state(&server); // empty map, max_version 0
+        let (summary, next) = reconcile_empty_map(&state, &root, &no_prog, &no_pre)
+            .await
+            .expect("reconcile");
+
+        assert!(
+            !root.join("doomed.md").exists(),
+            "a peer-deleted note must be removed on reconnect, not resurrected",
+        );
+        assert_eq!(summary.deleted, 1, "the tombstone delete must be surfaced");
+        assert!(
+            summary.deleted_ids.contains(&"doomed".to_owned()),
+            "deleted_ids must carry the note so the rescan gate fires, got {:?}",
+            summary.deleted_ids,
+        );
+        assert!(
+            !next.object_map.contains_key("doomed.md"),
+            "the deleted note must NOT be in the map (would re-POST as a new object)",
+        );
+    }
+
+    // F1 diverged branch: the note was edited on this device while it was
+    // disconnected, then a peer deleted it. The local edit must be PRESERVED as
+    // a conflict copy (re-uploaded as a new object), not silently deleted.
+    #[tokio::test]
+    async fn reconcile_parks_local_edit_when_tombstoned_object_diverged() {
+        let server = MockServer::start().await;
+        Mock::given(wm_method("GET"))
+            .and(wm_path("/api/collections/c1/objects"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "objects": [{
+                    "id": "o1",
+                    "collection_id": "c1",
+                    "version": 2,
+                    "change_seq": 5,
+                    "deleted": true,
+                    "blob_key": null,
+                    "size_bytes": null,
+                    "created_at": "2026-07-10T00:00:00.000Z",
+                    "updated_at": "2026-07-10T00:00:00.000Z"
+                }]
+            })))
+            .mount(&server)
+            .await;
+
+        let root = temp_root();
+        // Ancestry hash is the ORIGINAL; the on-disk file now diverges.
+        seed_ancestry(&root, "notes.md", "o1", "# Original");
+        std::fs::write(root.join("notes.md"), "# Original\n\nedited offline").unwrap();
+
+        let state = connected_state(&server);
+        let (summary, next) = reconcile_empty_map(&state, &root, &no_prog, &no_pre)
+            .await
+            .expect("reconcile");
+
+        let copy = collision_conflict_filename("notes.md", "o1");
+        assert!(
+            !root.join("notes.md").exists(),
+            "the tombstoned original name is removed",
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join(&copy)).unwrap(),
+            "# Original\n\nedited offline",
+            "the divergent local edit is preserved in the conflict copy",
+        );
+        assert!(
+            !next.object_map.contains_key(&copy),
+            "the copy has no map entry so run_push uploads it as its own new object",
+        );
+        assert_eq!(summary.deleted, 1, "the original name delete is surfaced");
+    }
+
+    // F1: a tombstone for an object this device has NO ancestry for (fresh
+    // install, or a note it never synced) leaves the local file alone — we
+    // can't prove it's the same note, so deleting it would be unsafe.
+    #[tokio::test]
+    async fn reconcile_leaves_tombstoned_file_without_ancestry_alone() {
+        let server = MockServer::start().await;
+        Mock::given(wm_method("GET"))
+            .and(wm_path("/api/collections/c1/objects"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "objects": [{
+                    "id": "o-unknown",
+                    "collection_id": "c1",
+                    "version": 2,
+                    "change_seq": 5,
+                    "deleted": true,
+                    "blob_key": null,
+                    "size_bytes": null,
+                    "created_at": "2026-07-10T00:00:00.000Z",
+                    "updated_at": "2026-07-10T00:00:00.000Z"
+                }]
+            })))
+            .mount(&server)
+            .await;
+
+        let root = temp_root();
+        // A local note, but NO ancestry entry linking it to o-unknown.
+        std::fs::write(root.join("keep.md"), "# Keep").unwrap();
+
+        let state = connected_state(&server);
+        let (summary, _next) = reconcile_empty_map(&state, &root, &no_prog, &no_pre)
+            .await
+            .expect("reconcile");
+
+        assert!(
+            root.join("keep.md").exists(),
+            "a tombstone with no ancestry link must not delete an unrelated local file",
+        );
+        assert_eq!(summary.deleted, 0);
+    }
+
+    // S2/S5 at the reconcile level: an UNVERIFIABLE tombstone (transient read
+    // error, file still present) must surface a failure, must NOT advance the
+    // cursor past its change_seq, and must retain the ancestry file for a retry
+    // — instead of silently skipping, jumping the cursor, and consuming ancestry.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn reconcile_unverifiable_tombstone_fails_caps_cursor_retains_ancestry() {
+        use std::os::unix::fs::PermissionsExt;
+        let server = MockServer::start().await;
+        Mock::given(wm_method("GET"))
+            .and(wm_path("/api/collections/c1/objects"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "objects": [{
+                    "id": "o1",
+                    "collection_id": "c1",
+                    "version": 2,
+                    "change_seq": 5,
+                    "deleted": true,
+                    "blob_key": null,
+                    "size_bytes": null,
+                    "created_at": "2026-07-11T00:00:00.000Z",
+                    "updated_at": "2026-07-11T00:00:00.000Z"
+                }]
+            })))
+            .mount(&server)
+            .await;
+
+        let root = temp_root();
+        let note = root.join("unreadable.md");
+        std::fs::write(&note, "# Whatever").unwrap();
+        seed_ancestry(&root, "unreadable.md", "o1", "# Whatever");
+        // Present in the vault walk (metadata still works) but unreadable, so the
+        // reconcile cannot verify the delete → transient, not file-gone.
+        std::fs::set_permissions(&note, std::fs::Permissions::from_mode(0o000)).unwrap();
+
+        // Skip the permission-dependent assertions where the environment does
+        // not enforce them (root/CAP_DAC_OVERRIDE, common in CI containers):
+        // there the read below succeeds, the delete converges, and the failure
+        // this test asserts never happens. The test stays meaningful for any
+        // non-root runner (local dev, unprivileged CI).
+        if !permission_restriction_bites(&note) {
+            let _ = std::fs::set_permissions(&note, std::fs::Permissions::from_mode(0o644));
+            eprintln!(
+                "SKIP reconcile_unverifiable_tombstone_fails_caps_cursor_retains_ancestry: \
+                 environment does not enforce file read permissions (running as root?)"
+            );
+            return;
+        }
+
+        let state = connected_state(&server);
+        let result = reconcile_empty_map(&state, &root, &no_prog, &no_pre).await;
+        // Restore perms so the temp file is cleanable regardless of outcome.
+        let _ = std::fs::set_permissions(&note, std::fs::Permissions::from_mode(0o644));
+        let (summary, next) = result.expect("reconcile");
+
+        assert_eq!(summary.failures.len(), 1, "the unverifiable delete is a failure");
+        assert_eq!(summary.failures[0].kind, FailureKind::Delete);
+        assert_eq!(summary.deleted, 0, "nothing was verifiably deleted");
+        assert!(
+            next.max_version < 5,
+            "cursor must stay below the failed tombstone's change_seq (got {})",
+            next.max_version,
+        );
+        assert!(
+            state::ancestry_file_path(&root).exists(),
+            "ancestry must be retained for the retry",
+        );
+        assert!(note.exists(), "the target is left untouched");
+    }
+
+    /// Some CI containers run the test binary as ROOT, whose CAP_DAC_OVERRIDE
+    /// bypasses the DAC permission bits the `#[cfg(unix)]` tests below use to
+    /// synthesize an EACCES — so the blocked operation converges normally and
+    /// the assertions (which expect a failure) fire falsely. Probe whether the
+    /// restriction on `blocked` ACTUALLY bites by attempting the blocked read:
+    /// only a SUCCESS means the environment does not enforce it (root), so the
+    /// caller must skip its permission-dependent assertions. Any error (EACCES
+    /// for a normal user, or anything else) ⇒ run the test. Dependency-free.
+    #[cfg(unix)]
+    fn permission_restriction_bites(blocked: &Path) -> bool {
+        std::fs::read(blocked).is_err()
+    }
+
+    /// Count leftover `.sf-tomb-*` claim files in `dir` — must always be 0
+    /// (claims are cleaned up on every exit path, P1-a).
+    fn orphan_claims(dir: &Path) -> usize {
+        std::fs::read_dir(dir)
+            .map(|it| {
+                it.flatten()
+                    .filter(|e| {
+                        e.file_name().to_string_lossy().starts_with(".sf-tomb-")
+                    })
+                    .count()
+            })
+            .unwrap_or(0)
+    }
+
+    // S1/P1-a (claim-and-delete-or-park): a tombstone is deleted ONLY when the
+    // claimed bytes still hash to the last-synced hash. A file that no longer
+    // matches is preserved in a conflict copy (from the CLAIMED bytes), never
+    // blindly deleted. A file already gone is a converged no-op. No claim
+    // dotfile is ever left behind.
+    #[test]
+    fn apply_tombstone_reconcile_deletes_only_on_hash_match() {
+        let root = temp_root();
+        std::fs::write(root.join("unchanged.md"), "# Unchanged").unwrap();
+        std::fs::write(root.join("edited.md"), "# Edited since last sync").unwrap();
+        let targets = vec![
+            TombstoneTarget {
+                filename: "unchanged.md".into(),
+                object_id: "o1".into(),
+                expected_hash: hash_sha256("# Unchanged"),
+                change_seq: 5,
+            },
+            TombstoneTarget {
+                filename: "edited.md".into(),
+                object_id: "o2".into(),
+                // The file was edited after the last sync, so its current bytes
+                // differ from what the peer's delete targeted.
+                expected_hash: hash_sha256("# Original before the edit"),
+                change_seq: 6,
+            },
+            TombstoneTarget {
+                filename: "gone.md".into(),
+                object_id: "o3".into(),
+                expected_hash: hash_sha256("whatever"),
+                change_seq: 7,
+            },
+        ];
+
+        let res = apply_tombstone_reconcile(&root, &no_pre, &targets);
+
+        // Unchanged → peer delete wins.
+        assert!(!root.join("unchanged.md").exists());
+        assert!(res.deleted.contains(&"unchanged.md".to_owned()));
+        // Edited → NOT blindly deleted; claimed bytes preserved in the copy.
+        assert!(!root.join("edited.md").exists(), "tombstoned name dropped");
+        let copy = collision_conflict_filename("edited.md", "o2");
+        assert_eq!(
+            std::fs::read_to_string(root.join(&copy)).unwrap(),
+            "# Edited since last sync",
+            "the edit must be preserved, not lost to a stale-hash delete",
+        );
+        // Already gone → converged, no failure.
+        assert!(res.failed.is_empty(), "no failures for match/diverge/gone");
+        assert_eq!(orphan_claims(&root), 0, "no claim dotfile left behind");
+    }
+
+    // P1-b (non-NotFound error ≠ convergence): a target the reconcile cannot
+    // even CLAIM because of a permission/metadata error (not because it is gone)
+    // must be a failure (retry), never treated as "already deleted". The parent
+    // directory is stripped of the execute (search) bit, so path resolution —
+    // and thus the claim `rename` — fails with EACCES, not NotFound. Red against
+    // the prior `Path::exists()` check, which returns false on this metadata
+    // error and wrongly "converged" (dropping the tombstone + ancestry). The
+    // file is left untouched and no claim is orphaned.
+    #[cfg(unix)]
+    #[test]
+    fn apply_tombstone_reconcile_non_notfound_error_is_failure_not_convergence() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = temp_root();
+        std::fs::create_dir(root.join("locked")).unwrap();
+        std::fs::write(root.join("locked/note.md"), "# Unchanged").unwrap();
+        // r-- (no execute/search): resolving `locked/note.md` fails with EACCES,
+        // and `Path::exists()` returns false even though the file is there.
+        std::fs::set_permissions(root.join("locked"), std::fs::Permissions::from_mode(0o400))
+            .unwrap();
+
+        // Skip where the environment does not enforce the directory search bit
+        // (root/CAP_DAC_OVERRIDE, common in CI containers): there resolution
+        // succeeds, the claim rename converges, and the failure this test
+        // asserts never happens. Meaningful for any non-root runner.
+        if !permission_restriction_bites(&root.join("locked/note.md")) {
+            let _ = std::fs::set_permissions(
+                root.join("locked"),
+                std::fs::Permissions::from_mode(0o755),
+            );
+            eprintln!(
+                "SKIP apply_tombstone_reconcile_non_notfound_error_is_failure_not_convergence: \
+                 environment does not enforce directory search permissions (running as root?)"
+            );
+            return;
+        }
+
+        let targets = vec![TombstoneTarget {
+            filename: "locked/note.md".into(),
+            object_id: "o1".into(),
+            // Hash MATCHES: a broken existence check would happily "converge"
+            // and drop it — prove the permission error blocks that.
+            expected_hash: hash_sha256("# Unchanged"),
+            change_seq: 9,
+        }];
+
+        let res = apply_tombstone_reconcile(&root, &no_pre, &targets);
+        // Restore write perms so the temp tree is cleanable.
+        let _ = std::fs::set_permissions(
+            root.join("locked"),
+            std::fs::Permissions::from_mode(0o755),
+        );
+
+        assert!(res.deleted.is_empty(), "a permission error must not delete/converge");
+        assert_eq!(res.failed.len(), 1);
+        assert_eq!(
+            res.failed[0].change_seq, 9,
+            "the failure carries the change_seq so the cursor caps below it",
+        );
+        assert!(root.join("locked/note.md").exists(), "target left untouched");
+        assert_eq!(orphan_claims(&root.join("locked")), 0, "no claim orphaned");
+    }
+
+    // P1-1 encoding: a short path uses the self-describing hex form (no sidecar)
+    // and round-trips through claim_decode (incl. subdirs / spaces / unicode).
+    #[test]
+    fn claim_name_round_trips_original_filename() {
+        for rel in ["note.md", "sub/deep/a note.md", "caf\u{00E9}.md", ".sf-tomb-lookalike.md"] {
+            let (name, sidecar) = claim_names_for(rel);
+            assert!(sidecar.is_none(), "short paths use the hex form, no sidecar");
+            assert!(name.starts_with(CLAIM_PREFIX));
+            assert!(name.len() <= MAX_CLAIM_NAME_BYTES);
+            assert!(
+                !name[CLAIM_PREFIX.len()..].contains('/'),
+                "no path separators leak into the dotfile name",
+            );
+            assert_eq!(claim_decode(&name).as_deref(), Some(rel));
+        }
+        // A non-claim name (or a garbled one) decodes to None.
+        assert_eq!(claim_decode("note.md"), None);
+        assert_eq!(claim_decode(".sf-tomb-zz"), None, "non-hex payload");
+        assert_eq!(claim_decode(".sf-tomb-abc"), None, "odd-length payload");
+    }
+
+    // P1-1 NAME_MAX bound: a path too long for the hex form falls back to the
+    // fixed-size hashed name + a sidecar; both stay well under NAME_MAX, the
+    // hashed name is NOT hex-decodable (so the sweep routes it to the sidecar),
+    // and the sidecar name is the claim name + ".path".
+    #[test]
+    fn claim_name_overflow_uses_bounded_hashed_form_plus_sidecar() {
+        let rel = format!("{}.md", "x".repeat(200)); // 203 bytes → hex would be 415
+        let (name, sidecar) = claim_names_for(&rel);
+        assert!(name.len() <= MAX_CLAIM_NAME_BYTES, "claim name must be bounded");
+        assert!(name.starts_with(&format!("{CLAIM_PREFIX}{CLAIM_HASH_MARKER}")));
+        assert_eq!(claim_decode(&name), None, "hashed form is not hex-decodable");
+        let sidecar = sidecar.expect("overflow path must carry a sidecar");
+        assert_eq!(sidecar, format!("{name}{CLAIM_SIDECAR_SUFFIX}"));
+        assert!(sidecar.len() <= MAX_CLAIM_NAME_BYTES);
+    }
+
+    // P1-1 recovery sweep: a claim orphaned by a crash inside a prior
+    // apply_tombstone_reconcile (the note's ONLY copy is the dotfile) is
+    // restored to its original name on the next run. Wired at the START of
+    // apply_tombstone_reconcile, so an empty-targets call still recovers it.
+    #[test]
+    fn recover_sweep_restores_orphaned_claim() {
+        let root = temp_root();
+        std::fs::create_dir_all(root.join("sub")).unwrap();
+        // Simulate the crash aftermath: the note lives only as a root dotfile
+        // whose name encodes "sub/note.md"; the original path is absent.
+        let claim = root.join(claim_names_for("sub/note.md").0);
+        std::fs::write(&claim, "# The only copy").unwrap();
+        assert!(!root.join("sub/note.md").exists());
+
+        let res = apply_tombstone_reconcile(&root, &no_pre, &[]);
+
+        assert!(res.deleted.is_empty());
+        assert!(res.failed.is_empty());
+        assert_eq!(
+            std::fs::read_to_string(root.join("sub/note.md")).unwrap(),
+            "# The only copy",
+            "the orphaned note must be restored to its original name",
+        );
+        assert_eq!(orphan_claims(&root), 0, "the stale claim is consumed by the restore");
+    }
+
+    // P1-1 sweep, recreated-file case: if the original name already exists (a
+    // save/pull re-created it while the claim was orphaned), the recreated file
+    // WINS and the stale claim is dropped — never clobbering newer content.
+    #[test]
+    fn recover_sweep_drops_claim_when_original_recreated() {
+        let root = temp_root();
+        std::fs::write(root.join("note.md"), "# Recreated newer content").unwrap();
+        let claim = root.join(claim_names_for("note.md").0);
+        std::fs::write(&claim, "# Stale claimed bytes").unwrap();
+
+        apply_tombstone_reconcile(&root, &no_pre, &[]);
+
+        assert_eq!(
+            std::fs::read_to_string(root.join("note.md")).unwrap(),
+            "# Recreated newer content",
+            "the recreated file wins; the stale claim never clobbers it",
+        );
+        assert_eq!(orphan_claims(&root), 0, "the stale claim is dropped");
+    }
+
+    // Item 2: on the no-replacement path, a FAILED restore must LEAVE the claim
+    // (the sweep recovers it next cycle) — NEVER delete the note's only copy.
+    // A plain FILE stands where the restore target's parent directory should be,
+    // so both create_dir_all and the restore `rename` fail (ENOTDIR); and
+    // symlink_metadata(orig) is Err (no positive replacement confirmation). The
+    // prior code's `else if rename().is_err() { remove }` would have destroyed
+    // the only copy — this is red against it.
+    #[test]
+    fn restore_or_discard_leaves_claim_when_restore_fails_no_replacement() {
+        let root = temp_root();
+        let claim = root.join(claim_names_for("blocker/note.md").0);
+        std::fs::write(&claim, "# The only copy").unwrap();
+        // A file occupies "blocker" → "blocker/note.md" is unreachable.
+        std::fs::write(root.join("blocker"), "not a directory").unwrap();
+        let orig = root.join("blocker/note.md");
+
+        restore_or_discard_claim(&claim, &orig, None);
+
+        assert!(claim.exists(), "the only copy must survive a failed restore");
+        assert!(!orig.exists());
+    }
+
+    // Round-4 (NAME_MAX blocker): a legal 200-char title's hex claim name would
+    // be 400+ bytes > NAME_MAX, so the old unbounded encoder failed the claim
+    // rename with ENAMETOOLONG → the tombstone was left FAILED → the empty-map
+    // push re-POSTed the still-on-disk unmapped note (F1 resurrection). The
+    // bounded form must apply the delete cleanly, leaving no dotfile behind.
+    // RED on current HEAD (the rename errors, the file is not deleted).
+    #[test]
+    fn apply_tombstone_reconcile_deletes_overflow_length_title() {
+        let root = temp_root();
+        let name = format!("{}.md", "t".repeat(200));
+        std::fs::write(root.join(&name), "# body").unwrap();
+        let targets = vec![TombstoneTarget {
+            filename: name.clone(),
+            object_id: "o1".into(),
+            expected_hash: hash_sha256("# body"),
+            change_seq: 5,
+        }];
+
+        let res = apply_tombstone_reconcile(&root, &no_pre, &targets);
+
+        assert!(res.failed.is_empty(), "a long-title tombstone must not fail (ENAMETOOLONG)");
+        assert!(res.deleted.contains(&name), "the delete is applied");
+        assert!(!root.join(&name).exists(), "the tombstoned file is gone");
+        assert_eq!(orphan_claims(&root), 0, "no claim/sidecar dotfile left behind");
+    }
+
+    // Round-4 deep-path equivalent: the overflow comes from path DEPTH, not a
+    // single long component. Same requirement — clean delete, no orphan.
+    #[test]
+    fn apply_tombstone_reconcile_deletes_overflow_deep_path() {
+        let root = temp_root();
+        let rel = format!("{}note.md", "sub/".repeat(40)); // 167 bytes → hex overflows
+        let full = root.join(&rel);
+        std::fs::create_dir_all(full.parent().unwrap()).unwrap();
+        std::fs::write(&full, "# deep").unwrap();
+        let targets = vec![TombstoneTarget {
+            filename: rel.clone(),
+            object_id: "o1".into(),
+            expected_hash: hash_sha256("# deep"),
+            change_seq: 9,
+        }];
+
+        let res = apply_tombstone_reconcile(&root, &no_pre, &targets);
+
+        assert!(res.failed.is_empty(), "a deep-path tombstone must not fail (ENAMETOOLONG)");
+        assert!(res.deleted.contains(&rel));
+        assert!(!full.exists());
+        assert_eq!(orphan_claims(&root), 0, "no claim/sidecar dotfile left behind");
+    }
+
+    // Round-4 sweep recovery for the overflow (hashed) shape: a crash left the
+    // hashed claim (the only bytes) + its sidecar (the path). The sweep reads
+    // the sidecar, restores the note to its original path, and cleans up both.
+    #[test]
+    fn recover_sweep_restores_overflow_claim_via_sidecar() {
+        let root = temp_root();
+        let rel = format!("{}.md", "z".repeat(200));
+        let (claim_name, sidecar_name) = claim_names_for(&rel);
+        let sidecar_name = sidecar_name.expect("overflow form has a sidecar");
+        std::fs::write(root.join(&claim_name), "# only copy").unwrap();
+        std::fs::write(root.join(&sidecar_name), &rel).unwrap();
+
+        let res = apply_tombstone_reconcile(&root, &no_pre, &[]);
+
+        assert!(res.failed.is_empty());
+        assert_eq!(
+            std::fs::read_to_string(root.join(&rel)).unwrap(),
+            "# only copy",
+            "the overflow claim is restored to its original path via the sidecar",
+        );
+        assert_eq!(orphan_claims(&root), 0, "claim + sidecar both cleaned up");
+    }
+
+    // Round-4 fail-safe orphans: a sidecar with no claim is harmless leftover →
+    // deleted; a hashed claim with no sidecar has an UNRECOVERABLE path → it is
+    // LEFT untouched (bytes preserved verbatim), never deleted or misplaced.
+    #[test]
+    fn recover_sweep_orphan_sidecar_deleted_orphan_hashed_claim_left() {
+        let root = temp_root();
+        // Orphan sidecar (no matching claim) → deleted.
+        let (_claim_a, sidecar_a) = claim_names_for(&format!("{}.md", "a".repeat(200)));
+        let sidecar_a = sidecar_a.unwrap();
+        std::fs::write(root.join(&sidecar_a), "irrelevant path").unwrap();
+        // Orphan hashed claim (no sidecar) → unrecoverable → LEFT.
+        let (claim_b, _) = claim_names_for(&format!("{}.md", "b".repeat(200)));
+        std::fs::write(root.join(&claim_b), "# stranded bytes").unwrap();
+
+        apply_tombstone_reconcile(&root, &no_pre, &[]);
+
+        assert!(!root.join(&sidecar_a).exists(), "orphan sidecar is cleaned up");
+        assert!(
+            root.join(&claim_b).exists(),
+            "orphan hashed claim (unrecoverable path) is LEFT, never deleted",
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join(&claim_b)).unwrap(),
+            "# stranded bytes",
+            "the stranded bytes are preserved verbatim",
+        );
+    }
+
     // Conflict-copy POST path: the merge base is unavailable (404), so
     // resolution falls through to a conflict-copy POST. The server rejects
     // that POST with 413 → must surface as TooLarge, NOT a generic Err.
@@ -5422,6 +6794,174 @@ mod tests {
             other => panic!("expected MergedClean (adopt remote), got {other:?}"),
         }
         // `.expect(0)` on the POST mock is asserted here when `server` drops.
+    }
+
+    // F3: peer deleted the object while we held a dirty local edit → the PUT
+    // 409 carries `current_blob_key: None`. The edit must be PRESERVED by
+    // re-POSTing it as a FRESH object (Wrote), not dropped as an
+    // UnresolvedConflict — which wrote nothing and let the pull's
+    // immediate-delete erase the file, silently losing the edit.
+    #[tokio::test]
+    async fn resolve_update_conflict_peer_delete_preserves_edit_as_fresh_object() {
+        let server = MockServer::start().await;
+        // The re-POST of the local edit → a brand-new object. Exactly one POST.
+        Mock::given(wm_method("POST"))
+            .and(wm_path("/api/collections/c1/blob-objects"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "object": {
+                    "id": "o-fresh",
+                    "version": 1,
+                    "change_seq": 42,
+                    "updated_at": "2026-07-10T00:00:00.000Z",
+                    "blob_key": "bk-fresh"
+                },
+                "collectionVersion": 42
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let http = test_client(&server);
+        let vault_key = Arc::new(TEST_VAULT_KEY);
+        let existing = map_entry_for("o-gone", 3, "bk-old");
+        // Tombstoned object: 409 with no current blob to merge against.
+        let conflict = ConflictResponse {
+            error: "conflict".into(),
+            current_version: 4,
+            current_blob_key: None,
+        };
+        let local = "# original\n\nedited locally while the peer deleted it\n";
+
+        let outcome = resolve_update_conflict(
+            http,
+            vault_key,
+            "c1",
+            "contested.md",
+            local.to_owned(),
+            hash_sha256(local),
+            existing,
+            conflict,
+            HashSet::new(),
+            false,
+            12345,
+        )
+        .await
+        .expect("edit-vs-delete must preserve the edit, not error");
+
+        match outcome {
+            PushOutcome::Wrote { filename, entry, peer_resolved, .. } => {
+                assert_eq!(filename, "contested.md", "edit stays at its own filename");
+                assert_eq!(entry.object_id, "o-fresh", "re-POSTed as a fresh object");
+                assert_eq!(
+                    entry.hash.as_deref(),
+                    Some(hash_sha256(local).as_str()),
+                    "the fresh object carries the local edit's content hash",
+                );
+                assert!(!peer_resolved, "this is our own upload, not a peer download");
+            }
+            other => panic!("expected Wrote (edit preserved as fresh object), got {other:?}"),
+        }
+    }
+
+    // F3 real-server edit-vs-delete, S9: the peer EDITED the note (bumping its
+    // blob) and then DELETED it. The server's DELETE keeps the blob_key + bumps
+    // the version, so our 409 carries the peer's edited blob to merge against
+    // (NOT None) and the 3-way merge re-PUT SUCCEEDS — but the row is still
+    // `deleted: true` (PUT doesn't un-delete). The merged content incorporates
+    // BOTH the peer's edit and ours, so it differs from the local bytes on disk;
+    // it must be re-POSTed onto a FRESH live object AND written locally
+    // (MergedClean, not a bare Wrote — a Wrote never writes, so the next cycle
+    // would re-upload the stale local bytes and erase the peer's contribution).
+    #[tokio::test]
+    async fn resolve_update_conflict_merge_onto_tombstone_reposts_fresh() {
+        let server = MockServer::start().await;
+        let filename = "contested.md";
+        // Non-overlapping edits with unchanged context so diffy merges cleanly;
+        // base (our last sync) differs from remote (the peer's pre-delete edit).
+        let base = "line 1\nline 2\nline 3\nline 4\nline 5\n";
+        let remote = "LINE ONE\nline 2\nline 3\nline 4\nline 5\n"; // peer edited line 1
+        let local = "line 1\nline 2\nline 3\nline 4\nLINE FIVE\n"; // we edited line 5
+        Mock::given(wm_method("GET"))
+            .and(wm_path("/api/blobs/bk-base"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(enc(filename, base).await))
+            .mount(&server)
+            .await;
+        Mock::given(wm_method("GET"))
+            .and(wm_path("/api/blobs/bk-remote"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(enc(filename, remote).await))
+            .mount(&server)
+            .await;
+        // The merge re-PUT succeeds but the object is STILL a tombstone.
+        Mock::given(wm_method("PUT"))
+            .and(wm_path("/api/collections/c1/blob-objects/o-orig"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "object": {
+                    "id": "o-orig", "version": 6, "change_seq": 6,
+                    "updated_at": "2026-07-11T00:00:00.000Z",
+                    "blob_key": "bk-zombie", "deleted": true
+                },
+                "collectionVersion": 6
+            })))
+            .mount(&server)
+            .await;
+        // The recovery re-POST → a fresh, live object. Must fire exactly once.
+        Mock::given(wm_method("POST"))
+            .and(wm_path("/api/collections/c1/blob-objects"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "object": {
+                    "id": "o-fresh", "version": 1, "change_seq": 7,
+                    "updated_at": "2026-07-11T00:00:00.000Z",
+                    "blob_key": "bk-fresh", "deleted": false
+                },
+                "collectionVersion": 7
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let http = test_client(&server);
+        let vault_key = Arc::new(TEST_VAULT_KEY);
+        let existing = map_entry_for("o-orig", 4, "bk-base");
+        let conflict = ConflictResponse {
+            error: "conflict".into(),
+            current_version: 5, // the peer's edit + delete bumped the version
+            current_blob_key: Some("bk-remote".into()), // the peer's edited blob
+        };
+
+        let outcome = resolve_update_conflict(
+            http,
+            vault_key,
+            "c1",
+            filename,
+            local.to_owned(),
+            hash_sha256(local),
+            existing,
+            conflict,
+            HashSet::new(),
+            false,
+            999,
+        )
+        .await
+        .expect("edit-vs-delete must resolve, not error");
+
+        let expected_merge = "LINE ONE\nline 2\nline 3\nline 4\nLINE FIVE\n";
+        match outcome {
+            PushOutcome::MergedClean { filename: f, merged_content, entry, .. } => {
+                assert_eq!(f, filename, "the merge stays at its own filename");
+                assert_eq!(
+                    entry.object_id, "o-fresh",
+                    "the merge is re-POSTed onto a fresh LIVE object, not the tombstone",
+                );
+                // The peer's edit (LINE ONE) MUST be in the content written to
+                // disk — a bare Wrote would carry no content and lose it (S9).
+                assert_eq!(
+                    merged_content, expected_merge,
+                    "MergedClean must carry the full 3-way merge for the local write",
+                );
+                assert_eq!(entry.hash.as_deref(), Some(hash_sha256(expected_merge).as_str()));
+            }
+            other => panic!("expected MergedClean (fresh live object + local write), got {other:?}"),
+        }
     }
 
     // Clean-merge re-PUT path: base + remote are both available and merge
@@ -5574,53 +7114,158 @@ mod tests {
         );
     }
 
-    // Duplicate-move loser takedown: a non-409 server error on the DELETE used
-    // to eprintln + return Ok(false) — invisible to the summary. It must now
-    // report Failed (with the HTTP status) so resolve_concurrent_move_duplicates
-    // records it into SyncSummary.failures.
+    // Item 5 (direct-PUT-onto-tombstone, silent-loss half): a peer DELETED this
+    // object while we were disconnected. The server's DELETE bumped the version,
+    // so our expected_version (recorded + 1) MATCHED the post-delete version and
+    // the direct PUT SUCCEEDS with NO 409 — but the row is still `deleted: true`
+    // (PUT does not un-delete). push_one_file must NOT map the note to this
+    // tombstone (the same cycle's pull would apply it and delete our edited file
+    // — silent loss); it re-POSTs the content as a FRESH live object. `content`
+    // is the verbatim on-disk bytes, so a Wrote-shaped outcome (no local write)
+    // is correct. Red before the fix: the PUT-Ok arm ignored `deleted` and
+    // returned a Wrote onto the tombstone object, so the POST never fired.
     #[tokio::test]
-    async fn delete_synced_filename_500_reports_failed_with_status() {
+    async fn push_one_file_direct_put_onto_tombstone_reposts_fresh() {
         let server = MockServer::start().await;
-        Mock::given(wm_method("DELETE"))
-            .and(wm_path("/api/collections/c1/objects/o-dup"))
-            .respond_with(ResponseTemplate::new(500).set_body_json(serde_json::json!({
-                "error": "internal server error"
+        // The direct PUT succeeds but the row stays a tombstone.
+        Mock::given(wm_method("PUT"))
+            .and(wm_path("/api/collections/c1/blob-objects/o-orig"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "object": {
+                    "id": "o-orig", "version": 6, "change_seq": 6,
+                    "updated_at": "2026-07-11T00:00:00.000Z",
+                    "blob_key": "bk-zombie", "deleted": true
+                },
+                "collectionVersion": 6
             })))
             .mount(&server)
             .await;
+        // The recovery re-POST → a fresh, live object. Must fire exactly once.
+        Mock::given(wm_method("POST"))
+            .and(wm_path("/api/collections/c1/blob-objects"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "object": {
+                    "id": "o-fresh", "version": 1, "change_seq": 7,
+                    "updated_at": "2026-07-11T00:00:00.000Z",
+                    "blob_key": "bk-fresh", "deleted": false
+                },
+                "collectionVersion": 7
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        // A server DELETE here would be a bug — the edit is preserved, not deleted.
+        Mock::given(wm_method("DELETE"))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(0)
+            .mount(&server)
+            .await;
 
-        let mut state = ConnectedState {
-            base_url: server.uri(),
-            token: "test-token".into(),
-            user_id: "u1".into(),
-            collection_id: "c1".into(),
-            vault_key: TEST_VAULT_KEY,
-            object_map: HashMap::from([(
-                "dup.md".to_owned(),
-                map_entry_for("o-dup", 2, "bk-dup"),
-            )]),
-            max_version: 0,
-            oversize_skip: HashMap::new(),
-        };
         let root = temp_root();
-        let pre = no_pre_write();
+        std::fs::write(root.join("edited.md"), "my local edit\n").unwrap();
 
-        let outcome = delete_synced_filename(
-            &test_client(&server),
+        let outcome = push_one_file(
+            root.clone(),
+            test_client(&server),
+            Arc::new(TEST_VAULT_KEY),
+            "c1".to_owned(),
+            local("edited.md", 111, 14),
+            // A recorded entry (hash None ⇒ no StampOnly short-circuit) → PUT path.
+            Some(map_entry_for("o-orig", 3, "bk-base")),
+            HashSet::new(),
+            false,
+            None,
+        )
+        .await
+        .expect("edit-vs-delete on a direct PUT must resolve, not error");
+
+        match outcome {
+            PushOutcome::Wrote { filename, entry, peer_resolved, .. } => {
+                assert_eq!(filename, "edited.md");
+                assert_eq!(
+                    entry.object_id, "o-fresh",
+                    "the edit is re-POSTed onto a FRESH live object, not the tombstone",
+                );
+                assert_eq!(
+                    entry.hash.as_deref(),
+                    Some(hash_sha256("my local edit\n").as_str()),
+                    "the fresh object carries the local edit's content hash",
+                );
+                assert!(!peer_resolved, "this is our own upload, not a peer download");
+            }
+            other => panic!("expected Wrote (edit preserved on a fresh object), got {other:?}"),
+        }
+        // The edited note must remain on disk — push_one_file never deletes it,
+        // and the Wrote outcome carries no local write that could erase it.
+        assert_eq!(
+            std::fs::read_to_string(root.join("edited.md")).unwrap(),
+            "my local edit\n",
+            "the edited note must remain on disk (no silent loss)",
+        );
+    }
+
+    // S3: a dedup loser shares the winner's object_id (F9 groups by identity),
+    // so its takedown is LOCAL only — remove its file + map entry. It must NOT
+    // issue a server DELETE, which would delete the shared object and tombstone
+    // the winner. The winner's map entry survives, so a subsequent pull keeps
+    // the object.
+    #[tokio::test]
+    async fn dedup_loser_takedown_is_local_only_and_winner_survives() {
+        let server = MockServer::start().await;
+        // ANY server DELETE would tombstone the shared object → forbidden.
+        Mock::given(wm_method("DELETE"))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(0)
+            .mount(&server)
+            .await;
+
+        let root = temp_root();
+        std::fs::create_dir_all(root.join("Aaa")).unwrap();
+        std::fs::create_dir_all(root.join("Bbb")).unwrap();
+        std::fs::write(root.join("Aaa/contested.md"), "same").unwrap(); // winner
+        std::fs::write(root.join("Bbb/contested.md"), "same").unwrap(); // loser
+
+        // Winner and loser are the SAME object o1 surfacing under two names.
+        let mut state = connected_state(&server);
+        state
+            .object_map
+            .insert("Aaa/contested.md".into(), map_entry_for("o1", 3, "bk-o1"));
+        state
+            .object_map
+            .insert("Bbb/contested.md".into(), map_entry_for("o1", 3, "bk-o1"));
+
+        // A same-content, same-basename delete in this cycle triggers the dedup.
+        let deleted = HashMap::from([("h".to_owned(), "old/contested.md".to_owned())]);
+        let mut push_h2f = HashMap::new();
+        push_h2f.insert(
+            "h".to_owned(),
+            vec![
+                h2f_oid("Aaa/contested.md", 5, "o1"), // winner (higher change_seq)
+                h2f_oid("Bbb/contested.md", 3, "o1"), // loser
+            ],
+        );
+
+        let pre = no_pre_write();
+        let res = resolve_concurrent_move_duplicates(
             &mut state,
             &root,
             pre.as_ref(),
-            "dup.md",
+            &deleted,
+            &push_h2f,
+            &HashMap::new(),
         )
         .await
-        .expect("a 5xx delete is non-fatal, not a hard cycle error");
+        .expect("dedup");
 
-        match outcome {
-            DeleteSyncedOutcome::Failed { status_code } => assert_eq!(status_code, Some(500)),
-            DeleteSyncedOutcome::Deleted => panic!("expected Failed, got Deleted"),
-            DeleteSyncedOutcome::Skipped => panic!("expected Failed, got Skipped"),
-        }
-        // The failed takedown must NOT mutate local state — entry stays mapped.
-        assert!(state.object_map.contains_key("dup.md"));
+        assert_eq!(res.deleted_ids, vec!["Bbb/contested".to_owned()], "loser id surfaced");
+        assert!(!root.join("Bbb/contested.md").exists(), "loser file removed");
+        assert!(root.join("Aaa/contested.md").exists(), "winner file survives");
+        assert!(
+            state.object_map.contains_key("Aaa/contested.md"),
+            "winner stays mapped to the shared object",
+        );
+        assert!(!state.object_map.contains_key("Bbb/contested.md"), "loser unmapped");
+        assert_eq!(state.object_map["Aaa/contested.md"].object_id, "o1");
+        // `.expect(0)` on the DELETE mock is asserted here when `server` drops.
     }
 }
