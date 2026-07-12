@@ -1,18 +1,9 @@
 {
-  "_comment": "Tauri commands registered in apps/tauri/src-tauri/src/application.rs's generate_handler![...] with no invoke() caller anywhere in src/ today (architecture-hardening.md F24 / L1-2 / L2-4 gate 1). Checked by scripts/check-command-reachability.mjs. Remove an entry the moment it gets a caller (or gets deleted from Rust) — a lingering entry either way is a stale allowlist and fails the gate.",
+  "_comment": "Tauri commands registered in apps/tauri/src-tauri/src/application.rs's generate_handler![...] with no invoke() caller anywhere in src/ today (architecture-hardening.md F24 / L1-2 / L2-4 gate 1). Checked by scripts/check-command-reachability.mjs. Remove an entry the moment it gets a caller (or gets deleted from Rust) \u2014 a lingering entry either way is a stale allowlist and fails the gate.",
   "notes_create": {
     "reason": "Registered, no TS caller. architecture-hardening.md L1-2: desktop create is planned to wire through this verb instead of the current TS-only deferred/optimistic create path."
   },
   "notes_move": {
     "reason": "Registered, no TS caller. architecture-hardening.md L1-2 plans to wire this verb as part of moving relink logic into model::rename_note."
-  },
-  "notes_scan_folders": {
-    "reason": "Registered, no TS caller. architecture-hardening.md L1-2 marks this genuinely dead, slated for deletion (registration + _impl)."
-  },
-  "fs_move_note": {
-    "reason": "Registered, no TS caller. architecture-hardening.md L1-2 marks this genuinely dead, slated for deletion (registration + _impl)."
-  },
-  "fs_delete_folder": {
-    "reason": "Registered, no TS caller. architecture-hardening.md L1-2 marks this genuinely dead, slated for deletion (registration + _impl)."
   }
 }
