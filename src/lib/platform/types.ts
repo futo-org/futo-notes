@@ -55,6 +55,9 @@ export interface FileSystem {
   seedIfEmpty(): Promise<number>;
   readNote(id: string): Promise<string>;
   writeNote(id: string, content: string, modifiedAtMs?: number): Promise<number>;
+  /** Permanently delete a note (no trash routing). Mobile's note delete flow
+   *  uses this directly; desktop's goes through `deleteNoteToTrash` instead,
+   *  falling back to this when unimplemented. */
   deleteNoteFile(id: string): Promise<void>;
   noteExists(id: string): Promise<boolean>;
 
@@ -89,7 +92,10 @@ export interface FileSystem {
   deleteFolder(path: string): Promise<void>;
   /** Move a note from one ID (relative path without `.md`) to another. */
   moveNote(fromId: string, toId: string): Promise<void>;
-  /** Delete a note routed through the system trash on desktop. */
+  /** Delete a note routed through the system trash on desktop (recoverable).
+   *  Wired to the app's note delete flow via `deleteNoteFileToTrash`
+   *  (`fileSystem.ts`), which falls back to `deleteNoteFile` (permanent)
+   *  on platforms that don't implement this. */
   deleteNoteToTrash?(id: string): Promise<void>;
 }
 

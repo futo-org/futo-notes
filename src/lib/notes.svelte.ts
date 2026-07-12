@@ -1,7 +1,7 @@
 import type { NotePreview, SearchResultItem } from '../types';
 import {
   writeNote,
-  deleteNoteFile,
+  deleteNoteFileToTrash,
   deleteAllContent,
   renameNote as renameNoteFile,
   moveNoteFile,
@@ -497,7 +497,7 @@ export async function moveNotesUnderPrefix(fromPrefix: string, toPrefix: string)
 }
 
 export async function deleteNote(id: string): Promise<void> {
-  await deleteNoteFile(id);
+  await deleteNoteFileToTrash(id);
   removeFromSearchIndex(id);
   notesCache = notesCache.filter((n) => n.id !== id);
   void persistIndex();

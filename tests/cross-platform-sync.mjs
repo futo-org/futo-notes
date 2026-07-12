@@ -372,6 +372,18 @@ async function activeNoteReload(a, b, server) {
   await a.connectSync(server.url, server.password);
   await b.connectSync(server.url, server.password);
 
+  // Pause B's background sync (poll + SSE live loop) so B's explicit syncNow
+  // below deterministically OWNS the pull of A's update. Otherwise the Rust
+  // live loop, woken by A's push, pulls "# Version 2" to disk concurrently
+  // with the explicit syncNow: whichever writes first leaves the other with
+  // downloaded=0 and an empty updatedIds, and the open-note reload only fires
+  // for the cycle whose summary.updatedIds contains the note — so under CI
+  // timing the two can split and neither reloads the editor (job 185887). The
+  // reload path in handleSyncComplete is trigger-agnostic, so making the
+  // explicit sync the sole puller exercises the same reload code, just
+  // deterministically. Mirrors editDuringSyncKeepsLocalDraft's guard.
+  await b.pauseAutoSync();
+
   await a.writeNote('shared live', '# Version 1');
   await a.syncNow();
   await b.syncNow();
@@ -383,9 +395,10 @@ async function activeNoteReload(a, b, server) {
   await a.syncNow();
 
   const bResult = await b.syncNow();
-  assert(
-    bResult.summary.downloaded <= 1,
-    `B downloaded=${bResult.summary.downloaded}, expected 0 or 1`,
+  assertEqual(
+    bResult.summary.downloaded,
+    1,
+    `B downloaded=${bResult.summary.downloaded}, expected 1`,
   );
   const state = await waitForEditorContent(b, '# Version 2\nRemote update');
   assertEqual(
@@ -575,18 +588,19 @@ async function deleteVsEdit(a, b, server) {
   // B syncs first — edit wins
   await b.syncNow();
 
-  // A syncs — gets the edit back (server preserves the edit).
-  // Auto-sync may have already sent the delete, so A might need a
-  // second sync to pick up B's version after the server resolves it.
-  await a.syncNow();
-  let aContent;
-  try {
-    aContent = await a.readNote('contested');
-  } catch {
-    // File may not exist yet if the first sync sent the delete —
-    // a second sync should retrieve B's edit from the server.
+  // A syncs to pick up B's version. Delete-vs-edit resolves in B's favor and
+  // A pulls the surviving edit back — but this can take more than one sync
+  // round: A's explicit sync (or an earlier auto-sync) pushes A's delete
+  // first, and B's edit only lands on a later pull. Poll until it converges
+  // instead of assuming a fixed number of syncs. readNote returns "" (not an
+  // error) for an absent file, so read the content directly and loop until it
+  // matches — a plain read cannot distinguish "not pulled yet" from "gone".
+  let aContent = '';
+  for (let attempt = 0; attempt < 6; attempt += 1) {
     await a.syncNow();
     aContent = await a.readNote('contested');
+    if (aContent === '# B edited this') break;
+    await sleep(500);
   }
   assertEqual(aContent, '# B edited this', "A should get B's edit back");
 }

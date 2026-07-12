@@ -134,14 +134,20 @@ confirmation, not surfaced as a per-folder count. → NoteListView.swift
   shown); picking a destination moves the file, keeps the note open under its
   new id, and rewrites backlinks. → FolderPickerModal.svelte
 - "Delete note" asks for confirmation ("This action cannot be undone."), then
-  deletes **permanently** — there is no trash in the UI flow. Deleting the
-  only note in a folder prunes now-empty ancestor folders — **on every
-  platform**: Tauri via `prune_empty_parent_dirs`, the native shells via the
-  shared Rust `delete_note` (which prunes since 2026-07-02; it previously
-  left empty parents behind, native-only). →
-  platform/tauri.ts `deleteNoteFile` (a `notes_delete_to_trash` command exists
-  but no UI calls it), `apps/tauri/src-tauri/src/note_commands.rs`,
-  futo-notes-model `crud::delete_note`
+  deletes the file. *(Desktop)* routes through the OS trash — recoverable via
+  the OS trash — falling back to permanent delete if the platform trash is
+  unavailable (e.g. headless CI). *(iOS, Android)* delete permanently; there
+  is no trash in the native UI flow. Sync is unaffected either way — the file
+  leaving the vault tombstones the note on the next sync exactly as a
+  permanent delete would. Deleting the only note in a folder prunes now-empty
+  ancestor folders — **on every platform**: Tauri via
+  `prune_empty_parent_dirs`, the native shells via the shared Rust
+  `delete_note` (which prunes since 2026-07-02; it previously left empty
+  parents behind, native-only). →
+  fileSystem.ts `deleteNoteFileToTrash` → platform/tauri.ts
+  `deleteNoteToTrash` → `notes_delete_to_trash`,
+  `apps/tauri/src-tauri/src/note_commands.rs`, futo-notes-model
+  `crud::delete_note`
 - A note row in the folder tree offers the same Move/Delete via context menu
   (desktop right-click / mobile long-press). → FolderTreeView.svelte
 - The native editor menus reach parity: **Android** ⋮ offers Move to

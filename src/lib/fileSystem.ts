@@ -36,6 +36,22 @@ export async function deleteNoteFile(id: string): Promise<void> {
   void engineNotify('unlink', `${id}.md`);
 }
 
+/**
+ * Delete a note routed through the OS trash where the platform supports it
+ * (desktop, recoverable); falls back to the permanent `deleteNoteFile` on
+ * platforms without `deleteNoteToTrash` (e.g. web).
+ */
+export async function deleteNoteFileToTrash(id: string): Promise<void> {
+  writeSuppressor.recordWrite(`${id}.md`);
+  const fs = getFS();
+  if (fs.deleteNoteToTrash) {
+    await fs.deleteNoteToTrash(id);
+  } else {
+    await fs.deleteNoteFile(id);
+  }
+  void engineNotify('unlink', `${id}.md`);
+}
+
 export async function deleteAllContent(): Promise<void> {
   return getFS().deleteAllContent();
 }

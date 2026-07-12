@@ -1,5 +1,6 @@
 /**
- * Unified app state — single `.app-state.json` in the app data directory.
+ * Unified app state — single `.app-state.json`, resolved under the notes
+ * root (see `readAppData`/`writeAppData` in `platform/tauri.ts`).
  *
  * Combines sync credentials, device identity, and user preferences into one
  * file. On first load, migrates from a legacy `.preferences.json` if it
