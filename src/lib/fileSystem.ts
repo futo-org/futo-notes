@@ -24,8 +24,8 @@ export async function writeNote(
   const mtime = await getFS().writeNote(id, content, modifiedAtMs);
   // Our own write is suppressed from the watcher (recordWrite above), so the
   // watcher-driven engineNotify in NotesShell never fires for it. Notify the
-  // Rust search engine here so its Tantivy index stays as fresh as MiniSearch
-  // (which notes.svelte.ts updates optimistically) — otherwise stale hits.
+  // Rust search engine here so its Tantivy index stays fresh — otherwise the
+  // watcher suppression above would leave stale hits.
   void engineNotify('change', `${id}.md`);
   return mtime;
 }

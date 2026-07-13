@@ -61,7 +61,6 @@
   } from '$lib/crashReporter';
   import { installTestSync } from '$lib/testSync';
   import { initSyncPassword } from '$lib/syncServiceE2ee';
-  import { searchNotes, isSearchIndexPopulated } from '$features/search/searchIndex';
 
   // Synchronous listener install — keeps OS file drops from navigating the
   // webview away from the app (required on Windows and macOS where
@@ -211,10 +210,6 @@
                   moveNoteWithCollisionHandling(fromId, toId),
               };
               installTestSync();
-              (window as any).__testSearch = {
-                search: (query: string) => searchNotes(query),
-                isPopulated: () => isSearchIndexPopulated(),
-              };
             }
           })
           .catch((e) => {

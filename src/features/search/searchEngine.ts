@@ -1,8 +1,6 @@
 // Thin TS shim over the Rust `futo-notes-search` engine (Tantivy BM25) exposed
-// by the Tauri `search_*` commands. This coexists with the MiniSearch keyword
-// index in `searchIndex.ts`: callers prefer the Rust engine when it is
-// available and has results, and fall back to MiniSearch otherwise. MiniSearch
-// is NOT removed.
+// by the Tauri `search_*` commands. Shipped apps use this as their sole
+// full-text search implementation.
 
 import { invoke } from '@tauri-apps/api/core';
 import { isTauri } from '$lib/platform';
@@ -27,8 +25,8 @@ export function isEngineAvailable(): boolean {
 
 /**
  * Run a BM25 query against the Rust engine. Returns `null` (rather than
- * throwing) when the engine isn't reachable or hasn't initialized, so callers
- * can cleanly fall back to MiniSearch.
+ * throwing) when the engine isn't reachable, so callers can use their
+ * metadata-only warm-up behavior.
  */
 export async function engineQuery(
   query: string,
@@ -38,7 +36,7 @@ export async function engineQuery(
   try {
     return await invoke<EngineSearchHit[]>('search_query', { query, limit });
   } catch (e) {
-    console.warn('search_query failed, falling back to MiniSearch:', e);
+    console.warn('search_query failed:', e);
     return null;
   }
 }

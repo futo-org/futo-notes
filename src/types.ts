@@ -6,15 +6,9 @@ export interface NotePreview {
   tags: string[];
 }
 
-export interface SnippetSegment {
-  text: string;
-  highlight: boolean;
-}
-
 export interface SearchResultItem {
   note: NotePreview;
-  snippet: SnippetSegment[] | null;
-  source?: 'keyword' | 'vector' | 'both';
+  snippet: string | null;
 }
 
 export interface AppState {

@@ -262,7 +262,7 @@ Moves entirely to the client. When both the local device and the server have cha
 
 ### Search
 
-Client-side only. MiniSearch already exists in the client for offline search. Server-side search (BM25 + vector) does not apply — the server can't read content.
+Client-side only. The Rust/Tantivy index provides offline search. Server-side search (BM25 + vector) does not apply — the server can't read content.
 
 ## Billing
 

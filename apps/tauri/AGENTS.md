@@ -30,7 +30,7 @@ The desktop adapter is split by responsibility:
 
 Unit tests live inline at the bottom of their owning module in a `#[cfg(test)] mod tests { ... }` block. This keeps private `_impl` functions directly testable without adding test-only directories; IDE folding can hide the blocks when navigating production code.
 
-TypeScript handles: reactive note state (`notes.svelte.ts`, `notesCache`), app state/preferences (`src/lib/appState.ts`), sync coordination (`src/lib/syncManager.svelte.ts`), and the search shim (`src/features/search/searchEngine.ts`, which prefers the Rust engine and falls back to the live MiniSearch keyword index in `src/features/search/searchIndex.ts`). Note I/O goes through the `notes_*` commands rather than `@tauri-apps/plugin-fs`.
+TypeScript handles: reactive note state (`notes.svelte.ts`, `notesCache`), app state/preferences (`src/lib/appState.ts`), sync coordination (`src/lib/syncManager.svelte.ts`), and the thin Rust search shim (`src/features/search/searchEngine.ts`). Full-text indexing is Rust-owned; the frontend must not maintain a parallel body index. Note I/O goes through the `notes_*` commands rather than `@tauri-apps/plugin-fs`.
 
 ## Key Patterns
 

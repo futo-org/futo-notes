@@ -164,10 +164,6 @@
   --syntax-property: #f26b1f;
   --syntax-regexp: #e11d48;
 
-  --badge-keyword: #0284c7;
-  --badge-vector: #9333ea;
-  --badge-both: #16a34a;
-
   --font-sans: 'Barlow', system-ui, -apple-system, sans-serif;
   --font-serif: 'Barlow', system-ui, -apple-system, sans-serif;
 }
@@ -197,10 +193,6 @@
   --syntax-type: #f87171;
   --syntax-property: #ff9559;
   --syntax-regexp: #fb7185;
-
-  --badge-keyword: #38bdf8;
-  --badge-vector: #c084fc;
-  --badge-both: #4ade80;
 }
 
 @layer base {

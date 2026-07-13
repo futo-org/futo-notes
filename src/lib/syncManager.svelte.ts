@@ -451,9 +451,8 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
 
     // Gate the post-sync rescan on peer-driven changes only. Echoing our
     // own push back through `summary.updatedIds` was forcing a full vault
-    // scan + 3.5 MB MiniSearch persist on every keystroke-triggered sync,
-    // which is what made typing stutter. Pure pushes leave notesCache and
-    // the search index already correct, so there's nothing to rescan.
+    // scan on every keystroke-triggered sync, which made typing stutter. Pure
+    // pushes leave notesCache and the Rust search index already correct.
     const hasPeerNoteChanges =
       summary.peerUpdatedIds.length > 0 ||
       summary.peerDeletedIds.length > 0 ||
@@ -466,9 +465,8 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
       writeSuppressor.recordRemoteRename(rename.fromId, rename.toId);
       deps.onAnySyncRename?.(rename.fromId, rename.toId);
       // Sync writes are Rust-side and their watcher echo is suppressed, so the
-      // Tantivy engine never sees them (MiniSearch is refreshed by the rescan
-      // below). Reindex peer changes into the engine here — mirrors the native
-      // shells' rescan-on-pull. Pure channel sends; the engine coalesces them
+      // Tantivy engine never sees them. Reindex peer changes here — mirrors
+      // the native shells' rescan-on-pull. Pure channel sends; the engine coalesces them
       // into one commit. `engineNotify` no-ops off-Tauri.
       void engineNotify('rename', `${rename.toId}.md`, `${rename.fromId}.md`);
     }

@@ -217,7 +217,7 @@ commands only.)
 
 - Search startup is launched off the application setup path. Until the Rust
   engine is installed, search commands return the existing empty/default status
-  that lets the frontend use its MiniSearch fallback. → [search.md](search.md),
+  that lets the frontend use its metadata-only warm-up fallback. → [search.md](search.md),
   `search_commands.rs`
 - `app_self_update_supported` returns false in debug Rust builds. In release it
   returns true for macOS and Windows, and for Linux only when `APPIMAGE` is

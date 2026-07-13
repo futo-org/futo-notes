@@ -437,11 +437,10 @@ describe('createSyncManager sync-error state (F15)', () => {
 });
 
 // Regression (work-item #7): notes arriving via an E2EE sync pull landed in
-// notesCache + MiniSearch but never in the Rust Tantivy engine, so they were
-// unsearchable until an app restart (sync writes are Rust-side and their
-// watcher echo is suppressed, so the watcher's engineNotify never fired). The
-// post-sync reconcile only touched MiniSearch. handleSyncComplete must now
-// reindex peer changes into the engine — mirroring the native rescan-on-pull.
+// notesCache but never in the Rust Tantivy engine, so they were unsearchable
+// until an app restart (sync writes are Rust-side and their watcher echo is
+// suppressed, so the watcher's engineNotify never fired). handleSyncComplete
+// must reindex peer changes — mirroring the native rescan-on-pull.
 describe('handleSyncComplete reindexes peer changes into the search engine', () => {
   const baseSummary: SyncSummary = {
     uploaded: 0,
@@ -482,7 +481,7 @@ describe('handleSyncComplete reindexes peer changes into the search engine', () 
   beforeEach(() => {
     capturedCallbacks = null;
     vi.mocked(engineNotify).mockClear();
-    // Fake timers so the 50ms post-sync MiniSearch rescan never fires and
+    // Fake timers so the 50ms post-sync metadata rescan never fires and
     // touches the platform filesystem; engineNotify runs synchronously, before
     // any await, so it lands without advancing timers.
     vi.useFakeTimers();

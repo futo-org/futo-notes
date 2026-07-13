@@ -558,8 +558,7 @@
             sync.enqueueFileChange(event);
             // Keep the Rust search index fresh on external/file changes. The
             // notify is debounced + mtime-aware in the engine, so this is cheap
-            // on every change (unlike a full rebuild). MiniSearch is kept fresh
-            // independently via the optimistic-cache paths in notes.svelte.ts.
+            // on every change (unlike a full rebuild).
             void engineNotify(event.type, event.filename, event.from);
           }),
         );
