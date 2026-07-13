@@ -57,5 +57,13 @@ index on every shipped platform.
 - The desktop frontend never creates `.search-index-v1.json`; Rust removes that
   retired MiniSearch artifact during index startup. Regression-locked by
   `notes.test.ts` ("does not load or persist the retired client-side search index").
+- A **failed** engine open (e.g. a stale index lock, momentary disk pressure)
+  degrades to the substring fallback but is **retried within the session**, so a
+  transient failure does not latch keyword search off until relaunch. *(iOS)*
+  `SearchService` backs off ~15 s after a failed open (not per keystroke) then
+  retries; an explicit `rescan()` (live pull / foreground catch-up) clears the
+  backoff and retries immediately. *(Android)* `SearchEngineHolder.get` retries
+  on the next call (no latch). → SearchService.swift `ensureEngine`;
+  MainActivity.kt `SearchEngineHolder`.
 - SPLADE / learned-sparse search is preserved on the `splade-merge` branch and
   is not part of `main`.

@@ -12,8 +12,15 @@ import Foundation
 actor SearchService {
     private let notesRoot: String
     private var engine: SearchEngine?
-    /// Set when the engine constructor failed — don't retry on every keystroke.
-    private var engineFailed = false
+    /// When the engine constructor last failed. We back off for `retryCooldown`
+    /// after a failure — so we don't reopen the Tantivy index on every keystroke
+    /// — but we DO retry afterwards, so a transient failure (a stale index lock,
+    /// momentary disk pressure) self-heals within the session instead of latching
+    /// keyword search off until the app is relaunched (F13). `nil` = never failed
+    /// / already recovered. An explicit `rescan()` (live pull / foreground
+    /// catch-up) clears it to retry immediately, since a rescan is not a hot path.
+    private var lastInitFailure: Date?
+    private let retryCooldown: TimeInterval = 15
 
     init(notesRoot: String) {
         self.notesRoot = notesRoot
@@ -24,7 +31,11 @@ actor SearchService {
     /// Settings full reset never touch (or upload) index files.
     private func ensureEngine() -> SearchEngine? {
         if let engine { return engine }
-        guard !engineFailed else { return nil }
+        // Within the cooldown after a failed open: stay on the substring fallback
+        // instead of hammering the index open on every keystroke.
+        if let failedAt = lastInitFailure, Date().timeIntervalSince(failedAt) < retryCooldown {
+            return nil
+        }
         let support = FileManager.default.urls(
             for: .applicationSupportDirectory, in: .userDomainMask)[0]
         let indexDir = support.appendingPathComponent("search", isDirectory: true)
@@ -36,10 +47,11 @@ actor SearchService {
             // it already is). Runs on this actor, never on main.
             e.rescan()
             engine = e
+            lastInitFailure = nil
             return e
         } catch {
             print("SearchEngine init failed: \(error)")
-            engineFailed = true
+            lastInitFailure = Date()
             return nil
         }
     }
@@ -57,8 +69,11 @@ actor SearchService {
     }
 
     /// Full re-index of the vault (live pull / folder delete — many files
-    /// changed at once).
+    /// changed at once). A rescan is not a per-keystroke hot path, so it clears
+    /// any init-failure cooldown to retry the engine open immediately — a live
+    /// pull or foreground catch-up is a natural recovery point (F13).
     func rescan() {
+        lastInitFailure = nil
         ensureEngine()?.rescan()
     }
 

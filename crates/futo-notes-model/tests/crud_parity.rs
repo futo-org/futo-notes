@@ -487,6 +487,72 @@ fn write_if_unchanged_rejects_path_traversal() {
     fs::remove_dir_all(&root).ok();
 }
 
+// ── create_note_if_absent: atomic create-if-absent (PKT-10 round-4 P1a) ──
+use futo_notes_model::CreateOutcome;
+
+// A missing note is (re-)created with the draft — the edit-wins peer-delete
+// dirty-keep path.
+#[test]
+fn create_if_absent_creates_when_missing() {
+    let root = temp_root();
+    let out = model::create_note_if_absent(&root, "Gone", "recreated-draft").unwrap();
+    assert_eq!(out, CreateOutcome::Created);
+    assert_eq!(model::read_note(&root, "Gone"), "recreated-draft");
+    fs::remove_dir_all(&root).ok();
+}
+
+// The anti-clobber guarantee: if the id reappeared (a concurrent sync write
+// recreated it in the TOCTOU window), create_new fails atomically and the
+// newcomer's content is left intact — the caller parks a copy instead.
+#[test]
+fn create_if_absent_never_clobbers_existing() {
+    let root = temp_root();
+    model::write_note(&root, "Note", "peer-recreated").unwrap();
+    let out = model::create_note_if_absent(&root, "Note", "local-draft").unwrap();
+    assert_eq!(out, CreateOutcome::Existed);
+    assert_eq!(
+        model::read_note(&root, "Note"),
+        "peer-recreated",
+        "a note that reappeared must not be clobbered by the recreate"
+    );
+    fs::remove_dir_all(&root).ok();
+}
+
+// Traversal ids are rejected before any fs work (same guard as write_note).
+#[test]
+fn create_if_absent_rejects_path_traversal() {
+    let root = temp_root();
+    assert!(model::create_note_if_absent(&root, "../escape", "x").is_err());
+    assert!(!root.parent().unwrap().join("escape.md").exists());
+    fs::remove_dir_all(&root).ok();
+}
+
+// No empty/partial file is ever left behind: the create path installs the
+// fully-written content atomically (no `create_new`-then-`write_all` window),
+// and BOTH the Created and Existed paths clean up their sibling temp — so no
+// `.sf-tmp-*` lingers and the note holds the complete content (not "").
+#[test]
+fn create_if_absent_leaves_no_temp_or_partial() {
+    let root = temp_root();
+    fs::create_dir_all(&root).unwrap();
+    // Created: full content present, no temp left.
+    model::create_note_if_absent(&root, "Note", "full-content").unwrap();
+    assert_eq!(model::read_note(&root, "Note"), "full-content");
+    let stray = |dir: &std::path::Path| {
+        fs::read_dir(dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .any(|e| e.file_name().to_string_lossy().starts_with(".sf-tmp-"))
+    };
+    assert!(!stray(&root), "create left a temp file behind");
+    // Existed: second call doesn't clobber and still leaves no temp.
+    let out = model::create_note_if_absent(&root, "Note", "second").unwrap();
+    assert_eq!(out, CreateOutcome::Existed);
+    assert_eq!(model::read_note(&root, "Note"), "full-content");
+    assert!(!stray(&root), "existed path left a temp file behind");
+    fs::remove_dir_all(&root).ok();
+}
+
 // ── first-run seeding: shared across every shell ─────────────────────────
 #[test]
 fn seed_if_empty_writes_one_welcome_note_then_is_idempotent() {

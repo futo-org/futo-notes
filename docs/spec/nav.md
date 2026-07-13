@@ -41,10 +41,13 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
   (`if (!nativeShell)`, 2026-07-09) — the pre-warmed native WebView no longer
   focuses itself; it stays unfocused until the host asks (bridge `focus`, the
   new-note autofocus path). → MarkdownEditor.svelte mount auto-focus
-  > **Gap:** the `nativeShell` mount-focus gate is code-verified only —
-  > on-device QA is pending on both native shells: opening an EXISTING note
-  > must stay keyboard-less, and the new-note autofocus (Android native title
-  > field / iOS editor body) must still raise the keyboard. *(native shells)*
+  > **Gap:** on-device autofocus QA is partly done. iOS: opening an EXISTING
+  > note stays keyboard-less — verified on the simulator 2026-07-13 (no editor
+  > accessory toolbar appears on open; it only appears after tapping the body).
+  > iOS new-note autofocus (editor body raises the keyboard) is
+  > inspection-confirmed only — the nav-bar "New Note" menu is not idb-drivable
+  > on iOS 26 (M21), so it wasn't exercised. Android (existing keyboard-less +
+  > native-title autofocus) is still pending. *(native shells)*
 - Following a wikilink PUSHES another editor onto the stack (it does not replace
   the current one), so System Back returns to the note you came from rather than
   to the List — a browser-like history of visited notes. See the wikilink

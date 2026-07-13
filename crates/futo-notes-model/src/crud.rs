@@ -10,8 +10,8 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use futo_notes_core::files::{
-    file_mtime_ms, get_unique_note_id, rename_through_temp, safe_note_path, sanitize_title,
-    write_atomic_text,
+    create_new_atomic, file_mtime_ms, get_unique_note_id, rename_through_temp, safe_note_path,
+    sanitize_title, write_atomic_text,
 };
 use futo_notes_core::sync::collides_but_differs;
 use rayon::prelude::*;
@@ -481,6 +481,46 @@ pub fn write_note_if_unchanged(
         Ok(_) => Ok(FlushOutcome::SkippedChanged),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(FlushOutcome::SkippedMissing),
         Err(e) => Err(e.to_string()),
+    }
+}
+
+/// Outcome of [`create_note_if_absent`] — an atomic create-if-absent.
+#[derive(Debug, PartialEq, Eq)]
+pub enum CreateOutcome {
+    /// No file existed at `id`; `content` was created there.
+    Created,
+    /// A file already exists at `id` — nothing written (a concurrent writer,
+    /// e.g. a live-sync pull, got there first).
+    Existed,
+}
+
+/// Atomically (re-)create the note at `id` with `content` **only if** no file
+/// exists there yet, WITHOUT ever exposing an empty/partial file — via
+/// [`create_new_atomic`] (full content written to a sibling temp, then
+/// `hard_link`ed into place as a no-replace atomic install). This fuses the
+/// exists-check and the install so a writer OUTSIDE this process's `NoteStore`
+/// serialization (a live-sync pull writing the vault) cannot slip a note in and
+/// have it silently clobbered, AND a concurrent scan/sync can never observe an
+/// empty or partial note (which the naive `create_new` + `write_all` exposed) —
+/// and a failed install leaves no partial file to wedge later attempts.
+///
+/// Used by the editor's leave/background flush to honor the peer-delete
+/// dirty-keep edit-wins semantic: re-create a note the CAS just reported
+/// `SkippedMissing` for, WITHOUT the unconditional-write clobber risk. If the id
+/// reappeared in the window this returns `Existed` and the caller parks the draft
+/// as a conflict copy instead of overwriting the newcomer. On a case-insensitive
+/// filesystem (APFS/iOS) a case-variant already on disk counts as existing (the
+/// link fails `AlreadyExists`), which is the safe outcome — we never clobber it.
+pub fn create_note_if_absent(
+    base: &Path,
+    id: &str,
+    content: &str,
+) -> Result<CreateOutcome, String> {
+    let path = safe_note_path(base, id)?;
+    if create_new_atomic(&path, content.as_bytes())? {
+        Ok(CreateOutcome::Created)
+    } else {
+        Ok(CreateOutcome::Existed)
     }
 }
 
