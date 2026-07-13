@@ -106,6 +106,9 @@ Ask, in order:
 5. **Is it ad-hoc OS access already covered by the platform layer?** (watcher, clipboard) → leave
    it where it is; extend `PlatformFS`, never branch on platform inside components
    (`pnpm run lint:platform` enforces this).
+6. **Is the workflow two domain calls in sequence?** (create-then-write, rename-then-relink) → the
+   workflow itself belongs in the domain (Rust `_impl` / FFI verb), not stitched together at every
+   call site — otherwise each shell must remember the ordering invariant and one WILL drift (M6/M7).
 
 **Push concerns down, not out.** If forgetting to add a line at every call site would cause a bug,
 that line belongs in infrastructure. Existing examples: filename/path safety

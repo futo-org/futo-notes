@@ -65,6 +65,15 @@ impl From<model::NoteMetadata> for NoteMeta {
     }
 }
 
+/// Result of `notes_create`: the final (collision-resolved) id plus the created
+/// file's mtime, so the TS cache can insert the row without a follow-up read.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteCreated {
+    pub id: String,
+    pub modified_ms: i64,
+}
+
 // ── scan / read ───────────────────────────────────────────────────────────
 
 /// Scan all notes, sorted by mtime descending. One IPC returns the whole
@@ -178,24 +187,32 @@ pub async fn notes_write(
     .await
 }
 
-/// Create a note from a title (+ optional folder). Returns the final,
-/// collision-resolved id.
+/// Create a note from a title (+ optional folder) with its initial `content`
+/// written atomically. Returns the final, collision-resolved id + the created
+/// file's mtime. Writing content in the create step (not a follow-up
+/// `notes_write`) means a write failure leaves no zero-byte orphan behind.
 fn notes_create_impl(
     base: &Path,
     suppression: &WatcherSuppression,
     title: &str,
     folder: &str,
-) -> Result<String, String> {
+    content: &str,
+) -> Result<NoteCreated, String> {
     let wanted = model::make_id(folder, title);
     let planned = futo_notes_core::files::get_unique_note_id(base, &wanted, None)?;
     suppression.register(&format!("{planned}.md"));
-    let id = model::create_note(base, folder, title)?;
+    let id = model::create_note_with_content(base, folder, title, content)?;
     if id != planned {
         // A concurrent external create can race the planning probe. Cover the
         // actual result as well; routine writes always take the pre-write path.
         suppression.register(&format!("{id}.md"));
     }
-    Ok(id)
+    let path = safe_note_path(base, &id)?;
+    let meta = std::fs::metadata(&path).map_err(io_error)?;
+    Ok(NoteCreated {
+        id,
+        modified_ms: futo_notes_core::files::file_mtime_ms(&meta),
+    })
 }
 
 #[tauri::command]
@@ -204,11 +221,12 @@ pub async fn notes_create(
     state: State<'_, AppState>,
     title: String,
     folder: String,
-) -> Result<String, String> {
+    content: String,
+) -> Result<NoteCreated, String> {
     let suppression = state.watcher.suppression();
     blocking(move || {
         let base = crate::vault_location::root(&app)?;
-        notes_create_impl(&base, &suppression, &title, &folder)
+        notes_create_impl(&base, &suppression, &title, &folder, &content)
     })
     .await
 }
@@ -388,7 +406,9 @@ mod tests {
     fn create_write_read_scan_roundtrip() {
         let base = temp_notes_dir();
         let suppressed = empty_suppressed();
-        let id = notes_create_impl(&base, &suppressed, "Hello", "").expect("create");
+        let id = notes_create_impl(&base, &suppressed, "Hello", "", "")
+            .expect("create")
+            .id;
         assert_eq!(id, "Hello");
         let mtime =
             notes_write_impl(&base, &suppressed, &id, "#tag\nbody text", None).expect("write");
@@ -409,7 +429,7 @@ mod tests {
     fn write_honors_mtime_override() {
         let base = temp_notes_dir();
         let suppressed = empty_suppressed();
-        notes_create_impl(&base, &suppressed, "n", "").unwrap();
+        notes_create_impl(&base, &suppressed, "n", "", "").unwrap();
         let mtime =
             notes_write_impl(&base, &suppressed, "n", "x", Some(1_700_000_000_000)).unwrap();
         assert_eq!(mtime, 1_700_000_000_000);
@@ -447,9 +467,21 @@ mod tests {
         let base = temp_notes_dir();
         let suppression = empty_suppressed();
         notes_write_impl(&base, &suppression, "note", "existing", None).unwrap();
-        let id = notes_create_impl(&base, &suppression, "note", "").unwrap();
+        let id = notes_create_impl(&base, &suppression, "note", "", "").unwrap().id;
         assert_eq!(id, "note-2");
         assert!(suppression.contains("note-2.md"));
+        cleanup_temp_dir(&base);
+    }
+
+    #[test]
+    fn create_writes_content_atomically() {
+        let base = temp_notes_dir();
+        let suppression = empty_suppressed();
+        let created = notes_create_impl(&base, &suppression, "Note", "", "# hi\nbody").unwrap();
+        assert_eq!(created.id, "Note");
+        assert!(created.modified_ms > 0);
+        // Content is on disk from the create step — no follow-up write needed.
+        assert_eq!(notes_read_impl(&base, "Note"), "# hi\nbody");
         cleanup_temp_dir(&base);
     }
 

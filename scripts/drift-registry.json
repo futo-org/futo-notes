@@ -314,12 +314,16 @@
     },
     {
       "concept": "unique-id-collision-loop",
-      "description": "The '-2, -3, ...' unique-id suffix resolver, independently implemented in TS (fileSystem.ts) and Rust (futo-notes-core/src/files.rs) with separate unit tests but no shared fixture.",
+      "description": "The '-2, -3, ...' unique-id suffix resolver. Rust (futo-notes-core/src/files.rs) is canonical — desktop + native reach it through notes_create/notes_rename. The ONLY TS copy is the web PlatformFS impl (web has no Rust core), mirrored by the nodeFS test double. Separate unit tests, no shared fixture.",
       "lockStatus": "unlocked",
       "copies": [
         {
-          "location": "src/lib/fileSystem.ts",
-          "pattern": "export async function getUniqueNoteId"
+          "location": "src/lib/platform/web.ts",
+          "pattern": "function uniqueNoteId"
+        },
+        {
+          "location": "src/lib/platform/__test__/nodeFS.ts",
+          "pattern": "function uniqueNoteId"
         },
         {
           "location": "crates/futo-notes-core/src/files.rs",

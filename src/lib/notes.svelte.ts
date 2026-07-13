@@ -3,9 +3,8 @@ import {
   writeNote,
   deleteNoteFileToTrash,
   deleteAllContent,
-  renameNote as renameNoteFile,
+  createNoteFile,
   moveNoteFile,
-  getUniqueNoteId,
   readNote as readNoteFile,
 } from './fileSystem';
 import { getFS, getPlatformFS } from './platform';
@@ -279,10 +278,15 @@ export function getNoteById(id: string): NotePreview | undefined {
 export async function createNote(
   id: string,
   content: string,
-  overrideMtime?: number,
 ): Promise<{ id: string; mtime: number }> {
-  id = await getUniqueNoteId(id);
-  const mtime = await writeNote(id, content, overrideMtime);
+  // The domain resolves the id collision and writes the content atomically
+  // (no zero-byte orphan window).
+  const slash = id.lastIndexOf('/');
+  const folder = slash === -1 ? '' : id.slice(0, slash);
+  const title = slash === -1 ? id : id.slice(slash + 1);
+  const created = await createNoteFile(folder, title, content);
+  id = created.id;
+  const mtime = created.mtime;
 
   notesCache.push({
     id,
@@ -303,14 +307,35 @@ export async function updateNote(
   originalId?: string,
   overrideMtime?: number,
 ): Promise<{ id: string; mtime: number }> {
-  const finalId = await getUniqueNoteId(id, originalId);
+  let finalId: string;
   let mtime: number;
 
-  if (originalId && originalId !== finalId) {
-    mtime = await renameNoteFile(originalId, finalId, content, overrideMtime);
+  if (!originalId) {
+    // Brand-new note: the domain resolves the id collision and writes the
+    // content atomically (no zero-byte orphan window on a failed write).
+    const slash = id.lastIndexOf('/');
+    const folder = slash === -1 ? '' : id.slice(0, slash);
+    const title = slash === -1 ? id : id.slice(slash + 1);
+    const created = await createNoteFile(folder, title, content);
+    finalId = created.id;
+    mtime = created.mtime;
+  } else if (originalId !== id) {
+    // Title changed. Persist the current body to the EXISTING id FIRST, then
+    // atomically rename (the domain resolves any collision and, on a case/NFC-
+    // only change, routes through a temp hop, preserving the just-written
+    // bytes). Write-before-rename means a failed write leaves the note intact
+    // at originalId (a retry converges) instead of committing the rename with
+    // the edit stranded on a now-missing source.
+    mtime = await writeNote(originalId, content, overrideMtime);
+    finalId = await moveNoteFile(originalId, id);
+    // moveNoteFile re-keys the index entry old→new but carries the pre-write
+    // content; refresh the new path so the Rust engine indexes the edit.
+    void engineNotify('change', `${finalId}.md`);
     removeFromSearchIndex(originalId);
     await rewriteWikilinksForRename(originalId, finalId);
   } else {
+    // Same id → plain content save.
+    finalId = id;
     mtime = await writeNote(finalId, content, overrideMtime);
   }
 
@@ -414,14 +439,13 @@ export async function moveNote(
     notesCache[idx] = { ...prev, id: toId, title: noteTitleFromId(toId) };
   }
   try {
-    const finalId = await getUniqueNoteId(toId);
+    // Atomic rename — the domain resolves any id collision and preserves the
+    // file's mtime, so the cache entry's existing modificationTime stays
+    // accurate. The sidebar doesn't re-sort after the disk op completes.
+    const finalId = await moveNoteFile(fromId, toId);
     if (finalId !== toId && prev) {
       notesCache[idx] = { ...notesCache[idx], id: finalId, title: noteTitleFromId(finalId) };
     }
-    // Atomic rename — preserves the file's mtime, so the cache entry's
-    // existing modificationTime stays accurate. The sidebar doesn't
-    // re-sort after the disk op completes.
-    await moveNoteFile(fromId, finalId);
     const mtime = prev?.modificationTime ?? Date.now();
     // Re-key the search index from the moved file's body. Body unchanged,
     // so we just need fromId removed and finalId added.
@@ -668,4 +692,4 @@ async function mtimeForId(fs: ReturnType<typeof getFS>, id: string): Promise<num
   return getNoteById(id)?.modificationTime ?? Date.now();
 }
 
-export { readNote, noteExists, getUniqueNoteId } from './fileSystem';
+export { readNote, noteExists } from './fileSystem';

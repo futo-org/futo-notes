@@ -239,6 +239,42 @@ fn case_only_rename_in_folder_and_move() {
     fs::remove_dir_all(&root).ok();
 }
 
+// ── A1: renaming ONTO a DISTINCT case/NFC-variant must not clobber it ─────
+// On a case-SENSITIVE filesystem (Linux ext4, Android) `note.md` and `Note.md`
+// are two distinct files. Renaming `note` → `Note` when `Note` already exists
+// as a different note must suffix (`Note-2`), NOT overwrite the other note's
+// bytes. The temp-hop that fixes case-only renames on case-INSENSITIVE FS must
+// first confirm src and dst are the SAME physical entry.
+#[test]
+fn rename_onto_distinct_case_variant_must_not_clobber() {
+    let root = temp_root();
+    // Only meaningful on a case-sensitive fs. Probe and skip on case-insensitive
+    // (macOS APFS default) where the two ids are one physical file — nothing to lose.
+    fs::write(root.join("__case_probe.md"), "a").unwrap();
+    let case_insensitive = root.join("__CASE_PROBE.md").exists();
+    fs::remove_file(root.join("__case_probe.md")).ok();
+    if case_insensitive {
+        fs::remove_dir_all(&root).ok();
+        return;
+    }
+
+    model::write_note(&root, "note", "KEEP-mine").unwrap();
+    model::write_note(&root, "Note", "OTHER-must-survive").unwrap();
+
+    let final_id = model::rename_note(&root, "note", "Note").unwrap();
+    assert_ne!(
+        final_id, "Note",
+        "must not resolve onto the distinct existing note — it would clobber it"
+    );
+    assert_eq!(
+        model::read_note(&root, "Note"),
+        "OTHER-must-survive",
+        "distinct case-variant note was clobbered — DATA LOSS"
+    );
+    assert_eq!(model::read_note(&root, &final_id), "KEEP-mine");
+    fs::remove_dir_all(&root).ok();
+}
+
 // ── F3: byte-identical rename is still a fast no-op ──────────────────────
 #[test]
 fn identical_rename_is_noop() {

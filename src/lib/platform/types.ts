@@ -90,8 +90,19 @@ export interface FileSystem {
   /** Delete a folder and all its contents. Routed through trash on
    *  desktop; hard delete on mobile. */
   deleteFolder(path: string): Promise<void>;
-  /** Move a note from one ID (relative path without `.md`) to another. */
-  moveNote(fromId: string, toId: string): Promise<void>;
+  /** Create a note from a folder (`""` = root) + title with its initial
+   *  `content` written atomically, resolving id collisions (`-2`, `-3`, …).
+   *  Returns the final id + the created file's mtime. Atomic-create: a write
+   *  failure leaves no zero-byte orphan behind. */
+  createNote(
+    folder: string,
+    title: string,
+    content: string,
+  ): Promise<{ id: string; mtime: number }>;
+  /** Rename/move a note from one ID to another (both relative paths without
+   *  `.md`), resolving id collisions. Atomic where the platform supports it
+   *  (preserves mtime). Returns the final, collision-resolved id. */
+  renameNote(oldId: string, newId: string): Promise<string>;
   /** Delete a note routed through the system trash on desktop (recoverable).
    *  Wired to the app's note delete flow via `deleteNoteFileToTrash`
    *  (`fileSystem.ts`), which falls back to `deleteNoteFile` (permanent)

@@ -100,6 +100,53 @@ function platformFSContractTests(name: string, createFS: () => TestPlatformFS) {
       expect(await fs.listAppData('nope')).toEqual([]);
     });
 
+    // ── Create / rename collision resolution ────────────
+    // The double owns the `-2`/`-3` collision rule that production gets from
+    // Rust `get_unique_note_id` (web/test have no Rust core). These pin its
+    // resolution so it can't silently drift from the Rust rule (C3).
+
+    it('createNote writes content atomically and returns id + mtime', async () => {
+      const { id, mtime } = await fs.createNote('', 'Note', '# hi\nbody');
+      expect(id).toBe('Note');
+      expect(mtime).toBeGreaterThan(0);
+      expect(await fs.readNote('Note')).toBe('# hi\nbody');
+    });
+
+    it('createNote suffixes -2/-3 on collision', async () => {
+      expect((await fs.createNote('', 'note', 'a')).id).toBe('note');
+      expect((await fs.createNote('', 'note', 'b')).id).toBe('note-2');
+      expect((await fs.createNote('', 'note', 'c')).id).toBe('note-3');
+    });
+
+    it('renameNote suffixes when the destination is a distinct note', async () => {
+      await fs.writeNote('a', 'A');
+      await fs.writeNote('b', 'B');
+      expect(await fs.renameNote('a', 'b')).toBe('b-2');
+      expect(await fs.readNote('b')).toBe('B'); // distinct note untouched
+    });
+
+    // C3: a case-only rename with ONLY the source present. Rust `rename_note`
+    // keeps the requested case ('note' → 'Note'). The double follows the host
+    // filesystem, so it matches Rust on a case-SENSITIVE host; on a
+    // case-INSENSITIVE host `noteExists('Note')` sees the source and it resolves
+    // 'Note-2' — a KNOWN divergence (the double must NOT re-implement Rust's
+    // case-fold rule; that would reintroduce the very drift this packet
+    // deletes). Pinned here so a change to the double's resolution is caught.
+    it('renameNote case-only rename matches Rust on a case-sensitive host', async () => {
+      await fs.writeNote('__probe', 'x');
+      const caseInsensitive = await fs.noteExists('__PROBE');
+      await fs.deleteNoteFile('__probe');
+
+      await fs.writeNote('note', 'body');
+      const finalId = await fs.renameNote('note', 'Note');
+      if (caseInsensitive) {
+        expect(finalId).toBe('Note-2'); // documented divergence from Rust
+      } else {
+        expect(finalId).toBe('Note'); // matches Rust rename_note
+        expect(await fs.readNote('Note')).toBe('body');
+      }
+    });
+
     // ── Metadata ────────────────────────────────────────
 
     it('getAppVersion returns a string', async () => {

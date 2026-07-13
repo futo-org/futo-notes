@@ -309,6 +309,28 @@ export const tauriFS: PlatformFS = {
     return invoke<boolean>('notes_exists', { id });
   },
 
+  async createNote(
+    folder: string,
+    title: string,
+    content: string,
+  ): Promise<{ id: string; mtime: number }> {
+    // Rust resolves the id collision (`-2`, `-3`, …) and writes the content in
+    // one blocking call, suppressing the watcher echo for the resolved id.
+    const r = await invoke<{ id: string; modifiedMs: number }>('notes_create', {
+      title,
+      folder,
+      content,
+    });
+    return { id: r.id, mtime: r.modifiedMs };
+  },
+
+  async renameNote(oldId: string, newId: string): Promise<string> {
+    // Explicit old→new relocation (atomic rename, preserves mtime). Rust
+    // resolves any collision and suppresses both filename echoes. Returns
+    // the final, collision-resolved id.
+    return invoke<string>('notes_rename', { oldId, newId });
+  },
+
   async readAppData(path: string): Promise<string | null> {
     const root = await getNotesRoot();
     const fullPath = safeAppdataPath(root, path);
@@ -478,12 +500,6 @@ export const tauriFS: PlatformFS = {
 
   async deleteFolder(path: string): Promise<void> {
     await invoke('notes_delete_folder', { path });
-  },
-
-  async moveNote(fromId: string, toId: string): Promise<void> {
-    // Explicit old→new relocation (atomic rename, preserves mtime). Rust
-    // resolves any collision and suppresses both filename echoes.
-    await invoke<string>('notes_rename', { oldId: fromId, newId: toId });
   },
 
   async deleteNoteToTrash(id: string): Promise<void> {

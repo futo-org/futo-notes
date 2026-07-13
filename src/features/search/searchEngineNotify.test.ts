@@ -63,7 +63,7 @@ describe('search engine staleness: local mutations notify the Rust engine', () =
     expect(notify).toHaveBeenCalledWith('change', 'edit-me.md');
   });
 
-  it('updateNote (rename) notifies change for the new path and unlink for the old', async () => {
+  it('updateNote (rename) re-keys the old path to the new one and notifies its change', async () => {
     await testFS.writeNote('old-name', 'content');
     const { initNotes, updateNote } = await freshNotes();
     await initNotes();
@@ -71,9 +71,13 @@ describe('search engine staleness: local mutations notify the Rust engine', () =
 
     await updateNote('new-name', 'New Name', 'content', 'old-name');
 
+    // The title rename now goes through the atomic domain rename (like
+    // drag-drop): a single `rename` re-keys old → new in the index, then the
+    // body write notifies a `change` for the new path — keeping the Rust
+    // engine as fresh as the old write-new + unlink-old pair did.
     const calls = notify.mock.calls;
+    expect(calls).toContainEqual(['rename', 'new-name.md', 'old-name.md']);
     expect(calls).toContainEqual(['change', 'new-name.md']);
-    expect(calls).toContainEqual(['unlink', 'old-name.md']);
   });
 
   it('deleteNote notifies an unlink', async () => {

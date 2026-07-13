@@ -3,6 +3,22 @@ import { makePreview, noteTags } from '$lib/notesIndex';
 
 // In-memory note store for web platform (persists within a page session)
 const noteStore = new Map<string, { content: string; mtime: number }>();
+
+// Web has no Rust core, so the note-id collision probe that the desktop/native
+// shells get from `futo_notes_core::files::get_unique_note_id` lives here — the
+// SINGLE web copy of the `-2`/`-3` suffix rule (the same rule Rust applies, so
+// the two agree on the resolved id). `excludeId` is the id being renamed away,
+// which must not count as a collision with itself.
+function uniqueNoteId(baseId: string, excludeId?: string): string {
+  if (baseId === excludeId || !noteStore.has(baseId)) return baseId;
+  let counter = 2;
+  let candidate = `${baseId}-${counter}`;
+  while (noteStore.has(candidate)) {
+    counter++;
+    candidate = `${baseId}-${counter}`;
+  }
+  return candidate;
+}
 // Locally-tracked empty folders (web mode has no real filesystem). Folders
 // are also implied by note IDs containing `/`.
 const emptyFolders = new Set<string>();
@@ -64,6 +80,29 @@ export const webFS: PlatformFS = {
 
   async noteExists(id: string): Promise<boolean> {
     return noteStore.has(id);
+  },
+
+  async createNote(
+    folder: string,
+    title: string,
+    content: string,
+  ): Promise<{ id: string; mtime: number }> {
+    const wanted = folder ? `${folder}/${title}` : title;
+    const finalId = uniqueNoteId(wanted);
+    const mtime = Date.now();
+    noteStore.set(finalId, { content, mtime });
+    return { id: finalId, mtime };
+  },
+
+  async renameNote(oldId: string, newId: string): Promise<string> {
+    const v = noteStore.get(oldId);
+    if (!v) return oldId;
+    const finalId = uniqueNoteId(newId, oldId);
+    if (finalId !== oldId) {
+      noteStore.set(finalId, v);
+      noteStore.delete(oldId);
+    }
+    return finalId;
   },
 
   async readAppData(_path: string): Promise<string | null> {
@@ -170,12 +209,5 @@ export const webFS: PlatformFS = {
       if (f.startsWith(prefix)) folderRemove.push(f);
     }
     for (const f of folderRemove) emptyFolders.delete(f);
-  },
-
-  async moveNote(fromId: string, toId: string): Promise<void> {
-    const v = noteStore.get(fromId);
-    if (!v) return;
-    noteStore.set(toId, v);
-    noteStore.delete(fromId);
   },
 };
