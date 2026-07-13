@@ -50,6 +50,24 @@ actor NoteVault {
         )
     }
 
+    /// Conditional write for a backgrounded editor flush (see
+    /// `NotesStore.flushAsync`): write `content` only if the note still holds
+    /// `base`. Returns the outcome plus, on a genuine write (`.wrote`), the fresh
+    /// preview/tags for the in-place row refresh (nil otherwise). The
+    /// anti-resurrection / anti-clobber decision lives in the Rust
+    /// `write_note_if_unchanged` — this is a thin off-main wrapper.
+    func writeIfUnchanged(_ id: String, base: String, content: String) throws
+        -> (outcome: FlushOutcome, derived: (preview: String, richPreview: String, tags: [String])?)
+    {
+        let outcome = try core.writeIfUnchanged(id: id, expectedPrev: base, content: content)
+        guard outcome == .wrote else { return (outcome, nil) }
+        return (
+            outcome,
+            (makePreview(content: content), makeRichPreview(content: content),
+                extractTags(content: content))
+        )
+    }
+
     func createNote(title: String, folder: String) throws -> String {
         try core.createNote(title: title, folder: folder)
     }
@@ -95,6 +113,36 @@ actor NoteVault {
     }
 }
 
+/// An open editor's unsaved draft: the note `id` to persist, the `content` to
+/// write, and `base` — the content the editor believes is on disk (its
+/// `savedContent`). `base` is the expected-previous for the conditional flush
+/// (see `NotesStore.flushAsync` → `writeIfUnchanged`): the flush writes only if
+/// the note still holds `base`, so a note deleted or sync-adopted while
+/// backgrounded is neither resurrected nor clobbered. Mirrors Android's
+/// `PendingDraft` (NotesStore.kt).
+struct PendingDraft: Equatable {
+    let id: String
+    let base: String
+    let content: String
+}
+
+/// The open editor's unsaved-draft derivation — the ONE definition of "is there
+/// an unsaved draft, for which note" (PKT-12 R5). Returns a draft keyed on the
+/// LIVE `noteId` (so it re-keys by construction after a rename) whenever the body
+/// has loaded and diverges from what's on disk; `nil` when clean or not yet
+/// loaded. `savedContent` is both the dirty check and the flush's expected-prev
+/// (`base`). Pure + top-level so it mirrors the Kotlin `derivePendingDraft`
+/// exactly. SwiftUI `@State` can't be pulled from an escaping closure the way
+/// Compose snapshot state can, so the editor PUSHES this derived value via
+/// `.onChange` on every state change; the derivation stays the single source of
+/// truth for "clean vs dirty" (no scattered set/clear sites, PKT-1 R1-R4).
+func derivePendingDraft(loaded: Bool, noteId: String, savedContent: String, content: String)
+    -> PendingDraft?
+{
+    (loaded && content != savedContent)
+        ? PendingDraft(id: noteId, base: savedContent, content: content) : nil
+}
+
 /// Reactive shell around the Rust note domain. Owns the `@Published`
 /// note/folder state the SwiftUI views observe; ALL business logic
 /// (filename/tag/title rules, scan/preview, CRUD, folder ops) lives in
@@ -131,33 +179,62 @@ final class NotesStore: ObservableObject {
     /// auto-pushes the edit to peers. Mirrors Android's `NotesStore.onLocalChange`.
     var onLocalChange: (() -> Void)?
 
-    /// The currently-open editor's UNSAVED draft (id + content), or `nil` when no
-    /// editor is open or its draft is clean. The open editor keeps this current
-    /// via `setPendingDraft` on every keystroke and clears it on disappear. The
-    /// app's scenePhase handler calls `flushPendingEditor()` when leaving
-    /// `.active`, so an edit caught inside the 400 ms autosave debounce is
-    /// persisted before the OS can jetsam the app (data-loss guard, F8). Pushed
-    /// down here so the scenePhase handler never reaches into editor internals.
-    /// Mirrors Android's onStop flush path.
+    /// The open editors' unsaved-draft register (F8 jetsam guard). Each open
+    /// editor claims a token and publishes its DERIVED draft (`derivePendingDraft`)
+    /// under that token on every state change; the app's scenePhase handler calls
+    /// `flushPendingEditor()` when leaving `.active`, flushing every live editor's
+    /// draft so an edit caught inside the 400 ms autosave debounce is persisted
+    /// before the OS can jetsam the app. Pushed down here so the scenePhase handler
+    /// never reaches into editor internals. Mirrors Android's `PendingEditorDraft`.
     ///
-    /// A stored tuple (not a closure capturing the editor's struct `@State`) so
-    /// the value is always the last one the editor explicitly published — capturing
-    /// a SwiftUI View struct's `@State` in a long-lived closure is unreliable.
-    private var pendingDraft: (id: String, content: String)?
+    /// A MAP keyed by token, NOT a single slot: during a NavigationStack push/pop
+    /// several editors briefly coexist (wikilink chains share one WebView), so a
+    /// single slot would let the incoming editor's publish EVICT an outgoing dirty
+    /// editor's draft — a background+kill in that window would then flush nothing
+    /// and lose its edit (PKT-1 R2). Per-token entries never touch each other, so
+    /// the eviction is impossible by construction; `releaseDraftOwnership` removes
+    /// only the caller's own entry.
+    private var draftSeq: UInt64 = 0
+    private var draftRegister: [UInt64: PendingDraft] = [:]
 
-    /// The editor publishes its current unsaved draft here (id + content), or
-    /// `nil` when clean / closed.
-    func setPendingDraft(_ draft: (id: String, content: String)?) {
-        pendingDraft = draft
+    /// A newly-appeared editor claims a register entry; returns its unique token.
+    /// Entries are keyed by it, so editors overlapping during a push/pop
+    /// transition never evict each other's draft (PKT-1 R2).
+    func claimDraftOwnership() -> UInt64 {
+        draftSeq += 1
+        return draftSeq
     }
 
-    /// Flush the open editor's pending draft to disk if it has unsaved edits.
-    /// Called from the app's scenePhase background/inactive handler. Fire-and-
-    /// forget via `flushAsync`, which re-checks existence off-main so a note
-    /// deleted while open is never resurrected.
+    /// The editor publishes (or clears, with `nil`) its DERIVED draft under its
+    /// own `token` — called reactively on every state change. Replaces the old
+    /// hand-synced set/clear sites: the register reflects the derivation's verdict
+    /// (`content != savedContent`) on demand, so a completed save / adopted remote
+    /// clears the draft by construction (PKT-1 R1). Never touches another editor's
+    /// entry.
+    func publishDraft(token: UInt64, _ draft: PendingDraft?) {
+        draftRegister[token] = draft
+    }
+
+    /// The editor left the screen — removes only its own entry, leaving any
+    /// overlapping editor's draft intact.
+    func releaseDraftOwnership(token: UInt64) {
+        draftRegister[token] = nil
+    }
+
+    /// Flush every live editor's pending draft to disk (scenePhase inactive/
+    /// background). Coalesces by note id, keeping the highest-token (most recently
+    /// claimed = incoming/visible) draft, so two editors overlapping on the SAME
+    /// note during a transition issue exactly one conditional write instead of two
+    /// racing on the same base (Android parity: LinkedHashMap last-registered wins).
+    /// No-op when every draft is clean / closed; safe at every leave-active signal.
     func flushPendingEditor() {
-        guard let draft = pendingDraft else { return }
-        flushAsync(draft.id, content: draft.content)
+        guard !draftRegister.isEmpty else { return }
+        var byId: [String: (token: UInt64, draft: PendingDraft)] = [:]
+        for (token, draft) in draftRegister {
+            if let existing = byId[draft.id], existing.token >= token { continue }
+            byId[draft.id] = (token, draft)
+        }
+        for entry in byId.values { flushAsync(entry.draft) }
     }
 
     /// The off-main owner of the Rust vault. The single source of truth for the
@@ -263,32 +340,41 @@ final class NotesStore: ObservableObject {
     func write(_ id: String, content: String) async {
         do {
             let (preview, richPreview, tags) = try await vault.write(id, content: content)
-            // Update the in-memory note in place instead of a full rescan +
-            // resort. Reassigning the whole `notes` array on every keystroke
-            // churns the List's diffing and pops the pushed editor out from
-            // under the user. In-place keeps row identity/order stable while
-            // refreshing the preview/tags. Structural changes (create / delete
-            // / rename) still call reload(). Preview + tags come from the same
-            // Rust rules the scan uses.
-            if let idx = notes.firstIndex(where: { $0.id == id }) {
-                let old = notes[idx]
-                notes[idx] = NoteItem(
-                    id: old.id,
-                    title: old.title,
-                    folder: old.folder,
-                    modified: Date(),
-                    preview: preview,
-                    richPreview: richPreview,
-                    tags: tags
-                )
-            } else {
-                reload()
-            }
-            search.noteChanged(id)
-            onLocalChange?()
+            applyWriteBookkeeping(id: id, preview: preview, richPreview: richPreview, tags: tags)
         } catch {
             print("write failed for \(id): \(error)")
         }
+    }
+
+    /// Reflect a write of `id` that already landed on disk into the in-memory
+    /// list, search index, and auto-push signal — the post-write bookkeeping
+    /// shared by `write` and `flushAsync`'s conditional write.
+    ///
+    /// Updates the in-memory note IN PLACE instead of a full rescan + resort:
+    /// reassigning the whole `notes` array on every keystroke churns the List's
+    /// diffing and pops the pushed editor out from under the user. In-place keeps
+    /// row identity/order stable while refreshing the preview/tags. A note not in
+    /// the list yet (structural create) triggers a rescan. Preview + tags come
+    /// from the same Rust rules the scan uses.
+    private func applyWriteBookkeeping(
+        id: String, preview: String, richPreview: String, tags: [String]
+    ) {
+        if let idx = notes.firstIndex(where: { $0.id == id }) {
+            let old = notes[idx]
+            notes[idx] = NoteItem(
+                id: old.id,
+                title: old.title,
+                folder: old.folder,
+                modified: Date(),
+                preview: preview,
+                richPreview: richPreview,
+                tags: tags
+            )
+        } else {
+            reload()
+        }
+        search.noteChanged(id)
+        onLocalChange?()
     }
 
     /// Create a new note. Returns its id, or nil on failure.
@@ -332,17 +418,29 @@ final class NotesStore: ObservableObject {
         }
     }
 
-    /// Fire-and-forget flush of a pending edit from a context that cannot
-    /// `await` — `NoteEditorView.onDisappear` and the app's scenePhase
-    /// background handler. Runs on the store (main-actor) but `await`s the
-    /// off-main vault write, so the file is persisted even though the caller
-    /// returns immediately. Re-checks existence inside the task so a note
-    /// deleted while open is never resurrected. Mirrors Android's
-    /// `NotesStore.flushAsync` (NoteEditorScreen.kt onDispose / onStop).
-    func flushAsync(_ id: String, content: String) {
+    /// Fire-and-forget conditional flush of a pending draft from a context that
+    /// cannot `await` — `NoteEditorView.onDisappear` (pop) and the app's scenePhase
+    /// background handler. A conditional write (`writeIfUnchanged`): persist
+    /// `draft.content` only if the note still holds `draft.base` (the content the
+    /// editor last saw). One FFI call replaces the old `exists()`-then-`write()`
+    /// sequence, collapsing its cross-FFI TOCTOU — a note deleted while
+    /// backgrounded returns `.skippedMissing` (never resurrected), and content a
+    /// live-sync pull adopted since the editor's last read returns
+    /// `.skippedChanged` (never clobbered). Only a genuine write (`.wrote`)
+    /// reflects into the in-memory list. Mirrors Android's `NotesStore.flushAsync`.
+    func flushAsync(_ draft: PendingDraft) {
         Task {
-            guard await vault.exists(id) else { return }
-            await write(id, content: content)
+            do {
+                let (outcome, derived) = try await vault.writeIfUnchanged(
+                    draft.id, base: draft.base, content: draft.content)
+                if outcome == .wrote, let derived {
+                    applyWriteBookkeeping(
+                        id: draft.id, preview: derived.preview,
+                        richPreview: derived.richPreview, tags: derived.tags)
+                }
+            } catch {
+                print("flush failed for \(draft.id): \(error)")
+            }
         }
     }
 

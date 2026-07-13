@@ -44,6 +44,13 @@ struct NoteEditorView: View {
     /// note's text). Tracked via onAppear/onDisappear.
     @State private var isVisible = false
 
+    /// This editor's entry in the store's unsaved-draft register (F8 jetsam
+    /// guard). Claimed on appear, released on disappear; the editor publishes its
+    /// DERIVED draft under this token on every state change (see the `.onChange`
+    /// below). Per-token so a wikilink push/pop overlap never evicts a sibling
+    /// editor's draft (PKT-1 R2). 0 = not yet claimed.
+    @State private var draftToken: UInt64 = 0
+
     /// Path of the enclosing NavigationStack. A resolved-wikilink tap PUSHES a
     /// new editor entry (Back returns to the note you came from — a chain of
     /// editors, like a browser history); a delete pops it. The single shared
@@ -117,10 +124,9 @@ struct NoteEditorView: View {
                     // note on disk. Once loaded, all edits flow through.
                     guard loaded else { return }
                     content = newContent
-                    // Publish the live draft so the scenePhase background handler can
-                    // flush it before jetsam, even mid-debounce (F8).
-                    store.setPendingDraft(
-                        newContent != savedContent ? (id: noteId, content: newContent) : nil)
+                    // The unsaved-draft register follows from the derivation (the
+                    // `.onChange(of: draftInputs)` below re-publishes on this content
+                    // change) — no manual publish here. F8 jetsam guard.
                     scheduleSave(newContent)
                 },
                 onOpenNote: { id in
@@ -214,20 +220,28 @@ struct NoteEditorView: View {
             guard loaded else { return }
             Task { await adoptExternalChange() }
         }
-        .onAppear { isVisible = true }
+        .onAppear {
+            isVisible = true
+            // Claim a register entry once and publish the current derived draft
+            // (nil until the body loads / diverges). Re-appearing after a cover
+            // re-claims because onDisappear released the previous token.
+            if draftToken == 0 { draftToken = store.claimDraftOwnership() }
+            publishDraft()
+        }
+        // Keep the register's derivation current: any change to loaded/noteId/
+        // savedContent/content re-publishes this editor's draft (or clears it the
+        // instant content==savedContent — a completed save or adopted remote).
+        // This single reactive site replaces the old scattered setPendingDraft
+        // set/clear calls (PKT-1 R1-R4, PKT-12 R5).
+        .onChange(of: draftInputs) { _, _ in publishDraft() }
         .onDisappear {
             // Covered (a wikilink pushed a new editor) or popped: no longer the
             // visible editor, so it must stop driving the shared WebView.
             isVisible = false
-            // Stop providing a draft once this editor is gone, then flush a
-            // pending save (only if changed). `flushAsync` re-checks existence
-            // off-main so a note deleted while open is never resurrected, and
-            // won't bump mtime on a no-edit open/close.
             saveTask?.cancel()
             // Drop any pending debounced rename on leave (Android parity — its
             // rename coroutine is cancelled the same way).
             renameTask?.cancel()
-            store.setPendingDraft(nil)
             // Discard an untouched quick-capture note: opened brand-new
             // (autoFocus), never renamed (id unchanged AND title still the
             // created placeholder), body still empty and never persisted.
@@ -238,13 +252,40 @@ struct NoteEditorView: View {
                 && content.isEmpty && savedContent.isEmpty
             if untouched {
                 store.delete(noteId)
-                return
-            }
-            if content != savedContent {
-                store.flushAsync(noteId, content: content)
+            } else if content != savedContent {
+                // POP flush (navigating back isn't a background signal, so the
+                // scenePhase handler won't fire). Conditional write via the draft:
+                // `flushAsync` writes only if the note still holds `savedContent`,
+                // so a note deleted / sync-adopted while open is neither
+                // resurrected nor clobbered, and a no-edit open/close never bumps
+                // mtime. Mirrors Android's onDispose flush.
+                store.flushAsync(PendingDraft(id: noteId, base: savedContent, content: content))
                 savedContent = content
             }
+            // Remove this editor's register entry LAST, so the flush above (and
+            // any concurrent scenePhase flush) still sees the draft; releasing
+            // leaves any overlapping sibling editor's draft intact.
+            store.releaseDraftOwnership(token: draftToken)
+            draftToken = 0
         }
+    }
+
+    /// The inputs the draft derivation depends on, bundled so a single
+    /// `.onChange` re-publishes whenever any of them moves.
+    private var draftInputs: DraftInputs {
+        DraftInputs(loaded: loaded, noteId: noteId, savedContent: savedContent, content: content)
+    }
+
+    /// Publish this editor's DERIVED draft into the store's register under its
+    /// token (no-op before the token is claimed). The derivation returns nil the
+    /// instant the body is clean (content == savedContent), so a completed save or
+    /// an adopted remote clears the draft with no explicit clear call.
+    private func publishDraft() {
+        guard draftToken != 0 else { return }
+        store.publishDraft(
+            token: draftToken,
+            derivePendingDraft(
+                loaded: loaded, noteId: noteId, savedContent: savedContent, content: content))
     }
 
     private func scheduleSave(_ newContent: String) {
@@ -301,12 +342,19 @@ struct NoteEditorView: View {
         guard sanitized != parts.title else { return }
 
         saveTask?.cancel()
-        if content != savedContent {
-            await store.write(noteId, content: content)
-            savedContent = content
+        // Snapshot the body BEFORE the suspending write and advance savedContent
+        // to exactly that snapshot — never to the live `content`. If the user
+        // types during the suspended write, `content` moves ahead of the bytes on
+        // disk; assigning savedContent from live `content` would mark that newer
+        // keystroke as saved and the derived register would go clean, losing it on
+        // background/process death (PKT-12 F1). The register re-keys to the new id
+        // after the rename (its content follows the live noteId), so no manual
+        // clear is needed.
+        let flushed = content
+        if flushed != savedContent {
+            await store.write(noteId, content: flushed)
+            savedContent = flushed
         }
-        // The body is now flushed to the current id; the draft is clean.
-        store.setPendingDraft(nil)
 
         let targetId = makeId(folder: parts.folder, title: sanitized)
         let finalId = await store.rename(oldId: noteId, newId: targetId)
@@ -393,13 +441,17 @@ struct NoteEditorView: View {
             // Disk unchanged (reload was about some other note) — draft wins.
         } else if disk == content {
             // Draft and remote converged on the same text — nothing to park.
+            // savedContent = disk makes the derivation null this note's draft.
             savedContent = disk
-            store.setPendingDraft(nil)
         } else {
             // True three-way conflict: cancel the pending save (it would clobber
-            // the remote edit), park the draft as a conflict copy, then adopt.
+            // the remote edit — store.write is unconditional), park the draft as a
+            // conflict copy, then adopt. No manual draft clear: during the copy's
+            // await window the register still derives the dirty draft, but a
+            // background flush is conditional (base=old savedContent ≠ the remote
+            // on disk → SkippedChanged), so the main note can't be clobbered; the
+            // final `savedContent = disk` nulls the draft by derivation.
             saveTask?.cancel()
-            store.setPendingDraft(nil)
             let draft = content
             let parts = splitId(id: noteId)
             let formatter = DateFormatter()
@@ -452,11 +504,16 @@ struct NoteEditorView: View {
     private func prepareMove() {
         Task {
             saveTask?.cancel()
-            if content != savedContent {
-                await store.write(noteId, content: content)
-                savedContent = content
+            // Snapshot before the suspending write; advance savedContent to that
+            // snapshot, not live `content`, so a keystroke typed during the write
+            // stays dirty in the derived register and survives a later background
+            // flush (PKT-12 F1 — same as the rename path). The register re-keys to
+            // the moved id afterwards, so no manual clear is needed.
+            let flushed = content
+            if flushed != savedContent {
+                await store.write(noteId, content: flushed)
+                savedContent = flushed
             }
-            store.setPendingDraft(nil)
             showMove = true
         }
     }
@@ -467,12 +524,21 @@ struct NoteEditorView: View {
     private func deleteNote() {
         saveTask?.cancel()
         renameTask?.cancel()
-        store.setPendingDraft(nil)
-        // Mark the draft clean so onDisappear's flush is a no-op.
+        // Mark the draft clean so both the derived register (content==savedContent
+        // → nil) and onDisappear's flush are no-ops; the file won't be resurrected.
         savedContent = content
         store.delete(noteId)
         if !navPath.isEmpty { navPath.removeLast() }
     }
+}
+
+/// The state the unsaved-draft derivation reads, bundled into one Equatable
+/// value so a single `.onChange` fires on any relevant change.
+private struct DraftInputs: Equatable {
+    let loaded: Bool
+    let noteId: String
+    let savedContent: String
+    let content: String
 }
 
 /// Characters forbidden in a note title — mirrors the Rust `is_forbidden_char`
