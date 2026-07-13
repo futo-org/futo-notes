@@ -4008,26 +4008,21 @@ async fn reconcile_empty_map(
     // fetched successfully, just not materialized) so the next reconcile does
     // not re-list them. Captured BEFORE triage drops them from `downloaded`.
     let fetched_max_seq = downloaded.iter().map(|n| n.change_seq).max().unwrap_or(0);
-    // Screen the download set through the SAME classifier `run_pull` uses,
-    // BEFORE collision planning (B1/B4): legacy/foreign blobs drop out (never
-    // written as notes, never phantom-mapped, never counted), creatable-but-
-    // unsyncable names heal, and structurally unsafe names become recorded
-    // failures — all without aborting this fresh-device first sync.
-    let DownloadTriage {
+    // Screen the download set through the SAME choke point `run_pull` uses,
+    // fusing classification and collision planning (B1/B4): legacy/foreign
+    // blobs drop out (never written as notes, never phantom-mapped, never
+    // counted), creatable-but-unsyncable names heal, and structurally unsafe
+    // names become recorded failures — all without aborting this fresh-device
+    // first sync. Collisions are then planned over the surviving download set:
+    // two distinct server objects can carry names that collide on a case/
+    // normalization-insensitive FS (same name from two clients; NFC vs NFD),
+    // which would otherwise BOTH adopt the same on-disk path and clobber one
+    // note. The map is empty here, so only download_overrides can be produced.
+    let ScreenedDownloads {
         kept: downloaded,
-        rejected: path_failures,
-    } = triage_downloaded(downloaded);
-
-    // F4/F5: two distinct server objects can carry names that collide on a
-    // case/normalization-insensitive FS (same name from two clients; NFC vs
-    // NFD). On a fresh empty-map reconcile they would BOTH adopt the same
-    // on-disk path and the second write would clobber the first — one note
-    // lost. Resolve collisions over the download set first: the smallest
-    // object_id keeps the canonical name; the rest are parked at deterministic
-    // conflict copies. (The map is empty here, so only download_overrides can
-    // be produced.)
-    let collision_plan =
-        resolve_pull_collisions(&downloaded, &state_cell.object_map, &HashSet::new());
+        path_failures,
+        collision_plan,
+    } = screen_incoming(downloaded, &state_cell.object_map, &HashSet::new());
 
     // For each remote note: compare to local (if any) and decide
     // whether to write, skip, or omit mtime/size to flag divergence.
