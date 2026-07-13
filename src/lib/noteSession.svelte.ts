@@ -1,75 +1,42 @@
-/**
- * Note session controller — owns the note load/save/navigation state machine.
- *
- * Created once by NotesShell and drives title, content, save queue, and
- * title‑validation state. MarkdownEditor bindings and scrollParent stay in
- * NotesShell.
- */
 import { hasFileSystem } from '$lib/platform';
-import { updateNote, readNote, getNoteById } from '$lib/notes.svelte';
-import { sanitizeFilename } from '$lib/utils';
+import { notifySavedV2 } from '$lib/autoSyncV2';
+import { getNoteById, readNote, updateNote } from '$lib/notes.svelte';
 import { FORBIDDEN_CHARS_RE, validateTitle } from '$lib/rules';
+import { sanitizeFilename } from '$lib/utils';
 import { navigate } from '../router';
 import type { NotePreview } from '../types';
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
+const BODY_SAVE_DELAY_MS = 500;
+const TITLE_SAVE_DELAY_MS = 10_000;
 
 export interface NoteSessionDeps {
-  /** Returns the current editor content (CM6 doc string). */
   getEditorContent: () => string | undefined;
-  /** Replaces editor content (optional preserveSelection). */
-  setEditorContent: (text: string, opts?: { preserveSelection?: boolean }) => void;
-  /** Focuses the editor. */
+  setEditorContent: (text: string, options?: { preserveSelection?: boolean }) => void;
   focusEditor: () => void;
-  /** Focuses the title textarea (mobile new-note flow). */
-  focusTitle: () => void;
-  /** Returns the current notes list. */
+  isEditorFocused: () => boolean;
+  isComposing: () => boolean;
   getNotes: () => NotePreview[];
-  /** Patches graph node after rename. */
-  patchGraphNode: (fromId: string, toId: string, newTitle: string) => void;
-  /** Shows a toast message. */
-  showToast: (message: string) => void;
-  /** Notifies auto‑sync that a save happened. */
-  notifySaved: () => void;
-  /** Returns the scroll container element for scroll‑top reset. */
   getNoteBody: () => HTMLElement | undefined;
-  /** Returns the title textarea for auto‑resize. */
   getTitleTextarea: () => HTMLTextAreaElement | undefined;
-  /** Current noteId prop from the router. Read lazily. */
   getNoteId: () => string | null;
-  /** Update prevNoteId to prevent duplicate loadNote on URL change. */
-  setPrevNoteId: (id: string) => void;
-  /** When set, a brand-new note's first save is placed inside this
-   *  folder (e.g. set by `New Note` in a folder context menu). Null/empty
-   *  means "save to root". Cleared by the consumer after the first save. */
-  getPendingFolder?: () => string | null;
-  /** Called once the new-note's first save has consumed the pending
-   *  folder so subsequent edits don't re-prefix it. */
-  clearPendingFolder?: () => void;
-  /** Called whenever a save results in an id rename: either a brand-new
-   *  note getting its first real id (savedOriginalId === null) or an
-   *  existing note's title being edited (savedOriginalId !== realId).
-   *  The shell uses this to update which tab(s) point at the renamed note
-   *  and to suppress the noteId-change effect's reload. */
-  onNoteRenamed: (savedOriginalId: string | null, realId: string) => void;
+  getPendingFolder: () => string | null;
+  clearPendingFolder: () => void;
+  onNoteRenamed: (fromId: string | null, toId: string, title: string) => void;
 }
 
 export interface NoteSession {
-  // --- Reactive getters (Svelte 5 runes) ---
-  readonly title: string;
+  title: string;
   readonly content: string;
   readonly originalId: string | null;
-  readonly savedTitle: string;
   readonly titleWarning: string;
   readonly loading: boolean;
-
-  // --- Imperative API ---
   readonly editVersion: number;
   readonly lastEditTime: number;
-  isSavePending: () => boolean;
-  hasOpenDraftChanges: () => boolean;
+  readonly savePending: boolean;
+  readonly dirty: boolean;
+  readonly editorContent: string | undefined;
+  readonly editorFocused: boolean;
+  readonly composing: boolean;
   debouncedSave: (content?: string) => void;
   flushSave: () => Promise<void>;
   loadNote: (id: string | null) => Promise<void>;
@@ -77,20 +44,10 @@ export interface NoteSession {
   handleTitleKeydown: (event: KeyboardEvent) => void;
   handleTitleFocus: (event: FocusEvent) => void;
   handleTitlePointerDown: (event: PointerEvent) => void;
-  autoResizeTitleTextarea: () => void;
-  /**
-   * Seed the session with a known note for dev/test use.
-   * Sets all reactive state and syncs the editor.
-   */
   seedOpenNote: (id: string, body: string) => void;
-  /** Cancel any pending save and clear the session (e.g. on delete/import nuke). */
   cancelAndClear: () => void;
-  /** Update prevNoteId to prevent duplicate loadNote on URL change. */
-  setPrevNoteId: (id: string) => void;
-  /** Called by watcher/sync when the open note was changed externally. */
-  applyExternalContent: (freshContent: string) => void;
-  /** Called by sync when the open note was renamed remotely. */
-  applyRemoteRename: (toId: string, newTitle: string) => void;
+  applyExternalContent: (content: string) => void;
+  applyRemoteRename: (toId: string, title: string) => void;
 }
 
 export function shouldWriteNoteToDisk(params: {
@@ -99,192 +56,53 @@ export function shouldWriteNoteToDisk(params: {
   content: string;
   newContent: string;
 }): boolean {
-  return !(params.newTitle === params.savedTitle && params.newContent === params.content);
+  return params.savedTitle !== params.newTitle || params.content !== params.newContent;
 }
 
-/** Pure core of the flush-time dirty check: does the live editor (or title
- *  field) hold changes the debounced-save pipeline has not yet observed?
- *  This happens when the editor's rAF-coalesced onchange stalls — rAF does
- *  not fire while the window is hidden/occluded (macOS WKWebView), so the
- *  save timer is never armed for the latest keystrokes. `flushSave` uses
- *  this so a close/quit/note-switch flush still persists them. */
 export function editorHasUnseenChanges(params: {
   editorContent: string | undefined;
   savedContent: string;
   title: string;
   savedTitle: string;
 }): boolean {
-  if (params.editorContent === undefined) return false;
-  return params.editorContent !== params.savedContent || params.title !== params.savedTitle;
+  return (
+    params.editorContent !== undefined &&
+    (params.editorContent !== params.savedContent || params.title !== params.savedTitle)
+  );
 }
 
-/** Pure core of the adopt-echo check: is this onchange delivery just the
- *  editor echoing content the session already applied and saved?
- *
- *  `applyExternalContent`/`loadNote` raise `suppressSaveOnChange` around
- *  their programmatic `setEditorContent`, but the editor's onchange is
- *  rAF-coalesced — the delivery lands a frame later, after the flag is
- *  already lowered. Counting that echo as an edit bumped `editVersion`,
- *  which made `handleSyncComplete`'s edited-during-sync gate silently skip
- *  every subsequent remote adopt of the open note: the first live-pulled
- *  edit appeared, later ones didn't until the note was reopened. An echo
- *  must match BOTH the session content and the saved content — a delivery
- *  that differs from either is a real edit (or a revert the session state
- *  still needs to converge on) and flows through. */
 export function isEditorChangeEcho(params: {
   nextContent: string | undefined;
   content: string;
   savedContent: string;
 }): boolean {
-  if (params.nextContent === undefined) return false;
-  return params.nextContent === params.content && params.nextContent === params.savedContent;
+  return (
+    params.nextContent !== undefined &&
+    params.nextContent === params.content &&
+    params.nextContent === params.savedContent
+  );
 }
 
-// ---------------------------------------------------------------------------
-// Implementation
-// ---------------------------------------------------------------------------
-
-/** Body/content edits save after a short pause — long enough to coalesce a
- *  burst of typing, short enough that content reaches disk quickly. */
-const BODY_SAVE_DEBOUNCE_MS = 500;
-/** Title-only edits save (and RENAME the file) on a much longer pause. A
- *  title save round-trips through updateNote → onNoteRenamed → tab noteId
- *  swap, which clobbers keystrokes still in flight; firing it at 500ms during
- *  a natural inter-word pause lost characters mid-typing. The aggressive
- *  delay holds the rename until the user is truly done with the name; moving
- *  focus into the editor body flushes it early (NotesShell). */
-const TITLE_SAVE_DEBOUNCE_MS = 10_000;
-
-// eslint-disable-next-line max-lines-per-function -- Svelte 5 rune factory keeps reactive state, save queue, and note lifecycle colocated.
+// eslint-disable-next-line max-lines-per-function -- One Svelte rune factory is the sole owner of the draft baseline and serialized save lifecycle.
 export function createNoteSession(deps: NoteSessionDeps): NoteSession {
-  // --- Reactive state (Svelte 5 runes) ---
   let title = $state('');
   let content = $state('');
-  let originalId: string | null = $state(null);
-  let savedTitle = $state('');
+  let originalId = $state<string | null>(null);
   let titleWarning = $state('');
   let loading = $state(false);
+
+  let savedTitle = '';
   let savedContent = '';
-
-  // --- Non-reactive save‑queue state ---
-  let saveTimeout: number | null = null;
-  let saveInFlight: Promise<void> | null = null;
-  let saveQueued = false;
-  let lastEditTime = 0;
   let editVersion = 0;
-  let noteLoadVersion = 0;
-  let titleWarningTimer: number | null = null;
-  let suppressSaveOnChange = false;
+  let lastEditTime = 0;
+  let loadVersion = 0;
+  let saveTimer: number | null = null;
+  let saveRequested = false;
+  let saveLoop: Promise<void> | null = null;
+  let warningTimer: number | null = null;
+  let applyingContent = false;
 
-  // --- Helpers ---
-
-  function getNextUntitledTitle(): string {
-    const base = 'Untitled';
-    const notes = deps.getNotes();
-    const existingIds = new Set(notes.map((n) => n.id));
-    if (!existingIds.has(sanitizeFilename(base))) return base;
-    let i = 1;
-    while (existingIds.has(sanitizeFilename(`${base} (${i})`))) i++;
-    return `${base} (${i})`;
-  }
-
-  function hasDuplicateTitle(checkTitle: string): boolean {
-    const leaf = sanitizeFilename(checkTitle.trim() || 'Untitled');
-    // Determine the target folder: keep the existing note's parent
-    // when editing, fall back to the pending-folder when creating.
-    const parentFolder = (() => {
-      if (originalId) {
-        const slash = originalId.lastIndexOf('/');
-        return slash === -1 ? '' : originalId.slice(0, slash);
-      }
-      return deps.getPendingFolder?.() ?? '';
-    })();
-    const checkId = parentFolder ? `${parentFolder}/${leaf}` : leaf;
-    const notes = deps.getNotes();
-    return notes.some((n) => n.id === checkId && n.id !== originalId);
-  }
-
-  function showTitleWarning(message: string, autoHideMs: number | null): void {
-    if (titleWarningTimer !== null) clearTimeout(titleWarningTimer);
-    titleWarning = message;
-    titleWarningTimer =
-      autoHideMs !== null
-        ? window.setTimeout(() => {
-            titleWarning = '';
-            titleWarningTimer = null;
-          }, autoHideMs)
-        : null;
-  }
-
-  function clearTitleWarning(): void {
-    if (titleWarningTimer !== null) clearTimeout(titleWarningTimer);
-    titleWarning = '';
-    titleWarningTimer = null;
-  }
-
-  function autoResizeTitleTextarea(): void {
-    const el = deps.getTitleTextarea();
-    if (!el) return;
-    el.style.height = 'auto';
-    el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
-  }
-
-  // --- Save machinery ---
-
-  function debouncedSave(nextContent?: string): void {
-    if (suppressSaveOnChange) return;
-    // Drop the rAF-deferred echo of programmatic setEditorContent — see
-    // isEditorChangeEcho. Without this, every external adopt counted as a
-    // user edit and blocked the NEXT remote adopt of the open note.
-    if (isEditorChangeEcho({ nextContent, content, savedContent })) return;
-    if (nextContent !== undefined) {
-      content = nextContent;
-    }
-    if (loading || !hasFileSystem || deps.getNoteId() === null) return;
-    lastEditTime = Date.now();
-    editVersion++;
-    if (saveTimeout !== null) {
-      clearTimeout(saveTimeout);
-    }
-    // Title-only edits (no content payload) get the aggressive 10s debounce so
-    // a rename round-trip never fires mid-typing; body edits keep 500ms.
-    const debounceMs = nextContent === undefined ? TITLE_SAVE_DEBOUNCE_MS : BODY_SAVE_DEBOUNCE_MS;
-    saveTimeout = window.setTimeout(() => {
-      saveTimeout = null;
-      void runQueuedSave();
-    }, debounceMs);
-  }
-
-  async function flushSave(): Promise<void> {
-    const hadPendingTimer = saveTimeout !== null;
-    if (saveTimeout !== null) {
-      clearTimeout(saveTimeout);
-      saveTimeout = null;
-    }
-    try {
-      if (hadPendingTimer) {
-        await runQueuedSave();
-      } else if (saveInFlight !== null) {
-        await saveInFlight;
-      } else if (!loading && hasUnseenEditorChanges()) {
-        // The editor delivers changes through an rAF-coalesced onchange
-        // (MarkdownEditor), and rAF stalls while the window is hidden or
-        // occluded (notably macOS WKWebView). When that happens the save
-        // timer was never armed, so a flush that only honors the timer
-        // silently drops the user's latest keystrokes on close / quit /
-        // note-switch. If the editor holds content the session hasn't seen,
-        // treat it as a pending edit and save it now.
-        await runQueuedSave();
-      }
-    } catch (e) {
-      console.warn('Failed to flush note save:', e);
-    }
-  }
-
-  /** True when the live editor (or title field) holds changes that the
-   *  debounced-save pipeline has not yet observed — the rAF-starved
-   *  onchange case. Mirrors the dirty check in `hasOpenDraftChanges`. */
-  function hasUnseenEditorChanges(): boolean {
+  function liveEditorIsDirty(): boolean {
     if (!hasFileSystem || deps.getNoteId() === null) return false;
     return editorHasUnseenChanges({
       editorContent: deps.getEditorContent(),
@@ -294,295 +112,268 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     });
   }
 
-  async function runQueuedSave(): Promise<void> {
-    if (saveInFlight !== null) {
-      saveQueued = true;
-      await saveInFlight;
-      return;
-    }
+  function parentFolder(): string {
+    if (!originalId) return deps.getPendingFolder() ?? '';
+    const slash = originalId.lastIndexOf('/');
+    return slash === -1 ? '' : originalId.slice(0, slash);
+  }
 
-    const run = (async () => {
-      do {
-        saveQueued = false;
-        const wrote = await saveNote();
-        if (wrote) deps.notifySaved();
-      } while (saveQueued);
-    })();
+  function nextUntitledTitle(): string {
+    const ids = new Set(deps.getNotes().map((note) => note.id));
+    if (!ids.has('Untitled')) return 'Untitled';
+    let suffix = 1;
+    while (ids.has(`Untitled (${suffix})`)) suffix += 1;
+    return `Untitled (${suffix})`;
+  }
 
-    saveInFlight = run;
-    try {
-      await run;
-    } finally {
-      if (saveInFlight === run) {
-        saveInFlight = null;
-      }
+  function duplicateTitle(candidate: string): boolean {
+    const leaf = sanitizeFilename(candidate.trim() || 'Untitled');
+    const folder = parentFolder();
+    const id = folder ? `${folder}/${leaf}` : leaf;
+    return deps.getNotes().some((note) => note.id === id && note.id !== originalId);
+  }
+
+  function clearWarning(): void {
+    if (warningTimer !== null) clearTimeout(warningTimer);
+    warningTimer = null;
+    titleWarning = '';
+  }
+
+  function warn(message: string, durationMs?: number): void {
+    clearWarning();
+    titleWarning = message;
+    if (durationMs === undefined) return;
+    warningTimer = window.setTimeout(clearWarning, durationMs);
+  }
+
+  function resizeTitle(): void {
+    const element = deps.getTitleTextarea();
+    if (!element) return;
+    element.style.height = 'auto';
+    element.style.height = `${Math.min(element.scrollHeight, 120)}px`;
+  }
+
+  function cancelSaveTimer(): boolean {
+    if (saveTimer === null) return false;
+    clearTimeout(saveTimer);
+    saveTimer = null;
+    return true;
+  }
+
+  function scheduleSave(delayMs: number): void {
+    cancelSaveTimer();
+    saveTimer = window.setTimeout(() => {
+      saveTimer = null;
+      requestSave();
+    }, delayMs);
+  }
+
+  function requestSave(): void {
+    saveRequested = true;
+    if (saveLoop) return;
+    const running = drainSaves();
+    saveLoop = running;
+    void running.finally(() => {
+      if (saveLoop === running) saveLoop = null;
+      if (saveRequested) requestSave();
+    });
+  }
+
+  async function drainSaves(): Promise<void> {
+    while (saveRequested) {
+      saveRequested = false;
+      if (await saveOnce()) notifySavedV2();
     }
   }
 
-  async function saveNote(): Promise<boolean> {
-    const noteId = deps.getNoteId();
+  async function saveOnce(): Promise<boolean> {
+    const routeId = deps.getNoteId();
     const editorContent = deps.getEditorContent();
-    if (!hasFileSystem || editorContent === undefined || noteId === null) return false;
+    if (!hasFileSystem || routeId === null || editorContent === undefined || loading) return false;
+
+    const newTitle = title.trim() || 'Untitled';
+    const blockingIssue = validateTitle(newTitle).find((issue) => issue.kind !== 'empty');
+    if (blockingIssue) {
+      warn(blockingIssue.message);
+      return false;
+    }
+    if (duplicateTitle(newTitle)) return false;
+    if (
+      !shouldWriteNoteToDisk({
+        savedTitle,
+        newTitle,
+        content: savedContent,
+        newContent: editorContent,
+      })
+    ) {
+      return false;
+    }
+
+    const fromId = originalId;
+    const folder = parentFolder();
+    const leaf = sanitizeFilename(newTitle);
+    const requestedId = folder ? `${folder}/${leaf}` : leaf;
+
     try {
-      const newTitle = title.trim() || 'Untitled';
-      const titleIssues = validateTitle(newTitle);
-      const blockingTitleIssue = titleIssues.find((issue) => issue.kind !== 'empty');
-      if (blockingTitleIssue) {
-        showTitleWarning(blockingTitleIssue.message, null);
-        return false;
-      }
-      let newId = sanitizeFilename(newTitle);
-      // The displayed title is the leaf component of the path-ID;
-      // editing it must not relocate the note out of its parent folder.
-      // For an existing note, prefix newId with the original folder
-      // path. For a brand-new note opened via "New Note in <folder>",
-      // prefix with the pending folder instead. The pending folder is
-      // cleared after the first save so subsequent edits don't
-      // re-prefix.
-      if (originalId) {
-        const slash = originalId.lastIndexOf('/');
-        if (slash !== -1) {
-          newId = `${originalId.slice(0, slash + 1)}${newId}`;
-        }
-      } else {
-        const pendingFolder = deps.getPendingFolder?.();
-        if (pendingFolder) {
-          newId = `${pendingFolder}/${newId}`;
-        }
-      }
-      const newContent = editorContent;
-
-      if (
-        !shouldWriteNoteToDisk({
-          savedTitle,
-          newTitle,
-          content: savedContent,
-          newContent,
-        })
-      ) {
-        return false;
-      }
-
-      // Block saving if another note already has this name
-      if (hasDuplicateTitle(newTitle)) return false;
-
-      const savedOriginalId = originalId;
-      // updateNote routes through fileSystem.writeNote / deleteNoteFile /
-      // renameNote which each record their own path — no explicit
-      // suppression needed here.
-      const result = await updateNote(newId, newTitle, newContent, savedOriginalId ?? undefined);
-
+      const result = await updateNote(requestedId, newTitle, editorContent, fromId ?? undefined);
       originalId = result.id;
-      // Clear pending-folder so subsequent saves of this same note
-      // don't re-prefix and create infinite folder nesting.
-      deps.clearPendingFolder?.();
-      if (deps.getEditorContent() === newContent) {
-        content = newContent;
-      }
-      savedContent = newContent;
+      deps.clearPendingFolder();
       savedTitle = newTitle;
-
-      // Patch graph data in-place so the graph view survives renames
-      if (savedOriginalId && savedOriginalId !== result.id) {
-        deps.patchGraphNode(savedOriginalId, result.id, newTitle);
-      }
-
-      if (savedOriginalId !== result.id) {
-        deps.onNoteRenamed(savedOriginalId, result.id);
-      }
+      savedContent = editorContent;
+      if (deps.getEditorContent() === editorContent) content = editorContent;
+      if (fromId !== result.id) deps.onNoteRenamed(fromId, result.id, newTitle);
       return true;
-    } catch (e) {
-      console.warn('Failed to save note:', e);
+    } catch (error) {
+      console.warn('Failed to save note:', error);
       return false;
     }
   }
 
-  // --- Load ---
+  function debouncedSave(nextContent?: string): void {
+    if (applyingContent) return;
+    if (isEditorChangeEcho({ nextContent, content, savedContent })) return;
+    if (nextContent !== undefined) content = nextContent;
+    if (loading || !hasFileSystem || deps.getNoteId() === null) return;
+    lastEditTime = Date.now();
+    editVersion += 1;
+    scheduleSave(nextContent === undefined ? TITLE_SAVE_DELAY_MS : BODY_SAVE_DELAY_MS);
+  }
+
+  async function flushSave(): Promise<void> {
+    const hadTimer = cancelSaveTimer();
+    if (hadTimer || liveEditorIsDirty()) requestSave();
+    while (saveLoop) {
+      const current = saveLoop;
+      try {
+        await current;
+      } catch (error) {
+        console.warn('Failed to flush note save:', error);
+      }
+      if (saveLoop === current) break;
+    }
+  }
+
+  function reset(): void {
+    title = '';
+    content = '';
+    originalId = null;
+    savedTitle = '';
+    savedContent = '';
+    clearWarning();
+  }
 
   async function loadNote(id: string | null): Promise<void> {
-    const loadVersion = ++noteLoadVersion;
+    const version = ++loadVersion;
     await flushSave();
-    if (loadVersion !== noteLoadVersion) return;
+    if (version !== loadVersion) return;
 
     loading = true;
-    clearTitleWarning();
+    clearWarning();
+    const body = deps.getNoteBody();
+    if (body) body.scrollTop = 0;
 
-    // Reset scroll position
-    const noteBody = deps.getNoteBody();
-    if (noteBody) noteBody.scrollTop = 0;
-
-    if (!id) {
-      title = '';
-      content = '';
-      savedContent = '';
-      savedTitle = '';
-      originalId = null;
+    if (id === null) {
+      reset();
       loading = false;
       return;
     }
 
-    originalId = id !== 'new' ? id : null;
-
+    originalId = id === 'new' ? null : id;
     if (id === 'new') {
-      title = getNextUntitledTitle();
+      title = nextUntitledTitle();
+      savedTitle = title;
       content = '';
       savedContent = '';
-      savedTitle = title;
       deps.setEditorContent('');
       loading = false;
       requestAnimationFrame(() => {
-        if (loadVersion !== noteLoadVersion) return;
-        autoResizeTitleTextarea();
+        if (version !== loadVersion) return;
+        resizeTitle();
         deps.focusEditor();
       });
-    } else if (hasFileSystem) {
-      try {
-        const loadedContent = await readNote(id);
-        if (loadVersion !== noteLoadVersion) return;
-        content = loadedContent;
-        savedContent = loadedContent;
-        const meta = getNoteById(id);
-        // Title is the leaf component of the path-ID (the visible
-        // filename without any parent folder). When meta is missing
-        // we fall back to the same leaf-of-id rule rather than
-        // surfacing the full path in the title field.
-        const slash = id.lastIndexOf('/');
-        const fallbackTitle = slash === -1 ? id : id.slice(slash + 1);
-        title = meta?.title || fallbackTitle;
-        savedTitle = title;
-        deps.setEditorContent(loadedContent);
-        // CM6 has no lineSeparator facet, so it collapses CR/CRLF line endings
-        // to LF as the document loads. Re-seed content/savedContent from what
-        // the editor ACTUALLY holds (not the raw disk bytes) so the
-        // rAF-coalesced onchange that echoes this load isn't mistaken for a
-        // user edit. Otherwise opening a CRLF note autosaves it — bumping its
-        // mtime (which re-sorts it to the top of the list) and pushing a
-        // whole-file change that conflict-copies during sync. Opening a note
-        // must be read-only. (suppressSaveOnChange can't cover this: the echo
-        // lands a frame later, after the flag is lowered — see
-        // isEditorChangeEcho.)
-        const editorContent = deps.getEditorContent();
-        if (editorContent !== undefined && editorContent !== loadedContent) {
-          content = editorContent;
-          savedContent = editorContent;
-        }
-        requestAnimationFrame(() => {
-          if (loadVersion !== noteLoadVersion) return;
-          autoResizeTitleTextarea();
-        });
-      } catch {
-        // read_note returns "" for a missing file on every platform (Tauri
-        // notes_read over futo-notes-model::read_note, web.ts, nodeFS), so a
-        // wikilink to a not-yet-created note takes the try-path above: it opens
-        // an empty editor bound to the target title, and the file is created on
-        // the FIRST edit/save — deferred, not eager (2026-07-11 decision;
-        // docs/spec/editor.md). This catch therefore only fires on a genuine
-        // backend/IPC read failure; we can't open the note, so reset and return
-        // home rather than leave the editor stuck loading (and never
-        // create-on-missing, which used to resurrect deleted notes).
-        if (loadVersion !== noteLoadVersion) return;
-        loading = false;
-        navigate('/');
-        return;
+      return;
+    }
+
+    try {
+      const diskContent = await readNote(id);
+      if (version !== loadVersion) return;
+      content = diskContent;
+      savedContent = diskContent;
+      const slash = id.lastIndexOf('/');
+      title = getNoteById(id)?.title ?? (slash === -1 ? id : id.slice(slash + 1));
+      savedTitle = title;
+      deps.setEditorContent(diskContent);
+
+      // CM6 normalizes line endings. Opening a note must not turn that
+      // representation change into a write, mtime bump, or sync conflict.
+      const normalized = deps.getEditorContent();
+      if (normalized !== undefined) {
+        content = normalized;
+        savedContent = normalized;
       }
-      loading = false;
+      requestAnimationFrame(() => {
+        if (version === loadVersion) resizeTitle();
+      });
+    } catch {
+      if (version !== loadVersion) return;
+      reset();
+      navigate('/');
+    } finally {
+      if (version === loadVersion) loading = false;
     }
   }
-
-  // --- Title handlers ---
 
   function handleTitleInput(event: Event): void {
     const input = event.target as HTMLTextAreaElement;
-    let cleaned = input.value.replace(/[\r\n]/g, '');
-    const hadForbidden = cleaned !== cleaned.replace(FORBIDDEN_CHARS_RE, '');
-    cleaned = cleaned.replace(FORBIDDEN_CHARS_RE, '');
-    if (hadForbidden) {
-      const pos = input.selectionStart ?? cleaned.length;
-      title = cleaned;
-      requestAnimationFrame(() => {
-        input.setSelectionRange(pos - 1, pos - 1);
-      });
-      showTitleWarning("That character can't be used in a note title", 2000);
-    } else if (input.value !== cleaned) {
-      const pos = input.selectionStart ?? cleaned.length;
-      title = cleaned;
-      requestAnimationFrame(() => {
-        input.setSelectionRange(pos, pos);
-      });
-    } else {
-      const issues = validateTitle(cleaned);
-      const dotOrLength = issues.find(
-        (i) => i.kind === 'leading_dots' || i.kind === 'trailing_dots' || i.kind === 'too_long',
+    const noNewlines = input.value.replace(/[\r\n]/g, '');
+    const cleaned = noNewlines.replace(FORBIDDEN_CHARS_RE, '');
+    const cursor = input.selectionStart ?? cleaned.length;
+
+    title = cleaned;
+    if (cleaned !== noNewlines) {
+      requestAnimationFrame(() =>
+        input.setSelectionRange(Math.max(0, cursor - 1), Math.max(0, cursor - 1)),
       );
-      if (dotOrLength) {
-        showTitleWarning(dotOrLength.message, null);
-      } else if (hasDuplicateTitle(cleaned)) {
-        showTitleWarning('A note with this name already exists', null);
-      } else {
-        clearTitleWarning();
-      }
+      warn("That character can't be used in a note title", 2000);
+    } else if (cleaned !== input.value) {
+      requestAnimationFrame(() => input.setSelectionRange(cursor, cursor));
+    } else {
+      const issue = validateTitle(cleaned).find((candidate) =>
+        ['leading_dots', 'trailing_dots', 'too_long'].includes(candidate.kind),
+      );
+      if (issue) warn(issue.message);
+      else if (duplicateTitle(cleaned)) warn('A note with this name already exists');
+      else clearWarning();
     }
-    autoResizeTitleTextarea();
+    resizeTitle();
     debouncedSave();
   }
 
-  function handleTitleKeydown(event: KeyboardEvent): void {
-    if (event.key === 'Enter') {
-      event.preventDefault();
-      deps.focusEditor();
-    }
-  }
-
-  function shouldAutoSelectUntitledTitle(value: string): boolean {
-    return value.startsWith('Untitled');
-  }
-
-  function selectAllTitleText(input: HTMLTextAreaElement): void {
+  function selectPlaceholderTitle(input: HTMLTextAreaElement): void {
+    if (!input.value.startsWith('Untitled')) return;
     input.setSelectionRange(0, input.value.length);
-    requestAnimationFrame(() => {
-      input.setSelectionRange(0, input.value.length);
-    });
+    requestAnimationFrame(() => input.setSelectionRange(0, input.value.length));
   }
-
-  function handleTitleFocus(event: FocusEvent): void {
-    const input = event.currentTarget as HTMLTextAreaElement;
-    if (shouldAutoSelectUntitledTitle(input.value)) {
-      selectAllTitleText(input);
-    }
-  }
-
-  function handleTitlePointerDown(event: PointerEvent): void {
-    const input = event.currentTarget as HTMLTextAreaElement;
-    if (shouldAutoSelectUntitledTitle(input.value)) {
-      event.preventDefault();
-      input.focus();
-      selectAllTitleText(input);
-    }
-  }
-
-  // --- External mutation helpers ---
 
   function applyExternalContent(freshContent: string): void {
     content = freshContent;
     savedContent = freshContent;
-    suppressSaveOnChange = true;
+    applyingContent = true;
     deps.setEditorContent(freshContent, { preserveSelection: true });
-    suppressSaveOnChange = false;
-    if (originalId) {
-      const meta = getNoteById(originalId);
-      if (meta) {
-        title = meta.title;
-        savedTitle = meta.title;
-      }
+    applyingContent = false;
+    const meta = originalId ? getNoteById(originalId) : undefined;
+    if (meta) {
+      title = meta.title;
+      savedTitle = meta.title;
     }
-    clearTitleWarning();
+    clearWarning();
   }
 
   function applyRemoteRename(toId: string, newTitle: string): void {
     originalId = toId;
     title = newTitle;
     savedTitle = newTitle;
-    clearTitleWarning();
+    clearWarning();
   }
 
   function seedOpenNote(id: string, body: string): void {
@@ -592,46 +383,30 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     content = body;
     savedContent = body;
     deps.setEditorContent(body);
-    deps.setPrevNoteId(id);
-    clearTitleWarning();
+    clearWarning();
     navigate(`/note/${encodeURIComponent(id)}`);
   }
 
   function cancelAndClear(): void {
-    if (saveTimeout !== null) {
-      clearTimeout(saveTimeout);
-      saveTimeout = null;
-    }
-    clearTitleWarning();
-    originalId = null;
-    content = '';
-    savedContent = '';
-    savedTitle = '';
+    loadVersion += 1;
+    cancelSaveTimer();
+    saveRequested = false;
+    reset();
     navigate('/');
   }
-
-  function setPrevNoteId(id: string): void {
-    deps.setPrevNoteId(id);
-  }
-
-  // --- noteId change tracking ---
-  // The caller ($effect in NotesShell) drives this. We just expose loadNote.
 
   return {
     get title() {
       return title;
     },
-    set title(v: string) {
-      title = v;
+    set title(value: string) {
+      title = value;
     },
     get content() {
       return content;
     },
     get originalId() {
       return originalId;
-    },
-    get savedTitle() {
-      return savedTitle;
     },
     get titleWarning() {
       return titleWarning;
@@ -645,26 +420,44 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     get lastEditTime() {
       return lastEditTime;
     },
-    isSavePending: () => saveTimeout !== null || saveInFlight !== null || saveQueued,
-    hasOpenDraftChanges(): boolean {
-      const noteId = deps.getNoteId();
-      if (!originalId && noteId !== 'new') return false;
-      if (saveTimeout !== null || saveInFlight !== null || saveQueued) return true;
-      const currentContent = deps.getEditorContent() ?? content;
-      return currentContent !== savedContent || title !== savedTitle;
+    get savePending() {
+      return saveTimer !== null || saveRequested || saveLoop !== null;
+    },
+    get dirty() {
+      if (!originalId && deps.getNoteId() !== 'new') return false;
+      return this.savePending || liveEditorIsDirty();
+    },
+    get editorContent() {
+      return deps.getEditorContent();
+    },
+    get editorFocused() {
+      return deps.isEditorFocused();
+    },
+    get composing() {
+      return deps.isComposing();
     },
     debouncedSave,
     flushSave,
     loadNote,
     handleTitleInput,
-    handleTitleKeydown,
-    handleTitleFocus,
-    handleTitlePointerDown,
-    autoResizeTitleTextarea,
+    handleTitleKeydown(event: KeyboardEvent) {
+      if (event.key !== 'Enter') return;
+      event.preventDefault();
+      deps.focusEditor();
+    },
+    handleTitleFocus(event: FocusEvent) {
+      selectPlaceholderTitle(event.currentTarget as HTMLTextAreaElement);
+    },
+    handleTitlePointerDown(event: PointerEvent) {
+      const input = event.currentTarget as HTMLTextAreaElement;
+      if (!input.value.startsWith('Untitled')) return;
+      event.preventDefault();
+      input.focus();
+      selectPlaceholderTitle(input);
+    },
     seedOpenNote,
     cancelAndClear,
     applyExternalContent,
     applyRemoteRename,
-    setPrevNoteId,
   };
 }

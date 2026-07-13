@@ -95,8 +95,9 @@ upload. Desktop sync module ownership and serialization boundaries are fixed by
   The ⚠ indicator is also **click-to-dismiss** (`clearSyncError`) — a manual
   dismiss, not a mute: the next failing sync re-raises it.
   Opaque `fetch` `TypeError`s (server unreachable) are rewritten to an actionable
-  message. → syncManager.svelte.ts (`getSyncErrorMessage`, `syncError`,
-  `clearSyncError`), SyncStatusBar.svelte (`onclear`), SettingsScreen.svelte (desktop)
+  message. → syncErrorMessage.ts (`getSyncErrorMessage`),
+  syncManager.svelte.ts (`syncError`, `clearSyncError`), SyncStatusBar.svelte
+  (`onclear`), SettingsScreen.svelte (desktop)
 - **Per-item sync failures surface — a cycle that COMPLETES is not assumed
   healthy.** When individual operations fail (an upload/create/update, a
   push-side delete, a duplicate-move loser takedown, an object-map
@@ -179,8 +180,7 @@ upload. Desktop sync module ownership and serialization boundaries are fixed by
   sync clears cycle-failure errors but NOT a live-stream error (the stream is
   still down — clearing it would re-arm the toast and spam every reconnect
   attempt); a stream error clears when the stream reconnects or on dismiss.
-  → syncManager.svelte.ts (`raiseSyncError`, `clearSyncError`,
-  `SyncErrorSource`)
+  → syncManager.svelte.ts (`raiseError`, `clearError`)
 - **Desktop shows a persistent idle sync indicator.** While the live SSE stream
   is connected and healthy (no active sync, no error, online), the bottom-right
   corner shows a subtle ✓ tick, so "sync is set up and fine" is always legible
