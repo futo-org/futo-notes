@@ -204,7 +204,7 @@
                 createFolder: (path: string) => fs.createFolder?.(path),
                 renameFolder: (from: string, to: string) => fs.renameFolder?.(from, to),
                 deleteFolder: (path: string) => fs.deleteFolder?.(path),
-                moveNote: (fromId: string, toId: string) => fs.moveNote?.(fromId, toId),
+                moveNote: (fromId: string, toId: string) => fs.renameNote(fromId, toId),
                 // High-level move that suffixes the incoming file when the
                 // destination already exists (Spec § 4 sync conflict row).
                 moveNoteWithCollisions: (fromId: string, toId: string) =>

@@ -16,9 +16,8 @@ vi.mock('./fileSystem', () => ({
   writeNote: vi.fn(),
   deleteNoteFile: vi.fn(),
   deleteAllContent: vi.fn(),
-  renameNote: vi.fn(),
+  createNoteFile: vi.fn(),
   moveNoteFile: vi.fn(),
-  getUniqueNoteId: vi.fn(),
   readNote: vi.fn(),
 }));
 vi.mock('./autoSyncV2', () => ({

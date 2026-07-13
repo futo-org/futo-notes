@@ -29,6 +29,21 @@ export function createNodeFS(): TestPlatformFS {
     }
   }
 
+  // Mirrors the Rust `get_unique_note_id` `-2`/`-3` collision rule so the
+  // test FS resolves ids the same way desktop does. `excludeId` is the id
+  // being renamed away (must not collide with itself).
+  function uniqueNoteId(baseId: string, excludeId?: string): string {
+    const exists = (id: string): boolean => fs.existsSync(path.join(tmpDir, `${id}.md`));
+    if (baseId === excludeId || !exists(baseId)) return baseId;
+    let counter = 2;
+    let candidate = `${baseId}-${counter}`;
+    while (exists(candidate)) {
+      counter++;
+      candidate = `${baseId}-${counter}`;
+    }
+    return candidate;
+  }
+
   function walkMd(dir: string, base: string, out: NoteFile[]): void {
     if (!fs.existsSync(dir)) return;
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -230,12 +245,25 @@ export function createNodeFS(): TestPlatformFS {
       }
     },
 
-    async moveNote(fromId: string, toId: string): Promise<void> {
-      const from = path.join(tmpDir, `${fromId}.md`);
-      const to = path.join(tmpDir, `${toId}.md`);
-      if (!fs.existsSync(from)) return;
-      ensureDir(to);
-      fs.renameSync(from, to);
+    async createNote(folder: string, title: string): Promise<string> {
+      const wanted = folder ? `${folder}/${title}` : title;
+      const finalId = uniqueNoteId(wanted);
+      const filePath = path.join(tmpDir, `${finalId}.md`);
+      ensureDir(filePath);
+      fs.writeFileSync(filePath, '', 'utf-8');
+      return finalId;
+    },
+
+    async renameNote(oldId: string, newId: string): Promise<string> {
+      const from = path.join(tmpDir, `${oldId}.md`);
+      if (!fs.existsSync(from)) return oldId;
+      const finalId = uniqueNoteId(newId, oldId);
+      if (finalId !== oldId) {
+        const to = path.join(tmpDir, `${finalId}.md`);
+        ensureDir(to);
+        fs.renameSync(from, to);
+      }
+      return finalId;
     },
 
     _cleanup(): void {

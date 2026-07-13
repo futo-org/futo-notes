@@ -3,9 +3,8 @@ import {
   writeNote,
   deleteNoteFileToTrash,
   deleteAllContent,
-  renameNote as renameNoteFile,
+  createNoteFile,
   moveNoteFile,
-  getUniqueNoteId,
   readNote as readNoteFile,
 } from './fileSystem';
 import { getFS, getPlatformFS } from './platform';
@@ -281,7 +280,12 @@ export async function createNote(
   content: string,
   overrideMtime?: number,
 ): Promise<{ id: string; mtime: number }> {
-  id = await getUniqueNoteId(id);
+  // The domain resolves the id collision and creates the note; the content
+  // write follows (createNote's callers always have body content ready).
+  const slash = id.lastIndexOf('/');
+  const folder = slash === -1 ? '' : id.slice(0, slash);
+  const title = slash === -1 ? id : id.slice(slash + 1);
+  id = await createNoteFile(folder, title);
   const mtime = await writeNote(id, content, overrideMtime);
 
   notesCache.push({
@@ -303,14 +307,28 @@ export async function updateNote(
   originalId?: string,
   overrideMtime?: number,
 ): Promise<{ id: string; mtime: number }> {
-  const finalId = await getUniqueNoteId(id, originalId);
+  let finalId: string;
   let mtime: number;
 
-  if (originalId && originalId !== finalId) {
-    mtime = await renameNoteFile(originalId, finalId, content, overrideMtime);
+  if (!originalId) {
+    // Brand-new note: the domain resolves the id collision and creates the
+    // file, then the current body is written to the resolved id.
+    const slash = id.lastIndexOf('/');
+    const folder = slash === -1 ? '' : id.slice(0, slash);
+    const title = slash === -1 ? id : id.slice(slash + 1);
+    finalId = await createNoteFile(folder, title);
+    mtime = await writeNote(finalId, content, overrideMtime);
+  } else if (originalId !== id) {
+    // Title changed → atomic rename (the domain resolves any collision and,
+    // on a case/NFC-only change, routes through a temp hop). Persist the
+    // current body to the renamed note, then relink references to it.
+    finalId = await moveNoteFile(originalId, id);
+    mtime = await writeNote(finalId, content, overrideMtime);
     removeFromSearchIndex(originalId);
     await rewriteWikilinksForRename(originalId, finalId);
   } else {
+    // Same id → plain content save.
+    finalId = id;
     mtime = await writeNote(finalId, content, overrideMtime);
   }
 
@@ -414,14 +432,13 @@ export async function moveNote(
     notesCache[idx] = { ...prev, id: toId, title: noteTitleFromId(toId) };
   }
   try {
-    const finalId = await getUniqueNoteId(toId);
+    // Atomic rename — the domain resolves any id collision and preserves the
+    // file's mtime, so the cache entry's existing modificationTime stays
+    // accurate. The sidebar doesn't re-sort after the disk op completes.
+    const finalId = await moveNoteFile(fromId, toId);
     if (finalId !== toId && prev) {
       notesCache[idx] = { ...notesCache[idx], id: finalId, title: noteTitleFromId(finalId) };
     }
-    // Atomic rename — preserves the file's mtime, so the cache entry's
-    // existing modificationTime stays accurate. The sidebar doesn't
-    // re-sort after the disk op completes.
-    await moveNoteFile(fromId, finalId);
     const mtime = prev?.modificationTime ?? Date.now();
     // Re-key the search index from the moved file's body. Body unchanged,
     // so we just need fromId removed and finalId added.
@@ -668,4 +685,4 @@ async function mtimeForId(fs: ReturnType<typeof getFS>, id: string): Promise<num
   return getNoteById(id)?.modificationTime ?? Date.now();
 }
 
-export { readNote, noteExists, getUniqueNoteId } from './fileSystem';
+export { readNote, noteExists } from './fileSystem';
