@@ -1,6 +1,6 @@
 //! Translation from shared sync callbacks to stable Tauri events.
 
-use futo_notes_sync::live::SyncSessionListener;
+use futo_notes_sync::SyncSessionListener;
 use tauri::{AppHandle, Emitter};
 
 pub(crate) struct TauriSyncListener {
@@ -8,9 +8,11 @@ pub(crate) struct TauriSyncListener {
 }
 
 impl SyncSessionListener for TauriSyncListener {
-    fn on_synced(&self, _summary: futo_notes_sync::SyncSummary) {
-        // `sync:live-synced` carries the wire summary and is emitted by the
-        // cycle closure that still has access to that projection.
+    fn on_synced(&self, summary: futo_notes_sync::SyncSummary) {
+        let _ = self.app.emit(
+            "sync:live-synced",
+            super::frontend_contract::SyncSummary::from(&summary),
+        );
     }
 
     fn on_connected(&self) {

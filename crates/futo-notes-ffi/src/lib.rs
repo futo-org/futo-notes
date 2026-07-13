@@ -16,17 +16,12 @@ use std::sync::{Arc, Mutex};
 use futo_notes_model as model;
 use futo_notes_search as engine;
 use futo_notes_sync as sync;
-use futo_notes_sync::{
-    live::{LiveHandle, LiveFuture, SyncSessionListener},
-    orchestrator::SyncErrorKind,
-    session::SyncSession,
-    state::ConnectedState,
-};
+use futo_notes_sync::{SyncErrorKind, SyncProgress, SyncSession, SyncSessionListener};
 
 /// No-op sync hooks. The native shell has no filesystem watcher to suppress
 /// and no progress UI wired to the per-phase callback, so both hooks are
 /// inert. (The Tauri desktop supplies real implementations.)
-fn no_progress(_p: sync::orchestrator::SyncProgress) {}
+fn no_progress(_p: SyncProgress) {}
 fn no_pre_write(_f: &str) {}
 
 uniffi::setup_scaffolding!();
@@ -499,11 +494,11 @@ impl From<SyncErrorKind> for SyncError {
     }
 }
 
-impl From<sync::orchestrator::SyncSummary> for SyncSummary {
-    /// Map the rich orchestrator summary down to the count + failure fields
+impl From<sync::SyncSummary> for SyncSummary {
+    /// Map the rich engine summary down to the count + failure fields
     /// the native shell exposes; the id-list / rename fields are dropped
     /// (native doesn't surface them).
-    fn from(s: sync::orchestrator::SyncSummary) -> Self {
+    fn from(s: sync::SyncSummary) -> Self {
         SyncSummary {
             uploaded: s.uploaded,
             downloaded: s.downloaded,
@@ -545,13 +540,13 @@ pub trait SyncEventListener: Send + Sync {
     fn on_stopped(&self);
 }
 
-/// Bridges the shared [`SyncSessionListener`] (called by `live::watch`) onto
+/// Bridges the shared [`SyncSessionListener`] onto
 /// the UniFFI `SyncEventListener` the native shell implements. The session
 /// machinery is now adapter-agnostic; this is the FFI-side projection.
 struct FfiListener(Arc<dyn SyncEventListener>);
 
 impl SyncSessionListener for FfiListener {
-    fn on_synced(&self, summary: sync::orchestrator::SyncSummary) {
+    fn on_synced(&self, summary: sync::SyncSummary) {
         self.0.on_synced(summary.into());
     }
     fn on_connected(&self) {
@@ -592,19 +587,20 @@ impl SyncClient {
     /// mint the vault key, unwrap it with `password`, and load the persisted
     /// object map. Replaces any existing session.
     pub async fn connect(&self, password: String) -> Result<ConnectInfo, SyncError> {
-        let (connected, result) =
-            sync::orchestrator::connect(&self.notes_root, &self.server_url, &password).await?;
+        let result = self
+            .session
+            .connect(&self.notes_root, &self.server_url, &password)
+            .await?;
         let info = ConnectInfo {
             user_id: result.user_id,
             collection_id: result.collection_id,
             auth_mode: result.auth_mode.to_owned(),
         };
-        self.session.set_connected(connected).await;
         Ok(info)
     }
 
     /// Run one full sync cycle: PUSH local changes first, then pull peer
-    /// changes (push-first `run_sync`, identical to the desktop orchestrator).
+    /// changes (the same push-first cycle used by desktop).
     ///
     /// Push-first is the data-safety invariant: a dirty local edit is PUT
     /// before any pull writes to disk, so a peer edit can never silently
@@ -619,24 +615,16 @@ impl SyncClient {
     /// commit the result at the end — so a concurrent `status()` never blocks
     /// behind network I/O.
     pub async fn sync_now(&self) -> Result<SyncSummary, SyncError> {
-        let _gate = self.session.lock_sync_gate().await;
-        let snapshot = self.session.snapshot().await.ok_or(SyncError::NotConnected)?;
-
-        let (summary, after) = sync::orchestrator::run_sync(
-            &snapshot,
-            &self.notes_root,
-            &no_progress,
-            &no_pre_write,
-        )
-        .await?;
-
-        self.session.set_connected(after).await;
+        let summary = self
+            .session
+            .sync(&self.notes_root, &no_progress, &no_pre_write)
+            .await?;
         Ok(summary.into())
     }
 
     /// Synchronous status snapshot. Never blocks on I/O.
     pub fn status(&self) -> SyncStatus {
-        match self.session.status_blocking() {
+        match self.session.status() {
             None => SyncStatus {
                 connected: false,
                 server_url: None,
@@ -673,73 +661,15 @@ impl SyncClient {
         self: Arc<Self>,
         listener: Box<dyn SyncEventListener>,
     ) -> Result<(), SyncError> {
-        if !self.session.is_connected().await {
-            return Err(SyncError::NotConnected);
-        }
-
         let listener: Arc<dyn SyncEventListener> = Arc::from(listener);
         let session_listener: Arc<dyn SyncSessionListener> = Arc::new(FfiListener(listener));
-
-        let inner = self.session.inner_arc();
-        let sync_gate = self.session.sync_gate_arc();
-        let notes_root = self.notes_root.clone();
-
-        self.session.start_live_with(
-            session_listener,
-            |listener| LiveHandle {
-                snapshot: {
-                    let inner = Arc::clone(&inner);
-                    Box::new(move || -> LiveFuture<Option<ConnectedState>> {
-                        let inner = Arc::clone(&inner);
-                        Box::pin(async move { inner.lock().await.clone() })
-                    })
-                },
-                cycle: {
-                    let inner = Arc::clone(&inner);
-                    let sync_gate = Arc::clone(&sync_gate);
-                    let notes_root = notes_root.clone();
-                    Box::new(move || -> LiveFuture<Result<Option<sync::orchestrator::SyncSummary>, String>> {
-                        let inner = Arc::clone(&inner);
-                        let sync_gate = Arc::clone(&sync_gate);
-                        let notes_root = notes_root.clone();
-                        Box::pin(async move {
-                            // Both live triggers — an SSE event ("a peer changed
-                            // something") and a debounced local edit — run this
-                            // same full push-first cycle, NOT a bare pull/push.
-                            // A bare pull here would let a peer's edit overwrite a
-                            // locally-edited-but-unpushed note on disk with no
-                            // conflict copy (F1). `run_sync` PUSHes our dirty
-                            // edits first (clean 3-way merge or conflict copy on
-                            // 409), then pulls from the pre-push cursor — so a
-                            // local edit can never silently vanish. Gate first,
-                            // then brief inner locks — same discipline as
-                            // `sync_now`, so the cursor can't regress.
-                            let _gate = sync_gate.lock().await;
-                            let snap = match inner.lock().await.clone() {
-                                Some(s) => s,
-                                None => return Ok(None),
-                            };
-                            let (summary, after) = sync::orchestrator::run_sync(
-                                &snap,
-                                &notes_root,
-                                &no_progress,
-                                &no_pre_write,
-                            )
-                            .await
-                            .map_err(|e| SyncError::from(e).to_string())?;
-                            *inner.lock().await = Some(after);
-                            Ok(Some(summary))
-                        })
-                    })
-                },
-                listener,
-            },
-            |handle, cancel_rx, note_rx| {
-                tokio::spawn(async move {
-                    sync::live::watch(handle, cancel_rx, note_rx).await;
-                })
-            },
-        );
+        self.session
+            .start_live(
+                self.notes_root.clone(),
+                session_listener,
+                Arc::new(no_pre_write),
+            )
+            .await?;
         Ok(())
     }
 
@@ -756,9 +686,7 @@ impl SyncClient {
     /// can fast-forward drifted-but-unedited notes instead of parking a
     /// `(conflict <oid8>)` copy of each one.
     pub async fn disconnect(&self) -> Result<(), SyncError> {
-        self.session.stop_live();
-        self.session.clear().await;
-        sync::state::demote_state_to_ancestry(&self.notes_root).map_err(SyncError::Io)?;
+        self.session.disconnect(&self.notes_root).await?;
         Ok(())
     }
 }

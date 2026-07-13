@@ -271,16 +271,16 @@
     },
     {
       "concept": "sync-summary-failure-shape",
-      "description": "SyncSummary/SyncFailure shape: CANONICALLY DEFINED in the sync orchestrator (crates/futo-notes-sync/src/orchestrator.rs), mirrored by the Tauri frontend_contract.rs struct, the FFI re-export, and hand-typed in TS (autoSyncV2.ts / syncManager.svelte.ts / syncServiceE2ee.ts / testSync.ts). No fixture cross-checks field-for-field parity today (L1-1 plans generated types via specta to retire the hand copy).",
+      "description": "SyncSummary/SyncFailure shape: CANONICALLY DEFINED in the sync entry point (crates/futo-notes-sync/src/sync.rs), mirrored by the Tauri frontend_contract.rs struct, the FFI re-export, and hand-typed in TS (autoSyncV2.ts / syncManager.svelte.ts / syncServiceE2ee.ts / testSync.ts). No fixture cross-checks field-for-field parity today (L1-1 plans generated types via specta to retire the hand copy).",
       "lockStatus": "unlocked",
-      "note": "Codex backfill review (MR !63) caught that the original entry omitted the canonical orchestrator.rs definition — a shape change there could drift silently while this entry stayed green. Added it below. Its pattern matches the struct NAMES only (not a field list) so it survives MR !64 (merges after !62) adding a `local_writes_applied` field to both structs without going stale.",
+      "note": "Codex backfill review (MR !63) caught that the original entry omitted the canonical Rust definitions — a shape change there could drift silently while this entry stayed green. Their patterns match the struct NAMES only (not a field list) so field additions do not make this registry entry stale. MR !74 moved the definitions from orchestrator.rs to sync.rs.",
       "copies": [
         {
-          "location": "crates/futo-notes-sync/src/orchestrator.rs",
+          "location": "crates/futo-notes-sync/src/sync.rs",
           "pattern": "pub struct SyncSummary\\b"
         },
         {
-          "location": "crates/futo-notes-sync/src/orchestrator.rs",
+          "location": "crates/futo-notes-sync/src/sync.rs",
           "pattern": "pub struct SyncFailure\\b"
         },
         {

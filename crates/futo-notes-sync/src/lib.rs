@@ -1,26 +1,81 @@
-//! `futo-notes-sync` — a Tauri-free E2EE sync + auth client.
+//! End-to-end encrypted notes sync.
 //!
-//! Ports the crypto (`futo-notes-core::e2ee`), the reqwest HTTP client
-//! (`client`), the object-map persistence (`state`), and a streamlined sync
-//! orchestrator (`orchestrator`).
-//!
-//! This crate is a PLAIN Rust library: the UniFFI surface (the `SyncClient`
-//! object Swift/Kotlin call) now lives in `futo-notes-ffi`, the single FFI
-//! facade. `futo-notes-ffi` consumes the orchestrator through these public
-//! modules.
+//! [`SyncSession`] is the application API. It owns the connected state, makes
+//! sync cycles mutually exclusive, persists progress, and runs live sync.
 
-pub mod client;
+mod http;
 pub mod live;
-pub mod orchestrator;
-pub mod session;
-pub mod state;
+mod store;
+mod sync;
 
-// Re-export the types FFI/app consumers need at the crate root for
-// convenience.
-pub use orchestrator::{
-    auth_mode_str, connect, resume, run_pull, run_push, run_sync, ConnectResult, FailureKind,
-    HashFilenameEntry, RenamePair, SyncErrorKind, SyncFailure, SyncProgress, SyncSummary,
+use std::path::Path;
+
+pub use live::{ResumeCredentials, SyncSession, SyncSessionListener};
+pub use store::{ConnectedState, ObjectState as E2eeObjectMapEntry};
+pub use sync::{
+    ConnectInfo, FailureKind, PreWrite, Progress, RenamePair, SyncErrorKind, SyncFailure,
+    SyncProgress, SyncSummary,
 };
-pub use live::{LiveHandle, SyncSessionListener};
-pub use session::{AbortableTask, SyncSession};
-pub use state::{ConnectedState, E2eeObjectMapEntry};
+
+// Kept as a narrow compatibility surface for the server acceptance tests.
+// Applications use SyncSession instead.
+#[doc(hidden)]
+pub async fn connect(
+    root: &Path,
+    server: &str,
+    password: &str,
+) -> Result<(ConnectedState, ConnectInfo), SyncErrorKind> {
+    sync::connect(root, server, password).await
+}
+
+#[doc(hidden)]
+pub async fn resume(
+    root: &Path,
+    server: &str,
+    token: &str,
+    user_id: &str,
+    collection_id: &str,
+    password: &str,
+) -> Result<ConnectedState, SyncErrorKind> {
+    sync::resume(root, server, token, user_id, collection_id, password).await
+}
+
+#[doc(hidden)]
+pub async fn run_push(
+    state: &ConnectedState,
+    root: &Path,
+    progress: &Progress,
+    pre_write: &PreWrite,
+) -> Result<(SyncSummary, ConnectedState), SyncErrorKind> {
+    sync::push(state, root, progress, pre_write).await
+}
+
+#[doc(hidden)]
+pub async fn run_pull(
+    state: &ConnectedState,
+    root: &Path,
+    since: u64,
+    progress: &Progress,
+    pre_write: &PreWrite,
+) -> Result<(SyncSummary, ConnectedState), SyncErrorKind> {
+    sync::pull(state, root, since, progress, pre_write).await
+}
+
+#[doc(hidden)]
+pub async fn run_sync(
+    state: &ConnectedState,
+    root: &Path,
+    progress: &Progress,
+    pre_write: &PreWrite,
+) -> Result<(SyncSummary, ConnectedState), SyncErrorKind> {
+    sync::cycle(state, root, progress, pre_write).await
+}
+
+#[doc(hidden)]
+pub mod state {
+    pub use crate::store::{ConnectedState, ObjectState as E2eeObjectMapEntry};
+
+    pub fn demote_state_to_ancestry(root: &std::path::Path) -> Result<(), String> {
+        crate::store::demote(root)
+    }
+}

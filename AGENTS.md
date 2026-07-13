@@ -64,7 +64,7 @@ crates/
   futo-notes-core/      ← Hashing, E2EE crypto, sync payload prep/apply, 3-way merge,
                           path safety + title primitives (files.rs)
   futo-notes-model/     ← THE NOTE DOMAIN: CRUD, rules (id/tags/wikilinks/preview), scan
-  futo-notes-sync/      ← E2EE sync orchestrator (push-first run_sync), SSE live loop
+  futo-notes-sync/      ← E2EE SyncSession (push-first cycles), SSE live loop
   futo-notes-search/    ← Tantivy BM25 engine + background indexer
   futo-notes-ffi/       ← Single UniFFI facade for native shells (NoteStore, SearchEngine,
                           SyncClient, rule functions). Generated bindings are gitignored.
@@ -353,7 +353,7 @@ behavior.
 
 ### 7.5 Sync change
 - [ ] `cargo test -p futo-notes-sync` green
-- [ ] Protocol/orchestrator changes → scenario added/updated in `tests/cross-platform-sync.mjs`
+- [ ] Protocol/sync-engine changes → scenario added/updated in `tests/cross-platform-sync.mjs`
       (register in the `scenarios` array) and `just test-cross-platform` run locally
 - [ ] Server-contract changes → F-series integration tests against an ISOLATED server
       (`FUTO_TEST_SERVER=http://127.0.0.1:3055 cargo test -p futo-notes-sync --test
@@ -511,7 +511,7 @@ toolbar manifest → generated native specs.
   `ALLOWED_IMAGE_EXTENSIONS`, picker filter.
 - Note sort order (`modified desc, id asc`): `notes.svelte.ts`, Rust `scan_notes`, iOS
   `resortInPlace`.
-- `SyncSummary`/`SyncFailure` shape: TS, orchestrator, FFI facade.
+- `SyncSummary`/`SyncFailure` shape: TS, sync engine, FFI facade.
 - `futoBridge` message handling: `bridge.ts` contract vs hand-written Swift + Kotlin hosts.
 
 ## 13. Own the E2E experience
