@@ -462,14 +462,16 @@ EditorWebView.swift, EditorWebView.kt
   duplicate copy); if the note was **changed** by a peer it is parked as a
   conflict copy (`parkDraftCopy`) so the local edit survives without clobbering
   the peer's version. A clean editor never flushes, so a genuinely abandoned note
-  is never resurrected. The re-create is unconditional (desktop parity — the
-  desktop recreate has no CAS either); a live-sync write that recreates the id in
-  the sub-syscall window before the flush lands could be clobbered, but the next
-  sync reconcile surfaces that divergence as a conflict copy (backstop) — the same
-  accepted window class as `write_if_unchanged` itself, not closed with an
-  O_EXCL primitive. Verified on iOS 2026-07-13 (sim: clean re-background after
-  a settled save left mtime unchanged; dirty-on-deleted backgrounded across
-  cycles yields exactly one home — the re-created note — and no conflict copy).
+  is never resurrected. The re-create is conditional-on-absent
+  (`create_note_if_absent`, O_EXCL — the exists-check and the create are one
+  syscall), so a live-sync write that recreates the id OUTSIDE the store's
+  serialization in the flush window is not clobbered: if the id reappeared the
+  recreate is skipped and the draft is parked as a conflict copy instead. →
+  `futo_notes_model::create_note_if_absent` via FFI `create_if_absent`. Verified
+  on iOS 2026-07-13 (sim: clean re-background after a settled save left mtime
+  unchanged; dirty-on-deleted backgrounded across cycles yields exactly one home —
+  the re-created note — and no conflict copy) + Rust unit tests
+  (creates-when-missing / never-clobbers-existing / rejects-traversal).
 - The open editor's unsaved-draft register is **derived** from the editor's live
   state (note id, buffer, saved content, loaded) rather than hand-synced, so it
   goes clean the instant a save completes or a remote is adopted (no stale draft
