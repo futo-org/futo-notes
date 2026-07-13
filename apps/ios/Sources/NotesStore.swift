@@ -445,22 +445,61 @@ final class NotesStore: ObservableObject {
     /// sequence, collapsing its cross-FFI TOCTOU — a note deleted while
     /// backgrounded returns `.skippedMissing` (never resurrected), and content a
     /// live-sync pull adopted since the editor's last read returns
-    /// `.skippedChanged` (never clobbered). Only a genuine write (`.wrote`)
-    /// reflects into the in-memory list. Mirrors Android's `NotesStore.flushAsync`.
+    /// `.skippedChanged` (never clobbered). PERSIST-OR-PARK: a genuine write
+    /// (`.wrote`) reflects into the in-memory list; a skipped write never silently
+    /// drops the draft — it is parked as a conflict copy (`parkDraftCopy`) so the
+    /// edit survives without resurrecting/clobbering. (Diverges from Android's
+    /// flush, which drops on skip; iOS is the only shell that makes the peer-delete
+    /// "keeping local draft" promise, so it must guarantee the draft survives a
+    /// Back within the debounce — H1/N2.)
     func flushAsync(_ draft: PendingDraft) {
         Task {
             do {
                 let (outcome, derived) = try await vault.writeIfUnchanged(
                     draft.id, base: draft.base, content: draft.content)
-                if outcome == .wrote, let derived {
-                    applyWriteBookkeeping(
-                        id: draft.id, preview: derived.preview,
-                        richPreview: derived.richPreview, tags: derived.tags)
+                switch outcome {
+                case .wrote:
+                    if let derived {
+                        applyWriteBookkeeping(
+                            id: draft.id, preview: derived.preview,
+                            richPreview: derived.richPreview, tags: derived.tags)
+                    }
+                case .skippedChanged:
+                    // The note changed under the editor between its last read and
+                    // this flush — a live pull adopted a peer edit, or an in-flight
+                    // autosave advanced disk past `base`. NEVER drop the draft: if it
+                    // hasn't already converged with disk, park it as a conflict copy
+                    // (persist-or-park). Not a clobber — the diverged note on disk is
+                    // left intact; the edit survives as a new note.
+                    let disk = await vault.read(draft.id)
+                    if disk != draft.content { await parkDraftCopy(draft) }
+                case .skippedMissing:
+                    // The note was deleted under the editor. Don't resurrect the
+                    // original id (anti-resurrection); preserve the edit as a
+                    // recovered copy so a dirty draft on a peer-deleted note is never
+                    // silently lost (H1c).
+                    await parkDraftCopy(draft)
                 }
             } catch {
                 print("flush failed for \(draft.id): \(error)")
             }
         }
+    }
+
+    /// Preserve a draft that could NOT be written to its own note — the note was
+    /// deleted or changed out from under the editor between its last read and the
+    /// write — as a "<title> (conflict YYYY-MM-DD)" copy, so a diverged/blocked
+    /// flush never silently drops the user's edit (persist-or-park). Shared by the
+    /// flush fallback above and the live-pull conflict path (`adoptExternalChange`),
+    /// so the conflict-copy naming lives in one place. Anti-resurrection safe: it
+    /// creates a NEW note and never rewrites the diverged/deleted original id.
+    func parkDraftCopy(_ draft: PendingDraft) async {
+        let parts = splitId(id: draft.id)
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        let title = "\(parts.title) (conflict \(formatter.string(from: Date())))"
+        guard let copyId = await createNote(title: title, folder: parts.folder) else { return }
+        await write(copyId, content: draft.content)
     }
 
     // MARK: - Folders

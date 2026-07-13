@@ -131,9 +131,18 @@ struct NoteEditorView: View {
                     // note on disk. Once loaded, all edits flow through.
                     guard loaded else { return }
                     content = newContent
-                    // The unsaved-draft register follows from the derivation (the
-                    // `.onChange(of: draftInputs)` below re-publishes on this content
-                    // change) — no manual publish here. F8 jetsam guard.
+                    // Publish the derived draft SYNCHRONOUSLY here, not only via the
+                    // async `.onChange(of: draftInputs)` below. The scenePhase
+                    // background handler reads the register synchronously on
+                    // `.inactive`; SwiftUI may not have run the `.onChange` publish
+                    // yet in the same update pass, so an edit-then-immediate-
+                    // background could leave the register stale and lose the newest
+                    // keystroke to jetsam (N1 — this restores the pre-refactor
+                    // synchronous publish). publishDraft runs the same derivation, so
+                    // a clean buffer still publishes nil (no R1 regression); the
+                    // derived `.onChange` still owns clear-on-save/clear-on-adopt.
+                    // F8 jetsam guard.
+                    publishDraft()
                     scheduleSave(newContent)
                 },
                 onOpenNote: { id in
@@ -234,6 +243,15 @@ struct NoteEditorView: View {
             // re-claims because onDisappear released the previous token.
             if draftToken == 0 { draftToken = store.claimDraftOwnership() }
             publishDraft()
+            // Re-check the note on RE-appearance (returning from a wikilink cover).
+            // A peer may have deleted or changed it while this editor was buried;
+            // `.onReceive($notes)` does NOT re-fire for it on a plain Back (no store
+            // change), so without this a buried peer-deleted note stays bound to a
+            // dead id and the next keystroke's UNCONDITIONAL debounced save
+            // resurrects it fleet-wide (H2). adoptExternalChange applies the same
+            // close/keep/adopt decision as a live pull. Gated on `loaded` so it
+            // never runs before the initial read (a fresh open is already current).
+            if loaded { Task { await adoptExternalChange() } }
         }
         // Keep the register's derivation current: any change to loaded/noteId/
         // savedContent/content re-publishes this editor's draft (or clears it the
@@ -432,11 +450,21 @@ struct NoteEditorView: View {
     /// the draft is parked as a "<title> (conflict YYYY-MM-DD)" copy and the
     /// disk content adopted, so neither side is silently lost.
     private func adoptExternalChange() async {
-        guard await store.exists(noteId) else {
-            handleOpenNoteDeleted()
+        // Snapshot the id: a debounced rename/move can change `noteId` DURING the
+        // awaits below. Acting on the stale id would (a) treat a rename's
+        // "old id no longer exists" as a peer delete and pop the renamed editor
+        // with a spurious banner, or (b) park/adopt against the wrong note (N3).
+        // After every suspension, bail if the editor has since re-keyed.
+        let id = noteId
+        guard await store.exists(id) else {
+            // A rename moved the old id away (exists false) — that is NOT a peer
+            // delete. Only treat it as one if we're still on the same note.
+            if noteId == id { handleOpenNoteDeleted() }
             return
         }
-        let disk = await store.read(noteId)
+        guard noteId == id else { return }
+        let disk = await store.read(id)
+        guard noteId == id else { return }
         // Branch on the CURRENT draft state — the user may have typed while the
         // read was in flight (we're back on the main actor here).
         if content == savedContent {
@@ -456,22 +484,11 @@ struct NoteEditorView: View {
         } else {
             // True three-way conflict: cancel the pending save (it would clobber
             // the remote edit — store.write is unconditional), park the draft as a
-            // conflict copy, then adopt. No manual draft clear: during the copy's
-            // await window the register still derives the dirty draft, but a
-            // background flush is conditional (base=old savedContent ≠ the remote
-            // on disk → SkippedChanged), so the main note can't be clobbered; the
-            // final `savedContent = disk` nulls the draft by derivation.
+            // conflict copy, then adopt. Uses the shared `parkDraftCopy` so the
+            // flush and the live-pull path can't drift on the conflict-copy naming.
             saveTask?.cancel()
-            let draft = content
-            let parts = splitId(id: noteId)
-            let formatter = DateFormatter()
-            formatter.dateFormat = "yyyy-MM-dd"
-            let conflictTitle = "\(parts.title) (conflict \(formatter.string(from: Date())))"
-            if let conflictId = await store.createNote(
-                title: conflictTitle, folder: parts.folder)
-            {
-                await store.write(conflictId, content: draft)
-            }
+            await store.parkDraftCopy(PendingDraft(id: id, base: savedContent, content: content))
+            guard noteId == id else { return }
             if isVisible { EditorHost.shared.applyExternal(content: disk) }
             content = disk
             savedContent = disk
@@ -486,18 +503,23 @@ struct NoteEditorView: View {
     ///     the pending body edit is preserved and the debounced save re-creates
     ///     the note, with a "keeping local draft" banner.
     /// Only the VISIBLE editor acts — a buried editor in a wikilink stack must not
-    /// pop the top of the stack; it re-evaluates when the user navigates back to
-    /// it and a subsequent store change re-fires this path. The background/leave
-    /// flush is already anti-resurrection (write_if_unchanged → SkippedMissing),
-    /// so a clean note is never recreated even before this close runs.
+    /// pop the top of the stack. A buried editor re-evaluates via the `.onAppear`
+    /// re-adopt when the user navigates back to it (H2), so a peer-deleted buried
+    /// note is closed/kept on return rather than staying bound to a dead id where
+    /// the next keystroke's unconditional autosave would resurrect it. The
+    /// background/leave flush is anti-resurrection (persist-or-park →
+    /// SkippedMissing parks a copy, never recreates the original id).
     private func handleOpenNoteDeleted() {
         guard isVisible, !isClosing else { return }
         if content == savedContent {
             // Clean: neutralize any pending write so nothing resurrects the note,
             // mark the draft clean (register + onDisappear flush become no-ops),
-            // then close and inform.
+            // then close and inform. `isClosing` guards a concurrent adopt (the
+            // onAppear re-check and an `.onReceive` fire can both land) from popping
+            // the stack twice.
             saveTask?.cancel()
             renameTask?.cancel()
+            isClosing = true
             savedContent = content
             store.showTransient("Note was deleted during sync")
             if !navPath.isEmpty { navPath.removeLast() }
