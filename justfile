@@ -423,6 +423,11 @@ check-drift:
 check-debt-ratchet:
   node scripts/debt-ratchet.mjs
 
+# Run the same focused architecture checks as GitLab's test:arch-gates job.
+# package.json owns the membership because the pinned CI image does not include just.
+arch-gate:
+  pnpm run check:arch-gate
+
 # Remove native build artifacts (Xcode DerivedData + Gradle output + web dist)
 # to reclaim disk. Leaves cargo `target/` alone (expensive to rebuild + shared).
 clean:
@@ -430,7 +435,7 @@ clean:
   rm -rf apps/ios/.build apps/ios/.build-device apps/ios/.build-device-release
   rm -rf apps/android/app/build apps/android/build
 
-check: spec-gaps-check toolbar-spec-check bridge-spec-check check-command-reachability check-platform-discipline check-drift check-debt-ratchet test-rust
+check: spec-gaps-check toolbar-spec-check arch-gate test-rust
   pnpm run lint
   pnpm run format:check
   pnpm run test:minimal

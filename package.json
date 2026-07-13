@@ -28,6 +28,7 @@
     "check:platform-discipline": "node scripts/check-platform-discipline.mjs",
     "check:drift": "node scripts/drift-check.mjs",
     "check:debt-ratchet": "node scripts/debt-ratchet.mjs",
+    "check:arch-gate": "pnpm run check:command-reachability && pnpm run check:platform-discipline && pnpm run bridge-spec:check && pnpm run check:drift && pnpm run check:debt-ratchet",
     "bridge-spec": "tsx scripts/gen-bridge-spec.ts --write",
     "bridge-spec:check": "tsx scripts/gen-bridge-spec.ts --check",
     "test": "pnpm run test:minimal",

@@ -23,3 +23,7 @@ pnpm run build
 
 New here? See [CONTRIBUTING.md](./CONTRIBUTING.md) for machine setup, then
 [AGENTS.md](./AGENTS.md) for architecture and conventions.
+
+Run the focused repository architecture checks with `just arch-gate`. See
+[Architecture gates](./docs/architecture-gates.md) for what each check enforces and how to fix a
+failure.

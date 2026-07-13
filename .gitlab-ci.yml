@@ -406,11 +406,8 @@ test:arch-gates:
     - !reference [.cache-pnpm, cache]
   script:
     - pnpm install --frozen-lockfile --prefer-offline
-    - node scripts/check-command-reachability.mjs
-    - node scripts/check-platform-discipline.mjs
-    - pnpm exec tsx scripts/gen-bridge-spec.ts --check
-    - node scripts/drift-check.mjs
-    - node scripts/debt-ratchet.mjs
+    # Shared with `just arch-gate`; the pinned CI image does not include just.
+    - pnpm run check:arch-gate
   rules:
     - if: $CI_COMMIT_TAG
     - if: $CI_MERGE_REQUEST_IID
