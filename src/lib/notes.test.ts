@@ -233,6 +233,40 @@ describe('updateNote', () => {
     // (recoverable), not moved to 'new-name' holding stale content.
     expect(await testFS.noteExists('old-name')).toBe(true);
     expect(await testFS.noteExists('new-name')).toBe(false);
+
+    // Arbitration of the A2 severity split (Codex HIGH "permanent loss via
+    // retry" vs Claude LOW "transient"): drive the EXACT retry — the next save
+    // with the same original id. With write-before-rename it converges to the
+    // new id carrying the edit; the pre-fix rename-first order left the retry
+    // renaming a vanished source (stuck). So the edit is recoverable, but ONLY
+    // because of the fix — the reported failure was real, not transient.
+    const retry = await updateNote('new-name', 'New Name', 'edited body', 'old-name');
+    expect(retry.id).toBe('new-name');
+    expect(await testFS.readNote('new-name')).toBe('edited body');
+    expect(await testFS.noteExists('old-name')).toBe(false);
+  });
+
+  // C1: PKT-4/!66 keeps a dirty draft bound to originalId when the open note is
+  // deleted externally (watcher/sync). If the title is ALSO dirty, the save
+  // renames from a now-missing source. Write-before-rename recreates the source
+  // from the kept buffer, then renames — so the draft survives and converges to
+  // the new id (the rename-first order rejected or no-op'd on the missing source
+  // and stranded the draft).
+  it('a rename whose source was externally deleted recreates it from the draft and converges', async () => {
+    await testFS.writeNote('old', 'original');
+
+    const { initNotes, updateNote } = await freshNotes();
+    await initNotes();
+
+    // External delete: the file is gone from disk, but the editor still holds
+    // the (now dirty) draft bound to 'old'.
+    await testFS.deleteNoteFile('old');
+    expect(await testFS.noteExists('old')).toBe(false);
+
+    const result = await updateNote('new', 'New', 'kept draft body', 'old');
+    expect(result.id).toBe('new');
+    expect(await testFS.readNote('new')).toBe('kept draft body');
+    expect(await testFS.noteExists('old')).toBe(false);
   });
 });
 
@@ -633,7 +667,7 @@ describe('folder support: path-as-ID', () => {
 
   it('moveNote suffixes the incoming file when target ID already exists', async () => {
     // Spec § Sync conflict resolution: "Move into a folder where filename
-    // already exists → reuse `getUniqueNoteId` to suffix the incoming file"
+    // already exists → the domain's collision probe suffixes the incoming file"
     await testFS.writeNote('A/note', 'first');
     await testFS.writeNote('B/note', 'second');
 
