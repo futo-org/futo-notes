@@ -4,5 +4,5 @@
 pub(crate) struct AppState {
     pub(crate) watcher: crate::filesystem_watcher::WatcherState,
     pub(crate) search: crate::search_commands::SearchState,
-    pub(crate) sync: crate::sync::session_state::SyncState,
+    pub(crate) sync: futo_notes_sync::SyncSession,
 }

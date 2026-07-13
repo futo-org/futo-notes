@@ -1,5 +1,5 @@
 //! Production-readiness suite: drives the FULL sync-server API through the real
-//! native Rust client path (orchestrator + `E2eeClient`) against a live server,
+//! native Rust `SyncSession` path against a live server,
 //! plus raw-HTTP checks for endpoints the native client doesn't wrap and the
 //! error contract.
 //!

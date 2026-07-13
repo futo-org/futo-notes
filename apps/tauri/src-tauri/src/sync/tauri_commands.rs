@@ -14,9 +14,10 @@ pub async fn e2ee_connect(
     input: E2eeConnectInput,
 ) -> Result<E2eeConnectOutput, String> {
     let root = crate::vault_location::root(&app)?;
-    let (connected, result) =
-        futo_notes_sync::connect(&root, &input.server_url, &input.password).await?;
-    state.sync.set_connected(connected).await;
+    let result = state
+        .sync
+        .connect(&root, &input.server_url, &input.password)
+        .await?;
     Ok(E2eeConnectOutput {
         user_id: result.user_id,
         collection_id: result.collection_id,
@@ -32,27 +33,26 @@ pub async fn e2ee_resume(
     input: E2eeResumeInput,
 ) -> Result<(), String> {
     let root = crate::vault_location::root(&app)?;
-    let connected = futo_notes_sync::resume(
-        &root,
-        &input.server_url,
-        &input.token,
-        &input.user_id,
-        &input.collection_id,
-        &input.password,
-    )
-    .await?;
-    state.sync.set_connected(connected).await;
+    state
+        .sync
+        .resume(
+            &root,
+            futo_notes_sync::ResumeCredentials {
+                server_url: input.server_url,
+                token: input.token,
+                user_id: input.user_id,
+                collection_id: input.collection_id,
+                password: input.password,
+            },
+        )
+        .await?;
     Ok(())
 }
 
 #[tauri::command]
 pub async fn e2ee_disconnect(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     let root = crate::vault_location::root(&app)?;
-    state.sync.stop_live();
-    state.sync.clear().await;
-    // Preserve object/hash ancestry so reconnect can fast-forward unchanged
-    // notes instead of manufacturing conflict copies.
-    futo_notes_sync::state::demote_state_to_ancestry(&root)
+    state.sync.disconnect(&root).await.map_err(Into::into)
 }
 
 #[tauri::command]

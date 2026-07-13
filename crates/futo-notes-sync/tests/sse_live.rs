@@ -1,18 +1,14 @@
-//! Live-server SSE tests: prove the `live::watch` loop auto-pulls a peer's
+//! Live-server SSE tests: prove a `SyncSession` auto-pulls a peer's
 //! change, and that a reconnect catches a change missed while disconnected.
 //!
 //! Gated on `FUTO_TEST_SERVER` (skipped otherwise) — see `tests/common/mod.rs`.
 
 mod common;
 
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use futo_notes_sync::live::{watch, LiveFuture, LiveHandle, SyncSessionListener};
-use futo_notes_sync::state::ConnectedState;
-use futo_notes_sync::{SyncProgress, SyncSummary};
-use tokio::sync::{mpsc, Mutex};
+use futo_notes_sync::{SyncProgress, SyncSession, SyncSessionListener, SyncSummary};
 
 /// No-op sync hooks (no progress UI, no watcher to suppress in the test).
 fn no_progress(_p: SyncProgress) {}
@@ -44,46 +40,6 @@ impl SyncSessionListener for Recorder {
         self.0.lock().unwrap().errors.push(message);
     }
     fn on_stopped(&self) {}
-}
-
-/// Build a `LiveHandle` over a shared session cell, recording callbacks. This
-/// mirrors what `SyncClient::start_live` does in the FFI layer, minus the
-/// sync-gate (the test is the only consumer).
-fn make_handle(
-    state: Arc<Mutex<Option<ConnectedState>>>,
-    rec: Arc<std::sync::Mutex<Recorded>>,
-    vault: PathBuf,
-) -> LiveHandle {
-    LiveHandle {
-        snapshot: {
-            let state = state.clone();
-            Box::new(move || -> LiveFuture<Option<ConnectedState>> {
-                let state = state.clone();
-                Box::pin(async move { state.lock().await.clone() })
-            })
-        },
-        cycle: {
-            let state = state.clone();
-            let vault = vault.clone();
-            Box::new(move || -> LiveFuture<Result<Option<SyncSummary>, String>> {
-                let state = state.clone();
-                let vault = vault.clone();
-                Box::pin(async move {
-                    let snap = match state.lock().await.clone() {
-                        Some(s) => s,
-                        None => return Ok(None),
-                    };
-                    let (summary, after) =
-                        futo_notes_sync::run_sync(&snap, &vault, &no_progress, &no_pre_write)
-                            .await
-                            .map_err(|e| format!("{e:?}"))?;
-                    *state.lock().await = Some(after);
-                    Ok(Some(summary))
-                })
-            })
-        },
-        listener: Arc::new(Recorder(rec)),
-    }
 }
 
 /// Connect a throwaway peer, write one note, push it. Returns `uploaded`.
@@ -132,21 +88,28 @@ async fn auto_pull_on_peer_push() {
     let server = common::server_url().unwrap();
 
     let vault_a = common::temp_vault();
-    let (a_state, _info) = futo_notes_sync::connect(&vault_a, &server, common::TEST_PASSWORD)
+    let session = SyncSession::new();
+    session
+        .connect(&vault_a, &server, common::TEST_PASSWORD)
         .await
         .expect("A connect");
-    let state = Arc::new(Mutex::new(Some(a_state)));
     let rec = Arc::new(std::sync::Mutex::new(Recorded::default()));
-
-    let (cancel_tx, cancel_rx) = mpsc::channel(1);
-    // Auto-push signal: held but never fired (these tests exercise pull only).
-    let (_note_tx, note_rx) = mpsc::channel(1);
-    let handle = make_handle(state.clone(), rec.clone(), vault_a.clone());
-    let join = tokio::spawn(watch(handle, cancel_rx, note_rx));
+    session
+        .start_live(
+            vault_a.clone(),
+            Arc::new(Recorder(rec.clone())),
+            Arc::new(no_pre_write),
+        )
+        .await
+        .expect("start live");
 
     // Stream connects + does its initial catch-up pull.
     assert!(
-        wait_until(|| rec.lock().unwrap().connected >= 1, Duration::from_secs(8)).await,
+        wait_until(
+            || rec.lock().unwrap().connected >= 1,
+            Duration::from_secs(8)
+        )
+        .await,
         "live stream never connected; errors={:?}",
         rec.lock().unwrap().errors
     );
@@ -162,8 +125,7 @@ async fn auto_pull_on_peer_push() {
     let note_path = vault_a.join(format!("{title}.md"));
     let got = wait_until(|| note_path.exists(), Duration::from_secs(8)).await;
 
-    let _ = cancel_tx.send(()).await;
-    let _ = tokio::time::timeout(Duration::from_secs(3), join).await;
+    session.stop_live();
 
     assert!(
         got,
@@ -184,24 +146,32 @@ async fn reconnect_catches_missed_change() {
     let server = common::server_url().unwrap();
 
     let vault_a = common::temp_vault();
-    let (a_state, _info) = futo_notes_sync::connect(&vault_a, &server, common::TEST_PASSWORD)
+    let session = SyncSession::new();
+    session
+        .connect(&vault_a, &server, common::TEST_PASSWORD)
         .await
         .expect("A connect");
-    let state = Arc::new(Mutex::new(Some(a_state)));
     let rec = Arc::new(std::sync::Mutex::new(Recorded::default()));
 
     // First session, then tear the stream down (simulate going offline).
-    let (c1_tx, c1_rx) = mpsc::channel(1);
-    let (_n1_tx, n1_rx) = mpsc::channel(1);
-    let h1 = make_handle(state.clone(), rec.clone(), vault_a.clone());
-    let j1 = tokio::spawn(watch(h1, c1_rx, n1_rx));
+    session
+        .start_live(
+            vault_a.clone(),
+            Arc::new(Recorder(rec.clone())),
+            Arc::new(no_pre_write),
+        )
+        .await
+        .expect("start live");
     assert!(
-        wait_until(|| rec.lock().unwrap().connected >= 1, Duration::from_secs(8)).await,
+        wait_until(
+            || rec.lock().unwrap().connected >= 1,
+            Duration::from_secs(8)
+        )
+        .await,
         "live stream never connected; errors={:?}",
         rec.lock().unwrap().errors
     );
-    let _ = c1_tx.send(()).await;
-    let _ = tokio::time::timeout(Duration::from_secs(3), j1).await;
+    session.stop_live();
 
     // Peer pushes while A is down — the `change` event is fired into the void
     // (the server replays nothing).
@@ -210,16 +180,19 @@ async fn reconnect_catches_missed_change() {
     assert_eq!(peer_push(&server, "", &title, body).await, 1);
 
     // Reconnect: the fresh `ready` (initial pull) must catch the missed note.
-    let (c2_tx, c2_rx) = mpsc::channel(1);
-    let (_n2_tx, n2_rx) = mpsc::channel(1);
-    let h2 = make_handle(state.clone(), rec.clone(), vault_a.clone());
-    let j2 = tokio::spawn(watch(h2, c2_rx, n2_rx));
+    session
+        .start_live(
+            vault_a.clone(),
+            Arc::new(Recorder(rec.clone())),
+            Arc::new(no_pre_write),
+        )
+        .await
+        .expect("restart live");
 
     let note_path = vault_a.join(format!("{title}.md"));
     let caught = wait_until(|| note_path.exists(), Duration::from_secs(8)).await;
 
-    let _ = c2_tx.send(()).await;
-    let _ = tokio::time::timeout(Duration::from_secs(3), j2).await;
+    session.stop_live();
 
     assert!(
         caught,

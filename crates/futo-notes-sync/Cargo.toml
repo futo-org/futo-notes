@@ -7,33 +7,12 @@ edition = "2021"
 name = "futo_notes_sync"
 
 [dependencies]
-# Plain library now — the UniFFI surface moved to `futo-notes-ffi`.
 futo-notes-core = { path = "../futo-notes-core" }
-# `stream` enables Response::bytes_stream() for the long-lived SSE connection
-# (live.rs); it adds no new transitive crates (bytes/futures-util already pulled).
-# `http2` restores ALPN-negotiated HTTP/2 (dropped with default-features = false):
-# multiplexes the pull fan-out over one connection when the TLS terminator
-# speaks h2 (Caddy/Funnel do by default); falls back to HTTP/1.1 everywhere else.
 reqwest = { version = "0.12.12", default-features = false, features = ["json", "rustls-tls", "stream", "http2"] }
-# StreamExt (.next()) + BoxFuture for the live-sync watch loop / LiveHandle.
 futures-util = "0.3"
 tokio = { version = "1", features = ["sync", "macros", "rt-multi-thread", "time"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-hex = "0.4"
 thiserror = "1"
-sha2 = "0.10.9"
 url = "2.5"
-# `parsing` is needed for OffsetDateTime::parse (ISO-8601 → epoch ms) and
-# `formatting` for the conflict-date stamp (not used in the spike, but kept
-# for parity with the e2ee_client port). Matches the Tauri app's `time` dep.
-time = { version = "0.3", features = ["parsing", "formatting"] }
-
-[dev-dependencies]
-# wiremock-backed HTTP-contract tests for client.rs (ported from the now-deleted
-# apps/tauri/src-tauri/src/e2ee_client.rs). tokio's macros/rt-multi-thread for
-# #[tokio::test] are already on the crate's normal `tokio` dep above.
-wiremock = "0.6"
-# Image-blob sync round-trip test encodes a known byte vector to compare
-# against read_local_note's output. Matches futo-notes-core's base64 dep.
-base64 = "0.22"
+time = { version = "0.3", features = ["parsing"] }
