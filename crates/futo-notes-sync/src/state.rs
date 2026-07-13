@@ -62,6 +62,21 @@ struct PersistedState {
     object_map: HashMap<String, E2eeObjectMapEntry>,
     #[serde(default)]
     max_version: u64,
+    /// The `since` cursor for the NEXT pull: the highest `change_seq` we have
+    /// actually pulled and reconciled. Distinct from `max_version` — which push
+    /// elevates to its highest pushed `change_seq` and persists MID-push (interim
+    /// checkpoint / tail flush / final persist) — because a crash between that
+    /// push persist and pull completion would otherwise leave the pull cursor
+    /// past peer changes we never pulled, hiding them forever (F32). Only a
+    /// COMPLETED pull (`run_pull` / `reconcile_empty_map`) advances this; push
+    /// leaves it untouched. `None` on files written before this field existed:
+    /// such a file may have been written by a pre-fix build mid-push crash, so
+    /// its `max_version` can already hide un-pulled peer changes. `load`
+    /// therefore DISTRUSTS an absent field and seeds the pull cursor at 0,
+    /// forcing a one-time full re-list that retroactively heals that damage
+    /// (idempotent — `first_pass` hash/identity-dedupes, so no churn).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pull_cursor: Option<u64>,
     /// Server collection this cursor/object-map describes. `None` on files
     /// written before this field existed (and on legacy imports). The
     /// orchestrator resets the state when the server-side collection identity
@@ -87,6 +102,11 @@ pub struct ConnectedState {
     pub vault_key: [u8; 32],
     pub object_map: HashMap<String, E2eeObjectMapEntry>,
     pub max_version: u64,
+    /// The `since` cursor for the next pull — the highest `change_seq` fully
+    /// pulled and reconciled. Threaded so push can PRESERVE it (push only
+    /// advances `max_version`) and a completed pull can advance it. See
+    /// `PersistedState::pull_cursor` for why the two watermarks are separate.
+    pub pull_cursor: u64,
     /// In-session set of files the server rejected as too large (HTTP 413),
     /// keyed by filename → the on-disk `mtime_ms` of the rejected version. Used
     /// to skip re-uploading (and re-encrypting) an oversize note every cycle;
@@ -106,6 +126,7 @@ impl std::fmt::Debug for ConnectedState {
             .field("collection_id", &self.collection_id)
             .field("object_map_size", &self.object_map.len())
             .field("max_version", &self.max_version)
+            .field("pull_cursor", &self.pull_cursor)
             .field("oversize_skip", &self.oversize_skip.len())
             .field("token", &"<redacted>")
             .field("vault_key", &"<redacted>")
@@ -123,6 +144,11 @@ pub fn state_file_path(notes_root: &Path) -> PathBuf {
 pub struct Loaded {
     pub object_map: HashMap<String, E2eeObjectMapEntry>,
     pub max_version: u64,
+    /// The `since` cursor for the next pull (see `PersistedState::pull_cursor`).
+    /// Seeded to 0 for state files written before the field existed and for
+    /// legacy imports — an untrusted max_version there would strand hidden peer
+    /// changes, so a one-time full re-list heals instead.
+    pub pull_cursor: u64,
     /// True when the map came from a legacy `.app-state.json` migration rather
     /// than `.e2ee-state.json` (the caller persists it forward on connect).
     pub migrated_legacy: bool,
@@ -158,6 +184,7 @@ impl Loaded {
         Loaded {
             object_map: HashMap::new(),
             max_version: 0,
+            pull_cursor: 0,
             migrated_legacy: false,
             collection_id: None,
         }
@@ -178,17 +205,30 @@ impl Loaded {
 /// falls back to a one-time legacy `.app-state.json` import; otherwise empty.
 pub fn load(notes_root: &Path) -> Loaded {
     if let Some(state) = load_persisted_state(notes_root) {
+        // A pre-field file carries no pull_cursor AND may have been written by a
+        // pre-fix build mid-push crash, so its max_version can already be
+        // elevated past un-pulled peer changes (F32). Distrust an absent field:
+        // seed 0 so the first post-upgrade pull re-lists from scratch and
+        // delivers anything the crash hid. The re-list is idempotent
+        // (hash/identity-deduped in first_pass), so it heals without churn.
+        let pull_cursor = state.pull_cursor.unwrap_or(0);
         return Loaded {
             object_map: state.object_map,
             max_version: state.max_version,
+            pull_cursor,
             migrated_legacy: false,
             collection_id: state.collection_id,
         };
     }
     if let Some(state) = import_legacy_state(notes_root) {
+        // Same distrust for a legacy import: the pre-port TS client also folded
+        // its own pushed change_seqs into `e2eeMaxVersion` and checkpointed it
+        // mid-push (syncServiceE2ee.ts @ 49d79659~1), so the imported max carries
+        // the identical F32 hazard. Seed 0 → one-time heal re-list.
         return Loaded {
             object_map: state.object_map,
             max_version: state.max_version,
+            pull_cursor: 0,
             migrated_legacy: true,
             collection_id: state.collection_id,
         };
@@ -196,6 +236,7 @@ pub fn load(notes_root: &Path) -> Loaded {
     Loaded {
         object_map: HashMap::new(),
         max_version: 0,
+        pull_cursor: 0,
         migrated_legacy: false,
         collection_id: None,
     }
@@ -251,22 +292,29 @@ fn import_legacy_state(notes_root: &Path) -> Option<PersistedState> {
         version: STATE_FORMAT_VERSION,
         object_map,
         max_version,
+        // No pull cursor: `load` distrusts a legacy import's max_version (it
+        // carries the same F32 conflation as a pre-fix `.e2ee-state.json`) and
+        // seeds the pull cursor at 0 for a one-time heal re-list.
+        pull_cursor: None,
         collection_id,
     })
 }
 
-/// Persist the given object map + max version (tagged with the collection
-/// they describe) to `.e2ee-state.json` in `notes_root` via an atomic write.
+/// Persist the given object map + max version + pull cursor (tagged with the
+/// collection they describe) to `.e2ee-state.json` in `notes_root` via an
+/// atomic write.
 pub fn persist(
     notes_root: &Path,
     object_map: &HashMap<String, E2eeObjectMapEntry>,
     max_version: u64,
+    pull_cursor: u64,
     collection_id: &str,
 ) -> Result<(), String> {
     let persisted = PersistedState {
         version: STATE_FORMAT_VERSION,
         object_map: object_map.clone(),
         max_version,
+        pull_cursor: Some(pull_cursor),
         collection_id: Some(collection_id.to_owned()),
     };
     let json = serde_json::to_string_pretty(&persisted).map_err(|e| e.to_string())?;
@@ -436,10 +484,13 @@ mod tests {
         let root = temp_root();
         let mut map = HashMap::new();
         map.insert("note.md".to_owned(), entry("o1", 3, "bk1"));
-        persist(&root, &map, 10, "col-1").unwrap();
+        // Distinct pull_cursor (8) vs max_version (10) proves the two watermarks
+        // round-trip independently.
+        persist(&root, &map, 10, 8, "col-1").unwrap();
 
         let loaded = load(&root);
         assert_eq!(loaded.max_version, 10);
+        assert_eq!(loaded.pull_cursor, 8);
         assert_eq!(loaded.object_map.len(), 1);
         let e = loaded.object_map.get("note.md").unwrap();
         assert_eq!(e.object_id, "o1");
@@ -459,7 +510,7 @@ mod tests {
         let root = temp_root();
         let mut map = HashMap::new();
         map.insert("note.md".to_owned(), entry("o1", 3, "bk1"));
-        persist(&root, &map, 29, "col-old").unwrap();
+        persist(&root, &map, 29, 29, "col-old").unwrap();
 
         // Same collection: state survives.
         let same = load(&root).reset_if_collection_changed("col-old");
@@ -504,6 +555,28 @@ mod tests {
         let loaded = load(&root).reset_if_collection_changed("col-anything");
         assert_eq!(loaded.max_version, 0);
         assert!(loaded.object_map.is_empty());
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    // PKT-16 migration (F32 retroactive heal): a state file written before the
+    // pull_cursor field existed carries no `pull_cursor` key AND may have been
+    // written by a pre-fix build during a mid-push crash — its `max_version` is
+    // already elevated past un-pulled peer changes. Seeding pull_cursor from
+    // that elevated max would make the F32 damage PERMANENT. So an absent
+    // pull_cursor is UNTRUSTED: seed 0 so the first post-upgrade pull re-lists
+    // from scratch (idempotent: hash/identity-deduped) and delivers anything the
+    // crash hid.
+    #[test]
+    fn pre_field_state_distrusts_absent_pull_cursor_seeds_zero() {
+        let root = temp_root();
+        std::fs::write(
+            state_file_path(&root),
+            r#"{"version":1,"object_map":{},"max_version":42,"collection_id":"col-1"}"#,
+        )
+        .unwrap();
+        let loaded = load(&root);
+        assert_eq!(loaded.max_version, 42);
+        assert_eq!(loaded.pull_cursor, 0, "absent pull_cursor is untrusted → 0 (full re-list)");
         std::fs::remove_dir_all(&root).ok();
     }
 
@@ -561,6 +634,9 @@ mod tests {
         let loaded = load(&root);
         assert!(loaded.migrated_legacy);
         assert_eq!(loaded.max_version, 7);
+        // The imported max carries the same F32 conflation as a pre-fix state
+        // file, so the pull cursor is distrusted → 0 (one-time heal re-list).
+        assert_eq!(loaded.pull_cursor, 0);
         assert_eq!(loaded.object_map.len(), 1); // broken.md dropped
         assert_eq!(loaded.object_map.get("good.md").unwrap().object_id, "o9");
         std::fs::remove_dir_all(&root).ok();
@@ -653,7 +729,7 @@ mod tests {
         let root = temp_root();
         let mut map = HashMap::new();
         map.insert("canonical.md".to_owned(), entry("oc", 1, "bkc"));
-        persist(&root, &map, 3, "col-1").unwrap();
+        persist(&root, &map, 3, 3, "col-1").unwrap();
         std::fs::write(
             root.join(".app-state.json"),
             r#"{"e2eeMaxVersion":99,"e2eeObjectMap":{"legacy.md":{"objectId":"ol","version":1,"blobKey":"bl"}}}"#,
@@ -676,7 +752,7 @@ mod tests {
         let mut hashless = entry("o2", 1, "bk2");
         hashless.hash = None;
         map.insert("hashless.md".to_owned(), hashless);
-        persist(&root, &map, 10, "col-1").unwrap();
+        persist(&root, &map, 10, 10, "col-1").unwrap();
 
         demote_state_to_ancestry(&root).unwrap();
 
@@ -700,7 +776,7 @@ mod tests {
         let root = temp_root();
         let mut map = HashMap::new();
         map.insert("note.md".to_owned(), entry("o1", 3, "bk1"));
-        persist(&root, &map, 10, "col-1").unwrap();
+        persist(&root, &map, 10, 10, "col-1").unwrap();
         std::fs::create_dir(ancestry_file_path(&root)).unwrap();
 
         // Best-effort ancestry write: the demote still succeeds and the live
@@ -718,7 +794,7 @@ mod tests {
         let root = temp_root();
         let mut map = HashMap::new();
         map.insert("note.md".to_owned(), entry("o1", 3, "bk1"));
-        persist(&root, &map, 10, "col-1").unwrap();
+        persist(&root, &map, 10, 10, "col-1").unwrap();
         demote_state_to_ancestry(&root).unwrap();
 
         demote_state_to_ancestry(&root).unwrap();
@@ -740,7 +816,7 @@ mod tests {
         let root = temp_root();
         let mut map = HashMap::new();
         map.insert("note.md".to_owned(), entry("o1", 3, "bk1"));
-        persist(&root, &map, 29, "col-old").unwrap();
+        persist(&root, &map, 29, 29, "col-old").unwrap();
 
         // Same collection: state survives, no ancestry written.
         let same = load_for_collection(&root, "col-old");
@@ -761,7 +837,7 @@ mod tests {
         let root = temp_root();
         delete_state_file(&root).unwrap();
         let map = HashMap::new();
-        persist(&root, &map, 0, "col-1").unwrap();
+        persist(&root, &map, 0, 0, "col-1").unwrap();
         assert!(state_file_path(&root).exists());
         delete_state_file(&root).unwrap();
         assert!(!state_file_path(&root).exists());

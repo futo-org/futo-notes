@@ -528,6 +528,32 @@ upload. Desktop sync module ownership and serialization boundaries are fixed by
   `SyncClient::sync_now` + live `pull`/`push` closures, both calling
   `orchestrator::run_sync`; regression test
   `f1_native_sync_is_push_first_no_silent_overwrite`
+- **The persisted pull cursor never advances past changes we have actually
+  pulled — even across a crash mid-push.** State carries TWO watermarks:
+  `max_version` (the highest `change_seq` seen; push folds its uploads in and
+  persists it mid-push via the interim checkpoint / tail flush / final persist)
+  and `pull_cursor` (the `since` for the next pull). `run_sync` derives `since`
+  from `pull_cursor`, and ONLY a completed pull (`run_pull` /
+  `reconcile_empty_map`) advances it; push leaves it untouched. So a crash
+  between a push state-persist and pull completion leaves `pull_cursor` at the
+  last fully-reconciled position, and the restart still re-lists any peer object
+  whose `change_seq` sat below our pushed seqs. Persisting only `max_version`
+  (the pre-fix behavior) elevated the pull cursor past un-pulled peer changes,
+  hiding them permanently until the peer re-touched the note or a disconnect
+  forced an empty-map reconcile (F32). State-file compatibility + retroactive
+  heal: `pull_cursor` is an additive serde-default field; a pre-field
+  `.e2ee-state.json` (or a legacy `.app-state.json` import — the pre-port TS
+  client folded its own pushes into `e2eeMaxVersion` the same way) may itself
+  carry a crash-elevated cursor, so an absent `pull_cursor` is DISTRUSTED and
+  seeded to 0. The first post-upgrade sync therefore re-lists from scratch —
+  idempotent (`first_pass` hash/identity-dedupes, no re-downloads or conflict
+  copies for already-synced notes) — and RETROACTIVELY heals any install already
+  carrying hidden F32 damage. → futo-notes-sync `state`
+  (`PersistedState::pull_cursor`, `load`, `persist`),
+  `orchestrator::{run_sync,run_push,run_pull,reconcile_empty_map}`; regression
+  tests `crash_between_push_persist_and_pull_still_delivers_peer_change`,
+  `pre_field_state_first_sync_heals_hidden_peer_no_churn`,
+  `pre_field_state_distrusts_absent_pull_cursor_seeds_zero`
 - **A pure case-only / NFC-vs-NFD rename keeps its requested form.** Renaming
   `note` → `Note` (or a composed↔decomposed accent) on a
   case/normalization-insensitive filesystem (default APFS on macOS/iOS, NTFS)

@@ -29,8 +29,8 @@
 //! [`crate::session::SyncSession`]).
 //!
 //! The `change` payload (`{collectionId, currentVersion}`) is used only as a
-//! wake signal — we always pull from the locally-persisted `max_version`
-//! cursor, which is robust to missed/duplicated events.
+//! wake signal — we always pull from the locally-persisted `pull_cursor`
+//! (via `run_sync`), which is robust to missed/duplicated events.
 
 use std::sync::Arc;
 use std::time::Duration;
