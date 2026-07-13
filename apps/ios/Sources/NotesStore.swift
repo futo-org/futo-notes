@@ -277,38 +277,49 @@ final class NotesStore: ObservableObject {
         draftRegister[token] = nil
     }
 
-    /// True once a flush has run for the current background episode; reset by
-    /// `rearmBackgroundFlush` on the next foreground. The scenePhase handler
-    /// deliberately flushes at BOTH `.inactive` AND `.background` (belt-and-
-    /// suspenders — a phase can jump straight to background), so without this the
-    /// pair would run the persist-or-park flush TWICE and mint two conflict copies
-    /// for one backgrounding. One flush per episode; `parkDraftCopy`'s idempotency
-    /// then covers repeated episodes (background/foreground cycles).
-    private var backgroundFlushed = false
+    /// What each note's draft was flushed as during the current background episode
+    /// (id → the exact `PendingDraft` last flushed), cleared by
+    /// `rearmBackgroundFlush` on the next foreground. NOT a boolean latch: the
+    /// scenePhase handler deliberately flushes at BOTH `.inactive` AND `.background`
+    /// (belt-and-suspenders — a phase can jump straight to background), and a
+    /// boolean latched-on-entry would drop a keystroke the WebView bridge delivers
+    /// BETWEEN the two callbacks (the newest edit, lost on suspend/terminate —
+    /// defeating the jetsam guard). Comparing the registered draft to the snapshot
+    /// re-flushes only a CHANGED draft while skipping an identical re-flush (the
+    /// anti-double-park property, which `parkConflictCopyIfAbsent` idempotency
+    /// enforces on its own anyway).
+    private var flushedThisEpisode: [String: PendingDraft] = [:]
 
     /// Flush every live editor's pending draft to disk (scenePhase inactive/
     /// background). Coalesces by note id, keeping the highest-token (most recently
     /// claimed = incoming/visible) draft, so two editors overlapping on the SAME
     /// note during a transition issue exactly one conditional write instead of two
     /// racing on the same base (Android parity: LinkedHashMap last-registered wins).
-    /// At most once per background episode (see `backgroundFlushed`). No-op when
-    /// every draft is clean / closed; safe at every leave-active signal.
+    /// Within a background episode a given id's draft is flushed once UNLESS it
+    /// changed since (see `flushedThisEpisode`). No-op when every draft is clean /
+    /// closed; safe at every leave-active signal.
     func flushPendingEditor() {
-        guard !backgroundFlushed else { return }
-        backgroundFlushed = true
         guard !draftRegister.isEmpty else { return }
         var byId: [String: (token: UInt64, draft: PendingDraft)] = [:]
         for (token, draft) in draftRegister {
             if let existing = byId[draft.id], existing.token >= token { continue }
             byId[draft.id] = (token, draft)
         }
-        for entry in byId.values { flushAsync(entry.draft) }
+        for entry in byId.values {
+            let draft = entry.draft
+            // Skip only an IDENTICAL re-flush this episode; a draft that changed
+            // between .inactive and .background (a keystroke landing right at
+            // backgrounding) still flushes, so the newest edit is never lost.
+            if flushedThisEpisode[draft.id] == draft { continue }
+            flushedThisEpisode[draft.id] = draft
+            flushAsync(draft)
+        }
     }
 
-    /// Re-arm the once-per-episode background flush — called on scenePhase
-    /// `.active` so the next backgrounding flushes again.
+    /// Re-arm the per-episode flush snapshot — called on scenePhase `.active` so
+    /// the next backgrounding flushes afresh.
     func rearmBackgroundFlush() {
-        backgroundFlushed = false
+        flushedThisEpisode.removeAll()
     }
 
     /// The off-main owner of the Rust vault. The single source of truth for the
