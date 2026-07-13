@@ -99,6 +99,26 @@ impl From<model::FlushOutcome> for FlushOutcome {
     }
 }
 
+/// Outcome of `NoteStore::create_if_absent` (the FFI mirror of
+/// `model::CreateOutcome`).
+#[derive(Debug, PartialEq, Eq, uniffi::Enum)]
+pub enum CreateOutcome {
+    /// No file existed; `content` was created at the id.
+    Created,
+    /// A file already exists at the id — nothing written (a concurrent writer,
+    /// e.g. a live-sync pull, got there first).
+    Existed,
+}
+
+impl From<model::CreateOutcome> for CreateOutcome {
+    fn from(o: model::CreateOutcome) -> Self {
+        match o {
+            model::CreateOutcome::Created => CreateOutcome::Created,
+            model::CreateOutcome::Existed => CreateOutcome::Existed,
+        }
+    }
+}
+
 /// The note vault, rooted at a directory on disk. All methods are synchronous
 /// filesystem operations — the Swift/Kotlin shell owns reactive state and
 /// debouncing on top.
@@ -162,6 +182,24 @@ impl NoteStore {
     ) -> Result<FlushOutcome, NoteError> {
         model::write_note_if_unchanged(&self.root, &id, &expected_prev, &content)
             .map(FlushOutcome::from)
+            .map_err(NoteError::Io)
+    }
+
+    /// Atomically (re-)create a note with `content` ONLY IF no file exists at
+    /// `id` yet (`O_EXCL`). The editor's leave/background flush uses this to
+    /// honor the peer-delete dirty-keep edit-wins semantic — recreate a
+    /// just-`SkippedMissing` note — without the unconditional-write clobber
+    /// risk: a live-sync pull writing the same id OUTSIDE this store's
+    /// serialization cannot have its content overwritten. Returns
+    /// [`CreateOutcome::Existed`] if the id reappeared in the window (caller
+    /// parks a conflict copy instead). See `model::create_note_if_absent`.
+    pub fn create_if_absent(
+        &self,
+        id: String,
+        content: String,
+    ) -> Result<CreateOutcome, NoteError> {
+        model::create_note_if_absent(&self.root, &id, &content)
+            .map(CreateOutcome::from)
             .map_err(NoteError::Io)
     }
 

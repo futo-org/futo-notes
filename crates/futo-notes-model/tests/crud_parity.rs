@@ -487,6 +487,46 @@ fn write_if_unchanged_rejects_path_traversal() {
     fs::remove_dir_all(&root).ok();
 }
 
+// ── create_note_if_absent: atomic create-if-absent (PKT-10 round-4 P1a) ──
+use futo_notes_model::CreateOutcome;
+
+// A missing note is (re-)created with the draft — the edit-wins peer-delete
+// dirty-keep path.
+#[test]
+fn create_if_absent_creates_when_missing() {
+    let root = temp_root();
+    let out = model::create_note_if_absent(&root, "Gone", "recreated-draft").unwrap();
+    assert_eq!(out, CreateOutcome::Created);
+    assert_eq!(model::read_note(&root, "Gone"), "recreated-draft");
+    fs::remove_dir_all(&root).ok();
+}
+
+// The anti-clobber guarantee: if the id reappeared (a concurrent sync write
+// recreated it in the TOCTOU window), create_new fails atomically and the
+// newcomer's content is left intact — the caller parks a copy instead.
+#[test]
+fn create_if_absent_never_clobbers_existing() {
+    let root = temp_root();
+    model::write_note(&root, "Note", "peer-recreated").unwrap();
+    let out = model::create_note_if_absent(&root, "Note", "local-draft").unwrap();
+    assert_eq!(out, CreateOutcome::Existed);
+    assert_eq!(
+        model::read_note(&root, "Note"),
+        "peer-recreated",
+        "a note that reappeared must not be clobbered by the recreate"
+    );
+    fs::remove_dir_all(&root).ok();
+}
+
+// Traversal ids are rejected before any fs work (same guard as write_note).
+#[test]
+fn create_if_absent_rejects_path_traversal() {
+    let root = temp_root();
+    assert!(model::create_note_if_absent(&root, "../escape", "x").is_err());
+    assert!(!root.parent().unwrap().join("escape.md").exists());
+    fs::remove_dir_all(&root).ok();
+}
+
 // ── first-run seeding: shared across every shell ─────────────────────────
 #[test]
 fn seed_if_empty_writes_one_welcome_note_then_is_idempotent() {

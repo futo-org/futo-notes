@@ -68,6 +68,43 @@ actor NoteVault {
         )
     }
 
+    /// Atomically (re-)create the note at `id` with `content` ONLY IF absent
+    /// (O_EXCL, Rust `create_note_if_absent`) — the peer-delete edit-wins recreate
+    /// without a clobber race against an independent sync write (P1a). Returns the
+    /// outcome plus, on `.created`, the fresh preview/tags for the in-place row.
+    func createIfAbsent(_ id: String, content: String) throws
+        -> (outcome: CreateOutcome, derived: (preview: String, richPreview: String, tags: [String])?)
+    {
+        let outcome = try core.createIfAbsent(id: id, content: content)
+        guard outcome == .created else { return (outcome, nil) }
+        return (
+            outcome,
+            (makePreview(content: content), makeRichPreview(content: content),
+                extractTags(content: content))
+        )
+    }
+
+    /// Atomically (WITHIN this actor) create a "<stem>" conflict copy holding
+    /// `content` in `folder` — UNLESS a note whose title matches the stem already
+    /// holds byte-identical content. The candidate scan reads DISK
+    /// (`scanNotes`/`read`) and the create runs with NO suspension in between, so
+    /// two concurrent parks (a live-adopt conflict racing a scene-phase flush, or
+    /// overlapping background episodes) that both route through this actor are
+    /// serialized — they can't each mint a suffixed duplicate (P1b). Returns the
+    /// created id, or nil if a matching copy already existed.
+    func parkConflictCopyIfAbsent(stem: String, folder: String, content: String) throws
+        -> String?
+    {
+        let alreadyParked = core.scanNotes().contains { meta in
+            meta.folder == folder && meta.title.hasPrefix(stem)
+                && core.read(id: meta.id) == content
+        }
+        if alreadyParked { return nil }
+        let copyId = try core.createNote(title: stem, folder: folder)
+        try core.write(id: copyId, content: content)
+        return copyId
+    }
+
     func createNote(title: String, folder: String) throws -> String {
         try core.createNote(title: title, folder: folder)
     }
@@ -496,11 +533,21 @@ final class NotesStore: ObservableObject {
                     // so the survive path (autosave rewrites the same id,
                     // idempotent) and the jetsam path (this flush recreated)
                     // converge on ONE home, with NO conflict-copy-vs-recreated-
-                    // original duplication (Codex round-3 addendum). Idempotent:
-                    // repeated flushes and the .inactive+.background pair all target
-                    // the same id. (A CLEAN editor never flushes, so a note the user
-                    // genuinely abandoned is still never resurrected.)
-                    await write(draft.id, content: draft.content)
+                    // original duplication. BUT recreate only-while-still-absent
+                    // (atomic O_EXCL): a live-sync pull that recreated the id in the
+                    // window between the CAS and here must not be clobbered (P1a).
+                    // If it reappeared, fall through to the changed handling — park
+                    // the draft unless it converged.
+                    let (created, derived2) = try await vault.createIfAbsent(
+                        draft.id, content: draft.content)
+                    if created == .created, let derived2 {
+                        applyWriteBookkeeping(
+                            id: draft.id, preview: derived2.preview,
+                            richPreview: derived2.richPreview, tags: derived2.tags)
+                    } else if created == .existed {
+                        let disk = await vault.read(draft.id)
+                        if disk != draft.content { await parkDraftCopy(draft) }
+                    }
                 }
             } catch {
                 print("flush failed for \(draft.id): \(error)")
@@ -516,29 +563,28 @@ final class NotesStore: ObservableObject {
     /// conflict-copy naming lives in one place. (The peer-DELETE case does NOT come
     /// here — it is edit-wins re-create at the original id; see `flushAsync`.)
     /// Anti-clobber safe: creates a NEW note, never rewrites the diverged original.
+    ///
+    /// IDEMPOTENCY GUARD (conflict-copy combinatorial-explosion class — the
+    /// 1081-object incident): the check-that-a-copy-doesn't-already-exist and the
+    /// create are ONE serialized `NoteVault` operation reading DISK
+    /// (`parkConflictCopyIfAbsent`), so two concurrent parks can't each mint a
+    /// suffixed duplicate — the stale-cache / yield-before-create race the old
+    /// in-`notes`-cache scan had (P1b). Only a genuine create refreshes state.
     func parkDraftCopy(_ draft: PendingDraft) async {
         let parts = splitId(id: draft.id)
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
         let stem = "\(parts.title) (conflict \(formatter.string(from: Date())))"
-        // IDEMPOTENCY GUARD (conflict-copy combinatorial-explosion class — the
-        // 1081-object incident): if a conflict copy for this stem in the same
-        // folder ALREADY holds byte-identical content, do NOT mint another. This
-        // single check covers the deliberate `.inactive`/`.background` flush pair,
-        // repeated background/foreground cycles (the dirty-keep register is never
-        // cleared), and the pop+background combo — none of which the Rust
-        // identical-content dedup catches, since distinct local ids sync as
-        // separate notes fleet-wide. Content isn't in `notes` metadata, so read
-        // the (few) stem-matching candidates from disk. `hasPrefix(stem)` covers
-        // the collision-suffixed variants get_unique_note_id may append; an
-        // over-match is safe because we only skip on IDENTICAL content (the edit
-        // already survives in that note).
-        for candidate in notes
-        where candidate.folder == parts.folder && candidate.title.hasPrefix(stem) {
-            if await vault.read(candidate.id) == draft.content { return }
+        do {
+            guard let copyId = try await vault.parkConflictCopyIfAbsent(
+                stem: stem, folder: parts.folder, content: draft.content)
+            else { return }  // an identical copy already existed — no duplicate
+            reload()
+            search.noteChanged(copyId)
+            onLocalChange?()
+        } catch {
+            print("parkDraftCopy failed for \(draft.id): \(error)")
         }
-        guard let copyId = await createNote(title: stem, folder: parts.folder) else { return }
-        await write(copyId, content: draft.content)
     }
 
     // MARK: - Folders
