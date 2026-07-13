@@ -4,11 +4,13 @@ E2EE sync. **All sync logic lives in the Rust `futo-notes-sync` crate**; every
 shell only drives it. Native (iOS/Android) goes through the `futo-notes-ffi`
 `SyncClient`; Tauri desktop goes through the `e2ee_*` Tauri commands (a thin
 `apps/tauri/src-tauri/src/sync/tauri_commands.rs` wrapper) +
-`syncServiceE2ee` + coordinator — both now run the **same**
-orchestrator (`connect`/`run_sync`/`run_pull`/`run_push`/`live::watch`). The
-client uploads opaque encrypted blobs — note content is encrypted before
-upload. Desktop sync module ownership and serialization boundaries are fixed by
-[desktop-rust.md](desktop-rust.md).
+`syncServiceE2ee` + coordinator — both now drive the **same** `SyncSession`.
+The session owns connection state, push-first cycles, and its live task; the
+shells do not assemble those pieces themselves. Internally the crate has four
+modules with deliberately narrow jobs: HTTP/protocol, persisted state, sync,
+and live SSE. The client uploads opaque encrypted blobs — note content is
+encrypted before upload. Desktop sync module ownership and serialization
+boundaries are fixed by [desktop-rust.md](desktop-rust.md).
 
 ## Connect / run
 
@@ -95,8 +97,9 @@ upload. Desktop sync module ownership and serialization boundaries are fixed by
   The ⚠ indicator is also **click-to-dismiss** (`clearSyncError`) — a manual
   dismiss, not a mute: the next failing sync re-raises it.
   Opaque `fetch` `TypeError`s (server unreachable) are rewritten to an actionable
-  message. → syncManager.svelte.ts (`getSyncErrorMessage`, `syncError`,
-  `clearSyncError`), SyncStatusBar.svelte (`onclear`), SettingsScreen.svelte (desktop)
+  message. → syncErrorMessage.ts (`getSyncErrorMessage`),
+  syncManager.svelte.ts (`syncError`, `clearSyncError`), SyncStatusBar.svelte
+  (`onclear`), SettingsScreen.svelte (desktop)
 - **Per-item sync failures surface — a cycle that COMPLETES is not assumed
   healthy.** When individual operations fail (an upload/create/update, a
   push-side delete, a duplicate-move loser takedown, an object-map
@@ -124,8 +127,8 @@ upload. Desktop sync module ownership and serialization boundaries are fixed by
   413-oversize and unresolved-merge outcomes stay in `conflicts`, NOT
   `failures`. Partial cycles report honestly — a cycle can have both
   `uploaded > 0` and failures.
-  → futo-notes-sync `orchestrator` (`SyncFailure`, `FailureKind`,
-  `SyncSummary::failure_message`, `run_push`, `download_all`),
+  → futo-notes-sync (`SyncFailure`, `FailureKind`,
+  `SyncSummary::failure_message`, push/pull cycle),
   `apps/tauri/src-tauri/src/sync/frontend_contract.rs` `SyncSummary::from`,
   syncManager.svelte.ts
   (`handleSyncComplete`)
@@ -145,28 +148,13 @@ upload. Desktop sync module ownership and serialization boundaries are fixed by
   in full and re-fails each cycle (deliberate: a later server-side repair or
   key fix is picked up without new state) — with the ⚠ failure line keeping
   the user informed.
-  → futo-notes-sync `orchestrator` (`cap_cursor`, `download_all`,
-  `run_pull`, `reconcile_empty_map`)
-- **Pull blob downloads are batched; a 1-file sync stays on the classic
-  path.** The shared download stage (`download_all`, used by both `run_pull`
-  and the empty-map reconcile) bin-packs pending blobs — smallest first,
-  using the `size_bytes` already returned by the objects listing — into
-  `POST /api/blobs/batch` requests of ≤8 MiB / ≤100 keys, up to 4 in
-  flight, so first sync of a large vault is no longer one HTTPS GET per
-  note. Smallest-first packing lands every note before the first large
-  image blob starts. Blobs ≥8 MiB, unknown-size objects, and singletons use
-  the classic per-blob GET, with the request timeout scaled to the expected
-  size (a large image on a slow link is no longer killed by the flat 30s
-  timeout). A failed chunk retries twice (0.5s/2s backoff), then degrades to
-  per-blob GETs — isolating a poison blob instead of sinking its chunk —
-  and skips the retry ladder entirely on non-retryable statuses (4xx other
-  than 408/429); a server without the endpoint (404) flips a pull-wide flag
-  and the rest of that pull uses the per-blob path. Old client ↔ new server and new client ↔ old
-  server both keep working, only at the old speed. Per-entry batch statuses
-  (`missing` / `omitted`) mean one bad key can't fail its chunk.
-  → futo-notes-sync `orchestrator` (`plan_download_jobs`, `download_all`,
-  `run_batch_job`), `client` (`get_blobs_batch`, `transfer_timeout`);
-  server: futo-notes-server `src/blobs/routes.ts` (`POST /batch`)
+  → futo-notes-sync sync engine (`cap_cursor`, pull/reconcile)
+- **Pull uses the server's actual blob contract: one authenticated GET per
+  object.** The production server does not expose a batch-blob route. Failed
+  downloads are isolated per object and reported without aborting unrelated
+  downloads; the cursor rule above guarantees retry on the next cycle.
+  → futo-notes-sync HTTP + sync modules; server:
+  futo-notes-server `src/blobs/routes.ts`
 - **The failure signal also fires a toast, on message change.** A toast —
   prefixed **"Sync error: "** so the source is clear outside the sync UI
   ("Sync error: N change(s) couldn't reach the server …") — appears on the
@@ -179,8 +167,7 @@ upload. Desktop sync module ownership and serialization boundaries are fixed by
   sync clears cycle-failure errors but NOT a live-stream error (the stream is
   still down — clearing it would re-arm the toast and spam every reconnect
   attempt); a stream error clears when the stream reconnects or on dismiss.
-  → syncManager.svelte.ts (`raiseSyncError`, `clearSyncError`,
-  `SyncErrorSource`)
+  → syncManager.svelte.ts (`raiseError`, `clearError`)
 - **Desktop shows a persistent idle sync indicator.** While the live SSE stream
   is connected and healthy (no active sync, no error, online), the bottom-right
   corner shows a subtle ✓ tick, so "sync is set up and fine" is always legible
@@ -220,12 +207,9 @@ upload. Desktop sync module ownership and serialization boundaries are fixed by
   desktop↔desktop and into native Android (emulator, file:// vault render),
   2026-06-30. **Regression-guarded** by the `image sync roundtrip`
   cross-platform scenario (full client stack + real server: image binary
-  arrives byte-for-byte AND a re-sync does not re-upload it) plus
-  `orchestrator` unit tests `list_notes_skips_hidden_and_finds_md_and_images`
-  and `image_blob_round_trips_through_apply_and_read` — if you re-introduce a
-  `.md`-only scan/filter or a `read_to_string`/`write_atomic_text` on the blob
-  path, these fail. → futo-notes-sync `orchestrator`
-  (scan/`safe_relative_sync_path`/`read_local_note`/`apply_delta`),
+  arrives byte-for-byte AND a re-sync does not re-upload it). If you
+  re-introduce a `.md`-only scan/filter or a text-only read/write on the blob
+  path, that scenario fails. → futo-notes-sync sync module,
   futo-notes-core `files::{read_blob_as_base64,write_base64_as_blob}`;
   tests/cross-platform-sync.mjs `imageSyncRoundtrip`
 - **The image set has ONE definition (canonical 10: png/jpg/jpeg/gif/webp/svg/
@@ -242,10 +226,7 @@ upload. Desktop sync module ownership and serialization boundaries are fixed by
   count it, never tombstone it, never error the cycle; a push never tombstones
   a non-syncable map entry (the local scan no longer surfaces it, so without the
   guard it would look "deleted locally" and be erased on the server and every
-  peer). → futo-notes-sync `orchestrator` (`triage_downloaded`,
-  `plan_push_with_moves`); guarded by `run_pull_ignores_legacy_image_blob`,
-  `reconcile_empty_map_heals_ignores_and_rejects`, and
-  `plan_push_never_tombstones_non_syncable_map_entry`
+  peer). → futo-notes-sync sync module
 - **Every incoming name is screened before it is written, and a name local
   creation legitimately produces is HEALED rather than dropped.** A single
   classifier (`classify_incoming_sync_path`) runs on all three incoming write
@@ -266,11 +247,7 @@ upload. Desktop sync module ownership and serialization boundaries are fixed by
   no stricter than production). → futo-notes-core
   `files::classify_incoming_sync_path` (+ `sanitize_title`,
   `is_windows_reserved_name`, `NAME_MAX`), applied via
-  futo-notes-sync `orchestrator::triage_downloaded`; guarded by the core
-  `incoming_*` unit tests, `run_pull_heals_creatable_but_unsyncable_name`,
-  `run_pull_heal_is_idempotent_across_cycles`,
-  `run_pull_rejects_structurally_unsafe_name`, and
-  `run_push_rejects_hostile_restored_filename`
+  futo-notes-sync sync module; guarded by the core `incoming_*` tests
 - **A healed incoming name is a LOCAL alias, not pushed back to the server.**
   The healing client writes + maps the object under the safe name but does not
   re-upload it, so the server object keeps its original path until someone edits
@@ -278,8 +255,7 @@ upload. Desktop sync module ownership and serialization boundaries are fixed by
   display under different names across the fleet (e.g. `CON.md` on an old client,
   `CON_.md` on a healed one) — the CONTENT still converges (same object id, same
   bytes) and no duplicate is created; only the displayed filename differs. →
-  futo-notes-sync `orchestrator::triage_downloaded`; guarded by
-  `run_pull_heals_creatable_but_unsyncable_name` (S1 class)
+  futo-notes-sync sync module
 - The persisted sync state (`.e2ee-state.json`) is tagged with the server
   collection it describes; connecting to a **different** collection (vault
   reset, account recreation, server wipe) resets the cursor + object map and
@@ -293,8 +269,7 @@ upload. Desktop sync module ownership and serialization boundaries are fixed by
   tag was meant to heal; a stale object map is equally bad on the push side
   (entries claiming the server holds a note make the push skip it). The reset
   costs one re-reconcile through the empty-map path, which hash-dedups
-  against local files. → futo-notes-sync
-  `state::Loaded::reset_if_collection_changed`
+  against local files. → futo-notes-sync store module
 - The one-time legacy import of a pre-port `.app-state.json` object map is
   TAGGED with the vault's `e2eeCollectionId` (written next to the map in the
   same file), so reconnecting to that same collection KEEPS the imported map
@@ -303,10 +278,8 @@ upload. Desktop sync module ownership and serialization boundaries are fixed by
   version) rather than a conflict copy or a re-POSTed duplicate. Importing
   then connecting to a *different* collection still resets, and an older
   pre-port file that predates `e2eeCollectionId` carries no tag and resets as
-  UNKNOWN provenance (the empty-map reconcile then hash-dedups). → futo-notes-sync
-  `state::import_legacy_state`; regression tests
-  `state::tests::legacy_import_tagged_with_collection_survives_load_for_collection`,
-  `orchestrator::tests::legacy_import_offline_edit_lands_as_clean_update`
+  UNKNOWN provenance (the empty-map reconcile then hash-dedups). →
+  futo-notes-sync store module
 - **A server instance holds exactly one vault (collection) per account.** The
   protocol is single-vault, but the server used to mint a fresh collection on
   every `POST /api/collections`, so two devices connecting *concurrently* each
@@ -338,13 +311,12 @@ upload. Desktop sync module ownership and serialization boundaries are fixed by
 
   After re-pointing, the reset→reconcile→push re-uploads local notes to the
   survivor — no data loss for anything a device still holds. → futo-notes-sync
-  `orchestrator::{connect,resume,run_pull}`, `live::watch` (terminal on
-  collection-gone), `client::E2eeHttpError::is_not_found`; syncServiceE2ee
+  `SyncSession` (terminal live error on collection-gone); syncServiceE2ee
   `{ensureConnected,syncE2eeAuto}`; SyncManager.{swift,kt} `healCollectionGone`
 - Moving the whole vault folder to a new location (e.g. the Android Device/App
   storage switch → [app.md](app.md) "Vault location") is transparent to sync:
   the object map is keyed by **relative** filename (not absolute path) and the
-  `.e2ee-state.json` travels inside the vault, so the orchestrator picks up at
+  `.e2ee-state.json` travels inside the vault, so the session picks up at
   the new root with no re-upload — provided the move carries the dotfiles.
 
 ## Live sync (SSE)
@@ -366,7 +338,7 @@ upload. Desktop sync module ownership and serialization boundaries are fixed by
   emits `status: "reconnecting"` (`live: false`, cleared when the stream
   reconnects or on dismiss — deliberately NOT by a clean poll, which proves
   syncing works but not that the stream recovered). → futo-notes-sync
-  `live::watch` (`SyncSessionListener::on_cycle_error`), `SyncClient::start_live`
+  live module (`SyncSessionListener::on_error`), `SyncClient::start_live`
   (native), `e2ee_start_live` + syncManager.svelte.ts (`handleLiveState`) +
   SyncStatusBar.svelte (desktop)
 - The `change` event is a doorbell only (`{collectionId, currentVersion}`, no
@@ -385,7 +357,7 @@ upload. Desktop sync module ownership and serialization boundaries are fixed by
   `SyncEventListener` callback over the same `start_live`/`stop_live`. → SyncScreen.kt
   (Android), SyncManager.swift + SyncView.swift (iOS)
 - Live sync is also wired on **Tauri desktop** — Rust `e2ee_start_live` /
-  `e2ee_stop_live` drive the same `futo-notes-sync` `live::watch`, emitting
+  `e2ee_stop_live` drive the same `SyncSession`, emitting
   `sync:live-state` (tracks stream health internally via `setLiveConnected`; no
   user-facing "Live" label is rendered) and `sync:live-synced`
   (carries the per-note `SyncSummary`, which the JS routes through the normal
@@ -421,7 +393,7 @@ upload. Desktop sync module ownership and serialization boundaries are fixed by
     loop debounces and pushes the edit; peers then receive it within ~1 s via SSE.
     Fire-and-forget and a no-op when not connected. → `NotesStore.onLocalChange`
     (wired in iOS `FutoNotesApp` / Android `MainActivity`), `SyncClient::note_changed`,
-    futo-notes-sync `live::watch` (debounced push branch)
+    futo-notes-sync live module (debounced push branch)
 - The native session (auth token + vault key) is in-memory, but **all three
   shells persist the sync password in the OS secret store and auto-reconnect on
   a cold launch**, so live sync survives a force-quit / process death: iOS
@@ -461,7 +433,7 @@ upload. Desktop sync module ownership and serialization boundaries are fixed by
 
 - A dirty-merge (local edits plus a remote change to the same note) parks the
   local edits in a `note (conflict YYYY-MM-DD).md` copy rather than discarding
-  them. → futo-notes-sync orchestrator (`resolve_update_conflict`)
+  them. → futo-notes-sync sync module
 - **A local edit to a note a peer deleted is preserved, not discarded.** When a
   dirty local edit is pushed but the server object was tombstoned by a peer, the
   edit is re-POSTed as a fresh LIVE object at its own filename instead of being
@@ -477,26 +449,18 @@ upload. Desktop sync module ownership and serialization boundaries are fixed by
   propagates back to the peer. Symmetric with the edit-wins delete-conflict (a
   peer edit to a note WE delete keeps the peer edit). The old code returned an
   `UnresolvedConflict` that wrote nothing / mapped the note to the tombstone, and
-  the edit was silently lost. (F3) → futo-notes-sync
-  `orchestrator::resolve_update_conflict` + `repost_as_fresh_object`
-  (`ObjectWriteResponse::deleted`); regression tests
-  `resolve_update_conflict_merge_onto_tombstone_reposts_fresh`,
-  `resolve_update_conflict_peer_delete_preserves_edit_as_fresh_object`,
+  the edit was silently lost. (F3) → futo-notes-sync sync module;
   cross-platform scenario "edit vs peer delete preserves edit"
 - A direct PUT that "succeeds" onto a still-deleted server row (the server's
   DELETE bumps the version, so a concurrent editor's expected-version can
   collide and no 409 fires) is detected via the response's `deleted` flag and
   the edit is re-POSTed as a fresh live object — never mapped to the tombstone
-  where the puller's own pull would delete it. → futo-notes-sync
-  `orchestrator::push_one_file` (direct-PUT arm); regression test
-  `push_one_file_direct_put_onto_tombstone_reposts_fresh`
+  where the puller's own pull would delete it. → futo-notes-sync sync module
 - Pull-side filename collisions between byte-identical objects adopt silently
   (smallest object id stays canonical; the identical loser mints NO
   `(conflict <oid8>)` copy and its map entry is dropped without tombstoning
   the live server object) — only genuinely divergent content is parked. →
-  futo-notes-sync `orchestrator::resolve_pull_collisions`; regression tests
-  `collision_identical_content_adopts_silently_no_conflict_copy`,
-  `collision_identical_map_only_loser_is_dropped_not_parked`
+  futo-notes-sync sync module
 - Renames are paired — a rename is not seen as delete + create. → migration plan
   Phase 5
 - A push checkpoint is written every 50 objects. → migration plan Phase 5
@@ -510,24 +474,20 @@ upload. Desktop sync module ownership and serialization boundaries are fixed by
   empty `Untitled.md` in different folders) are different objects and BOTH
   survive — the old (content-hash, basename) key deleted one of them on
   server+disk when a same-content delete happened in the same cycle (F9). →
-  futo-notes-sync `orchestrator::{pick_duplicate_move_losers,
-  resolve_concurrent_move_duplicates, remove_duplicate_loser_locally}`;
-  regression tests `dup_losers_keeps_distinct_objects_sharing_basename_and_content`,
-  `dedup_loser_takedown_is_local_only_and_winner_survives`; cross-platform
+  futo-notes-sync sync module; cross-platform
   scenario "distinct same basename survives move dedup"
 - **Sync is push-first on every client and every trigger.** The native (iOS /
   Android) FFI `sync_now`, the SSE live loop, and the debounced auto-push all
-  run the full push-first `run_sync` cycle — identical to the desktop
-  orchestrator. A locally-edited-but-unpushed note is therefore PUT before any
+  run the same full push-first cycle as desktop. A
+  locally-edited-but-unpushed note is therefore PUT before any
   pull writes to disk, so a peer edit arriving via SSE can never silently
   overwrite it (the push 409 path runs the 3-way merge / conflict-copy, and the
   subsequent pull starts from the pre-push cursor so the just-pushed edit is
   never re-downloaded). The pre-fix native path ran pull-then-push, so a pulled
   peer edit clobbered the unpushed local edit on disk before push could detect
   the conflict — silent data loss, `conflicts == 0` (F1). → futo-notes-ffi
-  `SyncClient::sync_now` + live `pull`/`push` closures, both calling
-  `orchestrator::run_sync`; regression test
-  `f1_native_sync_is_push_first_no_silent_overwrite`
+  `SyncClient::sync_now` + `SyncSession::start_live`; server/cross-platform
+  integration suites
 - **The persisted pull cursor never advances past changes we have actually
   pulled — even across a crash mid-push.** State carries TWO watermarks:
   `max_version` (the highest `change_seq` seen; push folds its uploads in and
@@ -548,12 +508,7 @@ upload. Desktop sync module ownership and serialization boundaries are fixed by
   seeded to 0. The first post-upgrade sync therefore re-lists from scratch —
   idempotent (`first_pass` hash/identity-dedupes, no re-downloads or conflict
   copies for already-synced notes) — and RETROACTIVELY heals any install already
-  carrying hidden F32 damage. → futo-notes-sync `state`
-  (`PersistedState::pull_cursor`, `load`, `persist`),
-  `orchestrator::{run_sync,run_push,run_pull,reconcile_empty_map}`; regression
-  tests `crash_between_push_persist_and_pull_still_delivers_peer_change`,
-  `pre_field_state_first_sync_heals_hidden_peer_no_churn`,
-  `pre_field_state_distrusts_absent_pull_cursor_seeds_zero`
+  carrying hidden F32 damage. → futo-notes-sync store + sync modules
 - **A pure case-only / NFC-vs-NFD rename keeps its requested form.** Renaming
   `note` → `Note` (or a composed↔decomposed accent) on a
   case/normalization-insensitive filesystem (default APFS on macOS/iOS, NTFS)
@@ -578,8 +533,7 @@ upload. Desktop sync module ownership and serialization boundaries are fixed by
   the identical loser name and the fleet lands on `{canonical, name (conflict
   <oid8>)}`), and safe even when the rival is already on disk / in the map and
   is NOT in the current incremental batch (F4 same-name; F5 NFC-vs-NFD). →
-  futo-notes-sync `orchestrator::resolve_pull_collisions` (used by `run_pull`
-  and `reconcile_empty_map`), futo-notes-core `sync::{collision_key,
+  futo-notes-sync sync module, futo-notes-core `sync::{collision_key,
   collision_conflict_filename}`; regression tests
   `f4_same_filename_two_clients_no_note_lost`,
   `f5_nfc_nfd_collision_no_note_lost`, the `collision_*` unit tests
@@ -589,8 +543,7 @@ upload. Desktop sync module ownership and serialization boundaries are fixed by
   canonical name and the local edits are parked in a deterministic `name
   (conflict <remote-oid8>).md` copy that the next push uploads as its own new
   object — instead of recording a divergence entry that the next push pushed
-  over the never-reconciled remote (F6). → futo-notes-sync
-  `orchestrator::reconcile_empty_map` diverged branch
+  over the never-reconciled remote (F6). → futo-notes-sync sync module
 - **Disconnect demotes sync state to ancestry; it never just deletes it.**
   Disconnect (all three clients) replaces `.e2ee-state.json` with
   `.e2ee-ancestry.json` — filename → {objectId, last-synced content hash} —
@@ -598,8 +551,7 @@ upload. Desktop sync module ownership and serialization boundaries are fixed by
   collection identity changed. The live cursor/object map is still discarded,
   so a reconnect can never propagate while-disconnected deletions as
   fleet-wide tombstones (missing local files are re-downloaded, as before).
-  → futo-notes-sync `state::demote_state_to_ancestry` /
-  `state::load_for_collection`, ffi `SyncClient::disconnect`, desktop
+  → futo-notes-sync store module, ffi `SyncClient::disconnect`, desktop
   `e2ee_disconnect`
 - **A reconnect after fleet drift does not mint conflict copies for notes the
   device never edited.** The empty-map reconcile consults the ancestry file:
@@ -612,12 +564,8 @@ upload. Desktop sync module ownership and serialization boundaries are fixed by
   F6 park above. This closes the July 2026 incident where a
   password re-login on a device that had been disconnected for days parked a
   stale `(conflict <oid8>)` copy of every note edited elsewhere in the
-  meantime and synced the copies to the whole fleet. → futo-notes-sync
-  `orchestrator::reconcile_empty_map` ancestry branch; regression tests
-  `reconnect_after_remote_drift_fast_forwards_instead_of_parking`,
-  `reconnect_after_local_edit_updates_same_object_instead_of_parking`,
-  `reconnect_after_remote_rename_deletes_stale_old_path_no_duplicate`,
-  `state::tests::demote_*` / `load_for_collection_*`
+  meantime and synced the copies to the whole fleet. → futo-notes-sync store +
+  sync modules; reconnect scenarios in the server integration suite
 - **A reconnect honors peer deletes made while this device was disconnected —
   it does not resurrect them.** The empty-map reconcile inspects server
   TOMBSTONES (deleted objects), not just live ones. For each tombstone it
@@ -630,12 +578,8 @@ upload. Desktop sync module ownership and serialization boundaries are fixed by
   tombstone, so the local file survived and the next push re-POSTed it as a
   brand-new object — resurrecting the deleted note on every device permanently.
   The reconcile deletes are folded into the summary (deleted count + deletedIds)
-  so the client rescan gate fires. (F1) → futo-notes-sync
-  `orchestrator::reconcile_empty_map` tombstone branch (folded by
-  `fold_reconcile_summary`); regression tests
-  `reconcile_honors_peer_tombstone_deletes_unchanged_local`,
-  `reconcile_parks_local_edit_when_tombstoned_object_diverged`,
-  `reconcile_leaves_tombstoned_file_without_ancestry_alone`; cross-platform
+  so the client rescan gate fires. (F1) → futo-notes-sync sync module;
+  cross-platform
   scenario "peer deletes while disconnected"
 - `write_atomic_text` overwrites a destination that differs only in **filename
   case** from an existing file instead of failing. On case-insensitive
@@ -666,10 +610,7 @@ upload. Desktop sync module ownership and serialization boundaries are fixed by
   than adopted. The empty-map reconcile likewise converges matching-content
   files to the server timestamp. (Observed 2026-06-05: a content-identical
   rewrite on the Mac left `Markdown demo` sorted minutes newer than on
-  Android/iOS.) → futo-notes-sync orchestrator (`push_one_file` StampOnly
-  short-circuit, `reconcile_empty_map`); regression tests
-  `touch_without_content_change_restores_server_mtime`,
-  `reconcile_identical_content_converges_mtime_to_server`
+  Android/iOS.) → futo-notes-sync sync module
 
 - **Closed (2026-06-05):** reconciliation of two *distinct* notes whose
   filenames collide only by case (`welcome.md` vs `Welcome.md`) or by Unicode
@@ -682,8 +623,8 @@ upload. Desktop sync module ownership and serialization boundaries are fixed by
   (conflict <oid8>).md`. The collision detector ranks the union of the current
   pull batch, the persisted object_map, and on-disk files, so the rival being
   already-present (not in the incremental batch) is handled — the exact
-  double-tombstone path is gone. → futo-notes-sync
-  `orchestrator::resolve_pull_collisions`; F4/F5 regression tests.
+  double-tombstone path is gone. → futo-notes-sync sync module; F4/F5
+  cross-platform scenarios.
 
 ## Polling
 
@@ -692,7 +633,7 @@ upload. Desktop sync module ownership and serialization boundaries are fixed by
   it. → project decision
 - Native shells do not run a foreground poll loop; the SSE live stream plus its
   ~45 s safety poll cover liveness (see "Live sync (SSE)"). → futo-notes-sync
-  `live::watch`
+  live module
 
 - A remote edit to the **currently-open note** is adopted into the open editor
   when the local draft is clean (`content == savedContent`); a dirty draft

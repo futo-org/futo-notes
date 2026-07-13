@@ -24,7 +24,7 @@ tauri-plugin-clipboard-manager = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-fs = "2"
 futo-notes-core = { path = "../../../crates/futo-notes-core" }
-# Shared E2EE sync orchestrator + state + SSE live loop. The desktop sync
+# Shared E2EE sync session + state + SSE live loop. The desktop sync
 # commands are thin wrappers that delegate to this crate (same source of
 # truth as the native iOS/Android shells via futo-notes-ffi).
 futo-notes-sync = { path = "../../../crates/futo-notes-sync" }

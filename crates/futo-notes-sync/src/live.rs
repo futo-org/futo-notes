@@ -1,495 +1,441 @@
-//! SSE-driven live sync.
-//!
-//! Opens `GET /api/sync/events` and reacts to the server's doorbell events
-//! (`ready` / `change` / `ping`). The stream is *lossy across disconnects*
-//! (the server replays nothing — see `futo-notes-server/docs/API.md`), so the
-//! recovery contract is:
-//!
-//!   1. pull on every `ready` (a fresh connection is effectively a `ready`),
-//!   2. pull (debounced) on every `change`,
-//!   3. a periodic safety poll as the catch-all for missed events and for
-//!      mutations the server does NOT emit events for (collection
-//!      create/delete, key rotation),
-//!   4. reconnect with exponential backoff; the new `ready` drives catch-up.
-//!
-//! It also owns the **write-once auto-push** branch: a `note_changed` signal
-//! (fired by the note-write path on every adapter) is debounced and drives a
-//! gated push, so a local edit propagates to peers within ~1s with no manual
-//! tap. The push is a no-op when disconnected and coalesces an edit burst into
-//! a single push.
-//!
-//! This module owns NONE of the session state. The adapter (FFI / Tauri)
-//! supplies a [`LiveHandle`] of async closures: `snapshot` (clone the current
-//! session, to build the stream connection) and `cycle` (the *gated*
-//! snapshot→run_sync→commit critical section). Both the SSE-driven pull and
-//! the write-once auto-push fire the SAME `cycle` — they're just different
-//! triggers for "reconcile with the server now". Keeping `cycle` in the
-//! adapter is what lets a single sync-gate serialize the live loop against a
-//! user-tapped `sync_now`, so the object-map cursor can never regress (see
-//! [`crate::session::SyncSession`]).
-//!
-//! The `change` payload (`{collectionId, currentVersion}`) is used only as a
-//! wake signal — we always pull from the locally-persisted `pull_cursor`
-//! (via `run_sync`), which is robust to missed/duplicated events.
-
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use futures_util::future::BoxFuture;
 use futures_util::StreamExt;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Mutex};
 use tokio::time::{interval, Instant, MissedTickBehavior};
 
-use crate::orchestrator::SyncSummary;
-use crate::state::ConnectedState;
+use crate::store::{self, ConnectedState};
+use crate::sync::{self, ConnectInfo, PreWrite, Progress, SyncErrorKind, SyncSummary};
 
-/// A boxed, `'static`, `Send` future — the return type of [`LiveHandle`]'s
-/// async closures. Aliased so the adapter layer can name it without importing
-/// `futures_util`.
-pub type LiveFuture<T> = BoxFuture<'static, T>;
+const SAFETY_POLL: Duration = Duration::from_secs(45);
+const READ_IDLE: Duration = Duration::from_secs(90);
+const CHANGE_DEBOUNCE: Duration = Duration::from_millis(300);
+const PUSH_DEBOUNCE: Duration = Duration::from_secs(1);
+const BACKOFF_MIN: Duration = Duration::from_secs(1);
+const BACKOFF_MAX: Duration = Duration::from_secs(30);
 
-/// Live-sync lifecycle listener. The adapter (FFI / Tauri) implements this to
-/// project the loop's events onto its own surface (a UniFFI callback interface,
-/// or Tauri `sync:live-state` / `sync:live-synced` events).
-///
-/// IMPORTANT: these methods fire on a runtime worker thread, NOT a UI thread.
-/// Implementations must be cheap and marshal to the main thread before touching
-/// UI state, and must NOT call back into a session method that takes a blocking
-/// lock (that would deadlock a runtime worker).
 pub trait SyncSessionListener: Send + Sync {
-    /// A pull (or auto-push) completed; `summary` carries the full per-cycle
-    /// result, including per-item failures.
     fn on_synced(&self, summary: SyncSummary);
-    /// The stream connected (or reconnected) cleanly.
     fn on_connected(&self);
-    /// A stream-level error (connect/read); the loop is reconnecting with
-    /// backoff.
     fn on_error(&self, message: String);
-    /// A sync cycle failed while the stream itself stayed healthy. Distinct
-    /// from `on_error` so adapters don't report the stream as down.
     fn on_cycle_error(&self, message: String) {
         self.on_error(message);
     }
-    /// The live loop stopped (cancelled / disconnected / fatal auth error).
     fn on_stopped(&self);
 }
 
-/// Hooks the live loop calls into. All session access goes through these so
-/// `live.rs` never touches the session mutex directly.
-pub struct LiveHandle {
-    /// Clone the current connected session (None ⇒ disconnected). Used to
-    /// build the SSE connection; takes no lock for longer than a clone.
-    pub snapshot: Box<dyn Fn() -> LiveFuture<Option<ConnectedState>> + Send + Sync>,
-    /// The gated full cycle: acquire the sync-gate, snapshot, run the adapter's
-    /// push-first `run_sync` (push local edits first so a peer edit can't
-    /// clobber an unpushed local edit, then pull), commit the advanced state.
-    /// `Ok(None)` ⇒ disconnected (the no-op case); `Err` ⇒ a (non-fatal)
-    /// failure. Both the SSE pull triggers and the write-once auto-push fire
-    /// this same closure under the same gate, so a debounced local push can
-    /// never race a live pull's cursor.
-    pub cycle: Box<dyn Fn() -> LiveFuture<Result<Option<SyncSummary>, String>> + Send + Sync>,
-    /// Lifecycle listener (synced / connected / error / stopped).
-    pub listener: Arc<dyn SyncSessionListener>,
+pub struct ResumeCredentials {
+    pub server_url: String,
+    pub token: String,
+    pub user_id: String,
+    pub collection_id: String,
+    pub password: String,
 }
 
-const SAFETY_POLL: Duration = Duration::from_secs(45);
-const BACKOFF_MIN: Duration = Duration::from_secs(1);
-const BACKOFF_MAX: Duration = Duration::from_secs(30);
-/// Debounce window: a burst of `change` events collapses into one pull.
-const COALESCE_WINDOW: Duration = Duration::from_millis(300);
-/// Debounce window for the write-once auto-push branch: a burst of local edits
-/// collapses into a single gated push. ~1s balances coalescing against the
-/// <2s cross-device propagation target.
-const PUSH_DEBOUNCE: Duration = Duration::from_secs(1);
-/// No SSE frame (not even a `ping`) in this long ⇒ the connection is dead.
-/// The server heartbeats every 25s, so 90s of silence means reconnect.
-const READ_IDLE: Duration = Duration::from_secs(90);
+struct LiveTask {
+    cancel: mpsc::Sender<()>,
+    note_changed: mpsc::Sender<()>,
+    abort: tokio::task::AbortHandle,
+}
 
-/// Drive live sync until `cancel` fires (or a fatal auth error / disconnect).
-/// Spawned on the tokio runtime by [`crate::session::SyncSession::start_live`].
-///
-/// `note_changed` is the write-once auto-push signal: every local note write
-/// sends `()` on it; the loop debounces and runs a gated push. The receiver is
-/// drained across reconnects so a local edit during a transient disconnect is
-/// not lost — it pushes on the next connected debounce tick.
-pub async fn watch(
-    handle: LiveHandle,
-    mut cancel: mpsc::Receiver<()>,
-    mut note_changed: mpsc::Receiver<()>,
-) {
-    let mut backoff = BACKOFF_MIN;
-    let mut safety = interval(SAFETY_POLL);
-    safety.set_missed_tick_behavior(MissedTickBehavior::Delay);
-    // Pending auto-push debounce deadline, shared across reconnects so a local
-    // edit isn't dropped if it lands while the stream is down.
-    let mut push_at: Option<Instant> = None;
+#[derive(Default)]
+pub struct SyncSession {
+    state: Arc<Mutex<Option<ConnectedState>>>,
+    cycle_gate: Arc<Mutex<()>>,
+    live: std::sync::Mutex<Option<LiveTask>>,
+}
 
-    loop {
-        // Build the stream connection from a fresh session snapshot.
-        let snap = match (handle.snapshot)().await {
-            Some(s) => s,
-            None => break, // disconnected
-        };
-        let http = match crate::orchestrator::build_client(&snap) {
-            Ok(c) => c,
-            Err(e) => {
-                handle.listener.on_error(e.message());
-                if sleep_or_cancel(backoff, &mut cancel).await {
-                    handle.listener.on_stopped();
-                    return;
-                }
-                backoff = (backoff * 2).min(BACKOFF_MAX);
-                continue;
-            }
-        };
-        let response = match http.open_event_stream().await {
-            Ok(r) => r,
-            Err(e) => {
-                if e.is_unauthorized() {
-                    handle.listener.on_error(format!("auth: {e}"));
-                    handle.listener.on_stopped();
-                    return; // token is dead — reconnecting won't help
-                }
-                handle.listener.on_error(format!("connect: {e}"));
-                if sleep_or_cancel(backoff, &mut cancel).await {
-                    handle.listener.on_stopped();
-                    return;
-                }
-                backoff = (backoff * 2).min(BACKOFF_MAX);
-                continue;
-            }
-        };
-        backoff = BACKOFF_MIN; // clean connect → reset
-        handle.listener.on_connected();
+impl SyncSession {
+    pub fn new() -> Self {
+        Self::default()
+    }
 
-        // A fresh connection is effectively a `ready` — catch up now.
-        if let CycleControl::Stop = run_cycle(&handle).await {
-            handle.listener.on_stopped();
-            return;
+    pub async fn connect(
+        &self,
+        root: &Path,
+        server: &str,
+        password: &str,
+    ) -> Result<ConnectInfo, SyncErrorKind> {
+        self.stop_live();
+        let _gate = self.cycle_gate.lock().await;
+        let (state, info) = sync::connect(root, server, password).await?;
+        *self.state.lock().await = Some(state);
+        Ok(info)
+    }
+
+    pub async fn resume(
+        &self,
+        root: &Path,
+        credentials: ResumeCredentials,
+    ) -> Result<(), SyncErrorKind> {
+        self.stop_live();
+        let _gate = self.cycle_gate.lock().await;
+        let state = sync::resume(
+            root,
+            &credentials.server_url,
+            &credentials.token,
+            &credentials.user_id,
+            &credentials.collection_id,
+            &credentials.password,
+        )
+        .await?;
+        *self.state.lock().await = Some(state);
+        Ok(())
+    }
+
+    pub async fn sync(
+        &self,
+        root: &Path,
+        progress: &Progress,
+        pre_write: &PreWrite,
+    ) -> Result<SyncSummary, SyncErrorKind> {
+        let _gate = self.cycle_gate.lock().await;
+        let state = self
+            .state
+            .lock()
+            .await
+            .clone()
+            .ok_or(SyncErrorKind::NotConnected)?;
+        let (summary, state) = sync::cycle(&state, root, progress, pre_write).await?;
+        *self.state.lock().await = Some(state);
+        Ok(summary)
+    }
+
+    pub async fn snapshot(&self) -> Option<ConnectedState> {
+        self.state.lock().await.clone()
+    }
+
+    pub fn status(&self) -> Option<ConnectedState> {
+        self.state.try_lock().ok().and_then(|state| state.clone())
+    }
+
+    pub async fn is_connected(&self) -> bool {
+        self.state.lock().await.is_some()
+    }
+
+    pub async fn disconnect(&self, root: &Path) -> Result<(), SyncErrorKind> {
+        self.stop_live();
+        let _gate = self.cycle_gate.lock().await;
+        *self.state.lock().await = None;
+        store::demote(root).map_err(SyncErrorKind::Io)
+    }
+
+    pub async fn start_live(
+        &self,
+        root: PathBuf,
+        listener: Arc<dyn SyncSessionListener>,
+        pre_write: Arc<PreWrite>,
+    ) -> Result<(), SyncErrorKind> {
+        if !self.is_connected().await {
+            return Err(SyncErrorKind::NotConnected);
         }
+        self.stop_live();
+        let (cancel_tx, cancel_rx) = mpsc::channel(1);
+        let (note_tx, note_rx) = mpsc::channel(1);
+        let state = Arc::clone(&self.state);
+        let gate = Arc::clone(&self.cycle_gate);
+        let mut live = self
+            .live
+            .lock()
+            .map_err(|_| SyncErrorKind::Io("live task lock poisoned".into()))?;
+        let join = tokio::spawn(async move {
+            live_loop(state, gate, root, listener, pre_write, cancel_rx, note_rx).await;
+        });
+        *live = Some(LiveTask {
+            cancel: cancel_tx,
+            note_changed: note_tx,
+            abort: join.abort_handle(),
+        });
+        Ok(())
+    }
 
-        let byte_stream = response.bytes_stream();
-        tokio::pin!(byte_stream);
-        let mut decoder = SseDecoder::default();
-        let mut coalesce: Option<Instant> = None;
-
-        let reconnect = loop {
-            let coalesce_fire = async {
-                match coalesce {
-                    Some(at) => tokio::time::sleep_until(at).await,
-                    None => std::future::pending::<()>().await,
-                }
-            };
-            let push_fire = async {
-                match push_at {
-                    Some(at) => tokio::time::sleep_until(at).await,
-                    None => std::future::pending::<()>().await,
-                }
-            };
-            tokio::select! {
-                biased;
-                _ = cancel.recv() => {
-                    handle.listener.on_stopped();
-                    return;
-                }
-                // Write-once auto-push: a debounced local edit drives a gated
-                // push. No-op (Ok(None)) when disconnected.
-                Some(()) = note_changed.recv() => {
-                    push_at = Some(Instant::now() + PUSH_DEBOUNCE);
-                }
-                _ = push_fire => {
-                    push_at = None;
-                    if let CycleControl::Stop = run_cycle(&handle).await {
-                        handle.listener.on_stopped();
-                        return;
-                    }
-                }
-                _ = safety.tick() => {
-                    if let CycleControl::Stop = run_cycle(&handle).await {
-                        handle.listener.on_stopped();
-                        return;
-                    }
-                }
-                _ = coalesce_fire => {
-                    coalesce = None;
-                    if let CycleControl::Stop = run_cycle(&handle).await {
-                        handle.listener.on_stopped();
-                        return;
-                    }
-                }
-                chunk = tokio::time::timeout(READ_IDLE, byte_stream.next()) => {
-                    match chunk {
-                        Err(_idle) => break true,                 // read-idle → reconnect
-                        Ok(None) => break true,                   // EOF → reconnect
-                        Ok(Some(Err(e))) => {
-                            handle.listener.on_error(format!("stream: {e}"));
-                            break true;
-                        }
-                        Ok(Some(Ok(bytes))) => {
-                            let mut events = Vec::new();
-                            decoder.push(&bytes, &mut events);
-                            for name in events {
-                                match name.as_str() {
-                                    "ready" => {
-                                        if let CycleControl::Stop = run_cycle(&handle).await {
-                                            handle.listener.on_stopped();
-                                            return;
-                                        }
-                                    }
-                                    "ping" => {} // heartbeat
-                                    // `change` and any unnamed/unknown event:
-                                    // debounce a pull.
-                                    _ => coalesce = Some(Instant::now() + COALESCE_WINDOW),
-                                }
-                            }
-                        }
-                    }
-                }
+    pub fn note_changed(&self) {
+        if let Ok(live) = self.live.lock() {
+            if let Some(task) = live.as_ref() {
+                let _ = task.note_changed.try_send(());
             }
-        };
-
-        if reconnect {
-            if sleep_or_cancel(backoff, &mut cancel).await {
-                handle.listener.on_stopped();
-                return;
-            }
-            backoff = (backoff * 2).min(BACKOFF_MAX);
         }
     }
 
-    handle.listener.on_stopped();
+    pub fn stop_live(&self) {
+        if let Ok(mut live) = self.live.lock() {
+            if let Some(task) = live.take() {
+                let _ = task.cancel.try_send(());
+                task.abort.abort();
+            }
+        }
+    }
 }
 
-/// What the loop should do after one cycle.
-enum CycleControl {
-    /// Keep the loop running (clean pull, no-op, or a transient/non-fatal error
-    /// the loop retries with backoff + the safety poll).
+enum CycleResult {
     Continue,
-    /// Stop the loop: the vault this session pinned to was collapsed
-    /// server-side (single-vault migration). Reconnecting to the same dead
-    /// vault is futile — the collection-gone message was already delivered via
-    /// `on_error`, and the shell re-points on it (desktop's poll, native's
-    /// `SyncManager` heal). The caller must fire `on_stopped` and return.
     Stop,
 }
 
-/// Whether a cycle error means the pinned vault is gone (collapsed by the
-/// single-vault migration). Both adapters flatten `SyncErrorKind::CollectionGone`
-/// to a string prefixed `collection-gone:` (FFI via `SyncError::to_string`,
-/// Tauri via `SyncErrorKind::to_string`), so a substring check works for both.
-fn is_collection_gone(msg: &str) -> bool {
-    msg.contains("collection-gone")
-}
-
-async fn run_cycle(handle: &LiveHandle) -> CycleControl {
-    match (handle.cycle)().await {
-        Ok(Some(summary)) => {
-            handle.listener.on_synced(summary);
-            CycleControl::Continue
+async fn run_cycle(
+    state: &Arc<Mutex<Option<ConnectedState>>>,
+    gate: &Arc<Mutex<()>>,
+    root: &Path,
+    listener: &dyn SyncSessionListener,
+    pre_write: &PreWrite,
+) -> CycleResult {
+    let _gate = gate.lock().await;
+    let Some(current) = state.lock().await.clone() else {
+        return CycleResult::Stop;
+    };
+    let no_progress = |_: crate::sync::SyncProgress| {};
+    match sync::cycle(&current, root, &no_progress, pre_write).await {
+        Ok((summary, next)) => {
+            *state.lock().await = Some(next);
+            listener.on_synced(summary);
+            CycleResult::Continue
         }
-        Ok(None) => CycleControl::Continue, // disconnected — nothing to reconcile
-        Err(msg) => {
-            if is_collection_gone(&msg) {
-                // Terminal: the pinned vault is gone — the shells heal on this
-                // exact on_error message, and the loop must stop.
-                handle.listener.on_error(msg);
-                CycleControl::Stop
+        Err(error) => {
+            let stop = matches!(error, SyncErrorKind::CollectionGone(_));
+            listener.on_cycle_error(error.message());
+            if stop {
+                CycleResult::Stop
             } else {
-                // The stream is still healthy — report as a cycle failure, not
-                // a stream error, so adapters don't drop their "live" state.
-                handle.listener.on_cycle_error(msg);
-                CycleControl::Continue
+                CycleResult::Continue
             }
         }
     }
 }
 
-/// Sleep for `d`, or return `true` early if cancellation fired.
-async fn sleep_or_cancel(d: Duration, cancel: &mut mpsc::Receiver<()>) -> bool {
-    tokio::select! {
-        _ = tokio::time::sleep(d) => false,
-        _ = cancel.recv() => true,
-    }
-}
+async fn live_loop(
+    state: Arc<Mutex<Option<ConnectedState>>>,
+    gate: Arc<Mutex<()>>,
+    root: PathBuf,
+    listener: Arc<dyn SyncSessionListener>,
+    pre_write: Arc<PreWrite>,
+    mut cancel: mpsc::Receiver<()>,
+    mut note_changed: mpsc::Receiver<()>,
+) {
+    let mut safety = interval(SAFETY_POLL);
+    safety.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    safety.tick().await;
+    let mut backoff = BACKOFF_MIN;
+    let mut push_at = None;
 
-/// Minimal incremental SSE frame parser. Emits the `event:` name of each
-/// dispatched event (the empty string for an unnamed/default event). Comment
-/// lines (`:` heartbeats) never dispatch. We don't need the `data:` payload —
-/// events are doorbells; the pull reads from the persisted cursor.
-#[derive(Default)]
-struct SseDecoder {
-    buf: Vec<u8>,
-    event: String,
-    /// True once a non-comment field has been seen for the current event, so a
-    /// blank line dispatches (and a comment-only block does not).
-    pending: bool,
-}
-
-impl SseDecoder {
-    fn push(&mut self, chunk: &[u8], out: &mut Vec<String>) {
-        self.buf.extend_from_slice(chunk);
-        while let Some(nl) = self.buf.iter().position(|&b| b == b'\n') {
-            let mut line: Vec<u8> = self.buf.drain(..=nl).collect();
-            line.pop(); // drop '\n'
-            if line.last() == Some(&b'\r') {
-                line.pop(); // drop '\r' (CRLF)
-            }
-            let line = String::from_utf8_lossy(&line);
-            if line.is_empty() {
-                if self.pending {
-                    out.push(std::mem::take(&mut self.event));
+    'reconnect: loop {
+        let Some(snapshot) = state.lock().await.clone() else {
+            break;
+        };
+        let http = match sync::client(&snapshot) {
+            Ok(http) => http,
+            Err(error) => {
+                listener.on_error(error.message());
+                if wait_or_cancel(backoff, &mut cancel).await {
+                    break;
                 }
-                self.event.clear();
-                self.pending = false;
-            } else if line.starts_with(':') {
-                // comment / heartbeat — ignore, don't arm dispatch
-            } else if let Some(rest) = line.strip_prefix("event:") {
-                self.event = rest.strip_prefix(' ').unwrap_or(rest).to_owned();
-                self.pending = true;
-            } else {
-                // data:/id:/retry:/unknown — payload ignored, but arm dispatch
-                // so a data-only (default-named) event still wakes a pull.
-                self.pending = true;
+                backoff = (backoff * 2).min(BACKOFF_MAX);
+                continue;
+            }
+        };
+        let response = tokio::select! {
+            _ = cancel.recv() => break,
+            response = http.events() => response,
+        };
+        let response = match response {
+            Ok(response) => response,
+            Err(error) if error.is(401) => {
+                listener.on_error(format!("auth: {error}"));
+                break;
+            }
+            Err(error) => {
+                listener.on_error(format!("connect: {error}"));
+                if wait_or_cancel(backoff, &mut cancel).await {
+                    break;
+                }
+                backoff = (backoff * 2).min(BACKOFF_MAX);
+                continue;
+            }
+        };
+        backoff = BACKOFF_MIN;
+        listener.on_connected();
+        if matches!(
+            run_cycle(&state, &gate, &root, listener.as_ref(), pre_write.as_ref()).await,
+            CycleResult::Stop
+        ) {
+            break;
+        }
+
+        let stream = response.bytes_stream();
+        tokio::pin!(stream);
+        let mut events = EventStream::default();
+        let mut pull_at = None;
+        loop {
+            let pull_timer = deadline(pull_at);
+            let push_timer = deadline(push_at);
+            tokio::select! {
+                _ = cancel.recv() => break 'reconnect,
+                Some(()) = note_changed.recv() => {
+                    push_at = Some(Instant::now() + PUSH_DEBOUNCE);
+                }
+                _ = push_timer => {
+                    push_at = None;
+                    if matches!(run_cycle(&state, &gate, &root, listener.as_ref(), pre_write.as_ref()).await, CycleResult::Stop) {
+                        break 'reconnect;
+                    }
+                }
+                _ = pull_timer => {
+                    pull_at = None;
+                    if matches!(run_cycle(&state, &gate, &root, listener.as_ref(), pre_write.as_ref()).await, CycleResult::Stop) {
+                        break 'reconnect;
+                    }
+                }
+                _ = safety.tick() => {
+                    if matches!(run_cycle(&state, &gate, &root, listener.as_ref(), pre_write.as_ref()).await, CycleResult::Stop) {
+                        break 'reconnect;
+                    }
+                }
+                chunk = tokio::time::timeout(READ_IDLE, stream.next()) => {
+                    match chunk {
+                        Ok(Some(Ok(bytes))) => {
+                            for event in events.push(&bytes) {
+                                if event == "ready" || event == "change" {
+                                    pull_at = Some(Instant::now() + CHANGE_DEBOUNCE);
+                                }
+                            }
+                        }
+                        Ok(Some(Err(error))) => {
+                            listener.on_error(format!("read: {error}"));
+                            break;
+                        }
+                        Ok(None) => {
+                            listener.on_error("read: event stream closed".into());
+                            break;
+                        }
+                        Err(_) => {
+                            listener.on_error("read: event stream idle timeout".into());
+                            break;
+                        }
+                    }
+                }
             }
         }
+        if wait_or_cancel(backoff, &mut cancel).await {
+            break;
+        }
+        backoff = (backoff * 2).min(BACKOFF_MAX);
+    }
+    listener.on_stopped();
+}
+
+async fn deadline(at: Option<Instant>) {
+    match at {
+        Some(at) => tokio::time::sleep_until(at).await,
+        None => std::future::pending().await,
+    }
+}
+
+async fn wait_or_cancel(duration: Duration, cancel: &mut mpsc::Receiver<()>) -> bool {
+    tokio::select! {
+        _ = cancel.recv() => true,
+        _ = tokio::time::sleep(duration) => false,
+    }
+}
+
+#[derive(Default)]
+struct EventStream {
+    buffer: String,
+}
+
+impl EventStream {
+    fn push(&mut self, bytes: &[u8]) -> Vec<String> {
+        self.buffer.push_str(&String::from_utf8_lossy(bytes));
+        self.buffer = self.buffer.replace("\r\n", "\n");
+        let mut events = Vec::new();
+        while let Some(end) = self.buffer.find("\n\n") {
+            let frame = self.buffer[..end].to_owned();
+            self.buffer.drain(..end + 2);
+            if let Some(event) = frame
+                .lines()
+                .find_map(|line| line.strip_prefix("event:").map(str::trim))
+            {
+                events.push(event.to_owned());
+            }
+        }
+        events
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
 
-    fn names(chunks: &[&str]) -> Vec<String> {
-        let mut d = SseDecoder::default();
-        let mut out = Vec::new();
-        for c in chunks {
-            d.push(c.as_bytes(), &mut out);
+    fn events(chunks: &[&str]) -> Vec<String> {
+        let mut stream = EventStream::default();
+        chunks
+            .iter()
+            .flat_map(|chunk| stream.push(chunk.as_bytes()))
+            .collect()
+    }
+
+    fn connected() -> ConnectedState {
+        ConnectedState {
+            base_url: "http://127.0.0.1:1".into(),
+            token: "token".into(),
+            user_id: "user".into(),
+            collection_id: "collection".into(),
+            vault_key: [3; 32],
+            object_map: HashMap::new(),
+            max_version: 0,
+            pull_cursor: 0,
+            oversize_skip: HashMap::new(),
         }
-        out
     }
 
     #[test]
-    fn parses_named_events() {
+    fn parses_multiple_named_events() {
         assert_eq!(
-            names(&["event: ready\ndata: \n\nevent: change\ndata: {\"x\":1}\n\n"]),
-            vec!["ready".to_string(), "change".to_string()]
+            events(&["event: ready\ndata: \n\nevent: change\ndata: {}\n\n"]),
+            ["ready", "change"]
         );
     }
 
     #[test]
-    fn ignores_comment_heartbeat() {
-        // A `:` comment block must NOT dispatch.
-        assert_eq!(names(&[": keep-alive\n\nevent: ping\ndata: \n\n"]), vec!["ping"]);
-    }
-
-    #[test]
-    fn handles_crlf_and_split_chunks() {
-        // Event split across two network chunks, CRLF line endings.
+    fn ignores_comment_heartbeats() {
         assert_eq!(
-            names(&["event: chan", "ge\r\ndata: {}\r\n\r\n"]),
-            vec!["change"]
+            events(&[": keep-alive\n\nevent: ping\ndata: \n\n"]),
+            ["ping"]
         );
     }
 
     #[test]
-    fn multiline_data_dispatches_once() {
+    fn handles_crlf_and_network_chunk_boundaries() {
         assert_eq!(
-            names(&["event: change\ndata: line1\ndata: line2\n\n"]),
-            vec!["change"]
+            events(&["event: chan", "ge\r\ndata: {}\r\n\r\n"]),
+            ["change"]
         );
     }
 
-    // ── run_cycle control decision ───────────────────────────────────────
-    //
-    // The live loop must STOP on a collection-gone error (the vault was
-    // collapsed by the single-vault migration — reconnecting to the same dead
-    // vault would spin forever) but KEEP RUNNING on any other error (transient
-    // connect/stream failures self-heal via backoff + the safety poll).
-
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::Mutex;
-
-    #[derive(Default)]
-    struct RecordingListener {
-        synced: AtomicUsize,
-        connected: AtomicUsize,
-        errors: Mutex<Vec<String>>,
-        stopped: AtomicUsize,
-    }
-
-    impl SyncSessionListener for RecordingListener {
-        fn on_synced(&self, _summary: SyncSummary) {
-            self.synced.fetch_add(1, Ordering::SeqCst);
-        }
-        fn on_connected(&self) {
-            self.connected.fetch_add(1, Ordering::SeqCst);
-        }
-        fn on_error(&self, message: String) {
-            self.errors.lock().unwrap().push(message);
-        }
-        fn on_stopped(&self) {
-            self.stopped.fetch_add(1, Ordering::SeqCst);
-        }
-    }
-
-    /// Build a `LiveHandle` whose `cycle` yields `result` each call. `snapshot`
-    /// is a stub — `run_cycle` never calls it (only `watch` does).
-    fn handle_with_cycle(
-        listener: Arc<RecordingListener>,
-        cycle: impl Fn() -> Result<Option<SyncSummary>, String> + Send + Sync + 'static,
-    ) -> LiveHandle {
-        LiveHandle {
-            snapshot: Box::new(|| Box::pin(async { None })),
-            cycle: Box::new(move || {
-                let out = cycle();
-                Box::pin(async move { out })
-            }),
-            listener,
-        }
+    #[test]
+    fn multiline_data_dispatches_one_event() {
+        assert_eq!(
+            events(&["event: change\ndata: line1\ndata: line2\n\n"]),
+            ["change"]
+        );
     }
 
     #[tokio::test]
-    async fn run_cycle_stops_on_collection_gone() {
-        let rec = Arc::new(RecordingListener::default());
-        let handle = handle_with_cycle(rec.clone(), || {
-            Err("collection-gone: HTTP 404 Not Found".to_owned())
-        });
-        assert!(matches!(run_cycle(&handle).await, CycleControl::Stop));
-        // The collection-gone message is still delivered so the shell can heal.
-        assert_eq!(rec.errors.lock().unwrap().len(), 1);
-        assert!(rec.errors.lock().unwrap()[0].contains("collection-gone"));
-        assert_eq!(rec.synced.load(Ordering::SeqCst), 0);
-    }
+    async fn status_is_nonblocking_and_reports_lock_contention_as_unavailable() {
+        let session = SyncSession::new();
+        *session.state.lock().await = Some(connected());
+        assert_eq!(session.status().unwrap().collection_id, "collection");
 
-    #[tokio::test]
-    async fn run_cycle_continues_on_transient_error() {
-        let rec = Arc::new(RecordingListener::default());
-        let handle = handle_with_cycle(rec.clone(), || Err("stream: connection reset".to_owned()));
-        assert!(matches!(run_cycle(&handle).await, CycleControl::Continue));
-        assert_eq!(rec.errors.lock().unwrap().len(), 1);
-    }
-
-    #[tokio::test]
-    async fn run_cycle_continues_on_success_and_noop() {
-        let rec = Arc::new(RecordingListener::default());
-        let ok = handle_with_cycle(rec.clone(), || Ok(Some(SyncSummary::default())));
-        assert!(matches!(run_cycle(&ok).await, CycleControl::Continue));
-        assert_eq!(rec.synced.load(Ordering::SeqCst), 1);
-
-        // Ok(None) (disconnected mid-cycle) is also non-terminal and reports
-        // neither a sync nor an error.
-        let rec2 = Arc::new(RecordingListener::default());
-        let noop = handle_with_cycle(rec2.clone(), || Ok(None));
-        assert!(matches!(run_cycle(&noop).await, CycleControl::Continue));
-        assert_eq!(rec2.synced.load(Ordering::SeqCst), 0);
-        assert_eq!(rec2.errors.lock().unwrap().len(), 0);
+        let _held = session.state.lock().await;
+        assert!(session.status().is_none());
     }
 
     #[test]
-    fn is_collection_gone_matches_only_the_prefix() {
-        assert!(is_collection_gone("collection-gone: HTTP 404"));
-        assert!(is_collection_gone("wrapped: collection-gone: HTTP 404"));
-        assert!(!is_collection_gone("stream: boom"));
-        assert!(!is_collection_gone("HTTP error: 500"));
+    fn stop_and_change_notifications_are_safe_without_a_live_task() {
+        let session = SyncSession::new();
+        session.note_changed();
+        session.stop_live();
+        session.stop_live();
     }
 }

@@ -21,8 +21,8 @@
 //! suppression service BEFORE the disk write so the watcher
 //! echo for our own write is swallowed by the watcher service. The
 //! optimistic cache update in `notes.svelte.ts` is then the only refresh for a
-//! local edit. This mirrors what the sync orchestrator's `apply_delta`
-//! (`futo-notes-sync`) already does.
+//! local edit. The sync engine follows the same suppression discipline when
+//! applying a remote change.
 
 use std::path::Path;
 

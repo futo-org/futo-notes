@@ -37,9 +37,6 @@
   const appCtx = createAppContext();
   setContext(APP_CONTEXT_KEY, appCtx);
 
-  let drawerOpen = $state(true);
-  let drawerProgress = $state(1);
-
   $effect(() => {
     appCtx.activeNoteId = noteId;
   });
@@ -73,12 +70,8 @@
   let editor: ReturnType<typeof MarkdownEditor> | null = $state(null);
   let graphPanel: ReturnType<typeof GraphSidebarPanel> | null = $state(null);
   let editorFocused = $state(false);
-  let shell: HTMLElement | undefined = $state(undefined);
-  let drawer: HTMLElement | undefined = $state(undefined);
   let noteBody: HTMLElement | undefined = $state(undefined);
   let titleTextarea: HTMLTextAreaElement | undefined = $state(undefined);
-
-  let drawerWidth = $state(0);
 
   // Desktop sidebar
   let sidebarWidth = $state(280);
@@ -124,7 +117,6 @@
 
   // Graph sidebar
   let graphSidebarOpen = $state(false);
-  let graphLoading = $state(false);
   let graphPanelResizing = $state(false);
 
   // prevNoteId is tracked here because the $effect that calls session.loadNote
@@ -134,71 +126,16 @@
   // tab when the user switches tabs, then restore those on tab return.
   let prevTabId: string | null = null;
 
-  // Sync manager — owns writeSuppressor, watcherBatch, syncCoord, and all
-  // sync coordination state. Extracted from this component for testability.
-  const sync = createSyncManager({
-    getOriginalId: () => session.originalId,
-    getEditVersion: () => session.editVersion,
-    isSavePending: () => session.isSavePending(),
-    hasOpenDraftChanges: () => session.hasOpenDraftChanges(),
-    getLastEditTime: () => session.lastEditTime,
-    applyExternalContent: (content) => session.applyExternalContent(content),
-    applyRemoteRename: (newId, newTitle) => session.applyRemoteRename(newId, newTitle),
-    cancelAndClear: () => session.cancelAndClear(),
-    flushSave: () => session.flushSave(),
-    seedOpenNote: (id, body) => session.seedOpenNote(id, body),
-
-    getEditorContent: () => editor?.getContent(),
-    isComposing: () => Boolean(editor?.isComposing?.()),
-    isEditorFocused: () => editor?.hasFocus?.() ?? false,
-
-    patchGraphNode: (from, to, title) => graphPanel?.patchGraphNode(from, to, title),
-    clearGraphData: () => graphPanel?.clearGraphData(),
-
-    showToast,
-    navigate: (path) => navigate(path),
-    getNoteId: () => noteId,
-    getPrevNoteId: () => prevNoteId,
-    setPrevNoteId: (id) => {
-      prevNoteId = id;
-    },
-    onAnySyncRename: (fromId, toId) => {
-      tabsStore.applyRename(fromId, toId);
-    },
-    pruneTabsForDeletedIds: (goneIds) => {
-      const gone = new Set(goneIds);
-      tabsStore.pruneMissingNoteIds((id) => !gone.has(id));
-    },
-  });
-
-  // Note session controller — owns title, content, save queue, title validation
   const session = createNoteSession({
     getEditorContent: () => editor?.getContent(),
     setEditorContent: (text, opts) => editor?.setContent(text, opts),
     focusEditor: () => editor?.focus(),
-    // Re-assert across two frames: on a new-note load the rAF that requests
-    // title focus can fire before the textarea has bound (route just
-    // changed), and the editor's same-frame setContent can contend for
-    // focus — a single focus() call can lose to either.
-    focusTitle: () => {
-      const attempt = (retries: number) => {
-        if (titleTextarea && document.activeElement !== titleTextarea) {
-          titleTextarea.focus();
-        }
-        if (retries > 0) requestAnimationFrame(() => attempt(retries - 1));
-      };
-      attempt(2);
-    },
+    isEditorFocused: () => editor?.hasFocus?.() ?? false,
+    isComposing: () => Boolean(editor?.isComposing?.()),
     getNotes: () => appCtx.notes,
-    patchGraphNode: (from, to, t) => graphPanel?.patchGraphNode(from, to, t),
-    showToast,
-    notifySaved: () => sync.notifySaved(),
     getNoteBody: () => noteBody,
     getTitleTextarea: () => titleTextarea,
     getNoteId: () => noteId,
-    setPrevNoteId: (id) => {
-      prevNoteId = id;
-    },
     getPendingFolder: () => tabsStore.activeTab.pendingFolder ?? null,
     clearPendingFolder: () => {
       tabsStore.setPendingFolder(tabsStore.activeTabId, null);
@@ -218,6 +155,23 @@
           tabsStore.replaceTabNoteId(t.id, realId);
         }
       }
+    },
+  });
+
+  const sync = createSyncManager({
+    session,
+    showToast,
+    onRename: (fromId, toId, title) => {
+      tabsStore.applyRename(fromId, toId);
+      graphPanel?.patchGraphNode(fromId, toId, title);
+      if (noteId === fromId) {
+        prevNoteId = toId;
+        navigate(`/note/${encodeURIComponent(toId)}`);
+      }
+    },
+    pruneTabsForDeletedIds: (goneIds) => {
+      const gone = new Set(goneIds);
+      tabsStore.pruneMissingNoteIds((id) => !gone.has(id));
     },
   });
 
@@ -244,36 +198,6 @@
     }
     settingsOpen = false;
     showToast(count > 0 ? `Imported ${count} notes` : 'All notes deleted');
-  }
-
-  function updateDrawerMetrics(): void {
-    if (drawer) {
-      drawerWidth = drawer.getBoundingClientRect().width || 1;
-    }
-  }
-
-  function editorIsComposing(): boolean {
-    return editor?.isComposing?.() ?? false;
-  }
-
-  function setDrawerOpen(open: boolean): void {
-    drawerOpen = open;
-    if (open && !editorIsComposing()) {
-      editor?.blur();
-    }
-    setDrawerProgress(open ? 1 : 0);
-    void updateNativeDrawerState(open);
-  }
-
-  function setDrawerProgress(progress: number): void {
-    drawerProgress = Math.min(1, Math.max(0, progress));
-    if (drawerProgress > 0 && !editorIsComposing()) {
-      editor?.blur();
-    }
-  }
-
-  async function updateNativeDrawerState(open: boolean): Promise<void> {
-    void open;
   }
 
   function handleNoteSelect(id: string, event?: MouseEvent): void {
@@ -461,11 +385,6 @@
     return () => window.removeEventListener('keydown', handleWindowKeydown);
   });
 
-  function registerBackSwipeHandler(): void {
-    const win = window as typeof window & { __toggleNotesDrawer?: () => void };
-    win.__toggleNotesDrawer = () => setDrawerOpen(!drawerOpen);
-  }
-
   async function loadNoteAndResetUI(id: string | null): Promise<void> {
     noteMenuOpen = false;
     deleteConfirmOpen = false;
@@ -475,8 +394,6 @@
 
   $effect(() => {
     keyboard.init();
-    registerBackSwipeHandler();
-    updateDrawerMetrics();
 
     // Sync manager lifecycle (autoSync, syncCoord, watcherBatch cleanup)
     const cleanupSync = sync.start();
@@ -713,8 +630,6 @@
     });
   });
 
-  const drawerOffset = $derived(drawerProgress * drawerWidth);
-
   $effect(() => {
     if (!(import.meta.env.DEV || import.meta.env.VITE_INCLUDE_TEST_HOOKS === 'true')) return;
     const win = window as typeof window & {
@@ -743,6 +658,10 @@
       handleLiveState: sync.handleLiveState,
       handleFileChange: sync.handleFileChange,
       seedOpenNote: (id: string, body: string) => {
+        // The seeded note is intentionally not on disk. Mark the route as
+        // loaded before navigation so the route effect does not replace the
+        // seeded body with readNote(id)'s missing-file empty string.
+        prevNoteId = id;
         session.seedOpenNote(id, body);
         // Match the user-driven flow: opening a note focuses the editor so
         // the caret is visible. Done in a microtask so the editor has
@@ -769,7 +688,7 @@
         toastMessage,
         hash: window.location.hash,
         editorContent: editor?.getContent() ?? '',
-        savePending: session.isSavePending(),
+        savePending: session.savePending,
       }),
     };
     return () => {
@@ -780,18 +699,16 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-  bind:this={shell}
   class="notes-shell desktop-layout"
   class:sidebar-collapsed={sidebarCollapsed}
   class:sidebar-resizing={sidebarResizing}
   class:graph-resizing={graphPanelResizing}
-  class:drawer-open={drawerOpen}
   class:graph-sidebar-open={graphSidebarOpen}
-  style="--drawer-offset: {drawerOffset}px; --sidebar-width: {sidebarWidth}px; --graph-sidebar-width: {graphSidebarWidth}px; --vv-offset: {keyboard.offsetTop}px"
+  style="--sidebar-width: {sidebarWidth}px; --graph-sidebar-width: {graphSidebarWidth}px; --vv-offset: {keyboard.offsetTop}px"
 >
   <!-- Drawer -->
   <DrawerSidebar
-    {drawerOpen}
+    drawerOpen={true}
     {sidebarCollapsed}
     bind:sidebarWidth
     onselect={handleDrawerSelect}
@@ -803,7 +720,6 @@
     onnewnoteinfolder={createNewNoteInFolder}
     oncreatetestnote={createTestNote}
     ontogglecollapse={toggleSidebar}
-    bind:drawerEl={drawer}
     bind:sidebarResizing
   />
 
@@ -971,7 +887,6 @@
     }}
     ontoast={showToast}
     bind:resizing={graphPanelResizing}
-    bind:loading={graphLoading}
   />
 </div>
 

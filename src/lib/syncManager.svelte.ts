@@ -1,156 +1,59 @@
-/**
- * Sync manager — owns sync coordination state and lifecycle.
- *
- * Extracted from NotesShell.svelte so sync logic is independently testable
- * and the shell becomes a pure layout component.
- *
- * Created via `createSyncManager(deps)` which returns reactive state for
- * the template and imperative methods for the watcher and dev hooks.
- */
-
 import { listen } from '@tauri-apps/api/event';
-import { hasFileSystem, isTauri } from '$lib/platform';
-import {
-  writeSuppressor as sharedWriteSuppressor,
-  type WriteSuppressor,
-} from '$lib/writeSuppression';
-import { createWatcherBatch, type WatcherBatch } from '$lib/watcherBatch';
+import { updateAppState } from '$lib/appState';
+import { startAutoSyncV2, stopAutoSyncV2, notifySavedV2, type SyncTrigger } from '$lib/autoSyncV2';
 import { createSyncCoordinator, type SyncCoordinator } from '$lib/syncCoordinator';
-import type { FileChangeEvent } from '$lib/platform/types';
-import type { SyncSummary } from '$lib/syncServiceE2ee';
+import { getSyncErrorMessage } from '$lib/syncErrorMessage';
 import {
-  readNote,
-  noteExists,
   getNoteById,
   handleExternalFileChange,
+  noteExists,
+  readNote,
   refreshNotesFromStorage,
 } from '$lib/notes.svelte';
-import { startAutoSyncV2, stopAutoSyncV2, notifySavedV2, type SyncTrigger } from '$lib/autoSyncV2';
-import { updateAppState } from '$lib/appState';
+import { isTauri, hasFileSystem } from '$lib/platform';
+import type { FileChangeEvent } from '$lib/platform/types';
+import type { NoteSession } from '$lib/noteSession.svelte';
+import type { SyncSummary } from '$lib/syncServiceE2ee';
+import { createWatcherBatch } from '$lib/watcherBatch';
+import { writeSuppressor } from '$lib/writeSuppression';
 import { engineNotify } from '$features/search/searchEngine';
 
-// ── Dependency interface ─────────────────────────────────────────────────
+export { getSyncErrorMessage } from '$lib/syncErrorMessage';
 
 export interface SyncManagerDeps {
-  // Session
-  getOriginalId: () => string | null;
-  getEditVersion: () => number;
-  isSavePending: () => boolean;
-  hasOpenDraftChanges: () => boolean;
-  getLastEditTime: () => number;
-  applyExternalContent: (content: string) => void;
-  applyRemoteRename: (newId: string, newTitle: string) => void;
-  cancelAndClear: () => void;
-  flushSave: () => Promise<void>;
-  seedOpenNote?: (id: string, body: string) => void;
-
-  // Editor
-  getEditorContent: () => string | undefined;
-  isComposing: () => boolean;
-  /** Whether the editor currently holds focus. Adopting external content into
-   *  a focused editor desyncs CM6's async selection/scroll/measure machinery
-   *  from the replaced doc and crashes it — see the guards below. */
-  isEditorFocused: () => boolean;
-
-  // Graph
-  patchGraphNode: (from: string, to: string, title: string) => void;
-  clearGraphData: () => void;
-
-  // UI
+  session: NoteSession;
   showToast: (message: string) => void;
-  navigate: (path: string) => void;
-  getNoteId: () => string | null;
-  getPrevNoteId: () => string | null | undefined;
-  setPrevNoteId: (id: string | null | undefined) => void;
-  /** Called once per remote-driven rename so the tabs store (and any
-   *  other consumer) can patch references that aren't the active note. */
-  onAnySyncRename?: (fromId: string, toId: string) => void;
-  /** Clear any tab (background or the just-closed active one) still pointing at
-   *  a note this sync deleted and did NOT recreate, so switching to that tab
-   *  can't resurrect the note via a `loadNote` that reads "" for the missing
-   *  file (F4 background-tab vector). The note whose unsaved draft was kept
-   *  open is intentionally excluded by the caller. */
-  pruneTabsForDeletedIds?: (goneIds: string[]) => void;
+  onRename: (fromId: string, toId: string, title: string) => void;
+  pruneTabsForDeletedIds: (ids: string[]) => void;
 }
 
-// ── Return type ──────────────────────────────────────────────────────────
-
 export interface SyncManager {
-  /** Reactive: current sync status message for the UI. */
   readonly syncStatusMessage: string;
-  /** Reactive: whether the sync activity indicator is visible. */
   readonly syncIndicatorVisible: boolean;
-  /** Reactive: whether the app is offline. */
   readonly syncOffline: boolean;
-  /** Reactive: whether the last sync attempt failed (cleared on next successful sync). */
   readonly syncError: boolean;
-  /** Reactive: human-readable message for the last sync error (empty when none). */
   readonly syncErrorMessage: string;
-  /** Reactive: whether the Rust SSE live stream is currently connected. */
   readonly live: boolean;
-
-  /** The write suppressor instance — shared with noteSession. */
-  readonly writeSuppressor: WriteSuppressor;
-  /** The watcher batch — used for enqueuing file change events. */
-  readonly watcherBatch: WatcherBatch;
-
-  /** Enqueue a file-system change event from the native watcher. */
   enqueueFileChange: (event: FileChangeEvent) => void;
-
-  /** Notify the manager when editor focus changes so deferred external adopts
-   *  can be reconciled after CM6's focused document state is gone. */
   handleEditorFocusChange: (focused: boolean) => Promise<void>;
-
-  /** Notify auto-sync that a local change happened (save, delete, etc). */
   notifySaved: () => void;
-
-  /** Dismiss the current sync error (✕ indicator + message). A manual dismiss,
-   *  NOT a mute — the next failing sync re-raises it. */
   clearSyncError: () => void;
-
-  /** Start sync lifecycle (call in mount $effect). Returns cleanup fn. */
   start: () => () => void;
-
-  // For __notesShellTest dev hook
   handleSyncComplete: (summary: SyncSummary, trigger?: SyncTrigger) => Promise<void>;
   handleFileChange: (event: FileChangeEvent) => Promise<void>;
-  /** Exposed for tests — the `sync:live-state` event handler. */
   handleLiveState: (payload: LiveStatePayload) => void;
 }
 
-/** Payload of the Rust live loop's `sync:live-state` event. `message` is set
- *  only on error emits: status "reconnecting" (stream down, `live: false`) or
- *  "cycle-error" (a sync cycle failed while the stream stayed up, `live:
- *  true`). */
 export interface LiveStatePayload {
   live: boolean;
   status: string;
   message?: string;
 }
 
-/** Which surface raised a sync error — see `raiseSyncError`/`clearSyncError`. */
-export type SyncErrorSource = 'sync' | 'stream';
+type SyncErrorSource = 'sync' | 'stream';
 
-// ── Constants ────────────────────────────────────────────────────────────
-
-function isCollisionVariantId(sourceId: string, candidateId: string): boolean {
+function isCollisionVariant(sourceId: string, candidateId: string): boolean {
   return candidateId.startsWith(`${sourceId} (`) && /\(\d+\)$/.test(candidateId);
-}
-
-/**
- * Human-readable message for a sync failure. Auto/background sync errors used
- * to be swallowed into `console.warn` only (regression F15); this turns the raw
- * error into the same wording the Settings panel uses for manual-sync failures
- * so the status-bar indicator and Settings agree. `fetch` throws opaque
- * `TypeError`s when the server is unreachable — rewrite those to something a
- * user can act on.
- */
-export function getSyncErrorMessage(error: unknown): string {
-  const msg = error instanceof Error ? error.message : String(error);
-  if (error instanceof TypeError && /failed to fetch|load failed|networkerror/i.test(msg)) {
-    return "Could not reach server — check the URL and make sure it's running";
-  }
-  return msg;
 }
 
 export function findActiveSyncRename(
@@ -158,562 +61,342 @@ export function findActiveSyncRename(
   originalId: string,
   recentRenameTarget?: string | null,
 ): { fromId: string; toId: string } | null {
-  const explicitRename = summary.renamed.find((rename) => rename.fromId === originalId);
-  if (explicitRename) return explicitRename;
+  const explicit = summary.renamed.find((rename) => rename.fromId === originalId);
+  if (explicit) return explicit;
   if (recentRenameTarget && recentRenameTarget !== originalId) {
     return { fromId: originalId, toId: recentRenameTarget };
   }
   if (!summary.deletedIds.includes(originalId)) return null;
-
-  const collisionRenameTarget = summary.updatedIds.find((id) =>
-    isCollisionVariantId(originalId, id),
-  );
-  if (!collisionRenameTarget) return null;
-
-  return { fromId: originalId, toId: collisionRenameTarget };
+  const collision = summary.updatedIds.find((id) => isCollisionVariant(originalId, id));
+  return collision ? { fromId: originalId, toId: collision } : null;
 }
 
-// ── Factory ──────────────────────────────────────────────────────────────
-
-// eslint-disable-next-line max-lines-per-function -- Sync lifecycle, watcher coordination, and Svelte rune state are intentionally kept together.
+// eslint-disable-next-line max-lines-per-function -- One Svelte rune factory owns sync health, watcher buffering, and open-note reconciliation.
 export function createSyncManager(deps: SyncManagerDeps): SyncManager {
-  // ── Reactive state (Svelte 5 runes) ──
   let syncStatusMessage = $state('');
   let syncIndicatorVisible = $state(false);
   let syncOffline = $state(false);
-  let syncError = $state(false);
   let syncErrorMessage = $state('');
-  let live = $state(false);
-  /** What raised the current error: 'sync' (a cycle failed — poll, manual, or
-   *  live cycle-error) or 'stream' (the SSE stream is down). Tracked so each
-   *  source only clears its own errors — see `clearSyncError`. */
   let syncErrorSource: SyncErrorSource | null = null;
+  let live = $state(false);
 
-  /**
-   * Raise the sync-failure state (⚠ indicator + Settings line) from a
-   * whole-cycle throw, per-item failures, or a live-loop error. The toast
-   * fires on any CHANGE of message — the first failure (message was '') and
-   * every subsequent DIFFERENT failure — but stays silent on an identical
-   * repeat, so a persistent outage that auto-sync retries every ~15s doesn't
-   * spam.
-   */
-  function raiseSyncError(message: string, source: SyncErrorSource = 'sync'): void {
+  let rescanTimer: number | null = null;
+  let rescanRunning = false;
+  let rescanAgain = false;
+  let pendingAdopt: { id: string; content: string } | null = null;
+  let coordinator: SyncCoordinator | null = null;
+
+  function raiseError(message: string, source: SyncErrorSource = 'sync'): void {
     const changed = message !== syncErrorMessage;
-    syncError = true;
     syncErrorMessage = message;
     syncErrorSource = source;
-    // Toasts float free of the sync UI, so name the source; the indicator
-    // tooltip and Settings line carry their own "Sync error/failed" labels.
     if (changed) deps.showToast(`Sync error: ${message}`);
   }
 
-  /**
-   * Clear the error state. With a `source`, only clears an error that source
-   * raised: a clean poll proves syncing works but not that the stream
-   * recovered, so it must not clear (and re-arm the toast for) a 'stream'
-   * error the live loop is still retrying. The click-to-dismiss ⚠ passes no
-   * source and clears everything.
-   */
-  function clearSyncError(source?: SyncErrorSource): void {
-    if (source && syncErrorSource !== null && syncErrorSource !== source) return;
-    syncError = false;
+  function clearError(source?: SyncErrorSource): void {
+    if (source && syncErrorSource && source !== syncErrorSource) return;
     syncErrorMessage = '';
     syncErrorSource = null;
   }
 
-  // ── Internal state ──
-  let externalRescanTimer: number | null = null;
-  let externalRescanInFlight = false;
-  let externalRescanQueued = false;
-  let pendingExternalAdopt: { id: string; content: string } | null = null;
-
-  // ── Write suppressor ──
-  // Shared module-level singleton — local note ops (drag-drop folder
-  // moves, single-note moves) need to record their own writes so the
-  // watcher doesn't fire "Note deleted externally" on the unlink that
-  // the local rename produced.
-  const writeSuppressor = sharedWriteSuppressor;
-
-  const notifySaved = () => {
-    notifySavedV2();
-  };
-
-  // ── External rescan ──
-
-  async function runExternalRescan(): Promise<void> {
+  async function runRescan(): Promise<void> {
     if (!hasFileSystem) return;
-    if (externalRescanInFlight) {
-      externalRescanQueued = true;
+    if (rescanRunning) {
+      rescanAgain = true;
       return;
     }
-    externalRescanInFlight = true;
+    rescanRunning = true;
     try {
       await refreshNotesFromStorage();
-    } catch (e) {
-      console.warn('External rescan failed:', e);
+    } catch (error) {
+      console.warn('External rescan failed:', error);
     } finally {
-      externalRescanInFlight = false;
-      if (externalRescanQueued) {
-        externalRescanQueued = false;
-        scheduleExternalRescan(250);
+      rescanRunning = false;
+      if (rescanAgain) {
+        rescanAgain = false;
+        scheduleRescan(250);
       }
     }
   }
 
-  function scheduleExternalRescan(delayMs = 800): void {
-    if (externalRescanTimer !== null) {
-      clearTimeout(externalRescanTimer);
-    }
-    externalRescanTimer = setTimeout(() => {
-      externalRescanTimer = null;
-      void runExternalRescan();
+  function scheduleRescan(delayMs = 800): void {
+    if (rescanTimer !== null) clearTimeout(rescanTimer);
+    rescanTimer = window.setTimeout(() => {
+      rescanTimer = null;
+      void runRescan();
     }, delayMs);
   }
 
-  function deferExternalAdopt(id: string, content: string): void {
-    pendingExternalAdopt = { id, content };
-  }
-
-  async function preserveLocalDraftAfterExternalChange(): Promise<void> {
-    deps.showToast('Open note changed externally; keeping local draft');
+  async function preserveDraft(message = 'Open note changed externally; keeping local draft') {
+    deps.showToast(message);
     await refreshNotesFromStorage();
-    scheduleExternalRescan(250);
+    scheduleRescan(250);
   }
 
-  async function reconcilePendingExternalAdopt(): Promise<void> {
-    if (!pendingExternalAdopt) return;
+  function deferAdopt(id: string, content: string): void {
+    pendingAdopt = { id, content };
+  }
 
-    const pending = pendingExternalAdopt;
-    pendingExternalAdopt = null;
-
-    if (deps.getOriginalId() !== pending.id) return;
-    if (pending.content === deps.getEditorContent()) return;
-
-    if (deps.hasOpenDraftChanges()) {
-      await preserveLocalDraftAfterExternalChange();
+  async function reconcileDeferredAdopt(): Promise<void> {
+    const pending = pendingAdopt;
+    pendingAdopt = null;
+    if (!pending || deps.session.originalId !== pending.id) return;
+    if (deps.session.editorContent === pending.content) return;
+    if (deps.session.dirty) {
+      await preserveDraft();
       return;
     }
-
-    deps.applyExternalContent(pending.content);
+    deps.session.applyExternalContent(pending.content);
   }
 
   async function handleEditorFocusChange(focused: boolean): Promise<void> {
-    if (focused) return;
-    await reconcilePendingExternalAdopt();
+    if (!focused) await reconcileDeferredAdopt();
   }
 
-  // ── Watcher event handlers ──
-
-  async function handleSingleWatcherEvent(event: FileChangeEvent): Promise<void> {
+  async function handleFileChange(event: FileChangeEvent): Promise<void> {
     const { type, filename } = event;
     if (!filename.endsWith('.md')) return;
-    if (writeSuppressor.isRecentSyncWrite(filename)) return;
-    if (writeSuppressor.isRecentWrite(filename)) return;
-
-    const id = filename.replace(/\.md$/, '');
-    if (type === 'unlink' && writeSuppressor.getRecentRemoteRename(id)) return;
-    // Suppress change events for open note when save is pending or in-flight
-    const originalId = deps.getOriginalId();
-    if (id === originalId && deps.isSavePending() && type === 'change') return;
-    if (
-      id === originalId &&
-      deps.hasOpenDraftChanges() &&
-      (type === 'change' || type === 'unlink')
-    ) {
-      if (type === 'unlink') {
-        deps.showToast('Open note was deleted externally; keeping local draft');
-        await refreshNotesFromStorage();
-      } else {
-        await preserveLocalDraftAfterExternalChange();
-      }
+    if (writeSuppressor.isRecentSyncWrite(filename) || writeSuppressor.isRecentWrite(filename)) {
       return;
     }
 
-    if (type === 'unlink' && id === originalId) {
-      deps.cancelAndClear();
+    const id = filename.slice(0, -3);
+    if (type === 'unlink' && writeSuppressor.getRecentRemoteRename(id)) return;
+    const isOpen = deps.session.originalId === id;
+    if (isOpen && deps.session.savePending && type === 'change') return;
+
+    if (isOpen && deps.session.dirty && (type === 'change' || type === 'unlink')) {
+      await preserveDraft(
+        type === 'unlink'
+          ? 'Open note was deleted externally; keeping local draft'
+          : 'Open note changed externally; keeping local draft',
+      );
+      return;
+    }
+
+    if (isOpen && type === 'unlink') {
+      deps.session.cancelAndClear();
       deps.showToast('Note was deleted externally');
-    } else if (type === 'change' && id === originalId) {
-      // Never replace the open note's document while its editor is focused:
-      // CM6's async DOM-selection/scroll/measure machinery still references
-      // pre-update positions, and once the adopted doc shrinks under it CM6
-      // throws (RangeError "Selection points outside of document" / "No tile at
-      // position N" / "Invalid position N in document"). The single-note cache
-      // update below still runs so the note list tracks the change; the editor
-      // keeps its current doc until it loses focus, then reconciles below.
+    } else if (isOpen && type === 'change') {
       try {
-        const freshContent = await readNote(id);
-        if (deps.isEditorFocused()) {
-          deferExternalAdopt(id, freshContent);
-        } else {
-          deps.applyExternalContent(freshContent);
-        }
+        const fresh = await readNote(id);
+        if (deps.session.editorFocused) deferAdopt(id, fresh);
+        else deps.session.applyExternalContent(fresh);
       } catch {
-        // Ignore read errors for transient file events.
+        // Watchers can race an atomic rename; the cache refresh below retries.
       }
     }
 
     await handleExternalFileChange(filename);
-    // handleExternalFileChange already applied the single-note cache+index
-    // update (with a full-rescan fallback on error), so a coarse
-    // scheduleExternalRescan() here is redundant double work (F18 follow-up).
-    if (type === 'add' || type === 'change') {
-      notifySaved();
-    }
+    if (type === 'add' || type === 'change') notifySavedV2();
   }
 
   async function handleBulkWatcherRefresh(events: FileChangeEvent[]): Promise<void> {
-    scheduleExternalRescan(250);
-
-    // Replay the active-note event synchronously so the open editor
-    // picks up the change without waiting for the rescan window.
-    const originalId = deps.getOriginalId();
-    const activeFilename = originalId ? `${originalId}.md` : null;
-    if (activeFilename) {
-      const activeEvent = events.find((ev) => ev.filename === activeFilename);
-      if (activeEvent) {
-        await handleSingleWatcherEvent(activeEvent);
-      }
-    }
+    scheduleRescan(250);
+    const openId = deps.session.originalId;
+    if (!openId) return;
+    const activeEvent = events.find((event) => event.filename === `${openId}.md`);
+    if (activeEvent) await handleFileChange(activeEvent);
   }
 
-  // ── Watcher batch ──
   const watcherBatch = createWatcherBatch({
-    onEvent: handleSingleWatcherEvent,
+    onEvent: handleFileChange,
     onBulkRefresh: handleBulkWatcherRefresh,
     suppressor: writeSuppressor,
   });
 
-  // ── Sync coordinator (created lazily in start()) ──
-  let syncCoord: SyncCoordinator | null = null;
-
-  // ── Live-state handler ──
-
-  /**
-   * `sync:live-state` from the Rust live loop. `message` is only present on
-   * the error emits: "cycle-error" (a sync cycle failed, stream still up —
-   * same failure class as a poll error, so source 'sync') and "reconnecting"
-   * (the stream itself is down — source 'stream', cleared only when the
-   * stream comes back or the user dismisses, never by a clean poll).
-   */
   function handleLiveState(payload: LiveStatePayload): void {
     live = payload.live;
     if (payload.message) {
-      raiseSyncError(payload.message, payload.status === 'cycle-error' ? 'sync' : 'stream');
+      raiseError(payload.message, payload.status === 'cycle-error' ? 'sync' : 'stream');
     } else if (payload.live) {
-      // Clean (re)connect — a stream error is resolved.
-      clearSyncError('stream');
+      clearError('stream');
     }
   }
 
-  // ── Sync complete handler ──
-
-  async function handleSyncComplete(summary: SyncSummary, trigger?: SyncTrigger): Promise<void> {
-    // Single reporter for sync-completion feedback (spec: sync.md). A cycle
-    // with zero per-item failures clears any prior error so the status-bar
-    // indicator and Settings stop showing a stale failure — and, for a MANUAL
-    // sync (Settings Connect / "Sync now"), toasts "Sync complete" (never
-    // per-item success counts — spec decision 2026-06-10; background/live
-    // cycles stay quiet). A cycle that COMPLETED but had per-item failures
-    // (uploads/deletes that didn't reach the server — work-item #10) raises
-    // the muted failure indicator + toast instead — resolution alone is not
-    // success.
-    if (summary.failureMessage) {
-      raiseSyncError(summary.failureMessage);
-    } else {
-      clearSyncError('sync');
+  function reportOutcome(summary: SyncSummary, trigger?: SyncTrigger): void {
+    if (summary.failureMessage) raiseError(summary.failureMessage);
+    else {
+      clearError('sync');
       if (trigger === 'manual') deps.showToast('Sync complete');
     }
-    // Stamp the "last synced" time. Nothing else writes appState.lastSyncedAt,
-    // so without this the Settings "Last sync" label stayed frozen (e.g.
-    // "1mo ago") even after a successful manual "Sync now". Fire it before the
-    // first await below: saveAppState updates its in-memory cache synchronously,
-    // so handleSyncNow's getCachedPreferences() read (right after the
-    // un-awaited onSyncComplete returns) sees the fresh value.
-    void updateAppState({ lastSyncedAt: Date.now() }).catch((err) => {
-      // Non-critical (the in-memory cache is already updated synchronously), but
-      // don't let a rejected appState write become an unhandled rejection /
-      // crash report — log it so a genuine persistence failure is still visible.
-      console.warn('Failed to persist lastSyncedAt:', err);
+    void updateAppState({ lastSyncedAt: Date.now() }).catch((error) => {
+      console.warn('Failed to persist lastSyncedAt:', error);
     });
-    function applyActiveRename(fromId: string, toId: string): void {
-      const meta = getNoteById(toId);
-      const newTitle = meta?.title ?? toId;
-      deps.applyRemoteRename(toId, newTitle);
+  }
 
-      deps.patchGraphNode(fromId, toId, newTitle);
-
-      const currentPath = window.location.hash.slice(1) || '/';
-      if (currentPath === `/note/${encodeURIComponent(fromId)}`) {
-        deps.setPrevNoteId(toId);
-        deps.navigate(`/note/${encodeURIComponent(toId)}`);
-      }
-    }
-
-    // Gate the post-sync rescan on peer-driven changes only. Echoing our
-    // own push back through `summary.updatedIds` was forcing a full vault
-    // scan on every keystroke-triggered sync, which made typing stutter. Pure
-    // pushes leave notesCache and the Rust search index already correct.
-    const hasPeerNoteChanges =
-      summary.peerUpdatedIds.length > 0 ||
-      summary.peerDeletedIds.length > 0 ||
-      summary.renamed.length > 0;
+  function recordSyncEffects(summary: SyncSummary): void {
     for (const id of summary.updatedIds) writeSuppressor.recordSyncWrite(`${id}.md`);
     for (const id of summary.deletedIds) writeSuppressor.recordSyncWrite(`${id}.md`);
     for (const rename of summary.renamed) {
       writeSuppressor.recordSyncWrite(`${rename.fromId}.md`);
       writeSuppressor.recordSyncWrite(`${rename.toId}.md`);
       writeSuppressor.recordRemoteRename(rename.fromId, rename.toId);
-      deps.onAnySyncRename?.(rename.fromId, rename.toId);
-      // Sync writes are Rust-side and their watcher echo is suppressed, so the
-      // Tantivy engine never sees them. Reindex peer changes here — mirrors
-      // the native shells' rescan-on-pull. Pure channel sends; the engine coalesces them
-      // into one commit. `engineNotify` no-ops off-Tauri.
       void engineNotify('rename', `${rename.toId}.md`, `${rename.fromId}.md`);
     }
-    if (hasPeerNoteChanges) {
-      for (const id of summary.peerUpdatedIds) void engineNotify('change', `${id}.md`);
-      for (const id of summary.peerDeletedIds) void engineNotify('unlink', `${id}.md`);
-      setTimeout(() => runExternalRescan(), 50);
+    for (const id of summary.peerUpdatedIds) void engineNotify('change', `${id}.md`);
+    for (const id of summary.peerDeletedIds) void engineNotify('unlink', `${id}.md`);
+    if (
+      summary.peerUpdatedIds.length > 0 ||
+      summary.peerDeletedIds.length > 0 ||
+      summary.renamed.length > 0
+    ) {
+      window.setTimeout(() => void runRescan(), 50);
     }
+  }
 
-    const originalId = deps.getOriginalId();
+  function applyRename(fromId: string, toId: string): void {
+    const slash = toId.lastIndexOf('/');
+    const title = getNoteById(toId)?.title ?? (slash === -1 ? toId : toId.slice(slash + 1));
+    deps.onRename(fromId, toId, title);
+    if (deps.session.originalId === fromId) deps.session.applyRemoteRename(toId, title);
+  }
 
-    const activeRename = originalId ? findActiveSyncRename(summary, originalId) : null;
-    if (activeRename) {
-      applyActiveRename(activeRename.fromId, activeRename.toId);
-      if (
-        !summary.renamed.some(
-          (rename) => rename.fromId === activeRename.fromId && rename.toId === activeRename.toId,
-        )
-      ) {
-        writeSuppressor.recordRemoteRename(activeRename.fromId, activeRename.toId);
-        // A collision-inferred (or recent-hint) rename is NOT in summary.renamed,
-        // so the loop above never retargeted the tabs store for it — do it here.
-        // Otherwise the tab keeps pointing at the old (now-deleted) id and the W2
-        // tab-prune below nulls it, sending the just-followed editor to Home
-        // (regression: remote-rename.spec.ts "delete plus collision-suffixed
-        // update"). The editor session already followed via applyActiveRename.
-        deps.onAnySyncRename?.(activeRename.fromId, activeRename.toId);
-      }
+  async function keepOrCloseDeletedOpenNote(openId: string): Promise<string | null> {
+    if (deps.session.dirty) {
+      await preserveDraft('Open note was deleted during sync; keeping local draft');
+      return openId;
     }
+    deps.session.cancelAndClear();
+    deps.showToast('Note was deleted during sync');
+    return null;
+  }
 
-    // Reload only when sync actually touched the currently-open note. This is
-    // scoped into its own function so its early bails (a local rename racing the
-    // async existence/read probes) return from HERE only — the tab-prune and
-    // status logic for OTHER notes deleted this cycle must still run. Returns
-    // the id of an open note whose unsaved draft we deliberately kept (edit-wins,
-    // excluded from pruning), or null.
-    const reconcileOpenNote = async (): Promise<string | null> => {
-      const openId = deps.getOriginalId();
-      const openDeleted = !!openId && summary.deletedIds.includes(openId);
-      const openUpdated = !!openId && summary.updatedIds.includes(openId);
-      if (!openId || !(openDeleted || openUpdated)) return null;
+  async function reconcileOpenNote(summary: SyncSummary): Promise<string | null> {
+    const openId = deps.session.originalId;
+    if (!openId) return null;
+    const deleted = summary.deletedIds.includes(openId);
+    const updated = summary.updatedIds.includes(openId);
+    if (!deleted && !updated) return null;
 
-      let keptDraftId: string | null = null;
-      // Close (or, for an unsaved draft, keep) the open note deleted this cycle.
-      // hasOpenDraftChanges → cancelAndClear stays await-free so a keystroke
-      // can't slip in between the check and the close (the reviewer-verified
-      // atomicity). Mirrors the local-watcher unlink-of-open-note path.
-      const closeOrKeepDeletedOpenNote = async (): Promise<void> => {
-        if (deps.hasOpenDraftChanges()) {
-          keptDraftId = openId;
-          deps.showToast('Open note was deleted during sync; keeping local draft');
-          await refreshNotesFromStorage();
-        } else {
-          deps.cancelAndClear();
-          deps.showToast('Note was deleted during sync');
-        }
-      };
-
-      // W1: `updatedIds` is NOT evidence the open note survived — it aggregates
-      // push AND pull, so it also contains ids WE uploaded this cycle. A peer
-      // can tombstone note X while this same cycle pushed our edit to X: X lands
-      // in both lists yet the pull deleted the file from disk. Ask the
-      // filesystem authoritatively instead. handleSyncComplete runs un-awaited
-      // from auto/live sync, so a rejected existence probe (vault-root
-      // resolution, spawn_blocking, IPC) must NOT escape as an unhandled
-      // rejection — fail toward the SAFE side: treat "cannot confirm" as gone so
-      // we never adopt "" into a session bound to a possibly-missing id.
-      let openNoteGone = false;
-      if (openDeleted) {
-        try {
-          openNoteGone = !(await noteExists(openId));
-        } catch {
-          openNoteGone = true;
-        }
-      }
-      // The existence read above is the only await before the close decision, so
-      // re-verify the open note didn't change under us (a local rename racing
-      // readNote/noteExists) — the old id is no longer open, nothing to do.
-      if (deps.getOriginalId() !== openId) return keptDraftId;
-
-      if (openNoteGone) {
-        // F4: a peer deleted the currently-open note and it is gone from disk.
-        // read_note returns "" for a missing file on Tauri (crud.rs scan-time
-        // tolerance — the contract stays ""), so feeding this id into the adopt
-        // path would blank the editor while the session stayed bound to the
-        // deleted id; the next keystroke would re-create the file and undo the
-        // peer's delete fleet-wide. Never adopt "".
-        await closeOrKeepDeletedOpenNote();
-        return keptDraftId;
-      }
-
-      // The open note was updated, or was deleted-then-recreated on disk —
-      // either way it existed a moment ago, so adopt its on-disk content.
+    let gone = false;
+    if (deleted) {
       try {
-        const freshContent = await readNote(openId);
-        // TOCTOU: the file can vanish between the noteExists check and this read
-        // (external unlink / an overlapping live-sync cycle), and read_note
-        // returns "" for a missing file — adopting that "" is the literal F4
-        // shape again. If a note deleted THIS cycle reads back empty, re-verify
-        // existence before adopting; a legitimately-empty recreated note
-        // re-verifies as present and still adopts. (Fail safe on a probe error.)
-        let vanished = false;
-        if (openDeleted && freshContent === '') {
-          try {
-            vanished = !(await noteExists(openId));
-          } catch {
-            vanished = true;
-          }
-        }
-        if (deps.getOriginalId() !== openId) return keptDraftId;
-        if (vanished) {
-          await closeOrKeepDeletedOpenNote();
-          return keptDraftId;
-        }
-        if (freshContent !== deps.getEditorContent()) {
-          const editedDuringSync =
-            deps.getEditVersion() !== (syncCoord?.getSyncStartEditVersion() ?? 0);
-          // hasOpenDraftChanges reads the LIVE editor doc synchronously, so it
-          // also catches a keystroke whose rAF-coalesced onchange hasn't
-          // delivered yet (editVersion not bumped) — without it, the adopt
-          // below would replace the doc and silently swallow that keystroke.
-          // Also defer the adopt while the editor is focused — replacing the
-          // open doc under CM6's live selection/measure state crashes it (see
-          // the watcher guard above); the metadata refresh below still runs.
-          if (!editedDuringSync && !deps.hasOpenDraftChanges()) {
-            if (deps.isEditorFocused()) {
-              deferExternalAdopt(openId, freshContent);
-            } else {
-              deps.applyExternalContent(freshContent);
-            }
-          }
-        }
-        // H13: Always refresh metadata even when content was skipped.
-        const meta = getNoteById(openId);
-        if (meta) {
-          deps.applyRemoteRename(openId, meta.title);
-        }
+        gone = !(await noteExists(openId));
       } catch {
-        // The note existed, so read_note only rejects on a genuine IPC failure —
-        // or originalId changed mid-await because a local rename raced. Either
-        // way, keep the local draft rather than clobber it.
-        if (deps.getOriginalId() !== openId) return keptDraftId;
+        gone = true;
+      }
+    }
+    if (deps.session.originalId !== openId) return null;
+    if (gone) return keepOrCloseDeletedOpenNote(openId);
+
+    try {
+      const fresh = await readNote(openId);
+      if (deleted && fresh === '') {
+        try {
+          gone = !(await noteExists(openId));
+        } catch {
+          gone = true;
+        }
+      }
+      if (deps.session.originalId !== openId) return null;
+      if (gone) return keepOrCloseDeletedOpenNote(openId);
+
+      if (fresh !== deps.session.editorContent) {
+        const editedDuringSync =
+          deps.session.editVersion !== (coordinator?.getSyncStartEditVersion() ?? 0);
+        if (!editedDuringSync && !deps.session.dirty) {
+          if (deps.session.editorFocused) deferAdopt(openId, fresh);
+          else deps.session.applyExternalContent(fresh);
+        }
+      }
+      const meta = getNoteById(openId);
+      if (meta) deps.session.applyRemoteRename(openId, meta.title);
+    } catch {
+      if (deps.session.originalId === openId) {
         deps.showToast('Open note changed during sync; keeping local draft');
       }
-      return keptDraftId;
-    };
+    }
+    return null;
+  }
 
-    // The open note whose unsaved draft we deliberately kept (excluded from tab
-    // pruning below), or null.
-    const keptDeletedDraftId = await reconcileOpenNote();
+  async function pruneDeletedTabs(summary: SyncSummary, keptDraftId: string | null) {
+    const candidates = summary.deletedIds.filter((id) => id !== keptDraftId);
+    const existence = await Promise.all(candidates.map((id) => noteExists(id).catch(() => true)));
+    const gone = candidates.filter((_, index) => !existence[index]);
+    if (gone.length > 0) deps.pruneTabsForDeletedIds(gone);
+  }
 
-    // W2: prune any tab still pointing at a note this sync deleted that is now
-    // gone from disk, so switching to a background tab — or back to the tab of
-    // the note just closed above — can't resurrect it via loadNote reading ""
-    // for the missing file. Existence is authoritative (same W1 reason: a
-    // deleted id can also be in updatedIds via our own push). A deleted note
-    // still on disk was recreated, so it stays. The open note whose unsaved
-    // draft we kept is excluded; renames already re-pointed their tabs above.
-    // A rejected existence probe must not crash the un-awaited handler and must
-    // not wrongly prune a live tab — treat "cannot confirm" as present (skip).
-    const pruneCandidates = summary.deletedIds.filter((id) => id !== keptDeletedDraftId);
-    const pruneExistence = await Promise.all(
-      pruneCandidates.map((id) => noteExists(id).catch(() => true)),
-    );
-    const goneIds = pruneCandidates.filter((_, i) => !pruneExistence[i]);
-    if (goneIds.length > 0) deps.pruneTabsForDeletedIds?.(goneIds);
+  async function handleSyncComplete(summary: SyncSummary, trigger?: SyncTrigger): Promise<void> {
+    reportOutcome(summary, trigger);
+    recordSyncEffects(summary);
 
-    // Sync status banner. A successful sync reports just "Sync complete" —
-    // never per-item uploaded/downloaded/deleted/conflict counts (sync.md,
-    // 2026-06-10). Only surfaced for large syncs so routine polls stay quiet,
-    // and never for a cycle with per-item failures — the ⚠ indicator owns that.
+    const activeBeforeRenames = deps.session.originalId;
+    const activeRename = activeBeforeRenames
+      ? findActiveSyncRename(summary, activeBeforeRenames)
+      : null;
+    const applied = new Set<string>();
+    for (const rename of summary.renamed) {
+      applyRename(rename.fromId, rename.toId);
+      applied.add(`${rename.fromId}\n${rename.toId}`);
+    }
+    if (activeRename && !applied.has(`${activeRename.fromId}\n${activeRename.toId}`)) {
+      writeSuppressor.recordRemoteRename(activeRename.fromId, activeRename.toId);
+      applyRename(activeRename.fromId, activeRename.toId);
+    }
+
+    const keptDraftId = await reconcileOpenNote(summary);
+    await pruneDeletedTabs(summary, keptDraftId);
+
     const totalChanges =
       summary.updatedIds.length + summary.deletedIds.length + summary.renamed.length;
     if (totalChanges > 20 && !summary.failureMessage) {
-      syncCoord?.setStatusWithTimeout('Sync complete', 3000);
+      coordinator?.setStatusWithTimeout('Sync complete', 3000);
     } else {
       syncStatusMessage = '';
     }
   }
 
-  // ── Lifecycle ──
-
   function start(): () => void {
-    syncCoord = createSyncCoordinator(
+    coordinator = createSyncCoordinator(
       {
         watcherBatch,
-        getEditVersion: () => deps.getEditVersion(),
-        isSavePending: () => deps.isSavePending(),
-        isComposing: () => deps.isComposing(),
-        getLastEditTime: () => deps.getLastEditTime(),
+        getEditVersion: () => deps.session.editVersion,
+        isSavePending: () => deps.session.savePending,
+        isComposing: () => deps.session.composing,
+        getLastEditTime: () => deps.session.lastEditTime,
       },
       {
-        onStatusMessage: (msg) => {
-          syncStatusMessage = msg;
-        },
-        onIndicatorChange: (visible) => {
-          syncIndicatorVisible = visible;
-        },
-        onOfflineChange: (offline) => {
-          syncOffline = offline;
-        },
+        onStatusMessage: (message) => (syncStatusMessage = message),
+        onIndicatorChange: (visible) => (syncIndicatorVisible = visible),
+        onOfflineChange: (offline) => (syncOffline = offline),
       },
     );
-    const coord = syncCoord;
+
+    const activeCoordinator = coordinator;
     startAutoSyncV2({
       onSyncComplete: handleSyncComplete,
-      onSyncError: (err) => {
-        // F15: surface auto/background sync failures in the UI instead of only
-        // console.warn — the status-bar indicator + Settings read this state.
-        // Edge-triggered toast on the healthy→failing transition; cleared on
-        // the next successful sync (handleSyncComplete).
-        raiseSyncError(getSyncErrorMessage(err));
-        console.warn('Auto-sync error:', err);
+      onSyncError: (error) => {
+        raiseError(getSyncErrorMessage(error));
+        console.warn('Auto-sync error:', error);
       },
-      flushPendingSave: deps.flushSave,
-      shouldDeferSync: coord.shouldDeferSync,
-      onOfflineChange: coord.onOfflineChange,
-      onSyncStateChange: coord.onSyncStateChange,
+      flushPendingSave: deps.session.flushSave,
+      shouldDeferSync: activeCoordinator.shouldDeferSync,
+      onOfflineChange: activeCoordinator.onOfflineChange,
+      onSyncStateChange: activeCoordinator.onSyncStateChange,
     });
 
-    // Live SSE events from the Rust backend. Guarded on isTauri so non-Tauri
-    // environments (web dev, Playwright, jsdom) never touch the Tauri event
-    // bridge — hasFileSystem is true in dev-mode web, where listen() throws.
-    let liveUnlisteners: Array<() => void> = [];
+    let unlisteners: Array<() => void> = [];
     if (isTauri) {
-      void listen('sync:live-synced', (e) => {
-        void handleSyncComplete(e.payload as SyncSummary);
-      }).then((un) => liveUnlisteners.push(un));
-      void listen<LiveStatePayload>('sync:live-state', (e) => handleLiveState(e.payload)).then(
-        (un) => liveUnlisteners.push(un),
-      );
+      void listen('sync:live-synced', (event) => {
+        void handleSyncComplete(event.payload as SyncSummary);
+      }).then((unlisten) => unlisteners.push(unlisten));
+      void listen<LiveStatePayload>('sync:live-state', (event) =>
+        handleLiveState(event.payload),
+      ).then((unlisten) => unlisteners.push(unlisten));
     }
 
     return () => {
       stopAutoSyncV2();
-      if (externalRescanTimer !== null) {
-        clearTimeout(externalRescanTimer);
-        externalRescanTimer = null;
-      }
-      for (const un of liveUnlisteners) un();
-      liveUnlisteners = [];
+      if (rescanTimer !== null) clearTimeout(rescanTimer);
+      rescanTimer = null;
+      for (const unlisten of unlisteners) unlisten();
+      unlisteners = [];
       watcherBatch.destroy();
-      syncCoord?.destroy();
+      activeCoordinator.destroy();
+      if (coordinator === activeCoordinator) coordinator = null;
     };
   }
-
-  // ── Public API ──
 
   return {
     get syncStatusMessage() {
@@ -726,7 +409,7 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
       return syncOffline;
     },
     get syncError() {
-      return syncError;
+      return syncErrorMessage !== '';
     },
     get syncErrorMessage() {
       return syncErrorMessage;
@@ -734,18 +417,13 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
     get live() {
       return live;
     },
-
-    writeSuppressor,
-    watcherBatch,
-
-    enqueueFileChange: (event: FileChangeEvent) => watcherBatch.enqueue(event),
+    enqueueFileChange: watcherBatch.enqueue,
     handleEditorFocusChange,
-    notifySaved,
-    clearSyncError,
-
+    notifySaved: notifySavedV2,
+    clearSyncError: () => clearError(),
     start,
     handleSyncComplete,
-    handleFileChange: handleSingleWatcherEvent,
+    handleFileChange,
     handleLiveState,
   };
 }
