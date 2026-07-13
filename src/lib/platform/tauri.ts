@@ -309,11 +309,19 @@ export const tauriFS: PlatformFS = {
     return invoke<boolean>('notes_exists', { id });
   },
 
-  async createNote(folder: string, title: string): Promise<string> {
-    // Rust resolves the id collision (`-2`, `-3`, …) and writes the note in
+  async createNote(
+    folder: string,
+    title: string,
+    content: string,
+  ): Promise<{ id: string; mtime: number }> {
+    // Rust resolves the id collision (`-2`, `-3`, …) and writes the content in
     // one blocking call, suppressing the watcher echo for the resolved id.
-    // Returns the final, collision-resolved id.
-    return invoke<string>('notes_create', { title, folder });
+    const r = await invoke<{ id: string; modifiedMs: number }>('notes_create', {
+      title,
+      folder,
+      content,
+    });
+    return { id: r.id, mtime: r.modifiedMs };
   },
 
   async renameNote(oldId: string, newId: string): Promise<string> {

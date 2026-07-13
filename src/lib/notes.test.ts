@@ -160,6 +160,23 @@ describe('createNote', () => {
     const result = await createNote('My Note', 'new content');
     expect(result.id).toBe('My Note-2');
   });
+
+  // A3: a failed create must not leave a zero-byte orphan that later collides
+  // (forcing a retry onto `-2`). Create writes content atomically — a failure
+  // leaves nothing behind, so retrying the same title reuses the intended id.
+  it('a failed create leaves no orphan and a retry keeps the intended id', async () => {
+    const { initNotes, createNote } = await freshNotes();
+    await initNotes();
+
+    const spy = vi.spyOn(testFS, 'createNote').mockRejectedValue(new Error('ENOSPC'));
+    await expect(createNote('Fresh', 'body')).rejects.toThrow();
+    spy.mockRestore();
+
+    expect(await testFS.noteExists('Fresh')).toBe(false);
+
+    const retry = await createNote('Fresh', 'body');
+    expect(retry.id).toBe('Fresh');
+  });
 });
 
 describe('updateNote', () => {
@@ -195,6 +212,27 @@ describe('updateNote', () => {
     // Cache should have new, not old
     expect(getNoteById('old-name')).toBeUndefined();
     expect(getNoteById('new-name')).toBeDefined();
+  });
+
+  // A2: a disk-write failure during a title-rename must not commit the rename
+  // with the edit stranded. The current buffer is written to the EXISTING id
+  // before the rename, so a failure leaves the note recoverable at its
+  // original id (a retry converges) rather than renamed to a file holding
+  // stale content with the cache/session pointing at a now-missing source.
+  it('a failed write during a title-rename leaves the note recoverable at the original id', async () => {
+    await testFS.writeNote('old-name', 'saved body');
+
+    const { initNotes, updateNote } = await freshNotes();
+    await initNotes();
+
+    const spy = vi.spyOn(testFS, 'writeNote').mockRejectedValue(new Error('ENOSPC'));
+    await expect(updateNote('new-name', 'New Name', 'edited body', 'old-name')).rejects.toThrow();
+    spy.mockRestore();
+
+    // The rename must NOT have committed: the note is still at the original id
+    // (recoverable), not moved to 'new-name' holding stale content.
+    expect(await testFS.noteExists('old-name')).toBe(true);
+    expect(await testFS.noteExists('new-name')).toBe(false);
   });
 });
 

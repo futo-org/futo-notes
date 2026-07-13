@@ -278,15 +278,15 @@ export function getNoteById(id: string): NotePreview | undefined {
 export async function createNote(
   id: string,
   content: string,
-  overrideMtime?: number,
 ): Promise<{ id: string; mtime: number }> {
-  // The domain resolves the id collision and creates the note; the content
-  // write follows (createNote's callers always have body content ready).
+  // The domain resolves the id collision and writes the content atomically
+  // (no zero-byte orphan window).
   const slash = id.lastIndexOf('/');
   const folder = slash === -1 ? '' : id.slice(0, slash);
   const title = slash === -1 ? id : id.slice(slash + 1);
-  id = await createNoteFile(folder, title);
-  const mtime = await writeNote(id, content, overrideMtime);
+  const created = await createNoteFile(folder, title, content);
+  id = created.id;
+  const mtime = created.mtime;
 
   notesCache.push({
     id,
@@ -311,19 +311,26 @@ export async function updateNote(
   let mtime: number;
 
   if (!originalId) {
-    // Brand-new note: the domain resolves the id collision and creates the
-    // file, then the current body is written to the resolved id.
+    // Brand-new note: the domain resolves the id collision and writes the
+    // content atomically (no zero-byte orphan window on a failed write).
     const slash = id.lastIndexOf('/');
     const folder = slash === -1 ? '' : id.slice(0, slash);
     const title = slash === -1 ? id : id.slice(slash + 1);
-    finalId = await createNoteFile(folder, title);
-    mtime = await writeNote(finalId, content, overrideMtime);
+    const created = await createNoteFile(folder, title, content);
+    finalId = created.id;
+    mtime = created.mtime;
   } else if (originalId !== id) {
-    // Title changed → atomic rename (the domain resolves any collision and,
-    // on a case/NFC-only change, routes through a temp hop). Persist the
-    // current body to the renamed note, then relink references to it.
+    // Title changed. Persist the current body to the EXISTING id FIRST, then
+    // atomically rename (the domain resolves any collision and, on a case/NFC-
+    // only change, routes through a temp hop, preserving the just-written
+    // bytes). Write-before-rename means a failed write leaves the note intact
+    // at originalId (a retry converges) instead of committing the rename with
+    // the edit stranded on a now-missing source.
+    mtime = await writeNote(originalId, content, overrideMtime);
     finalId = await moveNoteFile(originalId, id);
-    mtime = await writeNote(finalId, content, overrideMtime);
+    // moveNoteFile re-keys the index entry old→new but carries the pre-write
+    // content; refresh the new path so the Rust engine indexes the edit.
+    void engineNotify('change', `${finalId}.md`);
     removeFromSearchIndex(originalId);
     await rewriteWikilinksForRename(originalId, finalId);
   } else {

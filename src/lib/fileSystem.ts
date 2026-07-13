@@ -61,16 +61,24 @@ export async function noteExists(id: string): Promise<boolean> {
 }
 
 /**
- * Create a note from a folder (`""` = root) + title. The platform layer
- * resolves the id collision (`-2`, `-3`, … — Rust `get_unique_note_id` on
- * desktop/native, the in-store probe on web/test) and returns the final id.
- * Records the resolved path so the watcher event for our own write doesn't
- * bubble back as an external change.
+ * Create a note from a folder (`""` = root) + title with its initial content,
+ * written atomically. The platform layer resolves the id collision (`-2`,
+ * `-3`, … — Rust `get_unique_note_id` on desktop/native, the in-store probe on
+ * web/test) and returns the final id + mtime. Atomic-create: a write failure
+ * leaves no zero-byte orphan behind. Records the resolved path so the watcher
+ * event for our own write doesn't bubble back as an external change.
  */
-export async function createNoteFile(folder: string, title: string): Promise<string> {
-  const finalId = await getFS().createNote(folder, title);
-  writeSuppressor.recordWrite(`${finalId}.md`);
-  return finalId;
+export async function createNoteFile(
+  folder: string,
+  title: string,
+  content: string,
+): Promise<{ id: string; mtime: number }> {
+  const { id, mtime } = await getFS().createNote(folder, title, content);
+  writeSuppressor.recordWrite(`${id}.md`);
+  // The Rust/web create writes the file outside the writeNote chokepoint, so
+  // notify the search engine here to keep it as fresh as the optimistic cache.
+  void engineNotify('change', `${id}.md`);
+  return { id, mtime };
 }
 
 /**

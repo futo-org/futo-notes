@@ -245,13 +245,17 @@ export function createNodeFS(): TestPlatformFS {
       }
     },
 
-    async createNote(folder: string, title: string): Promise<string> {
+    async createNote(
+      folder: string,
+      title: string,
+      content: string,
+    ): Promise<{ id: string; mtime: number }> {
       const wanted = folder ? `${folder}/${title}` : title;
       const finalId = uniqueNoteId(wanted);
       const filePath = path.join(tmpDir, `${finalId}.md`);
       ensureDir(filePath);
-      fs.writeFileSync(filePath, '', 'utf-8');
-      return finalId;
+      fs.writeFileSync(filePath, content, 'utf-8');
+      return { id: finalId, mtime: fs.statSync(filePath).mtimeMs };
     },
 
     async renameNote(oldId: string, newId: string): Promise<string> {

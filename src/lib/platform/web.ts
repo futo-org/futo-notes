@@ -82,11 +82,16 @@ export const webFS: PlatformFS = {
     return noteStore.has(id);
   },
 
-  async createNote(folder: string, title: string): Promise<string> {
+  async createNote(
+    folder: string,
+    title: string,
+    content: string,
+  ): Promise<{ id: string; mtime: number }> {
     const wanted = folder ? `${folder}/${title}` : title;
     const finalId = uniqueNoteId(wanted);
-    noteStore.set(finalId, { content: '', mtime: Date.now() });
-    return finalId;
+    const mtime = Date.now();
+    noteStore.set(finalId, { content, mtime });
+    return { id: finalId, mtime };
   },
 
   async renameNote(oldId: string, newId: string): Promise<string> {
