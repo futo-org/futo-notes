@@ -1,10 +1,11 @@
 # Editor Strategy Decision — Full Native vs Full CM6
 
-> **Status: information-gathering. No decision yet.**
-> Created 2026-07-10 from the editor-strategy discussion. This doc fixes the
-> decision criteria BEFORE the remaining experiments run, so the experiments
-> can't become a ratification exercise. Update the Evidence Log as results
-> land; the Verdict section stays empty until every P0 criterion has data.
+> **Status: DIRECTION SET (provisional verdict, §6, 2026-07-13) — mobile goes
+> native on the shared Rust engine; desktop stays CM6/Tauri for now.**
+> Created 2026-07-10. Criteria were fixed before the experiments ran. The
+> §6 ship gates (notably widgets-ON large-note perf and the live-keyboard
+> matrix) must go green per platform before that platform's webview editor
+> is replaced; the Evidence Log keeps accumulating until then.
 
 ## 1. The decision
 
@@ -61,6 +62,10 @@ discipline as the POC plan).
 | Desktop 10k A/B (2026-07-11, Fedora Wayland, debug builds — cross-editor numbers directional): both editors viewport-lazy, NO O(doc) per-keystroke blowup. gpui structural re-render ~1.8ms/keystroke (headless, fake shaper; engine floor 40µs); CM6 compute ~1ms but keystroke→frame p50 84ms / p95 107ms GPU-composited (191ms under the software-render dev flag) — the browser reflowing the 300k-px container, corroborating the iOS webview 10k tail. CM6 scroll excellent (0.7% hitch GPU / 4.1% software). gpui real-window latency UNMEASURABLE headlessly: native-Wayland unfocused surface got zero frame callbacks; XWayland throttled to 15fps (M21 class) — needs a human-focused window pass. gpui correctness on 10k: open/type/scroll/quit clean via real code paths; mouse-click caret NOT exercised | desktop-10k-perf A/B run, probe commit 97b79c6, `test-screenshots/desktop-cm6-10k.png` | P2-9: CM6's 10k typing tail is real on desktop too; gpui structurally sound, presentation-latency leg still open |
 | gpui build/run friction on stock Fedora Wayland (P1-7): links -lxkbcommon-x11 even for Wayland (needs libxkbcommon-x11-devel or RUSTFLAGS workaround); no offscreen/headless render path for perf capture; unfocused native-Wayland window never draws | desktop-10k-perf run | P1-7 gap list grows: dev-box setup + headless-render tooling |
 | E6 retrospective (2026-04-12→07-11, main): editor/mobile-input bug fixes bucket SEAM 7 incidents (~20 commits, ~1.5–2k lines: isMobile leak, scroll-jank saga, WKWebView keyboard/viewport jumps, WebKit click-cancellation breaking link-follow+slash-menu, focused-adopt crashes, Android IME blur/renderer-crash/shield, inset coordination) vs SEMANTIC 5 incidents (~380 lines) vs NEITHER 5 small. A kills all 7 seam incidents structurally; the bridge focus/IME protocol (B's mitigation) cleanly prevents 1 (focused-adopt), partially 2, and does not address scroll ownership / embed gating / bridge affordances. April's editor build-out cluster excluded as greenfield. Judgment calls: native-toolbar chrome split between NEITHER/SEAM; 256e9c7's ~500-line churn part-feature | editor-bug-retrospective E6 report | B's recurring cost is a seam cost (4:1) and only minority-mitigated by the named protocol; A's semantics win is real but small |
+| iOS dictation remediation (2026-07-13): the TextKit adapter now strips transient U+FFFC object-replacement placeholders before mirroring edits into Markdown. A regression test drives the real `NSTextStorage` processing path and proves storage, engine text, and emitted `onChange` content remain byte-clean; all 29 native tests pass. Live physical dictation still needs one confirmation run | `TextKitEditingConformanceTests.dictationObjectReplacementCharacterIsNotPersisted` + `just test-ios-native` | P0-1 has a bounded implemented fix; device recheck remains |
+| iOS ProMotion probe remediation (2026-07-13): native scroll classification now uses the same fixed >25ms user-visible hitch threshold as the web probe instead of treating a possibly fixed 8.3ms `CADisplayLink.duration` as the callback schedule. Boundary tests cover 8.3–50ms. The physical 10-second run must be repeated before scoring the ≤2% gate | `TextKitLargeNotePerformanceTests` + `DevLatencyProbe.isScrollHitch` | Removes the known P0-3 measurement flaw; device remeasure remains |
+| iOS E4 widget spike (2026-07-13): normal-size notes render engine-provided `TableData` as a native grid and engine-provided image widgets as scaled vault images. Table cells and image source Markdown edit through the real storage path and round-trip to engine data; visual simulator pass was clean. No pipe/image parsing was added in Swift; D1 held. The >2k-line raw-marker safety fallback remains | `TextKitWidgetTests`, iPhone simulator `futo-qa-6` | P0-5 normal-note iOS spike passes its timebox; giant-note fallback remains negative |
+| iOS native accessibility remediation (2026-07-13): blurred TextKit reading mode now builds one engine-derived semantic tree with marker-free heading/static-text labels, heading role, actionable checkbox role/state, table rows without duplicate cell stops, and image alt text/role. Activating text returns to UIKit's native editing accessibility; >2k lines deliberately fall back to virtualized raw text. Automated activation tests and simulator AX inspection pass; physical VoiceOver reading order/rotor/toggle confirmation remains | `TextKitAccessibilityTests` + `idb ui describe-all` on `futo-qa-6` | P1-6 now has an implemented credible native design; device recheck remains |
 
 ## 3. Scorecard — criteria fixed in advance
 
@@ -68,12 +73,12 @@ P0 = kill criteria (A must pass every one). P1 = strong weight. P2 = tiebreak.
 
 | # | Criterion | Threshold | How measured | Status |
 | --- | --- | --- | --- | --- |
-| P0-1 | iOS live IME correctness (device) | JP romaji composition (incl. candidate bar, mid-composition caret moves, reconversion), autocorrect, dictation, QuickPath swipe: zero dropped/duplicated/mangled text, zero divergence assertions | Device pass w/ console attached (POC verdict P3 "device-pending" rows) | **ITERATE — iPhone 17 Pro, 2026-07-11.** Japanese candidate/caret/reconversion/line-boundary composition, QuickPath, and heading-boundary autocorrect passed. Dictation visually passed but fresh-note vault inspection reproducibly found a hidden U+FFFC character, violating zero-mangled-text. Likely bounded cause: a transient TextKit dictation attachment placeholder is mirrored into Markdown by the `.editedCharacters` path. |
+| P0-1 | iOS live IME correctness (device) | JP romaji composition (incl. candidate bar, mid-composition caret moves, reconversion), autocorrect, dictation, QuickPath swipe: zero dropped/duplicated/mangled text, zero divergence assertions | Device pass w/ console attached (POC verdict P3 "device-pending" rows) | **ITERATE — bounded fix implemented; physical recheck pending.** Japanese candidate/caret/reconversion/line-boundary composition, QuickPath, and heading-boundary autocorrect passed on iPhone. The sole failure was dictation persisting U+FFFC. The adapter now removes that transient placeholder before engine/onChange mirroring, and a real-storage-path regression test proves byte-clean output. Repeat fresh-note live dictation on the physical iPhone before PASS. |
 | P0-2 | Selection/caret fidelity under conceal (device) | Cursor/motion fixture categories green through layer-2 harness; manual torture (tap into `**bold**`, handle-drag across concealed wikilink, double/triple-tap) at parity with CM6 side-by-side | Extend Swift layer-2 harness to motion cases + recorded manual A/B | PARTIAL — native manual torture passed on device: long-press caret placement, handle-drag across concealed markers, word selection, and triple-tap line selection remained stable. Updated CM6 comparison failed: 5/5 long-presses followed the wikilink, and triple-tap selected only `as with ` rather than the whole line. Native manual behavior exceeds CM6 here; layer-2 motion-fixture extension remains pending. |
-| P0-3 | Large-note perf post-fix (device) | 10k note: open ≤1s, typing p95 ≤2× CM6 same device, scroll hitch ≤2%, no blank-viewport/caret-to-end bugs, memory sane | Re-run DevLatencyProbe device A/B (P5 said sim-only) | **ITERATE — measurement instrumentation, iPhone 17 Pro.** Open (483.8ms), typing (native p95 67.7ms vs CM6 43.0ms), memory (32.6MiB footprint), persistence, caret, and viewport correctness pass. The first scroll run logged 0/144 hitches; a controlled 9.91s repeat logged 330/647 despite no visible defect and only 29.1ms worst frame. Its 15.3ms mean cadence exposes a ProMotion bug in the counter: it compares dynamically throttled callbacks against a possibly fixed 8.3ms `CADisplayLink.duration`. Fix the probe and remeasure the ≤2% scroll gate; do not treat the nominal 51.0% as app performance. |
+| P0-3 | Large-note perf post-fix (device) | 10k note: open ≤1s, typing p95 ≤2× CM6 same device, scroll hitch ≤2%, no blank-viewport/caret-to-end bugs, memory sane | Re-run DevLatencyProbe device A/B (P5 said sim-only) | **ITERATE — corrected instrumentation; physical remeasure pending.** Open (483.8ms), typing (native p95 67.7ms vs CM6 43.0ms), memory (32.6MiB footprint), persistence, caret, and viewport correctness pass. The contradictory 51% scroll result came from comparing dynamically throttled callbacks with a fixed 8.3ms display-link duration. Native now matches the web probe's >25ms hitch threshold with boundary tests. Repeat the controlled 10-second device run to score the ≤2% gate. |
 | P0-4 | Android adapter clears the same bars | P0-1/2/3 equivalents on a minimal adapter, tested against GBoard + FUTO Keyboard + one OEM keyboard | E1 spike (landed 2026-07-11) | PARTIAL — adapter + conceal conformance + IME-guard harness green, live loop verified, zero divergences. 10k perf A/B (emulator): typing/open pass; **scroll fails (94.7% janky vs webview 3.8%) — iterate: needs viewport-scoped rendering, the same fix class iOS already applied**. Remaining: that fix + re-measure, live-keyboard composition (GBoard candidate bar, swipe), FUTO/OEM keyboard matrix, selection-handle torture over conceal |
-| P0-5 | Widgets don't require markdown-in-Swift/Kotlin | One table + one inline image rendered AND edited per platform within a 2-day timebox each, semantics staying in the engine (D1 rule) | Extend POC scope; the >2k-line marker fallback UX counts here too | SPLIT — **Android PASS (2026-07-11)**: table grid + inline image via per-line ReplacementSpans, editing free via engine reveal, ~4h, D1 held (Evidence Log). iOS still open: table/image spike pending, plus the negative giant-note checkbox-fallback device evidence |
-| P1-6 | Accessibility is fixable | Real-device VoiceOver pass BOTH editors; native needs a credible plan for marker-free reading + AX-exposed checkboxes (webview gets measured for the first time — it may be bad too) | Device pass + design note | **ITERATE — real-device A/B measured 2026-07-11.** CM6 has duplicate heading/no-role, swipe-focus, and continuous-reading defects, but task checkboxes expose correct label/role/state/action. Native exposes `#`/`**` markers, lacks heading semantics, and exposes task items only as raw punctuation/text with no checkbox semantics or toggle action. A now needs the promised credible marker-free reading + AX checkbox design before this can pass. |
+| P0-5 | Widgets don't require markdown-in-Swift/Kotlin | One table + one inline image rendered AND edited per platform within a 2-day timebox each, semantics staying in the engine (D1 rule) | Extend POC scope; the >2k-line marker fallback UX counts here too | **ITERATE — normal-note spikes pass; giant-note fallback remains.** Android passed in ~4h. iOS now renders an engine-provided table grid and scaled vault image, and table-cell/image-source edits round-trip through storage to engine data; simulator visual pass and tests are green. D1 held on both platforms. The >2k-line iOS fallback still exposes raw task markers, so this criterion is not yet an unconditional PASS. |
+| P1-6 | Accessibility is fixable | Real-device VoiceOver pass BOTH editors; native needs a credible plan for marker-free reading + AX-exposed checkboxes (webview gets measured for the first time — it may be bad too) | Device pass + design note | **ITERATE — native remediation implemented; physical recheck pending.** The 2026-07-11 A/B exposed defects in both editors and the more serious missing-control semantics in native. TextKit now has an engine-derived blurred reading tree with clean heading/text labels, heading role, checkbox label/state/action, deduplicated table rows, and image alt/role; automated activation tests and simulator AX inspection pass. Repeat VoiceOver reading order, rotor navigation, edit activation, and checkbox toggling on the physical iPhone before PASS. |
 | P1-7 | GPUI desktop has no >1-quarter gap | Daily-drive gpui app on real notes ≥3 days; gap list has nothing unshippable within a quarter (desktop IME, a11y, Wayland/Windows, packaging/updater) | Dogfood + gap log (extends the M8 audit) | PARTIAL — 10k A/B added first gap-list entries: X11-devel build deps on Wayland boxes, no headless-render path, unfocused-Wayland-surface never draws (probe-only concern?); 10k open/type/scroll/quit correct via real code paths. Dogfood + IME/a11y/packaging assessment still pending |
 | P1-8 | Economics favor the winner | (a) Strand inventory both directions — A strands: Playwright/markdown-spec-runner/factory/agent-browser/MCP-bridge QA stack, CM6 itself. B strands: engine, gpui app, TextKit2 POC. (b) Retrospective: classify last ~3 months of editor/mobile bugs as seam-preventable / single-brain-preventable / neither | Analysis on main, no new code | **DATA COMPLETE (E6, 2026-07-12).** 3-month retrospective: SEAM 7 incidents/~20 commits/~1.5–2k lines vs SEMANTIC 5 incidents/~380 lines vs NEITHER 5 small — seam dominates ~4:1. **A structurally kills all 7 seam incidents; B's named focus/IME protocol prevents only 1 cleanly + 2 partially** — the rest (scroll ownership, embed-capability gating, openUrl/click-model bridge affordances) need an open-ended bridge-hardening program, so costing B off the one protocol understates it. Strands: A kills ~16–17k LOC (≈4.5k editor core + ≈8k QA scaffolding; YAML corpus and signed Tauri updater SURVIVE — desktop shell separable); B parks ~37–38k LOC already built and green (engine 16k, gpui 16k, mobile adapters ~5.6k). Judgment calls flagged in the E6 report (evidence log) |
 | P2-9 | User-visible wins exist | Device: cold-open, keystroke latency, memory, battery — A should win somewhere users notice, else B's reversibility wins ties | Falls out of P0-3 probes | PARTIAL — iOS device: native p50 beat CM6, p95 slower (both inside P0-3); giant-note raw-checkbox fallback is a visible loss. Desktop 10k: CM6 carries a real typing-latency tail (p50 84ms keystroke→frame; 191ms p95 under the software-render path many Linux users actually get) while gpui's structural cost is ~1.8ms — potentially THE user-visible win for A, pending a focused-window measurement to confirm presented latency |
@@ -130,6 +135,63 @@ surface (P1), Swift layer-2 harness (P2)). Analysis lives on main.
   (same discipline as the factory parking) so this doesn't get relitigated
   in three months.
 
-## 6. Verdict
+## 6. Verdict (provisional — direction set 2026-07-13)
 
-*(Empty until every P0 row has data.)*
+**Mobile goes native; desktop stays CM6/Tauri for now.**
+
+- **iOS and Android replace their embedded webview editors** with the native
+  renderers (TextKit 2 / EditText+spans) over the shared Rust engine.
+  Grounds: no P0 kill across the whole falsification campaign; every failure
+  converted to a bounded fix that was implemented and regression-locked
+  within days; seam bugs dominate the webview's recurring cost 4:1 and the
+  native path kills all of them structurally (E6); native selection already
+  exceeds CM6 on iOS (P0-2); both adapters came in far under budget.
+- **Desktop keeps CM6/Tauri** (user decision, 2026-07-13). Rationale: desktop
+  is where the seam never bit (zero desktop incidents in E6 — the whack-a-mole
+  was all mobile), CM6 scroll is excellent there, and the gpui app carries the
+  largest remaining unknowns (dogfood, desktop IME, Windows, packaging).
+  The gpui app + perf probe stay parked on their branch; re-evaluate desktop
+  after the mobile transition ships. CM6's known 10k typing tail (p50 84ms)
+  is accepted for now.
+- **Consequence — the mandatory guard.** This transition state is exactly the
+  two-brains hybrid §1 warns about, so its containment is now policy, not
+  suggestion: the Rust engine is CANONICAL for editor semantics; any editor
+  behavior change lands engine+fixtures first and the CM6 port second, in the
+  same MR; the markdown-spec corpus is the cross-implementation contract
+  (both consumers already run it in CI).
+- **iOS physical rechecks waived as decision gates** (user call: the dictation
+  U+FFFC, ProMotion-probe, and AX fixes are assumed sound — each carries a
+  regression test). They move into the ship gates below.
+
+### Ship gates — per platform, before its native editor replaces the webview
+
+1. **Widgets-ON large-note perf (the gap the campaign left).** Every 10k perf
+   number so far was measured with widgets off: iOS ran under the >2k-line
+   raw-marker fallback, Android's E1 adapter rendered checkboxes/bullets as
+   raw source, and the one widgets-on-at-scale datum is the pre-fix iOS
+   1.56s/keystroke disaster. Implement viewport-scoped widget rendering on
+   both platforms (lifts the iOS >2k fallback; fixes Android's failed scroll
+   gate in the same stroke — checkboxes/bullets as per-line spans on Android,
+   viewport-bounded attachments on iOS), then RE-RUN the 10k A/B with
+   checkboxes, bullets, tables, and images actually rendering. Gates:
+   open ≤1s, typing p95 ≤2× CM6, scroll hitch ≤2% — same thresholds as P0-3.
+2. **Live-keyboard matrix.** Android: GBoard + FUTO Keyboard + one OEM —
+   composition w/ candidate bar, swipe, autocorrect at marker boundaries
+   (the least-derisked item left anywhere). iOS: the waived physical
+   rechecks — fresh-note dictation, 10s scroll run, VoiceOver reading order
+   + checkbox toggle.
+3. **Device a11y pass** (VoiceOver / TalkBack) using the engine-derived
+   reading tree — treat as a blocker, not a launch-day surprise.
+4. **Feature parity vs docs/spec/editor.md** — toolbar exec map, wikilink
+   autocomplete, image paste, link follow — checked per platform, plus the
+   layer-2 conformance harness green on device (already standing).
+
+### Next steps (condensed)
+
+1. **Widgets-on viewport rendering + 10k re-measure, both platforms** — one
+   workstream; subsumes the Android scroll fix, the iOS fallback lift, and
+   ship-gate 1.
+2. **Android live-keyboard matrix** (ship-gate 2's unknown half).
+3. **Cut the transition plan**: rebase/extract the engine + adapters from the
+   POC branch onto main behind the debug pref, then walk ship-gates 2–4 per
+   platform and flip the default when a platform goes green.
