@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterAll, vi } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vitest';
 
 vi.mock('$lib/platform');
 // Spy on the Rust-engine shim so we can assert mutations keep it fresh.
@@ -30,6 +30,12 @@ beforeEach(() => {
 
 afterAll(() => {
   testFS._cleanup();
+});
+
+// Warm the module-transform cache before any timed test runs (PKT-20): see
+// src/lib/notes.test.ts for why this must happen outside the test timer.
+beforeAll(async () => {
+  await freshNotes();
 });
 
 describe('search engine staleness: local mutations notify the Rust engine', () => {
