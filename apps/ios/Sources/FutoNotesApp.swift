@@ -66,6 +66,10 @@ struct FutoNotesApp: App {
             switch newPhase {
             case .active:
                 sync.resumeLiveAsync()
+                // Re-arm the once-per-episode background flush so the next
+                // backgrounding persists again (the flush is coalesced across the
+                // deliberate .inactive/.background pair — NotesStore.flushPendingEditor).
+                store.rearmBackgroundFlush()
             case .inactive:
                 // Flush the open editor's pending edit at the FIRST leave-active
                 // signal — an edit caught inside the 400 ms autosave debounce

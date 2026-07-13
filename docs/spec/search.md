@@ -52,5 +52,13 @@ MiniSearch index remains as the warm-up and non-Tauri fallback.
 - Native shells use the same crate through the `futo-notes-ffi` `SearchEngine`
   facade. Both native shells query the Rust engine, map hits back onto their
   live note lists, and fall back to substring filtering while the index warms.
+- A **failed** engine open (e.g. a stale index lock, momentary disk pressure)
+  degrades to the substring fallback but is **retried within the session**, so a
+  transient failure does not latch keyword search off until relaunch. *(iOS)*
+  `SearchService` backs off ~15 s after a failed open (not per keystroke) then
+  retries; an explicit `rescan()` (live pull / foreground catch-up) clears the
+  backoff and retries immediately. *(Android)* `SearchEngineHolder.get` retries
+  on the next call (no latch). → SearchService.swift `ensureEngine`;
+  MainActivity.kt `SearchEngineHolder`.
 - SPLADE / learned-sparse search is preserved on the `splade-merge` branch and
   is not part of `main`.

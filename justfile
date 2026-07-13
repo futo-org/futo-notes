@@ -101,10 +101,18 @@ build-ios-native: build-rust-ios
   node_modules/.bin/vite build --config vite.editor.config.ts
   cd apps/ios
   xcodegen generate
+  # EXCLUDED_ARCHS=x86_64: build-rust-ios.sh assembles an arm64-ONLY simulator
+  # slice (aarch64-apple-ios-sim), but Xcode 26.6's `generic/platform=iOS
+  # Simulator` destination now also tries to link x86_64 — with no x86_64 slice
+  # in the xcframework the link fails. Apple-silicon simulators are arm64, so
+  # dropping x86_64 keeps this compile-only sanity check honest. (A concrete
+  # `-destination id=<sim udid>` avoids this because it resolves to one arm64
+  # device, but the generic destination is what belongs in a no-device recipe.)
   xcodebuild -project FutoNotesNative.xcodeproj \
     -scheme FutoNotesNative -configuration Debug \
     -destination 'generic/platform=iOS Simulator' \
     -derivedDataPath .build \
+    EXCLUDED_ARCHS=x86_64 \
     CODE_SIGNING_ALLOWED=NO build | tail -3
 
 # Compile-only sanity for the native Android app (assembleDebug, no install).

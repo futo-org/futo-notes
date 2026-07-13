@@ -486,6 +486,43 @@ pub fn write_atomic_bytes(path: &Path, bytes: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
+/// Atomically install `bytes` at `path` ONLY IF no file exists there — the
+/// no-replace, content-complete-at-visibility sibling of [`write_atomic_bytes`].
+/// Returns `true` if created, `false` if `path` already existed (EEXIST).
+///
+/// The full content is written to a sibling temp FIRST, then the temp is
+/// `hard_link`ed into place. `hard_link` is the portable atomic no-replace
+/// install (fails EEXIST rather than overwriting, unlike `rename`), and because
+/// the destination name only ever appears already pointing at the fully-written
+/// inode, a concurrent scan/sync can never observe an empty or partial file
+/// (the flaw of `create_new` + a separate `write_all`). The temp is ALWAYS
+/// cleaned up — on success, on EEXIST, and on error — so a failed install never
+/// leaves a partial file that would wedge every later attempt into EEXIST.
+pub fn create_new_atomic(path: &Path, bytes: &[u8]) -> Result<bool, String> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| "invalid file path".to_string())?;
+    fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    let seq = TMP_SEQ.fetch_add(1, Ordering::Relaxed);
+    let tmp = parent.join(format!(".sf-tmp-{}-{}", now_ms(), seq));
+    fs::write(&tmp, bytes).map_err(|e| format!("{e} (writing temp {})", tmp.display()))?;
+    let result = match fs::hard_link(&tmp, path) {
+        Ok(()) => Ok(true),
+        // A file (or, on case-insensitive filesystems, a case-variant) already
+        // holds this name — do not clobber it.
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
+        Err(e) => Err(format!(
+            "{e} (hard-linking {} -> {})",
+            tmp.display(),
+            path.display()
+        )),
+    };
+    // Always drop the temp: on success `path` is an independent link to the same
+    // inode, so removing the temp leaves the content in place.
+    let _ = fs::remove_file(&tmp);
+    result
+}
+
 // ── Image-blob sync content (base64 over the text frame) ─────────────────
 //
 // The E2EE sync wire format (`pack_note_v2`) carries `content` as a UTF-8

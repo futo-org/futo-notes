@@ -450,24 +450,44 @@ EditorWebView.swift, EditorWebView.kt
   `NotesStore.flushPendingEditor`; iOS FutoNotesApp scenePhase
   `.inactive`/`.background` → `NotesStore.flushPendingEditor`
 - A leave/background flush is a **conditional write**: it persists only if the
-  note still holds the content the editor last saw. A note deleted while the
-  editor was backgrounded is never recreated by the flush, and content a live
-  pull adopted since the editor's last read is never clobbered by a stale flush.
+  note still holds the content the editor last saw, so content a live pull
+  adopted since the editor's last read is never clobbered by a stale flush.
   (Check-then-atomic-write, so a narrow single-process syscall window remains —
-  accepted; not a true compare-and-swap.) *(Android)* →
+  accepted; not a true compare-and-swap.) *(iOS, Android)* →
   `futo_notes_model::write_note_if_unchanged` via FFI `write_if_unchanged`;
-  `NotesStore.flushAsync`.
-  > **Gap:** iOS still flushes with a plain exists-then-write and a hand-synced
-  > pending-draft register — no conditional write, so a delete/adopt racing the
-  > flush can resurrect or clobber. iOS adopts the `write_if_unchanged` primitive
-  > + the derived register in PKT-10 (needs a macOS host).
+  `NotesStore.flushAsync`. iOS additionally makes the flush **never drop** a dirty
+  draft when the write is skipped: if the note was **deleted** under the editor it
+  is re-created at its original id (edit-wins dirty-keep — the same thing the
+  editor's resume autosave does, so survive + jetsam converge on ONE home with no
+  duplicate copy); if the note was **changed** by a peer it is parked as a
+  conflict copy (`parkDraftCopy`) so the local edit survives without clobbering
+  the peer's version. A clean editor never flushes, so a genuinely abandoned note
+  is never resurrected. The re-create is conditional-on-absent
+  (`create_note_if_absent`, O_EXCL — the exists-check and the create are one
+  syscall), so a live-sync write that recreates the id OUTSIDE the store's
+  serialization in the flush window is not clobbered: if the id reappeared the
+  recreate is skipped and the draft is parked as a conflict copy instead. →
+  `futo_notes_model::create_note_if_absent` via FFI `create_if_absent`. Verified
+  on iOS 2026-07-13 (sim: clean re-background after a settled save left mtime
+  unchanged; dirty-on-deleted backgrounded across cycles yields exactly one home —
+  the re-created note — and no conflict copy) + Rust unit tests
+  (creates-when-missing / never-clobbers-existing / rejects-traversal).
 - The open editor's unsaved-draft register is **derived** from the editor's live
-  state (note id, buffer, saved content, loaded) rather than hand-synced: the
-  screen registers one derivation closure that the flush pulls synchronously, so
-  an edit landing right before backgrounding is always seen. It is owner-scoped
-  so a screen leaving during the nav cross-fade can't drop the incoming screen's
-  provider. *(Android)* → NoteEditorScreen.kt →
-  `NotesStore.setDraftProvider`/`claimDraftOwnership`.
+  state (note id, buffer, saved content, loaded) rather than hand-synced, so it
+  goes clean the instant a save completes or a remote is adopted (no stale draft
+  clobbers the adopted content). It is owner-scoped so a screen leaving during a
+  push/pop transition can't drop the incoming screen's draft. Android registers
+  one derivation closure the flush pulls synchronously; iOS publishes the derived
+  value both synchronously in the WebView change callback (so the register is
+  current the instant before a background flush reads it) and reactively via
+  `.onChange` for the clear-on-save / clear-on-adopt transitions — SwiftUI
+  `@State` can't be pulled from an escaping closure the way Compose snapshot state
+  can. *(iOS, Android)* → NoteEditorScreen.kt / NoteEditorView.swift →
+  `NotesStore.setDraftProvider`/`publishDraft` + `claimDraftOwnership`. Verified
+  on iOS 2026-07-13 (sim: edit → immediate background before the debounce
+  persisted; rename with a pending body edit preserved the edit under the new id
+  with no ghost). NOTE: a simulator can't reproduce OS jetsam, so this validates
+  the surviving-process flush path, not an actual jetsam-during-background kill.
 - An empty title shows the placeholder "Untitled"; the title field strips
   newlines.
 - The editor chrome shows **no word count** (or any other document
