@@ -487,9 +487,23 @@ pub fn write_note_if_unchanged(
 /// Create a new note from a title (+ optional folder). Returns the final,
 /// collision-resolved id. Mirrors `NotesStore.createNote`.
 pub fn create_note(base: &Path, folder: &str, title: &str) -> Result<String, String> {
+    create_note_with_content(base, folder, title, "")
+}
+
+/// Create a new note from a title (+ optional folder) with its initial
+/// `content` written in the SAME step. Returns the final, collision-resolved
+/// id. Atomic-create: unlike `create_note` + a follow-up `write_note`, there is
+/// no zero-byte window — a write failure leaves no orphan file behind (the note
+/// domain owns the create-then-write workflow; AGENTS §4).
+pub fn create_note_with_content(
+    base: &Path,
+    folder: &str,
+    title: &str,
+    content: &str,
+) -> Result<String, String> {
     let wanted = make_id(folder, title);
     let id = get_unique_note_id(base, &wanted, None)?;
-    write_note(base, &id, "")?;
+    write_note(base, &id, content)?;
     Ok(id)
 }
 
@@ -584,6 +598,20 @@ pub fn prune_empty_parent_dirs(base: &Path, path: &Path) {
     }
 }
 
+/// Whether two paths resolve to the SAME on-disk file. Used to tell a
+/// case/NFC-insensitive filesystem folding two ids onto one entry (safe to
+/// byte-rename in place) from two genuinely distinct files that merely share a
+/// collision key (must not be overwritten). `canonicalize` returns the real
+/// stored path, so case-variant names of one file compare equal while distinct
+/// files compare unequal — on both case-sensitive and case-insensitive
+/// filesystems. Both paths must exist for a positive result.
+fn same_physical_file(a: &Path, b: &Path) -> bool {
+    match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
+        (Ok(x), Ok(y)) => x == y,
+        _ => false,
+    }
+}
+
 /// Rename/move a note from `old_id` to `new_id` (collision-resolved). Returns
 /// the final id. No-op (returns `old_id`) when they're equal. Mirrors
 /// `NotesStore.rename`.
@@ -607,11 +635,23 @@ pub fn rename_note(base: &Path, old_id: &str, new_id: &str) -> Result<String, St
     // occupied by the case-variant `old_id` and bump to `new_id-2`. Because the
     // collision is exclusively with `old_id` (which is being renamed away), the
     // requested `new_id` is the correct, final id.
+    //
+    // BUT this is only true when `old_id` and `new_id` are the SAME physical
+    // entry (the case-insensitive filesystem folding them onto one file) or the
+    // destination doesn't exist yet. On a case-SENSITIVE filesystem (Linux
+    // ext4, Android) `note.md` and `Note.md` are DISTINCT files; taking the
+    // temp hop there would rename `note` over the distinct `Note`, destroying
+    // its bytes. When the destination is a distinct existing file, fall through
+    // to the normal suffixing path (`Note` → `Note-2`) instead — clobbering it
+    // would be silent data loss.
     if collides_but_differs(old_id, new_id) {
         let src = safe_note_path(base, old_id)?;
         let dst = safe_note_path(base, new_id)?;
-        rename_through_temp(&src, &dst)?;
-        return Ok(new_id.to_string());
+        let dst_is_distinct_file = dst.exists() && !same_physical_file(&src, &dst);
+        if !dst_is_distinct_file {
+            rename_through_temp(&src, &dst)?;
+            return Ok(new_id.to_string());
+        }
     }
 
     let final_id = get_unique_note_id(base, new_id, None)?;
