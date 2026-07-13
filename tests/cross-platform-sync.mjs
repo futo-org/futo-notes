@@ -425,6 +425,28 @@ async function activeNoteReload(a, b, server) {
   await b.openNote('shared live');
   await waitForEditorContent(b, '# Version 1');
 
+  // Blur B's editor before the remote update lands. On desktop the editor
+  // autofocuses on mount (MarkdownEditor's one-shot mount rAF -> view.focus()),
+  // and whether hasFocus() is still true by the time B's second syncNow
+  // completes is timing/environment-sensitive: on a loaded/headless CI runner
+  // it reliably stays focused, on an idle dev box it often does not. That
+  // matters because handleSyncComplete's open-note reconcile DEFERS the adopt
+  // of a peer update while the editor is focused (never replace CM6's document
+  // under live focus — the F4/PKT-4 guard) and only reconciles the pending
+  // adopt on the next blur. The scenario never blurred, so under CI focus the
+  // adopt was deferred forever and the editor stayed on "# Version 1" (this is
+  // the "active note reload" flake: 3 CI hits, always the editor-content wait,
+  // never the downloaded===1 assert). This scenario exercises the direct-adopt
+  // path (open, unfocused note reloads on a peer update); the focused ->
+  // defer -> blur -> adopt contract is covered by syncManager.test.ts. Wait on
+  // the actual precondition (unfocused), not a longer timeout.
+  await b.blurEditor();
+  await b.waitForCondition(
+    `!(document.activeElement && document.activeElement.classList.contains('cm-content'))`,
+    5000,
+    'editor blurred',
+  );
+
   await a.writeNote('shared live', '# Version 2\nRemote update');
   await a.syncNow();
 

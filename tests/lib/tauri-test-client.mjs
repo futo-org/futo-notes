@@ -200,6 +200,21 @@ export class TauriTestClient {
     return executeJs(this.ws, `window.__notesShellTest.getState()`);
   }
 
+  // Blur the editor (moving DOM focus off .cm-content) and report whether it
+  // is now unfocused. CodeMirror's updateListener fires focusChanged on the
+  // blur, which drives the host's handleEditorFocusChange(false).
+  async blurEditor() {
+    return executeJs(
+      this.ws,
+      `(() => {
+        const cm = document.querySelector('.cm-content');
+        if (cm instanceof HTMLElement) cm.blur();
+        if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+        return document.activeElement !== cm;
+      })()`,
+    );
+  }
+
   // The MCP bridge (tauri-plugin-mcp-bridge) hard-caps execute_js at 5s.
   // Sync calls can exceed that (slow-proxy scenarios, 1000-note bulk sync),
   // so we kick off the promise into a window slot and poll for completion.
