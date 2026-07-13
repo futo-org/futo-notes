@@ -1435,6 +1435,26 @@ struct CollisionPlan {
     identical_map_drops: Vec<String>,
 }
 
+impl CollisionPlan {
+    /// Where download `idx` (whose canonical name is `canonical`) lands on
+    /// disk: `None` when it is an identical-content loser to skip entirely,
+    /// else the conflict-copy name it lost the collision to, else `canonical`.
+    /// The skip test and the override lookup are one call so no write path can
+    /// apply one without the other (writing an identical-content loser is the
+    /// conflict-copy-spam class).
+    fn placement(&self, idx: usize, canonical: &str) -> Option<String> {
+        if self.download_skips.contains(&idx) {
+            return None;
+        }
+        Some(
+            self.download_overrides
+                .get(&idx)
+                .cloned()
+                .unwrap_or_else(|| canonical.to_string()),
+        )
+    }
+}
+
 #[derive(Debug, Clone)]
 struct MapRename {
     old_filename: String,
@@ -1716,16 +1736,6 @@ pub async fn run_pull(
     let mut updated_ids: Vec<String> = Vec::with_capacity(downloaded.len());
     let mut deleted_ids: Vec<String> = immediate_deletes.iter().map(|f| filename_to_id(f)).collect();
 
-    // The effective on-disk filename for each download: its conflict-copy name
-    // if it lost a collision, else its canonical filename.
-    let effective_filename = |idx: usize, note: &DownloadedNote| -> String {
-        collision_plan
-            .download_overrides
-            .get(&idx)
-            .cloned()
-            .unwrap_or_else(|| note.filename.clone())
-    };
-
     // Move aside any already-on-disk map-only collision losers. We read the
     // loser's current bytes and re-write them under the conflict name, then
     // delete the old name — all through the shared apply path so watcher
@@ -1792,11 +1802,10 @@ pub async fn run_pull(
         // Identical-content collision loser: the winner already writes these
         // exact bytes at the canonical name — skip it (no write, no map entry).
         // (Non-syncable/unsafe objects were already screened out by
-        // `triage_downloaded` before collision planning.)
-        if collision_plan.download_skips.contains(&idx) {
+        // `screen_incoming` before collision planning.)
+        let Some(on_disk) = collision_plan.placement(idx, &note.filename) else {
             continue;
-        }
-        let on_disk = effective_filename(idx, note);
+        };
         let previous_filename = filename_by_object_id.get(&note.object_id);
         if let Some(prev) = previous_filename {
             if prev != &on_disk {
@@ -1886,10 +1895,9 @@ pub async fn run_pull(
     }
     for (idx, note) in downloaded.iter().enumerate() {
         // Identical-content collision loser: not written, so not mapped either.
-        if collision_plan.download_skips.contains(&idx) {
+        let Some(on_disk) = collision_plan.placement(idx, &note.filename) else {
             continue;
-        }
-        let on_disk = effective_filename(idx, note);
+        };
         // Sweep stale rename source from the map too.
         if let Some(prev) = filename_by_object_id.get(&note.object_id) {
             if prev != &on_disk {
@@ -4020,16 +4028,11 @@ async fn reconcile_empty_map(
         }
         // Identical-content collision loser: the winner writes these exact bytes
         // at the canonical name — skip it (no write, no map upsert, no adopt).
-        if collision_plan.download_skips.contains(&idx) {
+        // Otherwise `target_name` is its conflict copy if it lost a collision,
+        // else its canonical name.
+        let Some(target_name) = collision_plan.placement(idx, &note.filename) else {
             continue;
-        }
-        // The on-disk name this object lands at: its conflict copy if it lost a
-        // collision, else its canonical name.
-        let target_name = collision_plan
-            .download_overrides
-            .get(&idx)
-            .cloned()
-            .unwrap_or_else(|| note.filename.clone());
+        };
         let remote_size = note.content.as_bytes().len() as u64;
         let entry_common = |mtime: Option<i64>, size: Option<u64>| E2eeObjectMapEntry {
             object_id: note.object_id.clone(),
