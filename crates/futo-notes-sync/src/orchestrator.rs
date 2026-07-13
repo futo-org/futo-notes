@@ -1574,46 +1574,6 @@ fn resolve_pull_collisions(
 
 // ── Pull / reconcile orchestrator ────────────────────────────────────────
 
-/// The result of screening a freshly-downloaded set against the incoming-path
-/// classifier. Every incoming write path (`run_pull`, `reconcile_empty_map`)
-/// runs this BEFORE collision planning, so an ignored/unsafe object can never
-/// win a collision against — and thereby delete — a valid sibling (B4).
-struct DownloadTriage {
-    /// Notes to materialize, each with its filename already HEALED to a safe
-    /// form (`sanitize_title`-equivalent) where the peer sent a creatable-but-
-    /// unsyncable name.
-    kept: Vec<DownloadedNote>,
-    /// Names we refuse to write (structurally unsafe: traversal, forbidden
-    /// chars, over-length). Surfaced as failures, never cursor-capped, never
-    /// abort the cycle. Non-syncable (legacy/foreign) objects are dropped
-    /// silently — an expected migration state, not a failure.
-    rejected: Vec<SyncFailure>,
-}
-
-/// Screen downloaded objects through [`classify_incoming_sync_path`]. Healed
-/// names are rewritten in place on the kept notes; ignored (non-syncable)
-/// objects are dropped; rejected (unsafe) names become `Download` failures.
-fn triage_downloaded(downloaded: Vec<DownloadedNote>) -> DownloadTriage {
-    let mut kept = Vec::with_capacity(downloaded.len());
-    let mut rejected = Vec::new();
-    for mut note in downloaded {
-        match classify_incoming_sync_path(&note.filename) {
-            IncomingSyncPath::Ignore => {}
-            IncomingSyncPath::Accept => kept.push(note),
-            IncomingSyncPath::Sanitize(healed) => {
-                note.filename = healed;
-                kept.push(note);
-            }
-            IncomingSyncPath::Reject(_) => rejected.push(SyncFailure {
-                filename: note.filename,
-                kind: FailureKind::Rejected,
-                status_code: None,
-            }),
-        }
-    }
-    DownloadTriage { kept, rejected }
-}
-
 /// A freshly-downloaded set after it has passed through the single incoming
 /// choke point: healed/kept notes, the failures for names refused, and the
 /// collision plan computed over ONLY the kept set.
@@ -1648,7 +1608,26 @@ fn screen_incoming(
     object_map: &HashMap<String, E2eeObjectMapEntry>,
     extra_tombstones: &HashSet<String>,
 ) -> ScreenedDownloads {
-    let DownloadTriage { kept, rejected } = triage_downloaded(downloaded);
+    // Classify/heal/reject each name. Healed names are rewritten in place on
+    // the kept notes; ignored (non-syncable legacy/foreign) objects are dropped
+    // silently; rejected (structurally unsafe) names become recorded failures.
+    let mut kept = Vec::with_capacity(downloaded.len());
+    let mut path_failures = Vec::new();
+    for mut note in downloaded {
+        match classify_incoming_sync_path(&note.filename) {
+            IncomingSyncPath::Ignore => {}
+            IncomingSyncPath::Accept => kept.push(note),
+            IncomingSyncPath::Sanitize(healed) => {
+                note.filename = healed;
+                kept.push(note);
+            }
+            IncomingSyncPath::Reject(_) => path_failures.push(SyncFailure {
+                filename: note.filename,
+                kind: FailureKind::Rejected,
+                status_code: None,
+            }),
+        }
+    }
     let mut tombstoned = extra_tombstones.clone();
     let filename_by_object_id = build_filename_by_object_id(object_map);
     for note in &kept {
@@ -1661,7 +1640,7 @@ fn screen_incoming(
     let collision_plan = resolve_pull_collisions(&kept, object_map, &tombstoned);
     ScreenedDownloads {
         kept,
-        path_failures: rejected,
+        path_failures,
         collision_plan,
     }
 }
