@@ -8,21 +8,18 @@ From the monorepo root, prefer the `just` wrappers: `just tauri-dev`, `just taur
 
 ## Architecture
 
-**The note domain lives in Rust.** CRUD, the note rules (title/tag/id/wikilink/preview), and full-text search are single-sourced in `futo-notes-model` / `futo-notes-core` / `futo-notes-search` — the same crates the native iOS/Android shells consume via the `futo-notes-ffi` UniFFI facade (see root AGENTS.md "Where Logic Lives"). Do not re-implement CRUD or search in TypeScript; call the commands. (The note rules are shared from `futo-notes-model` via the conformance-locked TS copy `src/lib/rules.ts` / the FFI facade rather than a Tauri command — see root AGENTS.md.) **TypeScript owns the UI and reactive state** (Svelte components, `notesCache` in `notes.svelte.ts`, tab/session state, sync coordination, the platform shell). Reserve net-new Rust for the note domain and existing compute-heavy paths.
+**The local note engine lives in Rust.** `futo-notes-model` owns pure decisions; `futo-notes-store` owns the durable vault, migrations, note/folder workflows, backlink repair, and search lifecycle. Tauri and UniFFI are projections of that same store. TypeScript owns presentation state but never reimplements a workflow.
 
-`lib.rs` is only the crate map and public `run()` entry. `application.rs` is the composition root: it registers plugins, manages one `AppState`, installs startup services, and declares the complete `generate_handler!` surface. Long-lived watcher, search, and sync state are fields of `AppState`; commands never discover or manage independent state cells.
+`lib.rs` is only the crate map and public `run()` entry. `application.rs` is the composition root: it registers plugins, manages one `AppState`, installs startup services, and declares the complete `generate_handler!` surface. Long-lived note-store, watcher, and sync state are fields of `AppState`; commands never discover or manage independent state cells.
 
 The desktop adapter is split by responsibility:
 
-- **`note_commands.rs`**: `notes_*` scanning and note CRUD over `futo-notes-model`; desktop note-trash routing is the only shell-specific mutation here.
-- **`folder_commands.rs`**: folder create/rename/delete commands, including pre-write watcher suppression for every note affected by a subtree mutation.
-- **`search_commands.rs`**: `search_*` adapter over `futo-notes-search`; startup remains backgrounded and emits `search:status`.
+- **`local_notes.rs`**: the complete `local_notes_*` projection over one `LocalNoteStore`, including desktop trash policy.
 - **`sync/`**: `mod.rs` is only the module map. `tauri_commands.rs` owns the stable `e2ee_*` command surface, `cycle_runner.rs` wires manual/live push-first cycles, `frontend_contract.rs` owns serialization, `tauri_events.rs` translates callbacks, and `session_state.rs` bridges session/task state.
 - **`vault_location.rs`**: the only authority for environment overrides, persisted custom roots, and the CRITICAL debug (`fake-notes`) / release (`futo-notes`) default split.
 - **`filesystem_watcher.rs`**: `notify` lifecycle, rename-cookie pairing, relative-path normalization, `fs:change` emission, and the typed one-shot `WatcherSuppression` service shared by note/folder/sync commands.
 - **`image_commands.rs`**: image file import and native clipboard-to-PNG ingestion.
 - **`system_trash.rs`**: recoverable desktop delete policy plus the headless hard-delete fallback.
-- **`legacy_filesystem_commands.rs`**: legacy `fs_*` command names. These are compatibility adapters only and delegate to the same note/folder services; never add a second rule implementation here.
 - **`platform_integration.rs`**: Linux log/theme/decorations, single-instance setup, and Unix file-descriptor preparation.
 - **`updater_commands.rs`**, **`panic_reporter.rs`**: updater capability and Rust crash persistence.
 - **`background_tasks.rs`**: the shared `spawn_blocking`/thread boundary and uniform join/I/O error mapping.
@@ -30,13 +27,13 @@ The desktop adapter is split by responsibility:
 
 Unit tests live inline at the bottom of their owning module in a `#[cfg(test)] mod tests { ... }` block. This keeps private `_impl` functions directly testable without adding test-only directories; IDE folding can hide the blocks when navigating production code.
 
-TypeScript handles: reactive note state (`notes.svelte.ts`, `notesCache`), app state/preferences (`src/lib/appState.ts`), sync coordination (`src/lib/syncManager.svelte.ts`), and the thin Rust search shim (`src/features/search/searchEngine.ts`). Full-text indexing is Rust-owned; the frontend must not maintain a parallel body index. Note I/O goes through the `notes_*` commands rather than `@tauri-apps/plugin-fs`.
+TypeScript handles reactive note projection state, preferences, and sync coordination. Note/folder/search calls go through `localNoteStore.ts` to `local_notes_*`; there is no plugin-fs or client-index path for notes.
 
 ## Key Patterns
 
-- **Atomic writes**: Note writes go through `notes_write`, which uses `write_atomic_text()` (`futo_notes_core::files`) — temp file + rename for crash safety. The TS `atomicWrite.ts` helper remains for the rare non-note file the TS layer still writes directly.
+- **Atomic writes**: `LocalNoteStore` uses `futo_notes_core::files::write_atomic_text()` (flushed same-directory temp + rename). TypeScript does not write Markdown.
 - **Path safety**: pushed DOWN into the crates — `futo_notes_core::files::safe_note_path` and `futo-notes-model`'s folder primitives. Desktop code resolves the vault only through `vault_location.rs`; compatibility commands may not hand-build paths. TypeScript has `pathSafety.ts` for paths it forms before a command call.
-- **Filesystem watcher**: `filesystem_watcher.rs` watches the vault for external edits and emits `fs:change`; the Svelte store re-reads through commands. Every note-tree mutation receives a clone of `WatcherSuppression` and registers all affected relative filenames before touching disk. Suppression is one-shot, so it cannot hide a later external edit inside the five-second expiry window.
+- **Filesystem watcher**: `filesystem_watcher.rs` watches the vault for external edits and emits `fs:change`. The store's `BeforeWrite` projection registers every affected path before the first filesystem syscall. Suppression is one-shot, so it cannot hide a later external edit inside the five-second expiry window.
 - **Platform configs**: `#[cfg(target_os = "...")]` and `#[cfg(debug_assertions)]` for platform/build-specific behavior.
 
 ## Dev Ports

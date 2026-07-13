@@ -21,7 +21,7 @@
 
   let keywordRequestId = 0;
 
-  // Debounced keyword search through the shared Rust engine.
+  // Debounced keyword search through the Rust-owned local-note store.
   $effect(() => {
     const q = query;
     const requestId = ++keywordRequestId;

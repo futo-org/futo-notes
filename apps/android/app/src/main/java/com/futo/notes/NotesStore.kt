@@ -6,11 +6,13 @@ import androidx.compose.runtime.setValue
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import uniffi.futo_notes_ffi.NoteMutation
 import uniffi.futo_notes_ffi.NoteStore
 import uniffi.futo_notes_ffi.NoteMetadata
-import uniffi.futo_notes_ffi.SearchEngine
+import uniffi.futo_notes_ffi.SearchHit
 import java.io.File
 
 /** A single note for the UI. Mirrors the iOS `NoteItem`; `tags` are canonical
@@ -137,7 +139,7 @@ internal class PendingEditorDraft(private val persist: (draft: PendingDraft) -> 
  * rules, scan/preview, CRUD, folder ops) lives in `futo-notes-model` and is
  * reached through `core`; this class only holds Compose state and seeds.
  */
-class NotesStore(notesRoot: File) {
+class NotesStore(notesRoot: File, searchIndex: File) {
     var notes by mutableStateOf<List<NoteItem>>(emptyList())
         private set
     var folders by mutableStateOf<List<String>>(emptyList())
@@ -156,12 +158,6 @@ class NotesStore(notesRoot: File) {
      *  [settings.md:43]. Mirrors desktop `deleteAllNotes` pausing auto-sync. */
     var suppressAutoPush = false
 
-    /** The BM25 keyword search engine. Set once by the Activity
-     *  after off-main construction (the Tantivy index open does disk I/O and
-     *  must never gate render); null until then — SearchScreen falls back to
-     *  substring filtering. Mutations below feed it incremental notify calls. */
-    var engine: SearchEngine? = null
-
     /** The Rust-owned vault — the single source of truth for the rules.
      *
      *  LAZY ON PURPOSE: the Rust ctor does no I/O, but the *first* FFI touch
@@ -178,19 +174,16 @@ class NotesStore(notesRoot: File) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     init {
-        // CRITICAL: never gate render on disk I/O. The constructor touches NO
-        // disk on the main thread — `core` is lazy (its first JNA lib-load is
-        // deferred to the IO block below) and the `mkdirs()` + first vault scan
-        // + seed all run off the main thread, populating `notes`/`folders`
-        // reactively. The list shows empty state until the scan lands — the
-        // shell never waits. Mirrors the Tauri never-gate-render rule
-        // (App.svelte fires `notes_scan` un-awaited).
+        // Bootstrap, migrations, seeding, and search startup are one Rust call,
+        // kept off-main so first render never waits for disk I/O.
         scope.launch {
-            withContext(Dispatchers.IO) {
-                File(rootPath).mkdirs()
-                seedIfEmpty() // first `core` touch → JNA lib-load happens here, off-main
+            val bootstrap = withContext(Dispatchers.IO) {
+                core.bootstrap(searchIndex.absolutePath)
             }
-            reload()
+            applySnapshot(bootstrap.snapshot.notes, bootstrap.snapshot.folders)
+            bootstrap.warnings.forEach {
+                android.util.Log.w("NotesStore", "local-note bootstrap: $it")
+            }
             if (BuildConfig.DEBUG) {
                 android.util.Log.i("FutoStartup", "initial scan complete: ${notes.size} notes")
             }
@@ -206,11 +199,8 @@ class NotesStore(notesRoot: File) {
 
     /** Rescan the vault off the main thread, then publish on the main thread. */
     suspend fun reload() {
-        val scanned = withContext(Dispatchers.IO) {
-            core.scanNotes().map { it.toItem() } to core.scanFolders()
-        }
-        notes = scanned.first
-        folders = scanned.second
+        val snapshot = withContext(Dispatchers.IO) { core.scan() }
+        applySnapshot(snapshot.notes, snapshot.folders)
     }
 
     suspend fun read(id: String): String = withContext(Dispatchers.IO) { core.read(id) }
@@ -239,11 +229,12 @@ class NotesStore(notesRoot: File) {
             // leave-foreground. A failed background flush must degrade to "not
             // flushed" (the debounce / next flush retries), never crash.
             try {
-                val outcome = withContext(Dispatchers.IO) {
+                val result = withContext(Dispatchers.IO) {
                     core.writeIfUnchanged(draft.id, draft.base, draft.content)
                 }
-                if (outcome == uniffi.futo_notes_ffi.FlushOutcome.WROTE) {
-                    applyWrittenContent(draft.id, draft.content)
+                result.mutation?.let {
+                    applyMutation(it)
+                    signalLocalChange()
                 }
             } catch (e: Exception) {
                 android.util.Log.e("NotesStore", "flush failed for ${draft.id}", e)
@@ -283,48 +274,15 @@ class NotesStore(notesRoot: File) {
      *  can still beat it (same on iOS). */
     fun flushPendingEditor() = pendingEditor.flush()
 
-    /** Write a note, updating the in-memory row in place (no full rescan) so the
-     *  list's identity/order stays stable while typing — mirrors the iOS
-     *  in-place optimization. Preview + tags come from the same Rust rules. The
-     *  FFI write + preview/tag derivation run on IO; the state swap is on main. */
+    /** Write one note and consume the complete committed mutation. */
     suspend fun write(id: String, content: String) {
         try {
-            withContext(Dispatchers.IO) { core.write(id, content) }
-            applyWrittenContent(id, content)
+            val mutation = withContext(Dispatchers.IO) { core.write(id, content) }
+            applyMutation(mutation)
+            signalLocalChange()
         } catch (e: Exception) {
             android.util.Log.e("NotesStore", "write failed for $id", e)
         }
-    }
-
-    /** Reflect a write of [content] to [id] that already landed on disk into the
-     *  in-memory list, search engine, and auto-push signal — the post-write
-     *  bookkeeping shared by [write] and [flushAsync]'s conditional write.
-     *  Updates the row IN PLACE (stable identity/order while typing); a note not
-     *  in the list yet triggers a rescan. Preview + tags come from the same Rust
-     *  rules the scan uses. */
-    private suspend fun applyWrittenContent(id: String, content: String) {
-        val derived = withContext(Dispatchers.IO) {
-            Triple(
-                uniffi.futo_notes_ffi.makePreview(content),
-                uniffi.futo_notes_ffi.makeRichPreview(content),
-                uniffi.futo_notes_ffi.extractTags(content),
-            )
-        }
-        val idx = notes.indexOfFirst { it.id == id }
-        if (idx >= 0) {
-            val old = notes[idx]
-            val updated = old.copy(
-                modifiedMs = System.currentTimeMillis(),
-                preview = derived.first,
-                richPreview = derived.second,
-                tags = derived.third,
-            )
-            notes = notes.toMutableList().also { it[idx] = updated }
-        } else {
-            reload()
-        }
-        signalLocalChange()
-        notifyEngine { it.notifyChanged("$id.md") }
     }
 
     /** Re-sort the in-memory list most-recently-modified first WITHOUT a rescan
@@ -337,22 +295,22 @@ class NotesStore(notesRoot: File) {
     }
 
     suspend fun createNote(title: String, folder: String = ""): String? = try {
-        val id = withContext(Dispatchers.IO) { core.createNote(title, folder) }
-        reload()
+        val mutation = withContext(Dispatchers.IO) { core.createNote(title, folder, "") }
+        applyMutation(mutation)
+        refreshFolders()
         signalLocalChange()
-        notifyEngine { it.notifyChanged("$id.md") }
-        id
+        mutation.finalId(title)
     } catch (e: Exception) {
         android.util.Log.e("NotesStore", "createNote failed", e); null
     }
 
     suspend fun delete(id: String) {
         try {
-            withContext(Dispatchers.IO) { core.delete(id) }
+            val mutation = withContext(Dispatchers.IO) { core.delete(id) }
+            applyMutation(mutation)
+            refreshFolders()
             signalLocalChange()
-            notifyEngine { it.notifyRemoved("$id.md") }
         } catch (e: Exception) { android.util.Log.e("NotesStore", "delete failed", e) }
-        reload()
     }
 
     /** Fire-and-forget delete for the editor's `onDispose` (can't suspend; the
@@ -364,19 +322,21 @@ class NotesStore(notesRoot: File) {
     }
 
     suspend fun rename(oldId: String, newId: String): String = try {
-        val finalId = withContext(Dispatchers.IO) { core.rename(oldId, newId) }
-        reload(); signalLocalChange()
-        notifyEngine { it.notifyRenamed("$oldId.md", "$finalId.md") }
-        finalId
+        val mutation = withContext(Dispatchers.IO) { core.rename(oldId, newId) }
+        applyMutation(mutation)
+        refreshFolders()
+        signalLocalChange()
+        mutation.finalId(oldId)
     } catch (e: Exception) {
         android.util.Log.e("NotesStore", "rename failed", e); oldId
     }
 
     suspend fun moveNote(id: String, toFolder: String): String = try {
-        val finalId = withContext(Dispatchers.IO) { core.moveNote(id, toFolder) }
-        reload(); signalLocalChange()
-        notifyEngine { it.notifyRenamed("$id.md", "$finalId.md") }
-        finalId
+        val mutation = withContext(Dispatchers.IO) { core.moveNote(id, toFolder) }
+        applyMutation(mutation)
+        refreshFolders()
+        signalLocalChange()
+        mutation.finalId(id)
     } catch (e: Exception) {
         android.util.Log.e("NotesStore", "moveNote failed", e); id
     }
@@ -384,30 +344,10 @@ class NotesStore(notesRoot: File) {
     suspend fun createFolder(path: String) {
         try {
             withContext(Dispatchers.IO) { core.createFolder(path) }
-            reload(); signalLocalChange()
+            refreshFolders()
+            signalLocalChange()
         } catch (e: Exception) {
             android.util.Log.e("NotesStore", "createFolder failed", e)
-        }
-    }
-
-    /** Vault-wide wikilink rewrite after a rename/move [editor.md:88]: every
-     *  link that resolved to [oldId] is repointed at [newId]. Fire-and-forget
-     *  on the store's scope — the rewrite touches many files and may outlive
-     *  the editor screen that triggered it. Rewritten bodies belong to ids the
-     *  Rust side doesn't enumerate, so the engine gets a full rescan. */
-    fun relink(oldId: String, newId: String) {
-        if (oldId == newId) return
-        scope.launch {
-            try {
-                val rewritten = withContext(Dispatchers.IO) { core.relink(oldId, newId) }
-                if (rewritten > 0u) {
-                    reload()
-                    signalLocalChange()
-                    notifyEngine { it.rescan() }
-                }
-            } catch (e: Exception) {
-                android.util.Log.e("NotesStore", "relink failed $oldId -> $newId", e)
-            }
         }
     }
 
@@ -417,11 +357,11 @@ class NotesStore(notesRoot: File) {
      *  Returns the moved-note count, or null when the FFI rejected the delete
      *  (the folder is left intact). */
     suspend fun deleteFolder(path: String): UInt? = try {
-        val moved = withContext(Dispatchers.IO) { core.deleteFolder(path) }
-        reload(); signalLocalChange()
-        // The moved notes' new ids aren't enumerated across the FFI — rescan.
-        notifyEngine { it.rescan() }
-        moved
+        val mutation = withContext(Dispatchers.IO) { core.deleteFolder(path) }
+        applyMutation(mutation)
+        refreshFolders()
+        signalLocalChange()
+        mutation.renamed.size.toUInt()
     } catch (e: Exception) {
         android.util.Log.e("NotesStore", "deleteFolder failed for $path", e); null
     }
@@ -431,31 +371,34 @@ class NotesStore(notesRoot: File) {
      *  (src/lib/notes.svelte.ts). Callers pause sync + set [suppressAutoPush]
      *  for the duration and disconnect sync afterwards. */
     suspend fun deleteAll() {
-        withContext(Dispatchers.IO) {
-            File(rootPath).listFiles()?.forEach { it.deleteRecursively() }
-        }
-        reload()
-        notifyEngine { it.rescan() }
+        withContext(Dispatchers.IO) { core.reset() }
+        notes = emptyList()
+        folders = emptyList()
     }
 
-    /** Full engine rescan for bulk disk changes whose affected ids aren't
-     *  enumerable — wired to [SyncManager.onLivePull] by the Activity. */
-    fun engineRescanAsync() {
-        notifyEngine { it.rescan() }
+    /** A live pull bypassed local mutations. Reconcile the same store-owned
+     *  index, then project one fresh durable snapshot. */
+    fun liveDataChanged() {
+        scope.launch {
+            withContext(Dispatchers.IO) { core.rescan() }
+            reload()
+        }
+    }
+
+    /** No shell-owned search or fallback: wait briefly for the Rust owner and
+     *  return its ranked result set. */
+    suspend fun search(query: String, limit: UInt = 50u): List<SearchHit> {
+        repeat(200) {
+            if (withContext(Dispatchers.IO) { core.keywordReady() }) {
+                return withContext(Dispatchers.IO) { core.search(query, limit) }
+            }
+            delay(25)
+        }
+        return emptyList()
     }
 
     private fun signalLocalChange() {
         if (!suppressAutoPush) onLocalChange?.invoke()
-    }
-
-    /** Engine notifications are FFI calls (index I/O) — always off-main, and
-     *  never allowed to break the mutation that triggered them. */
-    private fun notifyEngine(block: (SearchEngine) -> Unit) {
-        val e = engine ?: return
-        scope.launch(Dispatchers.IO) {
-            runCatching { block(e) }
-                .onFailure { android.util.Log.e("NotesStore", "search engine notify failed", it) }
-        }
     }
 
     /** Immediate child folders of `folder` ("" = root). */
@@ -469,12 +412,34 @@ class NotesStore(notesRoot: File) {
     /** Notes whose parent folder is exactly `folder`. */
     fun notesIn(folder: String): List<NoteItem> = notes.filter { it.folder == folder }
 
+    private fun applySnapshot(metadata: List<NoteMetadata>, folderPaths: List<String>) {
+        notes = metadata.map { it.toItem() }
+        folders = folderPaths
+    }
+
+    /** The sole incremental cache seam. Rust has already committed collision
+     *  outcomes and every backlink rewrite represented by this result. */
+    private fun applyMutation(mutation: NoteMutation) {
+        val removed = mutation.removed.toSet()
+        val next = notes.filterNot { it.id in removed }.toMutableList()
+        mutation.upserted.forEach { metadata ->
+            val item = metadata.toItem()
+            val index = next.indexOfFirst { it.id == item.id }
+            if (index >= 0) next[index] = item else next.add(0, item)
+        }
+        notes = next
+        mutation.warnings.forEach {
+            android.util.Log.w("NotesStore", "local-note mutation: $it")
+        }
+    }
+
+    private suspend fun refreshFolders() {
+        folders = withContext(Dispatchers.IO) { core.scan().folders }
+    }
+
+    private fun NoteMutation.finalId(fallback: String): String =
+        renamed.lastOrNull()?.to ?: upserted.firstOrNull()?.id ?: fallback
+
     private fun NoteMetadata.toItem() =
         NoteItem(id, title, folder, modifiedMs, preview, richPreview, tags)
-
-    private fun seedIfEmpty() {
-        // Seed content lives in futo-notes-model (`seed_if_empty`) so Android,
-        // iOS, and desktop share one user-facing first run that can't drift.
-        runCatching { core.seedIfEmpty() }
-    }
 }

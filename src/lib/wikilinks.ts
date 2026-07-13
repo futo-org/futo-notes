@@ -156,9 +156,14 @@ export function rewriteWikilinks(
   if (occurrences.length === 0) return { text, rewrites: 0 };
   const ids = Array.from(allIds);
   // The id-resolution context must include `oldId` so legacy bare-filename
-  // links targeting it still resolve. Replace `oldId` in the universe with
-  // itself so resolution works against pre-rename state.
-  const ctx = ids.includes(oldId) ? ids : [...ids, oldId];
+  // links targeting it still resolve. Replace `newId` with `oldId` so
+  // resolution sees the pre-rename universe.
+  const ctx = [...ids];
+  if (!ctx.includes(oldId)) {
+    const renamedPosition = ctx.indexOf(newId);
+    if (renamedPosition >= 0) ctx[renamedPosition] = oldId;
+    else ctx.push(oldId);
+  }
   let rewrites = 0;
   let cursor = 0;
   let out = '';

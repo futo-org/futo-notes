@@ -140,21 +140,16 @@ confirmation, not surfaced as a per-folder count. → NoteListView.swift
   is no trash in the native UI flow. Sync is unaffected either way — the file
   leaving the vault tombstones the note on the next sync exactly as a
   permanent delete would. Deleting the only note in a folder prunes now-empty
-  ancestor folders — **on every platform**: Tauri via
-  `prune_empty_parent_dirs`, the native shells via the shared Rust
-  `delete_note` (which prunes since 2026-07-02; it previously left empty
-  parents behind, native-only). →
-  fileSystem.ts `deleteNoteFileToTrash` → platform/tauri.ts
-  `deleteNoteToTrash` → `notes_delete_to_trash`,
-  `apps/tauri/src-tauri/src/note_commands.rs`, futo-notes-model
-  `crud::delete_note`
+  ancestor folders on every platform. Desktop supplies the trash policy to the
+  shared local-note store; native shells delete directly. →
+  `futo-notes-store::LocalNoteStore::delete_with`, `local_notes_delete`
 - A note row in the folder tree offers the same Move/Delete via context menu
   (desktop right-click / mobile long-press). → FolderTreeView.svelte
 - The native editor menus reach parity: **Android** ⋮ offers Move to
   folder… / Copy file path / Delete note (Share is a dedicated top-bar
   action); **iOS** ⋯ offers Rename / Move to Folder… / Copy File Path /
-  Share / Delete Note. A move keeps the note open under its new id and
-  relinks backlinks (`NoteStore.relink`). **Every destructive delete on the
+  Share / Delete Note. A move keeps the note open under its new id; the same
+  `NoteStore.moveNote` workflow relinks backlinks. **Every destructive delete on the
   native shells asks for confirmation** ("Delete this note? This action
   cannot be undone.") — editor menus, list rows, swipe actions, and search
   results alike (verified on emulator + simulator 2026-06-09). →
@@ -247,11 +242,11 @@ confirmation, not surfaced as a per-folder count. → NoteListView.swift
   rewrites wikilinks pointing at those notes. On **Tauri** rename is in the
   folder context menu; on the native shells it belongs in the folder long-press
   menu alongside Move and Delete. → folders.svelte.ts,
-  `apps/tauri/src-tauri/src/folder_commands.rs`
+  `apps/tauri/src-tauri/src/local_notes.rs`
   > **Gap:** the native shells expose no folder-rename affordance yet — the
   > folder long-press menu offers Delete only (iOS `NoteListView.swift`, Android
-  > `NoteListScreen.kt`), and the shared `NoteStore` FFI facade has no
-  > rename-folder primitive. *(native shells)*
+  > `NoteListScreen.kt`). The shared `NoteStore.renameFolder` contract exists;
+  > only the native UI affordance remains. *(native shells)*
 - Notes and folders can be moved by drag-and-drop in the tree (note → folder,
   folder → folder, folder → root). A name collision on move resolves with a
   `-2`/`-3` suffix. Hovering a folder while dragging auto-expands it. →
@@ -272,10 +267,10 @@ confirmation, not surfaced as a per-folder count. → NoteListView.swift
   removed. (An earlier note here describing an iOS-native recursive-destroy
   delete was stale — no native folder delete existed in code until this
   one.) Verified on emulator + simulator 2026-06-09.
-  - **Tauri**: folder context menu → Delete. The frontend first moves/relinks
-    every note, then the Rust folder command removes the empty tree through the
-    desktop trash policy. → DrawerSidebar.svelte `confirmDeleteFolder`,
-    `apps/tauri/src-tauri/src/folder_commands.rs`,
+  - **Tauri**: folder context menu → Delete. One Rust store workflow moves and
+    relinks every note before removing the remaining tree through the desktop
+    trash policy. → DrawerSidebar.svelte `confirmDeleteFolder`,
+    `apps/tauri/src-tauri/src/local_notes.rs`, `futo-notes-store`,
     `apps/tauri/src-tauri/src/system_trash.rs`
   - **iOS native**: folder row swipe or long-press "Delete Folder…". →
     NoteListView.swift
@@ -283,5 +278,5 @@ confirmation, not surfaced as a per-folder count. → NoteListView.swift
     with a "Folder deleted; moved N notes" toast. → NoteListScreen.kt
   - The native shells share the Rust primitive (rejects the vault root and
     path traversal; a missing folder is a no-op; relinks each moved note).
-    → futo-notes-model `crud::delete_folder_move_up`, futo-notes-ffi
+    → futo-notes-store `LocalNoteStore::delete_folder`, futo-notes-ffi
     `NoteStore::delete_folder`

@@ -47,14 +47,13 @@ function wikilinkCompletions(context: CompletionContext): CompletionResult | nul
   let options: Completion[];
 
   if (query.trim()) {
-    // Completion is intentionally metadata-only and synchronous. Full-text
-    // search belongs to Rust; keeping note bodies in a second JS index solely
-    // for this popup caused a full-vault rebuild on every desktop launch.
-    const lowerQ = query.toLocaleLowerCase();
+    // Autocomplete is synchronous editor presentation, not a second durable
+    // search engine. Filter the already-loaded note universe by path.
+    const lowerQ = query.toLowerCase();
     options = allNotes
-      .filter((n) => n.id.toLocaleLowerCase().includes(lowerQ))
+      .filter((note) => note.id.toLowerCase().includes(lowerQ))
       .slice(0, 20)
-      .map((n) => buildCompletion(n.id));
+      .map((note) => buildCompletion(note.id));
   } else {
     // No query — show 20 most recent notes
     options = allNotes

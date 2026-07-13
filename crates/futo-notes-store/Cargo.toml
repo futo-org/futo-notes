@@ -1,0 +1,15 @@
+[package]
+name = "futo-notes-store"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "futo_notes_store"
+
+[dependencies]
+futo-notes-core = { path = "../futo-notes-core" }
+futo-notes-model = { path = "../futo-notes-model" }
+futo-notes-search = { path = "../futo-notes-search" }
+rayon = "1"
+serde = { version = "1", features = ["derive"] }
+walkdir = "2.5"

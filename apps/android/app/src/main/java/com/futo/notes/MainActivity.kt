@@ -52,29 +52,7 @@ import com.futo.notes.ui.theme.FutoMotion
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import uniffi.futo_notes_ffi.SearchEngine
 import java.io.File
-
-/**
- * Process-wide search-engine singleton [search.md:60]. The engine owns
- * Tantivy's exclusive IndexWriter lock on the index directory, so it must be
- * created at most once per process — Activity recreation re-runs onCreate in
- * the same process and a second `SearchEngine(...)` fails with LockBusy.
- */
-object SearchEngineHolder {
-    @Volatile private var engine: SearchEngine? = null
-
-    fun get(notesRoot: String, indexDir: String): SearchEngine? {
-        engine?.let { return it }
-        synchronized(this) {
-            engine?.let { return it }
-            return runCatching { SearchEngine(notesRoot, indexDir) }
-                .onFailure { android.util.Log.e("FutoSearch", "search engine init failed", it) }
-                .getOrNull()
-                ?.also { engine = it }
-        }
-    }
-}
 
 /** A screen in the manual nav stack. Note ids/folders contain `/`, which would
  *  break Navigation-Compose string routes, so the stack holds typed entries. */
@@ -434,13 +412,11 @@ class MainActivity : ComponentActivity() {
         // the scan below offers them for upload.
         CrashReporter.install(root, BuildConfig.VERSION_NAME)
 
-        val s = NotesStore(root)
+        val s = NotesStore(root, File(filesDir, "search"))
         sync = SyncManager(SecureStore(prefs), prefs)
-        // Refresh the note list when a live pull brings in remote changes (sync +
-        // note store are separate objects). A pull rewrites arbitrary files on
-        // disk, so the search engine gets a full rescan alongside the list reload
-        // [search.md:60].
-        sync.onLivePull = { s.reloadAsync(); s.engineRescanAsync() }
+        // Sync writes bypass local mutations, so reconcile the store-owned
+        // index and project one fresh snapshot.
+        sync.onLivePull = { s.liveDataChanged() }
         // Auto-push local edits: every NotesStore mutation signals the live loop,
         // which debounces and pushes to peers (no-op when not connected).
         s.onLocalChange = { sync.noteChanged() }
@@ -448,15 +424,6 @@ class MainActivity : ComponentActivity() {
         // Silent sync-session restore [sync.md:91] — off-main, fire-and-forget,
         // never gates render. No-op when no password is stored.
         sync.restoreSession(s.rootPath)
-
-        // BM25 search engine. Opening/building the Tantivy index does disk I/O, so
-        // construction runs off-main; SearchScreen falls back to substring
-        // filtering until `store.engine` lands. The index dir stays internal
-        // (filesDir/search) regardless of vault mode — it's a rebuildable cache.
-        lifecycleScope.launch(Dispatchers.IO) {
-            SearchEngineHolder.get(s.rootPath, File(filesDir, "search").absolutePath)
-                ?.let { engine -> withContext(Dispatchers.Main) { s.engine = engine } }
-        }
 
         // Crash-log scan [settings.md:43] — backgrounded, never gates render.
         lifecycleScope.launch(Dispatchers.IO) {

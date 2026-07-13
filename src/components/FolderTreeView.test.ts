@@ -2,13 +2,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mount, unmount, flushSync } from 'svelte';
 import FolderTreeView from './FolderTreeView.svelte';
-import { refreshEmptyFolders, setFolderOpen } from '$lib/folders.svelte';
+import { setFolderOpen, setFolderSnapshot } from '$lib/folders.svelte';
 import type { NotePreview } from '../types';
 
-// The empty-folder set is refreshed from the platform FS. Stub only
-// getFS so `refreshEmptyFolders` can report folders that exist on disk
-// without notes; everything else keeps the real (web) implementation.
-const fsState = vi.hoisted(() => ({ folders: [] as { path: string }[] }));
 // Flip per-test to exercise the platform-gated drag-image hack (Linux only).
 const platformState = vi.hoisted(() => ({ isLinux: false }));
 vi.mock('$lib/platform', async (importOriginal) => {
@@ -18,7 +14,6 @@ vi.mock('$lib/platform', async (importOriginal) => {
     get isLinux() {
       return platformState.isLinux;
     },
-    getFS: () => ({ listFolders: async () => fsState.folders }),
   };
 });
 
@@ -55,8 +50,7 @@ describe('FolderTreeView per-folder empty state', () => {
     target.remove();
     // Reset module-level folder state so tests can't leak into each other.
     setFolderOpen('Empty', false);
-    fsState.folders = [];
-    await refreshEmptyFolders([]);
+    setFolderSnapshot([], []);
   });
 
   // Regression (QA 2026-07-02): expanding a freshly-created empty folder
@@ -64,8 +58,7 @@ describe('FolderTreeView per-folder empty state', () => {
   // flat.length === 0. Spec list.md: "An empty folder shows an empty
   // state" ("Nothing here yet" on Tauri).
   it('shows "Nothing here yet" inside an expanded empty folder', async () => {
-    fsState.folders = [{ path: 'Empty' }];
-    await refreshEmptyFolders([]);
+    setFolderSnapshot(['Empty'], []);
     setFolderOpen('Empty', true);
 
     app = mount(FolderTreeView, { target, props: { items: [] } });
@@ -79,8 +72,7 @@ describe('FolderTreeView per-folder empty state', () => {
   });
 
   it('hides the placeholder when the folder is collapsed', async () => {
-    fsState.folders = [{ path: 'Empty' }];
-    await refreshEmptyFolders([]);
+    setFolderSnapshot(['Empty'], []);
     setFolderOpen('Empty', false);
 
     app = mount(FolderTreeView, { target, props: { items: [] } });

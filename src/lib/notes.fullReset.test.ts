@@ -9,16 +9,13 @@
 // device on the account. The spec requires the reset to run with live sync
 // paused AND the connection + stored password dropped so a racing sync cannot
 // resurrect (or tombstone) files; the next launch stays LOCAL.
-import { describe, it, expect, vi } from 'vitest';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
 
 vi.mock('$lib/platform');
-vi.mock('./fileSystem', () => ({
-  writeNote: vi.fn(),
-  deleteNoteFile: vi.fn(),
-  deleteAllContent: vi.fn(),
-  createNoteFile: vi.fn(),
-  moveNoteFile: vi.fn(),
-  readNote: vi.fn(),
+const resetVault = vi.hoisted(() => vi.fn());
+vi.mock('./localNoteStore', () => ({
+  getLocalNoteStore: vi.fn(async () => ({ reset: resetVault })),
+  currentLocalNoteStore: vi.fn(() => ({ reset: resetVault })),
 }));
 vi.mock('./autoSyncV2', () => ({
   pauseSyncV2: vi.fn(),
@@ -31,7 +28,6 @@ vi.mock('./syncServiceE2ee', () => ({
 }));
 
 import { deleteAllNotes } from './notes.svelte';
-import { deleteAllContent } from './fileSystem';
 import { pauseSyncV2, resumeSyncV2, waitForSyncIdleV2 } from './autoSyncV2';
 import { disconnectE2ee } from './syncServiceE2ee';
 
@@ -43,14 +39,16 @@ function callOrder(fn: unknown): number {
 }
 
 describe('deleteAllNotes (Full reset) durably kills the sync session', () => {
+  beforeEach(() => resetVault.mockReset());
+
   it('drops the connection + stored password BEFORE wiping the vault', async () => {
     await deleteAllNotes();
 
     expect(disconnectE2ee).toHaveBeenCalledTimes(1);
-    expect(deleteAllContent).toHaveBeenCalledTimes(1);
+    expect(resetVault).toHaveBeenCalledTimes(1);
     // Disconnect first: once the vault is empty, any authenticated session
     // that wakes up would push tombstones for every object.
-    expect(callOrder(disconnectE2ee)).toBeLessThan(callOrder(deleteAllContent));
+    expect(callOrder(disconnectE2ee)).toBeLessThan(callOrder(resetVault));
   });
 
   it('pauses and drains in-flight sync before disconnecting', async () => {
@@ -68,7 +66,7 @@ describe('deleteAllNotes (Full reset) durably kills the sync session', () => {
   });
 
   it('a failed wipe still propagates AND un-pauses sync (reset failure must not leave sync dead)', async () => {
-    vi.mocked(deleteAllContent).mockRejectedValueOnce(new Error('disk full'));
+    resetVault.mockRejectedValueOnce(new Error('disk full'));
 
     await expect(deleteAllNotes()).rejects.toThrow('disk full');
     // The session was already disconnected before the wipe attempt, so
@@ -84,7 +82,7 @@ describe('deleteAllNotes (Full reset) durably kills the sync session', () => {
     // Still connected → must NOT empty the vault (that is exactly the state
     // that produced the mass-tombstone push). Sync is un-paused so the
     // still-connected session keeps working normally.
-    expect(deleteAllContent).not.toHaveBeenCalled();
+    expect(resetVault).not.toHaveBeenCalled();
     expect(resumeSyncV2).toHaveBeenCalledTimes(1);
   });
 });

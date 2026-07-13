@@ -1,0 +1,866 @@
+//! One durable owner for the local Markdown vault and its derived search index.
+
+mod paths;
+mod vault;
+
+use std::collections::{HashMap, HashSet};
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+
+use futo_notes_core::files::{
+    create_new_atomic, rename_through_temp, safe_appdata_path, set_file_mtime_ms, write_atomic_text,
+};
+use futo_notes_core::sync::{collides_but_differs, collision_key};
+use futo_notes_model::{make_id, rewrite_wikilinks, sanitize_folder_path, split_id};
+use futo_notes_search::{SearchConfig, SearchEngine, StatusObserver, DEFAULT_TOPK};
+use serde::{Deserialize, Serialize};
+
+pub use futo_notes_model::{WELCOME_NOTE, WELCOME_NOTE_ID};
+pub use futo_notes_search::{SearchHit, SearchStatus};
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteMetadata {
+    pub id: String,
+    pub title: String,
+    pub folder: String,
+    pub modified_ms: i64,
+    pub preview: String,
+    pub rich_preview: String,
+    pub tags: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Snapshot {
+    pub notes: Vec<NoteMetadata>,
+    pub folders: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteRename {
+    pub from: String,
+    pub to: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MutationResult {
+    pub upserted: Vec<NoteMetadata>,
+    pub removed: Vec<String>,
+    pub renamed: Vec<NoteRename>,
+    pub warnings: Vec<String>,
+}
+
+impl MutationResult {
+    pub fn final_id(&self) -> Option<&str> {
+        self.renamed
+            .last()
+            .map(|rename| rename.to.as_str())
+            .or_else(|| self.upserted.last().map(|note| note.id.as_str()))
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BootstrapResult {
+    pub snapshot: Snapshot,
+    pub seeded: u32,
+    pub migrated: u32,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultFile {
+    pub name: String,
+    pub mtime_ms: i64,
+    pub size_bytes: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FlushOutcome {
+    Wrote,
+    SkippedMissing,
+    SkippedChanged,
+}
+
+/// Outcome of [`LocalNoteStore::create_if_absent`] — an atomic create-if-absent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CreateOutcome {
+    /// No file existed at the id; `content` was created there.
+    Created,
+    /// A file already exists at the id — nothing written (a concurrent writer,
+    /// e.g. a live-sync pull, got there first).
+    Existed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConditionalWriteResult {
+    pub outcome: FlushOutcome,
+    pub mutation: Option<MutationResult>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FileChange {
+    Changed(String),
+    Removed(String),
+    Renamed { from: String, to: String },
+}
+
+/// Desktop uses this hook to register one-shot watcher suppression before the
+/// first filesystem syscall. Native shells use the no-op implementation.
+pub trait BeforeWrite: Send + Sync {
+    fn before_write(&self, changes: &[FileChange]);
+}
+
+#[derive(Default)]
+pub struct NoopBeforeWrite;
+
+impl BeforeWrite for NoopBeforeWrite {
+    fn before_write(&self, _changes: &[FileChange]) {}
+}
+
+/// One instance owns one vault. Every mutation is serialized through `gate`,
+/// so conditional writes and multi-file rename/relink operations have a
+/// single-process decision boundary shared by all shells.
+pub struct LocalNoteStore {
+    root: PathBuf,
+    before_write: Arc<dyn BeforeWrite>,
+    gate: Mutex<()>,
+    search: Mutex<Option<SearchEngine>>,
+}
+
+impl LocalNoteStore {
+    pub fn new(root: PathBuf) -> Self {
+        Self::with_before_write(root, Arc::new(NoopBeforeWrite))
+    }
+
+    pub fn with_before_write(root: PathBuf, before_write: Arc<dyn BeforeWrite>) -> Self {
+        Self {
+            root,
+            before_write,
+            gate: Mutex::new(()),
+            search: Mutex::new(None),
+        }
+    }
+
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    /// Starts reconciliation in the search engine's background runtime. The
+    /// caller is expected to invoke this off the UI thread; note-list startup
+    /// never waits for keyword readiness.
+    pub fn start_search(
+        &self,
+        index_dir: PathBuf,
+        on_status: StatusObserver,
+    ) -> Result<(), String> {
+        let mut search = self
+            .search
+            .lock()
+            .map_err(|_| "search lock poisoned".to_owned())?;
+        if search.is_some() {
+            return Ok(());
+        }
+        *search = Some(SearchEngine::start(
+            SearchConfig {
+                notes_root: self.root.clone(),
+                index_dir,
+            },
+            on_status,
+        )?);
+        Ok(())
+    }
+
+    pub fn search(&self, query: &str, limit: Option<usize>) -> Result<Vec<SearchHit>, String> {
+        let search = self
+            .search
+            .lock()
+            .map_err(|_| "search lock poisoned".to_owned())?;
+        match search.as_ref() {
+            Some(search) => search.query(query, limit.unwrap_or(DEFAULT_TOPK)),
+            None => Ok(Vec::new()),
+        }
+    }
+
+    pub fn search_status(&self) -> SearchStatus {
+        self.search
+            .lock()
+            .ok()
+            .and_then(|search| search.as_ref().map(SearchEngine::status))
+            .unwrap_or_default()
+    }
+
+    pub fn rebuild_search(&self) {
+        if let Ok(search) = self.search.lock() {
+            if let Some(search) = search.as_ref() {
+                search.rescan();
+            }
+        }
+    }
+
+    pub fn observe_external_change(&self, change: FileChange) {
+        self.notify(&change);
+    }
+
+    pub fn bootstrap(&self) -> Result<BootstrapResult, String> {
+        let _gate = self.lock_gate()?;
+        fs::create_dir_all(&self.root).map_err(io_error)?;
+        let (migrated, mut warnings) = self.migrate_text_files();
+        let seeded = if vault::note_paths(&self.root).is_empty() {
+            match self.write_raw(WELCOME_NOTE_ID, WELCOME_NOTE, None) {
+                Ok(_) => 1,
+                Err(error) => {
+                    warnings.push(format!("welcome note: {error}"));
+                    0
+                }
+            }
+        } else {
+            0
+        };
+        Ok(BootstrapResult {
+            snapshot: vault::snapshot(&self.root),
+            seeded,
+            migrated,
+            warnings,
+        })
+    }
+
+    pub fn snapshot(&self) -> Snapshot {
+        vault::snapshot(&self.root)
+    }
+
+    pub fn inventory(&self) -> Vec<VaultFile> {
+        vault::inventory(&self.root)
+    }
+
+    pub fn read(&self, id: &str) -> String {
+        paths::note_path(&self.root, id)
+            .ok()
+            .and_then(|path| fs::read_to_string(path).ok())
+            .unwrap_or_default()
+    }
+
+    pub fn exists(&self, id: &str) -> bool {
+        paths::note_path(&self.root, id)
+            .map(|path| path.is_file())
+            .unwrap_or(false)
+    }
+
+    pub fn create(
+        &self,
+        folder: &str,
+        title: &str,
+        content: &str,
+    ) -> Result<MutationResult, String> {
+        let _gate = self.lock_gate()?;
+        let wanted = make_id(folder, title);
+        let id = paths::unique_note_id(&self.root, &wanted, None)?;
+        let metadata = self.write_raw(&id, content, None)?;
+        Ok(MutationResult {
+            upserted: vec![metadata],
+            ..MutationResult::default()
+        })
+    }
+
+    pub fn write(
+        &self,
+        id: &str,
+        content: &str,
+        modified_ms: Option<i64>,
+    ) -> Result<MutationResult, String> {
+        let _gate = self.lock_gate()?;
+        let metadata = self.write_raw(id, content, modified_ms)?;
+        Ok(MutationResult {
+            upserted: vec![metadata],
+            ..MutationResult::default()
+        })
+    }
+
+    /// One shell call for editor save: the current body is committed at the
+    /// old ID first, then any rename and every resolvable backlink rewrite are
+    /// performed under the same vault lock.
+    pub fn save(
+        &self,
+        original_id: Option<&str>,
+        wanted_id: &str,
+        content: &str,
+        modified_ms: Option<i64>,
+    ) -> Result<MutationResult, String> {
+        let _gate = self.lock_gate()?;
+        match original_id {
+            None => {
+                let (folder, title) = split_id(wanted_id);
+                let id = paths::unique_note_id(&self.root, &make_id(&folder, &title), None)?;
+                let metadata = self.write_raw(&id, content, modified_ms)?;
+                Ok(MutationResult {
+                    upserted: vec![metadata],
+                    ..MutationResult::default()
+                })
+            }
+            Some(original) if original == wanted_id => {
+                let metadata = self.write_raw(original, content, modified_ms)?;
+                Ok(MutationResult {
+                    upserted: vec![metadata],
+                    ..MutationResult::default()
+                })
+            }
+            Some(original) => {
+                self.write_raw(original, content, modified_ms)?;
+                self.rename_raw(original, wanted_id)
+            }
+        }
+    }
+
+    pub fn write_if_unchanged(
+        &self,
+        id: &str,
+        expected: &str,
+        content: &str,
+    ) -> Result<ConditionalWriteResult, String> {
+        let _gate = self.lock_gate()?;
+        let path = paths::note_path(&self.root, id)?;
+        match fs::read_to_string(&path) {
+            Ok(current) if current == expected => {
+                let metadata = self.write_raw(id, content, None)?;
+                Ok(ConditionalWriteResult {
+                    outcome: FlushOutcome::Wrote,
+                    mutation: Some(MutationResult {
+                        upserted: vec![metadata],
+                        ..MutationResult::default()
+                    }),
+                })
+            }
+            Ok(_) => Ok(ConditionalWriteResult {
+                outcome: FlushOutcome::SkippedChanged,
+                mutation: None,
+            }),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                Ok(ConditionalWriteResult {
+                    outcome: FlushOutcome::SkippedMissing,
+                    mutation: None,
+                })
+            }
+            Err(error) => Err(io_error(error)),
+        }
+    }
+
+    /// Atomically (re-)create the note at `id` with `content` ONLY IF no file
+    /// exists there yet — a no-replace `hard_link` install via
+    /// [`create_new_atomic`], so a concurrent scan/sync never observes an
+    /// empty or partial file. The editor's leave/background flush uses this to
+    /// honor the peer-delete dirty-keep edit-wins semantic: recreate a note the
+    /// conditional flush just reported [`FlushOutcome::SkippedMissing`] for,
+    /// WITHOUT the unconditional-write clobber risk — a live-sync pull writing
+    /// the same id OUTSIDE this store's serialization cannot have its content
+    /// overwritten. Returns [`CreateOutcome::Existed`] if the id reappeared in
+    /// the window (the caller parks a conflict copy instead). On a
+    /// case-insensitive filesystem (APFS/iOS) a case-variant already on disk
+    /// counts as existing — the safe outcome, we never clobber it.
+    pub fn create_if_absent(&self, id: &str, content: &str) -> Result<CreateOutcome, String> {
+        let _gate = self.lock_gate()?;
+        let path = paths::note_path(&self.root, id)?;
+        let change = FileChange::Changed(note_filename(id));
+        self.before_write
+            .before_write(std::slice::from_ref(&change));
+        if create_new_atomic(&path, content.as_bytes())? {
+            self.notify(&change);
+            Ok(CreateOutcome::Created)
+        } else {
+            Ok(CreateOutcome::Existed)
+        }
+    }
+
+    pub fn rename(&self, old_id: &str, wanted_id: &str) -> Result<MutationResult, String> {
+        let _gate = self.lock_gate()?;
+        self.rename_raw(old_id, wanted_id)
+    }
+
+    pub fn move_note(&self, id: &str, folder: &str) -> Result<MutationResult, String> {
+        let (_, title) = split_id(id);
+        let folder = sanitize_folder_path(folder);
+        let wanted = if folder.is_empty() {
+            title
+        } else {
+            format!("{folder}/{title}")
+        };
+        self.rename(id, &wanted)
+    }
+
+    pub fn delete(&self, id: &str) -> Result<MutationResult, String> {
+        self.delete_with(id, |path| match fs::remove_file(path) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(io_error(error)),
+        })
+    }
+
+    pub fn delete_with<F>(&self, id: &str, remove: F) -> Result<MutationResult, String>
+    where
+        F: FnOnce(&Path) -> Result<(), String>,
+    {
+        let _gate = self.lock_gate()?;
+        let path = paths::note_path(&self.root, id)?;
+        if !path.exists() {
+            return Ok(MutationResult::default());
+        }
+        let change = FileChange::Removed(note_filename(id));
+        self.before_write
+            .before_write(std::slice::from_ref(&change));
+        remove(&path)?;
+        prune_empty_parents(&self.root, &path);
+        self.notify(&change);
+        Ok(MutationResult {
+            removed: vec![id.to_owned()],
+            ..MutationResult::default()
+        })
+    }
+
+    pub fn create_folder(&self, raw: &str) -> Result<String, String> {
+        let _gate = self.lock_gate()?;
+        let clean = sanitize_folder_path(raw);
+        if clean.is_empty() {
+            return Ok(String::new());
+        }
+        let path = paths::folder_path(&self.root, &clean)?;
+        fs::create_dir_all(path).map_err(io_error)?;
+        Ok(clean)
+    }
+
+    pub fn rename_folder(&self, from: &str, to: &str) -> Result<MutationResult, String> {
+        let _gate = self.lock_gate()?;
+        paths::folder_path(&self.root, from)?;
+        paths::folder_path(&self.root, to)?;
+        let from = sanitize_folder_path(from);
+        let to = sanitize_folder_path(to);
+        let source = paths::folder_path(&self.root, &from)?;
+        let destination = paths::folder_path(&self.root, &to)?;
+        if !source.is_dir() {
+            return Err("source folder does not exist".to_owned());
+        }
+        if destination.exists() && !same_physical(&source, &destination) {
+            return Err("target folder already exists".to_owned());
+        }
+
+        let prefix = format!("{from}/");
+        let mappings = vault::note_paths(&self.root)
+            .into_iter()
+            .filter_map(|(id, _)| {
+                id.strip_prefix(&prefix)
+                    .map(|tail| (id.clone(), format!("{to}/{tail}")))
+            })
+            .collect::<Vec<_>>();
+        let relinks = prepare_relinks(&self.root, &mappings);
+        let mut changes = rename_changes(&mappings);
+        changes.extend(
+            relinks
+                .keys()
+                .map(|id| FileChange::Changed(note_filename(id))),
+        );
+        self.before_write.before_write(&changes);
+
+        if let Some(parent) = destination.parent() {
+            fs::create_dir_all(parent).map_err(io_error)?;
+        }
+        if collides_but_differs(&from, &to) {
+            rename_through_temp(&source, &destination)?;
+        } else {
+            fs::rename(&source, &destination).map_err(io_error)?;
+        }
+        let mut mutation = self.finish_mappings(mappings, relinks);
+        mutation
+            .warnings
+            .extend(remove_empty_source_warning(&source));
+        Ok(mutation)
+    }
+
+    pub fn delete_folder(&self, folder: &str) -> Result<MutationResult, String> {
+        self.delete_folder_with(folder, |path| fs::remove_dir_all(path).map_err(io_error))
+    }
+
+    /// Move every note out first, with rollback on a failed move. Only after
+    /// all notes are safe does the supplied platform removal policy receive
+    /// the remaining tree (desktop trash or native recursive delete).
+    pub fn delete_folder_with<F>(
+        &self,
+        folder: &str,
+        remove_tree: F,
+    ) -> Result<MutationResult, String>
+    where
+        F: FnOnce(&Path) -> Result<(), String>,
+    {
+        let _gate = self.lock_gate()?;
+        paths::folder_path(&self.root, folder)?;
+        let folder = sanitize_folder_path(folder);
+        let target = paths::folder_path(&self.root, &folder)?;
+        if !target.exists() {
+            return Ok(MutationResult::default());
+        }
+        let parent = folder
+            .rsplit_once('/')
+            .map(|(parent, _)| parent)
+            .unwrap_or("");
+        let prefix = format!("{folder}/");
+        let source_ids = vault::note_paths(&self.root)
+            .into_iter()
+            .map(|(id, _)| id)
+            .filter(|id| id.starts_with(&prefix))
+            .collect::<Vec<_>>();
+        let mut occupied = vault::note_paths(&self.root)
+            .into_iter()
+            .map(|(id, _)| id)
+            .filter(|id| !source_ids.contains(id))
+            .collect::<HashSet<_>>();
+        let mut mappings = Vec::with_capacity(source_ids.len());
+        for old in source_ids {
+            let tail = &old[prefix.len()..];
+            let wanted = if parent.is_empty() {
+                tail.to_owned()
+            } else {
+                format!("{parent}/{tail}")
+            };
+            let destination = paths::unique_against(&wanted, &occupied);
+            occupied.insert(destination.clone());
+            mappings.push((old, destination));
+        }
+
+        let relinks = prepare_relinks(&self.root, &mappings);
+        let mut changes = rename_changes(&mappings);
+        changes.extend(
+            relinks
+                .keys()
+                .map(|id| FileChange::Changed(note_filename(id))),
+        );
+        self.before_write.before_write(&changes);
+        move_files_with_rollback(&self.root, &mappings)?;
+        let mut mutation = self.finish_mappings(mappings, relinks);
+        if let Err(error) = remove_tree(&target) {
+            mutation
+                .warnings
+                .push(format!("notes moved, but folder cleanup failed: {error}"));
+        }
+        Ok(mutation)
+    }
+
+    /// Destructive local reset. Session/sync shutdown ordering remains a shell
+    /// responsibility; once called, this removes every vault entry, including
+    /// images and hidden app-data, and reconciles search from the empty tree.
+    pub fn reset(&self) -> Result<(), String> {
+        let _gate = self.lock_gate()?;
+        fs::create_dir_all(&self.root).map_err(io_error)?;
+        let removals = vault::note_paths(&self.root)
+            .into_iter()
+            .map(|(id, _)| FileChange::Removed(note_filename(&id)))
+            .collect::<Vec<_>>();
+        self.before_write.before_write(&removals);
+        for entry in fs::read_dir(&self.root).map_err(io_error)? {
+            let path = entry.map_err(io_error)?.path();
+            if path.is_dir() {
+                fs::remove_dir_all(path).map_err(io_error)?;
+            } else {
+                fs::remove_file(path).map_err(io_error)?;
+            }
+        }
+        self.rebuild_search();
+        Ok(())
+    }
+
+    fn rename_raw(&self, old_id: &str, wanted_id: &str) -> Result<MutationResult, String> {
+        if old_id == wanted_id {
+            let upserted = vault::metadata(&self.root, old_id).into_iter().collect();
+            return Ok(MutationResult {
+                upserted,
+                ..MutationResult::default()
+            });
+        }
+        let source = paths::note_path(&self.root, old_id)?;
+        if !source.is_file() {
+            return Err("source note does not exist".to_owned());
+        }
+        let final_id = paths::unique_note_id(&self.root, wanted_id, Some(old_id))?;
+        let mappings = vec![(old_id.to_owned(), final_id)];
+        let relinks = prepare_relinks(&self.root, &mappings);
+        let mut changes = rename_changes(&mappings);
+        changes.extend(
+            relinks
+                .keys()
+                .map(|id| FileChange::Changed(note_filename(id))),
+        );
+        self.before_write.before_write(&changes);
+        move_files_with_rollback(&self.root, &mappings)?;
+        Ok(self.finish_mappings(mappings, relinks))
+    }
+
+    fn finish_mappings(
+        &self,
+        mappings: Vec<(String, String)>,
+        relinks: HashMap<String, String>,
+    ) -> MutationResult {
+        let mut warnings = Vec::new();
+        let mut touched = HashSet::new();
+        for (id, content) in relinks {
+            match paths::note_path(&self.root, &id)
+                .and_then(|path| write_atomic_text(&path, &content))
+            {
+                Ok(()) => {
+                    touched.insert(id.clone());
+                    self.notify(&FileChange::Changed(note_filename(&id)));
+                }
+                Err(error) => warnings.push(format!("backlink rewrite for {id}: {error}")),
+            }
+        }
+        for (from, to) in &mappings {
+            self.notify(&FileChange::Renamed {
+                from: note_filename(from),
+                to: note_filename(to),
+            });
+            touched.insert(to.clone());
+        }
+        let mut upserted = touched
+            .into_iter()
+            .filter_map(|id| vault::metadata(&self.root, &id))
+            .collect::<Vec<_>>();
+        upserted.sort_by(|left, right| left.id.cmp(&right.id));
+        MutationResult {
+            upserted,
+            removed: mappings.iter().map(|(from, _)| from.clone()).collect(),
+            renamed: mappings
+                .into_iter()
+                .map(|(from, to)| NoteRename { from, to })
+                .collect(),
+            warnings,
+        }
+    }
+
+    fn write_raw(
+        &self,
+        id: &str,
+        content: &str,
+        modified_ms: Option<i64>,
+    ) -> Result<NoteMetadata, String> {
+        if let Some((existing, _)) = vault::note_paths(&self.root)
+            .into_iter()
+            .find(|(existing, _)| existing != id && collision_key(existing) == collision_key(id))
+        {
+            return Err(format!(
+                "note id collides with existing cross-platform path: {existing}"
+            ));
+        }
+        let path = paths::note_path(&self.root, id)?;
+        let change = FileChange::Changed(note_filename(id));
+        self.before_write
+            .before_write(std::slice::from_ref(&change));
+        write_atomic_text(&path, content)?;
+        if let Some(modified_ms) = modified_ms.filter(|value| *value >= 0) {
+            set_file_mtime_ms(&path, modified_ms)?;
+        }
+        let metadata = vault::metadata(&self.root, id)
+            .ok_or_else(|| "note metadata unavailable after write".to_owned())?;
+        self.notify(&change);
+        Ok(metadata)
+    }
+
+    fn migrate_text_files(&self) -> (u32, Vec<String>) {
+        let sentinel = match safe_appdata_path(&self.root, ".txt-migration-done") {
+            Ok(path) => path,
+            Err(error) => return (0, vec![error]),
+        };
+        if sentinel.exists() {
+            return (0, Vec::new());
+        }
+        let mut warnings = Vec::new();
+        let mut migrated = 0;
+        let entries = match fs::read_dir(&self.root) {
+            Ok(entries) => entries.filter_map(Result::ok).collect::<Vec<_>>(),
+            Err(error) => return (0, vec![io_error(error)]),
+        };
+        let mut names = entries
+            .iter()
+            .filter_map(|entry| entry.file_name().to_str().map(str::to_owned))
+            .collect::<Vec<_>>();
+        let mut occupied = names
+            .iter()
+            .map(|name| name.to_lowercase())
+            .collect::<HashSet<_>>();
+        for entry in entries {
+            let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+                continue;
+            };
+            if !entry.path().is_file() || !name.to_lowercase().ends_with(".txt") {
+                continue;
+            }
+            let stem = &name[..name.len() - 4];
+            let mut target = format!("{stem}.md");
+            if occupied.contains(&target.to_lowercase()) {
+                target = format!("{stem} (imported).md");
+                for suffix in 2u64.. {
+                    if !occupied.contains(&target.to_lowercase()) && !names.contains(&target) {
+                        break;
+                    }
+                    target = format!("{stem} (imported {suffix}).md");
+                }
+            }
+            let source = entry.path();
+            let destination = self.root.join(&target);
+            let change = FileChange::Renamed {
+                from: name.clone(),
+                to: target.clone(),
+            };
+            self.before_write
+                .before_write(std::slice::from_ref(&change));
+            match rename_through_temp(&source, &destination) {
+                Ok(()) => {
+                    migrated += 1;
+                    occupied.insert(target.to_lowercase());
+                    names.push(target);
+                    self.notify(&change);
+                }
+                Err(error) => warnings.push(format!("{name}: {error}")),
+            }
+        }
+        if let Err(error) = write_atomic_text(&sentinel, "1") {
+            warnings.push(format!("migration sentinel: {error}"));
+        }
+        (migrated, warnings)
+    }
+
+    fn notify(&self, change: &FileChange) {
+        let Ok(search) = self.search.lock() else {
+            return;
+        };
+        let Some(search) = search.as_ref() else {
+            return;
+        };
+        match change {
+            FileChange::Changed(path) => search.notify_changed(path.clone()),
+            FileChange::Removed(path) => search.notify_removed(path.clone()),
+            FileChange::Renamed { from, to } => search.notify_renamed(from.clone(), to.clone()),
+        }
+    }
+
+    fn lock_gate(&self) -> Result<std::sync::MutexGuard<'_, ()>, String> {
+        self.gate
+            .lock()
+            .map_err(|_| "vault mutation lock poisoned".to_owned())
+    }
+}
+
+fn note_filename(id: &str) -> String {
+    format!("{id}.md")
+}
+
+fn prepare_relinks(root: &Path, mappings: &[(String, String)]) -> HashMap<String, String> {
+    if mappings.is_empty() {
+        return HashMap::new();
+    }
+    let original = vault::bodies(root);
+    let mut bodies = original.clone();
+    let mut ids = original.keys().cloned().collect::<Vec<_>>();
+    for (old, new) in mappings {
+        for body in bodies.values_mut() {
+            if !body.contains("[[") {
+                continue;
+            }
+            let (rewritten, count) = rewrite_wikilinks(body, old, new, &ids);
+            if count > 0 {
+                *body = rewritten;
+            }
+        }
+        if let Some(position) = ids.iter().position(|id| id == old) {
+            ids[position] = new.clone();
+        }
+    }
+    let final_ids = mappings.iter().cloned().collect::<HashMap<_, _>>();
+    bodies
+        .into_iter()
+        .filter_map(|(old_id, body)| {
+            (original.get(&old_id) != Some(&body)).then(|| {
+                let id = final_ids.get(&old_id).cloned().unwrap_or(old_id);
+                (id, body)
+            })
+        })
+        .collect()
+}
+
+fn rename_changes(mappings: &[(String, String)]) -> Vec<FileChange> {
+    mappings
+        .iter()
+        .map(|(from, to)| FileChange::Renamed {
+            from: note_filename(from),
+            to: note_filename(to),
+        })
+        .collect()
+}
+
+fn move_files_with_rollback(root: &Path, mappings: &[(String, String)]) -> Result<(), String> {
+    let mut completed: Vec<(PathBuf, PathBuf)> = Vec::new();
+    for (from, to) in mappings {
+        let source = paths::note_path(root, from)?;
+        let destination = paths::note_path(root, to)?;
+        if let Some(parent) = destination.parent() {
+            fs::create_dir_all(parent).map_err(io_error)?;
+        }
+        let result = if collides_but_differs(from, to) {
+            rename_through_temp(&source, &destination)
+        } else {
+            fs::rename(&source, &destination).map_err(io_error)
+        };
+        if let Err(error) = result {
+            for (original, moved) in completed.into_iter().rev() {
+                let _ = fs::rename(moved, original);
+            }
+            return Err(error);
+        }
+        completed.push((source, destination));
+    }
+    for (source, _) in &completed {
+        prune_empty_parents(root, source);
+    }
+    Ok(())
+}
+
+fn prune_empty_parents(root: &Path, note_path: &Path) {
+    let Some(mut directory) = note_path.parent().map(Path::to_owned) else {
+        return;
+    };
+    while directory != root && directory.starts_with(root) {
+        let empty = fs::read_dir(&directory)
+            .ok()
+            .and_then(|mut entries| entries.next())
+            .is_none();
+        if !empty || fs::remove_dir(&directory).is_err() {
+            return;
+        }
+        let Some(parent) = directory.parent() else {
+            return;
+        };
+        directory = parent.to_owned();
+    }
+}
+
+fn same_physical(left: &Path, right: &Path) -> bool {
+    fs::canonicalize(left)
+        .ok()
+        .zip(fs::canonicalize(right).ok())
+        .map(|(left, right)| left == right)
+        .unwrap_or(false)
+}
+
+fn remove_empty_source_warning(path: &Path) -> Vec<String> {
+    if path.exists() {
+        vec![format!("old folder remains at {}", path.display())]
+    } else {
+        Vec::new()
+    }
+}
+
+fn io_error(error: std::io::Error) -> String {
+    error.to_string()
+}
+
+#[cfg(test)]
+mod tests;
