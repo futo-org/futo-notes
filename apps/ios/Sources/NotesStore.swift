@@ -460,16 +460,14 @@ final class NotesStore: ObservableObject {
     /// background handler. A conditional write (`writeIfUnchanged`): persist
     /// `draft.content` only if the note still holds `draft.base` (the content the
     /// editor last saw). One FFI call replaces the old `exists()`-then-`write()`
-    /// sequence, collapsing its cross-FFI TOCTOU — a note deleted while
-    /// backgrounded returns `.skippedMissing` (never resurrected), and content a
-    /// live-sync pull adopted since the editor's last read returns
-    /// `.skippedChanged` (never clobbered). PERSIST-OR-PARK: a genuine write
-    /// (`.wrote`) reflects into the in-memory list; a skipped write never silently
-    /// drops the draft — it is parked as a conflict copy (`parkDraftCopy`) so the
-    /// edit survives without resurrecting/clobbering. (Diverges from Android's
-    /// flush, which drops on skip; iOS is the only shell that makes the peer-delete
-    /// "keeping local draft" promise, so it must guarantee the draft survives a
-    /// Back within the debounce — H1/N2.)
+    /// sequence, collapsing its cross-FFI TOCTOU. NEVER drops the draft:
+    /// `.wrote` reflects into the in-memory list; `.skippedMissing` (peer deleted)
+    /// recreates the note at its original id — edit-wins dirty-keep, converging
+    /// with the resume autosave on ONE home (no conflict-copy-vs-recreated-original
+    /// dup); `.skippedChanged` (peer changed) parks the draft as a conflict copy so
+    /// the edit survives WITHOUT clobbering the diverged note. (Diverges from
+    /// Android's flush, which drops on skip; iOS is the only shell that makes the
+    /// peer-delete "keeping local draft" promise.)
     func flushAsync(_ draft: PendingDraft) {
         Task {
             do {
@@ -492,11 +490,17 @@ final class NotesStore: ObservableObject {
                     let disk = await vault.read(draft.id)
                     if disk != draft.content { await parkDraftCopy(draft) }
                 case .skippedMissing:
-                    // The note was deleted under the editor. Don't resurrect the
-                    // original id (anti-resurrection); preserve the edit as a
-                    // recovered copy so a dirty draft on a peer-deleted note is never
-                    // silently lost (H1c).
-                    await parkDraftCopy(draft)
+                    // Peer deleted the note; a dirty draft is edit-wins
+                    // RE-CREATE-WITH-EDITS (sync.md dirty-keep). Recreate at the
+                    // ORIGINAL id — exactly what the editor's resume autosave does —
+                    // so the survive path (autosave rewrites the same id,
+                    // idempotent) and the jetsam path (this flush recreated)
+                    // converge on ONE home, with NO conflict-copy-vs-recreated-
+                    // original duplication (Codex round-3 addendum). Idempotent:
+                    // repeated flushes and the .inactive+.background pair all target
+                    // the same id. (A CLEAN editor never flushes, so a note the user
+                    // genuinely abandoned is still never resurrected.)
+                    await write(draft.id, content: draft.content)
                 }
             } catch {
                 print("flush failed for \(draft.id): \(error)")
@@ -504,13 +508,14 @@ final class NotesStore: ObservableObject {
         }
     }
 
-    /// Preserve a draft that could NOT be written to its own note — the note was
-    /// deleted or changed out from under the editor between its last read and the
-    /// write — as a "<title> (conflict YYYY-MM-DD)" copy, so a diverged/blocked
-    /// flush never silently drops the user's edit (persist-or-park). Shared by the
-    /// flush fallback above and the live-pull conflict path (`adoptExternalChange`),
-    /// so the conflict-copy naming lives in one place. Anti-resurrection safe: it
-    /// creates a NEW note and never rewrites the diverged/deleted original id.
+    /// Preserve a draft that CONFLICTS with a genuinely different on-disk version
+    /// (a peer CHANGED the note out from under the editor) as a
+    /// "<title> (conflict YYYY-MM-DD)" copy, so the local edit survives without
+    /// clobbering the peer's version. Shared by the flush's `.skippedChanged` arm
+    /// and the live-pull conflict path (`adoptExternalChange`), so the
+    /// conflict-copy naming lives in one place. (The peer-DELETE case does NOT come
+    /// here — it is edit-wins re-create at the original id; see `flushAsync`.)
+    /// Anti-clobber safe: creates a NEW note, never rewrites the diverged original.
     func parkDraftCopy(_ draft: PendingDraft) async {
         let parts = splitId(id: draft.id)
         let formatter = DateFormatter()

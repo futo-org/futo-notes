@@ -450,18 +450,21 @@ EditorWebView.swift, EditorWebView.kt
   `NotesStore.flushPendingEditor`; iOS FutoNotesApp scenePhase
   `.inactive`/`.background` → `NotesStore.flushPendingEditor`
 - A leave/background flush is a **conditional write**: it persists only if the
-  note still holds the content the editor last saw. A note deleted while the
-  editor was backgrounded is never recreated by the flush, and content a live
-  pull adopted since the editor's last read is never clobbered by a stale flush.
+  note still holds the content the editor last saw, so content a live pull
+  adopted since the editor's last read is never clobbered by a stale flush.
   (Check-then-atomic-write, so a narrow single-process syscall window remains —
   accepted; not a true compare-and-swap.) *(iOS, Android)* →
   `futo_notes_model::write_note_if_unchanged` via FFI `write_if_unchanged`;
-  `NotesStore.flushAsync`. iOS additionally makes the flush **persist-or-park**:
-  a skipped write (note changed/deleted under the editor) is never dropped — the
-  draft is parked as a conflict copy (`parkDraftCopy`), so a Back within the
-  autosave debounce can't lose an edit the peer-delete "keeping local draft"
-  path promised to keep. Verified on iOS 2026-07-13 (sim: clean re-background
-  after a settled save left mtime unchanged — no rewrite).
+  `NotesStore.flushAsync`. iOS additionally makes the flush **never drop** a dirty
+  draft when the write is skipped: if the note was **deleted** under the editor it
+  is re-created at its original id (edit-wins dirty-keep — the same thing the
+  editor's resume autosave does, so survive + jetsam converge on ONE home with no
+  duplicate copy); if the note was **changed** by a peer it is parked as a
+  conflict copy (`parkDraftCopy`) so the local edit survives without clobbering
+  the peer's version. A clean editor never flushes, so a genuinely abandoned note
+  is never resurrected. Verified on iOS 2026-07-13 (sim: clean re-background after
+  a settled save left mtime unchanged; dirty-on-deleted backgrounded across
+  cycles yields exactly one home — the re-created note — and no conflict copy).
 - The open editor's unsaved-draft register is **derived** from the editor's live
   state (note id, buffer, saved content, loaded) rather than hand-synced, so it
   goes clean the instant a save completes or a remote is adopted (no stale draft
