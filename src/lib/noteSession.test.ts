@@ -1,29 +1,24 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('$lib/platform', () => ({
-  hasFileSystem: true,
-}));
-
+vi.mock('$lib/platform', () => ({ hasFileSystem: true }));
+vi.mock('$lib/autoSyncV2', () => ({ notifySavedV2: vi.fn() }));
 vi.mock('$lib/notes.svelte', () => ({
-  updateNote: vi.fn(),
-  // Missing reads as "" on every platform (Tauri notes_read, web.ts, nodeFS) —
-  // read_note never throws for a missing file. The default mirrors that; tests
-  // that need specific bytes queue them with mockResolvedValueOnce.
+  updateNote: vi.fn(async (id: string) => ({ id, mtime: 0 })),
   readNote: vi.fn(async () => ''),
-  createNote: vi.fn(async (id: string) => ({ id, mtime: 0 })),
   getNoteById: vi.fn(() => undefined),
 }));
 
+import { readNote, updateNote } from '$lib/notes.svelte';
 import {
   createNoteSession,
   editorHasUnseenChanges,
   isEditorChangeEcho,
   shouldWriteNoteToDisk,
-} from './noteSession.svelte.ts';
-import type { NoteSessionDeps } from './noteSession.svelte.ts';
+  type NoteSessionDeps,
+} from './noteSession.svelte';
 
-describe('shouldWriteNoteToDisk', () => {
+describe('draft decisions', () => {
   it('persists a new note when the title was changed', () => {
     expect(
       shouldWriteNoteToDisk({
@@ -36,9 +31,6 @@ describe('shouldWriteNoteToDisk', () => {
   });
 
   it('skips writes for a brand-new note that was never touched', () => {
-    // Regression: programmatic setEditorContent('') during loadNote('new')
-    // used to fire a phantom debouncedSave, which wrote an empty note
-    // to disk just because originalId was null.
     expect(
       shouldWriteNoteToDisk({
         savedTitle: 'Untitled (1)',
@@ -54,19 +46,12 @@ describe('shouldWriteNoteToDisk', () => {
       shouldWriteNoteToDisk({
         savedTitle: 'Existing',
         newTitle: 'Existing',
-        content: '',
-        newContent: '',
+        content: 'body',
+        newContent: 'body',
       }),
     ).toBe(false);
   });
-});
 
-describe('editorHasUnseenChanges', () => {
-  // Regression: the editor's onchange is rAF-coalesced, and rAF stalls while
-  // the window is hidden/occluded (macOS WKWebView). Typed content then never
-  // arms the save timer, so flushSave used to no-op and the keystrokes were
-  // silently dropped on close/quit/note-switch (caught by the cross-platform
-  // "tombstone does not block new note" scenario running with hidden windows).
   it('reports typed content the save pipeline never saw', () => {
     expect(
       editorHasUnseenChanges({
@@ -104,28 +89,19 @@ describe('editorHasUnseenChanges', () => {
     expect(
       editorHasUnseenChanges({
         editorContent: undefined,
-        savedContent: 'anything',
-        title: 'a',
-        savedTitle: 'b',
+        savedContent: 'body',
+        title: 'Renamed',
+        savedTitle: 'Original',
       }),
     ).toBe(false);
   });
-});
 
-describe('isEditorChangeEcho', () => {
-  // Regression: applyExternalContent raises suppressSaveOnChange around its
-  // setEditorContent call, but the editor's onchange is rAF-coalesced — the
-  // delivery lands one frame later, after the flag is already lowered. That
-  // echo bumped editVersion, so handleSyncComplete's editedDuringSync gate
-  // silently skipped every SUBSEQUENT remote adopt of the open note: the
-  // first live-pulled edit appeared, the second never did until the note was
-  // reopened (observed 2026-06-04, iPhone → mac "Yes." / "No." repro).
   it('treats the rAF-deferred delivery of adopted content as an echo', () => {
     expect(
       isEditorChangeEcho({
-        nextContent: 'remote content',
-        content: 'remote content',
-        savedContent: 'remote content',
+        nextContent: 'remote',
+        content: 'remote',
+        savedContent: 'remote',
       }),
     ).toBe(true);
   });
@@ -133,97 +109,66 @@ describe('isEditorChangeEcho', () => {
   it('treats a real edit as an edit', () => {
     expect(
       isEditorChangeEcho({
-        nextContent: 'remote content plus a keystroke',
-        content: 'remote content',
-        savedContent: 'remote content',
+        nextContent: 'remote+x',
+        content: 'remote',
+        savedContent: 'remote',
       }),
     ).toBe(false);
   });
 
   it('still counts a type-then-revert delivery so session content converges', () => {
-    // Doc went old → old+x → old. The second delivery matches savedContent
-    // but NOT the session's last-seen content, so it must flow through
-    // (otherwise session.content would be left stale at old+x).
-    expect(
-      isEditorChangeEcho({
-        nextContent: 'old',
-        content: 'old+x',
-        savedContent: 'old',
-      }),
-    ).toBe(false);
+    expect(isEditorChangeEcho({ nextContent: 'old', content: 'old+x', savedContent: 'old' })).toBe(
+      false,
+    );
   });
 
   it('never classifies a title-only debounce (no content payload) as an echo', () => {
     expect(
-      isEditorChangeEcho({
-        nextContent: undefined,
-        content: 'body',
-        savedContent: 'body',
-      }),
+      isEditorChangeEcho({ nextContent: undefined, content: 'body', savedContent: 'body' }),
     ).toBe(false);
   });
 });
 
-describe('title debounce vs body debounce (character-loss race)', () => {
-  // Regression: while typing a brand-new note's title, every keystroke armed
-  // the same 500ms debouncedSave timer the body uses. A natural ~0.5s pause
-  // mid-typing fired saveNote() → updateNote() (a file RENAME) → onNoteRenamed
-  // → tab noteId swap, all async and mid-keystroke. Keystrokes that landed
-  // during that round-trip got clobbered (the title binding / saved state was
-  // reset to the post-rename value), so characters intermittently vanished.
-  //
-  // Desired behavior: a title-only edit must NOT trigger the rename until the
-  // user has been idle ~10s, OR until focus moves into the editor body. Body
-  // content edits keep their existing 500ms debounce.
-
+describe('note session lifecycle', () => {
   let editorContent = '';
+  let routeId: string | null = 'new';
 
-  function makeDeps() {
+  function makeDeps(overrides: Partial<NoteSessionDeps> = {}): NoteSessionDeps {
     return {
       getEditorContent: () => editorContent,
-      setEditorContent: vi.fn((text: string) => {
-        editorContent = text;
-      }),
+      setEditorContent: (text) => {
+        editorContent = text.replace(/\r\n?/g, '\n');
+      },
       focusEditor: vi.fn(),
-      focusTitle: vi.fn(),
+      isEditorFocused: () => false,
+      isComposing: () => false,
       getNotes: () => [],
-      patchGraphNode: vi.fn(),
-      showToast: vi.fn(),
-      notifySaved: vi.fn(),
       getNoteBody: () => undefined,
       getTitleTextarea: () => undefined,
-      getNoteId: () => 'new',
-      setPrevNoteId: vi.fn(),
+      getNoteId: () => routeId,
+      getPendingFolder: () => null,
+      clearPendingFolder: vi.fn(),
       onNoteRenamed: vi.fn(),
-    } satisfies NoteSessionDeps;
+      ...overrides,
+    };
   }
 
-  // Drive handleTitleInput keystroke-by-keystroke against a fake textarea so
-  // it mirrors a real user typing into the title field. In the running app the
-  // `bind:value={session.title}` binding writes session.title before oninput
-  // fires; mirror that here (handleTitleInput's no-issue branch relies on it).
-  function typeTitle(session: ReturnType<typeof createNoteSession>, fullTitle: string): void {
-    for (let i = 1; i <= fullTitle.length; i++) {
-      const value = fullTitle.slice(0, i);
-      // `title` is typed readonly on the session API (runtime has a setter for
-      // the `bind:value` binding); mirror that write directly in the test.
-      (session as { title: string }).title = value;
-      const target = { value, selectionStart: value.length, setSelectionRange: vi.fn() };
-      session.handleTitleInput({ target } as unknown as Event);
-    }
+  function typeTitle(session: ReturnType<typeof createNoteSession>, value: string): void {
+    session.title = value;
+    session.handleTitleInput({
+      target: { value, selectionStart: value.length, setSelectionRange: vi.fn() },
+    } as unknown as Event);
   }
 
-  beforeEach(async () => {
+  beforeEach(() => {
     editorContent = '';
-    const { updateNote } = await import('$lib/notes.svelte');
-    vi.mocked(updateNote).mockReset();
-    vi.mocked(updateNote).mockImplementation(async (id: string) => ({ id, mtime: 0 }));
+    routeId = 'new';
+    vi.mocked(updateNote).mockClear();
+    vi.mocked(readNote).mockReset();
+    vi.mocked(readNote).mockResolvedValue('');
     vi.useFakeTimers();
-    // The session's first save can re-arm via runQueuedSave microtasks; keep
-    // requestAnimationFrame synchronous so handleTitleInput's caret restore
-    // doesn't leak real timers into the fake-timer world.
-    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
-      cb(0);
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      callback(0);
       return 0;
     });
   });
@@ -234,174 +179,67 @@ describe('title debounce vs body debounce (character-loss race)', () => {
   });
 
   it('does NOT rename mid-typing: a title-only edit holds for ~10s, not 500ms', async () => {
-    const deps = makeDeps();
-    const session = createNoteSession(deps);
-    const { updateNote } = await import('$lib/notes.svelte');
-
+    const session = createNoteSession(makeDeps());
     typeTitle(session, 'Grocery list');
 
-    // The old 500ms body-debounce would already fire the rename here — that
-    // is exactly the round-trip that clobbers in-flight keystrokes.
-    vi.advanceTimersByTime(500);
-    await vi.runAllTicks();
+    await vi.advanceTimersByTimeAsync(9_999);
     expect(updateNote).not.toHaveBeenCalled();
-
-    // Still nothing well before the 10s aggressive title debounce elapses.
-    vi.advanceTimersByTime(8000);
-    await vi.runAllTicks();
-    expect(updateNote).not.toHaveBeenCalled();
-
-    // Only after the user pauses ~10s does the rename land — once, with the
-    // FULL title intact (no characters lost).
-    vi.advanceTimersByTime(2000);
-    await vi.runAllTicks();
-    expect(updateNote).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(updateNote).toHaveBeenCalledOnce();
     expect(vi.mocked(updateNote).mock.calls[0][1]).toBe('Grocery list');
   });
 
   it('body content edits keep the existing short (500ms) debounce', async () => {
-    const deps = makeDeps();
-    const session = createNoteSession(deps);
-    const { updateNote } = await import('$lib/notes.svelte');
-
-    // Body change carries content (handleTitleInput passes none).
+    const session = createNoteSession(makeDeps());
     session.debouncedSave('# hello body');
-
-    vi.advanceTimersByTime(500);
-    await vi.runAllTicks();
-    expect(updateNote).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe('loadNote focus routing', () => {
-  function makeDeps(noteId: string = 'new') {
-    return {
-      getEditorContent: () => '',
-      setEditorContent: vi.fn(),
-      focusEditor: vi.fn(),
-      focusTitle: vi.fn(),
-      getNotes: () => [],
-      patchGraphNode: vi.fn(),
-      showToast: vi.fn(),
-      notifySaved: vi.fn(),
-      getNoteBody: () => undefined,
-      getTitleTextarea: () => undefined,
-      getNoteId: () => noteId,
-      setPrevNoteId: vi.fn(),
-      onNoteRenamed: vi.fn(),
-    } satisfies NoteSessionDeps;
-  }
-
-  beforeEach(() => {
-    // loadNote defers focus to the next frame; run it synchronously so the
-    // assertions don't need to wait out a real rAF tick.
-    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
-      cb(0);
-      return 0;
-    });
+    await vi.advanceTimersByTimeAsync(499);
+    expect(updateNote).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(updateNote).toHaveBeenCalledOnce();
   });
 
-  afterEach(() => {
-    vi.unstubAllGlobals();
+  it('flushes editor content even when rAF never delivered onchange', async () => {
+    const session = createNoteSession(makeDeps());
+    await session.loadNote('new');
+    editorContent = '# hidden-window keystroke';
+
+    await session.flushSave();
+
+    expect(updateNote).toHaveBeenCalledWith(
+      'Untitled',
+      'Untitled',
+      '# hidden-window keystroke',
+      undefined,
+    );
   });
 
   it("focuses the body when opening '+ New'", async () => {
-    // A fresh note drops focus straight into the body. The new-note path
-    // explicitly focuses the editor (the keyboard is wanted here).
     const deps = makeDeps();
     await createNoteSession(deps).loadNote('new');
     expect(deps.focusEditor).toHaveBeenCalledOnce();
-    expect(deps.focusTitle).not.toHaveBeenCalled();
   });
 
-  it('opens a broken-wikilink target as an empty deferred note (no eager create, no forced focus)', async () => {
-    // Tapping [[missing note]] opens an empty editor bound to the target title;
-    // the file is created on the FIRST edit/save, not eagerly (2026-07-11
-    // decision — docs/spec/editor.md). read_note returns "" for the missing
-    // file, so loadNote takes the normal read path: no createNote, and opening
-    // does not grab editor focus (same as opening any existing note — only the
-    // '+ New' path forces body focus).
-    const { readNote, createNote } = await import('$lib/notes.svelte');
-    vi.mocked(readNote).mockResolvedValueOnce('');
-    const deps = makeDeps('missing note');
+  it('opens a broken-wikilink target as an empty deferred note', async () => {
+    routeId = 'missing note';
+    const deps = makeDeps();
     const session = createNoteSession(deps);
     await session.loadNote('missing note');
-    expect(createNote).not.toHaveBeenCalled();
-    expect(deps.setEditorContent).toHaveBeenCalledWith('');
+
     expect(session.originalId).toBe('missing note');
+    expect(session.content).toBe('');
+    expect(updateNote).not.toHaveBeenCalled();
     expect(deps.focusEditor).not.toHaveBeenCalled();
-  });
-});
-
-describe('opening a note is read-only (no autosave on line-ending normalization)', () => {
-  // Regression: a years-old note stored with CRLF endings jumped to the top of
-  // the list and spawned a `… (conflict <date>).md` copy the moment it was
-  // clicked. loadNote seeded savedContent from the raw disk bytes (CRLF) while
-  // CM6 (no lineSeparator facet) handed the content back LF-normalized, so the
-  // rAF-coalesced onchange echo of the load looked like a user edit and
-  // autosaved — bumping mtime (which re-sorts the note to the top) and pushing
-  // a whole-file change that conflict-copied during sync. Opening must be a
-  // pure read.
-  let editorDoc = '';
-
-  function makeDeps() {
-    return {
-      getEditorContent: () => editorDoc,
-      // Mirror CM6: loading a doc with no lineSeparator facet collapses
-      // CR/CRLF to LF.
-      setEditorContent: vi.fn((text: string) => {
-        editorDoc = text.replace(/\r\n?/g, '\n');
-      }),
-      focusEditor: vi.fn(),
-      focusTitle: vi.fn(),
-      getNotes: () => [],
-      patchGraphNode: vi.fn(),
-      showToast: vi.fn(),
-      notifySaved: vi.fn(),
-      getNoteBody: () => undefined,
-      getTitleTextarea: () => undefined,
-      getNoteId: () => 'old note',
-      setPrevNoteId: vi.fn(),
-      onNoteRenamed: vi.fn(),
-    } satisfies NoteSessionDeps;
-  }
-
-  beforeEach(async () => {
-    editorDoc = '';
-    const { updateNote } = await import('$lib/notes.svelte');
-    vi.mocked(updateNote).mockReset();
-    vi.mocked(updateNote).mockImplementation(async (id: string) => ({ id, mtime: 0 }));
-    vi.useFakeTimers();
-    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
-      cb(0);
-      return 0;
-    });
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-    vi.unstubAllGlobals();
   });
 
   it('does not rewrite a CRLF note to disk just because it was opened', async () => {
-    const deps = makeDeps();
-    const { updateNote, readNote } = await import('$lib/notes.svelte');
-    // mockResolvedValueOnce queues a one-time return ahead of the default
-    // empty-string impl, so loadNote's single readNote call gets these bytes.
+    routeId = 'old note';
     vi.mocked(readNote).mockResolvedValueOnce('line one\r\nline two\r\n');
-
-    const session = createNoteSession(deps);
+    const session = createNoteSession(makeDeps());
     await session.loadNote('old note');
 
-    // The session baseline must match what the editor holds (LF), not the raw
-    // CRLF disk bytes — otherwise the load echo registers as a change.
     expect(session.content).toBe('line one\nline two\n');
-
-    // The editor's rAF-coalesced onchange now delivers the normalized doc.
-    session.debouncedSave(editorDoc);
-    vi.advanceTimersByTime(600);
-    await vi.runAllTicks();
-
+    session.debouncedSave(editorContent);
+    await vi.advanceTimersByTimeAsync(600);
     expect(updateNote).not.toHaveBeenCalled();
   });
 });
