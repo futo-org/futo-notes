@@ -37,11 +37,11 @@ pub use tags::{
     MAX_TAG_LENGTH,
 };
 pub use crud::{
-    create_folder, create_note, create_note_if_absent, create_note_with_content, delete_folder,
-    delete_folder_move_up, delete_note, make_id, make_preview, make_rich_preview, move_note,
-    note_exists, note_tags, prune_empty_parent_dirs, read_note, rename_note, sanitize_folder_path,
-    scan_folders, scan_notes, seed_if_empty, split_id, write_note, write_note_if_unchanged,
-    CreateOutcome, FlushOutcome, NoteMetadata, WELCOME_NOTE, WELCOME_NOTE_ID,
+    create_folder, create_note, create_note_with_content, delete_folder, delete_folder_move_up,
+    delete_note, make_id, make_preview, make_rich_preview, move_note, note_exists, note_tags,
+    prune_empty_parent_dirs, read_note, rename_note, sanitize_folder_path, scan_folders,
+    scan_notes, seed_if_empty, split_id, write_note, write_note_if_unchanged,
+    FlushOutcome, NoteMetadata, WELCOME_NOTE, WELCOME_NOTE_ID,
 };
 pub use wikilinks::{
     extract_wikilinks, find_wikilinks, note_id_leaf, relink_note_references, resolve_wikilink,

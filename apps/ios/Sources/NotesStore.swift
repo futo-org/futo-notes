@@ -68,22 +68,6 @@ actor NoteVault {
         )
     }
 
-    /// Atomically (re-)create the note at `id` with `content` ONLY IF absent
-    /// (O_EXCL, Rust `create_note_if_absent`) — the peer-delete edit-wins recreate
-    /// without a clobber race against an independent sync write (P1a). Returns the
-    /// outcome plus, on `.created`, the fresh preview/tags for the in-place row.
-    func createIfAbsent(_ id: String, content: String) throws
-        -> (outcome: CreateOutcome, derived: (preview: String, richPreview: String, tags: [String])?)
-    {
-        let outcome = try core.createIfAbsent(id: id, content: content)
-        guard outcome == .created else { return (outcome, nil) }
-        return (
-            outcome,
-            (makePreview(content: content), makeRichPreview(content: content),
-                extractTags(content: content))
-        )
-    }
-
     /// Atomically (WITHIN this actor) create a "<stem>" conflict copy holding
     /// `content` in `folder` — UNLESS a note whose title matches the stem already
     /// holds byte-identical content. The candidate scan reads DISK
@@ -532,22 +516,16 @@ final class NotesStore: ObservableObject {
                     // ORIGINAL id — exactly what the editor's resume autosave does —
                     // so the survive path (autosave rewrites the same id,
                     // idempotent) and the jetsam path (this flush recreated)
-                    // converge on ONE home, with NO conflict-copy-vs-recreated-
-                    // original duplication. BUT recreate only-while-still-absent
-                    // (atomic O_EXCL): a live-sync pull that recreated the id in the
-                    // window between the CAS and here must not be clobbered (P1a).
-                    // If it reappeared, fall through to the changed handling — park
-                    // the draft unless it converged.
-                    let (created, derived2) = try await vault.createIfAbsent(
-                        draft.id, content: draft.content)
-                    if created == .created, let derived2 {
-                        applyWriteBookkeeping(
-                            id: draft.id, preview: derived2.preview,
-                            richPreview: derived2.richPreview, tags: derived2.tags)
-                    } else if created == .existed {
-                        let disk = await vault.read(draft.id)
-                        if disk != draft.content { await parkDraftCopy(draft) }
-                    }
+                    // converge on ONE home, no conflict-copy-vs-recreated-original
+                    // duplication. Unconditional, matching desktop (sync.md, also an
+                    // unconditional recreate). RESIDUAL (accepted, PKT-12 window
+                    // class + desktop parity): a live-sync write that recreates the
+                    // id in the sub-syscall window before this write lands could be
+                    // clobbered; the next sync reconcile surfaces that divergence as
+                    // a conflict copy (backstop). Not closed with a CAS/O_EXCL
+                    // primitive — the FFI surface isn't warranted for a window
+                    // desktop already accepts (round-4 adjudication).
+                    await write(draft.id, content: draft.content)
                 }
             } catch {
                 print("flush failed for \(draft.id): \(error)")

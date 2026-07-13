@@ -484,55 +484,6 @@ pub fn write_note_if_unchanged(
     }
 }
 
-/// Outcome of [`create_note_if_absent`] — an atomic create-if-absent.
-#[derive(Debug, PartialEq, Eq)]
-pub enum CreateOutcome {
-    /// No file existed at `id`; `content` was created there.
-    Created,
-    /// A file already exists at `id` — nothing written (a concurrent writer,
-    /// e.g. a live-sync pull, got there first).
-    Existed,
-}
-
-/// Atomically (re-)create the note at `id` with `content` **only if** no file
-/// exists there yet — `OpenOptions::create_new` (O_EXCL) fuses the exists-check
-/// and the create into one syscall, so a concurrent writer that runs OUTSIDE
-/// this process's `NoteStore` serialization (a live-sync pull writing the vault)
-/// cannot slip a note in between a separate check and the write and have it
-/// silently clobbered.
-///
-/// Used by the editor's leave/background flush to honor the peer-delete
-/// dirty-keep edit-wins semantic: re-create a note the CAS just reported
-/// `SkippedMissing` for, WITHOUT the unconditional-write clobber risk. If the id
-/// reappeared in the TOCTOU window this returns `Existed` and the caller parks
-/// the draft as a conflict copy instead of overwriting the newcomer. On a
-/// case-insensitive filesystem (APFS/iOS) a case-variant already on disk counts
-/// as existing (create_new fails `AlreadyExists`), which is the safe outcome —
-/// we never clobber the variant.
-pub fn create_note_if_absent(
-    base: &Path,
-    id: &str,
-    content: &str,
-) -> Result<CreateOutcome, String> {
-    let path = safe_note_path(base, id)?;
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
-    use std::io::Write;
-    match std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&path)
-    {
-        Ok(mut f) => {
-            f.write_all(content.as_bytes()).map_err(|e| e.to_string())?;
-            Ok(CreateOutcome::Created)
-        }
-        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(CreateOutcome::Existed),
-        Err(e) => Err(e.to_string()),
-    }
-}
-
 /// Create a new note from a title (+ optional folder). Returns the final,
 /// collision-resolved id. Mirrors `NotesStore.createNote`.
 pub fn create_note(base: &Path, folder: &str, title: &str) -> Result<String, String> {

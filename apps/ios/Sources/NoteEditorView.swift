@@ -592,6 +592,12 @@ struct NoteEditorView: View {
         // Mark the draft clean so both the derived register (content==savedContent
         // → nil) and onDisappear's flush are no-ops; the file won't be resurrected.
         savedContent = content
+        // Publish SYNCHRONOUSLY to clear this editor's register entry NOW. The
+        // register still holds the last dirty publish until onDisappear releases
+        // the token; a background landing in that sub-frame window would otherwise
+        // flush → skippedMissing → recreate the note the user just deleted (the
+        // unconditional recreate un-deletes it). Same fix pattern as N1.
+        publishDraft()
         store.delete(noteId)
         if !navPath.isEmpty { navPath.removeLast() }
     }

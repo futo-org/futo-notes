@@ -462,7 +462,12 @@ EditorWebView.swift, EditorWebView.kt
   duplicate copy); if the note was **changed** by a peer it is parked as a
   conflict copy (`parkDraftCopy`) so the local edit survives without clobbering
   the peer's version. A clean editor never flushes, so a genuinely abandoned note
-  is never resurrected. Verified on iOS 2026-07-13 (sim: clean re-background after
+  is never resurrected. The re-create is unconditional (desktop parity — the
+  desktop recreate has no CAS either); a live-sync write that recreates the id in
+  the sub-syscall window before the flush lands could be clobbered, but the next
+  sync reconcile surfaces that divergence as a conflict copy (backstop) — the same
+  accepted window class as `write_if_unchanged` itself, not closed with an
+  O_EXCL primitive. Verified on iOS 2026-07-13 (sim: clean re-background after
   a settled save left mtime unchanged; dirty-on-deleted backgrounded across
   cycles yields exactly one home — the re-created note — and no conflict copy).
 - The open editor's unsaved-draft register is **derived** from the editor's live
