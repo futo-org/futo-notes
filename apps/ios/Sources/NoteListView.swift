@@ -124,6 +124,23 @@ struct NoteListView: View {
                 }
             }
         }
+        // Transient status banner (e.g. "peer deleted the open note"), shown over
+        // the whole stack including a pushed editor. iOS has no global toast, so
+        // this is the minimal equivalent; driven by `store.showTransient`.
+        .overlay(alignment: .bottom) {
+            if let message = store.transientMessage {
+                Text(message)
+                    .font(.subheadline)
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(Capsule().fill(Color.black.opacity(0.82)))
+                    .padding(.bottom, 32)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .allowsHitTesting(false)
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: store.transientMessage)
     }
 
     /// Query the Rust engine when it's warm; otherwise leave `engineHits` nil so

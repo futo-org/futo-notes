@@ -169,6 +169,25 @@ final class NotesStore: ObservableObject {
     /// loading" apart from "genuinely empty".)
     @Published private(set) var hasBootstrapped: Bool = false
 
+    /// A short-lived status message shown as a bottom banner over the whole
+    /// NavigationStack (list + any pushed editor). Used for sync-side events the
+    /// user should notice but that don't warrant a dialog — e.g. a peer deleting
+    /// the note you had open. Auto-clears after a few seconds. This is the iOS
+    /// equivalent of the desktop `showGlobalToast` / Android `Toast`.
+    @Published var transientMessage: String?
+    private var transientMessageTask: Task<Void, Never>?
+
+    /// Show `message` as the transient banner for ~3.5 s (a later call replaces
+    /// the current one and restarts the timer).
+    func showTransient(_ message: String) {
+        transientMessageTask?.cancel()
+        transientMessage = message
+        transientMessageTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 3_500_000_000)
+            if !Task.isCancelled { transientMessage = nil }
+        }
+    }
+
     /// The notes root, created on first vault access (NOT in init — init must
     /// not touch disk).
     let notesRoot: URL

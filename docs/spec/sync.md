@@ -742,11 +742,20 @@ upload. Desktop sync module ownership and serialization boundaries are fixed by
 - A peer **deleting the currently-open note** closes the open session (route →
   home, "Note was deleted during sync" toast) instead of adopting its content;
   an unsaved local draft is kept open with an "Open note was deleted during
-  sync; keeping local draft" toast rather than closed *(desktop)*. The path
-  branches on `summary.deletedIds` — `read_note` returns `""` for a missing
-  file on Tauri, so reading a deleted id yields `""`, and the old adopt-`""`
-  path blanked the editor while the session stayed bound to the deleted id, so
-  the next keystroke re-created the file and undid the delete fleet-wide (F4).
-  → syncManager `handleSyncComplete` (guarded by "peer delete of open note
-  closes editor" in tests/cross-platform-sync.mjs + the F4 seam tests in
-  src/lib/syncManager.test.ts)
+  sync; keeping local draft" toast rather than closed *(desktop, iOS)*. On
+  desktop the path branches on `summary.deletedIds` — `read_note` returns `""`
+  for a missing file on Tauri, so reading a deleted id yields `""`, and the old
+  adopt-`""` path blanked the editor while the session stayed bound to the
+  deleted id, so the next keystroke re-created the file and undid the delete
+  fleet-wide (F4). iOS branches on the note no longer existing on disk after a
+  live pull (`store.exists` false in `adoptExternalChange`), acts only for the
+  visible editor (a buried wikilink editor must not pop the stack top), and
+  relies on the conditional flush (`write_if_unchanged` → SkippedMissing) so a
+  clean note is never resurrected even before the close runs. The dirty-keep
+  path is edit-wins: the debounced save re-creates the note with the local
+  edits. → syncManager `handleSyncComplete` (guarded by "peer delete of open
+  note closes editor" in tests/cross-platform-sync.mjs + the F4 seam tests in
+  src/lib/syncManager.test.ts); iOS NoteEditorView `handleOpenNoteDeleted`.
+  > **Gap:** Android leaves the open editor bound to the deleted id (its
+  > snapshotFlow adopt early-returns on the missing note); the peer-delete
+  > close/keep + banner is not yet ported there.

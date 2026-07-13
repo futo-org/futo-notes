@@ -51,6 +51,13 @@ struct NoteEditorView: View {
     /// editor's draft (PKT-1 R2). 0 = not yet claimed.
     @State private var draftToken: UInt64 = 0
 
+    /// Set when THIS editor tears itself down (menu Delete): the local delete's
+    /// store reload re-fires `.onReceive($notes)` → `adoptExternalChange`, which
+    /// would otherwise mistake the user's own delete for a peer delete (wrong
+    /// "deleted during sync" banner + a double pop in a wikilink chain). A
+    /// one-way latch for this view instance.
+    @State private var isClosing = false
+
     /// Path of the enclosing NavigationStack. A resolved-wikilink tap PUSHES a
     /// new editor entry (Back returns to the note you came from — a chain of
     /// editors, like a browser history); a delete pops it. The single shared
@@ -425,7 +432,10 @@ struct NoteEditorView: View {
     /// the draft is parked as a "<title> (conflict YYYY-MM-DD)" copy and the
     /// disk content adopted, so neither side is silently lost.
     private func adoptExternalChange() async {
-        guard await store.exists(noteId) else { return }
+        guard await store.exists(noteId) else {
+            handleOpenNoteDeleted()
+            return
+        }
         let disk = await store.read(noteId)
         // Branch on the CURRENT draft state — the user may have typed while the
         // read was in flight (we're back on the main actor here).
@@ -465,6 +475,36 @@ struct NoteEditorView: View {
             if isVisible { EditorHost.shared.applyExternal(content: disk) }
             content = disk
             savedContent = disk
+        }
+    }
+
+    /// A peer deleted the currently-open note (a live pull removed the file and
+    /// the store reloaded). Matches desktop F4 semantics (sync.md):
+    ///   * clean draft → close the editor and tell the user ("Note was deleted
+    ///     during sync"); nothing is written, so the delete stands fleet-wide;
+    ///   * dirty draft → keep the editor open (edit-wins re-create-with-edits):
+    ///     the pending body edit is preserved and the debounced save re-creates
+    ///     the note, with a "keeping local draft" banner.
+    /// Only the VISIBLE editor acts — a buried editor in a wikilink stack must not
+    /// pop the top of the stack; it re-evaluates when the user navigates back to
+    /// it and a subsequent store change re-fires this path. The background/leave
+    /// flush is already anti-resurrection (write_if_unchanged → SkippedMissing),
+    /// so a clean note is never recreated even before this close runs.
+    private func handleOpenNoteDeleted() {
+        guard isVisible, !isClosing else { return }
+        if content == savedContent {
+            // Clean: neutralize any pending write so nothing resurrects the note,
+            // mark the draft clean (register + onDisappear flush become no-ops),
+            // then close and inform.
+            saveTask?.cancel()
+            renameTask?.cancel()
+            savedContent = content
+            store.showTransient("Note was deleted during sync")
+            if !navPath.isEmpty { navPath.removeLast() }
+        } else {
+            // Dirty: keep the draft — the debounced save re-creates the note with
+            // the local edits (edit-wins). Inform once per delete event.
+            store.showTransient("Open note was deleted during sync; keeping local draft")
         }
     }
 
@@ -524,6 +564,9 @@ struct NoteEditorView: View {
     private func deleteNote() {
         saveTask?.cancel()
         renameTask?.cancel()
+        // Latch closing so the local delete's reload doesn't trip the peer-delete
+        // path (adoptExternalChange → handleOpenNoteDeleted).
+        isClosing = true
         // Mark the draft clean so both the derived register (content==savedContent
         // → nil) and onDisappear's flush are no-ops; the file won't be resurrected.
         savedContent = content
