@@ -1435,6 +1435,26 @@ struct CollisionPlan {
     identical_map_drops: Vec<String>,
 }
 
+impl CollisionPlan {
+    /// Where download `idx` (whose canonical name is `canonical`) lands on
+    /// disk: `None` when it is an identical-content loser to skip entirely,
+    /// else the conflict-copy name it lost the collision to, else `canonical`.
+    /// The skip test and the override lookup are one call so no write path can
+    /// apply one without the other (writing an identical-content loser is the
+    /// conflict-copy-spam class).
+    fn placement(&self, idx: usize, canonical: &str) -> Option<String> {
+        if self.download_skips.contains(&idx) {
+            return None;
+        }
+        Some(
+            self.download_overrides
+                .get(&idx)
+                .cloned()
+                .unwrap_or_else(|| canonical.to_string()),
+        )
+    }
+}
+
 #[derive(Debug, Clone)]
 struct MapRename {
     old_filename: String,
@@ -1574,28 +1594,45 @@ fn resolve_pull_collisions(
 
 // ── Pull / reconcile orchestrator ────────────────────────────────────────
 
-/// The result of screening a freshly-downloaded set against the incoming-path
-/// classifier. Every incoming write path (`run_pull`, `reconcile_empty_map`)
-/// runs this BEFORE collision planning, so an ignored/unsafe object can never
-/// win a collision against — and thereby delete — a valid sibling (B4).
-struct DownloadTriage {
-    /// Notes to materialize, each with its filename already HEALED to a safe
-    /// form (`sanitize_title`-equivalent) where the peer sent a creatable-but-
-    /// unsyncable name.
+/// A freshly-downloaded set after it has passed through the single incoming
+/// choke point: healed/kept notes, the failures for names refused, and the
+/// collision plan computed over ONLY the kept set.
+struct ScreenedDownloads {
+    /// Notes to materialize (unsafe/legacy names already dropped or healed).
     kept: Vec<DownloadedNote>,
-    /// Names we refuse to write (structurally unsafe: traversal, forbidden
-    /// chars, over-length). Surfaced as failures, never cursor-capped, never
-    /// abort the cycle. Non-syncable (legacy/foreign) objects are dropped
-    /// silently — an expected migration state, not a failure.
-    rejected: Vec<SyncFailure>,
+    /// Names refused (structurally unsafe) — surfaced as failures, never
+    /// cursor-capped.
+    path_failures: Vec<SyncFailure>,
+    /// Where each kept download lands on disk (canonical vs conflict copy),
+    /// planned across the union of the kept set and `object_map`.
+    collision_plan: CollisionPlan,
 }
 
-/// Screen downloaded objects through [`classify_incoming_sync_path`]. Healed
-/// names are rewritten in place on the kept notes; ignored (non-syncable)
-/// objects are dropped; rejected (unsafe) names become `Download` failures.
-fn triage_downloaded(downloaded: Vec<DownloadedNote>) -> DownloadTriage {
+/// THE incoming-write choke point. Every batch pull path (`run_pull`,
+/// `reconcile_empty_map`) MUST route freshly-downloaded objects through here
+/// before materializing anything. It fuses the two steps whose ORDER is the
+/// guard: classify/heal/reject each name FIRST (B1/B2), then plan collisions
+/// over ONLY the surviving kept set (B4 — so an ignored/unsafe object can
+/// never win a collision and thereby delete a valid sibling). Fusing them
+/// makes the triage-before-collision ordering structurally unforgettable,
+/// which is what closes the "unguarded ingress path" class (PKT-6 B1/B4/B5):
+/// a new pull path cannot plan collisions or write without first screening.
+///
+/// `extra_tombstones` are filenames the caller is already deleting this cycle
+/// (run_pull's immediate deletes; empty for the empty-map reconcile). They,
+/// plus any in-place-rename source (same object_id now at a new filename),
+/// are excluded from the collision set so a delete/rename source can't fight
+/// its own winner.
+fn screen_incoming(
+    downloaded: Vec<DownloadedNote>,
+    object_map: &HashMap<String, E2eeObjectMapEntry>,
+    extra_tombstones: &HashSet<String>,
+) -> ScreenedDownloads {
+    // Classify/heal/reject each name. Healed names are rewritten in place on
+    // the kept notes; ignored (non-syncable legacy/foreign) objects are dropped
+    // silently; rejected (structurally unsafe) names become recorded failures.
     let mut kept = Vec::with_capacity(downloaded.len());
-    let mut rejected = Vec::new();
+    let mut path_failures = Vec::new();
     for mut note in downloaded {
         match classify_incoming_sync_path(&note.filename) {
             IncomingSyncPath::Ignore => {}
@@ -1604,14 +1641,28 @@ fn triage_downloaded(downloaded: Vec<DownloadedNote>) -> DownloadTriage {
                 note.filename = healed;
                 kept.push(note);
             }
-            IncomingSyncPath::Reject(_) => rejected.push(SyncFailure {
+            IncomingSyncPath::Reject(_) => path_failures.push(SyncFailure {
                 filename: note.filename,
                 kind: FailureKind::Rejected,
                 status_code: None,
             }),
         }
     }
-    DownloadTriage { kept, rejected }
+    let mut tombstoned = extra_tombstones.clone();
+    let filename_by_object_id = build_filename_by_object_id(object_map);
+    for note in &kept {
+        if let Some(prev) = filename_by_object_id.get(&note.object_id) {
+            if prev != &note.filename {
+                tombstoned.insert(prev.clone());
+            }
+        }
+    }
+    let collision_plan = resolve_pull_collisions(&kept, object_map, &tombstoned);
+    ScreenedDownloads {
+        kept,
+        path_failures,
+        collision_plan,
+    }
 }
 
 /// Run the pull side of a sync from a specific `since` cursor. The
@@ -1661,52 +1712,29 @@ pub async fn run_pull(
     )
     .await;
 
-    // Screen the download set BEFORE anything else looks at it: legacy/foreign
-    // blobs drop out, creatable-but-unsyncable names heal, and structurally
-    // unsafe names become recorded failures. Everything downstream (collision
-    // planning, the write loop, the map, the count) then operates only on
-    // syncable + safe notes, so an ignored/unsafe object can never win a
-    // collision and delete a valid sibling (B1/B2/B4).
-    let DownloadTriage {
+    // Screen the download set through the single incoming choke point BEFORE
+    // anything else looks at it: legacy/foreign blobs drop out, creatable-but-
+    // unsyncable names heal, structurally unsafe names become recorded
+    // failures, and collisions are planned across the UNION of this pull's
+    // (surviving) downloads AND the persisted object_map — all in one call, so
+    // the triage-before-collision ordering can't be skipped (B1/B2/B4). The
+    // plan tells us which downloads park at a conflict name and which already-
+    // on-disk map entries move aside. `immediate_deletes` (plus in-place rename
+    // sources) are excluded from the collision set.
+    let immediate_delete_set: HashSet<String> = immediate_deletes.iter().cloned().collect();
+    let ScreenedDownloads {
         kept: downloaded,
-        rejected: path_failures,
-    } = triage_downloaded(downloaded);
+        path_failures,
+        collision_plan,
+    } = screen_incoming(downloaded, &state_cell.object_map, &immediate_delete_set);
 
     // Build apply-delta input. Renames-in-place: same objectId now points
     // at a different filename — drop the old one as a delete here so the
     // map stays consistent with disk.
     let mut updates: Vec<V2IncomingUpdate> = Vec::with_capacity(downloaded.len());
-    let mut deletes: HashSet<String> = immediate_deletes.iter().cloned().collect();
+    let mut deletes: HashSet<String> = immediate_delete_set;
     let mut updated_ids: Vec<String> = Vec::with_capacity(downloaded.len());
     let mut deleted_ids: Vec<String> = immediate_deletes.iter().map(|f| filename_to_id(f)).collect();
-
-    // F4/F5: resolve filename collisions across the UNION of this pull's
-    // downloads AND the persisted object_map BEFORE materializing anything, so
-    // a freshly-pulled object can never overwrite a same-key object that is
-    // already on disk (case variant, or NFC-vs-NFD). The plan tells us which
-    // downloads must be parked at a conflict name and which already-on-disk
-    // map entries must be moved aside. Tombstoned files (immediate deletes +
-    // in-place rename sources) are excluded from the collision set.
-    let mut tombstoned: HashSet<String> = immediate_deletes.iter().cloned().collect();
-    for note in &downloaded {
-        if let Some(prev) = filename_by_object_id.get(&note.object_id) {
-            if prev != &note.filename {
-                tombstoned.insert(prev.clone());
-            }
-        }
-    }
-    let collision_plan =
-        resolve_pull_collisions(&downloaded, &state_cell.object_map, &tombstoned);
-
-    // The effective on-disk filename for each download: its conflict-copy name
-    // if it lost a collision, else its canonical filename.
-    let effective_filename = |idx: usize, note: &DownloadedNote| -> String {
-        collision_plan
-            .download_overrides
-            .get(&idx)
-            .cloned()
-            .unwrap_or_else(|| note.filename.clone())
-    };
 
     // Move aside any already-on-disk map-only collision losers. We read the
     // loser's current bytes and re-write them under the conflict name, then
@@ -1774,11 +1802,10 @@ pub async fn run_pull(
         // Identical-content collision loser: the winner already writes these
         // exact bytes at the canonical name — skip it (no write, no map entry).
         // (Non-syncable/unsafe objects were already screened out by
-        // `triage_downloaded` before collision planning.)
-        if collision_plan.download_skips.contains(&idx) {
+        // `screen_incoming` before collision planning.)
+        let Some(on_disk) = collision_plan.placement(idx, &note.filename) else {
             continue;
-        }
-        let on_disk = effective_filename(idx, note);
+        };
         let previous_filename = filename_by_object_id.get(&note.object_id);
         if let Some(prev) = previous_filename {
             if prev != &on_disk {
@@ -1868,10 +1895,9 @@ pub async fn run_pull(
     }
     for (idx, note) in downloaded.iter().enumerate() {
         // Identical-content collision loser: not written, so not mapped either.
-        if collision_plan.download_skips.contains(&idx) {
+        let Some(on_disk) = collision_plan.placement(idx, &note.filename) else {
             continue;
-        }
-        let on_disk = effective_filename(idx, note);
+        };
         // Sweep stale rename source from the map too.
         if let Some(prev) = filename_by_object_id.get(&note.object_id) {
             if prev != &on_disk {
@@ -3969,26 +3995,21 @@ async fn reconcile_empty_map(
     // fetched successfully, just not materialized) so the next reconcile does
     // not re-list them. Captured BEFORE triage drops them from `downloaded`.
     let fetched_max_seq = downloaded.iter().map(|n| n.change_seq).max().unwrap_or(0);
-    // Screen the download set through the SAME classifier `run_pull` uses,
-    // BEFORE collision planning (B1/B4): legacy/foreign blobs drop out (never
-    // written as notes, never phantom-mapped, never counted), creatable-but-
-    // unsyncable names heal, and structurally unsafe names become recorded
-    // failures — all without aborting this fresh-device first sync.
-    let DownloadTriage {
+    // Screen the download set through the SAME choke point `run_pull` uses,
+    // fusing classification and collision planning (B1/B4): legacy/foreign
+    // blobs drop out (never written as notes, never phantom-mapped, never
+    // counted), creatable-but-unsyncable names heal, and structurally unsafe
+    // names become recorded failures — all without aborting this fresh-device
+    // first sync. Collisions are then planned over the surviving download set:
+    // two distinct server objects can carry names that collide on a case/
+    // normalization-insensitive FS (same name from two clients; NFC vs NFD),
+    // which would otherwise BOTH adopt the same on-disk path and clobber one
+    // note. The map is empty here, so only download_overrides can be produced.
+    let ScreenedDownloads {
         kept: downloaded,
-        rejected: path_failures,
-    } = triage_downloaded(downloaded);
-
-    // F4/F5: two distinct server objects can carry names that collide on a
-    // case/normalization-insensitive FS (same name from two clients; NFC vs
-    // NFD). On a fresh empty-map reconcile they would BOTH adopt the same
-    // on-disk path and the second write would clobber the first — one note
-    // lost. Resolve collisions over the download set first: the smallest
-    // object_id keeps the canonical name; the rest are parked at deterministic
-    // conflict copies. (The map is empty here, so only download_overrides can
-    // be produced.)
-    let collision_plan =
-        resolve_pull_collisions(&downloaded, &state_cell.object_map, &HashSet::new());
+        path_failures,
+        collision_plan,
+    } = screen_incoming(downloaded, &state_cell.object_map, &HashSet::new());
 
     // For each remote note: compare to local (if any) and decide
     // whether to write, skip, or omit mtime/size to flag divergence.
@@ -4007,16 +4028,11 @@ async fn reconcile_empty_map(
         }
         // Identical-content collision loser: the winner writes these exact bytes
         // at the canonical name — skip it (no write, no map upsert, no adopt).
-        if collision_plan.download_skips.contains(&idx) {
+        // Otherwise `target_name` is its conflict copy if it lost a collision,
+        // else its canonical name.
+        let Some(target_name) = collision_plan.placement(idx, &note.filename) else {
             continue;
-        }
-        // The on-disk name this object lands at: its conflict copy if it lost a
-        // collision, else its canonical name.
-        let target_name = collision_plan
-            .download_overrides
-            .get(&idx)
-            .cloned()
-            .unwrap_or_else(|| note.filename.clone());
+        };
         let remote_size = note.content.as_bytes().len() as u64;
         let entry_common = |mtime: Option<i64>, size: Option<u64>| E2eeObjectMapEntry {
             object_id: note.object_id.clone(),
