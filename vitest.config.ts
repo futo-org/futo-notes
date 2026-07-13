@@ -9,6 +9,11 @@ export default defineConfig({
     include: ['src/**/*.test.ts', 'markdown-spec/**/*.test.ts', 'scripts/**/*.test.mjs'],
     mockReset: true,
     server: { deps: { inline: [/^svelte/] } },
+    // Under CI, several test-stage jobs land on the same shared runner host
+    // at once (each an uncapped container reporting the host's full core
+    // count), so the default numCpus-1 workers oversubscribe the box and
+    // starve tests into timeouts (PKT-20). Local dev keeps full parallelism.
+    maxWorkers: process.env.CI ? 4 : undefined,
   },
   resolve: {
     // 'browser' picks svelte's index-client.js (where `mount` lives) for

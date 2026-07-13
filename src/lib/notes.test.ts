@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterEach, afterAll, vi } from 'vitest';
 
 const autoSyncMocks = vi.hoisted(() => ({
   events: [] as string[],
@@ -60,9 +60,21 @@ afterAll(() => {
   testFS._cleanup();
 });
 
+// Warm the module-transform cache before any timed test runs (PKT-20): the
+// first `import('./notes.svelte')` after `vi.resetModules()` pays the full
+// module-graph transform cost, which on a loaded CI runner blows straight
+// through a 5s test timeout — and vi.resetModules() only clears the runtime
+// module registry, not vite's underlying transform cache, so this warmup
+// import makes every later freshNotes() call in this file cheap.
+// Explicit generous timeout: this hook exists specifically to absorb a
+// one-time vite transform of the notes module graph that is unbounded under
+// CI load (observed 5-15s+) — the default 10s hookTimeout is not enough
+// margin, and would abort the whole file before any test runs.
+beforeAll(async () => {
+  await freshNotes();
+}, 120_000);
+
 describe('initNotes', () => {
-  // Bumped timeout: this test imports the full notes module (~5s on slow CI
-  // runners under load). Default 5s puts us right at the cliff.
   it('rebuilds cache from files on disk', async () => {
     await testFS.writeNote('hello-world', '# Hello World\nThis is content');
     await testFS.writeNote('second-note', '# Second\nMore content');
