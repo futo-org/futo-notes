@@ -30,6 +30,6 @@ flag gaps the codebase suggests have been implemented.
 
 ## sync.md
 
-- [sync.md:759](sync.md#L759) — Android leaves the open editor bound to the deleted id (its snapshotFlow adopt early-returns on the missing note); the peer-delete close/keep + banner is not yet ported there.
+- [sync.md:700](sync.md#L700) — Android leaves the open editor bound to the deleted id (its snapshotFlow adopt early-returns on the missing note); the peer-delete close/keep + banner is not yet ported there.
 
 _12 gaps._
