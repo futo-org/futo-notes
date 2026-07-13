@@ -69,6 +69,7 @@ discipline as the POC plan).
 | iOS ProMotion probe remediation (2026-07-13): native scroll classification now uses the same fixed >25ms user-visible hitch threshold as the web probe instead of treating a possibly fixed 8.3ms `CADisplayLink.duration` as the callback schedule. Boundary tests cover 8.3–50ms. The physical 10-second run must be repeated before scoring the ≤2% gate | `TextKitLargeNotePerformanceTests` + `DevLatencyProbe.isScrollHitch` | Removes the known P0-3 measurement flaw; device remeasure remains |
 | iOS E4 widget spike (2026-07-13): normal-size notes render engine-provided `TableData` as a native grid and engine-provided image widgets as scaled vault images. Table cells and image source Markdown edit through the real storage path and round-trip to engine data; visual simulator pass was clean. No pipe/image parsing was added in Swift; D1 held. The >2k-line raw-marker safety fallback remains | `TextKitWidgetTests`, iPhone simulator `futo-qa-6` | P0-5 normal-note iOS spike passes its timebox; giant-note fallback remains negative |
 | iOS native accessibility remediation (2026-07-13): blurred TextKit reading mode now builds one engine-derived semantic tree with marker-free heading/static-text labels, heading role, actionable checkbox role/state, table rows without duplicate cell stops, and image alt text/role. Activating text returns to UIKit's native editing accessibility; >2k lines deliberately fall back to virtualized raw text. Automated activation tests and simulator AX inspection pass; physical VoiceOver reading order/rotor/toggle confirmation remains | `TextKitAccessibilityTests` + `idb ui describe-all` on `futo-qa-6` | P1-6 now has an implemented credible native design; device recheck remains |
+| Interaction-judge fix pass (2026-07-13, Pixel 7a): all 3 feel bugs FIXED. `NativeEditorView` now owns vertical touch via OverScroller + GestureDetector on the EditText's own scrollY (styled-prefix `onScrollChanged` plumbing and IME deferral untouched by design — no scroll-container wrap). Fling travel 102% of CM6 (was 7%; velocity boost 2.5× + same-direction compounding, calibrated empirically against the CM6 oracle leg); caret drift killed two ways (ACTION_DOWN buffered until the gesture resolves to a real tap/long-press; `bringPointIntoView` honored only after a genuine caret move, never on styled-prefix relayout); checkbox tap hit-tests the glyph box → engine ToggleCheckbox EditPlan through the mirror loop (length-preserving, no caret shift). 3/3 judge scenarios green, zero divergences; 14/14 instrumented tests (3 new: toggle-through-mirror-loop, tap-on-text-no-toggle, scroll-no-selection-move); widgets-ON 10k scroll IMPROVED to p50/p95/p99 13/19/23ms, 0.97% janky (pre-fix baseline p99 29ms); typing path untouched (mirror integrity verified over a live burst, 0 divergences). Caveat: the fling boost was calibrated against adb-injected swipe velocities (VelocityTracker reads them slower than WebKit does) — a real-thumb feel re-test is the confirmation | interaction-fix commits aca1466d/f2b47161/f1c096f9, judge last-run 2026-07-13T23:41Z | The 3 feel bugs are fixed and harness-locked; residual risk = fling boost under real fingers |
 
 ## 3. Scorecard — criteria fixed in advance
 
@@ -194,7 +195,11 @@ surface (P1), Swift layer-2 harness (P2)). Analysis lives on main.
 1. **Widgets-on viewport rendering + 10k re-measure, both platforms** — one
    workstream; subsumes the Android scroll fix, the iOS fallback lift, and
    ship-gate 1.
-2. **Android live-keyboard matrix** (ship-gate 2's unknown half).
-3. **Cut the transition plan**: rebase/extract the engine + adapters from the
+2. **Human feel re-test on the Pixel** — the 3 judge-locked feel fixes (fling,
+   checkbox tap, caret-on-scroll) are green under synthetic gestures; the fling
+   velocity boost was calibrated against adb-injected swipes, so a real thumb
+   is the confirming instrument. Vault re-seeded, native pref on.
+3. **Android live-keyboard matrix** (ship-gate 2's unknown half).
+4. **Cut the transition plan**: rebase/extract the engine + adapters from the
    POC branch onto main behind the debug pref, then walk ship-gates 2–4 per
    platform and flip the default when a platform goes green.
