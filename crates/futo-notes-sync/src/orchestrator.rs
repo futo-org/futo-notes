@@ -1614,6 +1614,58 @@ fn triage_downloaded(downloaded: Vec<DownloadedNote>) -> DownloadTriage {
     DownloadTriage { kept, rejected }
 }
 
+/// A freshly-downloaded set after it has passed through the single incoming
+/// choke point: healed/kept notes, the failures for names refused, and the
+/// collision plan computed over ONLY the kept set.
+struct ScreenedDownloads {
+    /// Notes to materialize (unsafe/legacy names already dropped or healed).
+    kept: Vec<DownloadedNote>,
+    /// Names refused (structurally unsafe) — surfaced as failures, never
+    /// cursor-capped.
+    path_failures: Vec<SyncFailure>,
+    /// Where each kept download lands on disk (canonical vs conflict copy),
+    /// planned across the union of the kept set and `object_map`.
+    collision_plan: CollisionPlan,
+}
+
+/// THE incoming-write choke point. Every batch pull path (`run_pull`,
+/// `reconcile_empty_map`) MUST route freshly-downloaded objects through here
+/// before materializing anything. It fuses the two steps whose ORDER is the
+/// guard: classify/heal/reject each name FIRST (B1/B2), then plan collisions
+/// over ONLY the surviving kept set (B4 — so an ignored/unsafe object can
+/// never win a collision and thereby delete a valid sibling). Fusing them
+/// makes the triage-before-collision ordering structurally unforgettable,
+/// which is what closes the "unguarded ingress path" class (PKT-6 B1/B4/B5):
+/// a new pull path cannot plan collisions or write without first screening.
+///
+/// `extra_tombstones` are filenames the caller is already deleting this cycle
+/// (run_pull's immediate deletes; empty for the empty-map reconcile). They,
+/// plus any in-place-rename source (same object_id now at a new filename),
+/// are excluded from the collision set so a delete/rename source can't fight
+/// its own winner.
+fn screen_incoming(
+    downloaded: Vec<DownloadedNote>,
+    object_map: &HashMap<String, E2eeObjectMapEntry>,
+    extra_tombstones: &HashSet<String>,
+) -> ScreenedDownloads {
+    let DownloadTriage { kept, rejected } = triage_downloaded(downloaded);
+    let mut tombstoned = extra_tombstones.clone();
+    let filename_by_object_id = build_filename_by_object_id(object_map);
+    for note in &kept {
+        if let Some(prev) = filename_by_object_id.get(&note.object_id) {
+            if prev != &note.filename {
+                tombstoned.insert(prev.clone());
+            }
+        }
+    }
+    let collision_plan = resolve_pull_collisions(&kept, object_map, &tombstoned);
+    ScreenedDownloads {
+        kept,
+        path_failures: rejected,
+        collision_plan,
+    }
+}
+
 /// Run the pull side of a sync from a specific `since` cursor. The
 /// orchestrator captures `pre_push_max_version` BEFORE push and feeds it
 /// here so peer changes whose `change_seq` lands between our last sync
@@ -1661,42 +1713,29 @@ pub async fn run_pull(
     )
     .await;
 
-    // Screen the download set BEFORE anything else looks at it: legacy/foreign
-    // blobs drop out, creatable-but-unsyncable names heal, and structurally
-    // unsafe names become recorded failures. Everything downstream (collision
-    // planning, the write loop, the map, the count) then operates only on
-    // syncable + safe notes, so an ignored/unsafe object can never win a
-    // collision and delete a valid sibling (B1/B2/B4).
-    let DownloadTriage {
+    // Screen the download set through the single incoming choke point BEFORE
+    // anything else looks at it: legacy/foreign blobs drop out, creatable-but-
+    // unsyncable names heal, structurally unsafe names become recorded
+    // failures, and collisions are planned across the UNION of this pull's
+    // (surviving) downloads AND the persisted object_map — all in one call, so
+    // the triage-before-collision ordering can't be skipped (B1/B2/B4). The
+    // plan tells us which downloads park at a conflict name and which already-
+    // on-disk map entries move aside. `immediate_deletes` (plus in-place rename
+    // sources) are excluded from the collision set.
+    let immediate_delete_set: HashSet<String> = immediate_deletes.iter().cloned().collect();
+    let ScreenedDownloads {
         kept: downloaded,
-        rejected: path_failures,
-    } = triage_downloaded(downloaded);
+        path_failures,
+        collision_plan,
+    } = screen_incoming(downloaded, &state_cell.object_map, &immediate_delete_set);
 
     // Build apply-delta input. Renames-in-place: same objectId now points
     // at a different filename — drop the old one as a delete here so the
     // map stays consistent with disk.
     let mut updates: Vec<V2IncomingUpdate> = Vec::with_capacity(downloaded.len());
-    let mut deletes: HashSet<String> = immediate_deletes.iter().cloned().collect();
+    let mut deletes: HashSet<String> = immediate_delete_set;
     let mut updated_ids: Vec<String> = Vec::with_capacity(downloaded.len());
     let mut deleted_ids: Vec<String> = immediate_deletes.iter().map(|f| filename_to_id(f)).collect();
-
-    // F4/F5: resolve filename collisions across the UNION of this pull's
-    // downloads AND the persisted object_map BEFORE materializing anything, so
-    // a freshly-pulled object can never overwrite a same-key object that is
-    // already on disk (case variant, or NFC-vs-NFD). The plan tells us which
-    // downloads must be parked at a conflict name and which already-on-disk
-    // map entries must be moved aside. Tombstoned files (immediate deletes +
-    // in-place rename sources) are excluded from the collision set.
-    let mut tombstoned: HashSet<String> = immediate_deletes.iter().cloned().collect();
-    for note in &downloaded {
-        if let Some(prev) = filename_by_object_id.get(&note.object_id) {
-            if prev != &note.filename {
-                tombstoned.insert(prev.clone());
-            }
-        }
-    }
-    let collision_plan =
-        resolve_pull_collisions(&downloaded, &state_cell.object_map, &tombstoned);
 
     // The effective on-disk filename for each download: its conflict-copy name
     // if it lost a collision, else its canonical filename.
