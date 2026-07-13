@@ -456,20 +456,28 @@ EditorWebView.swift, EditorWebView.kt
   (Check-then-atomic-write, so a narrow single-process syscall window remains —
   accepted; not a true compare-and-swap.) *(iOS, Android)* →
   `futo_notes_model::write_note_if_unchanged` via FFI `write_if_unchanged`;
-  `NotesStore.flushAsync`. Verified on iOS 2026-07-13 (sim: clean re-background
+  `NotesStore.flushAsync`. iOS additionally makes the flush **persist-or-park**:
+  a skipped write (note changed/deleted under the editor) is never dropped — the
+  draft is parked as a conflict copy (`parkDraftCopy`), so a Back within the
+  autosave debounce can't lose an edit the peer-delete "keeping local draft"
+  path promised to keep. Verified on iOS 2026-07-13 (sim: clean re-background
   after a settled save left mtime unchanged — no rewrite).
 - The open editor's unsaved-draft register is **derived** from the editor's live
   state (note id, buffer, saved content, loaded) rather than hand-synced, so it
   goes clean the instant a save completes or a remote is adopted (no stale draft
   clobbers the adopted content). It is owner-scoped so a screen leaving during a
   push/pop transition can't drop the incoming screen's draft. Android registers
-  one derivation closure the flush pulls synchronously; iOS pushes the derived
-  value via `.onChange` on every state change (SwiftUI `@State` can't be pulled
-  from an escaping closure). *(iOS, Android)* → NoteEditorScreen.kt /
-  NoteEditorView.swift → `NotesStore.setDraftProvider`/`publishDraft` +
-  `claimDraftOwnership`. Verified on iOS 2026-07-13 (sim: edit → immediate
-  background before the debounce persisted; rename with a pending body edit
-  preserved the edit under the new id with no ghost at the old id).
+  one derivation closure the flush pulls synchronously; iOS publishes the derived
+  value both synchronously in the WebView change callback (so the register is
+  current the instant before a background flush reads it) and reactively via
+  `.onChange` for the clear-on-save / clear-on-adopt transitions — SwiftUI
+  `@State` can't be pulled from an escaping closure the way Compose snapshot state
+  can. *(iOS, Android)* → NoteEditorScreen.kt / NoteEditorView.swift →
+  `NotesStore.setDraftProvider`/`publishDraft` + `claimDraftOwnership`. Verified
+  on iOS 2026-07-13 (sim: edit → immediate background before the debounce
+  persisted; rename with a pending body edit preserved the edit under the new id
+  with no ghost). NOTE: a simulator can't reproduce OS jetsam, so this validates
+  the surviving-process flush path, not an actual jetsam-during-background kill.
 - An empty title shows the placeholder "Untitled"; the title field strips
   newlines.
 - The editor chrome shows **no word count** (or any other document
