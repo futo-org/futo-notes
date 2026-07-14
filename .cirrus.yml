@@ -265,7 +265,7 @@ build_ios_native_task:
     - corepack prepare pnpm@10.29.2 --activate
     - curl https://sh.rustup.rs -sSf | sh -s -- -y
     - export PATH="$HOME/.cargo/bin:$PATH"
-    - rustup target add aarch64-apple-ios aarch64-apple-ios-sim
+    - rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
     - pnpm install --frozen-lockfile
     # Shared Rust FFI -> FutoNotesFfi.xcframework + Swift bindings (uses
     # xcodebuild -create-xcframework).
