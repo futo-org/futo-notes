@@ -115,6 +115,13 @@ pub enum FileChange {
 /// first filesystem syscall. Native shells use the no-op implementation.
 pub trait BeforeWrite: Send + Sync {
     fn before_write(&self, changes: &[FileChange]);
+
+    /// Cancel a suppression a prior `before_write` registered for these changes
+    /// when the planned write did NOT happen (a no-replace create hit EEXIST):
+    /// otherwise a peer's own event for the path is eaten and the stale one-shot
+    /// entry lingers to swallow a later real edit within the window (C2).
+    /// Default: no-op — native shells have no watcher to suppress.
+    fn cancel(&self, _changes: &[FileChange]) {}
 }
 
 #[derive(Default)]
@@ -282,12 +289,20 @@ impl LocalNoteStore {
     pub fn bootstrap(&self) -> Result<BootstrapResult, String> {
         let _gate = self.lock_gate()?;
         fs::create_dir_all(&self.root).map_err(io_error)?;
-        // Restore any note stranded in a hidden backup by a crash inside a
-        // collision-fallback install BEFORE migrate/scan/seed, so a recovered
-        // note is visible to this run's snapshot and an empty-vault seed can't
-        // fire while a real note is only stranded (A2).
-        futo_notes_core::files::recover_parked_backups(&self.root);
-        let (migrated, mut warnings) = self.migrate_text_files();
+        // Recover notes stranded by a crash inside a collision-fallback install
+        // BEFORE migrate/scan/seed, so recovered notes are in this run's
+        // snapshot and an empty-vault seed can't fire while a real note is only
+        // stranded (A2). Divergent backups the sweep cannot canonically restore
+        // are parked under a visible recovered name here rather than left
+        // eligible for a resurrecting restore (C1).
+        let mut warnings = Vec::new();
+        for recovered in futo_notes_core::files::recover_parked_backups(&self.root) {
+            if let Err(error) = self.park_recovered_backup(&recovered) {
+                warnings.push(format!("recovered note {}: {error}", recovered.leaf));
+            }
+        }
+        let (migrated, migrate_warnings) = self.migrate_text_files();
+        warnings.extend(migrate_warnings);
         let seeded = if vault::note_paths(&self.root).is_empty() {
             match self.write_raw(WELCOME_NOTE_ID, WELCOME_NOTE, None) {
                 Ok(_) => 1,
@@ -744,21 +759,25 @@ impl LocalNoteStore {
         for _ in 0..1000 {
             let id = paths::unique_note_id(&self.root, wanted, None)?;
             let path = paths::note_path(&self.root, &id)?;
+            let change = FileChange::Changed(note_filename(&id));
+            // Register watcher suppression BEFORE the write — the pre-write rule
+            // (note_commands.rs head comment): the watcher must never see our own
+            // create as an external change.
+            self.before_write
+                .before_write(std::slice::from_ref(&change));
             #[cfg(test)]
             if let Some(hook) = self.install_window_hook.lock().unwrap().as_ref() {
                 hook(&id);
             }
             if !create_new_atomic(&path, content.as_bytes())? {
-                // A writer outside this store's serialization took the id in the
-                // window; re-allocate against the now-larger tree and retry. We
-                // register watcher suppression only AFTER a successful install
-                // (below), so this EEXIST never suppresses — and thus eats — the
-                // peer's own create event (B3).
+                // A writer outside this store's serialization took the id; our
+                // planned write did NOT happen. CLEAR the suppression we just
+                // registered, or the peer's own create event gets eaten and the
+                // stale one-shot entry lingers to swallow a later real edit to
+                // that path (C2). Then retry with the next candidate.
+                self.before_write.cancel(std::slice::from_ref(&change));
                 continue;
             }
-            let change = FileChange::Changed(note_filename(&id));
-            self.before_write
-                .before_write(std::slice::from_ref(&change));
             if let Some(modified_ms) = modified_ms.filter(|value| *value >= 0) {
                 set_file_mtime_ms(&path, modified_ms)?;
             }
@@ -768,6 +787,25 @@ impl LocalNoteStore {
             return Ok(metadata);
         }
         Err("could not allocate a free note id after repeated collisions".to_owned())
+    }
+
+    /// Park a divergent recovered backup (see
+    /// `futo_notes_core::files::recover_parked_backups`) as a visible
+    /// "<title> (recovered)" note through the no-replace create path, then
+    /// consume the backup file. This is a NEW note — it never overwrites the
+    /// live note holding the original name, and the terminal backup can never
+    /// resurrect a later-deleted note (C1).
+    fn park_recovered_backup(
+        &self,
+        recovered: &futo_notes_core::files::RecoveredBackup,
+    ) -> Result<(), String> {
+        let content = fs::read_to_string(&recovered.backup).map_err(io_error)?;
+        let id = futo_notes_core::files::note_id_from_filename(&recovered.leaf)
+            .unwrap_or_else(|| recovered.leaf.clone());
+        let (folder, title) = split_id(&id);
+        self.install_new(&make_id(&folder, &format!("{title} (recovered)")), &content, None)?;
+        let _ = fs::remove_file(&recovered.backup);
+        Ok(())
     }
 
     fn write_raw(

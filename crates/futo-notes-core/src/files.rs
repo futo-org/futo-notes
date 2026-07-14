@@ -370,19 +370,40 @@ fn park_destinations(parent: &Path, destination: &Path) -> Vec<(PathBuf, PathBuf
         .collect()
 }
 
-/// Bootstrap recovery for a crash inside [`install_temp`]'s collision fallback:
-/// a note parked to a hidden `.sf-bak-*` backup whose re-install never
-/// completed. For each backup with a `.path` sidecar, restore it to the
-/// recorded name when that name is now missing, or drop it when the name is
-/// already present (the install had completed; only cleanup was interrupted).
-/// Orphan sidecars (no backup) are removed. Recurses into subfolders because
-/// notes — and thus parks — live throughout the tree. Best-effort: any single
-/// failure is skipped, never fatal.
-pub fn recover_parked_backups(root: &Path) {
-    recover_parked_in(root, 0);
+/// A divergent parked backup the sweep could not safely restore to its
+/// canonical name — the caller parks it under a visible recovered/conflict name
+/// (see [`recover_parked_backups`]). The `.path` sidecar has already been
+/// consumed, so this backup is TERMINAL: never again eligible for canonical
+/// restore.
+#[derive(Debug)]
+pub struct RecoveredBackup {
+    /// The original note leaf (e.g. `"Welcome.md"`) the backup was parked for.
+    pub leaf: String,
+    /// The hidden backup file still holding the divergent bytes; the caller
+    /// reads it, parks a visible recovered copy, then removes it.
+    pub backup: PathBuf,
 }
 
-fn recover_parked_in(dir: &Path, depth: usize) {
+/// Bootstrap recovery for a crash inside [`install_temp`]'s collision fallback:
+/// a note parked to a hidden `.sf-bak-*` backup whose re-install never
+/// completed. For each backup with a `.path` sidecar: restore it to the
+/// recorded name when that name is now missing; drop it when a byte-identical
+/// note already returned. When the name is held by DIVERGENT content the sweep
+/// must NOT restore — byte-inequality cannot tell a concurrent writer from the
+/// normal install-complete crash boundary (an obsolete pre-park backup), and
+/// canonically restoring it later (after the user deletes the live note) would
+/// resurrect stale content (F1/S2 class). Such backups are made terminal (the
+/// sidecar is consumed) and returned for the caller to park under a visible
+/// recovered name. Orphan sidecars (no backup) are removed. Recurses into
+/// subfolders. Best-effort: any single failure is skipped, never fatal.
+#[must_use]
+pub fn recover_parked_backups(root: &Path) -> Vec<RecoveredBackup> {
+    let mut recovered = Vec::new();
+    recover_parked_in(root, 0, &mut recovered);
+    recovered
+}
+
+fn recover_parked_in(dir: &Path, depth: usize, recovered: &mut Vec<RecoveredBackup>) {
     let Ok(entries) = fs::read_dir(dir) else {
         return;
     };
@@ -428,17 +449,25 @@ fn recover_parked_in(dir: &Path, depth: usize) {
                 let _ = fs::remove_file(&sidecar);
             }
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                // The name is taken. If the live note is byte-identical, the
-                // note already returned — drop the stale backup. Otherwise a
-                // different writer owns the name now; RETAIN the backup + its
-                // sidecar rather than clobber, so no content is lost (the
-                // data-preserving choice; a later sweep re-evaluates).
                 match (fs::read(&backup), fs::read(&destination)) {
+                    // A byte-identical note already returned — drop the stale
+                    // duplicate.
                     (Ok(backup_bytes), Ok(live_bytes)) if backup_bytes == live_bytes => {
                         let _ = fs::remove_file(&backup);
                         let _ = fs::remove_file(&sidecar);
                     }
-                    _ => {}
+                    // Divergent content holds the name. Do NOT restore now or
+                    // ever — consume the sidecar so this backup is TERMINAL
+                    // (never canonically restored, so it can't resurrect a note
+                    // the user later deletes — C1) and hand it to the caller to
+                    // park visibly.
+                    _ => {
+                        let _ = fs::remove_file(&sidecar);
+                        recovered.push(RecoveredBackup {
+                            leaf: leaf.to_owned(),
+                            backup: backup.clone(),
+                        });
+                    }
                 }
             }
             Err(_) => {}
@@ -454,7 +483,7 @@ fn recover_parked_in(dir: &Path, depth: usize) {
 
     if depth < MAX_FOLDER_DEPTH {
         for subdir in subdirs {
-            recover_parked_in(&subdir, depth + 1);
+            recover_parked_in(&subdir, depth + 1, recovered);
         }
     }
 }
@@ -703,8 +732,9 @@ mod tests {
         fs::write(root.join(".sf-bak-1-2-3.path"), "Welcome.md").unwrap();
         assert!(!root.join("Welcome.md").exists());
 
-        recover_parked_backups(&root);
+        let recovered = recover_parked_backups(&root);
 
+        assert!(recovered.is_empty(), "a clean canonical restore returns nothing");
         assert_eq!(
             fs::read_to_string(root.join("Welcome.md")).unwrap(),
             "stranded bytes",
@@ -723,8 +753,9 @@ mod tests {
         fs::write(root.join(".sf-bak-9-9-9.path"), "Welcome.md").unwrap();
         fs::write(root.join("Welcome.md"), "same bytes").unwrap();
 
-        recover_parked_backups(&root);
+        let recovered = recover_parked_backups(&root);
 
+        assert!(recovered.is_empty());
         assert_eq!(
             fs::read_to_string(root.join("Welcome.md")).unwrap(),
             "same bytes"
@@ -733,29 +764,34 @@ mod tests {
         assert!(!root.join(".sf-bak-9-9-9.path").exists());
     }
 
-    // dest present with DIFFERENT content: a writer created the name in the
-    // window, so recovery must NOT clobber it (the B2 TOCTOU) — it retains the
-    // backup instead, and both contents survive.
+    // dest present with DIFFERENT content: the sweep must NOT clobber it (B2)
+    // and must NOT canonically restore the backup ever again (C1 resurrection).
+    // It consumes the sidecar (terminal) and returns the backup for the caller
+    // to park visibly; the live note is untouched and the content preserved.
     #[test]
-    fn recover_retains_the_backup_when_a_different_note_holds_the_name() {
+    fn recover_returns_a_divergent_backup_as_terminal() {
         let root = temp_dir();
         fs::write(root.join(".sf-bak-8-8-8"), "stranded original").unwrap();
         fs::write(root.join(".sf-bak-8-8-8.path"), "Welcome.md").unwrap();
         fs::write(root.join("Welcome.md"), "newcomer bytes").unwrap();
 
-        recover_parked_backups(&root);
+        let recovered = recover_parked_backups(&root);
 
         assert_eq!(
             fs::read_to_string(root.join("Welcome.md")).unwrap(),
             "newcomer bytes",
             "the newcomer must never be clobbered"
         );
+        assert_eq!(recovered.len(), 1, "the divergent backup is returned for parking");
+        assert_eq!(recovered[0].leaf, "Welcome.md");
         assert_eq!(
-            fs::read_to_string(root.join(".sf-bak-8-8-8")).unwrap(),
+            fs::read_to_string(&recovered[0].backup).unwrap(),
             "stranded original",
-            "the stranded content must be preserved, not lost"
+            "the divergent content is preserved on disk for the caller"
         );
-        assert!(root.join(".sf-bak-8-8-8.path").exists());
+        // Sidecar consumed → the backup is TERMINAL, never canonically restored
+        // again even if the live note is later deleted.
+        assert!(!root.join(".sf-bak-8-8-8.path").exists());
     }
 
     // B1: a directory symlink back into the vault must not be followed — a loop
@@ -769,7 +805,7 @@ mod tests {
         fs::write(root.join(".sf-bak-1-1-1.path"), "Note.md").unwrap();
         std::os::unix::fs::symlink(&root, root.join("loop")).unwrap();
 
-        recover_parked_backups(&root); // must return, not stack-overflow
+        let _ = recover_parked_backups(&root); // must return, not stack-overflow
 
         assert_eq!(
             fs::read_to_string(root.join("Note.md")).unwrap(),
@@ -788,7 +824,7 @@ mod tests {
         fs::write(sub.join(".sf-bak-5-5-5"), "sub bytes").unwrap();
         fs::write(sub.join(".sf-bak-5-5-5.path"), "Deep.md").unwrap();
 
-        recover_parked_backups(&root);
+        let _ = recover_parked_backups(&root);
 
         assert!(!root.join(".sf-bak-orphan.path").exists());
         assert!(!root.join("Ghost.md").exists());

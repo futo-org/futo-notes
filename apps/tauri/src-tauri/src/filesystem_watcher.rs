@@ -34,6 +34,15 @@ impl WatcherSuppression {
         }
     }
 
+    /// Remove a suppression entry registered by `register` when the planned
+    /// write did not happen (a no-replace create hit EEXIST), so it can't eat
+    /// the peer's own event or a later real edit (C2).
+    pub(crate) fn unregister(&self, relative_path: &str) {
+        if let Ok(mut entries) = self.entries.lock() {
+            entries.remove(relative_path);
+        }
+    }
+
     fn consume(&self, relative_path: &str) -> bool {
         let Ok(mut entries) = self.entries.lock() else {
             return false;

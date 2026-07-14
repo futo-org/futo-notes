@@ -28,11 +28,15 @@ impl Drop for TestRoot {
 }
 
 #[derive(Default)]
-struct RecordingObserver(Mutex<Vec<Vec<FileChange>>>);
+// `.0` records before_write registrations, `.1` records cancellations.
+struct RecordingObserver(Mutex<Vec<Vec<FileChange>>>, Mutex<Vec<Vec<FileChange>>>);
 
 impl BeforeWrite for RecordingObserver {
     fn before_write(&self, changes: &[FileChange]) {
         self.0.lock().unwrap().push(changes.to_vec());
+    }
+    fn cancel(&self, changes: &[FileChange]) {
+        self.1.lock().unwrap().push(changes.to_vec());
     }
 }
 
@@ -76,11 +80,13 @@ fn create_never_clobbers_a_concurrent_writer_at_the_chosen_id() {
     assert_eq!(store.read(final_id), "my new note");
 }
 
-// On the collision-retry path, watcher suppression must be registered ONLY for
-// the path actually installed — never for the peer's colliding id, or the
-// peer's own create event gets eaten and its note goes missing until rescan (B3).
+// Watcher suppression is registered BEFORE the write (the pre-write rule). On a
+// collision retry, the peer's path must then be explicitly CANCELLED — net
+// cleared — so it neither eats the peer's own create event nor lingers as a
+// one-shot to swallow a later real edit; only the installed path stays
+// suppressed (C2, superseding B3's register-after).
 #[test]
-fn a_collision_retry_does_not_suppress_the_peers_create_event() {
+fn a_collision_retry_clears_the_peers_suppression_and_keeps_the_installed_path() {
     let root = TestRoot::new();
     let recorder = Arc::new(RecordingObserver::default());
     let store = LocalNoteStore::with_before_write(root.0.clone(), recorder.clone());
@@ -89,25 +95,59 @@ fn a_collision_retry_does_not_suppress_the_peers_create_event() {
     let mutation = store.create("", "Note", "mine").unwrap();
     let final_id = mutation.final_id().unwrap().to_owned();
 
-    let registered: Vec<String> = recorder
-        .0
-        .lock()
-        .unwrap()
-        .iter()
-        .flatten()
-        .filter_map(|change| match change {
-            FileChange::Changed(name) => Some(name.clone()),
-            _ => None,
-        })
+    let names = |log: &Mutex<Vec<Vec<FileChange>>>| -> Vec<String> {
+        log.lock()
+            .unwrap()
+            .iter()
+            .flatten()
+            .filter_map(|change| match change {
+                FileChange::Changed(name) => Some(name.clone()),
+                _ => None,
+            })
+            .collect()
+    };
+    let registered = names(&recorder.0);
+    let cancelled = names(&recorder.1);
+
+    // The peer's colliding path: registered before the failed install, then
+    // cancelled (net cleared).
+    assert!(registered.contains(&"Note.md".to_owned()));
+    assert!(cancelled.contains(&"Note.md".to_owned()));
+    // The installed path: registered before the syscall, never cancelled.
+    assert!(registered.contains(&format!("{final_id}.md")));
+    assert!(!cancelled.contains(&format!("{final_id}.md")));
+}
+
+// A divergent parked backup (install-complete crash boundary: old backup bytes
+// ≠ live) must be parked as a VISIBLE recovered note, never left eligible for a
+// canonical restore that would resurrect the note if the user later deletes the
+// live one (C1, the F1/S2 resurrection class).
+#[test]
+fn a_divergent_backup_is_parked_visibly_and_never_resurrects_a_deleted_note() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    fs::write(root.0.join("Welcome.md"), "installed").unwrap();
+    fs::write(root.0.join(".sf-bak-1-1-1"), "old superseded").unwrap();
+    fs::write(root.0.join(".sf-bak-1-1-1.path"), "Welcome.md").unwrap();
+
+    store.bootstrap().unwrap();
+
+    assert_eq!(store.read("Welcome"), "installed", "live note untouched");
+    let recovered: Vec<_> = store
+        .snapshot()
+        .notes
+        .into_iter()
+        .filter(|note| note.id.contains("recovered"))
         .collect();
-    assert!(
-        registered.contains(&format!("{final_id}.md")),
-        "the installed path must be suppressed"
-    );
-    assert!(
-        !registered.contains(&"Note.md".to_owned()),
-        "the peer's colliding create must NOT be suppressed"
-    );
+    assert_eq!(recovered.len(), 1, "the divergent backup surfaced as a visible note");
+    assert_eq!(store.read(&recovered[0].id), "old superseded");
+    assert!(!root.0.join(".sf-bak-1-1-1").exists(), "backup consumed");
+    assert!(!root.0.join(".sf-bak-1-1-1.path").exists(), "sidecar consumed");
+
+    // The user deletes the live note; a later bootstrap must NOT resurrect it.
+    store.delete("Welcome").unwrap();
+    store.bootstrap().unwrap();
+    assert!(!store.exists("Welcome"), "a deleted note must not be resurrected");
 }
 
 #[test]
