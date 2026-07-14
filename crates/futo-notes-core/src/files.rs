@@ -337,16 +337,95 @@ fn matching_destination_files(parent: &Path, destination: &Path) -> Vec<PathBuf>
         .collect()
 }
 
+const BACKUP_PREFIX: &str = ".sf-bak-";
+const BACKUP_SIDECAR_SUFFIX: &str = ".path";
+
+fn sidecar_of(backup: &Path) -> PathBuf {
+    let mut name = backup.as_os_str().to_owned();
+    name.push(BACKUP_SIDECAR_SUFFIX);
+    PathBuf::from(name)
+}
+
 fn park_destinations(parent: &Path, destination: &Path) -> Vec<(PathBuf, PathBuf)> {
     matching_destination_files(parent, destination)
         .into_iter()
         .filter_map(|original| {
             let backup = hidden_path(parent, "bak");
-            fs::rename(&original, &backup)
-                .is_ok()
-                .then_some((original, backup))
+            let leaf = original.file_name()?.to_str()?.to_owned();
+            // Write the recovery sidecar (original leaf name) BEFORE moving the
+            // note out of the way, so a crash right after the park rename leaves
+            // a backup whose sidecar can restore it. Without this the note is
+            // stranded in a scan-ignored dotfile with no way back (A2).
+            if fs::write(sidecar_of(&backup), leaf.as_bytes()).is_err() {
+                return None;
+            }
+            match fs::rename(&original, &backup) {
+                Ok(()) => Some((original, backup)),
+                Err(_) => {
+                    let _ = fs::remove_file(sidecar_of(&backup));
+                    None
+                }
+            }
         })
         .collect()
+}
+
+/// Bootstrap recovery for a crash inside [`install_temp`]'s collision fallback:
+/// a note parked to a hidden `.sf-bak-*` backup whose re-install never
+/// completed. For each backup with a `.path` sidecar, restore it to the
+/// recorded name when that name is now missing, or drop it when the name is
+/// already present (the install had completed; only cleanup was interrupted).
+/// Orphan sidecars (no backup) are removed. Recurses into subfolders because
+/// notes — and thus parks — live throughout the tree. Best-effort: any single
+/// failure is skipped, never fatal.
+pub fn recover_parked_backups(root: &Path) {
+    let Ok(entries) = fs::read_dir(root) else {
+        return;
+    };
+    let mut subdirs = Vec::new();
+    let mut names = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            subdirs.push(path);
+        } else if let Some(name) = entry.file_name().to_str() {
+            if name.starts_with(BACKUP_PREFIX) {
+                names.push(name.to_owned());
+            }
+        }
+    }
+
+    for name in names.iter().filter(|n| !n.ends_with(BACKUP_SIDECAR_SUFFIX)) {
+        let backup = root.join(name);
+        let sidecar = root.join(format!("{name}{BACKUP_SIDECAR_SUFFIX}"));
+        let Ok(leaf) = fs::read_to_string(&sidecar) else {
+            continue;
+        };
+        let leaf = leaf.trim();
+        if leaf.is_empty() || leaf.contains('/') || leaf.contains('\\') {
+            continue;
+        }
+        let destination = root.join(leaf);
+        if destination.exists() {
+            let _ = fs::remove_file(&backup);
+            let _ = fs::remove_file(&sidecar);
+            continue;
+        }
+        if fs::rename(&backup, &destination).is_ok() {
+            let _ = fs::remove_file(&sidecar);
+        }
+    }
+
+    for name in names.iter().filter(|n| n.ends_with(BACKUP_SIDECAR_SUFFIX)) {
+        let base = name.trim_end_matches(BACKUP_SIDECAR_SUFFIX);
+        if !root.join(base).exists() {
+            let _ = fs::remove_file(root.join(name));
+        }
+    }
+
+    for subdir in subdirs {
+        recover_parked_backups(&subdir);
+    }
 }
 
 fn install_temp(temp: &Path, destination: &Path) -> Result<(), String> {
@@ -369,7 +448,8 @@ fn install_temp(temp: &Path, destination: &Path) -> Result<(), String> {
 
     if let Err(error) = fs::rename(temp, destination) {
         for (original, backup) in parked {
-            let _ = fs::rename(backup, original);
+            let _ = fs::rename(&backup, original);
+            let _ = fs::remove_file(sidecar_of(&backup));
         }
         return Err(format!(
             "{error} (installing {} after collision recovery)",
@@ -377,7 +457,8 @@ fn install_temp(temp: &Path, destination: &Path) -> Result<(), String> {
         ));
     }
     for (_, backup) in parked {
-        let _ = fs::remove_file(backup);
+        let _ = fs::remove_file(&backup);
+        let _ = fs::remove_file(sidecar_of(&backup));
     }
     Ok(())
 }
@@ -579,6 +660,65 @@ mod tests {
         ));
         fs::create_dir_all(&path).unwrap();
         path
+    }
+
+    // A2: a crash after the collision-fallback park (note moved to a hidden
+    // backup, re-install not yet done) leaves the note in a scan-ignored
+    // dotfile. Bootstrap recovery restores it from its sidecar.
+    #[test]
+    fn recover_restores_a_note_stranded_in_a_parked_backup() {
+        let root = temp_dir();
+        fs::write(root.join(".sf-bak-1-2-3"), "stranded bytes").unwrap();
+        fs::write(root.join(".sf-bak-1-2-3.path"), "Welcome.md").unwrap();
+        assert!(!root.join("Welcome.md").exists());
+
+        recover_parked_backups(&root);
+
+        assert_eq!(
+            fs::read_to_string(root.join("Welcome.md")).unwrap(),
+            "stranded bytes",
+            "the stranded note must be restored to its canonical name"
+        );
+        assert!(!root.join(".sf-bak-1-2-3").exists());
+        assert!(!root.join(".sf-bak-1-2-3.path").exists());
+    }
+
+    // Boundary "after install, before cleanup": the note already returned, so
+    // recovery drops the stale backup + sidecar and never clobbers the live note.
+    #[test]
+    fn recover_drops_a_backup_whose_note_already_returned() {
+        let root = temp_dir();
+        fs::write(root.join(".sf-bak-9-9-9"), "old parked").unwrap();
+        fs::write(root.join(".sf-bak-9-9-9.path"), "Welcome.md").unwrap();
+        fs::write(root.join("Welcome.md"), "installed bytes").unwrap();
+
+        recover_parked_backups(&root);
+
+        assert_eq!(
+            fs::read_to_string(root.join("Welcome.md")).unwrap(),
+            "installed bytes"
+        );
+        assert!(!root.join(".sf-bak-9-9-9").exists());
+        assert!(!root.join(".sf-bak-9-9-9.path").exists());
+    }
+
+    // Boundary "after sidecar, before park": an orphan sidecar is harmless and
+    // cleaned; and parks in subfolders are recovered (notes live tree-wide).
+    #[test]
+    fn recover_cleans_orphan_sidecars_and_recurses_into_folders() {
+        let root = temp_dir();
+        fs::write(root.join(".sf-bak-orphan.path"), "Ghost.md").unwrap();
+        let sub = root.join("Folder");
+        fs::create_dir_all(&sub).unwrap();
+        fs::write(sub.join(".sf-bak-5-5-5"), "sub bytes").unwrap();
+        fs::write(sub.join(".sf-bak-5-5-5.path"), "Deep.md").unwrap();
+
+        recover_parked_backups(&root);
+
+        assert!(!root.join(".sf-bak-orphan.path").exists());
+        assert!(!root.join("Ghost.md").exists());
+        assert_eq!(fs::read_to_string(sub.join("Deep.md")).unwrap(), "sub bytes");
+        assert!(!sub.join(".sf-bak-5-5-5").exists());
     }
 
     #[test]

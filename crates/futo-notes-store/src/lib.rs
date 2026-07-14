@@ -276,6 +276,11 @@ impl LocalNoteStore {
     pub fn bootstrap(&self) -> Result<BootstrapResult, String> {
         let _gate = self.lock_gate()?;
         fs::create_dir_all(&self.root).map_err(io_error)?;
+        // Restore any note stranded in a hidden backup by a crash inside a
+        // collision-fallback install BEFORE migrate/scan/seed, so a recovered
+        // note is visible to this run's snapshot and an empty-vault seed can't
+        // fire while a real note is only stranded (A2).
+        futo_notes_core::files::recover_parked_backups(&self.root);
         let (migrated, mut warnings) = self.migrate_text_files();
         let seeded = if vault::note_paths(&self.root).is_empty() {
             match self.write_raw(WELCOME_NOTE_ID, WELCOME_NOTE, None) {
