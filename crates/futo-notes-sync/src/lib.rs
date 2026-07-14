@@ -3,15 +3,15 @@
 //! [`SyncSession`] is the application API. It owns the connected state, makes
 //! sync cycles mutually exclusive, persists progress, and runs live sync.
 
-mod http;
-pub mod live;
-mod store;
+mod checkpoint;
+mod server;
+mod session;
 mod sync;
 
 use std::path::Path;
 
-pub use live::{ResumeCredentials, SyncSession, SyncSessionListener};
-pub use store::{ConnectedState, ObjectState as E2eeObjectMapEntry};
+pub use checkpoint::{ConnectedState, ObjectState as E2eeObjectMapEntry};
+pub use session::{ResumeCredentials, SyncSession, SyncSessionListener};
 pub use sync::{
     ConnectInfo, FailureKind, PreWrite, Progress, RenamePair, SyncErrorKind, SyncFailure,
     SyncProgress, SyncSummary,
@@ -25,7 +25,7 @@ pub async fn connect(
     server: &str,
     password: &str,
 ) -> Result<(ConnectedState, ConnectInfo), SyncErrorKind> {
-    sync::connect(root, server, password).await
+    session::connect::connect(root, server, password).await
 }
 
 #[doc(hidden)]
@@ -37,7 +37,7 @@ pub async fn resume(
     collection_id: &str,
     password: &str,
 ) -> Result<ConnectedState, SyncErrorKind> {
-    sync::resume(root, server, token, user_id, collection_id, password).await
+    session::connect::resume(root, server, token, user_id, collection_id, password).await
 }
 
 #[doc(hidden)]
@@ -73,9 +73,9 @@ pub async fn run_sync(
 
 #[doc(hidden)]
 pub mod state {
-    pub use crate::store::{ConnectedState, ObjectState as E2eeObjectMapEntry};
+    pub use crate::checkpoint::{ConnectedState, ObjectState as E2eeObjectMapEntry};
 
     pub fn demote_state_to_ancestry(root: &std::path::Path) -> Result<(), String> {
-        crate::store::demote(root)
+        crate::checkpoint::demote(root)
     }
 }

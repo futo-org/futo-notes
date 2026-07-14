@@ -10,12 +10,18 @@ The 8,519-line orchestrator, separate HTTP client/session/state abstractions,
 and desktop-only session wrapper were replaced by one application API:
 `SyncSession`.
 
-The resulting crate has four responsibilities:
+The resulting crate first established four responsibilities, then the
+2026-07-14 organization rewrite made their internal ownership explicit:
 
-- `http.rs`: authentication and the real server protocol
-- `store.rs`: persisted object map, cursors, legacy import, and disconnect ancestry
-- `sync.rs`: push-first reconciliation, conflicts, collisions, and tombstones
-- `live.rs`: session ownership, cycle serialization, and SSE
+- `server.rs`: authentication and the real server protocol
+- `checkpoint.rs`: persisted object map, cursors, legacy import, and disconnect ancestry
+- `session/`: connection lifecycle, session ownership, cycle serialization, live scheduling,
+  and SSE framing
+- `sync/mod.rs`: the push-first orchestration sequence only
+- `sync/{push,pull,conflict_resolution,collision_resolution,tombstones}.rs`: named sync
+  operations and data-safety boundaries
+- `sync/{vault,encrypted_note,object_map,outcome}.rs`: shared sync-owned transformations and
+  contracts
 
 Both UniFFI and Tauri call the same session API. They no longer assemble live
 tasks, state locks, cycle gates, and callback graphs independently.
