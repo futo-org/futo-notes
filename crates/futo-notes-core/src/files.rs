@@ -372,16 +372,20 @@ fn park_destinations(parent: &Path, destination: &Path) -> Vec<(PathBuf, PathBuf
 
 /// A divergent parked backup the sweep could not safely restore to its
 /// canonical name — the caller parks it under a visible recovered/conflict name
-/// (see [`recover_parked_backups`]). The `.path` sidecar has already been
-/// consumed, so this backup is TERMINAL: never again eligible for canonical
-/// restore.
+/// (see [`recover_parked_backups`]) by RENAMING `backup` to that name, then
+/// removing `sidecar`. Renaming the backup away is what makes it terminal
+/// (it's no longer a `.sf-bak-*` the restore loop would canonically restore),
+/// and the sidecar is removed AFTER so a crash mid-park re-sweeps rather than
+/// stranding the note metadata-less (D1).
 #[derive(Debug)]
 pub struct RecoveredBackup {
     /// The original note leaf (e.g. `"Welcome.md"`) the backup was parked for.
     pub leaf: String,
-    /// The hidden backup file still holding the divergent bytes; the caller
-    /// reads it, parks a visible recovered copy, then removes it.
+    /// The hidden backup file holding the divergent bytes — the caller renames
+    /// THIS file to the visible recovered name (no read+create+delete).
     pub backup: PathBuf,
+    /// The `.path` sidecar; the caller removes it only after the rename lands.
+    pub sidecar: PathBuf,
 }
 
 /// Bootstrap recovery for a crash inside [`install_temp`]'s collision fallback:
@@ -392,10 +396,11 @@ pub struct RecoveredBackup {
 /// must NOT restore — byte-inequality cannot tell a concurrent writer from the
 /// normal install-complete crash boundary (an obsolete pre-park backup), and
 /// canonically restoring it later (after the user deletes the live note) would
-/// resurrect stale content (F1/S2 class). Such backups are made terminal (the
-/// sidecar is consumed) and returned for the caller to park under a visible
-/// recovered name. Orphan sidecars (no backup) are removed. Recurses into
-/// subfolders. Best-effort: any single failure is skipped, never fatal.
+/// resurrect stale content (F1/S2 class). Such backups are returned INTACT
+/// (backup + sidecar) for the caller to park by renaming the backup to a
+/// visible recovered name and then dropping the sidecar (D1). Orphan sidecars
+/// (no backup) are removed. Recurses into subfolders. Best-effort: any single
+/// failure is skipped, never fatal.
 #[must_use]
 pub fn recover_parked_backups(root: &Path) -> Vec<RecoveredBackup> {
     let mut recovered = Vec::new();
@@ -457,15 +462,18 @@ fn recover_parked_in(dir: &Path, depth: usize, recovered: &mut Vec<RecoveredBack
                         let _ = fs::remove_file(&sidecar);
                     }
                     // Divergent content holds the name. Do NOT restore now or
-                    // ever — consume the sidecar so this backup is TERMINAL
-                    // (never canonically restored, so it can't resurrect a note
-                    // the user later deletes — C1) and hand it to the caller to
-                    // park visibly.
+                    // ever — byte-inequality can't tell a concurrent writer from
+                    // the normal install-complete crash boundary, and a later
+                    // canonical restore (after the user deletes the live note)
+                    // would resurrect stale content (C1). Hand it to the caller,
+                    // which renames the backup to a visible recovered name (that
+                    // rename is what makes it terminal) and only then removes the
+                    // sidecar — so a crash mid-park re-sweeps, never strands (D1).
                     _ => {
-                        let _ = fs::remove_file(&sidecar);
                         recovered.push(RecoveredBackup {
                             leaf: leaf.to_owned(),
                             backup: backup.clone(),
+                            sidecar: sidecar.clone(),
                         });
                     }
                 }
@@ -789,9 +797,12 @@ mod tests {
             "stranded original",
             "the divergent content is preserved on disk for the caller"
         );
-        // Sidecar consumed → the backup is TERMINAL, never canonically restored
-        // again even if the live note is later deleted.
-        assert!(!root.join(".sf-bak-8-8-8.path").exists());
+        // The backup + sidecar are handed to the caller INTACT (removed only
+        // after the caller's rename-based park lands), so a crash mid-park
+        // re-sweeps rather than stranding (D1).
+        assert_eq!(recovered[0].sidecar, root.join(".sf-bak-8-8-8.path"));
+        assert!(root.join(".sf-bak-8-8-8").exists());
+        assert!(root.join(".sf-bak-8-8-8.path").exists());
     }
 
     // B1: a directory symlink back into the vault must not be followed — a loop

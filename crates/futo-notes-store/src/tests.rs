@@ -28,15 +28,11 @@ impl Drop for TestRoot {
 }
 
 #[derive(Default)]
-// `.0` records before_write registrations, `.1` records cancellations.
-struct RecordingObserver(Mutex<Vec<Vec<FileChange>>>, Mutex<Vec<Vec<FileChange>>>);
+struct RecordingObserver(Mutex<Vec<Vec<FileChange>>>);
 
 impl BeforeWrite for RecordingObserver {
     fn before_write(&self, changes: &[FileChange]) {
         self.0.lock().unwrap().push(changes.to_vec());
-    }
-    fn cancel(&self, changes: &[FileChange]) {
-        self.1.lock().unwrap().push(changes.to_vec());
     }
 }
 
@@ -80,42 +76,24 @@ fn create_never_clobbers_a_concurrent_writer_at_the_chosen_id() {
     assert_eq!(store.read(final_id), "my new note");
 }
 
-// Watcher suppression is registered BEFORE the write (the pre-write rule). On a
-// collision retry, the peer's path must then be explicitly CANCELLED — net
-// cleared — so it neither eats the peer's own create event nor lingers as a
-// one-shot to swallow a later real edit; only the installed path stays
-// suppressed (C2, superseding B3's register-after).
+// The create path registers NO watcher suppression (D2, two-strikes redesign):
+// there is no suppress-vs-install ordering to get wrong. Even a collision retry
+// registers nothing — the own-create echo is harmless (idempotent reconcile),
+// and a peer's colliding event is processed normally with no suppression to eat
+// it. (Rename/delete/write-existing keep their pre-write suppression.)
 #[test]
-fn a_collision_retry_clears_the_peers_suppression_and_keeps_the_installed_path() {
+fn the_create_path_registers_no_watcher_suppression() {
     let root = TestRoot::new();
     let recorder = Arc::new(RecordingObserver::default());
     let store = LocalNoteStore::with_before_write(root.0.clone(), recorder.clone());
     store.set_install_window_hook(plant_once(&root, "peer"));
 
-    let mutation = store.create("", "Note", "mine").unwrap();
-    let final_id = mutation.final_id().unwrap().to_owned();
+    store.create("", "Note", "mine").unwrap(); // forces a collision retry
 
-    let names = |log: &Mutex<Vec<Vec<FileChange>>>| -> Vec<String> {
-        log.lock()
-            .unwrap()
-            .iter()
-            .flatten()
-            .filter_map(|change| match change {
-                FileChange::Changed(name) => Some(name.clone()),
-                _ => None,
-            })
-            .collect()
-    };
-    let registered = names(&recorder.0);
-    let cancelled = names(&recorder.1);
-
-    // The peer's colliding path: registered before the failed install, then
-    // cancelled (net cleared).
-    assert!(registered.contains(&"Note.md".to_owned()));
-    assert!(cancelled.contains(&"Note.md".to_owned()));
-    // The installed path: registered before the syscall, never cancelled.
-    assert!(registered.contains(&format!("{final_id}.md")));
-    assert!(!cancelled.contains(&format!("{final_id}.md")));
+    assert!(
+        recorder.0.lock().unwrap().is_empty(),
+        "a brand-new create must register no watcher suppression"
+    );
 }
 
 // A divergent parked backup (install-complete crash boundary: old backup bytes
@@ -141,13 +119,39 @@ fn a_divergent_backup_is_parked_visibly_and_never_resurrects_a_deleted_note() {
         .collect();
     assert_eq!(recovered.len(), 1, "the divergent backup surfaced as a visible note");
     assert_eq!(store.read(&recovered[0].id), "old superseded");
-    assert!(!root.0.join(".sf-bak-1-1-1").exists(), "backup consumed");
+    assert!(!root.0.join(".sf-bak-1-1-1").exists(), "backup renamed into the recovered note");
     assert!(!root.0.join(".sf-bak-1-1-1.path").exists(), "sidecar consumed");
 
     // The user deletes the live note; a later bootstrap must NOT resurrect it.
     store.delete("Welcome").unwrap();
     store.bootstrap().unwrap();
     assert!(!store.exists("Welcome"), "a deleted note must not be resurrected");
+}
+
+// A divergent backup in a subfolder is parked as a recovered note IN THAT
+// subfolder, not at the vault root (D4).
+#[test]
+fn a_recovered_note_keeps_its_subfolder() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    let sub = root.0.join("Projects");
+    fs::create_dir_all(&sub).unwrap();
+    fs::write(sub.join("Notes.md"), "live").unwrap();
+    fs::write(sub.join(".sf-bak-2-2-2"), "stranded").unwrap();
+    fs::write(sub.join(".sf-bak-2-2-2.path"), "Notes.md").unwrap();
+
+    store.bootstrap().unwrap();
+
+    let recovered: Vec<_> = store
+        .snapshot()
+        .notes
+        .into_iter()
+        .filter(|note| note.id.contains("recovered"))
+        .collect();
+    assert_eq!(recovered.len(), 1);
+    assert_eq!(recovered[0].folder, "Projects", "recovered note stays in its folder");
+    assert!(recovered[0].id.starts_with("Projects/"));
+    assert_eq!(store.read(&recovered[0].id), "stranded");
 }
 
 #[test]

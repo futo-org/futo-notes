@@ -3,6 +3,7 @@ import type { NotePreview } from '../types';
 import {
   createNote,
   getAllNotes,
+  handleExternalFileChange,
   moveNote,
   search,
   setNotesUniverse,
@@ -109,6 +110,30 @@ describe('TypeScript local-note projection', () => {
 
     await updateNote('New', 'ignored shell title', 'latest body', 'Old', 456);
     expect(save).toHaveBeenCalledWith('Old', 'New', 'latest body', 456);
+  });
+
+  // The create path no longer suppresses the watcher (D2); the own-create echo
+  // is made harmless because reconciling it is an idempotent no-op — the note
+  // is already in the cache, so the snapshot refresh produces no duplicate and
+  // no change.
+  it('reconciling an own-create watcher echo is an idempotent no-op', async () => {
+    _setLocalNoteStoreForTest(
+      fakeStore({
+        snapshot: vi.fn(async () => ({
+          notes: [metadata('New note', 'my body')],
+          folders: [],
+        })),
+      }),
+    );
+    setNotesUniverse([
+      { id: 'New note', title: 'New note', preview: 'my body', modificationTime: 1, tags: [] },
+    ]);
+
+    await handleExternalFileChange('New note.md');
+
+    const notes = getAllNotes();
+    expect(notes.map((note) => note.id)).toEqual(['New note']);
+    expect(notes[0].preview).toBe('my body');
   });
 
   it('does not fall back to shell substring search', async () => {

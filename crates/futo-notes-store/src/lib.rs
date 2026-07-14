@@ -115,13 +115,6 @@ pub enum FileChange {
 /// first filesystem syscall. Native shells use the no-op implementation.
 pub trait BeforeWrite: Send + Sync {
     fn before_write(&self, changes: &[FileChange]);
-
-    /// Cancel a suppression a prior `before_write` registered for these changes
-    /// when the planned write did NOT happen (a no-replace create hit EEXIST):
-    /// otherwise a peer's own event for the path is eaten and the stale one-shot
-    /// entry lingers to swallow a later real edit within the window (C2).
-    /// Default: no-op — native shells have no watcher to suppress.
-    fn cancel(&self, _changes: &[FileChange]) {}
 }
 
 #[derive(Default)]
@@ -750,6 +743,17 @@ impl LocalNoteStore {
     /// than overwriting; we re-allocate a fresh suffix — now seeing that file —
     /// and retry, so a create never silently clobbers a note this store did not
     /// write. (An overwrite install here is the A1 data-loss window.)
+    ///
+    /// A brand-new create registers NO watcher suppression (D2, two-strikes
+    /// redesign of the create path): there was no fixed suppress-vs-install
+    /// ordering that both hid our own echo and never ate a peer/collision event
+    /// (B3 → C2 → D2). The own-create echo is instead made harmless — the
+    /// desktop watcher's create reconcile is idempotent (the id is already in
+    /// the cache with identical content, so `refreshNotesFromStorage` is a
+    /// no-op mutation; no toast, no editor disturbance), and the collision case
+    /// is automatically correct because the peer's event is processed normally
+    /// (no suppression to eat it). Rename/delete/write-existing keep their
+    /// pre-write suppression — those disturb a file the watcher already knows.
     fn install_new(
         &self,
         wanted: &str,
@@ -759,23 +763,14 @@ impl LocalNoteStore {
         for _ in 0..1000 {
             let id = paths::unique_note_id(&self.root, wanted, None)?;
             let path = paths::note_path(&self.root, &id)?;
-            let change = FileChange::Changed(note_filename(&id));
-            // Register watcher suppression BEFORE the write — the pre-write rule
-            // (note_commands.rs head comment): the watcher must never see our own
-            // create as an external change.
-            self.before_write
-                .before_write(std::slice::from_ref(&change));
             #[cfg(test)]
             if let Some(hook) = self.install_window_hook.lock().unwrap().as_ref() {
                 hook(&id);
             }
             if !create_new_atomic(&path, content.as_bytes())? {
-                // A writer outside this store's serialization took the id; our
-                // planned write did NOT happen. CLEAR the suppression we just
-                // registered, or the peer's own create event gets eaten and the
-                // stale one-shot entry lingers to swallow a later real edit to
-                // that path (C2). Then retry with the next candidate.
-                self.before_write.cancel(std::slice::from_ref(&change));
+                // A writer outside this store's serialization took the id; the
+                // write did not happen. Re-allocate against the now-larger tree
+                // and retry — no suppression to unwind.
                 continue;
             }
             if let Some(modified_ms) = modified_ms.filter(|value| *value >= 0) {
@@ -783,7 +778,7 @@ impl LocalNoteStore {
             }
             let metadata = vault::metadata(&self.root, &id)
                 .ok_or_else(|| "note metadata unavailable after create".to_owned())?;
-            self.notify(&change);
+            self.notify(&FileChange::Changed(note_filename(&id)));
             return Ok(metadata);
         }
         Err("could not allocate a free note id after repeated collisions".to_owned())
@@ -799,12 +794,31 @@ impl LocalNoteStore {
         &self,
         recovered: &futo_notes_core::files::RecoveredBackup,
     ) -> Result<(), String> {
-        let content = fs::read_to_string(&recovered.backup).map_err(io_error)?;
-        let id = futo_notes_core::files::note_id_from_filename(&recovered.leaf)
+        // Folder = the backup's directory relative to the vault root, so a
+        // recovered note in a subfolder stays in that subfolder (D4).
+        let folder = recovered
+            .backup
+            .parent()
+            .and_then(|parent| parent.strip_prefix(&self.root).ok())
+            .map(|relative| relative.to_string_lossy().replace('\\', "/"))
+            .unwrap_or_default();
+        let title = futo_notes_core::files::note_id_from_filename(&recovered.leaf)
             .unwrap_or_else(|| recovered.leaf.clone());
-        let (folder, title) = split_id(&id);
-        self.install_new(&make_id(&folder, &format!("{title} (recovered)")), &content, None)?;
-        let _ = fs::remove_file(&recovered.backup);
+        let wanted = make_id(&folder, &format!("{title} (recovered)"));
+        let id = paths::unique_note_id(&self.root, &wanted, None)?;
+        let path = paths::note_path(&self.root, &id)?;
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(io_error)?;
+        }
+        // Atomic park (D1): RENAME the backup file itself to the collision-free
+        // recovered name — the rename is what makes the backup terminal (it is
+        // no longer a `.sf-bak-*` the restore loop could resurrect) — THEN drop
+        // the sidecar. A crash before the rename re-sweeps; a crash after leaves
+        // an orphan sidecar the next sweep cleans. No read+create+delete, so a
+        // failed park never strands the note metadata-less.
+        fs::rename(&recovered.backup, &path).map_err(io_error)?;
+        let _ = fs::remove_file(&recovered.sidecar);
+        self.notify(&FileChange::Changed(note_filename(&id)));
         Ok(())
     }
 

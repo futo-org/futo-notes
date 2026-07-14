@@ -27,18 +27,6 @@ impl BeforeWrite for DesktopBeforeWrite {
             }
         }
     }
-
-    fn cancel(&self, changes: &[FileChange]) {
-        for change in changes {
-            match change {
-                FileChange::Changed(path) | FileChange::Removed(path) => self.0.unregister(path),
-                FileChange::Renamed { from, to } => {
-                    self.0.unregister(from);
-                    self.0.unregister(to);
-                }
-            }
-        }
-    }
 }
 
 struct ActiveStore {
