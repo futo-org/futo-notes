@@ -89,14 +89,15 @@ fn search_index_dir(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(directory)
 }
 
-fn start_search(app: &AppHandle, store: &LocalNoteStore) -> Result<(), String> {
+fn search_observer(app: &AppHandle) -> Arc<dyn Fn(&SearchStatus) + Send + Sync> {
     let emit_app = app.clone();
-    store.start_search(
-        search_index_dir(app)?,
-        Arc::new(move |status| {
-            let _ = emit_app.emit("search:status", status);
-        }),
-    )
+    Arc::new(move |status: &SearchStatus| {
+        let _ = emit_app.emit("search:status", status);
+    })
+}
+
+fn start_search(app: &AppHandle, store: &LocalNoteStore) -> Result<(), String> {
+    store.start_search(search_index_dir(app)?, search_observer(app))
 }
 
 pub(crate) fn init_on_startup(app: &AppHandle) {
@@ -117,9 +118,14 @@ pub async fn local_notes_bootstrap(
 ) -> Result<BootstrapResult, String> {
     let store = store(&app, &state)?;
     // `store()` may have switched roots after a vault-location change. Search
-    // startup is idempotent for an existing store and required for a new one.
-    start_search(&app, &store)?;
-    blocking(move || store.bootstrap()).await
+    // startup is idempotent for an existing store and started for a new one —
+    // but BEST-EFFORT: a failed index open must never fail bootstrap and leave
+    // the vault rendering empty (A3). The shared store rule warns and continues
+    // (and search self-heals on the retry cooldown); the desktop no longer
+    // propagates the error with `?`.
+    let index_dir = search_index_dir(&app)?;
+    let observer = search_observer(&app);
+    blocking(move || store.bootstrap_with_search(index_dir, observer)).await
 }
 
 #[tauri::command]

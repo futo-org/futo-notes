@@ -301,6 +301,24 @@ impl LocalNoteStore {
         })
     }
 
+    /// Bootstrap the vault, then start the owned search index in the background
+    /// as a BEST-EFFORT step: a search-start failure is recorded as a warning,
+    /// never fatal, so the note list always renders even when the index can't
+    /// open (it self-heals later via the retry cooldown — see `ensure_engine`).
+    /// The single rule every adapter's bootstrap shares, so no shell can make
+    /// search startup gate the vault (A3).
+    pub fn bootstrap_with_search(
+        &self,
+        index_dir: PathBuf,
+        on_status: StatusObserver,
+    ) -> Result<BootstrapResult, String> {
+        let mut result = self.bootstrap()?;
+        if let Err(error) = self.start_search(index_dir, on_status) {
+            result.warnings.push(format!("search startup: {error}"));
+        }
+        Ok(result)
+    }
+
     pub fn snapshot(&self) -> Snapshot {
         vault::snapshot(&self.root)
     }

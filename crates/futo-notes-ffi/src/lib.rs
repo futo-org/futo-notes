@@ -195,19 +195,15 @@ impl NoteStore {
     /// Run one-way migrations + first-run seed, return the initial snapshot,
     /// and start the owned BM25 index in the background.
     pub fn bootstrap(&self, index_dir: String) -> Result<NoteBootstrap, NoteError> {
-        let result = self.inner.bootstrap().map_err(NoteError::Io)?;
-        let mut warnings = result.warnings;
-        if let Err(error) = self
+        let result = self
             .inner
-            .start_search(PathBuf::from(index_dir), Arc::new(|_| {}))
-        {
-            warnings.push(format!("search startup: {error}"));
-        }
+            .bootstrap_with_search(PathBuf::from(index_dir), Arc::new(|_| {}))
+            .map_err(NoteError::Io)?;
         Ok(NoteBootstrap {
             snapshot: result.snapshot.into(),
             seeded: result.seeded,
             migrated: result.migrated,
-            warnings,
+            warnings: result.warnings,
         })
     }
 

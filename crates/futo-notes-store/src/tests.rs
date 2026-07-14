@@ -292,6 +292,31 @@ fn create_if_absent_leaves_no_temp_or_partial() {
     assert!(!stray(&root.0), "existed path left a temp file behind");
 }
 
+// Bootstrap must render the vault even when the search index can't open — a
+// search-start failure is a warning, never fatal (A3). Every adapter shares
+// this via bootstrap_with_search.
+#[test]
+fn bootstrap_succeeds_and_seeds_even_when_search_cannot_start() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    let bad_index = root.0.join("index-is-a-file");
+    fs::write(&bad_index, "not a directory").unwrap();
+    let observer: StatusObserver = Arc::new(|_| {});
+
+    let result = store.bootstrap_with_search(bad_index, observer).unwrap();
+
+    assert_eq!(result.seeded, 1, "empty vault still seeds Welcome");
+    assert_eq!(result.snapshot.notes.len(), 1, "the note list still populates");
+    assert!(
+        result.warnings.iter().any(|w| w.contains("search startup")),
+        "the search failure is surfaced as a warning"
+    );
+    assert!(
+        store.search("anything", None).unwrap().is_empty(),
+        "search degrades to empty, never an error"
+    );
+}
+
 // ── search-engine start self-heal (F13 retry, PKT-10, now shared) ──
 
 // A failed engine start degrades (never crashes) and is retried lazily on a
