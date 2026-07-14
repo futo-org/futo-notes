@@ -2338,8 +2338,11 @@ mod tests {
         let file = local_files(root.path()).remove(0);
 
         let mut state = connected();
+        // Seed the cursor and the collection watermark to DISTINCT values so the
+        // test also catches the most direct crash-window regression:
+        // `pull_cursor = max_version`.
         state.pull_cursor = 42;
-        state.max_version = 42;
+        state.max_version = 99;
         // The one local file is already current in the map (mtime + size match),
         // so push has nothing to upload and never contacts the server.
         state.object_map.insert(
