@@ -1,0 +1,292 @@
+// @vitest-environment jsdom
+import { afterEach, describe, expect, it } from 'vitest';
+import { EditorView, runScopeHandlers } from '@codemirror/view';
+import { Text } from '@codemirror/state';
+import { markdown } from '@codemirror/lang-markdown';
+import {
+  computeOrderedRenumberChanges,
+  listContinuationKeymap,
+  orderedListRenumber,
+} from './listContinuation';
+
+const views: EditorView[] = [];
+
+afterEach(() => {
+  for (const v of views) v.destroy();
+  views.length = 0;
+});
+
+function setup(doc: string, anchor: number): EditorView {
+  const view = new EditorView({
+    doc,
+    selection: { anchor },
+    extensions: [markdown(), listContinuationKeymap],
+    parent: document.body,
+  });
+  views.push(view);
+  return view;
+}
+
+function pressEnter(view: EditorView): void {
+  const ev = new KeyboardEvent('keydown', {
+    key: 'Enter',
+    bubbles: true,
+    cancelable: true,
+  });
+  view.contentDOM.dispatchEvent(ev);
+}
+
+function pressTab(view: EditorView, shiftKey = false): void {
+  const ev = new KeyboardEvent('keydown', { key: 'Tab', shiftKey });
+  runScopeHandlers(view, ev, 'editor');
+}
+
+function pressBackspace(view: EditorView): void {
+  const ev = new KeyboardEvent('keydown', {
+    key: 'Backspace',
+    bubbles: true,
+    cancelable: true,
+  });
+  view.contentDOM.dispatchEvent(ev);
+}
+
+describe('blockquote exit', () => {
+  it('replaces `> ` with a leading newline so the quote is terminated', () => {
+    const doc = '> q1\n> q2\n> ';
+    const v = setup(doc, doc.length);
+    pressEnter(v);
+
+    const expected = '> q1\n> q2\n\n';
+    expect(v.state.doc.toString()).toBe(expected);
+    expect(v.state.selection.main.head).toBe(expected.length);
+  });
+
+  it('pressing Enter on a non-quote line after an exit does not reinject `> `', () => {
+    const doc = '> q1\n> q2\n\nb';
+    const v = setup(doc, doc.length); // cursor after `b`
+    pressEnter(v);
+
+    expect(v.state.doc.toString()).not.toContain('b\n>');
+  });
+});
+
+describe('blockquote nesting', () => {
+  it('Tab on a blockquote line increases quote depth', () => {
+    const doc = '> hello';
+    const v = setup(doc, doc.length);
+    pressTab(v);
+
+    expect(v.state.doc.toString()).toBe('> > hello');
+    expect(v.state.selection.main.head).toBe('> > hello'.length);
+  });
+
+  it('Tab normalizes compact nested markers while increasing depth', () => {
+    const doc = '>> hello';
+    const v = setup(doc, doc.length);
+    pressTab(v);
+
+    expect(v.state.doc.toString()).toBe('> > > hello');
+  });
+
+  it('Shift-Tab on a nested blockquote decreases quote depth', () => {
+    const doc = '> > hello';
+    const v = setup(doc, doc.length);
+    pressTab(v, true);
+
+    expect(v.state.doc.toString()).toBe('> hello');
+    expect(v.state.selection.main.head).toBe('> hello'.length);
+  });
+
+  it('Shift-Tab on a level-1 blockquote removes the quote marker', () => {
+    const doc = '> hello';
+    const v = setup(doc, doc.length);
+    pressTab(v, true);
+
+    expect(v.state.doc.toString()).toBe('hello');
+    expect(v.state.selection.main.head).toBe('hello'.length);
+  });
+
+  it('Tab leaves non-quote lines to the default keymaps', () => {
+    const doc = 'hello';
+    const v = setup(doc, doc.length);
+    pressTab(v);
+
+    expect(v.state.doc.toString()).toBe(doc);
+  });
+});
+
+describe('computeOrderedRenumberChanges', () => {
+  function applyChanges(
+    doc: string,
+    changes: ReturnType<typeof computeOrderedRenumberChanges>,
+  ): string {
+    const sorted = [...changes].sort((a, b) => ((b as any).from ?? 0) - ((a as any).from ?? 0));
+    let out = doc;
+    for (const c of sorted as Array<{ from: number; to: number; insert: string }>) {
+      out = out.slice(0, c.from) + c.insert + out.slice(c.to);
+    }
+    return out;
+  }
+
+  it('renumbers contiguous ordered list when a middle item was deleted', () => {
+    const doc = '1. thing\n2. thing2\n4. thing4';
+    const changes = computeOrderedRenumberChanges(Text.of(doc.split('\n')), [3]);
+    expect(applyChanges(doc, changes)).toBe('1. thing\n2. thing2\n3. thing4');
+  });
+
+  it('preserves the starting number of a list', () => {
+    const doc = '5. five\n7. seven';
+    const changes = computeOrderedRenumberChanges(Text.of(doc.split('\n')), [2]);
+    expect(applyChanges(doc, changes)).toBe('5. five\n6. seven');
+  });
+
+  it('does not cross indent boundaries', () => {
+    const doc = '1. outer\n  1. inner\n  3. inner3\n2. outer2';
+    const changes = computeOrderedRenumberChanges(Text.of(doc.split('\n')), [3]);
+    expect(applyChanges(doc, changes)).toBe('1. outer\n  1. inner\n  2. inner3\n2. outer2');
+  });
+
+  it('returns no changes when numbering is already correct', () => {
+    const doc = '1. a\n2. b\n3. c';
+    const changes = computeOrderedRenumberChanges(Text.of(doc.split('\n')), [2]);
+    expect(changes).toEqual([]);
+  });
+});
+
+describe('orderedListRenumber extension', () => {
+  it('fixes numbering after a delete of a middle line', () => {
+    const view = new EditorView({
+      doc: '1. thing\n2. thing2\n3. thing3\n4. thing4',
+      extensions: [markdown(), orderedListRenumber],
+      parent: document.body,
+    });
+    views.push(view);
+
+    const line3 = view.state.doc.line(3);
+    view.dispatch({
+      changes: { from: line3.from, to: line3.to + 1, insert: '' },
+      selection: { anchor: line3.from },
+    });
+
+    expect(view.state.doc.toString()).toBe('1. thing\n2. thing2\n3. thing4');
+  });
+
+  it('does not act on selection-only transactions', () => {
+    const doc = '1. a\n3. b';
+    const view = new EditorView({
+      doc,
+      extensions: [markdown(), orderedListRenumber],
+      parent: document.body,
+    });
+    views.push(view);
+
+    view.dispatch({ selection: { anchor: 0 } });
+    expect(view.state.doc.toString()).toBe(doc);
+  });
+});
+
+describe('prose indent on Enter', () => {
+  it('strips leading spaces from the new line', () => {
+    const doc = '  hello';
+    const v = setup(doc, doc.length);
+    pressEnter(v);
+    expect(v.state.doc.toString()).toBe('  hello\n');
+    expect(v.state.selection.main.head).toBe('  hello\n'.length);
+  });
+
+  it('preserves leading tabs on the new line', () => {
+    const doc = '\thello';
+    const v = setup(doc, doc.length);
+    pressEnter(v);
+    expect(v.state.doc.toString()).toBe('\thello\n\t');
+    expect(v.state.selection.main.head).toBe('\thello\n\t'.length);
+  });
+
+  it('preserves only tabs when leading whitespace mixes tabs and spaces', () => {
+    const doc = '\t  hello';
+    const v = setup(doc, doc.length);
+    pressEnter(v);
+    expect(v.state.doc.toString()).toBe('\t  hello\n\t');
+    expect(v.state.selection.main.head).toBe('\t  hello\n\t'.length);
+  });
+});
+
+describe('code block escape', () => {
+  it('exits a fenced code block when Enter is pressed on an empty line above the closing fence', () => {
+    const doc = '```\nfoo\n\n```';
+    const v = setup(doc, doc.indexOf('\n```')); // cursor on the empty line before ```
+    pressEnter(v);
+
+    expect(v.state.doc.toString()).toBe('```\nfoo\n```');
+    const expectedHead = '```\nfoo\n```'.length;
+    expect(v.state.selection.main.head).toBe(expectedHead);
+  });
+});
+
+describe('list backspace: dedent / delete-empty (editor.md)', () => {
+  it('deletes an empty bullet item (clears the line)', () => {
+    const doc = '- ';
+    const v = setup(doc, doc.length); // caret after "- "
+    pressBackspace(v);
+    expect(v.state.doc.toString()).toBe('');
+    expect(v.state.selection.main.head).toBe(0);
+  });
+
+  it('deletes an empty ordered item', () => {
+    const doc = '1. ';
+    const v = setup(doc, doc.length);
+    pressBackspace(v);
+    expect(v.state.doc.toString()).toBe('');
+  });
+
+  it('deletes an empty task item', () => {
+    const doc = '- [ ] ';
+    const v = setup(doc, doc.length);
+    pressBackspace(v);
+    expect(v.state.doc.toString()).toBe('');
+  });
+
+  it('strips the marker on a top-level bullet when the caret is at content start', () => {
+    const doc = '- hello';
+    const v = setup(doc, 2); // right after "- "
+    pressBackspace(v);
+    expect(v.state.doc.toString()).toBe('hello');
+    expect(v.state.selection.main.head).toBe(0);
+  });
+
+  it('strips the marker on a top-level ordered item at content start', () => {
+    const doc = '1. hello';
+    const v = setup(doc, 3); // after "1. "
+    pressBackspace(v);
+    expect(v.state.doc.toString()).toBe('hello');
+  });
+
+  it('dedents a space-indented item by one level at content start', () => {
+    const doc = '  - hello';
+    const v = setup(doc, doc.indexOf('hello')); // content start
+    pressBackspace(v);
+    expect(v.state.doc.toString()).toBe('- hello');
+    expect(v.state.selection.main.head).toBe(2);
+  });
+
+  it('dedents a tab-indented item by one tab at content start', () => {
+    const doc = '\t- hello';
+    const v = setup(doc, doc.indexOf('hello'));
+    pressBackspace(v);
+    expect(v.state.doc.toString()).toBe('- hello');
+  });
+
+  it('does not intercept a mid-content backspace (falls through to default)', () => {
+    const doc = '- hello';
+    const v = setup(doc, doc.length); // caret at end, not content-start
+    pressBackspace(v);
+    expect(v.state.doc.toString()).toBe('- hello');
+  });
+
+  it('does not intercept on a non-list line', () => {
+    const doc = 'plain text';
+    const v = setup(doc, 5);
+    pressBackspace(v);
+    expect(v.state.doc.toString()).toBe('plain text');
+  });
+});

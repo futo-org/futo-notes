@@ -1,0 +1,57 @@
+/* === Theme: Ambient Precision === */
+@theme {
+  --color-primary: #f26b1f;
+  --color-primary-hover: #d9550f;
+  --color-text: #0f0f0f;
+  --color-border: #e5e5e5;
+  --color-surface: #f2f2f2;
+  --color-muted: #737373;
+  --color-bg: #fcfcfc;
+  --color-sidebar: #f4f4f4;
+  --color-danger: #dc2626;
+  --color-text-inverse: #fcfcfc;
+  --color-active-line: #efefef;
+  --color-selection: #ffe4d1;
+
+  --ink-rgb: 15, 15, 15;
+  --paper-rgb: 252, 252, 252;
+  --primary-rgb: 242, 107, 31;
+
+  --syntax-keyword: #c026d3;
+  --syntax-string: #16a34a;
+  --syntax-number: #0891b2;
+  --syntax-variable: #0284c7;
+  --syntax-type: #dc2626;
+  --syntax-property: #f26b1f;
+  --syntax-regexp: #e11d48;
+
+  --font-sans: 'Barlow', system-ui, -apple-system, sans-serif;
+  --font-serif: 'Barlow', system-ui, -apple-system, sans-serif;
+}
+
+[data-theme='dark'] {
+  --color-primary: #ff7a33;
+  --color-primary-hover: #ff9559;
+  --color-text: #fafafa;
+  --color-border: #262626;
+  --color-surface: #171717;
+  --color-muted: #a3a3a3;
+  --color-bg: #0a0a0a;
+  --color-sidebar: #131313;
+  --color-danger: #ef4444;
+  --color-text-inverse: #0a0a0a;
+  --color-active-line: #1f1f1f;
+  --color-selection: #6b3f1d;
+
+  --ink-rgb: 250, 250, 250;
+  --paper-rgb: 10, 10, 10;
+  --primary-rgb: 255, 122, 51;
+
+  --syntax-keyword: #e879f9;
+  --syntax-string: #4ade80;
+  --syntax-number: #22d3ee;
+  --syntax-variable: #38bdf8;
+  --syntax-type: #f87171;
+  --syntax-property: #ff9559;
+  --syntax-regexp: #fb7185;
+}

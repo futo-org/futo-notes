@@ -11,6 +11,100 @@ per kind of change, and exactly when to stop and ask.
 Every rule here is load-bearing. Rules marked **CRITICAL** protect user data or shipped behavior —
 never weaken one to make a test pass, a build compile, or a pipeline go green.
 
+## Mandatory modifying-agent organization standard
+
+`docs/architecture/codebase-organization.md` is the canonical standard for code ownership,
+placement, dependencies, naming, file design, comments, and test placement. These root
+instructions apply throughout the repository. Nested `AGENTS.md` files add layer-specific rules;
+they do not replace this requirement.
+
+### Modifying-agent activation
+
+An agent becomes a modifying agent when it intends to:
+
+- Produce a concrete implementation or refactoring plan expected to result in repository changes.
+- Create, edit, move, rename, or delete code, tests, configuration, scripts, build files, CI files,
+  or architecture documentation.
+- Delegate planning or implementation that may result in those changes.
+- Transition from read-only investigation into planning or implementing a fix.
+
+Before producing the implementation plan, and before making any modification, the agent must:
+
+1. Read `docs/architecture/codebase-organization.md` completely, from its first line through EOF.
+2. Read the applicable behavioral specifications and nested `AGENTS.md` files.
+3. Identify the narrowest feature, capability, resource, provider, or boundary that owns the
+   planned change.
+4. State that the complete organization standard was read and name the chosen owner before
+   presenting the plan or editing files.
+
+Do not rely on memory, a previous task, excerpts, a context summary, another agent's summary, or
+another agent's acknowledgment. The completed read remains valid across ordinary conversation
+turns, implementation iterations, test failures, review corrections, and small plan adjustments
+within the same modifying task.
+
+If a read-only task becomes a modifying task, stop and complete the required reading before
+proposing the implementation plan. Pure read-only analysis, status reporting, and hypothetical
+discussion do not activate this requirement. Every newly spawned or handed-off agent that may
+plan modifications or edit files must complete its own full read before planning or editing.
+
+### Read-lease invalidation
+
+The modifying agent must read the complete organization document again before its next planning
+or editing action when either of these occurs:
+
+- The conversation or agent context is compacted, summarized, or replaced.
+- The original implementation plan is abandoned at an architectural or organizational level.
+
+Foundational replanning includes:
+
+- Starting the implementation over or from scratch.
+- Rethinking the approach or taking a fundamentally different approach.
+- Discarding the current ownership model, module boundaries, source-tree layout, or dependency
+  direction.
+- Discovering that the plan rests on incorrect architectural assumptions and replacing those
+  foundations rather than correcting the existing plan locally.
+
+It does not include:
+
+- Adding, removing, reordering, or clarifying implementation steps.
+- Changing specific files while preserving the same ownership model.
+- Fixing tests, compiler errors, regressions, or review findings within the existing approach.
+- Extracting another helper or component consistent with the plan.
+- Expanding into another layer while retaining the original approach.
+- Rebasing, refreshing from `main`, resolving merge conflicts, or recreating a branch without
+  changing the implementation approach.
+- Pausing and resuming while the original context remains intact.
+
+Decision rule: if the original ownership boundaries, module layout, and dependency direction still
+govern the work, the plan is being refined and the read remains valid. If those foundations are
+being discarded, the plan is being replaced and the document must be read again.
+
+When work expands into another directory or architectural layer, read its nested `AGENTS.md` and
+relevant specifications before planning changes there. The complete organization document does not
+need to be reread while the existing read remains valid.
+
+### Repository interpretation and priority
+
+Where the organization standard refers to `spec/`, this repository's equivalent is `docs/spec/`.
+Its framework-specific trees and examples are conceptual; apply their ownership and dependency
+rules through this repository's Svelte, Rust, Swift, Kotlin, and Tauri structures.
+
+Apply organization guidance in this order:
+
+1. System and explicit user instructions.
+2. CRITICAL safety, data-integrity, compatibility, and behavioral rules in `AGENTS.md`.
+3. Applicable requirements in `docs/spec/` and the nearest nested `AGENTS.md`.
+4. `docs/architecture/codebase-organization.md`.
+5. Existing implementation patterns.
+
+If the organization standard conflicts with a higher-priority requirement, preserve the
+higher-priority requirement and report the conflict.
+
+In short: organize by the narrowest real owner, make shared code earn its scope, keep entry points
+focused on orchestration, prefer precise names and explicit dependencies, co-locate tests, explain
+only non-obvious intent in comments, and complete every structural move across code, tests,
+configuration, and documentation.
+
 ---
 
 ## 1. Quick start
@@ -58,18 +152,20 @@ read the one for the layer you're editing.
 ```
 src/                    ← Shared Svelte 5 app (UI, reactive state, sync coordination)
   lib/rules.ts          ← Hot-path shim re-exporting the note rules from @futo-notes/editor
-  lib/platform/         ← PlatformFS abstraction (tauri.ts / web.ts), pathSafety, tauriPaths
+  lib/localNoteStore.ts ← Note/folder/search adapter; Rust in production, memory in browser tests
+  lib/platform/         ← Non-note shell storage/images/capabilities, pathSafety, tauriPaths
   editor-embed/         ← Entry for the single-file editor.html embedded in the native shells
 crates/
   futo-notes-core/      ← Hashing, E2EE crypto, sync payload prep/apply, 3-way merge,
                           path safety + title primitives (files.rs)
-  futo-notes-model/     ← THE NOTE DOMAIN: CRUD, rules (id/tags/wikilinks/preview), scan
-  futo-notes-sync/      ← E2EE SyncSession (push-first cycles), SSE live loop
+  futo-notes-model/     ← Pure note decisions (id/tags/wikilinks/preview), no filesystem state
+  futo-notes-store/     ← THE LOCAL NOTE ENGINE: vault, migrations, workflows, owned search
+  futo-notes-sync/      ← E2EE sync orchestrator (push-first run_sync), SSE live loop
   futo-notes-search/    ← Tantivy BM25 engine + background indexer
-  futo-notes-ffi/       ← Single UniFFI facade for native shells (NoteStore, SearchEngine,
-                          SyncClient, rule functions). Generated bindings are gitignored.
+  futo-notes-ffi/       ← UniFFI projection (NoteStore owns search, plus SyncClient/rules).
+                          Generated bindings are gitignored.
 apps/
-  tauri/                ← Tauri v2 DESKTOP shell (notes_* / search_* / e2ee_* / fs_* commands)
+  tauri/                ← Tauri v2 desktop shell (local_notes_* / e2ee_* / OS glue)
   ios/                  ← Native SwiftUI app (xcodegen; Sources/Generated is generated)
   android/              ← Native Compose app (UniFFI Kotlin bindings + jniLibs are generated)
 packages/
@@ -111,7 +207,7 @@ Ask, in order:
 that line belongs in infrastructure. Existing examples: filename/path safety
 (`packages/editor/src/filename.ts`, `src/lib/platform/pathSafety.ts`,
 `futo_notes_core::files`), platform I/O behind `src/lib/platform/index.ts`, E2EE fetch/auth/
-persistence centralized in `src/lib/syncServiceE2ee.ts`. Before copying a pattern from another
+persistence centralized in `src/features/sync/syncServiceE2ee.ts`. Before copying a pattern from another
 file (auth headers, try/parse/catch, validation), check whether a shared helper exists or should.
 
 ## 5. Conventions
@@ -124,15 +220,15 @@ file (auth headers, try/parse/catch, validation), check whether a shared helper 
 - Inside `$effect`, read callbacks/objects like `scrollParent`/`onchange` **lazily inside inner
   callbacks**, not in the effect body — otherwise they become dependencies and destroy/recreate
   the editor.
-- Note/file I/O goes through `getFS()`/`getPlatformFS()` (the `PlatformFS` interface) — never raw
-  `invoke()` or `@tauri-apps/plugin-fs` in components. Sync and search have their own dedicated
-  shims (`syncServiceE2ee.ts`, `searchEngine.ts`); add new commands to the matching shim.
-- Optimistic cache mutations must revert on failure before rethrowing (see
-  `notes.svelte.ts:moveNote`). Shims backing a fallback return `null` rather than throw
-  (`searchEngine.ts`). User-facing sync errors funnel through `getSyncErrorMessage()`.
+- Note/folder/search work goes through `getLocalNoteStore()`; `PlatformFS` is only for shell
+  storage, images, and capabilities. Components never invoke note commands or plugin-fs directly.
+  Sync keeps its dedicated `syncServiceE2ee.ts` shim.
+- The note cache is a projection, not an optimistic owner. Apply only the complete
+  `LocalNoteMutation` returned after Rust commits a workflow; it includes collision outcomes and
+  backlink rewrites. User-facing sync errors funnel through `getSyncErrorMessage()`.
 - Never hand-build note paths: `pathSafety.ts` (TS) / `futo_notes_core::files::safe_note_path`
   (Rust).
-- New persisted setting: add the field to `AppState` (`src/lib/appState.ts`), guard it in
+- New persisted setting: add the field to `AppState` (`src/shared/state/appState.ts`), guard it in
   `sanitize()`, default it in `defaultState()`, thread through the `AppPreferences` facade.
   UI-layout state (sidebar width, open folders, tabs) goes in `.app-config.json` via
   `getConfig`/`saveConfig`.
@@ -141,11 +237,11 @@ file (auth headers, try/parse/catch, validation), check whether a shared helper 
   block in Tauri's webview.**
 
 ### Code — Rust
-- Every Tauri command: `pub async fn`, FS work in `tauri::async_runtime::spawn_blocking`,
-  `Result<T, String>`, errors mapped with `task_join_err`. Commands wrap a pure
-  `*_impl(base: &Path, ...)` that the `#[cfg(test)]` module tests directly.
-- Every note-tree mutation registers its filenames in the watcher-suppression map (5s window)
-  **before** writing, so the app doesn't react to its own writes (see `note_commands.rs` head comment).
+- Tauri local-note commands are projections over the one `LocalNoteStore` in `AppState`; do not
+  recreate filesystem/search workflow logic in an adapter.
+- `LocalNoteStore` serializes each note workflow and invokes its `BeforeWrite` hook for every
+  affected filename **before** the first filesystem syscall. Desktop maps that hook to typed
+  one-shot watcher suppression.
 - Tempdirs in tests are hand-rolled (`temp_dir().join(format!(...))` + `AtomicU32` counter + pid)
   — no `tempfile` crate. Env-var tests serialize on a `static Mutex`.
 - FFI errors are `#[derive(uniffi::Error, thiserror::Error)]` enums. The FFI builds use the dev
@@ -154,7 +250,7 @@ file (auth headers, try/parse/catch, validation), check whether a shared helper 
   the plain release profile.
 
 ### CSS
-- Tailwind v4; theme tokens in the `@theme` block of `src/styles/app.css`; dark mode via
+- Tailwind v4; theme tokens in the `@theme` block of `src/styles/theme.css`; dark mode via
   `[data-theme='dark']` overrides (no `dark:` variant).
 - **IMPORTANT**: styles in `@layer(components)` lose to CodeMirror's unlayered CSS. CM6 overrides
   need `!important` inside layered CSS; `editor-ux.css` is imported unlayered on purpose.
@@ -504,7 +600,7 @@ fixture check**); title constraints across the hot-path/native surfaces.
 **Not locked — real drift risk.** If you touch one, touch all, and say so in the commit:
 - Default notes-root split, 3 independent copies: Rust `vault_location.rs`, iOS `NotesStore.swift`,
   Android `NotesStore.kt`.
-- Note sort order (`modified desc, id asc`): `notes.svelte.ts`, Rust `scan_notes`, iOS
+- Note sort order (`modified desc, id asc`): `notes.svelte.ts`, Rust store snapshots, iOS
   `resortInPlace`.
 - Unique note-ID generation in Rust, TypeScript, Swift, and Kotlin.
 

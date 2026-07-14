@@ -1,13 +1,11 @@
 import type { PlatformFS, PlatformName } from './types';
 export type {
-  NoteFile,
   FileChangeEvent,
   PlatformFS,
   PlatformName,
-  FileSystem,
+  PlatformStorage,
   NativeCapabilities,
   DirFileEntry,
-  FolderEntry,
 } from './types';
 
 function hasTauriRuntime(): boolean {

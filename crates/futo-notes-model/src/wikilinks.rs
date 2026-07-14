@@ -3,15 +3,13 @@
 //! Targets are note ids/titles the UI resolves against the note index.
 //!
 //! Also hosts the bit-for-bit ports of the TS wikilink RULES
-//! (`src/lib/wikilinks.ts`): occurrence scanning, resolution, shortest-unique
+//! (`src/shared/note/wikilinks.ts`): occurrence scanning, resolution, shortest-unique
 //! display suffix, and the rewrite-on-rename machinery. NOTE these are ports
 //! of the TS regex semantics, which differ from [`extract_wikilinks`] above
 //! in two pinned ways: the TS `WIKILINK_RE` captures the WHOLE inner text
 //! (a `|alias` stays part of the target, untrimmed) and it tolerates a `[[`
 //! inside the inner text. The port follows TS verbatim; the conformance
 //! fixture `tests/conformance/wikilinks.json` locks both sides together.
-
-use std::path::Path;
 
 /// Extract wikilink targets from `content`. An empty target (`[[]]` or
 /// `[[ |x]]`) is skipped. Matches the resolution the TS `wikilinks.ts` uses
@@ -69,7 +67,7 @@ fn char_len(b: u8) -> usize {
     }
 }
 
-// ── TS wikilink-rule ports (src/lib/wikilinks.ts, bit-for-bit) ───────────
+// ── TS wikilink-rule ports (src/shared/note/wikilinks.ts, bit-for-bit) ───────────────
 
 /// One `[[...]]` occurrence found by [`find_wikilinks`]. Offsets are BYTE
 /// offsets into the scanned text (TS carries UTF-16 offsets; the rewrite
@@ -220,15 +218,16 @@ pub fn rewrite_wikilinks(
         return (text.to_string(), 0);
     }
     // The id-resolution context must include `old_id` so legacy bare-filename
-    // links targeting it still resolve. Replace `old_id` in the universe with
-    // itself so resolution works against pre-rename state.
-    let ctx: Vec<String> = if all_ids.iter().any(|id| id == old_id) {
-        all_ids.to_vec()
-    } else {
-        let mut ids = all_ids.to_vec();
-        ids.push(old_id.to_string());
-        ids
-    };
+    // links targeting it still resolve. Replace `new_id` with `old_id` so
+    // resolution sees the pre-rename universe.
+    let mut ctx = all_ids.to_vec();
+    if !ctx.iter().any(|id| id == old_id) {
+        if let Some(position) = ctx.iter().position(|id| id == new_id) {
+            ctx[position] = old_id.to_owned();
+        } else {
+            ctx.push(old_id.to_owned());
+        }
+    }
     let mut rewrites = 0u32;
     let mut cursor = 0usize;
     let mut out = String::with_capacity(text.len());
@@ -249,49 +248,6 @@ pub fn rewrite_wikilinks(
     (out, rewrites)
 }
 
-/// Rewrite every wikilink in every note in the vault that targets `old_id`
-/// to point at `new_id` — the Rust-owned equivalent of the desktop
-/// `rewriteWikilinksForRename` (notes.svelte.ts). This includes the renamed
-/// note's OWN body: self-referencing links follow the rename too (spec:
-/// editor.md). Touches only notes whose body actually contains a `[[` and
-/// only writes back when the rewrite changed the text. A failed write skips
-/// that note and continues (the TS warns and moves on too), so the pass
-/// never leaves the rest of the vault un-relinked. Returns the count of
-/// notes rewritten.
-pub fn relink_note_references(
-    notes_root: &Path,
-    old_id: &str,
-    new_id: &str,
-) -> Result<u32, String> {
-    if old_id == new_id {
-        return Ok(0);
-    }
-    let notes = crate::crud::scan_notes(notes_root);
-    let all_ids: Vec<String> = notes.iter().map(|n| n.id.clone()).collect();
-    let mut rewritten = 0u32;
-    for note in &notes {
-        // The renamed note itself is NOT skipped: self-referencing links in
-        // its own body follow the rename too (spec: editor.md). At relink
-        // time the scan sees the note at whichever id currently exists on
-        // disk (post-rename callers see `new_id`), so reading/writing
-        // `note.id` always hits the file that exists.
-        let body = crate::crud::read_note(notes_root, &note.id);
-        // Cheap pre-filter: no `[[` means no wikilinks, skip the rewrite.
-        if !body.contains("[[") {
-            continue;
-        }
-        let (text, rewrites) = rewrite_wikilinks(&body, old_id, new_id, &all_ids);
-        if rewrites == 0 || text == body {
-            continue;
-        }
-        match crate::crud::write_note(notes_root, &note.id, &text) {
-            Ok(()) => rewritten += 1,
-            Err(e) => eprintln!("[wikilink-rewrite] failed to update {}: {e}", note.id),
-        }
-    }
-    Ok(rewritten)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -306,7 +262,10 @@ mod tests {
     fn find_basic_and_offsets() {
         let occ = find_wikilinks("a [[note]] b");
         assert_eq!(occ.len(), 1);
-        assert_eq!((occ[0].start, occ[0].end, occ[0].target.as_str()), (2, 10, "note"));
+        assert_eq!(
+            (occ[0].start, occ[0].end, occ[0].target.as_str()),
+            (2, 10, "note")
+        );
     }
 
     #[test]
@@ -353,7 +312,10 @@ mod tests {
     fn resolve_exact_bare_and_ambiguous() {
         let universe = ids(&["notes", "Projects/notes", "Specs/x", "Drafts/x"]);
         // Exact id wins even when the leaf is ambiguous.
-        assert_eq!(resolve_wikilink("notes", &universe).as_deref(), Some("notes"));
+        assert_eq!(
+            resolve_wikilink("notes", &universe).as_deref(),
+            Some("notes")
+        );
         // Ambiguous bare leaf is broken, never a silent winner.
         assert_eq!(resolve_wikilink("x", &universe), None);
         assert_eq!(resolve_wikilink("", &universe), None);
@@ -375,7 +337,11 @@ mod tests {
 
     #[test]
     fn suffix_grows_until_unique() {
-        let universe = ids(&["Specs/folder-support", "Specs/Drafts/folder-support", "other"]);
+        let universe = ids(&[
+            "Specs/folder-support",
+            "Specs/Drafts/folder-support",
+            "other",
+        ]);
         assert_eq!(
             shortest_unique_suffix("Specs/Drafts/folder-support", &universe),
             "Drafts/folder-support"
@@ -407,7 +373,10 @@ mod tests {
             "Lists/grocery list",
             &universe,
         );
-        assert_eq!(text, "see [[Lists/grocery list]] and [[Lists/grocery list]]");
+        assert_eq!(
+            text,
+            "see [[Lists/grocery list]] and [[Lists/grocery list]]"
+        );
         assert_eq!(n, 2);
     }
 

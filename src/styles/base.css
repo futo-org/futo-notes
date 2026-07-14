@@ -1,0 +1,101 @@
+@layer base {
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+
+  html {
+    width: 100%;
+    height: 100%;
+    height: -webkit-fill-available;
+    background: var(--color-bg);
+  }
+
+  body {
+    width: 100%;
+    height: 100%;
+    height: -webkit-fill-available;
+    min-height: 100vh;
+    min-height: -webkit-fill-available;
+    font-family: var(--font-sans);
+    background: var(--color-bg);
+    color: var(--color-text);
+    -webkit-font-smoothing: antialiased;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    position: fixed;
+    inset: 0;
+  }
+
+  #app {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--color-bg);
+  }
+
+  button,
+  a,
+  .note-item,
+  input {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  ::selection {
+    /* WebKit repaints fully-opaque ::selection colors at reduced alpha
+       (invisible on dark backgrounds); author alpha < 1 is used as-is,
+       so shave off 1% to keep the token color. */
+    background: color-mix(in srgb, var(--color-selection) 99%, transparent);
+  }
+
+  /* CodeMirror global overrides */
+  .cm-editor {
+    background: transparent !important;
+    color: var(--color-text) !important;
+    outline: none !important;
+    box-shadow: none !important;
+  }
+
+  .cm-content {
+    caret-color: transparent !important;
+  }
+
+  .cm-editor.cm-focused,
+  .cm-editor:focus-within,
+  .cm-scroller,
+  .cm-content {
+    outline: none !important;
+    box-shadow: none !important;
+  }
+
+  .cm-gutters {
+    background: var(--color-surface) !important;
+    border-right: 1px solid var(--color-border) !important;
+  }
+
+  .cm-activeLineGutter {
+    background: var(--color-active-line) !important;
+  }
+
+  .cm-cursor {
+    border-left-color: var(--color-primary) !important;
+    border-left-width: 2px !important;
+  }
+
+  .cm-selectionMatch {
+    background: var(--color-selection) !important;
+  }
+
+  .cm-selectionBackground {
+    background: var(--color-selection) !important;
+  }
+}

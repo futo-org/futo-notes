@@ -1,9 +1,8 @@
 //! `futo-notes-ffi` — the single UniFFI facade for the native iOS + Android
 //! shells.
 //!
-//! Exposes two objects plus the deterministic rule functions:
-//!   - `NoteStore` — note + folder CRUD and scanning (the iOS `NotesStore`
-//!     business logic, now Rust-owned).
+//! Exposes one local-note object plus the sync client and deterministic rules:
+//!   - `NoteStore` — durable note/folder workflows and the owned search index.
 //!   - `SyncClient` — the E2EE sync client (relocated here from
 //!     `futo-notes-sync`, which is now a plain library).
 //!
@@ -11,10 +10,10 @@
 //! methods are marshalled onto a tokio runtime. No build.rs / .udl required.
 
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use futo_notes_model as model;
-use futo_notes_search as engine;
+use futo_notes_store as notes;
 use futo_notes_sync as sync;
 use futo_notes_sync::{SyncErrorKind, SyncProgress, SyncSession, SyncSessionListener};
 
@@ -30,7 +29,7 @@ uniffi::setup_scaffolding!();
 //  Note domain
 // ════════════════════════════════════════════════════════════════════════
 
-/// One note's list-level metadata (the FFI mirror of `model::NoteMetadata`).
+/// One note's list-level metadata.
 /// `tags` are canonical lowercase names WITHOUT the leading `#`.
 #[derive(uniffi::Record)]
 pub struct NoteMetadata {
@@ -44,8 +43,8 @@ pub struct NoteMetadata {
     pub tags: Vec<String>,
 }
 
-impl From<model::NoteMetadata> for NoteMetadata {
-    fn from(m: model::NoteMetadata) -> Self {
+impl From<notes::NoteMetadata> for NoteMetadata {
+    fn from(m: notes::NoteMetadata) -> Self {
         NoteMetadata {
             id: m.id,
             title: m.title,
@@ -56,6 +55,61 @@ impl From<model::NoteMetadata> for NoteMetadata {
             tags: m.tags,
         }
     }
+}
+
+#[derive(uniffi::Record)]
+pub struct NoteSnapshot {
+    pub notes: Vec<NoteMetadata>,
+    pub folders: Vec<String>,
+}
+
+impl From<notes::Snapshot> for NoteSnapshot {
+    fn from(snapshot: notes::Snapshot) -> Self {
+        Self {
+            notes: snapshot.notes.into_iter().map(Into::into).collect(),
+            folders: snapshot.folders,
+        }
+    }
+}
+
+#[derive(uniffi::Record)]
+pub struct NoteRename {
+    pub from: String,
+    pub to: String,
+}
+
+#[derive(uniffi::Record)]
+pub struct NoteMutation {
+    pub upserted: Vec<NoteMetadata>,
+    pub removed: Vec<String>,
+    pub renamed: Vec<NoteRename>,
+    pub warnings: Vec<String>,
+}
+
+impl From<notes::MutationResult> for NoteMutation {
+    fn from(mutation: notes::MutationResult) -> Self {
+        Self {
+            upserted: mutation.upserted.into_iter().map(Into::into).collect(),
+            removed: mutation.removed,
+            renamed: mutation
+                .renamed
+                .into_iter()
+                .map(|rename| NoteRename {
+                    from: rename.from,
+                    to: rename.to,
+                })
+                .collect(),
+            warnings: mutation.warnings,
+        }
+    }
+}
+
+#[derive(uniffi::Record)]
+pub struct NoteBootstrap {
+    pub snapshot: NoteSnapshot,
+    pub seeded: u32,
+    pub migrated: u32,
+    pub warnings: Vec<String>,
 }
 
 /// Folder + title split of a note id.
@@ -84,18 +138,18 @@ pub enum FlushOutcome {
     SkippedChanged,
 }
 
-impl From<model::FlushOutcome> for FlushOutcome {
-    fn from(o: model::FlushOutcome) -> Self {
+impl From<notes::FlushOutcome> for FlushOutcome {
+    fn from(o: notes::FlushOutcome) -> Self {
         match o {
-            model::FlushOutcome::Wrote => FlushOutcome::Wrote,
-            model::FlushOutcome::SkippedMissing => FlushOutcome::SkippedMissing,
-            model::FlushOutcome::SkippedChanged => FlushOutcome::SkippedChanged,
+            notes::FlushOutcome::Wrote => FlushOutcome::Wrote,
+            notes::FlushOutcome::SkippedMissing => FlushOutcome::SkippedMissing,
+            notes::FlushOutcome::SkippedChanged => FlushOutcome::SkippedChanged,
         }
     }
 }
 
 /// Outcome of `NoteStore::create_if_absent` (the FFI mirror of
-/// `model::CreateOutcome`).
+/// `notes::CreateOutcome`).
 #[derive(Debug, PartialEq, Eq, uniffi::Enum)]
 pub enum CreateOutcome {
     /// No file existed; `content` was created at the id.
@@ -105,13 +159,19 @@ pub enum CreateOutcome {
     Existed,
 }
 
-impl From<model::CreateOutcome> for CreateOutcome {
-    fn from(o: model::CreateOutcome) -> Self {
+impl From<notes::CreateOutcome> for CreateOutcome {
+    fn from(o: notes::CreateOutcome) -> Self {
         match o {
-            model::CreateOutcome::Created => CreateOutcome::Created,
-            model::CreateOutcome::Existed => CreateOutcome::Existed,
+            notes::CreateOutcome::Created => CreateOutcome::Created,
+            notes::CreateOutcome::Existed => CreateOutcome::Existed,
         }
     }
+}
+
+#[derive(uniffi::Record)]
+pub struct ConditionalWrite {
+    pub outcome: FlushOutcome,
+    pub mutation: Option<NoteMutation>,
 }
 
 /// The note vault, rooted at a directory on disk. All methods are synchronous
@@ -119,7 +179,7 @@ impl From<model::CreateOutcome> for CreateOutcome {
 /// debouncing on top.
 #[derive(uniffi::Object)]
 pub struct NoteStore {
-    root: PathBuf,
+    inner: notes::LocalNoteStore,
 }
 
 #[uniffi::export]
@@ -128,36 +188,45 @@ impl NoteStore {
     #[uniffi::constructor]
     pub fn new(notes_root: String) -> Arc<Self> {
         Arc::new(Self {
-            root: PathBuf::from(notes_root),
+            inner: notes::LocalNoteStore::new(PathBuf::from(notes_root)),
         })
     }
 
-    /// Scan all notes, sorted by mtime descending.
-    pub fn scan_notes(&self) -> Vec<NoteMetadata> {
-        model::scan_notes(&self.root)
-            .into_iter()
-            .map(Into::into)
-            .collect()
+    /// Run one-way migrations + first-run seed, return the initial snapshot,
+    /// and start the owned BM25 index in the background.
+    pub fn bootstrap(&self, index_dir: String) -> Result<NoteBootstrap, NoteError> {
+        let result = self
+            .inner
+            .bootstrap_with_search(PathBuf::from(index_dir), Arc::new(|_| {}))
+            .map_err(NoteError::Io)?;
+        Ok(NoteBootstrap {
+            snapshot: result.snapshot.into(),
+            seeded: result.seeded,
+            migrated: result.migrated,
+            warnings: result.warnings,
+        })
     }
 
-    /// All folder paths (note ancestors + empty dirs), sorted.
-    pub fn scan_folders(&self) -> Vec<String> {
-        model::scan_folders(&self.root)
+    pub fn scan(&self) -> NoteSnapshot {
+        self.inner.snapshot().into()
     }
 
     /// Read a note's content (`""` if missing).
     pub fn read(&self, id: String) -> String {
-        model::read_note(&self.root, &id)
+        self.inner.read(&id)
     }
 
     /// Whether a note exists on disk.
     pub fn exists(&self, id: String) -> bool {
-        model::note_exists(&self.root, &id)
+        self.inner.exists(&id)
     }
 
     /// Atomically write a note's content.
-    pub fn write(&self, id: String, content: String) -> Result<(), NoteError> {
-        model::write_note(&self.root, &id, &content).map_err(NoteError::Io)
+    pub fn write(&self, id: String, content: String) -> Result<NoteMutation, NoteError> {
+        self.inner
+            .write(&id, &content, None)
+            .map(Into::into)
+            .map_err(NoteError::Io)
     }
 
     /// Conditional flush for a backgrounded editor: write `content` only if the
@@ -174,68 +243,81 @@ impl NoteStore {
         id: String,
         expected_prev: String,
         content: String,
-    ) -> Result<FlushOutcome, NoteError> {
-        model::write_note_if_unchanged(&self.root, &id, &expected_prev, &content)
-            .map(FlushOutcome::from)
+    ) -> Result<ConditionalWrite, NoteError> {
+        self.inner
+            .write_if_unchanged(&id, &expected_prev, &content)
+            .map(|result| ConditionalWrite {
+                outcome: result.outcome.into(),
+                mutation: result.mutation.map(Into::into),
+            })
             .map_err(NoteError::Io)
     }
 
     /// Atomically (re-)create a note with `content` ONLY IF no file exists at
-    /// `id` yet (`O_EXCL`). The editor's leave/background flush uses this to
-    /// honor the peer-delete dirty-keep edit-wins semantic — recreate a
-    /// just-`SkippedMissing` note — without the unconditional-write clobber
-    /// risk: a live-sync pull writing the same id OUTSIDE this store's
+    /// `id` yet (no-replace `hard_link` install). The editor's leave/background
+    /// flush uses this to honor the peer-delete dirty-keep edit-wins semantic —
+    /// recreate a just-`SkippedMissing` note — without the unconditional-write
+    /// clobber risk: a live-sync pull writing the same id OUTSIDE this store's
     /// serialization cannot have its content overwritten. Returns
     /// [`CreateOutcome::Existed`] if the id reappeared in the window (caller
-    /// parks a conflict copy instead). See `model::create_note_if_absent`.
+    /// parks a conflict copy instead). See `LocalNoteStore::create_if_absent`.
     pub fn create_if_absent(
         &self,
         id: String,
         content: String,
     ) -> Result<CreateOutcome, NoteError> {
-        model::create_note_if_absent(&self.root, &id, &content)
+        self.inner
+            .create_if_absent(&id, &content)
             .map(CreateOutcome::from)
             .map_err(NoteError::Io)
     }
 
-    /// Seed the welcome note iff the vault is empty. Returns the number of
-    /// notes written (0 when the vault already had content). The seed content
-    /// lives in `futo-notes-model` so every shell gets an identical first run.
-    pub fn seed_if_empty(&self) -> Result<u32, NoteError> {
-        model::seed_if_empty(&self.root).map_err(NoteError::Io)
-    }
-
-    /// Create a note from a title (+ optional folder). Returns the final id.
-    pub fn create_note(&self, title: String, folder: String) -> Result<String, NoteError> {
-        model::create_note(&self.root, &folder, &title).map_err(NoteError::Io)
+    pub fn create_note(
+        &self,
+        title: String,
+        folder: String,
+        content: String,
+    ) -> Result<NoteMutation, NoteError> {
+        self.inner
+            .create(&folder, &title, &content)
+            .map(Into::into)
+            .map_err(NoteError::Io)
     }
 
     /// Delete a note (missing is not an error).
-    pub fn delete(&self, id: String) -> Result<(), NoteError> {
-        model::delete_note(&self.root, &id).map_err(NoteError::Io)
+    pub fn delete(&self, id: String) -> Result<NoteMutation, NoteError> {
+        self.inner
+            .delete(&id)
+            .map(Into::into)
+            .map_err(NoteError::Io)
     }
 
     /// Rename/move a note. Returns the final (collision-resolved) id.
-    pub fn rename(&self, old_id: String, new_id: String) -> Result<String, NoteError> {
-        model::rename_note(&self.root, &old_id, &new_id).map_err(NoteError::Io)
+    pub fn rename(&self, old_id: String, new_id: String) -> Result<NoteMutation, NoteError> {
+        self.inner
+            .rename(&old_id, &new_id)
+            .map(Into::into)
+            .map_err(NoteError::Io)
     }
 
     /// Move a note into `folder` (`""` = root), keeping its leaf.
-    pub fn move_note(&self, id: String, folder: String) -> Result<String, NoteError> {
-        model::move_note(&self.root, &id, &folder).map_err(NoteError::Io)
+    pub fn move_note(&self, id: String, folder: String) -> Result<NoteMutation, NoteError> {
+        self.inner
+            .move_note(&id, &folder)
+            .map(Into::into)
+            .map_err(NoteError::Io)
     }
 
     /// Create a folder (+ intermediates). Returns the sanitized path (or `""`).
     pub fn create_folder(&self, path: String) -> Result<String, NoteError> {
-        model::create_folder(&self.root, &path).map_err(NoteError::Io)
+        self.inner.create_folder(&path).map_err(NoteError::Io)
     }
 
-    /// Rewrite every wikilink vault-wide that resolves to `old_id` so it
-    /// points at `new_id` — the relink pass the shell runs after a rename or
-    /// move (the desktop `rewriteWikilinksForRename` equivalent). Returns the
-    /// count of notes rewritten.
-    pub fn relink(&self, old_id: String, new_id: String) -> Result<u32, NoteError> {
-        model::relink_note_references(&self.root, &old_id, &new_id).map_err(NoteError::Io)
+    pub fn rename_folder(&self, from: String, to: String) -> Result<NoteMutation, NoteError> {
+        self.inner
+            .rename_folder(&from, &to)
+            .map(Into::into)
+            .map_err(NoteError::Io)
     }
 
     /// Delete a folder with move-up semantics (Tauri parity): every note
@@ -245,8 +327,30 @@ impl NoteStore {
     /// removed. If ANY move fails, nothing is deleted and an error is
     /// returned (already-moved notes stay moved). A missing folder is a
     /// no-op `Ok(0)`. Returns the moved-note count.
-    pub fn delete_folder(&self, folder: String) -> Result<u32, NoteError> {
-        model::delete_folder_move_up(&self.root, &folder).map_err(NoteError::Io)
+    pub fn delete_folder(&self, folder: String) -> Result<NoteMutation, NoteError> {
+        self.inner
+            .delete_folder(&folder)
+            .map(Into::into)
+            .map_err(NoteError::Io)
+    }
+
+    pub fn reset(&self) -> Result<(), NoteError> {
+        self.inner.reset().map_err(NoteError::Io)
+    }
+
+    pub fn search(&self, query: String, limit: Option<u32>) -> Result<Vec<SearchHit>, NoteError> {
+        self.inner
+            .search(&query, limit.map(|value| value as usize))
+            .map(|hits| hits.into_iter().map(Into::into).collect())
+            .map_err(NoteError::Io)
+    }
+
+    pub fn keyword_ready(&self) -> bool {
+        self.inner.search_status().keyword.ready
+    }
+
+    pub fn rescan(&self) {
+        self.inner.rebuild_search();
     }
 }
 
@@ -346,97 +450,13 @@ pub struct SearchHit {
     pub source: String,
 }
 
-#[derive(Debug, uniffi::Error, thiserror::Error)]
-pub enum SearchError {
-    #[error("{0}")]
-    Engine(String),
-}
-
-/// The on-device full-text search engine (Tantivy BM25). Constructing it
-/// opens/creates the index and spawns the background indexer, which
-/// reconciles the vault against the index and then services the `notify_*`
-/// change stream. Queries are synchronous Tantivy reads — call them off the
-/// UI thread (Dispatchers.IO / a background DispatchQueue); they typically
-/// take single-digit milliseconds but must never sit on the main thread.
-#[derive(uniffi::Object)]
-pub struct SearchEngine {
-    inner: engine::SearchEngine,
-    /// Latest status snapshot, written by the engine's observer callback
-    /// (invoked from the indexer's background threads).
-    status: Arc<Mutex<engine::SearchStatus>>,
-}
-
-#[uniffi::export]
-impl SearchEngine {
-    /// Open (or create) the search index at `index_dir` — keep it OUTSIDE the
-    /// vault — for the notes at `notes_root`, and start the background
-    /// indexer. Returns immediately; poll [`SearchEngine::keyword_ready`] for
-    /// reconcile completion (queries before that serve the previous launch's
-    /// committed index).
-    #[uniffi::constructor]
-    pub fn new(notes_root: String, index_dir: String) -> Result<Arc<Self>, SearchError> {
-        let status = Arc::new(Mutex::new(engine::SearchStatus::default()));
-        let observer_status = status.clone();
-        let config = engine::SearchConfig {
-            notes_root: PathBuf::from(notes_root),
-            index_dir: PathBuf::from(index_dir),
-        };
-        let inner = engine::SearchEngine::start(
-            config,
-            Arc::new(move |s: &engine::SearchStatus| {
-                if let Ok(mut snapshot) = observer_status.lock() {
-                    *snapshot = s.clone();
-                }
-            }),
-        )
-        .map_err(SearchError::Engine)?;
-        Ok(Arc::new(Self { inner, status }))
-    }
-
-    /// Run a query, returning up to `limit` ranked hits. Synchronous — call
-    /// off the UI thread.
-    pub fn query(&self, query: String, limit: u32) -> Result<Vec<SearchHit>, SearchError> {
-        let hits = self
-            .inner
-            .query(&query, limit as usize)
-            .map_err(SearchError::Engine)?;
-        Ok(hits
-            .into_iter()
-            .map(|h| SearchHit {
-                note_id: h.note_id,
-                score: h.score as f64,
-                source: h.source,
-            })
-            .collect())
-    }
-
-    /// Whether the keyword index has finished its startup reconcile against
-    /// the vault.
-    pub fn keyword_ready(&self) -> bool {
-        self.status.lock().map(|s| s.keyword.ready).unwrap_or(false)
-    }
-
-    /// Force a full corpus rescan (re-runs the reconcile).
-    pub fn rescan(&self) {
-        self.inner.rescan();
-    }
-
-    /// Notify the indexer that a note was added or modified at `rel_path`
-    /// (relative to the vault root, WITH extension — e.g. `Specs/note.md`).
-    /// The shell's write/create paths should call this; changes are coalesced
-    /// and debounced engine-side.
-    pub fn notify_changed(&self, rel_path: String) {
-        self.inner.notify_changed(rel_path);
-    }
-
-    /// Notify the indexer that the note at `rel_path` was removed.
-    pub fn notify_removed(&self, rel_path: String) {
-        self.inner.notify_removed(rel_path);
-    }
-
-    /// Notify the indexer of an atomic rename.
-    pub fn notify_renamed(&self, from: String, to: String) {
-        self.inner.notify_renamed(from, to);
+impl From<notes::SearchHit> for SearchHit {
+    fn from(hit: notes::SearchHit) -> Self {
+        Self {
+            note_id: hit.note_id,
+            score: hit.score as f64,
+            source: hit.source,
+        }
     }
 }
 

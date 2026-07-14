@@ -1,27 +1,6 @@
 <script lang="ts">
-  // Native-shell markdown toolbar for the embedded editor (editor.html).
-  //
-  // Reuses the .markdown-toolbar / .toolbar-* CSS from styles/components.css
-  // (the embed already imports app.css) with the host-dependent pieces swapped
-  // out:
-  //  - image buttons post {type:'pickImage'} to the native host instead of
-  //    calling the Tauri camera/file plugins,
-  //  - the dismiss chevron blurs the editor (dropping the soft keyboard)
-  //    instead of keyboard.hide(),
-  //  - keyboard docking reads window.visualViewport directly (covers iOS
-  //    overlay keyboards AND Android adjustResize) instead of the Tauri
-  //    keyboard.svelte store.
-  //
-  // main.ts is a plain TS module (no runes), so visibility and cursor context
-  // are driven through the exported setters below rather than reactive props.
-  //
-  // The toolbar SURFACE (items, order, grouping, labels, visibility) comes
-  // from the @futo-notes/editor manifest — the same source the native shells'
-  // generated ToolbarSpec files render — so the web and native toolbars
-  // cannot drift. Editing behavior comes from the shared TOOLBAR_EXEC
-  // registry (markdownToolbar.ts), the same commands FutoEditor.exec runs.
   import { TOOLBAR_GROUPS, TOOLBAR_DISMISS, type ToolbarItem } from '@futo-notes/editor';
-  import { TOOLBAR_EXEC } from '$lib/markdownToolbar';
+  import { TOOLBAR_EXEC } from '$features/editor/markdownToolbar';
   import type { EditorView } from '@codemirror/view';
   import type { Component } from 'svelte';
   import {
@@ -41,8 +20,6 @@
     ListIndentIncrease,
   } from '@lucide/svelte';
 
-  // Manifest `lucide` names → components. A manifest item naming an icon
-  // missing here is caught by the icons() check below at mount time.
   const ICONS: Record<string, Component> = {
     Bold,
     Italic,
@@ -62,9 +39,7 @@
 
   interface Props {
     getView: () => EditorView | null;
-    /** User tapped a toolbar image button — post pickImage to the host. */
     onpickimage: (source: 'camera' | 'library') => void;
-    /** User tapped the collapse chevron — blur the editor (hides keyboard). */
     ondismiss: () => void;
   }
 
@@ -90,7 +65,6 @@
     }
   }
 
-  // Show while the editor is focused. Wired from main.ts's onfocuschange.
   let editorFocused = $state(false);
   let cursorOnListLine = $state(false);
 
@@ -102,10 +76,6 @@
     cursorOnListLine = onListLine;
   }
 
-  // Dock above the soft keyboard: the visual viewport shrinks (iOS overlay
-  // keyboards, Android adjustResize) or pans (offsetTop) when it shows, so
-  // the fixed toolbar's bottom is the layout-viewport space the keyboard
-  // covers. 0 when no keyboard.
   let bottomOffset = $state(0);
 
   function updateBottomOffset(): void {
@@ -125,15 +95,10 @@
     };
   });
 
-  // Prevent focus steal from editor
   function preventFocus(e: MouseEvent | TouchEvent) {
     e.preventDefault();
   }
 
-  // Programmatic horizontal scroll for toolbar.
-  // .markdown-toolbar uses touch-action:none to fully prevent the WebView's
-  // visual viewport from scrolling when touching the toolbar. This means the
-  // browser won't handle horizontal scroll natively, so we do it here.
   let scrollEl: HTMLElement | null = $state(null);
   let touchStartX = 0;
   let touchStartScrollLeft = 0;

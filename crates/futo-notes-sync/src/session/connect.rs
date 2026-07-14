@@ -1,0 +1,155 @@
+use std::collections::HashMap;
+use std::path::Path;
+
+use futo_notes_core::e2ee::{self, KeyMaterial};
+
+use crate::checkpoint::{self, ConnectedState};
+use crate::server::{Http, HttpError};
+use crate::sync::{ConnectInfo, SyncErrorKind};
+
+fn http_error(error: HttpError) -> SyncErrorKind {
+    SyncErrorKind::Http(error.to_string())
+}
+
+pub(crate) fn collection_error(error: HttpError) -> SyncErrorKind {
+    if error.is(404) {
+        SyncErrorKind::CollectionGone(error.to_string())
+    } else {
+        http_error(error)
+    }
+}
+
+async fn create_key_material(password: &str) -> Result<KeyMaterial, SyncErrorKind> {
+    let password = password.to_owned();
+    let (_, material) = tokio::task::spawn_blocking(move || e2ee::wrap_vault_key(&password))
+        .await
+        .map_err(|error| SyncErrorKind::Crypto(error.to_string()))?
+        .map_err(|error| SyncErrorKind::Crypto(error.to_string()))?;
+    Ok(material)
+}
+
+async fn load_or_create_key_material(
+    http: &Http,
+    collection_id: &str,
+    password: &str,
+) -> Result<KeyMaterial, SyncErrorKind> {
+    if let Some(material) = http.key(collection_id).await.map_err(collection_error)? {
+        return Ok(material);
+    }
+    if !http
+        .objects(collection_id, 0)
+        .await
+        .map_err(collection_error)?
+        .is_empty()
+    {
+        return Err(SyncErrorKind::Crypto(
+            "collection has objects but no key material; refusing to mint a new vault key".into(),
+        ));
+    }
+    let fresh = create_key_material(password).await?;
+    http.put_key(collection_id, &fresh)
+        .await
+        .map_err(collection_error)
+}
+
+async fn unlock_vault_key(
+    password: &str,
+    material: KeyMaterial,
+) -> Result<[u8; 32], SyncErrorKind> {
+    let password = password.to_owned();
+    tokio::task::spawn_blocking(move || e2ee::unwrap_vault_key(&password, &material))
+        .await
+        .map_err(|error| SyncErrorKind::Crypto(error.to_string()))?
+        .map_err(|error| SyncErrorKind::Crypto(error.to_string()))
+}
+
+fn connected_state(
+    root: &Path,
+    server: &str,
+    token: String,
+    user_id: String,
+    collection_id: String,
+    vault_key: [u8; 32],
+) -> ConnectedState {
+    let loaded = checkpoint::load(root, &collection_id);
+    ConnectedState {
+        base_url: server.trim().trim_end_matches('/').to_owned(),
+        token,
+        user_id,
+        collection_id,
+        vault_key,
+        object_map: loaded.object_map,
+        max_version: loaded.max_version,
+        pull_cursor: loaded.pull_cursor,
+        oversize_skip: HashMap::new(),
+    }
+}
+
+pub(crate) async fn connect(
+    root: &Path,
+    server: &str,
+    password: &str,
+) -> Result<(ConnectedState, ConnectInfo), SyncErrorKind> {
+    let anonymous = Http::new(server).map_err(http_error)?;
+    let auth_mode = anonymous.auth_mode().await.map_err(http_error)?;
+    let (user_id, token) = anonymous
+        .login(&auth_mode, password)
+        .await
+        .map_err(|error| SyncErrorKind::Auth(error.to_string()))?;
+    let http = anonymous.token(token.clone());
+    let collection_id = match http.collections().await.map_err(http_error)?.first() {
+        Some(id) => id.clone(),
+        None => http.create_collection().await.map_err(http_error)?,
+    };
+    let material = load_or_create_key_material(&http, &collection_id, password).await?;
+    let vault_key = unlock_vault_key(password, material).await?;
+    let state = connected_state(
+        root,
+        server,
+        token.clone(),
+        user_id.clone(),
+        collection_id.clone(),
+        vault_key,
+    );
+    checkpoint::save(root, &state).map_err(SyncErrorKind::Io)?;
+    Ok((
+        state,
+        ConnectInfo {
+            user_id,
+            collection_id,
+            token,
+            auth_mode,
+        },
+    ))
+}
+
+pub(crate) async fn resume(
+    root: &Path,
+    server: &str,
+    token: &str,
+    user_id: &str,
+    collection_id: &str,
+    password: &str,
+) -> Result<ConnectedState, SyncErrorKind> {
+    let http = Http::new(server).map_err(http_error)?.token(token);
+    let material = http
+        .key(collection_id)
+        .await
+        .map_err(collection_error)?
+        .ok_or_else(|| SyncErrorKind::Crypto("vault key material missing on server".into()))?;
+    let vault_key = unlock_vault_key(password, material).await?;
+    Ok(connected_state(
+        root,
+        server,
+        token.to_owned(),
+        user_id.to_owned(),
+        collection_id.to_owned(),
+        vault_key,
+    ))
+}
+
+pub(crate) fn client(state: &ConnectedState) -> Result<Http, SyncErrorKind> {
+    Ok(Http::new(&state.base_url)
+        .map_err(http_error)?
+        .token(state.token.clone()))
+}

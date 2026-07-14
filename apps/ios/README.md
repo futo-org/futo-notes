@@ -78,7 +78,7 @@ The web page posts to the native handler named **`futoBridge`**:
 
 **Editor web bundle** — built from the existing app:
 - `editor.html` (repo root) — a second Vite entry.
-- `src/editor-embed/main.ts` — mounts the real `src/components/MarkdownEditor.svelte`
+- `src/editor-embed/main.ts` — mounts the real `src/features/editor/MarkdownEditor.svelte`
   and wires `window.FutoEditor` + `futoBridge`.
 - `vite.editor.config.ts` — builds with `vite-plugin-singlefile` into one
   self-contained `apps/ios/Resources/editor.html` (~2.5 MB, all

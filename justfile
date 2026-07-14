@@ -440,7 +440,7 @@ check-drift:
 check-debt-ratchet:
   node scripts/debt-ratchet.mjs
 
-# Run the same focused architecture checks as GitLab's test:arch-gates job.
+# Run the same focused architecture checks embedded in GitLab's mandatory test job.
 # package.json owns the membership because the pinned CI image does not include just.
 arch-gate:
   pnpm run check:arch-gate
@@ -454,6 +454,7 @@ clean:
 
 check: spec-gaps-check toolbar-spec-check arch-gate test-rust
   pnpm run lint
+  pnpm run check:svelte
   pnpm run format:check
   pnpm run test:full
   pnpm exec tsc --noEmit | head -30

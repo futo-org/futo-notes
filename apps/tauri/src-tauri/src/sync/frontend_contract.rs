@@ -157,7 +157,8 @@ mod tests {
     const UPDATE_CONTRACT_ENV: &str = "FUTO_UPDATE_SYNC_CONTRACT";
 
     fn generated_contract_path() -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../src/lib/syncContract.generated.ts")
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../src/features/sync/syncContract.generated.ts")
     }
 
     fn render_typescript_contract() -> String {

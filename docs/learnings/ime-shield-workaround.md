@@ -104,7 +104,7 @@ through to Chromium normally.
 | `apps/tauri/src-tauri/gen/android/app/src/main/java/com/futo/notes/dev/generated/RustWebView.kt` | `override fun onCreateInputConnection` returning `FutoImeConnection(super.onCreateInputConnection(outAttrs))`. **Auto-generated — injected at build time** via `WRY_RUSTWEBVIEW_CLASS_EXTENSION`. | Wrapper not installed → underlying IC handles reads → CRASH. |
 | `apps/tauri/src-tauri/.cargo/config.toml` | Sets `WRY_RUSTWEBVIEW_CLASS_EXTENSION` via cargo's `[env]` section. **This is the source of truth for the override.** Cargo applies this on every build invocation, including when called via `cargo tauri`. | Same as above: override never lands in the APK. |
 | `src/lib/imeShield.ts` | CM6 `ViewPlugin` calling `__FutoImeShield__.update(...)` on every doc/selection change and `setActive(true/false)` on CM6 focusin/focusout. | Shadow stays empty regardless of editor state; reads serve empty; autocorrect blind. If focus tracking is removed, title/input regressions return. |
-| `src/components/MarkdownEditor.svelte` | Imports `imeShieldPlugin` and includes it in the `extensions` array. | Plugin never instantiated; shadow never populated. |
+| `src/features/editor/MarkdownEditor.svelte` | Imports `imeShieldPlugin` and includes it in the `extensions` array. | Plugin never instantiated; shadow never populated. |
 
 ## Why we don't edit `RustWebView.kt` directly
 

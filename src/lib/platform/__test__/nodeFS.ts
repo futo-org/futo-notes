@@ -1,288 +1,100 @@
 import fs from 'node:fs';
-import path from 'node:path';
 import os from 'node:os';
-import type { DirFileEntry, FolderEntry, PlatformFS, NoteFile, NotePreviewMeta } from '../types';
-import { extractTags } from '$lib/rules';
-
-// Mirror futo-notes-model::{make_preview, note_tags} inline rather than
-// importing from $lib/notesIndex — that module pulls in the app module graph, which
-// imports `./platform` and forms an init cycle under `vi.mock('$lib/platform')`.
-function makePreview(content: string): string {
-  return content.slice(0, 100).replace(/\n/g, ' ');
-}
-function noteTags(content: string): string[] {
-  return extractTags(content).map((t) => t.replace(/^#/, ''));
-}
+import path from 'node:path';
+import type { DirFileEntry, PlatformFS } from '../types';
 
 export interface TestPlatformFS extends PlatformFS {
-  _cleanup(): void;
+  root: string;
   _reset(): void;
+  _cleanup(): void;
+  /** Test-fixture convenience only; not part of the production platform port. */
+  writeNote(id: string, content: string, modifiedAtMs?: number): Promise<number>;
+  readNote(id: string): Promise<string>;
 }
 
 export function createNodeFS(): TestPlatformFS {
-  let tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'futo-test-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'futo-platform-test-'));
 
-  function ensureDir(filePath: string): void {
-    const dir = path.dirname(filePath);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
+  function full(relative: string): string {
+    if (relative.includes('..') || path.isAbsolute(relative)) throw new Error('invalid path');
+    return path.join(root, relative);
   }
 
-  // Mirrors the Rust `get_unique_note_id` `-2`/`-3` collision rule so the
-  // test FS resolves ids the same way desktop does. `excludeId` is the id
-  // being renamed away (must not collide with itself).
-  function uniqueNoteId(baseId: string, excludeId?: string): string {
-    const exists = (id: string): boolean => fs.existsSync(path.join(tmpDir, `${id}.md`));
-    if (baseId === excludeId || !exists(baseId)) return baseId;
-    let counter = 2;
-    let candidate = `${baseId}-${counter}`;
-    while (exists(candidate)) {
-      counter++;
-      candidate = `${baseId}-${counter}`;
-    }
-    return candidate;
+  function reset(): void {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.mkdirSync(root, { recursive: true });
   }
 
-  function walkMd(dir: string, base: string, out: NoteFile[]): void {
-    if (!fs.existsSync(dir)) return;
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (entry.name.startsWith('.')) continue;
-      const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        walkMd(full, base, out);
-      } else if (entry.isFile() && entry.name.endsWith('.md')) {
-        const rel = path.relative(base, full).split(path.sep).join('/');
-        const stat = fs.statSync(full);
-        out.push({ name: rel, mtime: stat.mtimeMs, size: stat.size });
-      }
-    }
-  }
-
-  function walkDirs(dir: string, base: string, out: FolderEntry[]): void {
-    if (!fs.existsSync(dir)) return;
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (entry.name.startsWith('.')) continue;
-      const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        const rel = path.relative(base, full).split(path.sep).join('/');
-        out.push({ path: rel });
-        walkDirs(full, base, out);
-      }
-    }
-  }
-
-  const nodeFS: TestPlatformFS = {
-    async listNoteFiles(): Promise<NoteFile[]> {
-      const out: NoteFile[] = [];
-      walkMd(tmpDir, tmpDir, out);
-      return out;
-    },
-
-    async scanNotes(): Promise<NotePreviewMeta[]> {
-      const files: NoteFile[] = [];
-      walkMd(tmpDir, tmpDir, files);
-      return files
-        .map((f) => {
-          const id = f.name.replace(/\.md$/, '');
-          const slash = id.lastIndexOf('/');
-          const content = fs.readFileSync(path.join(tmpDir, f.name), 'utf-8');
-          return {
-            id,
-            title: slash === -1 ? id : id.slice(slash + 1),
-            preview: makePreview(content),
-            modificationTime: f.mtime,
-            tags: noteTags(content),
-          };
-        })
-        .sort((a, b) => b.modificationTime - a.modificationTime || a.id.localeCompare(b.id));
-    },
-
-    async readNote(id: string): Promise<string> {
-      const filePath = path.join(tmpDir, `${id}.md`);
-      // Missing reads as "" to match production (Tauri notes_read over
-      // futo-notes-model::read_note; web.ts). Existence is asked via noteExists.
-      if (!fs.existsSync(filePath)) return '';
-      return fs.readFileSync(filePath, 'utf-8');
-    },
-
-    async writeNote(id: string, content: string, modifiedAtMs?: number): Promise<number> {
-      const filePath = path.join(tmpDir, `${id}.md`);
-      ensureDir(filePath);
-      fs.writeFileSync(filePath, content, 'utf-8');
-      if (modifiedAtMs !== undefined) {
-        const timeSec = modifiedAtMs / 1000;
-        fs.utimesSync(filePath, timeSec, timeSec);
-      }
-      return fs.statSync(filePath).mtimeMs;
-    },
-
-    async deleteNoteFile(id: string): Promise<void> {
-      const filePath = path.join(tmpDir, `${id}.md`);
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
-      }
-      // Best-effort: prune now-empty parent dirs.
-      let cursor = path.dirname(filePath);
-      while (cursor.startsWith(tmpDir) && cursor !== tmpDir) {
-        try {
-          if (fs.existsSync(cursor) && fs.readdirSync(cursor).length === 0) {
-            fs.rmdirSync(cursor);
-          } else {
-            break;
-          }
-        } catch {
-          break;
-        }
-        cursor = path.dirname(cursor);
+  return {
+    root,
+    _reset: reset,
+    _cleanup: () => fs.rmSync(root, { recursive: true, force: true }),
+    async readAppData(relative) {
+      try {
+        return fs.readFileSync(full(relative), 'utf8');
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+        throw error;
       }
     },
-
-    async noteExists(id: string): Promise<boolean> {
-      return fs.existsSync(path.join(tmpDir, `${id}.md`));
+    async writeAppData(relative, content) {
+      const destination = full(relative);
+      fs.mkdirSync(path.dirname(destination), { recursive: true });
+      fs.writeFileSync(destination, content);
     },
-
-    // Tests control their vault contents explicitly, so seeding is a no-op
-    // here (the real welcome-note seed lives in tauri.ts/web.ts). Present so
-    // `initNotes()` — which now calls `fs.seedIfEmpty()` — doesn't throw.
-    async seedIfEmpty(): Promise<number> {
-      return 0;
+    async deleteAppData(relative) {
+      fs.rmSync(full(relative), { force: true });
     },
-
-    async deleteAllContent(): Promise<void> {
-      if (!fs.existsSync(tmpDir)) return;
-      for (const entry of fs.readdirSync(tmpDir, { withFileTypes: true })) {
-        if (entry.name.startsWith('.')) continue;
-        const fullPath = path.join(tmpDir, entry.name);
-        fs.rmSync(fullPath, { recursive: true, force: true });
+    async listAppData(relative) {
+      const directory = relative === '.' ? root : full(relative);
+      try {
+        return fs.readdirSync(directory);
+      } catch {
+        return [];
       }
     },
-
-    async readAppData(relPath: string): Promise<string | null> {
-      const filePath = path.join(tmpDir, relPath);
-      if (!fs.existsSync(filePath)) return null;
-      return fs.readFileSync(filePath, 'utf-8');
-    },
-
-    async writeAppData(relPath: string, content: string): Promise<void> {
-      const filePath = path.join(tmpDir, relPath);
-      ensureDir(filePath);
-      fs.writeFileSync(filePath, content, 'utf-8');
-    },
-
-    async deleteAppData(relPath: string): Promise<void> {
-      const filePath = path.join(tmpDir, relPath);
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
-      }
-    },
-
-    async listAppData(dir: string): Promise<string[]> {
-      const dirPath = path.join(tmpDir, dir);
-      if (!fs.existsSync(dirPath)) return [];
-      return fs.readdirSync(dirPath);
-    },
-
     async listDirFiles(): Promise<DirFileEntry[]> {
-      if (!fs.existsSync(tmpDir)) return [];
-      const entries = fs.readdirSync(tmpDir);
-      return entries
-        .map((name) => {
-          const stat = fs.statSync(path.join(tmpDir, name));
-          if (!stat.isFile()) return null;
-          return { name, size: stat.size, mtime: stat.mtimeMs };
-        })
-        .filter((e): e is DirFileEntry => e !== null);
+      return fs
+        .readdirSync(root, { withFileTypes: true })
+        .filter((entry) => entry.isFile())
+        .map((entry) => {
+          const metadata = fs.statSync(path.join(root, entry.name));
+          return { name: entry.name, size: metadata.size, mtime: metadata.mtimeMs };
+        });
     },
-
-    async deleteFile(filename: string): Promise<void> {
-      const filePath = path.join(tmpDir, filename);
-      fs.unlinkSync(filePath);
+    async deleteFile(filename) {
+      fs.rmSync(full(filename), { force: true });
     },
-
-    async saveImage(sourcePath: string): Promise<string> {
+    async saveImage(sourcePath) {
       const filename = path.basename(sourcePath);
-      const dest = path.join(tmpDir, filename);
-      fs.copyFileSync(sourcePath, dest);
+      fs.copyFileSync(sourcePath, full(filename));
       return filename;
     },
-
-    async getImageUrl(filename: string): Promise<string> {
-      return `file://${path.join(tmpDir, filename)}`;
+    async getImageUrl(filename) {
+      return full(filename);
     },
-
-    async getAppVersion(): Promise<string> {
+    async getAppVersion() {
       return '0.0.0-test';
     },
-
-    getPlatformName(): string {
+    getPlatformName() {
       return 'web';
     },
-
-    async listFolders(): Promise<FolderEntry[]> {
-      const out: FolderEntry[] = [];
-      walkDirs(tmpDir, tmpDir, out);
-      return out;
-    },
-
-    async createFolder(folderPath: string): Promise<void> {
-      const dir = path.join(tmpDir, folderPath);
-      fs.mkdirSync(dir, { recursive: true });
-    },
-
-    async renameFolder(fromPath: string, toPath: string): Promise<void> {
-      const from = path.join(tmpDir, fromPath);
-      const to = path.join(tmpDir, toPath);
-      if (!fs.existsSync(from)) return;
-      ensureDir(to);
-      fs.renameSync(from, to);
-    },
-
-    async deleteFolder(folderPath: string): Promise<void> {
-      const dir = path.join(tmpDir, folderPath);
-      if (fs.existsSync(dir)) {
-        fs.rmSync(dir, { recursive: true, force: true });
+    async writeNote(id, content, modifiedAtMs) {
+      const destination = full(`${id}.md`);
+      fs.mkdirSync(path.dirname(destination), { recursive: true });
+      fs.writeFileSync(destination, content);
+      if (modifiedAtMs !== undefined) {
+        const seconds = modifiedAtMs / 1000;
+        fs.utimesSync(destination, seconds, seconds);
       }
+      return fs.statSync(destination).mtimeMs;
     },
-
-    async createNote(
-      folder: string,
-      title: string,
-      content: string,
-    ): Promise<{ id: string; mtime: number }> {
-      const wanted = folder ? `${folder}/${title}` : title;
-      const finalId = uniqueNoteId(wanted);
-      const filePath = path.join(tmpDir, `${finalId}.md`);
-      ensureDir(filePath);
-      fs.writeFileSync(filePath, content, 'utf-8');
-      return { id: finalId, mtime: fs.statSync(filePath).mtimeMs };
-    },
-
-    async renameNote(oldId: string, newId: string): Promise<string> {
-      const from = path.join(tmpDir, `${oldId}.md`);
-      if (!fs.existsSync(from)) return oldId;
-      const finalId = uniqueNoteId(newId, oldId);
-      if (finalId !== oldId) {
-        const to = path.join(tmpDir, `${finalId}.md`);
-        ensureDir(to);
-        fs.renameSync(from, to);
+    async readNote(id) {
+      try {
+        return fs.readFileSync(full(`${id}.md`), 'utf8');
+      } catch {
+        return '';
       }
-      return finalId;
-    },
-
-    _cleanup(): void {
-      if (fs.existsSync(tmpDir)) {
-        fs.rmSync(tmpDir, { recursive: true, force: true });
-      }
-    },
-
-    _reset(): void {
-      if (fs.existsSync(tmpDir)) {
-        fs.rmSync(tmpDir, { recursive: true, force: true });
-      }
-      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'futo-test-'));
     },
   };
-
-  return nodeFS;
 }

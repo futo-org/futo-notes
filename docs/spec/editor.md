@@ -52,7 +52,7 @@ this file states the behaviors a human cares about.
   into the line box — never the line-rect midpoint, which yanked the caret
   to the middle row and made repeated corrective taps read as
   double/triple-tap selections). Double/triple-tap word/line selection stays
-  native on both shells. → src/lib/iosTapFocus.ts, MarkdownEditor.svelte
+  native on both shells. → src/features/editor/iosTapFocus.ts, MarkdownEditor.svelte
 - Arrow up/down on a wrapped line moves by visual row, not logical line.
   Arrowing past a block widget (HR) lands in the adjacent paragraph, not inside
   the widget. → markdown-spec/cases/10-cursor-reveal
@@ -87,14 +87,14 @@ this file states the behaviors a human cares about.
   them and CM's default `ignoreEvent() === true` would swallow the tap —
   both marker widgets return `false` (same contract as the HR widget).
   Checkbox and image widgets intentionally keep `true` + their own handlers
-  (toggle / place-at-line-end). → liveMarkdownTransform.ts
+  (toggle / place-at-line-end). → live-preview/listDecorations.ts
   BulletWidget/NumberWidget, liveMarkdownTransform.decorations.test.ts
 - A list item that wraps does **not** hanging-indent its continuation lines:
   wrapped lines start at the left margin — only the first visual line carries
   the nesting indent + marker. Applies to bullets, ordered items, and task
   items at every nesting depth, on every platform (spec decision 2026-06-10;
   wrapped text previously aligned under the first line's text). →
-  liveMarkdownTransform.ts `cm-md-list-line` decorations
+  live-preview/listDecorations.ts `cm-md-list-line` decorations
 - Tables (GFM), horizontal rules, and images — rendered as block widgets.
   Each replace widget's `estimatedHeight` must equal its real rendered
   footprint (and the widget should render at a definite height) — otherwise
@@ -107,7 +107,7 @@ this file states the behaviors a human cares about.
   anchor correction that cancels native touch momentum — the note "jumps forward
   and stops, no bounce" (measured up to 1436px on Android). Native overscroll
   affordance (`overscroll-behavior: contain` — iOS bounce / Android stretch) must
-  be preserved. → src/lib/heightMapWarm.ts, docs/learnings/hr-scroll-jank.md
+  be preserved. → src/features/editor/heightMapWarm.ts, docs/learnings/hr-scroll-jank.md
 - Wikilinks `[[Title]]`.
 
 ## Tags
@@ -163,7 +163,7 @@ native shells edit tags as text in the body, which is not a gap.
   the create-on-missing catch in `loadNote` was dead and the empty note simply
   opened via the normal read path; the file appeared only once the user edited.
   → liveMarkdownTransform.ts, wikilinks.ts `resolveWikilink`,
-  noteSession.svelte.ts `loadNote`, editor-embed/main.ts
+  createNoteLoader.ts, editor-embed/main.ts
   > **Gap:** the **native** shells (iOS/Android) no-op a broken wikilink tap —
   > the editor embed posts `openNote` only for a _resolved_ link, so a broken
   > tap neither opens nor (on first edit) creates the target note the way
@@ -241,7 +241,8 @@ native shells edit tags as text in the body, which is not a gap.
 - Table cells are individually editable in place; Tab/Shift+Tab move between
   cells; Enter inserts a new row below the current one (so on the last row it
   appends); structure is revalidated on each edit. A cell context menu (desktop right-click) inserts/deletes rows/columns.
-  → tableEditor.ts
+  → table/interactiveTableEditor.ts, table/tableEditorWidget.ts,
+  table/tableOperations.ts
 - Pressing Enter in a list item continues the list (inherits nesting, auto
   numbers ordered items, renumbers on edit); Backspace at item start dedents;
   Backspace in an empty item deletes it. → listContinuation.ts
@@ -281,7 +282,7 @@ EditorWebView.swift, EditorWebView.kt
   `@futo-notes/editor` manifest, and the editing BEHAVIOR behind every
   button is defined once in markdownToolbar.ts (`TOOLBAR_EXEC`). Toolbars
   are dumb dispatchers: no platform restates the item list or reimplements
-  a command. → packages/editor/src/toolbar.ts, src/lib/markdownToolbar.ts
+  a command. → packages/editor/src/toolbar.ts, src/features/editor/markdownToolbar.ts
 - Native shells, toolbar chrome is NATIVE, commands are shared (bridge v3):
   the host renders its own toolbar from a GENERATED copy of the manifest and
   drives the editor over the bridge — `exec(id)` runs the shared command,
@@ -389,7 +390,7 @@ EditorWebView.swift, EditorWebView.kt
   the toolbar Camera/Image flow above; picked images save into the vault and
   render inline (verified end-to-end on emulator + simulator 2026-06-09).
   → EditorImages.swift `FutoAssetSchemeHandler`, ImagePicker.kt,
-  liveMarkdownTransform.ts `setLocalImageBaseUrl`
+  live-preview/images.ts `setLocalImageBaseUrl`
 - Inline image rendering depends on the referenced file existing in the vault.
   That file is delivered across devices by sync — the image binary syncs
   alongside its note, so `![](image-…)` resolves on every device, not just the

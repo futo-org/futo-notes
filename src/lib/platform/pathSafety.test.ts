@@ -16,7 +16,6 @@ const pathSafetyFixture = JSON.parse(
 ) as PathSafetyFixture;
 
 // ── ensureSafeNoteId ──────────────────────────────────────────────────
-
 describe('ensureSafeNoteId', () => {
   it('matches the shared Rust/TypeScript boundary corpus', () => {
     for (const testCase of pathSafetyFixture.cases) {
@@ -51,16 +50,47 @@ describe('ensureSafeNoteId', () => {
     expect(() => ensureSafeNoteId('note\x7fdel')).toThrow('invalid note id');
   });
 
+  it('rejects null bytes at various positions', () => {
+    expect(() => ensureSafeNoteId('note\x00')).toThrow();
+    expect(() => ensureSafeNoteId('\x00note')).toThrow();
+    expect(() => ensureSafeNoteId('no\x00te')).toThrow();
+  });
+
+  it('accepts valid names', () => {
+    expect(() => ensureSafeNoteId('hello world')).not.toThrow();
+    expect(() => ensureSafeNoteId('my-note')).not.toThrow();
+    expect(() => ensureSafeNoteId('cafe\u0301')).not.toThrow(); // café with combining accent
+    expect(() => ensureSafeNoteId('.hidden')).not.toThrow();
+  });
+
+  it('accepts whitespace-only IDs (Rust behavior)', () => {
+    expect(() => ensureSafeNoteId('   ')).not.toThrow();
+    expect(() => ensureSafeNoteId(' ')).not.toThrow();
+  });
+
+  it('accepts unicode and emoji', () => {
+    expect(() => ensureSafeNoteId('\u{1F4DD} notes')).not.toThrow(); // 📝
+    expect(() => ensureSafeNoteId('cafe\u0301 \u2615')).not.toThrow(); // café ☕
+    expect(() => ensureSafeNoteId('\u65E5\u672C\u8A9E\u30CE\u30FC\u30C8')).not.toThrow(); // 日本語ノート
+  });
+
+  it('allows leading/trailing dots (unlike title validation)', () => {
+    expect(() => ensureSafeNoteId('trailing.')).not.toThrow();
+    expect(() => ensureSafeNoteId('...dots')).not.toThrow();
+  });
+
+  it('rejects adversarial inputs', () => {
+    expect(() => ensureSafeNoteId('../../../etc/passwd')).toThrow();
+    expect(() => ensureSafeNoteId('..\\..\\windows\\system32')).toThrow();
+    expect(() => ensureSafeNoteId('note<script>')).toThrow();
+  });
   it('works correctly when called multiple times (no regex state leak)', () => {
-    // The global regex bug: if lastIndex isn't reset, alternating calls can fail
     expect(() => ensureSafeNoteId('valid-note')).not.toThrow();
     expect(() => ensureSafeNoteId('also-valid')).not.toThrow();
     expect(() => ensureSafeNoteId('bad<note')).toThrow();
     expect(() => ensureSafeNoteId('still-valid')).not.toThrow();
   });
 });
-
-// ── safeNotePath ──────────────────────────────────────────────────────
 
 describe('safeNotePath', () => {
   it('returns base/id.md for valid ID', () => {
@@ -79,8 +109,6 @@ describe('safeNotePath', () => {
     expect(safeNotePath('/notes', 'a/b/c')).toBe('/notes/a/b/c.md');
   });
 });
-
-// ── safeAppdataPath ───────────────────────────────────────────────────
 
 describe('safeAppdataPath', () => {
   const base = '/tmp/test';
@@ -110,8 +138,6 @@ describe('safeAppdataPath', () => {
     expect(() => safeAppdataPath(base, 'sub/./file.json')).toThrow('path traversal blocked');
   });
 });
-
-// ── noteIdFromFilename ────────────────────────────────────────────────
 
 describe('noteIdFromFilename', () => {
   it('strips .md suffix', () => {

@@ -6,11 +6,15 @@ shell only drives it. Native (iOS/Android) goes through the `futo-notes-ffi`
 `apps/tauri/src-tauri/src/sync/tauri_commands.rs` wrapper) +
 `syncServiceE2ee` + coordinator — both now drive the **same** `SyncSession`.
 The session owns connection state, push-first cycles, and its live task; the
-shells do not assemble those pieces themselves. Internally the crate has four
-modules with deliberately narrow jobs: HTTP/protocol, persisted state, sync,
-and live SSE. The client uploads opaque encrypted blobs — note content is
-encrypted before upload. Desktop sync module ownership and serialization
-boundaries are fixed by [desktop-rust.md](desktop-rust.md).
+shells do not assemble those pieces themselves. Internally the crate is grouped
+by ownership: `server.rs` owns the HTTP protocol; `checkpoint.rs` owns persisted
+state and disconnect ancestry; `session/` owns connection lifecycle, cycle
+serialization, live scheduling, and SSE framing; `sync/` owns the visible
+push-first sequence and delegates vault I/O, push, pull, conflict resolution,
+collision resolution, tombstones, encrypted-note conversion, and outcome
+composition to named modules. The client uploads opaque encrypted blobs — note
+content is encrypted before upload. Desktop sync module ownership and
+serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
 
 ## Connect / run
 
@@ -148,12 +152,12 @@ boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   in full and re-fails each cycle (deliberate: a later server-side repair or
   key fix is picked up without new state) — with the ⚠ failure line keeping
   the user informed.
-  → futo-notes-sync sync engine (`cap_cursor`, pull/reconcile)
+  → futo-notes-sync `sync/pull.rs` (`cap_cursor`, pull/reconcile)
 - **Pull uses the server's actual blob contract: one authenticated GET per
   object.** The production server does not expose a batch-blob route. Failed
   downloads are isolated per object and reported without aborting unrelated
   downloads; the cursor rule above guarantees retry on the next cycle.
-  → futo-notes-sync HTTP + sync modules; server:
+  → futo-notes-sync `server.rs` + `sync/pull.rs`; server:
   futo-notes-server `src/blobs/routes.ts`
 - **The failure signal also fires a toast, on message change.** A toast —
   prefixed **"Sync error: "** so the source is clear outside the sync UI
@@ -179,7 +183,7 @@ boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   Desktop only — native shells surface sync state on their Sync screen. →
   SyncStatusBar.svelte (`connected` = `sync.live`),
   `apps/tauri/src-tauri/src/sync/tauri_events.rs` (`on_cycle_error`),
-  futo-notes-sync `live::run_cycle`
+  futo-notes-sync `session::run_cycle`
 
 - **Native shells surface per-item failures on their Sync screen.** The FFI
   `SyncSummary` carries the per-item `failures` (kind, HTTP status) plus the
@@ -270,7 +274,7 @@ boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   tag was meant to heal; a stale object map is equally bad on the push side
   (entries claiming the server holds a note make the push skip it). The reset
   costs one re-reconcile through the empty-map path, which hash-dedups
-  against local files. → futo-notes-sync store module
+  against local files. → futo-notes-sync `checkpoint.rs`
 - The one-time legacy import of a pre-port `.app-state.json` object map is
   TAGGED with the vault's `e2eeCollectionId` (written next to the map in the
   same file), so reconnecting to that same collection KEEPS the imported map
@@ -280,7 +284,7 @@ boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   then connecting to a *different* collection still resets, and an older
   pre-port file that predates `e2eeCollectionId` carries no tag and resets as
   UNKNOWN provenance (the empty-map reconcile then hash-dedups). →
-  futo-notes-sync store module
+  futo-notes-sync `checkpoint.rs`
 - **A server instance holds exactly one vault (collection) per account.** The
   protocol is single-vault, but the server used to mint a fresh collection on
   every `POST /api/collections`, so two devices connecting *concurrently* each
@@ -339,7 +343,7 @@ boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   emits `status: "reconnecting"` (`live: false`, cleared when the stream
   reconnects or on dismiss — deliberately NOT by a clean poll, which proves
   syncing works but not that the stream recovered). → futo-notes-sync
-  live module (`SyncSessionListener::on_error`), `SyncClient::start_live`
+  `session/` (`SyncSessionListener::on_error`), `SyncClient::start_live`
   (native), `e2ee_start_live` + syncManager.svelte.ts (`handleLiveState`) +
   SyncStatusBar.svelte (desktop)
 - The `change` event is a doorbell only (`{collectionId, currentVersion}`, no
@@ -394,7 +398,7 @@ boundaries are fixed by [desktop-rust.md](desktop-rust.md).
     loop debounces and pushes the edit; peers then receive it within ~1 s via SSE.
     Fire-and-forget and a no-op when not connected. → `NotesStore.onLocalChange`
     (wired in iOS `FutoNotesApp` / Android `MainActivity`), `SyncClient::note_changed`,
-    futo-notes-sync live module (debounced push branch)
+    futo-notes-sync `session/` (debounced push branch)
 - The native session (auth token + vault key) is in-memory, but **all three
   shells persist the sync password in the OS secret store and auto-reconnect on
   a cold launch**, so live sync survives a force-quit / process death: iOS
@@ -420,7 +424,7 @@ boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   deliberate:
   storing the password on-device means device compromise → password → vault key.
   The stored password is cleared on explicit disconnect (after which a relaunch
-  stays local) and by Full reset (desktop `deleteAllNotes` → `disconnectE2ee`
+  stays local) and by Full reset (desktop `resetAllNotes` → `disconnectE2ee`
   deletes the keyring entry, M4). Verified on the emulator 2026-06-09: connect →
   `am force-stop` → relaunch reconnects silently (SYNCED); disconnect → relaunch
   stays LOCAL.
@@ -509,7 +513,7 @@ boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   seeded to 0. The first post-upgrade sync therefore re-lists from scratch —
   idempotent (`first_pass` hash/identity-dedupes, no re-downloads or conflict
   copies for already-synced notes) — and RETROACTIVELY heals any install already
-  carrying hidden F32 damage. → futo-notes-sync store + sync modules
+  carrying hidden F32 damage. → futo-notes-sync `checkpoint.rs` + `sync/`
 - **A pure case-only / NFC-vs-NFD rename keeps its requested form.** Renaming
   `note` → `Note` (or a composed↔decomposed accent) on a
   case/normalization-insensitive filesystem (default APFS on macOS/iOS, NTFS)
@@ -552,7 +556,7 @@ boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   collection identity changed. The live cursor/object map is still discarded,
   so a reconnect can never propagate while-disconnected deletions as
   fleet-wide tombstones (missing local files are re-downloaded, as before).
-  → futo-notes-sync store module, ffi `SyncClient::disconnect`, desktop
+  → futo-notes-sync `checkpoint.rs`, ffi `SyncClient::disconnect`, desktop
   `e2ee_disconnect`
 - **A reconnect after fleet drift does not mint conflict copies for notes the
   device never edited.** The empty-map reconcile consults the ancestry file:
@@ -634,7 +638,7 @@ boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   it. → project decision
 - Native shells do not run a foreground poll loop; the SSE live stream plus its
   ~45 s safety poll cover liveness (see "Live sync (SSE)"). → futo-notes-sync
-  live module
+  `session/`
 
 - A remote edit to the **currently-open note** is adopted into the open editor
   when the local draft is clean (`content == savedContent`); a dirty draft
@@ -697,7 +701,7 @@ boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   path is edit-wins: the debounced save re-creates the note with the local
   edits. → syncManager `handleSyncComplete` (guarded by "peer delete of open
   note closes editor" in tests/cross-platform-sync.mjs + the F4 seam tests in
-  src/lib/syncManager.test.ts); iOS NoteEditorView `handleOpenNoteDeleted`.
+  src/features/sync/syncManager.test.ts); iOS NoteEditorView `handleOpenNoteDeleted`.
   > **Gap:** Android leaves the open editor bound to the deleted id (its
   > snapshotFlow adopt early-returns on the missing note); the peer-delete
   > close/keep + banner is not yet ported there.

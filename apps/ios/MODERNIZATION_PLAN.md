@@ -17,7 +17,7 @@
 ## Baseline assessment
 
 The app is well-engineered, not a rough spike. Already correct: off-main FS I/O
-via actors (`NoteVault`, `SearchService`), the "never gate render on I/O" boot
+via the `NoteVault` actor, the "never gate render on I/O" boot
 (`NotesStore.init:228`, `bootstrap:247`), single-source note rules in Rust, and
 real data-loss guards (debounced save with re-read-id-at-fire
 `NoteEditorView:183`; ghost-note fixes on rename/move/delete; scenePhase flush
@@ -40,15 +40,14 @@ structured to pass.
 - [ ] **Adopt Swift 6.2 default main-actor isolation**
   (`SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`). App is almost all UI/lifecycle
   code → delete most explicit `@MainActor`, leaving `NoteVault` /
-  `SearchService` as the visible off-main exceptions. Networking/FFI stay
+  `NoteVault` as the visible off-main exception. Networking/FFI stay
   off-main (this setting does not move them onto main).
 - [ ] **`FutoAssetSchemeHandler`** (`EditorImages.swift:29`): un-isolated but
   mutates `stopped: Set` across GCD hops. Callbacks are main-thread in practice
   → mark `@MainActor` (or move the set into an actor) so it's provable.
-- [ ] **`SearchService` ordering** (`SearchService.swift:69-83`): fire-and-forget
-  `Task {}` per mutation has no ordering guarantee — `noteChanged` then
-  `noteRemoved` can reorder and leave the index stale. Serialize through one
-  ordered queue / `AsyncStream` feeding the actor.
+- [x] **Search mutation ordering:** the shared Rust `LocalNoteStore` now owns
+  the index and serializes each committed mutation before returning it to the
+  Swift projection; the separate `SearchService` was removed.
 - [ ] **Jetsam flush hardening (data-loss, F8):** wrap `flushPendingEditor` /
   `flushAsync` (`NotesStore.swift:365`, `FutoNotesApp.swift:77-82`) in a
   `UIApplication.beginBackgroundTask` assertion so iOS grants time for the disk

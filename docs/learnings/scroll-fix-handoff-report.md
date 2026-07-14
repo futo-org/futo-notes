@@ -19,7 +19,7 @@ The branch addresses visible scroll jump in the external scroll container setup,
 Severity: High
 
 Evidence:
-- `src/lib/liveMarkdownTransform.ts:298` calls `ensureSyntaxTree(view.state, view.state.doc.length, 5000)`.
+- The former monolithic live-preview plugin called `ensureSyntaxTree(view.state, view.state.doc.length, 5000)`; the fixed lifecycle now lives in `src/features/editor/live-preview/LiveMarkdownPlugin.ts`.
 - `src/lib/tableRenderingField.ts:27` calls `ensureSyntaxTree(state, state.doc.length, 5000)`.
 - CodeMirror API docs (local type definitions) state this can spend up to `timeout` ms parsing (`node_modules/@codemirror/language/dist/index.d.ts:185`).
 
@@ -49,9 +49,9 @@ Manual repro for regression check:
 Severity: High
 
 Evidence:
-- `src/components/NotesShell.svelte:10` imports `SCROLL_TEST_NOTES` at module load.
-- `src/lib/scrollTestNotes.ts` eagerly constructs a large in-memory dataset.
-- Long-press path using this data is reachable in app code (`src/components/NotesShell.svelte:344` to `src/components/NotesShell.svelte:352`).
+- `src/app/NotesShell.svelte:10` imports `SCROLL_TEST_NOTES` at module load.
+- `src/features/editor/scrollTestNotes.ts` eagerly constructs a large in-memory dataset.
+- Long-press path using this data is reachable in app code (`src/app/NotesShell.svelte:344` to `src/app/NotesShell.svelte:352`).
 
 Why this matters:
 - Violates requirement: this should be dev-only.
@@ -74,13 +74,13 @@ Severity: Medium (escalates to High on low-memory/mobile data conditions)
 
 Evidence:
 - Eager preloading is triggered on editor create and on `setContent`:
-  - `src/components/MarkdownEditor.svelte:45`
-  - `src/components/MarkdownEditor.svelte:127`
-- `preloadImages` fetches every markdown image URL (`src/lib/liveMarkdownTransform.ts:105` to `src/lib/liveMarkdownTransform.ts:125`).
-- Global cache is unbounded (`src/lib/liveMarkdownTransform.ts:96`).
+  - `src/features/editor/MarkdownEditor.svelte:45`
+  - `src/features/editor/MarkdownEditor.svelte:127`
+- `preloadImages` fetches every markdown image URL (`src/features/editor/live-preview/images.ts`).
+- Global cache is unbounded (`src/features/editor/live-preview/images.ts`).
 - Image wrapper uses fixed height and hidden overflow:
-  - `src/lib/liveMarkdownTransform.ts:144` / `src/lib/liveMarkdownTransform.ts:166`
-  - `src/styles/markdown.css:168`
+  - `src/features/editor/live-preview/images.ts`
+  - `src/styles/markdown-blocks.css`
 
 Why this matters:
 - Unbounded cache can grow without limit across note opens.

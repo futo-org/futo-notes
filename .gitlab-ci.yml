@@ -382,6 +382,9 @@ test:
     - pnpm run lint:platform
     - pnpm run format:check
     - pnpm exec tsx tests/conformance/generate.mjs --check
+    # Permanent anti-duplication gates. Keep these in the first mandatory MR
+    # job so expensive suites do not start when an architecture check fails.
+    - pnpm run check:arch-gate
     - pnpm run test:full
     - pnpm run build
   rules:
@@ -389,33 +392,10 @@ test:
     - if: $CI_MERGE_REQUEST_IID
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
-# Permanent anti-duplication gates (architecture-hardening.md PKT-7 / L2-4,
-# PKT-8 / R1-R2): command reachability (F24 — every registered Tauri command
-# has a caller or an allowlisted reason), platform discipline (F29 —
-# @tauri-apps access stays behind src/lib/platform/** + a frozen allowlist),
-# bridge coverage + version (F11 — the generated Android BridgeSpec.kt
-# matches packages/editor/src/bridge.ts), the drift registry (R1 — AGENTS.md
-# §12's permitted-duplicate list as code, deny-by-default) and the debt
-# ratchet (R2 — 4 fuzzy debt counts that can only go down). The
-# Constants conformance (F7/F21), bridge exhaustiveness, and the generated
-# sync contract ride in `test`/`test:rust`/`test:rust:workspace` as ordinary
-# TypeScript/Rust tests. Keep this job portable instead of compiling Tauri a
-# second time; test:rust:workspace owns Rust-backed generation checks.
-test:arch-gates:
-  stage: test
-  cache:
-    - !reference [.cache-pnpm, cache]
-  script:
-    - pnpm install --frozen-lockfile --prefer-offline
-    # Portable subset of `just arch-gate`; the pinned CI image does not include just.
-    - pnpm run check:arch-gate:portable
-  rules:
-    - if: $CI_COMMIT_TAG
-    - if: $CI_MERGE_REQUEST_IID
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-
 test:e2e:smoke:
   stage: test
+  needs:
+    - job: test
   cache:
     - !reference [.cache-pnpm, cache]
     - !reference [.cache-playwright, cache]
@@ -439,6 +419,8 @@ test:e2e:smoke:
 
 test:e2e:markdown-spec:
   stage: test
+  needs:
+    - job: test
   cache:
     - !reference [.cache-pnpm, cache]
     - !reference [.cache-playwright, cache]
@@ -467,6 +449,8 @@ test:e2e:markdown-spec:
 
 test:e2e:rest:
   stage: test
+  needs:
+    - job: test
   cache:
     - !reference [.cache-pnpm, cache]
     - !reference [.cache-playwright, cache]
@@ -494,6 +478,8 @@ test:e2e:rest:
 
 test:rust:
   stage: test
+  needs:
+    - job: test
   cache:
     - !reference [.cache-cargo-tauri, cache]
   script:
@@ -507,6 +493,8 @@ test:rust:
 
 test:rust:workspace:
   stage: test
+  needs:
+    - job: test
   cache:
     - !reference [.cache-cargo-tauri, cache]
   script:
@@ -519,6 +507,11 @@ test:rust:workspace:
     - !reference [.setup-rust, script]
     - mkdir -p dist
     - cargo test --workspace
+  # Job 189242 exhausted the default 60m on a completely cold cache while
+  # still compiling dependencies. Give that first run enough wall time to
+  # finish and seed the existing when:always Cargo cache; warm runs remain
+  # unchanged. This is the same cold-cache policy used by the native builds.
+  timeout: 90m
   rules:
     - if: $CI_COMMIT_TAG
     - if: $CI_MERGE_REQUEST_IID
@@ -530,7 +523,7 @@ test:rust:workspace:
         - crates/**/*
         - apps/tauri/src-tauri/**/*
         - apps/tauri/Cargo.toml
-        - src/lib/syncContract.generated.ts
+        - src/features/sync/syncContract.generated.ts
         - scripts/build-rust-android.sh
         - scripts/build-rust-ios.sh
         # CI config changes can alter this job's toolchain/system-dep setup
@@ -547,6 +540,8 @@ test:rust:workspace:
 # a core crate doesn't trip this.
 test:rust:dep-guard:
   stage: test
+  needs:
+    - job: test
   cache:
     - !reference [.cache-cargo-tauri, cache]
   script:
@@ -579,6 +574,8 @@ test:rust:dep-guard:
 
 test:rust:macos:
   stage: test
+  needs:
+    - job: test
   tags:
     - macscript
   # Force a clean clone each run — the macscript runner's incremental fetch
@@ -604,6 +601,8 @@ test:rust:macos:
 
 test:cross-platform-sync:
   stage: test
+  needs:
+    - job: test
   # Serialize across pipelines: two concurrent runs = 4 Tauri instances + 2
   # servers on the same pinned runner, which starves the suite into flaking
   # ("active note reload" et al. — reliably green single-pipeline, red only
@@ -682,8 +681,8 @@ test:cross-platform-sync:
       changes:
         - crates/futo-notes-sync/**/*
         - crates/futo-notes-core/**/*
-        - src/lib/syncServiceE2ee.ts
-        - src/lib/sync*
+        - src/features/sync/syncServiceE2ee.ts
+        - src/features/sync/sync*
         - tests/cross-platform-sync.mjs
         - tests/lib/**/*
         - .gitlab-ci.yml
@@ -699,6 +698,8 @@ test:cross-platform-sync:
 
 test:desktop-smoke:macos:
   stage: test
+  needs:
+    - job: test
   tags:
     - macscript
   variables:
@@ -896,7 +897,8 @@ build:android-native:
   # as failover.
   tags:
     - dind_fast
-  needs: []
+  needs:
+    - job: test
   image: gitlab.futo.org:5050/futo-notes/futo-notes/ci/android:latest
   cache:
     - !reference [.cache-pnpm, cache]
@@ -1011,7 +1013,8 @@ build:android-native:
 # pipelines run an unsigned simulator compile check.
 build:ios-native:
   stage: build
-  needs: []
+  needs:
+    - job: test
   tags:
     - macscript
   variables:
@@ -1367,7 +1370,6 @@ release:gate:
     # nearly shipped v1.4.0 twice: once past a failed test:e2e:rest, once
     # past a failed test:cross-platform-sync).
     - job: test
-    - job: test:arch-gates
     - job: test:e2e:smoke
     - job: test:e2e:markdown-spec
     - job: test:e2e:rest

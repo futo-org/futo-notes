@@ -20,7 +20,9 @@
     "baseUrl": ".",
     "paths": {
       "$lib/*": ["src/lib/*"],
+      "$app/*": ["src/app/*"],
       "$features/*": ["src/features/*"],
+      "$shared/*": ["src/shared/*"],
       "@/*": ["./*"],
       "@futo-notes/editor": ["packages/editor/src"],
       "@futo-notes/editor/*": ["packages/editor/src/*"]

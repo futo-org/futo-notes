@@ -38,8 +38,6 @@ describe('imageMimeForExtension', () => {
     for (const ext of IMAGE_EXTENSIONS) {
       const mime = imageMimeForExtension(ext);
       expect(mime.startsWith('image/')).toBe(true);
-      // png is the only extension whose correct MIME equals the default;
-      // every other accepted extension must have an explicit mapping.
       if (ext !== 'png') {
         expect(mime).not.toBe('image/png');
       }

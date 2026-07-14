@@ -14,20 +14,16 @@ import {
   exists as fsExists,
   stat,
 } from '@tauri-apps/plugin-fs';
-import type {
-  DirFileEntry,
-  FileChangeEvent,
-  PlatformFS,
-  NoteFile,
-  FolderEntry,
-  NotePreviewMeta,
-} from './types';
+import type { DirFileEntry, FileChangeEvent, PlatformFS } from './types';
 import { IMAGE_EXTENSIONS } from '@futo-notes/editor';
-import { noteParentDir, safeAppdataPath } from './pathSafety';
+import { safeAppdataPath } from './pathSafety';
 import { writeAtomicText } from './atomicWrite';
 import type { AtomicWriteFS } from './atomicWrite';
 import { isNotFound } from './fsErrors';
-import { generateImageFilename, isImageFilename } from '$lib/images';
+import {
+  createImageFilename as generateImageFilename,
+  isImageFilename,
+} from '$shared/media/imageFiles';
 import {
   getNotesRoot as resolveNotesRoot,
   getDefaultNotesRoot,
@@ -129,25 +125,6 @@ const FS_READ_TIMEOUT_MS = 8_000;
  * or a non-empty directory. Best-effort: any error stops the walk and
  * is swallowed because folder pruning is purely a cosmetic cleanup.
  */
-async function pruneEmptyAncestors(root: string, dir: string): Promise<void> {
-  if (dir === root) return;
-  let cursor = dir;
-  // Cap iterations defensively — the depth limit is enforced elsewhere.
-  for (let i = 0; i < 16; i++) {
-    if (!cursor.startsWith(root) || cursor === root) return;
-    try {
-      const entries = await readDir(cursor);
-      if (entries.length > 0) return;
-      await remove(cursor);
-    } catch {
-      return;
-    }
-    const slash = cursor.lastIndexOf('/');
-    if (slash <= root.length) return;
-    cursor = cursor.slice(0, slash);
-  }
-}
-
 let watcherStarted = false;
 let assetProtocolWorks: boolean | null = null;
 
@@ -215,122 +192,6 @@ const pluginFS: AtomicWriteFS = {
 };
 
 export const tauriFS: PlatformFS = {
-  async listNoteFiles(): Promise<NoteFile[]> {
-    // Single IPC hop: the Rust side does one `read_dir + metadata` pass
-    // and returns [{name, mtimeMs, sizeBytes}] sorted desc. Collapses what
-    // used to be 1 + 2N round-trips (readDir + N stat) into one — on iOS
-    // with 2000 notes this drops startup wall time by ~1s per call. Size
-    // is used by sync to skip unchanged files without reading them.
-    const entries =
-      await invoke<Array<{ name: string; mtimeMs: number; sizeBytes: number }>>(
-        'fs_list_notes_with_meta',
-      );
-    return entries.map((e) => ({ name: e.name, mtime: e.mtimeMs, size: e.sizeBytes }));
-  },
-
-  async scanNotes(): Promise<NotePreviewMeta[]> {
-    // One IPC: Rust scans the whole vault (read_dir + read + preview + tags),
-    // sorted mtime-desc, via futo-notes-model::scan_notes. The command does
-    // notes_root() → create_dir_all itself, so no ensureNotesFolder() /
-    // getPlatformFS() await is needed in front — eliminating the iOS
-    // cold-sandbox plugin-fs hang class on the note path.
-    const metas = await invoke<
-      Array<{
-        id: string;
-        title: string;
-        folder: string;
-        modifiedMs: number;
-        preview: string;
-        tags: string[];
-      }>
-    >('notes_scan');
-    // NoteMeta → NotePreview shim: drop `folder`, rename `modifiedMs`.
-    return metas.map((m) => ({
-      id: m.id,
-      title: m.title,
-      preview: m.preview,
-      modificationTime: m.modifiedMs,
-      tags: m.tags,
-    }));
-  },
-
-  async seedIfEmpty(): Promise<number> {
-    // Rust writes the shared welcome note iff the vault is empty
-    // (futo-notes-model::seed_if_empty). Same first run as iOS/Android.
-    return invoke<number>('notes_seed_if_empty');
-  },
-
-  async readNote(id: string): Promise<string> {
-    // Rust command over futo-notes-model::read_note (missing = ""). The
-    // command does notes_root() → create_dir_all itself, so this no longer
-    // hits the iOS cold-sandbox plugin-fs hang class (no withTimeout needed).
-    return invoke<string>('notes_read', { id });
-  },
-
-  async writeNote(id: string, content: string, modifiedAtMs?: number): Promise<number> {
-    // Single IPC: Rust does the atomic write (temp + rename), optional
-    // mtime override, and mtime read-back in one blocking call. The Rust
-    // side calls `write_atomic_text` which calls `create_dir_all(parent)`
-    // — so a nested ID like `Specs/foo` automatically creates its folder.
-    // The command also suppresses the watcher echo for `{id}.md` before the
-    // write, so our own edit doesn't bubble back as an external change.
-    const modifiedAt =
-      typeof modifiedAtMs === 'number' && Number.isFinite(modifiedAtMs) && modifiedAtMs >= 0
-        ? Math.trunc(modifiedAtMs)
-        : null;
-    return await invoke<number>('notes_write', {
-      id,
-      content,
-      modifiedAtMs: modifiedAt,
-    });
-  },
-
-  async deleteNoteFile(id: string): Promise<void> {
-    // Rust command over futo-notes-model::delete_note (missing is not an
-    // error). The model does NOT prune empty parents, so do that here to
-    // match the prior plugin-fs behavior (no ghost folders after deleting
-    // the only note inside).
-    await invoke('notes_delete', { id });
-    const root = await getNotesRoot();
-    await pruneEmptyAncestors(root, noteParentDir(root, id));
-  },
-
-  // Intentionally removes ALL contents under notes root — .md files, images,
-  // hidden app-data files, subdirectories. This is a full reset operation.
-  async deleteAllContent(): Promise<void> {
-    const root = await getNotesRoot();
-    const entries = await readDir(root);
-    await Promise.all(
-      entries.filter((e) => e.name).map((e) => remove(`${root}/${e.name}`, { recursive: true })),
-    );
-  },
-
-  async noteExists(id: string): Promise<boolean> {
-    return invoke<boolean>('notes_exists', { id });
-  },
-
-  async createNote(
-    folder: string,
-    title: string,
-    content: string,
-  ): Promise<{ id: string; mtime: number }> {
-    // Rust resolves the id collision (`-2`, `-3`, …) and writes the content in
-    // one blocking call, suppressing the watcher echo for the resolved id.
-    const r = await invoke<{ id: string; modifiedMs: number }>('notes_create', {
-      title,
-      folder,
-      content,
-    });
-    return { id: r.id, mtime: r.modifiedMs };
-  },
-
-  async renameNote(oldId: string, newId: string): Promise<string> {
-    // Explicit old→new relocation (atomic rename, preserves mtime). Rust
-    // resolves any collision and suppresses both filename echoes. Returns
-    // the final, collision-resolved id.
-    return invoke<string>('notes_rename', { oldId, newId });
-  },
-
   async readAppData(path: string): Promise<string | null> {
     const root = await getNotesRoot();
     const fullPath = safeAppdataPath(root, path);
@@ -482,28 +343,6 @@ export const tauriFS: PlatformFS = {
       filters: [{ name: 'Images', extensions: [...IMAGE_EXTENSIONS] }],
     });
     return typeof picked === 'string' ? picked : null;
-  },
-
-  // ── Folder operations ───────────────────────────────────────────────
-
-  async listFolders(): Promise<FolderEntry[]> {
-    return invoke<FolderEntry[]>('fs_list_folders');
-  },
-
-  async createFolder(path: string): Promise<void> {
-    await invoke<string>('notes_create_folder', { path });
-  },
-
-  async renameFolder(fromPath: string, toPath: string): Promise<void> {
-    await invoke('notes_rename_folder', { from: fromPath, to: toPath });
-  },
-
-  async deleteFolder(path: string): Promise<void> {
-    await invoke('notes_delete_folder', { path });
-  },
-
-  async deleteNoteToTrash(id: string): Promise<void> {
-    await invoke('notes_delete_to_trash', { id });
   },
 };
 

@@ -4,23 +4,13 @@
   "private": true,
   "type": "module",
   "packageManager": "pnpm@10.29.2",
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild",
-      "protobufjs"
-    ],
-    "overrides": {
-      "devalue@<5.8.1": "5.8.1",
-      "picomatch@4": "4.0.4",
-      "esbuild@<0.28.1": "0.28.1"
-    }
-  },
   "scripts": {
     "prepare": "git config core.hooksPath .githooks || true",
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "lint": "eslint src packages/editor/src --ext .ts",
+    "check:svelte": "svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
     "format": "prettier --write \"**/*.{ts,svelte,js,mjs,cjs,css}\"",
     "format:check": "prettier --check \"**/*.{ts,svelte,js,mjs,cjs,css}\"",
     "lint:platform": "! git grep -n -E \"platform/(electron|capacitor)|isElectron|isCapacitor\" -- src ':(exclude)src/lib/platform/**' ':(exclude)src/**/__mocks__/**' ':(exclude)src/**/*.test.ts'",
@@ -41,7 +31,7 @@
     "test:markdown-spec": "playwright test tests/markdown-spec.spec.ts",
     "test:e2e:rest": "playwright test --grep-invert \"Markdown Spec\"",
     "test:unit": "pnpm run test:unit:minimal",
-    "test:unit:minimal": "vitest run src/lib/editorInit.test.ts src/lib/platform/pathSafety.test.ts src/lib/platform/tauriPaths.test.ts src/lib/platform/windowsRuntimeConfig.test.ts src/lib/updater.test.ts src/lib/updateChecker.svelte.test.ts src/lib/platform/updaterConfig.test.ts src/components/UpdateBanner.svelte.test.ts src/lib/constantsConformance.test.ts scripts/build-updater-manifest.test.mjs scripts/desktop-version.test.mjs scripts/release-build.test.mjs scripts/release-channel.test.mjs scripts/verify-updater-signature.test.mjs scripts/tauri-test-client.test.mjs",
+    "test:unit:minimal": "vitest run src/features/editor/editorInit.test.ts src/features/sync/createExternalChangeCoordinator.test.ts src/lib/platform/pathSafety.test.ts src/lib/platform/tauriPaths.test.ts src/lib/platform/windowsRuntimeConfig.test.ts src/features/system/updater.test.ts src/features/system/updateChecker.svelte.test.ts src/lib/platform/updaterConfig.test.ts src/features/system/UpdateBanner.svelte.test.ts src/lib/constantsConformance.test.ts scripts/build-updater-manifest.test.mjs scripts/desktop-version.test.mjs scripts/package-safety-policy.test.mjs scripts/premerge-test-parity.test.mjs scripts/release-build.test.mjs scripts/release-channel.test.mjs scripts/typescript-script-runtime.test.mjs scripts/verify-updater-signature.test.mjs scripts/tauri-test-client.test.mjs",
     "test:unit:full": "vitest run",
     "test:editor": "pnpm run test:editor:minimal",
     "test:editor:minimal": "pnpm --filter @futo-notes/editor exec vitest run src/conformance.test.ts src/images.test.ts src/bridge.test.ts",
@@ -50,7 +40,7 @@
     "test:unit:watch": "vitest",
     "test:headed": "playwright test --headed",
     "test:ui": "playwright test --ui",
-    "ci": "pnpm run lint && pnpm run format:check && pnpm run test:full && pnpm run build",
+    "ci": "pnpm run lint && pnpm run check:svelte && pnpm run format:check && pnpm run test:full && pnpm run build",
     "_comment": "Tauri commands (dev, build, deploy) live in the justfile — use `just` from the monorepo root. Only toolchain scripts (vite, vitest, playwright, eslint) belong here.",
     "test:desktop-smoke": "node tests/desktop-smoke.mjs",
     "test:cross-platform": "node tests/cross-platform-sync.mjs"
@@ -93,6 +83,7 @@
     "prettier": "^3.9.4",
     "prettier-plugin-svelte": "^4.1.1",
     "prettier-plugin-tailwindcss": "^0.8.0",
+    "svelte-check": "4.7.2",
     "typescript": "5.9.3",
     "typescript-eslint": "^8.54.0",
     "vite": "7.3.5",

@@ -1,6 +1,3 @@
 {
-  "_comment": "Tauri commands registered in apps/tauri/src-tauri/src/application.rs's generate_handler![...] with no invoke() caller anywhere in src/ today (architecture-hardening.md F24 / L1-2 / L2-4 gate 1). Checked by scripts/check-command-reachability.mjs. Remove an entry the moment it gets a caller (or gets deleted from Rust) \u2014 a lingering entry either way is a stale allowlist and fails the gate.",
-  "notes_move": {
-    "reason": "Registered, no TS caller. Mirrors the FFI NoteStore.move_note for native; the desktop move-into-folder path composes a full destination id and goes through notes_rename instead, so this verb stays reachable only via the FFI facade."
-  }
+  "_comment": "Tauri commands registered in apps/tauri/src-tauri/src/application.rs's generate_handler![...] with no invoke() caller anywhere in src/ today (architecture-hardening.md F24 / L1-2 / L2-4 gate 1). Checked by scripts/check-command-reachability.mjs. Remove an entry the moment it gets a caller (or gets deleted from Rust) \u2014 a lingering entry either way is a stale allowlist and fails the gate."
 }

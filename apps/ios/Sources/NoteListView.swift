@@ -19,19 +19,13 @@ struct NoteListView: View {
     /// Note ids pending the search-results delete confirmation.
     @State private var searchDeleteIds: [String] = []
     @State private var showSearchDelete = false
-    /// Rust BM25 results for the current query, or nil while the engine warms /
-    /// the query is blank — then the substring fallback below applies.
-    @State private var engineHits: [NoteItem]?
+    /// Results returned by the Rust-owned local-note store.
+    @State private var searchHits: [NoteItem] = []
 
     private var filtered: [NoteItem] {
         let q = search.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !q.isEmpty else { return store.notes }
-        if let engineHits { return engineHits }
-        return store.notes.filter { note in
-            note.title.lowercased().contains(q)
-                || note.preview.lowercased().contains(q)
-                || note.tags.contains { $0.lowercased().contains(q) }
-        }
+        return searchHits
     }
 
     var body: some View {
@@ -50,10 +44,7 @@ struct NoteListView: View {
             .navigationTitle("Notes")
             .searchable(text: $search, prompt: "Search notes")
             .task(id: search) {
-                // Engine-backed search (Rust BM25, off-main). Re-runs per query
-                // edit; .task(id:) cancels the stale run. Substring stays the
-                // fallback while the index warms; blank queries never hit it.
-                await runEngineSearch()
+                await runSearch()
             }
             .toolbar {
                 // Distinct ToolbarItem `id:`s so the two leading controls expose
@@ -143,19 +134,13 @@ struct NoteListView: View {
         .animation(.easeInOut(duration: 0.2), value: store.transientMessage)
     }
 
-    /// Query the Rust engine when it's warm; otherwise leave `engineHits` nil so
-    /// `filtered` falls back to the in-memory substring scan.
-    private func runEngineSearch() async {
+    private func runSearch() async {
         let q = search.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty else {
-            engineHits = nil
+            searchHits = []
             return
         }
-        guard await store.search.keywordReady() else {
-            engineHits = nil
-            return
-        }
-        let hits = await store.search.query(q, limit: 50)
+        let hits = await store.search(q, limit: 50)
         // Map hits back to live NoteItems; drop ids the store doesn't know
         // (stale index entries disappear instead of rendering ghosts).
         let byId = Dictionary(store.notes.map { ($0.id, $0) }) { first, _ in first }
@@ -163,7 +148,7 @@ struct NoteListView: View {
         // The query may have moved on while we were off-main — don't show stale
         // hits (.task(id:) cancellation usually catches this; belt-and-braces).
         guard q == search.trimmingCharacters(in: .whitespacesAndNewlines) else { return }
-        engineHits = items
+        searchHits = items
     }
 
     private var searchResults: some View {

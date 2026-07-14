@@ -28,12 +28,8 @@ futo-notes-core = { path = "../../../crates/futo-notes-core" }
 # commands are thin wrappers that delegate to this crate (same source of
 # truth as the native iOS/Android shells via futo-notes-ffi).
 futo-notes-sync = { path = "../../../crates/futo-notes-sync" }
-# The canonical note rules (filename/tag/title) + note CRUD. Exposed as
-# #[tauri::command] wrappers so desktop consumes the SAME Rust as native.
-futo-notes-model = { path = "../../../crates/futo-notes-model" }
-# Platform-agnostic on-device BM25 search engine. Thin Tauri shim in
-# src/search_commands.rs over this.
-futo-notes-search = { path = "../../../crates/futo-notes-search" }
+# The durable local-note owner, including the derived BM25 index.
+futo-notes-store = { path = "../../../crates/futo-notes-store" }
 time = { version = "0.3", features = ["formatting"] }
 notify = "8.2.0"
 png = "0.17"

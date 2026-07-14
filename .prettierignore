@@ -8,7 +8,7 @@ apps/android/build/
 
 # Generated code
 apps/ios/Sources/Generated/
-src/lib/syncContract.generated.ts
+src/features/sync/syncContract.generated.ts
 tests/conformance/*.json
 docs/spec/GAPS.md
 pnpm-lock.yaml

@@ -1,0 +1,76 @@
+/* ===========================
+   FABs
+   =========================== */
+.fab {
+  position: fixed;
+  bottom: max(16px, calc(16px + env(safe-area-inset-bottom)));
+  right: max(16px, calc(16px + env(safe-area-inset-right)));
+  height: 48px;
+  border-radius: 24px;
+  background: var(--color-primary);
+  color: var(--color-text-inverse);
+  border: none;
+  font-size: 15px;
+  font-weight: 500;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  box-shadow:
+    0 2px 8px rgba(var(--primary-rgb), 0.25),
+    0 0 0 1px rgba(var(--primary-rgb), 0.1);
+  z-index: 100;
+  -webkit-user-select: none;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 20px;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.fab:active {
+  transform: scale(0.96);
+  box-shadow: 0 1px 4px rgba(var(--primary-rgb), 0.2);
+}
+
+/* Settings button — now in sidebar header, but keep as fallback */
+.settings-fab {
+  position: fixed;
+  bottom: max(16px, calc(16px + env(safe-area-inset-bottom)));
+  left: max(16px, calc(16px + env(safe-area-inset-left)));
+  width: 48px;
+  height: 48px;
+  border-radius: 24px;
+  background: var(--color-text);
+  color: var(--color-bg);
+  border: none;
+  font-size: 22px;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(var(--ink-rgb), 0.15);
+  z-index: 99;
+  -webkit-user-select: none;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.15s ease;
+}
+
+.settings-fab:active {
+  transform: scale(0.96);
+}
+
+.notes-drawer .settings-fab {
+  position: absolute;
+  left: max(16px, calc(16px + env(safe-area-inset-left)));
+  bottom: max(16px, calc(16px + env(safe-area-inset-bottom)));
+}
+
+/* Drawer-scoped overrides */
+.notes-drawer .fab {
+  position: absolute;
+  right: max(16px, calc(16px + env(safe-area-inset-right)));
+  bottom: max(16px, calc(16px + env(safe-area-inset-bottom)));
+}

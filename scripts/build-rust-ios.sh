@@ -29,6 +29,9 @@ cargo build -p futo-notes-ffi --target aarch64-apple-ios
 echo "==> Building futo-notes-ffi for simulator (aarch64-apple-ios-sim)"
 cargo build -p futo-notes-ffi --target aarch64-apple-ios-sim
 
+echo "==> Building futo-notes-ffi for simulator (x86_64-apple-ios)"
+cargo build -p futo-notes-ffi --target x86_64-apple-ios
+
 echo "==> Building host lib (for binding generation metadata)"
 cargo build -p futo-notes-ffi
 
@@ -47,9 +50,16 @@ rm -f "$GEN/futo_notes_ffiFFI.h" "$GEN/futo_notes_ffiFFI.modulemap"
 
 echo "==> Creating $XCF"
 rm -rf "$XCF"
+SIM_UNIVERSAL="$ROOT/target/universal-apple-ios-sim"
+rm -rf "$SIM_UNIVERSAL"
+mkdir -p "$SIM_UNIVERSAL"
+lipo -create \
+  target/aarch64-apple-ios-sim/debug/libfuto_notes_ffi.a \
+  target/x86_64-apple-ios/debug/libfuto_notes_ffi.a \
+  -output "$SIM_UNIVERSAL/libfuto_notes_ffi.a"
 xcodebuild -create-xcframework \
   -library target/aarch64-apple-ios/debug/libfuto_notes_ffi.a -headers "$HEADERS" \
-  -library target/aarch64-apple-ios-sim/debug/libfuto_notes_ffi.a -headers "$HEADERS" \
+  -library "$SIM_UNIVERSAL/libfuto_notes_ffi.a" -headers "$HEADERS" \
   -output "$XCF"
 
 echo "==> Done: $XCF and $GEN/futo_notes_ffi.swift"

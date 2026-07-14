@@ -311,11 +311,7 @@ fun NoteEditorScreen(
             // background/process death (PKT-12 F1).
             val flushed = content
             if (flushed != savedContent) { store.write(noteId, flushed); savedContent = flushed }
-            val oldId = noteId
             noteId = store.rename(noteId, target)
-            // Repoint every wikilink at the renamed note [editor.md:88] —
-            // fire-and-forget on the store's scope (vault-wide rewrite).
-            if (noteId != oldId) store.relink(oldId, noteId)
         }
     }
 
@@ -605,12 +601,7 @@ fun NoteEditorScreen(
                     val flushed = content
                     if (flushed != savedContent) { store.write(noteId, flushed); savedContent = flushed }
                     if (isNew) store.createFolder(folder)
-                    val oldId = noteId
-                    val moved = store.moveNote(noteId, folder)
-                    if (moved != oldId) {
-                        noteId = moved
-                        store.relink(oldId, moved)
-                    }
+                    noteId = store.moveNote(noteId, folder)
                     Toast.makeText(context, "Moved to ${folder.ifEmpty { "Root" }}", Toast.LENGTH_SHORT).show()
                 }
             },

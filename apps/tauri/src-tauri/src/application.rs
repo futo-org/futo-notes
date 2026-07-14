@@ -26,15 +26,13 @@ pub(crate) fn run() {
                 crate::panic_reporter::install(root.join(".crashlogs"));
             }
             crate::platform_integration::configure_app(handle)?;
-            crate::search_commands::init_on_startup(handle);
+            crate::local_notes::init_on_startup(handle);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            crate::legacy_filesystem_commands::fs_list_notes_with_meta,
             crate::image_commands::fs_save_image,
             crate::image_commands::fs_paste_clipboard_image,
             crate::filesystem_watcher::fs_start_watcher,
-            crate::legacy_filesystem_commands::fs_list_folders,
             crate::vault_location::notes_dir_override_load,
             crate::vault_location::notes_dir_override_save,
             crate::vault_location::resolve_default_notes_root,
@@ -50,23 +48,21 @@ pub(crate) fn run() {
             crate::sync::password_store::e2ee_password_get,
             crate::sync::password_store::e2ee_password_set,
             crate::sync::password_store::e2ee_password_delete,
-            crate::note_commands::notes_scan,
-            crate::note_commands::notes_seed_if_empty,
-            crate::note_commands::notes_read,
-            crate::note_commands::notes_exists,
-            crate::note_commands::notes_write,
-            crate::note_commands::notes_create,
-            crate::note_commands::notes_delete,
-            crate::note_commands::notes_rename,
-            crate::note_commands::notes_move,
-            crate::folder_commands::notes_create_folder,
-            crate::note_commands::notes_delete_to_trash,
-            crate::folder_commands::notes_rename_folder,
-            crate::folder_commands::notes_delete_folder,
-            crate::search_commands::search_query,
-            crate::search_commands::search_status,
-            crate::search_commands::search_rebuild,
-            crate::search_commands::search_notify,
+            crate::local_notes::local_notes_bootstrap,
+            crate::local_notes::local_notes_snapshot,
+            crate::local_notes::local_notes_inventory,
+            crate::local_notes::local_notes_read,
+            crate::local_notes::local_notes_exists,
+            crate::local_notes::local_notes_save,
+            crate::local_notes::local_notes_delete,
+            crate::local_notes::local_notes_move,
+            crate::local_notes::local_notes_create_folder,
+            crate::local_notes::local_notes_rename_folder,
+            crate::local_notes::local_notes_delete_folder,
+            crate::local_notes::local_notes_reset,
+            crate::local_notes::local_notes_search,
+            crate::local_notes::local_notes_search_status,
+            crate::local_notes::local_notes_rescan,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
