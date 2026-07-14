@@ -39,7 +39,7 @@ discipline as the POC plan).
 | --- | --- | --- |
 | Engine passes all 268 fixtures headlessly, ms-fast | `crates/futo-notes-editor` conformance harness (gpui branch) | A viable |
 | gpui desktop app built M0–M8 in ~2 days on the engine, incl. sync | `worktree-gpui-desktop-rewrite` July 3–4 commits | A cheap to build |
-| TextKit2 POC P0–P5 complete: FFI EditorEngine, layer-2 Swift harness, editing loop w/ IME guard, commands | `poc/ios-textkit2-editor` | A viable on iOS |
+| TextKit2 POC P0–P5 complete: FFI EditorEngine, layer-2 Swift harness, editing loop w/ IME guard, commands | `poc/full-native-editors` | A viable on iOS |
 | Naive side-by-side on iPhone: TextKit2 vs WebKit hard to tell apart (selection/caret NOT pushed) | Manual, 2026-07-09 | Feel is a wash on iOS (both are Apple's text stack — D1 working as designed) |
 | Small-note typing healthy native (p50 14ms ≈ 1 frame, 0 drops); in-loop work ~0.4ms | POC verdict P5 (simulator) | A viable |
 | 10k-line note was CATASTROPHIC native (p50 ~1.8s/keystroke, whole-doc overlay reposition), then fixed: viewport-bounded overlays, >2k-line notes fall back to visible markers; post-fix 10k open 435–507ms, scroll 1 hitch/3.3s | POC verdict P5 + post-P5 fix | Was a kill; now "iterate" — device re-verify needed. Note the >2k-line fallback is a UX regression to price in |
@@ -95,12 +95,12 @@ inventory sets the transition plan either way.
 ## 4. Experiments
 
 Run in parallel where possible. Native-side work lives on
-`poc/ios-textkit2-editor` (it has the reusable system: feature-gated pure
+`poc/full-native-editors` (it has the reusable system: feature-gated pure
 engine crates (P0), `export-spec` JSON corpus bin + `EditorEngine` UniFFI
 surface (P1), Swift layer-2 harness (P2)). Analysis lives on main.
 
 - **E1 — Android spike (highest information value; the long pole).**
-  Branch `poc/android-editor` stacked on `poc/ios-textkit2-editor`.
+  Branch `poc/android-editor` stacked on `poc/full-native-editors`.
   Minimal Compose adapter over the existing `EditorEngine` FFI (Kotlin
   bindings should fall out of `build-rust-android.sh`): engine decorations
   → spans, conceal, damage restyle. Port a Kotlin runner for the exported
@@ -128,7 +128,7 @@ surface (P1), Swift layer-2 harness (P2)). Analysis lives on main.
 
 ## 5. Logistics
 
-- iOS kill-tests: directly on `poc/ios-textkit2-editor`. Android:
+- iOS kill-tests: directly on `poc/full-native-editors`. Android:
   `poc/android-editor` stacked on it. Decision artifacts (this doc, E6
   outputs, the final verdict): main, cherry-picked to the POC branch so
   Mac-side work has them.
