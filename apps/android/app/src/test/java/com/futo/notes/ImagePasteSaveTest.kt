@@ -19,11 +19,13 @@ import java.io.File
 class ImagePasteSaveTest {
     @get:Rule val tmp = TemporaryFolder()
 
+    private val allowFixtureImages: (String) -> Boolean = { it == "png" || it == "jpg" }
+
     @Test
     fun savesBytesAndReturnsFilename() {
         val root = tmp.newFolder("vault")
         val bytes = byteArrayOf(1, 2, 3, 4)
-        val name = saveImageDataIntoVault(root, bytes, "png")
+        val name = saveImageDataIntoVault(root, bytes, "png", allowFixtureImages)
         assertTrue(name!!.startsWith("image-"))
         assertTrue(name.endsWith(".png"))
         assertTrue(File(root, name).readBytes().contentEquals(bytes))
@@ -32,7 +34,7 @@ class ImagePasteSaveTest {
     @Test
     fun rejectsDisallowedExtension() {
         val root = tmp.newFolder("vault")
-        assertNull(saveImageDataIntoVault(root, byteArrayOf(1), "exe"))
+        assertNull(saveImageDataIntoVault(root, byteArrayOf(1), "exe", allowFixtureImages))
     }
 
     @Test
@@ -41,7 +43,7 @@ class ImagePasteSaveTest {
         // Many saves in a tight loop (same second) — each must get its own file
         // with its own bytes; none may overwrite another.
         val names = (0 until 25).map { i ->
-            saveImageDataIntoVault(root, byteArrayOf(i.toByte()), "png")!!
+            saveImageDataIntoVault(root, byteArrayOf(i.toByte()), "png", allowFixtureImages)!!
         }
         assertEquals("every save got a unique filename", names.size, names.toSet().size)
         names.forEachIndexed { i, name ->
@@ -52,7 +54,7 @@ class ImagePasteSaveTest {
     @Test
     fun createsVaultDirIfMissing() {
         val root = File(tmp.root, "does/not/exist/yet")
-        val name = saveImageDataIntoVault(root, byteArrayOf(9), "jpg")
+        val name = saveImageDataIntoVault(root, byteArrayOf(9), "jpg", allowFixtureImages)
         assertTrue(File(root, name!!).exists())
     }
 }
