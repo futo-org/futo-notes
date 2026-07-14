@@ -40,27 +40,19 @@ fn store(root: &TestRoot) -> LocalNoteStore {
     LocalNoteStore::new(root.0.clone())
 }
 
-/// Fault injection for the A1 create/rename clobber window: on the first
-/// `before_write` (fired just before the install), plant a file at the exact
-/// target path — simulating a concurrent external/sync writer landing there
-/// between id allocation and install.
-struct PlantOnFirstWrite {
-    root: PathBuf,
-    content: String,
-    planted: Mutex<bool>,
-}
-
-impl BeforeWrite for PlantOnFirstWrite {
-    fn before_write(&self, changes: &[FileChange]) {
-        let mut planted = self.planted.lock().unwrap();
-        if *planted {
-            return;
+/// Plant a file at the chosen id exactly once, via the install-window hook —
+/// simulating a concurrent external/sync writer landing at the id between
+/// allocation and the no-replace install.
+fn plant_once(root: &TestRoot, content: &'static str) -> Box<dyn Fn(&str) + Send + Sync> {
+    let dir = root.0.clone();
+    let planted = Mutex::new(false);
+    Box::new(move |id: &str| {
+        let mut done = planted.lock().unwrap();
+        if !*done {
+            fs::write(dir.join(format!("{id}.md")), content).unwrap();
+            *done = true;
         }
-        if let Some(FileChange::Changed(name)) = changes.first() {
-            fs::write(self.root.join(name), &self.content).unwrap();
-            *planted = true;
-        }
-    }
+    })
 }
 
 // A create whose chosen id is taken by a concurrent writer in the
@@ -69,12 +61,8 @@ impl BeforeWrite for PlantOnFirstWrite {
 #[test]
 fn create_never_clobbers_a_concurrent_writer_at_the_chosen_id() {
     let root = TestRoot::new();
-    let hook = Arc::new(PlantOnFirstWrite {
-        root: root.0.clone(),
-        content: "peer wrote here".to_owned(),
-        planted: Mutex::new(false),
-    });
-    let store = LocalNoteStore::with_before_write(root.0.clone(), hook);
+    let store = store(&root);
+    store.set_install_window_hook(plant_once(&root, "peer wrote here"));
 
     let mutation = store.create("", "Note", "my new note").unwrap();
     let final_id = mutation.final_id().unwrap();
@@ -86,6 +74,40 @@ fn create_never_clobbers_a_concurrent_writer_at_the_chosen_id() {
         "the concurrent writer's file must not be clobbered"
     );
     assert_eq!(store.read(final_id), "my new note");
+}
+
+// On the collision-retry path, watcher suppression must be registered ONLY for
+// the path actually installed — never for the peer's colliding id, or the
+// peer's own create event gets eaten and its note goes missing until rescan (B3).
+#[test]
+fn a_collision_retry_does_not_suppress_the_peers_create_event() {
+    let root = TestRoot::new();
+    let recorder = Arc::new(RecordingObserver::default());
+    let store = LocalNoteStore::with_before_write(root.0.clone(), recorder.clone());
+    store.set_install_window_hook(plant_once(&root, "peer"));
+
+    let mutation = store.create("", "Note", "mine").unwrap();
+    let final_id = mutation.final_id().unwrap().to_owned();
+
+    let registered: Vec<String> = recorder
+        .0
+        .lock()
+        .unwrap()
+        .iter()
+        .flatten()
+        .filter_map(|change| match change {
+            FileChange::Changed(name) => Some(name.clone()),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        registered.contains(&format!("{final_id}.md")),
+        "the installed path must be suppressed"
+    );
+    assert!(
+        !registered.contains(&"Note.md".to_owned()),
+        "the peer's colliding create must NOT be suppressed"
+    );
 }
 
 #[test]
@@ -315,6 +337,36 @@ fn bootstrap_succeeds_and_seeds_even_when_search_cannot_start() {
         store.search("anything", None).unwrap().is_empty(),
         "search degrades to empty, never an error"
     );
+}
+
+// B4: if the hard_link install succeeds but dropping the source fails, the
+// error path must NOT leave a duplicate (both names live) — the link is undone.
+#[cfg(unix)]
+#[test]
+fn a_failed_source_removal_during_rename_leaves_no_duplicate() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = TestRoot::new();
+    let store = store(&root);
+    store.write("Src/note", "the content", None).unwrap();
+    let src_dir = root.0.join("Src");
+    let original = fs::metadata(&src_dir).unwrap().permissions();
+    fs::set_permissions(&src_dir, fs::Permissions::from_mode(0o555)).unwrap();
+
+    // Root ignores DAC, so a read-only dir wouldn't block removal — skip rather
+    // than false-pass (probe by trying to write into the now-read-only dir).
+    let dac_enforced = fs::write(src_dir.join(".probe"), b"x").is_err();
+    if !dac_enforced {
+        let _ = fs::remove_file(src_dir.join(".probe"));
+        fs::set_permissions(&src_dir, original).unwrap();
+        return;
+    }
+
+    let result = store.rename("Src/note", "Dst/note");
+    fs::set_permissions(&src_dir, original).unwrap();
+
+    assert!(result.is_err(), "rename must fail when the source can't be removed");
+    assert_eq!(store.read("Src/note"), "the content", "source note preserved");
+    assert!(!store.exists("Dst/note"), "no stranded duplicate at the destination");
 }
 
 // ── search-engine start self-heal (F13 retry, PKT-10, now shared) ──

@@ -153,6 +153,11 @@ pub struct LocalNoteStore {
     gate: Mutex<()>,
     search: Mutex<SearchState>,
     retry_cooldown: Duration,
+    /// Test-only fault injection fired in `install_new` between id allocation
+    /// and the no-replace install, to simulate a concurrent writer landing at
+    /// the chosen id. Always `None` in production (never fired outside tests).
+    #[allow(clippy::type_complexity)]
+    install_window_hook: Mutex<Option<Box<dyn Fn(&str) + Send + Sync>>>,
 }
 
 impl LocalNoteStore {
@@ -167,6 +172,7 @@ impl LocalNoteStore {
             gate: Mutex::new(()),
             search: Mutex::new(SearchState::default()),
             retry_cooldown: SEARCH_ENGINE_RETRY_COOLDOWN,
+            install_window_hook: Mutex::new(None),
         }
     }
 
@@ -738,14 +744,21 @@ impl LocalNoteStore {
         for _ in 0..1000 {
             let id = paths::unique_note_id(&self.root, wanted, None)?;
             let path = paths::note_path(&self.root, &id)?;
+            #[cfg(test)]
+            if let Some(hook) = self.install_window_hook.lock().unwrap().as_ref() {
+                hook(&id);
+            }
+            if !create_new_atomic(&path, content.as_bytes())? {
+                // A writer outside this store's serialization took the id in the
+                // window; re-allocate against the now-larger tree and retry. We
+                // register watcher suppression only AFTER a successful install
+                // (below), so this EEXIST never suppresses — and thus eats — the
+                // peer's own create event (B3).
+                continue;
+            }
             let change = FileChange::Changed(note_filename(&id));
             self.before_write
                 .before_write(std::slice::from_ref(&change));
-            if !create_new_atomic(&path, content.as_bytes())? {
-                // A writer outside this store's serialization took the id in the
-                // window; re-allocate against the now-larger tree and retry.
-                continue;
-            }
             if let Some(modified_ms) = modified_ms.filter(|value| *value >= 0) {
                 set_file_mtime_ms(&path, modified_ms)?;
             }
@@ -870,6 +883,11 @@ impl LocalNoteStore {
     }
 
     #[cfg(test)]
+    fn set_install_window_hook(&self, hook: Box<dyn Fn(&str) + Send + Sync>) {
+        *self.install_window_hook.lock().unwrap() = Some(hook);
+    }
+
+    #[cfg(test)]
     fn search_engine_installed(&self) -> bool {
         self.search.lock().unwrap().engine.is_some()
     }
@@ -948,7 +966,17 @@ fn move_files_with_rollback(root: &Path, mappings: &[(String, String)]) -> Resul
             // completes the move. On EEXIST we fail, and the caller rolls back
             // — the newcomer and the source both survive.
             match fs::hard_link(&source, &destination) {
-                Ok(()) => fs::remove_file(&source).map_err(io_error),
+                Ok(()) => match fs::remove_file(&source) {
+                    Ok(()) => Ok(()),
+                    Err(error) => {
+                        // The link was created but the source couldn't be
+                        // dropped. Undo the link so the error path never strands
+                        // a duplicate (both names live), then fall through to
+                        // rolling back the prior moves (B4).
+                        let _ = fs::remove_file(&destination);
+                        Err(io_error(error))
+                    }
+                },
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Err(format!(
                     "rename destination {} appeared under a concurrent writer",
                     destination.display()
