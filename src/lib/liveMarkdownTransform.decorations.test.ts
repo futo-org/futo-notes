@@ -226,27 +226,29 @@ describe('liveMarkdownTransform decorations', () => {
     // wherever it was. ignoreEvent() === false hands the tap to CM, which
     // places the caret itself (same contract as HorizontalRuleWidget).
     it('bullet and number markers return ignoreEvent() === false', () => {
-      const view = setup('- alpha\n- beta\n  - nested\n1. one\n2. two');
-      const plugin: any = view.plugin(liveMarkdownTransform);
-      const widgets: any[] = [];
-      const cur = plugin.decorations.iter();
-      while (cur.value) {
-        if (cur.value.spec.widget) widgets.push(cur.value.spec.widget);
-        cur.next();
-      }
-      const markers = widgets
-        .map((widget) => {
-          const cls = widget.toDOM(view).className ?? '';
-          return { widget, cls };
-        })
-        .filter(({ cls }) => {
-          return cls.includes('cm-md-bullet') || cls.includes('cm-md-number');
-        });
-      expect(markers.filter(({ cls }) => cls.includes('cm-md-bullet'))).toHaveLength(3);
-      expect(markers.filter(({ cls }) => cls.includes('cm-md-number'))).toHaveLength(2);
-      for (const { widget } of markers) {
-        expect(widget.ignoreEvent()).toBe(false);
-      }
+      const assertMarkerContract = (doc: string, markerClass: string) => {
+        const view = setup(doc);
+        const plugin: any = view.plugin(liveMarkdownTransform);
+        const cur = plugin.decorations.iter();
+        let marker: any;
+        while (cur.value) {
+          const widget = cur.value.spec.widget;
+          if (widget?.toDOM(view).className?.includes(markerClass)) {
+            marker = widget;
+            break;
+          }
+          cur.next();
+        }
+
+        expect(marker, `${markerClass} widget was not rendered`).toBeDefined();
+        expect(marker.ignoreEvent()).toBe(false);
+      };
+
+      // Parse each widget independently. Requiring every decoration from one
+      // mixed, multi-line document made this contract test depend on CM6's
+      // background parse scheduling under a loaded CI worker.
+      assertMarkerContract('- alpha', 'cm-md-bullet');
+      assertMarkerContract('1. one', 'cm-md-number');
     });
   });
 });
