@@ -1,0 +1,119 @@
+/* Live Markdown Transform Styles */
+
+/* Headings — serif for H1-H3, sans for H4-H6 */
+.cm-md-h1,
+.cm-md-h2,
+.cm-md-h3 {
+  font-family: var(--font-serif);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--color-text);
+}
+
+.cm-md-h4,
+.cm-md-h5,
+.cm-md-h6 {
+  font-family: var(--font-sans);
+  font-weight: 600;
+}
+
+/* Heading line decorations carry font-size + line-height so the
+ * entire line scales with the heading, not just the inner text run.
+ * The `.cm-md-hN` mark below carries family/weight/color for the
+ * text; the line class is what makes wrapped content inside the
+ * heading sit on the correct baseline. */
+.cm-md-h1-line {
+  font-size: 28px !important;
+  line-height: 1.1 !important;
+}
+.cm-md-h2-line {
+  font-size: 23px !important;
+  line-height: 1.15 !important;
+}
+.cm-md-h3-line {
+  font-size: 20px !important;
+  line-height: 1.2 !important;
+}
+.cm-md-h4-line {
+  font-size: 18px !important;
+  line-height: 1.25 !important;
+}
+.cm-md-h5-line {
+  font-size: 16px !important;
+  line-height: 1.3 !important;
+}
+.cm-md-h6-line {
+  font-size: 14px !important;
+  line-height: 1.4 !important;
+}
+
+.cm-md-h1 {
+  font-size: 28px;
+  line-height: 1.1;
+}
+
+.cm-md-h2 {
+  font-size: 23px;
+  line-height: 1.15;
+}
+
+.cm-md-h3 {
+  font-size: 20px;
+  line-height: 1.2;
+}
+
+.cm-md-h4 {
+  font-size: 18px;
+  line-height: 1.25;
+  color: var(--color-text);
+}
+
+.cm-md-h5 {
+  font-size: 16px;
+  line-height: 1.3;
+  color: var(--color-muted);
+}
+
+.cm-md-h6 {
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--color-muted);
+}
+
+/* Bold inside a heading needs to be heavier than the heading itself
+ * (which is already 700) — otherwise `**bold**` is invisible inside
+ * an h1. CM6 doesn't nest the heading-text mark and the strong mark
+ * (they're siblings on the same .cm-line), so target via the line
+ * class which IS an ancestor. */
+.cm-md-h1-line .cm-md-strong,
+.cm-md-h2-line .cm-md-strong,
+.cm-md-h3-line .cm-md-strong,
+.cm-md-h4-line .cm-md-strong,
+.cm-md-h5-line .cm-md-strong,
+.cm-md-h6-line .cm-md-strong {
+  font-weight: 900;
+}
+
+/* Emphasis */
+.cm-md-emphasis {
+  font-style: italic;
+  color: inherit;
+}
+
+/* Strong emphasis */
+.cm-md-strong {
+  font-weight: 700;
+  color: inherit;
+}
+
+/* Revealed inline markers (*, **, ~~) — dim so the styled text pops
+   and strip the style from the marker itself. */
+.cm-md-inline-marker {
+  color: var(--color-muted) !important;
+  opacity: 0.55;
+  font-weight: 400 !important;
+  font-style: normal !important;
+  text-decoration: none !important;
+}
+
+/* Code */

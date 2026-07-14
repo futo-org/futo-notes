@@ -1,0 +1,53 @@
+.settings-section {
+  margin-bottom: 24px;
+}
+
+.settings-section-title {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-muted);
+  margin: 0 0 8px 4px;
+}
+
+.settings-card {
+  background: var(--color-surface);
+  border-radius: 12px;
+  padding: 14px;
+}
+
+.settings-segmented {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  padding: 4px;
+  border-radius: 12px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+}
+
+.settings-segment {
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--color-muted);
+  font-size: 14px;
+  font-weight: 500;
+  font-family: inherit;
+  padding: 9px 8px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
+}
+
+.settings-segment:active {
+  background: rgba(var(--primary-rgb), 0.12);
+}
+
+.settings-segment.active {
+  background: var(--color-primary);
+  color: var(--color-bg);
+}

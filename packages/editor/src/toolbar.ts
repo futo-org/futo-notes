@@ -17,7 +17,7 @@
  * The EDITING BEHAVIOR behind each `exec` item is not defined here and never
  * lives in a native shell: native toolbars dispatch
  * `FutoEditor.exec(item.id)` over the bridge, which runs the shared
- * CodeMirror command in `src/lib/markdownToolbar.ts` (`TOOLBAR_EXEC`). One
+ * CodeMirror command in `src/features/editor/markdownToolbar.ts` (`TOOLBAR_EXEC`). One
  * implementation of every command, identical behavior on every platform by
  * construction.
  */

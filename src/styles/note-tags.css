@@ -1,0 +1,126 @@
+/* ===========================
+   Note Tag Bar
+   =========================== */
+.note-tag-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px 0;
+  padding-left: max(20px, calc(20px + env(safe-area-inset-left)));
+  padding-right: max(20px, calc(20px + env(safe-area-inset-right)));
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.tag-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  font-size: 12px;
+  padding: 2px 8px;
+  color: var(--color-text);
+  line-height: 1.4;
+}
+
+.tag-pill-name {
+  user-select: none;
+}
+
+.tag-pill-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  padding: 0;
+  margin-left: 2px;
+  cursor: pointer;
+  color: var(--color-muted);
+  opacity: 0.7;
+  line-height: 1;
+}
+
+.tag-pill-remove:hover {
+  opacity: 1;
+  color: var(--color-text);
+}
+
+.tag-add-btn {
+  background: none;
+  border: 1px dashed var(--color-border);
+  border-radius: 12px;
+  font-size: 12px;
+  padding: 2px 10px;
+  color: var(--color-muted);
+  cursor: pointer;
+  line-height: 1.4;
+}
+
+.tag-add-btn:hover {
+  color: var(--color-text);
+  border-color: var(--color-text);
+}
+
+.tag-input-wrapper {
+  position: relative;
+}
+
+.tag-input {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  font-size: 12px;
+  padding: 2px 10px;
+  color: var(--color-text);
+  outline: none;
+  width: 120px;
+  line-height: 1.4;
+}
+
+.tag-input:focus {
+  border-color: var(--color-primary);
+}
+
+.tag-suggestions {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  overflow: hidden;
+  z-index: 10;
+  min-width: 120px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.tag-suggestion {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.tag-suggestion:hover,
+.tag-suggestion.selected {
+  background: var(--color-surface);
+}
+
+.tag-suggestion-create {
+  color: var(--color-muted);
+  border-top: 1px solid var(--color-border);
+}
+
+.tag-suggestion-create:hover,
+.tag-suggestion-create.selected {
+  color: var(--color-primary);
+}

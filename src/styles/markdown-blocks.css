@@ -1,0 +1,120 @@
+/* Block quotes */
+.cm-line.cm-md-quote {
+  padding-left: 15px !important;
+  color: var(--color-muted);
+  font-style: italic;
+  margin-left: 0;
+  border-left: 2px solid var(--color-primary);
+}
+
+/* Level 2: two separate vertical lines */
+.cm-line.cm-md-quote-level-2 {
+  padding-left: 30px !important;
+  border-left: none;
+  background-image:
+    linear-gradient(var(--color-primary), var(--color-primary)),
+    linear-gradient(var(--color-primary), var(--color-primary));
+  background-size:
+    2px 100%,
+    2px 100%;
+  background-position:
+    0 0,
+    15px 0;
+  background-repeat: no-repeat;
+}
+
+/* Level 3: three separate vertical lines */
+.cm-line.cm-md-quote-level-3 {
+  padding-left: 45px !important;
+  border-left: none;
+  background-image:
+    linear-gradient(var(--color-primary), var(--color-primary)),
+    linear-gradient(var(--color-primary), var(--color-primary)),
+    linear-gradient(var(--color-primary), var(--color-primary));
+  background-size:
+    2px 100%,
+    2px 100%,
+    2px 100%;
+  background-position:
+    0 0,
+    15px 0,
+    30px 0;
+  background-repeat: no-repeat;
+}
+
+/* Dimmed quote markers when cursor/selection is on the line */
+.cm-md-quote-marker {
+  color: var(--color-border);
+  font-style: normal;
+}
+
+/* Keep quote source markers visible-but-transparent. We deliberately
+   *preserve* the inline width (no font-size: 0) so that revealing the
+   marker on cursor doesn't shift the text right. Match Obsidian's
+   `cm-transparent` approach: color goes to rgba(0,0,0,0), the glyph
+   takes layout space but is invisible. */
+.cm-md-quote-marker-hidden {
+  color: transparent !important;
+  pointer-events: none !important;
+}
+
+/* List item line */
+.cm-line.cm-md-list-line {
+  /* A positive first-line-only text-indent is set inline per item
+     (liveMarkdownTransform listLineStyle): only the first visual line
+     carries the nesting indent + marker; wrapped lines start at the left
+     margin — no hanging indent (docs/spec/editor.md). No padding rule on
+     purpose: list lines keep the same base padding as plain .cm-lines in
+     whatever context they render (desktop, native embed, blockquotes). */
+}
+
+/* Unordered list items */
+.cm-md-ul-item {
+}
+
+/* Ordered list items */
+.cm-md-ol-item {
+}
+
+/* Task items */
+.cm-md-task {
+}
+
+.cm-md-task-checkbox {
+  appearance: checkbox;
+  -webkit-appearance: checkbox;
+  margin-right: 6px;
+  cursor: pointer;
+  accent-color: var(--color-primary);
+}
+
+/* Horizontal rule widget */
+/* Definite height (NOT margins) so the measured line height exactly equals
+ * HorizontalRuleWidget.estimatedHeight (50). Margins can collapse against the
+ * adjacent line, making measured ≠ estimated, which makes CM6 re-estimate the
+ * gap when the rule scrolls back into view and jerk the scroll position on iOS
+ * momentum scrolling. See docs/learnings/hr-scroll-jank.md. */
+.cm-md-hr-widget {
+  height: 50px;
+  display: flex;
+  align-items: center;
+}
+
+.cm-md-hr-widget > div {
+  flex: 1;
+  border-top: 1px solid var(--color-border);
+  opacity: 0.5;
+}
+
+/* Image widget */
+.cm-md-image-wrapper {
+  margin: 8px 0;
+  overflow: hidden;
+}
+
+.cm-md-image-widget {
+  max-width: 100%;
+  max-height: 300px;
+  border-radius: 6px;
+  display: block;
+}

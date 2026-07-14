@@ -59,7 +59,7 @@ test.describe('Danger zone — Full reset confirmation', () => {
 
     await openSettings(page);
 
-    // doNuke() → deleteAllNotes() → window.location.reload(): accepting the
+    // doNuke() → resetAllNotes() → window.location.reload(): accepting the
     // confirm must take the wipe path, which reloads the page.
     const reloaded = page.waitForEvent('load');
     await fullResetButton(page).click();

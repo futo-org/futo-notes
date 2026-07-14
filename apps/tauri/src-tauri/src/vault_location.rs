@@ -4,7 +4,7 @@
 //! The debug/production split is a data-safety boundary, not a convenience.
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
@@ -73,13 +73,6 @@ pub(crate) fn root(app: &AppHandle) -> Result<PathBuf, String> {
     let root = load_override(app).map_or_else(|| default_root(app), Ok)?;
     fs::create_dir_all(&root).map_err(io_error)?;
     Ok(root)
-}
-
-pub(crate) fn ensure_parent(path: &Path) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(io_error)?;
-    }
-    Ok(())
 }
 
 #[tauri::command]

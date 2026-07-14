@@ -12,7 +12,7 @@ use notify::{
     event::{ModifyKind, RenameMode},
     Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher,
 };
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::application_state::AppState;
 use crate::background_tasks::blocking;
@@ -149,6 +149,11 @@ impl EventSink {
         if self.suppression.consume(relative_path) {
             return;
         }
+        let change = match kind {
+            "unlink" => futo_notes_store::FileChange::Removed(relative_path.to_owned()),
+            _ => futo_notes_store::FileChange::Changed(relative_path.to_owned()),
+        };
+        self.app.state::<AppState>().notes.observe(change);
         let _ = self.app.emit(
             "fs:change",
             serde_json::json!({ "type": kind, "filename": relative_path }),
@@ -159,6 +164,13 @@ impl EventSink {
         if self.suppression.consume_rename(from, to) {
             return;
         }
+        self.app
+            .state::<AppState>()
+            .notes
+            .observe(futo_notes_store::FileChange::Renamed {
+                from: from.to_owned(),
+                to: to.to_owned(),
+            });
         let _ = self.app.emit(
             "fs:change",
             serde_json::json!({ "type": "rename", "filename": to, "from": from }),
@@ -340,8 +352,7 @@ mod tests {
             .expect("tests/conformance/constants.json must exist");
         let text = std::fs::read_to_string(&path)
             .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
-        let json: serde_json::Value =
-            serde_json::from_str(&text).expect("fixture is valid JSON");
+        let json: serde_json::Value = serde_json::from_str(&text).expect("fixture is valid JSON");
         let expected = json["watcherSuppressionWindowMs"]
             .as_i64()
             .expect("watcherSuppressionWindowMs");

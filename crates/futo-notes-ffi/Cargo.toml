@@ -24,8 +24,7 @@ path = "src/bin/uniffi-bindgen.rs"
 uniffi = { version = "0.28", features = ["tokio", "cli"] }
 tokio = { version = "1", features = ["sync", "macros", "rt-multi-thread", "time"] }
 futo-notes-model = { path = "../futo-notes-model" }
+futo-notes-store = { path = "../futo-notes-store" }
 futo-notes-sync = { path = "../futo-notes-sync" }
 futo-notes-core = { path = "../futo-notes-core" }
-# On-device BM25 search shared by desktop and native shells.
-futo-notes-search = { path = "../futo-notes-search" }
 thiserror = "1"

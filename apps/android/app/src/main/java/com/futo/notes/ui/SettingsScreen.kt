@@ -241,7 +241,7 @@ fun SettingsScreen(
                     // Pause live sync + auto-push so the wipe can't race a
                     // push, wipe the vault, then drop the session (also clears
                     // the stored password). Parity model: desktop
-                    // deleteAllNotes (src/lib/notes.svelte.ts).
+                    // resetAllNotes (src/app/resetAllNotes.ts).
                     sync.pauseLive()
                     store.suppressAutoPush = true
                     try {

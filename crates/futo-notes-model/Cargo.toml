@@ -6,11 +6,7 @@ edition = "2021"
 [lib]
 name = "futo_notes_model"
 
-# The note domain: filename/tag/title rules, note + folder CRUD, wikilinks.
-# Owns the canonical rule implementation shared by desktop (Tauri) + native
-# (iOS/Android via FFI). Low-level primitives (sanitize/validate title, path
-# safety, atomic write, hashing) are reused from `futo-notes-core` — this
-# crate does NOT re-port them.
+# Pure note-domain decisions shared by the durable store and every shell.
 [dependencies]
 futo-notes-core = { path = "../futo-notes-core" }
 serde = { version = "1", features = ["derive"] }
@@ -18,11 +14,6 @@ serde = { version = "1", features = ["derive"] }
 # lookbehind for whitespace-or-start and a lookahead for the terminator, so we
 # need `fancy-regex` (already in the tree via the inference tokenizer).
 fancy-regex = "0.14"
-# Parallelizes the per-file work in `scan_notes` (read + decode + preview + tag
-# extraction is independent per note and the dominant per-note cost). Already
-# in the workspace tree (futo-notes-core/-inference/tauri), so this adds no new
-# transitive dependency — only this crate's edge to it is new. F19.
-rayon = "1"
 
 [dev-dependencies]
 serde_json = "1"

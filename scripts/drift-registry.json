@@ -19,7 +19,7 @@
           "pattern": "export function makePreview"
         },
         {
-          "location": "src/lib/wikilinks.ts",
+          "location": "src/shared/note/wikilinks.ts",
           "pattern": "export function resolveWikilink"
         },
         {
@@ -31,7 +31,7 @@
           "pattern": "pub fn tag_regex_matches"
         },
         {
-          "location": "crates/futo-notes-model/src/crud.rs",
+          "location": "crates/futo-notes-model/src/note.rs",
           "pattern": "pub fn make_preview"
         },
         {
@@ -98,7 +98,7 @@
       "note": "PARTIAL: TS is fully locked against the fixture. Kotlin's SyncManagerDefaultsTest.kt hand-mirrors a 5-case subset instead of reading server-url.json (L1-5 plan: make it read the full fixture). Swift is genuinely UNLOCKED pending an iOS test target (L1-4).",
       "copies": [
         {
-          "location": "src/lib/syncServiceE2ee.ts",
+          "location": "src/features/sync/syncServiceE2ee.ts",
           "pattern": "function validateSyncServerUrl"
         },
         {
@@ -116,7 +116,7 @@
           "kind": "fixture"
         },
         {
-          "path": "src/lib/syncServiceE2ee.test.ts",
+          "path": "src/features/sync/syncServiceE2ee.test.ts",
           "kind": "test"
         },
         {
@@ -125,16 +125,8 @@
         }
       ],
       "scan": {
-        "dirs": [
-          "src",
-          "apps/ios/Sources",
-          "apps/android/app/src/main"
-        ],
-        "extensions": [
-          ".ts",
-          ".swift",
-          ".kt"
-        ],
+        "dirs": ["src", "apps/ios/Sources", "apps/android/app/src/main"],
+        "extensions": [".ts", ".swift", ".kt"],
         "pattern": "(function validateSyncServerUrl|fun validateServerUrl|func validateServerURL)\\b"
       }
     },
@@ -180,39 +172,25 @@
         }
       ],
       "scan": {
-        "dirs": [
-          "src",
-          "packages/shared/src",
-          "apps/tauri/src-tauri/src",
-          "crates"
-        ],
-        "extensions": [
-          ".ts",
-          ".rs"
-        ],
+        "dirs": ["src", "packages/shared/src", "apps/tauri/src-tauri/src", "crates"],
+        "extensions": [".ts", ".rs"],
         "mode": "token-cluster",
-        "tokens": [
-          "jpg",
-          "jpeg",
-          "png",
-          "gif",
-          "webp"
-        ],
+        "tokens": ["jpg", "jpeg", "png", "gif", "webp"],
         "minDistinct": 3
       }
     },
     {
       "concept": "sort-tiebreaker-modified-id",
-      "description": "Note sort order (modified desc, id asc), independently implemented 4x with no shared fixture (AGENTS.md §12: 'Not locked — real drift risk'). L1-5 plans a shared test-vector fixture across vitest/cargo/JVM/Swift; until that lands this is copy-existence only.",
+      "description": "Note sort order (modified desc, id asc), emitted canonically by the Rust store and repeated in the three shell caches so local edits can re-sort without a disk scan. No shared fixture currently locks the four copies.",
       "lockStatus": "unlocked",
       "copies": [
         {
-          "location": "src/lib/notes.svelte.ts",
-          "pattern": "b\\.modificationTime\\s*-\\s*a\\.modificationTime\\s*\\|\\|\\s*a\\.id\\.localeCompare\\(b\\.id\\)"
+          "location": "src/features/notes/notes.svelte.ts",
+          "pattern": "right\\.modificationTime\\s*-\\s*left\\.modificationTime\\s*\\|\\|\\s*left\\.id\\.localeCompare\\(right\\.id\\)"
         },
         {
-          "location": "crates/futo-notes-model/src/crud.rs",
-          "pattern": "b\\.modified_ms\\.cmp\\(&a\\.modified_ms\\)\\.then\\(a\\.id\\.cmp\\(&b\\.id\\)\\)"
+          "location": "crates/futo-notes-store/src/vault.rs",
+          "pattern": "right\\s*\\.modified_ms\\s*\\.cmp\\(&left\\.modified_ms\\)"
         },
         {
           "location": "apps/ios/Sources/NotesStore.swift",
@@ -254,7 +232,7 @@
           "pattern": "const SUPPRESSION_WINDOW_MS"
         },
         {
-          "location": "src/lib/writeSuppression.ts",
+          "location": "src/lib/platform/writeSuppression.ts",
           "pattern": "LOCAL_WRITE_TTL_MS|SYNC_WRITE_TTL_MS"
         }
       ],
@@ -284,7 +262,7 @@
           "pattern": "pub struct SyncFailure\\b"
         },
         {
-          "location": "src/lib/syncServiceE2ee.ts",
+          "location": "src/features/sync/syncServiceE2ee.ts",
           "pattern": "SyncSummary\\b"
         },
         {
@@ -314,16 +292,12 @@
     },
     {
       "concept": "unique-id-collision-loop",
-      "description": "The '-2, -3, ...' unique-id suffix resolver. Rust (futo-notes-core/src/files.rs) is canonical — desktop + native reach it through notes_create/notes_rename. The ONLY TS copy is the web PlatformFS impl (web has no Rust core), mirrored by the nodeFS test double. Separate unit tests, no shared fixture.",
+      "description": "The '-2, -3, ...' unique-id suffix resolver. Rust is canonical for desktop and native. The only TS copy is the browser-only development/test note-store harness. Separate tests protect each implementation; no shared fixture currently locks them.",
       "lockStatus": "unlocked",
       "copies": [
         {
-          "location": "src/lib/platform/web.ts",
-          "pattern": "function uniqueNoteId"
-        },
-        {
-          "location": "src/lib/platform/__test__/nodeFS.ts",
-          "pattern": "function uniqueNoteId"
+          "location": "src/lib/localNoteStore.ts",
+          "pattern": "private unique\\(wanted"
         },
         {
           "location": "crates/futo-notes-core/src/files.rs",
@@ -365,18 +339,8 @@
         }
       ],
       "scan": {
-        "dirs": [
-          "packages/editor/src",
-          "crates",
-          "apps/ios/Sources",
-          "apps/android/app/src/main"
-        ],
-        "extensions": [
-          ".ts",
-          ".rs",
-          ".swift",
-          ".kt"
-        ],
+        "dirs": ["packages/editor/src", "crates", "apps/ios/Sources", "apps/android/app/src/main"],
+        "extensions": [".ts", ".rs", ".swift", ".kt"],
         "pattern": "MAX_TITLE_LENGTH\\s*[:=]\\s*(usize\\s*=\\s*)?200|TITLE_MAX_LENGTH\\s*=\\s*200|titleMaxLength\\s*=\\s*200"
       }
     },

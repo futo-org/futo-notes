@@ -1,69 +1,50 @@
 # Search — Spec
 
-Search is on-device keyword retrieval. The shared Rust engine indexes note
-title, folder, tags, and body text with Tantivy BM25. It is the sole full-text
-index on every shipped platform.
+Search is on-device keyword retrieval owned by the same local-note store that
+owns the Markdown vault. The store starts one Tantivy BM25 engine per vault;
+desktop, iOS, and Android query that owner through thin adapters.
 
 ## Behavior
 
-- Search runs fully on-device; no query or note content leaves the device.
-- The Rust index builds in the background and never blocks the UI. Until
-  `search_status.keyword.ready` is true, desktop may filter its already-loaded
-  note metadata (title, tags, and preview); it does not read note bodies or
-  build/persist a second index.
-- Non-empty queries return ranked note IDs from BM25. On the Tauri search popup
-  and Android an empty query shows the 8 most-recent notes. iOS is the
-  exception by design: it has no dedicated search popup — search is an inline
-  `.searchable` bottom bar on the folder browser, so an empty query simply shows
-  the current folder's normal list (not an 8-recent list). → NoteListView.swift
-  `.searchable`
-- A query token containing internal hyphens (`folder-scoped`) is matched as an
-  adjacent **phrase** (`"folder scoped"`), not as independent OR'd words — it
-  matches the literal compound (the tokenizer splits on `-`) but not the same
-  words separated elsewhere in a note. Established behavior of the default
-  Tantivy tokenizer + query parser; regression-locked in futo-notes-search. →
-  crates/futo-notes-search `tantivy_indices.rs` `search_bm25`
-- Results show a folder badge for foldered notes on the Tauri popup **and** the
-  native iOS inline results (verified iOS 2026-07-02); this is intended parity,
-  not a desktop-only detail.
-- Store mutations feed `search_notify`; bulk wipes and live pulls trigger a
-  rescan so the index stays in lockstep with the vault. This holds on every
-  app: the native shells rescan after a live pull, and on desktop
-  `handleSyncComplete` reindexes each peer change (`peerUpdatedIds` →
-  `change`, `peerDeletedIds` → `unlink`, `renamed` → `rename`) into the
-  engine. Without it a synced-in note stayed missing from Tantivy until the
-  next app launch, since sync's Rust-side writes have their watcher echo
-  suppressed and never reach `search_notify`.
+- No query or note content leaves the device.
+- Bootstrap starts index reconciliation in the background so list rendering
+  never waits on search startup.
+- A non-empty query waits for keyword readiness, then returns ranked note IDs.
+  There is no TypeScript, Swift, or Kotlin fallback index.
+- The index covers note title, folder, tags, and body text.
+- Internal hyphens are parsed as an adjacent phrase by the shared Tantivy query
+  behavior (`folder-scoped` matches the compound, not distant words).
+- Empty-query UI behavior remains surface-specific: desktop and Android show
+  eight recent notes; iOS shows the normal current-folder list.
+- Result rows show title, preview, and a folder badge for foldered notes.
 
-## Search UI _(Tauri)_
+## Ownership and consistency
 
-- The drawer/sidebar search bar (or Ctrl/Cmd+P) opens a search popup with the
-  input autofocused; queries debounce about 100 ms. → SearchPopup.svelte
-- Results show title, a folder badge when the note is foldered, and a preview
-  snippet; matches include note body text, not just titles.
-- An empty query shows the 8 most-recent notes; x clears; Escape closes.
-- Arrow keys navigate results, Enter opens; Ctrl/Cmd+click or Shift+click
-  opens the result in a new tab. _(desktop)_
+- `futo-notes-search` implements BM25 and background reconciliation.
+- `futo-notes-store::LocalNoteStore` owns its lifecycle and feeds it every
+  committed local mutation.
+- Tauri exposes this owner through `local_notes_search/status/rescan`; UniFFI
+  exposes the same calls on `NoteStore`.
+- A mutation is visible to the index as part of the store workflow. Shells do
+  not issue per-file search notifications.
+- Sync and external filesystem writes bypass local workflows, so each completed
+  peer batch or watcher batch requests one store rescan. Pure push echoes do not.
+- Full reset clears the vault through the store and leaves the rebuildable index
+  owned by that same instance.
+- A failed engine start (bad/locked index dir, momentary disk pressure) degrades
+  to empty results rather than crashing, and the store re-attempts the start
+  lazily on the next search/status/rescan call — gated by a 15 s cooldown
+  (`SEARCH_ENGINE_RETRY_COOLDOWN`) so a persistent failure is not reopened on
+  every call. This self-heal lives in the shared `futo-notes-store` owner, so
+  iOS, Android, and desktop share it (it replaces the former iOS-only
+  `SearchService` retry). → `futo-notes-store` `ensure_engine`
 
-## Status & Platform Coverage
+## Desktop UI
 
-- Implemented in the shared `crates/futo-notes-search` crate as a Tantivy BM25
-  index plus background reconciler, consumed by Tauri through
-  `apps/tauri/src-tauri/src/search_commands.rs`. Desktop startup/state/module
-  ownership is fixed by [desktop-rust.md](desktop-rust.md).
-- Native shells use the same crate through the `futo-notes-ffi` `SearchEngine`
-  facade. Both native shells query the Rust engine, map hits back onto their
-  live note lists, and fall back to substring filtering while the index warms.
-- The desktop frontend never creates `.search-index-v1.json`; Rust removes that
-  retired MiniSearch artifact during index startup. Regression-locked by
-  `notes.test.ts` ("does not load or persist the retired client-side search index").
-- A **failed** engine open (e.g. a stale index lock, momentary disk pressure)
-  degrades to the substring fallback but is **retried within the session**, so a
-  transient failure does not latch keyword search off until relaunch. *(iOS)*
-  `SearchService` backs off ~15 s after a failed open (not per keystroke) then
-  retries; an explicit `rescan()` (live pull / foreground catch-up) clears the
-  backoff and retries immediately. *(Android)* `SearchEngineHolder.get` retries
-  on the next call (no latch). → SearchService.swift `ensureEngine`;
-  MainActivity.kt `SearchEngineHolder`.
-- SPLADE / learned-sparse search is preserved on the `splade-merge` branch and
-  is not part of `main`.
+- The drawer search affordance and Ctrl/Cmd+P open the autofocused popup.
+- Queries debounce about 100 ms.
+- Arrow keys select results, Enter opens, Escape closes, and the clear button
+  resets the query.
+- Ctrl/Cmd+click or Shift+click opens a result in a new tab.
+
+SPLADE/learned-sparse search is not part of this contract.

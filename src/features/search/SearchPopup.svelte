@@ -1,7 +1,7 @@
 <script lang="ts">
-  import type { SearchResultItem } from '../../types';
-  import { search } from '$lib/notes.svelte';
-  import { shouldPreventScrollChaining } from '$lib/touchScrollContain';
+  import type { SearchResultItem } from '$shared/types/search';
+  import { search } from '$features/notes/notes.svelte';
+  import { shouldPreventScrollChaining } from '$shared/dom/shouldPreventScrollChaining';
 
   interface Props {
     onclose: () => void;
@@ -21,7 +21,7 @@
 
   let keywordRequestId = 0;
 
-  // Debounced keyword search through the shared Rust engine.
+  // Debounced keyword search through the Rust-owned local-note store.
   $effect(() => {
     const q = query;
     const requestId = ++keywordRequestId;

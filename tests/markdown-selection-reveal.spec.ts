@@ -225,7 +225,7 @@ const revealCases: SelectionRevealCase[] = [
   },
   // List items deliberately excluded: Obsidian-parity keeps the bullet/number
   // widget rendered even on the cursor line / during selection. See
-  // src/lib/liveMarkdownTransform.ts (`ListItem deliberately excluded`).
+  // src/features/editor/live-preview/buildLiveMarkdownDecorations.ts.
   {
     name: 'fenced code block',
     markdown: '```ts\nconst value = 1;\n```',

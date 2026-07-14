@@ -52,9 +52,9 @@ Make the widget's measured height **exactly equal** its `estimatedHeight`, and
 make that height **deterministic** (no margins, which can collapse against the
 adjacent line and make measured ≠ estimated):
 
-- `liveMarkdownTransform.ts`: `HorizontalRuleWidget.estimatedHeight = 50`
+- `live-preview/widgets.ts`: `HorizontalRuleWidget.estimatedHeight = 50`
   (`HR_WIDGET_HEIGHT`); drop the inline margin/border styles.
-- `markdown.css`: `.cm-md-hr-widget { height: 50px; display: flex;
+- `markdown-blocks.css`: `.cm-md-hr-widget { height: 50px; display: flex;
   align-items: center }` with the rule on the inner `> div`.
 
 ## Guard
@@ -119,7 +119,7 @@ height map is **monotonically accurate** once measured — and there is no facet
 disable the anchor correction (the `scroll.scrollTop += diff` write is gated only
 on a touch within the last 100ms, always true mid-flick).
 
-**Fix:** `src/lib/heightMapWarm.ts` `warmHeightMap(view)` walks the viewport
+**Fix:** `src/features/editor/heightMapWarm.ts` `warmHeightMap(view)` walks the viewport
 across the whole doc once, measuring every line's real height up front. It moves
 the viewport with CM6's OWN `EditorView.scrollIntoView(pos, {y:'start'})` (NOT a
 raw `scrollDOM.scrollTop` write) and forces a synchronous `view.measure()` after
@@ -139,7 +139,7 @@ Bounce restored too: `.cm-scroller` went from `overscroll-behavior: none` (only
 there to keep the deleted guard's "a big reversal must be a correction" premise
 clean) back to `contain` — native overscroll affordance (iOS rubber-band bounce /
 Android edge stretch), no scroll-chaining to the host. Unit-tested in
-`src/lib/heightMapWarm.test.ts`.
+`src/features/editor/heightMapWarm.test.ts`.
 
 ## This bug is CROSS-PLATFORM (iOS **and** Android) — confirmed 2026-06-17
 

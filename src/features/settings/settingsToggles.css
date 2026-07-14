@@ -1,0 +1,67 @@
+.settings-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  background: var(--color-surface);
+  border-radius: 12px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  margin-bottom: 2px;
+  transition: transform 0.1s ease;
+}
+
+.settings-toggle-row:active {
+  transform: scale(0.98);
+}
+
+.settings-toggle-row.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.settings-toggle-row.sub {
+  padding-left: 24px;
+  border-radius: 0 0 12px 12px;
+  margin-top: 0;
+}
+
+.settings-toggle-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-switch {
+  width: 48px;
+  height: 28px;
+  border-radius: 14px;
+  background: var(--color-border);
+  position: relative;
+  transition: background 0.2s ease;
+  flex-shrink: 0;
+  margin-left: 12px;
+}
+
+.settings-switch.on {
+  background: var(--color-primary);
+}
+
+.settings-switch-thumb {
+  width: 24px;
+  height: 24px;
+  border-radius: 12px;
+  background: var(--color-bg);
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  transition: transform 0.2s ease;
+  box-shadow: 0 1px 3px rgba(var(--ink-rgb), 0.15);
+}
+
+.settings-switch.on .settings-switch-thumb {
+  transform: translateX(20px);
+}

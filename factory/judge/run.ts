@@ -13,7 +13,15 @@
 
 import { spawn, ChildProcess } from 'child_process';
 import { chromium, Browser, Page } from 'playwright';
-import { writeFileSync, readFileSync, mkdirSync, existsSync, rmSync, unlinkSync } from 'fs';
+import {
+  writeFileSync,
+  readFileSync,
+  readdirSync,
+  mkdirSync,
+  existsSync,
+  rmSync,
+  unlinkSync,
+} from 'fs';
 import * as net from 'net';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -470,10 +478,14 @@ async function clientWatch(): Promise<never> {
     process.exit(2);
   }
   const opts = parseRunOptions();
+  const markdownStylePaths = readdirSync(path.join(REPO, 'src/styles'))
+    .filter((name) => name.startsWith('markdown') && name.endsWith('.css'))
+    .map((name) => path.join(REPO, 'src/styles', name));
   const watchPaths = [
-    path.join(REPO, 'src/lib/liveMarkdownTransform.ts'),
-    path.join(REPO, 'src/components/MarkdownEditor.svelte'),
-    path.join(REPO, 'src/styles/markdown.css'),
+    path.join(REPO, 'src/features/editor/liveMarkdownTransform.ts'),
+    path.join(REPO, 'src/features/editor/live-preview'),
+    path.join(REPO, 'src/features/editor/MarkdownEditor.svelte'),
+    ...markdownStylePaths,
     path.join(REPO, 'factory/driver/futoNotes.ts'),
     path.join(REPO, 'factory/driver/semanticKind.ts'),
     path.join(REPO, 'factory/judge/diff.ts'),

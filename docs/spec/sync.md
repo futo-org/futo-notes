@@ -423,7 +423,7 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   deliberate:
   storing the password on-device means device compromise → password → vault key.
   The stored password is cleared on explicit disconnect (after which a relaunch
-  stays local) and by Full reset (desktop `deleteAllNotes` → `disconnectE2ee`
+  stays local) and by Full reset (desktop `resetAllNotes` → `disconnectE2ee`
   deletes the keyring entry, M4). Verified on the emulator 2026-06-09: connect →
   `am force-stop` → relaunch reconnects silently (SYNCED); disconnect → relaunch
   stays LOCAL.
@@ -700,7 +700,7 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   path is edit-wins: the debounced save re-creates the note with the local
   edits. → syncManager `handleSyncComplete` (guarded by "peer delete of open
   note closes editor" in tests/cross-platform-sync.mjs + the F4 seam tests in
-  src/lib/syncManager.test.ts); iOS NoteEditorView `handleOpenNoteDeleted`.
+  src/features/sync/syncManager.test.ts); iOS NoteEditorView `handleOpenNoteDeleted`.
   > **Gap:** Android leaves the open editor bound to the deleted id (its
   > snapshotFlow adopt early-returns on the missing note); the peer-delete
   > close/keep + banner is not yet ported there.

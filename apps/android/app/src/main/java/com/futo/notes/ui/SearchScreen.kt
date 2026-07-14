@@ -42,20 +42,14 @@ import com.futo.notes.ui.components.NoteCard
 import com.futo.notes.ui.theme.FutoRadius
 import com.futo.notes.ui.theme.FutoType
 import com.futo.notes.ui.theme.FutoTheme
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
-import kotlinx.coroutines.withContext
 
 /**
- * Search over the real note set. Ranked BM25 via the Rust
- * `SearchEngine` (FFI, keyword-only) once its
- * index is warm; until then — and whenever the engine is absent or errors — a
- * case-insensitive substring match on title/preview/tags keeps results
- * flowing. Queries are debounced 100 ms and run off-main. The mock "Ask your
- * notes" answer card from the design is intentionally omitted (no semantic
- * engine on native).
+ * Search over the real note set through the Rust-owned local-note store.
+ * Queries are debounced 100 ms; the store waits for its background keyword
+ * reconciliation and returns the ranked result set.
  */
 @OptIn(FlowPreview::class)
 @Composable
@@ -78,30 +72,9 @@ fun SearchScreen(
                     results = emptyList()
                     return@collectLatest
                 }
-                // Engine path: BM25, top 50, mapped back onto the live list by
-                // id. Hits for notes the list hasn't caught up with yet are
-                // dropped (they reappear on the next keystroke/reload).
-                val engine = store.engine
-                val hits = if (engine != null) {
-                    withContext(Dispatchers.IO) {
-                        runCatching {
-                            if (engine.keywordReady()) engine.query(raw, 50u) else null
-                        }.getOrNull()
-                    }
-                } else null
-                results = if (hits != null) {
-                    val byId = notes.associateBy { it.id }
-                    hits.mapNotNull { byId[it.noteId] }
-                } else {
-                    // Fallback while the engine warms (or failed): substring
-                    // match on title/preview/tags.
-                    val needle = raw.lowercase()
-                    notes.filter {
-                        it.title.lowercase().contains(needle) ||
-                            it.preview.lowercase().contains(needle) ||
-                            it.tags.any { t -> t.lowercase().contains(needle) }
-                    }
-                }
+                val hits = store.search(raw, 50u)
+                val byId = notes.associateBy { it.id }
+                results = hits.mapNotNull { byId[it.noteId] }
             }
     }
 

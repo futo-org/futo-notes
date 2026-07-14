@@ -15,7 +15,7 @@
 // Counts:
 //   tauriImportsOutsideShims    — files outside src/lib/platform/** that
 //                                 import '@tauri-apps/*' and are not one of
-//                                 the two dedicated shims (searchEngine.ts,
+//                                 the dedicated sync shim,
 //                                 syncServiceE2ee.ts) — AGENTS.md §4's "OS
 //                                 glue" scattered outside a proper shim.
 //   invokeCallsOutsideShims     — same scope, but for actual invoke(...)
@@ -36,14 +36,11 @@ const PLATFORM_DIR = path.join(SRC_DIR, 'lib', 'platform') + path.sep;
 const GAPS_PATH = path.join(ROOT, 'docs/spec/GAPS.md');
 const REGISTRY_PATH = path.join(ROOT, 'scripts/drift-registry.json');
 
-// The two shims AGENTS.md §4 calls out by name ("Sync and search have their
-// own dedicated shims") — everything else touching Tauri directly is the
+// Sync remains a dedicated shim. Search is projected by LocalNoteStore inside
+// src/lib/platform, which scopedFiles already excludes. Everything else touching Tauri is the
 // debt this ratchet tracks, even when it's already allowlisted by the
 // (separate, stricter) platform-discipline gate as legitimate OS glue.
-const DEDICATED_SHIMS = new Set([
-  'src/lib/syncServiceE2ee.ts',
-  'src/features/search/searchEngine.ts',
-]);
+const DEDICATED_SHIMS = new Set(['src/features/sync/syncServiceE2ee.ts']);
 
 const TAURI_IMPORT_RE = /(?:from\s+['"]|import\(\s*['"])@tauri-apps\//;
 const INVOKE_RE = /invoke\s*(?:<[\s\S]*?>)?\s*\(\s*['"][a-zA-Z_][a-zA-Z0-9_]*['"]/g;

@@ -80,8 +80,13 @@ function ktScreenFiles() {
   const walk = (d) => {
     for (const e of fs.readdirSync(d, { withFileTypes: true })) {
       const p = path.join(d, e.name);
-      if (e.isDirectory()) walk(p);
-      else if (e.name.endsWith('.kt') && e.name !== 'NotesStore.kt') out.push(p);
+      // Skip generated UniFFI bindings: these closure probes look for
+      // hand-written UI affordances, and a generated binding mirrors every FFI
+      // method name (e.g. `renameFolder`), which would falsely report a
+      // UI-affordance gap as closed the moment the vault exposes that verb.
+      if (e.isDirectory()) {
+        if (e.name !== 'uniffi') walk(p);
+      } else if (e.name.endsWith('.kt') && e.name !== 'NotesStore.kt') out.push(p);
     }
   };
   if (fs.existsSync(dir)) walk(dir);

@@ -1,0 +1,132 @@
+.folder-tree-scroll {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 8px 8px calc(80px + env(safe-area-inset-bottom, 0));
+}
+.virtual-spacer {
+  position: relative;
+  width: 100%;
+}
+.virtual-row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  margin: 0;
+}
+.empty-state {
+  padding: 32px;
+  text-align: center;
+  color: var(--color-muted, #888);
+  font-size: 0.95rem;
+}
+/* Per-folder empty state — same muted look as .empty-state, but shaped
+   like a row (48px + 1px margins = ROW_HEIGHT) so it slots into the
+   virtualized flow, indented under its folder row. */
+.folder-empty-row {
+  display: flex;
+  align-items: center;
+  height: 48px;
+  margin: 1px 0;
+  padding: 0 12px;
+  box-sizing: border-box;
+  color: var(--color-muted, #888);
+  font-size: 0.95rem;
+  user-select: none;
+}
+.folder-row,
+.note-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 48px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  padding: 0 12px;
+  margin: 1px 0;
+  box-sizing: border-box;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    background 0.1s ease,
+    box-shadow 0.1s ease;
+  /* Scope each row's layout/paint to itself so a hover or drop-target
+     outline change doesn't trigger reflow/repaint of siblings. Dropped
+     p95 frame time noticeably during long drags through 2k-row trees. */
+  contain: layout style paint;
+}
+.folder-row:focus-visible,
+.note-row:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
+.folder-row:hover,
+.note-row:hover {
+  background: rgba(var(--ink-rgb), 0.06);
+}
+.note-row.selected {
+  background: rgba(var(--primary-rgb), 0.12);
+}
+.note-row.selected .note-title {
+  color: var(--color-primary-hover);
+  font-weight: 600;
+}
+.note-row.selected:active {
+  background: rgba(var(--primary-rgb), 0.18);
+}
+/* Drop-target outline shown while a drag hovers a different "home"
+   than the dragged item's current parent. The 2px inset outline reads
+   against both the transparent and the selected backgrounds. Only the
+   folder row gets the outline — note rows route their drop to the
+   parent folder, so the highlight always lands on the folder header. */
+.folder-row.drop-target {
+  box-shadow: inset 0 0 0 2px var(--color-primary);
+  background: rgba(var(--primary-rgb), 0.08);
+}
+.folder-icon {
+  display: inline-flex;
+  align-items: center;
+  color: var(--color-muted, #555);
+  flex: 0 0 auto;
+}
+.folder-name,
+.note-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.95rem;
+  color: var(--color-text);
+}
+.folder-name {
+  font-weight: 500;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.folder-inline-edit {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.folder-inline-edit input {
+  width: 100%;
+  height: 30px;
+  border: 1px solid var(--color-primary);
+  border-radius: 6px;
+  padding: 3px 7px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font: inherit;
+  box-sizing: border-box;
+}
+.folder-inline-edit input.error {
+  border-color: #b91c1c;
+}
+/* Root drop target — when dragging an item out of any folder back to the
+   vault root, outline the entire scroll area (only when applicable). */
+.folder-tree-scroll.root-drop-target {
+  box-shadow: inset 0 0 0 2px var(--color-primary);
+  border-radius: 10px;
+}

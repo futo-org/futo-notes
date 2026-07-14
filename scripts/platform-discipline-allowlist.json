@@ -1,17 +1,16 @@
 {
   "_comment": "Files outside src/lib/platform/** allowed to import '@tauri-apps/*' directly (architecture-hardening.md F29 / L2-4 gate 2 — lint:platform only greps for removed Electron/Capacitor strings, it does not enforce this). This is a RATCHET: the goal is zero entries over time. Removing an entry (the file grew a platform/ shim, or no longer needs direct access) is always welcome and expected. Adding one should be rare and considered at MR time. A frozen entry that stops importing '@tauri-apps' fails the gate as stale — delete it.",
   "allowed": [
-    "src/components/NotesShell.svelte",
-    "src/components/SettingsScreen.svelte",
-    "src/components/TitleBar.svelte",
-    "src/features/search/searchEngine.ts",
-    "src/lib/autoSyncV2.ts",
-    "src/lib/confirm.ts",
-    "src/lib/imagePaste.ts",
-    "src/lib/openUrl.ts",
-    "src/lib/syncManager.svelte.ts",
-    "src/lib/syncServiceE2ee.ts",
-    "src/lib/theme.ts",
-    "src/lib/updater.ts"
+    "src/app/components/TitleBar.svelte",
+    "src/app/startNativeShell.ts",
+    "src/features/editor/imagePaste.ts",
+    "src/features/editor/openUrl.ts",
+    "src/features/settings/SettingsScreen.svelte",
+    "src/features/sync/autoSyncV2.ts",
+    "src/features/sync/syncManager.svelte.ts",
+    "src/features/sync/syncServiceE2ee.ts",
+    "src/features/system/theme.ts",
+    "src/features/system/updater.ts",
+    "src/shared/dialogs/confirmDialog.ts"
   ]
 }

@@ -103,7 +103,7 @@ Behaviors and constraints that hold across every surface and platform.
   banned; instead the `LiveMarkdownPlugin` constructor seeds decorations with a
   tightly time-boxed (≤200 ms) `ensureSyntaxTree(..., doc.length, 200)` parse,
   then grows decorations incrementally as parsing continues
-  (`scheduleParseRefresh`). → src/lib/liveMarkdownTransform.ts,
+  (`scheduleParseRefresh`). → src/features/editor/live-preview/LiveMarkdownPlugin.ts,
   docs/learnings/scroll-fix-handoff-report.md
 
 ## Data safety
@@ -138,9 +138,9 @@ Behaviors and constraints that hold across every surface and platform.
 
 - `window.confirm()` / `window.alert()` don't block in Tauri's webview — use
   `ask()` / `message()` from `@tauri-apps/plugin-dialog`. → CLAUDE.md
-- Confirmation prompts go through `confirmDialog()` (`src/lib/confirm.ts`):
+- Confirmation prompts go through `confirmDialog()` (`src/shared/dialogs/confirmDialog.ts`):
   `ask()` under Tauri, `window.confirm()` in the plain web shell (dev server,
-  Playwright) where plugin-dialog has no backend and would reject. → confirm.ts
+  Playwright) where plugin-dialog has no backend and would reject. → confirmDialog.ts
 
 ## Updates *(desktop self-update)*
 
@@ -169,7 +169,7 @@ Behaviors and constraints that hold across every surface and platform.
 - Action feedback uses transient toasts (~3 s, one at a time, auto-dismiss):
   "Note deleted", "Moved to {folder}", "Path copied", etc. *(Tauri; Android
   native shows the same platform toasts — delete now toasts "Note deleted" from
-  both the editor ⋮ menu and the list long-press)* → toast.ts,
+  both the editor ⋮ menu and the list long-press)* → shared/notifications/toastBus.ts,
   NoteEditorScreen.kt, NoteListScreen.kt
 - An uncaught error/crash is queued; the **next launch** shows a Crash Report
   dialog: expandable "View report", an optional "What were you doing?" field,

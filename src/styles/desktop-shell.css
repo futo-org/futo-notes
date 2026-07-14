@@ -1,0 +1,111 @@
+/* ===========================
+   Desktop Sidebar Layout
+   =========================== */
+.notes-shell.desktop-layout {
+  display: flex;
+}
+
+.notes-shell.desktop-layout .notes-drawer {
+  position: relative;
+  transform: none;
+  transition:
+    flex-basis 0.15s ease,
+    opacity 0.15s ease;
+  flex: 0 0 var(--sidebar-width, 280px);
+  width: var(--sidebar-width, 280px);
+  border-right: 1px solid var(--color-border);
+  z-index: auto;
+}
+
+.notes-shell.desktop-layout.sidebar-collapsed .notes-drawer {
+  flex-basis: 0;
+  width: 0;
+  opacity: 0;
+  overflow: hidden;
+  border-right: none;
+}
+
+.notes-shell.desktop-layout .note-main {
+  position: relative;
+  flex: 1;
+  transform: none;
+  transition: none;
+  will-change: auto;
+}
+
+.notes-shell.desktop-layout .drawer-overlay {
+  display: none;
+}
+
+.notes-shell.desktop-layout .note-title-row {
+  padding-top: 60px;
+  max-width: 740px;
+  margin-left: auto;
+  margin-right: auto;
+  width: 100%;
+}
+
+.notes-shell.desktop-layout .editor-container {
+  max-width: 740px;
+  margin-left: auto;
+  margin-right: auto;
+  width: 100%;
+}
+
+.notes-shell.desktop-layout .note-tag-bar {
+  max-width: 740px;
+  margin-left: auto;
+  margin-right: auto;
+  width: 100%;
+}
+
+/* Resize handle */
+.sidebar-resize-handle {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  z-index: 10;
+}
+
+.sidebar-resize-handle:hover,
+.notes-shell.sidebar-resizing .sidebar-resize-handle {
+  background: var(--color-primary);
+  opacity: 0.25;
+  border-radius: 3px;
+}
+
+.notes-shell.sidebar-resizing .notes-drawer {
+  transition: none;
+}
+.notes-shell.sidebar-resizing .note-main {
+  pointer-events: none;
+  user-select: none;
+}
+
+/* Desktop sidebar — no safe-area insets. On macOS the
+   `--macos-titlebar-inset` var (set in App.svelte) reserves room at the
+   top of the sidebar for the system traffic lights; everywhere else the
+   var is 0 so the layout is unchanged. */
+.notes-shell.desktop-layout .sidebar-header {
+  padding: calc(16px + var(--macos-titlebar-inset, 0px)) 16px 0;
+}
+
+.notes-shell.desktop-layout .drawer-search-area {
+  padding: 12px 12px 0;
+}
+
+.notes-shell.desktop-layout .notes-drawer .notes-list-scroll {
+  padding: 8px 8px 80px;
+}
+
+.notes-shell.desktop-layout .notes-drawer .fab {
+  bottom: 16px;
+  right: 16px;
+}
+.notes-shell.desktop-layout .notes-drawer .settings-fab {
+  bottom: 16px;
+  left: 16px;
+}

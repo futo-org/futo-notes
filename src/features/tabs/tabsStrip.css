@@ -1,0 +1,151 @@
+/* On macOS the strip hosts the system traffic lights, so it's sized to
+     give them room: `--tabs-strip-height` (48px, set in App.svelte) seats
+     the lights (top at y=20, ~12px tall) centered with margin above and
+     below — Obsidian-style. On other platforms the var is unset and the
+     strip falls back to 40px, simply capping the top of the editor. */
+.tabs-strip {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: var(--tabs-strip-height, 40px);
+  padding: 0 8px;
+  background: var(--color-surface, var(--color-bg));
+  overflow-x: auto;
+  overflow-y: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+  scrollbar-width: thin;
+  /* macOS: clear the traffic lights (~x 19-97) when the sidebar is
+       collapsed (otherwise the sidebar provides the left clearance). */
+  padding-left: 8px;
+}
+
+:global(.notes-shell.desktop-layout.sidebar-collapsed) .tabs-strip {
+  padding-left: calc(8px + var(--macos-traffic-lights-width, 0px));
+}
+
+.sidebar-expand-btn {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  margin: 0 4px 2px 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-muted, #888);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sidebar-expand-btn:hover {
+  background: color-mix(in srgb, var(--color-bg) 70%, transparent);
+  color: var(--color-text);
+}
+
+.sidebar-expand-btn:active {
+  background: var(--color-bg);
+}
+
+/* Tabs sit at the bottom of the strip with rounded-top corners and a
+     1px bottom margin trick that lets the active tab merge into the
+     editor surface below: the active tab's background is `--color-bg`
+     (matches the editor) and its `margin-bottom: -1px` covers the
+     hairline between strip and editor, so the active tab visually
+     "becomes" the top of the editor card. */
+.tab-pill {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 1 200px;
+  min-width: 96px;
+  max-width: 220px;
+  height: 32px;
+  margin: 0 0 -1px 0;
+  padding: 0 6px 0 12px;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  background: transparent;
+  color: var(--color-muted, #888);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  cursor: default;
+  position: relative;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.tab-pill:hover:not(.active) {
+  background: color-mix(in srgb, var(--color-bg) 50%, transparent);
+  color: var(--color-text);
+}
+
+.tab-pill.active {
+  /* Same background as the editor body — looks like the editor
+       surface "extends up" through this tab. */
+  background: var(--color-bg);
+  color: var(--color-text);
+  border-color: var(--color-border);
+  font-weight: 500;
+}
+
+.tab-pill.dragging {
+  opacity: 0.85;
+  cursor: grabbing;
+}
+
+.tab-title {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-right: 4px;
+}
+
+.tab-close-btn {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  line-height: 16px;
+  text-align: center;
+  border-radius: 4px;
+  color: var(--color-muted, #888);
+  font-size: 16px;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.tab-pill:hover .tab-close-btn,
+.tab-pill.active .tab-close-btn {
+  opacity: 0.7;
+}
+
+.tab-close-btn:hover {
+  background: var(--color-border);
+  opacity: 1;
+  color: var(--color-text);
+}
+
+/* "+" button — sits at the same baseline as tab pills, smaller and
+     icon-like (not styled as a tab itself). */
+.tab-new-btn {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  margin: 0 0 2px 4px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: var(--color-muted, #888);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.tab-new-btn:hover {
+  background: color-mix(in srgb, var(--color-bg) 70%, transparent);
+  color: var(--color-text);
+}

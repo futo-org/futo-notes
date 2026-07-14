@@ -1,0 +1,61 @@
+/* ===========================
+   Drawer / Sidebar
+   =========================== */
+.notes-drawer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: var(--drawer-width);
+  background: var(--color-sidebar);
+  transform: translateX(calc(var(--drawer-offset) - var(--drawer-width)));
+  transition: transform 0.25s ease;
+  box-shadow: none;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Drawer overlay */
+.drawer-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(var(--ink-rgb), 0.3);
+  opacity: 0;
+  pointer-events: none;
+  z-index: 25;
+  will-change: opacity;
+  transition: opacity 0.25s ease;
+}
+
+.drawer-overlay.active {
+  pointer-events: auto;
+}
+
+.drawer-dragging .drawer-overlay {
+  transition: none;
+}
+
+/* Drawer dragging state */
+.notes-shell.drawer-dragging .note-main,
+.notes-shell.drawer-dragging .notes-drawer,
+.notes-shell.drawer-dragging .drawer-toggle.floating {
+  transition: none;
+}
+
+.notes-shell.drawer-dragging .editor-container,
+.notes-shell.drawer-dragging .title-input {
+  pointer-events: none;
+}
+
+.notes-shell.drawer-dragging .note-body,
+.notes-shell.drawer-dragging .notes-list-scroll {
+  overflow: hidden !important;
+  touch-action: none;
+}
+
+.notes-shell.drawer-dragging .notes-list-scroll,
+.notes-shell.drawer-dragging .fab,
+.notes-shell.drawer-dragging .settings-fab {
+  pointer-events: none;
+}
