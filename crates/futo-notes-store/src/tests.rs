@@ -153,6 +153,34 @@ fn parking_a_recovered_backup_never_clobbers_a_concurrent_writer() {
     assert_eq!(store.read("Welcome (recovered)-2"), "stranded");
 }
 
+// A crash after the park hard_link but before the backup unlink leaves the
+// recovered note in place with the backup still sidecar'd. A re-sweep must
+// recognize the already-parked content and finish cleanup, NOT create a second
+// recovered copy (E2).
+#[test]
+fn re_parking_after_a_crash_does_not_duplicate_the_recovered_note() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    fs::write(root.0.join("Welcome.md"), "live").unwrap();
+    // The recovered note already landed; backup + sidecar weren't cleaned up.
+    fs::write(root.0.join("Welcome (recovered).md"), "old superseded").unwrap();
+    fs::write(root.0.join(".sf-bak-1-1-1"), "old superseded").unwrap();
+    fs::write(root.0.join(".sf-bak-1-1-1.path"), "Welcome.md").unwrap();
+
+    store.bootstrap().unwrap();
+
+    let recovered: Vec<_> = store
+        .snapshot()
+        .notes
+        .into_iter()
+        .filter(|note| note.id.contains("recovered"))
+        .collect();
+    assert_eq!(recovered.len(), 1, "re-sweep must not duplicate the recovered note");
+    assert_eq!(store.read("Welcome (recovered)"), "old superseded");
+    assert!(!root.0.join(".sf-bak-1-1-1").exists(), "backup cleaned up");
+    assert!(!root.0.join(".sf-bak-1-1-1.path").exists(), "sidecar cleaned up");
+}
+
 // A divergent backup in a subfolder is parked as a recovered note IN THAT
 // subfolder, not at the vault root (D4).
 #[test]

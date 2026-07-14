@@ -812,7 +812,26 @@ impl LocalNoteStore {
             .unwrap_or_default();
         let title = futo_notes_core::files::note_id_from_filename(&recovered.leaf)
             .unwrap_or_else(|| recovered.leaf.clone());
-        let wanted = make_id(&folder, &format!("{title} (recovered)"));
+        let stem = format!("{title} (recovered)");
+        let wanted = make_id(&folder, &stem);
+        // Idempotency (E2): a crash after the hard_link but before the backup
+        // unlink leaves the recovered note in place with the backup still
+        // sidecar'd, so a re-sweep would re-park it under the next suffix —
+        // a duplicate per interruption. If a note in this folder already holds
+        // this backup's content under the recovered stem, the park already
+        // landed; just finish the interrupted cleanup. (Content identity, not
+        // inode nlink, so it holds on Windows too; mirrors the Swift
+        // parkConflictCopyIfAbsent guard.)
+        let backup_content = fs::read_to_string(&recovered.backup).map_err(io_error)?;
+        let already_parked = vault::note_paths(&self.root).into_iter().any(|(id, _)| {
+            let (id_folder, id_title) = split_id(&id);
+            id_folder == folder && id_title.starts_with(&stem) && self.read(&id) == backup_content
+        });
+        if already_parked {
+            let _ = fs::remove_file(&recovered.backup);
+            let _ = fs::remove_file(&recovered.sidecar);
+            return Ok(());
+        }
         // Park by moving the backup file itself to the recovered name — NO
         // read+create+delete (D1). But NO-REPLACE (E1, same TOCTOU class as A1
         // create / B2 restore): an external writer landing at the chosen
