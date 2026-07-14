@@ -379,15 +379,26 @@ fn park_destinations(parent: &Path, destination: &Path) -> Vec<(PathBuf, PathBuf
 /// notes — and thus parks — live throughout the tree. Best-effort: any single
 /// failure is skipped, never fatal.
 pub fn recover_parked_backups(root: &Path) {
-    let Ok(entries) = fs::read_dir(root) else {
+    recover_parked_in(root, 0);
+}
+
+fn recover_parked_in(dir: &Path, depth: usize) {
+    let Ok(entries) = fs::read_dir(dir) else {
         return;
     };
     let mut subdirs = Vec::new();
     let mut names = Vec::new();
     for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            subdirs.push(path);
+        // symlink_metadata does NOT follow symlinks. A directory symlink back
+        // into the vault (or a loop) would otherwise recurse to a stack
+        // overflow at bootstrap and the app would never render (B1). Combined
+        // with the depth bound below, this matches the note scanner's
+        // follow_links(false) + max_depth walk.
+        let real_dir = fs::symlink_metadata(entry.path())
+            .map(|meta| meta.file_type().is_dir())
+            .unwrap_or(false);
+        if real_dir {
+            subdirs.push(entry.path());
         } else if let Some(name) = entry.file_name().to_str() {
             if name.starts_with(BACKUP_PREFIX) {
                 names.push(name.to_owned());
@@ -396,8 +407,8 @@ pub fn recover_parked_backups(root: &Path) {
     }
 
     for name in names.iter().filter(|n| !n.ends_with(BACKUP_SIDECAR_SUFFIX)) {
-        let backup = root.join(name);
-        let sidecar = root.join(format!("{name}{BACKUP_SIDECAR_SUFFIX}"));
+        let backup = dir.join(name);
+        let sidecar = dir.join(format!("{name}{BACKUP_SIDECAR_SUFFIX}"));
         let Ok(leaf) = fs::read_to_string(&sidecar) else {
             continue;
         };
@@ -405,26 +416,46 @@ pub fn recover_parked_backups(root: &Path) {
         if leaf.is_empty() || leaf.contains('/') || leaf.contains('\\') {
             continue;
         }
-        let destination = root.join(leaf);
-        if destination.exists() {
-            let _ = fs::remove_file(&backup);
-            let _ = fs::remove_file(&sidecar);
-            continue;
-        }
-        if fs::rename(&backup, &destination).is_ok() {
-            let _ = fs::remove_file(&sidecar);
+        let destination = dir.join(leaf);
+        // NO-REPLACE restore: `hard_link` fails EEXIST rather than overwriting,
+        // so a note an external writer created in the window between an
+        // existence check and the move can never be clobbered (B2 — the same
+        // TOCTOU A1 closed). The temp link shares the inode; dropping the
+        // backup completes the move.
+        match fs::hard_link(&backup, &destination) {
+            Ok(()) => {
+                let _ = fs::remove_file(&backup);
+                let _ = fs::remove_file(&sidecar);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                // The name is taken. If the live note is byte-identical, the
+                // note already returned — drop the stale backup. Otherwise a
+                // different writer owns the name now; RETAIN the backup + its
+                // sidecar rather than clobber, so no content is lost (the
+                // data-preserving choice; a later sweep re-evaluates).
+                match (fs::read(&backup), fs::read(&destination)) {
+                    (Ok(backup_bytes), Ok(live_bytes)) if backup_bytes == live_bytes => {
+                        let _ = fs::remove_file(&backup);
+                        let _ = fs::remove_file(&sidecar);
+                    }
+                    _ => {}
+                }
+            }
+            Err(_) => {}
         }
     }
 
     for name in names.iter().filter(|n| n.ends_with(BACKUP_SIDECAR_SUFFIX)) {
         let base = name.trim_end_matches(BACKUP_SIDECAR_SUFFIX);
-        if !root.join(base).exists() {
-            let _ = fs::remove_file(root.join(name));
+        if !dir.join(base).exists() {
+            let _ = fs::remove_file(dir.join(name));
         }
     }
 
-    for subdir in subdirs {
-        recover_parked_backups(&subdir);
+    if depth < MAX_FOLDER_DEPTH {
+        for subdir in subdirs {
+            recover_parked_in(&subdir, depth + 1);
+        }
     }
 }
 
@@ -683,23 +714,67 @@ mod tests {
         assert!(!root.join(".sf-bak-1-2-3.path").exists());
     }
 
-    // Boundary "after install, before cleanup": the note already returned, so
-    // recovery drops the stale backup + sidecar and never clobbers the live note.
+    // dest present with IDENTICAL content: the note genuinely returned, so the
+    // stale duplicate backup is dropped.
     #[test]
-    fn recover_drops_a_backup_whose_note_already_returned() {
+    fn recover_drops_a_backup_identical_to_the_returned_note() {
         let root = temp_dir();
-        fs::write(root.join(".sf-bak-9-9-9"), "old parked").unwrap();
+        fs::write(root.join(".sf-bak-9-9-9"), "same bytes").unwrap();
         fs::write(root.join(".sf-bak-9-9-9.path"), "Welcome.md").unwrap();
-        fs::write(root.join("Welcome.md"), "installed bytes").unwrap();
+        fs::write(root.join("Welcome.md"), "same bytes").unwrap();
 
         recover_parked_backups(&root);
 
         assert_eq!(
             fs::read_to_string(root.join("Welcome.md")).unwrap(),
-            "installed bytes"
+            "same bytes"
         );
         assert!(!root.join(".sf-bak-9-9-9").exists());
         assert!(!root.join(".sf-bak-9-9-9.path").exists());
+    }
+
+    // dest present with DIFFERENT content: a writer created the name in the
+    // window, so recovery must NOT clobber it (the B2 TOCTOU) — it retains the
+    // backup instead, and both contents survive.
+    #[test]
+    fn recover_retains_the_backup_when_a_different_note_holds_the_name() {
+        let root = temp_dir();
+        fs::write(root.join(".sf-bak-8-8-8"), "stranded original").unwrap();
+        fs::write(root.join(".sf-bak-8-8-8.path"), "Welcome.md").unwrap();
+        fs::write(root.join("Welcome.md"), "newcomer bytes").unwrap();
+
+        recover_parked_backups(&root);
+
+        assert_eq!(
+            fs::read_to_string(root.join("Welcome.md")).unwrap(),
+            "newcomer bytes",
+            "the newcomer must never be clobbered"
+        );
+        assert_eq!(
+            fs::read_to_string(root.join(".sf-bak-8-8-8")).unwrap(),
+            "stranded original",
+            "the stranded content must be preserved, not lost"
+        );
+        assert!(root.join(".sf-bak-8-8-8.path").exists());
+    }
+
+    // B1: a directory symlink back into the vault must not be followed — a loop
+    // would recurse to a stack overflow at bootstrap. Recovery still restores a
+    // real stranded backup.
+    #[cfg(unix)]
+    #[test]
+    fn recover_does_not_follow_directory_symlinks_into_a_loop() {
+        let root = temp_dir();
+        fs::write(root.join(".sf-bak-1-1-1"), "loop-safe bytes").unwrap();
+        fs::write(root.join(".sf-bak-1-1-1.path"), "Note.md").unwrap();
+        std::os::unix::fs::symlink(&root, root.join("loop")).unwrap();
+
+        recover_parked_backups(&root); // must return, not stack-overflow
+
+        assert_eq!(
+            fs::read_to_string(root.join("Note.md")).unwrap(),
+            "loop-safe bytes"
+        );
     }
 
     // Boundary "after sidecar, before park": an orphan sidecar is harmless and
