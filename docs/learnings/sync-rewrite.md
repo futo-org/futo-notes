@@ -489,3 +489,47 @@ architecture:
 These should be implemented with the smallest fault-injection seam that
 exercises the current design. They should not bring back the old mock client,
 batch planner, or orchestrator decomposition.
+
+## Carry-forward audit of Tier-1 data-safety invariants
+
+An independent audit checked whether each data-loss invariant fixed during the
+architecture-hardening effort survived the rewrite with a test that can go red.
+
+Result: all twelve invariants are implemented, and each has at least one
+red-capable test. None is fully absent. Six were mutation-verified (break the
+code, watch the named test fail, revert): cursor capping, tombstone
+claim-and-park, stale-claim crash recovery, ancestry demotion, and
+identical-content dedup.
+
+Two invariants had **no test that runs in any automated pipeline**. Both are now
+covered by offline crate-level unit tests in `sync.rs` (each proven red-capable
+against the exact regression before finalizing):
+
+- **413 oversize blobs.** The only prior test
+  (`oversize_blob_is_surfaced_skipped_and_recovers`) gates on
+  `FUTO_TEST_SMALL_BLOB_SERVER`, which CI never sets — CI boots only the 100 MiB
+  `FUTO_TEST_SERVER`, so that test always early-returns. Added
+  `push_skips_an_oversize_flagged_file_without_uploading_or_deleting_it` and
+  `push_retries_an_oversize_flagged_file_after_its_mtime_changes`, covering the
+  skip-while-unchanged and retry-on-mtime-change halves of the `oversize_skip`
+  state machine (and that a skipped note is never tombstoned). The insert-on-413
+  arm itself needs a real 413 response and remains covered only by the
+  server-gated `oversize_blob_*` integration test — reproducing it offline would
+  require a mock HTTP layer, which the rewrite deliberately removed.
+
+- **F32 crash-window.** The design is safe — `push()` never advances
+  `pull_cursor`; only a completed `pull()` does — but nothing asserted it. Added
+  `push_preserves_the_pull_cursor`: a crash after push and before the following
+  pull must re-deliver peer changes on restart. (This is the push-side half of
+  boundary case 7 above; the full restart-injection case remains for a later
+  fault-injection seam.) `cap_cursor` (failed download) and the 0-seed migration
+  were already tested.
+
+Three invariants remain red-capable only through the server or cross-platform
+suites, with no cheap crate-level guard, and were **not** given offline tests:
+push-first ordering inside `cycle()`, the merge-onto-tombstone local write in
+`resolve_update_conflict`, and the `Mutation::Written if write.object.deleted`
+branch of the rename-vs-edit case. Each is reachable only after a specific HTTP
+response, so an offline test would require reintroducing the mock HTTP client the
+rewrite removed. They run in CI on sync changes via `test:cross-platform-sync`;
+restoring them offline is deferred rather than forced.
