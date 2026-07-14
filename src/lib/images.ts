@@ -1,10 +1,10 @@
-import { IMAGE_EXTENSIONS } from '@futo-notes/shared';
+import { IMAGE_EXTENSIONS, isImageFilename } from '@futo-notes/editor';
 import { getFS } from './platform';
 
 // ── Constants ──────────────────────────────────────────────
 
-// Single source of truth: the canonical set lives in `@futo-notes/shared`
-// (conformance-locked against Rust `futo_notes_core::image`). Derive the
+// The editor-owned hot-path rule is conformance-locked against Rust
+// `futo_notes_core::image`. Derive the
 // lookup Set from it rather than keeping a hand-maintained copy that drifts.
 const ALLOWED_IMAGE_EXTS = new Set<string>(IMAGE_EXTENSIONS);
 
@@ -20,14 +20,7 @@ export interface ImageFileEntry {
 
 // ── Pure validation helpers ────────────────────────────────
 
-/** Check if a filename has an allowed image extension (case-insensitive). */
-export function isImageFilename(filename: string): boolean {
-  const dot = filename.lastIndexOf('.');
-  if (dot < 0) return false;
-  const ext = filename.slice(dot + 1);
-  if (ext.length === 0) return false;
-  return ALLOWED_IMAGE_EXTS.has(ext.toLowerCase());
-}
+export { isImageFilename };
 
 /**
  * Validate that an extension is an allowed image type.

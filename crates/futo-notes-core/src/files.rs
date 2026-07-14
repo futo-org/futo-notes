@@ -23,7 +23,7 @@ pub const FALLBACK_TITLE: &str = "Untitled";
 
 // ── Types ───────────────────────────────────────────────────────────────
 
-/// Mirrors TypeScript `FilenameIssueKind` from `packages/shared/src/filename.ts`.
+/// Mirrors TypeScript `FilenameIssueKind` from `packages/editor/src/filename.ts`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FilenameIssueKind {
@@ -162,7 +162,7 @@ pub fn is_valid_title(title: &str) -> bool {
 // ── Path safety ─────────────────────────────────────────────────────────
 
 /// Maximum folder depth for note paths. Matches `MAX_FOLDER_DEPTH` in
-/// `packages/shared/src/filename.ts`. A note at the root has depth 0;
+/// `packages/editor/src/filename.ts`. A note at the root has depth 0;
 /// `Specs/folder-support` has depth 1; the limit is applied to the
 /// number of folder components above the leaf.
 pub const MAX_FOLDER_DEPTH: usize = 10;

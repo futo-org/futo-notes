@@ -1,6 +1,6 @@
 {
   "_generated": "tests/conformance/generate.mjs",
-  "description": "Image filename detection (sync.ts).",
+  "description": "Image filename detection (images.ts).",
   "groups": [
     {
       "op": "isImageFilename",

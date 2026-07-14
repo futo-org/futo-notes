@@ -12,12 +12,8 @@ import UniformTypeIdentifiers
 //   - ImagePicker presents the native camera / photo-library picker for the
 //     bridge's {type:'pickImage'} message.
 
-/// Image extensions the vault serves and accepts. Hardcoded copy of
-/// `IMAGE_EXTENSIONS` in @futo-notes/shared (packages/shared/src/sync.ts) —
-/// keep in lockstep; there is no Swift binding for the shared TS package.
-private let futoImageExtensions: Set<String> = [
-    "jpg", "jpeg", "png", "gif", "webp", "svg", "bmp", "ico", "avif", "heic",
-]
+/// Image extensions the Rust vault rules serve and accept, exposed by UniFFI.
+private let futoImageExtensions = Set(imageExtensions())
 
 // MARK: - futo-asset:// scheme
 

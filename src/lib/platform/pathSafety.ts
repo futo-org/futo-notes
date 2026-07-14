@@ -3,8 +3,8 @@
  * `safe_note_path`, `safe_appdata_path`, and `note_id_from_filename`
  * from `crates/futo-notes-core/src/files.rs`.
  *
- * Per-component character set reuses the forbidden pattern from
- * `@futo-notes/shared` MINUS `/` (path separator) and `\` (always
+ * Per-component character set mirrors the editor filename rule minus `/`
+ * (path separator) and `\` (always
  * rejected): `< > : " | ? *` plus control chars 0x00-0x1F and 0x7F.
  *
  * Note IDs may contain forward slashes as folder separators following
@@ -15,7 +15,7 @@ import { MAX_FOLDER_DEPTH } from '$lib/rules';
 
 const CONTROL_CHARS =
   Array.from({ length: 32 }, (_, i) => String.fromCharCode(i)).join('') + String.fromCharCode(127);
-// Per-component forbidden pattern: same as shared minus `/` and `\` since
+// Per-component forbidden pattern: same as the filename rule minus `/` and `\` since
 // `/` is a legal separator handled at the splitter and `\` is rejected at
 // the top level.
 const FORBIDDEN_COMPONENT_TEST = new RegExp(`[<>:"|?*${CONTROL_CHARS}]`);

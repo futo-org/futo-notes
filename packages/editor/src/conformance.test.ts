@@ -1,8 +1,7 @@
 // Conformance test (TypeScript side).
 //
 // Reads the language-neutral golden fixtures in tests/conformance/*.json and
-// asserts the canonical TypeScript rules (filename/tags here in
-// @futo-notes/editor, image in @futo-notes/shared) reproduce every expected
+// asserts the canonical TypeScript rules in @futo-notes/editor reproduce every expected
 // output. The same fixtures are read by the Rust model crate
 // (crates/futo-notes-model/tests/conformance.rs), so a rule that drifts in
 // either language fails here or there.
@@ -37,7 +36,7 @@ import {
   extractHeaderTagBlock,
 } from './tags';
 import { makePreview } from './preview';
-import { isImageFilename, IMAGE_EXTENSIONS } from '@futo-notes/shared';
+import { isImageFilename, IMAGE_EXTENSIONS } from './images';
 
 const CONFORMANCE_DIR = join(dirname(fileURLToPath(import.meta.url)), '../../../tests/conformance');
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { imageMimeForExtension } from './tauri';
-import { IMAGE_EXTENSIONS } from '@futo-notes/shared';
+import { IMAGE_EXTENSIONS } from '@futo-notes/editor';
 
 describe('imageMimeForExtension', () => {
   const cases: Array<[string, string]> = [

@@ -2,17 +2,17 @@
 //
 // Produces the language-neutral golden fixtures in tests/conformance/*.json
 // that pin the deterministic note rules (filename/title, tags, image). The
-// *inputs* are drawn from the existing @futo-notes/shared unit tests; the
+// *inputs* are drawn from the co-located editor rule tests; the
 // *expected* outputs are computed by running the canonical TypeScript
 // implementation, so the fixtures are guaranteed to encode TS behavior
-// exactly. Both Vitest (packages/shared/src/conformance.test.ts) and Rust
+// exactly. Both Vitest (packages/editor/src/conformance.test.ts) and Rust
 // (crates/futo-notes-model/tests/conformance.rs) read these fixtures, so a
 // rule that drifts in any one language fails the other's conformance test.
 //
 //   pnpm exec tsx tests/conformance/generate.mjs        # regenerate fixtures
 //   pnpm exec tsx tests/conformance/generate.mjs --check # fail if stale (CI)
 //
-// Re-run after any change to filename.ts / tags.ts / sync.ts. The contract
+// Re-run after any change to filename.ts / tags.ts / images.ts. The contract
 // "operations" below are the language-neutral verbs each binding implements.
 
 import { writeFileSync, readFileSync, existsSync } from 'node:fs';
@@ -39,7 +39,7 @@ import {
   extractHeaderTagBlock,
 } from '../../packages/editor/src/tags.ts';
 import { makePreview } from '../../packages/editor/src/preview.ts';
-import { isImageFilename, IMAGE_EXTENSIONS } from '../../packages/shared/src/sync.ts';
+import { isImageFilename, IMAGE_EXTENSIONS } from '../../packages/editor/src/images.ts';
 import {
   resolveWikilink,
   shortestUniqueSuffix,
@@ -261,7 +261,7 @@ const tags = {
 };
 
 const image = {
-  description: 'Image filename detection (sync.ts).',
+  description: 'Image filename detection (images.ts).',
   groups: [
     group('isImageFilename', 'isImageFilename', isImageFilename, [
       'photo.jpg',

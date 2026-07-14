@@ -13,12 +13,12 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import uniffi.futo_notes_ffi.imageExtensions
 
 /**
- * Image extensions the sync layer treats as images. HARDCODED MIRROR of
- * `IMAGE_EXTENSIONS` in `packages/shared/src/sync.ts` — keep in lockstep.
+ * Image extensions accepted by the Rust vault rules, exposed through UniFFI.
  */
-val IMAGE_EXTENSIONS = setOf("jpg", "jpeg", "png", "gif", "webp", "svg", "bmp", "ico", "avif", "heic")
+val IMAGE_EXTENSIONS: Set<String> = imageExtensions().toSet()
 
 /**
  * Native image pickers behind the editor's `pickImage` bridge message

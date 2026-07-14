@@ -52,7 +52,7 @@ on launch — unlock and relaunch.
 ## 3. Monorepo map
 
 pnpm workspaces + a Cargo workspace. Layer-specific conventions live in nested AGENTS.md files
-(`src/`, `apps/tauri/`, `crates/futo-notes-core/`, `packages/shared/`, `docs/spec/`, `factory/`) —
+(`src/`, `apps/tauri/`, `crates/futo-notes-core/`, `docs/spec/`, `factory/`) —
 read the one for the layer you're editing.
 
 ```
@@ -73,8 +73,7 @@ apps/
   ios/                  ← Native SwiftUI app (xcodegen; Sources/Generated is generated)
   android/              ← Native Compose app (UniFFI Kotlin bindings + jniLibs are generated)
 packages/
-  shared/               ← Auth protocol types + IMAGE_EXTENSIONS (client + external server)
-  editor/               ← Canonical TS note rules + the versioned futoBridge contract +
+  editor/               ← Canonical TS hot-path note/image rules + the versioned futoBridge contract +
                           the toolbar manifest (toolbar.ts — source of truth for native toolbars)
 docs/spec/              ← Behavioral source of truth for all three apps (§10)
 tests/                  ← Playwright E2E, conformance fixtures, cross-platform sync harness
@@ -94,12 +93,10 @@ Ask, in order:
    (`futo-notes-model` / `futo-notes-core`). Reach it via `notes_*`/`search_*` Tauri commands on
    desktop and the `futo-notes-ffi` facade on native. **Never re-implement it in TS, Swift, or
    Kotlin** — one definition, three consumers, is what keeps the apps behaviorally identical.
-2. **Is it one of the note rules needed per keystroke?** (title/tag/id/preview) → the ONE
+2. **Is it one of the note rules needed per keystroke?** (title/tag/id/preview/image) → the ONE
    sanctioned exception: a conformance-locked TS copy lives in
-   `packages/editor/src/{filename,tags,preview}.ts`, imported ONLY via `src/lib/rules.ts`.
+   `packages/editor/src/{filename,tags,preview,images}.ts`, imported through the editor facade.
    Rust stays canonical; the TS copy is held bit-for-bit by `tests/conformance/*` (§7.3).
-   (Note: `packages/shared` no longer holds these rules — it kept only auth types + image
-   extension validation.)
 3. **Is it view/reactive state/sync coordination/platform shell?** → TypeScript (`src/lib/`,
    components). `notesCache` in `notes.svelte.ts` is the single reactive source of truth.
 4. **Is it compute-heavy or protocol-shaped?** (vector math, sync delta, hashing, crypto) → Rust.
@@ -340,7 +337,6 @@ behavior.
       the relevant group first)
 - [ ] TS side green: `pnpm run test:editor:minimal`
 - [ ] Rust side green: `just test-rust` (= `cargo test -p futo-notes-model --test conformance`)
-- [ ] If `packages/shared` touched: `just test-shared`
 - [ ] No new un-fixtured copies created anywhere (grep Swift/Kotlin for siblings — see §12)
 
 ### 7.4 Rust core / Tauri command
@@ -406,7 +402,7 @@ behavior.
 | Rust full workspace | `just test-rust-full` | all crates (needs `dist/`) |
 | TS unit (curated) | `just test-unit` | whitelisted `src/lib` + scripts tests |
 | TS unit full | `pnpm run test:unit:full` | all vitest |
-| Shared package | `just test-shared` | `packages/shared` |
+| Editor package | `just test-editor` | `packages/editor` |
 | Conformance staleness | `pnpm exec tsx tests/conformance/generate.mjs --check` | fixtures fresh? |
 | Playwright smoke | `just test-e2e` | `tests/p0-regressions.spec.ts` |
 | Playwright full | `just test-e2e-full` | all specs |
@@ -417,7 +413,7 @@ behavior.
 | Everything local | `just check` | the pre-merge umbrella |
 
 Where tests live: Rust → inline `#[cfg(test)]` modules + `crates/*/tests/`; Tauri `_impl` tests live
-at the bottom of their owning files in `apps/tauri/src-tauri/src/`; TS → `src/lib/*.test.ts`; shared → `packages/shared/src`;
+at the bottom of their owning files in `apps/tauri/src-tauri/src/`; TS → `src/lib/*.test.ts`;
 editor rules/bridge → `packages/editor/src`; E2E → `tests/*.spec.ts`; sync scenarios →
 `tests/cross-platform-sync.mjs` (helpers in `tests/lib/`).
 
@@ -498,21 +494,19 @@ what you actually waited for. A second bump on the same job is forbidden (M15).
 
 ## 12. Drift watchlist (same logic in ≥2 places — move in lockstep)
 
-Conformance-locked (safe, but regenerate fixtures on change): note rules TS↔Rust;
-`validateServerUrl` ×3 (TS/Kotlin/Swift — **the Swift copy has no automated fixture check**);
-toolbar manifest → generated native specs.
+Conformance-locked or generated (safe, but regenerate on change): note and image rules TS↔Rust;
+safe note IDs TS↔Rust; toolbar and bridge manifests → generated native specs; Rust vault image
+extensions → generated UniFFI bindings for Swift/Kotlin; Rust Tauri sync records → generated TS.
+
+Partially locked: `validateServerUrl` ×3 (TS/Kotlin/Swift — **the Swift copy has no automated
+fixture check**); title constraints across the hot-path/native surfaces.
 
 **Not locked — real drift risk.** If you touch one, touch all, and say so in the commit:
-- `src/lib/platform/pathSafety.ts` ↔ `futo_notes_core::files` + folder validation in
-  `futo-notes-model` — traversal safety, security-relevant.
 - Default notes-root split, 3 independent copies: Rust `vault_location.rs`, iOS `NotesStore.swift`,
   Android `NotesStore.kt`.
-- Image-extension set: `@futo-notes/shared/sync.ts`, `tauri.ts` MIME map, `image_commands.rs`
-  `ALLOWED_IMAGE_EXTENSIONS`, picker filter.
 - Note sort order (`modified desc, id asc`): `notes.svelte.ts`, Rust `scan_notes`, iOS
   `resortInPlace`.
-- `SyncSummary`/`SyncFailure` shape: TS, sync engine, FFI facade.
-- `futoBridge` message handling: `bridge.ts` contract vs hand-written Swift + Kotlin hosts.
+- Unique note-ID generation in Rust, TypeScript, Swift, and Kotlin.
 
 ## 13. Own the E2E experience
 

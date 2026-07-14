@@ -372,10 +372,15 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         didReceive message: WKScriptMessage
     ) {
         guard let body = message.body as? [String: Any],
-              let type = body["type"] as? String else { return }
+              let rawType = body["type"] as? String,
+              let type = BridgeMessageType(rawValue: rawType) else { return }
 
         switch type {
-        case "ready":
+        case .ready:
+            guard let version = body["version"] as? Int, version == BridgeSpec.version else {
+                EditorHost.logger.error("editor bridge version mismatch")
+                return
+            }
             isReady = true
             pushTheme(desiredTheme)
             // Local image filenames in ![](f) resolve through the native
@@ -391,27 +396,27 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             if let json = desiredNotesJson { pushNotes(json) }
             onReady?()
             if autoFocus { startAutoFocus() }
-        case "change":
+        case .change:
             if let content = body["content"] as? String {
                 lastPushedContent = content
                 onChange(content)
             }
-        case "focus":
+        case .focus:
             // The private WKContentView exists once focused; re-apply the
             // accessory override here in case it appeared late.
             if (body["focused"] as? Bool) == true {
                 webView.futo_overrideInputAccessoryView(toolbarAccessory)
             }
-        case "cursorContext":
+        case .cursorContext:
             // Deduped by the embed — drives Indent/Outdent visibility in the
             // native toolbar.
             toolbarState.onListLine = (body["onListLine"] as? Bool) ?? false
-        case "openNote":
+        case .openNote:
             // User tapped a RESOLVED wikilink — the bound note view navigates.
             if let id = body["id"] as? String {
                 onOpenNote?(id)
             }
-        case "openUrl":
+        case .openUrl:
             // User tapped an EXTERNAL link — open it in the system browser.
             // window.open is a no-op inside a WKWebView, and the reused editor
             // WebView must never load a non-editor URL, so it leaves the app.
@@ -422,11 +427,11 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
                scheme == "http" || scheme == "https" || scheme == "mailto" || scheme == "tel" {
                 UIApplication.shared.open(url)
             }
-        case "pickImage":
+        case .pickImage:
             // Toolbar image button: open the native picker, save the bytes into
             // the vault root, then hand the filename back via insertImage.
             presentImagePicker(source: (body["source"] as? String) ?? "library")
-        case "saveImageData":
+        case .saveImageData:
             // Clipboard image paste: the embed read the pasted bytes (base64).
             // Decode OFF the main thread — EditorHost is @MainActor, so a
             // multi-MB base64 string decoded inline would block the UI / risk
@@ -447,7 +452,7 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
                     self.insertImage(filename)
                 }
             }
-        case "pasteClipboardImage":
+        case .pasteClipboardImage:
             // Clipboard image paste where WKWebView hid the bitmap from the JS
             // paste event (no image File reached saveImageData), like WebKitGTK.
             // Read it off the NATIVE pasteboard, then save via the SAME path as
@@ -464,8 +469,6 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             } else {
                 EditorHost.logger.info("pasteClipboardImage: no image on the pasteboard")
             }
-        default:
-            break
         }
     }
 

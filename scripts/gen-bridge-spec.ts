@@ -1,12 +1,13 @@
-// Generates the Android bridge-coverage spec from the @futo-notes/editor
+// Generates native bridge specs from the @futo-notes/editor
 // futoBridge contract (packages/editor/src/bridge.ts — the single source of
 // truth for the editor <-> native host contract; see BRIDGE_VERSION there).
 //
 //   pnpm exec tsx scripts/gen-bridge-spec.ts --write   (just bridge-spec)
 //   pnpm exec tsx scripts/gen-bridge-spec.ts --check    (just bridge-spec-check)
 //
-// Android only (apps/android/app/src/main/java/com/futo/notes/ui/BridgeSpec.kt,
-// consumed by EditorWebView.kt + BridgeCoverageTest.kt). iOS is PKT-10 (F11).
+// Android consumes its generated list in BridgeCoverageTest. iOS switches on
+// its generated enum, so adding a message makes the host fail to compile until
+// the handler becomes exhaustive.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -17,6 +18,10 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 function kotlinString(s: string): string {
   return `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+}
+
+function swiftCase(s: string): string {
+  return `    case ${s}`;
 }
 
 function renderKotlinFile(): string {
@@ -47,10 +52,34 @@ function renderKotlinFile(): string {
   ].join('\n');
 }
 
+function renderSwiftFile(): string {
+  const cases = OUTBOUND_MESSAGE_TYPES.map(swiftCase).join('\n');
+
+  return [
+    '// GENERATED FILE — DO NOT EDIT.',
+    '// Source of truth: packages/editor/src/bridge.ts (@futo-notes/editor).',
+    '// Regenerate: `just bridge-spec`. `just bridge-spec-check` (part of',
+    '// `just check`) fails when this file drifts from the contract.',
+    '',
+    'enum BridgeSpec {',
+    `    static let version = ${BRIDGE_VERSION}`,
+    '}',
+    '',
+    'enum BridgeMessageType: String, CaseIterable {',
+    cases,
+    '}',
+    '',
+  ].join('\n');
+}
+
 const TARGETS: Array<{ rel: string; render: () => string }> = [
   {
     rel: 'apps/android/app/src/main/java/com/futo/notes/ui/BridgeSpec.kt',
     render: renderKotlinFile,
+  },
+  {
+    rel: 'apps/ios/Sources/BridgeSpec.swift',
+    render: renderSwiftFile,
   },
 ];
 

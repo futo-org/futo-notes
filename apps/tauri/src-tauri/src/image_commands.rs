@@ -8,7 +8,8 @@ use tauri::AppHandle;
 use crate::background_tasks::{blocking, io_error};
 
 // Canonical set lives in `futo_notes_core::image` (shared with the sync layer,
-// the note domain, and `@futo-notes/shared`); no local copy to drift.
+// the note domain, and the conformance-locked `@futo-notes/editor` hot path);
+// no local copy to drift.
 use futo_notes_core::image::IMAGE_EXTENSIONS;
 
 fn validate_extension(extension: &str) -> Result<String, String> {

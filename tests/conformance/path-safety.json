@@ -1,0 +1,25 @@
+{
+  "description": "Safe note IDs accepted identically by the TypeScript platform boundary and Rust note vault.",
+  "cases": [
+    { "id": "hello world", "valid": true },
+    { "id": "Specs/folder-support", "valid": true },
+    { "id": "a/b/c", "valid": true },
+    { "id": ".hidden", "valid": true },
+    { "id": "trailing.", "valid": true },
+    { "id": "café ☕", "valid": true },
+    { "id": "📝 notes", "valid": true },
+    { "id": "   ", "valid": true },
+    { "id": "", "valid": false },
+    { "id": ".", "valid": false },
+    { "id": "..", "valid": false },
+    { "id": "/rooted", "valid": false },
+    { "id": "trailing/", "valid": false },
+    { "id": "double//slash", "valid": false },
+    { "id": "a/./b", "valid": false },
+    { "id": "a/../b", "valid": false },
+    { "id": "back\\slash", "valid": false },
+    { "id": "note:colon", "valid": false },
+    { "id": "note<script>", "valid": false },
+    { "id": "f0/f1/f2/f3/f4/f5/f6/f7/f8/f9/f10/leaf", "valid": false }
+  ]
+}

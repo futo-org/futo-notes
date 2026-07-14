@@ -3,7 +3,7 @@
   "entries": [
     {
       "concept": "note-rules-ts-rust",
-      "description": "Per-keystroke note rules (title/tag/preview/wikilink) — the ONE sanctioned TS mirror of the Rust note domain (AGENTS.md §4 M6/M7). Copies must stay bit-for-bit per tests/conformance/*.json.",
+      "description": "Per-keystroke note rules (title/tag/preview/wikilink/image) — the ONE sanctioned TS mirror of the Rust note domain (AGENTS.md §4 M6/M7). Copies must stay bit-for-bit per tests/conformance/*.json.",
       "lockStatus": "locked",
       "copies": [
         {
@@ -17,6 +17,10 @@
         {
           "location": "packages/editor/src/preview.ts",
           "pattern": "export function makePreview"
+        },
+        {
+          "location": "packages/editor/src/images.ts",
+          "pattern": "export const IMAGE_EXTENSIONS"
         },
         {
           "location": "src/lib/wikilinks.ts",
@@ -53,6 +57,10 @@
           "kind": "fixture"
         },
         {
+          "path": "tests/conformance/image.json",
+          "kind": "fixture"
+        },
+        {
           "path": "tests/conformance/wikilinks.json",
           "kind": "fixture"
         },
@@ -63,31 +71,6 @@
         {
           "path": "crates/futo-notes-model/tests/conformance.rs",
           "kind": "test"
-        }
-      ]
-    },
-    {
-      "concept": "toolbar-manifest-native",
-      "description": "Mobile toolbar surface: packages/editor/src/toolbar.ts is the source of truth; the native specs are GENERATED from it (M8) — not a hand copy, but registered because a hand-edit of either generated file would be a silent second source.",
-      "lockStatus": "locked",
-      "copies": [
-        {
-          "location": "packages/editor/src/toolbar.ts",
-          "pattern": "export const TOOLBAR_GROUPS"
-        },
-        {
-          "location": "apps/ios/Sources/ToolbarSpec.swift",
-          "pattern": "GENERATED"
-        },
-        {
-          "location": "apps/android/app/src/main/java/com/futo/notes/ui/ToolbarSpec.kt",
-          "pattern": "GENERATED"
-        }
-      ],
-      "locks": [
-        {
-          "path": "scripts/gen-toolbar-spec.ts",
-          "kind": "generator"
         }
       ]
     },
@@ -136,69 +119,6 @@
           ".kt"
         ],
         "pattern": "(function validateSyncServerUrl|fun validateServerUrl|func validateServerURL)\\b"
-      }
-    },
-    {
-      "concept": "image-extension-set",
-      "description": "The accepted-image-extension list. PKT-6 (D4) unified it onto a SINGLE canonical Rust definition (crates/futo-notes-core/src/image.rs) + its conformance-locked TS mirror (packages/shared/src/sync.ts); futo-notes-model, apps/tauri image_commands.rs, src/lib/images.ts, and the tauri.ts picker all now DERIVE from those (import/re-export, cannot drift) and are no longer independent copies. The remaining hand-maintained listings are the tauri.ts MIME map (keys) and the two native shells (Swift/Kotlin), which have no Rust/TS binding to import.",
-      "lockStatus": "partial",
-      "note": "PARTIAL. LOCKED: packages/shared/src/sync.ts and crates/futo-notes-core/src/image.rs agree bit-for-bit via tests/conformance/constants.json (imageExtensions) — model::IMAGE_EXTENSIONS re-exports core, so conformance.rs's constants gate + constantsConformance.test.ts pin both. UNLOCKED hand-copies: src/lib/platform/tauri.ts's IMAGE_EXTENSION_MIME map (keys are the ext set; an object literal, so the token-cluster scan can't see it), apps/ios/Sources/EditorImages.swift, and apps/android/app/src/main/java/com/futo/notes/ImagePicker.kt (native, no shared-package import; PKT-10 / L1-3 territory). Copies DROPPED as pure derivations post-PKT-6: crates/futo-notes-model/src/image.rs (re-exports core), apps/tauri/src-tauri/src/image_commands.rs (uses core), src/lib/images.ts (derives from @futo-notes/shared), and the tauri.ts picker filter (spreads @futo-notes/shared IMAGE_EXTENSIONS).",
-      "copies": [
-        {
-          "location": "crates/futo-notes-core/src/image.rs",
-          "pattern": "pub const IMAGE_EXTENSIONS"
-        },
-        {
-          "location": "packages/shared/src/sync.ts",
-          "pattern": "export const IMAGE_EXTENSIONS"
-        },
-        {
-          "location": "src/lib/platform/tauri.ts",
-          "pattern": "IMAGE_EXTENSION_MIME"
-        },
-        {
-          "location": "apps/ios/Sources/EditorImages.swift",
-          "pattern": "private let futoImageExtensions"
-        },
-        {
-          "location": "apps/android/app/src/main/java/com/futo/notes/ImagePicker.kt",
-          "pattern": "val IMAGE_EXTENSIONS = setOf"
-        }
-      ],
-      "locks": [
-        {
-          "path": "tests/conformance/constants.json",
-          "kind": "fixture"
-        },
-        {
-          "path": "crates/futo-notes-model/tests/conformance.rs",
-          "kind": "test"
-        },
-        {
-          "path": "src/lib/constantsConformance.test.ts",
-          "kind": "test"
-        }
-      ],
-      "scan": {
-        "dirs": [
-          "src",
-          "packages/shared/src",
-          "apps/tauri/src-tauri/src",
-          "crates"
-        ],
-        "extensions": [
-          ".ts",
-          ".rs"
-        ],
-        "mode": "token-cluster",
-        "tokens": [
-          "jpg",
-          "jpeg",
-          "png",
-          "gif",
-          "webp"
-        ],
-        "minDistinct": 3
       }
     },
     {
@@ -270,37 +190,9 @@
       ]
     },
     {
-      "concept": "sync-summary-failure-shape",
-      "description": "SyncSummary/SyncFailure shape: CANONICALLY DEFINED in the sync entry point (crates/futo-notes-sync/src/sync.rs), mirrored by the Tauri frontend_contract.rs struct, the FFI re-export, and hand-typed in TS (autoSyncV2.ts / syncManager.svelte.ts / syncServiceE2ee.ts / testSync.ts). No fixture cross-checks field-for-field parity today (L1-1 plans generated types via specta to retire the hand copy).",
-      "lockStatus": "unlocked",
-      "note": "Codex backfill review (MR !63) caught that the original entry omitted the canonical Rust definitions — a shape change there could drift silently while this entry stayed green. Their patterns match the struct NAMES only (not a field list) so field additions do not make this registry entry stale. MR !74 moved the definitions from orchestrator.rs to sync.rs.",
-      "copies": [
-        {
-          "location": "crates/futo-notes-sync/src/sync.rs",
-          "pattern": "pub struct SyncSummary\\b"
-        },
-        {
-          "location": "crates/futo-notes-sync/src/sync.rs",
-          "pattern": "pub struct SyncFailure\\b"
-        },
-        {
-          "location": "src/lib/syncServiceE2ee.ts",
-          "pattern": "SyncSummary\\b"
-        },
-        {
-          "location": "apps/tauri/src-tauri/src/sync/frontend_contract.rs",
-          "pattern": "SyncSummary\\b"
-        },
-        {
-          "location": "crates/futo-notes-ffi/src/lib.rs",
-          "pattern": "SyncSummary\\b"
-        }
-      ]
-    },
-    {
       "concept": "path-safety-pair",
-      "description": "Note-path/appdata-path traversal safety, TS↔Rust — security-relevant, real drift risk per AGENTS.md §12. Each side has its own unit tests (pathSafety.test.ts, adversarial.rs) but no shared corpus proves they accept/reject the same inputs.",
-      "lockStatus": "unlocked",
+      "description": "Safe note-ID validation at the TypeScript platform boundary and Rust note vault. Both consumers read tests/conformance/path-safety.json so acceptance cannot silently diverge.",
+      "lockStatus": "locked",
       "copies": [
         {
           "location": "src/lib/platform/pathSafety.ts",
@@ -309,6 +201,20 @@
         {
           "location": "crates/futo-notes-core/src/files.rs",
           "pattern": "pub fn safe_note_path"
+        }
+      ],
+      "locks": [
+        {
+          "path": "tests/conformance/path-safety.json",
+          "kind": "fixture"
+        },
+        {
+          "path": "src/lib/platform/pathSafety.test.ts",
+          "kind": "test"
+        },
+        {
+          "path": "crates/futo-notes-core/tests/path_safety_conformance.rs",
+          "kind": "test"
         }
       ]
     },
@@ -379,40 +285,6 @@
         ],
         "pattern": "MAX_TITLE_LENGTH\\s*[:=]\\s*(usize\\s*=\\s*)?200|TITLE_MAX_LENGTH\\s*=\\s*200|titleMaxLength\\s*=\\s*200"
       }
-    },
-    {
-      "concept": "futo-bridge-message-handling",
-      "description": "futoBridge outbound message handling: bridge.ts (packages/editor) is the contract; Android's handler is coverage-locked (BridgeCoverageTest.kt / gen-bridge-spec.ts --check, PKT-7). iOS's EditorWebView.swift has the equivalent hand-written switch with no coverage test — there is no iOS test target yet (PKT-10).",
-      "lockStatus": "partial",
-      "note": "PARTIAL: Android locked via BridgeSpec.kt (generated) + BridgeCoverageTest.kt. iOS UNLOCKED — EditorWebView.swift's message switch has no automated exhaustiveness check pending an iOS test target (L1-4) and the PKT-10 Swift bridge-spec half.",
-      "copies": [
-        {
-          "location": "packages/editor/src/bridge.ts",
-          "pattern": "export const OUTBOUND_MESSAGE_TYPES"
-        },
-        {
-          "location": "apps/android/app/src/main/java/com/futo/notes/ui/EditorWebView.kt",
-          "pattern": "\"ready\"\\s*->"
-        },
-        {
-          "location": "apps/ios/Sources/EditorWebView.swift",
-          "pattern": "\"ready\""
-        }
-      ],
-      "locks": [
-        {
-          "path": "apps/android/app/src/main/java/com/futo/notes/ui/BridgeSpec.kt",
-          "kind": "generated"
-        },
-        {
-          "path": "apps/android/app/src/test/java/com/futo/notes/BridgeCoverageTest.kt",
-          "kind": "test"
-        },
-        {
-          "path": "scripts/gen-bridge-spec.ts",
-          "kind": "generator"
-        }
-      ]
     }
   ]
 }

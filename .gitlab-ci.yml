@@ -428,7 +428,6 @@ test:e2e:smoke:
       changes: &web-e2e-smoke-changes
         - src/**/*
         - packages/editor/**/*
-        - packages/shared/**/*
         - tests/p0-regressions.spec.ts
         - tests/lib/**/*
         - playwright.config.ts
@@ -482,7 +481,6 @@ test:e2e:rest:
       changes:
         - src/**/*
         - packages/editor/**/*
-        - packages/shared/**/*
         - tests/**/*.spec.ts
         - tests/lib/**/*
         - playwright.config.ts
@@ -695,7 +693,6 @@ test:cross-platform-sync:
         - apps/tauri/**/*
         - src/**/*
         - crates/**/*
-        - packages/shared/**/*
         - packages/editor/**/*
 
 test:desktop-smoke:macos:

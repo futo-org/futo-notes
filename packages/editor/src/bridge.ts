@@ -154,7 +154,7 @@ export interface OpenNoteMessage {
 /**
  * Emitted when the user taps a toolbar image button. The host opens the
  * native picker, saves the image bytes into the vault root (honoring
- * `@futo-notes/shared` IMAGE_EXTENSIONS), then calls
+ * `@futo-notes/editor` IMAGE_EXTENSIONS), then calls
  * {@link FutoEditorApi.insertImage} with the saved filename.
  */
 export interface PickImageMessage {
@@ -180,7 +180,7 @@ export interface CursorContextMessage {
  * saves them into the vault root — reusing the SAME save path as the
  * `pickImage` flow — then calls {@link FutoEditorApi.insertImage} with the
  * resulting filename. `data` is the image bytes base64-encoded (no `data:`
- * prefix); `ext` is the lowercased extension from `@futo-notes/shared`
+ * prefix); `ext` is the lowercased extension from `@futo-notes/editor`
  * `IMAGE_EXTENSIONS` (e.g. "png", "jpg").
  */
 export interface SaveImageDataMessage {

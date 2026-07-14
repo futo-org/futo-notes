@@ -2,7 +2,7 @@
 //! image-extension set across the Rust workspace: `futo-notes-model::image`
 //! re-exports from here, the sync orchestrator classifies blob-vs-note with
 //! `is_image_filename`, and the conformance fixtures hold it bit-for-bit
-//! against the TS copy in `packages/shared/src/sync.ts` (`IMAGE_EXTENSIONS`).
+//! against the sanctioned TS hot-path copy in `packages/editor/src/images.ts`.
 //!
 //! Historically an independent 13-entry copy lived in `invariants.rs` (with
 //! `.tiff/.tif/.heif`) and disagreed with the conformance-locked 10-set. D4

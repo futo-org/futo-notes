@@ -19,7 +19,7 @@ import {
 } from '$lib/rules';
 
 /** Count folder components in a relative folder path. Unlike `pathDepth`
- *  in `@futo-notes/shared` (which is designed for NOTE paths and excludes
+ *  in the editor rules (which is designed for NOTE paths and excludes
  *  the leaf), every component of a folder path counts toward the depth. */
 function folderPathComponents(relPath: string): number {
   const trimmed = relPath.replace(/^\/+|\/+$/g, '');

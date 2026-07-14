@@ -5,7 +5,7 @@
 //! `tests/conformance/generate.mjs`) and asserts `futo-notes-model` reproduces
 //! every expected output bit-for-bit. If a rule drifts in Rust this test goes
 //! red; if it drifts in TS, the Vitest conformance test
-//! (`packages/shared/src/conformance.test.ts`) goes red. Rule drift therefore
+//! (`packages/editor/src/conformance.test.ts`) goes red. Rule drift therefore
 //! cannot land silently in either language.
 
 use std::path::PathBuf;

@@ -1,9 +1,32 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 import { ensureSafeNoteId, safeNotePath, safeAppdataPath, noteIdFromFilename } from './pathSafety';
+
+interface PathSafetyFixture {
+  cases: Array<{ id: string; valid: boolean }>;
+}
+
+const pathSafetyFixture = JSON.parse(
+  readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), '../../../tests/conformance/path-safety.json'),
+    'utf8',
+  ),
+) as PathSafetyFixture;
 
 // ── ensureSafeNoteId ──────────────────────────────────────────────────
 
 describe('ensureSafeNoteId', () => {
+  it('matches the shared Rust/TypeScript boundary corpus', () => {
+    for (const testCase of pathSafetyFixture.cases) {
+      if (testCase.valid) {
+        expect(() => ensureSafeNoteId(testCase.id)).not.toThrow();
+      } else {
+        expect(() => ensureSafeNoteId(testCase.id)).toThrow();
+      }
+    }
+  });
   it('rejects empty string', () => {
     expect(() => ensureSafeNoteId('')).toThrow('note id cannot be empty');
   });

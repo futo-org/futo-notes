@@ -6,14 +6,14 @@
   "description": "Shared CodeMirror editor code plus the editor.html/futoBridge contract for the native iOS and Android hosts.",
   "exports": {
     ".": "./src/index.ts",
-    "./bridge": "./src/bridge.ts"
+    "./bridge": "./src/bridge.ts",
+    "./images": "./src/images.ts"
   },
   "scripts": {
     "build:editor": "vite build --config ../../vite.editor.config.ts",
     "test": "vitest run"
   },
   "devDependencies": {
-    "@futo-notes/shared": "workspace:*",
     "vitest": "^4.0.18"
   }
 }

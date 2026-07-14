@@ -7,6 +7,7 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize)]
+#[cfg_attr(test, derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct E2eeConnectInput {
     pub(crate) server_url: String,
@@ -14,6 +15,7 @@ pub(crate) struct E2eeConnectInput {
 }
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(test, derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct E2eeConnectOutput {
     pub(crate) user_id: String,
@@ -23,6 +25,7 @@ pub(crate) struct E2eeConnectOutput {
 }
 
 #[derive(Debug, Deserialize)]
+#[cfg_attr(test, derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct E2eeResumeInput {
     pub(crate) server_url: String,
@@ -33,6 +36,7 @@ pub(crate) struct E2eeResumeInput {
 }
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
+#[cfg_attr(test, derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct E2eeStatusOutput {
     pub(crate) connected: bool,
@@ -70,6 +74,7 @@ impl E2eeStatusOutput {
 }
 
 #[derive(Debug, Default, Serialize, Clone)]
+#[cfg_attr(test, derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct SyncSummary {
     pub(crate) uploaded: usize,
@@ -90,6 +95,7 @@ pub(crate) struct SyncSummary {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(test, derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct SyncFailure {
     pub(crate) filename: String,
@@ -98,6 +104,7 @@ pub(crate) struct SyncFailure {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(test, derive(specta::Type))]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct RenamePair {
     pub(crate) from_id: String,
@@ -144,6 +151,35 @@ mod tests {
     use super::*;
     use futo_notes_sync::{ConnectedState, E2eeObjectMapEntry};
     use std::collections::HashMap;
+    use std::fs;
+    use std::path::PathBuf;
+
+    const UPDATE_CONTRACT_ENV: &str = "FUTO_UPDATE_SYNC_CONTRACT";
+
+    fn generated_contract_path() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../src/lib/syncContract.generated.ts")
+    }
+
+    fn render_typescript_contract() -> String {
+        use specta::TypeCollection;
+        use specta_typescript::{BigIntExportBehavior, Typescript};
+
+        let types = TypeCollection::default()
+            .register::<E2eeConnectInput>()
+            .register::<E2eeConnectOutput>()
+            .register::<E2eeResumeInput>()
+            .register::<E2eeStatusOutput>()
+            .register::<SyncSummary>();
+
+        Typescript::default()
+            // Tauri serializes u64/usize as JSON numbers; mirror that wire shape.
+            .bigint(BigIntExportBehavior::Number)
+            .header(
+                "// GENERATED FILE — DO NOT EDIT.\n// Source: apps/tauri/src-tauri/src/sync/frontend_contract.rs.\n",
+            )
+            .export(&types)
+            .expect("export sync contract to TypeScript")
+    }
 
     fn connected_state() -> ConnectedState {
         let mut object_map = HashMap::new();
@@ -235,5 +271,23 @@ mod tests {
                 "missing {key}: {json}"
             );
         }
+    }
+
+    #[test]
+    fn generated_typescript_contract_is_current() {
+        let path = generated_contract_path();
+        let generated = render_typescript_contract();
+        if std::env::var_os(UPDATE_CONTRACT_ENV).is_some() {
+            fs::write(&path, generated).expect("write generated sync contract");
+            return;
+        }
+
+        let current = fs::read_to_string(&path).unwrap_or_default();
+        assert_eq!(
+            current,
+            generated,
+            "{} is stale; run `just sync-contract`",
+            path.display()
+        );
     }
 }
