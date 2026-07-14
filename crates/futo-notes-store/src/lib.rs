@@ -825,10 +825,19 @@ impl LocalNoteStore {
         let backup_content = fs::read_to_string(&recovered.backup).map_err(io_error)?;
         let already_parked = vault::note_paths(&self.root).into_iter().any(|(id, _)| {
             let (id_folder, id_title) = split_id(&id);
-            id_folder == folder && id_title.starts_with(&stem) && self.read(&id) == backup_content
+            // Only a note this park could have produced — the exact stem or its
+            // numeric collision suffix — counts, NOT a merely similarly-named
+            // note like "<stem> draft" that happens to share content (F1).
+            id_folder == folder
+                && paths::is_unique_variant(&stem, &id_title)
+                && self.read(&id) == backup_content
         });
         if already_parked {
-            let _ = fs::remove_file(&recovered.backup);
+            // Drop the sidecar ONLY after the backup unlink succeeds. If the
+            // unlink fails (Windows lock, dir perms), keep both and propagate so
+            // the next bootstrap retries — never leave a sidecar-less, untracked
+            // backup no sweep can clean (F2).
+            fs::remove_file(&recovered.backup).map_err(io_error)?;
             let _ = fs::remove_file(&recovered.sidecar);
             return Ok(());
         }

@@ -181,6 +181,71 @@ fn re_parking_after_a_crash_does_not_duplicate_the_recovered_note() {
     assert!(!root.0.join(".sf-bak-1-1-1.path").exists(), "sidecar cleaned up");
 }
 
+// The park idempotency guard must match only a note THIS park could have
+// produced (exact stem or its numeric suffix), not a merely similarly-named
+// user note that happens to share content — else the backup for a genuinely new
+// recovered note gets discarded instead of parked (F1).
+#[test]
+fn the_park_guard_does_not_confuse_a_similarly_named_note() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    fs::write(root.0.join("Welcome.md"), "live").unwrap();
+    // A DISTINCT user note that only *starts with* the recovered stem.
+    fs::write(root.0.join("Welcome (recovered) draft.md"), "stranded").unwrap();
+    fs::write(root.0.join(".sf-bak-1-1-1"), "stranded").unwrap();
+    fs::write(root.0.join(".sf-bak-1-1-1.path"), "Welcome.md").unwrap();
+
+    store.bootstrap().unwrap();
+
+    assert_eq!(
+        store.read("Welcome (recovered)"),
+        "stranded",
+        "the backup must still be parked as a NEW recovered note"
+    );
+    assert_eq!(
+        store.read("Welcome (recovered) draft"),
+        "stranded",
+        "the user's similarly-named note is untouched"
+    );
+    assert!(!root.0.join(".sf-bak-1-1-1").exists());
+}
+
+// If unlinking the backup fails in the guard's cleanup branch, the sidecar must
+// be RETAINED and the failure surfaced (not silent success), so the next
+// bootstrap retries — never a sidecar-less untracked backup (F2).
+#[cfg(unix)]
+#[test]
+fn a_failed_backup_unlink_in_the_guard_retains_the_sidecar() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = TestRoot::new();
+    let store = store(&root);
+    fs::write(root.0.join("Welcome.md"), "live").unwrap();
+    // Already-parked state → the guard hits the cleanup branch.
+    fs::write(root.0.join("Welcome (recovered).md"), "stranded").unwrap();
+    fs::write(root.0.join(".sf-bak-1-1-1"), "stranded").unwrap();
+    fs::write(root.0.join(".sf-bak-1-1-1.path"), "Welcome.md").unwrap();
+    let original = fs::metadata(&root.0).unwrap().permissions();
+    fs::set_permissions(&root.0, fs::Permissions::from_mode(0o555)).unwrap();
+    let dac_enforced = fs::write(root.0.join(".probe"), b"x").is_err();
+    if !dac_enforced {
+        let _ = fs::remove_file(root.0.join(".probe"));
+        fs::set_permissions(&root.0, original).unwrap();
+        return;
+    }
+
+    let result = store.bootstrap().unwrap();
+
+    fs::set_permissions(&root.0, original).unwrap();
+    assert!(
+        root.0.join(".sf-bak-1-1-1.path").exists(),
+        "sidecar retained when the backup unlink failed"
+    );
+    assert!(
+        result.warnings.iter().any(|w| w.contains("recovered note")),
+        "the failed cleanup is surfaced, not silently swallowed"
+    );
+}
+
 // A divergent backup in a subfolder is parked as a recovered note IN THAT
 // subfolder, not at the vault root (D4).
 #[test]
