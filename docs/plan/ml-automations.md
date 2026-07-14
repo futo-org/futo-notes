@@ -86,7 +86,7 @@ Repo facts that shape this:
 - `scan_notes` already skips dot-entries (`crates/futo-notes-model/src/crud.rs:167`),
   so `.generated/` is invisible to every client's note list **today, for free**.
 - The sync orchestrator skips hidden dirs **and** only syncs `.md`
-  (`crates/futo-notes-sync/src/orchestrator.rs:163`). So generated artifacts
+  (`crates/futo-notes-sync/src/sync.rs:308`). So generated artifacts
   **do not sync yet**. Fine for the PC-local phase; becomes a work item the
   moment the phone should wake up to a digest (> **Gap:** sync payload must
   learn to carry `.generated/` + the config file).
