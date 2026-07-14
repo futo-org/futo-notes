@@ -244,6 +244,44 @@ fn create_if_absent_leaves_no_temp_or_partial() {
     assert!(!stray(&root.0), "existed path left a temp file behind");
 }
 
+// ── search-engine start self-heal (F13 retry, PKT-10, now shared) ──
+
+// A failed engine start degrades (never crashes) and is retried lazily on a
+// later call — but only after the cooldown, so a persistent failure is not
+// reopened on every call. Uses the cheapest real seam: an index dir that is a
+// regular file (TantivyIndices::open's create_dir_all fails), cleared between
+// attempts so the retry can succeed.
+#[test]
+fn search_engine_start_failure_self_heals_after_cooldown() {
+    let root = TestRoot::new();
+    let store = store(&root);
+
+    let index_path = root.0.join("blocking-index");
+    fs::write(&index_path, "not a directory").unwrap();
+    let observer: StatusObserver = Arc::new(|_| {});
+
+    // Degraded, not crashed: start returns Err, search stays usable (empty).
+    assert!(store.start_search(index_path.clone(), observer).is_err());
+    assert!(!store.search_engine_installed());
+    assert!(store.search("anything", None).unwrap().is_empty());
+
+    // Cause cleared, but still WITHIN the cooldown → no re-attempt yet.
+    fs::remove_file(&index_path).unwrap();
+    assert!(store.search("anything", None).unwrap().is_empty());
+    assert!(
+        !store.search_engine_installed(),
+        "must not re-attempt the start within the cooldown"
+    );
+
+    // Cooldown elapsed → the next call retries and, the cause now gone, starts.
+    store.expire_search_retry_cooldown();
+    let _ = store.search("anything", None);
+    assert!(
+        store.search_engine_installed(),
+        "must retry and start once the cooldown elapses"
+    );
+}
+
 #[test]
 fn deleting_a_folder_moves_notes_up_with_collisions_before_removing_the_tree() {
     let root = TestRoot::new();

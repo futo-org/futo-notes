@@ -31,6 +31,13 @@ desktop, iOS, and Android query that owner through thin adapters.
   peer batch or watcher batch requests one store rescan. Pure push echoes do not.
 - Full reset clears the vault through the store and leaves the rebuildable index
   owned by that same instance.
+- A failed engine start (bad/locked index dir, momentary disk pressure) degrades
+  to empty results rather than crashing, and the store re-attempts the start
+  lazily on the next search/status/rescan call — gated by a 15 s cooldown
+  (`SEARCH_ENGINE_RETRY_COOLDOWN`) so a persistent failure is not reopened on
+  every call. This self-heal lives in the shared `futo-notes-store` owner, so
+  iOS, Android, and desktop share it (it replaces the former iOS-only
+  `SearchService` retry). → `futo-notes-store` `ensure_engine`
 
 ## Desktop UI
 

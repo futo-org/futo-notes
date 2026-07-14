@@ -7,6 +7,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use futo_notes_core::files::{
     create_new_atomic, rename_through_temp, safe_appdata_path, set_file_mtime_ms, write_atomic_text,
@@ -123,6 +124,26 @@ impl BeforeWrite for NoopBeforeWrite {
     fn before_write(&self, _changes: &[FileChange]) {}
 }
 
+/// After a failed search-engine start (a bad/locked index dir, momentary disk
+/// pressure), the store re-attempts the start lazily on the next
+/// search/status/rescan call — but at most once per this cooldown, so a
+/// persistent failure does not reopen the Tantivy index on every keystroke.
+/// This is the iOS `SearchService` F13 self-heal (PKT-10) pushed down into the
+/// single Rust owner, so iOS, Android, and desktop share one implementation
+/// (and it closes the banked Android search-retry-cooldown alignment follow-up).
+const SEARCH_ENGINE_RETRY_COOLDOWN: Duration = Duration::from_secs(15);
+
+/// The owned search engine plus what's needed to re-attempt a failed start.
+#[derive(Default)]
+struct SearchState {
+    engine: Option<SearchEngine>,
+    /// Index dir + status observer retained at `start_search` so a failed start
+    /// can be retried with the same configuration. `None` until first start.
+    pending: Option<(PathBuf, StatusObserver)>,
+    /// When the last start attempt failed; gates the retry cooldown.
+    last_start_failure: Option<Instant>,
+}
+
 /// One instance owns one vault. Every mutation is serialized through `gate`,
 /// so conditional writes and multi-file rename/relink operations have a
 /// single-process decision boundary shared by all shells.
@@ -130,7 +151,8 @@ pub struct LocalNoteStore {
     root: PathBuf,
     before_write: Arc<dyn BeforeWrite>,
     gate: Mutex<()>,
-    search: Mutex<Option<SearchEngine>>,
+    search: Mutex<SearchState>,
+    retry_cooldown: Duration,
 }
 
 impl LocalNoteStore {
@@ -143,7 +165,8 @@ impl LocalNoteStore {
             root,
             before_write,
             gate: Mutex::new(()),
-            search: Mutex::new(None),
+            search: Mutex::new(SearchState::default()),
+            retry_cooldown: SEARCH_ENGINE_RETRY_COOLDOWN,
         }
     }
 
@@ -163,44 +186,87 @@ impl LocalNoteStore {
             .search
             .lock()
             .map_err(|_| "search lock poisoned".to_owned())?;
-        if search.is_some() {
+        if search.engine.is_some() {
             return Ok(());
         }
-        *search = Some(SearchEngine::start(
-            SearchConfig {
-                notes_root: self.root.clone(),
-                index_dir,
-            },
-            on_status,
-        )?);
-        Ok(())
+        search.pending = Some((index_dir, on_status));
+        self.try_start_engine(&mut search)
     }
 
     pub fn search(&self, query: &str, limit: Option<usize>) -> Result<Vec<SearchHit>, String> {
-        let search = self
+        let mut search = self
             .search
             .lock()
             .map_err(|_| "search lock poisoned".to_owned())?;
-        match search.as_ref() {
-            Some(search) => search.query(query, limit.unwrap_or(DEFAULT_TOPK)),
+        self.ensure_engine(&mut search);
+        match search.engine.as_ref() {
+            Some(engine) => engine.query(query, limit.unwrap_or(DEFAULT_TOPK)),
             None => Ok(Vec::new()),
         }
     }
 
     pub fn search_status(&self) -> SearchStatus {
-        self.search
-            .lock()
-            .ok()
-            .and_then(|search| search.as_ref().map(SearchEngine::status))
+        let Ok(mut search) = self.search.lock() else {
+            return SearchStatus::default();
+        };
+        self.ensure_engine(&mut search);
+        search
+            .engine
+            .as_ref()
+            .map(SearchEngine::status)
             .unwrap_or_default()
     }
 
     pub fn rebuild_search(&self) {
-        if let Ok(search) = self.search.lock() {
-            if let Some(search) = search.as_ref() {
-                search.rescan();
+        if let Ok(mut search) = self.search.lock() {
+            self.ensure_engine(&mut search);
+            if let Some(engine) = search.engine.as_ref() {
+                engine.rescan();
             }
         }
+    }
+
+    /// Start the engine from the retained config, recording success/failure.
+    /// The caller holds the search lock.
+    fn try_start_engine(&self, search: &mut SearchState) -> Result<(), String> {
+        let Some((index_dir, on_status)) = search.pending.clone() else {
+            return Ok(());
+        };
+        match SearchEngine::start(
+            SearchConfig {
+                notes_root: self.root.clone(),
+                index_dir,
+            },
+            on_status,
+        ) {
+            Ok(engine) => {
+                search.engine = Some(engine);
+                search.last_start_failure = None;
+                Ok(())
+            }
+            Err(error) => {
+                search.last_start_failure = Some(Instant::now());
+                Err(error)
+            }
+        }
+    }
+
+    /// Lazily (re-)attempt a search-engine start that has not yet succeeded,
+    /// gated by [`SEARCH_ENGINE_RETRY_COOLDOWN`] so a persistent failure is not
+    /// retried on every call. No-op once the engine is running or when nothing
+    /// has been started yet. The caller holds the search lock.
+    fn ensure_engine(&self, search: &mut SearchState) {
+        if search.engine.is_some() || search.pending.is_none() {
+            return;
+        }
+        let cooling_down = search
+            .last_start_failure
+            .is_some_and(|at| at.elapsed() < self.retry_cooldown);
+        if cooling_down {
+            return;
+        }
+        // A failed retry re-arms the cooldown inside `try_start_engine`.
+        let _ = self.try_start_engine(search);
     }
 
     pub fn observe_external_change(&self, change: FileChange) {
@@ -732,13 +798,13 @@ impl LocalNoteStore {
         let Ok(search) = self.search.lock() else {
             return;
         };
-        let Some(search) = search.as_ref() else {
+        let Some(engine) = search.engine.as_ref() else {
             return;
         };
         match change {
-            FileChange::Changed(path) => search.notify_changed(path.clone()),
-            FileChange::Removed(path) => search.notify_removed(path.clone()),
-            FileChange::Renamed { from, to } => search.notify_renamed(from.clone(), to.clone()),
+            FileChange::Changed(path) => engine.notify_changed(path.clone()),
+            FileChange::Removed(path) => engine.notify_removed(path.clone()),
+            FileChange::Renamed { from, to } => engine.notify_renamed(from.clone(), to.clone()),
         }
     }
 
@@ -746,6 +812,18 @@ impl LocalNoteStore {
         self.gate
             .lock()
             .map_err(|_| "vault mutation lock poisoned".to_owned())
+    }
+
+    #[cfg(test)]
+    fn search_engine_installed(&self) -> bool {
+        self.search.lock().unwrap().engine.is_some()
+    }
+
+    /// Test seam: clear the failure timestamp so the next search/status/rescan
+    /// treats the retry cooldown as elapsed (deterministic, no wall-clock wait).
+    #[cfg(test)]
+    fn expire_search_retry_cooldown(&self) {
+        self.search.lock().unwrap().last_start_failure = None;
     }
 }
 
