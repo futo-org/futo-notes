@@ -307,16 +307,12 @@ fn checkpoint_progress(
     }
 }
 
-async fn delete_missing_objects(
-    http: &Http,
-    state: &mut ConnectedState,
-    root: &Path,
+fn eligible_deletions(
     missing: Vec<(String, ObjectState)>,
     claimed_missing: &HashSet<String>,
-    pre_write: &PreWrite,
-    summary: &mut SyncSummary,
-) -> Result<(), SyncErrorKind> {
-    let deleted: Vec<_> = missing
+    state: &ConnectedState,
+) -> Vec<(String, ObjectState)> {
+    missing
         .into_iter()
         .filter(|(name, _)| !claimed_missing.contains(name))
         .filter(|(name, _)| is_syncable_filename(name))
@@ -327,45 +323,83 @@ async fn delete_missing_objects(
                 .cloned()
                 .map(|entry| (name, entry))
         })
-        .collect();
+        .collect()
+}
+
+async fn apply_delete_conflict(
+    context: &mut PushContext<'_>,
+    name: &str,
+    entry: &ObjectState,
+) -> Result<(), SyncErrorKind> {
+    let current = context
+        .http
+        .object(&context.state.collection_id, &entry.object_id)
+        .await
+        .map_err(collection_error)?;
+    let Ok(remote) = decrypt(context.http, &context.state.vault_key, &current).await else {
+        return Ok(());
+    };
+    let target = match classify_incoming_sync_path(&remote.name) {
+        IncomingSyncPath::Accept => remote.name.clone(),
+        IncomingSyncPath::Sanitize(name) => name,
+        _ => name.to_owned(),
+    };
+    write_content(context.root, &target, &remote.content, context.pre_write)
+        .map_err(SyncErrorKind::Io)?;
+    let remote_state = state_from_remote(&remote);
+    if let Some(mtime) = remote_state.mtime_ms {
+        let _ = set_file_mtime_ms(&context.root.join(&target), mtime);
+    }
+    context.state.object_map.remove(name);
+    context
+        .state
+        .object_map
+        .insert(target.clone(), remote_state);
+    context.summary.downloaded += 1;
+    context.summary.conflicts += 1;
+    context.summary.local_writes_applied += 1;
+    context.summary.peer_updated_ids.push(note_id(&target));
+    Ok(())
+}
+
+async fn delete_missing_objects(
+    http: &Http,
+    state: &mut ConnectedState,
+    root: &Path,
+    missing: Vec<(String, ObjectState)>,
+    claimed_missing: &HashSet<String>,
+    pre_write: &PreWrite,
+    summary: &mut SyncSummary,
+) -> Result<(), SyncErrorKind> {
+    let mut context = PushContext {
+        http,
+        state,
+        root,
+        summary,
+        pre_write,
+    };
+    let deleted = eligible_deletions(missing, claimed_missing, context.state);
 
     for (name, entry) in deleted {
-        match http
-            .delete_object(&state.collection_id, &entry.object_id, entry.version)
+        match context
+            .http
+            .delete_object(
+                &context.state.collection_id,
+                &entry.object_id,
+                entry.version,
+            )
             .await
         {
             Ok(Mutation::Written(write)) => {
-                state.max_version = state.max_version.max(write.collection_version);
-                state.object_map.remove(&name);
-                summary.deleted += 1;
-                summary.deleted_ids.push(note_id(&name));
+                context.state.max_version = context.state.max_version.max(write.collection_version);
+                context.state.object_map.remove(&name);
+                context.summary.deleted += 1;
+                context.summary.deleted_ids.push(note_id(&name));
             }
             Ok(Mutation::Conflict(_)) => {
-                let current = http
-                    .object(&state.collection_id, &entry.object_id)
-                    .await
-                    .map_err(collection_error)?;
-                if let Ok(remote) = decrypt(http, &state.vault_key, &current).await {
-                    let target = match classify_incoming_sync_path(&remote.name) {
-                        IncomingSyncPath::Accept => remote.name.clone(),
-                        IncomingSyncPath::Sanitize(name) => name,
-                        _ => name.clone(),
-                    };
-                    write_content(root, &target, &remote.content, pre_write)
-                        .map_err(SyncErrorKind::Io)?;
-                    let remote_state = state_from_remote(&remote);
-                    if let Some(mtime) = remote_state.mtime_ms {
-                        let _ = set_file_mtime_ms(&root.join(&target), mtime);
-                    }
-                    state.object_map.remove(&name);
-                    state.object_map.insert(target.clone(), remote_state);
-                    summary.downloaded += 1;
-                    summary.conflicts += 1;
-                    summary.local_writes_applied += 1;
-                    summary.peer_updated_ids.push(note_id(&target));
-                }
+                apply_delete_conflict(&mut context, &name, &entry).await?;
             }
-            Err(error) => summary.failures.push(SyncFailure {
+            Err(error) => context.summary.failures.push(SyncFailure {
                 filename: name,
                 kind: FailureKind::Delete,
                 status_code: error.status,
