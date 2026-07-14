@@ -488,3 +488,125 @@ pub(crate) async fn push(
     checkpoint::save(root, &next).map_err(SyncErrorKind::Io)?;
     Ok((summary, next))
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+    use std::path::{Path, PathBuf};
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    use super::*;
+
+    struct TempRoot(PathBuf);
+
+    impl TempRoot {
+        fn new() -> Self {
+            static COUNTER: AtomicU32 = AtomicU32::new(0);
+            let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+            let root = std::env::temp_dir().join(format!(
+                "futo-sync-push-test-{}-{n}",
+                futo_notes_core::files::now_ms()
+            ));
+            std::fs::create_dir_all(&root).unwrap();
+            Self(root)
+        }
+
+        fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TempRoot {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn no_progress(_: SyncProgress) {}
+
+    fn no_pre_write(_: &str) {}
+
+    fn connected() -> ConnectedState {
+        ConnectedState {
+            base_url: "http://127.0.0.1:1".into(),
+            token: "token".into(),
+            user_id: "user".into(),
+            collection_id: "collection".into(),
+            vault_key: [5; 32],
+            object_map: HashMap::new(),
+            max_version: 0,
+            pull_cursor: 0,
+            oversize_skip: HashMap::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn push_skips_an_oversize_flagged_file_without_uploading_or_deleting_it() {
+        let root = TempRoot::new();
+        std::fs::write(root.path().join("big.md"), "too big for the server").unwrap();
+        let file = local_files(root.path()).remove(0);
+        let mut state = connected();
+        state.oversize_skip.insert(file.name.clone(), file.mtime);
+
+        let (summary, next) = push(&state, root.path(), &no_progress, &no_pre_write)
+            .await
+            .unwrap();
+
+        assert_eq!(summary.uploaded, 0);
+        assert_eq!(summary.conflicts, 1);
+        assert!(summary.failures.is_empty());
+        assert!(root.path().join("big.md").exists());
+        assert!(!next.object_map.contains_key(&file.name));
+    }
+
+    #[tokio::test]
+    async fn push_retries_an_oversize_flagged_file_after_its_mtime_changes() {
+        let root = TempRoot::new();
+        std::fs::write(root.path().join("big.md"), "shrunk").unwrap();
+        let file = local_files(root.path()).remove(0);
+        let mut state = connected();
+        state
+            .oversize_skip
+            .insert(file.name.clone(), file.mtime - 1);
+
+        let (summary, _) = push(&state, root.path(), &no_progress, &no_pre_write)
+            .await
+            .unwrap();
+
+        assert_eq!(summary.conflicts, 0);
+        assert!(summary
+            .failures
+            .iter()
+            .any(|failure| failure.kind == FailureKind::Upload));
+        assert!(root.path().join("big.md").exists());
+    }
+
+    #[tokio::test]
+    async fn push_preserves_the_pull_cursor() {
+        let root = TempRoot::new();
+        std::fs::write(root.path().join("note.md"), "synced body").unwrap();
+        let file = local_files(root.path()).remove(0);
+        let mut state = connected();
+        state.pull_cursor = 42;
+        state.max_version = 99;
+        state.object_map.insert(
+            file.name.clone(),
+            ObjectState {
+                object_id: "o1".into(),
+                version: 1,
+                blob_key: "bk".into(),
+                hash: Some(hash_sha256("synced body")),
+                mtime_ms: Some(file.mtime),
+                size_bytes: Some(file.size),
+            },
+        );
+
+        let (summary, next) = push(&state, root.path(), &no_progress, &no_pre_write)
+            .await
+            .unwrap();
+
+        assert!(summary.failures.is_empty());
+        assert_eq!(summary.uploaded, 0);
+        assert_eq!(next.pull_cursor, 42);
+    }
+}

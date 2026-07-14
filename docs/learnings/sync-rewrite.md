@@ -467,7 +467,7 @@ implementation to be genuinely different.
 
 The replacement now has three deliberately different layers:
 
-1. **43 fast sync-crate tests** for pure contracts and hard-to-observe safety
+1. **46 fast sync-crate tests** for pure contracts and hard-to-observe safety
    decisions.
 2. **27 real-server tests** (25 protocol/reconciliation and 2 SSE) for the
    encrypted HTTP boundary and live recovery.
@@ -508,8 +508,8 @@ claim-and-park, stale-claim crash recovery, ancestry demotion, and
 identical-content dedup.
 
 Two invariants had **no test that runs in any automated pipeline**. Both are now
-covered by offline crate-level unit tests in `sync.rs` (each proven red-capable
-against the exact regression before finalizing):
+covered by offline crate-level unit tests in `sync/push.rs` (each proven
+red-capable against the exact regression before finalizing):
 
 - **413 oversize blobs.** The only prior test
   (`oversize_blob_is_surfaced_skipped_and_recovers`) gates on
