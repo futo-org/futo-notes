@@ -508,6 +508,11 @@ test:rust:
 
 test:rust:workspace:
   stage: test
+  # Cold workspace builds saturate the shared dind runner and contend over the
+  # same target cache. Pipelines 30724 and 30726 overlapped and both hit the
+  # 60-minute wall; isolated runs of this job finish in 9–28 minutes. Queue the
+  # heavyweight compile instead of letting concurrent pipelines starve it.
+  resource_group: rust-workspace
   cache:
     - !reference [.cache-cargo-tauri, cache]
   script:
