@@ -1,0 +1,132 @@
+.settings-input-label {
+  display: block;
+  margin: 2px 2px 6px;
+  font-size: 13px;
+  color: var(--color-muted);
+}
+
+.settings-input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 14px;
+  font-family: inherit;
+  margin-bottom: 10px;
+}
+
+.settings-input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
+.settings-input-readonly {
+  opacity: 0.7;
+  cursor: pointer;
+}
+
+.settings-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+  margin-bottom: 6px;
+}
+
+.settings-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border: none;
+  background: var(--color-surface);
+  border-radius: 12px;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.1s ease;
+}
+
+.settings-btn-inline {
+  flex: 1;
+  background: var(--color-text);
+  color: var(--color-bg);
+  justify-content: center;
+  padding: 10px 12px;
+  font-weight: 500;
+  border-radius: 10px;
+}
+
+.settings-btn:active {
+  transform: scale(0.98);
+}
+
+.settings-btn:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.settings-btn:disabled:active {
+  transform: none;
+}
+
+.settings-btn-danger .settings-btn-label {
+  color: var(--color-danger);
+}
+
+.settings-btn-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings-btn-label {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.settings-btn-desc {
+  font-size: 13px;
+  color: var(--color-muted);
+}
+
+.settings-update-notes {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--color-muted);
+  white-space: pre-wrap;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.settings-hint {
+  margin: 6px 0;
+  line-height: 1.35;
+}
+
+.settings-link-btn {
+  display: block;
+  margin: 6px 0 2px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--color-muted);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.settings-link-btn:active {
+  opacity: 0.6;
+}

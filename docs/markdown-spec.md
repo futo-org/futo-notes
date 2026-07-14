@@ -2,7 +2,7 @@
 
 This document defines every markdown feature FUTO Notes supports, how it renders in the editor, and how the server processes it. It serves as the authoritative reference for contributors, AI agents, and test authors.
 
-FUTO Notes uses CodeMirror 6's `@codemirror/lang-markdown` for parsing. The custom rendering layer (`liveMarkdownTransform.ts`) decorates the parsed syntax tree with CSS classes, hides syntax markers, and renders widgets. This spec documents the **decoration behavior**, not the parsing rules (which are CM6's responsibility).
+FUTO Notes uses CodeMirror 6's `@codemirror/lang-markdown` for parsing. The custom rendering layer (`live-preview/`, exposed by the `liveMarkdownTransform.ts` facade) decorates the parsed syntax tree with CSS classes, hides syntax markers, and renders widgets. This spec documents the **decoration behavior**, not the parsing rules (which are CM6's responsibility).
 
 ## Core Concept: Cursor-Reveal
 
@@ -246,7 +246,7 @@ Autolinks are detected via regex matching (not part of CM6 markdown AST). They r
 | Cell 1   | Cell 2   |
 ```
 
-**Decoration behavior**: When cursor is NOT inside the table, the entire table range is replaced with a `TableWidget` that renders an HTML `<table>`:
+**Decoration behavior**: When the cursor is NOT inside the table source, the entire table range is replaced with an interactive `TableEditorWidget` that renders an HTML `<table>`:
 - Wrapper: `cm-md-table-wrapper` (scrollable, 8px vertical margin, 8px border-radius)
 - Table: `cm-md-table-rendered` (collapsed borders, 0.93em font)
 - Headers: `<th>` with `--color-surface` background, 600 weight
@@ -256,7 +256,9 @@ Autolinks are detected via regex matching (not part of CM6 markdown AST). They r
 
 **Alignment**: Supports `:---` (left), `:---:` (center), `---:` (right) via column alignment markers.
 
-**Inline formatting in cells**: Bold, italic, code, links, strikethrough rendered inside cells with dedicated table classes (`cm-md-table-code`, `cm-md-table-link`).
+**Editing**: Each cell is an input. Tab/Shift+Tab moves between cells, Enter inserts a row, and a desktop context menu inserts or deletes rows and columns. Edits serialize back to valid markdown and revalidate the table structure.
+
+**Inline formatting in cells**: Bold, italic, code, links, strikethrough render inside cells with dedicated table classes (`cm-md-table-code`, `cm-md-table-link`).
 
 **Escaped pipes**: `\|` inside cells treated as literal pipe, not column separator.
 
@@ -367,7 +369,7 @@ The filename IS the title. `"grocery list.md"` → title is `"grocery list"`. No
 
 ## 14. Known Quirks
 
-1. **CM6 CSS layering**: Styles in `@layer(components)` lose to CM6's unlayered CSS. All CodeMirror overrides in `markdown.css` use `!important`.
+1. **CM6 CSS layering**: Styles in `@layer(components)` lose to CM6's unlayered CSS. CodeMirror overrides are imported unlayered through the `editor-ux.css` facade; layered overrides use `!important`.
 
 2. **Composition suspension**: During Android IME composition, all decorations are temporarily removed (`Decoration.none`) to prevent crashes. Decorations rebuild when composition ends.
 

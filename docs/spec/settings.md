@@ -83,4 +83,5 @@ SettingsScreen.kt *(Android)*, SettingsView.swift *(iOS)*
   and the E2EE connection + stored password are dropped before the vault is
   wiped, so a racing sync cannot push the wipe or resurrect files. The native
   shells implement the same contract (see "Native shells" above). →
-  SettingsScreen.svelte (`confirmDialog`), notes.svelte.ts `deleteAllNotes`
+  SettingsScreen.svelte (`confirmDialog`), app/resetAllNotes.ts `resetAllNotes`,
+  notes.svelte.ts `deleteAllNotes`

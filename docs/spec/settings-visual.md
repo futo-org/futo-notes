@@ -1,7 +1,7 @@
 # Settings Screen — Visual Spec
 
 How the Settings screen **looks and is laid out**, captured from the Tauri /
-desktop implementation (`src/components/SettingsScreen.svelte`). This is the
+desktop implementation (`src/features/settings/SettingsScreen.svelte`). This is the
 visual companion to `settings.md` (which covers behavior). The goal: someone
 who has never seen the screen could rebuild it pixel-for-pixel from this
 document.

@@ -19,7 +19,7 @@
           "pattern": "export function makePreview"
         },
         {
-          "location": "src/lib/wikilinks.ts",
+          "location": "src/shared/note/wikilinks.ts",
           "pattern": "export function resolveWikilink"
         },
         {
@@ -98,7 +98,7 @@
       "note": "PARTIAL: TS is fully locked against the fixture. Kotlin's SyncManagerDefaultsTest.kt hand-mirrors a 5-case subset instead of reading server-url.json (L1-5 plan: make it read the full fixture). Swift is genuinely UNLOCKED pending an iOS test target (L1-4).",
       "copies": [
         {
-          "location": "src/lib/syncServiceE2ee.ts",
+          "location": "src/features/sync/syncServiceE2ee.ts",
           "pattern": "function validateSyncServerUrl"
         },
         {
@@ -116,7 +116,7 @@
           "kind": "fixture"
         },
         {
-          "path": "src/lib/syncServiceE2ee.test.ts",
+          "path": "src/features/sync/syncServiceE2ee.test.ts",
           "kind": "test"
         },
         {
@@ -185,7 +185,7 @@
       "lockStatus": "unlocked",
       "copies": [
         {
-          "location": "src/lib/notes.svelte.ts",
+          "location": "src/features/notes/notes.svelte.ts",
           "pattern": "right\\.modificationTime\\s*-\\s*left\\.modificationTime\\s*\\|\\|\\s*left\\.id\\.localeCompare\\(right\\.id\\)"
         },
         {
@@ -232,7 +232,7 @@
           "pattern": "const SUPPRESSION_WINDOW_MS"
         },
         {
-          "location": "src/lib/writeSuppression.ts",
+          "location": "src/lib/platform/writeSuppression.ts",
           "pattern": "LOCAL_WRITE_TTL_MS|SYNC_WRITE_TTL_MS"
         }
       ],
@@ -262,7 +262,7 @@
           "pattern": "pub struct SyncFailure\\b"
         },
         {
-          "location": "src/lib/syncServiceE2ee.ts",
+          "location": "src/features/sync/syncServiceE2ee.ts",
           "pattern": "SyncSummary\\b"
         },
         {

@@ -93,8 +93,8 @@ the local mirror that IS validated.
 
 ## Tested by
 
-`src/lib/updater.test.ts`, `src/lib/updateChecker.svelte.test.ts`,
-`src/components/UpdateBanner.svelte.test.ts`, the config conformance guard
+`src/features/system/updater.test.ts`, `src/features/system/updateChecker.svelte.test.ts`,
+`src/features/system/UpdateBanner.svelte.test.ts`, the config conformance guard
 `src/lib/platform/updaterConfig.test.ts` (base HTTPS-only/no-insecure/
 `createUpdaterArtifacts` off; localdev is the only place localhost/insecure/
 localdev-key may appear), the stable-only channel-regex guard

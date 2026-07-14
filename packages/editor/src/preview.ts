@@ -4,7 +4,7 @@
 // crates/futo-notes-model/src/crud.rs). The conformance harness
 // (tests/conformance/preview.json, crates/futo-notes-model/tests/conformance.rs,
 // ./conformance.test.ts) keeps the two bit-for-bit identical, so the
-// optimistic-cache hot path (src/lib/notesIndex.ts) produces the EXACT same
+// optimistic-cache hot path (src/features/notes/notesIndex.ts) produces the EXACT same
 // sidebar preview before a rescan/sync as the Rust scan does after.
 //
 // It lives here — in the web/presentation layer — because the reactive note

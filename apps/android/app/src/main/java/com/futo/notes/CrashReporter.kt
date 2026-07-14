@@ -14,7 +14,7 @@ import java.util.UUID
 
 /**
  * Native crash pipeline [app.md:61, settings.md:43] — the Android counterpart
- * of desktop `src/lib/crashHandler.ts` + `src/lib/crashReporter.ts`. An
+ * of desktop `src/features/system/crashHandler.ts` + `src/features/system/crashReporter.ts`. An
  * uncaught-exception handler writes a JSON report into `<vault>/.crashlogs/`
  * on the way down (then chains to the platform handler, which kills the
  * process); the NEXT launch scans the folder — backgrounded, never gating
@@ -24,7 +24,7 @@ object CrashReporter {
     private const val TAG = "CrashReporter"
     private const val CRASHLOGS_DIR = ".crashlogs"
 
-    // POST mirror of src/lib/crashReporter.ts: same /api/crash + /api/crashes
+    // POST mirror of src/features/system/crashReporter.ts: same /api/crash + /api/crashes
     // routes; debug builds target the dev collector through the emulator's
     // host loopback, release builds target production.
     private val baseUrl =

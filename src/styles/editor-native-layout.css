@@ -1,0 +1,25 @@
+/* ── Native-shell tablet/large-screen layout ─────────────────────────────
+ * The iOS/Android native shells host the editor in a full-bleed WebView. On a
+ * tablet or iPad that leaves the text hugging the left edge with a wide empty
+ * gutter on the right. Constrain the editable content to a centered reading
+ * column so wide screens look intentional (Obsidian-style measure). The
+ * `.futo-native` class is toggled by FutoEditor.setNativeToolbar (editor-embed/
+ * main.ts), so this never touches desktop or the markdown-spec test layout, and
+ * on phones the viewport is already narrower than the cap (no-op). !important
+ * because CM6 injects the `.cm-content` theme unlayered (see file header). */
+/* Center the column via the flex scroller — CM6 gives `.cm-content` flex-grow,
+ * which defeats `margin: auto` alone, so justify-content does the centering. */
+.futo-native .cm-scroller {
+  justify-content: center !important;
+}
+.futo-native .cm-content {
+  max-width: 46rem !important;
+  margin-inline: auto !important;
+  /* Left inset of the note body. Each native shell sets `--futo-cm-pad-inline`
+   * on <html> so the body text lines up with its inline title field (the title
+   * sits at the shell's own padding; the `.cm-line` adds its own 6px, so the
+   * shell passes titlePad − 6). Falls back to 1.25rem on desktop/tablet where
+   * no shell sets it. → EditorWebView.swift / EditorWebView.kt (on 'ready'). */
+  padding-inline: var(--futo-cm-pad-inline, 1.25rem) !important;
+  box-sizing: border-box !important;
+}

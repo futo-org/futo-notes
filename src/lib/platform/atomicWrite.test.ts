@@ -102,9 +102,6 @@ describe('writeAtomicText', () => {
   });
 
   it('retries once when rename fails with a not-found error (temp yanked)', async () => {
-    // Simulates a macOS cloud/file-provider yanking the freshly-created temp
-    // file out from under the pending rename: rename rejects ENOENT once, then
-    // succeeds on retry. writeAtomicText must recover instead of propagating.
     const filePath = path.join(tmpDir, 'race.md');
     let renameCalls = 0;
     let writeCalls = 0;
@@ -167,7 +164,6 @@ describe('writeAtomicText', () => {
       'rename failed',
     );
 
-    // Temp file should be cleaned up
     expect(writtenTmpPath).not.toBeNull();
     expect(fsSync.existsSync(writtenTmpPath!)).toBe(false);
   });

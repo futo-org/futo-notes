@@ -1,6 +1,6 @@
-import { makePreview, noteTags } from './notesIndex';
+import { makePreview, noteTags } from '$features/notes/notesIndex';
 import { sanitizeTitle } from './rules';
-import { rewriteWikilinks } from './wikilinks';
+import { rewriteWikilinks } from '$shared/note/wikilinks';
 import { isTauri } from './platform';
 
 export interface LocalNoteMetadata {

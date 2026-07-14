@@ -1,0 +1,132 @@
+.cm-md-code {
+  background: rgba(var(--ink-rgb), 0.05);
+  color: var(--color-primary-hover);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: ui-monospace, monospace;
+  font-size: 0.88em;
+}
+
+/* Code blocks */
+.cm-line.cm-md-code-block {
+  background: rgba(var(--ink-rgb), 0.03);
+  color: var(--color-text);
+  font-family: ui-monospace, monospace;
+  font-size: 0.88em;
+  line-height: 1.55 !important;
+  padding: 3px 24px !important;
+  margin-left: 0;
+  margin-right: 0;
+  border-left: 0;
+  position: relative;
+}
+
+.cm-line.cm-md-code-block-single {
+  padding-top: 24px !important;
+  padding-bottom: 24px !important;
+  border-radius: 6px;
+}
+
+.cm-line.cm-md-code-block-first {
+  padding-top: 24px !important;
+  border-top-left-radius: 6px;
+  border-top-right-radius: 6px;
+}
+
+.cm-line.cm-md-code-block-last {
+  padding-bottom: 24px !important;
+  border-bottom-left-radius: 6px;
+  border-bottom-right-radius: 6px;
+}
+
+.cm-line.cm-md-code-block-fence {
+  min-height: 0;
+  height: 0;
+  line-height: 0 !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  overflow: visible;
+}
+
+.cm-line.cm-md-code-block-opening-fence {
+  border-top-left-radius: 6px;
+  border-top-right-radius: 6px;
+}
+
+.cm-line.cm-md-code-block-closing-fence {
+  border-bottom-left-radius: 6px;
+  border-bottom-right-radius: 6px;
+}
+
+.cm-md-code-lang-label {
+  position: absolute;
+  top: 16px;
+  right: 20px;
+  z-index: 1;
+  color: var(--color-muted);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.cm-line.cm-md-code-block .tok-keyword {
+  color: var(--syntax-keyword) !important;
+  font-weight: 600;
+}
+
+.cm-line.cm-md-code-block .tok-string {
+  color: var(--syntax-string) !important;
+}
+
+.cm-line.cm-md-code-block .tok-number,
+.cm-line.cm-md-code-block .tok-literal,
+.cm-line.cm-md-code-block .tok-bool,
+.cm-line.cm-md-code-block .tok-atom {
+  color: var(--syntax-number) !important;
+}
+
+.cm-line.cm-md-code-block .tok-comment {
+  color: var(--color-muted) !important;
+  font-style: italic;
+}
+
+.cm-line.cm-md-code-block .tok-variableName,
+.cm-line.cm-md-code-block .tok-variableName2,
+.cm-line.cm-md-code-block .tok-labelName {
+  color: var(--syntax-variable) !important;
+}
+
+.cm-line.cm-md-code-block .tok-typeName,
+.cm-line.cm-md-code-block .tok-className,
+.cm-line.cm-md-code-block .tok-namespace,
+.cm-line.cm-md-code-block .tok-macroName {
+  color: var(--syntax-type) !important;
+}
+
+.cm-line.cm-md-code-block .tok-propertyName {
+  color: var(--syntax-property) !important;
+}
+
+.cm-line.cm-md-code-block .tok-definition {
+  color: var(--syntax-property) !important;
+}
+
+.cm-line.cm-md-code-block .tok-regexp,
+.cm-line.cm-md-code-block .tok-escape,
+.cm-line.cm-md-code-block .tok-url,
+.cm-line.cm-md-code-block .tok-string2 {
+  color: var(--syntax-regexp) !important;
+}
+
+.cm-line.cm-md-code-block .tok-meta,
+.cm-line.cm-md-code-block .tok-punctuation,
+.cm-line.cm-md-code-block .tok-operator {
+  color: var(--syntax-type) !important;
+}
+
+.cm-line.cm-md-code-block .tok-invalid {
+  color: var(--color-danger) !important;
+  text-decoration: underline wavy currentColor;
+}

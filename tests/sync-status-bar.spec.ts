@@ -3,7 +3,7 @@ import { test, expect, Page } from '@playwright/test';
 // Rendered-UI coverage for the sync status-bar indicator (docs/spec/sync.md):
 // the ⚠ error indicator with click-to-dismiss, and the persistent idle ✓
 // tick driven by the live-stream state. State-layer behavior is covered in
-// src/lib/syncManager.test.ts; these prove the template wiring (indicator
+// src/features/sync/syncManager.test.ts; these prove the template wiring (indicator
 // precedence, the dismiss button actually clearing) in a real browser.
 
 interface ShellTestHook {

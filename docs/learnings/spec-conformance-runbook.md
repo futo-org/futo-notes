@@ -188,9 +188,9 @@ nav.md iOS-nav-AX (runtime AX confirmation pending — idb absent here).
   test FS (`platform/__test__/nodeFS.ts`) lacked `seedIfEmpty`, which
   `initNotes` started calling in commit 509dcaa — 37 `notes.test.ts` /
   `searchEngineNotify.test.ts` failures. Added a no-op `seedIfEmpty` to the test
-  FS. NOTE: `just check`/`test:minimal` only runs 3 files, so the full
-  `notes.test.ts` suite is NOT in the default gate — run `pnpm exec vitest run`
-  to catch these.
+  FS. This incident exposed the gap between `test:minimal` and the full GitLab
+  suite; `just check` now runs `test:full`, and a parity test prevents the local
+  pre-merge commands from silently drifting back to the smaller suite.
 
 ### idb on this machine (installed after the fact — works, with caveats)
 

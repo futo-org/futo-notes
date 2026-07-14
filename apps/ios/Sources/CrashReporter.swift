@@ -2,7 +2,7 @@ import Foundation
 import SwiftUI
 
 // Native crash pipeline for the iOS app — the counterpart of the desktop pair
-// src/lib/crashHandler.ts (capture) + src/lib/crashReporter.ts (upload) and
+// src/features/system/crashHandler.ts (capture) + src/features/system/crashReporter.ts (upload) and
 // Tauri-Android's logcat capture. Handlers write a JSON report into
 // `<vault>/.crashlogs/`; the NEXT launch scans the dir and either auto-uploads
 // ("Always send") or surfaces the Crash Report sheet. Files are deleted after
@@ -71,7 +71,7 @@ final class CrashReporter: ObservableObject {
     private nonisolated static let enabledKey = "futo.crashReporting.enabled"
     private nonisolated static let alwaysSendKey = "futo.crashReporting.alwaysSend"
 
-    /// Upload endpoints — mirror src/lib/crashReporter.ts exactly: single report
+    /// Upload endpoints — mirror src/features/system/crashReporter.ts exactly: single report
     /// to /api/crash, batch to /api/crashes. DEBUG talks to the local crash
     /// server (simulator reaches the Mac's localhost directly).
     #if DEBUG
@@ -126,7 +126,7 @@ final class CrashReporter: ObservableObject {
     }
 
     /// Shared payload shape — matches the desktop CrashReport interface
-    /// (src/lib/crashHandler.ts) so the crashlog server accepts it unchanged.
+    /// (src/features/system/crashHandler.ts) so the crashlog server accepts it unchanged.
     private nonisolated static func crashReportDict(
         error: String, stack: String
     ) -> [String: Any] {

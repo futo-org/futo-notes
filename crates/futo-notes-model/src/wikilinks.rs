@@ -3,7 +3,7 @@
 //! Targets are note ids/titles the UI resolves against the note index.
 //!
 //! Also hosts the bit-for-bit ports of the TS wikilink RULES
-//! (`src/lib/wikilinks.ts`): occurrence scanning, resolution, shortest-unique
+//! (`src/shared/note/wikilinks.ts`): occurrence scanning, resolution, shortest-unique
 //! display suffix, and the rewrite-on-rename machinery. NOTE these are ports
 //! of the TS regex semantics, which differ from [`extract_wikilinks`] above
 //! in two pinned ways: the TS `WIKILINK_RE` captures the WHOLE inner text
@@ -67,7 +67,7 @@ fn char_len(b: u8) -> usize {
     }
 }
 
-// ── TS wikilink-rule ports (src/lib/wikilinks.ts, bit-for-bit) ───────────
+// ── TS wikilink-rule ports (src/shared/note/wikilinks.ts, bit-for-bit) ───────────────
 
 /// One `[[...]]` occurrence found by [`find_wikilinks`]. Offsets are BYTE
 /// offsets into the scanned text (TS carries UTF-16 offsets; the rewrite

@@ -9,7 +9,7 @@
 // (crates/futo-notes-model/tests/conformance.rs) read these fixtures, so a
 // rule that drifts in any one language fails the other's conformance test.
 //
-//   pnpm exec tsx tests/conformance/generate.mjs        # regenerate fixtures
+//   pnpm exec tsx tests/conformance/generate.mjs         # regenerate fixtures
 //   pnpm exec tsx tests/conformance/generate.mjs --check # fail if stale (CI)
 //
 // Re-run after any change to filename.ts / tags.ts / sync.ts. The contract
@@ -44,7 +44,7 @@ import {
   resolveWikilink,
   shortestUniqueSuffix,
   rewriteWikilinks,
-} from '../../src/lib/wikilinks.ts';
+} from '../../src/shared/note/wikilinks.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -341,7 +341,7 @@ const preview = {
   ],
 };
 
-// ── Wikilink rules (src/lib/wikilinks.ts ↔ Rust wikilinks.rs ports) ─────
+// ── Wikilink rules (src/shared/note/wikilinks.ts ↔ Rust wikilinks.rs ports) ─────────
 //
 // Curated id universe: nested folders, ambiguous leaves (`pasta`,
 // `folder-support`, `notes`), unicode + emoji ids, and a deep path for the

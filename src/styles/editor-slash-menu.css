@@ -1,0 +1,78 @@
+/* === Slash menu ================================================================ */
+
+.sf-slash-menu {
+  position: absolute;
+  z-index: 50;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  min-width: 240px;
+  max-width: 320px;
+  max-height: 320px;
+  overflow-y: auto;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  padding: 4px;
+}
+
+.sf-slash-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--color-text);
+  user-select: none;
+}
+
+.sf-slash-menu__item:hover,
+.sf-slash-menu__item[aria-selected='true'] {
+  background: var(--color-surface);
+}
+
+.sf-slash-menu__item[aria-selected='true'] {
+  outline: 1px solid rgba(var(--primary-rgb), 0.3);
+}
+
+.sf-slash-menu__icon {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-primary);
+  flex-shrink: 0;
+}
+
+.sf-slash-menu__icon svg {
+  width: 18px;
+  height: 18px;
+  stroke-width: 1.75;
+}
+
+.sf-slash-menu__text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+
+.sf-slash-menu__label {
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.sf-slash-menu__hint {
+  font-size: 12px;
+  color: var(--color-muted);
+}
+
+.sf-slash-menu__empty {
+  padding: 12px;
+  color: var(--color-muted);
+  font-size: 13px;
+  text-align: center;
+}

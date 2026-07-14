@@ -13,7 +13,7 @@ import { dirname, join } from 'node:path';
 
 import { IMAGE_EXTENSIONS } from '@futo-notes/shared';
 import { MAX_TITLE_LENGTH } from '@futo-notes/editor';
-import { LOCAL_WRITE_TTL_MS, SYNC_WRITE_TTL_MS } from './writeSuppression';
+import { LOCAL_WRITE_TTL_MS, SYNC_WRITE_TTL_MS } from '$lib/platform/writeSuppression';
 
 const CONSTANTS_PATH = join(
   dirname(fileURLToPath(import.meta.url)),

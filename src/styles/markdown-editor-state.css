@@ -1,0 +1,39 @@
+/* Focus state — show hidden elements when editing */
+.cm-editor:focus-within .cm-md-h1 .cm-md-h1-marker,
+.cm-editor:focus-within .cm-md-h2 .cm-md-h2-marker,
+.cm-editor:focus-within .cm-md-h3 .cm-md-h3-marker,
+.cm-editor:focus-within .cm-md-h4 .cm-md-h4-marker,
+.cm-editor:focus-within .cm-md-h5 .cm-md-h5-marker,
+.cm-editor:focus-within .cm-md-h6 .cm-md-h6-marker {
+  display: inline;
+  color: var(--color-border);
+}
+
+/* Mobile adjustments */
+@media (max-width: 480px) {
+  .cm-md-h1 {
+    font-size: 28px;
+  }
+
+  .cm-md-h2 {
+    font-size: 22px;
+  }
+
+  .cm-md-h3 {
+    font-size: 19px;
+  }
+
+  .cm-line.cm-md-code-block {
+    font-size: 0.85em;
+    padding: 6px;
+  }
+
+  .cm-md-table-rendered {
+    font-size: 0.85em;
+  }
+
+  .cm-md-table-rendered th,
+  .cm-md-table-rendered td {
+    padding: 8px 10px;
+  }
+}

@@ -151,9 +151,9 @@ the difference here was the entire bug.
 
 - `src/lib/touchSwipe.svelte.ts` — gesture handler factory (later deleted with
   the unreachable shared-app mobile layout)
-- `src/components/NotesShell.svelte` — wires the handler to the root
+- `src/app/NotesShell.svelte` — wires the handler to the root
   shell element's touch events
-- `src/components/FolderTreeView.svelte` — owns `.folder-tree-scroll`,
+- `src/features/folders/FolderTreeView.svelte` — owns `.folder-tree-scroll`,
   the scroller in question
-- `src/components/DrawerSidebar.svelte` — the drawer container itself
+- `src/features/sidebar/DrawerSidebar.svelte` — the drawer container itself
   (does not scroll)

@@ -28,7 +28,7 @@ final class EditorToolbarState: ObservableObject {
 /// (ToolbarSpec.swift — GENERATED from packages/editor/src/toolbar.ts, the
 /// single source of truth for items/order/labels/visibility across all three
 /// apps). Visual twin of the web toolbar (`.markdown-toolbar` in
-/// components.css): a 44 pt bar of horizontally scrollable button groups with
+/// editor-shell.css): a 44 pt bar of horizontally scrollable button groups with
 /// hairline separators, plus a fixed dismiss chevron at the right edge.
 ///
 /// This view owns NO editing behavior: every tap is handed to `perform`,

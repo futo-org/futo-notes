@@ -17,7 +17,7 @@ A judge that compares FUTO Notes's CodeMirror 6 editor to Obsidian's, scenario b
 
 ## Why this exists
 
-Milkdown's Prosemirror round-trip didn't work for our content model, and we've been rebuilding an Obsidian-style live-preview editor on plain CM6 (`src/components/MarkdownEditor.svelte`, `src/lib/liveMarkdownTransform.ts`). Obsidian is the oracle — same input, same expected behavior. The factory drives both editors with identical scenarios, captures editor state, and diffs.
+Milkdown's Prosemirror round-trip didn't work for our content model, and we've been rebuilding an Obsidian-style live-preview editor on plain CM6 (`src/features/editor/MarkdownEditor.svelte`, `src/features/editor/liveMarkdownTransform.ts`). Obsidian is the oracle — same input, same expected behavior. The factory drives both editors with identical scenarios, captures editor state, and diffs.
 
 ## Topology
 
@@ -59,7 +59,7 @@ Both editors expose the same `__driver` API on their `window`, so the runner is 
 |---|---|
 | `factory/driver/protocol.ts` | TS types for `Driver`, `DriverState`, `DriverEvent`, `DecoratedRange`, `ElementKind` |
 | `factory/driver/semanticKind.ts` | Maps raw CSS classes → canonical `ElementKind`. Order matters: marker classes (cm-formatting-*, cm-md-inline-marker) win over text classes (cm-em, cm-strong) |
-| `factory/driver/futoNotes.ts` | Installs `window.__driver` against the live CM6 view in dev builds. Wired from `src/components/MarkdownEditor.svelte` inside the existing `if (import.meta.env.DEV)` block |
+| `factory/driver/futoNotes.ts` | Installs `window.__driver` against the live CM6 view in dev builds. Wired from `src/features/editor/MarkdownEditor.svelte` inside the existing `if (import.meta.env.DEV)` block |
 | `factory/judge/run.ts` | The whole show. Mutates Obsidian's vault registry, launches flatpak Obsidian with CDP, connects via Playwright, installs the Obsidian-side `__driver` in-page, runs the scenario loop, restores the registry on exit |
 | `factory/judge/diff.ts` | `diffStates(sf, ob) → Divergence[]` plus `summarize(reports)` |
 | `factory/judge/layoutInvariants.ts` | SF-only geometric / computed-style assertions — runs in one `page.evaluate` per scenario, surfaces `layout-violation` divergences |
@@ -187,8 +187,8 @@ NDJSON progress events back:
 | `run`        | `started` → `progress` × N → `summary`         |
 | `shutdown`   | `log` ack, then closes the socket and exits    |
 
-`factory-watch` chokidars `liveMarkdownTransform.ts`,
-`MarkdownEditor.svelte`, `markdown.css`, and the factory's own driver/
+`factory-watch` chokidars the `live-preview/` capability, `liveMarkdownTransform.ts`,
+`MarkdownEditor.svelte`, the markdown styles, and the factory's own driver/
 diff sources. On change it sends a `run` with `reload: true`, which
 makes the daemon refresh the futo-notes page first so HMR drift can't
 lie. Saves while a run is mid-flight queue exactly one re-run.
@@ -283,8 +283,8 @@ const visible =
 
 ## Where to take it next
 
-1. **Inline-link decorations on cursor reveal.** When the cursor is on a markdown link, SF strips all link decorations (showing raw text), Obsidian keeps `link-marker`/`link-text`/`link-url` mark decorations (so brackets are dimmed, URL is colored). Change `processLink` in `liveMarkdownTransform.ts` to emit mark decorations when the link is revealed, mirroring the pattern already used by emphasis/strikethrough.
+1. **Inline-link decorations on cursor reveal.** When the cursor is on a markdown link, SF strips all link decorations (showing raw text), Obsidian keeps `link-marker`/`link-text`/`link-url` mark decorations (so brackets are dimmed, URL is colored). Change `decorateLink` in `src/features/editor/live-preview/inlineDecorations.ts` to emit mark decorations when the link is revealed, mirroring the pattern already used by emphasis/strikethrough.
 2. **External-link affordance.** Obsidian appends a 0-width `external-link` widget after every external markdown link. SF doesn't. Worth adopting regardless — gives users the "this leaves the app" cue.
-3. **Pick the highest-leverage divergence and converge.** After each run, look at `factory/captures/last-run.json`'s `summary.buckets` for the top-line counts, and group `decoration-only-in-*` divergences by their leading kind token to find the biggest sub-buckets — `factory-summary` does the worst-scenarios cut, but a one-liner over `reports[].divergences[].detail` gives you per-kind counts. Pick the biggest, find a representative scenario in the report (full `futoNotes` and `obsidian` `DriverState` are included), and trace it to a code path in `liveMarkdownTransform.ts`.
+3. **Pick the highest-leverage divergence and converge.** After each run, look at `factory/captures/last-run.json`'s `summary.buckets` for the top-line counts, and group `decoration-only-in-*` divergences by their leading kind token to find the biggest sub-buckets — `factory-summary` does the worst-scenarios cut, but a one-liner over `reports[].divergences[].detail` gives you per-kind counts. Pick the biggest, find a representative scenario in the report (full `futoNotes` and `obsidian` `DriverState` are included), and trace it through `buildLiveMarkdownDecorations.ts` into the owning `live-preview/*Decorations.ts` module.
 4. **Add a holdout corpus.** Today every scenario is open and the agent can read the YAML. Once the worker agent is autonomous, hold back a parallel set in `factory/holdout/` (gitignored) so merges are gated on satisfaction the agent can't peek at.
 5. **Visual diff layer.** Once structural is green, normalize themes and screenshot-diff. Last priority — structural catches ~95%.

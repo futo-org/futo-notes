@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// Mock Tauri APIs before importing the module under test
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn(),
 }));
