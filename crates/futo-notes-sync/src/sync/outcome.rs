@@ -174,6 +174,26 @@ pub(super) fn note_id(name: &str) -> String {
     name.strip_suffix(".md").unwrap_or(name).to_owned()
 }
 
+fn unique_rename_target<'a>(
+    hash: &str,
+    removed: &[(&String, &ObjectState)],
+    added: &'a [(&String, &ObjectState)],
+) -> Option<&'a str> {
+    if removed
+        .iter()
+        .filter(|(_, entry)| entry.hash.as_deref() == Some(hash))
+        .count()
+        != 1
+    {
+        return None;
+    }
+    let mut candidates = added
+        .iter()
+        .filter(|(_, entry)| entry.hash.as_deref() == Some(hash));
+    let (name, _) = *candidates.next()?;
+    candidates.next().is_none().then_some(name.as_str())
+}
+
 pub(super) fn derive_renames(
     before: &HashMap<String, ObjectState>,
     after: &HashMap<String, ObjectState>,
@@ -191,22 +211,25 @@ pub(super) fn derive_renames(
         let Some(hash) = old.hash.as_ref() else {
             continue;
         };
-        let candidates: Vec<_> = added
-            .iter()
-            .filter(|(_, entry)| entry.hash.as_ref() == Some(hash))
-            .collect();
-        let removed_with_hash = removed
-            .iter()
-            .filter(|(_, entry)| entry.hash.as_ref() == Some(hash))
-            .count();
-        if candidates.len() == 1 && removed_with_hash == 1 {
+        if let Some(new_name) = unique_rename_target(hash, &removed, &added) {
             renames.push(RenamePair {
                 from_id: note_id(old_name),
-                to_id: note_id(candidates[0].0),
+                to_id: note_id(new_name),
             });
         }
     }
     renames
+}
+
+fn append_unique_renames(target: &mut Vec<RenamePair>, source: Vec<RenamePair>) {
+    for rename in source {
+        if !target
+            .iter()
+            .any(|existing| existing.from_id == rename.from_id && existing.to_id == rename.to_id)
+        {
+            target.push(rename);
+        }
+    }
 }
 
 pub(super) fn append_derived_renames(
@@ -214,15 +237,7 @@ pub(super) fn append_derived_renames(
     before: &HashMap<String, ObjectState>,
     after: &HashMap<String, ObjectState>,
 ) {
-    for rename in derive_renames(before, after) {
-        if !summary
-            .renamed
-            .iter()
-            .any(|existing| existing.from_id == rename.from_id && existing.to_id == rename.to_id)
-        {
-            summary.renamed.push(rename);
-        }
-    }
+    append_unique_renames(&mut summary.renamed, derive_renames(before, after));
 }
 
 fn append_unique(target: &mut Vec<String>, source: Vec<String>) {
@@ -231,6 +246,31 @@ fn append_unique(target: &mut Vec<String>, source: Vec<String>) {
             target.push(item);
         }
     }
+}
+
+fn remove_rename_ghost_ids(summary: &mut SyncSummary) {
+    let renamed_from: HashSet<_> = summary
+        .renamed
+        .iter()
+        .map(|rename| rename.from_id.as_str())
+        .collect();
+    let renamed_to: HashSet<_> = summary
+        .renamed
+        .iter()
+        .map(|rename| rename.to_id.as_str())
+        .collect();
+    summary
+        .updated_ids
+        .retain(|id| !renamed_to.contains(id.as_str()));
+    summary
+        .peer_updated_ids
+        .retain(|id| !renamed_to.contains(id.as_str()));
+    summary
+        .deleted_ids
+        .retain(|id| !renamed_from.contains(id.as_str()) && !renamed_to.contains(id.as_str()));
+    summary
+        .peer_deleted_ids
+        .retain(|id| !renamed_from.contains(id.as_str()) && !renamed_to.contains(id.as_str()));
 }
 
 pub(super) fn combine(mut push: SyncSummary, pull: SyncSummary) -> SyncSummary {
@@ -244,32 +284,7 @@ pub(super) fn combine(mut push: SyncSummary, pull: SyncSummary) -> SyncSummary {
     append_unique(&mut push.deleted_ids, pull.deleted_ids);
     append_unique(&mut push.peer_updated_ids, pull.peer_updated_ids);
     append_unique(&mut push.peer_deleted_ids, pull.peer_deleted_ids);
-    for rename in pull.renamed {
-        if !push
-            .renamed
-            .iter()
-            .any(|current| current.from_id == rename.from_id && current.to_id == rename.to_id)
-        {
-            push.renamed.push(rename);
-        }
-    }
-    let renamed_from: HashSet<_> = push
-        .renamed
-        .iter()
-        .map(|rename| rename.from_id.as_str())
-        .collect();
-    let renamed_to: HashSet<_> = push
-        .renamed
-        .iter()
-        .map(|rename| rename.to_id.as_str())
-        .collect();
-    push.updated_ids
-        .retain(|id| !renamed_to.contains(id.as_str()));
-    push.peer_updated_ids
-        .retain(|id| !renamed_to.contains(id.as_str()));
-    push.deleted_ids
-        .retain(|id| !renamed_from.contains(id.as_str()) && !renamed_to.contains(id.as_str()));
-    push.peer_deleted_ids
-        .retain(|id| !renamed_from.contains(id.as_str()) && !renamed_to.contains(id.as_str()));
+    append_unique_renames(&mut push.renamed, pull.renamed);
+    remove_rename_ghost_ids(&mut push);
     push
 }

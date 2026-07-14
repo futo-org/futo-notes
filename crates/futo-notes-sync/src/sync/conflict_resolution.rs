@@ -6,7 +6,7 @@ use futo_notes_core::hash::hash_sha256;
 use futo_notes_core::image::is_image_filename;
 
 use crate::checkpoint::ObjectState;
-use crate::server::{timestamp_ms, Conflict, Mutation, Object};
+use crate::server::{timestamp_ms, Conflict, Mutation, Object, Write};
 
 use super::encrypted_note::{decrypt, encrypt, object_state, state_from_remote, RemoteNote};
 use super::outcome::note_id;
@@ -57,14 +57,6 @@ async fn fetch_current(
             });
             None
         }
-    }
-}
-
-fn remote_target(remote: &RemoteNote, fallback: &str) -> String {
-    match classify_incoming_sync_path(&remote.name) {
-        IncomingSyncPath::Accept => remote.name.clone(),
-        IncomingSyncPath::Sanitize(name) => name,
-        _ => fallback.to_owned(),
     }
 }
 
@@ -137,6 +129,44 @@ enum MergeAttempt {
     NeedsConflictCopy,
 }
 
+fn apply_merged_write(
+    context: &mut PushContext<'_>,
+    file: &LocalFile,
+    target: String,
+    merged: &str,
+    merged_hash: String,
+    write: Write,
+) -> MergeAttempt {
+    if write_content(context.root, &target, merged, context.pre_write).is_err()
+        || (target != file.name
+            && remove_local(context.root, &file.name, context.pre_write).is_err())
+    {
+        context.summary.failures.push(SyncFailure {
+            filename: file.name.clone(),
+            kind: FailureKind::Upload,
+            status_code: None,
+        });
+        return MergeAttempt::Failed;
+    }
+    let modified = timestamp_ms(&write.object.updated_at);
+    let _ = set_file_mtime_ms(&context.root.join(&target), modified);
+    context.state.max_version = context.state.max_version.max(write.collection_version);
+    context.summary.uploaded += 1;
+    context.summary.local_writes_applied += 1;
+    context.summary.updated_ids.push(note_id(&target));
+    if target != file.name {
+        context.summary.deleted_ids.push(note_id(&file.name));
+        context.summary.renamed.push(RenamePair {
+            from_id: note_id(&file.name),
+            to_id: note_id(&target),
+        });
+    }
+    MergeAttempt::Applied((
+        target,
+        object_state(&write, merged_hash, merged.len() as u64),
+    ))
+}
+
 async fn persist_clean_merge(
     context: &mut PushContext<'_>,
     file: &LocalFile,
@@ -171,34 +201,7 @@ async fn persist_clean_merge(
         .map(MergeAttempt::Applied)
         .unwrap_or(MergeAttempt::Failed),
         Ok(Mutation::Written(write)) => {
-            if write_content(context.root, &target, &merged, context.pre_write).is_err()
-                || (target != file.name
-                    && remove_local(context.root, &file.name, context.pre_write).is_err())
-            {
-                context.summary.failures.push(SyncFailure {
-                    filename: file.name.clone(),
-                    kind: FailureKind::Upload,
-                    status_code: None,
-                });
-                return MergeAttempt::Failed;
-            }
-            let modified = timestamp_ms(&write.object.updated_at);
-            let _ = set_file_mtime_ms(&context.root.join(&target), modified);
-            context.state.max_version = context.state.max_version.max(write.collection_version);
-            context.summary.uploaded += 1;
-            context.summary.local_writes_applied += 1;
-            context.summary.updated_ids.push(note_id(&target));
-            if target != file.name {
-                context.summary.deleted_ids.push(note_id(&file.name));
-                context.summary.renamed.push(RenamePair {
-                    from_id: note_id(&file.name),
-                    to_id: note_id(&target),
-                });
-            }
-            MergeAttempt::Applied((
-                target,
-                object_state(&write, merged_hash, merged.len() as u64),
-            ))
+            apply_merged_write(context, file, target, &merged, merged_hash, write)
         }
         Err(error) if error.is(413) => {
             context
@@ -212,14 +215,11 @@ async fn persist_clean_merge(
     }
 }
 
-async fn write_conflict_pair(
+async fn create_conflict_copy(
     context: &mut PushContext<'_>,
     file: &LocalFile,
     local: &str,
-    remote: &RemoteNote,
-    remote_name: String,
-    current: &Object,
-) -> Option<(String, ObjectState)> {
+) -> Option<String> {
     let names: HashSet<String> = local_files(context.root)
         .into_iter()
         .map(|file| file.name)
@@ -233,12 +233,11 @@ async fn write_conflict_pair(
         });
         return None;
     }
-    let copy_hash = hash_sha256(local);
     if let Some((_, entry)) = create_from_content(
         context,
         &copy,
         local,
-        copy_hash,
+        hash_sha256(local),
         local.len() as u64,
         file.mtime,
     )
@@ -246,31 +245,55 @@ async fn write_conflict_pair(
     {
         context.state.object_map.insert(copy.clone(), entry);
     }
+    Some(copy)
+}
+
+fn try_adopt_remote_conflict_winner(
+    context: &mut PushContext<'_>,
+    file: &LocalFile,
+    remote: &RemoteNote,
+    remote_name: &str,
+    copy: &str,
+    current: &Object,
+) {
     if write_content(
         context.root,
-        &remote_name,
+        remote_name,
         &remote.content,
         context.pre_write,
     )
-    .is_ok()
-        && (remote_name == file.name
-            || remove_local(context.root, &file.name, context.pre_write).is_ok())
+    .is_err()
+        || (remote_name != file.name
+            && remove_local(context.root, &file.name, context.pre_write).is_err())
     {
-        let modified = timestamp_ms(&current.updated_at);
-        let _ = set_file_mtime_ms(&context.root.join(&remote_name), modified);
-        context.summary.local_writes_applied += 2;
-        context.summary.conflicts += 1;
-        context.summary.updated_ids.push(note_id(&remote_name));
-        context.summary.updated_ids.push(note_id(&copy));
-        context.summary.peer_updated_ids.push(note_id(&remote_name));
-        if remote_name != file.name {
-            context.summary.deleted_ids.push(note_id(&file.name));
-            context.summary.renamed.push(RenamePair {
-                from_id: note_id(&file.name),
-                to_id: note_id(&remote_name),
-            });
-        }
+        return;
     }
+    let modified = timestamp_ms(&current.updated_at);
+    let _ = set_file_mtime_ms(&context.root.join(remote_name), modified);
+    context.summary.local_writes_applied += 2;
+    context.summary.conflicts += 1;
+    context.summary.updated_ids.push(note_id(remote_name));
+    context.summary.updated_ids.push(note_id(copy));
+    context.summary.peer_updated_ids.push(note_id(remote_name));
+    if remote_name != file.name {
+        context.summary.deleted_ids.push(note_id(&file.name));
+        context.summary.renamed.push(RenamePair {
+            from_id: note_id(&file.name),
+            to_id: note_id(remote_name),
+        });
+    }
+}
+
+async fn write_conflict_pair(
+    context: &mut PushContext<'_>,
+    file: &LocalFile,
+    local: &str,
+    remote: &RemoteNote,
+    remote_name: String,
+    current: &Object,
+) -> Option<(String, ObjectState)> {
+    let copy = create_conflict_copy(context, file, local).await?;
+    try_adopt_remote_conflict_winner(context, file, remote, &remote_name, &copy, current);
     Some((remote_name, state_from_remote(remote)))
 }
 
@@ -304,7 +327,11 @@ pub(super) async fn resolve_update_conflict(
             return None;
         }
     };
-    let remote_name = remote_target(&remote, &file.name);
+    let remote_name = match classify_incoming_sync_path(&remote.name) {
+        IncomingSyncPath::Accept => remote.name.clone(),
+        IncomingSyncPath::Sanitize(name) => name,
+        _ => file.name.clone(),
+    };
     if remote.content == local && !local_was_rename {
         return adopt_matching_remote(context, file, local, &remote, remote_name);
     }

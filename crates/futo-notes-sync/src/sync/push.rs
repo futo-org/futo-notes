@@ -165,6 +165,21 @@ fn missing_local_files(state: &ConnectedState, files: &[LocalFile]) -> Vec<(Stri
         .collect()
 }
 
+fn unique_rename_candidate<'a>(
+    missing: &'a [(String, ObjectState)],
+    claimed_missing: &HashSet<String>,
+    basename: &str,
+    hash: &str,
+) -> Option<&'a (String, ObjectState)> {
+    let mut candidates = missing.iter().filter(|(old, entry)| {
+        !claimed_missing.contains(old)
+            && entry.hash.as_deref() == Some(hash)
+            && old.rsplit('/').next().unwrap_or(old) == basename
+    });
+    let candidate = candidates.next()?;
+    candidates.next().is_none().then_some(candidate)
+}
+
 fn detect_local_renames(
     state: &mut ConnectedState,
     root: &Path,
@@ -192,19 +207,11 @@ fn detect_local_renames(
             continue;
         };
         let basename = file.name.rsplit('/').next().unwrap_or(&file.name);
-        let candidates: Vec<_> = missing
-            .iter()
-            .filter(|(old, entry)| {
-                !claimed_missing.contains(old)
-                    && entry.hash.as_ref() == Some(hash)
-                    && old.rsplit('/').next().unwrap_or(old) == basename
-            })
-            .collect();
-        if candidates.len() != 1 {
+        let Some((old, entry)) = unique_rename_candidate(missing, &claimed_missing, basename, hash)
+        else {
             continue;
-        }
+        };
 
-        let (old, entry) = candidates[0];
         state.object_map.remove(old);
         state.object_map.insert(file.name.clone(), entry.clone());
         claimed_missing.insert(old.clone());
@@ -216,6 +223,28 @@ fn detect_local_renames(
     }
 
     (claimed_missing, renamed_files)
+}
+
+fn reuse_unchanged_object(
+    context: &mut PushContext<'_>,
+    file: &LocalFile,
+    existing: &ObjectState,
+    hash: &str,
+    renamed: bool,
+) -> bool {
+    if renamed || existing.hash.as_deref() != Some(hash) {
+        return false;
+    }
+    if let Some(server_mtime) = existing.mtime_ms {
+        if server_mtime != file.mtime {
+            (context.pre_write)(&file.name);
+            let _ = set_file_mtime_ms(&context.root.join(&file.name), server_mtime);
+        }
+    }
+    let mut entry = existing.clone();
+    entry.size_bytes = Some(file.size);
+    context.state.object_map.insert(file.name.clone(), entry);
+    true
 }
 
 async fn push_local_file(mut context: PushContext<'_>, file: &LocalFile, renamed: bool) -> bool {
@@ -243,18 +272,11 @@ async fn push_local_file(mut context: PushContext<'_>, file: &LocalFile, renamed
         }
     };
     let hash = hash_sha256(&content);
-    if let Some(mut entry) = existing.clone() {
-        if !renamed && entry.hash.as_ref() == Some(&hash) {
-            if let Some(server_mtime) = entry.mtime_ms {
-                if server_mtime != file.mtime {
-                    (context.pre_write)(&file.name);
-                    let _ = set_file_mtime_ms(&context.root.join(&file.name), server_mtime);
-                }
-            }
-            entry.size_bytes = Some(file.size);
-            context.state.object_map.insert(file.name.clone(), entry);
-            return false;
-        }
+    if existing
+        .as_ref()
+        .is_some_and(|entry| reuse_unchanged_object(&mut context, file, entry, &hash, renamed))
+    {
+        return false;
     }
     let result = match existing.as_ref() {
         Some(entry) => update_existing(&mut context, file, entry, &content, hash, renamed).await,

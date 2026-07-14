@@ -19,13 +19,6 @@ pub(crate) fn collection_error(error: HttpError) -> SyncErrorKind {
     }
 }
 
-async fn get_or_create_collection(http: &Http) -> Result<String, SyncErrorKind> {
-    match http.collections().await.map_err(http_error)?.first() {
-        Some(id) => Ok(id.clone()),
-        None => http.create_collection().await.map_err(http_error),
-    }
-}
-
 async fn create_key_material(password: &str) -> Result<KeyMaterial, SyncErrorKind> {
     let password = password.to_owned();
     let (_, material) = tokio::task::spawn_blocking(move || e2ee::wrap_vault_key(&password))
@@ -104,7 +97,10 @@ pub(crate) async fn connect(
         .await
         .map_err(|error| SyncErrorKind::Auth(error.to_string()))?;
     let http = anonymous.token(token.clone());
-    let collection_id = get_or_create_collection(&http).await?;
+    let collection_id = match http.collections().await.map_err(http_error)?.first() {
+        Some(id) => id.clone(),
+        None => http.create_collection().await.map_err(http_error)?,
+    };
     let material = load_or_create_key_material(&http, &collection_id, password).await?;
     let vault_key = unlock_vault_key(password, material).await?;
     let state = connected_state(

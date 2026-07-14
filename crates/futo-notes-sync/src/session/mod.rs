@@ -229,12 +229,8 @@ async fn run_cycle(
     }
 }
 
-async fn run_connected_stream(
-    response: reqwest::Response,
-    context: LiveContext<'_>,
-    inputs: LiveInputs<'_>,
-) -> StreamResult {
-    if matches!(
+async fn cycle_stopped(context: &LiveContext<'_>) -> bool {
+    matches!(
         run_cycle(
             context.state,
             context.gate,
@@ -244,7 +240,15 @@ async fn run_connected_stream(
         )
         .await,
         CycleResult::Stop
-    ) {
+    )
+}
+
+async fn run_connected_stream(
+    response: reqwest::Response,
+    context: LiveContext<'_>,
+    inputs: LiveInputs<'_>,
+) -> StreamResult {
+    if cycle_stopped(&context).await {
         return StreamResult::Stop;
     }
 
@@ -262,18 +266,18 @@ async fn run_connected_stream(
             }
             _ = push_timer => {
                 *inputs.push_at = None;
-                if matches!(run_cycle(context.state, context.gate, context.root, context.listener, context.pre_write).await, CycleResult::Stop) {
+                if cycle_stopped(&context).await {
                     return StreamResult::Stop;
                 }
             }
             _ = pull_timer => {
                 pull_at = None;
-                if matches!(run_cycle(context.state, context.gate, context.root, context.listener, context.pre_write).await, CycleResult::Stop) {
+                if cycle_stopped(&context).await {
                     return StreamResult::Stop;
                 }
             }
             _ = inputs.safety.tick() => {
-                if matches!(run_cycle(context.state, context.gate, context.root, context.listener, context.pre_write).await, CycleResult::Stop) {
+                if cycle_stopped(&context).await {
                     return StreamResult::Stop;
                 }
             }
@@ -304,6 +308,14 @@ async fn run_connected_stream(
     }
 }
 
+async fn wait_for_reconnect(backoff: &mut Duration, cancel: &mut mpsc::Receiver<()>) -> bool {
+    if wait_or_cancel(*backoff, cancel).await {
+        return true;
+    }
+    *backoff = (*backoff * 2).min(BACKOFF_MAX);
+    false
+}
+
 async fn live_loop(
     state: Arc<Mutex<Option<ConnectedState>>>,
     gate: Arc<Mutex<()>>,
@@ -327,10 +339,9 @@ async fn live_loop(
             Ok(http) => http,
             Err(error) => {
                 listener.on_error(error.message());
-                if wait_or_cancel(backoff, &mut cancel).await {
+                if wait_for_reconnect(&mut backoff, &mut cancel).await {
                     break;
                 }
-                backoff = (backoff * 2).min(BACKOFF_MAX);
                 continue;
             }
         };
@@ -346,10 +357,9 @@ async fn live_loop(
             }
             Err(error) => {
                 listener.on_error(format!("connect: {error}"));
-                if wait_or_cancel(backoff, &mut cancel).await {
+                if wait_for_reconnect(&mut backoff, &mut cancel).await {
                     break;
                 }
-                backoff = (backoff * 2).min(BACKOFF_MAX);
                 continue;
             }
         };
@@ -377,10 +387,9 @@ async fn live_loop(
         ) {
             break;
         }
-        if wait_or_cancel(backoff, &mut cancel).await {
+        if wait_for_reconnect(&mut backoff, &mut cancel).await {
             break;
         }
-        backoff = (backoff * 2).min(BACKOFF_MAX);
     }
     listener.on_stopped();
 }
