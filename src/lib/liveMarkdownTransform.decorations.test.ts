@@ -8,8 +8,9 @@
  */
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { Text } from '@codemirror/state';
+import { EditorState, Text } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
+import { ensureSyntaxTree } from '@codemirror/language';
 import { markdown } from '@codemirror/lang-markdown';
 import { liveMarkdownTransform, liveMarkdownRefresh } from './liveMarkdownTransform';
 
@@ -29,9 +30,18 @@ afterEach(() => {
 });
 
 function setup(doc: string): EditorView {
-  const view = new EditorView({
+  const state = EditorState.create({
     doc,
     extensions: [markdown(), liveMarkdownTransform],
+  });
+  const tree = ensureSyntaxTree(state, state.doc.length, 5000);
+  if (!tree || tree.length < state.doc.length) {
+    throw new Error(
+      `test setup did not finish parsing the document (${tree?.length ?? 0}/${state.doc.length})`,
+    );
+  }
+  const view = new EditorView({
+    state,
     parent: document.body,
   });
   views.push(view);
@@ -224,13 +234,18 @@ describe('liveMarkdownTransform decorations', () => {
         if (cur.value.spec.widget) widgets.push(cur.value.spec.widget);
         cur.next();
       }
-      const markers = widgets.filter((w) => {
-        const cls = w.toDOM(view).className ?? '';
-        return cls.includes('cm-md-bullet') || cls.includes('cm-md-number');
-      });
-      expect(markers.length).toBeGreaterThanOrEqual(5);
-      for (const w of markers) {
-        expect(w.ignoreEvent()).toBe(false);
+      const markers = widgets
+        .map((widget) => {
+          const cls = widget.toDOM(view).className ?? '';
+          return { widget, cls };
+        })
+        .filter(({ cls }) => {
+          return cls.includes('cm-md-bullet') || cls.includes('cm-md-number');
+        });
+      expect(markers.filter(({ cls }) => cls.includes('cm-md-bullet'))).toHaveLength(3);
+      expect(markers.filter(({ cls }) => cls.includes('cm-md-number'))).toHaveLength(2);
+      for (const { widget } of markers) {
+        expect(widget.ignoreEvent()).toBe(false);
       }
     });
   });

@@ -40,14 +40,14 @@ function makeCrashReport(error: string) {
 
 describe('flushCrashQueue', () => {
   beforeEach(() => {
-    localStorage.clear();
+    window.localStorage.clear();
     mockWriteAppData.mockReset();
     mockWriteAppData.mockResolvedValue(undefined);
     platformState.hasFileSystem = true;
   });
 
   afterEach(() => {
-    localStorage.clear();
+    window.localStorage.clear();
   });
 
   it('writes all queued reports and clears localStorage', async () => {
@@ -55,12 +55,12 @@ describe('flushCrashQueue', () => {
     const { flushCrashQueue } = await import('./crashHandler');
 
     const reports = [makeCrashReport('error1'), makeCrashReport('error2')];
-    localStorage.setItem(LS_QUEUE_KEY, JSON.stringify(reports));
+    window.localStorage.setItem(LS_QUEUE_KEY, JSON.stringify(reports));
 
     await flushCrashQueue();
 
     expect(mockWriteAppData).toHaveBeenCalledTimes(2);
-    expect(localStorage.getItem(LS_QUEUE_KEY)).toBeNull();
+    expect(window.localStorage.getItem(LS_QUEUE_KEY)).toBeNull();
   });
 
   it('preserves unwritten entries on partial write failure', async () => {
@@ -72,7 +72,7 @@ describe('flushCrashQueue', () => {
       makeCrashReport('error2'),
       makeCrashReport('error3'),
     ];
-    localStorage.setItem(LS_QUEUE_KEY, JSON.stringify(reports));
+    window.localStorage.setItem(LS_QUEUE_KEY, JSON.stringify(reports));
 
     // First call succeeds, second fails, third succeeds
     mockWriteAppData
@@ -83,7 +83,7 @@ describe('flushCrashQueue', () => {
     await flushCrashQueue();
 
     // The failed report should remain in localStorage
-    const remaining = JSON.parse(localStorage.getItem(LS_QUEUE_KEY)!);
+    const remaining = JSON.parse(window.localStorage.getItem(LS_QUEUE_KEY)!);
     expect(remaining).toHaveLength(1);
     expect(remaining[0].error).toBe('error2');
   });
@@ -94,24 +94,24 @@ describe('flushCrashQueue', () => {
     const { flushCrashQueue } = await import('./crashHandler');
 
     const reports = [makeCrashReport('error1')];
-    localStorage.setItem(LS_QUEUE_KEY, JSON.stringify(reports));
+    window.localStorage.setItem(LS_QUEUE_KEY, JSON.stringify(reports));
 
     await flushCrashQueue();
 
-    expect(localStorage.getItem(LS_QUEUE_KEY)).toBeNull();
+    expect(window.localStorage.getItem(LS_QUEUE_KEY)).toBeNull();
   });
 });
 
 describe('installGlobalHandlers', () => {
   beforeEach(() => {
-    localStorage.clear();
+    window.localStorage.clear();
     mockWriteAppData.mockReset();
     mockWriteAppData.mockResolvedValue(undefined);
     platformState.hasFileSystem = true;
   });
 
   afterEach(() => {
-    localStorage.clear();
+    window.localStorage.clear();
     window.onerror = null;
     window.onunhandledrejection = null;
   });
@@ -125,7 +125,7 @@ describe('installGlobalHandlers', () => {
     window.onerror!('Test error', 'test.js', 1, 1, new Error('Test error'));
 
     // Should queue to localStorage
-    const queued = JSON.parse(localStorage.getItem(LS_QUEUE_KEY)!);
+    const queued = JSON.parse(window.localStorage.getItem(LS_QUEUE_KEY)!);
     expect(queued).toHaveLength(1);
     expect(queued[0].error).toBe('Test error');
 
@@ -145,7 +145,7 @@ describe('installGlobalHandlers', () => {
     window.onunhandledrejection!(event);
 
     // Should queue to localStorage
-    const queued = JSON.parse(localStorage.getItem(LS_QUEUE_KEY)!);
+    const queued = JSON.parse(window.localStorage.getItem(LS_QUEUE_KEY)!);
     expect(queued).toHaveLength(1);
     expect(queued[0].error).toBe('Promise failed');
 
@@ -162,7 +162,7 @@ describe('installGlobalHandlers', () => {
     window.onerror!('Crash', 'test.js', 1, 1, new Error('Crash'));
 
     // localStorage should still have the report
-    const queued = JSON.parse(localStorage.getItem(LS_QUEUE_KEY)!);
+    const queued = JSON.parse(window.localStorage.getItem(LS_QUEUE_KEY)!);
     expect(queued).toHaveLength(1);
     expect(queued[0].error).toBe('Crash');
   });
