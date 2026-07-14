@@ -382,9 +382,10 @@ test:
     - pnpm run lint:platform
     - pnpm run format:check
     - pnpm exec tsx tests/conformance/generate.mjs --check
-    # Permanent anti-duplication gates. Keep these in the first mandatory MR
-    # job so expensive suites do not start when an architecture check fails.
-    - pnpm run check:arch-gate
+    # Keep portable anti-duplication gates in the first mandatory MR job so
+    # expensive suites do not start when they fail. The Rust workspace job
+    # owns the Tauri-backed generated sync-contract check and its system deps.
+    - pnpm run check:arch-gate:portable
     - pnpm run test:full
     - pnpm run build
   rules:
