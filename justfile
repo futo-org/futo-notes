@@ -409,8 +409,8 @@ check-command-reachability:
 check-platform-discipline:
   node scripts/check-platform-discipline.mjs
 
-# Regenerate the Android bridge-coverage spec (BridgeSpec.kt) from the
-# @futo-notes/editor futoBridge contract (packages/editor/src/bridge.ts).
+# Regenerate the native bridge-coverage specs from the @futo-notes/editor
+# futoBridge contract (packages/editor/src/bridge.ts).
 bridge-spec:
   pnpm exec tsx scripts/gen-bridge-spec.ts --write
 

@@ -65,7 +65,7 @@ function renderSwiftFile(): string {
     `    static let version = ${BRIDGE_VERSION}`,
     '}',
     '',
-    'enum BridgeMessageType: String, CaseIterable {',
+    'enum BridgeMessageType: String {',
     cases,
     '}',
     '',

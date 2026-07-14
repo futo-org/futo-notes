@@ -7,7 +7,7 @@ enum BridgeSpec {
     static let version = 6
 }
 
-enum BridgeMessageType: String, CaseIterable {
+enum BridgeMessageType: String {
     case ready
     case change
     case focus

@@ -233,10 +233,10 @@ export type FutoEditorOutboundMessage =
 
 /**
  * Every `type` value {@link FutoEditorOutboundMessage} can carry. Consumed by
- * `scripts/gen-bridge-spec.ts` to generate the native coverage spec (Android:
- * `BridgeSpec.kt`, source of truth for the JUnit test asserting
- * `EditorWebView.kt` handles — or explicitly exempts — every type; iOS via
- * PKT-10). Also used below as a compile-time exhaustiveness check: if a
+ * `scripts/gen-bridge-spec.ts` to generate the native coverage specs. Android's
+ * JUnit test asserts `EditorWebView.kt` handles — or explicitly exempts — every
+ * type; Swift switches exhaustively over its generated enum. Also used below
+ * as a compile-time exhaustiveness check: if a
  * message type is added to (or removed from) the union without updating this
  * array, `_OutboundMessageTypesCoverExactly` fails to compile.
  */
