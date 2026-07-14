@@ -18,6 +18,16 @@ const notesReadyPromise = new Promise<void>((resolve) => {
 });
 let searchReady: Promise<void> | null = null;
 
+/** Upper bound on how long a search waits for the index to become ready before
+ * degrading to whatever the store returns (empty until ready). Prevents a
+ * never-ready engine from hanging every search forever (A4). */
+let searchReadyTimeoutMs = 4000;
+
+/** Test seam: shorten the bounded search-readiness wait. */
+export function _setSearchReadyTimeoutForTest(ms: number): void {
+  searchReadyTimeoutMs = ms;
+}
+
 const sortedNotes = $derived.by(() =>
   [...notesCache].sort(
     (left, right) =>
@@ -93,10 +103,20 @@ export async function initNotes(onStep?: (label: string) => void): Promise<void>
 async function waitUntilSearchReady(
   store: Awaited<ReturnType<typeof getLocalNoteStore>>,
 ): Promise<void> {
-  for (;;) {
-    if ((await store.searchStatus()).keyword.ready) return;
+  const deadline = Date.now() + searchReadyTimeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      if ((await store.searchStatus()).keyword.ready) return;
+    } catch (err) {
+      // A transient status-probe rejection must NOT poison this shared promise
+      // (every search awaits it) — log and keep polling until the deadline.
+      console.warn('[local-notes] search status probe failed:', err);
+    }
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
+  // Deadline hit without readiness: degrade. store.search returns empty until
+  // the index opens (it self-heals via the retry cooldown), so a never-ready
+  // engine can never hang search.
 }
 
 /** Test/embed seam: no disk or search side effects. */
@@ -220,7 +240,9 @@ export async function search(query: string): Promise<SearchResultItem[]> {
   if (!query.trim()) {
     return getAllNotes().map((note) => ({ note, snippet: null }));
   }
-  if (searchReady) await searchReady;
+  // Never let a rejected readiness promise throw out of search — degrade to the
+  // store query, which returns empty gracefully when the index isn't ready (A4).
+  if (searchReady) await searchReady.catch(() => {});
   const hits = await currentLocalNoteStore().search(query);
   const byId = new Map(notesCache.map((note) => [note.id, note]));
   return hits.flatMap((hit) => {

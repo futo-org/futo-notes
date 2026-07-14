@@ -120,3 +120,58 @@ describe('TypeScript local-note projection', () => {
     expect(storeSearch).toHaveBeenCalledWith('needle');
   });
 });
+
+// A4: the shared search-readiness promise must be bounded (never-ready index
+// can't hang search) and un-poisonable (a transient status-probe rejection
+// doesn't permanently reject it). Fresh module per test for clean init state.
+describe('search readiness (A4)', () => {
+  async function freshModules() {
+    vi.resetModules();
+    const notes = await import('./notes.svelte');
+    const ln = await import('./localNoteStore');
+    return { notes, ln };
+  }
+
+  function bootstrapResult(notes: LocalNoteMetadata[] = []) {
+    return { snapshot: { notes, folders: [] }, seeded: 0, migrated: 0, warnings: [] };
+  }
+
+  it('degrades promptly instead of hanging when the index never becomes ready', async () => {
+    const { notes, ln } = await freshModules();
+    notes._setSearchReadyTimeoutForTest(60);
+    ln._setLocalNoteStoreForTest(
+      fakeStore({
+        bootstrap: vi.fn(async () => bootstrapResult()),
+        searchStatus: vi.fn(async () => ({ keyword: { ready: false } })),
+        search: vi.fn(async () => []),
+      }),
+    );
+    await notes.initNotes();
+
+    const started = Date.now();
+    await expect(notes.search('needle')).resolves.toEqual([]);
+    expect(Date.now() - started).toBeLessThan(2000);
+  });
+
+  it('survives a transient searchStatus rejection without poisoning search', async () => {
+    const { notes, ln } = await freshModules();
+    notes._setSearchReadyTimeoutForTest(2000);
+    let probes = 0;
+    ln._setLocalNoteStoreForTest(
+      fakeStore({
+        bootstrap: vi.fn(async () => bootstrapResult([metadata('X', 'body')])),
+        searchStatus: vi.fn(async () => {
+          probes += 1;
+          if (probes === 1) throw new Error('transient probe failure');
+          return { keyword: { ready: true } };
+        }),
+        search: vi.fn(async () => [{ noteId: 'X', score: 1, source: 'keyword' }]),
+      }),
+    );
+    await notes.initNotes();
+
+    const results = await notes.search('q');
+    expect(results.map((item) => item.note.id)).toEqual(['X']);
+    expect(probes).toBeGreaterThanOrEqual(2);
+  });
+});
