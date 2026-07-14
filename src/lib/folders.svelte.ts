@@ -10,7 +10,8 @@
  */
 
 import type { NotePreview } from '../types';
-import { getFS, isTauri } from './platform';
+import { isTauri } from './platform';
+import { getLocalNoteStore, type LocalNoteRename } from './localNoteStore';
 import {
   hasCaseInsensitiveSiblingCollision,
   isValidFolderName,
@@ -192,33 +193,24 @@ export function getEmptyFolders(): ReadonlySet<string> {
   return emptyFolders;
 }
 
-export async function refreshEmptyFolders(notes: NotePreview[]): Promise<void> {
-  // Folders that actually contain notes (anywhere in the descendant tree)
-  // are NOT empty; everything else listed on disk is.
-  const fs = getFS();
-  let entries: { path: string }[];
-  try {
-    if (fs.listFolders) {
-      entries = await fs.listFolders();
-    } else {
-      entries = [];
-    }
-  } catch {
-    entries = [];
-  }
-  const allDirs = new Set(entries.map((e) => e.path));
+export function setFolderSnapshot(allFolders: string[], notes: NotePreview[]): void {
   const populated = new Set<string>();
   for (const note of notes) {
     const components = note.id.split('/');
-    for (let i = 1; i < components.length; i++) {
-      populated.add(components.slice(0, i).join('/'));
+    for (let depth = 1; depth < components.length; depth++) {
+      populated.add(components.slice(0, depth).join('/'));
     }
   }
-  const empty = new Set<string>();
-  for (const dir of allDirs) {
-    if (!populated.has(dir)) empty.add(dir);
+  emptyFolders = new Set(allFolders.filter((folder) => !populated.has(folder)));
+}
+
+export async function refreshEmptyFolders(notes: NotePreview[]): Promise<void> {
+  try {
+    const snapshot = await (await getLocalNoteStore()).snapshot();
+    setFolderSnapshot(snapshot.folders, notes);
+  } catch {
+    // Keep the last coherent folder snapshot on a transient read failure.
   }
-  emptyFolders = empty;
 }
 
 // ── Tree model ───────────────────────────────────────────────────────
@@ -442,10 +434,8 @@ export async function createFolder(
   }
   const fullPath = parentPath ? `${parentPath}/${name}` : name;
   try {
-    const fs = getFS();
-    if (fs.createFolder) {
-      await fs.createFolder(fullPath);
-    }
+    await (await getLocalNoteStore()).createFolder(fullPath);
+    emptyFolders = new Set([...emptyFolders, fullPath]);
     openFolderAndAncestors(fullPath);
     return { ok: true, path: fullPath };
   } catch (err) {
@@ -482,11 +472,9 @@ export async function renameOrMoveFolder(
     return { ok: false, error: `A folder named "${newName}" already exists at this level` };
   }
   try {
-    const fs = getFS();
-    // Move the folder (and contained notes) on disk.
-    if (fs.renameFolder) {
-      await fs.renameFolder(fromPath, toPath);
-    }
+    const mutation = await (await getLocalNoteStore()).renameFolder(fromPath, toPath);
+    const { _applyLocalMutation } = await import('./notes.svelte');
+    _applyLocalMutation(mutation);
     // Update folder-state structures for the moved subtree, not just
     // the top-level folder. Without this, moving an open nested tree to
     // `work/archive` leaves stale `archive/...` open-state behind and
@@ -501,12 +489,13 @@ export async function renameOrMoveFolder(
   }
 }
 
-export async function deleteFolder(path: string): Promise<{ ok: boolean; error?: string }> {
+export async function deleteFolder(
+  path: string,
+): Promise<{ ok: boolean; error?: string; renames?: LocalNoteRename[] }> {
   try {
-    const fs = getFS();
-    if (fs.deleteFolder) {
-      await fs.deleteFolder(path);
-    }
+    const mutation = await (await getLocalNoteStore()).deleteFolder(path);
+    const { _applyLocalMutation } = await import('./notes.svelte');
+    _applyLocalMutation(mutation);
     const nextOpen = new Set(
       [...openFolders].filter((p) => p !== path && !p.startsWith(`${path}/`)),
     );
@@ -520,7 +509,7 @@ export async function deleteFolder(path: string): Promise<{ ok: boolean; error?:
     if (nextEmpty.size !== emptyFolders.size) {
       emptyFolders = nextEmpty;
     }
-    return { ok: true };
+    return { ok: true, renames: mutation.renamed };
   } catch (err) {
     return { ok: false, error: (err as Error).message ?? 'Failed to delete folder' };
   }

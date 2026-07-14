@@ -4,7 +4,6 @@
     "src/components/NotesShell.svelte",
     "src/components/SettingsScreen.svelte",
     "src/components/TitleBar.svelte",
-    "src/features/search/searchEngine.ts",
     "src/lib/autoSyncV2.ts",
     "src/lib/confirm.ts",
     "src/lib/imagePaste.ts",

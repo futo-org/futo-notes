@@ -4,7 +4,7 @@
   import CrashReportDialog from './components/CrashReportDialog.svelte';
   import UpdateBanner from './components/UpdateBanner.svelte';
   import { updateChecker } from '$lib/updateChecker.svelte';
-  import { hasFileSystem, getFS, getPlatformFS, isDesktop, isLinux, isMac } from '$lib/platform';
+  import { hasFileSystem, getPlatformFS, isDesktop, isLinux, isMac } from '$lib/platform';
   import { installExternalFileDropGuard } from '$lib/externalFileDropGuard';
   import { tabsStore } from '$lib/tabsStore.svelte';
   import { noteIdFromHash } from './router';
@@ -61,6 +61,7 @@
   } from '$lib/crashReporter';
   import { installTestSync } from '$lib/testSync';
   import { initSyncPassword } from '$lib/syncServiceE2ee';
+  import { getLocalNoteStore } from '$lib/localNoteStore';
 
   // Synchronous listener install — keeps OS file drops from navigating the
   // webview away from the app (required on Windows and macOS where
@@ -179,37 +180,53 @@
         initNotes((label) => {
           initStep = label;
         })
-          .then(() => {
+          .then(async () => {
             if (import.meta.env.DEV || import.meta.env.VITE_INCLUDE_TEST_HOOKS === 'true') {
-              const fs = getFS();
+              const notes = await getLocalNoteStore();
               (window as any).__testNotes = {
                 createNote,
                 getAllNotes,
                 _injectTestNote,
-                listNoteFiles: () => fs.listNoteFiles(),
-                readNote: (id: string) => fs.readNote(id),
-                writeNote: (id: string, content: string, modifiedAtMs?: number) =>
-                  fs.writeNote(id, content, modifiedAtMs),
-                deleteNoteFile: (id: string) => fs.deleteNoteFile(id),
+                listNoteFiles: async () =>
+                  (await notes.inventory()).map((file) => ({
+                    name: file.name,
+                    mtime: file.mtimeMs,
+                    size: file.sizeBytes,
+                  })),
+                readNote: (id: string) => notes.read(id),
+                writeNote: async (id: string, content: string, modifiedAtMs?: number) => {
+                  const mutation = await notes.save(
+                    (await notes.exists(id)) ? id : null,
+                    id,
+                    content,
+                    modifiedAtMs,
+                  );
+                  return mutation.upserted.find((note) => note.id === id)?.modifiedMs ?? Date.now();
+                },
+                deleteNoteFile: (id: string) => notes.delete(id),
                 // App-level delete: prunes notesCache synchronously like a real
                 // user delete. deleteNoteFile above stays raw-FS for scenarios
                 // that simulate external deletions.
                 deleteNote: (id: string) => deleteNoteApp(id),
-                deleteAllContent: () => fs.deleteAllContent(),
-                noteExists: (id: string) => fs.noteExists(id),
+                deleteAllContent: () => notes.reset(),
+                noteExists: (id: string) => notes.exists(id),
                 // Folder ops — exposed for cross-platform sync tests covering
                 // the conflict-resolution table in the folder-support spec.
-                listFolders: () => fs.listFolders?.(),
-                createFolder: (path: string) => fs.createFolder?.(path),
-                renameFolder: (from: string, to: string) => fs.renameFolder?.(from, to),
-                deleteFolder: (path: string) => fs.deleteFolder?.(path),
-                moveNote: (fromId: string, toId: string) => fs.renameNote(fromId, toId),
+                listFolders: async () => (await notes.snapshot()).folders.map((path) => ({ path })),
+                createFolder: (path: string) => notes.createFolder(path),
+                renameFolder: (from: string, to: string) => notes.renameFolder(from, to),
+                deleteFolder: (path: string) => notes.deleteFolder(path),
+                moveNote: (fromId: string, toId: string) => notes.move(fromId, toId),
                 // High-level move that suffixes the incoming file when the
                 // destination already exists (Spec § 4 sync conflict row).
                 moveNoteWithCollisions: (fromId: string, toId: string) =>
                   moveNoteWithCollisionHandling(fromId, toId),
               };
               installTestSync();
+              (window as any).__testSearch = {
+                search: (query: string) => notes.search(query),
+                isPopulated: async () => (await notes.searchStatus()).keyword.ready,
+              };
             }
           })
           .catch((e) => {
@@ -246,9 +263,7 @@
     // Set app version from platform
     try {
       if (hasFileSystem) {
-        // Must await getPlatformFS() — getFS() throws if the dynamic
-        // import hasn't resolved yet, and this IIFE races the one in
-        // init() that kicked off the FS load.
+        // This IIFE races the background platform-storage import above.
         const fs = await getPlatformFS();
         const version = await fs.getAppVersion();
         setAppVersion(version);

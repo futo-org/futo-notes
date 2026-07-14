@@ -1,17 +1,6 @@
-import { describe, it, expect, beforeEach, afterAll, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 
-vi.mock('$lib/platform');
-
-import { testFS } from '$lib/platform';
-import { makePreview, convertTxtToMd } from './notesIndex';
-
-beforeEach(() => {
-  testFS._reset();
-});
-
-afterAll(() => {
-  testFS._cleanup();
-});
+import { makePreview } from './notesIndex';
 
 // ── makePreview ───────────────────────────────────────────────────────
 
@@ -86,74 +75,5 @@ describe('makePreview', () => {
 
   it('returns empty string for whitespace-only content', () => {
     expect(makePreview('   \n\t  ')).toBe('');
-  });
-});
-
-// ── convertTxtToMd ───────────────────────────────────────────────────
-
-describe('convertTxtToMd', () => {
-  it('renames .txt to .md when no collision', async () => {
-    // Write a .txt file using writeAppData (which doesn't add .md extension)
-    await testFS.writeAppData('my-note.txt', 'text content');
-
-    await convertTxtToMd(testFS);
-
-    // Should now have .md file
-    const files = await testFS.listAppData('.');
-    expect(files).toContain('my-note.md');
-    expect(files).not.toContain('my-note.txt');
-
-    // Content should be preserved
-    const content = await testFS.readAppData('my-note.md');
-    expect(content).toBe('text content');
-  });
-
-  it('handles collision: x.txt + x.md -> x (imported).md', async () => {
-    await testFS.writeAppData('notes.txt', 'txt content');
-    await testFS.writeNote('notes', 'md content'); // creates notes.md
-
-    await convertTxtToMd(testFS);
-
-    const files = await testFS.listAppData('.');
-    expect(files).not.toContain('notes.txt');
-    expect(files).toContain('notes.md');
-    expect(files).toContain('notes (imported).md');
-
-    // Original .md should be untouched
-    const mdContent = await testFS.readNote('notes');
-    expect(mdContent).toBe('md content');
-
-    // Imported file should have the txt content
-    const importedContent = await testFS.readAppData('notes (imported).md');
-    expect(importedContent).toBe('txt content');
-  });
-
-  it('is a no-op when there are no .txt files', async () => {
-    await testFS.writeNote('existing', 'content');
-
-    await convertTxtToMd(testFS);
-
-    const files = await testFS.listAppData('.');
-    expect(files).toContain('existing.md');
-    // After the migration runs once we also write a sentinel file so the
-    // next session can short-circuit without another full-dir scan.
-    expect(files).toContain('.txt-migration-done');
-  });
-
-  it('writes a sentinel that short-circuits subsequent calls', async () => {
-    // First run: writes the sentinel
-    await convertTxtToMd(testFS);
-    const afterFirst = await testFS.listAppData('.');
-    expect(afterFirst).toContain('.txt-migration-done');
-
-    // Second run should see the sentinel and skip the dir scan entirely.
-    // We verify by planting a .txt file *after* the sentinel is written —
-    // if the second call still scans, it would migrate this file; the
-    // sentinel guard must keep it untouched.
-    await testFS.writeAppData('late.txt', 'late content');
-    await convertTxtToMd(testFS);
-    const afterSecond = await testFS.listAppData('.');
-    expect(afterSecond).toContain('late.txt');
-    expect(afterSecond).not.toContain('late.md');
   });
 });

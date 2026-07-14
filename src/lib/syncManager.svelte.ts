@@ -16,7 +16,7 @@ import type { NoteSession } from '$lib/noteSession.svelte';
 import type { SyncSummary } from '$lib/syncServiceE2ee';
 import { createWatcherBatch } from '$lib/watcherBatch';
 import { writeSuppressor } from '$lib/writeSuppression';
-import { engineNotify } from '$features/search/searchEngine';
+import { getLocalNoteStore } from '$lib/localNoteStore';
 
 export { getSyncErrorMessage } from '$lib/syncErrorMessage';
 
@@ -232,15 +232,16 @@ export function createSyncManager(deps: SyncManagerDeps): SyncManager {
       writeSuppressor.recordSyncWrite(`${rename.fromId}.md`);
       writeSuppressor.recordSyncWrite(`${rename.toId}.md`);
       writeSuppressor.recordRemoteRename(rename.fromId, rename.toId);
-      void engineNotify('rename', `${rename.toId}.md`, `${rename.fromId}.md`);
     }
-    for (const id of summary.peerUpdatedIds) void engineNotify('change', `${id}.md`);
-    for (const id of summary.peerDeletedIds) void engineNotify('unlink', `${id}.md`);
     if (
       summary.peerUpdatedIds.length > 0 ||
       summary.peerDeletedIds.length > 0 ||
       summary.renamed.length > 0
     ) {
+      // Sync writes bypass the local-note store's mutation methods. Reconcile
+      // the Rust-owned index once for the peer-driven batch; pure push echoes
+      // need no work because local mutations already updated the index.
+      void getLocalNoteStore().then((store) => store.rescan());
       window.setTimeout(() => void runRescan(), 50);
     }
   }

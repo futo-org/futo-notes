@@ -297,9 +297,7 @@ fun NoteListScreen(
                 moveTarget = null
                 scope.launch {
                     if (isNew) store.createFolder(folder)
-                    val newId = store.moveNote(id, folder)
-                    // Repoint wikilinks at the moved note [editor.md:88].
-                    if (newId != id) store.relink(id, newId)
+                    store.moveNote(id, folder)
                     Toast.makeText(context, "Moved to ${folder.ifEmpty { "Root" }}", Toast.LENGTH_SHORT).show()
                 }
             },

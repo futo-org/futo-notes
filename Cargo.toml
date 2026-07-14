@@ -4,6 +4,7 @@ members = [
   "crates/futo-notes-core",
   "crates/futo-notes-sync",
   "crates/futo-notes-model",
+  "crates/futo-notes-store",
   "crates/futo-notes-ffi",
   "crates/futo-notes-search",
   "apps/tauri/src-tauri",

@@ -204,50 +204,22 @@
       return;
     }
     if (!confirmed) return;
-    // Folder deletion is non-destructive: remove the path segment and
-    // keep notes by moving them up to the deleted folder's parent. This
-    // turns the sync operation into note moves instead of cascading
-    // tombstones across every connected device.
-    const parent = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
     const prefix = `${path}/`;
-    const noteIds = getAllNotes()
-      .filter((n) => n.id.startsWith(prefix))
-      .map((n) => n.id);
-    const moved = new Map<string, string>();
-    const failedIds: string[] = [];
-    for (const id of noteIds) {
-      const tail = id.slice(prefix.length);
-      const target = parent ? `${parent}/${tail}` : tail;
-      try {
-        const result = await moveNote(id, target);
-        moved.set(id, result.id);
-      } catch {
-        failedIds.push(id);
-      }
-    }
-    // CRITICAL: never call deleteFolder() while notes inside it still
-    // failed to move out. On mobile notes_delete_folder is a hard
-    // remove_dir_all; on desktop it routes to the system trash. Either
-    // way the orphan notes go with it — silent data loss. Bail and
-    // surface the partial move to the user.
-    if (failedIds.length > 0) {
-      await refreshEmptyFolders(getAllNotes());
-      showToast(
-        `Folder NOT deleted — ${failedIds.length} note${failedIds.length > 1 ? 's' : ''} could not move`,
-      );
-      return;
-    }
+    // The shared store plans every collision, registers watcher suppression,
+    // moves all notes with rollback on failure, rewrites backlinks, and only
+    // then removes the remaining tree.
     const folderResult = await deleteFolder(path);
     if (!folderResult.ok) {
       showToast(folderResult.error ?? 'Failed to delete folder');
       return;
     }
     await refreshEmptyFolders(getAllNotes());
+    const moved = new Map(folderResult.renames?.map((rename) => [rename.from, rename.to]) ?? []);
     const activeId = appCtx.activeNoteId;
     if (activeId && activeId !== 'new' && activeId.startsWith(prefix)) {
       onselect(moved.get(activeId) ?? '__home__');
     }
-    const movedCount = moved.size;
+    const movedCount = folderResult.renames?.length ?? 0;
     if (movedCount > 0) {
       showToast(`Folder deleted; moved ${movedCount} note${movedCount > 1 ? 's' : ''}`);
     } else {

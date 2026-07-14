@@ -20,8 +20,8 @@ flag gaps the codebase suggests have been implemented.
 
 - [list.md:37](list.md#L37) — *(Android)* A **sync live pull** that creates or re-ranks a note while the list is composed at the top still relies on LazyListState key anchoring, so the remotely-changed row can land above the viewport until the user drags. Same anchoring class as the local-edit invisibility bug fixed 2026-07-02 (local create/edit now re-pin via `requestScrollToItem` on the FAB path and a pop-time resort in `AppShell.pop()`); the `reloadAsync` sync-pull path has no at-top re-pin yet. → NotesStore.kt `reloadAsync`, MainActivity.kt `AppShell.pop`
 - [list.md:67](list.md#L67) — Tauri desktop sidebar note rows show the **title only** — no body preview at all. The single-line, markdown-opaque `make_preview` snippet appears on the For-You feed cards (`ForYouPage.svelte`), not in the sidebar rows. The rich multi-line preview is native-only (iOS + Android) for now.
-- [list.md:251](list.md#L251) — the native shells expose no folder-rename affordance yet — the folder long-press menu offers Delete only (iOS `NoteListView.swift`, Android `NoteListScreen.kt`), and the shared `NoteStore` FFI facade has no rename-folder primitive. *(native shells)*
-- [list.md:259](list.md#L259) — the native shells can move a *note* into a folder ("Move to Folder…") but expose no folder-move affordance — moving a folder itself belongs in the folder long-press menu alongside Rename and Delete, and the shared `NoteStore` FFI facade has no move-folder primitive. *(native shells)*
+- [list.md:246](list.md#L246) — the native shells expose no folder-rename affordance yet — the folder long-press menu offers Delete only (iOS `NoteListView.swift`, Android `NoteListScreen.kt`). The shared `NoteStore.renameFolder` contract exists; only the native UI affordance remains. *(native shells)*
+- [list.md:254](list.md#L254) — the native shells can move a *note* into a folder ("Move to Folder…") but expose no folder-move affordance — moving a folder itself belongs in the folder long-press menu alongside Rename and Delete, and the shared `NoteStore` FFI facade has no move-folder primitive. *(native shells)*
 
 ## nav.md
 

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { listImageFiles, deleteImage, type ImageFileEntry } from '$lib/images';
-  import { getImageWebPath } from '$lib/fileSystem';
+  import { getImageWebPath } from '$lib/localImages';
   import { formatRelativeTime } from '$lib/utils';
 
   let images: ImageFileEntry[] = $state([]);

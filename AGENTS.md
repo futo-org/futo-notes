@@ -58,18 +58,20 @@ read the one for the layer you're editing.
 ```
 src/                    ← Shared Svelte 5 app (UI, reactive state, sync coordination)
   lib/rules.ts          ← Hot-path shim re-exporting the note rules from @futo-notes/editor
-  lib/platform/         ← PlatformFS abstraction (tauri.ts / web.ts), pathSafety, tauriPaths
+  lib/localNoteStore.ts ← Note/folder/search adapter; Rust in production, memory in browser tests
+  lib/platform/         ← Non-note shell storage/images/capabilities, pathSafety, tauriPaths
   editor-embed/         ← Entry for the single-file editor.html embedded in the native shells
 crates/
   futo-notes-core/      ← Hashing, E2EE crypto, sync payload prep/apply, 3-way merge,
                           path safety + title primitives (files.rs)
-  futo-notes-model/     ← THE NOTE DOMAIN: CRUD, rules (id/tags/wikilinks/preview), scan
-  futo-notes-sync/      ← E2EE SyncSession (push-first cycles), SSE live loop
+  futo-notes-model/     ← Pure note decisions (id/tags/wikilinks/preview), no filesystem state
+  futo-notes-store/     ← THE LOCAL NOTE ENGINE: vault, migrations, workflows, owned search
+  futo-notes-sync/      ← E2EE sync orchestrator (push-first run_sync), SSE live loop
   futo-notes-search/    ← Tantivy BM25 engine + background indexer
-  futo-notes-ffi/       ← Single UniFFI facade for native shells (NoteStore, SearchEngine,
-                          SyncClient, rule functions). Generated bindings are gitignored.
+  futo-notes-ffi/       ← UniFFI projection (NoteStore owns search, plus SyncClient/rules).
+                          Generated bindings are gitignored.
 apps/
-  tauri/                ← Tauri v2 DESKTOP shell (notes_* / search_* / e2ee_* / fs_* commands)
+  tauri/                ← Tauri v2 desktop shell (local_notes_* / e2ee_* / OS glue)
   ios/                  ← Native SwiftUI app (xcodegen; Sources/Generated is generated)
   android/              ← Native Compose app (UniFFI Kotlin bindings + jniLibs are generated)
 packages/
@@ -127,12 +129,12 @@ file (auth headers, try/parse/catch, validation), check whether a shared helper 
 - Inside `$effect`, read callbacks/objects like `scrollParent`/`onchange` **lazily inside inner
   callbacks**, not in the effect body — otherwise they become dependencies and destroy/recreate
   the editor.
-- Note/file I/O goes through `getFS()`/`getPlatformFS()` (the `PlatformFS` interface) — never raw
-  `invoke()` or `@tauri-apps/plugin-fs` in components. Sync and search have their own dedicated
-  shims (`syncServiceE2ee.ts`, `searchEngine.ts`); add new commands to the matching shim.
-- Optimistic cache mutations must revert on failure before rethrowing (see
-  `notes.svelte.ts:moveNote`). Shims backing a fallback return `null` rather than throw
-  (`searchEngine.ts`). User-facing sync errors funnel through `getSyncErrorMessage()`.
+- Note/folder/search work goes through `getLocalNoteStore()`; `PlatformFS` is only for shell
+  storage, images, and capabilities. Components never invoke note commands or plugin-fs directly.
+  Sync keeps its dedicated `syncServiceE2ee.ts` shim.
+- The note cache is a projection, not an optimistic owner. Apply only the complete
+  `LocalNoteMutation` returned after Rust commits a workflow; it includes collision outcomes and
+  backlink rewrites. User-facing sync errors funnel through `getSyncErrorMessage()`.
 - Never hand-build note paths: `pathSafety.ts` (TS) / `futo_notes_core::files::safe_note_path`
   (Rust).
 - New persisted setting: add the field to `AppState` (`src/lib/appState.ts`), guard it in
@@ -144,11 +146,11 @@ file (auth headers, try/parse/catch, validation), check whether a shared helper 
   block in Tauri's webview.**
 
 ### Code — Rust
-- Every Tauri command: `pub async fn`, FS work in `tauri::async_runtime::spawn_blocking`,
-  `Result<T, String>`, errors mapped with `task_join_err`. Commands wrap a pure
-  `*_impl(base: &Path, ...)` that the `#[cfg(test)]` module tests directly.
-- Every note-tree mutation registers its filenames in the watcher-suppression map (5s window)
-  **before** writing, so the app doesn't react to its own writes (see `note_commands.rs` head comment).
+- Tauri local-note commands are projections over the one `LocalNoteStore` in `AppState`; do not
+  recreate filesystem/search workflow logic in an adapter.
+- `LocalNoteStore` serializes each note workflow and invokes its `BeforeWrite` hook for every
+  affected filename **before** the first filesystem syscall. Desktop maps that hook to typed
+  one-shot watcher suppression.
 - Tempdirs in tests are hand-rolled (`temp_dir().join(format!(...))` + `AtomicU32` counter + pid)
   — no `tempfile` crate. Env-var tests serialize on a `static Mutex`.
 - FFI errors are `#[derive(uniffi::Error, thiserror::Error)]` enums. The FFI builds use the dev
@@ -509,7 +511,7 @@ toolbar manifest → generated native specs.
   Android `NotesStore.kt`.
 - Image-extension set: `@futo-notes/shared/sync.ts`, `tauri.ts` MIME map, `image_commands.rs`
   `ALLOWED_IMAGE_EXTENSIONS`, picker filter.
-- Note sort order (`modified desc, id asc`): `notes.svelte.ts`, Rust `scan_notes`, iOS
+- Note sort order (`modified desc, id asc`): `notes.svelte.ts`, Rust store snapshots, iOS
   `resortInPlace`.
 - `SyncSummary`/`SyncFailure` shape: TS, sync engine, FFI facade.
 - `futoBridge` message handling: `bridge.ts` contract vs hand-written Swift + Kotlin hosts.

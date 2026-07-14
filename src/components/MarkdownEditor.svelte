@@ -20,7 +20,7 @@
     liveMarkdownRefresh,
     setSuppressSelectionReveal,
   } from '$lib/liveMarkdownTransform';
-  import { getImageWebPath } from '$lib/fileSystem';
+  import { getImageWebPath } from '$lib/localImages';
   import {
     buildSetContentTransaction,
     readDocContent,

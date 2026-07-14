@@ -10,7 +10,6 @@
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let SearchPopup: any = $state(null);
   import { getAllNotes, createNote, deleteNote, moveNote, whenNotesReady } from '$lib/notes.svelte';
-  import { engineNotify } from '$features/search/searchEngine';
   import { sanitizeFilename } from '$lib/utils';
   import type { SyncSummary } from '$lib/syncServiceE2ee';
   import { createNoteSession } from '$lib/noteSession.svelte';
@@ -473,10 +472,6 @@
         cleanupNativeListeners.push(
           onFileChange((event) => {
             sync.enqueueFileChange(event);
-            // Keep the Rust search index fresh on external/file changes. The
-            // notify is debounced + mtime-aware in the engine, so this is cheap
-            // on every change (unlike a full rebuild).
-            void engineNotify(event.type, event.filename, event.from);
           }),
         );
       });

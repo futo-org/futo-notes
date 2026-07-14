@@ -5,6 +5,9 @@ vi.mock('$lib/platform', () => ({ hasFileSystem: true }));
 vi.mock('$lib/autoSyncV2', () => ({ notifySavedV2: vi.fn() }));
 vi.mock('$lib/notes.svelte', () => ({
   updateNote: vi.fn(async (id: string) => ({ id, mtime: 0 })),
+  // Missing LocalNoteStore reads return "" on every shell; the default mirrors
+  // that contract. Tests that need specific bytes queue them with
+  // mockResolvedValueOnce.
   readNote: vi.fn(async () => ''),
   getNoteById: vi.fn(() => undefined),
 }));

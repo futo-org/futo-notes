@@ -12,7 +12,10 @@ vi.mock('./autoSyncV2', () => ({
 vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn(async () => () => {}) }));
 vi.mock('$lib/platform', () => ({ hasFileSystem: true, isTauri: false }));
 vi.mock('./appState', () => ({ updateAppState: vi.fn(async () => {}) }));
-vi.mock('$features/search/searchEngine', () => ({ engineNotify: vi.fn(async () => {}) }));
+const rescanLocalNotes = vi.hoisted(() => vi.fn(async () => {}));
+vi.mock('./localNoteStore', () => ({
+  getLocalNoteStore: vi.fn(async () => ({ rescan: rescanLocalNotes })),
+}));
 vi.mock('./notes.svelte', () => ({
   readNote: vi.fn(async () => ''),
   noteExists: vi.fn(async () => false),
@@ -21,7 +24,6 @@ vi.mock('./notes.svelte', () => ({
   refreshNotesFromStorage: vi.fn(async () => {}),
 }));
 
-import { engineNotify } from '$features/search/searchEngine';
 import { updateAppState } from './appState';
 import { noteExists, readNote, refreshNotesFromStorage } from './notes.svelte';
 import type { NoteSession } from './noteSession.svelte';
@@ -136,7 +138,7 @@ beforeEach(() => {
   vi.mocked(noteExists).mockReset();
   vi.mocked(noteExists).mockResolvedValue(false);
   vi.mocked(refreshNotesFromStorage).mockClear();
-  vi.mocked(engineNotify).mockClear();
+  rescanLocalNotes.mockClear();
   vi.mocked(updateAppState).mockClear();
   vi.useFakeTimers();
 });
@@ -255,7 +257,7 @@ describe('sync outcome state', () => {
 });
 
 describe('peer projections', () => {
-  it('reindexes only peer updates/deletes plus explicit renames', async () => {
+  it('reconciles the owned index once for a peer-driven batch', async () => {
     const { manager } = makeManager();
     await manager.handleSyncComplete({
       ...emptySummary,
@@ -265,10 +267,16 @@ describe('peer projections', () => {
       peerDeletedIds: ['Gone'],
       renamed: [{ fromId: 'Old', toId: 'New' }],
     });
-    expect(engineNotify).toHaveBeenCalledWith('change', 'Peer.md');
-    expect(engineNotify).toHaveBeenCalledWith('unlink', 'Gone.md');
-    expect(engineNotify).toHaveBeenCalledWith('rename', 'New.md', 'Old.md');
-    expect(engineNotify).not.toHaveBeenCalledWith('change', 'Mine.md');
+    expect(rescanLocalNotes).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not reconcile the owned index for a pure push echo', async () => {
+    const { manager } = makeManager();
+    await manager.handleSyncComplete({
+      ...emptySummary,
+      updatedIds: ['Mine'],
+    });
+    expect(rescanLocalNotes).not.toHaveBeenCalled();
   });
 
   it('retargets an inferred rename before pruning the deleted id', async () => {

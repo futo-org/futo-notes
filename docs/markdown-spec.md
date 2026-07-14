@@ -293,7 +293,7 @@ Wikilinks are NOT part of the CM6 markdown syntax tree. They are processed separ
 
 **Click behavior**: Navigates to `/note/{encodeURIComponent(title)}`.
 
-**Autocomplete**: Typing `[[` synchronously filters the loaded note IDs, showing matching titles without a second full-text index.
+**Autocomplete**: Typing `[[` filters the already-loaded note universe, showing matching note titles without starting a second durable search index.
 
 **Cursor-reveal**: Revealed when cursor is on the same line as the wikilink.
 

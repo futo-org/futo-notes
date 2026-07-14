@@ -215,6 +215,9 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     const requestedId = folder ? `${folder}/${leaf}` : leaf;
 
     try {
+      // updateNote routes through the one local-note save workflow, including
+      // any rename and backlink edits. The store records every affected path,
+      // so no explicit suppression is needed here.
       const result = await updateNote(requestedId, newTitle, editorContent, fromId ?? undefined);
       originalId = result.id;
       deps.clearPendingFolder();
@@ -295,6 +298,11 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     }
 
     try {
+      // LocalNoteStore.read returns "" for a missing file on every shell, so a
+      // wikilink to a not-yet-created note opens an empty editor bound to the
+      // target title, and the file is created on the FIRST edit/save —
+      // deferred, not eager (2026-07-11 decision; docs/spec/editor.md). This
+      // catch therefore only fires on a genuine backend read failure.
       const diskContent = await readNote(id);
       if (version !== loadVersion) return;
       content = diskContent;

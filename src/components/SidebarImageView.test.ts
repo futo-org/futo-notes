@@ -11,7 +11,7 @@ vi.mock('$lib/images', () => ({
   ],
   deleteImage: async () => {},
 }));
-vi.mock('$lib/fileSystem', () => ({
+vi.mock('$lib/localImages', () => ({
   getImageWebPath: async () => 'blob:test-image',
 }));
 
