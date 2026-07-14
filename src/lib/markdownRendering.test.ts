@@ -15,11 +15,12 @@
  *
  * This test is fast (~100ms) and runs in jsdom, unlike the Playwright suite.
  */
-import { describe, expect, it, afterEach } from 'vitest';
+import { describe, expect, it, afterEach, beforeAll } from 'vitest';
 import { EditorView, drawSelection, keymap } from '@codemirror/view';
 import { EditorState } from '@codemirror/state';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { ensureSyntaxTree, Language } from '@codemirror/language';
+import { languages } from '@codemirror/language-data';
 import { liveMarkdownTransform } from './liveMarkdownTransform';
 import {
   createMarkdownLanguageSupport,
@@ -71,6 +72,14 @@ async function waitForSelector(container: ParentNode, selector: string): Promise
 describe('Markdown rendering (liveMarkdownTransform decorations)', () => {
   let view: EditorView;
   let container: HTMLDivElement;
+
+  beforeAll(async () => {
+    // Nested parsers normally load after EditorView construction. Load Ruby up
+    // front so this test observes parser output, not async reconfiguration timing.
+    const ruby = languages.find((language) => language.alias.includes('ruby'));
+    if (!ruby) throw new Error('CodeMirror language data does not include Ruby');
+    await ruby.load();
+  });
 
   afterEach(() => {
     view?.destroy();

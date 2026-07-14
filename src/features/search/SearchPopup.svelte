@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { SearchResultItem } from '../../types';
-  import { searchKeyword } from '$lib/notes.svelte';
+  import { search } from '$lib/notes.svelte';
   import { shouldPreventScrollChaining } from '$lib/touchScrollContain';
 
   interface Props {
@@ -21,13 +21,13 @@
 
   let keywordRequestId = 0;
 
-  // Debounced keyword search — instant local results via MiniSearch
+  // Debounced keyword search through the shared Rust engine.
   $effect(() => {
     const q = query;
     const requestId = ++keywordRequestId;
 
     if (!q.trim()) {
-      searchKeyword('')
+      search('')
         .then((r) => {
           // Empty query shows the 8 most-recent notes (search.md), not the
           // whole vault — search('') returns all notes most-recent-first.
@@ -40,7 +40,7 @@
     }
 
     const timer = setTimeout(() => {
-      searchKeyword(q)
+      search(q)
         .then((r) => {
           if (requestId === keywordRequestId && q === query) results = r;
         })
@@ -235,15 +235,7 @@
             {/if}
           </div>
           {#if result.snippet && result.snippet.length > 0}
-            <div class="search-result-preview">
-              {#each result.snippet as segment}
-                {#if segment.highlight}
-                  <mark class="search-highlight">{segment.text}</mark>
-                {:else}
-                  {segment.text}
-                {/if}
-              {/each}
-            </div>
+            <div class="search-result-preview">{result.snippet}</div>
           {:else if result.note.preview}
             <div class="search-result-preview">{result.note.preview}</div>
           {/if}
@@ -403,13 +395,6 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-
-  .search-highlight {
-    background: rgba(var(--primary-rgb), 0.15);
-    border-radius: 2px;
-    padding: 0 1px;
-    color: var(--color-primary-hover);
   }
 
   .search-empty {

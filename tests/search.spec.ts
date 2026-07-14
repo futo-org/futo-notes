@@ -106,7 +106,4 @@ test.describe('Search', () => {
     // Should navigate away from search (popup closes)
     await expect(page.locator('.search-overlay')).toHaveCount(0);
   });
-
-  // Snippet highlighting requires the Rust keyword search engine — skip in web/Playwright.
-  // test('search snippet shows matched term context with highlight', ...)
 });

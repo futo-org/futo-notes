@@ -5,7 +5,7 @@ import type { DirFileEntry, FolderEntry, PlatformFS, NoteFile, NotePreviewMeta }
 import { extractTags } from '$lib/rules';
 
 // Mirror futo-notes-model::{make_preview, note_tags} inline rather than
-// importing from $lib/notesIndex — that module pulls in searchIndex, which
+// importing from $lib/notesIndex — that module pulls in the app module graph, which
 // imports `./platform` and forms an init cycle under `vi.mock('$lib/platform')`.
 function makePreview(content: string): string {
   return content.slice(0, 100).replace(/\n/g, ' ');

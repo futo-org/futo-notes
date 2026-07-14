@@ -75,6 +75,22 @@ beforeAll(async () => {
 }, 120_000);
 
 describe('initNotes', () => {
+  it('does not load or persist the retired client-side search index', async () => {
+    const readSpy = vi.spyOn(testFS, 'readAppData');
+    const writeSpy = vi.spyOn(testFS, 'writeAppData');
+
+    try {
+      const { initNotes } = await freshNotes();
+      await initNotes();
+
+      expect(readSpy).not.toHaveBeenCalledWith('.search-index-v1.json');
+      expect(writeSpy).not.toHaveBeenCalledWith('.search-index-v1.json', expect.any(String));
+    } finally {
+      readSpy.mockRestore();
+      writeSpy.mockRestore();
+    }
+  });
+
   it('rebuilds cache from files on disk', async () => {
     await testFS.writeNote('hello-world', '# Hello World\nThis is content');
     await testFS.writeNote('second-note', '# Second\nMore content');
@@ -410,9 +426,7 @@ describe('search', () => {
     expect(results[0].note.id).toBe('banana-recipe');
   });
 
-  it('returns empty results when index is populated but query has no matches', async () => {
-    // createNote populates the search index via addToSearchIndex,
-    // so the index is populated after this call
+  it('returns empty results when a query has no matches', async () => {
     const { initNotes, createNote, search } = await freshNotes();
     await initNotes();
 
@@ -425,17 +439,13 @@ describe('search', () => {
   });
 
   it('finds existing notes by body content after startup (no creations yet)', async () => {
-    // Regression: before the search-index bootstrap fix, pre-existing notes
-    // were only in notesCache, not in the MiniSearch index. A new note
-    // would flip isSearchIndexPopulated() to true and all pre-existing
-    // notes became invisible to body-text search.
     await testFS.writeNote('pre-existing-a', 'content contains zebraword123');
     await testFS.writeNote('pre-existing-b', 'content contains whaleword456');
 
     const { initNotes, search, createNote } = await freshNotes();
     await initNotes();
 
-    // Create a brand-new note — this used to make pre-existing notes unsearchable.
+    // A new cache entry must not hide pre-existing metadata matches.
     await createNote('new-note', 'boring content');
 
     const results = await search('zebraword123');

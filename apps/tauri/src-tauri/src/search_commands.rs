@@ -11,7 +11,7 @@ use futo_notes_search::{SearchConfig, SearchEngine, SearchHit, SearchStatus};
 ///
 /// The engine is started lazily off the main thread so opening the Tantivy index
 /// never blocks app setup. Until it is installed, commands return empty
-/// results/status, which the frontend tolerates via its MiniSearch fallback.
+/// results/status, which the frontend tolerates via metadata-only warm-up results.
 #[derive(Default)]
 pub struct SearchState {
     engine: Arc<Mutex<Option<SearchEngine>>>,

@@ -13,21 +13,11 @@ import { pauseSyncV2, resumeSyncV2, waitForSyncIdleV2 } from './autoSyncV2';
 import { disconnectE2ee, stopLiveSync } from './syncServiceE2ee';
 import { makePreview, noteTags, convertTxtToMd } from './notesIndex';
 import {
-  searchNotes,
-  extractSnippet,
-  addToSearchIndex,
-  removeFromSearchIndex,
-  initSearchIndex,
-  loadPersistedIndex,
-  persistIndex,
-  getMtimeMap,
-  clearSearchIndex,
-} from '$features/search/searchIndex';
-import {
   engineQuery,
   engineNotify,
   engineStatus,
   engineRebuild,
+  isEngineAvailable,
 } from '$features/search/searchEngine';
 import { runPool } from './util/pool';
 import { rewriteWikilinks } from './wikilinks';
@@ -54,12 +44,6 @@ const notesReadyPromise: Promise<void> = new Promise((resolve) => {
 export function whenNotesReady(): Promise<void> {
   return notesReadyPromise;
 }
-
-// Tracks the in-flight (or completed) search-index bootstrap so search()
-// can wait for it without blocking initNotes() / UI rendering on it.
-// initNotes() returns as soon as notesCache is populated; the index is
-// built in the background. See AGENTS.md "Editor responsiveness is sacred".
-let searchIndexReady: Promise<void> | null = null;
 
 const sortedNotes = $derived.by(() =>
   [...notesCache].sort(
@@ -134,16 +118,6 @@ export async function initNotes(onStep?: (label: string) => void): Promise<void>
     console.warn('Empty-folder refresh failed:', err);
   });
 
-  // Build the search index in the background. Search awaits
-  // searchIndexReady, but the UI can render the note list immediately.
-  // Past hangs ("stuck on bootstrapSearchIndex") were not a fast-path
-  // bug to optimize away — they were UI gated on background I/O.
-  // `notes_scan` returns metadata only (no bodies), so the index reads
-  // bodies itself via notes_read; Phase 2 replaces this body entirely.
-  searchIndexReady = bootstrapSearchIndex().catch((err) => {
-    console.warn('Search index bootstrap failed:', err);
-  });
-
   onStep?.('initNotes: done');
   initialized = true;
   // Wake any consumers that await whenNotesReady() — typically the tab
@@ -153,92 +127,6 @@ export async function initNotes(onStep?: (label: string) => void): Promise<void>
   notesReadyResolve = null;
 }
 
-/** Test/diagnostic helper: resolve when the in-flight (or most recent)
- * bootstrap finishes. Always-defined so tests can `await` regardless
- * of whether bootstrap is still running. */
-export function whenSearchIndexReady(): Promise<void> {
-  return searchIndexReady ?? Promise.resolve();
-}
-
-/**
- * Ensure the search index reflects the current notesCache. Called at startup
- * and after any bulk filesystem change (external refresh, sync apply).
- *
- * Strategy: try to load the persisted index, then reconcile against the current
- * file mtimes — re-read bodies only for notes that are new or changed. If no
- * persisted index exists, build from scratch.
- */
-async function bootstrapSearchIndex(): Promise<void> {
-  const loaded = await loadPersistedIndex();
-
-  if (loaded) {
-    await reconcileSearchIndex();
-  } else {
-    initSearchIndex();
-    await buildSearchIndexFromScratch();
-  }
-
-  // Persist in the background — don't block startup on disk I/O.
-  void persistIndex();
-}
-
-/**
- * Build the search index from every note in `notesCache`, reading each
- * body from disk through a bounded pool.
- */
-async function buildSearchIndexFromScratch(): Promise<void> {
-  const fs = getFS();
-
-  await runPool(notesCache.slice(), RECONCILE_CONCURRENCY, async (note) => {
-    try {
-      const body = await fs.readNote(note.id);
-      addToSearchIndex({
-        id: note.id,
-        title: noteTitleFromId(note.id),
-        body,
-        mtime: note.modificationTime,
-      });
-    } catch {
-      // Skip unreadable files
-    }
-  });
-}
-
-/**
- * Reconcile the search index against the current notesCache: remove entries
- * for deleted notes, and re-read bodies for notes with new/changed mtimes.
- */
-async function reconcileSearchIndex(): Promise<void> {
-  const fs = getFS();
-  const mtimes = getMtimeMap();
-  const currentIds = new Set(notesCache.map((n) => n.id));
-
-  for (const id of Object.keys(mtimes)) {
-    if (!currentIds.has(id)) removeFromSearchIndex(id);
-  }
-
-  const toRead: NotePreview[] = [];
-  for (const note of notesCache) {
-    if (mtimes[note.id] === note.modificationTime) continue;
-    toRead.push(note);
-  }
-
-  if (toRead.length === 0) return;
-  await runPool(toRead, RECONCILE_CONCURRENCY, async (note) => {
-    try {
-      const body = await fs.readNote(note.id);
-      addToSearchIndex({
-        id: note.id,
-        title: noteTitleFromId(note.id),
-        body,
-        mtime: note.modificationTime,
-      });
-    } catch {
-      // Skip unreadable files
-    }
-  });
-}
-
 export async function refreshNotesFromStorage(): Promise<void> {
   // Coarse re-scan via the Rust command (one IPC) — matches today's
   // behavior on the watcher-driven re-feed path. The watcher debounces at
@@ -246,12 +134,6 @@ export async function refreshNotesFromStorage(): Promise<void> {
   // change is acceptable.
   const previews = await getFS().scanNotes();
   notesCache = previews;
-  // Serialize after any in-flight bootstrap — otherwise the bootstrap
-  // pool and reconcile pool race on the same MiniSearch / mtimeMap.
-  const prior = searchIndexReady ?? Promise.resolve();
-  searchIndexReady = prior.then(() => reconcileSearchIndex());
-  await searchIndexReady;
-  void persistIndex();
   // Reconcile the empty-folder set against disk after any bulk refresh
   // (sync apply, watcher rebuild, folder operation). Background — the
   // sidebar doesn't gate on this.
@@ -295,8 +177,6 @@ export async function createNote(
     modificationTime: mtime,
     tags: noteTags(content),
   });
-  addToSearchIndex({ id, title: noteTitleFromId(id), body: content, mtime });
-
   return { id, mtime };
 }
 
@@ -331,7 +211,6 @@ export async function updateNote(
     // moveNoteFile re-keys the index entry old→new but carries the pre-write
     // content; refresh the new path so the Rust engine indexes the edit.
     void engineNotify('change', `${finalId}.md`);
-    removeFromSearchIndex(originalId);
     await rewriteWikilinksForRename(originalId, finalId);
   } else {
     // Same id → plain content save.
@@ -353,8 +232,6 @@ export async function updateNote(
   if (idx < 0 && originalId) idx = notesCache.findIndex((n) => n.id === finalId);
   if (idx >= 0) notesCache[idx] = preview;
   else notesCache.push(preview);
-
-  addToSearchIndex({ id: finalId, title: noteTitleFromId(finalId), body: content, mtime });
 
   return { id: finalId, mtime };
 }
@@ -398,14 +275,8 @@ export async function rewriteWikilinksForRename(oldId: string, newId: string): P
           tags: noteTags(result.text),
         };
       }
-      addToSearchIndex({
-        id: fileId,
-        title: noteTitleFromId(fileId),
-        body: result.text,
-        mtime: newMtime,
-      });
       // This write goes through getFS() directly (not the fileSystem.ts
-      // chokepoint), so notify the Rust engine here to mirror MiniSearch.
+      // chokepoint), so notify the Rust engine here.
       void engineNotify('change', `${fileId}.md`);
     } catch (err) {
       console.warn(`[wikilink-rewrite] Failed to update ${fileId}:`, err);
@@ -447,15 +318,6 @@ export async function moveNote(
       notesCache[idx] = { ...notesCache[idx], id: finalId, title: noteTitleFromId(finalId) };
     }
     const mtime = prev?.modificationTime ?? Date.now();
-    // Re-key the search index from the moved file's body. Body unchanged,
-    // so we just need fromId removed and finalId added.
-    removeFromSearchIndex(fromId);
-    try {
-      const body = await readNoteFile(finalId);
-      addToSearchIndex({ id: finalId, title: noteTitleFromId(finalId), body, mtime });
-    } catch {
-      // Best-effort — file should be readable after rename.
-    }
     // Other notes' wikilinks targeting fromId now need to point at finalId.
     await rewriteWikilinksForRename(fromId, finalId);
     return { id: finalId, mtime };
@@ -522,9 +384,7 @@ export async function moveNotesUnderPrefix(fromPrefix: string, toPrefix: string)
 
 export async function deleteNote(id: string): Promise<void> {
   await deleteNoteFileToTrash(id);
-  removeFromSearchIndex(id);
   notesCache = notesCache.filter((n) => n.id !== id);
-  void persistIndex();
 }
 
 export async function deleteAllNotes(): Promise<void> {
@@ -543,18 +403,12 @@ export async function deleteAllNotes(): Promise<void> {
     // device (settings.md "Full reset"). The next launch then stays LOCAL.
     // Safe when not connected: disconnectE2ee tolerates a local-only client.
     await disconnectE2ee();
-    // Wait for any in-flight bootstrap to finish before clearing — otherwise
-    // a stale pool read can re-add a deleted doc after clearSearchIndex().
-    if (searchIndexReady) await searchIndexReady;
     await deleteAllContent();
     notesCache = [];
-    clearSearchIndex();
     // The bulk wipe bypasses the per-note fileSystem chokepoint, so the Rust
-    // engine won't be notified file-by-file. Rescan the (now empty) vault to
-    // clear its Tantivy index in lockstep with MiniSearch.
+    // engine won't be notified file-by-file. Rescan the empty vault to clear
+    // its Tantivy index.
     void engineRebuild();
-    searchIndexReady = Promise.resolve();
-    void persistIndex();
   } finally {
     // Un-pause so a failed reset doesn't leave sync permanently dead. On the
     // success path this is inert: the session was disconnected above, so
@@ -568,61 +422,61 @@ export async function search(query: string): Promise<SearchResultItem[]> {
   if (!query.trim()) {
     return getAllNotes().map((note) => ({ note, snippet: null }));
   }
-  // Prefer the Rust futo-notes-search engine (Tantivy BM25) when it's
-  // reachable, has a ready keyword index, and returns hits. MiniSearch stays as
-  // the coexisting fallback (parity window) for non-Tauri, not-yet-initialized,
-  // or empty-result cases.
-  //
-  // The early return below trusts the engine's hits outright, so it is only
-  // safe when the engine is fresh. The primary guarantee comes from notifying
-  // it on every local mutation (see fileSystem.ts + rewriteWikilinksForRename)
-  // plus the watcher path for external edits. This status gate is a
-  // belt-and-suspenders: while the keyword index is still reconciling at boot,
-  // skip the engine and let MiniSearch (already current) answer.
-  const [engineHits, status] = await Promise.all([engineQuery(query), engineStatus()]);
-  if (status?.keyword.ready && engineHits && engineHits.length > 0) {
-    const results: SearchResultItem[] = [];
-    for (const hit of engineHits) {
-      const note = notesCache.find((n) => n.id === hit.noteId);
-      if (note) {
-        // The engine returns ranked note IDs, not term-level match data, so
-        // fall back to the note preview for the snippet.
-        results.push({
-          note,
-          snippet: note.preview ? [{ text: note.preview, highlight: false }] : null,
-          source: 'keyword' as const,
-        });
+  // Shipped apps use the shared Rust/Tantivy engine as the sole full-text
+  // index. Trust an empty hit list when it is ready: falling through on zero
+  // results previously kept a second, divergent JS search stack alive.
+  if (isEngineAvailable()) {
+    // Check readiness first so a query cannot race ahead of engine install and
+    // return an authoritative-looking empty list during startup.
+    const status = await engineStatus();
+    if (status?.keyword.ready) {
+      const engineHits = await engineQuery(query);
+      if (engineHits === null) return metadataSearch(query);
+      const results: SearchResultItem[] = [];
+      for (const hit of engineHits) {
+        const note = notesCache.find((n) => n.id === hit.noteId);
+        if (note) {
+          results.push({
+            note,
+            snippet: note.preview || null,
+          });
+        }
       }
+      return results;
     }
-    if (results.length > 0) return results;
   }
-  // Bootstrap runs in the background; wait for it so results are complete
-  // for the first search after launch.
-  if (searchIndexReady) await searchIndexReady;
-  const hits = searchNotes(query);
+
+  return metadataSearch(query);
+}
+
+function metadataSearch(query: string): SearchResultItem[] {
+  // The web development shell and the brief Rust warm-up window have no
+  // second body index. Search the metadata already held for the note list so
+  // title/tag/preview matches remain useful without extra I/O or persistence.
+  const terms = query.toLocaleLowerCase().trim().split(/\s+/).filter(Boolean);
   const results: SearchResultItem[] = [];
-  for (const hit of hits) {
-    const note = notesCache.find((n) => n.id === hit.noteId);
-    if (note) {
-      results.push({ note, snippet: extractSnippet(hit), source: 'keyword' as const });
+  for (const note of notesCache) {
+    const haystack = [note.id, note.title, note.preview, ...note.tags]
+      .join('\n')
+      .toLocaleLowerCase();
+    if (terms.every((term) => haystack.includes(term))) {
+      results.push({
+        note,
+        snippet: note.preview || null,
+      });
     }
   }
   return results;
 }
 
-export async function searchKeyword(query: string): Promise<SearchResultItem[]> {
-  return search(query);
-}
-
 /**
  * Apply a single external (watcher/sync) file change incrementally instead of
  * re-scanning the whole vault. The `fs:change` event already names the file, so
- * we touch exactly one `notesCache` entry + its MiniSearch index entry:
+ * we touch exactly one `notesCache` entry:
  *
- *   - file gone  → remove the cache entry + `removeFromSearchIndex(id)`
+ *   - file gone  → remove the cache entry
  *   - file present → read its body once, re-derive title/preview/tags (the same
- *     canonical rules optimistic local edits use), refresh the single entry, and
- *     re-index it.
+ *     canonical rules optimistic local edits use), and refresh the single entry.
  *
  * Authoritative mtime comes from a `listNoteFiles()` dir-walk (metadata only —
  * NO body reads), so the sidebar sort stays correct without the old N-body
@@ -640,13 +494,10 @@ export async function handleExternalFileChange(filename: string): Promise<NotePr
     const fs = getFS();
     const exists = await fs.noteExists(id);
     if (!exists) {
-      // Removal: drop the single entry + its index row. No I/O beyond the
-      // existence probe.
+      // Removal: drop the single cache entry. No I/O beyond the existence probe.
       const had = notesCache.some((n) => n.id === id);
       if (had) {
         notesCache = notesCache.filter((n) => n.id !== id);
-        removeFromSearchIndex(id);
-        void persistIndex();
       }
       return null;
     }
@@ -664,8 +515,6 @@ export async function handleExternalFileChange(filename: string): Promise<NotePr
     const idx = notesCache.findIndex((n) => n.id === id);
     if (idx >= 0) notesCache[idx] = preview;
     else notesCache.push(preview);
-    addToSearchIndex({ id, title: noteTitleFromId(id), body, mtime });
-    void persistIndex();
     return preview;
   } catch (err) {
     // A single-file update should never strand the cache: fall back to the

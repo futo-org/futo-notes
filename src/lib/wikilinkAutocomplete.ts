@@ -2,7 +2,6 @@ import { autocompletion, startCompletion } from '@codemirror/autocomplete';
 import type { CompletionContext, CompletionResult, Completion } from '@codemirror/autocomplete';
 import { EditorView } from '@codemirror/view';
 import { getAllNotes } from '$lib/notes.svelte';
-import { searchNotes } from '$features/search/searchIndex';
 import { shortestUniqueSuffix } from '$lib/wikilinks';
 
 /** Exported for unit testing the inserted text + caret placement. */
@@ -48,17 +47,14 @@ function wikilinkCompletions(context: CompletionContext): CompletionResult | nul
   let options: Completion[];
 
   if (query.trim()) {
-    // Ranked search via MiniSearch, fallback to substring filter
-    const hits = searchNotes(query);
-    if (hits.length > 0) {
-      options = hits.slice(0, 20).map((hit) => buildCompletion(hit.noteId));
-    } else {
-      const lowerQ = query.toLowerCase();
-      options = allNotes
-        .filter((n) => n.id.toLowerCase().includes(lowerQ))
-        .slice(0, 20)
-        .map((n) => buildCompletion(n.id));
-    }
+    // Completion is intentionally metadata-only and synchronous. Full-text
+    // search belongs to Rust; keeping note bodies in a second JS index solely
+    // for this popup caused a full-vault rebuild on every desktop launch.
+    const lowerQ = query.toLocaleLowerCase();
+    options = allNotes
+      .filter((n) => n.id.toLocaleLowerCase().includes(lowerQ))
+      .slice(0, 20)
+      .map((n) => buildCompletion(n.id));
   } else {
     // No query — show 20 most recent notes
     options = allNotes

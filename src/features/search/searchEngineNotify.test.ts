@@ -1,15 +1,20 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vitest';
 
 vi.mock('$lib/platform');
-// Spy on the Rust-engine shim so we can assert mutations keep it fresh.
-// engineQuery/engineStatus default to undefined here, which is falsy, so
-// search() cleanly falls through to MiniSearch — matching the !isTauri path.
+const engineMocks = vi.hoisted(() => ({
+  available: false,
+  query: vi.fn(async () => null as Array<{ noteId: string; score: number; source: string }> | null),
+  status: vi.fn(async () => null as { keyword: { ready: boolean } } | null),
+}));
+
+// Spy on the Rust-engine shim so we can assert mutations keep it fresh and
+// search never falls through from an authoritative empty Rust result.
 vi.mock('./searchEngine', () => ({
   engineNotify: vi.fn(async () => {}),
-  engineQuery: vi.fn(async () => null),
-  engineStatus: vi.fn(async () => null),
+  engineQuery: engineMocks.query,
+  engineStatus: engineMocks.status,
   engineRebuild: vi.fn(async () => {}),
-  isEngineAvailable: vi.fn(() => false),
+  isEngineAvailable: vi.fn(() => engineMocks.available),
 }));
 
 import { testFS } from '$lib/platform';
@@ -26,6 +31,11 @@ async function freshNotes() {
 beforeEach(() => {
   testFS._reset();
   notify.mockClear();
+  engineMocks.available = false;
+  engineMocks.query.mockReset();
+  engineMocks.query.mockResolvedValue(null);
+  engineMocks.status.mockReset();
+  engineMocks.status.mockResolvedValue(null);
 });
 
 afterAll(() => {
@@ -113,5 +123,32 @@ describe('search engine staleness: local mutations notify the Rust engine', () =
 
     // The other note's wikilink body changed → engine must be told.
     expect(notify.mock.calls).toContainEqual(['change', 'Other/note.md']);
+  });
+});
+
+describe('Rust-owned full-text search', () => {
+  it('trusts an authoritative empty Rust result instead of running a second search', async () => {
+    await testFS.writeNote('metadata-would-match', 'needle appears in this preview');
+    engineMocks.available = true;
+    engineMocks.query.mockResolvedValue([]);
+    engineMocks.status.mockResolvedValue({ keyword: { ready: true } });
+
+    const { initNotes, search } = await freshNotes();
+    await initNotes();
+
+    await expect(search('needle')).resolves.toEqual([]);
+  });
+
+  it('uses loaded metadata only while the Rust index is warming', async () => {
+    await testFS.writeNote('metadata-would-match', 'needle appears in this preview');
+    engineMocks.available = true;
+    engineMocks.query.mockResolvedValue([]);
+    engineMocks.status.mockResolvedValue({ keyword: { ready: false } });
+
+    const { initNotes, search } = await freshNotes();
+    await initNotes();
+
+    const results = await search('needle');
+    expect(results.map((result) => result.note.id)).toEqual(['metadata-would-match']);
   });
 });
