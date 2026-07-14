@@ -20,7 +20,10 @@ import { safeAppdataPath } from './pathSafety';
 import { writeAtomicText } from './atomicWrite';
 import type { AtomicWriteFS } from './atomicWrite';
 import { isNotFound } from './fsErrors';
-import { generateImageFilename, isImageFilename } from '$lib/images';
+import {
+  createImageFilename as generateImageFilename,
+  isImageFilename,
+} from '$shared/media/imageFiles';
 import {
   getNotesRoot as resolveNotesRoot,
   getDefaultNotesRoot,

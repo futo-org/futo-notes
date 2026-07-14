@@ -22,7 +22,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'npm run dev',
+    command: 'pnpm run dev',
     url: 'http://localhost:5173',
     reuseExistingServer: !!process.env.PLAYWRIGHT_REUSE_DEV_SERVER,
     timeout: isCI ? 90000 : 30000,

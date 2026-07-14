@@ -150,7 +150,7 @@ export class TauriTestClient {
 
   /** Like moveNote, but if the target ID already exists the incoming
    *  file is suffixed (`A/note` → `A/note-2`). Mirrors the UI-driven
-   *  `moveNote` flow in `src/lib/notes.svelte.ts`. */
+   *  `moveNote` flow in `src/features/notes/notes.svelte.ts`. */
   async moveNoteWithCollisions(fromId, toId) {
     return executeJs(
       this.ws,

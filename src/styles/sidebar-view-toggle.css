@@ -1,0 +1,47 @@
+/* ===========================
+   Sidebar View Toggle
+   =========================== */
+.sidebar-view-toggle {
+  display: flex;
+  gap: 2px;
+  padding: 4px 12px 8px;
+}
+
+.sidebar-view-toggle button {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  padding: 8px;
+  min-height: 36px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--color-muted);
+}
+
+.sidebar-view-toggle button.active {
+  background: rgba(var(--ink-rgb), 0.08);
+  color: var(--color-text);
+}
+
+.sync-indicator {
+  position: absolute;
+  bottom: max(16px, calc(16px + env(safe-area-inset-bottom)));
+  right: max(16px, calc(16px + env(safe-area-inset-right)));
+  color: var(--color-primary);
+  pointer-events: none;
+  z-index: 20;
+}
+
+.sync-indicator.sync-offline {
+  color: var(--color-muted);
+}
+
+.sync-indicator.sync-error {
+  color: var(--color-muted);
+  opacity: 0.7;
+  pointer-events: auto;
+  cursor: help;
+}

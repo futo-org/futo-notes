@@ -155,7 +155,7 @@ class NotesStore(notesRoot: File, searchIndex: File) {
 
     /** When true, mutations do NOT signal [onLocalChange] — set by the full-
      *  reset flow so the bulk wipe can't trigger an auto-push mid-delete
-     *  [settings.md:43]. Mirrors desktop `deleteAllNotes` pausing auto-sync. */
+     *  [settings.md:43]. Mirrors desktop `resetAllNotes` pausing auto-sync. */
     var suppressAutoPush = false
 
     /** The Rust-owned vault — the single source of truth for the rules.
@@ -367,8 +367,8 @@ class NotesStore(notesRoot: File, searchIndex: File) {
     }
 
     /** Full reset [settings.md:43]: delete every note, folder, and `.crashlogs`
-     *  under the vault root. Parity model: desktop `deleteAllNotes`
-     *  (src/lib/notes.svelte.ts). Callers pause sync + set [suppressAutoPush]
+     *  under the vault root. Parity model: desktop `resetAllNotes`
+     *  (src/app/resetAllNotes.ts). Callers pause sync + set [suppressAutoPush]
      *  for the duration and disconnect sync afterwards. */
     suspend fun deleteAll() {
         withContext(Dispatchers.IO) { core.reset() }

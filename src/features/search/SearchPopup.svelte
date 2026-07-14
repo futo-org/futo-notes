@@ -1,7 +1,7 @@
 <script lang="ts">
-  import type { SearchResultItem } from '../../types';
-  import { search } from '$lib/notes.svelte';
-  import { shouldPreventScrollChaining } from '$lib/touchScrollContain';
+  import type { SearchResultItem } from '$shared/types/search';
+  import { search } from '$features/notes/notes.svelte';
+  import { shouldPreventScrollChaining } from '$shared/dom/shouldPreventScrollChaining';
 
   interface Props {
     onclose: () => void;

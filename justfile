@@ -445,8 +445,9 @@ clean:
 
 check: spec-gaps-check toolbar-spec-check arch-gate test-rust
   pnpm run lint
+  pnpm run check:svelte
   pnpm run format:check
-  pnpm run test:minimal
+  pnpm run test:full
   pnpm exec tsc --noEmit | head -30
   pnpm run build | tail -20
 

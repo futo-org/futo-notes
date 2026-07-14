@@ -37,6 +37,25 @@ test.describe('Folder support', () => {
     await expect(page.locator('[data-folder-path="Specs"]').first()).toBeVisible();
   });
 
+  test('an empty folder remains available in the move picker', async ({ page }) => {
+    await openSidebar(page);
+    await page.getByTestId('new-folder-btn').click();
+    await page.getByTestId('create-folder-input').fill('Empty');
+    await page.getByTestId('create-folder-confirm').click();
+
+    await page.evaluate(async () => {
+      const win = window as unknown as {
+        __testNotes: { createNote: (id: string, body: string) => Promise<unknown> };
+      };
+      await win.__testNotes.createNote('move-me', 'body');
+    });
+    await page.locator('[data-note-id="move-me"]').click();
+    await page.getByRole('button', { name: 'Note options' }).click();
+    await page.getByTestId('note-menu-move').click();
+
+    await expect(page.locator('.picker-list [data-folder-path="Empty"]')).toBeVisible();
+  });
+
   test('creating a folder with a Windows-reserved name surfaces an error', async ({ page }) => {
     await openSidebar(page);
     await page.getByTestId('new-folder-btn').click();

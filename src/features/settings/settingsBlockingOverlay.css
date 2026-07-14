@@ -1,0 +1,60 @@
+/* Connect + sync blocking overlay */
+.connect-sync-overlay {
+  position: absolute;
+  inset: 0;
+  background: var(--color-bg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  border-radius: 16px 16px 0 0;
+  z-index: 10;
+}
+
+.connect-sync-spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--color-border);
+  border-top-color: var(--color-primary);
+  border-radius: 50%;
+  animation: connect-spin 0.8s linear infinite;
+}
+
+@keyframes connect-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.connect-sync-phase {
+  font-size: 15px;
+  color: var(--color-muted);
+  /* Lock digit width so X/Y doesn't shimmy as the counter advances. */
+  font-variant-numeric: tabular-nums;
+}
+
+.connect-sync-error {
+  font-size: 14px;
+  color: var(--color-danger);
+  text-align: center;
+  padding: 0 24px;
+  line-height: 1.4;
+}
+
+.connect-sync-cancel {
+  border: none;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 14px;
+  font-weight: 500;
+  font-family: inherit;
+  padding: 10px 24px;
+  border-radius: 10px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.connect-sync-cancel:active {
+  opacity: 0.7;
+}

@@ -1,0 +1,146 @@
+/* ===========================
+   Notes Shell
+   =========================== */
+.notes-shell {
+  position: absolute;
+  inset: 0;
+  top: var(--titlebar-height, 0px);
+  overflow: hidden;
+  background: var(--color-bg);
+  --drawer-width: min(320px, 85vw);
+  --drawer-offset: 0px;
+}
+
+.note-main {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  transform: translateX(var(--drawer-offset));
+  transition: transform 0.25s ease;
+  will-change: transform;
+  background-color: var(--color-bg);
+  overflow: hidden;
+}
+
+/* ===========================
+   Drawer Toggle (mobile hamburger)
+   =========================== */
+.drawer-toggle {
+  width: 40px;
+  height: 40px;
+  border: none;
+  background: transparent;
+  font-size: 22px;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-tap-highlight-color: transparent;
+  color: var(--color-text);
+}
+
+.drawer-toggle.floating {
+  position: absolute;
+  top: calc(max(12px, calc(12px + env(safe-area-inset-top))) + var(--vv-offset, 0px));
+  left: max(12px, calc(12px + env(safe-area-inset-left)));
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: rgba(var(--paper-rgb), 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow:
+    0 2px 8px rgba(var(--ink-rgb), 0.08),
+    0 0 0 1px rgba(var(--ink-rgb), 0.04);
+  z-index: 35;
+  transform: translateX(var(--drawer-offset));
+  transition: transform 0.25s ease;
+  will-change: transform;
+}
+
+.drawer-toggle.floating:active {
+  background: var(--color-surface);
+}
+
+/* ===========================
+   Note Body / Editor Area
+   =========================== */
+.note-body {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: none;
+  touch-action: pan-y;
+  background: transparent;
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+.note-title-row {
+  padding: 16px 20px;
+  padding-top: calc(64px + env(safe-area-inset-top, 0));
+  padding-left: max(20px, calc(20px + env(safe-area-inset-left)));
+  padding-right: max(20px, calc(20px + env(safe-area-inset-right)));
+  padding-bottom: 4px;
+  flex-shrink: 0;
+}
+
+.editor-container {
+  overflow: visible;
+  background: transparent;
+  overflow-x: hidden;
+  flex: 1 0 auto;
+  padding-left: max(20px, calc(20px + env(safe-area-inset-left)));
+  padding-right: max(20px, calc(20px + env(safe-area-inset-right)));
+  padding-bottom: max(200px, calc(40vh + env(safe-area-inset-bottom, 0)));
+}
+
+.editor-container .cm-editor {
+  height: auto !important;
+  font-size: 18px;
+  background: transparent !important;
+}
+
+.editor-container .cm-scroller {
+  overflow: visible !important;
+  background: transparent;
+  overflow-x: hidden;
+  height: auto !important;
+  flex: 0 0 auto !important;
+}
+
+.editor-container .cm-content {
+  background: transparent;
+  height: auto !important;
+  padding: 0 !important;
+  min-width: 0;
+}
+
+.editor-container .cm-line {
+  line-height: 1.7;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+
+.editor-container .cm-line.cm-md-quote {
+  padding-left: 15px !important;
+}
+.editor-container .cm-line.cm-md-quote-level-2 {
+  padding-left: 30px !important;
+}
+.editor-container .cm-line.cm-md-quote-level-3 {
+  padding-left: 45px !important;
+}
+.editor-container .cm-line.cm-md-code-block {
+  padding: 3px 24px !important;
+}
+
+.editor-container .cm-line.cm-md-code-block-fence {
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+}

@@ -1,3 +1,12 @@
 packages:
   - "apps/*"
   - "packages/*"
+
+onlyBuiltDependencies:
+  - esbuild
+  - protobufjs
+
+overrides:
+  'devalue@<5.8.1': 5.8.1
+  'picomatch@4': 4.0.4
+  'esbuild@<0.28.1': 0.28.1

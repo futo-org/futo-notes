@@ -1,0 +1,68 @@
+/* Table rendering */
+.cm-md-table-wrapper {
+  display: block;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x;
+  max-width: min(100%, calc(100vw - 32px));
+  margin: 8px 0;
+  cursor: pointer;
+  border-radius: 8px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
+}
+
+.cm-md-table-rendered {
+  border-collapse: collapse;
+  min-width: 100%;
+  font-size: 0.93em;
+  border: 1px solid var(--color-border);
+}
+
+.cm-md-table-rendered th,
+.cm-md-table-rendered td {
+  padding: 10px 14px;
+  border: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+
+.cm-md-table-rendered th {
+  background: var(--color-surface);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.cm-md-table-rendered tbody tr:nth-child(even) {
+  background: rgba(var(--ink-rgb), 0.02);
+}
+
+.cm-md-table-rendered tbody tr:hover {
+  background: rgba(var(--primary-rgb), 0.06);
+}
+
+.cm-md-table-wrapper:hover {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 0;
+}
+
+/* Inline formatting within tables */
+.cm-md-table-rendered code.cm-md-table-code {
+  background: rgba(var(--ink-rgb), 0.05);
+  color: var(--color-primary-hover);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-family: ui-monospace, monospace;
+  font-size: 0.9em;
+}
+
+.cm-md-table-rendered a.cm-md-table-link {
+  color: var(--color-primary);
+  text-decoration: underline;
+  text-decoration-color: rgba(var(--primary-rgb), 0.35);
+}
+
+.cm-md-table-rendered del {
+  color: var(--color-muted);
+}

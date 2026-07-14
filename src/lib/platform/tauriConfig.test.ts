@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// Mock all Tauri APIs
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn(),
   convertFileSrc: vi.fn((p: string) => `asset://${p}`),
@@ -43,10 +42,6 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-/**
- * Helper: configure mock invoke to handle the standard set of commands
- * used by getConfig/saveConfig/setNotesDir.
- */
 function setupInvokeMock(overrides: Partial<Record<string, unknown>> = {}) {
   const defaults: Record<string, unknown> = {
     notes_dir_override_load: null,
@@ -97,7 +92,6 @@ describe('getConfig', () => {
     setupInvokeMock();
     const { readTextFile, exists } = await import('@tauri-apps/plugin-fs');
     vi.mocked(exists).mockResolvedValueOnce(true);
-    // macOS TCC/permission denial opening .app-config.json.
     vi.mocked(readTextFile).mockRejectedValueOnce(
       new Error('Operation not permitted (os error 1)'),
     );
@@ -120,7 +114,6 @@ describe('getConfig', () => {
 describe('saveConfig', () => {
   it('merges sidebarWidth into existing config', async () => {
     setupInvokeMock();
-    // Mock plugin-fs readTextFile to return existing config
     const { readTextFile, writeTextFile, rename, exists } = await import('@tauri-apps/plugin-fs');
     const mockReadTextFile = vi.mocked(readTextFile);
     const mockWriteTextFile = vi.mocked(writeTextFile);
@@ -132,7 +125,6 @@ describe('saveConfig', () => {
 
     await saveConfig({ sidebarWidth: 350 });
     expect(mockWriteTextFile).toHaveBeenCalledTimes(1);
-    // Atomic write: writes to temp then renames
     const writtenContent = mockWriteTextFile.mock.calls[0][1] as string;
     const written = JSON.parse(writtenContent);
     expect(written.sidebarWidth).toBe(350);
@@ -164,7 +156,6 @@ describe('saveConfig', () => {
     const writtenContent = vi.mocked(writeTextFile).mock.calls[0][1] as string;
     const written = JSON.parse(writtenContent);
     expect(written.openFolders).toEqual(['Projects', 'Projects/2026']);
-    // Doesn't clobber existing fields
     expect(written.sidebarWidth).toBe(280);
   });
 
@@ -204,8 +195,6 @@ describe('loadOpenFoldersConfig', () => {
     setupInvokeMock();
     const { readTextFile, exists } = await import('@tauri-apps/plugin-fs');
     vi.mocked(exists).mockResolvedValueOnce(true);
-    // Simulate a file containing junk values to make sure we don't
-    // hand them back to callers as-is.
     vi.mocked(readTextFile).mockResolvedValueOnce(
       JSON.stringify({ openFolders: ['Projects', 42, 'Projects/2026', null] }),
     );

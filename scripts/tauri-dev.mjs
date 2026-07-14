@@ -36,7 +36,7 @@ const WAYLAND_ENV = {
 // Dev fake-update flag: `just tauri-dev --fake-update[=X.Y.Z]` (or FUTO_FAKE_UPDATE)
 // makes the app show a synthetic "update available" so the banner + Settings can
 // be iterated without a server or a signed build. Plumbed to the frontend as
-// VITE_FAKE_UPDATE (read by the dev-only src/lib/updater.fake backend).
+// VITE_FAKE_UPDATE (read by the dev-only src/features/system/updater.fake backend).
 const fakeArg = process.argv
   .slice(2)
   .find((a) => a === '--fake-update' || a.startsWith('--fake-update='));

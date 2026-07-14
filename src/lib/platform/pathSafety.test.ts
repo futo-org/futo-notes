@@ -1,8 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { ensureSafeNoteId, safeNotePath, safeAppdataPath, noteIdFromFilename } from './pathSafety';
 
-// ── ensureSafeNoteId ──────────────────────────────────────────────────
-
 describe('ensureSafeNoteId', () => {
   it('rejects empty string', () => {
     expect(() => ensureSafeNoteId('')).toThrow('note id cannot be empty');
@@ -80,7 +78,6 @@ describe('ensureSafeNoteId', () => {
     expect(() => ensureSafeNoteId('...dots')).not.toThrow();
   });
 
-  // Adversarial inputs matching Rust tests
   it('rejects adversarial inputs', () => {
     expect(() => ensureSafeNoteId('../../../etc/passwd')).toThrow();
     expect(() => ensureSafeNoteId('..\\..\\windows\\system32')).toThrow();
@@ -88,15 +85,12 @@ describe('ensureSafeNoteId', () => {
   });
 
   it('works correctly when called multiple times (no regex state leak)', () => {
-    // The global regex bug: if lastIndex isn't reset, alternating calls can fail
     expect(() => ensureSafeNoteId('valid-note')).not.toThrow();
     expect(() => ensureSafeNoteId('also-valid')).not.toThrow();
     expect(() => ensureSafeNoteId('bad<note')).toThrow();
     expect(() => ensureSafeNoteId('still-valid')).not.toThrow();
   });
 });
-
-// ── safeNotePath ──────────────────────────────────────────────────────
 
 describe('safeNotePath', () => {
   it('returns base/id.md for valid ID', () => {
@@ -115,8 +109,6 @@ describe('safeNotePath', () => {
     expect(safeNotePath('/notes', 'a/b/c')).toBe('/notes/a/b/c.md');
   });
 });
-
-// ── safeAppdataPath ───────────────────────────────────────────────────
 
 describe('safeAppdataPath', () => {
   const base = '/tmp/test';
@@ -146,8 +138,6 @@ describe('safeAppdataPath', () => {
     expect(() => safeAppdataPath(base, 'sub/./file.json')).toThrow('path traversal blocked');
   });
 });
-
-// ── noteIdFromFilename ────────────────────────────────────────────────
 
 describe('noteIdFromFilename', () => {
   it('strips .md suffix', () => {

@@ -46,7 +46,7 @@ async function main() {
   const noteTitle = `verify-sync-${Date.now()}`;
   const created = await executeJs(
     ws,
-    `(async () => { const m = await import('/src/lib/notes.svelte.ts'); const r = await m.createNote(${JSON.stringify(noteTitle)}, '# Hello\\nTest body for sync verification'); return r; })()`,
+    `(async () => { const m = await import('/src/features/notes/notes.svelte.ts'); const r = await m.createNote(${JSON.stringify(noteTitle)}, '# Hello\\nTest body for sync verification'); return r; })()`,
   );
   log('createNote', created);
 
