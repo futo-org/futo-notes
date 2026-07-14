@@ -1770,6 +1770,8 @@ mod tests {
 
     fn no_pre(_: &str) {}
 
+    fn no_progress(_: SyncProgress) {}
+
     fn entry(object_id: &str, hash: Option<&str>) -> ObjectState {
         ObjectState {
             object_id: object_id.into(),
@@ -2243,5 +2245,130 @@ mod tests {
         let (claim, sidecar) = claim_paths(root.path(), &name, "object");
         assert!(claim.file_name().unwrap().len() < 255);
         assert!(sidecar.file_name().unwrap().len() < 255);
+    }
+
+    // INV 9 (413 oversize): the oversize_skip state machine. `create_fresh` /
+    // `update_existing` record an over-limit note in `oversize_skip` keyed by
+    // its mtime; a subsequent push must skip it while unchanged and retry it
+    // once it changes. The insert-on-413 arm itself needs a real 413 response
+    // and stays covered by the server-gated `oversize_blob_*` integration test.
+
+    #[tokio::test]
+    async fn push_skips_an_oversize_flagged_file_without_uploading_or_deleting_it() {
+        // While the note is unchanged (mtime still matches the skip entry) push
+        // must not retry the upload — no server contact — and must never treat
+        // the skipped note as a local deletion. It stays on disk, unsynced but
+        // intact.
+        let root = TempRoot::new();
+        std::fs::write(root.path().join("big.md"), "too big for the server").unwrap();
+        let file = local_files(root.path()).remove(0);
+
+        let mut state = connected();
+        state.oversize_skip.insert(file.name.clone(), file.mtime);
+
+        let (summary, next) = push(&state, root.path(), &no_progress, &no_pre)
+            .await
+            .unwrap();
+
+        assert_eq!(summary.uploaded, 0);
+        assert_eq!(
+            summary.conflicts, 1,
+            "the skipped oversize note is surfaced as a conflict"
+        );
+        assert!(
+            summary.failures.is_empty(),
+            "a matching-mtime skip must not contact the server"
+        );
+        assert!(
+            root.path().join("big.md").exists(),
+            "a skipped oversize note must not be deleted"
+        );
+        assert!(
+            !next.object_map.contains_key(&file.name),
+            "an un-uploaded note stays unmapped, never tombstoned"
+        );
+    }
+
+    #[tokio::test]
+    async fn push_retries_an_oversize_flagged_file_after_its_mtime_changes() {
+        // Once the note changes, its mtime no longer matches the skip entry, so
+        // the skip gate opens and push attempts the upload again. Offline that
+        // attempt surfaces as an Upload failure (the test server is
+        // unreachable), NOT another silent oversize skip — proving the note is
+        // no longer stuck.
+        let root = TempRoot::new();
+        std::fs::write(root.path().join("big.md"), "shrunk").unwrap();
+        let file = local_files(root.path()).remove(0);
+
+        let mut state = connected();
+        // A stale skip entry: recorded against an earlier version of the note.
+        state
+            .oversize_skip
+            .insert(file.name.clone(), file.mtime - 1);
+
+        let (summary, _next) = push(&state, root.path(), &no_progress, &no_pre)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            summary.conflicts, 0,
+            "a stale-mtime skip must not suppress the retry"
+        );
+        assert!(
+            summary
+                .failures
+                .iter()
+                .any(|f| f.kind == FailureKind::Upload),
+            "the note left the skip path and attempted a real upload"
+        );
+        assert!(
+            root.path().join("big.md").exists(),
+            "a failed retry must not lose the note"
+        );
+    }
+
+    // INV 7 (F32 crash-window): only a completed pull may advance pull_cursor.
+    #[tokio::test]
+    async fn push_preserves_the_pull_cursor() {
+        // If push moved the cursor, a crash after push but before the following
+        // pull would skip every peer change past the old cursor on restart.
+        // Push must return the cursor untouched.
+        let root = TempRoot::new();
+        std::fs::write(root.path().join("note.md"), "synced body").unwrap();
+        let file = local_files(root.path()).remove(0);
+
+        let mut state = connected();
+        // Seed the cursor and the collection watermark to DISTINCT values so the
+        // test also catches the most direct crash-window regression:
+        // `pull_cursor = max_version`.
+        state.pull_cursor = 42;
+        state.max_version = 99;
+        // The one local file is already current in the map (mtime + size match),
+        // so push has nothing to upload and never contacts the server.
+        state.object_map.insert(
+            file.name.clone(),
+            ObjectState {
+                object_id: "o1".into(),
+                version: 1,
+                blob_key: "bk".into(),
+                hash: Some(hash_sha256("synced body")),
+                mtime_ms: Some(file.mtime),
+                size_bytes: Some(file.size),
+            },
+        );
+
+        let (summary, next) = push(&state, root.path(), &no_progress, &no_pre)
+            .await
+            .unwrap();
+
+        assert!(
+            summary.failures.is_empty(),
+            "an up-to-date file must not contact the server"
+        );
+        assert_eq!(summary.uploaded, 0);
+        assert_eq!(
+            next.pull_cursor, 42,
+            "push must not advance the pull cursor"
+        );
     }
 }
