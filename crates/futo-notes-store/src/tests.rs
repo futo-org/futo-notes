@@ -40,6 +40,54 @@ fn store(root: &TestRoot) -> LocalNoteStore {
     LocalNoteStore::new(root.0.clone())
 }
 
+/// Fault injection for the A1 create/rename clobber window: on the first
+/// `before_write` (fired just before the install), plant a file at the exact
+/// target path — simulating a concurrent external/sync writer landing there
+/// between id allocation and install.
+struct PlantOnFirstWrite {
+    root: PathBuf,
+    content: String,
+    planted: Mutex<bool>,
+}
+
+impl BeforeWrite for PlantOnFirstWrite {
+    fn before_write(&self, changes: &[FileChange]) {
+        let mut planted = self.planted.lock().unwrap();
+        if *planted {
+            return;
+        }
+        if let Some(FileChange::Changed(name)) = changes.first() {
+            fs::write(self.root.join(name), &self.content).unwrap();
+            *planted = true;
+        }
+    }
+}
+
+// A create whose chosen id is taken by a concurrent writer in the
+// allocate→install window must NOT overwrite that writer's file — it re-suffixes
+// and both contents survive (A1).
+#[test]
+fn create_never_clobbers_a_concurrent_writer_at_the_chosen_id() {
+    let root = TestRoot::new();
+    let hook = Arc::new(PlantOnFirstWrite {
+        root: root.0.clone(),
+        content: "peer wrote here".to_owned(),
+        planted: Mutex::new(false),
+    });
+    let store = LocalNoteStore::with_before_write(root.0.clone(), hook);
+
+    let mutation = store.create("", "Note", "my new note").unwrap();
+    let final_id = mutation.final_id().unwrap();
+
+    assert_ne!(final_id, "Note", "create must re-suffix away from the taken id");
+    assert_eq!(
+        store.read("Note"),
+        "peer wrote here",
+        "the concurrent writer's file must not be clobbered"
+    );
+    assert_eq!(store.read(final_id), "my new note");
+}
+
 #[test]
 fn bootstrap_migrates_txt_collisions_once_before_returning_the_snapshot() {
     let root = TestRoot::new();

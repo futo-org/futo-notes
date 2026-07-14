@@ -324,9 +324,7 @@ impl LocalNoteStore {
         content: &str,
     ) -> Result<MutationResult, String> {
         let _gate = self.lock_gate()?;
-        let wanted = make_id(folder, title);
-        let id = paths::unique_note_id(&self.root, &wanted, None)?;
-        let metadata = self.write_raw(&id, content, None)?;
+        let metadata = self.install_new(&make_id(folder, title), content, None)?;
         Ok(MutationResult {
             upserted: vec![metadata],
             ..MutationResult::default()
@@ -361,8 +359,7 @@ impl LocalNoteStore {
         match original_id {
             None => {
                 let (folder, title) = split_id(wanted_id);
-                let id = paths::unique_note_id(&self.root, &make_id(&folder, &title), None)?;
-                let metadata = self.write_raw(&id, content, modified_ms)?;
+                let metadata = self.install_new(&make_id(&folder, &title), content, modified_ms)?;
                 Ok(MutationResult {
                     upserted: vec![metadata],
                     ..MutationResult::default()
@@ -702,6 +699,41 @@ impl LocalNoteStore {
         }
     }
 
+    /// Install a brand-new note at a collision-free id using a NO-REPLACE
+    /// atomic create. The store mutex serializes only this process's mutations,
+    /// NOT an external/sync writer, so between id allocation and install a file
+    /// can appear at the chosen id. `create_new_atomic` fails (EEXIST) rather
+    /// than overwriting; we re-allocate a fresh suffix — now seeing that file —
+    /// and retry, so a create never silently clobbers a note this store did not
+    /// write. (An overwrite install here is the A1 data-loss window.)
+    fn install_new(
+        &self,
+        wanted: &str,
+        content: &str,
+        modified_ms: Option<i64>,
+    ) -> Result<NoteMetadata, String> {
+        for _ in 0..1000 {
+            let id = paths::unique_note_id(&self.root, wanted, None)?;
+            let path = paths::note_path(&self.root, &id)?;
+            let change = FileChange::Changed(note_filename(&id));
+            self.before_write
+                .before_write(std::slice::from_ref(&change));
+            if !create_new_atomic(&path, content.as_bytes())? {
+                // A writer outside this store's serialization took the id in the
+                // window; re-allocate against the now-larger tree and retry.
+                continue;
+            }
+            if let Some(modified_ms) = modified_ms.filter(|value| *value >= 0) {
+                set_file_mtime_ms(&path, modified_ms)?;
+            }
+            let metadata = vault::metadata(&self.root, &id)
+                .ok_or_else(|| "note metadata unavailable after create".to_owned())?;
+            self.notify(&change);
+            return Ok(metadata);
+        }
+        Err("could not allocate a free note id after repeated collisions".to_owned())
+    }
+
     fn write_raw(
         &self,
         id: &str,
@@ -885,7 +917,21 @@ fn move_files_with_rollback(root: &Path, mappings: &[(String, String)]) -> Resul
         let result = if collides_but_differs(from, to) {
             rename_through_temp(&source, &destination)
         } else {
-            fs::rename(&source, &destination).map_err(io_error)
+            // No-replace move. The destination id was allocated unique, so a
+            // file there now is a writer outside this store's serialization —
+            // never clobber it (the A1 window applied to rename). `hard_link`
+            // is the portable atomic no-replace install (EEXIST if taken) and
+            // shares the inode, so mtime carries over; dropping the source link
+            // completes the move. On EEXIST we fail, and the caller rolls back
+            // — the newcomer and the source both survive.
+            match fs::hard_link(&source, &destination) {
+                Ok(()) => fs::remove_file(&source).map_err(io_error),
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Err(format!(
+                    "rename destination {} appeared under a concurrent writer",
+                    destination.display()
+                )),
+                Err(error) => Err(io_error(error)),
+            }
         };
         if let Err(error) = result {
             for (original, moved) in completed.into_iter().rev() {
