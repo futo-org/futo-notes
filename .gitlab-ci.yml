@@ -404,7 +404,12 @@ test:arch-gates:
   stage: test
   cache:
     - !reference [.cache-pnpm, cache]
+    - !reference [.cache-cargo-tauri, cache]
   script:
+    # check:sync-contract compiles the Tauri crate to regenerate the Rust-owned
+    # TypeScript wire records. The default image does not include the Linux
+    # GTK/WebKit pkg-config dependencies required by that crate.
+    - !reference [.setup-linux-deps, script]
     - pnpm install --frozen-lockfile --prefer-offline
     # Shared with `just arch-gate`; the pinned CI image does not include just.
     - pnpm run check:arch-gate

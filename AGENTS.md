@@ -385,7 +385,7 @@ behavior.
 
 ### 7.10 Before merge / release
 - [ ] `just check` green (spec-gaps-check + toolbar-spec-check + rust conformance + lint +
-      test:minimal + tsc + build)
+      test:full + tsc + build)
 - [ ] MR pipelines auto-run every suite whose `changes:` paths the MR touches: hard gates
       (lint + `lint:platform` + `test:full` + Rust conformance + dep-guard) always; E2E +
       markdown-spec on web/editor changes (blocking); cross-platform sync on sync-critical

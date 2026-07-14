@@ -45,11 +45,11 @@
     "test:editor": "pnpm run test:editor:minimal",
     "test:editor:minimal": "pnpm --filter @futo-notes/editor exec vitest run src/conformance.test.ts src/images.test.ts src/bridge.test.ts",
     "test:editor:full": "pnpm --filter @futo-notes/editor test",
-    "test:all": "pnpm run test:minimal",
+    "test:all": "pnpm run test:full",
     "test:unit:watch": "vitest",
     "test:headed": "playwright test --headed",
     "test:ui": "playwright test --ui",
-    "ci": "pnpm run lint && pnpm run format:check && pnpm run test:minimal && pnpm run build",
+    "ci": "pnpm run lint && pnpm run format:check && pnpm run test:full && pnpm run build",
     "_comment": "Tauri commands (dev, build, deploy) live in the justfile — use `just` from the monorepo root. Only toolchain scripts (vite, vitest, playwright, eslint) belong here.",
     "test:desktop-smoke": "node tests/desktop-smoke.mjs",
     "test:cross-platform": "node tests/cross-platform-sync.mjs"
