@@ -148,13 +148,8 @@ pub(crate) fn load_ancestry(root: &Path) -> HashMap<String, Ancestry> {
         .unwrap_or_default()
 }
 
-pub fn demote(root: &Path) -> Result<(), String> {
-    let path = state_path(root);
-    let Some(disk) = read_disk_state(root) else {
-        return Ok(());
-    };
-    let files = disk
-        .object_map
+fn ancestry_from_object_map(object_map: HashMap<String, ObjectState>) -> HashMap<String, Ancestry> {
+    object_map
         .into_iter()
         .filter_map(|(name, entry)| {
             entry.hash.map(|hash| {
@@ -167,7 +162,15 @@ pub fn demote(root: &Path) -> Result<(), String> {
                 )
             })
         })
-        .collect();
+        .collect()
+}
+
+pub fn demote(root: &Path) -> Result<(), String> {
+    let path = state_path(root);
+    let Some(disk) = read_disk_state(root) else {
+        return Ok(());
+    };
+    let files = ancestry_from_object_map(disk.object_map);
     let ancestry = serde_json::to_string_pretty(&DiskAncestry { version: 1, files })
         .map_err(|e| e.to_string())?;
     // Ancestry is best-effort. Keeping the live map after disconnect is the

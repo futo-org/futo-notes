@@ -6,8 +6,13 @@ use futures_util::StreamExt;
 use tokio::sync::{mpsc, Mutex};
 use tokio::time::{interval, Instant, MissedTickBehavior};
 
-use crate::store::{self, ConnectedState};
+pub(crate) mod connect;
+mod event_stream;
+
+use crate::checkpoint::{self, ConnectedState};
 use crate::sync::{self, ConnectInfo, PreWrite, Progress, SyncErrorKind, SyncSummary};
+
+use event_stream::EventStream;
 
 const SAFETY_POLL: Duration = Duration::from_secs(45);
 const READ_IDLE: Duration = Duration::from_secs(90);
@@ -60,7 +65,7 @@ impl SyncSession {
     ) -> Result<ConnectInfo, SyncErrorKind> {
         self.stop_live();
         let _gate = self.cycle_gate.lock().await;
-        let (state, info) = sync::connect(root, server, password).await?;
+        let (state, info) = connect::connect(root, server, password).await?;
         *self.state.lock().await = Some(state);
         Ok(info)
     }
@@ -72,7 +77,7 @@ impl SyncSession {
     ) -> Result<(), SyncErrorKind> {
         self.stop_live();
         let _gate = self.cycle_gate.lock().await;
-        let state = sync::resume(
+        let state = connect::resume(
             root,
             &credentials.server_url,
             &credentials.token,
@@ -119,7 +124,7 @@ impl SyncSession {
         self.stop_live();
         let _gate = self.cycle_gate.lock().await;
         *self.state.lock().await = None;
-        store::demote(root).map_err(SyncErrorKind::Io)
+        checkpoint::demote(root).map_err(SyncErrorKind::Io)
     }
 
     pub async fn start_live(
@@ -174,6 +179,26 @@ enum CycleResult {
     Stop,
 }
 
+enum StreamResult {
+    Reconnect,
+    Stop,
+}
+
+struct LiveContext<'a> {
+    state: &'a Arc<Mutex<Option<ConnectedState>>>,
+    gate: &'a Arc<Mutex<()>>,
+    root: &'a Path,
+    listener: &'a dyn SyncSessionListener,
+    pre_write: &'a PreWrite,
+}
+
+struct LiveInputs<'a> {
+    cancel: &'a mut mpsc::Receiver<()>,
+    note_changed: &'a mut mpsc::Receiver<()>,
+    safety: &'a mut tokio::time::Interval,
+    push_at: &'a mut Option<Instant>,
+}
+
 async fn run_cycle(
     state: &Arc<Mutex<Option<ConnectedState>>>,
     gate: &Arc<Mutex<()>>,
@@ -204,6 +229,93 @@ async fn run_cycle(
     }
 }
 
+async fn cycle_stopped(context: &LiveContext<'_>) -> bool {
+    matches!(
+        run_cycle(
+            context.state,
+            context.gate,
+            context.root,
+            context.listener,
+            context.pre_write,
+        )
+        .await,
+        CycleResult::Stop
+    )
+}
+
+async fn run_connected_stream(
+    response: reqwest::Response,
+    context: LiveContext<'_>,
+    inputs: LiveInputs<'_>,
+) -> StreamResult {
+    if cycle_stopped(&context).await {
+        return StreamResult::Stop;
+    }
+
+    let stream = response.bytes_stream();
+    tokio::pin!(stream);
+    let mut events = EventStream::default();
+    let mut pull_at = None;
+    loop {
+        let pull_timer = deadline(pull_at);
+        let push_timer = deadline(*inputs.push_at);
+        tokio::select! {
+            _ = inputs.cancel.recv() => return StreamResult::Stop,
+            Some(()) = inputs.note_changed.recv() => {
+                *inputs.push_at = Some(Instant::now() + PUSH_DEBOUNCE);
+            }
+            _ = push_timer => {
+                *inputs.push_at = None;
+                if cycle_stopped(&context).await {
+                    return StreamResult::Stop;
+                }
+            }
+            _ = pull_timer => {
+                pull_at = None;
+                if cycle_stopped(&context).await {
+                    return StreamResult::Stop;
+                }
+            }
+            _ = inputs.safety.tick() => {
+                if cycle_stopped(&context).await {
+                    return StreamResult::Stop;
+                }
+            }
+            chunk = tokio::time::timeout(READ_IDLE, stream.next()) => {
+                match chunk {
+                    Ok(Some(Ok(bytes))) => {
+                        for event in events.push(&bytes) {
+                            if event == "ready" || event == "change" {
+                                pull_at = Some(Instant::now() + CHANGE_DEBOUNCE);
+                            }
+                        }
+                    }
+                    Ok(Some(Err(error))) => {
+                        context.listener.on_error(format!("read: {error}"));
+                        return StreamResult::Reconnect;
+                    }
+                    Ok(None) => {
+                        context.listener.on_error("read: event stream closed".into());
+                        return StreamResult::Reconnect;
+                    }
+                    Err(_) => {
+                        context.listener.on_error("read: event stream idle timeout".into());
+                        return StreamResult::Reconnect;
+                    }
+                }
+            }
+        }
+    }
+}
+
+async fn wait_for_reconnect(backoff: &mut Duration, cancel: &mut mpsc::Receiver<()>) -> bool {
+    if wait_or_cancel(*backoff, cancel).await {
+        return true;
+    }
+    *backoff = (*backoff * 2).min(BACKOFF_MAX);
+    false
+}
+
 async fn live_loop(
     state: Arc<Mutex<Option<ConnectedState>>>,
     gate: Arc<Mutex<()>>,
@@ -219,18 +331,17 @@ async fn live_loop(
     let mut backoff = BACKOFF_MIN;
     let mut push_at = None;
 
-    'reconnect: loop {
+    loop {
         let Some(snapshot) = state.lock().await.clone() else {
             break;
         };
-        let http = match sync::client(&snapshot) {
+        let http = match connect::client(&snapshot) {
             Ok(http) => http,
             Err(error) => {
                 listener.on_error(error.message());
-                if wait_or_cancel(backoff, &mut cancel).await {
+                if wait_for_reconnect(&mut backoff, &mut cancel).await {
                     break;
                 }
-                backoff = (backoff * 2).min(BACKOFF_MAX);
                 continue;
             }
         };
@@ -246,80 +357,39 @@ async fn live_loop(
             }
             Err(error) => {
                 listener.on_error(format!("connect: {error}"));
-                if wait_or_cancel(backoff, &mut cancel).await {
+                if wait_for_reconnect(&mut backoff, &mut cancel).await {
                     break;
                 }
-                backoff = (backoff * 2).min(BACKOFF_MAX);
                 continue;
             }
         };
         backoff = BACKOFF_MIN;
         listener.on_connected();
         if matches!(
-            run_cycle(&state, &gate, &root, listener.as_ref(), pre_write.as_ref()).await,
-            CycleResult::Stop
+            run_connected_stream(
+                response,
+                LiveContext {
+                    state: &state,
+                    gate: &gate,
+                    root: &root,
+                    listener: listener.as_ref(),
+                    pre_write: pre_write.as_ref(),
+                },
+                LiveInputs {
+                    cancel: &mut cancel,
+                    note_changed: &mut note_changed,
+                    safety: &mut safety,
+                    push_at: &mut push_at,
+                },
+            )
+            .await,
+            StreamResult::Stop
         ) {
             break;
         }
-
-        let stream = response.bytes_stream();
-        tokio::pin!(stream);
-        let mut events = EventStream::default();
-        let mut pull_at = None;
-        loop {
-            let pull_timer = deadline(pull_at);
-            let push_timer = deadline(push_at);
-            tokio::select! {
-                _ = cancel.recv() => break 'reconnect,
-                Some(()) = note_changed.recv() => {
-                    push_at = Some(Instant::now() + PUSH_DEBOUNCE);
-                }
-                _ = push_timer => {
-                    push_at = None;
-                    if matches!(run_cycle(&state, &gate, &root, listener.as_ref(), pre_write.as_ref()).await, CycleResult::Stop) {
-                        break 'reconnect;
-                    }
-                }
-                _ = pull_timer => {
-                    pull_at = None;
-                    if matches!(run_cycle(&state, &gate, &root, listener.as_ref(), pre_write.as_ref()).await, CycleResult::Stop) {
-                        break 'reconnect;
-                    }
-                }
-                _ = safety.tick() => {
-                    if matches!(run_cycle(&state, &gate, &root, listener.as_ref(), pre_write.as_ref()).await, CycleResult::Stop) {
-                        break 'reconnect;
-                    }
-                }
-                chunk = tokio::time::timeout(READ_IDLE, stream.next()) => {
-                    match chunk {
-                        Ok(Some(Ok(bytes))) => {
-                            for event in events.push(&bytes) {
-                                if event == "ready" || event == "change" {
-                                    pull_at = Some(Instant::now() + CHANGE_DEBOUNCE);
-                                }
-                            }
-                        }
-                        Ok(Some(Err(error))) => {
-                            listener.on_error(format!("read: {error}"));
-                            break;
-                        }
-                        Ok(None) => {
-                            listener.on_error("read: event stream closed".into());
-                            break;
-                        }
-                        Err(_) => {
-                            listener.on_error("read: event stream idle timeout".into());
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-        if wait_or_cancel(backoff, &mut cancel).await {
+        if wait_for_reconnect(&mut backoff, &mut cancel).await {
             break;
         }
-        backoff = (backoff * 2).min(BACKOFF_MAX);
     }
     listener.on_stopped();
 }
@@ -338,42 +408,10 @@ async fn wait_or_cancel(duration: Duration, cancel: &mut mpsc::Receiver<()>) -> 
     }
 }
 
-#[derive(Default)]
-struct EventStream {
-    buffer: String,
-}
-
-impl EventStream {
-    fn push(&mut self, bytes: &[u8]) -> Vec<String> {
-        self.buffer.push_str(&String::from_utf8_lossy(bytes));
-        self.buffer = self.buffer.replace("\r\n", "\n");
-        let mut events = Vec::new();
-        while let Some(end) = self.buffer.find("\n\n") {
-            let frame = self.buffer[..end].to_owned();
-            self.buffer.drain(..end + 2);
-            if let Some(event) = frame
-                .lines()
-                .find_map(|line| line.strip_prefix("event:").map(str::trim))
-            {
-                events.push(event.to_owned());
-            }
-        }
-        events
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::collections::HashMap;
-
-    fn events(chunks: &[&str]) -> Vec<String> {
-        let mut stream = EventStream::default();
-        chunks
-            .iter()
-            .flat_map(|chunk| stream.push(chunk.as_bytes()))
-            .collect()
-    }
 
     fn connected() -> ConnectedState {
         ConnectedState {
@@ -387,38 +425,6 @@ mod tests {
             pull_cursor: 0,
             oversize_skip: HashMap::new(),
         }
-    }
-
-    #[test]
-    fn parses_multiple_named_events() {
-        assert_eq!(
-            events(&["event: ready\ndata: \n\nevent: change\ndata: {}\n\n"]),
-            ["ready", "change"]
-        );
-    }
-
-    #[test]
-    fn ignores_comment_heartbeats() {
-        assert_eq!(
-            events(&[": keep-alive\n\nevent: ping\ndata: \n\n"]),
-            ["ping"]
-        );
-    }
-
-    #[test]
-    fn handles_crlf_and_network_chunk_boundaries() {
-        assert_eq!(
-            events(&["event: chan", "ge\r\ndata: {}\r\n\r\n"]),
-            ["change"]
-        );
-    }
-
-    #[test]
-    fn multiline_data_dispatches_one_event() {
-        assert_eq!(
-            events(&["event: change\ndata: line1\ndata: line2\n\n"]),
-            ["change"]
-        );
     }
 
     #[tokio::test]
