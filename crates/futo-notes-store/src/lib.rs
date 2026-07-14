@@ -569,6 +569,14 @@ impl LocalNoteStore {
         if collides_but_differs(&from, &to) {
             rename_through_temp(&source, &destination)?;
         } else {
+            // This renames a DIRECTORY, so the file no-replace primitive
+            // (hard_link) doesn't apply, and POSIX rename onto a non-empty dir
+            // fails ENOTEMPTY (no clobber). The only residual of the
+            // exists()-check above is an EMPTY destination dir created in this
+            // user-initiated window being replaced — no note bytes are at risk
+            // (contained notes move via the mapping loop, not this dir rename).
+            // A platform-specific no-replace dir rename (renameat2) isn't worth
+            // it for that (M17 #8, adjudicated).
             fs::rename(&source, &destination).map_err(io_error)?;
         }
         let mut mutation = self.finish_mappings(mappings, relinks);
@@ -805,21 +813,42 @@ impl LocalNoteStore {
         let title = futo_notes_core::files::note_id_from_filename(&recovered.leaf)
             .unwrap_or_else(|| recovered.leaf.clone());
         let wanted = make_id(&folder, &format!("{title} (recovered)"));
-        let id = paths::unique_note_id(&self.root, &wanted, None)?;
-        let path = paths::note_path(&self.root, &id)?;
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).map_err(io_error)?;
+        // Park by moving the backup file itself to the recovered name — NO
+        // read+create+delete (D1). But NO-REPLACE (E1, same TOCTOU class as A1
+        // create / B2 restore): an external writer landing at the chosen
+        // recovered name in the allocate→park window must not be clobbered.
+        // `hard_link` fails EEXIST rather than overwriting; on EEXIST re-suffix
+        // and retry. The link is what makes the backup terminal (it is no longer
+        // a `.sf-bak-*` the restore loop could resurrect — C1); dropping the
+        // backup completes the move, then the sidecar goes last so a crash mid-
+        // park re-sweeps rather than strands.
+        for _ in 0..1000 {
+            let id = paths::unique_note_id(&self.root, &wanted, None)?;
+            let path = paths::note_path(&self.root, &id)?;
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent).map_err(io_error)?;
+            }
+            #[cfg(test)]
+            if let Some(hook) = self.install_window_hook.lock().unwrap().as_ref() {
+                hook(&id);
+            }
+            match fs::hard_link(&recovered.backup, &path) {
+                Ok(()) => {
+                    if let Err(error) = fs::remove_file(&recovered.backup) {
+                        // Source removal failed — undo the link so no duplicate
+                        // is stranded (B4), and report.
+                        let _ = fs::remove_file(&path);
+                        return Err(io_error(error));
+                    }
+                    let _ = fs::remove_file(&recovered.sidecar);
+                    self.notify(&FileChange::Changed(note_filename(&id)));
+                    return Ok(());
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(error) => return Err(io_error(error)),
+            }
         }
-        // Atomic park (D1): RENAME the backup file itself to the collision-free
-        // recovered name — the rename is what makes the backup terminal (it is
-        // no longer a `.sf-bak-*` the restore loop could resurrect) — THEN drop
-        // the sidecar. A crash before the rename re-sweeps; a crash after leaves
-        // an orphan sidecar the next sweep cleans. No read+create+delete, so a
-        // failed park never strands the note metadata-less.
-        fs::rename(&recovered.backup, &path).map_err(io_error)?;
-        let _ = fs::remove_file(&recovered.sidecar);
-        self.notify(&FileChange::Changed(note_filename(&id)));
-        Ok(())
+        Err("could not allocate a recovered note id after repeated collisions".to_owned())
     }
 
     fn write_raw(

@@ -128,6 +128,31 @@ fn a_divergent_backup_is_parked_visibly_and_never_resurrects_a_deleted_note() {
     assert!(!store.exists("Welcome"), "a deleted note must not be resurrected");
 }
 
+// Parking a recovered backup must NOT clobber a note an external writer created
+// at the chosen recovered name in the window — it re-suffixes, and both the
+// planted note and the recovered content survive (E1, the A1/B2 TOCTOU class).
+#[test]
+fn parking_a_recovered_backup_never_clobbers_a_concurrent_writer() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    fs::write(root.0.join("Welcome.md"), "live").unwrap();
+    fs::write(root.0.join(".sf-bak-1-1-1"), "stranded").unwrap();
+    fs::write(root.0.join(".sf-bak-1-1-1.path"), "Welcome.md").unwrap();
+    store.set_install_window_hook(plant_once(&root, "peer at recovered name"));
+
+    store.bootstrap().unwrap();
+
+    assert_eq!(store.read("Welcome"), "live", "live note untouched");
+    // The planted note at the first-chosen recovered name is intact...
+    assert_eq!(
+        store.read("Welcome (recovered)"),
+        "peer at recovered name",
+        "the concurrent writer at the recovered name must not be clobbered"
+    );
+    // ...and the recovered content re-suffixed to the next name.
+    assert_eq!(store.read("Welcome (recovered)-2"), "stranded");
+}
+
 // A divergent backup in a subfolder is parked as a recovered note IN THAT
 // subfolder, not at the vault root (D4).
 #[test]
