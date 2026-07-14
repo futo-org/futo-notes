@@ -209,6 +209,22 @@ pub(super) fn derive_renames(
     renames
 }
 
+pub(super) fn append_derived_renames(
+    summary: &mut SyncSummary,
+    before: &HashMap<String, ObjectState>,
+    after: &HashMap<String, ObjectState>,
+) {
+    for rename in derive_renames(before, after) {
+        if !summary
+            .renamed
+            .iter()
+            .any(|existing| existing.from_id == rename.from_id && existing.to_id == rename.to_id)
+        {
+            summary.renamed.push(rename);
+        }
+    }
+}
+
 fn append_unique(target: &mut Vec<String>, source: Vec<String>) {
     for item in source {
         if !target.contains(&item) {

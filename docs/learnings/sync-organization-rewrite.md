@@ -6,10 +6,12 @@ Starting from `df7f844d1e9e3a04a1e5dd0ed9b9e6671ac2ed5c`, the sync crate was reb
 around the ownership rules in the codebase-layout blueprint without changing
 its server protocol, persisted formats, public application API, or sync order.
 
-Production code changed from 2,790 to 2,926 lines (+4.9%), counted before
-`#[cfg(test)]` and excluding test-only files. The increase is module-boundary
-overhead: imports and explicit interfaces replaced one 1,740-line production
-module. No production behavior was deliberately added or removed.
+Production code changed from 2,790 to 3,261 lines (+16.9%), counted before
+`#[cfg(test)]` and excluding test-only files. The initial module split landed
+at 2,926 lines; the follow-up helper extraction added 335 lines of private
+functions and context types so push, pull, remote application, conflict
+resolution, connection, and live streaming each read as short orchestration
+sequences. No production behavior was deliberately added or removed.
 
 The 43 fast tests were preserved one-for-one. The default crate command still
 executes all 43, while discovering the same 25 real-server and 2 SSE tests as
