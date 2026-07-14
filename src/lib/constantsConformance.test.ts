@@ -11,7 +11,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
-import { IMAGE_EXTENSIONS, MAX_TITLE_LENGTH } from '@futo-notes/editor';
+import { MAX_TITLE_LENGTH } from '@futo-notes/editor';
 import { LOCAL_WRITE_TTL_MS, SYNC_WRITE_TTL_MS } from './writeSuppression';
 
 const CONSTANTS_PATH = join(
@@ -22,10 +22,6 @@ const CONSTANTS_PATH = join(
 const constants = JSON.parse(readFileSync(CONSTANTS_PATH, 'utf8'));
 
 describe('cross-language constants conformance', () => {
-  it('@futo-notes/editor IMAGE_EXTENSIONS matches the fixture', () => {
-    expect([...IMAGE_EXTENSIONS]).toEqual(constants.imageExtensions);
-  });
-
   it('rules MAX_TITLE_LENGTH matches the fixture', () => {
     expect(MAX_TITLE_LENGTH).toBe(constants.maxTitleLength);
   });

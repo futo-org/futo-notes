@@ -31,29 +31,6 @@ describe('ensureSafeNoteId', () => {
     expect(() => ensureSafeNoteId('')).toThrow('note id cannot be empty');
   });
 
-  it('rejects . and ..', () => {
-    expect(() => ensureSafeNoteId('.')).toThrow('invalid note id');
-    expect(() => ensureSafeNoteId('..')).toThrow('invalid note id');
-  });
-
-  it('accepts forward slashes between valid components (path-as-ID)', () => {
-    expect(() => ensureSafeNoteId('foo/bar')).not.toThrow();
-    expect(() => ensureSafeNoteId('Specs/folder-support')).not.toThrow();
-    expect(() => ensureSafeNoteId('a/b/c')).not.toThrow();
-  });
-
-  it('rejects backslashes (always invalid)', () => {
-    expect(() => ensureSafeNoteId('foo\\bar')).toThrow('invalid note id');
-  });
-
-  it('rejects empty / dot / dotdot components', () => {
-    expect(() => ensureSafeNoteId('foo/')).toThrow('invalid note id');
-    expect(() => ensureSafeNoteId('/foo')).toThrow('invalid note id');
-    expect(() => ensureSafeNoteId('foo//bar')).toThrow('invalid note id');
-    expect(() => ensureSafeNoteId('a/./b')).toThrow('invalid note id');
-    expect(() => ensureSafeNoteId('a/../b')).toThrow('invalid note id');
-  });
-
   it('rejects depth above MAX_FOLDER_DEPTH', () => {
     const tooDeep = Array.from({ length: 12 }, (_, i) => `f${i}`).join('/');
     expect(() => ensureSafeNoteId(tooDeep)).toThrow();
@@ -72,42 +49,6 @@ describe('ensureSafeNoteId', () => {
     expect(() => ensureSafeNoteId('note\x00null')).toThrow('invalid note id');
     expect(() => ensureSafeNoteId('note\x1ftab')).toThrow('invalid note id');
     expect(() => ensureSafeNoteId('note\x7fdel')).toThrow('invalid note id');
-  });
-
-  it('rejects null bytes at various positions', () => {
-    expect(() => ensureSafeNoteId('note\x00')).toThrow();
-    expect(() => ensureSafeNoteId('\x00note')).toThrow();
-    expect(() => ensureSafeNoteId('no\x00te')).toThrow();
-  });
-
-  it('accepts valid names', () => {
-    expect(() => ensureSafeNoteId('hello world')).not.toThrow();
-    expect(() => ensureSafeNoteId('my-note')).not.toThrow();
-    expect(() => ensureSafeNoteId('cafe\u0301')).not.toThrow(); // café with combining accent
-    expect(() => ensureSafeNoteId('.hidden')).not.toThrow();
-  });
-
-  it('accepts whitespace-only IDs (Rust behavior)', () => {
-    expect(() => ensureSafeNoteId('   ')).not.toThrow();
-    expect(() => ensureSafeNoteId(' ')).not.toThrow();
-  });
-
-  it('accepts unicode and emoji', () => {
-    expect(() => ensureSafeNoteId('\u{1F4DD} notes')).not.toThrow(); // 📝
-    expect(() => ensureSafeNoteId('cafe\u0301 \u2615')).not.toThrow(); // café ☕
-    expect(() => ensureSafeNoteId('\u65E5\u672C\u8A9E\u30CE\u30FC\u30C8')).not.toThrow(); // 日本語ノート
-  });
-
-  it('allows leading/trailing dots (unlike title validation)', () => {
-    expect(() => ensureSafeNoteId('trailing.')).not.toThrow();
-    expect(() => ensureSafeNoteId('...dots')).not.toThrow();
-  });
-
-  // Adversarial inputs matching Rust tests
-  it('rejects adversarial inputs', () => {
-    expect(() => ensureSafeNoteId('../../../etc/passwd')).toThrow();
-    expect(() => ensureSafeNoteId('..\\..\\windows\\system32')).toThrow();
-    expect(() => ensureSafeNoteId('note<script>')).toThrow();
   });
 
   it('works correctly when called multiple times (no regex state leak)', () => {

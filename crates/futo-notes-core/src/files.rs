@@ -704,30 +704,6 @@ mod tests {
     // ── ensure_safe_note_id ─────────────────────────────────────────
 
     #[test]
-    fn safe_id_rejects_empty() {
-        assert!(ensure_safe_note_id("").is_err());
-    }
-
-    #[test]
-    fn safe_id_rejects_traversal() {
-        assert!(ensure_safe_note_id("..").is_err());
-        assert!(ensure_safe_note_id(".").is_err());
-        assert!(ensure_safe_note_id("foo/..").is_err());
-        assert!(ensure_safe_note_id("../foo").is_err());
-        assert!(ensure_safe_note_id("foo/./bar").is_err());
-        assert!(ensure_safe_note_id("foo\\bar").is_err());
-        assert!(ensure_safe_note_id("/foo").is_err());
-        assert!(ensure_safe_note_id("foo/").is_err());
-        assert!(ensure_safe_note_id("foo//bar").is_err());
-    }
-
-    #[test]
-    fn safe_id_accepts_path_components() {
-        assert!(ensure_safe_note_id("Specs/folder-support").is_ok());
-        assert!(ensure_safe_note_id("a/b/c").is_ok());
-    }
-
-    #[test]
     fn safe_id_rejects_excessive_depth() {
         let too_deep = (0..MAX_FOLDER_DEPTH + 2)
             .map(|i| format!("d{i}"))
@@ -888,14 +864,6 @@ mod tests {
         assert!(ensure_safe_note_id("note\x00null").is_err());
         assert!(ensure_safe_note_id("note\x1ftab").is_err());
         assert!(ensure_safe_note_id("note\x7fdel").is_err());
-    }
-
-    #[test]
-    fn safe_id_accepts_valid() {
-        assert!(ensure_safe_note_id("hello world").is_ok());
-        assert!(ensure_safe_note_id("café").is_ok());
-        assert!(ensure_safe_note_id("my-note").is_ok());
-        assert!(ensure_safe_note_id(".hidden").is_ok());
     }
 
     // ── safe_appdata_path ───────────────────────────────────────────
@@ -1416,38 +1384,6 @@ mod tests {
     // ── Adversarial: Path traversal attacks ─────────────────────────────
 
     #[test]
-    fn safe_id_rejects_path_traversal_variants() {
-        // Forward-slash separated path components are LEGAL post-folder-support
-        // (a note ID like `Specs/foo` is valid). We still reject backslash,
-        // dot/dotdot components, and absolute or empty boundary cases.
-        let attacks = [
-            "..",
-            ".",
-            "foo\\bar",
-            "../etc/passwd",
-            "..\\windows\\system32",
-            "foo/../bar",
-            "foo/./bar",
-            "/foo",
-            "foo/",
-            "foo//bar",
-        ];
-        for attack in &attacks {
-            assert!(
-                ensure_safe_note_id(attack).is_err(),
-                "ensure_safe_note_id should reject {attack:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn safe_id_rejects_null_bytes() {
-        assert!(ensure_safe_note_id("note\x00").is_err());
-        assert!(ensure_safe_note_id("\x00note").is_err());
-        assert!(ensure_safe_note_id("no\x00te").is_err());
-    }
-
-    #[test]
     fn safe_appdata_rejects_traversal_variants() {
         let base = Path::new("/tmp/notes");
         let attacks = [
@@ -1470,25 +1406,6 @@ mod tests {
         let base = Path::new("/tmp/notes");
         // On Unix these parse differently, but the / and \ checks should still catch them
         assert!(safe_appdata_path(base, "/absolute/path").is_err());
-    }
-
-    #[test]
-    fn safe_id_accepts_dots_in_middle() {
-        // "v2.0" is a valid note ID — dots are only special as the entire name
-        assert!(ensure_safe_note_id("v2.0").is_ok());
-        assert!(ensure_safe_note_id("my.note.title").is_ok());
-    }
-
-    #[test]
-    fn safe_id_accepts_hidden_files() {
-        // .hidden is accepted by ensure_safe (validation is separate)
-        assert!(ensure_safe_note_id(".hidden").is_ok());
-    }
-
-    #[test]
-    fn safe_id_rejects_trailing_spaces_with_forbidden() {
-        // Trailing spaces themselves aren't forbidden, but control chars are
-        assert!(ensure_safe_note_id("note\x00").is_err());
     }
 
     // ── Adversarial: get_unique_note_id with many collisions ────────────

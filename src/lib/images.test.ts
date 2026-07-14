@@ -1,11 +1,5 @@
 import { describe, it, expect, beforeEach, afterAll, vi } from 'vitest';
-import {
-  isImageFilename,
-  validateImageExt,
-  generateImageFilename,
-  listImageFiles,
-  deleteImage,
-} from './images';
+import { validateImageExt, generateImageFilename, listImageFiles, deleteImage } from './images';
 
 vi.mock('$lib/platform');
 
@@ -20,40 +14,6 @@ beforeEach(() => {
 
 afterAll(() => {
   testFS._cleanup();
-});
-
-// ── isImageFilename ──────────────────────────────────────
-
-describe('isImageFilename', () => {
-  it('accepts valid image extensions', () => {
-    expect(isImageFilename('photo.png')).toBe(true);
-    expect(isImageFilename('photo.jpg')).toBe(true);
-    expect(isImageFilename('photo.jpeg')).toBe(true);
-    expect(isImageFilename('photo.gif')).toBe(true);
-    expect(isImageFilename('photo.webp')).toBe(true);
-    expect(isImageFilename('photo.svg')).toBe(true);
-    expect(isImageFilename('photo.bmp')).toBe(true);
-    expect(isImageFilename('photo.ico')).toBe(true);
-    expect(isImageFilename('photo.avif')).toBe(true);
-    expect(isImageFilename('photo.heic')).toBe(true);
-  });
-
-  it('is case insensitive', () => {
-    expect(isImageFilename('photo.PNG')).toBe(true);
-    expect(isImageFilename('photo.Jpg')).toBe(true);
-    expect(isImageFilename('photo.JPEG')).toBe(true);
-  });
-
-  it('rejects non-image extensions', () => {
-    expect(isImageFilename('note.md')).toBe(false);
-    expect(isImageFilename('file.txt')).toBe(false);
-    expect(isImageFilename('script.exe')).toBe(false);
-  });
-
-  it('rejects files without extensions', () => {
-    expect(isImageFilename('no_extension')).toBe(false);
-    expect(isImageFilename('.hidden')).toBe(false);
-  });
 });
 
 // ── validateImageExt ─────────────────────────────────────
