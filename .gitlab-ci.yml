@@ -397,22 +397,18 @@ test:
 # matches packages/editor/src/bridge.ts), the drift registry (R1 — AGENTS.md
 # §12's permitted-duplicate list as code, deny-by-default) and the debt
 # ratchet (R2 — 4 fuzzy debt counts that can only go down). The
-# constants-conformance gate (F7/F21) and the bridge exhaustiveness type
-# check ride in the `test`/`test:rust`/`test:rust:workspace` jobs already,
-# as ordinary Rust/vitest tests and a tsc error.
+# Constants conformance (F7/F21), bridge exhaustiveness, and the generated
+# sync contract ride in `test`/`test:rust`/`test:rust:workspace` as ordinary
+# TypeScript/Rust tests. Keep this job portable instead of compiling Tauri a
+# second time; test:rust:workspace owns Rust-backed generation checks.
 test:arch-gates:
   stage: test
   cache:
     - !reference [.cache-pnpm, cache]
-    - !reference [.cache-cargo-tauri, cache]
   script:
-    # check:sync-contract compiles the Tauri crate to regenerate the Rust-owned
-    # TypeScript wire records. The default image does not include the Linux
-    # GTK/WebKit pkg-config dependencies required by that crate.
-    - !reference [.setup-linux-deps, script]
     - pnpm install --frozen-lockfile --prefer-offline
-    # Shared with `just arch-gate`; the pinned CI image does not include just.
-    - pnpm run check:arch-gate
+    # Portable subset of `just arch-gate`; the pinned CI image does not include just.
+    - pnpm run check:arch-gate:portable
   rules:
     - if: $CI_COMMIT_TAG
     - if: $CI_MERGE_REQUEST_IID
@@ -534,6 +530,7 @@ test:rust:workspace:
         - crates/**/*
         - apps/tauri/src-tauri/**/*
         - apps/tauri/Cargo.toml
+        - src/lib/syncContract.generated.ts
         - scripts/build-rust-android.sh
         - scripts/build-rust-ios.sh
         # CI config changes can alter this job's toolchain/system-dep setup
