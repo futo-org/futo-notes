@@ -3,18 +3,13 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use tantivy::collector::{Collector, TopDocs};
+use tantivy::collector::TopDocs;
 use tantivy::query::QueryParser;
 use tantivy::schema::{
     Field, IndexRecordOption, Schema, TextFieldIndexing, TextOptions, FAST, INDEXED, STORED,
     STRING,
 };
 use tantivy::{Index, IndexReader, IndexWriter, ReloadPolicy, TantivyDocument, Term};
-
-// Silence unused-import warnings: Collector trait import is required for
-// `Searcher::search` to recognize `TopDocs` as a Collector.
-#[allow(dead_code)]
-fn _collector_in_scope<C: Collector>() {}
 
 pub struct Bm25Schema {
     pub note_id: Field,
@@ -120,7 +115,7 @@ impl TantivyIndices {
         let _ = self.bm25_writer.delete_term(term);
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn list_bm25_note_ids(&self) -> Result<Vec<String>, String> {
         use tantivy::collector::DocSetCollector;
         use tantivy::query::AllQuery;
@@ -206,11 +201,6 @@ impl TantivyIndices {
             }
         }
         Ok(hits)
-    }
-
-    #[allow(dead_code)]
-    pub fn bm25_num_docs(&self) -> u64 {
-        self.bm25_reader.searcher().num_docs()
     }
 }
 
