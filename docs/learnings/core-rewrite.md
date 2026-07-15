@@ -4,10 +4,10 @@
 
 - Workflow: guided contract rewrite, dependency phase 1 (core).
 - Current stage: Stage 5 compliance and verification complete for available toolchains.
-- Review gate: **Gate C packet ready; Android verification is environment-blocked as disclosed below.**
+- Review gate: **Gate C approved and committed; Android verification is environment-blocked as disclosed below.**
 - Base commit: `885231efaac35ad5b7aee0f02dcbea693931aecc` (current `origin/main` when initialized).
-- Worktree: `/Users/mason/.codex/worktrees/c43d/futo-notes`.
-- Branch: `codex/rewrite-core`.
+- Implementation worktree: `/Users/mason/.codex/worktrees/c43d/futo-notes` (the fresh worktree used for the rewrite).
+- Current branch: `refactor/core-crate` (created as `codex/rewrite-core`, then renamed after review).
 - Initial state: clean detached worktree at the base commit; the branch was then created without copying any prior refactor branch.
 
 ## Exact scope
@@ -645,5 +645,5 @@ Final reconciliation: **101 Pass, 91 Removed, 3 Queued, 0 Pending**.
   whole-scope audit removing comments that merely restate names or syntax.
 - **Gate C:** approved by Mason on 2026-07-15 by requesting the complete reviewed worktree be
   committed after the accounting and supported-functionality audit.
-- The rewrite is committed on `codex/rewrite-core`; no push, merge request, or publication has
-  occurred.
+- The rewrite is committed on `refactor/core-crate`; Git and GitLab remain the authority for its
+  publication state.
