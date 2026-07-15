@@ -13,8 +13,6 @@
 //! assert on DELTAS (counts, presence of their own files, cursor advance) —
 //! never on absolute object totals — and run single-threaded.
 
-#![allow(dead_code)]
-
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 

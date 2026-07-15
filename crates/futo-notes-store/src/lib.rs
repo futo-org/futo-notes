@@ -144,6 +144,9 @@ struct SearchState {
     last_start_failure: Option<Instant>,
 }
 
+#[cfg(test)]
+type InstallWindowHook = Box<dyn Fn(&str) + Send + Sync>;
+
 /// One instance owns one vault. Every mutation is serialized through `gate`,
 /// so conditional writes and multi-file rename/relink operations have a
 /// single-process decision boundary shared by all shells.
@@ -153,11 +156,10 @@ pub struct LocalNoteStore {
     gate: Mutex<()>,
     search: Mutex<SearchState>,
     retry_cooldown: Duration,
-    /// Test-only fault injection fired in `install_new` between id allocation
-    /// and the no-replace install, to simulate a concurrent writer landing at
-    /// the chosen id. Always `None` in production (never fired outside tests).
-    #[allow(clippy::type_complexity)]
-    install_window_hook: Mutex<Option<Box<dyn Fn(&str) + Send + Sync>>>,
+    /// Fault injection fired between id allocation and no-replace installation
+    /// to simulate a concurrent writer landing at the chosen id.
+    #[cfg(test)]
+    install_window_hook: Mutex<Option<InstallWindowHook>>,
 }
 
 impl LocalNoteStore {
@@ -172,6 +174,7 @@ impl LocalNoteStore {
             gate: Mutex::new(()),
             search: Mutex::new(SearchState::default()),
             retry_cooldown: SEARCH_ENGINE_RETRY_COOLDOWN,
+            #[cfg(test)]
             install_window_hook: Mutex::new(None),
         }
     }
@@ -992,7 +995,7 @@ impl LocalNoteStore {
     }
 
     #[cfg(test)]
-    fn set_install_window_hook(&self, hook: Box<dyn Fn(&str) + Send + Sync>) {
+    fn set_install_window_hook(&self, hook: InstallWindowHook) {
         *self.install_window_hook.lock().unwrap() = Some(hook);
     }
 
