@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::path::Path;
 
-use futo_notes_core::e2ee::{collision_conflict_filename, conflict_filename};
+use futo_notes_core::conflict_names::{collision_conflict_filename, conflict_filename};
 use futo_notes_core::files::{
     file_mtime_ms, read_blob_as_base64, write_atomic_text, write_base64_as_blob,
 };

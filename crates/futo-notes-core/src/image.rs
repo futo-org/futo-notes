@@ -1,24 +1,9 @@
-//! Canonical image-filename detection. THE single source of truth for the
-//! image-extension set across the Rust workspace: `futo-notes-model::image`
-//! re-exports from here, the sync orchestrator classifies blob-vs-note with
-//! `is_image_filename`, and the conformance fixtures hold it bit-for-bit
-//! against the sanctioned TS hot-path copy in `packages/editor/src/images.ts`.
-//!
-//! Historically an independent 13-entry copy lived in `invariants.rs` (with
-//! `.tiff/.tif/.heif`) and disagreed with the conformance-locked 10-set. D4
-//! unified everything on the 10-set below; `invariants.rs` now delegates here.
+//! Rust image extensions are conformance-locked to `packages/editor/src/images.ts`.
 
-/// Recognized image extensions (lowercase, no dot). Matches TS
-/// `IMAGE_EXTENSIONS`.
 pub const IMAGE_EXTENSIONS: [&str; 10] = [
     "jpg", "jpeg", "png", "gif", "webp", "svg", "bmp", "ico", "avif", "heic",
 ];
 
-/// True if `filename` has a recognized image extension (case-insensitive).
-///
-/// Mirrors TS `isImageFilename`: the extension is everything after the LAST
-/// `.`; a name with no `.` (or a leading-dot name like `.hidden`, whose
-/// "extension" is the whole stem) is not an image unless that stem matches.
 pub fn is_image_filename(filename: &str) -> bool {
     let dot = match filename.rfind('.') {
         Some(idx) => idx,
@@ -28,13 +13,6 @@ pub fn is_image_filename(filename: &str) -> bool {
     IMAGE_EXTENSIONS.contains(&ext.as_str())
 }
 
-/// True if `filename` is a syncable note-tree entry: a `.md` note or a
-/// canonical image blob. The sync layer uses this as the note-vs-blob-vs-
-/// ignore classifier. Anything else — foreign extensions, or the legacy
-/// image formats (`.tiff/.tif/.heif`) that older clients uploaded before D4
-/// narrowed [`IMAGE_EXTENSIONS`] — is deliberately left untouched on both the
-/// wire and disk: the sync orchestrator never downloads it as a note, never
-/// tombstones it, and never errors the cycle over it.
 pub fn is_syncable_filename(filename: &str) -> bool {
     filename.ends_with(".md") || is_image_filename(filename)
 }
@@ -58,7 +36,6 @@ mod tests {
 
     #[test]
     fn legacy_extensions_are_not_images() {
-        // Dropped by D4 — older clients may still hold these on the server.
         for ext in ["tiff", "tif", "heif"] {
             assert!(!is_image_filename(&format!("scan.{ext}")), "{ext}");
         }
@@ -77,7 +54,6 @@ mod tests {
         assert!(is_syncable_filename("note.md"));
         assert!(is_syncable_filename("folder/note.md"));
         assert!(is_syncable_filename("image-123.png"));
-        // Legacy + foreign extensions are not syncable.
         assert!(!is_syncable_filename("scan.tiff"));
         assert!(!is_syncable_filename("scan.heif"));
         assert!(!is_syncable_filename("archive.zip"));

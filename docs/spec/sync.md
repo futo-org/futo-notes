@@ -593,9 +593,10 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   *entire* sync apply mid-download. The recovery PARKS the colliding entry as
   a hidden `.sf-bak-…` file (restored if the retry fails, deleted on success)
   rather than deleting it first — a crash mid-recovery leaves the old bytes
-  recoverable on disk instead of losing them. → futo-notes-core `files.rs`
-  (`park_case_variants` + retry; regression test
-  `write_atomic_text_overwrites_case_variant`)
+  recoverable on disk instead of losing them. → futo-notes-core
+  `files/{atomic_write,parked_backup}.rs`; regression tests
+  `recover_restores_a_note_stranded_in_a_parked_backup` and
+  `recover_returns_a_divergent_backup_as_terminal`
 
 - A save may only persist content read from a **live** editor view. The
   desktop editor's `getContent()` returns `undefined` (never `''`) when the

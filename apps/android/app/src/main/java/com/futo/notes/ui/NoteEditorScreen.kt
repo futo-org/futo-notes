@@ -81,7 +81,7 @@ import java.util.Date
 import java.util.Locale
 
 /** A note title that is still the auto-assigned placeholder: exactly "Untitled",
- *  or a dedup variant "Untitled-N" (the Rust `get_unique_note_id` appends `-2`,
+ *  or a dedup variant "Untitled-N" (the Rust store's `unique_note_id` appends `-2`,
  *  `-3`, …). Tapping such a title selects it whole so a keystroke replaces it;
  *  any other title takes the caret at the tapped character. */
 private val UNTITLED_PLACEHOLDER = Regex("""^Untitled(-\d+)?$""")
