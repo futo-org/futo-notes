@@ -83,10 +83,12 @@ outputs are structured (JSON). They live in a hidden folder:
 
 Repo facts that shape this:
 
-- `scan_notes` already skips dot-entries (`crates/futo-notes-model/src/crud.rs:167`),
+- the note scan already skips dot-entries (`crates/futo-notes-store/src/vault.rs`,
+  the `walk`/`visible` filter),
   so `.generated/` is invisible to every client's note list **today, for free**.
 - The sync orchestrator skips hidden dirs **and** only syncs `.md`
-  (`crates/futo-notes-sync/src/sync.rs:308`). So generated artifacts
+  (`crates/futo-notes-sync/src/sync/vault.rs`, `local_files`/`walk` +
+  `is_syncable_filename`). So generated artifacts
   **do not sync yet**. Fine for the PC-local phase; becomes a work item the
   moment the phone should wake up to a digest (> **Gap:** sync payload must
   learn to carry `.generated/` + the config file).
