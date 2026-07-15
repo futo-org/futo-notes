@@ -1,15 +1,10 @@
-import { IMAGE_EXTENSIONS } from '@futo-notes/shared';
+import { IMAGE_EXTENSIONS, isImageFilename } from '@futo-notes/editor';
 
 const ALLOWED_IMAGE_EXTENSIONS = new Set<string>(IMAGE_EXTENSIONS);
 
 const MAX_EXTENSION_LENGTH = 10;
 
-export function isImageFilename(filename: string): boolean {
-  const separator = filename.lastIndexOf('.');
-  if (separator < 0) return false;
-  const extension = filename.slice(separator + 1);
-  return extension.length > 0 && ALLOWED_IMAGE_EXTENSIONS.has(extension.toLowerCase());
-}
+export { isImageFilename };
 
 export function validateImageExtension(extension: string): string {
   const candidate = extension.startsWith('.') ? extension.slice(1) : extension;

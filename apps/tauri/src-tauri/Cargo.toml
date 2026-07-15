@@ -70,6 +70,10 @@ keyring = { version = "3", features = ["sync-secret-service", "crypto-rust"] }
 [lints.clippy]
 too_many_lines = "warn"
 
+[dev-dependencies]
+specta = { version = "=2.0.0-rc.23", features = ["derive"] }
+specta-typescript = "=0.0.10"
+
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]

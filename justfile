@@ -10,7 +10,7 @@ alias in := ios-native
 alias b := build
 alias t := test
 alias tu := test-unit
-alias ts := test-shared
+alias te := test-editor
 alias l := lint
 alias c := check
 alias dd := deploy-deb
@@ -299,11 +299,11 @@ test-unit:
 test-unit-full:
   pnpm run test:unit:full
 
-test-shared:
-  pnpm run test:shared
+test-editor:
+  pnpm run test:editor
 
-test-shared-full:
-  pnpm run test:shared:full
+test-editor-full:
+  pnpm run test:editor:full
 
 test-e2e:
   pnpm run test:e2e:smoke
@@ -409,14 +409,23 @@ check-command-reachability:
 check-platform-discipline:
   node scripts/check-platform-discipline.mjs
 
-# Regenerate the Android bridge-coverage spec (BridgeSpec.kt) from the
-# @futo-notes/editor futoBridge contract (packages/editor/src/bridge.ts).
+# Regenerate the native bridge-coverage specs from the @futo-notes/editor
+# futoBridge contract (packages/editor/src/bridge.ts).
 bridge-spec:
   pnpm exec tsx scripts/gen-bridge-spec.ts --write
 
-# Fail if the generated Android bridge spec has drifted from bridge.ts.
+# Fail if the generated native bridge specs have drifted from bridge.ts.
 bridge-spec-check:
   pnpm exec tsx scripts/gen-bridge-spec.ts --check
+
+# Generate TypeScript records from the Rust-owned Tauri sync IPC contract.
+sync-contract:
+  mkdir -p dist
+  FUTO_UPDATE_SYNC_CONTRACT=1 cargo test -p futo-notes-tauri generated_typescript_contract_is_current
+
+sync-contract-check:
+  mkdir -p dist
+  cargo test -p futo-notes-tauri generated_typescript_contract_is_current
 
 # Fail on a stale drift-registry.json entry (copy missing / pattern no longer
 # matches / lock file missing / lockStatus inconsistent), or a NEW file

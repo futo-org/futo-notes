@@ -40,7 +40,6 @@ export default defineConfig({
       $shared: path.resolve(__dirname, './src/shared'),
       '@': path.resolve(__dirname, './'),
       '/src': path.resolve(__dirname, './src'),
-      '@futo-notes/shared': path.resolve(__dirname, './packages/shared/src'),
       '@futo-notes/editor': path.resolve(__dirname, './packages/editor/src'),
     },
   },

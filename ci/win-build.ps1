@@ -99,9 +99,9 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Invoke-Step "Installing npm dependencies" {
-    # The Windows desktop build only needs the root app, Tauri shell, and shared package.
+    # The Windows desktop build only needs the root app, Tauri shell, and editor package.
     # Excluding the server workspace avoids native server-only deps like better-sqlite3.
-    pnpm install --filter . --filter @futo-notes/tauri --filter @futo-notes/shared --frozen-lockfile
+    pnpm install --filter . --filter @futo-notes/tauri --filter @futo-notes/editor --frozen-lockfile
 }
 
 Invoke-Step "Building frontend" {

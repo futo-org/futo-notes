@@ -7,8 +7,13 @@ Desktop Tauri consumes the editor as Svelte/TypeScript source and mounts
 `editor.html` bundle in a WebView and drive it through the versioned
 `futoBridge` contract.
 
-Consumed as TypeScript source (no build step), like `@futo-notes/shared`.
+Consumed as TypeScript source with no build step.
 Path alias: `@futo-notes/editor` → `packages/editor/src`.
+
+This package also owns the sanctioned synchronous TypeScript mirrors of the
+Rust note rules needed in the editor hot path, including image filename
+classification. Cross-language fixtures in `tests/conformance/` keep those
+mirrors aligned with Rust.
 
 ## The bridge contract — `src/bridge.ts`
 

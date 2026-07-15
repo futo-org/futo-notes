@@ -154,7 +154,7 @@ export interface OpenNoteMessage {
 /**
  * Emitted when the user taps a toolbar image button. The host opens the
  * native picker, saves the image bytes into the vault root (honoring
- * `@futo-notes/shared` IMAGE_EXTENSIONS), then calls
+ * `@futo-notes/editor` IMAGE_EXTENSIONS), then calls
  * {@link FutoEditorApi.insertImage} with the saved filename.
  */
 export interface PickImageMessage {
@@ -180,7 +180,7 @@ export interface CursorContextMessage {
  * saves them into the vault root — reusing the SAME save path as the
  * `pickImage` flow — then calls {@link FutoEditorApi.insertImage} with the
  * resulting filename. `data` is the image bytes base64-encoded (no `data:`
- * prefix); `ext` is the lowercased extension from `@futo-notes/shared`
+ * prefix); `ext` is the lowercased extension from `@futo-notes/editor`
  * `IMAGE_EXTENSIONS` (e.g. "png", "jpg").
  */
 export interface SaveImageDataMessage {
@@ -233,10 +233,10 @@ export type FutoEditorOutboundMessage =
 
 /**
  * Every `type` value {@link FutoEditorOutboundMessage} can carry. Consumed by
- * `scripts/gen-bridge-spec.ts` to generate the native coverage spec (Android:
- * `BridgeSpec.kt`, source of truth for the JUnit test asserting
- * `EditorWebView.kt` handles — or explicitly exempts — every type; iOS via
- * PKT-10). Also used below as a compile-time exhaustiveness check: if a
+ * `scripts/gen-bridge-spec.ts` to generate the native coverage specs. Android's
+ * JUnit test asserts `EditorWebView.kt` handles — or explicitly exempts — every
+ * type; Swift switches exhaustively over its generated enum. Also used below
+ * as a compile-time exhaustiveness check: if a
  * message type is added to (or removed from) the union without updating this
  * array, `_OutboundMessageTypesCoverExactly` fails to compile.
  */

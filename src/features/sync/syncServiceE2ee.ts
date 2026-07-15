@@ -25,65 +25,24 @@ import {
 import { getPlatformFS, isTauri } from '$lib/platform';
 import { getSyncErrorMessage } from './syncErrorMessage';
 import { showGlobalToast } from '$shared/notifications/toastBus';
+import type {
+  E2eeConnectInput,
+  E2eeConnectOutput,
+  E2eeResumeInput,
+  E2eeStatusOutput,
+  SyncFailure,
+  SyncSummary,
+} from './syncContract.generated';
 
 // ── Public types ────────────────────────────────────────────────────────
 
-export interface SyncSummary {
-  uploaded: number;
-  downloaded: number;
-  deleted: number;
-  conflicts: number;
-  /** Per-item ops that failed without aborting the cycle. Non-empty drives
-   *  the failure indicator + toast. */
-  failures: SyncFailure[];
-  /** User-facing one-liner describing `failures`, computed in the Rust core
-   *  so every shell shows identical wording. Absent for a clean cycle. */
-  failureMessage?: string | null;
-  updatedIds: string[];
-  deletedIds: string[];
-  renamed: Array<{ fromId: string; toId: string }>;
-  peerUpdatedIds: string[];
-  peerDeletedIds: string[];
-  /** Count of note files this cycle wrote to the local tree — the native
-   *  shells' editor-reload signal for push-side merges (F2). Kept in lockstep
-   *  with the Rust wire struct (F22 hand-maintained); optional here because
-   *  desktop reloads on `updatedIds` and never gates on this. */
-  localWritesApplied?: number;
-}
-
-/** One per-item sync failure. `kind` is `'upload' | 'delete' | 'checkpoint'
- *  | 'download' | 'decrypt' | 'rejected'`; `statusCode` is the server HTTP
- *  status when the failure came from a response (absent for transport/local
- *  errors). `'rejected'` is a permanent unsupported-name skip (not retried). */
-export interface SyncFailure {
-  filename: string;
-  kind: string;
-  statusCode?: number;
-}
+export type { SyncFailure, SyncSummary };
 
 export type SyncProgress = {
   phase: 'reconciling' | 'pushing' | 'pulling';
   current: number;
   total: number;
 };
-
-// ── Internal wire types ─────────────────────────────────────────────────
-
-interface E2eeConnectOutput {
-  userId: string;
-  collectionId: string;
-  token: string;
-  authMode: string;
-}
-
-interface E2eeStatusOutput {
-  connected: boolean;
-  serverUrl?: string;
-  userId?: string;
-  collectionId?: string;
-  maxVersion: number;
-  objectCount: number;
-}
 
 // ── Password store (OS keyring, held in memory for the session) ─────────
 //
@@ -256,14 +215,15 @@ async function ensureConnected(passwordOverride?: string): Promise<void> {
     throw new Error('E2EE sync not configured');
   }
   try {
+    const input: E2eeResumeInput = {
+      serverUrl: s.e2eeServerUrl,
+      token: s.e2eeAuthToken,
+      userId: s.e2eeUserId,
+      collectionId: s.e2eeCollectionId,
+      password,
+    };
     await invoke('e2ee_resume', {
-      input: {
-        serverUrl: s.e2eeServerUrl,
-        token: s.e2eeAuthToken,
-        userId: s.e2eeUserId,
-        collectionId: s.e2eeCollectionId,
-        password,
-      },
+      input,
     });
   } catch (e) {
     // The stored vault no longer exists on the server — e.g. it was a duplicate
@@ -346,8 +306,9 @@ export async function connectE2ee(serverUrl: string, password: string): Promise<
   // must not reach the transport untrimmed — that reintroduces the opaque
   // failure this validation exists to prevent. → sync.md
   const normalizedUrl = serverUrl.trim();
+  const input: E2eeConnectInput = { serverUrl: normalizedUrl, password };
   const out = await invoke<E2eeConnectOutput>('e2ee_connect', {
-    input: { serverUrl: normalizedUrl, password },
+    input,
   });
   await withCredentialLock(async () => {
     // A fresh credential is now authoritative — invalidate any in-flight boot

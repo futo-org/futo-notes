@@ -5,7 +5,7 @@
 //! `tests/conformance/generate.mjs`) and asserts `futo-notes-model` reproduces
 //! every expected output bit-for-bit. If a rule drifts in Rust this test goes
 //! red; if it drifts in TS, the Vitest conformance test
-//! (`packages/shared/src/conformance.test.ts`) goes red. Rule drift therefore
+//! (`packages/editor/src/conformance.test.ts`) goes red. Rule drift therefore
 //! cannot land silently in either language.
 
 use std::path::PathBuf;
@@ -190,19 +190,6 @@ fn wikilinks_conformance() {
 #[test]
 fn constants_conformance() {
     let fixture = load("constants");
-    let expected_exts: Vec<String> = fixture["imageExtensions"]
-        .as_array()
-        .expect("imageExtensions array")
-        .iter()
-        .map(|v| v.as_str().expect("extension is a string").to_string())
-        .collect();
-    let actual_exts: Vec<String> =
-        model::IMAGE_EXTENSIONS.iter().map(|e| e.to_string()).collect();
-    assert_eq!(
-        actual_exts, expected_exts,
-        "futo_notes_model::IMAGE_EXTENSIONS drifted from tests/conformance/constants.json"
-    );
-
     let expected_max_title_length = fixture["maxTitleLength"]
         .as_u64()
         .expect("maxTitleLength") as usize;

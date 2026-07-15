@@ -24,7 +24,6 @@
       "$features/*": ["src/features/*"],
       "$shared/*": ["src/shared/*"],
       "@/*": ["./*"],
-      "@futo-notes/shared": ["packages/shared/src"],
       "@futo-notes/editor": ["packages/editor/src"],
       "@futo-notes/editor/*": ["packages/editor/src/*"]
     },

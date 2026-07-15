@@ -13,12 +13,15 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import uniffi.futo_notes_ffi.imageExtensions
 
 /**
- * Image extensions the sync layer treats as images. HARDCODED MIRROR of
- * `IMAGE_EXTENSIONS` in `packages/shared/src/sync.ts` — keep in lockstep.
+ * Image extensions accepted by the Rust vault rules, exposed through UniFFI.
  */
-val IMAGE_EXTENSIONS = setOf("jpg", "jpeg", "png", "gif", "webp", "svg", "bmp", "ico", "avif", "heic")
+private val canonicalImageExtensions: Set<String> by lazy { imageExtensions().toSet() }
+
+private fun isCanonicalImageExtension(extension: String): Boolean =
+    extension in canonicalImageExtensions
 
 /**
  * Native image pickers behind the editor's `pickImage` bridge message
@@ -76,8 +79,8 @@ class ImagePicker(private val activity: ComponentActivity) {
 /**
  * Copy a picked image into the vault root under a generated unique name
  * (preserving the extension). Returns the saved filename, or null when the
- * source isn't one of [IMAGE_EXTENSIONS] or the copy fails. Blocking I/O —
- * call from Dispatchers.IO.
+ * source isn't accepted by the canonical Rust image rule or the copy fails.
+ * Blocking I/O — call from Dispatchers.IO.
  */
 fun saveImageIntoVault(resolver: ContentResolver, vaultRoot: File, uri: Uri): String? {
     val ext = imageExtension(resolver, uri) ?: return null
@@ -97,11 +100,18 @@ fun saveImageIntoVault(resolver: ContentResolver, vaultRoot: File, uri: Uri): St
  * Save raw image bytes (from a clipboard paste, decoded from the bridge's
  * base64 `saveImageData` message) into the vault root under a generated unique
  * name. Returns the saved filename, or null when [ext] isn't one of
- * [IMAGE_EXTENSIONS] or the write fails. Blocking I/O — call from Dispatchers.IO.
+ * accepted by the canonical Rust image rule or the write fails. Blocking I/O —
+ * call from Dispatchers.IO. [isAllowedExtension] is injectable so the plain JVM
+ * file-I/O tests do not have to load the UniFFI native library.
  */
-fun saveImageDataIntoVault(vaultRoot: File, data: ByteArray, ext: String): String? {
+fun saveImageDataIntoVault(
+    vaultRoot: File,
+    data: ByteArray,
+    ext: String,
+    isAllowedExtension: (String) -> Boolean = ::isCanonicalImageExtension,
+): String? {
     val lowered = ext.lowercase()
-    if (lowered !in IMAGE_EXTENSIONS) return null
+    if (!isAllowedExtension(lowered)) return null
     val dest = reserveImageFile(vaultRoot, lowered) ?: return null
     return try {
         dest.writeBytes(data)
@@ -142,5 +152,5 @@ private fun imageExtension(resolver: ContentResolver, uri: Uri): String? {
     val fromMime = resolver.getType(uri)
         ?.let { MimeTypeMap.getSingleton().getExtensionFromMimeType(it) }
     val ext = (fromMime ?: uri.lastPathSegment?.substringAfterLast('.', ""))?.lowercase()
-    return ext?.takeIf { it in IMAGE_EXTENSIONS }
+    return ext?.takeIf(::isCanonicalImageExtension)
 }

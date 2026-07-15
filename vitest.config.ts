@@ -2,12 +2,26 @@ import { defineConfig } from 'vitest/config';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import path from 'path';
 
+const nodeDefinesWebStorage =
+  Object.getOwnPropertyDescriptor(globalThis, 'localStorage') !== undefined;
+
 export default defineConfig({
   plugins: [svelte({ hot: false })],
   test: {
     globals: true,
     include: ['src/**/*.test.ts', 'markdown-spec/**/*.test.ts', 'scripts/**/*.test.mjs'],
     mockReset: true,
+    // Newer Node releases install an experimental localStorage getter that
+    // shadows jsdom and returns undefined without --localstorage-file. Disable
+    // only that Node-owned global in workers so jsdom can install its storage.
+    execArgv: nodeDefinesWebStorage ? ['--no-experimental-webstorage'] : [],
+    environmentOptions: {
+      // Give jsdom a non-opaque origin so Web Storage exists consistently.
+      // Node 26 exposes its own disabled localStorage global unless launched
+      // with --localstorage-file; an explicit jsdom URL keeps tests bound to
+      // the browser-compatible implementation instead.
+      jsdom: { url: 'http://localhost/' },
+    },
     server: { deps: { inline: [/^svelte/] } },
     // Under CI, several test-stage jobs land on the same shared runner host
     // at once (each an uncapped container reporting the host's full core
@@ -26,7 +40,6 @@ export default defineConfig({
       $features: path.resolve(__dirname, './src/features'),
       $shared: path.resolve(__dirname, './src/shared'),
       '@': path.resolve(__dirname, './'),
-      '@futo-notes/shared': path.resolve(__dirname, './packages/shared/src'),
       '@futo-notes/editor': path.resolve(__dirname, './packages/editor/src'),
     },
   },

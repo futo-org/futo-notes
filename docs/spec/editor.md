@@ -362,7 +362,9 @@ EditorWebView.swift, EditorWebView.kt
 
 - Pasting an image into the editor (desktop) saves it to the notes directory
   and inserts `![](filename)`; supported types follow
-  `@futo-notes/shared` `IMAGE_EXTENSIONS`. Both clipboard shapes work: a raw
+  `@futo-notes/editor` `IMAGE_EXTENSIONS`, conformance-locked to the canonical
+  Rust vault rule. Native Swift/Kotlin pickers receive that Rust list through
+  generated UniFFI bindings. Both clipboard shapes work: a raw
   bitmap (OS screenshot-to-clipboard) and a browser **Copy Image** (which the
   source app puts on the clipboard as an `<img>` `text/html` fragment plus a
   bitmap). When the paste event exposes an image file it is saved directly;

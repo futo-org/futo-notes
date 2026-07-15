@@ -219,8 +219,9 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
 - **The image set has ONE definition (canonical 10: png/jpg/jpeg/gif/webp/svg/
   bmp/ico/avif/heic).** Sync classifies blob-vs-note with
   `futo_notes_core::image::{is_image_filename,is_syncable_filename}` — the same
-  set `futo-notes-model` and `@futo-notes/shared` expose, conformance-locked by
-  `tests/conformance/image.json`. (Historically `core::invariants` kept an
+  set `futo-notes-model` and `@futo-notes/editor` expose, conformance-locked by
+  `tests/conformance/image.json`; native pickers receive it through
+  `futo-notes-ffi::image_extensions`. (Historically `core::invariants` kept an
   independent 13-entry copy with `.tiff/.tif/.heif`; D4 unified them.) →
   futo-notes-core `image.rs`; tests/conformance/image.json
 - **Legacy image blobs (pre-D4 `.tiff/.tif/.heif`, or any non-syncable

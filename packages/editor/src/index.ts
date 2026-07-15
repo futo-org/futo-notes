@@ -17,3 +17,4 @@ export * from './toolbar';
 export * from './filename';
 export * from './tags';
 export * from './preview';
+export * from './images';

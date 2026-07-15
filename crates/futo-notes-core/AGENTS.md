@@ -6,7 +6,7 @@ Shared Rust crate imported across the workspace — by the Tauri app and, via th
 
 ## Modules
 
-- **`files.rs`**: Note file I/O — read/write/delete/list, atomic writes, path safety (`ensure_safe_note_id`), mtime handling. The Rust-side canonical layer for filesystem access to notes. (TypeScript equivalent: `src/lib/platform/` for most file ops, `packages/shared/src/filename.ts` for title sanitization.)
+- **`files.rs`**: Note file I/O — read/write/delete/list, atomic writes, path safety (`ensure_safe_note_id`), mtime handling. The Rust-side canonical layer for filesystem access to notes. (TypeScript equivalent: `src/lib/platform/` for most file ops, `packages/editor/src/filename.ts` for the sanctioned title hot path.)
 - **`hash.rs`**: SHA-256 content hashing for sync — `hash_sha256()` and `hash_sha256_bytes()`. Any hash change breaks sync protocol compatibility.
 - **`sync.rs`**: Client-side sync payload preparation and delta application (`prepare_sync_payload_v2`, `apply_sync_delta_v2`). Computes inventory from disk, builds changed/new/deleted lists, applies server response. This is the hot path called from Tauri commands.
 - **`merge.rs`**: Three-way text merge for conflict resolution when both client and server modified the same note.

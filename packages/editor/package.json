@@ -13,7 +13,6 @@
     "test": "vitest run"
   },
   "devDependencies": {
-    "@futo-notes/shared": "workspace:*",
     "vitest": "^4.0.18"
   }
 }

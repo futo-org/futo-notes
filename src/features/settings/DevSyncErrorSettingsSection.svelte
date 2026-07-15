@@ -16,6 +16,7 @@
       downloaded: 0,
       deleted: 0,
       conflicts: 0,
+      localWritesApplied: 0,
       failures,
       failureMessage,
       updatedIds: [],
@@ -44,7 +45,7 @@
     },
     {
       label: 'Network (no status)',
-      failures: [{ filename: 'note.md', kind: 'upload' as const }],
+      failures: [{ filename: 'note.md', kind: 'upload' as const, statusCode: null }],
       message: "1 change couldn't reach the server",
     },
     {

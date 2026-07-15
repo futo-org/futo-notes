@@ -15,7 +15,7 @@ import {
   stat,
 } from '@tauri-apps/plugin-fs';
 import type { DirFileEntry, FileChangeEvent, PlatformFS } from './types';
-import { IMAGE_EXTENSIONS } from '@futo-notes/shared';
+import { IMAGE_EXTENSIONS } from '@futo-notes/editor';
 import { safeAppdataPath } from './pathSafety';
 import { writeAtomicText } from './atomicWrite';
 import type { AtomicWriteFS } from './atomicWrite';
@@ -130,7 +130,7 @@ let assetProtocolWorks: boolean | null = null;
 
 /**
  * Maps a lowercase image file extension to its blob Content-Type. Covers the
- * full accepted set (see IMAGE_EXTENSIONS in @futo-notes/shared). The MIME is
+ * full editor-owned accepted set. The MIME is
  * load-bearing for blob URLs: a wrong type (e.g. SVG served as image/png) is
  * not content-sniffed and fails to render. Unknown extensions fall back to
  * image/png.

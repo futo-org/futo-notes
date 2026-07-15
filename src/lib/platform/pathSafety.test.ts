@@ -1,32 +1,33 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 import { ensureSafeNoteId, safeNotePath, safeAppdataPath, noteIdFromFilename } from './pathSafety';
 
+interface PathSafetyFixture {
+  cases: Array<{ id: string; valid: boolean }>;
+}
+
+const pathSafetyFixture = JSON.parse(
+  readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), '../../../tests/conformance/path-safety.json'),
+    'utf8',
+  ),
+) as PathSafetyFixture;
+
+// ── ensureSafeNoteId ──────────────────────────────────────────────────
 describe('ensureSafeNoteId', () => {
+  it('matches the shared Rust/TypeScript boundary corpus', () => {
+    for (const testCase of pathSafetyFixture.cases) {
+      if (testCase.valid) {
+        expect(() => ensureSafeNoteId(testCase.id)).not.toThrow();
+      } else {
+        expect(() => ensureSafeNoteId(testCase.id)).toThrow();
+      }
+    }
+  });
   it('rejects empty string', () => {
     expect(() => ensureSafeNoteId('')).toThrow('note id cannot be empty');
-  });
-
-  it('rejects . and ..', () => {
-    expect(() => ensureSafeNoteId('.')).toThrow('invalid note id');
-    expect(() => ensureSafeNoteId('..')).toThrow('invalid note id');
-  });
-
-  it('accepts forward slashes between valid components (path-as-ID)', () => {
-    expect(() => ensureSafeNoteId('foo/bar')).not.toThrow();
-    expect(() => ensureSafeNoteId('Specs/folder-support')).not.toThrow();
-    expect(() => ensureSafeNoteId('a/b/c')).not.toThrow();
-  });
-
-  it('rejects backslashes (always invalid)', () => {
-    expect(() => ensureSafeNoteId('foo\\bar')).toThrow('invalid note id');
-  });
-
-  it('rejects empty / dot / dotdot components', () => {
-    expect(() => ensureSafeNoteId('foo/')).toThrow('invalid note id');
-    expect(() => ensureSafeNoteId('/foo')).toThrow('invalid note id');
-    expect(() => ensureSafeNoteId('foo//bar')).toThrow('invalid note id');
-    expect(() => ensureSafeNoteId('a/./b')).toThrow('invalid note id');
-    expect(() => ensureSafeNoteId('a/../b')).toThrow('invalid note id');
   });
 
   it('rejects depth above MAX_FOLDER_DEPTH', () => {
@@ -83,7 +84,6 @@ describe('ensureSafeNoteId', () => {
     expect(() => ensureSafeNoteId('..\\..\\windows\\system32')).toThrow();
     expect(() => ensureSafeNoteId('note<script>')).toThrow();
   });
-
   it('works correctly when called multiple times (no regex state leak)', () => {
     expect(() => ensureSafeNoteId('valid-note')).not.toThrow();
     expect(() => ensureSafeNoteId('also-valid')).not.toThrow();

@@ -305,7 +305,7 @@ Wikilinks are NOT part of the CM6 markdown syntax tree. They are processed separ
 
 **Syntax**: `#tagname`
 
-**Tag rules** (from `@futo-notes/shared`):
+**Tag rules** (from `@futo-notes/editor`):
 - Must start with `#` followed by a letter (`[a-zA-Z]`)
 - Then alphanumeric, underscore, or dash: `[a-zA-Z0-9_-]`
 - Maximum 50 characters after `#`

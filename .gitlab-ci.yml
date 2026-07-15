@@ -382,9 +382,10 @@ test:
     - pnpm run lint:platform
     - pnpm run format:check
     - pnpm exec tsx tests/conformance/generate.mjs --check
-    # Permanent anti-duplication gates. Keep these in the first mandatory MR
-    # job so expensive suites do not start when an architecture check fails.
-    - pnpm run check:arch-gate
+    # Keep portable anti-duplication gates in the first mandatory MR job so
+    # expensive suites do not start when they fail. The Rust workspace job
+    # owns the Tauri-backed generated sync-contract check and its system deps.
+    - pnpm run check:arch-gate:portable
     - pnpm run test:full
     - pnpm run build
   rules:
@@ -409,7 +410,6 @@ test:e2e:smoke:
       changes: &web-e2e-smoke-changes
         - src/**/*
         - packages/editor/**/*
-        - packages/shared/**/*
         - tests/p0-regressions.spec.ts
         - tests/lib/**/*
         - playwright.config.ts
@@ -467,7 +467,6 @@ test:e2e:rest:
       changes:
         - src/**/*
         - packages/editor/**/*
-        - packages/shared/**/*
         - tests/**/*.spec.ts
         - tests/lib/**/*
         - playwright.config.ts
@@ -525,6 +524,7 @@ test:rust:workspace:
         - crates/**/*
         - apps/tauri/src-tauri/**/*
         - apps/tauri/Cargo.toml
+        - src/features/sync/syncContract.generated.ts
         - scripts/build-rust-android.sh
         - scripts/build-rust-ios.sh
         # CI config changes can alter this job's toolchain/system-dep setup
@@ -682,8 +682,8 @@ test:cross-platform-sync:
       changes:
         - crates/futo-notes-sync/**/*
         - crates/futo-notes-core/**/*
-        - src/lib/syncServiceE2ee.ts
-        - src/lib/sync*
+        - src/features/sync/syncServiceE2ee.ts
+        - src/features/sync/sync*
         - tests/cross-platform-sync.mjs
         - tests/lib/**/*
         - .gitlab-ci.yml
@@ -695,7 +695,6 @@ test:cross-platform-sync:
         - apps/tauri/**/*
         - src/**/*
         - crates/**/*
-        - packages/shared/**/*
         - packages/editor/**/*
 
 test:desktop-smoke:macos:

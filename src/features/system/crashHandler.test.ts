@@ -90,6 +90,7 @@ describe('flushCrashQueue', () => {
 
     await flushCrashQueue();
 
+    // The failed report should remain in localStorage
     const remaining = JSON.parse(window.localStorage.getItem(LS_QUEUE_KEY)!);
     expect(remaining).toHaveLength(1);
     expect(remaining[0].error).toBe('error2');
@@ -130,6 +131,7 @@ describe('installGlobalHandlers', () => {
 
     window.onerror!('Test error', 'test.js', 1, 1, new Error('Test error'));
 
+    // Should queue to localStorage
     const queued = JSON.parse(window.localStorage.getItem(LS_QUEUE_KEY)!);
     expect(queued).toHaveLength(1);
     expect(queued[0].error).toBe('Test error');
@@ -147,6 +149,7 @@ describe('installGlobalHandlers', () => {
     Object.defineProperty(event, 'reason', { value: new Error('Promise failed') });
     window.onunhandledrejection!(event);
 
+    // Should queue to localStorage
     const queued = JSON.parse(window.localStorage.getItem(LS_QUEUE_KEY)!);
     expect(queued).toHaveLength(1);
     expect(queued[0].error).toBe('Promise failed');
@@ -162,6 +165,7 @@ describe('installGlobalHandlers', () => {
 
     window.onerror!('Crash', 'test.js', 1, 1, new Error('Crash'));
 
+    // localStorage should still have the report
     const queued = JSON.parse(window.localStorage.getItem(LS_QUEUE_KEY)!);
     expect(queued).toHaveLength(1);
     expect(queued[0].error).toBe('Crash');

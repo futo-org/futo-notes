@@ -388,6 +388,15 @@ pub fn make_preview(content: String) -> String {
     model::make_preview(&content)
 }
 
+/// Canonical image extensions accepted by the vault, without leading dots.
+#[uniffi::export]
+pub fn image_extensions() -> Vec<String> {
+    model::IMAGE_EXTENSIONS
+        .iter()
+        .map(|extension| (*extension).to_owned())
+        .collect()
+}
+
 /// A single title-validation issue (FFI mirror of the model's `FilenameIssue`).
 /// `kind` is the stable snake_case identifier — "forbidden_chars", "leading_dots",
 /// "trailing_dots", "too_long", or "empty" — matching the TS `FilenameIssueKind`
@@ -746,5 +755,19 @@ impl SyncClient {
     pub async fn disconnect(&self) -> Result<(), SyncError> {
         self.session.disconnect(&self.notes_root).await?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn image_extensions_expose_the_canonical_vault_rule() {
+        let expected = model::IMAGE_EXTENSIONS
+            .iter()
+            .map(|extension| (*extension).to_owned())
+            .collect::<Vec<_>>();
+        assert_eq!(image_extensions(), expected);
     }
 }
