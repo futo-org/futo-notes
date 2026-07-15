@@ -16,7 +16,6 @@ export interface AppState {
 
   preferences: {
     theme: 'auto' | 'dark' | 'light';
-    sortOrder: string;
   };
 
   crashReporting: {
@@ -74,7 +73,6 @@ function defaultState(): AppState {
     deviceId: generateDeviceId(),
     preferences: {
       theme: 'auto',
-      sortOrder: 'modified',
     },
     crashReporting: {
       enabled: true,
@@ -186,7 +184,6 @@ function sanitize(raw: unknown): AppState {
       theme: ['auto', 'dark', 'light'].includes(rawPrefs.theme as string)
         ? (rawPrefs.theme as 'auto' | 'dark' | 'light')
         : 'auto',
-      sortOrder: typeof rawPrefs.sortOrder === 'string' ? rawPrefs.sortOrder : 'modified',
     },
     crashReporting: {
       enabled: typeof rawCrash.enabled === 'boolean' ? rawCrash.enabled : true,

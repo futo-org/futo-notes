@@ -4,8 +4,8 @@
 
 - **Theme**: Light / Dark / Auto. Auto follows the system setting; selecting a
   theme applies immediately (no restart) and persists across restarts. →
-  SettingsScreen.kt (SharedPreferences `theme_mode`) *(Android)*;
-  theme.ts / SettingsScreen.svelte *(Tauri)*
+  SettingsScreen.kt (SharedPreferences `theme_mode`) _(Android)_;
+  theme.ts / SettingsScreen.svelte _(Tauri)_
 - The app version is shown.
 
 ## Native shells
@@ -13,7 +13,7 @@
 Both native shells have a full Settings surface (Android: drawer → Settings;
 iOS: nav-bar gear → Settings sheet — the cloud button still opens the Sync
 sheet directly). Verified on emulator + simulator 2026-06-09. →
-SettingsScreen.kt *(Android)*, SettingsView.swift *(iOS)*
+SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
 
 - **Sync** group: a single **"Self-hosted sync"** entry — a cloud icon, the
   connected-vs-local status, and a SYNCED / LOCAL badge — routes to the Sync
@@ -21,7 +21,7 @@ SettingsScreen.kt *(Android)*, SettingsView.swift *(iOS)*
   account header above the group, and no separate "Server" row. Tapping it
   opens the Sync screen; when no server is connected yet, that screen points
   the user at the FUTO Notes server repo (see sync.md). →
-  SettingsScreen.kt *(Android)*, SettingsView.swift *(iOS)*
+  SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
 - **Appearance**: the Theme Light/Dark/Auto control from "All platforms"
   applies immediately (iOS: `.preferredColorScheme` + the editor WebView
   theme follows; persisted in UserDefaults `futo.themeMode` / Android
@@ -52,7 +52,7 @@ SettingsScreen.kt *(Android)*, SettingsView.swift *(iOS)*
 - Settings is a sheet/modal (mobile: bottom sheet over the current screen)
   with sections: Storage, Appearance, Sync, Crash reporting, Updates, then
   Danger zone last, and a version footer. → SettingsScreen.svelte (see
-  settings-visual.md for the desktop layout)
+  settings-visual.md for the platform-split and shared content model)
 - **Sync**: server URL + password inline with a Connect button and a
   "Last sync: …" line ("never" before the first sync). Once connected the
   section shows status/disconnect (see sync.md).
