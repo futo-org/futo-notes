@@ -40,6 +40,10 @@ number of removed tests — verify this mechanically.
   policy, not product behavior. "Old test, new code" is never a justification.
 - **Follow-up** — a named debt, not a deletion: goes in the numbered follow-up
   queue with the smallest fault-injection seam that would exercise it.
+- **Dropped** — pruning mode only: the behavior itself was removed from the
+  contract with explicit human approval. Cite the approval and the removed
+  `docs/spec/` line. Never self-approved; a Dropped row without a named
+  approval is a defect.
 
 ### Classification pitfalls (each cost real review time)
 
@@ -75,8 +79,13 @@ The full writeup goes in the MR description itself, not only a repo doc:
 <the accidental-architecture evidence>
 
 # What happened to the N old tests
-<disposition totals: X fast / Y acceptance / Z obsolete / W follow-up;
+<disposition totals: X fast / Y acceptance / Z obsolete / W follow-up
+ (+ V dropped, pruning mode only);
  bugs the audit found in the old implementation; ledger location>
+
+# Dropped behaviors (pruning mode only)
+<each dropped or simplified behavior: old docs/spec/ line, what replaced it
+ (nothing / the simpler behavior), and who approved the drop>
 
 # What the full-stack failures taught us
 <failure-derived ownership/ordering rules, stated as shared-engine rules>

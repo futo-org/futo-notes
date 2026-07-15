@@ -1,6 +1,6 @@
 ---
 name: rewrite-from-contract
-description: Rebuild tangled or AI-generated-looking code — one function up to an entire subsystem — from its observable behavioral contract while preserving external functionality and discarding accidental architecture. Use when asked to identify the next "AI slop" area, deslop or radically simplify a codebase, rewrite a subsystem from scratch, start from tests, replace a giant orchestrator/controller/component, contract-rewrite something, "do this like the sync rewrite", preserve outside behavior without retaining internals, or turn legacy tests into a new implementation and MR. Not for bug fixes (/bugfix), small cleanups (/simplify), or changes that keep the existing structure.
+description: Rebuild tangled or AI-generated-looking code — one function up to an entire subsystem — from its observable behavioral contract while preserving external functionality and discarding accidental architecture. Optionally prunes the contract itself first (keep/simplify/drop triage of spec behaviors, human-gated) when the requester has said features may be dropped. Use when asked to identify the next "AI slop" area, deslop or radically simplify a codebase, rewrite a subsystem from scratch, start from tests, replace a giant orchestrator/controller/component, contract-rewrite something, "do this like the sync rewrite", preserve outside behavior without retaining internals, prune or triage a feature surface ("features I'd be OK dropping"), or turn legacy tests into a new implementation and MR. Not for bug fixes (/bugfix), small cleanups (/simplify), or changes that keep the existing structure.
 ---
 
 # Rewrite From Contract
@@ -41,6 +41,11 @@ starting. Repo-specific suites, isolation, and constraints:
   documentation, commit, push, and MR when authorized.
 - For “diagnose/review”: inspect and report evidence. Do not mutate production
   code unless requested.
+- **Pruning mode** (Phase 4) is additionally active ONLY when the requester has
+  explicitly said behavior may be dropped or simplified (“prune”, “there are
+  features I'd be OK dropping”, “whittle down”). Without that authorization the
+  contract is preserved exactly — never infer permission to drop a feature from
+  the general goal of reducing code.
 
 ## Scale ceremony to scope
 
@@ -127,7 +132,55 @@ Do not port test code first. That usually recreates the old architecture.
 Translate promises first, design the new owner, then implement only the tests
 that still make sense in the new vocabulary.
 
-## Phase 4: design the smallest coherent replacement
+## Phase 4: prune the contract (opt-in, human-gated)
+
+Skip this phase entirely unless pruning mode is active (see operating modes).
+A behavior-preserving rewrite shrinks the implementation; pruning shrinks the
+*specification* — that is where the compounding wins are, and it is a product
+decision, never an agent decision.
+
+1. Build a triage table over the scope's behavior inventory. Rows come from
+   `docs/spec/<area>.md` lines (one behavior per line — the enumerable feature
+   inventory) plus any externally observable behavior the contract extraction
+   found that the spec missed. One row per behavior:
+
+   | Behavior (spec line ref) | Evidence of value | Carrying cost | Proposal | Rationale |
+
+   - Evidence of value: platform coverage, related Gap notes, churn/fix history,
+     whether tests/scenarios exercise it, anything indicating real use.
+   - Carrying cost: production LOC attributable to it, concepts/state it forces,
+     platforms that must each implement it, test burden.
+   - Proposal is one of **keep** / **simplify** (name the simpler behavior) /
+     **drop**. Propose drop or simplify only where the carrying cost is real —
+     do not pad the drop list to look thorough, and do not omit a costly
+     behavior to avoid a hard question.
+
+2. **Hard gate: present the table and stop.** Only the human approves drops,
+   item by item. If running as a subagent that cannot ask, the triage table IS
+   the deliverable — return it and do not proceed to design. Silence is keep.
+
+3. Safety invariants are not features and are never triage rows: data
+   preservation, crash recovery, path containment, encryption, sync
+   convergence, and everything on AGENTS.md's CRITICAL list stay in the
+   contract unconditionally.
+
+4. For each approved drop or simplification, before designing the replacement:
+   - update the `docs/spec/<area>.md` line (delete it, or rewrite it to the
+     simpler behavior) in the same change, and regenerate gaps (M19);
+   - delete the behavior's tests/fixtures/scenarios FIRST, then re-run the
+     external gate so the baseline reflects the pruned contract — a dropped
+     behavior whose test still passes is not dropped;
+   - ledger every removed test under the **Dropped** disposition
+     (`references/templates.md`), citing the approval.
+
+5. The MR description gets a “Dropped behaviors” section: each dropped or
+   simplified behavior, its old spec line, and who approved it. Drops must be
+   auditable, never a side effect discovered in review.
+
+The rewrite then proceeds against the pruned contract: Phase 5 designs the
+minimum model the *remaining* behaviors need.
+
+## Phase 5: design the smallest coherent replacement
 
 Choose one owner for each state, lifecycle, and mutation sequence. The right
 question is not “component versus helper” but “who may decide?” — e.g. the
@@ -163,7 +216,7 @@ Use alternate branches and prototypes only to discover requirements, fixtures,
 failure modes, or useful primitives. Measure them too. Reject them if they
 recreate comparable complexity under new names.
 
-## Phase 5: implement center-out
+## Phase 6: implement center-out
 
 1. Implement the real external protocol or pure semantic center first.
 2. Implement minimal persistence/state and crash recovery.
@@ -188,7 +241,7 @@ Expect the ledger audit to find real bugs in the OLD implementation (the sync
 audit found three data-safety gaps). Fix them in the new implementation and
 name them in the report — they are the audit's proof of value.
 
-## Phase 6: verify in layers
+## Phase 7: verify in layers
 
 Run, in order:
 
@@ -213,7 +266,7 @@ while running 0 tests (everything deleted or `#[ignore]`d) is silent green
 wearing a test suite — a draft of the sync rewrite failed review on exactly
 this.
 
-## Phase 7: measure and audit the result
+## Phase 8: measure and audit the result
 
 Compare before and after:
 
@@ -225,12 +278,13 @@ Compare before and after:
 - public APIs and consumers preserved;
 - fast, integration, and E2E coverage counts;
 - remaining follow-up gaps;
-- any intentionally changed behavior.
+- any intentionally changed behavior;
+- in pruning mode: behaviors dropped/simplified, each with its approval.
 
 Reconsider the design if the replacement is similarly large, has similarly
 giant owners, or needs compatibility adapters for the old private architecture.
 
-## Phase 8: publish the reasoning
+## Phase 9: publish the reasoning
 
 When authorized, create intentional commits, push the branch, and open/update
 an MR. Put the full writeup in the MR description, not only in a repository doc.
@@ -254,7 +308,8 @@ Do not split the same learning across several overlapping documents.
 Stop and request direction when:
 
 - the candidate lacks an executable external contract;
-- preserving behavior requires a product decision not present in specs/tests;
+- preserving behavior requires a product decision not present in specs/tests
+  (in pruning mode, package the decision as a triage row instead of stopping);
 - a safety-critical failure mode cannot be observed or injected;
 - required external infrastructure or credentials are unavailable;
 - completion would require broadening scope to a materially different system;
