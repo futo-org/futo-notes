@@ -1,4 +1,5 @@
 import { test, expect, Page } from '@playwright/test';
+import { partitionMarkdownSpecCases } from '../markdown-spec/batching.js';
 import { loadSpecCases, getCasesDir } from '../markdown-spec/loader.js';
 import type {
   CursorCheckpoint,
@@ -27,13 +28,26 @@ const clientCases = loadSpecCases(getCasesDir(), maxComplexity).filter(
     c.expect?.widgets,
 );
 
-async function setupEditor(page: Page, content: string): Promise<void> {
+const { staticBlurBatches, isolatedCases } = partitionMarkdownSpecCases(clientCases);
+
+async function waitForEditorPaint(page: Page): Promise<void> {
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      }),
+  );
+}
+
+async function openEditor(page: Page): Promise<void> {
   await page.goto('/#/note/new');
   await page.waitForLoadState('domcontentloaded');
   await page.waitForSelector('.cm-editor', { timeout: 10000 });
   await page.waitForSelector('.cm-content', { timeout: 10000 });
   await page.waitForFunction(() => typeof (window as any).__cmGetView === 'function');
+}
 
+async function setEditorContent(page: Page, content: string): Promise<void> {
   await page.evaluate((text) => {
     const view = (window as any).__cmGetView?.();
     if (!view) throw new Error('CM EditorView not found');
@@ -43,7 +57,16 @@ async function setupEditor(page: Page, content: string): Promise<void> {
     });
   }, content);
 
-  await page.waitForTimeout(200);
+  await page.waitForFunction((text) => {
+    const view = (window as any).__cmGetView?.();
+    return view?.state.doc.toString() === text && view.state.selection.main.head === 0;
+  }, content);
+  await waitForEditorPaint(page);
+}
+
+async function setupEditor(page: Page, content: string): Promise<void> {
+  await openEditor(page);
+  await setEditorContent(page, content);
 }
 
 async function pinMovementLayout(page: Page): Promise<void> {
@@ -64,7 +87,11 @@ async function pinMovementLayout(page: Page): Promise<void> {
       el.style.maxWidth = '420px';
     }
   });
-  await page.waitForTimeout(200);
+  await page.waitForFunction(() => {
+    const editor = document.querySelector('.cm-editor');
+    return editor !== null && Math.round(editor.getBoundingClientRect().width) === 420;
+  });
+  await waitForEditorPaint(page);
 }
 
 async function blurEditor(page: Page): Promise<void> {
@@ -83,7 +110,11 @@ async function blurEditor(page: Page): Promise<void> {
   });
   await page.locator('.title-input').click();
   await page.locator('.title-input').blur();
-  await page.waitForTimeout(300);
+  await page.waitForFunction(() => {
+    const view = (window as any).__cmGetView?.();
+    return view && !view.hasFocus;
+  });
+  await waitForEditorPaint(page);
 }
 
 async function setCursor(page: Page, line: number, ch: number): Promise<void> {
@@ -91,9 +122,12 @@ async function setCursor(page: Page, line: number, ch: number): Promise<void> {
   // (the plugin doesn't rebuild on within-line cursor moves alone).
   await page.locator('.title-input').click();
   await page.locator('.title-input').blur();
-  await page.waitForTimeout(100);
+  await page.waitForFunction(() => {
+    const view = (window as any).__cmGetView?.();
+    return view && !view.hasFocus;
+  });
 
-  await page.evaluate(
+  const expectedPosition = await page.evaluate(
     ({ line, ch }) => {
       const view = (window as any).__cmGetView?.();
       if (!view) throw new Error('CM EditorView not found');
@@ -102,10 +136,15 @@ async function setCursor(page: Page, line: number, ch: number): Promise<void> {
       const pos = Math.min(lineObj.from + ch, lineObj.to);
       view.dispatch({ selection: { anchor: pos } });
       view.focus();
+      return pos;
     },
     { line, ch },
   );
-  await page.waitForTimeout(300);
+  await page.waitForFunction((position) => {
+    const view = (window as any).__cmGetView?.();
+    return view?.hasFocus && view.state.selection.main.head === position;
+  }, expectedPosition);
+  await waitForEditorPaint(page);
 }
 
 interface CursorState {
@@ -131,7 +170,7 @@ async function getCursorState(page: Page): Promise<CursorState> {
 
 async function applyMove(page: Page, move: string): Promise<void> {
   await page.keyboard.press(move);
-  await page.waitForTimeout(120);
+  await waitForEditorPaint(page);
 }
 
 async function getVisualRowCount(page: Page, line: number): Promise<number> {
@@ -296,7 +335,19 @@ async function runStaticCase(page: Page, specCase: SpecCase): Promise<void> {
 }
 
 test.describe('Markdown Spec', () => {
-  for (const specCase of clientCases) {
+  for (const [batchIndex, batch] of staticBlurBatches.entries()) {
+    test(`blurred static batch ${batchIndex + 1}/${staticBlurBatches.length}`, async ({ page }) => {
+      await openEditor(page);
+      for (const specCase of batch) {
+        await test.step(`[${specCase.complexity}] ${specCase.name}`, async () => {
+          await setEditorContent(page, specCase.markdown);
+          await runStaticCase(page, specCase);
+        });
+      }
+    });
+  }
+
+  for (const specCase of isolatedCases) {
     test(`[${specCase.complexity}] ${specCase.name}`, async ({ page }) => {
       await setupEditor(page, specCase.markdown);
       if (specCase.moves?.length) {
