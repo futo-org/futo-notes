@@ -1,8 +1,6 @@
-import type MarkdownEditor from '$features/editor/MarkdownEditor.svelte';
 import { tabsStore } from '$features/tabs/tabsStore.svelte';
 
 interface TabNoteTransitionOptions {
-  getEditor: () => ReturnType<typeof MarkdownEditor> | null;
   getNoteBody: () => HTMLElement | undefined;
   getCurrentNoteId: () => string | null;
   loadNote: (id: string | null) => Promise<void>;
@@ -16,14 +14,10 @@ export function createTabNoteTransition(options: TabNoteTransitionOptions) {
     const currentTabId = tabsStore.activeTabId;
     if (previousNoteId === currentNoteId && previousTabId === currentTabId) return;
 
-    const editor = options.getEditor();
-    if (previousTabId && previousTabId !== currentTabId && editor) {
-      const selection = editor.getSelection?.();
-      const scroll = options.getNoteBody()?.scrollTop ?? 0;
-      tabsStore.setTabState(
-        previousTabId,
-        selection ? { scroll, selFrom: selection.from, selTo: selection.to } : undefined,
-      );
+    if (previousTabId && previousTabId !== currentTabId) {
+      tabsStore.setTabState(previousTabId, {
+        scroll: options.getNoteBody()?.scrollTop ?? 0,
+      });
     }
 
     const incomingTabId = currentTabId;
@@ -37,10 +31,11 @@ export function createTabNoteTransition(options: TabNoteTransitionOptions) {
       if (tabsStore.activeTabId !== incomingTabId) return;
       if (incomingNoteId !== options.getCurrentNoteId()) return;
 
+      // Two frames: the first lets the loaded note commit to the DOM, the
+      // second restores scroll after CM6 has measured its content height.
       requestAnimationFrame(() =>
         requestAnimationFrame(() => {
           if (tabsStore.activeTabId !== incomingTabId) return;
-          options.getEditor()?.setSelection?.(incomingState.selFrom, incomingState.selTo);
           const noteBody = options.getNoteBody();
           if (noteBody) noteBody.scrollTop = incomingState.scroll;
         }),

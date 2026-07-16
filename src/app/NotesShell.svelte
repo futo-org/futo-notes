@@ -86,7 +86,6 @@
   }
 
   const tabNoteTransition = createTabNoteTransition({
-    getEditor: () => editor,
     getNoteBody: () => noteBody,
     getCurrentNoteId: () => noteId,
     loadNote: loadNoteAndResetUI,

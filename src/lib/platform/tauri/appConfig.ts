@@ -12,7 +12,7 @@ export interface PersistedTab {
   id: string;
   noteId: string | null;
   pendingFolder?: string;
-  state?: { scroll: number; selFrom: number; selTo: number };
+  state?: { scroll: number };
 }
 
 export interface PersistedTabs {
