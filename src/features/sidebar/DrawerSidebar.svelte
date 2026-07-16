@@ -19,6 +19,9 @@
     showResize: boolean;
     onselectview: (view: SidebarView) => void;
     onselectnote: (id: string, event?: MouseEvent) => void;
+    onrunwithactivenotelock: <T>(operation: () => Promise<T>) => Promise<T>;
+    onnoteidsrenamed: (renames: Array<{ from: string; to: string }>) => void;
+    onnoteidsdeleted: (ids: string[]) => void;
     onactivenotedeleted: () => void;
     onactivenotemoved: (fromId: string, toId: string, title: string) => void;
     onnewnote: () => void;
@@ -28,6 +31,7 @@
     oncollapse: () => void;
     onopensearch: () => void;
     onresize: (width: number) => void;
+    onresizeend: (width: number) => void;
   }
 
   let {
@@ -38,6 +42,9 @@
     showResize,
     onselectview,
     onselectnote,
+    onrunwithactivenotelock,
+    onnoteidsrenamed,
+    onnoteidsdeleted,
     onactivenotedeleted,
     onactivenotemoved,
     onnewnote,
@@ -47,10 +54,14 @@
     oncollapse,
     onopensearch,
     onresize,
+    onresizeend,
   }: Props = $props();
 
   const workflows = createSidebarFolderWorkflows({
     getActiveNoteId: () => activeNoteId,
+    runWithActiveNoteLock: (operation) => onrunwithactivenotelock(operation),
+    onNoteIdsRenamed: (renames) => onnoteidsrenamed(renames),
+    onNoteIdsDeleted: (ids) => onnoteidsdeleted(ids),
     onSelect: (id) => onselectnote(id),
     onActiveNoteDeleted: () => onactivenotedeleted(),
     onActiveNoteMoved: (fromId, toId, title) => onactivenotemoved(fromId, toId, title),
@@ -59,10 +70,12 @@
 
   let asideEl: HTMLElement | undefined = $state();
   let resizing = false;
+  let resizeWidth = 0;
 
   function startResize(event: PointerEvent): void {
     event.preventDefault();
     resizing = true;
+    resizeWidth = asideEl?.getBoundingClientRect().width ?? 0;
     const target = event.currentTarget as HTMLElement;
     target.setPointerCapture(event.pointerId);
   }
@@ -70,13 +83,16 @@
   function moveResize(event: PointerEvent): void {
     if (!resizing || !asideEl) return;
     const width = event.clientX - asideEl.getBoundingClientRect().left;
+    resizeWidth = width;
     onresize(width);
   }
 
   function endResize(event: PointerEvent): void {
     if (!resizing) return;
     resizing = false;
-    (event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId);
+    const target = event.currentTarget as HTMLElement;
+    if (target.hasPointerCapture(event.pointerId)) target.releasePointerCapture(event.pointerId);
+    onresizeend(resizeWidth);
   }
 </script>
 
@@ -138,6 +154,7 @@
       onpointerdown={startResize}
       onpointermove={moveResize}
       onpointerup={endResize}
+      onpointercancel={endResize}
     ></div>
   {/if}
 </aside>

@@ -2,9 +2,8 @@
   import type { EditorView } from '@codemirror/view';
 
   import MarkdownEditor from '$features/editor/MarkdownEditor.svelte';
-  import { extractHeaderTagBlock, isValidTagName, normalizeTagName } from '$lib/rules';
+  import NoteTagBar from '$features/editor/NoteTagBar.svelte';
   import type { NoteSession } from '$features/notes/noteSession.svelte';
-  import { getAllTagNames } from '$features/tags/noteTags';
   import type { NotePreview } from '$shared/types/note';
   import FolderPickerModal from '$features/folders/FolderPickerModal.svelte';
 
@@ -20,6 +19,7 @@
     hasFocus: () => boolean;
     isComposing: () => boolean;
     getView: () => EditorView | null;
+    refreshDecorations: () => void;
     placeCaretAtEnd: () => void;
   }
 
@@ -48,85 +48,6 @@
   }: Props = $props();
 
   let editorFocused = $state(false);
-
-  // ── Tag bar (header tag block editing) ──
-  let addingTag = $state(false);
-  let tagInputValue = $state('');
-  let tagInputEl: HTMLInputElement | undefined = $state();
-
-  const headerTags = $derived(extractHeaderTagBlock(session.content).tags);
-  const currentTagNames = $derived(new Set(headerTags.map((tag) => tag.slice(1))));
-  const normalizedQuery = $derived(normalizeTagName(tagInputValue));
-  const vaultTagNames = $derived(getAllTagNames(notes));
-  const tagSuggestions = $derived(
-    vaultTagNames
-      .filter((name) => !currentTagNames.has(name))
-      .filter((name) => !normalizedQuery || name.includes(normalizedQuery))
-      .slice(0, 8),
-  );
-  const showCreateTagRow = $derived(
-    normalizedQuery.length > 0 &&
-      isValidTagName(normalizedQuery) &&
-      !vaultTagNames.includes(normalizedQuery) &&
-      !currentTagNames.has(normalizedQuery),
-  );
-
-  function currentContent(): string {
-    return editorApi?.getContent() ?? session.content;
-  }
-
-  // Rebuild the note with a new header tag block, preserving the body.
-  function withHeaderTags(content: string, tags: string[]): string {
-    const { endOffset } = extractHeaderTagBlock(content);
-    const body = content.slice(endOffset).replace(/^\n+/, '');
-    if (tags.length === 0) return body;
-    const line = tags.join(' ');
-    return body ? `${line}\n\n${body}` : `${line}\n`;
-  }
-
-  function commitTags(tags: string[]): void {
-    const next = withHeaderTags(currentContent(), tags);
-    editorApi?.setContent(next);
-    session.debouncedSave(next);
-  }
-
-  function addTag(raw: string): void {
-    const normalized = normalizeTagName(raw);
-    if (!normalized || !isValidTagName(normalized)) {
-      closeTagInput();
-      return;
-    }
-    const tag = `#${normalized}`;
-    const tags = extractHeaderTagBlock(currentContent()).tags;
-    if (!tags.includes(tag)) commitTags([...tags, tag]);
-    closeTagInput();
-  }
-
-  function removeTag(tag: string): void {
-    const tags = extractHeaderTagBlock(currentContent()).tags;
-    commitTags(tags.filter((existing) => existing !== tag));
-  }
-
-  function openTagInput(): void {
-    addingTag = true;
-    tagInputValue = '';
-    requestAnimationFrame(() => tagInputEl?.focus());
-  }
-
-  function closeTagInput(): void {
-    addingTag = false;
-    tagInputValue = '';
-  }
-
-  function handleTagInputKeydown(event: KeyboardEvent): void {
-    if (event.key === 'Enter' || event.key === ',') {
-      event.preventDefault();
-      addTag(tagInputValue);
-    } else if (event.key === 'Escape') {
-      event.preventDefault();
-      closeTagInput();
-    }
-  }
 
   function handleFocusChange(focused: boolean): void {
     editorFocused = focused;
@@ -157,54 +78,11 @@
     {/if}
   </div>
 
-  <div class="note-tag-bar">
-    {#each headerTags as tag (tag)}
-      <span class="tag-pill">
-        <span class="tag-pill-name">{tag.slice(1)}</span>
-        <button
-          class="tag-pill-remove"
-          aria-label="Remove tag {tag.slice(1)}"
-          onclick={() => removeTag(tag)}>×</button
-        >
-      </span>
-    {/each}
-    {#if addingTag}
-      <div class="tag-input-wrapper">
-        <input
-          class="tag-input"
-          bind:this={tagInputEl}
-          bind:value={tagInputValue}
-          placeholder="tag"
-          onkeydown={handleTagInputKeydown}
-          onblur={closeTagInput}
-        />
-        {#if tagSuggestions.length > 0 || showCreateTagRow}
-          <div class="tag-suggestions">
-            {#each tagSuggestions as suggestion (suggestion)}
-              <button
-                class="tag-suggestion"
-                onmousedown={(e) => {
-                  e.preventDefault();
-                  addTag(suggestion);
-                }}>{suggestion}</button
-              >
-            {/each}
-            {#if showCreateTagRow}
-              <button
-                class="tag-suggestion tag-suggestion-create"
-                onmousedown={(e) => {
-                  e.preventDefault();
-                  addTag(normalizedQuery);
-                }}>Create #{normalizedQuery}</button
-              >
-            {/if}
-          </div>
-        {/if}
-      </div>
-    {:else}
-      <button class="tag-add-btn" aria-label="Add tag" onclick={openTagInput}>+ Tag</button>
-    {/if}
-  </div>
+  <NoteTagBar
+    content={session.content}
+    getEditorView={() => editorApi?.getView() ?? null}
+    {notes}
+  />
 
   <div class="editor-container">
     <MarkdownEditor

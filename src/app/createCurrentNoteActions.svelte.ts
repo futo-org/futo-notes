@@ -6,8 +6,10 @@ import { deleteNote as deleteNoteFromVault, moveNote } from '$features/notes/not
 
 export interface CurrentNoteActionsDeps {
   getActiveNoteId: () => string | null;
+  runWithActiveNoteLock: <T>(operation: () => Promise<T>) => Promise<T>;
   showToast: (message: string) => void;
   onMoved: (fromId: string, toId: string, title: string) => void;
+  onDeleted: (id: string) => void;
   onDeleteConfirmed: () => void;
 }
 
@@ -56,28 +58,33 @@ export function createCurrentNoteActions(deps: CurrentNoteActionsDeps) {
 
   async function moveToFolder(folderPath: string): Promise<void> {
     movePickerOpen = false;
-    const fromId = deps.getActiveNoteId();
-    if (!fromId) return;
-    const leaf = idLeaf(fromId);
-    const wantedId = folderPath ? `${folderPath}/${leaf}` : leaf;
-    if (wantedId === fromId) return;
-    const result = await moveNote(fromId, wantedId);
-    deps.onMoved(fromId, result.id, idLeaf(result.id));
-    deps.showToast(`Moved to ${folderPath || 'Notes'}`);
+    await deps.runWithActiveNoteLock(async () => {
+      const fromId = deps.getActiveNoteId();
+      if (!fromId) return;
+      const leaf = idLeaf(fromId);
+      const wantedId = folderPath ? `${folderPath}/${leaf}` : leaf;
+      if (wantedId === fromId) return;
+      const result = await moveNote(fromId, wantedId);
+      deps.onMoved(fromId, result.id, idLeaf(result.id));
+      deps.showToast(`Moved to ${folderPath || 'Notes'}`);
+    });
   }
 
   async function deleteCurrentNote(): Promise<void> {
     closeMenu();
-    const id = deps.getActiveNoteId();
-    if (!id) return;
     const confirmed = await confirmDialog('Delete this note? This action cannot be undone.', {
       title: 'Delete note',
       kind: 'warning',
     });
     if (!confirmed) return;
-    deps.onDeleteConfirmed();
-    await deleteNoteFromVault(id);
-    deps.showToast('Note deleted');
+    await deps.runWithActiveNoteLock(async () => {
+      const id = deps.getActiveNoteId();
+      if (!id) return;
+      await deleteNoteFromVault(id);
+      deps.onDeleteConfirmed();
+      deps.onDeleted(id);
+      deps.showToast('Note deleted');
+    });
   }
 
   return {

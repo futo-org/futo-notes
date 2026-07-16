@@ -243,6 +243,44 @@ describe('title debounce vs body debounce (character-loss race)', () => {
       undefined,
     );
   });
+
+  it('queues saves typed during a local move until the session has retargeted', async () => {
+    const session = createNoteSession(makeDeps());
+    const { updateNote } = await import('./notes.svelte');
+    session.seedOpenNote('Projects/Roadmap', 'base');
+    editorContent = 'base';
+
+    let releaseMove!: () => void;
+    let markMoveStarted!: () => void;
+    const moveStarted = new Promise<void>((resolve) => {
+      markMoveStarted = resolve;
+    });
+    const moveGate = new Promise<void>((resolve) => {
+      releaseMove = resolve;
+    });
+    const moving = session.runWithSaveLock(async () => {
+      markMoveStarted();
+      await moveGate;
+      session.applyRemoteRename('Archive/Roadmap', 'Roadmap');
+    });
+    await moveStarted;
+
+    editorContent = 'draft typed during move';
+    session.debouncedSave(editorContent);
+    vi.advanceTimersByTime(500);
+    await Promise.resolve();
+    expect(updateNote).not.toHaveBeenCalled();
+
+    releaseMove();
+    await moving;
+    await vi.waitFor(() => expect(updateNote).toHaveBeenCalledOnce());
+    expect(updateNote).toHaveBeenCalledWith(
+      'Archive/Roadmap',
+      'Roadmap',
+      'draft typed during move',
+      'Archive/Roadmap',
+    );
+  });
 });
 
 describe('loadNote focus routing', () => {

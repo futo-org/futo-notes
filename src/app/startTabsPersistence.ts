@@ -6,7 +6,7 @@ import { tabsStore } from '$features/tabs/tabsStore.svelte';
 export const SIDEBAR_COLLAPSED_KEY = 'futo-notes:sidebarCollapsed';
 
 export interface TabsPersistenceDeps {
-  initialNoteId: string | null;
+  getRequestedNoteId: () => string | null | undefined;
   setSidebarCollapsed: (collapsed: boolean) => void;
   setSidebarWidth: (width: number) => void;
 }
@@ -39,7 +39,7 @@ export function startTabsPersistence(deps: TabsPersistenceDeps): () => void {
     if (disposed) return;
 
     const validIds = new Set(getAllNotes().map((note) => note.id));
-    tabsStore.hydrate(persistedTabs, (id) => validIds.has(id), deps.initialNoteId);
+    tabsStore.hydrate(persistedTabs, (id) => validIds.has(id), deps.getRequestedNoteId());
     if (disposed) return;
 
     if (isTauri) {

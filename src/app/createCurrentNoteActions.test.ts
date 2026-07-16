@@ -24,11 +24,15 @@ describe('createCurrentNoteActions', () => {
   it('confirms before deleting the active note and reports the completed action', async () => {
     mocks.confirmDialog.mockResolvedValue(true);
     const showToast = vi.fn();
+    const runWithActiveNoteLock = vi.fn(async <T>(operation: () => Promise<T>) => operation());
+    const onDeleted = vi.fn();
     const onDeleteConfirmed = vi.fn();
     const actions = createCurrentNoteActions({
       getActiveNoteId: () => 'Projects/Roadmap',
+      runWithActiveNoteLock,
       showToast,
       onMoved: vi.fn(),
+      onDeleted,
       onDeleteConfirmed,
     });
 
@@ -39,9 +43,14 @@ describe('createCurrentNoteActions', () => {
       { title: 'Delete note', kind: 'warning' },
     );
     expect(mocks.deleteNote).toHaveBeenCalledWith('Projects/Roadmap');
+    expect(onDeleted).toHaveBeenCalledWith('Projects/Roadmap');
+    expect(runWithActiveNoteLock).toHaveBeenCalledOnce();
     expect(onDeleteConfirmed).toHaveBeenCalledOnce();
-    expect(onDeleteConfirmed.mock.invocationCallOrder[0]).toBeLessThan(
+    expect(runWithActiveNoteLock.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.deleteNote.mock.invocationCallOrder[0],
+    );
+    expect(mocks.deleteNote.mock.invocationCallOrder[0]).toBeLessThan(
+      onDeleteConfirmed.mock.invocationCallOrder[0],
     );
     expect(showToast).toHaveBeenCalledWith('Note deleted');
   });
@@ -50,13 +59,49 @@ describe('createCurrentNoteActions', () => {
     const showToast = vi.fn();
     const actions = createCurrentNoteActions({
       getActiveNoteId: () => 'Roadmap',
+      runWithActiveNoteLock: (operation) => operation(),
       showToast,
       onMoved: vi.fn(),
+      onDeleted: vi.fn(),
       onDeleteConfirmed: vi.fn(),
     });
 
     actions.graphView();
 
     expect(showToast).toHaveBeenCalledWith('coming soon');
+  });
+
+  it('flushes a pending save before moving and uses the post-save note id', async () => {
+    let activeId = 'Projects/Roadmap';
+    const runWithActiveNoteLock = vi.fn(async <T>(operation: () => Promise<T>) => {
+      activeId = 'Projects/Renamed roadmap';
+      return operation();
+    });
+    mocks.moveNote.mockResolvedValue({ id: 'Archive/Renamed roadmap', mtime: 1 });
+    const onMoved = vi.fn();
+    const actions = createCurrentNoteActions({
+      getActiveNoteId: () => activeId,
+      runWithActiveNoteLock,
+      showToast: vi.fn(),
+      onMoved,
+      onDeleted: vi.fn(),
+      onDeleteConfirmed: vi.fn(),
+    });
+
+    await actions.moveToFolder('Archive');
+
+    expect(runWithActiveNoteLock).toHaveBeenCalledOnce();
+    expect(mocks.moveNote).toHaveBeenCalledWith(
+      'Projects/Renamed roadmap',
+      'Archive/Renamed roadmap',
+    );
+    expect(runWithActiveNoteLock.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.moveNote.mock.invocationCallOrder[0],
+    );
+    expect(onMoved).toHaveBeenCalledWith(
+      'Projects/Renamed roadmap',
+      'Archive/Renamed roadmap',
+      'Renamed roadmap',
+    );
   });
 });

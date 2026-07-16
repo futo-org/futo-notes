@@ -46,6 +46,8 @@
   let sidebarView = $state<SidebarView>(readSidebarView());
   let settingsOpen = $state(false);
   let searchOpen = $state(false);
+  let lastWikilinkEditor: EditorApi | undefined;
+  let lastWikilinkNoteIds = '';
 
   const notes = $derived(getAllNotes());
   const activeNoteId = $derived(tabsStore.activeNoteId);
@@ -101,10 +103,21 @@
     tabTransition.setLoadedNoteId(toId);
   }
 
+  function applyLocalRenames(renames: Array<{ from: string; to: string }>): void {
+    for (const rename of renames) tabsStore.applyRename(rename.from, rename.to);
+  }
+
+  function pruneLocalDeletes(ids: string[]): void {
+    const deleted = new Set(ids);
+    tabsStore.pruneMissingNoteIds((id) => !deleted.has(id));
+  }
+
   const noteActions = createCurrentNoteActions({
     getActiveNoteId: () => session.originalId,
+    runWithActiveNoteLock: session.runWithSaveLock,
     showToast: showGlobalToast,
     onMoved: retargetActiveNote,
+    onDeleted: (id) => pruneLocalDeletes([id]),
     onDeleteConfirmed: closeActiveNote,
   });
 
@@ -153,18 +166,17 @@
   function resizeSidebar(width: number): void {
     sidebarWidth = Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, width));
     sidebarResizing = true;
+  }
+
+  function finishSidebarResize(width: number): void {
+    sidebarWidth = Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, width));
+    sidebarResizing = false;
     if (isDesktop) {
       void saveConfig({ sidebarWidth }).catch((error) =>
         console.warn('Failed to persist sidebar width:', error),
       );
     }
-    window.clearTimeout(resizeEndTimer);
-    resizeEndTimer = window.setTimeout(() => {
-      sidebarResizing = false;
-    }, 120);
   }
-
-  let resizeEndTimer = 0;
 
   function openNote(noteId: string, event?: MouseEvent): void {
     if (noteId === '__home__') {
@@ -195,6 +207,11 @@
     if (tabsStore.activeNoteId !== noteId) tabsStore.openNote(noteId, 'current');
   }
 
+  function requestedNoteIdFromHash(): string | null | undefined {
+    if (!window.location.hash) return undefined;
+    return parseNoteIdFromHash(window.location.hash);
+  }
+
   function handleEditorFocusChange(focused: boolean): void {
     void sync.handleEditorFocusChange(focused);
   }
@@ -202,7 +219,7 @@
   keyboard.init();
 
   const stopTabsPersistence = startTabsPersistence({
-    initialNoteId: parseNoteIdFromHash(window.location.hash),
+    getRequestedNoteId: requestedNoteIdFromHash,
     setSidebarCollapsed,
     setSidebarWidth: (width) => {
       sidebarWidth = Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, width));
@@ -255,8 +272,20 @@
   });
 
   $effect(() => {
+    const currentEditor = editor;
+    const noteIds = notes
+      .map((note) => note.id)
+      .sort()
+      .join('\n');
+    if (!currentEditor) return;
+    if (currentEditor === lastWikilinkEditor && noteIds === lastWikilinkNoteIds) return;
+    lastWikilinkEditor = currentEditor;
+    lastWikilinkNoteIds = noteIds;
+    currentEditor.refreshDecorations();
+  });
+
+  $effect(() => {
     return () => {
-      window.clearTimeout(resizeEndTimer);
       window.removeEventListener('hashchange', handleHashChange);
       removeTestHook();
       stopNativeShell();
@@ -287,6 +316,9 @@
       showResize={isDesktop}
       onselectview={selectSidebarView}
       onselectnote={openNote}
+      onrunwithactivenotelock={session.runWithSaveLock}
+      onnoteidsrenamed={applyLocalRenames}
+      onnoteidsdeleted={pruneLocalDeletes}
       onactivenotedeleted={closeActiveNote}
       onactivenotemoved={retargetActiveNote}
       onnewnote={() => createNewNote()}
@@ -300,6 +332,7 @@
         searchOpen = true;
       }}
       onresize={resizeSidebar}
+      onresizeend={finishSidebarResize}
     />
 
     <main class="note-main">

@@ -54,7 +54,7 @@ describe('startTabsPersistence', () => {
     const setSidebarCollapsed = vi.fn();
     const setSidebarWidth = vi.fn();
     const stop = startTabsPersistence({
-      initialNoteId: null,
+      getRequestedNoteId: () => null,
       setSidebarCollapsed,
       setSidebarWidth,
     });
@@ -68,5 +68,55 @@ describe('startTabsPersistence', () => {
     expect(mocks.hydrate).not.toHaveBeenCalled();
     expect(mocks.setPersister).toHaveBeenCalledTimes(1);
     expect(mocks.setPersister).toHaveBeenLastCalledWith(null);
+  });
+
+  it('hydrates the latest hash request when navigation changes while notes are loading', async () => {
+    let resolveNotesReady!: () => void;
+    let requestedNoteId: string | null = 'first';
+    mocks.getConfig.mockResolvedValue({ sidebarWidth: 280, openTabs: null });
+    mocks.whenNotesReady.mockReturnValue(
+      new Promise<void>((resolve) => {
+        resolveNotesReady = resolve;
+      }),
+    );
+    mocks.getAllNotes.mockReturnValue([{ id: 'first' }, { id: 'second' }]);
+
+    startTabsPersistence({
+      getRequestedNoteId: () => requestedNoteId,
+      setSidebarCollapsed: vi.fn(),
+      setSidebarWidth: vi.fn(),
+    });
+    await vi.waitFor(() => expect(mocks.whenNotesReady).toHaveBeenCalledOnce());
+
+    requestedNoteId = 'second';
+    resolveNotesReady();
+
+    await vi.waitFor(() => expect(mocks.hydrate).toHaveBeenCalledOnce());
+    expect(mocks.hydrate.mock.calls[0][2]).toBe('second');
+  });
+
+  it('preserves an explicit navigation to Home while notes are loading', async () => {
+    let resolveNotesReady!: () => void;
+    let requestedNoteId: string | null | undefined = 'first';
+    mocks.getConfig.mockResolvedValue({ sidebarWidth: 280, openTabs: null });
+    mocks.whenNotesReady.mockReturnValue(
+      new Promise<void>((resolve) => {
+        resolveNotesReady = resolve;
+      }),
+    );
+    mocks.getAllNotes.mockReturnValue([{ id: 'first' }]);
+
+    startTabsPersistence({
+      getRequestedNoteId: () => requestedNoteId,
+      setSidebarCollapsed: vi.fn(),
+      setSidebarWidth: vi.fn(),
+    });
+    await vi.waitFor(() => expect(mocks.whenNotesReady).toHaveBeenCalledOnce());
+
+    requestedNoteId = null;
+    resolveNotesReady();
+
+    await vi.waitFor(() => expect(mocks.hydrate).toHaveBeenCalledOnce());
+    expect(mocks.hydrate.mock.calls[0][2]).toBeNull();
   });
 });

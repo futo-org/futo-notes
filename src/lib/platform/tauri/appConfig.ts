@@ -85,12 +85,20 @@ export function createAppConfigStore({ storage, invalidateNotesRoot }: AppConfig
     };
   }
 
-  async function saveConfig(updates: AppConfigUpdates): Promise<void> {
-    const config = await readConfig(false);
-    if ('sidebarWidth' in updates) config.sidebarWidth = updates.sidebarWidth;
-    if ('openFolders' in updates) config.openFolders = updates.openFolders;
-    if ('openTabs' in updates) config.openTabs = updates.openTabs;
-    await writeConfig(config);
+  // Serialize read-modify-write cycles: concurrent saves would each read the
+  // same snapshot and the last writer would clobber the other's fields.
+  let saveConfigQueue: Promise<void> = Promise.resolve();
+
+  function saveConfig(updates: AppConfigUpdates): Promise<void> {
+    const save = saveConfigQueue.then(async () => {
+      const config = await readConfig(false);
+      if ('sidebarWidth' in updates) config.sidebarWidth = updates.sidebarWidth;
+      if ('openFolders' in updates) config.openFolders = updates.openFolders;
+      if ('openTabs' in updates) config.openTabs = updates.openTabs;
+      await writeConfig(config);
+    });
+    saveConfigQueue = save.catch(() => {});
+    return save;
   }
 
   async function loadOpenFoldersConfig(): Promise<string[] | null> {

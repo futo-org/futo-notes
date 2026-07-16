@@ -8,9 +8,24 @@ import { showGlobalToast } from '$shared/notifications/toastBus.svelte';
 
 interface SidebarMutationOptions {
   getActiveNoteId: () => string | null;
+  runWithActiveNoteLock: <T>(operation: () => Promise<T>) => Promise<T>;
+  onNoteIdsRenamed: (renames: Array<{ from: string; to: string }>) => void;
+  onNoteIdsDeleted: (ids: string[]) => void;
   onSelect: (id: string) => void;
   onActiveNoteDeleted: () => void;
   onActiveNoteMoved: (fromId: string, toId: string, title: string) => void;
+}
+
+function runWithActiveNoteLockIfInFolder<T>(
+  folderPath: string,
+  options: SidebarMutationOptions,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const activeId = options.getActiveNoteId();
+  if (activeId && activeId !== 'new' && activeId.startsWith(`${folderPath}/`)) {
+    return options.runWithActiveNoteLock(operation);
+  }
+  return operation();
 }
 
 function retargetActiveNote(
@@ -63,11 +78,14 @@ export async function renameSidebarFolder(
   const siblings = collectSiblingFolders(parent).filter(
     (name) => name !== components[components.length - 1],
   );
-  const result = await renameOrMoveFolder(path, newPath, siblings);
-  if (!result.ok) return result.error ?? 'Failed to rename';
-  retargetActiveNote(result.renames, options);
-  await refreshSidebarFolders();
-  return null;
+  return runWithActiveNoteLockIfInFolder(path, options, async () => {
+    const result = await renameOrMoveFolder(path, newPath, siblings);
+    if (!result.ok) return result.error ?? 'Failed to rename';
+    options.onNoteIdsRenamed(result.renames ?? []);
+    retargetActiveNote(result.renames, options);
+    await refreshSidebarFolders();
+    return null;
+  });
 }
 
 export async function moveSidebarNote(
@@ -75,15 +93,22 @@ export async function moveSidebarNote(
   target: string,
   options: SidebarMutationOptions,
 ): Promise<void> {
-  const newId = target ? `${target}/${idLeaf(noteId)}` : idLeaf(noteId);
-  if (newId === noteId) return;
   try {
-    const result = await moveNote(noteId, newId);
-    if (options.getActiveNoteId() === noteId) {
-      options.onActiveNoteMoved(noteId, result.id, idLeaf(result.id));
-    }
-    await refreshSidebarFolders();
-    showGlobalToast(target ? `Moved to ${target}` : 'Moved to Notes');
+    const movingActiveNote = options.getActiveNoteId() === noteId;
+    const move = async () => {
+      const fromId = movingActiveNote ? (options.getActiveNoteId() ?? noteId) : noteId;
+      const newId = target ? `${target}/${idLeaf(fromId)}` : idLeaf(fromId);
+      if (newId === fromId) return;
+      const result = await moveNote(fromId, newId);
+      options.onNoteIdsRenamed([{ from: fromId, to: result.id }]);
+      if (movingActiveNote) {
+        options.onActiveNoteMoved(fromId, result.id, idLeaf(result.id));
+      }
+      await refreshSidebarFolders();
+      showGlobalToast(target ? `Moved to ${target}` : 'Moved to Notes');
+    };
+    if (movingActiveNote) await options.runWithActiveNoteLock(move);
+    else await move();
   } catch (error) {
     showGlobalToast(error instanceof Error ? error.message : 'Move failed');
   }
@@ -106,9 +131,16 @@ export async function confirmDeleteSidebarNote(
   }
 
   try {
-    if (options.getActiveNoteId() === id) options.onActiveNoteDeleted();
-    await deleteNote(id);
-    showGlobalToast('Note deleted');
+    const deletingActiveNote = options.getActiveNoteId() === id;
+    const remove = async () => {
+      const deleteId = deletingActiveNote ? (options.getActiveNoteId() ?? id) : id;
+      await deleteNote(deleteId);
+      if (deletingActiveNote) options.onActiveNoteDeleted();
+      options.onNoteIdsDeleted([deleteId]);
+      showGlobalToast('Note deleted');
+    };
+    if (deletingActiveNote) await options.runWithActiveNoteLock(remove);
+    else await remove();
   } catch (error) {
     showGlobalToast(error instanceof Error ? error.message : 'Delete failed');
   }
@@ -131,28 +163,31 @@ export async function confirmDeleteSidebarFolder(
   }
 
   const prefix = `${path}/`;
-  // The shared store plans collisions, moves every note with rollback on
-  // failure, rewrites backlinks, then removes the remaining folder tree.
-  const result = await deleteFolder(path);
-  if (!result.ok) {
-    showGlobalToast(result.error ?? 'Failed to delete folder');
-    return;
-  }
-  await refreshSidebarFolders();
-  const movedNotes = new Map(result.renames?.map((rename) => [rename.from, rename.to]) ?? []);
-
-  const activeId = options.getActiveNoteId();
-  if (activeId && activeId !== 'new' && activeId.startsWith(prefix)) {
-    if (!retargetActiveNote(result.renames, options)) {
-      options.onSelect(movedNotes.get(activeId) ?? '__home__');
+  await runWithActiveNoteLockIfInFolder(path, options, async () => {
+    // The shared store plans collisions, moves every note with rollback on
+    // failure, rewrites backlinks, then removes the remaining folder tree.
+    const result = await deleteFolder(path);
+    if (!result.ok) {
+      showGlobalToast(result.error ?? 'Failed to delete folder');
+      return;
     }
-  }
-  const movedCount = result.renames?.length ?? 0;
-  showGlobalToast(
-    movedCount > 0
-      ? `Folder deleted; moved ${movedCount} note${movedCount === 1 ? '' : 's'}`
-      : 'Folder deleted',
-  );
+    options.onNoteIdsRenamed(result.renames ?? []);
+    await refreshSidebarFolders();
+    const movedNotes = new Map(result.renames?.map((rename) => [rename.from, rename.to]) ?? []);
+
+    const activeId = options.getActiveNoteId();
+    if (activeId && activeId !== 'new' && activeId.startsWith(prefix)) {
+      if (!retargetActiveNote(result.renames, options)) {
+        options.onSelect(movedNotes.get(activeId) ?? '__home__');
+      }
+    }
+    const movedCount = result.renames?.length ?? 0;
+    showGlobalToast(
+      movedCount > 0
+        ? `Folder deleted; moved ${movedCount} note${movedCount === 1 ? '' : 's'}`
+        : 'Folder deleted',
+    );
+  });
 }
 
 export async function moveSidebarNoteToFolder(
@@ -185,15 +220,18 @@ export async function moveSidebarFolder(
 ): Promise<void> {
   if (folderPath === targetPath || targetPath.startsWith(`${folderPath}/`)) return;
   const newPath = `${targetPath}/${idLeaf(folderPath)}`;
-  const result = await renameOrMoveFolder(folderPath, newPath, collectSiblingFolders(targetPath));
-  if (!result.ok) {
-    showGlobalToast(result.error ?? 'Failed to move folder');
-    return;
-  }
-  retargetActiveNote(result.renames, options);
-  await refreshSidebarFolders();
-  showGlobalToast(`Moved to ${targetPath}`);
-  clearDragHoverExpanded();
+  await runWithActiveNoteLockIfInFolder(folderPath, options, async () => {
+    const result = await renameOrMoveFolder(folderPath, newPath, collectSiblingFolders(targetPath));
+    if (!result.ok) {
+      showGlobalToast(result.error ?? 'Failed to move folder');
+      return;
+    }
+    options.onNoteIdsRenamed(result.renames ?? []);
+    retargetActiveNote(result.renames, options);
+    await refreshSidebarFolders();
+    showGlobalToast(`Moved to ${targetPath}`);
+    clearDragHoverExpanded();
+  });
 }
 
 export async function moveSidebarFolderToRoot(
@@ -202,13 +240,16 @@ export async function moveSidebarFolderToRoot(
 ): Promise<void> {
   const leaf = idLeaf(folderPath);
   if (folderPath === leaf) return;
-  const result = await renameOrMoveFolder(folderPath, leaf, collectSiblingFolders(''));
-  if (!result.ok) {
-    showGlobalToast(result.error ?? 'Failed to move folder');
-    return;
-  }
-  retargetActiveNote(result.renames, options);
-  await refreshSidebarFolders();
-  showGlobalToast('Moved to Notes');
-  clearDragHoverExpanded();
+  await runWithActiveNoteLockIfInFolder(folderPath, options, async () => {
+    const result = await renameOrMoveFolder(folderPath, leaf, collectSiblingFolders(''));
+    if (!result.ok) {
+      showGlobalToast(result.error ?? 'Failed to move folder');
+      return;
+    }
+    options.onNoteIdsRenamed(result.renames ?? []);
+    retargetActiveNote(result.renames, options);
+    await refreshSidebarFolders();
+    showGlobalToast('Moved to Notes');
+    clearDragHoverExpanded();
+  });
 }

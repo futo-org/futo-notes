@@ -446,6 +446,19 @@ describe('hydrate', () => {
       expect(tabsStore.activeNoteId).toBeNull();
       expect(tabsStore.hydrated).toBe(true);
     });
+
+    it('an explicit Home route overrides the persisted active note', () => {
+      const snap: PersistedTabs = {
+        tabs: [
+          { id: 'home', noteId: null },
+          { id: 'a-tab', noteId: 'a' },
+        ],
+        activeTabId: 'a-tab',
+      };
+
+      expect(tabsStore.hydrate(snap, isValid, null)).toBe(true);
+      expect(tabsStore.activeNoteId).toBeNull();
+    });
   });
 });
 

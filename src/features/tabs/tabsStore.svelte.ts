@@ -111,7 +111,7 @@ export const tabsStore = {
   hydrate(
     snap: PersistedTabs | null,
     isNoteIdValid: (id: string) => boolean,
-    initialHashNoteId: string | null = null,
+    requestedNoteId: string | null | undefined = undefined,
   ): boolean {
     if (_hydrated) return false;
     _hydrated = true;
@@ -141,14 +141,14 @@ export const tabsStore = {
       }
     }
 
-    if (initialHashNoteId !== null) {
-      const existing = _tabs.find((t) => t.noteId === initialHashNoteId);
+    if (requestedNoteId !== undefined) {
+      const existing = _tabs.find((t) => t.noteId === requestedNoteId);
       if (existing) {
         _activeTabId = existing.id;
       } else if (replaced) {
-        this.openNote(initialHashNoteId, 'foreground');
+        this.openNote(requestedNoteId, 'foreground');
       } else {
-        this.openNote(initialHashNoteId, 'current');
+        this.openNote(requestedNoteId, 'current');
       }
     }
 

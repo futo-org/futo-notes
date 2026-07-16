@@ -166,6 +166,25 @@ describe('saveConfig', () => {
     expect(writeTextFile).not.toHaveBeenCalled();
     expect(rename).not.toHaveBeenCalled();
   });
+
+  it('serializes concurrent field updates so one writer cannot clobber another', async () => {
+    setupInvokeMock();
+    const { readTextFile, writeTextFile, exists } = await import('@tauri-apps/plugin-fs');
+    let persisted = JSON.stringify({});
+    vi.mocked(exists).mockResolvedValue(true);
+    vi.mocked(readTextFile).mockImplementation(async () => persisted);
+    vi.mocked(writeTextFile).mockImplementation(async (_path, content) => {
+      persisted = content as string;
+    });
+
+    const tabs = { tabs: [{ id: 'tab-1', noteId: 'Roadmap' }], activeTabId: 'tab-1' };
+    await Promise.all([saveConfig({ sidebarWidth: 360 }), saveConfig({ openTabs: tabs })]);
+
+    expect(JSON.parse(persisted)).toMatchObject({
+      sidebarWidth: 360,
+      openTabs: tabs,
+    });
+  });
 });
 
 describe('loadOpenFoldersConfig', () => {

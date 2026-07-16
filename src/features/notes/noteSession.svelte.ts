@@ -48,6 +48,7 @@ export interface NoteSession {
   readonly composing: boolean;
   debouncedSave: (content?: string) => void;
   flushSave: () => Promise<void>;
+  runWithSaveLock: <T>(operation: () => Promise<T>) => Promise<T>;
   loadNote: (id: string | null) => Promise<void>;
   handleTitleInput: (event: Event) => void;
   handleTitleKeydown: (event: KeyboardEvent) => void;
@@ -145,8 +146,19 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
       if (savedOriginalId !== id) deps.onNoteRenamed(savedOriginalId, id);
     },
   });
+  let persistenceTail: Promise<void> = Promise.resolve();
+
+  function serializePersistence<T>(operation: () => Promise<T>): Promise<T> {
+    const run = persistenceTail.then(operation, operation);
+    persistenceTail = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
   const saveQueue = createNoteSaveQueue({
-    save: saveNote,
+    save: () => serializePersistence(saveNote),
     hasUnseenChanges: hasUnseenEditorChanges,
     notifySaved: notifySavedV2,
   });
@@ -183,6 +195,11 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
       title,
       savedTitle,
     });
+  }
+
+  async function runWithSaveLock<T>(operation: () => Promise<T>): Promise<T> {
+    await saveQueue.flush();
+    return serializePersistence(operation);
   }
 
   function isDirty(): boolean {
@@ -278,6 +295,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     },
     debouncedSave,
     flushSave: saveQueue.flush,
+    runWithSaveLock,
     loadNote: noteLoader.load,
     handleTitleInput: titleController.handleInput,
     handleTitleKeydown: titleController.handleKeydown,

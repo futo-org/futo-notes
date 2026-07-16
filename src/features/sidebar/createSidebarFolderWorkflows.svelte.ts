@@ -20,6 +20,9 @@ export interface SidebarFolderMenuItem {
 
 interface SidebarFolderWorkflowOptions {
   getActiveNoteId: () => string | null;
+  runWithActiveNoteLock: <T>(operation: () => Promise<T>) => Promise<T>;
+  onNoteIdsRenamed: (renames: Array<{ from: string; to: string }>) => void;
+  onNoteIdsDeleted: (ids: string[]) => void;
   onSelect: (id: string) => void;
   onActiveNoteDeleted: () => void;
   onActiveNoteMoved: (fromId: string, toId: string, title: string) => void;
