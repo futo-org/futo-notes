@@ -15,7 +15,6 @@ pub struct NoteStore {
 
 #[uniffi::export]
 impl NoteStore {
-    /// Constructs the vault owner without performing filesystem I/O.
     #[uniffi::constructor]
     pub fn new(notes_root: String) -> Arc<Self> {
         Arc::new(Self {
@@ -50,10 +49,7 @@ impl NoteStore {
             .map_err(NoteError::Io)
     }
 
-    /// Prevents a background flush from resurrecting a deleted note or clobbering newer content.
-    ///
-    /// The lower store performs check-then-atomic-write, not a true filesystem CAS; the narrow
-    /// single-process syscall window is an accepted constraint.
+    /// Skips stale or missing notes, but is not a true filesystem CAS.
     pub fn write_if_unchanged(
         &self,
         id: String,
@@ -125,7 +121,7 @@ impl NoteStore {
             .map_err(NoteError::Io)
     }
 
-    /// The lower workflow moves notes and rewrites links before removing the folder tree.
+    /// Moves contained notes to the parent and rewrites their links before removing the folder.
     pub fn delete_folder(&self, folder: String) -> Result<NoteMutation, NoteError> {
         self.inner
             .delete_folder(&folder)

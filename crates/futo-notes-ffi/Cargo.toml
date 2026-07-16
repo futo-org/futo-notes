@@ -12,11 +12,8 @@ crate-type = ["staticlib", "cdylib", "lib"]
 name = "uniffi-bindgen"
 path = "src/bin/uniffi-bindgen.rs"
 
-# Thin UniFFI projection over the model, store, and sync owners.
 [dependencies]
-# `tokio` enables `#[uniffi::export(async_runtime = "tokio")]`; `cli` provides
-# `uniffi::uniffi_bindgen_main()` for the bundled bindgen binary. Pure
-# proc-macro scaffolding via `uniffi::setup_scaffolding!()` — no .udl needed.
+# `tokio` exports async methods; `cli` builds the bundled binding generator.
 uniffi = { version = "0.28", features = ["tokio", "cli"] }
 tokio = { version = "1", features = ["sync", "macros", "rt-multi-thread", "time"] }
 futo-notes-model = { path = "../futo-notes-model" }

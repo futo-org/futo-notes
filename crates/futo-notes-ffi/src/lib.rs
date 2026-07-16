@@ -1,5 +1,3 @@
-//! UniFFI projection for the native iOS and Android shells.
-
 mod notes;
 mod sync;
 

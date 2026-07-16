@@ -15,15 +15,15 @@ pub struct SyncSummary {
     pub conflicts: u32,
     /// Count of note files this cycle wrote to the local notes tree.
     pub local_writes_applied: u32,
-    /// Per-item failures use the canonical sync-engine wire kinds.
     pub failures: Vec<SyncFailure>,
-    /// Canonical user-facing failure text, or `None` for a clean cycle.
+    /// Render verbatim; Rust owns the cross-shell failure wording.
     pub failure_message: Option<String>,
 }
 
 #[derive(uniffi::Record)]
 pub struct SyncFailure {
     pub filename: String,
+    /// Stable sync-engine wire identifier.
     pub kind: String,
     pub status_code: Option<u16>,
 }

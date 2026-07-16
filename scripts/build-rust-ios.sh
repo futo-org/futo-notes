@@ -2,9 +2,6 @@
 # Build futo-notes-ffi for iOS (device + simulator), generate the UniFFI Swift
 # bindings, and assemble FutoNotesFfi.xcframework that the SwiftUI app links.
 #
-# futo-notes-ffi is the single UniFFI crate, with organized note and sync
-# projections. The SAME crate is built for Android by scripts/build-rust-android.sh.
-#
 # NOTE: built with the DEV profile on purpose — the workspace release profile
 # uses panic="abort", which breaks UniFFI's panic catching.
 set -euo pipefail

@@ -147,6 +147,19 @@ The build profiles are safety constraints:
 Generated binding directories and native libraries remain ignored and must not
 be committed.
 
+## Source comments should carry boundary constraints
+
+The final source-comment census retained only information that names and types
+do not express:
+
+- Stable wire identifiers and caller obligations for generated bindings.
+- Worker-thread callback and nonblocking lifecycle constraints.
+- Atomic-write, no-replace, push-first, and disconnect-reconciliation safety.
+- Native build-profile, deployment-target, toolchain, and platform constraints.
+
+Constructor narration, module summaries already expressed by the source tree,
+and repeated descriptions of build commands were removed.
+
 ## Practical checklist for future FFI changes
 
 - Put behavior in model, store, or sync; keep FFI as projection and lifecycle

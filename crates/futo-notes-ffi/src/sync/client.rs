@@ -5,7 +5,7 @@ use futo_notes_sync::{SyncProgress, SyncSession, SyncSessionListener};
 
 use super::{session_listener, ConnectInfo, SyncError, SyncEventListener, SyncStatus, SyncSummary};
 
-// Native shells have no filesystem watcher to suppress or per-phase progress UI to update.
+// Native shells have neither watcher suppression nor per-phase progress UI.
 fn no_progress(_progress: SyncProgress) {}
 fn no_pre_write(_filename: &str) {}
 
@@ -18,7 +18,6 @@ pub struct SyncClient {
 
 #[uniffi::export(async_runtime = "tokio")]
 impl SyncClient {
-    /// Constructs the client without performing network or filesystem I/O.
     #[uniffi::constructor]
     pub fn new(notes_root: String, server_url: String) -> Arc<Self> {
         Arc::new(Self {
@@ -40,9 +39,7 @@ impl SyncClient {
         })
     }
 
-    /// The owning sync session runs a push-first cycle so pull writes cannot silently overwrite an
-    /// unpushed local edit. It holds the cycle gate across the cycle but not the session-state lock
-    /// during network I/O, keeping `status` nonblocking.
+    /// Runs a serialized push-first cycle without holding the status lock during network I/O.
     pub async fn sync_now(&self) -> Result<SyncSummary, SyncError> {
         self.session
             .sync(&self.notes_root, &no_progress, &no_pre_write)
