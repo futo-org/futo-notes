@@ -11,7 +11,6 @@
   import FolderPickerModal from '$features/folders/FolderPickerModal.svelte';
   import DrawerSidebar from '$features/sidebar/DrawerSidebar.svelte';
   import DesktopTopBand from './components/DesktopTopBand.svelte';
-  import DeleteNoteDialog from './components/DeleteNoteDialog.svelte';
   import NoteActionsMenu from './components/NoteActionsMenu.svelte';
   import { createSyncManager } from '$features/sync/syncManager.svelte';
   import { keyboard } from '$features/editor/keyboard.svelte';
@@ -420,10 +419,6 @@
     syncErrorMessage={sync.syncErrorMessage}
     {...import.meta.env.DEV ? { simulateSyncSummary: sync.handleSyncComplete } : {}}
   />
-{/if}
-
-{#if noteActions.deleteConfirmationOpen}
-  <DeleteNoteDialog oncancel={noteActions.cancelDelete} onconfirm={noteActions.deleteCurrentNote} />
 {/if}
 
 {#if searchOpen && SearchPopup}

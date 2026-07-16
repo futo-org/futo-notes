@@ -1,6 +1,7 @@
 import { deleteNote, moveNote } from '$features/notes/notes.svelte';
 import { tabsStore } from '$features/tabs/tabsStore.svelte';
 import { getPlatformFS } from '$lib/platform';
+import { confirmDialog } from '$shared/dialogs/confirmDialog';
 
 interface CurrentNoteActionOptions {
   getNoteId: () => string | null;
@@ -12,26 +13,26 @@ interface CurrentNoteActionOptions {
 
 export function createCurrentNoteActions(options: CurrentNoteActionOptions) {
   let menuOpen = $state(false);
-  let deleteConfirmationOpen = $state(false);
   let movePickerNoteId = $state<string | null>(null);
 
+  // One confirm mechanism for every destructive delete: confirmDialog
+  // (native ask() under Tauri — window.confirm doesn't block there,
+  // app.md), the same seam the sidebar rows use.
   function requestDelete(): void {
-    deleteConfirmationOpen = true;
-  }
-
-  function cancelDelete(): void {
-    deleteConfirmationOpen = false;
-  }
-
-  async function deleteCurrentNote(): Promise<void> {
-    deleteConfirmationOpen = false;
     menuOpen = false;
-    const id = options.getOriginalId();
-    if (!id) return;
-    options.cancelSession();
-    await deleteNote(id);
-    options.notifySaved();
-    options.showToast('Note deleted');
+    void (async () => {
+      const confirmed = await confirmDialog('Delete this note? This action cannot be undone.', {
+        title: 'Delete note',
+        kind: 'warning',
+      });
+      if (!confirmed) return;
+      const id = options.getOriginalId();
+      if (!id) return;
+      options.cancelSession();
+      await deleteNote(id);
+      options.notifySaved();
+      options.showToast('Note deleted');
+    })();
   }
 
   function openMovePicker(): void {
@@ -77,7 +78,6 @@ export function createCurrentNoteActions(options: CurrentNoteActionOptions) {
 
   function closeTransientUi(): void {
     menuOpen = false;
-    deleteConfirmationOpen = false;
   }
 
   return {
@@ -87,15 +87,10 @@ export function createCurrentNoteActions(options: CurrentNoteActionOptions) {
     set menuOpen(value: boolean) {
       menuOpen = value;
     },
-    get deleteConfirmationOpen() {
-      return deleteConfirmationOpen;
-    },
     get movePickerNoteId() {
       return movePickerNoteId;
     },
     requestDelete,
-    cancelDelete,
-    deleteCurrentNote,
     openMovePicker,
     closeMovePicker,
     moveCurrentNote,
