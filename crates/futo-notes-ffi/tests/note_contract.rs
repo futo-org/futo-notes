@@ -1,4 +1,5 @@
 use std::fs;
+use std::time::{Duration, Instant};
 
 use futo_notes_ffi::{
     extract_tags, extract_wikilinks, image_extensions, make_id, make_preview, make_rich_preview,
@@ -203,11 +204,6 @@ fn note_store_projects_complete_workflow_results() {
         .any(|rename| rename.from == "Archive/Gamma" && rename.to == "Gamma"));
     assert!(store.exists("Gamma".to_owned()));
 
-    store.rescan();
-    let hits = store.search("alpha".to_owned(), Some(10)).unwrap();
-    assert!(hits.iter().all(|hit| hit.source == "bm25"));
-    let _keyword_ready = store.keyword_ready();
-
     let missing_delete = store.delete("missing".to_owned()).unwrap();
     assert!(missing_delete.upserted.is_empty());
     assert!(missing_delete.removed.is_empty());
@@ -218,6 +214,41 @@ fn note_store_projects_complete_workflow_results() {
     assert!(after_reset.notes.is_empty());
     assert!(after_reset.folders.is_empty());
     assert!(notes_root.is_dir(), "reset must preserve the vault root");
+}
+
+#[test]
+fn bootstrap_makes_existing_note_content_searchable_through_bm25() {
+    let temp = TempTree::new();
+    let notes_root = temp.path("vault");
+    let index_root = temp.path("index");
+
+    fs::create_dir_all(&notes_root).unwrap();
+    fs::write(
+        notes_root.join("alpha.md"),
+        "# Alpha\nuniquebootstrapkeyword",
+    )
+    .unwrap();
+
+    let store = NoteStore::new(path_string(&notes_root));
+    store.bootstrap(path_string(&index_root)).unwrap();
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !store.keyword_ready() {
+        assert!(
+            Instant::now() < deadline,
+            "keyword index never became ready"
+        );
+        std::thread::sleep(Duration::from_millis(25));
+    }
+
+    let hits = store
+        .search("uniquebootstrapkeyword".to_owned(), Some(10))
+        .unwrap();
+    assert!(
+        hits.iter()
+            .any(|hit| hit.note_id == "alpha" && hit.source == "bm25"),
+        "expected alpha BM25 hit"
+    );
 }
 
 #[test]
