@@ -8,6 +8,12 @@ new-note affordances.
 - With no note open, the main pane shows a "For You" feed of recent-note cards
   (title, preview, relative modified time); tapping a card opens the note.
   Cards reorder as notes are edited. → ForYouPage.svelte
+- The feed shows the **three** most recently modified notes, using the same
+  modified-desc / id-asc ordering as the note list (§12 drift watchlist); card
+  previews truncate to 60 characters. → forYou.ts
+- Relative times in the desktop UI (For You cards, images tab) use the
+  vocabulary just now / Nm ago / Nh ago / yesterday / Nd ago / Nmo ago /
+  Ny ago. → shared/time/formatRelativeTime.ts
 - An empty vault shows a **"FUTO Notes"** heading. On mobile the subtitle reads
   "Create your first note to get started." with a **"Browse notes"** button
   (opens the drawer) and a **"Quick capture"** button below the feed area; on
@@ -210,7 +216,10 @@ confirmation, not surfaced as a per-folder count. → NoteListView.swift
 ## Sidebar tabs *(Tauri)*
 
 - The drawer/sidebar has three tabs: **files** (folder tree + notes),
-  **tags**, and **images**. → DrawerSidebar.svelte
+  **tags**, and **images**; the selected tab persists across sessions
+  (localStorage `futo-notes:sidebarView`). → DrawerSidebar.svelte
+- Clicking the sidebar brand/home affordance returns to the For You home (no
+  note open). → DrawerSidebar.svelte
 - The tags tab lists every tag (lowercased, case-insensitively deduped) with a
   live note count; tapping a tag expands an alphabetical list of its notes;
   tapping a note opens it. Tags inside inline code / fenced blocks are not
@@ -218,12 +227,14 @@ confirmation, not surfaced as a per-folder count. → NoteListView.swift
   (A `$state`-proxy identity bug here used to throw
   `effect_update_depth_exceeded` on render and brick all UI interactivity —
   fixed 2026-06-09, regression-locked by SidebarTagView.test.ts.)
-- The images tab lists the vault's images (name, size, date) with a delete
-  action; deleting does NOT rewrite notes that reference the image. →
-  SidebarImageView.svelte
-- The sidebar virtualizes rows (only visible rows render) so 1000+ note vaults
-  stay responsive — the files-tab tree computes a `visibleRange`/`visibleNodes`
-  window inline over a fixed-height spacer. → FolderTreeView.svelte
+- The images tab shows the vault's images as a thumbnail grid (live
+  previews); tapping a thumbnail opens a full-size detail view with a Back
+  control, the image's name, size, and relative-time date, and an overflow
+  (⋮) menu hosting **Delete**. Deleting does NOT rewrite notes that reference
+  the image. → SidebarImageView.svelte
+- The sidebar files tree stays responsive on large vaults (target: 10,000
+  notes) — scrolling, expanding/collapsing, and drag & drop remain usable.
+  The implementation is not required to virtualize rows. → FolderTreeView.svelte
 
 ## Folder management
 

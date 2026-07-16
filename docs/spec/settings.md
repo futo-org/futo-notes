@@ -60,9 +60,19 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
   relaunches. → `src/lib/platform/tauri/appConfig.ts`, `notesRoot.ts`
 - **Sync**: server URL + password inline with a Connect button and a
   "Last sync: …" line ("never" before the first sync). Once connected the
-  section shows status/disconnect (see sync.md).
+  section shows the locked URL plus **Sync now**, **Forget password**, and
+  **Reset connection** (confirmed) — clicking the read-only server URL also
+  opens the Reset-connection confirm. When connected without a saved password
+  (keyring unavailable or forgotten), a "Vault password — required after
+  restart" field appears for on-demand re-entry (see sync.md). →
+  SyncSettingsSection.svelte, createSyncSettings.svelte.ts
 - **Crash reporting**: a "Share crash reports" toggle (anonymous crash logs);
   see app.md for the crash dialog flow.
+- Dev builds additionally show a **Sync error test** section (fabricated
+  sync-failure scenarios that exercise the failure-message UI) and a **Test
+  crash** button in the Danger zone; neither ships in release builds
+  (`import.meta.env.DEV`). → DevSyncErrorSettingsSection.svelte,
+  DangerSettingsSection.svelte
 - **Updates (desktop self-update)**: an "Updates" section with a single
   state-driven button — Check for updates → Restart & update to vX →
   Downloading…N% → Restart now to finish — backed by the Tauri updater plugin

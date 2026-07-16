@@ -21,7 +21,10 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
 - Connecting requires a server URL + password; a successful connect auto-runs a
   first sync. → SyncScreen.kt
 - Once connected, the server URL is locked. The user can "Sync now" or
-  "Disconnect". → SyncScreen.kt
+  "Disconnect" (desktop labels the disconnect **Reset connection** and asks
+  for confirmation; a separate **Forget password** drops only the stored
+  keyring entry, keeping the connection). → SyncScreen.kt,
+  SyncSettingsSection.svelte
 - **The password and server-URL fields suppress IME text "help."** Both declare
   the right soft-keyboard type (password / URI) and disable autocapitalization
   and autocorrect/predictive text. A default text field on a phone silently
