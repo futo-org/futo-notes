@@ -19,4 +19,4 @@ pub use paths::{
     note_id_from_relative_path, safe_appdata_path, safe_note_path, IncomingSyncPath,
     MAX_FOLDER_DEPTH, NAME_MAX,
 };
-pub use timestamps::{file_mtime_ms, now_ms, set_file_mtime_ms};
+pub use timestamps::{file_mtime_ms, mtime_or_now, now_ms, set_file_mtime_ms};

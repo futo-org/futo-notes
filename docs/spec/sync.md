@@ -538,8 +538,9 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   the identical loser name and the fleet lands on `{canonical, name (conflict
   <oid8>)}`), and safe even when the rival is already on disk / in the map and
   is NOT in the current incremental batch (F4 same-name; F5 NFC-vs-NFD). →
-  futo-notes-sync sync module, futo-notes-core `sync::{collision_key,
-  collision_conflict_filename}`; regression tests
+  futo-notes-sync sync module, futo-notes-core
+  `files::collision_key` and
+  `conflict_names::collision_conflict_filename`; regression tests
   `f4_same_filename_two_clients_no_note_lost`,
   `f5_nfc_nfd_collision_no_note_lost`, the `collision_*` unit tests
 - **The empty-map reconcile no longer lets local silently overwrite an unseen

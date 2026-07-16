@@ -1,6 +1,8 @@
+use aes_gcm::aead::OsRng;
+use rand::RngCore;
 use serde::{Deserialize, Serialize};
 
-use super::cipher::{aes_gcm_decrypt, aes_gcm_encrypt, generate_vault_key, KEY_BYTES};
+use super::cipher::{aes_gcm_decrypt, aes_gcm_encrypt, KEY_BYTES};
 use super::password_key::{derive_password_key, generate_salt, PBKDF2_ITERATIONS};
 use super::E2eeError;
 
@@ -28,6 +30,12 @@ impl KeyKdf {
             hash: "SHA-256".to_owned(),
         }
     }
+}
+
+pub fn generate_vault_key() -> [u8; KEY_BYTES] {
+    let mut out = [0u8; KEY_BYTES];
+    OsRng.fill_bytes(&mut out);
+    out
 }
 
 pub fn wrap_vault_key(password: &str) -> Result<([u8; KEY_BYTES], KeyMaterial), E2eeError> {

@@ -8,14 +8,8 @@ pub const IV_BYTES: usize = 12;
 pub const KEY_BYTES: usize = 32;
 pub const TAG_BYTES: usize = 16;
 
-fn generate_iv() -> [u8; IV_BYTES] {
+pub fn generate_iv() -> [u8; IV_BYTES] {
     let mut out = [0u8; IV_BYTES];
-    OsRng.fill_bytes(&mut out);
-    out
-}
-
-pub(super) fn generate_vault_key() -> [u8; KEY_BYTES] {
-    let mut out = [0u8; KEY_BYTES];
     OsRng.fill_bytes(&mut out);
     out
 }
@@ -57,7 +51,7 @@ mod tests {
 
     #[test]
     fn aes_gcm_round_trip_random_iv() {
-        let key = generate_vault_key();
+        let key = [7u8; KEY_BYTES];
         let plaintext = b"the quick brown fox";
         let ciphertext = aes_gcm_encrypt(&key, plaintext).unwrap();
         assert_eq!(ciphertext.len(), IV_BYTES + plaintext.len() + TAG_BYTES);
@@ -79,7 +73,7 @@ mod tests {
 
     #[test]
     fn aes_gcm_rejects_tampered_ciphertext() {
-        let key = generate_vault_key();
+        let key = [7u8; KEY_BYTES];
         let mut ciphertext = aes_gcm_encrypt(&key, b"secret").unwrap();
         ciphertext[IV_BYTES] ^= 1;
         assert!(matches!(

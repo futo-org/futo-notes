@@ -3,8 +3,10 @@
 ## Status
 
 - Workflow: guided contract rewrite, dependency phase 1 (core).
-- Current stage: Stage 5 compliance and verification complete for available toolchains.
-- Review gate: **Gate C approved and committed; Android verification is environment-blocked as disclosed below.**
+- Historical stage: Gate C was approved and committed under the 2026-07-15 workflow.
+- Current stage: 2026-07-16 updated-workflow re-audit complete; Gate C evidence is green.
+- Review gate: **Gate A approved the semantic decisions, Gate B approved the unchanged final
+  architecture, and Gate C found no unresolved in-scope requirement.**
 - Base commit: `885231efaac35ad5b7aee0f02dcbea693931aecc` (current `origin/main` when initialized).
 - Implementation worktree: `/Users/mason/.codex/worktrees/c43d/futo-notes` (the fresh worktree used for the rewrite).
 - Current branch: `refactor/core-crate` (created as `codex/rewrite-core`, then renamed after review).
@@ -43,6 +45,311 @@ previously unchecked surface-spec inventory.
 It owns no long-lived mutable lifecycle. `LocalNoteStore` owns vault workflows/search lifecycle and
 `SyncSession` owns sync connection/checkpoint/live-task state. Core receives explicit paths,
 bytes, keys, and plain data and returns ordinary results.
+
+## 2026-07-16 updated-workflow re-audit
+
+The rewrite was re-audited because the guided workflow now requires a complete semantic-surface
+classification, individual approval for Product semantic changes, implementation provenance, an
+actual-versus-approved tree diff, a complete production-comment census, and a
+requirement-to-evidence matrix. This section is the current Gate A record. The historical sections
+below remain the accurate record of the original run.
+
+Current audit state:
+
+| Item | Evidence | Result |
+| --- | --- | --- |
+| Audited commit | `4fe3ebec4cd8a3d5971ce53fb10037f17e198a21` | Same commit as `refactor/core-crate`; this audit worktree is detached because that branch is checked out in the original implementation worktree |
+| Original rewrite base | `885231efaac35ad5b7aee0f02dcbea693931aecc` | Confirmed |
+| Worktree state before audit edits | `git status --short --branch` | Clean, detached HEAD |
+| Default core command | `cargo test -p futo-notes-core` | 97 owner-local + 1 conformance + 2 public-contract tests passed; 0 failed, 0 ignored |
+| Current accounting | `account_scope.py crates/futo-notes-core` | 1,083 production lines; 1,331 test lines; 19 source files |
+| External package publication | workspace path-dependency search plus `cargo search futo-notes-core --limit 5` | All checked-in consumers are workspace path dependencies; no crates.io package result was found |
+| Stale structural references | whole-repository old-symbol/path search | One live spec reference named deleted `core::sync`; correction approved |
+
+### Complete semantic-surface classification
+
+The table classifies actions and data by semantic responsibility rather than by Rust visibility.
+Retained fields and error variants are included with their owning record/error surface.
+
+| Surface/action group | Surface kind | Evidence and final disposition |
+| --- | --- | --- |
+| Filename constants, `FilenameIssueKind`, `FilenameIssue`, title sanitization/validation, Windows reserved-name detection | Product semantic | Cross-language note-rule contract; preserved at `files::filenames` through the `files` facade |
+| Case/Unicode `collision_key` and `collides_but_differs` behavior | Product semantic | Cross-platform data-safety capability; behavior preserved, owner path changed from `sync` to `files` |
+| Safe note/app-data paths, incoming sync-path classification, note-ID parsing, depth/name constants | Product semantic | CRITICAL path-safety and sync-ingress contract; preserved at `files::paths` |
+| Atomic replace/create, temp-hop rename, parked-backup recovery, `RecoveredBackup` fields | Product semantic | Data-durability and crash-recovery contract; preserved in `files::{atomic_write,parked_backup}` |
+| Millisecond timestamps and exact binary base64 blob transport | Product semantic | Persisted/wire-adjacent behavior; preserved in `files::{timestamps,blob_file}` |
+| `hash_sha256` and `hash_sha256_bytes` | Product semantic | Exact-byte wire compatibility; preserved |
+| Image-extension catalog and image/syncable classifiers | Product semantic | Cross-shell conformance contract; preserved |
+| `MergeResult` and three-way merge behavior | Product semantic | Conflict-resolution behavior; preserved at `merge` |
+| AES-GCM constants, `E2eeError` variants, encrypt/decrypt behavior | Product semantic | Shipped encrypted-wire behavior and error contract; preserved through `e2ee` |
+| `UnpackedNote` fields, V2 encoder, V2/V1 decoder | Product semantic | Persisted/wire frame contract; preserved through `e2ee` |
+| `KeyMaterial`/`KeyKdf` fields, default KDF, wrap/unwrap behavior | Product semantic | Server JSON and vault-key compatibility; preserved through `e2ee` |
+| Random salt/IV/vault-key generation and direct PBKDF2 derivation | Product semantic | Public, useful cryptographic actions whose removal is not required by the target architecture; restore at the original `e2ee::*` path unless individually approved for deletion |
+| Deterministic object/date conflict-copy naming | Product semantic | User-visible filename and convergence contract; behavior preserved, owner path changed to `conflict_names` |
+| Unique-note-ID selection | Product semantic | App spec and no-clobber workflow; behavior preserved in the store owner, but the public core function was removed |
+| `invariants::{NoteRecord,InvariantViolation,check_*,run_all_invariants}` | Private mechanism | Database-shaped diagnostic architecture superseded by `LocalNoteStore`/`SyncSession`; every test promise is mapped to the live owners or marked obsolete |
+| Legacy sync request/response DTOs, status/direction enums, convergence/rename helpers, suffix resolver | Private mechanism | Pre-`SyncSession` protocol mechanism with no supported wire or production owner; ledger rows map all promises |
+| E2EE re-exports of merge/conflict naming | Private mechanism | Unrelated compatibility barrel; direct semantic owners remain available |
+| Caller-supplied-IV encryption and V1 frame encoder | Private mechanism | Legacy source explicitly marked both test-only; production still uses random-IV encryption and V2 emit/V1 decode |
+| `mtime_or_now` | Product semantic | Public timestamp fallback action; restore in `files::timestamps` through the `files` facade unless individually approved for deletion |
+| Generated Swift/Kotlin bindings and native libraries | Generated artifact | Semantic UniFFI API did not change; regenerate only through prescribed build scripts |
+| Drift registry locations and generated `docs/spec/GAPS.md` | Generated artifact/input | Update source locations/authorities, then regenerate/check rather than hand-maintaining derived output |
+
+### Product semantic decisions requiring individual approval
+
+Structural approval does not decide these rows. “No current caller” is not used as the removal
+reason. Rows 1–6 preserve the behavior but change or remove an internal package path; rows 7–11
+were removed even though the focused target modules can preserve them without architectural harm.
+
+| # | Surface change | Product/spec authority and reconstructibility | Safety/lifecycle impact | Proposed disposition | User decision |
+| ---: | --- | --- | --- | --- | --- |
+| 1 | `sync::collision_key` → `files::collision_key` | Filename identity is required by app/sync specs; deterministic result is reconstructible from the filename | No state or wire impact; places the rule with filename ownership | Keep the owner migration and remove the old `sync` path | Approved 2026-07-16 |
+| 2 | `sync::collides_but_differs` → `files::collides_but_differs` | Same cross-platform collision contract; deterministic result is reconstructible | No state or wire impact | Keep the owner migration and remove the old `sync` path | Approved 2026-07-16 |
+| 3 | `sync::collision_conflict_filename` → `conflict_names::collision_conflict_filename` | Sync conflict-name spec; deterministic result is reconstructible from immutable inputs | No lifecycle change; convergence behavior remains guarded | Keep the owner migration and remove the old `sync` path | Approved 2026-07-16 |
+| 4 | `sync::conflict_filename` → `conflict_names::conflict_filename` | User-visible dated conflict filename; deterministic result is reconstructible | No lifecycle change | Keep the owner migration and remove the old `sync` path | Approved 2026-07-16 |
+| 5 | `e2ee::three_way_merge_text` removed in favor of `merge::three_way_merge` | Merge behavior is required and preserved; result is reconstructible by the direct owner using the same arguments | No state/wire impact; removes an unrelated E2EE compatibility alias | Keep the direct-owner migration and remove the E2EE alias | Approved 2026-07-16 |
+| 6 | `files::get_unique_note_id` removed; store owns `paths::unique_note_id` | App spec requires the no-clobber result; selection must be performed by the serialized durable workflow | Moving ownership prevents shells/callers from separating selection from mutation | Keep the store-owned migration and remove the public core workflow helper | Approved 2026-07-16 |
+| 7 | `e2ee::generate_salt` removed | Useful public CSPRNG action; generated value is non-reconstructible after the call | Stateless and safe in `password_key`; no architectural reason to remove | Restore the original public path through the focused facade | Keep; restoration approved 2026-07-16 |
+| 8 | `e2ee::generate_iv` removed | Useful public CSPRNG action; generated value is non-reconstructible after the call | Stateless and safe in `cipher`; production encryption still owns freshness | Restore the original public path through the focused facade | Keep; restoration approved 2026-07-16 |
+| 9 | `e2ee::generate_vault_key` removed | Useful public CSPRNG action; generated value is non-reconstructible after the call | Stateless and safe in `vault_key` | Restore the original public path through the focused facade | Keep; restoration approved 2026-07-16 |
+| 10 | `e2ee::derive_password_key` removed | Useful public PBKDF2 action; derivation is deterministic but its signature exposes supported parameters | Stateless and already implemented in `password_key` | Restore the original public path through the focused facade | Keep; restoration approved 2026-07-16 |
+| 11 | `files::mtime_or_now` removed | Useful public fallback action; deterministic for positive input and time-dependent otherwise | Stateless and cohesive in `timestamps` | Restore the original public path through the focused facade | Keep; restoration approved 2026-07-16 |
+
+### Binding target tree and implementation provenance
+
+The updated workflow would bind this tree from the first compile. The current final tree already
+matches it; only the five public helper restorations above would change facade visibility.
+
+| Target path | Responsibility | Dependencies | State/lifecycle | Expected size/risk | Implementation provenance |
+| --- | --- | --- | --- | --- | --- |
+| `src/lib.rs` | Public crate capability facade | Child modules only | None | Tiny/low | Rewrite from contract |
+| `src/conflict_names.rs` | Deterministic object/date conflict filenames | `files::collision_key`, standard collections | None | Medium/high convergence risk | Rewrite from contract |
+| `src/hash.rs` | Exact-byte SHA-256 | `sha2`, `hex` | None | Small/high compatibility risk | Reuse as already conforming |
+| `src/image.rs` | Canonical image/syncable classification | None | None | Small/cross-language drift risk | Reuse as already conforming |
+| `src/merge.rs` | Three-way text merge | `diffy` | None | Medium/high conflict risk | Reuse as already conforming |
+| `src/e2ee/mod.rs` | E2EE public facade and stable error type | Focused E2EE children | None | Small/high API risk | Rewrite from contract |
+| `src/e2ee/cipher.rs` | AES-256-GCM frame encryption/decryption and IV generation | `aes-gcm`, `rand` | CSPRNG only | Small/high wire/security risk | Rewrite from contract |
+| `src/e2ee/password_key.rs` | PBKDF2-HMAC-SHA256 derivation and salt generation | `pbkdf2`, `hmac`, `sha2`, `rand` | CSPRNG only | Small/high compatibility risk | Rewrite from contract |
+| `src/e2ee/note_frame.rs` | V2 encode and V2/V1 decode | E2EE error | None | Medium/high wire risk | Rewrite from contract |
+| `src/e2ee/vault_key.rs` | Key material JSON and wrap/unwrap workflow | Cipher/password modules, `serde`, `hex`, `rand` | CSPRNG only | Medium/high security/API risk | Rewrite from contract |
+| `src/files/mod.rs` | Durable-file public facade | Focused file children | None | Tiny/high API risk | Rewrite from contract |
+| `src/files/filenames.rs` | Title rules and case/Unicode filename identity | Unicode normalization | None | Medium/high cross-shell risk | Rewrite from contract |
+| `src/files/paths.rs` | Root-safe paths, note IDs, incoming triage | Filenames, canonical image classifier | None | Medium/CRITICAL path-safety risk | Rewrite from contract |
+| `src/files/timestamps.rs` | Wall-clock and filesystem mtime conversion | `filetime`, standard time | None | Small/persisted-time risk | Rewrite from contract |
+| `src/files/atomic_write.rs` | Replace/no-replace writes and temp-hop rename | Parked-install transaction, standard filesystem | Filesystem effects only | Medium/CRITICAL durability risk | Rewrite from contract |
+| `src/files/parked_backup.rs` | Collision-safe install and crash recovery | Standard filesystem, process-local atomic sequence | Temp-name sequence only; no root lifecycle | Largest/highest durability risk | Rewrite from contract |
+| `src/files/blob_file.rs` | Exact binary base64 read/write | Atomic bytes, `base64` | Filesystem effects only | Small/wire-adjacent risk | Rewrite from contract |
+| `tests/public_contract.rs` | Coherent cross-capability durable round trips | Public core facade | Test filesystem only | Small | New |
+| `tests/path_safety_conformance.rs` | Shared TS/Rust hostile-path fixture | Public path API, fixture JSON | None | Small/CRITICAL conformance risk | Reuse as already conforming |
+
+### Actual-versus-approved tree and historical process variance
+
+- **Current final tree diff:** empty. Every approved file exists with its approved responsibility;
+  no additional production or test warehouse exists.
+- **Semantic diff:** rows 1–6 are approved owner/API-path migrations; rows 7–11 are restored at
+  their original public paths. All other records, fields, errors, constants, wire bytes, and
+  behavior remain frozen.
+- **Historical process variance:** the original ledger accurately records a first-green checkpoint
+  with 683-line `files/mod.rs` and 251-line `e2ee/mod.rs` warehouses followed by Gate B extraction.
+  The updated workflow now forbids that sequence. It cannot be retroactively proven compliant, so
+  the record will remain explicit rather than being rewritten to imply the target tree existed from
+  the first compile. The committed final tree is compliant and contains no warehouse.
+
+### Test placement map
+
+| Promise layer | Final location | Reason |
+| --- | --- | --- |
+| Pure filename/path/time/blob/atomic/recovery/hash/image/merge/E2EE/conflict behavior | Inline tests beside each focused owner | Uses the new capability vocabulary and catches local contract regressions |
+| Cross-capability durable note and exact-hash round trips | `tests/public_contract.rs` | Detects assembly failures not visible inside one capability |
+| Shared TS/Rust hostile-path parity | `tests/path_safety_conformance.rs` | Owns the cross-language fixture boundary |
+| Store-owned unique-ID/no-clobber behavior | `futo-notes-store` tests | Selection and mutation must be verified in the serialized lifecycle owner |
+| Sync convergence, conflicts, E2EE round trips | `futo-notes-sync` and cross-platform scenarios | Requires real orchestration/server behavior rather than recreated core seams |
+| Deleted invariant/legacy-sync planners and DTOs | No replacement test seam | Every legacy promise is marked Obsolete or mapped to the real owner in the ledger |
+
+### Complete changed-production comment census
+
+| Path/comment | Information added beyond names/types/specs | Disposition |
+| --- | --- | --- |
+| `src/image.rs:1` conformance-lock module comment | Names the cross-language source paired with this implementation | Keep |
+| `src/e2ee/note_frame.rs:42` V1 discrimination comment | Explains why a zero first byte safely distinguishes supported V1 lengths from V2 | Keep |
+| `src/files/atomic_write.rs:48` directory fsync comment | Explains the platform durability reason for syncing the parent directory | Keep |
+| `src/files/atomic_write.rs:90` independent-link comment | Explains the no-replace atomicity guarantee of the hard-link install | Keep |
+| `src/files/parked_backup.rs:53` sidecar-before-park comment | Preserves the crash-ordering invariant needed for recovery | Keep |
+| `src/files/parked_backup.rs:75` divergent-backup result docs | States the caller obligation to materialize preserved bytes before removing the sidecar | Keep |
+| `src/files/parked_backup.rs:115` symlink comment | Explains why recovery refuses directory symlinks and loops | Keep |
+| `src/files/parked_backup.rs:147` hard-link race comment | Explains how installation closes the existence-check race without replacement | Keep |
+| `src/files/parked_backup.rs:160` stale-resurrection comment | Explains why a duplicate backup and sidecar must be removed after a live deletion | Keep |
+
+No other retained or added production comment exists in the changed core source.
+
+### Requirement-to-evidence matrix
+
+The organization and downloaded refactoring checklists are materially parallel; one row cites both
+when the same evidence necessarily proves the duplicated requirement.
+
+| Source + section | Requirement | Applies? / N/A reason | Gate A planned evidence | Gate B/C evidence | Status |
+| --- | --- | --- | --- | --- | --- |
+| Organization/refactoring checklist — Structure | Code grouped under its narrowest owner | Applicable | Target tree and responsibility table | Final path/responsibility audit | Pass |
+| Same — Structure | Cohesive capabilities grouped in descriptive modules | Applicable | `files/` and `e2ee/` target groups | Current tree and largest-file audit | Pass |
+| Same — Structure | Module entry points expose/facilitate rather than warehouse implementation | Applicable | Facade responsibilities | `lib.rs`, `files/mod.rs`, `e2ee/mod.rs` audit | Pass |
+| Same — Structure | Feature-private helpers remain local | Applicable | Private child modules and `pub(super)` seams | Visibility/import review | Pass |
+| Same — Structure | Shared code has real independent consumers | Applicable | Consumer inventory | Model/store/sync/Tauri/FFI path-dependency search | Pass |
+| Same — Structure | API implementations delegated to route-local helpers | N/A: no HTTP/API route is in scope | N/A reason | N/A | N/A |
+| Same — Structure | Cross-feature types shared; local types remain local | Applicable | Public records only at capability boundary | Public-surface inventory | Pass |
+| Same — Structure | Tests co-located with owned behavior | Applicable | Test-placement map | 98 owner-local tests plus 4 boundary tests | Pass |
+| Same — Structure | Imports respect ownership boundaries | Applicable | Dependency direction plan | Consumer imports use `files`, `merge`, `conflict_names`, `e2ee` owners | Pass |
+| Same — Structure | Concrete modules imported directly unless a deliberate facade exists | Applicable | Deliberate `files`/`e2ee` facades only | Import/re-export audit | Pass |
+| Same — Structure | Technical folders exist only when clarifying | Applicable | Capability-named folders only | Tree audit | Pass |
+| Same — Structure | Layout is not fragmented for size alone | Applicable | One responsibility per file and cohesion rationale | Largest-file audit; 221-line cohesive recovery owner retained | Pass |
+| Same — Naming | Files and exports share semantic names | Applicable | Target path/action names | Source tree and public-surface audit | Pass |
+| Same — Naming | Functions use precise verb-noun names | Applicable | Existing public contract names frozen | Source audit | Pass |
+| Same — Naming | Components use role-oriented PascalCase | N/A: no UI components in scope | N/A reason | N/A | N/A |
+| Same — Naming | Booleans read as claims | Applicable | Inspect changed source | No vague boolean surface found | Pass |
+| Same — Naming | Types describe domain/boundary roles | Applicable | Surface table | `FilenameIssue`, `IncomingSyncPath`, `RecoveredBackup`, E2EE records/errors | Pass |
+| Same — Naming | No vague helper/manager/processor/data names | Applicable | Target naming review | Whole-scope filename/export audit | Pass |
+| Same — Naming | Paths make sense without opening files | Applicable | Target tree responsibility table | Current tree review | Pass |
+| Same — Naming | Contractual abbreviations remain intact | Applicable | Preserve `e2ee`, KDF, IV, sync terminology | Public diff | Pass |
+| Same — Components/state | Pages coordinate and children render | N/A: no UI/page code in core scope | N/A reason | N/A | N/A |
+| Same — Components/state | Child components use minimal props | N/A: no UI components | N/A reason | N/A | N/A |
+| Same — Components/state | Shared state uses smallest provider | N/A: no provider/context; core owns no lifecycle | State/lifecycle map | N/A | N/A |
+| Same — Components/state | Loading/error/pending states intentional | N/A: synchronous capability crate | N/A reason | N/A | N/A |
+| Same — Components/state | State updates immutable | N/A: no application state owner | State/lifecycle map | N/A | N/A |
+| Same — Components/state | Effects synchronize and clean up | Applicable only to filesystem effects | Explicit effect boundaries | No task/subscription/cache; recovery and atomic-write tests | Pass |
+| Same — Functions/boundaries | Pure transformations separated from effects when clearer | Applicable | Capability split | Paths/names/hash/image/merge separate from file effects | Pass |
+| Same — Functions/boundaries | Parent functions read as coherent narratives | Applicable | Substantial-file audit | Recovery/atomic/vault orchestration review | Pass |
+| Same — Functions/boundaries | Dense policies/substantial branches use named helpers | Applicable | Target responsibilities | Largest-file function audit | Pass |
+| Same — Functions/boundaries | Simple branches remain inline | Applicable | Extraction rationale | Diff review found no symmetry-only helpers | Pass |
+| Same — Functions/boundaries | No helper created solely for symmetry/LOC/purity/test access | Applicable | Provenance and extraction rules | Whole-scope audit | Pass |
+| Same — Functions/boundaries | Multi-step operations read top to bottom | Applicable | Atomic/recovery/vault owner design | Source audit | Pass |
+| Same — Functions/boundaries | Required async work awaited | N/A: core scope contains no async work | N/A reason | N/A | N/A |
+| Same — Functions/boundaries | Inputs validated at trust boundaries | Applicable | Path/frame/cipher validation invariants | Named rejection tests | Pass |
+| Same — Functions/boundaries | Low-level errors gain context; boundary errors translated safely | Applicable | Preserve stable `String`/`E2eeError` contracts | Error-variant and rejection tests | Pass |
+| Same — Functions/boundaries | External data normalized to application shapes | Applicable to frames/key material/paths | Surface table | Frame/key/path tests | Pass |
+| Same — Functions/boundaries | Classes only with instance semantics | N/A: Rust capability crate has no classes | N/A reason | N/A | N/A |
+| Same — Comments/specs | Product behavior and acceptance criteria live in specs | Applicable | Spec inventory | Specs retain behavior; local comments only implementation constraints | Pass |
+| Same — Comments/specs | Comments explain non-obvious intent/sequence/constraints | Applicable | Complete census | Nine-item census | Pass |
+| Same — Comments/specs | Operational scripts have phase/readiness comments | N/A: no script changed in core rewrite | N/A reason | N/A | N/A |
+| Same — Comments/specs | Comments do not restate obvious code | Applicable | Census review | Every retained comment has non-obvious rationale | Pass |
+| Same — Comments/specs | Dead code deleted, not commented out | Applicable | Deletion disposition | Deleted modules/aliases and no commented implementation | Pass |
+| Same — Comments/specs | Comments remain accurate | Applicable | Census plus old-reference search | Source comments pass; stale sync-spec owner corrected | Pass |
+| Same — Comments/specs | Docs/guidance/authority references reflect moves | Applicable | Whole-repo old-path search | Stale `docs/spec/sync.md` owner reference corrected and generated gaps refreshed | Pass |
+| Same — Verification | Relevant tests pass | Applicable | Core/store/sync/conformance/E2E chain | Core 102/102; workspace, editor, repository, and cross-platform chains recorded below | Pass |
+| Same — Verification | Type checking passes | Applicable to touched TS/doc inputs and final repository | Plan `pnpm exec tsc --noEmit` | Standalone command and `just check` passed | Pass |
+| Same — Verification | Linting/formatting passes | Applicable | Plan fmt/check commands | Rust fmt, diff integrity, repository lint, Svelte check, and Prettier passed | Pass |
+| Same — Verification | New files use narrowest scope | Applicable | Target tree | Current owner audit | Pass |
+| Same — Verification | Capability discoverable from boundary inward | Applicable | Facade/tree design | Current tree review | Pass |
+| Same — Verification | Unused dependencies/scaffolding removed | Applicable | Dependency/compatibility disposition | `rayon`, `rand_chacha`, and `proptest` removed; all semantic decisions resolved | Pass |
+| Same — Verification | Supported commands/config/formats/protocols/public surfaces remain compatible unless migration documented | Applicable | Semantic freeze and decision table | Rows 1–6 approved; rows 7–11 restored and guarded | Pass |
+| Root AGENTS — Modifying-agent activation | Read complete organization standard and name narrowest owner before plan/edit | Applicable | Authority record and owner statement | Completed; reread after compaction | Pass |
+| Root AGENTS — CRITICAL data/render safety | Do not weaken data-safety or shipped behavior | Applicable | Invariant map | Atomic/path/hash/E2EE/convergence tests | Pass |
+| Root AGENTS — Single-source rules | Do not duplicate note/image/path rules across shells | Applicable | Consumer/drift inventory | Canonical core/editor fixtures unchanged and conformance checks passed | Pass |
+| Root AGENTS — Generated files | Edit authorities and regenerate; never hand-edit generated output | Applicable | Generated-artifact disposition | No binding edit; spec gaps regenerated from its authority and all drift checks passed | Pass |
+| Root AGENTS — M17 | Search all sibling occurrences after fixes | Applicable | Whole-repo old-symbol/path searches | Final old-owner and public-helper searches completed | Pass |
+| Root AGENTS — M18/M19 | Run full layer chain and update specs with behavior/authority changes | Applicable | Verification and spec plan | Full chain passed; sync owner reference and generated gaps updated | Pass |
+| Root AGENTS §7.4 | Core changes pass focused and workspace Rust chains; preserve dependency guard | Applicable | Command matrix | Core 102/102 and workspace 237 passed; `just check` dependency guards passed | Pass |
+| Core AGENTS — Ownership | Core remains portable/stateless; store/sync own lifecycles | Applicable | State/lifecycle map | Current dependency and source audit | Pass |
+| Core AGENTS — Verification | File changes verify store; E2EE/merge/conflicts verify sync/cross-platform | Applicable | Command matrix | Core, store, sync, workspace, and cross-platform evidence recorded below | Pass |
+| App spec — filename/title/collision | Preserve filename-is-title and no-clobber/case-normalization behavior | Applicable | Invariant/test map | Core/store/conformance tests | Pass |
+| Desktop Rust spec — path/atomic boundary | Preserve cross-platform path and atomic-file safety | Applicable | Invariant/test map | Core/store/Tauri tests | Pass |
+| Sync spec — hash/E2EE/frame/blob/image/merge/conflict/recovery | Preserve exact bytes, formats, convergence, and recoverability | Applicable | Invariant/scenario map | Core/sync/cross-platform chain | Pass |
+| Guided workflow — semantic classification | Classify Product semantic, Private mechanism, Generated artifact | Applicable | Complete table above | All rows reconciled after user decisions | Pass |
+| Guided workflow — semantic freeze | No unapproved semantic deletion/signature/data reduction | Applicable | Rows 1–11 | Rows 1–6 approved; rows 7–11 restored and guarded | Pass |
+| Guided workflow — first-compile target binding | Approved tree is binding; no first-green warehouse | N/A retrospectively: the original run predates the updated sequence rule | Historical variance disclosed; final tree diff empty | Past compile order cannot be changed; the current final tree contains no warehouse | N/A |
+| Guided workflow — provenance | No legacy center moved wholesale | Applicable | Per-file provenance table | Final diff/tree and focused files | Pass |
+| Guided workflow — test warehouse | No translated test warehouse | Applicable | Test placement map | 98 local + 4 coherent boundary tests | Pass |
+| Guided workflow — legacy promise ledger | Every legacy test has a disposition and named guard | Applicable | Existing 195-row ledger | Totals/reconciliation retained below | Pass |
+| Guided workflow — comment census | Every changed production comment justified | Applicable | Nine-item census | Repeated after follow-up edits; no comment added or changed | Pass |
+| Guided workflow — nonzero commands | Default/acceptance commands execute meaningful coverage | Applicable | Exact count plan | Core 102 tests; repository and cross-platform chains execute meaningful coverage | Pass |
+| Guided workflow — consumer/generated boundaries | Verify every consumer and generated boundary | Applicable | Consumer command matrix | Workspace, conformance, editor, repository, and cross-platform evidence recorded below; native regeneration N/A because the semantic FFI API is unchanged | Pass |
+| Guided workflow — separate accounting | Report production/test counts reproducibly | Applicable | `account_scope.py` command | Final 1,093 production / 1,357 test lines | Pass |
+
+Mason approved rows 1–6 and requested that rows 7–11 remain public on 2026-07-16. Gate A is closed.
+The implementation phase is limited to the approved public-surface restorations, the stale
+sync-spec owner reference, and completing this matrix with final command evidence.
+
+### 2026-07-16 Gate B re-audit
+
+The approved follow-up implementation is green at the focused owner and consumer layers.
+
+Mason approved Gate B on 2026-07-16 with the architecture and test placement unchanged.
+
+| Gate B evidence | Result |
+| --- | --- |
+| Actual-versus-approved tree | Empty diff: no path, owner, or responsibility changed |
+| Semantic-surface diff | Rows 1–6 remain the approved direct-owner migrations; `generate_salt`, `generate_iv`, `generate_vault_key`, `derive_password_key`, and `mtime_or_now` are restored at their original public facade paths |
+| Production/test accounting | 1,093 production lines and 1,357 test lines; +10 production and +26 test lines from the pre-follow-up final state |
+| Largest production file | `files/parked_backup.rs`: 221 production lines, unchanged and still one crash-recovery/install responsibility |
+| Public compatibility guard | `tests/public_contract.rs::public_compatibility_helpers_remain_available` |
+| Core verification | 98 owner-local + 1 path conformance + 3 public-contract tests passed; 0 failed, 0 ignored |
+| Store consumer verification | 26 passed; 0 failed, 0 ignored |
+| Sync consumer verification | 46 default tests passed; 27 server/live tests remain intentionally ignored without an isolated server |
+| Old-reference search | No live `core::sync`, monolithic `files.rs`/`e2ee.rs`, or `get_unique_note_id` reference remains outside the historical ledger |
+| Formatting/diff integrity | `cargo fmt -p futo-notes-core -- --check` and `git diff --check` pass |
+
+No emergent extraction, merge, rename, co-location, state owner, dependency direction, or test
+placement change is proposed. The five restored helpers remain ordinary stateless functions in
+their approved focused owners and are re-exported by the existing deliberate facades. The complete
+production comment census remains the same nine comments; the follow-up implementation added no
+source comment. The historical first-green process variance remains disclosed, while the actual
+current tree satisfies the updated architecture rule.
+
+### 2026-07-16 Gate C completion evidence
+
+The re-audit changed no owner, target path, wire format, persisted data, error shape, or lifecycle.
+It restored five approved public helpers, added guards at their owning/public layers, corrected one
+stale spec owner reference, regenerated the derived gap index, and completed the updated workflow's
+evidence requirements.
+
+#### Final accounting
+
+| Metric | Original baseline | Pre-follow-up final | Re-audit final | Delta from baseline |
+| --- | ---: | ---: | ---: | ---: |
+| Production lines | 1,672 | 1,083 | 1,093 | -579 (-34.6%) |
+| Test lines | 2,957 | 1,331 | 1,357 | -1,600 (-54.1%) |
+| Source files counted | 11 | 19 | 19 | +8 focused owner files |
+| Meaningful default core tests | 192 | 100 | 102 | 98 owner-local + 4 boundary tests |
+| Ignored core tests | 3 | 0 | 0 | The three wall-clock probes remain follow-up benchmark work |
+
+The ten restored production lines are public visibility plus the cohesive `mtime_or_now` fallback;
+the 26 test lines guard public availability and timestamp behavior. No production warehouse,
+compatibility barrel, or duplicate lifecycle owner was introduced.
+
+| Substantial final production file | Production lines | Responsibility |
+| --- | ---: | --- |
+| `files/parked_backup.rs` | 221 | Collision-safe install and crash recovery |
+| `files/paths.rs` | 144 | Root-safe note/app-data paths and incoming-path triage |
+| `files/filenames.rs` | 127 | Filename/title validation and cross-platform collision identity |
+| `files/atomic_write.rs` | 120 | Atomic replace/create and temp-hop rename |
+| `conflict_names.rs` | 109 | Deterministic and dated conflict-copy filenames |
+| `e2ee/vault_key.rs` | 75 | Vault-key generation, wrapping, and key-material JSON |
+| `e2ee/note_frame.rs` | 60 | V2 encode and V2/V1 decode |
+| `e2ee/cipher.rs` | 47 | AES-GCM encryption/decryption and IV generation |
+| `files/timestamps.rs` | 39 | Millisecond time conversion and fallback |
+| `e2ee/mod.rs` | 37 | Deliberate E2EE facade and stable error type |
+
+#### Commands and observed results
+
+| Command | Result |
+| --- | --- |
+| `cargo fmt -p futo-notes-core` and `cargo fmt -p futo-notes-core -- --check` | **Pass** |
+| `git diff --check` | **Pass** |
+| `cargo test -p futo-notes-core` | **Pass:** 98 owner-local + 1 path conformance + 3 public-contract tests = 102; 0 failed, 0 ignored |
+| `cargo test -p futo-notes-store` | **Pass:** 26; 0 failed, 0 ignored |
+| `cargo test -p futo-notes-sync` | **Pass:** 46 default; 0 failed; 27 isolated-server/live tests intentionally ignored by the default command |
+| `just test-rust-full` | **Pass:** core 102, model 28, search 8, store 26, sync 46, FFI 1, Tauri 26 = 237 default tests; 28 intentionally ignored |
+| `pnpm exec tsc --noEmit` | **Pass** |
+| `pnpm exec tsx tests/conformance/generate.mjs --check` | **Pass:** generated fixtures current |
+| `pnpm run test:editor:minimal` | **Pass:** 243/243 |
+| Initial `just check` | **Expected generated-input failure:** `docs/spec/GAPS.md` was stale after the sync-spec line moved |
+| `just spec-gaps` then `just check` | **Pass:** generated gap index current; architecture/drift checks, Rust conformance, dependency guards, lint, Svelte check, Prettier, 788 unit tests with 10 skipped, 341 editor tests, typecheck, and production build |
+| Initial `just test-cross-platform` | **Prerequisite failure before scenarios:** default server path `/Users/mason/Developer/futo-notes-server` absent |
+| `FUTO_NOTES_E2EE_SERVER_REPO=/Users/mason/futo-notes-server just test-cross-platform` | **Prerequisite failure before scenarios:** Bun installed but absent from the non-interactive PATH |
+| `PATH=/Users/mason/.bun/bin:$PATH FUTO_NOTES_E2EE_SERVER_REPO=/Users/mason/futo-notes-server just test-cross-platform` | **Pass:** 30/30 desktop↔desktop scenarios; 0 failed, 0 skipped |
+| `account_scope.py crates/futo-notes-core` | **Pass:** 1,093 production lines; 1,357 test lines; 19 source files |
+| Final old-owner/public-surface searches | **Pass:** no live stale core-sync/monolith/unique-ID reference outside the historical ledger; all five restored helper paths found |
+
+The cross-platform prerequisite failures did not execute a product scenario and were corrected
+without repository changes. The final isolated run exercised all 30 registered scenarios.
 
 ## Baseline accounting
 
@@ -639,6 +946,12 @@ Final reconciliation: **101 Pass, 91 Removed, 3 Queued, 0 Pending**.
 
 ## Review decisions
 
+- **2026-07-16 Gate A:** Mason approved the six direct-owner migrations, required the five useful
+  public helpers to remain available, and approved removing the stale spec reference.
+- **2026-07-16 Gate B:** Mason approved the unchanged final architecture and test placement.
+- **2026-07-16 Gate C:** completion evidence is green; the current worktree contains only the
+  approved compatibility restorations, guards, spec correction, generated gap refresh, and this
+  durable evidence update.
 - **Gate A:** approved by Mason on 2026-07-15 with the contract, ownership model, target tree,
   dispositions, and verification plan unchanged.
 - **Gate B:** approved by Mason on 2026-07-15 with the extraction proposal unchanged and a required

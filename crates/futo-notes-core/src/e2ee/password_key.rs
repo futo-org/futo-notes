@@ -9,13 +9,13 @@ use super::cipher::KEY_BYTES;
 pub const PBKDF2_ITERATIONS: u32 = 100_000;
 pub const SALT_BYTES: usize = 16;
 
-pub(super) fn generate_salt() -> [u8; SALT_BYTES] {
+pub fn generate_salt() -> [u8; SALT_BYTES] {
     let mut out = [0u8; SALT_BYTES];
     OsRng.fill_bytes(&mut out);
     out
 }
 
-pub(super) fn derive_password_key(password: &str, salt: &[u8], iterations: u32) -> [u8; KEY_BYTES] {
+pub fn derive_password_key(password: &str, salt: &[u8], iterations: u32) -> [u8; KEY_BYTES] {
     let mut out = [0u8; KEY_BYTES];
     pbkdf2::<Hmac<Sha256>>(password.as_bytes(), salt, iterations, &mut out)
         .expect("PBKDF2-HMAC-SHA256 never errors for 32-byte output");

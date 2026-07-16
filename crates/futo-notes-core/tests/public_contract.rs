@@ -2,7 +2,11 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use futo_notes_core::files::{safe_note_path, sanitize_title, write_atomic_text};
+use futo_notes_core::e2ee::{
+    derive_password_key, generate_iv, generate_salt, generate_vault_key, IV_BYTES, KEY_BYTES,
+    SALT_BYTES,
+};
+use futo_notes_core::files::{mtime_or_now, safe_note_path, sanitize_title, write_atomic_text};
 use futo_notes_core::hash::hash_sha256;
 
 fn temp_dir() -> PathBuf {
@@ -73,4 +77,19 @@ fn durable_note_round_trip_preserves_title_path_content_and_hash() {
     }
 
     fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn public_compatibility_helpers_remain_available() {
+    let salt = generate_salt();
+    let iv = generate_iv();
+    let vault_key = generate_vault_key();
+    let password_key = derive_password_key("password", &salt, 1);
+
+    assert_eq!(salt.len(), SALT_BYTES);
+    assert_eq!(iv.len(), IV_BYTES);
+    assert_eq!(vault_key.len(), KEY_BYTES);
+    assert_eq!(password_key.len(), KEY_BYTES);
+    assert_eq!(mtime_or_now(1_700_000_123_000), 1_700_000_123_000);
+    assert!(mtime_or_now(0) > 0);
 }
