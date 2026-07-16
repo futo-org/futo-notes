@@ -7,8 +7,6 @@
 
   interface Props {
     node: FolderNode;
-    index: number;
-    rowHeight: number;
     indentPixels: number;
     isOpen: boolean;
     isDropTarget: boolean;
@@ -25,8 +23,6 @@
 
   let {
     node,
-    index,
-    rowHeight,
     indentPixels,
     isOpen,
     isDropTarget,
@@ -127,9 +123,9 @@
 <div
   role="button"
   tabindex="0"
-  class="folder-row virtual-row"
+  class="folder-row"
   class:drop-target={isDropTarget}
-  style="top: {index * rowHeight}px; left: {node.depth * indentPixels}px"
+  style="margin-left: {node.depth * indentPixels}px"
   {onclick}
   ondblclick={(event) => {
     event.preventDefault();

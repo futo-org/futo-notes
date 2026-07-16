@@ -5,8 +5,6 @@
 
   interface Props {
     node: NoteNode;
-    index: number;
-    rowHeight: number;
     indentPixels: number;
     selected: boolean;
     onselect: (event: MouseEvent) => void;
@@ -19,8 +17,6 @@
 
   let {
     node,
-    index,
-    rowHeight,
     indentPixels,
     selected,
     onselect,
@@ -35,9 +31,9 @@
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <button
   type="button"
-  class="note-row virtual-row"
+  class="note-row"
   class:selected
-  style="top: {index * rowHeight}px; left: {node.depth * indentPixels}px"
+  style="margin-left: {node.depth * indentPixels}px"
   onclick={onselect}
   onauxclick={(event) => {
     if (event.button !== 1) return;
