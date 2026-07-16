@@ -11,7 +11,6 @@
 @import './editor-shell.css' layer(components);
 @import './feedback.css' layer(components);
 @import './desktop-shell.css' layer(components);
-@import './graph.css' layer(components);
 @import './note-tags.css' layer(components);
 @import './sidebar-views.css' layer(components);
 @import './markdown.css' layer(components);

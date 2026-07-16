@@ -22,7 +22,6 @@ export interface NoteSessionDeps {
   isEditorFocused: () => boolean;
   isComposing: () => boolean;
   getNotes: () => NotePreview[];
-  patchGraphNode: (fromId: string, toId: string, newTitle: string) => void;
   getNoteBody: () => HTMLElement | undefined;
   getTitleTextarea: () => HTMLTextAreaElement | undefined;
   getNoteId: () => string | null;
@@ -143,9 +142,6 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
       if (deps.getEditorContent() === newContent) content = newContent;
       savedContent = newContent;
       savedTitle = newTitle;
-      if (savedOriginalId && savedOriginalId !== id) {
-        deps.patchGraphNode(savedOriginalId, id, newTitle);
-      }
       if (savedOriginalId !== id) deps.onNoteRenamed(savedOriginalId, id);
     },
   });

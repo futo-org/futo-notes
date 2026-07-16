@@ -1,6 +1,6 @@
 import { describe, it } from 'vitest';
 import type { NotePreview } from '$shared/types/note';
-import { getSortedTags, getNotesForTag, buildTagIndex } from '$features/tags/noteTags';
+import { getSortedTags, getNotesForTag } from '$features/tags/noteTags';
 import { getForYouNotes } from './forYou';
 import { extractHeaderTagBlock, TAG_REGEX } from '$lib/rules';
 
@@ -113,11 +113,6 @@ describe.skipIf(!RUN)('perf bench: tag operations', () => {
   it('getNotesForTag @ 1000 notes', () => {
     const notes = makeNotes(1000);
     bench('getNotesForTag(1000)', 5_000, () => getNotesForTag(notes, 'work'));
-  });
-
-  it('buildTagIndex @ 1000 notes', () => {
-    const notes = makeNotes(1000);
-    bench('buildTagIndex(1000)', 1_000, () => buildTagIndex(notes));
   });
 
   it('ID set signature @ 1000 notes (NotesShell effect gate)', () => {

@@ -45,11 +45,7 @@ describe('startTabsPersistence', () => {
   });
 
   it('does not hydrate or install a persister after teardown', async () => {
-    let resolveConfig!: (config: {
-      sidebarWidth: number;
-      graphSidebarWidth: number;
-      openTabs: null;
-    }) => void;
+    let resolveConfig!: (config: { sidebarWidth: number; openTabs: null }) => void;
     mocks.getConfig.mockReturnValue(
       new Promise((resolve) => {
         resolveConfig = resolve;
@@ -57,21 +53,18 @@ describe('startTabsPersistence', () => {
     );
     const setSidebarCollapsed = vi.fn();
     const setSidebarWidth = vi.fn();
-    const setGraphSidebarWidth = vi.fn();
     const stop = startTabsPersistence({
       initialNoteId: null,
       setSidebarCollapsed,
       setSidebarWidth,
-      setGraphSidebarWidth,
     });
 
     stop();
-    resolveConfig({ sidebarWidth: 310, graphSidebarWidth: 360, openTabs: null });
+    resolveConfig({ sidebarWidth: 310, openTabs: null });
     await vi.waitFor(() => expect(mocks.getConfig).toHaveBeenCalledOnce());
     await Promise.resolve();
 
     expect(setSidebarWidth).not.toHaveBeenCalled();
-    expect(setGraphSidebarWidth).not.toHaveBeenCalled();
     expect(mocks.hydrate).not.toHaveBeenCalled();
     expect(mocks.setPersister).toHaveBeenCalledTimes(1);
     expect(mocks.setPersister).toHaveBeenLastCalledWith(null);

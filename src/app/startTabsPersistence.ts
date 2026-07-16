@@ -6,14 +6,12 @@ interface TabsPersistenceOptions {
   initialNoteId: string | null;
   setSidebarCollapsed: (collapsed: boolean) => void;
   setSidebarWidth: (width: number) => void;
-  setGraphSidebarWidth: (width: number) => void;
 }
 
 export function startTabsPersistence({
   initialNoteId,
   setSidebarCollapsed,
   setSidebarWidth,
-  setGraphSidebarWidth,
 }: TabsPersistenceOptions): () => void {
   let persistTimer: number | null = null;
   let disposed = false;
@@ -37,7 +35,6 @@ export function startTabsPersistence({
     .then(([{ config, saveConfig }]) => {
       if (disposed) return;
       if (config.sidebarWidth) setSidebarWidth(config.sidebarWidth);
-      if (config.graphSidebarWidth) setGraphSidebarWidth(config.graphSidebarWidth);
 
       const noteIds = new Set((hasFileSystem ? getAllNotes() : []).map((note) => note.id));
       tabsStore.hydrate(config.openTabs ?? null, (id) => noteIds.has(id), initialNoteId);
@@ -55,9 +52,7 @@ export function startTabsPersistence({
       if (disposed) return;
       console.warn('[tabs] hydrate path failed, falling back without persister:', error);
       const sidebarWidth = Number(localStorage.getItem('futo-notes:sidebarWidth')) || 280;
-      const graphSidebarWidth = Number(localStorage.getItem('futo-notes:graphSidebarWidth')) || 320;
       setSidebarWidth(sidebarWidth);
-      setGraphSidebarWidth(graphSidebarWidth);
       tabsStore.hydrate(null, () => true, initialNoteId);
     });
 

@@ -22,7 +22,6 @@
     onsettings: () => void;
     onnewnote: () => void;
     onnewnoteinfolder?: (folderPath: string) => void;
-    oncreatetestnote: () => void;
     ontogglecollapse: (collapsed?: boolean) => void;
     drawerEl?: HTMLElement | undefined;
     sidebarResizing?: boolean;
@@ -38,7 +37,6 @@
     onsettings,
     onnewnote,
     onnewnoteinfolder,
-    oncreatetestnote,
     ontogglecollapse,
     drawerEl = $bindable(undefined),
     sidebarResizing = $bindable(false),
@@ -63,45 +61,6 @@
   function selectSidebarView(view: SidebarView): void {
     sidebarView = view;
     localStorage.setItem('futo-notes:sidebarView', view);
-  }
-
-  let fabPressTimer: number | null = null;
-  let ignoreFabClick = false;
-
-  function handleFabTouchStart(): void {
-    fabPressTimer = window.setTimeout(() => {
-      oncreatetestnote();
-      fabPressTimer = null;
-    }, 500);
-  }
-
-  function handleFabTouchEnd(): void {
-    ignoreFabClick = true;
-    window.setTimeout(() => {
-      ignoreFabClick = false;
-    }, 350);
-    if (fabPressTimer !== null) {
-      clearTimeout(fabPressTimer);
-      fabPressTimer = null;
-      onnewnote();
-    }
-  }
-
-  function handleFabTouchCancel(): void {
-    ignoreFabClick = true;
-    window.setTimeout(() => {
-      ignoreFabClick = false;
-    }, 350);
-    if (fabPressTimer !== null) {
-      clearTimeout(fabPressTimer);
-      fabPressTimer = null;
-    }
-  }
-
-  function handleFabClick(): void {
-    if (ignoreFabClick) return;
-    if (fabPressTimer !== null) return;
-    onnewnote();
   }
 
   let resizeStartX = 0;
@@ -185,11 +144,8 @@
     />
   {/if}
   <SidebarCreateActions
-    onclicknewnote={handleFabClick}
+    onclicknewnote={onnewnote}
     onclicknewfolder={() => folders.openCreateFolder('')}
-    ontouchstart={handleFabTouchStart}
-    ontouchend={handleFabTouchEnd}
-    ontouchcancel={handleFabTouchCancel}
   />
   {#if folders.isCreateFolderOpen}
     <CreateFolderModal

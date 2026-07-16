@@ -65,7 +65,6 @@ describe('getConfig', () => {
     expect(cfg.isCustomDir).toBe(false);
     expect(cfg.defaultNotesDir).toBe('/home/user/Documents/futo-notes');
     expect(cfg.sidebarWidth).toBeUndefined();
-    expect(cfg.graphSidebarWidth).toBeUndefined();
   });
 
   it('returns custom dir when override is set', async () => {
@@ -76,16 +75,13 @@ describe('getConfig', () => {
     expect(cfg.defaultNotesDir).toBe('/home/user/Documents/futo-notes');
   });
 
-  it('reads sidebar widths from config file', async () => {
+  it('reads the sidebar width from the config file', async () => {
     setupInvokeMock();
     const { readTextFile, exists } = await import('@tauri-apps/plugin-fs');
     vi.mocked(exists).mockResolvedValueOnce(true);
-    vi.mocked(readTextFile).mockResolvedValueOnce(
-      JSON.stringify({ sidebarWidth: 300, graphSidebarWidth: 400 }),
-    );
+    vi.mocked(readTextFile).mockResolvedValueOnce(JSON.stringify({ sidebarWidth: 300 }));
     const cfg = await getConfig();
     expect(cfg.sidebarWidth).toBe(300);
-    expect(cfg.graphSidebarWidth).toBe(400);
   });
 
   it('degrades to defaults when the config read is denied (macOS EPERM)', async () => {
@@ -107,7 +103,6 @@ describe('getConfig', () => {
     vi.mocked(readTextFile).mockResolvedValueOnce('not valid json{');
     const cfg = await getConfig();
     expect(cfg.sidebarWidth).toBeUndefined();
-    expect(cfg.graphSidebarWidth).toBeUndefined();
   });
 });
 
@@ -119,16 +114,16 @@ describe('saveConfig', () => {
     const mockWriteTextFile = vi.mocked(writeTextFile);
     const mockRename = vi.mocked(rename);
     vi.mocked(exists).mockResolvedValueOnce(true);
-    mockReadTextFile.mockResolvedValueOnce(
-      JSON.stringify({ sidebarWidth: 280, graphSidebarWidth: 320 }),
-    );
+    // A retired/unknown key (e.g. the removed graphSidebarWidth) must survive
+    // a read-modify-write untouched — merges never clobber fields they don't own.
+    mockReadTextFile.mockResolvedValueOnce(JSON.stringify({ sidebarWidth: 280, legacyField: 320 }));
 
     await saveConfig({ sidebarWidth: 350 });
     expect(mockWriteTextFile).toHaveBeenCalledTimes(1);
     const writtenContent = mockWriteTextFile.mock.calls[0][1] as string;
     const written = JSON.parse(writtenContent);
     expect(written.sidebarWidth).toBe(350);
-    expect(written.graphSidebarWidth).toBe(320);
+    expect(written.legacyField).toBe(320);
     expect(mockRename).toHaveBeenCalledTimes(1);
   });
 

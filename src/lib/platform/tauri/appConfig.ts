@@ -23,7 +23,6 @@ export interface PersistedTabs {
 export interface AppConfig {
   notesDir: string;
   sidebarWidth?: number;
-  graphSidebarWidth?: number;
   openTabs?: PersistedTabs;
   isCustomDir: boolean;
   defaultNotesDir: string;
@@ -31,14 +30,12 @@ export interface AppConfig {
 
 export interface AppConfigUpdates {
   sidebarWidth?: number | null;
-  graphSidebarWidth?: number | null;
   openFolders?: string[] | null;
   openTabs?: PersistedTabs | null;
 }
 
 interface AppConfigFile {
   sidebarWidth?: number | null;
-  graphSidebarWidth?: number | null;
   openFolders?: string[] | null;
   openTabs?: PersistedTabs | null;
 }
@@ -82,7 +79,6 @@ export function createAppConfigStore({ storage, invalidateNotesRoot }: AppConfig
     return {
       notesDir,
       sidebarWidth: config.sidebarWidth ?? undefined,
-      graphSidebarWidth: config.graphSidebarWidth ?? undefined,
       openTabs: config.openTabs ?? undefined,
       isCustomDir: override !== null,
       defaultNotesDir,
@@ -92,7 +88,6 @@ export function createAppConfigStore({ storage, invalidateNotesRoot }: AppConfig
   async function saveConfig(updates: AppConfigUpdates): Promise<void> {
     const config = await readConfig(false);
     if ('sidebarWidth' in updates) config.sidebarWidth = updates.sidebarWidth;
-    if ('graphSidebarWidth' in updates) config.graphSidebarWidth = updates.graphSidebarWidth;
     if ('openFolders' in updates) config.openFolders = updates.openFolders;
     if ('openTabs' in updates) config.openTabs = updates.openTabs;
     await writeConfig(config);

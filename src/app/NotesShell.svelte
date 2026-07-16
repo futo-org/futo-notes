@@ -5,11 +5,9 @@
   import type SearchPopupComponent from '$features/search/SearchPopup.svelte';
   let SettingsScreen: typeof SettingsScreenComponent | null = $state(null);
   let SearchPopup: typeof SearchPopupComponent | null = $state(null);
-  import { getAllNotes, createNote } from '$features/notes/notes.svelte';
-  import { sanitizeFilename } from '$lib/rules';
+  import { getAllNotes } from '$features/notes/notes.svelte';
   import { createNoteSession } from '$features/notes/noteSession.svelte';
   import SyncStatusBar from '$features/sync/SyncStatusBar.svelte';
-  import GraphSidebarPanel from '$features/graph/GraphSidebarPanel.svelte';
   import FolderPickerModal from '$features/folders/FolderPickerModal.svelte';
   import DrawerSidebar from '$features/sidebar/DrawerSidebar.svelte';
   import DesktopTopBand from './components/DesktopTopBand.svelte';
@@ -46,12 +44,10 @@
       .join('\n');
     if (sig === lastIdSignature) return;
     lastIdSignature = sig;
-    graphPanel?.clearGraphData();
     editor?.refreshDecorations?.();
   });
 
   let editor: ReturnType<typeof MarkdownEditor> | null = $state(null);
-  let graphPanel: ReturnType<typeof GraphSidebarPanel> | null = $state(null);
   let editorFocused = $state(false);
   let drawer: HTMLElement | undefined = $state(undefined);
   let noteBody: HTMLElement | undefined = $state(undefined);
@@ -67,8 +63,6 @@
     sidebarCollapsed = collapsed ?? !sidebarCollapsed;
     localStorage.setItem('futo-notes:sidebarCollapsed', String(sidebarCollapsed));
   }
-  let graphSidebarWidth = $state(320);
-
   let settingsOpen = $state(false);
 
   let searchOpen = $state(false);
@@ -91,9 +85,6 @@
     if (mode === 'current') searchOpen = false;
   }
 
-  let graphSidebarOpen = $state(false);
-  let graphPanelResizing = $state(false);
-
   const tabNoteTransition = createTabNoteTransition({
     getEditor: () => editor,
     getNoteBody: () => noteBody,
@@ -108,7 +99,6 @@
     isEditorFocused: () => editor?.hasFocus?.() ?? false,
     isComposing: () => Boolean(editor?.isComposing?.()),
     getNotes: () => notes,
-    patchGraphNode: (from, to, t) => graphPanel?.patchGraphNode(from, to, t),
     getNoteBody: () => noteBody,
     getTitleTextarea: () => titleTextarea,
     getNoteId: () => noteId,
@@ -124,9 +114,8 @@
   const sync = createSyncManager({
     session,
     showToast,
-    onRename: (fromId, toId, title) => {
+    onRename: (fromId, toId) => {
       tabsStore.applyRename(fromId, toId);
-      graphPanel?.patchGraphNode(fromId, toId, title);
       if (noteId === fromId) {
         tabNoteTransition.setPreviousNoteId(toId);
         navigate(`/note/${encodeURIComponent(toId)}`);
@@ -216,18 +205,6 @@
     tabsStore.setPendingFolder(tab.id, folderPath);
   }
 
-  async function createTestNote(): Promise<void> {
-    if (!hasFileSystem) return;
-    const [{ GFM_TEST_CONTENT }, { SCROLL_TEST_NOTES }] = await Promise.all([
-      import('$features/editor/gfmTestContent'),
-      import('$features/editor/scrollTestNotes'),
-    ]);
-    await createNote(sanitizeFilename('Markdown test note'), GFM_TEST_CONTENT);
-    for (const note of SCROLL_TEST_NOTES) {
-      await createNote(sanitizeFilename(note.title), note.content);
-    }
-  }
-
   function handleEditorFocusChange(focused: boolean): void {
     if (focused) {
       if (noteId) editorFocused = true;
@@ -247,12 +224,9 @@
     }
   }
 
-  function openGraphSidebar(): void {
-    graphPanel?.openGraph();
-  }
-
-  function closeGraphSidebar(): void {
-    graphSidebarOpen = false;
+  // Graph view is a stub — the menu item only promises a toast (list.md).
+  function showGraphComingSoon(): void {
+    showToast('Graph visualization coming soon');
   }
 
   function handleWikilinkOpen(title: string, event: MouseEvent): void {
@@ -283,9 +257,6 @@
       },
       setSidebarWidth: (width) => {
         sidebarWidth = width;
-      },
-      setGraphSidebarWidth: (width) => {
-        graphSidebarWidth = width;
       },
     });
 
@@ -340,10 +311,8 @@
   class="notes-shell desktop-layout"
   class:sidebar-collapsed={sidebarCollapsed}
   class:sidebar-resizing={sidebarResizing}
-  class:graph-resizing={graphPanelResizing}
   class:drawer-open={drawerOpen}
-  class:graph-sidebar-open={graphSidebarOpen}
-  style="--drawer-offset: {drawerOffset}px; --sidebar-width: {sidebarWidth}px; --graph-sidebar-width: {graphSidebarWidth}px; --vv-offset: {keyboard.offsetTop}px"
+  style="--drawer-offset: {drawerOffset}px; --sidebar-width: {sidebarWidth}px; --vv-offset: {keyboard.offsetTop}px"
 >
   <!-- Full-width top band (desktop): traffic-light gutter + sidebar toggle +
        tabs. Owns the macOS window-button clearance so sidebar collapse can't
@@ -372,7 +341,6 @@
       onsettings={handleOpenSettings}
       onnewnote={createNewNote}
       onnewnoteinfolder={createNewNoteInFolder}
-      oncreatetestnote={createTestNote}
       ontogglecollapse={toggleSidebar}
       bind:drawerEl={drawer}
       bind:sidebarResizing
@@ -385,7 +353,7 @@
           {noteId}
           bind:open={noteActions.menuOpen}
           showNativeActions={isTauri}
-          ongraph={openGraphSidebar}
+          ongraph={showGraphComingSoon}
           oncopy={() => void noteActions.copyPath()}
           onmove={noteActions.openMovePicker}
           ondelete={noteActions.requestDelete}
@@ -441,16 +409,6 @@
         onclear={sync.clearSyncError}
       />
     </div>
-
-    <!-- Graph sidebar -->
-    <GraphSidebarPanel
-      bind:this={graphPanel}
-      open={graphSidebarOpen}
-      bind:graphSidebarWidth
-      onclose={closeGraphSidebar}
-      ontoast={showToast}
-      bind:resizing={graphPanelResizing}
-    />
   </div>
 </div>
 
