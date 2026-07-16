@@ -10,23 +10,14 @@
   import { installExternalFileDropGuard } from '$features/system/externalFileDropGuard';
   import { tabsStore } from '$features/tabs/tabsStore.svelte';
   import { noteIdFromHash } from './app/router';
+  import { showGlobalToast, currentToastMessage } from '$shared/notifications/toastBus.svelte';
 
   const showTitleBar = configureWindowChrome();
   installExternalFileDropGuard();
 
-  let toastMessage = $state('');
-  let toastTimer: number | null = null;
+  const toastMessage = $derived(currentToastMessage());
 
-  function showToast(message: string): void {
-    if (toastTimer !== null) clearTimeout(toastTimer);
-    toastMessage = message;
-    toastTimer = window.setTimeout(() => {
-      toastMessage = '';
-      toastTimer = null;
-    }, 3000);
-  }
-
-  const crashReporting = createCrashReporting(showToast);
+  const crashReporting = createCrashReporting(showGlobalToast);
   const bootstrap = createAppBootstrap({
     initializeCrashReporting: crashReporting.initialize,
     installDevelopmentHooks,

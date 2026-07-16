@@ -9,7 +9,7 @@ import {
 } from '$features/notes/notes.svelte';
 import { idLeaf } from '$lib/platform/pathSafety';
 import { confirmDialog } from '$shared/dialogs/confirmDialog';
-import { showGlobalToast } from '$shared/notifications/toastBus';
+import { showGlobalToast } from '$shared/notifications/toastBus.svelte';
 
 interface DeleteFolderOptions {
   getActiveNoteId: () => string | null;

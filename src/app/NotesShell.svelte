@@ -16,7 +16,7 @@
   import { keyboard } from '$features/editor/keyboard.svelte';
   import { navigate, noteIdFromHash } from './router';
   import { tabsStore, type OpenMode } from '$features/tabs/tabsStore.svelte';
-  import { onToast } from '$shared/notifications/toastBus';
+  import { showGlobalToast, currentToastMessage } from '$shared/notifications/toastBus.svelte';
   import { startNativeShell } from './startNativeShell';
   import { startTabsPersistence } from './startTabsPersistence';
   import { registerNotesShellShortcuts } from './registerNotesShellShortcuts';
@@ -111,7 +111,7 @@
 
   const sync = createSyncManager({
     session,
-    showToast,
+    showToast: showGlobalToast,
     onRename: (fromId, toId) => {
       tabsStore.applyRename(fromId, toId);
       if (noteId === fromId) {
@@ -130,23 +130,8 @@
     getOriginalId: () => session.originalId,
     cancelSession: session.cancelAndClear,
     notifySaved: sync.notifySaved,
-    showToast,
+    showToast: showGlobalToast,
   });
-
-  let toastMessage = $state('');
-  let toastTimer: number | null = null;
-
-  function showToast(message: string): void {
-    if (toastTimer !== null) clearTimeout(toastTimer);
-    toastMessage = message;
-    toastTimer = window.setTimeout(() => {
-      toastMessage = '';
-      toastTimer = null;
-    }, 3000);
-  }
-
-  const unsubToast = onToast(showToast);
-  $effect(() => () => unsubToast());
 
   function updateDrawerMetrics(): void {
     if (drawer) {
@@ -224,7 +209,7 @@
 
   // Graph view is a stub — the menu item only promises a toast (list.md).
   function showGraphComingSoon(): void {
-    showToast('Graph visualization coming soon');
+    showGlobalToast('Graph visualization coming soon');
   }
 
   function handleWikilinkOpen(title: string, event: MouseEvent): void {
@@ -295,7 +280,7 @@
       getState: () => ({
         originalId: session.originalId,
         title: session.title,
-        toastMessage,
+        toastMessage: currentToastMessage(),
         hash: window.location.hash,
         editorContent: editor?.getContent() ?? '',
         savePending: session.savePending,
@@ -437,8 +422,4 @@
     onpick={noteActions.moveCurrentNote}
     oncancel={noteActions.closeMovePicker}
   />
-{/if}
-
-{#if toastMessage}
-  <div class="toast">{toastMessage}</div>
 {/if}

@@ -12,9 +12,9 @@ vi.mock('$lib/platform', async () => {
 
 // Capture toasts (K3 surfaces delete failures through showGlobalToast).
 const toastMock = vi.hoisted(() => ({ messages: [] as string[] }));
-vi.mock('$shared/notifications/toastBus', () => ({
+vi.mock('$shared/notifications/toastBus.svelte', () => ({
   showGlobalToast: (m: string) => toastMock.messages.push(m),
-  onToast: () => () => {},
+  currentToastMessage: () => '',
 }));
 
 // Configurable in-memory stand-in for the OS keyring exposed by the Rust
