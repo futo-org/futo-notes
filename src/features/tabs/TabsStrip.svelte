@@ -2,7 +2,6 @@
   import { tabsStore, type Tab } from './tabsStore.svelte';
   import type { NotePreview } from '$shared/types/note';
   import { idLeaf } from '$lib/platform/pathSafety';
-  import { createTabDrag } from './createTabDrag.svelte';
   import './tabsStrip.css';
 
   interface Props {
@@ -26,13 +25,42 @@
     return idLeaf(id);
   }
 
-  let stripEl: HTMLDivElement | undefined = $state(undefined);
-  const tabDrag = createTabDrag({
-    getStripElement: () => stripEl,
-    getTabs: () => tabsStore.tabs,
-    activateTab: tabsStore.activateById,
-    moveTab: tabsStore.moveTab,
-  });
+  // HTML5 drag reorder: the tabs move live under the cursor (moveTab on
+  // midpoint crossing), so the reordering strip itself is the drop feedback.
+  let dragIndex: number | null = $state(null);
+
+  function onDragStart(e: DragEvent, index: number): void {
+    if ((e.target as HTMLElement).closest('.tab-close-btn')) {
+      e.preventDefault();
+      return;
+    }
+    dragIndex = index;
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', tabsStore.tabs[index]?.id ?? '');
+    }
+  }
+
+  function onDragOver(e: DragEvent, index: number): void {
+    if (dragIndex === null) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+    if (index === dragIndex) return;
+    // Only reorder once the cursor crosses the hovered tab's midpoint in the
+    // direction of travel — reordering on mere overlap oscillates when tabs
+    // have different widths.
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const midpoint = rect.left + rect.width / 2;
+    const movingRight = index > dragIndex;
+    if ((movingRight && e.clientX > midpoint) || (!movingRight && e.clientX < midpoint)) {
+      tabsStore.moveTab(dragIndex, index);
+      dragIndex = index;
+    }
+  }
+
+  function onDragEnd(): void {
+    dragIndex = null;
+  }
 
   function onAuxClick(e: MouseEvent, tab: Tab): void {
     if (e.button === 1) {
@@ -58,20 +86,22 @@
      so child buttons (tab pills, "+") still receive clicks normally.
      This replaces the previous separate full-width drag overlay that
      was hiding the upper rim of every tab. -->
-<div class="tabs-strip" bind:this={stripEl} role="tablist" aria-label="Tabs" data-tauri-drag-region>
+<div class="tabs-strip" role="tablist" aria-label="Tabs" data-tauri-drag-region>
   {#each tabsStore.tabs as tab, idx (tab.id)}
     <button
       type="button"
       class="tab-pill"
       class:active={tab.id === tabsStore.activeTabId}
-      class:dragging={tab.id === tabDrag.dragTabId}
+      class:dragging={idx === dragIndex}
       role="tab"
       aria-selected={tab.id === tabsStore.activeTabId}
       data-tab-id={tab.id}
-      style={tabDrag.getTabStyle(tab, idx)}
-      onpointerdown={(e) => tabDrag.handlePointerDown(e, tab)}
-      onpointermove={tabDrag.handlePointerMove}
-      onpointerup={(e) => tabDrag.handlePointerUp(e, tab)}
+      draggable="true"
+      onclick={() => tabsStore.activateById(tab.id)}
+      ondragstart={(e) => onDragStart(e, idx)}
+      ondragover={(e) => onDragOver(e, idx)}
+      ondrop={(e) => e.preventDefault()}
+      ondragend={onDragEnd}
       onauxclick={(e) => onAuxClick(e, tab)}
       title={titleFor(tab)}
     >
