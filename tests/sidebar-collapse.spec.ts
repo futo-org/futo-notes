@@ -7,7 +7,7 @@ test.describe('Sidebar Collapse/Expand', () => {
 
     const sidebar = page.locator('.notes-drawer');
     const collapseBtn = page.locator('.sidebar-collapse-btn');
-    const expandBtn = page.locator('.sidebar-expand-btn');
+    const expandBtn = page.locator('.sidebar-expand-fallback-btn');
 
     // Sidebar should be visible initially
     await expect(sidebar).toBeVisible();

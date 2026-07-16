@@ -55,7 +55,7 @@ describe('TabsStrip', () => {
 
   it('does not host a sidebar control — the top band owns it now', () => {
     mountStrip();
-    expect(target.querySelector('.sidebar-expand-btn')).toBeNull();
+    expect(target.querySelector('.sidebar-expand-fallback-btn')).toBeNull();
     expect(target.querySelector('.sidebar-toggle-btn')).toBeNull();
   });
 });
