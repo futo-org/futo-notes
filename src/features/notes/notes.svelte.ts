@@ -190,14 +190,6 @@ export async function moveNote(
   return { id, mtime: mtimeFor(mutation, id) };
 }
 
-export async function moveNotesUnderPrefix(fromPrefix: string, toPrefix: string): Promise<void> {
-  if (fromPrefix === toPrefix) return;
-  const mutation = await (await getLocalNoteStore()).renameFolder(fromPrefix, toPrefix);
-  _applyLocalMutation(mutation);
-  const snapshot = await currentLocalNoteStore().snapshot();
-  setFolderSnapshot(snapshot.folders, notesCache);
-}
-
 export async function deleteNote(id: string): Promise<void> {
   const mutation = await (await getLocalNoteStore()).delete(id);
   _applyLocalMutation(mutation);

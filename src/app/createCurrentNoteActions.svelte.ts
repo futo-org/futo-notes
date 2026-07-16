@@ -1,100 +1,101 @@
-import { deleteNote, moveNote } from '$features/notes/notes.svelte';
-import { tabsStore } from '$features/tabs/tabsStore.svelte';
-import { getPlatformFS } from '$lib/platform';
+import { getPlatformFS, isTauri } from '$lib/platform';
+import { idLeaf, safeNotePath } from '$lib/platform/pathSafety';
+import { getConfig } from '$lib/platform/tauri';
 import { confirmDialog } from '$shared/dialogs/confirmDialog';
+import { deleteNote as deleteNoteFromVault, moveNote } from '$features/notes/notes.svelte';
 
-interface CurrentNoteActionOptions {
-  getNoteId: () => string | null;
-  getOriginalId: () => string | null;
-  cancelSession: () => void;
-  notifySaved: () => void;
+export interface CurrentNoteActionsDeps {
+  getActiveNoteId: () => string | null;
   showToast: (message: string) => void;
+  onMoved: (fromId: string, toId: string, title: string) => void;
+  onDeleteConfirmed: () => void;
 }
 
-export function createCurrentNoteActions(options: CurrentNoteActionOptions) {
+// Open-note overflow menu (list.md): Graph view (stub toast), Copy file path,
+// Move to folder, Delete note. Move and delete change the open note's identity,
+// so they route back through the shell's rename/close callbacks rather than
+// predicting the outcome here.
+export function createCurrentNoteActions(deps: CurrentNoteActionsDeps) {
   let menuOpen = $state(false);
-  let movePickerNoteId = $state<string | null>(null);
+  let movePickerOpen = $state(false);
 
-  // One confirm mechanism for every destructive delete: confirmDialog
-  // (native ask() under Tauri — window.confirm doesn't block there,
-  // app.md), the same seam the sidebar rows use.
-  function requestDelete(): void {
+  function closeMenu(): void {
     menuOpen = false;
-    void (async () => {
-      const confirmed = await confirmDialog('Delete this note? This action cannot be undone.', {
-        title: 'Delete note',
-        kind: 'warning',
-      });
-      if (!confirmed) return;
-      const id = options.getOriginalId();
-      if (!id) return;
-      options.cancelSession();
-      await deleteNote(id);
-      options.notifySaved();
-      options.showToast('Note deleted');
-    })();
+  }
+
+  function graphView(): void {
+    closeMenu();
+    deps.showToast('coming soon');
+  }
+
+  async function copyFilePath(): Promise<void> {
+    closeMenu();
+    const id = deps.getActiveNoteId();
+    if (!id) return;
+    try {
+      if (isTauri) {
+        const config = await getConfig();
+        await (await getPlatformFS()).writeClipboardText(safeNotePath(config.notesDir, id));
+      } else {
+        await navigator.clipboard?.writeText(`${id}.md`);
+      }
+      deps.showToast('Path copied');
+    } catch (error) {
+      console.warn('Failed to copy file path:', error);
+    }
   }
 
   function openMovePicker(): void {
-    const id = options.getNoteId();
-    if (!id || id === 'new') return;
-    movePickerNoteId = id;
+    closeMenu();
+    movePickerOpen = true;
   }
 
   function closeMovePicker(): void {
-    movePickerNoteId = null;
+    movePickerOpen = false;
   }
 
-  async function moveCurrentNote(target: string): Promise<void> {
-    const id = movePickerNoteId;
-    closeMovePicker();
+  async function moveToFolder(folderPath: string): Promise<void> {
+    movePickerOpen = false;
+    const fromId = deps.getActiveNoteId();
+    if (!fromId) return;
+    const leaf = idLeaf(fromId);
+    const wantedId = folderPath ? `${folderPath}/${leaf}` : leaf;
+    if (wantedId === fromId) return;
+    const result = await moveNote(fromId, wantedId);
+    deps.onMoved(fromId, result.id, idLeaf(result.id));
+    deps.showToast(`Moved to ${folderPath || 'Notes'}`);
+  }
+
+  async function deleteCurrentNote(): Promise<void> {
+    closeMenu();
+    const id = deps.getActiveNoteId();
     if (!id) return;
-    const components = id.split('/');
-    const leaf = components[components.length - 1];
-    const newId = target ? `${target}/${leaf}` : leaf;
-    if (newId === id) return;
-
-    try {
-      const result = await moveNote(id, newId);
-      if (result.id !== id) tabsStore.applyRename(id, result.id);
-      options.showToast(target ? `Moved to ${target}` : 'Moved to Notes');
-    } catch (error) {
-      options.showToast(error instanceof Error ? error.message : 'Move failed');
-    }
-  }
-
-  async function copyPath(): Promise<void> {
-    const id = options.getNoteId();
-    if (!id || id === 'new') return;
-    try {
-      const { getConfig } = await import('$lib/platform/tauri');
-      const config = await getConfig();
-      await (await getPlatformFS()).writeClipboardText(`${config.notesDir}/${id}.md`);
-      options.showToast('Path copied');
-    } catch {
-      options.showToast('Failed to copy path');
-    }
-  }
-
-  function closeTransientUi(): void {
-    menuOpen = false;
+    const confirmed = await confirmDialog('Delete this note? This action cannot be undone.', {
+      title: 'Delete note',
+      kind: 'warning',
+    });
+    if (!confirmed) return;
+    deps.onDeleteConfirmed();
+    await deleteNoteFromVault(id);
+    deps.showToast('Note deleted');
   }
 
   return {
     get menuOpen() {
       return menuOpen;
     },
-    set menuOpen(value: boolean) {
-      menuOpen = value;
+    get movePickerOpen() {
+      return movePickerOpen;
     },
-    get movePickerNoteId() {
-      return movePickerNoteId;
+    toggleMenu(): void {
+      menuOpen = !menuOpen;
     },
-    requestDelete,
+    closeMenu,
+    graphView,
+    copyFilePath,
     openMovePicker,
     closeMovePicker,
-    moveCurrentNote,
-    copyPath,
-    closeTransientUi,
+    moveToFolder,
+    deleteCurrentNote,
   };
 }

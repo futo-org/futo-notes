@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => ({
   whenNotesReady: vi.fn(),
 }));
 
-vi.mock('$lib/platform', () => ({ hasFileSystem: true, isDesktop: true }));
+vi.mock('$lib/platform', () => ({ isTauri: true, isDesktop: true }));
 vi.mock('$features/notes/notes.svelte', () => ({
   getAllNotes: mocks.getAllNotes,
   whenNotesReady: mocks.whenNotesReady,

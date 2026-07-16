@@ -1,17 +1,18 @@
 <script lang="ts">
-  import './settings.css';
-
-  import { hasFileSystem, isDesktop } from '$lib/platform';
-  import { resetAllNotes } from '$app/resetAllNotes';
-  import { getCachedPreferences, savePreferences } from '$shared/state/appState';
-  import { applyThemePreference, type ThemePreference } from '$features/system/theme';
-  import type { SyncSummary } from '$features/sync/syncServiceE2ee';
-  import { getSyncErrorMessage } from '$features/sync/syncErrorMessage';
+  import { isTauri } from '$lib/platform';
+  import { getConfig, setNotesDir } from '$lib/platform/tauri';
+  import { applyThemePreference, watchSystemTheme } from '$features/system/theme';
   import { getAppVersion } from '$features/system/crashHandler';
-  import { selfUpdateSupported, updaterSupported } from '$features/system/updater';
-  import { updateChecker as upd } from '$features/system/updateChecker.svelte';
+  import { updateChecker } from '$features/system/updateChecker.svelte';
+  import { selfUpdateSupported } from '$features/system/updater';
+  import type { SyncSummary } from '$features/sync/syncServiceE2ee';
   import { confirmDialog } from '$shared/dialogs/confirmDialog';
-  import { createSyncSettings } from './createSyncSettings.svelte';
+  import {
+    getCachedPreferences,
+    savePreferences,
+    type AppPreferences,
+  } from '$shared/state/appState';
+
   import AppearanceSettingsSection from './AppearanceSettingsSection.svelte';
   import BlockingSettingsOverlay from './BlockingSettingsOverlay.svelte';
   import CrashReportingSettingsSection from './CrashReportingSettingsSection.svelte';
@@ -20,236 +21,206 @@
   import StorageSettingsSection from './StorageSettingsSection.svelte';
   import SyncSettingsSection from './SyncSettingsSection.svelte';
   import UpdatesSettingsSection from './UpdatesSettingsSection.svelte';
+  import { createSyncSettings } from './createSyncSettings.svelte';
+  import './settings.css';
 
   interface Props {
     onclose: () => void;
-    syncError?: boolean;
-    syncErrorMessage?: string;
-    simulateSyncSummary?: (summary: SyncSummary, trigger?: 'manual') => void | Promise<void>;
+    backgroundSyncError: boolean;
+    backgroundSyncErrorMessage: string;
+    onsimulatesync: (summary: SyncSummary, trigger?: 'manual') => void | Promise<void>;
+    onreset: () => Promise<void>;
   }
 
-  let { onclose, syncError = false, syncErrorMessage = '', simulateSyncSummary }: Props = $props();
+  let { onclose, backgroundSyncError, backgroundSyncErrorMessage, onsimulatesync, onreset }: Props =
+    $props();
 
-  let nuking = $state(false);
-  let nukeError = $state('');
-
-  const prefs = getCachedPreferences();
-  let crashEnabled = $state(prefs.crashReporting.enabled);
-  let crashAlwaysSend = $state(prefs.crashReporting.alwaysSend);
-  let updatesEnabled = $state(prefs.updates.enabled);
-  let themePreference = $state<ThemePreference>(prefs.appearance.theme);
-
+  let preferences = $state<AppPreferences>(copyPreferences(getCachedPreferences()));
+  let notesDirectory = $state(isTauri ? 'Loading…' : 'In-memory test vault');
+  let isCustomDirectory = $state(false);
+  let resetting = $state(false);
+  let resetError = $state('');
+  let updateSupported = $state(false);
   const sync = createSyncSettings();
 
-  let overlayPressed = false;
+  const updateLocked = $derived(
+    updateChecker.phase === 'downloading' ||
+      updateChecker.phase === 'installing' ||
+      updateChecker.phase === 'restart',
+  );
 
-  let notesDir = $state('');
-  let isCustomDir = $state(false);
-  let defaultNotesDir = $state('');
-  if (isDesktop) {
-    import('$lib/platform/tauri').then(({ getConfig }) =>
-      getConfig().then((cfg) => {
-        notesDir = cfg.notesDir;
-        isCustomDir = cfg.isCustomDir;
-        defaultNotesDir = cfg.defaultNotesDir;
-      }),
-    );
+  function copyPreferences(source: AppPreferences): AppPreferences {
+    return {
+      appearance: { ...source.appearance },
+      crashReporting: { ...source.crashReporting },
+      updates: { ...source.updates },
+      sync: { ...source.sync },
+    };
   }
 
-  let showUpdates = $state(false);
-  if (updaterSupported()) {
-    if (import.meta.env.DEV) {
-      showUpdates = true;
-    } else {
-      selfUpdateSupported().then((ok) => {
-        showUpdates = ok;
-      });
-    }
+  function canClose(): boolean {
+    return !resetting && !sync.connecting;
   }
 
-  async function handleChangeDir(): Promise<void> {
+  function close(): void {
+    if (canClose()) onclose();
+  }
+
+  async function persistPreferences(): Promise<void> {
+    await savePreferences(copyPreferences(preferences));
+  }
+
+  function changeTheme(theme: AppPreferences['appearance']['theme']): void {
+    preferences.appearance.theme = theme;
+    void applyThemePreference(theme);
+    void persistPreferences();
+  }
+
+  function toggleCrashReporting(): void {
+    preferences.crashReporting.enabled = !preferences.crashReporting.enabled;
+    if (!preferences.crashReporting.enabled) preferences.crashReporting.alwaysSend = false;
+    void persistPreferences();
+  }
+
+  function toggleAlwaysSend(): void {
+    preferences.crashReporting.alwaysSend = !preferences.crashReporting.alwaysSend;
+    void persistPreferences();
+  }
+
+  function toggleUpdates(): void {
+    if (updateLocked) return;
+    preferences.updates.enabled = !preferences.updates.enabled;
+    void persistPreferences();
+    if (preferences.updates.enabled) void updateChecker.start();
+    else updateChecker.disable();
+  }
+
+  async function chooseNotesDirectory(): Promise<void> {
+    if (!isTauri) return;
     const { open } = await import('@tauri-apps/plugin-dialog');
-    const picked = await open({ directory: true, multiple: false });
-    if (typeof picked !== 'string') return;
-    const confirmed = await confirmDialog(
-      `Move your notes directory to:\n${picked}\n\nExisting notes in the current directory will NOT be moved. The app will restart.`,
-      { title: 'Change notes directory', kind: 'warning' },
-    );
-    if (!confirmed) return;
-    const { setNotesDir } = await import('$lib/platform/tauri');
-    await setNotesDir(picked);
-    const { relaunch } = await import('@tauri-apps/plugin-process');
-    await relaunch();
+    const selected = await open({ directory: true, multiple: false });
+    if (typeof selected !== 'string') return;
+    await setNotesDir(selected);
+    window.location.reload();
   }
 
-  async function handleResetDir(): Promise<void> {
-    const confirmed = await confirmDialog(
-      `Reset notes directory to the default location?\n${defaultNotesDir}\n\nThe app will restart.`,
-      { title: 'Reset notes directory', kind: 'warning' },
-    );
-    if (!confirmed) return;
-    const { setNotesDir } = await import('$lib/platform/tauri');
+  async function resetNotesDirectory(): Promise<void> {
     await setNotesDir(null);
-    const { relaunch } = await import('@tauri-apps/plugin-process');
-    await relaunch();
+    window.location.reload();
   }
 
-  const getErrorMessage = getSyncErrorMessage;
-
-  async function toggleCrashEnabled(): Promise<void> {
-    crashEnabled = !crashEnabled;
-    if (!crashEnabled) crashAlwaysSend = false;
-    const p = getCachedPreferences();
-    p.crashReporting.enabled = crashEnabled;
-    p.crashReporting.alwaysSend = crashAlwaysSend;
-    await savePreferences(p);
-  }
-
-  async function toggleCrashAlwaysSend(): Promise<void> {
-    crashAlwaysSend = !crashAlwaysSend;
-    const p = getCachedPreferences();
-    p.crashReporting.alwaysSend = crashAlwaysSend;
-    await savePreferences(p);
-  }
-
-  const updatesLocked = $derived(upd.busy || upd.phase === 'restart');
-
-  async function toggleUpdatesEnabled(): Promise<void> {
-    if (updatesLocked) return;
-    updatesEnabled = !updatesEnabled;
-    const p = getCachedPreferences();
-    p.updates.enabled = updatesEnabled;
-    await savePreferences(p);
-    if (updatesEnabled) void upd.start();
-    else upd.disable();
-  }
-
-  async function setThemePreference(nextTheme: ThemePreference): Promise<void> {
-    if (themePreference === nextTheme) return;
-    themePreference = nextTheme;
-    const p = getCachedPreferences();
-    p.appearance.theme = nextTheme;
-    await savePreferences(p);
-    await applyThemePreference(nextTheme);
-  }
-
-  async function handleNukeTap(): Promise<void> {
-    if (nuking) return;
+  async function confirmFullReset(): Promise<void> {
     const confirmed = await confirmDialog(
       'Permanently delete all notes and app data? This cannot be undone.',
       { title: 'Full reset', kind: 'warning' },
     );
     if (!confirmed) return;
-    await doNuke();
-  }
 
-  async function doNuke(): Promise<void> {
-    nuking = true;
-    nukeError = '';
+    resetting = true;
+    resetError = '';
     try {
-      await resetAllNotes();
-      window.location.reload();
-    } catch (e) {
-      nukeError = getErrorMessage(e);
+      await onreset();
+    } catch (error) {
+      resetError = error instanceof Error ? error.message : String(error);
+      resetting = false;
     }
   }
 
-  function cancelNuke(): void {
-    nuking = false;
-    nukeError = '';
+  function handleKeydown(event: KeyboardEvent): void {
+    if (event.key === 'Escape') close();
   }
+
+  if (isTauri) {
+    void getConfig()
+      .then((config) => {
+        notesDirectory = config.notesDir;
+        isCustomDirectory = config.isCustomDir;
+      })
+      .catch((error) => {
+        notesDirectory = 'Unable to read notes directory';
+        console.warn('Failed to read notes directory:', error);
+      });
+  }
+  void selfUpdateSupported().then((supported) => {
+    updateSupported = supported;
+  });
+
+  $effect(() => {
+    if (preferences.appearance.theme !== 'auto') return;
+    return watchSystemTheme(() => void applyThemePreference('auto'));
+  });
 </script>
 
-<div
-  class="settings-overlay"
-  role="button"
-  tabindex="-1"
-  onpointerdown={(e) => (overlayPressed = e.target === e.currentTarget)}
-  onclick={() => overlayPressed && !sync.connecting && !nuking && onclose()}
-  onkeydown={(e) => e.key === 'Escape' && !sync.connecting && !nuking && onclose()}
->
+<svelte:window onkeydown={handleKeydown} />
+
+<!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
+<div class="settings-overlay" role="presentation" onclick={close}>
+  <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
   <div
     class="settings-panel"
     role="dialog"
     aria-modal="true"
     tabindex="-1"
-    onclick={(e) => e.stopPropagation()}
-    onkeydown={(e) => e.stopPropagation()}
+    onclick={(event) => event.stopPropagation()}
   >
-    <!-- The scroller is a child so the blocking overlays (siblings below)
-         anchor to the panel's VISIBLE box. When the panel itself scrolled,
-         `inset: 0` resolved against the scrolled content box and the overlay
-         could sit entirely off-screen — an invisible blocking state. -->
     <div class="settings-scroll">
-      <div class="settings-header">
+      <header class="settings-header">
         <h2 class="settings-title">Settings</h2>
-        {#if !sync.connecting && !nuking}
-          <button class="settings-close" aria-label="Close settings" onclick={onclose}
-            >&times;</button
-          >
-        {/if}
-      </div>
+        <button class="settings-close" aria-label="Close settings" onclick={close}>×</button>
+      </header>
 
       <div class="settings-content">
-        {#if isDesktop && notesDir}
-          <StorageSettingsSection
-            notesDirectory={notesDir}
-            isCustomDirectory={isCustomDir}
-            onchange={() => void handleChangeDir()}
-            onreset={() => void handleResetDir()}
-          />
-        {/if}
-
+        <StorageSettingsSection
+          {notesDirectory}
+          {isCustomDirectory}
+          onchange={() => void chooseNotesDirectory()}
+          onreset={() => void resetNotesDirectory()}
+        />
         <AppearanceSettingsSection
-          preference={themePreference}
-          onchange={(theme) => void setThemePreference(theme)}
+          preference={preferences.appearance.theme}
+          onchange={changeTheme}
         />
-
-        {#if hasFileSystem}
-          <SyncSettingsSection
-            {sync}
-            backgroundError={syncError}
-            backgroundErrorMessage={syncErrorMessage}
-          />
-        {/if}
-
-        {#if import.meta.env.DEV && simulateSyncSummary}
-          <DevSyncErrorSettingsSection simulate={simulateSyncSummary} />
-        {/if}
-
+        <SyncSettingsSection
+          {sync}
+          backgroundError={backgroundSyncError}
+          backgroundErrorMessage={backgroundSyncErrorMessage}
+        />
         <CrashReportingSettingsSection
-          enabled={crashEnabled}
-          alwaysSend={crashAlwaysSend}
-          ontoggleenabled={() => void toggleCrashEnabled()}
-          ontogglealwayssend={() => void toggleCrashAlwaysSend()}
+          enabled={preferences.crashReporting.enabled}
+          alwaysSend={preferences.crashReporting.alwaysSend}
+          ontoggleenabled={toggleCrashReporting}
+          ontogglealwayssend={toggleAlwaysSend}
         />
-
-        {#if showUpdates}
+        {#if updateSupported}
           <UpdatesSettingsSection
-            enabled={updatesEnabled}
-            locked={updatesLocked}
-            ontoggle={() => void toggleUpdatesEnabled()}
+            enabled={preferences.updates.enabled}
+            locked={updateLocked}
+            ontoggle={toggleUpdates}
           />
         {/if}
-
-        <DangerSettingsSection resetting={nuking} onreset={() => void handleNukeTap()} />
-        <p class="settings-version">FUTO Notes v{getAppVersion()}</p>
+        {#if import.meta.env.DEV}
+          <DevSyncErrorSettingsSection simulate={onsimulatesync} />
+        {/if}
+        <DangerSettingsSection {resetting} onreset={() => void confirmFullReset()} />
+        <div class="settings-version">FUTO Notes v{getAppVersion()}</div>
       </div>
     </div>
 
     {#if sync.connecting}
       <BlockingSettingsOverlay
-        error={sync.connectError}
         phase={sync.connectPhase}
+        error={sync.connectError}
         oncancel={sync.cancelConnect}
       />
-    {/if}
-
-    {#if nuking}
+    {:else if resetting}
+      <BlockingSettingsOverlay phase="Deleting all notes…" />
+    {:else if resetError}
       <BlockingSettingsOverlay
-        error={nukeError}
-        phase="Deleting all notes..."
-        oncancel={cancelNuke}
+        phase=""
+        error={`Full reset failed: ${resetError}`}
+        oncancel={() => {
+          resetError = '';
+        }}
       />
     {/if}
   </div>

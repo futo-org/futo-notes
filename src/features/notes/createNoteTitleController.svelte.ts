@@ -43,15 +43,14 @@ export function createNoteTitleController(options: NoteTitleControllerOptions) {
     const withoutForbidden = cleaned.replace(FORBIDDEN_CHARS_RE, '');
     const hadForbidden = cleaned !== withoutForbidden;
     cleaned = withoutForbidden;
+    options.setTitle(cleaned);
 
     if (hadForbidden) {
       const position = input.selectionStart ?? cleaned.length;
-      options.setTitle(cleaned);
       requestAnimationFrame(() => input.setSelectionRange(position - 1, position - 1));
       showWarning("That character can't be used in a note title", 2000);
     } else if (input.value !== cleaned) {
       const position = input.selectionStart ?? cleaned.length;
-      options.setTitle(cleaned);
       requestAnimationFrame(() => input.setSelectionRange(position, position));
     } else {
       const issue = validateTitle(cleaned).find(

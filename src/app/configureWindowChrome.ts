@@ -1,33 +1,34 @@
-import { isDesktop, isLinux, isMac } from '$lib/platform';
+import { isLinux, isMac, isTauri } from '$lib/platform';
 
-export function configureWindowChrome(): boolean {
+// nav.md §Desktop shell: Linux renders a 36px custom titlebar; macOS overlays
+// the native traffic lights on our chrome and the top band reserves a fixed
+// leading gutter for them. Both are expressed as CSS custom properties consumed
+// by desktop-shell.css / app-shell.css so the reservation lives in one place,
+// independent of sidebar state.
+const MACOS_TRAFFIC_LIGHTS_WIDTH = '78px';
+const LINUX_TITLEBAR_HEIGHT = '36px';
+
+export interface WindowChrome {
+  showLinuxTitlebar: boolean;
+}
+
+export function configureWindowChrome(): { chrome: WindowChrome; dispose: () => void } {
   const root = document.documentElement;
-  const showCustomTitleBar = isDesktop && isLinux;
+  let showLinuxTitlebar = false;
 
-  if (showCustomTitleBar) {
-    root.style.setProperty('--titlebar-height', '36px');
+  if (isTauri && isMac) {
+    root.style.setProperty('--macos-traffic-lights-width', MACOS_TRAFFIC_LIGHTS_WIDTH);
+  }
+  if (isTauri && isLinux) {
+    root.style.setProperty('--titlebar-height', LINUX_TITLEBAR_HEIGHT);
+    showLinuxTitlebar = true;
   }
 
-  // macOS overlays the native traffic lights on our own chrome
-  // (`titleBarStyle: "Overlay"`, `trafficLightPosition: { x: 19, y: 20 }`).
-  // The full-width desktop top band reserves a fixed leading gutter for them
-  // that is independent of sidebar state (see `.topband-chrome` /
-  // `--macos-traffic-lights-width` in desktop-shell.css) — the single place
-  // that clears the buttons, so collapsing the sidebar can no longer expose
-  // or crowd them.
-  //
-  // `--macos-traffic-lights-width` (96px): the gutter width. Three buttons
-  // start at x≈19 with ~20px spacing, landing the rightmost light at ~x=71;
-  // 96px leaves a clear gap after it.
-  // `--tabs-strip-height` (48px): the top-band height, seating the lights
-  // (top at y=20, ~12px tall) centered with margin above and below.
-  // Off macOS both are 0 / unset and the band falls back to a plain 40px strip.
-  if (isDesktop && isMac) {
-    root.style.setProperty('--macos-traffic-lights-width', '96px');
-    root.style.setProperty('--tabs-strip-height', '48px');
-  } else {
-    root.style.setProperty('--macos-traffic-lights-width', '0px');
-  }
-
-  return showCustomTitleBar;
+  return {
+    chrome: { showLinuxTitlebar },
+    dispose() {
+      root.style.removeProperty('--macos-traffic-lights-width');
+      root.style.removeProperty('--titlebar-height');
+    },
+  };
 }

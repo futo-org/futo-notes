@@ -172,7 +172,6 @@ describe('title debounce vs body debounce (character-loss race)', () => {
   function typeTitle(session: ReturnType<typeof createNoteSession>, fullTitle: string): void {
     for (let i = 1; i <= fullTitle.length; i++) {
       const value = fullTitle.slice(0, i);
-      (session as { title: string }).title = value;
       const target = { value, selectionStart: value.length, setSelectionRange: vi.fn() };
       session.handleTitleInput({ target } as unknown as Event);
     }
@@ -201,6 +200,7 @@ describe('title debounce vs body debounce (character-loss race)', () => {
     const { updateNote } = await import('./notes.svelte');
 
     typeTitle(session, 'Grocery list');
+    expect(session.title).toBe('Grocery list');
 
     vi.advanceTimersByTime(500);
     await vi.runAllTicks();

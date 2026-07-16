@@ -1,111 +1,79 @@
 <script lang="ts">
-  import { hasFileSystem, isDesktop, isTauri } from '$lib/platform';
-  import MarkdownEditor from '$features/editor/MarkdownEditor.svelte';
-  import type SettingsScreenComponent from '$features/settings/SettingsScreen.svelte';
-  import type SearchPopupComponent from '$features/search/SearchPopup.svelte';
-  let SettingsScreen: typeof SettingsScreenComponent | null = $state(null);
-  let SearchPopup: typeof SearchPopupComponent | null = $state(null);
+  import { untrack } from 'svelte';
+
+  import { isDesktop } from '$lib/platform';
+  import { saveConfig } from '$lib/platform/tauri';
   import { getAllNotes } from '$features/notes/notes.svelte';
   import { createNoteSession } from '$features/notes/noteSession.svelte';
-  import SyncStatusBar from '$features/sync/SyncStatusBar.svelte';
-  import FolderPickerModal from '$features/folders/FolderPickerModal.svelte';
+  import ForYouPage from '$features/notes/ForYouPage.svelte';
+  import SearchPopup from '$features/search/SearchPopup.svelte';
+  import SettingsScreen from '$features/settings/SettingsScreen.svelte';
   import DrawerSidebar from '$features/sidebar/DrawerSidebar.svelte';
-  import DesktopTopBand from './components/DesktopTopBand.svelte';
-  import NoteActionsMenu from './components/NoteActionsMenu.svelte';
+  import type { SidebarView } from '$features/sidebar/components/SidebarViewSelector.svelte';
   import { createSyncManager } from '$features/sync/syncManager.svelte';
-  import { keyboard } from '$features/editor/keyboard.svelte';
-  import { navigate, noteIdFromHash } from './router';
+  import SyncStatusBar from '$features/sync/SyncStatusBar.svelte';
   import { tabsStore, type OpenMode } from '$features/tabs/tabsStore.svelte';
+  import { keyboard } from '$features/editor/keyboard.svelte';
   import { showGlobalToast, currentToastMessage } from '$shared/notifications/toastBus.svelte';
-  import { startNativeShell } from './startNativeShell';
-  import { startTabsPersistence } from './startTabsPersistence';
-  import { registerNotesShellShortcuts } from './registerNotesShellShortcuts';
-  import { installNotesShellTestHook } from './installNotesShellTestHook';
+
+  import DesktopTopBand from './components/DesktopTopBand.svelte';
+  import NoteWorkspace, { type EditorApi } from './components/NoteWorkspace.svelte';
   import { createCurrentNoteActions } from './createCurrentNoteActions.svelte';
-  import NoteWorkspace from './components/NoteWorkspace.svelte';
   import { createTabNoteTransition } from './createTabNoteTransition';
+  import { installNotesShellTestHook } from './installNotesShellTestHook';
+  import { registerNotesShellShortcuts } from './registerNotesShellShortcuts';
+  import { resetAllNotes } from './resetAllNotes';
+  import {
+    hashForNoteId,
+    noteIdFromPath,
+    parseNoteIdFromHash,
+    resolveDesktopWikilinkTarget,
+  } from './router';
+  import { startNativeShell } from './startNativeShell';
+  import { SIDEBAR_COLLAPSED_KEY, startTabsPersistence } from './startTabsPersistence';
 
-  interface Props {
-    noteId: string | null;
-  }
+  const MIN_SIDEBAR_WIDTH = 200;
+  const MAX_SIDEBAR_WIDTH = 600;
+  const DEFAULT_SIDEBAR_WIDTH = 280;
+  const SIDEBAR_VIEW_KEY = 'futo-notes:sidebarView';
 
-  let { noteId }: Props = $props();
-
-  let drawerOpen = $state(true);
-  let drawerProgress = $state(1);
-  const notes = $derived(hasFileSystem ? getAllNotes() : []);
-
-  let lastIdSignature = '';
-  $effect(() => {
-    const sig = notes
-      .map((n) => n.id)
-      .sort()
-      .join('\n');
-    if (sig === lastIdSignature) return;
-    lastIdSignature = sig;
-    editor?.refreshDecorations?.();
-  });
-
-  let editor: ReturnType<typeof MarkdownEditor> | null = $state(null);
-  let editorFocused = $state(false);
-  let drawer: HTMLElement | undefined = $state(undefined);
-  let noteBody: HTMLElement | undefined = $state(undefined);
-  let titleTextarea: HTMLTextAreaElement | undefined = $state(undefined);
-
-  let drawerWidth = $state(0);
-
-  let sidebarWidth = $state(280);
+  let editor: EditorApi | undefined = $state();
+  let noteBody: HTMLElement | undefined = $state();
+  let titleTextarea: HTMLTextAreaElement | undefined = $state();
   let sidebarCollapsed = $state(false);
+  let sidebarWidth = $state(DEFAULT_SIDEBAR_WIDTH);
   let sidebarResizing = $state(false);
-
-  function toggleSidebar(collapsed?: boolean) {
-    sidebarCollapsed = collapsed ?? !sidebarCollapsed;
-    localStorage.setItem('futo-notes:sidebarCollapsed', String(sidebarCollapsed));
-  }
+  let sidebarView = $state<SidebarView>(readSidebarView());
   let settingsOpen = $state(false);
-
   let searchOpen = $state(false);
 
-  async function openSearch(): Promise<void> {
-    if (!SearchPopup) {
-      SearchPopup = (await import('$features/search/SearchPopup.svelte')).default;
-    }
-    searchOpen = true;
-  }
+  const notes = $derived(getAllNotes());
+  const activeNoteId = $derived(tabsStore.activeNoteId);
 
-  function openFromEvent(id: string | null, event?: MouseEvent): OpenMode {
-    const mode = isDesktop ? tabsStore.modeFromEvent(event) : 'current';
-    tabsStore.openNote(id, mode);
-    return mode;
+  function navigate(path: string): void {
+    const noteId = noteIdFromPath(path);
+    if (tabsStore.activeNoteId !== noteId) tabsStore.openNote(noteId, 'current');
+    writeHash(noteId);
   }
-
-  function handleSearchSelect(id: string, event?: MouseEvent): void {
-    const mode = openFromEvent(id, event);
-    if (mode === 'current') searchOpen = false;
-  }
-
-  const tabNoteTransition = createTabNoteTransition({
-    getNoteBody: () => noteBody,
-    getCurrentNoteId: () => noteId,
-    loadNote: loadNoteAndResetUI,
-  });
 
   const session = createNoteSession({
     getEditorContent: () => editor?.getContent(),
-    setEditorContent: (text, opts) => editor?.setContent(text, opts),
+    setEditorContent: (content, options) => editor?.setContent(content, options),
     focusEditor: () => editor?.focus(),
-    isEditorFocused: () => editor?.hasFocus?.() ?? false,
-    isComposing: () => Boolean(editor?.isComposing?.()),
-    getNotes: () => notes,
+    isEditorFocused: () => editor?.hasFocus() ?? false,
+    isComposing: () => editor?.isComposing() ?? false,
+    getNotes: getAllNotes,
     getNoteBody: () => noteBody,
     getTitleTextarea: () => titleTextarea,
-    getNoteId: () => noteId,
-    setPrevNoteId: tabNoteTransition.setPreviousNoteId,
+    getNoteId: () => tabsStore.activeNoteId,
+    setPrevNoteId: (id) => tabTransition.setLoadedNoteId(id),
     getPendingFolder: () => tabsStore.activeTab.pendingFolder ?? null,
-    clearPendingFolder: () => {
-      tabsStore.setPendingFolder(tabsStore.activeTabId, null);
+    clearPendingFolder: () => tabsStore.setPendingFolder(tabsStore.activeTabId, null),
+    onNoteRenamed: (fromId, toId) => {
+      if (fromId) tabsStore.applyRename(fromId, toId);
+      else tabsStore.replaceTabNoteId(tabsStore.activeTabId, toId);
+      tabTransition.setLoadedNoteId(toId);
     },
-    onNoteRenamed: tabNoteTransition.handleNoteRenamed,
     navigate,
   });
 
@@ -114,10 +82,7 @@
     showToast: showGlobalToast,
     onRename: (fromId, toId) => {
       tabsStore.applyRename(fromId, toId);
-      if (noteId === fromId) {
-        tabNoteTransition.setPreviousNoteId(toId);
-        navigate(`/note/${encodeURIComponent(toId)}`);
-      }
+      if (session.originalId === fromId) tabTransition.setLoadedNoteId(toId);
     },
     pruneTabsForDeletedIds: (goneIds) => {
       const gone = new Set(goneIds);
@@ -125,230 +90,240 @@
     },
   });
 
+  function closeActiveNote(): void {
+    tabsStore.openNote(null, 'current');
+    session.cancelAndClear();
+  }
+
+  function retargetActiveNote(fromId: string, toId: string, title: string): void {
+    tabsStore.applyRename(fromId, toId);
+    session.applyRemoteRename(toId, title);
+    tabTransition.setLoadedNoteId(toId);
+  }
+
   const noteActions = createCurrentNoteActions({
-    getNoteId: () => noteId,
-    getOriginalId: () => session.originalId,
-    cancelSession: session.cancelAndClear,
-    notifySaved: sync.notifySaved,
+    getActiveNoteId: () => session.originalId,
     showToast: showGlobalToast,
+    onMoved: retargetActiveNote,
+    onDeleteConfirmed: closeActiveNote,
   });
 
-  function updateDrawerMetrics(): void {
-    if (drawer) {
-      drawerWidth = drawer.getBoundingClientRect().width || 1;
+  const tabTransition = createTabNoteTransition({
+    loadNote: session.loadNote,
+    getNoteBody: () => noteBody,
+  });
+
+  function readSidebarView(): SidebarView {
+    try {
+      const stored = localStorage.getItem(SIDEBAR_VIEW_KEY);
+      if (stored === 'tags' || stored === 'images') return stored;
+    } catch {
+      // Storage is optional in the plain-web test harness.
+    }
+    return 'notes';
+  }
+
+  function writeHash(noteId: string | null): void {
+    const next = hashForNoteId(noteId);
+    if (window.location.hash !== next) window.location.hash = next;
+  }
+
+  function selectSidebarView(view: SidebarView): void {
+    sidebarView = view;
+    try {
+      localStorage.setItem(SIDEBAR_VIEW_KEY, view);
+    } catch {
+      // Storage is optional in the plain-web test harness.
     }
   }
 
-  function editorIsComposing(): boolean {
-    return editor?.isComposing?.() ?? false;
-  }
-
-  function setDrawerOpen(open: boolean): void {
-    drawerOpen = open;
-    if (open && !editorIsComposing()) {
-      editor?.blur();
-    }
-    setDrawerProgress(open ? 1 : 0);
-  }
-
-  function setDrawerProgress(progress: number): void {
-    drawerProgress = Math.min(1, Math.max(0, progress));
-    if (drawerProgress > 0 && !editorIsComposing()) {
-      editor?.blur();
+  function setSidebarCollapsed(collapsed: boolean): void {
+    sidebarCollapsed = collapsed;
+    try {
+      localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(collapsed));
+    } catch {
+      // Storage is optional in the plain-web test harness.
     }
   }
 
-  function handleNoteSelect(id: string, event?: MouseEvent): void {
-    openFromEvent(id, event);
+  function toggleSidebar(): void {
+    setSidebarCollapsed(!sidebarCollapsed);
   }
 
-  function handleDrawerSelect(id: string, event?: MouseEvent): void {
-    if (id === '__home__') {
-      openFromEvent(null, event);
-    } else {
-      handleNoteSelect(id, event);
+  function resizeSidebar(width: number): void {
+    sidebarWidth = Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, width));
+    sidebarResizing = true;
+    if (isDesktop) {
+      void saveConfig({ sidebarWidth }).catch((error) =>
+        console.warn('Failed to persist sidebar width:', error),
+      );
     }
+    window.clearTimeout(resizeEndTimer);
+    resizeEndTimer = window.setTimeout(() => {
+      sidebarResizing = false;
+    }, 120);
   }
 
-  async function handleOpenSettings(): Promise<void> {
-    if (!SettingsScreen) {
-      SettingsScreen = (await import('$features/settings/SettingsScreen.svelte')).default;
+  let resizeEndTimer = 0;
+
+  function openNote(noteId: string, event?: MouseEvent): void {
+    if (noteId === '__home__') {
+      tabsStore.openNote(null, 'current');
+      return;
     }
-    settingsOpen = true;
+    const mode: OpenMode = tabsStore.modeFromEvent(event);
+    tabsStore.openNote(noteId, mode);
+    if (mode !== 'background') searchOpen = false;
   }
 
-  async function createNewNote(): Promise<void> {
-    await session.flushSave();
-    tabsStore.openNote('new', 'current');
-  }
-
-  async function createNewNoteInFolder(folderPath: string): Promise<void> {
-    await session.flushSave();
+  function createNewNote(folder = ''): void {
     const tab = tabsStore.openNote('new', 'current');
-    tabsStore.setPendingFolder(tab.id, folderPath);
+    tabsStore.setPendingFolder(tab.id, folder || null);
+  }
+
+  function openWikilink(title: string, event: MouseEvent): void {
+    const noteId = resolveDesktopWikilinkTarget(
+      title,
+      getAllNotes().map((note) => note.id),
+    );
+    openNote(noteId, event);
+  }
+
+  function handleHashChange(): void {
+    if (!tabsStore.hydrated) return;
+    const noteId = parseNoteIdFromHash(window.location.hash);
+    if (tabsStore.activeNoteId !== noteId) tabsStore.openNote(noteId, 'current');
   }
 
   function handleEditorFocusChange(focused: boolean): void {
-    if (focused) {
-      if (noteId) editorFocused = true;
-      void sync.handleEditorFocusChange(true);
-      void session.flushSave();
-    } else {
-      editorFocused = false;
-      void sync.handleEditorFocusChange(false);
-    }
+    void sync.handleEditorFocusChange(focused);
   }
 
-  function handleNoteBodyFocusIn(event: FocusEvent): void {
-    keyboard.refresh();
-    const target = event.target as HTMLElement | null;
-    if (target?.closest('.cm-editor') && noteId) {
-      editorFocused = true;
-    }
-  }
+  keyboard.init();
 
-  // Graph view is a stub — the menu item only promises a toast (list.md).
-  function showGraphComingSoon(): void {
-    showGlobalToast('Graph visualization coming soon');
-  }
+  const stopTabsPersistence = startTabsPersistence({
+    initialNoteId: parseNoteIdFromHash(window.location.hash),
+    setSidebarCollapsed,
+    setSidebarWidth: (width) => {
+      sidebarWidth = Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, width));
+    },
+  });
+  const stopSync = sync.start();
+  const stopShortcuts = registerNotesShellShortcuts({
+    openSearch: () => {
+      searchOpen = true;
+    },
+    createNote: () => createNewNote(),
+  });
+  const stopNativeShell = startNativeShell({
+    enqueueFileChange: sync.enqueueFileChange,
+    flushSave: session.flushSave,
+  });
 
-  function handleWikilinkOpen(title: string, event: MouseEvent): void {
-    openFromEvent(title, event);
-  }
+  window.addEventListener('hashchange', handleHashChange);
 
-  function registerBackSwipeHandler(): void {
-    const win = window as typeof window & { __toggleNotesDrawer?: () => void };
-    win.__toggleNotesDrawer = () => setDrawerOpen(!drawerOpen);
-  }
-
-  async function loadNoteAndResetUI(id: string | null): Promise<void> {
-    noteActions.closeTransientUi();
-    if (!id) editorFocused = false;
-    await session.loadNote(id);
-  }
+  const removeTestHook = installNotesShellTestHook({
+    handleSyncComplete: sync.handleSyncComplete,
+    handleLiveState: sync.handleLiveState,
+    handleFileChange: sync.handleFileChange,
+    seedOpenNote: session.seedOpenNote,
+    flushSave: session.flushSave,
+    getEditorView: () => editor?.getView() ?? null,
+    focusEditor: () => editor?.focus(),
+    getState: () => ({
+      originalId: session.originalId,
+      title: session.title,
+      toastMessage: currentToastMessage(),
+      hash: window.location.hash,
+      editorContent: editor?.getContent() ?? '',
+      savePending: session.savePending,
+    }),
+  });
 
   $effect(() => {
-    keyboard.init();
-    registerBackSwipeHandler();
-    updateDrawerMetrics();
+    if (!tabsStore.hydrated) return;
+    const tab = tabsStore.activeTab;
+    const tabId = tab.id;
+    const noteId = tab.noteId;
+    const savedScroll = tab.state?.scroll ?? 0;
+    void untrack(() => tabTransition.transition(tabId, noteId, savedScroll));
+  });
 
-    const cleanupSync = sync.start();
-    const cleanupTabs = startTabsPersistence({
-      initialNoteId: noteIdFromHash(window.location.hash),
-      setSidebarCollapsed: (collapsed) => {
-        sidebarCollapsed = collapsed;
-      },
-      setSidebarWidth: (width) => {
-        sidebarWidth = width;
-      },
-    });
+  $effect(() => {
+    if (!tabsStore.hydrated) return;
+    writeHash(tabsStore.activeNoteId);
+  });
 
-    const cleanupNativeShell = startNativeShell({
-      enqueueFileChange: sync.enqueueFileChange,
-      flushSave: session.flushSave,
-    });
-
-    const cleanupShortcuts = registerNotesShellShortcuts({
-      openSearch: () => void openSearch(),
-      createNote: () => void createNewNote(),
-    });
-
+  $effect(() => {
     return () => {
-      cleanupSync();
-      cleanupTabs();
-      cleanupNativeShell();
-      void session.flushSave();
-      cleanupShortcuts();
+      window.clearTimeout(resizeEndTimer);
+      window.removeEventListener('hashchange', handleHashChange);
+      removeTestHook();
+      stopNativeShell();
+      stopShortcuts();
+      stopSync();
+      stopTabsPersistence();
     };
-  });
-  $effect(() => {
-    tabNoteTransition.update(noteId);
-  });
-
-  const drawerOffset = $derived(drawerProgress * drawerWidth);
-
-  $effect(() => {
-    if (!(import.meta.env.DEV || import.meta.env.VITE_INCLUDE_TEST_HOOKS === 'true')) return;
-    return installNotesShellTestHook({
-      handleSyncComplete: sync.handleSyncComplete,
-      handleLiveState: sync.handleLiveState,
-      handleFileChange: sync.handleFileChange,
-      seedOpenNote: session.seedOpenNote,
-      flushSave: session.flushSave,
-      getEditorView: () => editor?.getView() ?? null,
-      focusEditor: () => editor?.focus(),
-      getState: () => ({
-        originalId: session.originalId,
-        title: session.title,
-        toastMessage: currentToastMessage(),
-        hash: window.location.hash,
-        editorContent: editor?.getContent() ?? '',
-        savePending: session.savePending,
-      }),
-    });
   });
 </script>
 
-<!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   class="notes-shell desktop-layout"
   class:sidebar-collapsed={sidebarCollapsed}
   class:sidebar-resizing={sidebarResizing}
-  class:drawer-open={drawerOpen}
-  style="--drawer-offset: {drawerOffset}px; --sidebar-width: {sidebarWidth}px; --vv-offset: {keyboard.offsetTop}px"
+  style:--sidebar-width={`${sidebarWidth}px`}
+  style:--vv-offset={`${keyboard.offsetTop}px`}
 >
-  <!-- Full-width top band (desktop): traffic-light gutter + sidebar toggle +
-       tabs. Owns the macOS window-button clearance so sidebar collapse can't
-       affect it. -->
   {#if isDesktop}
-    <DesktopTopBand
-      {notes}
-      {sidebarCollapsed}
-      ontoggle={() => {
-        toggleSidebar();
-      }}
-    />
+    <DesktopTopBand {sidebarCollapsed} ontoggle={toggleSidebar} {notes} />
   {/if}
 
   <div class="desktop-body">
-    <!-- Drawer -->
     <DrawerSidebar
       {notes}
-      activeNoteId={noteId}
-      {drawerOpen}
-      bind:sidebarWidth
-      onselect={handleDrawerSelect}
-      onsearch={() => {
-        void openSearch();
+      activeNoteId={session.originalId}
+      view={sidebarView}
+      showCollapse={!isDesktop}
+      showResize={isDesktop}
+      onselectview={selectSidebarView}
+      onselectnote={openNote}
+      onactivenotedeleted={closeActiveNote}
+      onactivenotemoved={retargetActiveNote}
+      onnewnote={() => createNewNote()}
+      onnewnoteinfolder={createNewNote}
+      onhome={() => tabsStore.openNote(null, 'current')}
+      onsettings={() => {
+        settingsOpen = true;
       }}
-      onsettings={handleOpenSettings}
-      onnewnote={createNewNote}
-      onnewnoteinfolder={createNewNoteInFolder}
-      ontogglecollapse={toggleSidebar}
-      bind:drawerEl={drawer}
-      bind:sidebarResizing
+      oncollapse={toggleSidebar}
+      onopensearch={() => {
+        searchOpen = true;
+      }}
+      onresize={resizeSidebar}
     />
 
-    <!-- Main content -->
-    <div class="note-main">
-      {#if noteId}
-        <NoteActionsMenu
-          {noteId}
-          bind:open={noteActions.menuOpen}
-          showNativeActions={isTauri}
-          ongraph={showGraphComingSoon}
-          oncopy={() => void noteActions.copyPath()}
-          onmove={noteActions.openMovePicker}
-          ondelete={noteActions.requestDelete}
-        />
+    <main class="note-main">
+      {#if activeNoteId === null}
+        <ForYouPage {notes} onnavigate={(id) => openNote(id)} />
       {/if}
+
+      <NoteWorkspace
+        {session}
+        {notes}
+        actions={noteActions}
+        active={activeNoteId !== null}
+        onopenlink={openWikilink}
+        onfocuschange={handleEditorFocusChange}
+        bind:editorApi={editor}
+        bind:noteBodyEl={noteBody}
+        bind:titleEl={titleTextarea}
+      />
+
       {#if !isDesktop && sidebarCollapsed}
         <button
           class="sidebar-expand-fallback-btn"
           aria-label="Expand sidebar"
-          onclick={() => {
-            toggleSidebar(false);
-          }}
+          onclick={toggleSidebar}
         >
           <svg
             width="20"
@@ -363,63 +338,41 @@
           >
             <rect x="3" y="3" width="18" height="18" rx="2" />
             <line x1="9" y1="3" x2="9" y2="21" />
-            <polyline points="14 8 17 12 14 16" />
+            <polyline points="13 8 16 12 13 16" />
           </svg>
         </button>
       {/if}
-      <NoteWorkspace
-        {noteId}
-        {notes}
-        {session}
-        {editorFocused}
-        bind:editor
-        bind:noteBody
-        bind:titleTextarea
-        oneditorfocuschange={handleEditorFocusChange}
-        onbodyfocusin={handleNoteBodyFocusIn}
-        onopenwikilink={handleWikilinkOpen}
-        onnavigate={(id) => {
-          openFromEvent(id);
-        }}
-      />
-      <SyncStatusBar
-        statusMessage={sync.syncStatusMessage}
-        indicatorVisible={sync.syncIndicatorVisible}
-        offline={sync.syncOffline}
-        error={sync.syncError}
-        errorMessage={sync.syncErrorMessage}
-        connected={sync.live}
-        onclear={sync.clearSyncError}
-      />
-    </div>
+    </main>
   </div>
 </div>
 
-{#if settingsOpen && SettingsScreen}
-  <SettingsScreen
-    onclose={() => {
-      settingsOpen = false;
-    }}
-    syncError={sync.syncError}
-    syncErrorMessage={sync.syncErrorMessage}
-    {...import.meta.env.DEV ? { simulateSyncSummary: sync.handleSyncComplete } : {}}
-  />
-{/if}
+<SyncStatusBar
+  statusMessage={sync.syncStatusMessage}
+  indicatorVisible={sync.syncIndicatorVisible}
+  offline={sync.syncOffline}
+  error={sync.syncError}
+  errorMessage={sync.syncErrorMessage}
+  connected={sync.live}
+  onclear={sync.clearSyncError}
+/>
 
-{#if searchOpen && SearchPopup}
+{#if searchOpen}
   <SearchPopup
     onclose={() => {
       searchOpen = false;
     }}
-    onselect={handleSearchSelect}
+    onselect={openNote}
   />
 {/if}
 
-{#if noteActions.movePickerNoteId}
-  <FolderPickerModal
-    title="Move to folder"
-    {notes}
-    onpick={noteActions.moveCurrentNote}
-    oncancel={noteActions.closeMovePicker}
+{#if settingsOpen}
+  <SettingsScreen
+    onclose={() => {
+      settingsOpen = false;
+    }}
+    backgroundSyncError={sync.syncError}
+    backgroundSyncErrorMessage={sync.syncErrorMessage}
+    onsimulatesync={sync.handleSyncComplete}
+    onreset={resetAllNotes}
   />
 {/if}

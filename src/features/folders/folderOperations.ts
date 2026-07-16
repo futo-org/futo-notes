@@ -68,7 +68,7 @@ export async function renameOrMoveFolder(
   fromPath: string,
   toPath: string,
   siblings: Iterable<string>,
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; error?: string; renames?: LocalNoteRename[] }> {
   if (fromPath === toPath) return { ok: true };
   if (folderDepth(toPath) > MAX_FOLDER_DEPTH) {
     return { ok: false, error: `Folder depth cannot exceed ${MAX_FOLDER_DEPTH}` };
@@ -94,7 +94,7 @@ export async function renameOrMoveFolder(
     _applyLocalMutation(mutation);
     rebaseOpenFolders(fromPath, toPath);
     rebaseEmptyFolders(fromPath, toPath);
-    return { ok: true };
+    return { ok: true, renames: mutation.renamed };
   } catch (cause) {
     return { ok: false, error: folderOperationError(cause, 'Failed to rename folder') };
   }

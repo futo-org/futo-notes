@@ -1,19 +1,28 @@
 import { clearDragHoverExpanded } from '$features/folders/folderExpansion.svelte';
 import { getEmptyFolders, refreshEmptyFolders } from '$features/folders/emptyFolders.svelte';
 import { deleteFolder, renameOrMoveFolder } from '$features/folders/folderOperations';
-import {
-  deleteNote,
-  getAllNotes,
-  moveNote,
-  moveNotesUnderPrefix,
-} from '$features/notes/notes.svelte';
+import { deleteNote, getAllNotes, moveNote } from '$features/notes/notes.svelte';
 import { idLeaf } from '$lib/platform/pathSafety';
 import { confirmDialog } from '$shared/dialogs/confirmDialog';
 import { showGlobalToast } from '$shared/notifications/toastBus.svelte';
 
-interface DeleteFolderOptions {
+interface SidebarMutationOptions {
   getActiveNoteId: () => string | null;
   onSelect: (id: string) => void;
+  onActiveNoteDeleted: () => void;
+  onActiveNoteMoved: (fromId: string, toId: string, title: string) => void;
+}
+
+function retargetActiveNote(
+  renames: Array<{ from: string; to: string }> | undefined,
+  options: SidebarMutationOptions,
+): boolean {
+  const activeId = options.getActiveNoteId();
+  if (!activeId) return false;
+  const rename = renames?.find((candidate) => candidate.from === activeId);
+  if (!rename) return false;
+  options.onActiveNoteMoved(rename.from, rename.to, idLeaf(rename.to));
+  return true;
 }
 
 export function collectSiblingFolders(parentPath: string): string[] {
@@ -40,7 +49,11 @@ export async function refreshSidebarFolders(): Promise<void> {
   await refreshEmptyFolders(getAllNotes());
 }
 
-export async function renameSidebarFolder(path: string, newName: string): Promise<string | null> {
+export async function renameSidebarFolder(
+  path: string,
+  newName: string,
+  options: SidebarMutationOptions,
+): Promise<string | null> {
   const components = path.split('/');
   const parent = components.slice(0, -1).join('/');
   const trimmedName = newName.trim();
@@ -52,16 +65,23 @@ export async function renameSidebarFolder(path: string, newName: string): Promis
   );
   const result = await renameOrMoveFolder(path, newPath, siblings);
   if (!result.ok) return result.error ?? 'Failed to rename';
-  await moveNotesUnderPrefix(path, newPath);
+  retargetActiveNote(result.renames, options);
   await refreshSidebarFolders();
   return null;
 }
 
-export async function moveSidebarNote(noteId: string, target: string): Promise<void> {
+export async function moveSidebarNote(
+  noteId: string,
+  target: string,
+  options: SidebarMutationOptions,
+): Promise<void> {
   const newId = target ? `${target}/${idLeaf(noteId)}` : idLeaf(noteId);
   if (newId === noteId) return;
   try {
-    await moveNote(noteId, newId);
+    const result = await moveNote(noteId, newId);
+    if (options.getActiveNoteId() === noteId) {
+      options.onActiveNoteMoved(noteId, result.id, idLeaf(result.id));
+    }
     await refreshSidebarFolders();
     showGlobalToast(target ? `Moved to ${target}` : 'Moved to Notes');
   } catch (error) {
@@ -69,7 +89,10 @@ export async function moveSidebarNote(noteId: string, target: string): Promise<v
   }
 }
 
-export async function confirmDeleteSidebarNote(id: string): Promise<void> {
+export async function confirmDeleteSidebarNote(
+  id: string,
+  options: SidebarMutationOptions,
+): Promise<void> {
   try {
     const confirmed = await confirmDialog(`Delete note "${idLeaf(id)}"?`, {
       title: 'Delete note',
@@ -83,6 +106,7 @@ export async function confirmDeleteSidebarNote(id: string): Promise<void> {
   }
 
   try {
+    if (options.getActiveNoteId() === id) options.onActiveNoteDeleted();
     await deleteNote(id);
     showGlobalToast('Note deleted');
   } catch (error) {
@@ -92,7 +116,7 @@ export async function confirmDeleteSidebarNote(id: string): Promise<void> {
 
 export async function confirmDeleteSidebarFolder(
   path: string,
-  options: DeleteFolderOptions,
+  options: SidebarMutationOptions,
 ): Promise<void> {
   try {
     const confirmed = await confirmDialog(
@@ -119,7 +143,9 @@ export async function confirmDeleteSidebarFolder(
 
   const activeId = options.getActiveNoteId();
   if (activeId && activeId !== 'new' && activeId.startsWith(prefix)) {
-    options.onSelect(movedNotes.get(activeId) ?? '__home__');
+    if (!retargetActiveNote(result.renames, options)) {
+      options.onSelect(movedNotes.get(activeId) ?? '__home__');
+    }
   }
   const movedCount = result.renames?.length ?? 0;
   showGlobalToast(
@@ -129,23 +155,34 @@ export async function confirmDeleteSidebarFolder(
   );
 }
 
-export async function moveSidebarNoteToFolder(noteId: string, folderPath: string): Promise<void> {
+export async function moveSidebarNoteToFolder(
+  noteId: string,
+  folderPath: string,
+  options: SidebarMutationOptions,
+): Promise<void> {
   try {
-    await moveSidebarNote(noteId, folderPath);
+    await moveSidebarNote(noteId, folderPath, options);
   } finally {
     clearDragHoverExpanded();
   }
 }
 
-export async function moveSidebarNoteToRoot(noteId: string): Promise<void> {
+export async function moveSidebarNoteToRoot(
+  noteId: string,
+  options: SidebarMutationOptions,
+): Promise<void> {
   try {
-    await moveSidebarNote(noteId, '');
+    await moveSidebarNote(noteId, '', options);
   } finally {
     clearDragHoverExpanded();
   }
 }
 
-export async function moveSidebarFolder(folderPath: string, targetPath: string): Promise<void> {
+export async function moveSidebarFolder(
+  folderPath: string,
+  targetPath: string,
+  options: SidebarMutationOptions,
+): Promise<void> {
   if (folderPath === targetPath || targetPath.startsWith(`${folderPath}/`)) return;
   const newPath = `${targetPath}/${idLeaf(folderPath)}`;
   const result = await renameOrMoveFolder(folderPath, newPath, collectSiblingFolders(targetPath));
@@ -153,13 +190,16 @@ export async function moveSidebarFolder(folderPath: string, targetPath: string):
     showGlobalToast(result.error ?? 'Failed to move folder');
     return;
   }
-  await moveNotesUnderPrefix(folderPath, newPath);
+  retargetActiveNote(result.renames, options);
   await refreshSidebarFolders();
   showGlobalToast(`Moved to ${targetPath}`);
   clearDragHoverExpanded();
 }
 
-export async function moveSidebarFolderToRoot(folderPath: string): Promise<void> {
+export async function moveSidebarFolderToRoot(
+  folderPath: string,
+  options: SidebarMutationOptions,
+): Promise<void> {
   const leaf = idLeaf(folderPath);
   if (folderPath === leaf) return;
   const result = await renameOrMoveFolder(folderPath, leaf, collectSiblingFolders(''));
@@ -167,7 +207,7 @@ export async function moveSidebarFolderToRoot(folderPath: string): Promise<void>
     showGlobalToast(result.error ?? 'Failed to move folder');
     return;
   }
-  await moveNotesUnderPrefix(folderPath, leaf);
+  retargetActiveNote(result.renames, options);
   await refreshSidebarFolders();
   showGlobalToast('Moved to Notes');
   clearDragHoverExpanded();
