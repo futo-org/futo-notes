@@ -320,7 +320,7 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   After re-pointing, the reset→reconcile→push re-uploads local notes to the
   survivor — no data loss for anything a device still holds. → futo-notes-sync
   `SyncSession` (terminal live error on collection-gone); syncServiceE2ee
-  `{ensureConnected,syncE2eeAuto}`; SyncManager.{swift,kt} `healCollectionGone`
+  `{ensureConnected,syncE2eeAuto}`; SyncManager.{swift,kt} `healSession`
 - Moving the whole vault folder to a new location (e.g. the Android Device/App
   storage switch → [app.md](app.md) "Vault location") is transparent to sync:
   the object map is keyed by **relative** filename (not absolute path) and the
@@ -436,6 +436,24 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   page reload.
   → Keychain.swift *(iOS)*, SecureStore.kt *(Android)*,
   sync/password_store.rs + syncServiceE2ee.ts *(desktop)*
+- **An expired server bearer session reauthenticates transparently from the
+  securely saved password without resetting sync state.** Server sessions are
+  intentionally distinct from the vault password and may expire after an idle
+  period; a 401 therefore does NOT mean the password changed. Desktop catches
+  401 during cold `resume` and an active sync, stops the dead live loop, calls
+  `connect` with the saved password, and retries once. iOS/Android catch the
+  typed `Auth` error from a manual cycle and the terminal `auth:` live-loop
+  signal and rebuild the client from Keychain/Keystore credentials. Reconnect
+  does **not** call disconnect or delete `.e2ee-state.json`, so reconnecting to
+  the same collection retains `max_version` + the object map and remains an
+  incremental sync; **Reset connection** is an explicit destructive session
+  reset and still causes a full empty-map reconcile. On desktop, if the saved
+  password was deliberately forgotten, entering it in Settings and pressing
+  **Sync now** uses this same non-destructive reauthentication path (the old
+  field cleared the typed password without using it). → syncServiceE2ee.ts,
+  createSyncSettings.svelte.ts, SyncManager.swift / SyncManager.kt; guarded by
+  syncServiceE2ee.test.ts, createSyncSettings.test.ts, and
+  SyncManagerDefaultsTest.kt
 
 ## Conflict & data safety
 

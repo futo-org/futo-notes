@@ -28,6 +28,7 @@ vi.mock('$shared/dialogs/confirmDialog', () => ({
 const connectE2ee = vi.fn();
 const disconnectE2ee = vi.fn();
 const forgetStoredSyncPassword = vi.fn();
+const reauthenticateE2ee = vi.fn();
 const hasStoredSyncPassword = vi.fn(() => false);
 type ProgressListener = ((p: { phase: string; current: number; total: number }) => void) | null;
 let progressListener: ProgressListener = null;
@@ -35,6 +36,7 @@ vi.mock('$features/sync/syncServiceE2ee', () => ({
   connectE2ee: (...args: unknown[]) => connectE2ee(...args),
   disconnectE2ee: (...args: unknown[]) => disconnectE2ee(...args),
   forgetStoredSyncPassword: (...args: unknown[]) => forgetStoredSyncPassword(...args),
+  reauthenticateE2ee: (...args: unknown[]) => reauthenticateE2ee(...args),
   hasStoredSyncPassword: () => hasStoredSyncPassword(),
   setSyncProgressListener: (listener: ProgressListener) => {
     progressListener = listener;
@@ -53,6 +55,7 @@ beforeEach(() => {
   connectE2ee.mockReset().mockResolvedValue(undefined);
   disconnectE2ee.mockReset().mockResolvedValue(undefined);
   forgetStoredSyncPassword.mockReset().mockResolvedValue(undefined);
+  reauthenticateE2ee.mockReset().mockResolvedValue(undefined);
   hasStoredSyncPassword.mockReset().mockReturnValue(false);
   progressListener = null;
 });
@@ -187,5 +190,23 @@ describe('createSyncSettings', () => {
     expect(requestSyncV2).toHaveBeenCalledTimes(1);
     expect(sync.lastSyncedAt).toBe(1234);
     expect(sync.status).toBe('');
+  });
+
+  it('reauthenticates with an entered password before syncing and clears it only after', async () => {
+    appStateMock.e2eeServerUrl = 'https://notes.example.com';
+    appStateMock.e2eeAuthToken = 'expired-token';
+    hasStoredSyncPassword.mockReturnValue(true);
+    const sync = createSyncSettings();
+    sync.password = 'saved-password';
+
+    await sync.syncNow();
+
+    expect(reauthenticateE2ee).toHaveBeenCalledWith('saved-password');
+    expect(reauthenticateE2ee.mock.invocationCallOrder[0]).toBeLessThan(
+      requestSyncV2.mock.invocationCallOrder[0],
+    );
+    expect(sync.password).toBe('');
+    expect(sync.passwordSaved).toBe(true);
+    expect(sync.connected).toBe(true);
   });
 });
