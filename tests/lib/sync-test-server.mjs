@@ -15,6 +15,7 @@ import { Readable } from 'node:stream';
 const PASSWORD = 'testing123';
 
 const hashCache = new Map();
+const readyComposeProjects = new Set();
 
 function hashPassword(serverRepo, password) {
   const cacheKey = `${serverRepo}\0${password}`;
@@ -64,7 +65,7 @@ export async function startServer(port, repoRoot, options = {}) {
   // sidecar), trust it and skip docker compose — the dind runner can't reach
   // a host-level compose container at localhost:5433 anyway.
   const externalDb = !!process.env.FUTO_NOTES_E2EE_DATABASE_URL;
-  if (!externalDb) {
+  if (!externalDb && !readyComposeProjects.has(serverRepo)) {
     const compose = spawnSync('docker', ['compose', 'up', '-d', 'postgres'], {
       cwd: serverRepo,
       encoding: 'utf8',
@@ -72,6 +73,7 @@ export async function startServer(port, repoRoot, options = {}) {
     if (compose.status !== 0) {
       throw new Error(`Failed to start E2EE server Postgres:\n${compose.stderr || compose.stdout}`);
     }
+    readyComposeProjects.add(serverRepo);
   }
 
   const passwordHash = hashPassword(serverRepo, PASSWORD);
@@ -237,7 +239,7 @@ async function waitForHealth(url, timeoutMs) {
     } catch {
       // not ready yet
     }
-    await new Promise((r) => setTimeout(r, 500));
+    await new Promise((r) => setTimeout(r, 100));
   }
   throw new Error(`Health check at ${url} timed out after ${timeoutMs}ms`);
 }

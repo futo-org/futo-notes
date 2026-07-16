@@ -14,6 +14,13 @@ test_rust_macos_task:
     # Whole workspace so the new core crates (model/index/sync) are covered on
     # macOS too; ignored server tests stay skipped (no FUTO_TEST_SERVER).
     - cargo test --workspace
+    # Mobile-target compile check: the full iOS app build only runs when the
+    # shell or futo-notes-ffi itself changes, but every futo-notes crate is in
+    # the FFI dependency tree. Type-check the tree for the device target so an
+    # inner-crate iOS break surfaces on the MR instead of at tag time. The
+    # Android sibling (which also links) is test:rust:ffi-android in GitLab.
+    - rustup target add aarch64-apple-ios
+    - cargo check -p futo-notes-ffi --target aarch64-apple-ios --locked
 
 test_desktop_smoke_macos_task:
   name: testDesktopSmokeMacOS

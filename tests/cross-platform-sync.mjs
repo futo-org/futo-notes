@@ -35,6 +35,10 @@ const { values: args } = parseArgs({
   options: {
     scenario: { type: 'string' },
     matrix: { type: 'string', default: 'desktop-desktop' },
+    // MR fast path: skip scenarios marked `slow` in the registry (scale
+    // probes whose mechanisms are covered by cheap scenarios). Main and tag
+    // pipelines, and local runs, execute everything.
+    'skip-slow': { type: 'boolean', default: false },
   },
 });
 
@@ -42,6 +46,14 @@ const { values: args } = parseArgs({
 
 const results = [];
 let serverPortCounter = 4000;
+const suiteStartedAt = Date.now();
+const timings = {
+  bootstrapMs: 0,
+  clientStartupMs: 0,
+  serverSetupMs: 0,
+  clientResetMs: 0,
+  scenarioMs: 0,
+};
 
 function assert(condition, message) {
   if (!condition) throw new Error(`Assertion failed: ${message}`);
@@ -1671,7 +1683,9 @@ const scenarios = [
   { name: 'lost state recovery', fn: lostStateRecovery, matrices: ['desktop-desktop'] },
   { name: 'rapid reconnect', fn: rapidReconnect, matrices: ['desktop-desktop'] },
   { name: 'offline accumulation', fn: offlineAccumulation, matrices: ['desktop-desktop'] },
-  { name: 'large sync', fn: largeSync, matrices: ['desktop-desktop'] },
+  // slow: ~2 minutes of a ~4-minute scenario budget for a scale probe whose
+  // mechanisms (upload, download, batching) cheap scenarios each cover.
+  { name: 'large sync', fn: largeSync, matrices: ['desktop-desktop'], slow: true },
   {
     name: 'tombstone does not block new note',
     fn: tombstoneDoesNotBlockNewNote,
@@ -1702,10 +1716,18 @@ const managedStops = [];
 const matrixLaunchers = {
   'desktop-desktop': {
     label: 'desktop ↔ desktop',
-    startClients: async () => [
-      await startDesktopTauriInstance('client-a', REPO_ROOT),
-      await startDesktopTauriInstance('client-b', REPO_ROOT),
-    ],
+    // Launch sequentially so the Linux MCP bridge cannot race both processes
+    // onto the same discovery port. Hook readiness is condition-polled, so
+    // this no longer carries the old fixed five-second delay per client.
+    // Register each stop as soon as its client is up: if client-b's startup
+    // throws, exit-time cleanup must still terminate the running client-a.
+    startClients: async () => {
+      const clientA = await startDesktopTauriInstance('client-a', REPO_ROOT);
+      managedStops.push(() => clientA.stop());
+      const clientB = await startDesktopTauriInstance('client-b', REPO_ROOT);
+      managedStops.push(() => clientB.stop());
+      return [clientA, clientB];
+    },
   },
 };
 
@@ -1765,6 +1787,14 @@ function ensureDesktopDebugBinary() {
 }
 
 function rebuildDesktopBinary() {
+  // cargo clean -p so the tauri build script re-runs and re-embeds dist/ with
+  // the test hooks: a futo-notes-tauri crate cached from a build without
+  // VITE_INCLUDE_TEST_HOOKS can otherwise re-link a hooks-free binary. This
+  // guard lived in the CI job script; it belongs here so every rebuild —
+  // local or CI — gets it, and CI doesn't pay for a second identical build.
+  runOrThrow('cargo', ['clean', '-p', 'futo-notes-tauri'], {
+    cwd: join(REPO_ROOT, 'apps', 'tauri'),
+  });
   runOrThrow('cargo', ['tauri', 'build', '--debug', '--no-bundle'], {
     cwd: join(REPO_ROOT, 'apps', 'tauri'),
     env: { ...process.env, VITE_INCLUDE_TEST_HOOKS: 'true' },
@@ -1850,8 +1880,10 @@ async function main() {
   console.log(`Matrix: ${matrix.label}\n`);
 
   // Bootstrap artifacts and clean up stale state from a prior run.
+  const bootstrapStartedAt = Date.now();
   killStalePreviewAndClients();
   ensureDesktopDebugBinary();
+  timings.bootstrapMs = Date.now() - bootstrapStartedAt;
 
   // Filter scenarios if --scenario is set
   const selected = args.scenario
@@ -1875,6 +1907,9 @@ async function main() {
     } else if (scenario.skipOnCi && process.env.CI) {
       results.push({ name: scenario.name, skip: true, reason: 'skipOnCi' });
       console.log(`  - ${scenario.name} (skipped: flaky on CI — see scenario registry TODO)`);
+    } else if (scenario.slow && args['skip-slow']) {
+      results.push({ name: scenario.name, skip: true, reason: 'slow (--skip-slow)' });
+      console.log(`  - ${scenario.name} (skipped: slow — runs on main/tag pipelines)`);
     } else {
       toRun.push(scenario);
     }
@@ -1887,9 +1922,10 @@ async function main() {
   // ── Suite setup: start 2 Tauri instances (done once) ──────────
   console.log('\nStarting Tauri instances...');
 
+  const clientStartupStartedAt = Date.now();
+  // startClients registers each client's stop in managedStops as it comes up.
   const [clientA, clientB] = await matrix.startClients();
-  managedStops.push(() => clientB.stop());
-  managedStops.push(() => clientA.stop());
+  timings.clientStartupMs = Date.now() - clientStartupStartedAt;
   console.log(`  Client A ready (${clientA.platform}, MCP port ${clientA.port ?? 'n/a'})`);
   console.log(`  Client B ready (${clientB.platform}, MCP port ${clientB.port ?? 'n/a'})`);
 
@@ -1898,23 +1934,52 @@ async function main() {
   // ── Run scenarios ─────────────────────────────────────────────
   for (const scenario of toRun) {
     const port = serverPortCounter++;
+    const serverSetupStartedAt = Date.now();
     const server = await startServer(port, REPO_ROOT, scenario.serverOptions ?? {});
+    const serverSetupMs = Date.now() - serverSetupStartedAt;
+    timings.serverSetupMs += serverSetupMs;
     managedStops.push(() => server.stop());
 
-    const start = Date.now();
+    const caseStartedAt = Date.now();
+    let clientResetMs = 0;
+    let scenarioMs = 0;
     try {
       // Reset clients between scenarios
+      const clientResetStartedAt = Date.now();
       await clientA.reset();
       await clientB.reset();
+      clientResetMs = Date.now() - clientResetStartedAt;
+      timings.clientResetMs += clientResetMs;
 
-      await scenario.fn(clientA, clientB, server);
+      const scenarioStartedAt = Date.now();
+      try {
+        await scenario.fn(clientA, clientB, server);
+      } finally {
+        scenarioMs = Date.now() - scenarioStartedAt;
+        timings.scenarioMs += scenarioMs;
+      }
 
-      const ms = Date.now() - start;
-      results.push({ name: scenario.name, pass: true, ms });
+      const ms = Date.now() - caseStartedAt;
+      results.push({
+        name: scenario.name,
+        pass: true,
+        ms,
+        serverSetupMs,
+        clientResetMs,
+        scenarioMs,
+      });
       console.log(`  ✓ ${scenario.name} (${ms}ms)`);
     } catch (err) {
-      const ms = Date.now() - start;
-      results.push({ name: scenario.name, pass: false, ms, error: err.message });
+      const ms = Date.now() - caseStartedAt;
+      results.push({
+        name: scenario.name,
+        pass: false,
+        ms,
+        serverSetupMs,
+        clientResetMs,
+        scenarioMs,
+        error: err.message,
+      });
       console.log(`  ✗ ${scenario.name} (${ms}ms)`);
       console.log(`    ${err.message}`);
     } finally {
@@ -1929,13 +1994,28 @@ async function main() {
   const skipped = results.filter((r) => r.skip).length;
   const totalRun = passed + failed;
   console.log(`Results: ${passed}/${totalRun} passed, ${failed} failed, ${skipped} skipped`);
+  const totalMs = Date.now() - suiteStartedAt;
+  console.log(
+    `Phases: bootstrap ${timings.bootstrapMs}ms, clients ${timings.clientStartupMs}ms, ` +
+      `servers ${timings.serverSetupMs}ms, resets ${timings.clientResetMs}ms, ` +
+      `scenarios ${timings.scenarioMs}ms, total ${totalMs}ms`,
+  );
 
   // Write JSON report
   const reportDir = 'test-screenshots';
   mkdirSync(reportDir, { recursive: true });
   writeFileSync(
     join(reportDir, 'sync-results.json'),
-    JSON.stringify({ timestamp: new Date().toISOString(), matrix: args.matrix, results }, null, 2),
+    JSON.stringify(
+      {
+        timestamp: new Date().toISOString(),
+        matrix: args.matrix,
+        timings: { ...timings, totalMs },
+        results,
+      },
+      null,
+      2,
+    ),
   );
 
   // ── Teardown ──────────────────────────────────────────────────

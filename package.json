@@ -29,7 +29,7 @@
     "test:e2e:smoke": "playwright test tests/p0-regressions.spec.ts",
     "test:e2e:full": "playwright test",
     "test:markdown-spec": "playwright test tests/markdown-spec.spec.ts",
-    "test:e2e:rest": "playwright test --grep-invert \"Markdown Spec\"",
+    "test:e2e:rest": "playwright test --workers=2 --grep-invert \"Markdown Spec|P0 Crash and IME Regressions\"",
     "test:unit": "pnpm run test:unit:minimal",
     "test:unit:minimal": "vitest run src/features/editor/editorInit.test.ts src/features/sync/createExternalChangeCoordinator.test.ts src/lib/platform/pathSafety.test.ts src/lib/platform/tauriPaths.test.ts src/lib/platform/windowsRuntimeConfig.test.ts src/features/system/updater.test.ts src/features/system/updateChecker.svelte.test.ts src/lib/platform/updaterConfig.test.ts src/features/system/UpdateBanner.svelte.test.ts src/lib/constantsConformance.test.ts scripts/build-updater-manifest.test.mjs scripts/desktop-version.test.mjs scripts/package-safety-policy.test.mjs scripts/premerge-test-parity.test.mjs scripts/release-build.test.mjs scripts/release-channel.test.mjs scripts/typescript-script-runtime.test.mjs scripts/verify-updater-signature.test.mjs scripts/tauri-test-client.test.mjs",
     "test:unit:full": "vitest run",

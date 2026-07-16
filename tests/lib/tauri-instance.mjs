@@ -59,9 +59,10 @@ export async function startDesktopTauriInstance(name, repoRoot) {
   let ws;
   try {
     ws = await connectWs(port);
-    // 95s budget matches android-instance — CI runners can take much longer
-    // than a dev laptop to fully boot the webview and attach the test hooks.
-    await waitForTestHooks(ws, name, { initialDelayMs: 5_000, attempts: 45, intervalMs: 2_000 });
+    // Probe immediately: the MCP bridge often becomes discoverable only after
+    // the webview is already ready. Retries preserve the same 90s CI budget
+    // without charging every successful launch a fixed five-second delay.
+    await waitForTestHooks(ws, name, { initialDelayMs: 0, attempts: 45, intervalMs: 2_000 });
   } catch (err) {
     proc.kill('SIGKILL');
     throw new Error(`${name}: desktop startup failed — ${err.message}`);

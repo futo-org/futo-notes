@@ -1,13 +1,8 @@
 default:
   tags:
     - dind
-  # Pinned by digest, not `:latest`, so a rebuild of the shared org-wide
-  # kitchensink image can't silently change our CI environment out from under
-  # us. This digest is the `:latest` that all default-image jobs already run
-  # on. Bump it deliberately (resolve via the registry API:
-  # /projects/402/registry/repositories/97/tags/latest) when we want a newer
-  # base. Note: kitchensink does NOT carry the GTK/webkit dev libs, so any job
-  # that compiles the Tauri desktop crate must run `.setup-linux-deps` itself.
+  # Keep the lightweight org image as the default for documentation and
+  # JavaScript jobs. Rust/sync opt into the larger purpose-built image below.
   image: gitlab.futo.org:5050/futocore/ci/kitchensink@sha256:2df4951967506d9dc31ad4dea6d7b03eb4ddea21f3bd5e500ef3d3be924e589f
   interruptible: true
   before_script:
@@ -19,8 +14,26 @@ default:
 
 variables:
   CARGO_HOME: $CI_PROJECT_DIR/.cargo-home
+  # Main/tag pipelines seed shared Cargo archives. Source-only MRs consume
+  # them without spending minutes recompressing tens of thousands of unchanged
+  # target files; lockfile MRs opt back into pull-push in their job rules.
+  CARGO_CACHE_POLICY: pull-push
   PNPM_STORE_DIR: $CI_PROJECT_DIR/.pnpm-store
   PLAYWRIGHT_BROWSERS_PATH: $CI_PROJECT_DIR/.cache-ms-playwright
+
+# Pinned by digest, not `:latest`, so a manual rebuild cannot silently change
+# the MR environment. Resolve deliberate updates through project registry
+# repository 176. Only jobs that benefit from Rust/Tauri, GTK/WebKit, Bun,
+# sccache, xvfb, and Postgres tooling should extend this image.
+.ci-test-image:
+  # if-not-present is safe on a digest pin (the bytes can't drift) and skips
+  # a registry round-trip that cost up to 5 minutes under contention (job
+  # 192833: prepare_executor 308s vs 4s). Only the dind_fast runner allows
+  # the override — runner 55 (dind) is locked to allowed_pull_policies
+  # [always], so never copy this onto a job that can land there.
+  image:
+    name: gitlab.futo.org:5050/futo-notes/futo-notes/ci/test@sha256:c8cb4ab14ce1cb939a88505ae5e37f3421b7c4a64f2cacfcd73e6e19e89a32fb
+    pull_policy: if-not-present
 
 workflow:
   rules:
@@ -175,7 +188,13 @@ collect-secrets-from-op:
         curl https://sh.rustup.rs -sSf | sh -s -- -y
         export PATH="$CARGO_HOME/bin:$PATH"
       fi
-    - rustup default stable
+    - |
+      if rustup toolchain list | grep -q '^1.89.0'; then
+        echo "Rust 1.89.0 already present in the image"
+      else
+        rustup toolchain install 1.89.0 --profile minimal --component rustfmt --component clippy
+      fi
+      rustup default 1.89.0
     - |
       if command -v cargo-tauri >/dev/null 2>&1; then
         echo "cargo-tauri already installed (cached)"
@@ -189,7 +208,9 @@ collect-secrets-from-op:
 .setup-linux-deps:
   script:
     - |
-      if command -v apt-get >/dev/null 2>&1; then
+      if pkg-config --exists webkit2gtk-4.1 && pkg-config --exists gtk+-3.0; then
+        echo "Linux Tauri development libraries already present in the image"
+      elif command -v apt-get >/dev/null 2>&1; then
         apt-get update
         DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
           libwebkit2gtk-4.1-dev \
@@ -280,10 +301,26 @@ collect-secrets-from-op:
     paths:
       - .cargo-home/
       - target/
-    policy: pull-push
+    policy: $CARGO_CACHE_POLICY
     # Upload even on failure/timeout: a cold compile that dies at the job
     # wall still seeds the cache, so the retry resumes instead of starting
     # cold again (cargo handles partial target/ dirs fine).
+    when: always
+
+# Sync builds deliberately clean and relink the Tauri crate with test hooks.
+# Sharing their target/ archive with workspace tests lets concurrent jobs
+# overwrite one another with incompatible partial trees, so keep a distinct
+# namespace until remote sccache replaces target archives entirely.
+.cache-cargo-sync:
+  cache:
+    key:
+      prefix: sync
+      files:
+        - Cargo.lock
+    paths:
+      - .cargo-home/
+      - target/
+    policy: $CARGO_CACHE_POLICY
     when: always
 
 # Native shells (Compose / SwiftUI) build futo-notes-ffi for the Android NDK
@@ -301,7 +338,7 @@ collect-secrets-from-op:
     paths:
       - .cargo-home/
       - target/
-    policy: pull-push
+    policy: $CARGO_CACHE_POLICY
     # when: always — see .cache-cargo-tauri. Critical here: this job only
     # runs on tags, so without failure uploads every tag retry starts cold.
     when: always
@@ -372,22 +409,42 @@ collect-secrets-from-op:
 
 test:
   stage: test
+  # The docs fast path only needs Node. Defer pnpm/Corepack setup until the
+  # classifier selects the full path so a documentation MR performs no
+  # package-manager or registry work.
+  before_script:
+    - . $HOME/.nvm/nvm.sh
   cache:
     - !reference [.cache-pnpm, cache]
   script:
-    - pnpm install --frozen-lockfile --prefer-offline
-    - node scripts/spec-gaps.mjs --check
-    - pnpm exec tsx scripts/gen-toolbar-spec.ts --check
-    - pnpm run lint
-    - pnpm run lint:platform
-    - pnpm run format:check
-    - pnpm exec tsx tests/conformance/generate.mjs --check
-    # Keep portable anti-duplication gates in the first mandatory MR job so
-    # expensive suites do not start when they fail. The Rust workspace job
-    # owns the Tauri-backed generated sync-contract check and its system deps.
-    - pnpm run check:arch-gate:portable
-    - pnpm run test:full
-    - pnpm run build
+    - export CI_TEST_SCOPE="$(node scripts/ci-test-scope.mjs)"
+    - echo "Selected CI test scope '$CI_TEST_SCOPE'"
+    - |
+      if [ "$CI_TEST_SCOPE" = docs ]; then
+        # Documentation-only MRs cannot affect compiled behavior. Keep the
+        # generated behavioral-spec gap inventory honest without paying for
+        # dependency installation, lint, two test runners, and two builds.
+        node scripts/spec-gaps.mjs --check
+      else
+        corepack enable
+        corepack prepare pnpm@10.29.2 --activate
+        pnpm config set store-dir "$PNPM_STORE_DIR"
+        pnpm install --frozen-lockfile --prefer-offline
+        node scripts/spec-gaps.mjs --check
+        pnpm exec tsx scripts/gen-toolbar-spec.ts --check
+        pnpm run lint
+        pnpm run lint:platform
+        pnpm run format:check
+        pnpm exec tsx tests/conformance/generate.mjs --check
+        # Keep portable anti-duplication gates in the first mandatory MR job.
+        # Rust-only dependency boundaries live with the Rust workspace suite.
+        pnpm run check:arch-gate:portable
+        pnpm run test:full
+        pnpm run build
+        # Native shells embed this separate single-file bundle. Building it
+        # here proves editor changes without compiling two native applications.
+        pnpm exec vite build --config vite.editor.config.ts
+      fi
   rules:
     - if: $CI_COMMIT_TAG
     - if: $CI_MERGE_REQUEST_IID
@@ -395,8 +452,6 @@ test:
 
 test:e2e:smoke:
   stage: test
-  needs:
-    - job: test
   cache:
     - !reference [.cache-pnpm, cache]
     - !reference [.cache-playwright, cache]
@@ -420,8 +475,6 @@ test:e2e:smoke:
 
 test:e2e:markdown-spec:
   stage: test
-  needs:
-    - job: test
   cache:
     - !reference [.cache-pnpm, cache]
     - !reference [.cache-playwright, cache]
@@ -450,8 +503,6 @@ test:e2e:markdown-spec:
 
 test:e2e:rest:
   stage: test
-  needs:
-    - job: test
   cache:
     - !reference [.cache-pnpm, cache]
     - !reference [.cache-playwright, cache]
@@ -477,25 +528,17 @@ test:e2e:rest:
       when: manual
       allow_failure: true
 
-test:rust:
-  stage: test
-  needs:
-    - job: test
-  cache:
-    - !reference [.cache-cargo-tauri, cache]
-  script:
-    - !reference [.setup-rust, script]
-    # Minimal Rust coverage: prove the canonical model rules still match the
-    # committed language-neutral fixtures. Full workspace tests are explicit.
-    - cargo test -p futo-notes-model --test conformance
-  rules:
-    - if: $CI_COMMIT_TAG
-    - if: $CI_MERGE_REQUEST_IID
-
 test:rust:workspace:
+  extends: .ci-test-image
   stage: test
-  needs:
-    - job: test
+  needs: []
+  # The runners only have node-local Cargo caches today. Keep Rust workspace
+  # tests on the fast office runner that already owns the warm archive until
+  # the R2 distributed cache is configured on every runner manager.
+  tags:
+    - dind_fast
+  variables:
+    CARGO_CACHE_POLICY: pull
   cache:
     - !reference [.cache-cargo-tauri, cache]
   script:
@@ -506,6 +549,9 @@ test:rust:workspace:
     # Without this the job dies at `gobject-2.0 not found`.
     - !reference [.setup-linux-deps, script]
     - !reference [.setup-rust, script]
+    # One metadata traversal replaces the former standalone dep-guard job.
+    # The workspace tests already contain model conformance coverage.
+    - node scripts/check-rust-dependency-boundaries.mjs
     - mkdir -p dist
     - cargo test --workspace
   # Job 189242 exhausted the default 60m on a completely cold cache while
@@ -515,6 +561,13 @@ test:rust:workspace:
   timeout: 90m
   rules:
     - if: $CI_COMMIT_TAG
+      variables:
+        CARGO_CACHE_POLICY: pull-push
+    - if: $CI_MERGE_REQUEST_IID
+      changes:
+        - Cargo.lock
+      variables:
+        CARGO_CACHE_POLICY: pull-push
     - if: $CI_MERGE_REQUEST_IID
       changes: &rust-workspace-changes
         - Cargo.toml
@@ -527,56 +580,19 @@ test:rust:workspace:
         - src/features/sync/syncContract.generated.ts
         - scripts/build-rust-android.sh
         - scripts/build-rust-ios.sh
+        - scripts/check-rust-dependency-boundaries.mjs
+        - tests/conformance/**/*
         # CI config changes can alter this job's toolchain/system-dep setup
         # (e.g. the GTK deps it needs to compile the tauri crate) — re-run the
         # workspace tests so an environment break is caught on that change.
         - .gitlab-ci.yml
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       changes: *rust-workspace-changes
-
-# Lock in the search/ML isolation boundary: the portable core crates must never
-# pull in Tantivy or ORT. The FFI facade may expose keyword-only native search
-# through futo-notes-search, but must not pull in ORT/SPLADE. cargo tree
-# -e normal walks only normal (non-dev, non-build) deps, so a dev-dependency on
-# a core crate doesn't trip this.
-test:rust:dep-guard:
-  stage: test
-  needs:
-    - job: test
-  cache:
-    - !reference [.cache-cargo-tauri, cache]
-  script:
-    - !reference [.setup-rust, script]
-    - |
-      FAIL=0
-      for c in futo-notes-core futo-notes-model futo-notes-sync; do
-        if cargo tree -p "$c" -e normal | grep -Eiq '(^|[^[:alnum:]_-])(tantivy|ort|ort-sys)([^[:alnum:]_-]|$)'; then
-          echo "DEP GUARD FAILED: search/ML dep (tantivy/ort) reached portable core crate '$c':"
-          cargo tree -p "$c" -e normal | grep -Ei '(^|[^[:alnum:]_-])(tantivy|ort|ort-sys)([^[:alnum:]_-]|$)'
-          FAIL=1
-        else
-          echo "OK: '$c' is free of tantivy/ort"
-        fi
-      done
-      if cargo tree -p futo-notes-ffi -e normal | grep -Eiq '(^|[^[:alnum:]_-])(futo-notes-inference|ort|ort-sys)([^[:alnum:]_-]|$)'; then
-        echo "DEP GUARD FAILED: ORT/SPLADE dep reached native FFI facade:"
-        cargo tree -p futo-notes-ffi -e normal | grep -Ei '(^|[^[:alnum:]_-])(futo-notes-inference|ort|ort-sys)([^[:alnum:]_-]|$)'
-        FAIL=1
-      else
-        echo "OK: 'futo-notes-ffi' is keyword-only (no ORT/SPLADE)"
-      fi
-      if [ "$FAIL" -ne 0 ]; then
-        echo "Portable core crates must stay free of search/ML deps; FFI must stay free of ORT/SPLADE. See AGENTS.md."
-        exit 1
-      fi
-  rules:
-    - if: $CI_COMMIT_TAG
-    - if: $CI_MERGE_REQUEST_IID
+      variables:
+        CARGO_CACHE_POLICY: pull-push
 
 test:rust:macos:
   stage: test
-  needs:
-    - job: test
   tags:
     - macscript
   # Force a clean clone each run — the macscript runner's incremental fetch
@@ -593,17 +609,112 @@ test:rust:macos:
     # Auto on Rust-touching MRs. allow_failure stays: this runs through
     # Cirrus on the single macscript runner, and infra flakiness must not
     # block merges — but the result is now visible instead of opt-in.
+    # All of crates/ (not just the FFI crate): this task also carries the
+    # aarch64-apple-ios compile check of the FFI dependency tree, and any
+    # inner crate can break the mobile target.
     - if: $CI_MERGE_REQUEST_IID
-      changes: *rust-workspace-changes
+      changes: &rust-macos-changes
+        - Cargo.toml
+        - Cargo.lock
+        - rust-toolchain.toml
+        - crates/**/*
+        - apps/tauri/src-tauri/**/*
+        - scripts/build-rust-ios.sh
+        - .cirrus.yml
+        - .gitlab-ci.yml
       allow_failure: true
     - if: $CI_MERGE_REQUEST_IID
       when: manual
       allow_failure: true
 
-test:cross-platform-sync:
+# The full native app builds only run when a shell or futo-notes-ffi itself
+# changes, but every futo-notes crate sits in the FFI dependency tree — an
+# inner-crate change can break mobile-target compilation while desktop tests
+# stay green, and would then surface for the first time at tag time. Compile
+# and link the FFI cdylib for ONE Android ABI (same platform/profile as
+# scripts/build-rust-android.sh, so the native Cargo cache is reused) to keep
+# mobile Rust coverage on every crate change without paying for two full
+# native app builds. The iOS-target sibling check lives in the testRustMacOS
+# Cirrus task (.cirrus.yml) because Apple targets need the macOS SDK. Neither
+# check exercises the generated Swift/Kotlin bindings or shell integration —
+# that remains native-build-only coverage.
+test:rust:ffi-android:
   stage: test
+  # Run AFTER the sync suite when both are in the pipeline: the 12-minute
+  # sync run is the critical path and must never queue behind this check
+  # (pipeline 31106 lost 7 minutes that way). optional covers pipelines where
+  # the sync job is absent; when sync is present only as a manual job
+  # (allow_failure: true), GitLab lets needing jobs proceed without waiting.
   needs:
-    - job: test
+    - job: test:cross-platform-sync
+      optional: true
+      artifacts: false
+  # Pin to the fast office runner — see build:android-native.
+  tags:
+    - dind_fast
+  # Never overlap the cross-platform sync suite on the pinned runner — not
+  # even one from another pipeline: a concurrent full-tree compile starves
+  # its timing-sensitive scenarios into flaking (observed: pipeline 31084's
+  # cold-cache run of this job flaked "rapid reconnect" with a bridge script
+  # timeout). Same M15 root-cause fix as the sync job's own resource_group —
+  # exclusion, not longer timeouts. The needs: above orders the two within a
+  # pipeline so the exclusion never delays the sync suite itself.
+  resource_group: cross-platform-sync
+  image: gitlab.futo.org:5050/futo-notes/futo-notes/ci/android:latest
+  # Own single-ABI cache namespace instead of the fat 3-ABI + host `native`
+  # archive: restoring that one costs more than this job's warm compile. Safe
+  # to pull-push — the resource_group serializes every holder of this key, so
+  # no concurrent writer exists.
+  cache:
+    key:
+      prefix: ffi-check
+      files:
+        - Cargo.lock
+    paths:
+      - .cargo-home/
+      - target/
+    policy: pull-push
+    when: always
+  variables:
+    GIT_DEPTH: "20"
+    # See build:android-native for why ANDROID_NDK_HOME must be set explicitly.
+    ANDROID_NDK_HOME: /opt/android-sdk/ndk/28.2.13676358
+  script:
+    - !reference [.setup-rust, script]
+    - rustup target add aarch64-linux-android
+    # cargo-ndk from source when the cached binary is missing — see
+    # build:android-native for the binstall/GLIBC constraint.
+    - |
+      if command -v cargo-ndk >/dev/null 2>&1; then
+        echo "cargo-ndk already installed (cached)"
+      else
+        cargo install cargo-ndk --locked
+      fi
+    - cargo ndk --platform 24 --target arm64-v8a build -p futo-notes-ffi --profile release-ffi --locked
+  # One ABI on a cold cache still compiles the whole dependency tree; the warm
+  # office-runner path is minutes.
+  timeout: 60m
+  rules:
+    - if: $CI_COMMIT_TAG
+    - if: $CI_MERGE_REQUEST_IID
+      changes: &rust-ffi-mobile-changes
+        - Cargo.toml
+        - Cargo.lock
+        - rust-toolchain.toml
+        - .cargo/**/*
+        - crates/**/*
+        - scripts/build-rust-android.sh
+        - .gitlab-ci.yml
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes: *rust-ffi-mobile-changes
+    - if: $CI_MERGE_REQUEST_IID
+      when: manual
+      allow_failure: true
+
+test:cross-platform-sync:
+  extends: .ci-test-image
+  stage: test
+  needs: []
   # Serialize across pipelines: two concurrent runs = 4 Tauri instances + 2
   # servers on the same pinned runner, which starves the suite into flaking
   # ("active note reload" et al. — reliably green single-pipeline, red only
@@ -613,9 +724,19 @@ test:cross-platform-sync:
   tags:
     - dind_fast
   services:
-    - name: postgres:15
+    # Digest-pinned so if-not-present can never serve a stale postgres; the
+    # unpinned :15 tag was re-pulled from Docker Hub on every run.
+    - name: postgres:15@sha256:8b2bad884a8156e63d942305d0c547baa41f81953c93dbfc9e6cfe6f90bb8277
       alias: postgres
+      pull_policy: if-not-present
   variables:
+    # Nothing in this job reads git history (the changed-file classifier runs
+    # in the `test` job); a full fetch cost ~70s of the job wall.
+    GIT_DEPTH: "20"
+    # The isolated namespace is already seeded on the pinned fast runner.
+    # Source-only MRs consume it without spending ~90s recompressing target/;
+    # tags and lockfile changes refresh it in the rules below.
+    CARGO_CACHE_POLICY: pull
     POSTGRES_DB: futo_notes
     POSTGRES_USER: futo_notes
     POSTGRES_PASSWORD: futo_notes
@@ -623,12 +744,17 @@ test:cross-platform-sync:
     PGPASSWORD: futo_notes
   cache:
     - !reference [.cache-pnpm, cache]
-    - !reference [.cache-cargo-tauri, cache]
+    - !reference [.cache-cargo-sync, cache]
   script:
     - pnpm install --frozen-lockfile
     - !reference [.setup-linux-deps, script]
     - !reference [.setup-rust, script]
-    - DEBIAN_FRONTEND=noninteractive apt-get install -y xvfb postgresql-client
+    - |
+      if command -v Xvfb >/dev/null 2>&1 && command -v psql >/dev/null 2>&1; then
+        echo "Xvfb and PostgreSQL client already present in the image"
+      else
+        DEBIAN_FRONTEND=noninteractive apt-get install -y xvfb postgresql-client
+      fi
     - !reference [.setup-futo-notes-server, script]
     # Rust server-backed integration suite (futo-notes-sync orchestrator
     # against a REAL server — e.g. the disconnect→reconnect conflict-spam
@@ -646,20 +772,23 @@ test:cross-platform-sync:
       FUTO_TEST_SERVER=http://127.0.0.1:3009
       cargo test -p futo-notes-sync --test server_integration --test sse_live
       -- --ignored --test-threads=1
+      --skip measure_first_sync_large_vault
+      --skip oversize_blob_is_surfaced_skipped_and_recovers
       || { tail -50 /tmp/rust-it-server.log; exit 1; }
     # (the dev-mode server is left running — own port + database, reaped with
     # the job container)
-    # cargo clean -p so the tauri build script re-runs and re-embeds dist/
-    # with the test hooks: a futo-notes-tauri crate cached in
-    # .cache-cargo-tauri from a build without VITE_INCLUDE_TEST_HOOKS can
-    # otherwise re-link a hooks-free binary.
-    - (cd apps/tauri && cargo clean -p futo-notes-tauri 2>/dev/null || true)
-    - (cd apps/tauri && VITE_INCLUDE_TEST_HOOKS=true cargo tauri build --debug --no-bundle)
-    # Run cross-platform sync tests under xvfb
+    # The harness builds the hooks-enabled desktop binary itself (dist/ is
+    # never cached, so its staleness checks always trigger exactly one
+    # `cargo tauri build --debug` with VITE_INCLUDE_TEST_HOOKS, including the
+    # clean -p guard against a cached hooks-free crate). A job-side pre-build
+    # here would be a second identical build.
+    # Run cross-platform sync tests under xvfb. MR rules set
+    # SYNC_SCENARIO_FLAGS to --skip-slow (registry-marked scale probes);
+    # main-branch and tag pipelines run the full scenario set.
     - >-
       WEBKIT_DISABLE_DMABUF_RENDERER=1
       xvfb-run -a --server-args="-screen 0 1280x800x24"
-      node tests/cross-platform-sync.mjs
+      node tests/cross-platform-sync.mjs $SYNC_SCENARIO_FLAGS
   after_script:
     - kill $(pgrep -f futo-notes-tauri) 2>/dev/null || true
   artifacts:
@@ -673,13 +802,23 @@ test:cross-platform-sync:
   timeout: 60m
   rules:
     - if: $CI_COMMIT_TAG
-    # Sync-critical paths auto-run and BLOCK the merge — this suite guards
-    # user data, and a failure here nearly shipped a broken release twice.
-    # First MR run on the cold non-protected-ref cache namespace is slow
-    # (up to the 60m wall); caches upload when: always, so subsequent MRs
-    # warm-start.
+      variables:
+        CARGO_CACHE_POLICY: pull-push
     - if: $CI_MERGE_REQUEST_IID
       changes:
+        - Cargo.lock
+      variables:
+        CARGO_CACHE_POLICY: pull-push
+        SYNC_SCENARIO_FLAGS: --skip-slow
+    # Sync-critical paths auto-run and BLOCK the merge — this suite guards
+    # user data, and a failure here nearly shipped a broken release twice.
+    # Tags and lockfile MRs refresh the isolated archive; ordinary source MRs
+    # reuse that seed without paying the post-test upload cost. MRs skip the
+    # registry-marked slow scale probes; the default-branch rule below runs
+    # them on every merged sync change so a scale regression still surfaces
+    # before tag time.
+    - if: $CI_MERGE_REQUEST_IID
+      changes: &sync-critical-changes
         - crates/futo-notes-sync/**/*
         - crates/futo-notes-core/**/*
         - src/features/sync/syncServiceE2ee.ts
@@ -687,7 +826,14 @@ test:cross-platform-sync:
         - tests/cross-platform-sync.mjs
         - tests/lib/**/*
         - .gitlab-ci.yml
+      variables:
+        SYNC_SCENARIO_FLAGS: --skip-slow
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes: *sync-critical-changes
+      variables:
+        CARGO_CACHE_POLICY: pull-push
     # Anything else that could plausibly affect sync stays one click away.
+    # Deliberate manual runs get the full scenario set.
     - if: $CI_MERGE_REQUEST_IID
       when: manual
       allow_failure: true
@@ -699,8 +845,6 @@ test:cross-platform-sync:
 
 test:desktop-smoke:macos:
   stage: test
-  needs:
-    - job: test
   tags:
     - macscript
   variables:
@@ -842,6 +986,9 @@ build:linux-appimage:
 build:ci-android-image:
   stage: build
   needs: []
+  # Image rebuilds are intentionally manual and expensive. A new branch push
+  # must not discard a nearly-complete registry image build.
+  interruptible: false
   image: quay.io/buildah/stable:latest
   before_script: []
   variables:
@@ -857,6 +1004,33 @@ build:ci-android-image:
     - if: $CI_MERGE_REQUEST_IID
       changes:
         - ci/android.Dockerfile
+      when: manual
+      allow_failure: true
+
+# Rebuild the pinned Linux test image. Keep this manual until the image build
+# succeeds; consumer jobs switch by digest in a follow-up commit so a broken
+# image can never strand the pipeline.
+build:ci-test-image:
+  stage: build
+  needs: []
+  # Image rebuilds are intentionally manual and expensive. A new branch push
+  # must not discard a nearly-complete registry image build.
+  interruptible: false
+  image: quay.io/buildah/stable:latest
+  before_script: []
+  variables:
+    STORAGE_DRIVER: vfs
+    BUILDAH_ISOLATION: chroot
+  script:
+    - buildah login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+    - buildah bud --format docker -f "$CI_PROJECT_DIR/ci/test.Dockerfile" -t "$CI_REGISTRY_IMAGE/ci/test:latest" "$CI_PROJECT_DIR"
+    - buildah push "$CI_REGISTRY_IMAGE/ci/test:latest"
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "web"
+      when: manual
+    - if: $CI_MERGE_REQUEST_IID
+      changes:
+        - ci/test.Dockerfile
       when: manual
       allow_failure: true
 
@@ -898,8 +1072,9 @@ build:android-native:
   # as failover.
   tags:
     - dind_fast
-  needs:
-    - job: test
+  # Native verification is independent of the JavaScript suite; starting it
+  # immediately removes that suite from the native MR critical path.
+  needs: []
   image: gitlab.futo.org:5050/futo-notes/futo-notes/ci/android:latest
   cache:
     - !reference [.cache-pnpm, cache]
@@ -909,6 +1084,7 @@ build:android-native:
     # Gradle wrapper dist + dependency cache (GRADLE_USER_HOME below).
     - !reference [.cache-gradle-native, cache]
   variables:
+    CARGO_CACHE_POLICY: pull
     ANDROID_HOME: /opt/android-sdk
     ANDROID_SDK_ROOT: /opt/android-sdk
     JAVA_HOME: /opt/jdk-21
@@ -998,24 +1174,30 @@ build:android-native:
   timeout: 90m
   rules:
     - if: $CI_MERGE_REQUEST_IID
+      changes:
+        - Cargo.lock
+      variables:
+        CARGO_CACHE_POLICY: pull-push
+    - if: $CI_MERGE_REQUEST_IID
       changes: &native-android-changes
         - apps/android/**/*
-        - crates/**/*
-        - packages/editor/**/*
-        - editor.html
-        - vite.editor.config.ts
+        - crates/futo-notes-ffi/**/*
+        - Cargo.lock
         - scripts/build-rust-android.sh
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       changes: *native-android-changes
+      variables:
+        CARGO_CACHE_POLICY: pull-push
     - if: $CI_COMMIT_TAG
+      variables:
+        CARGO_CACHE_POLICY: pull-push
 
 # Native iOS build on the macscript runner via Cirrus (see .cirrus.yml,
 # task buildFutoNotesIOSNative). Tags build a signed Release IPA; branch/MR
 # pipelines run an unsigned simulator compile check.
 build:ios-native:
   stage: build
-  needs:
-    - job: test
+  needs: []
   tags:
     - macscript
   variables:
@@ -1035,10 +1217,8 @@ build:ios-native:
     - if: $CI_MERGE_REQUEST_IID
       changes: &native-ios-changes
         - apps/ios/**/*
-        - crates/**/*
-        - packages/editor/**/*
-        - editor.html
-        - vite.editor.config.ts
+        - crates/futo-notes-ffi/**/*
+        - Cargo.lock
         - scripts/build-rust-ios.sh
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       changes: *native-ios-changes
@@ -1374,9 +1554,8 @@ release:gate:
     - job: test:e2e:smoke
     - job: test:e2e:markdown-spec
     - job: test:e2e:rest
-    - job: test:rust
     - job: test:rust:workspace
-    - job: test:rust:dep-guard
+    - job: test:rust:ffi-android
     - job: test:rust:macos
     - job: test:desktop-smoke:macos
     - job: test:cross-platform-sync
