@@ -203,13 +203,14 @@ native shells edit tags as text in the body, which is not a gap.
   (futo-notes-model `wikilinks::{resolve_wikilink, shortest_unique_suffix,
 rewrite_wikilinks}` + `relink_note_references`), conformance-locked
   bit-for-bit against wikilinks.ts (tests/conformance/wikilinks.json). The
-  native shells call `NoteStore.relink(old_id, new_id)` after every rename
-  and move, so a rename on a native device rewrites backlinks vault-wide
-  (verified on emulator + simulator 2026-06-09: bare-leaf and full-path
-  links in other notes rewrote on disk). `[[target|alias]]` links are not
-  rewritten — the TS rules treat the whole inner text as the target, and the
-  Rust port pins that behavior. → futo-notes-model wikilinks.rs,
-  futo-notes-ffi `NoteStore::relink`
+  native shells call the single `NoteStore.rename` or `NoteStore.moveNote`
+  workflow, which moves the note and rewrites backlinks vault-wide under the
+  store's workflow lock (verified on emulator + simulator 2026-06-09:
+  bare-leaf and full-path links in other notes rewrote on disk).
+  `[[target|alias]]` links are not rewritten — the TS rules treat the whole
+  inner text as the target, and the Rust port pins that behavior. →
+  futo-notes-model wikilinks.rs, futo-notes-store `LocalNoteStore::rename`,
+  futo-notes-ffi `NoteStore::{rename,move_note}`
 
 ## External links
 

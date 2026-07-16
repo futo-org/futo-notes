@@ -1634,7 +1634,6 @@ dependencies = [
 name = "futo-notes-ffi"
 version = "0.1.0"
 dependencies = [
- "futo-notes-core",
  "futo-notes-model",
  "futo-notes-store",
  "futo-notes-sync",

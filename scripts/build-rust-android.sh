@@ -2,8 +2,8 @@
 # Build futo-notes-ffi for Android (all ABIs), generate the UniFFI Kotlin
 # bindings, and stage the per-ABI .so into apps/android's jniLibs.
 #
-# futo-notes-ffi is the single FFI facade (note domain + sync) — the SAME crate
-# iOS builds via scripts/build-rust-ios.sh.
+# futo-notes-ffi is the single UniFFI crate, with organized note and sync
+# projections — the SAME crate iOS builds via scripts/build-rust-ios.sh.
 #
 # Requires: ANDROID_NDK_HOME + `cargo install cargo-ndk` + the android rust
 # targets (`rustup target add aarch64-linux-android armv7-linux-androideabi
