@@ -12,7 +12,7 @@
   import GraphSidebarPanel from '$features/graph/GraphSidebarPanel.svelte';
   import FolderPickerModal from '$features/folders/FolderPickerModal.svelte';
   import DrawerSidebar from '$features/sidebar/DrawerSidebar.svelte';
-  import TabsStrip from '$features/tabs/TabsStrip.svelte';
+  import DesktopTopBand from './components/DesktopTopBand.svelte';
   import DeleteNoteDialog from './components/DeleteNoteDialog.svelte';
   import NoteActionsMenu from './components/NoteActionsMenu.svelte';
   import { createSyncManager } from '$features/sync/syncManager.svelte';
@@ -347,107 +347,113 @@
   class:graph-sidebar-open={graphSidebarOpen}
   style="--drawer-offset: {drawerOffset}px; --sidebar-width: {sidebarWidth}px; --graph-sidebar-width: {graphSidebarWidth}px; --vv-offset: {keyboard.offsetTop}px"
 >
-  <!-- Drawer -->
-  <DrawerSidebar
-    {notes}
-    activeNoteId={noteId}
-    {drawerOpen}
-    bind:sidebarWidth
-    onselect={handleDrawerSelect}
-    onsearch={() => {
-      void openSearch();
-    }}
-    onsettings={handleOpenSettings}
-    onnewnote={createNewNote}
-    onnewnoteinfolder={createNewNoteInFolder}
-    oncreatetestnote={createTestNote}
-    ontogglecollapse={toggleSidebar}
-    bind:drawerEl={drawer}
-    bind:sidebarResizing
-  />
-
-  <!-- Main content -->
-  <div class="note-main">
-    {#if noteId}
-      <NoteActionsMenu
-        {noteId}
-        bind:open={noteActions.menuOpen}
-        showNativeActions={isTauri}
-        ongraph={openGraphSidebar}
-        oncopy={() => void noteActions.copyPath()}
-        onmove={noteActions.openMovePicker}
-        ondelete={noteActions.requestDelete}
-      />
-    {/if}
-    {#if !isDesktop && sidebarCollapsed}
-      <button
-        class="sidebar-expand-btn sidebar-expand-fallback-btn"
-        aria-label="Expand sidebar"
-        onclick={() => {
-          toggleSidebar(false);
-        }}
-      >
-        <svg
-          width="20"
-          height="20"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="1.75"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          aria-hidden="true"
-        >
-          <rect x="3" y="3" width="18" height="18" rx="2" />
-          <line x1="9" y1="3" x2="9" y2="21" />
-          <polyline points="14 8 17 12 14 16" />
-        </svg>
-      </button>
-    {/if}
-    {#if isDesktop}
-      <TabsStrip
-        {notes}
-        {sidebarCollapsed}
-        onExpandSidebar={() => {
-          toggleSidebar(false);
-        }}
-      />
-    {/if}
-    <NoteWorkspace
-      {noteId}
+  <!-- Full-width top band (desktop): traffic-light gutter + sidebar toggle +
+       tabs. Owns the macOS window-button clearance so sidebar collapse can't
+       affect it. -->
+  {#if isDesktop}
+    <DesktopTopBand
       {notes}
-      {session}
-      {editorFocused}
-      bind:editor
-      bind:noteBody
-      bind:titleTextarea
-      oneditorfocuschange={handleEditorFocusChange}
-      onbodyfocusin={handleNoteBodyFocusIn}
-      onopenwikilink={handleWikilinkOpen}
-      onnavigate={(id) => {
-        openFromEvent(id);
+      {sidebarCollapsed}
+      ontoggle={() => {
+        toggleSidebar();
       }}
     />
-    <SyncStatusBar
-      statusMessage={sync.syncStatusMessage}
-      indicatorVisible={sync.syncIndicatorVisible}
-      offline={sync.syncOffline}
-      error={sync.syncError}
-      errorMessage={sync.syncErrorMessage}
-      connected={sync.live}
-      onclear={sync.clearSyncError}
+  {/if}
+
+  <div class="desktop-body">
+    <!-- Drawer -->
+    <DrawerSidebar
+      {notes}
+      activeNoteId={noteId}
+      {drawerOpen}
+      bind:sidebarWidth
+      onselect={handleDrawerSelect}
+      onsearch={() => {
+        void openSearch();
+      }}
+      onsettings={handleOpenSettings}
+      onnewnote={createNewNote}
+      onnewnoteinfolder={createNewNoteInFolder}
+      oncreatetestnote={createTestNote}
+      ontogglecollapse={toggleSidebar}
+      bind:drawerEl={drawer}
+      bind:sidebarResizing
+    />
+
+    <!-- Main content -->
+    <div class="note-main">
+      {#if noteId}
+        <NoteActionsMenu
+          {noteId}
+          bind:open={noteActions.menuOpen}
+          showNativeActions={isTauri}
+          ongraph={openGraphSidebar}
+          oncopy={() => void noteActions.copyPath()}
+          onmove={noteActions.openMovePicker}
+          ondelete={noteActions.requestDelete}
+        />
+      {/if}
+      {#if !isDesktop && sidebarCollapsed}
+        <button
+          class="sidebar-expand-fallback-btn"
+          aria-label="Expand sidebar"
+          onclick={() => {
+            toggleSidebar(false);
+          }}
+        >
+          <svg
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.75"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <rect x="3" y="3" width="18" height="18" rx="2" />
+            <line x1="9" y1="3" x2="9" y2="21" />
+            <polyline points="14 8 17 12 14 16" />
+          </svg>
+        </button>
+      {/if}
+      <NoteWorkspace
+        {noteId}
+        {notes}
+        {session}
+        {editorFocused}
+        bind:editor
+        bind:noteBody
+        bind:titleTextarea
+        oneditorfocuschange={handleEditorFocusChange}
+        onbodyfocusin={handleNoteBodyFocusIn}
+        onopenwikilink={handleWikilinkOpen}
+        onnavigate={(id) => {
+          openFromEvent(id);
+        }}
+      />
+      <SyncStatusBar
+        statusMessage={sync.syncStatusMessage}
+        indicatorVisible={sync.syncIndicatorVisible}
+        offline={sync.syncOffline}
+        error={sync.syncError}
+        errorMessage={sync.syncErrorMessage}
+        connected={sync.live}
+        onclear={sync.clearSyncError}
+      />
+    </div>
+
+    <!-- Graph sidebar -->
+    <GraphSidebarPanel
+      bind:this={graphPanel}
+      open={graphSidebarOpen}
+      bind:graphSidebarWidth
+      onclose={closeGraphSidebar}
+      ontoast={showToast}
+      bind:resizing={graphPanelResizing}
     />
   </div>
-
-  <!-- Graph sidebar -->
-  <GraphSidebarPanel
-    bind:this={graphPanel}
-    open={graphSidebarOpen}
-    bind:graphSidebarWidth
-    onclose={closeGraphSidebar}
-    ontoast={showToast}
-    bind:resizing={graphPanelResizing}
-  />
 </div>
 
 {#if settingsOpen && SettingsScreen}

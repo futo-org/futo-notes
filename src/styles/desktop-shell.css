@@ -1,8 +1,81 @@
 /* ===========================
    Desktop Sidebar Layout
    =========================== */
+/* The desktop shell stacks a full-width top band over the sidebar/editor row.
+   The band owns the macOS traffic-light gutter (see `.topband-chrome`), so the
+   native window buttons are cleared structurally — independent of sidebar
+   state — instead of by per-component padding that broke when the sidebar
+   collapsed. On non-desktop (native/mobile) the band is not rendered and the
+   drawer/main/graph are absolute overlays, so column vs row is immaterial. */
 .notes-shell.desktop-layout {
   display: flex;
+  flex-direction: column;
+}
+
+.notes-shell.desktop-layout .desktop-body {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+/* Full-width top band: [chrome (mirrors sidebar column, holds the toggle +
+   traffic-light gutter)] [tab strip]. Height tracks --tabs-strip-height. */
+.notes-shell.desktop-layout .desktop-topband {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: stretch;
+  height: var(--tabs-strip-height, 40px);
+  background: var(--color-surface, var(--color-bg));
+}
+
+.notes-shell.desktop-layout .topband-chrome {
+  flex: 0 0 auto;
+  width: var(--sidebar-width, 280px);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  /* macOS traffic-light gutter — the one place the native buttons are
+     reserved. 0 off macOS. */
+  padding-left: var(--macos-traffic-lights-width, 0px);
+  padding-right: 8px;
+  /* When the sidebar is open the chrome extends its column colour up through
+     the band; the seam falls on the existing sidebar border. */
+  background: var(--color-sidebar);
+  border-right: 1px solid var(--color-border);
+}
+
+.notes-shell.desktop-layout.sidebar-collapsed .topband-chrome {
+  /* No sidebar to mirror — shrink to just the gutter + toggle and blend into
+     the strip so the whole band reads as one surface. */
+  width: auto;
+  background: var(--color-surface, var(--color-bg));
+  border-right: none;
+}
+
+.notes-shell.desktop-layout .sidebar-toggle-btn {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-muted, #888);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease;
+}
+
+.notes-shell.desktop-layout .sidebar-toggle-btn:hover {
+  background: color-mix(in srgb, var(--color-bg) 70%, transparent);
+  color: var(--color-text);
+}
+
+.notes-shell.desktop-layout .sidebar-toggle-btn:active {
+  background: var(--color-bg);
 }
 
 .notes-shell.desktop-layout .notes-drawer {
@@ -85,12 +158,11 @@
   user-select: none;
 }
 
-/* Desktop sidebar — no safe-area insets. On macOS the
-   `--macos-titlebar-inset` var (set in App.svelte) reserves room at the
-   top of the sidebar for the system traffic lights; everywhere else the
-   var is 0 so the layout is unchanged. */
+/* Desktop sidebar — no safe-area insets. The sidebar now starts below the
+   top band, so the traffic lights are cleared by the band's chrome gutter and
+   the header needs no extra top inset. */
 .notes-shell.desktop-layout .sidebar-header {
-  padding: calc(16px + var(--macos-titlebar-inset, 0px)) 16px 0;
+  padding: 16px 16px 0;
 }
 
 .notes-shell.desktop-layout .drawer-search-area {

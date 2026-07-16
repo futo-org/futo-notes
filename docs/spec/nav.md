@@ -61,7 +61,14 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
 
 ## Desktop shell *(desktop)*
 
-- The sidebar is persistent and resizable (drag the divider, min 200px); a
-  collapse toggle hides it to an expand button in the desktop tab strip's
-  leading slot. Width and collapsed state persist across sessions. →
-  DrawerSidebar.svelte, NotesShell.svelte, TabsStrip.svelte
+- The sidebar is persistent and resizable (drag the divider, min 200px). A
+  single collapse/expand toggle lives in the full-width desktop top band (its
+  leading `topband-chrome`, which mirrors the sidebar column) and flips icon +
+  label by state; it is the only sidebar toggle on desktop. Width and collapsed
+  state persist across sessions. → DrawerSidebar.svelte, NotesShell.svelte,
+  DesktopTopBand.svelte, TabsStrip.svelte
+- On macOS the native traffic lights are overlaid on our chrome
+  (`titleBarStyle: Overlay`); the top band's `topband-chrome` reserves a fixed
+  leading gutter (`--macos-traffic-lights-width`) for them in one place,
+  independent of sidebar state — so collapsing the sidebar never exposes or
+  crowds the buttons. → configureWindowChrome.ts, desktop-shell.css

@@ -140,7 +140,12 @@
 </script>
 
 <aside bind:this={drawerEl} class="notes-drawer" aria-hidden={!drawerOpen}>
-  <SidebarHeader onhome={handleBrandClick} {onsettings} oncollapse={() => ontogglecollapse(true)} />
+  <SidebarHeader
+    onhome={handleBrandClick}
+    {onsettings}
+    oncollapse={() => ontogglecollapse(true)}
+    showCollapse={!isDesktop}
+  />
   <div class="drawer-search-area">
     <button class="search-button" onclick={onsearch}>
       <svg

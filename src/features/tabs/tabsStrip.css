@@ -1,14 +1,15 @@
-/* On macOS the strip hosts the system traffic lights, so it's sized to
-     give them room: `--tabs-strip-height` (48px, set in App.svelte) seats
-     the lights (top at y=20, ~12px tall) centered with margin above and
-     below — Obsidian-style. On other platforms the var is unset and the
-     strip falls back to 40px, simply capping the top of the editor. */
+/* The tab strip fills the trailing part of the desktop top band (see
+     `.desktop-topband` in desktop-shell.css). The band's height comes from
+     `--tabs-strip-height` (48px on macOS to seat the traffic lights, 40px
+     elsewhere); the strip simply stretches to it. The macOS traffic-light
+     clearance lives in `.topband-chrome`, never here — so the strip needs no
+     sidebar-state-specific padding. */
 .tabs-strip {
-  flex: 0 0 auto;
+  flex: 1 1 auto;
   display: flex;
   align-items: flex-end;
   gap: 2px;
-  height: var(--tabs-strip-height, 40px);
+  min-width: 0;
   padding: 0 8px;
   background: var(--color-surface, var(--color-bg));
   overflow-x: auto;
@@ -16,37 +17,6 @@
   user-select: none;
   -webkit-user-select: none;
   scrollbar-width: thin;
-  /* macOS: clear the traffic lights (~x 19-97) when the sidebar is
-       collapsed (otherwise the sidebar provides the left clearance). */
-  padding-left: 8px;
-}
-
-:global(.notes-shell.desktop-layout.sidebar-collapsed) .tabs-strip {
-  padding-left: calc(8px + var(--macos-traffic-lights-width, 0px));
-}
-
-.sidebar-expand-btn {
-  flex: 0 0 auto;
-  width: 32px;
-  height: 32px;
-  margin: 0 4px 2px 0;
-  border: none;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--color-muted, #888);
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.sidebar-expand-btn:hover {
-  background: color-mix(in srgb, var(--color-bg) 70%, transparent);
-  color: var(--color-text);
-}
-
-.sidebar-expand-btn:active {
-  background: var(--color-bg);
 }
 
 /* Tabs sit at the bottom of the strip with rounded-top corners and a
