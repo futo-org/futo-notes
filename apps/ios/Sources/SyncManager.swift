@@ -168,7 +168,10 @@ final class SyncManager: ObservableObject {
             // Re-login for both a collapsed vault and an expired bearer token.
             // connect() reuses the persisted cursor/map for the same vault, so
             // auth expiry stays incremental instead of forcing a reconcile.
-            if isRecoverableSessionError(error) { healSession(); return }
+            if isRecoverableSessionError(error) {
+                healSession(orReport: describe(error))
+                return
+            }
             lastError = describe(error)
             status = "Error"
         }
@@ -187,10 +190,15 @@ final class SyncManager: ObservableObject {
     /// Heal an expired session or collapsed vault with the password stored at
     /// last connect. For auth expiry, `connect()` reuses the same collection's
     /// persisted cursor/map; for collection-gone it re-picks the survivor and
-    /// safely reconciles. No-op if no password is stored; guarded against
-    /// re-entry.
-    private func healSession() {
-        guard !healing, let root = notesRoot, let password = Keychain.syncPassword else { return }
+    /// safely reconciles. Missing recovery credentials surface the original
+    /// error; guarded against re-entry.
+    private func healSession(orReport message: String) {
+        guard !healing else { return }
+        guard let root = notesRoot, let password = Keychain.syncPassword else {
+            lastError = message
+            status = "Error"
+            return
+        }
         healing = true
         client?.stopLive()
         Task {
@@ -261,7 +269,7 @@ final class SyncManager: ObservableObject {
         // Auth expiry and collection-gone are terminal for the old live loop,
         // but recoverable from the securely stored password.
         if m.contains("collection-gone") || m.hasPrefix("auth:") {
-            healSession()
+            healSession(orReport: m)
             return
         }
         if m.hasPrefix("connect:") || m.hasPrefix("stream:") {

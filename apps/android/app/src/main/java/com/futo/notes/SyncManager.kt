@@ -93,13 +93,7 @@ class SyncManager(
         }
         override fun onError(message: String) {
             scope.launch {
-                // Auth expiry and collection-gone are terminal for the old live
-                // loop, but recoverable from the securely stored password.
-                if (shouldHealLiveError(message)) {
-                    healSession()
-                } else {
-                    lastError = message
-                }
+                handleLiveError(message)
             }
         }
         override fun onStopped() {
@@ -157,7 +151,7 @@ class SyncManager(
             // The same-vault path keeps the persisted cursor/object map, so
             // token expiry does not trigger a full reconcile.
             if (isRecoverableSessionError(e)) {
-                healSession()
+                healSession(describe(e))
             } else {
                 lastError = describe(e); status = "Error"
             }
@@ -173,11 +167,16 @@ class SyncManager(
 
     /** Heal an expired session or collapsed vault with the password stored at
      *  last connect. Auth expiry reuses the same collection's persisted state;
-     *  collection-gone re-picks the survivor and safely reconciles. No-op if no
-     *  password is stored; guarded against re-entry. Mirrors iOS `healSession`. */
-    private fun healSession() {
+     *  collection-gone re-picks the survivor and safely reconciles. Missing
+     *  recovery credentials surface the original error; guarded against
+     *  re-entry. Mirrors iOS `healSession`. */
+    private fun healSession(fallbackMessage: String) {
         if (healing) return
-        val root = notesRoot ?: return
+        val root = notesRoot
+        if (root == null) {
+            reportUnavailableSessionRecovery(fallbackMessage)
+            return
+        }
         healing = true
         client?.stopLive()
         scope.launch {
@@ -186,6 +185,7 @@ class SyncManager(
             }
             if (password == null) {
                 healing = false
+                reportUnavailableSessionRecovery(fallbackMessage)
                 return@launch
             }
             // The dead session's live loop stopped itself; connectAndSync builds
@@ -193,6 +193,22 @@ class SyncManager(
             connectAndSync(root, password)
             healing = false
         }
+    }
+
+    /** Route one live-loop failure through recovery or visible error state. */
+    internal fun handleLiveError(message: String) {
+        // Auth expiry and collection-gone are terminal for the old live loop,
+        // but recoverable from the securely stored password.
+        if (shouldHealLiveError(message)) {
+            healSession(message)
+        } else {
+            lastError = message
+        }
+    }
+
+    private fun reportUnavailableSessionRecovery(message: String) {
+        lastError = message
+        status = "Error"
     }
 
     /** Single reporter for a completed cycle's outcome [sync.md]: clean →

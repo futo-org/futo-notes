@@ -59,4 +59,14 @@ class SyncManagerDefaultsTest {
         assertFalse(SyncManager.shouldHealLiveError("stream: connection reset"))
         assertFalse(SyncManager.shouldHealLiveError("HTTP 500"))
     }
+
+    @Test
+    fun recoverableLiveErrorSurfacesWhenHealingCannotStart() {
+        val manager = SyncManager()
+
+        manager.handleLiveError("auth: HTTP 401: invalid session")
+
+        assertEquals("auth: HTTP 401: invalid session", manager.lastError)
+        assertEquals("Error", manager.status)
+    }
 }
