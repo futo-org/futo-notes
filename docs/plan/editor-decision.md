@@ -6,6 +6,9 @@
 > §6 ship gates (notably widgets-ON large-note perf and the live-keyboard
 > matrix) must go green per platform before that platform's webview editor
 > is replaced; the Evidence Log keeps accumulating until then.
+>
+> **Update 2026-07-17: transition DEFERRED (Justin) — CM6 stays the shipping
+> editor on all three platforms for now. See the §6 addendum.**
 
 ## 1. The decision
 
@@ -100,7 +103,8 @@ engine crates (P0), `export-spec` JSON corpus bin + `EditorEngine` UniFFI
 surface (P1), Swift layer-2 harness (P2)). Analysis lives on main.
 
 - **E1 — Android spike (highest information value; the long pole).**
-  Branch `poc/android-editor` stacked on `poc/full-native-editors`.
+  Landed directly on `poc/full-native-editors` (the planned separate
+  `poc/android-editor` branch was never created).
   Minimal Compose adapter over the existing `EditorEngine` FFI (Kotlin
   bindings should fall out of `build-rust-android.sh`): engine decorations
   → spans, conceal, damage restyle. Port a Kotlin runner for the exported
@@ -128,8 +132,8 @@ surface (P1), Swift layer-2 harness (P2)). Analysis lives on main.
 
 ## 5. Logistics
 
-- iOS kill-tests: directly on `poc/full-native-editors`. Android:
-  `poc/android-editor` stacked on it. Decision artifacts (this doc, E6
+- iOS kill-tests: directly on `poc/full-native-editors`. Android: also
+  landed there (no separate branch). Decision artifacts (this doc, E6
   outputs, the final verdict): main, cherry-picked to the POC branch so
   Mac-side work has them.
 - The POC branch trails main (based pre-Prettier, pre-isMobile-removal).
@@ -203,3 +207,26 @@ surface (P1), Swift layer-2 harness (P2)). Analysis lives on main.
 4. **Cut the transition plan**: rebase/extract the engine + adapters from the
    POC branch onto main behind the debug pref, then walk ship-gates 2–4 per
    platform and flip the default when a platform goes green.
+
+### Addendum — 2026-07-17 (Justin): transition deferred, CM6 stays for now
+
+The mobile-native transition is PARKED before the ship-gate campaign
+completed (gate-1 widgets-ON work from 2026-07-13 stands in the evidence
+log; the remaining gates were not walked): the CM6/webview editor remains
+the shipping editor on all three platforms until further notice. The Rust
+engine, the gpui app, and both native adapters stay parked on their branches
+with the §6 evidence intact — nothing here re-litigates the verdict's grounds.
+
+While parked, §6's "mandatory guard" (engine-canonical, engine+fixtures
+first, CM6 port second in the same MR) is **SUSPENDED** — it presumed an
+active transition. Editor behavior changes land in CM6 + markdown-spec
+fixtures; the corpus remains the cross-implementation contract, and
+reconciling the parked engine against it is the first task of any resumed
+transition.
+
+Consequence: the contract-rewrite campaign's editor-surface freeze is lifted
+for the editor *scaffolding*, with CM6 as the kept core. The authoritative
+scope and run queue live in docs/plan/contract-rewrite-campaign.md (branch
+`docs/architecture-hardening-plan`) — including its explicit out-of-scope
+list (WKWebView/WebView host internals); this addendum does not enlarge that
+scope.
