@@ -21,12 +21,12 @@ vi.mock('$lib/platform', () => ({
   get hasFileSystem() {
     return platformState.hasFileSystem;
   },
+  platformName: 'web',
   getFS: () => ({
     writeAppData: mockWriteAppData,
     listAppData: vi.fn().mockResolvedValue([]),
     readAppData: vi.fn().mockResolvedValue(null),
     deleteAppData: vi.fn().mockResolvedValue(undefined),
-    getPlatformName: vi.fn().mockReturnValue('web'),
     getAppVersion: vi.fn().mockResolvedValue('0.0.0-test'),
   }),
 }));

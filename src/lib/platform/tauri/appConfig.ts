@@ -2,11 +2,11 @@ import { isAbsolute } from '@tauri-apps/api/path';
 
 import type { PlatformFS } from '../types';
 import {
-  ensureDir,
-  getDefaultNotesRoot,
+  ensureDirectory,
   loadNotesDirOverride,
+  resolveDefaultNotesRoot,
   saveNotesDirOverride,
-} from '../tauriPaths';
+} from './notesRoot';
 
 export interface PersistedTab {
   id: string;
@@ -51,20 +51,18 @@ interface AppConfigDependencies {
 const APP_CONFIG_PATH = '.app-config.json';
 
 export function createAppConfigStore({ storage, invalidateNotesRoot }: AppConfigDependencies) {
-  async function readConfig(fallbackOnReadError = true): Promise<AppConfigFile> {
-    let raw: string | null;
+  async function readConfig(fallbackOnError = true): Promise<AppConfigFile> {
     try {
-      raw = await storage.readAppData(APP_CONFIG_PATH);
+      const raw = await storage.readAppData(APP_CONFIG_PATH);
+      if (!raw) return {};
+      try {
+        return JSON.parse(raw) as AppConfigFile;
+      } catch {
+        return {};
+      }
     } catch (error) {
-      if (!fallbackOnReadError) throw error;
+      if (!fallbackOnError) throw error;
       console.warn(`Failed to read ${APP_CONFIG_PATH}, using defaults:`, error);
-      return {};
-    }
-
-    if (!raw) return {};
-    try {
-      return JSON.parse(raw) as AppConfigFile;
-    } catch {
       return {};
     }
   }
@@ -77,10 +75,10 @@ export function createAppConfigStore({ storage, invalidateNotesRoot }: AppConfig
     const [override, config, defaultNotesDir] = await Promise.all([
       loadNotesDirOverride(),
       readConfig(),
-      getDefaultNotesRoot(),
+      resolveDefaultNotesRoot(),
     ]);
     const notesDir = override ?? defaultNotesDir;
-    await ensureDir(notesDir);
+    await ensureDirectory(notesDir);
     return {
       notesDir,
       sidebarWidth: config.sidebarWidth ?? undefined,
@@ -101,15 +99,15 @@ export function createAppConfigStore({ storage, invalidateNotesRoot }: AppConfig
   }
 
   async function loadOpenFoldersConfig(): Promise<string[] | null> {
-    const config = await readConfig();
-    if (!Array.isArray(config.openFolders)) return null;
-    return config.openFolders.filter((path): path is string => typeof path === 'string');
+    const folders = (await readConfig()).openFolders;
+    if (!Array.isArray(folders)) return null;
+    return folders.filter((path): path is string => typeof path === 'string');
   }
 
   async function setNotesDir(path: string | null): Promise<void> {
     if (path !== null) {
       if (!(await isAbsolute(path))) throw new Error('path must be absolute');
-      await ensureDir(path);
+      await ensureDirectory(path);
     }
     await saveNotesDirOverride(path);
     invalidateNotesRoot();

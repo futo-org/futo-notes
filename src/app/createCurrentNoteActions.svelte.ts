@@ -1,5 +1,6 @@
 import { deleteNote, moveNote } from '$features/notes/notes.svelte';
 import { tabsStore } from '$features/tabs/tabsStore.svelte';
+import { getPlatformFS } from '$lib/platform';
 
 interface CurrentNoteActionOptions {
   getNoteId: () => string | null;
@@ -65,12 +66,9 @@ export function createCurrentNoteActions(options: CurrentNoteActionOptions) {
     const id = options.getNoteId();
     if (!id || id === 'new') return;
     try {
-      const [{ getConfig }, { writeClipboardText }] = await Promise.all([
-        import('$lib/platform/tauri'),
-        import('$lib/platform/tauri/clipboard'),
-      ]);
+      const { getConfig } = await import('$lib/platform/tauri');
       const config = await getConfig();
-      await writeClipboardText(`${config.notesDir}/${id}.md`);
+      await (await getPlatformFS()).writeClipboardText(`${config.notesDir}/${id}.md`);
       options.showToast('Path copied');
     } catch {
       options.showToast('Failed to copy path');

@@ -2,10 +2,8 @@ import { isTauri } from '$lib/platform';
 import type { FileChangeEvent } from '$lib/platform';
 
 interface NativeShellOptions {
-  createNote: () => void;
   enqueueFileChange: (event: FileChangeEvent) => void;
   flushSave: () => Promise<void>;
-  toggleSidebar: () => void;
 }
 
 export function startNativeShell(options: NativeShellOptions): () => void {
@@ -19,16 +17,12 @@ export function startNativeShell(options: NativeShellOptions): () => void {
     else cleanups.push(cleanup);
   }
 
-  void import('$lib/platform/tauri').then(({ onFileChange, onMenuAction }) => {
-    [
-      onMenuAction((action) => {
-        if (action === 'toggle-sidebar') options.toggleSidebar();
-        if (action === 'new-note') options.createNote();
-      }),
+  void import('$lib/platform/tauri').then(({ onFileChange }) => {
+    registerCleanup(
       onFileChange((event) => {
         options.enqueueFileChange(event);
       }),
-    ].forEach(registerCleanup);
+    );
   });
 
   void installCloseHandler(options.flushSave).then(registerCleanup);

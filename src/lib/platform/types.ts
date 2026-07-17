@@ -24,15 +24,14 @@ export interface PlatformStorage {
   saveImageBytes?(data: ArrayBuffer, ext: string): Promise<string>;
   getImageUrl(filename: string): Promise<string>;
   getAppVersion(): Promise<string>;
-  getPlatformName(): string;
 }
 
 export interface NativeCapabilities {
-  readBinaryAppData?(path: string): Promise<ArrayBuffer | null>;
-  writeBinaryAppData?(path: string, data: ArrayBuffer): Promise<void>;
   pickImage?(): Promise<string | null>;
 }
 
-export interface PlatformFS extends PlatformStorage, NativeCapabilities {}
+export interface PlatformFS extends PlatformStorage, NativeCapabilities {
+  writeClipboardText(text: string): Promise<void>;
+}
 
 export type PlatformName = 'tauri' | 'web';

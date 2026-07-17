@@ -53,6 +53,11 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
   with sections: Storage, Appearance, Sync, Crash reporting, Updates, then
   Danger zone last, and a version footer. → SettingsScreen.svelte (see
   settings-visual.md for the platform-split and shared content model)
+- **Storage:** the displayed active/default roots come from the Tauri platform
+  facade. Choosing a custom root requires an absolute path, creates it before
+  persistence, saves it through `notes_dir_override_save`, invalidates the
+  frontend root cache, and then relaunches. Reset saves a `null` override and
+  relaunches. → `src/lib/platform/tauri/appConfig.ts`, `notesRoot.ts`
 - **Sync**: server URL + password inline with a Connect button and a
   "Last sync: …" line ("never" before the first sync). Once connected the
   section shows status/disconnect (see sync.md).

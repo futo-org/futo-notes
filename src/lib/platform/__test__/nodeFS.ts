@@ -76,9 +76,7 @@ export function createNodeFS(): TestPlatformFS {
     async getAppVersion() {
       return '0.0.0-test';
     },
-    getPlatformName() {
-      return 'web';
-    },
+    async writeClipboardText(_text) {},
     async writeNote(id, content, modifiedAtMs) {
       const destination = full(`${id}.md`);
       fs.mkdirSync(path.dirname(destination), { recursive: true });

@@ -67,14 +67,14 @@ this file states the behaviors a human cares about.
   those markers so copy/delete carry valid markdown; the pointer-selection
   listeners are disabled whenever `nativeShell` identifies the native embed.
   Verified on Android and iOS devices 2026-07-10.
-  → MarkdownEditor.svelte (pointer-selection gate) *(native shells / desktop snap)*
+  → MarkdownEditor.svelte (pointer-selection gate) _(native shells / desktop snap)_
 
 ## Markdown elements (rendered / decorated)
 
 - Headings h1–h6, with inline emphasis / code / wikilinks inside.
 - Emphasis: bold, italic, bold-italic, strikethrough — `*` and `_` markers.
-- Code: inline (single and double backtick) and fenced (``` ``` ``` or `~~~`,
-  with optional language).
+- Code: inline (single and double backtick) and fenced (triple backticks or
+  triple tildes, with optional language).
 - Links: `[text](url)`, autolinks `<url>`, and bare GFM URLs.
 - Blockquotes including nested; the `>` marker is dimmed when the cursor is on
   the line.
@@ -201,7 +201,7 @@ native shells edit tags as text in the body, which is not a gap.
   notes.svelte.ts `rewriteWikilinksForRename`
 - The relink rules also live in the shared Rust crate
   (futo-notes-model `wikilinks::{resolve_wikilink, shortest_unique_suffix,
-  rewrite_wikilinks}` + `relink_note_references`), conformance-locked
+rewrite_wikilinks}` + `relink_note_references`), conformance-locked
   bit-for-bit against wikilinks.ts (tests/conformance/wikilinks.json). The
   native shells call `NoteStore.relink(old_id, new_id)` after every rename
   and move, so a rename on a native device rewrites backlinks vault-wide
@@ -257,7 +257,7 @@ native shells edit tags as text in the body, which is not a gap.
   dead-end as the wikilink `touchend` note above). → editorUX/slashMenu.ts
   _(desktop)_
 
-## Markdown toolbar *(native shells / editor-embed fallback)*
+## Markdown toolbar _(native shells / editor-embed fallback)_
 
 The shipping toolbar surface belongs to the native shells. The Tauri desktop
 shell never switches to a mobile layout or renders a mobile toolbar based on
@@ -382,7 +382,8 @@ EditorWebView.swift, EditorWebView.kt
   `readFile`→blob-URL fallback when the asset protocol can't actually decode an
   `<img>` (macOS WKWebView / Linux WebKitGTK answer the request but paint a
   blank white box; the gate is a real image-decode probe, not a HEAD probe).
-  → tauri.ts `getImageUrl` / `assetUrlDecodes`. _(Tauri)_
+  → `src/lib/platform/tauri/images.ts` `getImageUrl` / `canDecodeImageUrl`.
+  _(Tauri)_
 - The native shells render local images inline through a host-registered
   image base URL (`setImageBaseUrl`): iOS serves the vault root through a
   `futo-asset://` WKURLSchemeHandler (path-traversal- and image-extension-
@@ -456,7 +457,7 @@ EditorWebView.swift, EditorWebView.kt
   note still holds the content the editor last saw, so content a live pull
   adopted since the editor's last read is never clobbered by a stale flush.
   (Check-then-atomic-write, so a narrow single-process syscall window remains —
-  accepted; not a true compare-and-swap.) *(iOS, Android)* →
+  accepted; not a true compare-and-swap.) _(iOS, Android)_ →
   `futo_notes_model::write_note_if_unchanged` via FFI `write_if_unchanged`;
   `NotesStore.flushAsync`. iOS additionally makes the flush **never drop** a dirty
   draft when the write is skipped: if the note was **deleted** under the editor it
@@ -485,7 +486,7 @@ EditorWebView.swift, EditorWebView.kt
   current the instant before a background flush reads it) and reactively via
   `.onChange` for the clear-on-save / clear-on-adopt transitions — SwiftUI
   `@State` can't be pulled from an escaping closure the way Compose snapshot state
-  can. *(iOS, Android)* → NoteEditorScreen.kt / NoteEditorView.swift →
+  can. _(iOS, Android)_ → NoteEditorScreen.kt / NoteEditorView.swift →
   `NotesStore.setDraftProvider`/`publishDraft` + `claimDraftOwnership`. Verified
   on iOS 2026-07-13 (sim: edit → immediate background before the debounce
   persisted; rename with a pending body edit preserved the edit under the new id

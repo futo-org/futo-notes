@@ -21,18 +21,18 @@ owners.
 
 ## Module map
 
-| Module | Responsibility |
-|---|---|
-| `application.rs` | Builder, plugins, setup, managed state, complete command registration. |
-| `application_state.rs` | The single desktop state aggregate. |
-| `local_notes.rs` | `local_notes_*` projection, including desktop note/folder trash policy. |
-| `filesystem_watcher.rs` | Recursive watcher, normalized events, rename pairing, and typed one-shot suppression. |
-| `vault_location.rs` | Custom-root persistence and the debug/release default-root safety split. |
-| `image_commands.rs` | Image import and clipboard bitmap persistence. |
-| `system_trash.rs` | Recoverable delete with headless hard-delete fallback. |
-| `sync/*` | Tauri wiring for the shared sync session/orchestrator. |
-| `platform_integration.rs` | Linux integration, single-instance behavior, and process setup. |
-| `updater_commands.rs`, `panic_reporter.rs` | Updater policy and crash persistence. |
+| Module                                     | Responsibility                                                                        |
+| ------------------------------------------ | ------------------------------------------------------------------------------------- |
+| `application.rs`                           | Builder, plugins, setup, managed state, complete command registration.                |
+| `application_state.rs`                     | The single desktop state aggregate.                                                   |
+| `local_notes.rs`                           | `local_notes_*` projection, including desktop note/folder trash policy.               |
+| `filesystem_watcher.rs`                    | Recursive watcher, normalized events, rename pairing, and typed one-shot suppression. |
+| `vault_location.rs`                        | Custom-root persistence and the debug/release default-root safety split.              |
+| `image_commands.rs`                        | Image import and clipboard bitmap persistence.                                        |
+| `system_trash.rs`                          | Recoverable delete with headless hard-delete fallback.                                |
+| `sync/*`                                   | Tauri wiring for the shared sync session/orchestrator.                                |
+| `platform_integration.rs`                  | Linux integration, single-instance behavior, and process setup.                       |
+| `updater_commands.rs`, `panic_reporter.rs` | Updater policy and crash persistence.                                                 |
 
 ## Local-note IPC
 
@@ -72,6 +72,8 @@ compatibility requirements and must not be reintroduced.
 
 - `vault_location.rs` alone selects the active root. Debug defaults to
   `~/Documents/fake-notes`; release defaults to `~/Documents/futo-notes`.
+  The frontend delegates default selection through `resolve_default_notes_root`
+  in `src/lib/platform/tauri/notesRoot.ts`; it never reconstructs either path.
 - Note IDs and folder paths are validated beneath the root; traversal and root
   deletion are refused.
 - Destination collisions are folded by case and Unicode normalization, then
