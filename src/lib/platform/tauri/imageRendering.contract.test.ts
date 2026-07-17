@@ -103,7 +103,7 @@ afterEach(() => {
 });
 
 async function saveAndResolve(): Promise<{ url: string; assetUrl: string }> {
-  const { tauriFS } = await import('./tauri');
+  const { tauriFS } = await import('../tauri');
 
   const filename = await tauriFS.saveImageBytes!(RED_PNG.buffer.slice(0) as ArrayBuffer, 'png');
   const path = `/home/user/Documents/futo-notes/${filename}`;

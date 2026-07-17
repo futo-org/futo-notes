@@ -9,9 +9,9 @@ Behaviors and constraints that hold across every surface and platform.
   apply reactively. → CLAUDE.md "Key Constraints"; `App.svelte` flips
   `initialized` synchronously.
 - `plugin-fs` reads (`readTextFile`, `exists`) can hang indefinitely on a cold
-  sandbox — never `await` one before first render. *(desktop Tauri; originally
+  sandbox — never `await` one before first render. _(desktop Tauri; originally
   observed on the since-removed iOS Tauri shell — the native iOS app doesn't
-  use `@tauri-apps/plugin-fs` at all)*
+  use `@tauri-apps/plugin-fs` at all)_
 
 ## Notes & files
 
@@ -49,7 +49,7 @@ Behaviors and constraints that hold across every surface and platform.
   "On My iPhone → FUTO Notes" via `UIFileSharingEnabled` +
   `LSSupportsOpeningDocumentsInPlace`. Sync state / crash logs are dotfiles
   inside the vault, which the Files app hides. Applies to all installs (it only
-  reveals the existing folder — no migration). *(iOS)*
+  reveals the existing folder — no migration). _(iOS)_
 - **Android:** storage is chosen on first run (Obsidian-style picker) and is
   switchable later in Settings → Storage. On Android 11+ the picker offers two
   modes and Device storage is the pre-selected recommended default; on API < 30
@@ -60,9 +60,9 @@ Behaviors and constraints that hold across every surface and platform.
     shown before the system dialog. Android 11+ only.
   - **App storage** — `Android/data/<pkg>/files/futo-notes`: no permission, but
     invisible to the stock Files app on Android 11+ and deleted on uninstall.
-  Switching modes migrates the whole vault (including the `.futo` sync state) and
-  relaunches; the move is transparent to sync (object map is keyed by relative
-  filename → [sync.md](sync.md)).
+    Switching modes migrates the whole vault (including the `.futo` sync state) and
+    relaunches; the move is transparent to sync (object map is keyed by relative
+    filename → [sync.md](sync.md)).
 - **No silent relocation of existing installs.** An Android install that predates
   the picker is grandfathered on its legacy internal location
   (`filesDir/futo-notes`); it gains Files-app access only by opting in via
@@ -75,11 +75,11 @@ Behaviors and constraints that hold across every surface and platform.
 
 > **Gap:** Android pre-11 (API < 30) devices can't use Device storage (All-files
 > access is an API-30 mechanism) — they only get App storage, so their vault is
-> not visible in a file manager. *(Android)*
+> not visible in a file manager. _(Android)_
 
 > **Gap:** The vault folder is fixed per mode and not a user-pickable arbitrary
 > directory on mobile (desktop allows a custom folder); iOS has no iCloud Drive
-> vault option. Both are possible follow-ups. *(iOS / Android)*
+> vault option. Both are possible follow-ups. _(iOS / Android)_
 
 ## Where logic lives
 
@@ -95,6 +95,12 @@ Behaviors and constraints that hold across every surface and platform.
   Its final module names, ownership boundaries, stable command/event surface,
   compatibility commands, watcher suppression, and inline-test convention are
   specified in [desktop-rust.md](desktop-rust.md).
+- The frontend Tauri platform boundary is owned by `src/lib/platform/tauri/`:
+  `adapter.ts` owns construction plus notes-root and watcher lifecycle state;
+  `storage.ts` owns non-note filesystem I/O; `images.ts` owns image persistence,
+  URL policy, and capability state; clipboard access is part of `PlatformFS`;
+  the remaining capability files own config/root policies; and
+  `src/lib/platform/tauri.ts` is only the stable public composition facade.
 
 ## Performance
 
@@ -116,7 +122,7 @@ Behaviors and constraints that hold across every surface and platform.
   `com.futo.notes`; native debug builds use `com.futo.notes.dev` so local
   installs keep separate app data and credentials.
 
-## Soft keyboard *(Android)*
+## Soft keyboard _(Android)_
 
 - Dismissing the soft keyboard by the system back gesture/button drops the
   focused field's caret, app-wide — Android hides the IME without clearing
@@ -134,7 +140,7 @@ Behaviors and constraints that hold across every surface and platform.
   which drops the caret with it — the two are coupled on iOS, and the editor's
   only dismiss affordance (the toolbar chevron) blurs over the bridge.
 
-## Dialogs *(desktop)*
+## Dialogs _(desktop)_
 
 - `window.confirm()` / `window.alert()` don't block in Tauri's webview — use
   `ask()` / `message()` from `@tauri-apps/plugin-dialog`. → CLAUDE.md
@@ -142,7 +148,7 @@ Behaviors and constraints that hold across every surface and platform.
   `ask()` under Tauri, `window.confirm()` in the plain web shell (dev server,
   Playwright) where plugin-dialog has no backend and would reject. → confirmDialog.ts
 
-## Updates *(desktop self-update)*
+## Updates _(desktop self-update)_
 
 - On launch (and then hourly), desktop builds that can self-update silently
   check the updater endpoint. A found update raises a small floating banner
@@ -167,9 +173,9 @@ Behaviors and constraints that hold across every surface and platform.
 ## Feedback & crash reporting
 
 - Action feedback uses transient toasts (~3 s, one at a time, auto-dismiss):
-  "Note deleted", "Moved to {folder}", "Path copied", etc. *(Tauri; Android
+  "Note deleted", "Moved to {folder}", "Path copied", etc. _(Tauri; Android
   native shows the same platform toasts — delete now toasts "Note deleted" from
-  both the editor ⋮ menu and the list long-press)* → shared/notifications/toastBus.ts,
+  both the editor ⋮ menu and the list long-press)_ → shared/notifications/toastBus.ts,
   NoteEditorScreen.kt, NoteListScreen.kt
 - An uncaught error/crash is queued; the **next launch** shows a Crash Report
   dialog: expandable "View report", an optional "What were you doing?" field,
@@ -177,7 +183,7 @@ Behaviors and constraints that hold across every surface and platform.
   send" (also a Settings toggle) auto-sends future reports without the
   dialog. Rust-side panics persist the same schema under `.crashlogs` before
   the next-launch scan. → CrashReportDialog.svelte, crashHandler.ts,
-  `apps/tauri/src-tauri/src/panic_reporter.rs` *(Tauri)*
+  `apps/tauri/src-tauri/src/panic_reporter.rs` _(Tauri)_
 - The native shells run the same pipeline: an uncaught-exception handler
   (Android `Thread.setDefaultUncaughtExceptionHandler`; iOS
   `NSSetUncaughtExceptionHandler` plus fatal-signal handlers with
@@ -189,4 +195,4 @@ Behaviors and constraints that hold across every surface and platform.
   the local collector) and deletes the files. Verified end-to-end on
   emulator + simulator 2026-06-09 (test crash → relaunch dialog → collector
   received the POST → files cleared). → CrashReporter.kt +
-  CrashReportDialog.kt *(Android)*, CrashReporter.swift *(iOS)*
+  CrashReportDialog.kt _(Android)_, CrashReporter.swift _(iOS)_

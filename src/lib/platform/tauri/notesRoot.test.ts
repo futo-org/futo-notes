@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('@tauri-apps/api/core', () => ({
@@ -9,12 +11,12 @@ vi.mock('@tauri-apps/plugin-fs', () => ({
 }));
 
 import {
-  getNotesRoot,
-  getDefaultNotesRoot,
+  resolveNotesRoot,
+  resolveDefaultNotesRoot,
   loadNotesDirOverride,
   saveNotesDirOverride,
-  ensureDir,
-} from './tauriPaths';
+  ensureDirectory,
+} from './notesRoot';
 import { invoke } from '@tauri-apps/api/core';
 import { mkdir } from '@tauri-apps/plugin-fs';
 
@@ -54,29 +56,46 @@ describe('saveNotesDirOverride', () => {
   });
 });
 
-describe('getDefaultNotesRoot', () => {
+describe('resolveDefaultNotesRoot', () => {
   it('delegates to Rust (honors FUTO_NOTES_DATA_DIR)', async () => {
     mockInvoke.mockResolvedValueOnce('/tmp/wt-test-data/notes');
-    const result = await getDefaultNotesRoot();
+    const result = await resolveDefaultNotesRoot();
     expect(result).toBe('/tmp/wt-test-data/notes');
     expect(mockInvoke).toHaveBeenCalledWith('resolve_default_notes_root');
   });
 
   it('returns the Documents/futo-notes path in production', async () => {
     mockInvoke.mockResolvedValueOnce('/home/user/Documents/futo-notes');
-    const result = await getDefaultNotesRoot();
+    const result = await resolveDefaultNotesRoot();
     expect(result).toBe('/home/user/Documents/futo-notes');
+  });
+
+  it('keeps environment isolation and the debug/production split Rust-owned', () => {
+    const rustSource = readFileSync(
+      new URL('../../../../apps/tauri/src-tauri/src/vault_location.rs', import.meta.url),
+      'utf8',
+    );
+
+    expect(rustSource).toMatch(
+      /if let Some\(data_dir\) = environment_data_dir\(\) \{\s*return Ok\(data_dir\.join\("notes"\)\);/,
+    );
+    expect(rustSource).toMatch(
+      /#\[cfg\(debug_assertions\)\]\s*return Ok\(documents\.join\("fake-notes"\)\);/,
+    );
+    expect(rustSource).toMatch(
+      /#\[cfg\(not\(debug_assertions\)\)\]\s*Ok\(documents\.join\("futo-notes"\)\)/,
+    );
   });
 });
 
-describe('getNotesRoot', () => {
+describe('resolveNotesRoot', () => {
   it('returns override dir when set and creates it', async () => {
     mockInvoke.mockImplementation(async (cmd: string) => {
       if (cmd === 'notes_dir_override_load') return '/custom/notes';
       throw new Error(`unexpected invoke: ${cmd}`);
     });
     mockMkdir.mockResolvedValueOnce(undefined);
-    const result = await getNotesRoot();
+    const result = await resolveNotesRoot();
     expect(result).toBe('/custom/notes');
     expect(mockMkdir).toHaveBeenCalledWith('/custom/notes', { recursive: true });
   });
@@ -88,7 +107,7 @@ describe('getNotesRoot', () => {
       throw new Error(`unexpected invoke: ${cmd}`);
     });
     mockMkdir.mockResolvedValueOnce(undefined);
-    const result = await getNotesRoot();
+    const result = await resolveNotesRoot();
     expect(result).toBe('/home/user/Documents/futo-notes');
     expect(mockMkdir).toHaveBeenCalledWith('/home/user/Documents/futo-notes', { recursive: true });
   });
@@ -100,15 +119,15 @@ describe('getNotesRoot', () => {
       throw new Error(`unexpected invoke: ${cmd}`);
     });
     mockMkdir.mockResolvedValueOnce(undefined);
-    const result = await getNotesRoot();
+    const result = await resolveNotesRoot();
     expect(result).toBe('/tmp/wt-abc/data/notes');
   });
 });
 
-describe('ensureDir', () => {
+describe('ensureDirectory', () => {
   it('invokes plugin-fs mkdir recursively', async () => {
     mockMkdir.mockResolvedValueOnce(undefined);
-    await ensureDir('/some/path');
+    await ensureDirectory('/some/path');
     expect(mockMkdir).toHaveBeenCalledWith('/some/path', { recursive: true });
   });
 });

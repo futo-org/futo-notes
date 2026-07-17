@@ -34,7 +34,7 @@ vi.mock('@tauri-apps/api/app', () => ({
 }));
 
 import { invoke } from '@tauri-apps/api/core';
-import { getConfig, saveConfig, setNotesDir, loadOpenFoldersConfig } from './tauri';
+import { getConfig, saveConfig, setNotesDir, loadOpenFoldersConfig } from '../tauri';
 
 const mockInvoke = vi.mocked(invoke);
 

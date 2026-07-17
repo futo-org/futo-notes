@@ -290,10 +290,8 @@
     });
 
     const cleanupNativeShell = startNativeShell({
-      createNote: () => void createNewNote(),
       enqueueFileChange: sync.enqueueFileChange,
       flushSave: session.flushSave,
-      toggleSidebar: () => toggleSidebar(),
     });
 
     const cleanupShortcuts = registerNotesShellShortcuts({

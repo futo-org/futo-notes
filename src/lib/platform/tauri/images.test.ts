@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { imageMimeForExtension } from './tauri';
+import { imageMimeForExtension } from './images';
 import { IMAGE_EXTENSIONS } from '@futo-notes/editor';
 
 describe('imageMimeForExtension', () => {

@@ -1,4 +1,4 @@
-import { getFS, hasFileSystem } from '$lib/platform';
+import { getFS, hasFileSystem, platformName } from '$lib/platform';
 
 const CRASHLOGS_DIR = '.crashlogs';
 const LS_QUEUE_KEY = 'futo_crash_queue';
@@ -36,18 +36,11 @@ function buildReport(
   stack: string | undefined,
   type: CrashReport['type'],
 ): CrashReport {
-  let platform = 'web';
-  try {
-    platform = getFS().getPlatformName();
-  } catch {
-    /* FS not initialized yet */
-  }
-
   return {
     error,
     stack,
     app_version: appVersion,
-    platform,
+    platform: platformName,
     device_info: `${navigator.userAgent} | ${screen.width}x${screen.height}`,
     timestamp: new Date().toISOString(),
     type,

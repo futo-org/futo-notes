@@ -24,7 +24,7 @@ export const webFS: PlatformFS = {
   async getAppVersion(): Promise<string> {
     return '0.0.0-web';
   },
-  getPlatformName(): string {
-    return 'web';
+  async writeClipboardText(text: string): Promise<void> {
+    await navigator.clipboard.writeText(text);
   },
 };
