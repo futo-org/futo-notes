@@ -1,25 +1,11 @@
-/// Three-way merge for concurrent note edits.
-///
-/// Uses the last-synced content as the common ancestor (base) to merge
-/// non-overlapping edits from two sides. Falls back to conflict copy
-/// when edits overlap.
-/// Result of a three-way merge attempt.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MergeResult {
-    /// Clean merge — all changes applied without conflict.
     Clean(String),
-    /// Overlapping edits — fall back to conflict copy.
     Conflict,
 }
 
-/// Attempt a three-way merge of `ours` and `theirs` against a common `base`.
-///
-/// - If edits are in non-overlapping regions, returns `MergeResult::Clean(merged)`.
-/// - If edits overlap, returns `MergeResult::Conflict`.
-///
-/// Convention: `ours` = server version, `theirs` = client version.
-pub fn three_way_merge(base: &str, ours: &str, theirs: &str) -> MergeResult {
-    match diffy::merge(base, ours, theirs) {
+pub fn three_way_merge(base: &str, server: &str, client: &str) -> MergeResult {
+    match diffy::merge(base, server, client) {
         Ok(merged) => MergeResult::Clean(merged),
         Err(_) => MergeResult::Conflict,
     }
@@ -54,7 +40,7 @@ mod tests {
     #[test]
     fn one_side_unchanged_takes_other() {
         let base = "hello\nworld\n";
-        let ours = "hello\nworld\n"; // unchanged
+        let ours = "hello\nworld\n";
         let theirs = "hello\nuniverse\n";
 
         assert_eq!(
@@ -67,7 +53,7 @@ mod tests {
     fn other_side_unchanged_takes_changed() {
         let base = "hello\nworld\n";
         let ours = "hello\nearth\n";
-        let theirs = "hello\nworld\n"; // unchanged
+        let theirs = "hello\nworld\n";
 
         assert_eq!(
             three_way_merge(base, ours, theirs),
@@ -124,8 +110,8 @@ mod tests {
     #[test]
     fn deletions_at_different_positions() {
         let base = "line 1\nline 2\nline 3\nline 4\nline 5\n";
-        let ours = "line 2\nline 3\nline 4\nline 5\n"; // deleted line 1
-        let theirs = "line 1\nline 2\nline 3\nline 4\n"; // deleted line 5
+        let ours = "line 2\nline 3\nline 4\nline 5\n";
+        let theirs = "line 1\nline 2\nline 3\nline 4\n";
 
         let result = three_way_merge(base, ours, theirs);
         assert_eq!(
@@ -140,10 +126,10 @@ mod tests {
         let base = base_lines.join("\n") + "\n";
 
         let mut ours_lines = base_lines.clone();
-        ours_lines[4] = "EDITED BY SERVER".to_string(); // line 5
+        ours_lines[4] = "EDITED BY SERVER".to_string();
 
         let mut theirs_lines = base_lines.clone();
-        theirs_lines[94] = "EDITED BY CLIENT".to_string(); // line 95
+        theirs_lines[94] = "EDITED BY CLIENT".to_string();
 
         let ours = ours_lines.join("\n") + "\n";
         let theirs = theirs_lines.join("\n") + "\n";
@@ -169,8 +155,6 @@ mod tests {
 
     #[test]
     fn qa_scenario4_paragraph_merge_no_trailing_newline() {
-        // Reproduces QA Scenario 4: two clients edit different paragraphs of a
-        // note that does NOT end with a trailing newline. diffy should merge cleanly.
         let base = "qa threeway merge test\n\nParagraph one: unchanged by both clients.\n\nParagraph two: client will edit this paragraph.\n\nParagraph three: peer will edit this paragraph.";
         let ours = "qa threeway merge test\n\nParagraph one: unchanged by both clients.\n\nParagraph two: client will edit this paragraph.\n\nParagraph three: PEER EDITED THIS PARAGRAPH during three-way merge test.";
         let theirs = "qa threeway merge test\n\nParagraph one: unchanged by both clients.\n\nParagraph two: CLIENT EDITED THIS PARAGRAPH during three-way merge test.\n\nParagraph three: peer will edit this paragraph.";
@@ -181,7 +165,9 @@ mod tests {
                 assert!(merged.contains("CLIENT EDITED"), "Missing client edit");
                 assert!(merged.contains("PEER EDITED"), "Missing peer edit");
             }
-            MergeResult::Conflict => panic!("Expected clean merge for non-overlapping paragraph edits, got conflict"),
+            MergeResult::Conflict => {
+                panic!("Expected clean merge for non-overlapping paragraph edits, got conflict")
+            }
         }
     }
 }

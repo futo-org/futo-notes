@@ -10,9 +10,9 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use futo_notes_core::files::{
-    create_new_atomic, rename_through_temp, safe_appdata_path, set_file_mtime_ms, write_atomic_text,
+    collides_but_differs, collision_key, create_new_atomic, rename_through_temp, safe_appdata_path,
+    set_file_mtime_ms, write_atomic_text,
 };
-use futo_notes_core::sync::{collides_but_differs, collision_key};
 use futo_notes_model::{make_id, rewrite_wikilinks, sanitize_folder_path, split_id};
 use futo_notes_search::{SearchConfig, SearchEngine, StatusObserver, DEFAULT_TOPK};
 use serde::{Deserialize, Serialize};

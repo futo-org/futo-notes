@@ -27,7 +27,7 @@
           "pattern": "export function resolveWikilink"
         },
         {
-          "location": "crates/futo-notes-core/src/files.rs",
+          "location": "crates/futo-notes-core/src/files/filenames.rs",
           "pattern": "pub fn sanitize_title"
         },
         {
@@ -191,7 +191,7 @@
           "pattern": "export function ensureSafeNoteId"
         },
         {
-          "location": "crates/futo-notes-core/src/files.rs",
+          "location": "crates/futo-notes-core/src/files/paths.rs",
           "pattern": "pub fn safe_note_path"
         }
       ],
@@ -220,8 +220,8 @@
           "pattern": "private unique\\(wanted"
         },
         {
-          "location": "crates/futo-notes-core/src/files.rs",
-          "pattern": "pub fn get_unique_note_id"
+          "location": "crates/futo-notes-store/src/paths.rs",
+          "pattern": "pub\\(crate\\) fn unique_note_id"
         }
       ]
     },
@@ -236,7 +236,7 @@
           "pattern": "export const MAX_TITLE_LENGTH = 200"
         },
         {
-          "location": "crates/futo-notes-core/src/files.rs",
+          "location": "crates/futo-notes-core/src/files/filenames.rs",
           "pattern": "pub const MAX_TITLE_LENGTH: usize = 200"
         },
         {

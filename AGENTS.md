@@ -156,8 +156,8 @@ src/                    ← Shared Svelte 5 app (UI, reactive state, sync coordi
   lib/platform/         ← Non-note shell storage/images/capabilities, pathSafety, tauriPaths
   editor-embed/         ← Entry for the single-file editor.html embedded in the native shells
 crates/
-  futo-notes-core/      ← Hashing, E2EE crypto, sync payload prep/apply, 3-way merge,
-                          path safety + title primitives (files.rs)
+  futo-notes-core/      ← Hashing, E2EE crypto, 3-way merge, conflict naming,
+                          path safety + atomic file primitives (`files/`)
   futo-notes-model/     ← Pure note decisions (id/tags/wikilinks/preview), no filesystem state
   futo-notes-store/     ← THE LOCAL NOTE ENGINE: vault, migrations, workflows, owned search
   futo-notes-sync/      ← E2EE sync orchestrator (push-first run_sync), SSE live loop

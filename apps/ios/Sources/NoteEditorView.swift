@@ -623,7 +623,7 @@ private let forbiddenTitleScalars: CharacterSet =
 private let titleMaxLength = 200
 
 /// A note title that is still the auto-assigned placeholder: exactly "Untitled",
-/// or a dedup variant "Untitled-N" (see the Rust `get_unique_note_id`, which
+/// or a dedup variant "Untitled-N" (see the Rust store's `unique_note_id`, which
 /// appends `-2`, `-3`, …). Tapping such a title selects it whole so a keystroke
 /// replaces it; any other title takes the caret at the tapped character.
 func isPlaceholderTitle(_ t: String) -> Bool {

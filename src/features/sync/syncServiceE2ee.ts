@@ -4,7 +4,7 @@
  * All the heavy work (PBKDF2, AES-GCM, blob HTTP, push/pull, 3-way merge,
  * conflict resolution, persistence) lives in `crates/futo-notes-sync`; the
  * desktop IPC adapter lives in `apps/tauri/src-tauri/src/sync/`
- * and `crates/futo-notes-core/src/e2ee.rs`. This file exists so the rest of
+ * and `crates/futo-notes-core/src/e2ee/`. This file exists so the rest of
  * the app's import path stays stable: `connectE2ee`, `syncE2eeAuto`,
  * `disconnectE2ee`, `setSyncProgressListener`, and the `SyncSummary` /
  * `SyncProgress` types continue to be re-exported from `$lib/syncServiceE2ee`

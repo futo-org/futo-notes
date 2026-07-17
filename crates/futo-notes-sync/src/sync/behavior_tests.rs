@@ -2,7 +2,7 @@ use super::*;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use futo_notes_core::e2ee::collision_conflict_filename;
+use futo_notes_core::conflict_names::collision_conflict_filename;
 use futo_notes_core::hash::hash_sha256;
 
 use crate::checkpoint::ObjectState;

@@ -1,7 +1,7 @@
 /**
  * Path safety utilities — TypeScript port of `ensure_safe_note_id`,
  * `safe_note_path`, `safe_appdata_path`, and `note_id_from_filename`
- * from `crates/futo-notes-core/src/files.rs`.
+ * from `crates/futo-notes-core/src/files/paths.rs`.
  *
  * Per-component character set mirrors the editor filename rule minus `/`
  * (path separator) and `\` (always

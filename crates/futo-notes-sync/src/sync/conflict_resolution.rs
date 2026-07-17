@@ -1,9 +1,11 @@
 use std::collections::HashSet;
 
-use futo_notes_core::e2ee::{self, conflict_filename, MergeResult};
+use futo_notes_core::conflict_names::conflict_filename;
+use futo_notes_core::e2ee;
 use futo_notes_core::files::{classify_incoming_sync_path, set_file_mtime_ms, IncomingSyncPath};
 use futo_notes_core::hash::hash_sha256;
 use futo_notes_core::image::is_image_filename;
+use futo_notes_core::merge::{three_way_merge, MergeResult};
 
 use crate::checkpoint::ObjectState;
 use crate::server::{timestamp_ms, Conflict, Mutation, Object, Write};
@@ -116,7 +118,7 @@ async fn merge_content(
         .and_then(|plain| e2ee::unpack_note(&plain).ok())
         .map(|note| note.content);
     base.and_then(
-        |base| match e2ee::three_way_merge_text(&base, &remote.content, local) {
+        |base| match three_way_merge(&base, &remote.content, local) {
             MergeResult::Clean(merged) => Some(merged),
             MergeResult::Conflict => None,
         },

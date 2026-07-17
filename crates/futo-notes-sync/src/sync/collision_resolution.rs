@@ -1,6 +1,7 @@
 use std::path::Path;
 
-use futo_notes_core::e2ee::{collision_conflict_filename, collision_key};
+use futo_notes_core::conflict_names::collision_conflict_filename;
+use futo_notes_core::files::collision_key;
 use futo_notes_core::hash::hash_sha256;
 
 use crate::checkpoint::{ConnectedState, ObjectState};
