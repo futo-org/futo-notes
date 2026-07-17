@@ -76,9 +76,9 @@
     },
     {
       "concept": "validate-server-url",
-      "description": "Sync server URL validation, hand-written x3 (no Rust side). TS reads the full shared fixture; Kotlin hand-mirrors 5 of the 9 fixture cases inline (partial); Swift has no test at all — there is no iOS unit test target yet (AGENTS.md §12: 'the Swift copy has no automated fixture check').",
+      "description": "Sync server URL validation, hand-written x3 (no Rust side). TS and Swift read the full shared fixture (Swift via FutoNotesNativeTests' ServerUrlConformanceTests, added 2026-07-17); Kotlin hand-mirrors 5 of the 9 fixture cases inline (partial).",
       "lockStatus": "partial",
-      "note": "PARTIAL: TS is fully locked against the fixture. Kotlin's SyncManagerDefaultsTest.kt hand-mirrors a 5-case subset instead of reading server-url.json (L1-5 plan: make it read the full fixture). Swift is genuinely UNLOCKED pending an iOS test target (L1-4).",
+      "note": "PARTIAL: TS and Swift are fully locked against the fixture. Kotlin's SyncManagerDefaultsTest.kt hand-mirrors a 5-case subset instead of reading server-url.json (L1-5 plan: make it read the full fixture).",
       "copies": [
         {
           "location": "src/features/sync/syncServiceE2ee.ts",
@@ -104,6 +104,10 @@
         },
         {
           "path": "apps/android/app/src/test/java/com/futo/notes/SyncManagerDefaultsTest.kt",
+          "kind": "test"
+        },
+        {
+          "path": "apps/ios/Tests/ServerUrlConformanceTests.swift",
           "kind": "test"
         }
       ],
