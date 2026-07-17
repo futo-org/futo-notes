@@ -462,7 +462,7 @@ test('pasting an image File posts saveImageData with base64 bytes and extension'
   await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.focus());
   await clearMessages(page);
 
-  const saved = await page.evaluate(async () => {
+  await page.evaluate(() => {
     const bytes = Uint8Array.from(atob('iVBORw0KGgo='), (c) => c.charCodeAt(0));
     const file = new File([bytes], 'shot.png', { type: 'image/png' });
     const dt = new DataTransfer();
@@ -472,11 +472,16 @@ test('pasting an image File posts saveImageData with base64 bytes and extension'
       .dispatchEvent(
         new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }),
       );
-    await new Promise((r) => setTimeout(r, 100));
-    return (window as unknown as FakeHostWindow).__msgs.filter((m) => m.type === 'saveImageData');
   });
+  // The handler reads the File through an async FileReader — wait on the
+  // message itself, never a fixed delay (M15).
+  await page.waitForFunction(() =>
+    (window as unknown as FakeHostWindow).__msgs.some((m) => m.type === 'saveImageData'),
+  );
 
-  expect(saved).toEqual([{ type: 'saveImageData', data: 'iVBORw0KGgo=', ext: 'png' }]);
+  expect(await messagesOfType(page, 'saveImageData')).toEqual([
+    { type: 'saveImageData', data: 'iVBORw0KGgo=', ext: 'png' },
+  ]);
 });
 
 test('pasting with a hidden bitmap (no File, no text/plain) posts pasteClipboardImage', async ({
@@ -486,14 +491,15 @@ test('pasting with a hidden bitmap (no File, no text/plain) posts pasteClipboard
   await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.focus());
   await clearMessages(page);
 
-  const posted = await page.evaluate(async () => {
+  const posted = await page.evaluate(() => {
     const dt = new DataTransfer();
     document
       .querySelector('.cm-content')!
       .dispatchEvent(
         new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }),
       );
-    await new Promise((r) => setTimeout(r, 100));
+    // pasteClipboardImage posts synchronously inside the paste handler (no
+    // FileReader involved), so the messages are already recorded here.
     return (window as unknown as FakeHostWindow).__msgs.filter(
       (m) => m.type === 'pasteClipboardImage',
     );
