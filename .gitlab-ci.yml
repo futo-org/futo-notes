@@ -1151,20 +1151,47 @@ build:android-native:
       fi
     # On tags build BOTH: a release APK (GitLab release / sideload) and a
     # release AAB (Google Play, uploaded by publish:android). Debug elsewhere
-    # for fast compile verification with the same native shell.
+    # for fast compile verification with the same native shell. The pure-logic
+    # JVM unit tests (:app:testDebugUnitTest) run whenever this job runs — MR/
+    # default pipelines via its changes gate, and ALWAYS on tag builds — so a
+    # release can't ship past a red unit test. This job is a release:gate
+    # dependency, so a failure here blocks publish (M14) without a separate
+    # test job.
     - |
       if [ -n "$CI_COMMIT_TAG" ]; then
-        cd apps/android && ./gradlew --no-daemon :app:assembleRelease :app:bundleRelease
+        cd apps/android && ./gradlew --no-daemon :app:assembleRelease :app:bundleRelease :app:testDebugUnitTest
       else
         cd apps/android && ./gradlew --no-daemon :app:assembleDebug :app:testDebugUnitTest
       fi
+    # M11 guard: a "0 tests executed" gradle run must fail red, not pass green.
+    # Assert the JUnit result XML exists and holds at least one <testcase>.
+    # $CI_PROJECT_DIR-anchored so it is independent of the cd above (M12).
+    - |
+      RESULTS_DIR="$CI_PROJECT_DIR/apps/android/app/build/test-results/testDebugUnitTest"
+      if ! find "$RESULTS_DIR" -name 'TEST-*.xml' -type f 2>/dev/null | grep -q .; then
+        echo "ERROR: no JVM unit-test result XML under $RESULTS_DIR — testDebugUnitTest did not execute" >&2
+        exit 1
+      fi
+      if ! grep -rq '<testcase' "$RESULTS_DIR"; then
+        echo "ERROR: JVM unit-test results contain no <testcase> — 0 tests executed" >&2
+        exit 1
+      fi
+      echo "JVM unit-test results OK: $(grep -rho '<testcase' "$RESULTS_DIR" | wc -l) testcase(s)"
   after_script:
     - find apps/android/app/build/outputs/apk -name "*.apk" -type f 2>/dev/null || true
     - find apps/android/app/build/outputs/bundle -name "*.aab" -type f 2>/dev/null || true
   artifacts:
+    # No artifacts:when here on purpose: GitLab uploads artifacts:reports
+    # (the junit below) on success AND failure regardless of artifacts:when,
+    # so failed runs still populate the MR test-report widget; `when: always`
+    # would only additionally retain release APK/AAB binaries from failed
+    # tag builds.
     paths:
       - apps/android/app/build/outputs/apk/**/*.apk
       - apps/android/app/build/outputs/bundle/**/*.aab
+    reports:
+      junit:
+        - apps/android/app/build/test-results/testDebugUnitTest/**/TEST-*.xml
     expire_in: 4 weeks
   # A cold/partial .cache-cargo-native cache makes the Rust FFI compile across
   # 3 NDK ABIs swing wide (observed 8m warm → 27m near-cold → 45m timeout

@@ -464,7 +464,8 @@ behavior.
 
 ### 7.7 Native Android
 - [ ] `just build-android-native` compiles
-- [ ] `just test-android-native` green (JVM unit tests — local gate only, CI doesn't run them)
+- [ ] `just test-android-native` green (JVM unit tests — CI also runs them in
+      `build:android-native` on MR/default pipelines and on tags)
 - [ ] New pure-logic seams get a JUnit test in `apps/android/app/src/test/java/com/futo/notes/`
 - [ ] Emulator/device QA of the changed flow (respect `$ANDROID_SERIAL`; see M21)
 
