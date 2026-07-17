@@ -528,6 +528,43 @@ test:e2e:rest:
       when: manual
       allow_failure: true
 
+test:e2e:editor-embed:
+  stage: test
+  cache:
+    - !reference [.cache-pnpm, cache]
+    - !reference [.cache-playwright, cache]
+  script:
+    - pnpm install --frozen-lockfile --prefer-offline
+    - !reference [.setup-playwright, script]
+    # globalSetup builds the single-file editor.html; every test loads it over
+    # file:// (no dev server), so the harness drives the SAME bytes the native
+    # shells ship.
+    - pnpm run test:e2e:editor-embed
+    # M11: a green playwright exit with zero tests must still fail red (a broken
+    # testMatch would otherwise pass silently).
+    - |
+      node -e "const r=require('$CI_PROJECT_DIR/test-results/editor-embed-results.json'); if(!(r.stats && r.stats.expected>0)){console.error('editor-embed bridge harness ran zero tests'); process.exit(1);} console.log('editor-embed bridge tests run:', r.stats.expected);"
+  rules:
+    - if: $CI_COMMIT_TAG
+    # Locks the editor-embed <-> native-host futoBridge protocol — auto-run and
+    # block on the MRs that can break the embed or its contract.
+    - if: $CI_MERGE_REQUEST_IID
+      changes:
+        - src/editor-embed/**/*
+        - src/features/editor/**/*
+        - packages/editor/**/*
+        - editor.html
+        - vite.editor.config.ts
+        - tests/editor-embed-bridge.spec.ts
+        - tests/editorEmbedBundle.ts
+        - playwright.editor-embed.config.ts
+        - package.json
+        - pnpm-lock.yaml
+        - .gitlab-ci.yml
+    - if: $CI_MERGE_REQUEST_IID
+      when: manual
+      allow_failure: true
+
 test:rust:workspace:
   extends: .ci-test-image
   stage: test
@@ -1581,6 +1618,7 @@ release:gate:
     - job: test:e2e:smoke
     - job: test:e2e:markdown-spec
     - job: test:e2e:rest
+    - job: test:e2e:editor-embed
     - job: test:rust:workspace
     - job: test:rust:ffi-android
     - job: test:rust:macos
