@@ -2,20 +2,12 @@
 # Build futo-notes-ffi for Android (all ABIs), generate the UniFFI Kotlin
 # bindings, and stage the per-ABI .so into apps/android's jniLibs.
 #
-# futo-notes-ffi is the single FFI facade (note domain + sync) — the SAME crate
-# iOS builds via scripts/build-rust-ios.sh.
-#
 # Requires: ANDROID_NDK_HOME + `cargo install cargo-ndk` + the android rust
 # targets (`rustup target add aarch64-linux-android armv7-linux-androideabi
 # x86_64-linux-android i686-linux-android`).
 #
-# Built with the `release-ffi` profile (Cargo.toml): optimized, `panic =
-# "unwind"` (so UniFFI's catch_unwind still turns Rust panics into Kotlin
-# exceptions instead of SIGABRT-ing the app — the plain `release` profile sets
-# panic="abort" and can't be used). The profile keeps the symbol table (no
-# strip); AGP's `debugSymbolLevel = "FULL"` extracts those symbols into the Play
-# AAB for native crash/ANR symbolication and strips the .so that ships to
-# devices, so on-device size stays ~10–25 MB/ABI.
+# `release-ffi` preserves panic unwinding for UniFFI and keeps symbols for AGP
+# to extract before stripping the device libraries.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -52,10 +44,6 @@ KOTLIN_OUT="$APP/app/src/main/java"
 ABIS="${ABIS:-arm64-v8a,armeabi-v7a,x86_64}"
 
 echo "==> Building futo-notes-ffi for Android ABIs: $ABIS (profile: release-ffi)"
-# cargo-ndk maps the friendly ABI names to rust targets and drops the per-ABI
-# .so straight into jniLibs/<abi>/libfuto_notes_ffi.so. --profile release-ffi:
-# optimized, symbols retained, panic="unwind" (UniFFI panic-catching). AGP
-# strips + extracts symbols at bundle time. See Cargo.toml.
 cargo ndk --platform 24 --target "$ABIS" --output-dir "$JNI" \
   build -p futo-notes-ffi --profile release-ffi
 
