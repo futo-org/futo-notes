@@ -101,25 +101,33 @@ list + editor.
 
 ---
 
-## Workstream D — Tests (currently ZERO; runs in parallel)
+## Workstream D — Tests (target added; runs in parallel)
 
-No test target exists in `apps/ios` — yet `AGENTS.md` mandates tests for logic
-changes. Add a **Swift Testing** target (`struct` suites, `#expect`/`#require`,
-parameterized; never XCTest) covering:
+The **FutoNotesNativeTests** Swift Testing target now exists (`project.yml`,
+`type: bundle.unit-test`, hosted by the app so `@testable import` reaches its
+internal symbols). It ships an initial suite: `validateServerURL` conformance
+against the shared `tests/conformance/server-url.json` case-set (closing the
+AGENTS.md §12 drift-watchlist hole — the Swift copy previously had no fixture
+check), a host→editor bridge call-surface guard (every `window.FutoEditor.*`
+call in `EditorWebView.swift` must be in the `FutoEditorApi` contract), and
+`VaultImages.mimeType` mapping incl. a drift lock against the shared Rust image
+list. Run it with `just test-ios-native`. Remaining coverage to add (`struct`
+suites, `#expect`/`#require`, parameterized; never XCTest):
 
 - [ ] **Conflict resolution** — `adoptExternalChange` clean / dirty / converged /
   true-3-way branches (pure logic, high value, untested).
 - [ ] **Path-traversal guard** — `FutoAssetSchemeHandler` rejects `../`, nested
   `/`, and non-image extensions (security-relevant).
-- [ ] **`VaultImages`** — filename uniqueness + `mimeType` mapping vs the shared
-  image-extension set.
+- [ ] **`VaultImages`** — filename uniqueness (the `mimeType` mapping vs the
+  shared image-extension set is now covered).
 - [ ] **`Keychain`** — round-trip + dev/prod service separation
   (`com.futo.notes.dev.sync` vs `com.futo.notes.sync`).
 - [ ] **`NoteVault`** — seeding / CRUD / relink through the Rust core
   (integration).
 
-Add the test target to `project.yml` (`type: bundle.unit-test`) and run via
-`test_sim`.
+The target is wired into `project.yml` (`type: bundle.unit-test`) and runs via
+`just test-ios-native` — a concrete simulator, because `xcodebuild test` cannot
+use a generic destination. CI wiring is deferred (see the verification summary).
 
 ---
 
@@ -177,5 +185,5 @@ then screenshot on an **iOS 26 simulator** to confirm glass.
 
 Native iOS is **not** covered by `just build` (that's web/Tauri). For this work:
 - Compile + fall back: `apps/ios/run.sh` / XcodeBuildMCP `build_sim` on iOS 18.
-- New tests: `test_sim` against the Swift Testing target.
+- New tests: `just test-ios-native` (Swift Testing target on a concrete simulator).
 - Glass visuals: screenshot on an iOS 26 simulator.

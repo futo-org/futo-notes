@@ -125,19 +125,31 @@ build-android-native: build-rust-android
 
 # ── Native unit tests ──
 
-# Swift Testing for the native iOS app — needs the FutoNotesNativeTests target
-# (apps/ios/MODERNIZATION_PLAN.md, workstream D), not added yet, so until then
-# xcodebuild reports "no test action".
+# Swift Testing for the native iOS app (the FutoNotesNativeTests target). Runs
+# on a CONCRETE simulator — `xcodebuild test` cannot run against a generic
+# destination. Honors $SIM (from `just qa-claim ios`); otherwise the single
+# booted simulator. Fails red on any test failure.
 test-ios-native: build-rust-ios
   #!/usr/bin/env bash
   set -euo pipefail
   node_modules/.bin/vite build --config vite.editor.config.ts
+  SIM="${SIM:-$(xcrun simctl list devices booted | sed -n 's/.*(\([0-9A-Fa-f-]\{36\}\)).*Booted.*/\1/p' | head -1)}"
+  if [ -z "$SIM" ]; then
+    echo "No simulator — set SIM=<udid> or run: just qa-claim ios" >&2
+    exit 1
+  fi
+  echo "==> Simulator: $SIM"
   cd apps/ios
   xcodegen generate
+  # A concrete -destination "id=$SIM" resolves to ONE arm64 simulator, so the
+  # arm64-only FFI sim slice links without EXCLUDED_ARCHS (contrast the generic
+  # destination in build-ios-native). Ad-hoc sign so the app test host launches
+  # with its keychain entitlement (mirrors run.sh).
   xcodebuild test -project FutoNotesNative.xcodeproj \
     -scheme FutoNotesNative \
-    -destination 'generic/platform=iOS Simulator' \
-    -derivedDataPath .build
+    -destination "id=$SIM" \
+    -derivedDataPath .build \
+    CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="-"
 
 # JVM unit tests for the native Android app (e.g. SyncManagerDefaultsTest).
 # Depends on build-rust-android so the UniFFI Kotlin bindings (gitignored)
