@@ -6,6 +6,9 @@
 > §6 ship gates (notably widgets-ON large-note perf and the live-keyboard
 > matrix) must go green per platform before that platform's webview editor
 > is replaced; the Evidence Log keeps accumulating until then.
+>
+> **Update 2026-07-17: transition DEFERRED (Justin) — CM6 stays the shipping
+> editor on all three platforms for now. See the §6 addendum.**
 
 ## 1. The decision
 
@@ -203,3 +206,17 @@ surface (P1), Swift layer-2 harness (P2)). Analysis lives on main.
 4. **Cut the transition plan**: rebase/extract the engine + adapters from the
    POC branch onto main behind the debug pref, then walk ship-gates 2–4 per
    platform and flip the default when a platform goes green.
+
+### Addendum — 2026-07-17 (Justin): transition deferred, CM6 stays for now
+
+The mobile-native transition is PARKED before ship-gate work began: the
+CM6/webview editor remains the shipping editor on all three platforms until
+further notice. The Rust engine, the gpui app, and both native adapters stay
+parked on their branches with the §6 evidence intact — nothing here
+re-litigates the verdict; the ship gates simply aren't being walked right now.
+While parked, editor behavior changes land in CM6 + markdown-spec fixtures as
+before; the corpus remains the cross-implementation contract for whenever the
+transition resumes. Consequence: the contract-rewrite campaign's editor-surface
+freeze is lifted for the editor *scaffolding* (embed, bridge, native hosting
+seam, editor-session lifecycle) with CM6 as the kept core — the queue lives in
+docs/plan/contract-rewrite-campaign.md (branch `docs/architecture-hardening-plan`).
