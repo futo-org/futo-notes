@@ -1152,10 +1152,11 @@ build:android-native:
     # On tags build BOTH: a release APK (GitLab release / sideload) and a
     # release AAB (Google Play, uploaded by publish:android). Debug elsewhere
     # for fast compile verification with the same native shell. The pure-logic
-    # JVM unit tests (:app:testDebugUnitTest) run on EVERY pipeline — tag builds
-    # included — so a release can't ship past a red unit test. This job is a
-    # release:gate dependency, so a failure here blocks publish (M14) without a
-    # separate test job.
+    # JVM unit tests (:app:testDebugUnitTest) run whenever this job runs — MR/
+    # default pipelines via its changes gate, and ALWAYS on tag builds — so a
+    # release can't ship past a red unit test. This job is a release:gate
+    # dependency, so a failure here blocks publish (M14) without a separate
+    # test job.
     - |
       if [ -n "$CI_COMMIT_TAG" ]; then
         cd apps/android && ./gradlew --no-daemon :app:assembleRelease :app:bundleRelease :app:testDebugUnitTest
@@ -1180,10 +1181,11 @@ build:android-native:
     - find apps/android/app/build/outputs/apk -name "*.apk" -type f 2>/dev/null || true
     - find apps/android/app/build/outputs/bundle -name "*.aab" -type f 2>/dev/null || true
   artifacts:
-    # when: always so a FAILED unit-test run still uploads its JUnit report —
-    # GitLab surfaces the failures in the MR test-report widget instead of
-    # burying them in the job log.
-    when: always
+    # No artifacts:when here on purpose: GitLab uploads artifacts:reports
+    # (the junit below) on success AND failure regardless of artifacts:when,
+    # so failed runs still populate the MR test-report widget; `when: always`
+    # would only additionally retain release APK/AAB binaries from failed
+    # tag builds.
     paths:
       - apps/android/app/build/outputs/apk/**/*.apk
       - apps/android/app/build/outputs/bundle/**/*.aab
