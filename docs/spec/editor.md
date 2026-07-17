@@ -16,7 +16,8 @@ this file states the behaviors a human cares about.
   `isOpaque = false` + `.clear`, Android `setBackgroundColor(TRANSPARENT)`),
   so the native app background (iOS `Theme.background`, Android Compose
   surface) shows through and the editor pane matches the surrounding UI in
-  both light and dark. → editor.html, EditorWebView.swift, EditorWebView.kt
+  both light and dark. → editor.html, EditorWebView.swift, EditorWebView.kt,
+  tests/editor-embed-bridge.spec.ts
 
 ## Live preview
 
@@ -192,7 +193,8 @@ native shells edit tags as text in the body, which is not a gap.
   → B → Back returns to A with A's content intact and the editor still
   interactive; Back again returns to the list). → MarkdownEditor.svelte
   `wikilinkClickHandler`, MainActivity.kt `onOpenNote` (push),
-  NoteEditorView.swift `openLinkedNote` + EditorWebView.swift `Coordinator.adopt`
+  NoteEditorView.swift `openLinkedNote` + EditorWebView.swift `Coordinator.adopt`,
+  tests/editor-embed-bridge.spec.ts
 - **Renaming or moving a note rewrites every wikilink that points at it,
   across all notes** — including folder moves (`[[Markdown demo]]` →
   `[[Archive/Markdown demo]]`) and **self-referencing links inside the renamed
@@ -230,7 +232,8 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
   → openUrl.ts, MarkdownEditor.svelte `linkClickHandler` (`onopenurl`),
   editor-embed/main.ts, packages/editor bridge v6 `openUrl`,
   EditorWebView.swift `openUrl` case, EditorWebView.kt `openExternalUrl` /
-  `shouldOverrideUrlLoading` / `isInAppEditorNavigation`
+  `shouldOverrideUrlLoading` / `isInAppEditorNavigation`,
+  tests/editor-embed-bridge.spec.ts
   > **Gap:** iOS native still lacks an explicit `WKWebView` navigation-policy
   > guard (the `openUrl` bridge covers taps on decorated links, but a
   > programmatic top-level navigation inside the WebView is not yet policed).
@@ -277,13 +280,15 @@ EditorWebView.swift, EditorWebView.kt
   native WebViews. Verified emulator + simulator 2026-07-08 (Link sits after
   Strikethrough; no-selection inserts `[]()`, a selection wraps to `[sel]()`
   with the caret in the URL slot; no dialog appears). → EmbedToolbar.svelte,
-  markdownToolbar.ts `TOOLBAR_EXEC` `link`, editorUX/linkCommand.ts `toggleLink`
+  markdownToolbar.ts `TOOLBAR_EXEC` `link`, editorUX/linkCommand.ts `toggleLink`,
+  tests/editor-embed-bridge.spec.ts
 - The toolbar SURFACE — items, order, grouping, accessibility labels,
   per-platform icons, visibility rules — is defined once in the
   `@futo-notes/editor` manifest, and the editing BEHAVIOR behind every
   button is defined once in markdownToolbar.ts (`TOOLBAR_EXEC`). Toolbars
   are dumb dispatchers: no platform restates the item list or reimplements
-  a command. → packages/editor/src/toolbar.ts, src/features/editor/markdownToolbar.ts
+  a command. → packages/editor/src/toolbar.ts, src/features/editor/markdownToolbar.ts,
+  tests/editor-embed-bridge.spec.ts
 - Native shells, toolbar chrome is NATIVE, commands are shared (bridge v3):
   the host renders its own toolbar from a GENERATED copy of the manifest and
   drives the editor over the bridge — `exec(id)` runs the shared command,
@@ -292,7 +297,7 @@ EditorWebView.swift, EditorWebView.kt
   embed's web toolbar so two never show. `just toolbar-spec` regenerates the
   native specs; `just toolbar-spec-check` (part of `just check`) fails when
   one drifts from the manifest. → packages/editor/src/bridge.ts,
-  scripts/gen-toolbar-spec.ts
+  scripts/gen-toolbar-spec.ts, tests/editor-embed-bridge.spec.ts
 - iOS native: the toolbar is the keyboard's `inputAccessoryView` (generated
   ToolbarSpec.swift rendered by EditorToolbar.swift), replacing the stripped
   prev/next/Done bar — the system owns docking/animation with the keyboard.
@@ -392,7 +397,7 @@ EditorWebView.swift, EditorWebView.kt
   the toolbar Camera/Image flow above; picked images save into the vault and
   render inline (verified end-to-end on emulator + simulator 2026-06-09).
   → EditorImages.swift `FutoAssetSchemeHandler`, ImagePicker.kt,
-  live-preview/images.ts `setLocalImageBaseUrl`
+  live-preview/images.ts `setLocalImageBaseUrl`, tests/editor-embed-bridge.spec.ts
 - Inline image rendering depends on the referenced file existing in the vault.
   That file is delivered across devices by sync — the image binary syncs
   alongside its note, so `![](image-…)` resolves on every device, not just the
@@ -413,7 +418,7 @@ EditorWebView.swift, EditorWebView.kt
   `PasteClipboardImageMessage` (contract v5), EditorWebView.kt + ImagePicker.kt
   `saveImageDataIntoVault` (Android), EditorWebView.swift `saveImageData` +
   `clipboardImageData` + EditorImages.swift `VaultImages.save` (iOS),
-  fs_paste_clipboard_image (Tauri)
+  fs_paste_clipboard_image (Tauri), tests/editor-embed-bridge.spec.ts
 
 > **Gap:** Clipboard image paste is verified on Linux (WebKitGTK), Windows
 > (WebView2), native Android (emulator, 2026-06-22), and **macOS desktop**
