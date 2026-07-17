@@ -18,6 +18,11 @@ targets:
     type: application
     platform: iOS
     deploymentTarget: "18.0"
+    # The app's generated scheme runs the FutoNotesNativeTests bundle in its
+    # Test action (so `xcodebuild test -scheme FutoNotesNative` finds it).
+    scheme:
+      testTargets:
+        - FutoNotesNativeTests
     sources:
       - path: Sources
       - path: Resources
@@ -101,3 +106,33 @@ targets:
           SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) DEBUG FUTO_DEBUG_BUILD"
         Release:
           PRODUCT_BUNDLE_IDENTIFIER: com.futo.notes
+
+  # Swift Testing unit-test bundle. Hosted by FutoNotesNative (the app
+  # dependency below) so `@testable import FutoNotesNative` reaches the app's
+  # internal symbols (SyncManager, VaultImages) and the linked Rust FFI —
+  # xcodegen wires TEST_HOST/BUNDLE_LOADER from that dependency.
+  FutoNotesNativeTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "18.0"
+    sources:
+      - path: Tests
+      # Shared cross-shell fixture, referenced in place (never copied): the
+      # validateServerURL conformance test loads it from the bundle.
+      - path: ../../tests/conformance/server-url.json
+        buildPhase: resources
+    dependencies:
+      - target: FutoNotesNative
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.futo.notes.tests
+        GENERATE_INFOPLIST_FILE: "YES"
+    # The bridge call-surface guard scans EditorWebView.swift at runtime, so its
+    # text must ride along in the test bundle. Xcode's resource phase refuses to
+    # copy .swift files, so copy it in as .txt after compile (before signing) —
+    # a single source of truth, refreshed from Sources/ on every build.
+    postCompileScripts:
+      - name: Bundle EditorWebView source for the bridge call-surface scan
+        script: |
+          cp "${SRCROOT}/Sources/EditorWebView.swift" \
+             "${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/EditorWebView.txt"
