@@ -28,11 +28,20 @@ export function startNativeShell(deps: NativeShellDeps): () => void {
   const appWindow = getCurrentWindow();
   void appWindow
     .onCloseRequested(async (event) => {
-      // Drain any pending save before the window tears down so a fast quit
-      // never drops the last keystrokes.
       event.preventDefault();
-      await deps.flushSave();
-      appWindow.destroy();
+      // Drain any pending save before teardown so a fast quit never drops the
+      // last keystrokes — but never let a hung or failed save trap shutdown:
+      // after 3s the app exits regardless.
+      await Promise.race([
+        deps.flushSave().catch(() => {}),
+        new Promise((resolve) => setTimeout(resolve, 3000)),
+      ]);
+      try {
+        const { exit } = await import('@tauri-apps/plugin-process');
+        await exit(0);
+      } catch {
+        appWindow.destroy();
+      }
     })
     .then(track);
 
