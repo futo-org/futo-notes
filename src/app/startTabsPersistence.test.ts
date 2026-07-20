@@ -119,4 +119,20 @@ describe('startTabsPersistence', () => {
     await vi.waitFor(() => expect(mocks.hydrate).toHaveBeenCalledOnce());
     expect(mocks.hydrate.mock.calls[0][2]).toBeNull();
   });
+
+  it('clamps a persisted sidebar width that would wrap the brand', async () => {
+    mocks.getConfig.mockResolvedValue({
+      sidebarWidth: 200,
+      openTabs: null,
+    });
+    const setSidebarWidth = vi.fn();
+
+    startTabsPersistence({
+      getRequestedNoteId: () => null,
+      setSidebarCollapsed: vi.fn(),
+      setSidebarWidth,
+    });
+
+    await vi.waitFor(() => expect(setSidebarWidth).toHaveBeenCalledWith(240));
+  });
 });

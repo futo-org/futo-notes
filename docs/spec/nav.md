@@ -65,7 +65,7 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
 ## Desktop shell *(desktop)*
 
 - The sidebar is persistent and resizable (drag the divider, clamped
-  200–600px). A
+  240–600px so the full **FUTO Notes** brand remains on one line). A
   single collapse/expand toggle lives in the full-width desktop top band (its
   leading `topband-chrome`, which mirrors the sidebar column) and flips icon +
   label by state; it is the only sidebar toggle on desktop. Width and collapsed
