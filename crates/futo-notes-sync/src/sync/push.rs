@@ -438,9 +438,9 @@ pub(crate) async fn push(
     pre_write: &PreWrite,
 ) -> Result<(SyncSummary, ConnectedState), SyncErrorKind> {
     recover_stale_claims(root, pre_write);
+    let files = local_files(root).map_err(SyncErrorKind::Io)?;
     let http = client(state)?;
     let mut next = state.clone();
-    let files = local_files(root);
     let missing = missing_local_files(&next, &files);
     let mut summary = SyncSummary::default();
     let (claimed_missing, renamed_files) =
@@ -492,8 +492,12 @@ pub(crate) async fn push(
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
     use std::path::{Path, PathBuf};
-    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
 
     use super::*;
 
@@ -540,11 +544,72 @@ mod tests {
         }
     }
 
+    fn mutation_server() -> (String, Arc<AtomicUsize>, std::thread::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let address = listener.local_addr().unwrap();
+        let mutations = Arc::new(AtomicUsize::new(0));
+        let observed = Arc::clone(&mutations);
+        let handle = std::thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(1);
+            while Instant::now() < deadline {
+                match listener.accept() {
+                    Ok((mut stream, _)) => {
+                        let mut request = [0; 4096];
+                        let read = stream.read(&mut request).unwrap_or(0);
+                        if request[..read].starts_with(b"DELETE ") {
+                            observed.fetch_add(1, Ordering::Relaxed);
+                        }
+                        let body = r#"{"error":"injected"}"#;
+                        write!(
+                            stream,
+                            "HTTP/1.1 500 Internal Server Error\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                            body.len()
+                        )
+                        .unwrap();
+                        return;
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(Duration::from_millis(5));
+                    }
+                    Err(error) => panic!("mutation server failed: {error}"),
+                }
+            }
+        });
+        (format!("http://{address}"), mutations, handle)
+    }
+
+    #[tokio::test]
+    async fn incomplete_root_scan_stops_before_remote_deletion() {
+        let root = TempRoot::new();
+        std::fs::remove_dir(root.path()).unwrap();
+        let (base_url, mutations, server) = mutation_server();
+        let mut state = connected();
+        state.base_url = base_url;
+        state.object_map.insert(
+            "healthy.md".into(),
+            ObjectState {
+                object_id: "healthy-object".into(),
+                version: 1,
+                blob_key: "healthy-blob".into(),
+                hash: Some(hash_sha256("healthy")),
+                mtime_ms: Some(1),
+                size_bytes: Some(7),
+            },
+        );
+
+        let result = push(&state, root.path(), &no_progress, &no_pre_write).await;
+        server.join().unwrap();
+
+        assert!(matches!(result, Err(SyncErrorKind::Io(_))));
+        assert_eq!(mutations.load(Ordering::Relaxed), 0);
+    }
+
     #[tokio::test]
     async fn push_skips_an_oversize_flagged_file_without_uploading_or_deleting_it() {
         let root = TempRoot::new();
         std::fs::write(root.path().join("big.md"), "too big for the server").unwrap();
-        let file = local_files(root.path()).remove(0);
+        let file = local_files(root.path()).unwrap().remove(0);
         let mut state = connected();
         state.oversize_skip.insert(file.name.clone(), file.mtime);
 
@@ -563,7 +628,7 @@ mod tests {
     async fn push_retries_an_oversize_flagged_file_after_its_mtime_changes() {
         let root = TempRoot::new();
         std::fs::write(root.path().join("big.md"), "shrunk").unwrap();
-        let file = local_files(root.path()).remove(0);
+        let file = local_files(root.path()).unwrap().remove(0);
         let mut state = connected();
         state
             .oversize_skip
@@ -585,7 +650,7 @@ mod tests {
     async fn push_preserves_the_pull_cursor() {
         let root = TempRoot::new();
         std::fs::write(root.path().join("note.md"), "synced body").unwrap();
-        let file = local_files(root.path()).remove(0);
+        let file = local_files(root.path()).unwrap().remove(0);
         let mut state = connected();
         state.pull_cursor = 42;
         state.max_version = 99;

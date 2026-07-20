@@ -222,10 +222,17 @@ async fn create_conflict_copy(
     file: &LocalFile,
     local: &str,
 ) -> Option<String> {
-    let names: HashSet<String> = local_files(context.root)
-        .into_iter()
-        .map(|file| file.name)
-        .collect();
+    let names: HashSet<String> = match local_files(context.root) {
+        Ok(files) => files.into_iter().map(|file| file.name).collect(),
+        Err(_) => {
+            context.summary.failures.push(SyncFailure {
+                filename: file.name.clone(),
+                kind: FailureKind::Upload,
+                status_code: None,
+            });
+            return None;
+        }
+    };
     let copy = conflict_filename(&file.name, &conflict_date(), &names);
     if write_content(context.root, &copy, local, context.pre_write).is_err() {
         context.summary.failures.push(SyncFailure {

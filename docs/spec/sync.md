@@ -517,6 +517,16 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   the conflict — silent data loss, `conflicts == 0` (F1). → futo-notes-ffi
   `SyncClient::sync_now` + `SyncSession::start_live`; server/cross-platform
   integration suites
+- **A push may infer local deletions only from a complete vault scan.** Failure
+  to read the vault root, any nested directory entry, or any file metadata
+  aborts the cycle before the HTTP client is constructed and before any remote
+  create, update, or tombstone. A partial scan is never treated as an
+  authoritative list of missing files, because that could turn a transient
+  local I/O failure into fleet-wide deletion of healthy remote objects. The
+  same fallible scanner is used by conflict/tombstone copy naming; no sync call
+  site receives a best-effort file list. → futo-notes-sync `sync/vault.rs` +
+  `sync/push.rs`; regression tests `scan_reports_*` and
+  `incomplete_root_scan_stops_before_remote_deletion`
 - **The persisted pull cursor never advances past changes we have actually
   pulled — even across a crash mid-push.** State carries TWO watermarks:
   `max_version` (the highest `change_seq` seen; push folds its uploads in and

@@ -243,6 +243,7 @@ fn local_scan_ignores_hidden_and_legacy_files_but_keeps_images() {
     std::fs::create_dir(root.path().join(".hidden")).unwrap();
     std::fs::write(root.path().join(".hidden/note.md"), "hidden").unwrap();
     let names: Vec<_> = local_files(root.path())
+        .unwrap()
         .into_iter()
         .map(|file| file.name)
         .collect();
@@ -327,7 +328,7 @@ fn colliding_remote_notes_both_survive_but_identical_content_deduplicates() {
         &mut summary,
     )
     .unwrap();
-    let files = local_files(root.path());
+    let files = local_files(root.path()).unwrap();
     assert_eq!(files.len(), 2);
     let contents: HashSet<_> = files
         .iter()
@@ -335,7 +336,7 @@ fn colliding_remote_notes_both_survive_but_identical_content_deduplicates() {
         .collect();
     assert_eq!(contents, HashSet::from(["first".into(), "second".into()]));
 
-    let before = local_files(root.path()).len();
+    let before = local_files(root.path()).unwrap().len();
     apply_remote(
         &mut state,
         root.path(),
@@ -346,7 +347,7 @@ fn colliding_remote_notes_both_survive_but_identical_content_deduplicates() {
         &mut summary,
     )
     .unwrap();
-    assert_eq!(local_files(root.path()).len(), before);
+    assert_eq!(local_files(root.path()).unwrap().len(), before);
 }
 
 #[test]

@@ -165,7 +165,7 @@ fn park_divergent_claim(
     summary: &mut SyncSummary,
 ) -> Result<(), String> {
     let (claim, sidecar) = claim_paths;
-    let names = local_files(root)
+    let names = local_files(root)?
         .into_iter()
         .map(|file| file.name)
         .collect();
