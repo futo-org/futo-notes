@@ -643,6 +643,17 @@ async function externalWatcherKeepsDirtyDraft(a, _b, _server) {
 async function deleteVsEdit(a, b, server) {
   await a.connectSync(server.url, server.password);
   await b.connectSync(server.url, server.password);
+  // Own the delete-then-edit ordering this scenario asserts ("B syncs first —
+  // edit wins"). With the live loop running, a background cycle can push A's
+  // delete or pull B's edit between the explicit steps below, so the "B first"
+  // premise stops holding and A converges to the (correct, non-lossy) delete
+  // instead of B's edit — the same contended-convergence hazard the sibling
+  // scenarios (fileMovedToTwoFoldersByAandB, concurrentOfflineFolderRename,
+  // fileMoveOnAEditOnB) pause auto-sync to avoid. Pausing here changes nothing
+  // about the conflict tested (A deletes, B edits, both from the shared
+  // baseline); it only makes the stated sync ordering real.
+  await a.pauseAutoSync();
+  await b.pauseAutoSync();
 
   // Both get a shared note
   await a.writeNote('contested', '# Original');
@@ -656,13 +667,13 @@ async function deleteVsEdit(a, b, server) {
   // B syncs first — edit wins
   await b.syncNow();
 
-  // A syncs to pick up B's version. Delete-vs-edit resolves in B's favor and
-  // A pulls the surviving edit back — but this can take more than one sync
-  // round: A's explicit sync (or an earlier auto-sync) pushes A's delete
-  // first, and B's edit only lands on a later pull. Poll until it converges
-  // instead of assuming a fixed number of syncs. readNote returns "" (not an
-  // error) for an absent file, so read the content directly and loop until it
-  // matches — a plain read cannot distinguish "not pulled yet" from "gone".
+  // A syncs to pick up B's version. Each cycle is push-first: A's push of its
+  // stale delete hits a 409 (B already bumped the version) and the client
+  // restores B's surviving edit, which the same cycle's pull confirms. Poll
+  // rather than assume a fixed round count — the restore can trail the push by
+  // a cycle. readNote returns "" (not an error) for an absent file, so read the
+  // content directly and loop until it matches — a plain read cannot
+  // distinguish "not pulled yet" from "gone".
   let aContent = '';
   for (let attempt = 0; attempt < 6; attempt += 1) {
     await a.syncNow();
