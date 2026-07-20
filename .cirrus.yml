@@ -93,6 +93,12 @@ test_ios_native_task:
     # not exit codes). `|| true` is safe ONLY because the arbiter is the gate.
     - |
       set -o pipefail
+      # `tee` cannot create the log if its dir is absent — and on a fresh CI
+      # clone apps/ios/.build does not exist until xcodebuild's -derivedDataPath
+      # makes it, by which point tee has already failed to open the file
+      # (output still streams to the Cirrus log, so the file silently stays
+      # empty). A warm local .build hid this. Create the dir first.
+      mkdir -p apps/ios/.build
       xcodebuild test -project apps/ios/FutoNotesNative.xcodeproj \
         -scheme FutoNotesNative \
         -destination "id=$SIM" \
