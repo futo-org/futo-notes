@@ -632,6 +632,45 @@ fn mutations_feed_the_same_background_search_owner() {
 }
 
 #[test]
+fn renaming_a_note_removes_the_old_id_from_search_without_a_restart() {
+    let root = TestRoot::new();
+    let index = TestRoot::new();
+    let store = store(&root);
+    store
+        .start_search(index.0.clone(), Arc::new(|_| {}))
+        .unwrap();
+    store.write("alpha", "zzqm distinctive body", None).unwrap();
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let hits = store.search("zzqm", Some(10)).unwrap();
+        if hits.iter().any(|hit| hit.note_id == "alpha") {
+            break;
+        }
+        assert!(Instant::now() < deadline, "note never reached search");
+        std::thread::sleep(Duration::from_millis(25));
+    }
+
+    store.rename("alpha", "beta").unwrap();
+
+    // The rename must drop the stale "alpha" id from the live BM25 index in the
+    // same session — no process restart / startup reconcile required.
+    loop {
+        let hits = store.search("zzqm", Some(10)).unwrap();
+        let has_stale = hits.iter().any(|hit| hit.note_id == "alpha");
+        let has_new = hits.iter().any(|hit| hit.note_id == "beta");
+        if has_new && !has_stale {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline + Duration::from_secs(10),
+            "rename left the stale old id in search (has_stale={has_stale}, has_new={has_new})"
+        );
+        std::thread::sleep(Duration::from_millis(25));
+    }
+}
+
+#[test]
 fn reset_removes_every_vault_entry_but_never_the_vault_directory() {
     let root = TestRoot::new();
     let store = store(&root);
