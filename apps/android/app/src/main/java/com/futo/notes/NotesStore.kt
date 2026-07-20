@@ -65,6 +65,9 @@ internal fun confirmedSavedContent(
     NoteMutationOutcome.Failed -> previousSavedContent
 }
 
+internal fun shouldCompleteNoteAction(outcome: NoteMutationOutcome<*>): Boolean =
+    outcome is NoteMutationOutcome.Committed
+
 /** The open editor's unsaved-draft derivation — the ONE definition of "is there
  *  an unsaved draft, for which note" (PKT-12 R5). Returns a draft keyed on the
  *  LIVE [noteId] (so it re-keys by construction after a rename) whenever the body
@@ -389,14 +392,19 @@ class NotesStore(notesRoot: File, searchIndex: File) {
         android.util.Log.e("NotesStore", "createNote failed", e); null
     }
 
-    suspend fun delete(id: String) {
+    suspend fun delete(id: String): NoteMutationOutcome<Unit> =
         try {
-            val mutation = withCore { core.delete(id) }
+            val (mutation, folderPaths) = withCore {
+                core.delete(id) to core.scan().folders
+            }
             applyMutation(mutation)
-            refreshFolders()
+            folders = folderPaths
             signalLocalChange()
-        } catch (e: Exception) { android.util.Log.e("NotesStore", "delete failed", e) }
-    }
+            NoteMutationOutcome.Committed(Unit)
+        } catch (e: Exception) {
+            android.util.Log.e("NotesStore", "delete failed", e)
+            NoteMutationOutcome.Failed
+        }
 
     /** Fire-and-forget delete for the editor's `onDispose` (can't suspend; the
      *  composable's scope is already gone). Runs on the store's scope, which
@@ -416,25 +424,32 @@ class NotesStore(notesRoot: File, searchIndex: File) {
         android.util.Log.e("NotesStore", "rename failed", e); oldId
     }
 
-    suspend fun moveNote(id: String, toFolder: String): String = try {
-        val mutation = withCore { core.moveNote(id, toFolder) }
+    suspend fun moveNote(id: String, toFolder: String): NoteMutationOutcome<String> = try {
+        val (mutation, folderPaths) = withCore {
+            core.moveNote(id, toFolder) to core.scan().folders
+        }
         applyMutation(mutation)
-        refreshFolders()
+        folders = folderPaths
         signalLocalChange()
-        mutation.finalId(id)
+        NoteMutationOutcome.Committed(mutation.finalId(id))
     } catch (e: Exception) {
-        android.util.Log.e("NotesStore", "moveNote failed", e); id
+        android.util.Log.e("NotesStore", "moveNote failed", e)
+        NoteMutationOutcome.Failed
     }
 
-    suspend fun createFolder(path: String) {
+    suspend fun createFolder(path: String): NoteMutationOutcome<Unit> =
         try {
-            withCore { core.createFolder(path) }
-            refreshFolders()
+            val folderPaths = withCore {
+                core.createFolder(path)
+                core.scan().folders
+            }
+            folders = folderPaths
             signalLocalChange()
+            NoteMutationOutcome.Committed(Unit)
         } catch (e: Exception) {
             android.util.Log.e("NotesStore", "createFolder failed", e)
+            NoteMutationOutcome.Failed
         }
-    }
 
     /** MOVE-UP folder delete (Tauri parity, [list.md:121]): notes under
      *  [path] move to the parent (Rust bails atomically — if ANY move fails

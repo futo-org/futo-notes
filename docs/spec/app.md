@@ -189,6 +189,11 @@ Behaviors and constraints that hold across every surface and platform.
   native shows the same platform toasts — delete now toasts "Note deleted" from
   both the editor ⋮ menu and the list long-press)_ → shared/notifications/toastBus.ts,
   NoteEditorScreen.kt, NoteListScreen.kt
+- Android emits delete/move success feedback only after the Rust store returns
+  a committed mutation. A failed action instead reports that the note remains
+  in place; it never navigates away from the editor or dismisses the move
+  picker as though the mutation succeeded. → `NoteMutationOutcome`,
+  `shouldCompleteNoteAction`, NoteActionCompletionTest
 - An uncaught error/crash is queued; the **next launch** shows a Crash Report
   dialog: expandable "View report", an optional "What were you doing?" field,
   an "Always send crash reports" checkbox, and Send / Don't Send. "Always

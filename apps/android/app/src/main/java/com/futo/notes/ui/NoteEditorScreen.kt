@@ -59,6 +59,7 @@ import com.futo.notes.confirmedSavedContent
 import com.futo.notes.derivePendingDraft
 import com.futo.notes.saveImageDataIntoVault
 import com.futo.notes.saveImageIntoVault
+import com.futo.notes.shouldCompleteNoteAction
 import com.futo.notes.ui.components.ConfirmDialog
 import com.futo.notes.ui.components.FolderPickerSheet
 import com.futo.notes.ui.theme.FutoType
@@ -591,20 +592,22 @@ fun NoteEditorScreen(
             onConfirm = {
                 confirmDelete = false
                 saveJob?.cancel()
-                // Mark clean so neither the onDispose flush nor the derived
-                // register can resurrect the note (content==savedContent makes
-                // the register null this note's draft), then fire the suspend
-                // delete on the composable scope (FFI on IO) and pop back
-                // immediately. Toast synchronously BEFORE the pop: onBack()
-                // cancels this screen's coroutine scope, so a toast awaited inside
-                // the launch could be cut off before it shows. store.delete
-                // swallows its own errors (never throws), so there's no failure
-                // state to withhold the confirmation for. The `write_if_unchanged`
-                // flush backstops this too — a deleted note returns SkippedMissing.
-                savedContent = content
-                scope.launch { store.delete(noteId) }
-                Toast.makeText(context, "Note deleted", Toast.LENGTH_SHORT).show()
-                onBack()
+                scope.launch {
+                    val outcome = store.delete(noteId)
+                    if (shouldCompleteNoteAction(outcome)) {
+                        // Mark clean only after delete commits, so onDispose
+                        // cannot recreate the deleted note from its dirty draft.
+                        savedContent = content
+                        Toast.makeText(context, "Note deleted", Toast.LENGTH_SHORT).show()
+                        onBack()
+                    } else {
+                        Toast.makeText(
+                            context,
+                            "Couldn't delete note. It remains in your notes.",
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    }
+                }
             },
             onDismiss = { confirmDelete = false },
         )
@@ -615,7 +618,6 @@ fun NoteEditorScreen(
             store = store,
             onDismiss = { showMoveSheet = false },
             onPick = { folder, isNew ->
-                showMoveSheet = false
                 scope.launch {
                     // Flush the draft to the CURRENT id before the file moves —
                     // a stale save would recreate a ghost at the old id. The
@@ -639,9 +641,30 @@ fun NoteEditorScreen(
                             return@launch
                         }
                     }
-                    if (isNew) store.createFolder(folder)
-                    noteId = store.moveNote(noteId, folder)
-                    Toast.makeText(context, "Moved to ${folder.ifEmpty { "Root" }}", Toast.LENGTH_SHORT).show()
+                    if (isNew && !shouldCompleteNoteAction(store.createFolder(folder))) {
+                        Toast.makeText(
+                            context,
+                            "Couldn't create folder. The note was not moved.",
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                        return@launch
+                    }
+                    when (val outcome = store.moveNote(noteId, folder)) {
+                        is NoteMutationOutcome.Committed -> {
+                            noteId = outcome.value
+                            showMoveSheet = false
+                            Toast.makeText(
+                                context,
+                                "Moved to ${folder.ifEmpty { "Root" }}",
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        }
+                        NoteMutationOutcome.Failed -> Toast.makeText(
+                            context,
+                            "Couldn't move note. It remains in its current folder.",
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    }
                 }
             },
         )

@@ -67,7 +67,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.futo.notes.NoteMutationOutcome
 import com.futo.notes.NotesStore
+import com.futo.notes.shouldCompleteNoteAction
 import com.futo.notes.ui.components.ConfirmDialog
 import com.futo.notes.ui.components.FolderPickerSheet
 import com.futo.notes.ui.components.MicroLabel
@@ -280,8 +282,16 @@ fun NoteListScreen(
             onConfirm = {
                 deleteTarget = null
                 scope.launch {
-                    store.delete(id)
-                    Toast.makeText(context, "Note deleted", Toast.LENGTH_SHORT).show()
+                    val outcome = store.delete(id)
+                    if (shouldCompleteNoteAction(outcome)) {
+                        Toast.makeText(context, "Note deleted", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(
+                            context,
+                            "Couldn't delete note. It remains in your notes.",
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    }
                 }
             },
             onDismiss = { deleteTarget = null },
@@ -294,11 +304,30 @@ fun NoteListScreen(
             onDismiss = { moveTarget = null },
             onPick = { folder, isNew ->
                 val id = moveTarget ?: return@FolderPickerSheet
-                moveTarget = null
                 scope.launch {
-                    if (isNew) store.createFolder(folder)
-                    store.moveNote(id, folder)
-                    Toast.makeText(context, "Moved to ${folder.ifEmpty { "Root" }}", Toast.LENGTH_SHORT).show()
+                    if (isNew && !shouldCompleteNoteAction(store.createFolder(folder))) {
+                        Toast.makeText(
+                            context,
+                            "Couldn't create folder. The note was not moved.",
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                        return@launch
+                    }
+                    when (store.moveNote(id, folder)) {
+                        is NoteMutationOutcome.Committed -> {
+                            moveTarget = null
+                            Toast.makeText(
+                                context,
+                                "Moved to ${folder.ifEmpty { "Root" }}",
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        }
+                        NoteMutationOutcome.Failed -> Toast.makeText(
+                            context,
+                            "Couldn't move note. It remains in its current folder.",
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    }
                 }
             },
         )
@@ -309,8 +338,17 @@ fun NoteListScreen(
             parent = if (currentFolder == ALL) "" else currentFolder,
             store = store,
             onCreate = { path ->
-                newFolderDialog = false
-                scope.launch { store.createFolder(path) }
+                scope.launch {
+                    if (shouldCompleteNoteAction(store.createFolder(path))) {
+                        newFolderDialog = false
+                    } else {
+                        Toast.makeText(
+                            context,
+                            "Couldn't create folder. Try again.",
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    }
+                }
             },
             onDismiss = { newFolderDialog = false },
         )

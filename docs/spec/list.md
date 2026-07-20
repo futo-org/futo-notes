@@ -169,6 +169,16 @@ confirmation, not surfaced as a per-folder count. → NoteListView.swift
   Folder…") and applies the move + backlink relink immediately, with a
   "Moved to {folder}" toast (verified on emulator 2026-06-09). →
   NoteListScreen.kt, FolderPickerSheet.kt
+- Android note delete/move actions consume an explicit committed/failed store
+  outcome. Success toasts, editor navigation, note-id changes, and move-sheet
+  dismissal occur only after commit. On failure the editor/list and current
+  folder identity remain in place, the move picker stays open for retry, and a
+  failure toast states that the note was not deleted or moved. Creating an
+  inline destination folder is likewise a prerequisite: its failure stops the
+  move. The standalone New Folder dialog also dismisses only after a committed
+  create; failure leaves it open for retry and shows a failure toast. →
+  NotesStore.kt, NoteEditorScreen.kt, NoteListScreen.kt,
+  NoteActionCompletionTest
 - **Both native shells create notes as quick capture** (iOS "+" menu → New
   Note; Android FAB → New note): an "Untitled" note is created in the current
   folder and the editor opens with the **body** focused — no blocking title
