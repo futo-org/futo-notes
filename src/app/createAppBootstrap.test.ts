@@ -21,9 +21,20 @@ vi.mock('$lib/platform', () => ({
   getPlatformFS: vi.fn(() => new Promise(() => {})),
   hasFileSystem: true,
 }));
+const themeMocks = vi.hoisted(() => {
+  let capturedOnChange: ((theme?: string) => void) | undefined;
+  return {
+    applyThemePreference: vi.fn(() => Promise.resolve('light')),
+    watchSystemThemeTauri: vi.fn((onChange: (theme?: string) => void) => {
+      capturedOnChange = onChange;
+      return () => {};
+    }),
+    fireSystemThemeChange: (theme?: string) => capturedOnChange?.(theme),
+  };
+});
 vi.mock('$features/system/theme', () => ({
-  applyThemePreference: vi.fn(() => new Promise(() => {})),
-  watchSystemThemeTauri: vi.fn(() => () => {}),
+  applyThemePreference: themeMocks.applyThemePreference,
+  watchSystemThemeTauri: themeMocks.watchSystemThemeTauri,
 }));
 
 import { createAppBootstrap } from './createAppBootstrap.svelte';
@@ -60,5 +71,25 @@ describe('createAppBootstrap (M1 render gate)', () => {
     expect(bootstrap.initialized).toBe(true);
     stop();
     warn.mockRestore();
+  });
+
+  it('forwards the OS-reported theme so auto follows the desktop theme on Linux', () => {
+    // getCachedPreferences() is mocked to { appearance: { theme: 'auto' } }.
+    themeMocks.applyThemePreference.mockClear();
+    const bootstrap = createAppBootstrap({
+      initializeCrashReporting: vi.fn(never),
+      installDevelopmentHooks: vi.fn(),
+    });
+
+    const stop = bootstrap.start();
+    // Initial apply has no OS value to forward.
+    expect(themeMocks.applyThemePreference).toHaveBeenNthCalledWith(1, 'auto', undefined);
+
+    // Portal/Tauri theme-change event carries the resolved theme; on Linux the
+    // webview's matchMedia can't see it, so this override must reach applyThemePreference.
+    themeMocks.fireSystemThemeChange('dark');
+    expect(themeMocks.applyThemePreference).toHaveBeenLastCalledWith('auto', 'dark');
+
+    stop();
   });
 });

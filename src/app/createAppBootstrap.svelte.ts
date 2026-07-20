@@ -2,7 +2,11 @@ import { getPlatformFS } from '$lib/platform';
 import { getCachedPreferences, loadPreferences } from '$shared/state/appState';
 import { initNotes } from '$features/notes/notes.svelte';
 import { initSyncPassword } from '$features/sync/syncServiceE2ee';
-import { applyThemePreference, watchSystemThemeTauri } from '$features/system/theme';
+import {
+  applyThemePreference,
+  watchSystemThemeTauri,
+  type ResolvedTheme,
+} from '$features/system/theme';
 import { updateChecker } from '$features/system/updateChecker.svelte';
 
 export interface AppBootstrapDeps {
@@ -28,8 +32,10 @@ export function createAppBootstrap(deps: AppBootstrapDeps): AppBootstrap {
     let disposeThemeWatch = () => {};
 
     // Everything below is background work; none of it gates the render above.
-    const applyCurrentTheme = () =>
-      void applyThemePreference(getCachedPreferences().appearance.theme);
+    // Forward the OS-reported theme: on Linux the webview's matchMedia can't see
+    // the desktop theme, so the portal event's value must win for `auto`.
+    const applyCurrentTheme = (systemTheme?: ResolvedTheme) =>
+      void applyThemePreference(getCachedPreferences().appearance.theme, systemTheme);
     applyCurrentTheme();
     disposeThemeWatch = watchSystemThemeTauri(applyCurrentTheme);
     void loadPreferences()
