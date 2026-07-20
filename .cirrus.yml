@@ -96,7 +96,7 @@ test_ios_native_task:
     # M11: xcodebuild already fails for red tests; also fail if discovery ran
     # zero tests or the successful execution summary is absent.
     - |
-      TEST_SUMMARY='Executed [1-9][0-9]* tests?, with 0 failures|Test run with [1-9][0-9]* tests? passed'
+      TEST_SUMMARY='Executed [1-9][0-9]* tests?, with 0 failures|Test run with [1-9][0-9]* tests?( in [0-9]+ suites?)? passed'
       if ! grep -Eq "$TEST_SUMMARY" apps/ios/.build/xcodebuild-test.log; then
         echo "ERROR: iOS unit-test run did not report at least one executed test with zero failures" >&2
         if ! grep -E 'Executed [0-9]+ tests?|Test run with [0-9]+ tests?' apps/ios/.build/xcodebuild-test.log >&2; then
