@@ -114,6 +114,27 @@ Inventory three sources separately:
    atomicity, encryption, concurrency, lifecycle, and data preservation.
 3. Legacy internal tests: unit tests coupled to the implementation being
    removed.
+4. Implicit behaviors none of the three sources capture. A from-scratch rebuild
+   silently drops exactly what is neither spec-mandated nor covered by a
+   happy-path test. Before designing, inventory these four classes from the OLD
+   code — each is greppable across the scope's files:
+
+   - **Process-lifecycle semantics** — `relaunch()` vs `window.location.reload()`,
+     process restart, cache/handle invalidation. A webview reload does not rebind
+     Rust-held resources (filesystem watchers, DB handles) — only a restart does.
+   - **Platform-specific glue** — Linux/portal events, and optional arguments a
+     new caller can silently omit. Grep each helper's signature for optional
+     params and confirm the new call sites still supply them where they carried
+     behavior (TypeScript will not flag a dropped optional argument).
+   - **Dev-only affordances** — every `import.meta.env.DEV` branch in the old
+     files (`git show <base> -- <files> | grep -n 'import\.meta\.env\.DEV'`);
+     confirm each is intentionally kept or dropped.
+   - **Error / rejection paths** — every `catch` in the old files; a dropped
+     `try/catch` turns a handled failure into an unhandled rejection or a lost
+     user signal.
+
+   Fold each surviving behavior into the contract as an explicit row, and record
+   any deliberate drop in the ledger (or, in pruning mode, as a triage row).
 
 For every legacy internal test, write one plain-English promise and classify it:
 
@@ -265,6 +286,29 @@ nonzero number of tests, and you report the count. “`cargo test -p X` passed�
 while running 0 tests (everything deleted or `#[ignore]`d) is silent green
 wearing a test suite — a draft of the sync rewrite failed review on exactly
 this.
+
+### Behavioral parity sweep (ask first)
+
+A green external gate does not prove parity: it only covers behavior some test
+asserts, and a from-scratch rebuild's regressions cluster in the Phase 3 blind
+spots that no test guards. Before declaring success, **ask the requester whether
+to run a parity sweep.** It is cheap and has repeatedly caught silently-dropped
+behavior; run it unless they decline.
+
+The sweep is a direct old-vs-new diff for the four blind-spot classes:
+
+    git diff <merge-base>...HEAD -- <rewritten paths> \
+      | grep -E '^-.*(catch|relaunch|import\.meta\.env\.DEV)'
+
+Every removed `catch`, `relaunch`, or dev-only branch is a "prove this was
+intentional" item — either a regression to restore or a deliberate drop to
+record in the ledger. Re-read each helper whose optional argument the new
+callers stopped passing.
+
+Then sweep the added comments against the repo comment standard — a from-scratch
+rebuild over-comments. Delete comments that restate the code; keep the ones that
+justify a non-obvious decision (an empty catch, a magic constant, a spec
+reference, a render/lifecycle gate).
 
 ## Phase 8: measure and audit the result
 
