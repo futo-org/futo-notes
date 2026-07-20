@@ -6,6 +6,9 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { executeJs, sleep } from './mcp-client.mjs';
 
+const SCRIPT_EXECUTION_TIMEOUT = 'Script execution timeout';
+const EXECUTE_JS_RETRY_ATTEMPTS = 3;
+
 export async function waitForTestHooks(
   ws,
   name,
@@ -63,6 +66,8 @@ export class TauriTestClient {
     this.proc = proc;
     this.stopProc = stopProc;
     this.loopbackHost = loopbackHost;
+    this._asyncSlotCounter = 0;
+    this._startedSyncSlotRef = null;
     this.capabilities = {
       supportsHostExternalMutation: Boolean(notesDir),
     };
@@ -86,22 +91,25 @@ export class TauriTestClient {
   }
 
   async writeNote(id, content) {
-    return executeJs(
-      this.ws,
+    return this._executeMutation(
       `window.__testNotes.writeNote(${JSON.stringify(id)}, ${JSON.stringify(content)})`,
+      'writeNote',
     );
   }
 
   async readNote(id) {
-    return executeJs(this.ws, `window.__testNotes.readNote(${JSON.stringify(id)})`);
+    return this._executeRead(`window.__testNotes.readNote(${JSON.stringify(id)})`, 'readNote');
   }
 
   async listNotes() {
-    return executeJs(this.ws, `window.__testNotes.listNoteFiles()`);
+    return this._executeRead(`window.__testNotes.listNoteFiles()`, 'listNotes');
   }
 
   async deleteNote(id) {
-    return executeJs(this.ws, `window.__testNotes.deleteNoteFile(${JSON.stringify(id)})`);
+    return this._executeMutation(
+      `window.__testNotes.deleteNoteFile(${JSON.stringify(id)})`,
+      'deleteNote',
+    );
   }
 
   // App-level delete: goes through the same path as a user delete, so the
@@ -111,40 +119,49 @@ export class TauriTestClient {
   // cache stale (which is correct to test for external edits, but races
   // when the scenario means "the user deleted a note in the app").
   async deleteNoteInApp(id) {
-    return executeJs(this.ws, `window.__testNotes.deleteNote(${JSON.stringify(id)})`);
+    return this._executeMutation(
+      `window.__testNotes.deleteNote(${JSON.stringify(id)})`,
+      'deleteNoteInApp',
+    );
   }
 
   async deleteAllNotes() {
-    return executeJs(this.ws, `window.__testNotes.deleteAllContent()`);
+    return this._executeMutation(`window.__testNotes.deleteAllContent()`, 'deleteAllNotes');
   }
 
   async noteExists(id) {
-    return executeJs(this.ws, `window.__testNotes.noteExists(${JSON.stringify(id)})`);
+    return this._executeRead(`window.__testNotes.noteExists(${JSON.stringify(id)})`, 'noteExists');
   }
 
   async listFolders() {
-    return executeJs(this.ws, `window.__testNotes.listFolders()`);
+    return this._executeRead(`window.__testNotes.listFolders()`, 'listFolders');
   }
 
   async createFolder(path) {
-    return executeJs(this.ws, `window.__testNotes.createFolder(${JSON.stringify(path)})`);
+    return this._executeMutation(
+      `window.__testNotes.createFolder(${JSON.stringify(path)})`,
+      'createFolder',
+    );
   }
 
   async renameFolder(from, to) {
-    return executeJs(
-      this.ws,
+    return this._executeMutation(
       `window.__testNotes.renameFolder(${JSON.stringify(from)}, ${JSON.stringify(to)})`,
+      'renameFolder',
     );
   }
 
   async deleteFolder(path) {
-    return executeJs(this.ws, `window.__testNotes.deleteFolder(${JSON.stringify(path)})`);
+    return this._executeMutation(
+      `window.__testNotes.deleteFolder(${JSON.stringify(path)})`,
+      'deleteFolder',
+    );
   }
 
   async moveNote(fromId, toId) {
-    return executeJs(
-      this.ws,
+    return this._executeMutation(
       `window.__testNotes.moveNote(${JSON.stringify(fromId)}, ${JSON.stringify(toId)})`,
+      'moveNote',
     );
   }
 
@@ -152,29 +169,28 @@ export class TauriTestClient {
    *  file is suffixed (`A/note` → `A/note-2`). Mirrors the UI-driven
    *  `moveNote` flow in `src/features/notes/notes.svelte.ts`. */
   async moveNoteWithCollisions(fromId, toId) {
-    return executeJs(
-      this.ws,
+    return this._executeMutation(
       `window.__testNotes.moveNoteWithCollisions(${JSON.stringify(fromId)}, ${JSON.stringify(toId)})`,
+      'moveNoteWithCollisions',
     );
   }
 
   async openNewNote() {
-    await executeJs(this.ws, `window.location.hash = '#/note/new'`);
+    await this._executeMutation(`window.location.hash = '#/note/new'`, 'openNewNote');
     await this.waitForRoute('/note/new');
     await this.waitForEditorReady();
   }
 
   async openNote(id) {
     const encodedId = encodeURIComponent(id);
-    await executeJs(this.ws, `window.location.hash = '#/note/${encodedId}'`);
+    await this._executeMutation(`window.location.hash = '#/note/${encodedId}'`, 'openNote');
     await this.waitForRoute(`/note/${encodedId}`);
     await this.waitForEditorReady();
     await this.waitForOpenNote(id);
   }
 
   async setTitle(title) {
-    return executeJs(
-      this.ws,
+    return this._executeMutation(
       `(() => {
       const input = document.querySelector('.title-input');
       if (!(input instanceof HTMLTextAreaElement)) {
@@ -185,33 +201,37 @@ export class TauriTestClient {
       input.dispatchEvent(new Event('input', { bubbles: true }));
       return input.value;
     })()`,
+      'setTitle',
     );
   }
 
   async typeInEditor(text) {
-    return executeJs(this.ws, `window.__notesShellTest.typeInEditor(${JSON.stringify(text)})`);
+    return this._executeMutation(
+      `window.__notesShellTest.typeInEditor(${JSON.stringify(text)})`,
+      'typeInEditor',
+    );
   }
 
   async flushSave() {
-    return executeJs(this.ws, `window.__notesShellTest.flushSave()`);
+    return this._executeMutation(`window.__notesShellTest.flushSave()`, 'flushSave');
   }
 
   async getOpenNoteState() {
-    return executeJs(this.ws, `window.__notesShellTest.getState()`);
+    return this._executeRead(`window.__notesShellTest.getState()`, 'getOpenNoteState');
   }
 
   // Blur the editor (moving DOM focus off .cm-content) and report whether it
   // is now unfocused. CodeMirror's updateListener fires focusChanged on the
   // blur, which drives the host's handleEditorFocusChange(false).
   async blurEditor() {
-    return executeJs(
-      this.ws,
+    return this._executeMutation(
       `(() => {
         const cm = document.querySelector('.cm-content');
         if (cm instanceof HTMLElement) cm.blur();
         if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
         return document.activeElement !== cm;
       })()`,
+      'blurEditor',
     );
   }
 
@@ -219,19 +239,57 @@ export class TauriTestClient {
   // Sync calls can exceed that (slow-proxy scenarios, 1000-note bulk sync),
   // so we kick off the promise into a window slot and poll for completion.
 
+  _nextAsyncSlotRef(label) {
+    this._asyncSlotCounter += 1;
+    return `__crossPlatformSyncCall_${label}_${this._asyncSlotCounter}`;
+  }
+
+  async _executeRead(expression, label) {
+    let lastError = null;
+    for (let attempt = 1; attempt <= EXECUTE_JS_RETRY_ATTEMPTS; attempt += 1) {
+      try {
+        return await executeJs(this.ws, expression);
+      } catch (error) {
+        if (error.message !== SCRIPT_EXECUTION_TIMEOUT) throw error;
+        lastError = error;
+      }
+    }
+    throw new Error(
+      `${this.name}: ${label} failed after ${EXECUTE_JS_RETRY_ATTEMPTS} bridge timeout attempts: ${lastError.message}`,
+    );
+  }
+
+  async _executeMutation(expression, label, { timeoutMs = 180_000 } = {}) {
+    const slotRef = this._nextAsyncSlotRef(label);
+    await this._kickOffAsync(slotRef, expression);
+    return this._awaitAsyncSlot(slotRef, timeoutMs, label);
+  }
+
   async _kickOffAsync(slotRef, expression) {
-    await executeJs(
-      this.ws,
-      `(() => {
-      const slot = '__crossPlatformSyncCall_' + Math.random().toString(36).slice(2);
-      window[slot] = { done: false };
-      Promise.resolve(${expression}).then(
-        (value) => { window[slot] = { done: true, value }; },
-        (error) => { window[slot] = { done: true, error: String(error && error.message || error) }; },
-      );
-      window[${JSON.stringify(slotRef)}] = slot;
+    const script = `(() => {
+      const slot = ${JSON.stringify(slotRef)};
+      if (!window[slot]) {
+        window[slot] = { done: false };
+        Promise.resolve(${expression}).then(
+          (value) => { window[slot] = { done: true, value }; },
+          (error) => { window[slot] = { done: true, error: String(error && error.message || error) }; },
+        );
+      }
       return 'started';
-    })()`,
+    })()`;
+
+    let lastError = null;
+    for (let attempt = 1; attempt <= EXECUTE_JS_RETRY_ATTEMPTS; attempt += 1) {
+      try {
+        await executeJs(this.ws, script);
+        return;
+      } catch (error) {
+        if (error.message !== SCRIPT_EXECUTION_TIMEOUT) throw error;
+        lastError = error;
+      }
+    }
+    throw new Error(
+      `${this.name}: kickoff for ${slotRef} failed after ${EXECUTE_JS_RETRY_ATTEMPTS} bridge timeout attempts: ${lastError.message}`,
     );
   }
 
@@ -242,17 +300,14 @@ export class TauriTestClient {
   async _awaitAsyncSlot(slotRef, timeoutMs, label) {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
-      const status = await executeJs(
-        this.ws,
-        `(() => {
-        const slot = window[${JSON.stringify(slotRef)}];
-        if (!slot) return { missing: true };
-        const state = window[slot];
-        if (!state) return { missing: true };
-        if (!state.done) return { pending: true };
-        return state;
-      })()`,
-      );
+      let status;
+      try {
+        status = await executeJs(this.ws, `window[${JSON.stringify(slotRef)}]`);
+      } catch (error) {
+        if (error.message !== SCRIPT_EXECUTION_TIMEOUT) throw error;
+        await sleep(200);
+        continue;
+      }
       if (status?.done) {
         if (status.error) throw new Error(`${label} failed: ${status.error}`);
         return status.value;
@@ -267,11 +322,13 @@ export class TauriTestClient {
   }
 
   async startSync() {
-    await this._kickOffSync('__startedSyncSlot');
+    this._startedSyncSlotRef = this._nextAsyncSlotRef('startedSync');
+    await this._kickOffSync(this._startedSyncSlotRef);
   }
 
   async awaitStartedSync({ timeoutMs = 180_000 } = {}) {
-    return this._awaitSyncSlot('__startedSyncSlot', timeoutMs);
+    if (!this._startedSyncSlotRef) throw new Error(`${this.name}: startSync was not called`);
+    return this._awaitSyncSlot(this._startedSyncSlotRef, timeoutMs);
   }
 
   async waitForOpenNote(id, timeoutMs = 10_000) {
@@ -302,7 +359,7 @@ export class TauriTestClient {
   async waitForCondition(script, timeoutMs, label) {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
-      const result = await executeJs(this.ws, script);
+      const result = await this._executeRead(script, label);
       if (result) return;
       await sleep(100);
     }
@@ -310,32 +367,31 @@ export class TauriTestClient {
   }
 
   async connectSync(serverUrl, password, { timeoutMs = 180_000 } = {}) {
-    await this._kickOffAsync(
-      '__lastConnectSlot',
+    return this._executeMutation(
       `window.__testSync.connect(${JSON.stringify(this.normalizeServerUrl(serverUrl))}, ${JSON.stringify(password)})`,
+      'connectSync',
+      { timeoutMs },
     );
-    return this._awaitAsyncSlot('__lastConnectSlot', timeoutMs, 'connectSync');
   }
 
   async syncNow({ timeoutMs = 180_000 } = {}) {
-    await this._kickOffSync('__lastSyncSlot');
-    return this._awaitSyncSlot('__lastSyncSlot', timeoutMs);
+    return this._executeMutation('window.__testSync.syncNow()', 'syncNow', { timeoutMs });
   }
 
   async disconnectSync() {
-    return executeJs(this.ws, `window.__testSync.disconnect()`);
+    return this._executeMutation(`window.__testSync.disconnect()`, 'disconnectSync');
   }
 
   async syncStatus() {
-    return executeJs(this.ws, `window.__testSync.status()`);
+    return this._executeRead(`window.__testSync.status()`, 'syncStatus');
   }
 
   async pauseAutoSync() {
-    return executeJs(this.ws, `window.__testSync.pauseAutoSync()`);
+    return this._executeMutation(`window.__testSync.pauseAutoSync()`, 'pauseAutoSync');
   }
 
   async resumeAutoSync() {
-    return executeJs(this.ws, `window.__testSync.resumeAutoSync()`);
+    return this._executeMutation(`window.__testSync.resumeAutoSync()`, 'resumeAutoSync');
   }
 
   async reset() {
