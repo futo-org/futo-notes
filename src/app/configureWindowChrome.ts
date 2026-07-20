@@ -1,9 +1,7 @@
 import { isLinux, isMac, isTauri } from '$lib/platform';
 
-// nav.md §Desktop shell: Linux renders a 36px custom titlebar; macOS overlays
-// the native traffic lights on our chrome and the top band reserves a fixed
-// leading gutter for them. Both are expressed as CSS custom properties consumed
-// by desktop-shell.css / app-shell.css so the reservation lives in one place,
+// nav.md §Desktop shell: expose the chrome reservation as CSS custom properties
+// (consumed by desktop-shell.css / app-shell.css) so it lives in one place,
 // independent of sidebar state.
 const MACOS_TRAFFIC_LIGHTS_WIDTH = '78px';
 const LINUX_TITLEBAR_HEIGHT = '36px';

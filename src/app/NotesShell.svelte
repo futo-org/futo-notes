@@ -131,7 +131,7 @@
       const stored = localStorage.getItem(SIDEBAR_VIEW_KEY);
       if (stored === 'tags' || stored === 'images') return stored;
     } catch {
-      // Storage is optional in the plain-web test harness.
+      // Best-effort: localStorage may be unavailable; the default is fine.
     }
     return 'notes';
   }
@@ -146,7 +146,7 @@
     try {
       localStorage.setItem(SIDEBAR_VIEW_KEY, view);
     } catch {
-      // Storage is optional in the plain-web test harness.
+      // Best-effort: localStorage may be unavailable; the default is fine.
     }
   }
 
@@ -155,7 +155,7 @@
     try {
       localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(collapsed));
     } catch {
-      // Storage is optional in the plain-web test harness.
+      // Best-effort: localStorage may be unavailable; the default is fine.
     }
   }
 
