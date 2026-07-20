@@ -104,4 +104,25 @@ describe('createCurrentNoteActions', () => {
       'Renamed roadmap',
     );
   });
+
+  it('shows a failure toast and does not reject when the move fails', async () => {
+    mocks.moveNote.mockRejectedValue(new Error('A note with that name already exists'));
+    const showToast = vi.fn();
+    const onMoved = vi.fn();
+    const actions = createCurrentNoteActions({
+      getActiveNoteId: () => 'Projects/Roadmap',
+      runWithActiveNoteLock: async <T>(operation: () => Promise<T>) => operation(),
+      showToast,
+      onMoved,
+      onDeleted: vi.fn(),
+      onDeleteConfirmed: vi.fn(),
+    });
+
+    // Must resolve — a rejection here escapes the void onpick handler as an
+    // unhandled promise rejection (the regression this locks).
+    await expect(actions.moveToFolder('Archive')).resolves.toBeUndefined();
+
+    expect(showToast).toHaveBeenCalledWith('A note with that name already exists');
+    expect(onMoved).not.toHaveBeenCalled();
+  });
 });

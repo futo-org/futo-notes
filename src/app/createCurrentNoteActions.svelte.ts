@@ -64,9 +64,13 @@ export function createCurrentNoteActions(deps: CurrentNoteActionsDeps) {
       const leaf = idLeaf(fromId);
       const wantedId = folderPath ? `${folderPath}/${leaf}` : leaf;
       if (wantedId === fromId) return;
-      const result = await moveNote(fromId, wantedId);
-      deps.onMoved(fromId, result.id, idLeaf(result.id));
-      deps.showToast(`Moved to ${folderPath || 'Notes'}`);
+      try {
+        const result = await moveNote(fromId, wantedId);
+        deps.onMoved(fromId, result.id, idLeaf(result.id));
+        deps.showToast(`Moved to ${folderPath || 'Notes'}`);
+      } catch (error) {
+        deps.showToast(error instanceof Error ? error.message : 'Move failed');
+      }
     });
   }
 

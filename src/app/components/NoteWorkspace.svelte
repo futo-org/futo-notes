@@ -111,7 +111,7 @@
 {#if active && actions.movePickerOpen}
   <FolderPickerModal
     {notes}
-    onpick={(path) => actions.moveToFolder(path)}
+    onpick={(path) => void actions.moveToFolder(path)}
     oncancel={actions.closeMovePicker}
   />
 {/if}
