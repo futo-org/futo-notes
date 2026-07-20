@@ -1,9 +1,9 @@
 export type OpenMode = 'current' | 'background' | 'foreground';
 
+// Per-tab scroll position only (tabs.md). Legacy persisted shapes carrying
+// selFrom/selTo still validate — the extra fields are simply ignored.
 export type TabState = {
   scroll: number;
-  selFrom: number;
-  selTo: number;
 };
 
 export type Tab = {
@@ -21,12 +21,7 @@ export type PersistedTab = {
 };
 
 function isValidTabState(s: unknown): s is TabState {
-  return (
-    !!s &&
-    typeof (s as TabState).scroll === 'number' &&
-    typeof (s as TabState).selFrom === 'number' &&
-    typeof (s as TabState).selTo === 'number'
-  );
+  return !!s && typeof (s as TabState).scroll === 'number';
 }
 
 export type PersistedTabs = {
@@ -116,7 +111,7 @@ export const tabsStore = {
   hydrate(
     snap: PersistedTabs | null,
     isNoteIdValid: (id: string) => boolean,
-    initialHashNoteId: string | null = null,
+    requestedNoteId: string | null | undefined = undefined,
   ): boolean {
     if (_hydrated) return false;
     _hydrated = true;
@@ -146,14 +141,14 @@ export const tabsStore = {
       }
     }
 
-    if (initialHashNoteId !== null) {
-      const existing = _tabs.find((t) => t.noteId === initialHashNoteId);
+    if (requestedNoteId !== undefined) {
+      const existing = _tabs.find((t) => t.noteId === requestedNoteId);
       if (existing) {
         _activeTabId = existing.id;
       } else if (replaced) {
-        this.openNote(initialHashNoteId, 'foreground');
+        this.openNote(requestedNoteId, 'foreground');
       } else {
-        this.openNote(initialHashNoteId, 'current');
+        this.openNote(requestedNoteId, 'current');
       }
     }
 

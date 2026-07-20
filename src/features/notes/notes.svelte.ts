@@ -190,14 +190,6 @@ export async function moveNote(
   return { id, mtime: mtimeFor(mutation, id) };
 }
 
-export async function moveNotesUnderPrefix(fromPrefix: string, toPrefix: string): Promise<void> {
-  if (fromPrefix === toPrefix) return;
-  const mutation = await (await getLocalNoteStore()).renameFolder(fromPrefix, toPrefix);
-  _applyLocalMutation(mutation);
-  const snapshot = await currentLocalNoteStore().snapshot();
-  setFolderSnapshot(snapshot.folders, notesCache);
-}
-
 export async function deleteNote(id: string): Promise<void> {
   const mutation = await (await getLocalNoteStore()).delete(id);
   _applyLocalMutation(mutation);
@@ -239,7 +231,7 @@ export async function deleteAllNotes(): Promise<void> {
 
 export async function search(query: string): Promise<SearchResultItem[]> {
   if (!query.trim()) {
-    return getAllNotes().map((note) => ({ note, snippet: null }));
+    return getAllNotes().map((note) => ({ note }));
   }
   // Never let a rejected readiness promise throw out of search — degrade to the
   // store query, which returns empty gracefully when the index isn't ready (A4).
@@ -249,7 +241,7 @@ export async function search(query: string): Promise<SearchResultItem[]> {
   return hits.flatMap((hit) => {
     const note = byId.get(hit.noteId);
     if (!note) return [];
-    return [{ note, snippet: note.preview || null }];
+    return [{ note }];
   });
 }
 

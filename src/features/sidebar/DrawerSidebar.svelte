@@ -1,162 +1,116 @@
 <script lang="ts">
   import type { NotePreview } from '$shared/types/note';
-  import { isDesktop } from '$lib/platform';
-  import FolderTreeView from '$features/folders/FolderTreeView.svelte';
-  import SidebarTagView from './SidebarTagView.svelte';
-  import SidebarImageView from './SidebarImageView.svelte';
   import CreateFolderModal from '$features/folders/CreateFolderModal.svelte';
   import FolderPickerModal from '$features/folders/FolderPickerModal.svelte';
+  import FolderTreeView from '$features/folders/FolderTreeView.svelte';
   import ContextMenu from './components/ContextMenu.svelte';
   import SidebarCreateActions from './components/SidebarCreateActions.svelte';
   import SidebarHeader from './components/SidebarHeader.svelte';
   import SidebarViewSelector, { type SidebarView } from './components/SidebarViewSelector.svelte';
+  import SidebarImageView from './SidebarImageView.svelte';
+  import SidebarTagView from './SidebarTagView.svelte';
   import { createSidebarFolderWorkflows } from './createSidebarFolderWorkflows.svelte';
 
   interface Props {
     notes: NotePreview[];
     activeNoteId: string | null;
-    drawerOpen: boolean;
-    sidebarWidth: number;
-    onselect: (id: string, event?: MouseEvent) => void;
-    onsearch: () => void;
-    onsettings: () => void;
+    view: SidebarView;
+    showCollapse: boolean;
+    showResize: boolean;
+    onselectview: (view: SidebarView) => void;
+    onselectnote: (id: string, event?: MouseEvent) => void;
+    onrunwithactivenotelock: <T>(operation: () => Promise<T>) => Promise<T>;
+    onnoteidsrenamed: (renames: Array<{ from: string; to: string }>) => void;
+    onnoteidsdeleted: (ids: string[]) => void;
+    onactivenotedeleted: () => void;
+    onactivenotemoved: (fromId: string, toId: string, title: string) => void;
     onnewnote: () => void;
-    onnewnoteinfolder?: (folderPath: string) => void;
-    oncreatetestnote: () => void;
-    ontogglecollapse: (collapsed?: boolean) => void;
-    drawerEl?: HTMLElement | undefined;
-    sidebarResizing?: boolean;
+    onnewnoteinfolder: (folder: string) => void;
+    onhome: () => void;
+    onsettings: () => void;
+    oncollapse: () => void;
+    onopensearch: () => void;
+    onresize: (width: number) => void;
+    onresizeend: (width: number) => void;
   }
 
   let {
     notes,
     activeNoteId,
-    drawerOpen,
-    sidebarWidth = $bindable(280),
-    onselect,
-    onsearch,
-    onsettings,
+    view,
+    showCollapse,
+    showResize,
+    onselectview,
+    onselectnote,
+    onrunwithactivenotelock,
+    onnoteidsrenamed,
+    onnoteidsdeleted,
+    onactivenotedeleted,
+    onactivenotemoved,
     onnewnote,
     onnewnoteinfolder,
-    oncreatetestnote,
-    ontogglecollapse,
-    drawerEl = $bindable(undefined),
-    sidebarResizing = $bindable(false),
+    onhome,
+    onsettings,
+    oncollapse,
+    onopensearch,
+    onresize,
+    onresizeend,
   }: Props = $props();
 
-  const folders = createSidebarFolderWorkflows({
+  const workflows = createSidebarFolderWorkflows({
     getActiveNoteId: () => activeNoteId,
-    onSelect: (id) => onselect(id),
-    onNewNoteInFolder: (path) => onnewnoteinfolder?.(path),
+    runWithActiveNoteLock: (operation) => onrunwithactivenotelock(operation),
+    onNoteIdsRenamed: (renames) => onnoteidsrenamed(renames),
+    onNoteIdsDeleted: (ids) => onnoteidsdeleted(ids),
+    onSelect: (id) => onselectnote(id),
+    onActiveNoteDeleted: () => onactivenotedeleted(),
+    onActiveNoteMoved: (fromId, toId, title) => onactivenotemoved(fromId, toId, title),
+    onNewNoteInFolder: (folder) => onnewnoteinfolder(folder),
   });
 
-  let sidebarView: SidebarView = $state(
-    (typeof localStorage !== 'undefined' &&
-      (localStorage.getItem('futo-notes:sidebarView') as 'notes' | 'tags' | 'images')) ||
-      'notes',
-  );
+  let asideEl: HTMLElement | undefined = $state();
+  let resizing = false;
+  let resizeWidth = 0;
 
-  function handleBrandClick(): void {
-    onselect('__home__');
+  function startResize(event: PointerEvent): void {
+    event.preventDefault();
+    resizing = true;
+    resizeWidth = asideEl?.getBoundingClientRect().width ?? 0;
+    const target = event.currentTarget as HTMLElement;
+    target.setPointerCapture(event.pointerId);
   }
 
-  function selectSidebarView(view: SidebarView): void {
-    sidebarView = view;
-    localStorage.setItem('futo-notes:sidebarView', view);
+  function moveResize(event: PointerEvent): void {
+    if (!resizing || !asideEl) return;
+    const width = event.clientX - asideEl.getBoundingClientRect().left;
+    resizeWidth = width;
+    onresize(width);
   }
 
-  let fabPressTimer: number | null = null;
-  let ignoreFabClick = false;
-
-  function handleFabTouchStart(): void {
-    fabPressTimer = window.setTimeout(() => {
-      oncreatetestnote();
-      fabPressTimer = null;
-    }, 500);
-  }
-
-  function handleFabTouchEnd(): void {
-    ignoreFabClick = true;
-    window.setTimeout(() => {
-      ignoreFabClick = false;
-    }, 350);
-    if (fabPressTimer !== null) {
-      clearTimeout(fabPressTimer);
-      fabPressTimer = null;
-      onnewnote();
-    }
-  }
-
-  function handleFabTouchCancel(): void {
-    ignoreFabClick = true;
-    window.setTimeout(() => {
-      ignoreFabClick = false;
-    }, 350);
-    if (fabPressTimer !== null) {
-      clearTimeout(fabPressTimer);
-      fabPressTimer = null;
-    }
-  }
-
-  function handleFabClick(): void {
-    if (ignoreFabClick) return;
-    if (fabPressTimer !== null) return;
-    onnewnote();
-  }
-
-  let resizeStartX = 0;
-  let resizeStartWidth = 0;
-
-  function handleResizeStart(e: PointerEvent): void {
-    e.preventDefault();
-    sidebarResizing = true;
-    resizeStartX = e.clientX;
-    resizeStartWidth = sidebarWidth;
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
-  }
-
-  function handleResizeMove(e: PointerEvent): void {
-    if (!sidebarResizing) return;
-    sidebarWidth = Math.max(200, Math.min(600, resizeStartWidth + (e.clientX - resizeStartX)));
-  }
-
-  function handleResizeEnd(): void {
-    if (!sidebarResizing) return;
-    sidebarResizing = false;
-    persistSidebarWidth(sidebarWidth);
-  }
-
-  function persistSidebarWidth(width: number): void {
-    if (isDesktop) {
-      import('$lib/platform/tauri').then(({ saveConfig }) => {
-        saveConfig({ sidebarWidth: width }).catch((err) => {
-          console.warn('Failed to persist sidebar width:', err);
-        });
-      });
-    } else {
-      localStorage.setItem('futo-notes:sidebarWidth', String(width));
-    }
+  function endResize(event: PointerEvent): void {
+    if (!resizing) return;
+    resizing = false;
+    const target = event.currentTarget as HTMLElement;
+    if (target.hasPointerCapture(event.pointerId)) target.releasePointerCapture(event.pointerId);
+    onresizeend(resizeWidth);
   }
 </script>
 
-<aside bind:this={drawerEl} class="notes-drawer" aria-hidden={!drawerOpen}>
-  <SidebarHeader
-    onhome={handleBrandClick}
-    {onsettings}
-    oncollapse={() => ontogglecollapse(true)}
-    showCollapse={!isDesktop}
-  />
+<aside class="notes-drawer" bind:this={asideEl}>
+  <SidebarHeader {showCollapse} {oncollapse} {onhome} {onsettings} />
+
   <div class="drawer-search-area">
-    <button class="search-button" onclick={onsearch}>
+    <button class="search-button" onclick={onopensearch}>
       <svg
-        width="15"
-        height="15"
+        width="16"
+        height="16"
         viewBox="0 0 24 24"
         fill="none"
         stroke="currentColor"
         stroke-width="2"
         stroke-linecap="round"
         stroke-linejoin="round"
+        aria-hidden="true"
       >
         <circle cx="11" cy="11" r="8" />
         <line x1="21" y1="21" x2="16.65" y2="16.65" />
@@ -164,104 +118,73 @@
       Search
     </button>
   </div>
-  <SidebarViewSelector selected={sidebarView} onselect={selectSidebarView} />
-  {#if sidebarView === 'tags'}
-    <SidebarTagView {notes} selectedId={activeNoteId !== 'new' ? activeNoteId : null} {onselect} />
-  {:else if sidebarView === 'images'}
-    <SidebarImageView />
-  {:else}
+
+  <SidebarViewSelector selected={view} onselect={onselectview} />
+  <SidebarCreateActions
+    onclicknewnote={onnewnote}
+    onclicknewfolder={() => workflows.openCreateFolder('')}
+  />
+
+  {#if view === 'notes'}
     <FolderTreeView
       items={notes}
-      selectedId={activeNoteId !== 'new' ? activeNoteId : null}
-      {onselect}
-      onfoldercontextmenu={folders.showFolderContextMenu}
-      onnotecontextmenu={folders.showNoteContextMenu}
-      onrenamefolder={folders.renameFolder}
-      renameRequest={folders.renameRequest}
-      ondropnoteonfolder={folders.moveNoteToFolder}
-      ondropfolderonfolder={folders.moveFolder}
-      ondropnoteonroot={folders.moveNoteToRoot}
-      ondropfolderonroot={folders.moveFolderToRoot}
+      selectedId={activeNoteId}
+      onselect={onselectnote}
+      onfoldercontextmenu={workflows.showFolderContextMenu}
+      onnotecontextmenu={workflows.showNoteContextMenu}
+      onrenamefolder={workflows.renameFolder}
+      renameRequest={workflows.renameRequest}
+      ondropnoteonfolder={workflows.moveNoteToFolder}
+      ondropfolderonfolder={workflows.moveFolder}
+      ondropnoteonroot={workflows.moveNoteToRoot}
+      ondropfolderonroot={workflows.moveFolderToRoot}
     />
+  {:else if view === 'tags'}
+    <SidebarTagView {notes} selectedId={activeNoteId} onselect={onselectnote} />
+  {:else}
+    <SidebarImageView />
   {/if}
-  <SidebarCreateActions
-    onclicknewnote={handleFabClick}
-    onclicknewfolder={() => folders.openCreateFolder('')}
-    ontouchstart={handleFabTouchStart}
-    ontouchend={handleFabTouchEnd}
-    ontouchcancel={handleFabTouchCancel}
-  />
-  {#if folders.isCreateFolderOpen}
-    <CreateFolderModal
-      title={folders.createFolderParent
-        ? `New folder in "${folders.createFolderParent}"`
-        : 'New folder'}
-      validate={folders.validateCreateFolder}
-      onsubmit={folders.submitCreateFolder}
-      oncancel={folders.closeCreateFolder}
-    />
+
+  {#if showResize}
+    <div
+      class="sidebar-resize-handle"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize sidebar"
+      onpointerdown={startResize}
+      onpointermove={moveResize}
+      onpointerup={endResize}
+      onpointercancel={endResize}
+    ></div>
   {/if}
-  {#if folders.folderPicker}
-    <FolderPickerModal
-      title={folders.folderPicker.title}
-      {notes}
-      excludePaths={folders.folderPicker.excludePaths}
-      onpick={folders.folderPicker.onpick}
-      oncancel={folders.closeFolderPicker}
-    />
-  {/if}
-  {#if folders.contextMenu}
-    <ContextMenu
-      x={folders.contextMenu.x}
-      y={folders.contextMenu.y}
-      items={folders.contextMenu.items}
-      onclose={folders.closeContextMenu}
-    />
-  {/if}
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div
-    class="sidebar-resize-handle"
-    onpointerdown={handleResizeStart}
-    onpointermove={handleResizeMove}
-    onpointerup={handleResizeEnd}
-    onpointercancel={handleResizeEnd}
-  ></div>
 </aside>
 
-<style>
-  /* The "+" New note button and the new-folder button share the same row at
-     the bottom of the sidebar. The folder button uses a neutral light-gray
-     background with a dark-gray folder-plus icon (per spec § UI/Add-folder
-     button). It sits to the right of the New button at the same height. */
-  :global(.notes-drawer .fab-row) {
-    position: absolute;
-    bottom: max(16px, calc(16px + env(safe-area-inset-bottom)));
-    right: max(16px, calc(16px + env(safe-area-inset-right)));
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    z-index: 100;
-  }
-  :global(.notes-drawer .fab-row > .fab) {
-    position: static;
-    bottom: auto;
-    right: auto;
-  }
-  :global(.notes-drawer .fab-row > .fab.fab-folder) {
-    width: 48px;
-    padding: 0;
-    background: var(--color-surface, rgba(0, 0, 0, 0.06));
-    color: var(--color-muted, #555);
-    box-shadow:
-      0 1px 4px rgba(0, 0, 0, 0.1),
-      0 0 0 1px var(--color-border, rgba(0, 0, 0, 0.08));
-  }
-  :global(.notes-drawer .fab-row > .fab.fab-folder:active) {
-    transform: scale(0.96);
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
-  }
-  :global(.notes-shell.desktop-layout .notes-drawer .fab-row) {
-    bottom: 16px;
-    right: 16px;
-  }
-</style>
+{#if workflows.isCreateFolderOpen}
+  <CreateFolderModal
+    title={workflows.createFolderParent
+      ? `New folder in "${workflows.createFolderParent}"`
+      : 'New folder'}
+    onsubmit={workflows.submitCreateFolder}
+    validate={workflows.validateCreateFolder}
+    oncancel={workflows.closeCreateFolder}
+  />
+{/if}
+
+{#if workflows.contextMenu}
+  <ContextMenu
+    x={workflows.contextMenu.x}
+    y={workflows.contextMenu.y}
+    items={workflows.contextMenu.items}
+    onclose={workflows.closeContextMenu}
+  />
+{/if}
+
+{#if workflows.folderPicker}
+  <FolderPickerModal
+    title={workflows.folderPicker.title}
+    {notes}
+    excludePaths={workflows.folderPicker.excludePaths}
+    onpick={workflows.folderPicker.onpick}
+    oncancel={workflows.closeFolderPicker}
+  />
+{/if}

@@ -250,7 +250,7 @@ function scheduleInitialRetry(): void {
   initialRetryCount++;
   initialRetryTimer = window.setTimeout(() => {
     initialRetryTimer = null;
-    performSync('initial').then((summary) => {
+    void performSync('initial').then((summary) => {
       if (!summary) scheduleInitialRetry();
     });
   }, delay);
@@ -287,7 +287,7 @@ export function startAutoSyncV2(cb: AutoSyncCallbacks): void {
 
   initialSyncTimer = window.setTimeout(() => {
     initialSyncTimer = null;
-    performSync('initial').then((summary) => {
+    void performSync('initial').then((summary) => {
       if (!summary) scheduleInitialRetry();
     });
   }, INITIAL_SYNC_DELAY_MS);

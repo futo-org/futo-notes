@@ -4,7 +4,6 @@ vi.mock('$lib/platform');
 
 const e2eeMocks = vi.hoisted(() => ({
   connectE2ee: vi.fn(),
-  syncE2ee: vi.fn(),
   disconnectE2ee: vi.fn(),
 }));
 const autoSyncMocks = vi.hoisted(() => ({
@@ -13,7 +12,6 @@ const autoSyncMocks = vi.hoisted(() => ({
 
 vi.mock('./syncServiceE2ee', () => ({
   connectE2ee: e2eeMocks.connectE2ee,
-  syncE2ee: e2eeMocks.syncE2ee,
   disconnectE2ee: e2eeMocks.disconnectE2ee,
   SyncSummary: {},
 }));

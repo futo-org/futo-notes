@@ -1,57 +1,53 @@
-import { isTauri } from '$lib/platform';
-import type { FileChangeEvent } from '$lib/platform';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 
-interface NativeShellOptions {
+import { isTauri } from '$lib/platform';
+import { onFileChange } from '$lib/platform/tauri';
+import type { FileChangeEvent } from '$lib/platform/types';
+
+export interface NativeShellDeps {
   enqueueFileChange: (event: FileChangeEvent) => void;
   flushSave: () => Promise<void>;
 }
 
-export function startNativeShell(options: NativeShellOptions): () => void {
-  if (!isTauri) return () => undefined;
+// Wires the Tauri window/file-watcher glue on desktop. Registration of the
+// close handler is async (it resolves an unlisten fn), so every disposer is
+// funnelled through `track`: one that resolves after teardown is disposed
+// immediately rather than leaking a listener past the shell's lifetime.
+export function startNativeShell(deps: NativeShellDeps): () => void {
+  if (!isTauri) return () => {};
 
-  const cleanups: Array<() => void> = [];
   let disposed = false;
-
-  function registerCleanup(cleanup: () => void): void {
+  const disposers: Array<() => void> = [];
+  const track = (cleanup: () => void): void => {
     if (disposed) cleanup();
-    else cleanups.push(cleanup);
-  }
-
-  void import('$lib/platform/tauri').then(({ onFileChange }) => {
-    registerCleanup(
-      onFileChange((event) => {
-        options.enqueueFileChange(event);
-      }),
-    );
-  });
-
-  void installCloseHandler(options.flushSave).then(registerCleanup);
-  return () => {
-    if (disposed) return;
-    disposed = true;
-    cleanups.splice(0).forEach((cleanup) => cleanup());
+    else disposers.push(cleanup);
   };
-}
 
-async function installCloseHandler(flushSave: () => Promise<void>): Promise<() => void> {
-  const { getCurrentWindow } = await import('@tauri-apps/api/window');
+  track(onFileChange((event) => deps.enqueueFileChange(event)));
+
   const appWindow = getCurrentWindow();
-  const unsubscribe = await appWindow.onCloseRequested(async (event) => {
-    event.preventDefault();
-    // Prefer durable editor state without allowing a failed save to trap shutdown.
-    await Promise.race([flushSave(), new Promise((resolve) => setTimeout(resolve, 3000))]);
-    try {
-      const { exit } = await import('@tauri-apps/plugin-process');
-      await exit(0);
-    } catch {
-      appWindow.destroy();
-    }
-  });
+  void appWindow
+    .onCloseRequested(async (event) => {
+      event.preventDefault();
+      // Drain any pending save before teardown so a fast quit never drops the
+      // last keystrokes — but never let a hung or failed save trap shutdown:
+      // after 3s the app exits regardless.
+      await Promise.race([
+        deps.flushSave().catch(() => {}),
+        new Promise((resolve) => setTimeout(resolve, 3000)),
+      ]);
+      try {
+        const { exit } = await import('@tauri-apps/plugin-process');
+        await exit(0);
+      } catch {
+        void appWindow.destroy();
+      }
+    })
+    .then(track);
 
-  let active = true;
   return () => {
-    if (!active) return;
-    active = false;
-    unsubscribe();
+    disposed = true;
+    for (const dispose of disposers) dispose();
+    disposers.length = 0;
   };
 }

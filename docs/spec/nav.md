@@ -53,6 +53,9 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
   to the List — a browser-like history of visited notes. See the wikilink
   navigation rule in [editor.md](editor.md). → MainActivity.kt `onOpenNote`
   (push), NoteEditorView.swift `openLinkedNote`
+  *(desktop)* deliberately diverges: a wikilink opens the target in the
+  **current tab** (replace, not push) — tabs, not a nav stack, are the desktop
+  history model. → NotesShell.svelte `handleWikilinkOpen`
 - The editor WebView is pre-warmed while the list is showing, so opening a note
   is a warm mount, not a cold renderer boot. Both native shells keep ONE shared
   pre-warmed WebView and swap content via `setContent` on open. →
@@ -61,7 +64,8 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
 
 ## Desktop shell *(desktop)*
 
-- The sidebar is persistent and resizable (drag the divider, min 200px). A
+- The sidebar is persistent and resizable (drag the divider, clamped
+  200–600px). A
   single collapse/expand toggle lives in the full-width desktop top band (its
   leading `topband-chrome`, which mirrors the sidebar column) and flips icon +
   label by state; it is the only sidebar toggle on desktop. Width and collapsed
@@ -72,3 +76,6 @@ navigation below. Desktop multi-tab lives in [tabs.md](tabs.md).
   leading gutter (`--macos-traffic-lights-width`) for them in one place,
   independent of sidebar state — so collapsing the sidebar never exposes or
   crowds the buttons. → configureWindowChrome.ts, desktop-shell.css
+- On Linux the app renders its own 36px title bar ("FUTO Notes" +
+  minimize/maximize/close) above the top band; macOS and Windows use native
+  window chrome instead. → configureWindowChrome.ts, TitleBar.svelte

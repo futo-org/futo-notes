@@ -1,70 +1,66 @@
+import { isTauri } from '$lib/platform';
+import { getConfig, saveConfig } from '$lib/platform/tauri';
 import { getAllNotes, whenNotesReady } from '$features/notes/notes.svelte';
-import { hasFileSystem, isDesktop } from '$lib/platform';
 import { tabsStore } from '$features/tabs/tabsStore.svelte';
 
-interface TabsPersistenceOptions {
-  initialNoteId: string | null;
+export const SIDEBAR_COLLAPSED_KEY = 'futo-notes:sidebarCollapsed';
+
+export interface TabsPersistenceDeps {
+  getRequestedNoteId: () => string | null | undefined;
   setSidebarCollapsed: (collapsed: boolean) => void;
   setSidebarWidth: (width: number) => void;
-  setGraphSidebarWidth: (width: number) => void;
 }
 
-export function startTabsPersistence({
-  initialNoteId,
-  setSidebarCollapsed,
-  setSidebarWidth,
-  setGraphSidebarWidth,
-}: TabsPersistenceOptions): () => void {
-  let persistTimer: number | null = null;
+// Restores sidebar chrome + persisted tabs, then installs the tab persister.
+// The persisted tabs are validated only AFTER the initial vault scan
+// (whenNotesReady) so a stale id can't resurrect a note; the returned disposer
+// is safe to call before any async step finishes (it just detaches the
+// persister), which is what keeps a fast unmount from hydrating a torn-down
+// shell.
+export function startTabsPersistence(deps: TabsPersistenceDeps): () => void {
   let disposed = false;
 
-  if (!isDesktop) {
-    tabsStore.hydrate(null, () => true, initialNoteId);
-    return () => tabsStore.setPersister(null);
-  }
+  restoreCollapsedState(deps.setSidebarCollapsed);
 
-  if (localStorage.getItem('futo-notes:sidebarCollapsed') === 'true') {
-    setSidebarCollapsed(true);
-  }
+  void (async () => {
+    let persistedTabs = null;
+    if (isTauri) {
+      try {
+        const config = await getConfig();
+        if (disposed) return;
+        if (typeof config.sidebarWidth === 'number') deps.setSidebarWidth(config.sidebarWidth);
+        persistedTabs = config.openTabs ?? null;
+      } catch (error) {
+        console.warn('Failed to load tab config:', error);
+      }
+    }
 
-  // Validate persisted tabs only after the initial vault scan is complete.
-  void Promise.all([
-    import('$lib/platform/tauri').then(({ getConfig, saveConfig }) =>
-      getConfig().then((config) => ({ config, saveConfig })),
-    ),
-    whenNotesReady(),
-  ])
-    .then(([{ config, saveConfig }]) => {
-      if (disposed) return;
-      if (config.sidebarWidth) setSidebarWidth(config.sidebarWidth);
-      if (config.graphSidebarWidth) setGraphSidebarWidth(config.graphSidebarWidth);
+    await whenNotesReady();
+    if (disposed) return;
 
-      const noteIds = new Set((hasFileSystem ? getAllNotes() : []).map((note) => note.id));
-      tabsStore.hydrate(config.openTabs ?? null, (id) => noteIds.has(id), initialNoteId);
+    const validIds = new Set(getAllNotes().map((note) => note.id));
+    tabsStore.hydrate(persistedTabs, (id) => validIds.has(id), deps.getRequestedNoteId());
+    if (disposed) return;
+
+    if (isTauri) {
       tabsStore.setPersister((snapshot) => {
-        if (persistTimer !== null) clearTimeout(persistTimer);
-        persistTimer = window.setTimeout(() => {
-          persistTimer = null;
-          void saveConfig({ openTabs: snapshot }).catch((error) =>
-            console.warn('Failed to persist open tabs:', error),
-          );
-        }, 250);
+        void saveConfig({ openTabs: snapshot }).catch((error) =>
+          console.warn('Failed to persist tabs:', error),
+        );
       });
-    })
-    .catch((error) => {
-      if (disposed) return;
-      console.warn('[tabs] hydrate path failed, falling back without persister:', error);
-      const sidebarWidth = Number(localStorage.getItem('futo-notes:sidebarWidth')) || 280;
-      const graphSidebarWidth = Number(localStorage.getItem('futo-notes:graphSidebarWidth')) || 320;
-      setSidebarWidth(sidebarWidth);
-      setGraphSidebarWidth(graphSidebarWidth);
-      tabsStore.hydrate(null, () => true, initialNoteId);
-    });
+    }
+  })();
 
   return () => {
-    if (disposed) return;
     disposed = true;
-    if (persistTimer !== null) clearTimeout(persistTimer);
     tabsStore.setPersister(null);
   };
+}
+
+function restoreCollapsedState(setSidebarCollapsed: (collapsed: boolean) => void): void {
+  try {
+    setSidebarCollapsed(localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === 'true');
+  } catch {
+    // localStorage can be unavailable (private mode); default to expanded.
+  }
 }

@@ -24,7 +24,7 @@ import {
 } from '$shared/state/appState';
 import { getPlatformFS, isTauri } from '$lib/platform';
 import { getSyncErrorMessage } from './syncErrorMessage';
-import { showGlobalToast } from '$shared/notifications/toastBus';
+import { showGlobalToast } from '$shared/notifications/toastBus.svelte';
 import type {
   E2eeConnectInput,
   E2eeConnectOutput,

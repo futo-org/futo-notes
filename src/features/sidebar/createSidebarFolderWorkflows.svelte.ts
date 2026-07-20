@@ -20,7 +20,12 @@ export interface SidebarFolderMenuItem {
 
 interface SidebarFolderWorkflowOptions {
   getActiveNoteId: () => string | null;
+  runWithActiveNoteLock: <T>(operation: () => Promise<T>) => Promise<T>;
+  onNoteIdsRenamed: (renames: Array<{ from: string; to: string }>) => void;
+  onNoteIdsDeleted: (ids: string[]) => void;
   onSelect: (id: string) => void;
+  onActiveNoteDeleted: () => void;
+  onActiveNoteMoved: (fromId: string, toId: string, title: string) => void;
   onNewNoteInFolder: (folderPath: string) => void;
 }
 
@@ -99,7 +104,7 @@ export function createSidebarFolderWorkflows(options: SidebarFolderWorkflowOptio
         {
           label: 'Delete',
           destructive: true,
-          onclick: () => void confirmDeleteSidebarNote(id),
+          onclick: () => void confirmDeleteSidebarNote(id, options),
         },
       ],
     };
@@ -118,7 +123,7 @@ export function createSidebarFolderWorkflows(options: SidebarFolderWorkflowOptio
   }
 
   async function moveNoteFromPicker(noteId: string, target: string): Promise<void> {
-    await moveSidebarNote(noteId, target);
+    await moveSidebarNote(noteId, target, options);
     folderPicker = null;
   }
 
@@ -149,11 +154,13 @@ export function createSidebarFolderWorkflows(options: SidebarFolderWorkflowOptio
     showFolderContextMenu,
     showNoteContextMenu,
     closeContextMenu,
-    renameFolder: renameSidebarFolder,
+    renameFolder: (path: string, newName: string) => renameSidebarFolder(path, newName, options),
     closeFolderPicker,
-    moveNoteToFolder: moveSidebarNoteToFolder,
-    moveNoteToRoot: moveSidebarNoteToRoot,
-    moveFolder: moveSidebarFolder,
-    moveFolderToRoot: moveSidebarFolderToRoot,
+    moveNoteToFolder: (noteId: string, folderPath: string) =>
+      moveSidebarNoteToFolder(noteId, folderPath, options),
+    moveNoteToRoot: (noteId: string) => moveSidebarNoteToRoot(noteId, options),
+    moveFolder: (folderPath: string, targetPath: string) =>
+      moveSidebarFolder(folderPath, targetPath, options),
+    moveFolderToRoot: (folderPath: string) => moveSidebarFolderToRoot(folderPath, options),
   };
 }
