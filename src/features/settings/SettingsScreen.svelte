@@ -4,7 +4,7 @@
   import { applyThemePreference, watchSystemTheme } from '$features/system/theme';
   import { getAppVersion } from '$features/system/crashHandler';
   import { updateChecker } from '$features/system/updateChecker.svelte';
-  import { selfUpdateSupported } from '$features/system/updater';
+  import { selfUpdateSupported, updaterSupported } from '$features/system/updater';
   import type { SyncSummary } from '$features/sync/syncServiceE2ee';
   import { confirmDialog } from '$shared/dialogs/confirmDialog';
   import {
@@ -100,13 +100,32 @@
     const { open } = await import('@tauri-apps/plugin-dialog');
     const selected = await open({ directory: true, multiple: false });
     if (typeof selected !== 'string') return;
+    const confirmed = await confirmDialog(
+      `Move your notes directory to:\n${selected}\n\nExisting notes in the current directory will NOT be moved. The app will restart.`,
+      { title: 'Change notes directory', kind: 'warning' },
+    );
+    if (!confirmed) return;
     await setNotesDir(selected);
-    window.location.reload();
+    await restartForNewVault();
   }
 
   async function resetNotesDirectory(): Promise<void> {
+    if (!isTauri) return;
+    const confirmed = await confirmDialog(
+      'Reset notes directory to the default location?\n\nThe app will restart.',
+      { title: 'Reset notes directory', kind: 'warning' },
+    );
+    if (!confirmed) return;
     await setNotesDir(null);
-    window.location.reload();
+    await restartForNewVault();
+  }
+
+  // Relaunch, not window.location.reload(): the Rust fs watcher binds the vault
+  // root once at startup, so only a full process restart rebinds it to the new
+  // vault. A webview reload would leave the watcher on the old root. See sync.md.
+  async function restartForNewVault(): Promise<void> {
+    const { relaunch } = await import('@tauri-apps/plugin-process');
+    await relaunch();
   }
 
   async function confirmFullReset(): Promise<void> {
@@ -141,9 +160,15 @@
         console.warn('Failed to read notes directory:', error);
       });
   }
-  void selfUpdateSupported().then((supported) => {
-    updateSupported = supported;
-  });
+  if (updaterSupported() && import.meta.env.DEV) {
+    // Show the Updates section in desktop dev builds for manual testing, even
+    // though the packaged updater reports unsupported there.
+    updateSupported = true;
+  } else {
+    void selfUpdateSupported().then((supported) => {
+      updateSupported = supported;
+    });
+  }
 
   $effect(() => {
     if (preferences.appearance.theme !== 'auto') return;
