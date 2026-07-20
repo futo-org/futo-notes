@@ -84,6 +84,13 @@ test_ios_native_task:
       xcrun simctl bootstatus "$SIM" -b
       echo "Testing on simulator $SIM"
       export SIM
+    # xcodebuild's EXIT CODE is unreliable for a Swift-Testing-only target: it
+    # returns non-zero for the empty XCTest bundle's "Executed 0 tests" on some
+    # Xcode versions even when Swift Testing passed and "** TEST SUCCEEDED **"
+    # printed (reproduced on the shared Mac: Xcode 26.2 exits non-zero, 26.6
+    # exits 0, byte-identical output). So do NOT gate on its exit here; capture
+    # the log and let the outcome arbiter below decide (M11: assert outcomes,
+    # not exit codes). `|| true` is safe ONLY because the arbiter is the gate.
     - |
       set -o pipefail
       xcodebuild test -project apps/ios/FutoNotesNative.xcodeproj \
@@ -92,19 +99,32 @@ test_ios_native_task:
         -derivedDataPath apps/ios/.build \
         -resultBundlePath apps/ios/.build/TestResults.xcresult \
         CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="-" \
-        2>&1 | tee apps/ios/.build/xcodebuild-test.log
-    # M11: xcodebuild already fails for red tests; also fail if discovery ran
-    # zero tests or the successful execution summary is absent.
+        2>&1 | tee apps/ios/.build/xcodebuild-test.log || true
+      echo "xcodebuild-exit=${PIPESTATUS[0]} (informational; the arbiter below decides)"
+    # M11 outcome arbiter — pass/fail from what xcodebuild REPORTED, never its
+    # exit code. Layered so it can never go silently green.
     - |
-      TEST_SUMMARY='Executed [1-9][0-9]* tests?, with 0 failures|Test run with [1-9][0-9]* tests?( in [0-9]+ suites?)? passed'
-      if ! grep -Eq "$TEST_SUMMARY" apps/ios/.build/xcodebuild-test.log; then
-        echo "ERROR: iOS unit-test run did not report at least one executed test with zero failures" >&2
-        if ! grep -E 'Executed [0-9]+ tests?|Test run with [0-9]+ tests?' apps/ios/.build/xcodebuild-test.log >&2; then
-          echo "No xcodebuild test execution summary was present" >&2
-        fi
+      LOG=apps/ios/.build/xcodebuild-test.log
+      # (1) Any genuine test/build failure marker -> red.
+      if grep -Eq '\*\* TEST FAILED \*\*|Testing failed:|Failing tests:|Executed [0-9]+ tests?, with [1-9][0-9]* failures?|Test run with [0-9]+ tests?( in [0-9]+ suites?)? failed' "$LOG"; then
+        echo "ERROR: xcodebuild reported test/build failures" >&2
+        grep -Ei 'fail' "$LOG" | tail -20 >&2
         exit 1
       fi
-      grep -E "$TEST_SUMMARY" apps/ios/.build/xcodebuild-test.log
+      # (2) Require a positive pass summary with >=1 executed test (catches
+      #     build failures and zero-test runs — the empty XCTest "Executed 0
+      #     tests" line does NOT satisfy this).
+      if ! grep -Eq 'Test run with [1-9][0-9]* tests?( in [0-9]+ suites?)? passed|Executed [1-9][0-9]* tests?, with 0 failures' "$LOG"; then
+        echo "ERROR: no passing test summary with >=1 executed test" >&2
+        grep -E 'Executed [0-9]+ tests?|Test run with [0-9]+ tests?' "$LOG" >&2 || echo "(no test summary at all)" >&2
+        exit 1
+      fi
+      # (3) Require the overall success marker.
+      if ! grep -q '\*\* TEST SUCCEEDED \*\*' "$LOG"; then
+        echo "ERROR: no '** TEST SUCCEEDED **' marker in the test log" >&2
+        exit 1
+      fi
+      echo "iOS tests passed (arbiter: TEST SUCCEEDED + >=1 executed test + no failure markers)"
   ios_test_results_artifacts:
     path: "apps/ios/.build/TestResults.xcresult/**"
 
