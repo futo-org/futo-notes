@@ -2,6 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use super::atomic_write::move_no_replace;
 use super::filenames::collision_key;
 use super::paths::MAX_FOLDER_DEPTH;
 use super::timestamps::now_ms;
@@ -144,28 +145,27 @@ fn recover_parked_backup(dir: &Path, name: &str) -> Option<RecoveredBackup> {
         return None;
     }
     let destination = dir.join(leaf);
-    // A hard link closes the existence-check race by installing without replacement.
-    match fs::hard_link(&backup, &destination) {
-        Ok(()) => {
-            remove_parked_files(&backup, &sidecar);
+    // A no-replace move installs the backup at its canonical name without a
+    // check-then-write race and consumes the backup on success.
+    match move_no_replace(&backup, &destination) {
+        Ok(true) => {
+            let _ = fs::remove_file(&sidecar);
             None
         }
-        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-            match (fs::read(&backup), fs::read(&destination)) {
-                (Ok(backup_bytes), Ok(live_bytes)) if backup_bytes == live_bytes => {
-                    remove_parked_files(&backup, &sidecar);
-                    None
-                }
-                _ => {
-                    // A later canonical restore could resurrect stale content after live deletion.
-                    Some(RecoveredBackup {
-                        leaf: leaf.to_owned(),
-                        backup,
-                        sidecar,
-                    })
-                }
+        Ok(false) => match (fs::read(&backup), fs::read(&destination)) {
+            (Ok(backup_bytes), Ok(live_bytes)) if backup_bytes == live_bytes => {
+                remove_parked_files(&backup, &sidecar);
+                None
             }
-        }
+            _ => {
+                // A later canonical restore could resurrect stale content after live deletion.
+                Some(RecoveredBackup {
+                    leaf: leaf.to_owned(),
+                    backup,
+                    sidecar,
+                })
+            }
+        },
         Err(_) => None,
     }
 }

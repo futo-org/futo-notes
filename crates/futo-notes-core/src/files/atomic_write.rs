@@ -78,18 +78,74 @@ pub fn create_new_atomic(path: &Path, bytes: &[u8]) -> Result<bool, String> {
         return Err(error);
     }
 
-    let result = match fs::hard_link(&temp, path) {
-        Ok(()) => Ok(true),
-        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
-        Err(error) => Err(format!(
-            "{error} (hard-linking {} -> {})",
-            temp.display(),
-            path.display()
-        )),
-    };
-    // The destination is an independent link to the completed inode on success.
+    let result = move_no_replace(&temp, path);
+    // On a created (true) result the temp was consumed by the install; on a
+    // collision (false) or error it may remain, so always sweep it.
     let _ = fs::remove_file(&temp);
     result
+}
+
+/// Installs `source`'s content at `destination` without replacing an existing
+/// file there, then removes `source` — an atomic no-replace move. Returns
+/// `Ok(true)` when `destination` was created, `Ok(false)` when a file already
+/// existed there (in which case neither path is modified). On error, best
+/// effort leaves no duplicate: `destination` is never left as an extra copy of
+/// a `source` that still exists.
+///
+/// `hard_link` is the fast atomic no-replace install on filesystems that
+/// support it (the destination cannot clobber an existing name, and the shared
+/// inode carries mtime across). Some filesystems — notably Android's
+/// FUSE-backed external storage — reject `link` outright, so fall back to
+/// claiming the name with an exclusive create and renaming the source over it.
+pub fn move_no_replace(source: &Path, destination: &Path) -> Result<bool, String> {
+    match fs::hard_link(source, destination) {
+        Ok(()) => drop_source_after_link(source, destination),
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
+        Err(_) => move_no_replace_via_rename(source, destination),
+    }
+}
+
+fn drop_source_after_link(source: &Path, destination: &Path) -> Result<bool, String> {
+    match fs::remove_file(source) {
+        Ok(()) => Ok(true),
+        Err(error) => {
+            // The link exists but the source could not be dropped; undo the link
+            // so the error path never strands a duplicate under both names.
+            let _ = fs::remove_file(destination);
+            Err(format!(
+                "{error} (dropping {} after linking {})",
+                source.display(),
+                destination.display()
+            ))
+        }
+    }
+}
+
+fn move_no_replace_via_rename(source: &Path, destination: &Path) -> Result<bool, String> {
+    // Claim the destination name atomically first so a concurrent writer is
+    // never clobbered — the no-replace guarantee `hard_link` gave for free.
+    match OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(destination)
+    {
+        Ok(_placeholder) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => return Ok(false),
+        Err(error) => return Err(format!("{error} (claiming {})", destination.display())),
+    }
+    match fs::rename(source, destination) {
+        Ok(()) => Ok(true),
+        Err(error) => {
+            // Renaming the completed source over our empty placeholder failed;
+            // remove the placeholder so no empty file is left behind.
+            let _ = fs::remove_file(destination);
+            Err(format!(
+                "{error} (renaming {} -> {})",
+                source.display(),
+                destination.display()
+            ))
+        }
+    }
 }
 
 pub fn rename_through_temp(source: &Path, destination: &Path) -> Result<(), String> {
@@ -176,6 +232,96 @@ mod tests {
         let path = safe_note_path(&root, &sanitize_title(&title)).unwrap();
         write_atomic_text(&path, "content").unwrap();
         assert_eq!(fs::read_to_string(path).unwrap(), "content");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    // ============================================================
+    // No-replace install (create_new_atomic + move_no_replace)
+    // ============================================================
+
+    #[test]
+    fn create_new_atomic_writes_a_fresh_note_and_leaves_no_temp() {
+        let root = temp_dir();
+        let path = root.join("fresh.md");
+        assert_eq!(create_new_atomic(&path, b"body").unwrap(), true);
+        assert_eq!(fs::read(&path).unwrap(), b"body");
+        assert!(fs::read_dir(&root)
+            .unwrap()
+            .flatten()
+            .all(|entry| { !entry.file_name().to_string_lossy().starts_with(".sf-tmp-") }));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn create_new_atomic_refuses_to_replace_an_existing_note() {
+        let root = temp_dir();
+        let path = root.join("existing.md");
+        fs::write(&path, "original").unwrap();
+        assert_eq!(create_new_atomic(&path, b"newcomer").unwrap(), false);
+        assert_eq!(fs::read_to_string(&path).unwrap(), "original");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn move_no_replace_installs_and_consumes_the_source() {
+        let root = temp_dir();
+        let source = root.join(".sf-tmp-source");
+        let destination = root.join("note.md");
+        fs::write(&source, "carried bytes").unwrap();
+        assert_eq!(move_no_replace(&source, &destination).unwrap(), true);
+        assert_eq!(fs::read_to_string(&destination).unwrap(), "carried bytes");
+        assert!(!source.exists(), "source is consumed by the move");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn move_no_replace_reports_a_taken_destination_without_touching_either() {
+        let root = temp_dir();
+        let source = root.join(".sf-tmp-source");
+        let destination = root.join("note.md");
+        fs::write(&source, "incoming").unwrap();
+        fs::write(&destination, "incumbent").unwrap();
+        assert_eq!(move_no_replace(&source, &destination).unwrap(), false);
+        assert_eq!(fs::read_to_string(&destination).unwrap(), "incumbent");
+        assert_eq!(
+            fs::read_to_string(&source).unwrap(),
+            "incoming",
+            "the source survives a no-replace collision so the caller can decide"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    // Exercises the fallback used on filesystems that reject hard links (Android
+    // FUSE storage). The host filesystem supports links, so `move_no_replace`
+    // would take the link path — call the fallback directly to lock its contract.
+    #[test]
+    fn rename_fallback_installs_when_links_are_unavailable() {
+        let root = temp_dir();
+        let source = root.join(".sf-tmp-source");
+        let destination = root.join("note.md");
+        fs::write(&source, "linkless bytes").unwrap();
+        assert_eq!(
+            move_no_replace_via_rename(&source, &destination).unwrap(),
+            true
+        );
+        assert_eq!(fs::read_to_string(&destination).unwrap(), "linkless bytes");
+        assert!(!source.exists(), "the rename consumes the source");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn rename_fallback_refuses_to_replace_and_keeps_the_source() {
+        let root = temp_dir();
+        let source = root.join(".sf-tmp-source");
+        let destination = root.join("note.md");
+        fs::write(&source, "incoming").unwrap();
+        fs::write(&destination, "incumbent").unwrap();
+        assert_eq!(
+            move_no_replace_via_rename(&source, &destination).unwrap(),
+            false
+        );
+        assert_eq!(fs::read_to_string(&destination).unwrap(), "incumbent");
+        assert_eq!(fs::read_to_string(&source).unwrap(), "incoming");
         fs::remove_dir_all(root).unwrap();
     }
 }
