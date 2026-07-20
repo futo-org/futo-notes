@@ -109,6 +109,22 @@ struct PendingDraft: Equatable {
     let content: String
 }
 
+enum NoteMutationOutcome<Value> {
+    case committed(Value)
+    case failed
+}
+
+func confirmedSavedContent(
+    previousSavedContent: String,
+    writtenContent: String,
+    outcome: NoteMutationOutcome<Void>
+) -> String {
+    switch outcome {
+    case .committed: writtenContent
+    case .failed: previousSavedContent
+    }
+}
+
 /// The open editor's unsaved-draft derivation — the ONE definition of "is there
 /// an unsaved draft, for which note" (PKT-12 R5). Returns a draft keyed on the
 /// LIVE `noteId` (so it re-keys by construction after a rename) whenever the body
@@ -175,6 +191,7 @@ final class NotesStore: ObservableObject {
     /// only the caller's own entry.
     private var draftSeq: UInt64 = 0
     private var draftRegister: [UInt64: PendingDraft] = [:]
+    private var oneShotDraftTokens: Set<UInt64> = []
 
     /// A newly-appeared editor claims a register entry; returns its unique token.
     /// Entries are keyed by it, so editors overlapping during a push/pop
@@ -198,6 +215,22 @@ final class NotesStore: ObservableObject {
     /// overlapping editor's draft intact.
     func releaseDraftOwnership(token: UInt64) {
         draftRegister[token] = nil
+        oneShotDraftTokens.remove(token)
+    }
+
+    /// Keep a leaving editor's final dirty snapshot registered until its
+    /// asynchronous flush has durably written or parked the draft.
+    func retainDraftUntilFlushed(token: UInt64) {
+        guard draftRegister[token] != nil else { return }
+        oneShotDraftTokens.insert(token)
+    }
+
+    private func completeRetainedDraft(_ draft: PendingDraft) {
+        let completedTokens = oneShotDraftTokens.filter { draftRegister[$0] == draft }
+        for token in completedTokens {
+            draftRegister[token] = nil
+            oneShotDraftTokens.remove(token)
+        }
     }
 
     /// What each note's draft was flushed as during the current background episode
@@ -338,12 +371,15 @@ final class NotesStore: ObservableObject {
     func read(_ id: String) async -> String { await vault.read(id) }
     func exists(_ id: String) async -> Bool { await vault.exists(id) }
 
-    func write(_ id: String, content: String) async {
+    func write(_ id: String, content: String) async -> NoteMutationOutcome<Void> {
         do {
             applyMutation(try await vault.write(id, content: content))
             onLocalChange?()
+            return .committed(())
         } catch {
             print("write failed for \(id): \(error)")
+            showTransient("Couldn't save note. Your changes are still pending.")
+            return .failed
         }
     }
 
@@ -403,52 +439,43 @@ final class NotesStore: ObservableObject {
     /// peer-delete "keeping local draft" promise.)
     func flushAsync(_ draft: PendingDraft) {
         Task {
-            do {
-                let result = try await vault.writeIfUnchanged(
-                    draft.id, expected: draft.base, content: draft.content)
-                switch result.outcome {
-                case .wrote:
-                    // The store committed the write and returned the affected row.
-                    if let mutation = result.mutation {
-                        applyMutation(mutation)
-                        onLocalChange?()
-                    }
-                case .skippedChanged:
-                    // The note changed under the editor between its last read and
-                    // this flush — a live pull adopted a peer edit, or an in-flight
-                    // autosave advanced disk past `base`. NEVER drop the draft: if it
-                    // hasn't already converged with disk, park it as a conflict copy
-                    // (persist-or-park). Not a clobber — the diverged note on disk is
-                    // left intact; the edit survives as a new note.
-                    let disk = await vault.read(draft.id)
-                    if disk != draft.content { await parkDraftCopy(draft) }
-                case .skippedMissing:
-                    // Peer deleted the note; a dirty draft is edit-wins
-                    // RE-CREATE-WITH-EDITS (sync.md dirty-keep). Recreate at the
-                    // ORIGINAL id — exactly what the editor's resume autosave does —
-                    // so the survive path (autosave rewrites the same id,
-                    // idempotent) and the jetsam path (this flush recreated)
-                    // converge on ONE home, with NO conflict-copy-vs-recreated-
-                    // original duplication. BUT recreate only-while-still-absent
-                    // (atomic no-replace install): a live-sync pull that recreated
-                    // the id in the window between the CAS and here must not be
-                    // clobbered (P1a). If it reappeared, fall through to the changed
-                    // handling — park the draft unless it converged.
-                    let created = try await vault.createIfAbsent(
-                        draft.id, content: draft.content)
-                    if created == .created {
-                        // The store has no mutation for a bare create-if-absent;
-                        // reload to project the recreated row.
-                        reload()
-                        onLocalChange?()
-                    } else {
-                        let disk = await vault.read(draft.id)
-                        if disk != draft.content { await parkDraftCopy(draft) }
-                    }
-                }
-            } catch {
-                print("flush failed for \(draft.id): \(error)")
+            if await flush(draft) {
+                completeRetainedDraft(draft)
             }
+        }
+    }
+
+    private func flush(_ draft: PendingDraft) async -> Bool {
+        do {
+            let result = try await vault.writeIfUnchanged(
+                draft.id, expected: draft.base, content: draft.content)
+            switch result.outcome {
+            case .wrote:
+                if let mutation = result.mutation {
+                    applyMutation(mutation)
+                    onLocalChange?()
+                }
+                return result.mutation != nil
+            case .skippedChanged:
+                let disk = await vault.read(draft.id)
+                if disk == draft.content { return true }
+                return await parkDraftCopy(draft)
+            case .skippedMissing:
+                let created = try await vault.createIfAbsent(
+                    draft.id, content: draft.content)
+                if created == .created {
+                    reload()
+                    onLocalChange?()
+                    return true
+                }
+                let disk = await vault.read(draft.id)
+                if disk == draft.content { return true }
+                return await parkDraftCopy(draft)
+            }
+        } catch {
+            print("flush failed for \(draft.id): \(error)")
+            showTransient("Couldn't save note. Your changes are still pending.")
+            return false
         }
     }
 
@@ -467,7 +494,7 @@ final class NotesStore: ObservableObject {
     /// (`parkConflictCopyIfAbsent`), so two concurrent parks can't each mint a
     /// suffixed duplicate — the stale-cache / yield-before-create race the old
     /// in-`notes`-cache scan had (P1b). Only a genuine create refreshes state.
-    func parkDraftCopy(_ draft: PendingDraft) async {
+    func parkDraftCopy(_ draft: PendingDraft) async -> Bool {
         let parts = splitId(id: draft.id)
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
@@ -475,11 +502,14 @@ final class NotesStore: ObservableObject {
         do {
             guard let mutation = try await vault.parkConflictCopyIfAbsent(
                 stem: stem, folder: parts.folder, content: draft.content)
-            else { return }  // an identical copy already existed — no duplicate
+            else { return true }  // an identical copy already existed — no duplicate
             applyMutation(mutation)
             onLocalChange?()
+            return true
         } catch {
             print("parkDraftCopy failed for \(draft.id): \(error)")
+            showTransient("Couldn't preserve conflicting edits. Your draft is still open.")
+            return false
         }
     }
 

@@ -51,6 +51,20 @@ internal val noteListOrder: Comparator<NoteItem> =
  *  `pendingDraft` tuple. */
 data class PendingDraft(val id: String, val base: String, val content: String)
 
+sealed interface NoteMutationOutcome<out T> {
+    data class Committed<T>(val value: T) : NoteMutationOutcome<T>
+    data object Failed : NoteMutationOutcome<Nothing>
+}
+
+internal fun confirmedSavedContent(
+    previousSavedContent: String,
+    writtenContent: String,
+    outcome: NoteMutationOutcome<Unit>,
+): String = when (outcome) {
+    is NoteMutationOutcome.Committed -> writtenContent
+    NoteMutationOutcome.Failed -> previousSavedContent
+}
+
 /** The open editor's unsaved-draft derivation — the ONE definition of "is there
  *  an unsaved draft, for which note" (PKT-12 R5). Returns a draft keyed on the
  *  LIVE [noteId] (so it re-keys by construction after a rename) whenever the body
@@ -345,15 +359,16 @@ class NotesStore(notesRoot: File, searchIndex: File) {
     }
 
     /** Write one note and consume the complete committed mutation. */
-    suspend fun write(id: String, content: String) {
+    suspend fun write(id: String, content: String): NoteMutationOutcome<Unit> =
         try {
             val mutation = withCore { core.write(id, content) }
             applyMutation(mutation)
             signalLocalChange()
+            NoteMutationOutcome.Committed(Unit)
         } catch (e: Exception) {
             android.util.Log.e("NotesStore", "write failed for $id", e)
+            NoteMutationOutcome.Failed
         }
-    }
 
     /** Re-sort the in-memory list most-recently-modified first WITHOUT a rescan
      *  [list.md:24]. `write` keeps row identity/order stable while typing (so a

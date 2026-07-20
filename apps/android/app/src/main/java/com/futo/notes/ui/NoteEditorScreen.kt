@@ -52,8 +52,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import com.futo.notes.ImagePicker
+import com.futo.notes.NoteMutationOutcome
 import com.futo.notes.NotesStore
 import com.futo.notes.PendingDraft
+import com.futo.notes.confirmedSavedContent
 import com.futo.notes.derivePendingDraft
 import com.futo.notes.saveImageDataIntoVault
 import com.futo.notes.saveImageIntoVault
@@ -272,7 +274,15 @@ fun NoteEditorScreen(
                     val date = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
                     val copyId = store.createNote("${parts.title} (conflict $date)", parts.folder)
                     val localEdit = content
-                    if (copyId != null) store.write(copyId, localEdit)
+                    val copyOutcome = copyId?.let { store.write(it, localEdit) }
+                    if (copyOutcome !is NoteMutationOutcome.Committed) {
+                        Toast.makeText(
+                            context,
+                            "Couldn't preserve conflicting edits. Your draft is still open.",
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                        return@collect
+                    }
                     host.applyExternalContent(disk)
                     content = disk
                     savedContent = disk
@@ -310,7 +320,18 @@ fun NoteEditorScreen(
             // newer keystroke as saved and the register would go clean, losing it on
             // background/process death (PKT-12 F1).
             val flushed = content
-            if (flushed != savedContent) { store.write(noteId, flushed); savedContent = flushed }
+            if (flushed != savedContent) {
+                val outcome = store.write(noteId, flushed)
+                savedContent = confirmedSavedContent(savedContent, flushed, outcome)
+                if (outcome === NoteMutationOutcome.Failed) {
+                    Toast.makeText(
+                        context,
+                        "Couldn't save note. Your changes are still pending.",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                    return@collectLatest
+                }
+            }
             noteId = store.rename(noteId, target)
         }
     }
@@ -524,8 +545,15 @@ fun NoteEditorScreen(
                                 // Re-read noteId at fire time so a save that lands
                                 // after a rename writes to the renamed note, not the
                                 // stale id.
-                                store.write(noteId, newContent)
-                                savedContent = newContent
+                                val outcome = store.write(noteId, newContent)
+                                savedContent = confirmedSavedContent(savedContent, newContent, outcome)
+                                if (outcome === NoteMutationOutcome.Failed) {
+                                    Toast.makeText(
+                                        context,
+                                        "Couldn't save note. Your changes are still pending.",
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                }
                             }
                         }
                     },
@@ -599,7 +627,18 @@ fun NoteEditorScreen(
                     // the write stays dirty in the register and survives a later
                     // background flush (PKT-12 F1 — same as the rename path).
                     val flushed = content
-                    if (flushed != savedContent) { store.write(noteId, flushed); savedContent = flushed }
+                    if (flushed != savedContent) {
+                        val outcome = store.write(noteId, flushed)
+                        savedContent = confirmedSavedContent(savedContent, flushed, outcome)
+                        if (outcome === NoteMutationOutcome.Failed) {
+                            Toast.makeText(
+                                context,
+                                "Couldn't save note. Your changes are still pending.",
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                            return@launch
+                        }
+                    }
                     if (isNew) store.createFolder(folder)
                     noteId = store.moveNote(noteId, folder)
                     Toast.makeText(context, "Moved to ${folder.ifEmpty { "Root" }}", Toast.LENGTH_SHORT).show()

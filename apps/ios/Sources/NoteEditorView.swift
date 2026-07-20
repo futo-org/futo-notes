@@ -275,6 +275,7 @@ struct NoteEditorView: View {
                 autoFocus && noteId == originalId
                 && titleField == splitId(id: originalId).title
                 && content.isEmpty && savedContent.isEmpty
+            var shouldReleaseDraft = true
             if untouched {
                 store.delete(noteId)
             } else if content != savedContent {
@@ -284,13 +285,16 @@ struct NoteEditorView: View {
                 // so a note deleted / sync-adopted while open is neither
                 // resurrected nor clobbered, and a no-edit open/close never bumps
                 // mtime. Mirrors Android's onDispose flush.
-                store.flushAsync(PendingDraft(id: noteId, base: savedContent, content: content))
-                savedContent = content
+                let draft = PendingDraft(id: noteId, base: savedContent, content: content)
+                store.publishDraft(token: draftToken, draft)
+                store.retainDraftUntilFlushed(token: draftToken)
+                store.flushAsync(draft)
+                shouldReleaseDraft = false
             }
-            // Remove this editor's register entry LAST, so the flush above (and
-            // any concurrent scenePhase flush) still sees the draft; releasing
-            // leaves any overlapping sibling editor's draft intact.
-            store.releaseDraftOwnership(token: draftToken)
+            // A clean/untouched editor releases its own entry. A dirty editor's
+            // entry stays retained until the asynchronous flush is durable, so
+            // a failed leave save remains eligible for a later lifecycle retry.
+            if shouldReleaseDraft { store.releaseDraftOwnership(token: draftToken) }
             draftToken = 0
         }
     }
@@ -323,8 +327,12 @@ struct NoteEditorView: View {
             // This is the second half of the ghost-note fix (F7); the first half
             // is the flush+cancel in commitRename. Mirrors Android's
             // NoteEditorScreen.kt re-read at the debounce fire.
-            await store.write(noteId, content: newContent)
-            savedContent = newContent
+            let outcome = await store.write(noteId, content: newContent)
+            savedContent = confirmedSavedContent(
+                previousSavedContent: savedContent,
+                writtenContent: newContent,
+                outcome: outcome
+            )
         }
     }
 
@@ -377,8 +385,13 @@ struct NoteEditorView: View {
         // clear is needed.
         let flushed = content
         if flushed != savedContent {
-            await store.write(noteId, content: flushed)
-            savedContent = flushed
+            let outcome = await store.write(noteId, content: flushed)
+            savedContent = confirmedSavedContent(
+                previousSavedContent: savedContent,
+                writtenContent: flushed,
+                outcome: outcome
+            )
+            guard case .committed = outcome else { return }
         }
 
         let targetId = makeId(folder: parts.folder, title: sanitized)
@@ -487,7 +500,9 @@ struct NoteEditorView: View {
             // conflict copy, then adopt. Uses the shared `parkDraftCopy` so the
             // flush and the live-pull path can't drift on the conflict-copy naming.
             saveTask?.cancel()
-            await store.parkDraftCopy(PendingDraft(id: id, base: savedContent, content: content))
+            let parked = await store.parkDraftCopy(
+                PendingDraft(id: id, base: savedContent, content: content))
+            guard parked else { return }
             guard noteId == id else { return }
             if isVisible { EditorHost.shared.applyExternal(content: disk) }
             content = disk
@@ -573,8 +588,13 @@ struct NoteEditorView: View {
             // the moved id afterwards, so no manual clear is needed.
             let flushed = content
             if flushed != savedContent {
-                await store.write(noteId, content: flushed)
-                savedContent = flushed
+                let outcome = await store.write(noteId, content: flushed)
+                savedContent = confirmedSavedContent(
+                    previousSavedContent: savedContent,
+                    writtenContent: flushed,
+                    outcome: outcome
+                )
+                guard case .committed = outcome else { return }
             }
             showMove = true
         }

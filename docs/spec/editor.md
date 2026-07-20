@@ -445,6 +445,15 @@ EditorWebView.swift, EditorWebView.kt
   note id at fire time, so a save landing **after** a rename writes to the
   renamed note, not a stale id. → NoteEditorScreen.kt / NoteEditorView.swift
   `scheduleSave`
+- Native saves return an explicit committed/failed outcome. A failed write does
+  not advance the editor's saved snapshot, so the draft remains dirty and a
+  visible message tells the user it is still pending. Rename and move stop
+  before changing the note's identity when their required body flush fails;
+  conflict adoption likewise waits until the local conflict copy is durable.
+  A dirty iOS editor that leaves the screen retains its final draft registration
+  until the asynchronous leave flush writes or parks it successfully. _(iOS,
+  Android)_ → `NotesStore.write`, NoteEditorScreen.kt / NoteEditorView.swift,
+  NativeMutationOutcomeTest / NativeMutationOutcomeTests
 - Title edits debounce (~500 ms) into a rename (iOS commits via the rename
   dialog instead). Before the file moves, any pending body save is flushed to
   the _current_ id and the in-flight save is cancelled — otherwise a stale save
