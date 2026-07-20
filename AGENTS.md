@@ -483,6 +483,11 @@ behavior.
 ### 7.10 Before merge / release
 - [ ] `just check` green (spec-gaps-check + toolbar-spec-check + rust conformance + lint +
       test:full + tsc + build)
+- [ ] To catch as much as possible *before* pushing, `just prepush` = `check` + full Rust
+      workspace + the entire Playwright suite + cross-platform sync. Slow (30–60 min) and
+      environment-dependent (sync server repo + Postgres, Playwright browsers) — deliberately
+      NOT part of `check`, which must stay the fast always-run gate. Native-shell runtime
+      behavior and Windows/WebView2 remain out of its reach (device QA / `scripts/win-vm/`)
 - [ ] MR pipelines auto-run every suite whose `changes:` paths the MR touches: hard gates
       (lint + `lint:platform` + `test:full` + Rust conformance + dep-guard) always; E2E +
       markdown-spec on web/editor changes (blocking); cross-platform sync on sync-critical
@@ -508,6 +513,7 @@ behavior.
 | Android JVM | `just test-android-native` | native pure-logic tests |
 | Desktop smoke | `just test-desktop-smoke` | MCP-bridge 4-check smoke |
 | Everything local | `just check` | the pre-merge umbrella |
+| Everything before push | `just prepush` | `check` + full Rust workspace + full E2E + cross-platform sync |
 
 Where tests live: Rust → inline `#[cfg(test)]` modules + `crates/*/tests/`; Tauri `_impl` tests live
 at the bottom of their owning files in `apps/tauri/src-tauri/src/`; TS → `src/lib/*.test.ts`;

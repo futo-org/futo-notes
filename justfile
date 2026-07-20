@@ -13,6 +13,7 @@ alias tu := test-unit
 alias te := test-editor
 alias l := lint
 alias c := check
+alias pp := prepush
 alias dd := deploy-deb
 alias dr := deploy-rpm
 alias di := deploy-ios
@@ -471,6 +472,20 @@ check: spec-gaps-check toolbar-spec-check arch-gate test-rust
   pnpm run test:full
   pnpm exec tsc --noEmit | head -30
   pnpm run build | tail -20
+
+# Cross-platform sync needs the server repo at ~/Developer/futo-notes-server
+# (+ Postgres); the full Playwright run needs installed browsers. Budget
+# 30-60 min. What it still can't see: native-shell runtime behavior (device
+# QA) and Windows/WebView2 (scripts/win-vm/).
+# --retries=1: the local 30s test timeout (CI gets 90s) makes a ~250-test run
+# flake on the odd slow navigation/click; one retry absorbs those while a
+# genuinely broken test still fails both attempts (and is reported "flaky"
+# when it passes only on retry — treat repeat offenders as real bugs).
+# Maximal pre-push gate: `check` + full Rust workspace + full E2E + cross-platform sync.
+prepush: check test-rust-full
+  pnpm exec playwright test --retries=1
+  pnpm run test:cross-platform
+  @echo "prepush green — check + rust workspace + full e2e + cross-platform sync all passed"
 
 ci:
   pnpm run ci
