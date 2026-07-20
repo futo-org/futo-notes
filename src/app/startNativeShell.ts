@@ -40,7 +40,7 @@ export function startNativeShell(deps: NativeShellDeps): () => void {
         const { exit } = await import('@tauri-apps/plugin-process');
         await exit(0);
       } catch {
-        appWindow.destroy();
+        void appWindow.destroy();
       }
     })
     .then(track);

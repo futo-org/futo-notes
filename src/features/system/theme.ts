@@ -51,7 +51,7 @@ export function watchSystemThemeTauri(onChange: (theme?: ResolvedTheme) => void)
   import('@tauri-apps/api/window')
     .then(({ getCurrentWindow }) => {
       if (disposed) return;
-      getCurrentWindow()
+      void getCurrentWindow()
         .onThemeChanged(({ payload: theme }) => {
           onChange(theme as ResolvedTheme);
         })
@@ -66,7 +66,7 @@ export function watchSystemThemeTauri(onChange: (theme?: ResolvedTheme) => void)
       import('@tauri-apps/api/event')
         .then(({ listen }) => {
           if (disposed) return;
-          listen<string>('linux-theme-changed', (event) => {
+          void listen<string>('linux-theme-changed', (event) => {
             onChange(event.payload as ResolvedTheme);
           }).then((unlisten) => {
             if (disposed) {

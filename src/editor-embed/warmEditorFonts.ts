@@ -7,5 +7,5 @@ export function warmEditorFonts(onready: () => void): void {
     'italic 700 18px Barlow',
   ];
 
-  Promise.allSettled(specs.map((spec) => fonts.load(spec))).then(onready);
+  void Promise.allSettled(specs.map((spec) => fonts.load(spec))).then(onready);
 }
