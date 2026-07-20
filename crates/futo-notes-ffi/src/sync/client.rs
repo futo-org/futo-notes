@@ -88,6 +88,11 @@ impl SyncClient {
         self.session.stop_live();
     }
 
+    /// Stops live sync and waits for any in-flight cycle to release the vault.
+    pub async fn stop_live_and_wait(&self) {
+        self.session.stop_live_and_wait().await;
+    }
+
     /// Disconnect drops live cursor state but preserves verified ancestry for safe reconciliation
     /// after reconnect.
     pub async fn disconnect(&self) -> Result<(), SyncError> {

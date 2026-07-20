@@ -184,6 +184,12 @@ impl SyncSession {
             }
         }
     }
+
+    /// Stop the live task and wait until any cycle already holding the vault is done.
+    pub async fn stop_live_and_wait(&self) {
+        self.stop_live();
+        let _gate = self.cycle_gate.lock().await;
+    }
 }
 
 enum CycleResult {
@@ -728,5 +734,20 @@ mod tests {
             classify_cycle_error(&SyncErrorKind::Http("HTTP 500: unavailable".into()));
         assert!(matches!(http_result, CycleResult::Continue));
         assert_eq!(http_message, "HTTP 500: unavailable");
+    }
+
+    #[tokio::test]
+    async fn stop_live_and_wait_observes_the_cycle_gate() {
+        let session = Arc::new(SyncSession::new());
+        let held = session.cycle_gate.lock().await;
+        let waiting = {
+            let session = Arc::clone(&session);
+            tokio::spawn(async move { session.stop_live_and_wait().await })
+        };
+
+        tokio::task::yield_now().await;
+        assert!(!waiting.is_finished());
+        drop(held);
+        waiting.await.unwrap();
     }
 }

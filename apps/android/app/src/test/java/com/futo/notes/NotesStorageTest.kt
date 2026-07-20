@@ -105,7 +105,7 @@ class NotesStorageTest {
     // ── migrate ──
 
     @Test
-    fun migrateCopiesDotfilesAndImagesThenDeletesSource() {
+    fun migrateCopiesDotfilesAndImagesThenDeletesSourceAfterCommit() {
         val from = tmp.newFolder("from")
         File(from, "note.md").writeText("# hello")
         File(from, "Folder").mkdirs()
@@ -127,7 +127,9 @@ class NotesStorageTest {
         assertTrue(File(to, "image.png").exists())
         assertEquals("{\"objectMap\":{}}", File(to, ".futo/.e2ee-state.json").readText())
         assertTrue(File(to, ".crashlogs/crash-1.json").exists())
-        // verify-before-delete: source is gone only after a reconciled copy
+        // Preference persistence happens between these two phases in MainActivity.
+        assertTrue(from.exists())
+        assertTrue(NotesStorage.finalizeMigration(from, to))
         assertFalse(from.exists())
     }
 
@@ -139,6 +141,7 @@ class NotesStorageTest {
 
         val first = NotesStorage.migrate(from, to)
         assertTrue(first.migrated)
+        assertTrue(NotesStorage.finalizeMigration(from, to))
         // Re-running with the (now-deleted) source is a no-op, not a crash.
         val second = NotesStorage.migrate(from, to)
         assertFalse(second.migrated)
@@ -154,5 +157,68 @@ class NotesStorageTest {
         File(same, "x.md").writeText("x")
         assertFalse(NotesStorage.migrate(same, same).migrated)
         assertTrue(File(same, "x.md").exists())
+    }
+
+    @Test
+    fun missingSourceFailsInsteadOfActivatingAnEmptyDestination() {
+        val result = NotesStorage.migrate(
+            File(tmp.root, "missing-source"),
+            File(tmp.root, "missing-destination"),
+        )
+        val decision = NotesStorage.storageSwitchDecision(result)
+
+        assertTrue(result is NotesStorage.MigrationOutcome.Failed)
+        assertFalse(decision.commitPreference)
+        assertFalse(decision.restart)
+    }
+
+    @Test
+    fun migrateRejectsCorruptCopyAndPreservesSource() {
+        val from = tmp.newFolder("corrupt-source")
+        File(from, "note.md").writeText("source bytes")
+        val to = File(tmp.root, "corrupt-destination")
+
+        val result = NotesStorage.migrate(from, to) { _, staging ->
+            staging.mkdirs()
+            File(staging, "note.md").writeText("wrong bytes!")
+            true
+        }
+
+        assertTrue(result is NotesStorage.MigrationOutcome.Failed)
+        assertEquals("source bytes", File(from, "note.md").readText())
+        assertFalse(to.exists())
+    }
+
+    @Test
+    fun migrateRefusesDifferentPreexistingDestinationWithoutChangingEitherVault() {
+        val from = tmp.newFolder("occupied-source")
+        File(from, "note.md").writeText("source")
+        val to = tmp.newFolder("occupied-destination")
+        File(to, "note.md").writeText("destination")
+
+        val result = NotesStorage.migrate(from, to)
+
+        assertTrue(result is NotesStorage.MigrationOutcome.Failed)
+        assertEquals("source", File(from, "note.md").readText())
+        assertEquals("destination", File(to, "note.md").readText())
+    }
+
+    @Test
+    fun storageSwitchDecisionCommitsOnlySafeOutcomes() {
+        val migrated = NotesStorage.storageSwitchDecision(
+            NotesStorage.MigrationOutcome.Migrated(files = 2),
+        )
+        val empty = NotesStorage.storageSwitchDecision(NotesStorage.MigrationOutcome.EmptySource)
+        val failed = NotesStorage.storageSwitchDecision(
+            NotesStorage.MigrationOutcome.Failed("Copy verification failed."),
+        )
+
+        assertTrue(migrated.commitPreference)
+        assertTrue(migrated.restart)
+        assertTrue(empty.commitPreference)
+        assertTrue(empty.restart)
+        assertFalse(failed.commitPreference)
+        assertFalse(failed.restart)
+        assertEquals("Copy verification failed.", failed.feedback)
     }
 }

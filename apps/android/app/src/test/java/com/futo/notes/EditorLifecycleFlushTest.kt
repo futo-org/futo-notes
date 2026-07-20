@@ -1,10 +1,12 @@
 package com.futo.notes
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import uniffi.futo_notes_ffi.FlushOutcome
 
 /**
  * Regression for the Android editor's unsaved-draft register (F5 lifecycle
@@ -66,6 +68,54 @@ class EditorLifecycleFlushTest {
         assertEquals(
             "renamed",
             derivePendingDraft(loaded = true, noteId = "renamed", savedContent = "A", content = "AB")!!.id,
+        )
+    }
+
+    @Test
+    fun migrationRejectsConditionalFlushThatDidNotPreserveTheDraft() {
+        assertFalse(
+            pendingDraftIsDurable(
+                FlushOutcome.SKIPPED_CHANGED,
+                hasMutation = false,
+                diskContent = "peer edit",
+                draftContent = "live draft",
+            ),
+        )
+        assertFalse(
+            pendingDraftIsDurable(
+                FlushOutcome.SKIPPED_MISSING,
+                hasMutation = false,
+                diskContent = null,
+                draftContent = "live draft",
+            ),
+        )
+        assertFalse(
+            pendingDraftIsDurable(
+                FlushOutcome.WROTE,
+                hasMutation = false,
+                diskContent = "older bytes",
+                draftContent = "live draft",
+            ),
+        )
+    }
+
+    @Test
+    fun migrationAcceptsOnlyACommittedMutationOrMatchingDiskBytes() {
+        assertTrue(
+            pendingDraftIsDurable(
+                FlushOutcome.WROTE,
+                hasMutation = true,
+                diskContent = null,
+                draftContent = "live draft",
+            ),
+        )
+        assertTrue(
+            pendingDraftIsDurable(
+                FlushOutcome.SKIPPED_CHANGED,
+                hasMutation = false,
+                diskContent = "live draft",
+                draftContent = "live draft",
+            ),
         )
     }
 

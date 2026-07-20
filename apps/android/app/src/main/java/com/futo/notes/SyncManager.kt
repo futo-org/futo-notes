@@ -7,6 +7,7 @@ import androidx.compose.runtime.setValue
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import uniffi.futo_notes_ffi.SyncClient
@@ -247,6 +248,13 @@ class SyncManager(
     /** Tear down the live stream (e.g. app backgrounded). Keeps the session. */
     fun pauseLive() {
         client?.stopLive()
+        live = false
+    }
+
+    /** Stop live sync and wait for any connect/manual cycle already in flight. */
+    suspend fun quiesceForStorageMigration() {
+        while (busy) delay(10)
+        client?.stopLiveAndWait()
         live = false
     }
 

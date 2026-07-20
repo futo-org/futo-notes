@@ -60,9 +60,21 @@ Behaviors and constraints that hold across every surface and platform.
     shown before the system dialog. Android 11+ only.
   - **App storage** — `Android/data/<pkg>/files/futo-notes`: no permission, but
     invisible to the stock Files app on Android 11+ and deleted on uninstall.
-    Switching modes migrates the whole vault (including the `.futo` sync state) and
-    relaunches; the move is transparent to sync (object map is keyed by relative
-    filename → [sync.md](sync.md)).
+    Switching modes migrates the whole vault (including the `.futo` sync state)
+    and relaunches. The switch blocks editor/store writes and pauses live sync;
+    it stages the copy, verifies every relative path and file digest, and durably
+    commits the new mode before deleting the source. A failed copy/verification
+    or preference write keeps the old mode/root active and reports the failure.
+    An open editor's pending draft must first produce a committed mutation or
+    already match the bytes on disk; a skipped/missing/divergent flush aborts the
+    switch instead of relaunching with an older draft. A non-empty destination is
+    accepted only when its complete manifest already matches the source, so an
+    unrelated pre-existing vault is never overwritten or cleaned up. An existing
+    empty source directory is a valid switch, but a missing or non-directory
+    active root is a failure (never interpreted as an empty vault). The move is
+    transparent to sync because the object map is keyed by relative filename. →
+    [sync.md](sync.md), `NotesStorage.kt`, `MainActivity.performSwitch`,
+    `NotesStorageTest`
 - **No silent relocation of existing installs.** An Android install that predates
   the picker is grandfathered on its legacy internal location
   (`filesDir/futo-notes`); it gains Files-app access only by opting in via

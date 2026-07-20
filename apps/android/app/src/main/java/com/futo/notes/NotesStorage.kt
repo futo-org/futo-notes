@@ -4,6 +4,8 @@ import android.content.Context
 import android.os.Build
 import android.os.Environment
 import java.io.File
+import java.nio.file.Files
+import java.security.MessageDigest
 
 /** Where the note vault lives on disk. Mirrors Obsidian's two storage modes. */
 enum class StorageMode { DEVICE, APP, INTERNAL }
@@ -107,28 +109,161 @@ object NotesStorage {
 
     // ── Migration (PURE) ──
 
-    data class MigrationResult(val migrated: Boolean, val files: Int)
+    sealed interface MigrationOutcome {
+        val migrated: Boolean get() = this is Migrated
+        val files: Int get() = if (this is Migrated) this.files else 0
+
+        data class Migrated(override val files: Int) : MigrationOutcome
+
+        data object EmptySource : MigrationOutcome
+        data object AlreadyAtDestination : MigrationOutcome
+        data class Failed(val message: String) : MigrationOutcome
+    }
+
+    data class StorageSwitchDecision(
+        val commitPreference: Boolean,
+        val restart: Boolean,
+        val feedback: String?,
+    )
+
+    /** The preference/restart boundary consumes only an explicit safe outcome. */
+    fun storageSwitchDecision(outcome: MigrationOutcome): StorageSwitchDecision =
+        when (outcome) {
+            is MigrationOutcome.Failed -> StorageSwitchDecision(false, false, outcome.message)
+            is MigrationOutcome.Migrated,
+            MigrationOutcome.EmptySource,
+            MigrationOutcome.AlreadyAtDestination,
+            -> StorageSwitchDecision(true, true, null)
+        }
 
     /**
      * Copy the whole vault tree (INCLUDING dotfiles — the `.futo` /
      * `.e2ee-state.json` sync state, `.crashlogs`, and images) from [from] to
-     * [to], VERIFY the copy reconciles, then delete the source. Idempotent and
-     * verify-before-delete: if the file count doesn't reconcile, the source is
-     * left intact. Sync survives the move because the object map is keyed by
-     * relative filename [sync.md], not absolute path.
+     * [to], then VERIFY every relative path and file's size/content digest.
+     * Copying happens in a sibling staging directory, and a non-empty destination
+     * is never merged into or cleaned up. The source remains intact until
+     * [finalizeMigration], which the Activity calls only after the new preference
+     * is durably committed. Sync survives the move because the object map is
+     * keyed by relative filename [sync.md], not absolute path.
      */
-    fun migrate(from: File, to: File): MigrationResult {
-        if (!from.exists() || from.canonicalFile == to.canonicalFile) return MigrationResult(false, 0)
-        val srcFiles = countFiles(from)
-        if (srcFiles == 0) return MigrationResult(false, 0)
-        to.mkdirs()
-        val copied = runCatching { from.copyRecursively(to, overwrite = true) }.getOrDefault(false)
-        if (copied && countFiles(to) >= srcFiles) {
-            from.deleteRecursively()
-            return MigrationResult(true, srcFiles)
+    fun migrate(
+        from: File,
+        to: File,
+        copyTree: (File, File) -> Boolean = { source, staging ->
+            source.copyRecursively(staging, overwrite = false)
+        },
+    ): MigrationOutcome {
+        val source = runCatching { from.canonicalFile }.getOrElse {
+            return MigrationOutcome.Failed("Unable to read the current notes folder.")
         }
-        return MigrationResult(false, srcFiles)
+        val destination = runCatching { to.canonicalFile }.getOrElse {
+            return MigrationOutcome.Failed("Unable to resolve the new notes folder.")
+        }
+        if (!source.exists() || !source.isDirectory) {
+            return MigrationOutcome.Failed("The current notes folder is unavailable. The storage mode was not changed.")
+        }
+        if (source == destination) return MigrationOutcome.AlreadyAtDestination
+
+        val sourceManifest = runCatching { manifest(source) }.getOrElse {
+            return MigrationOutcome.Failed("Unable to read every item in the current notes folder.")
+        }
+        if (sourceManifest.isEmpty()) return MigrationOutcome.EmptySource
+        if (destination.exists() && (!destination.isDirectory || destination.listFiles()?.isNotEmpty() != false)) {
+            val destinationManifest = runCatching { manifest(destination) }.getOrNull()
+            return if (destinationManifest == sourceManifest) {
+                MigrationOutcome.Migrated(
+                    files = sourceManifest.values.count { !it.isDirectory },
+                )
+            } else {
+                MigrationOutcome.Failed(
+                    "The new notes folder already contains different files. Neither vault was changed.",
+                )
+            }
+        }
+
+        val parent = destination.parentFile
+            ?: return MigrationOutcome.Failed("Unable to resolve the new notes folder's parent.")
+        if (!parent.exists() && !parent.mkdirs()) {
+            return MigrationOutcome.Failed("Unable to create the new notes folder's parent.")
+        }
+        val staging = runCatching {
+            Files.createTempDirectory(parent.toPath(), ".${destination.name}.migration-").toFile()
+        }.getOrElse {
+            return MigrationOutcome.Failed("Unable to create a temporary folder for the verified copy.")
+        }
+
+        val staged = runCatching { copyTree(source, staging) }.getOrDefault(false)
+        if (!staged || runCatching { manifest(staging) }.getOrNull() != sourceManifest) {
+            staging.deleteRecursively()
+            return MigrationOutcome.Failed("The notes copy could not be verified. The original notes are unchanged.")
+        }
+
+        if (destination.exists()) {
+            if (!destination.isDirectory || destination.listFiles()?.isNotEmpty() != false) {
+                staging.deleteRecursively()
+                return MigrationOutcome.Failed("The new notes folder changed during migration. Neither vault was overwritten.")
+            }
+            if (!destination.delete()) {
+                staging.deleteRecursively()
+                return MigrationOutcome.Failed("The empty destination folder could not be prepared.")
+            }
+        }
+        if (!staging.renameTo(destination)) {
+            staging.deleteRecursively()
+            return MigrationOutcome.Failed("The verified notes copy could not be installed. The original notes are unchanged.")
+        }
+        if (runCatching { manifest(destination) }.getOrNull() != sourceManifest) {
+            return MigrationOutcome.Failed("The installed notes copy could not be verified. The original notes are unchanged.")
+        }
+
+        val fileCount = sourceManifest.values.count { !it.isDirectory }
+        return MigrationOutcome.Migrated(fileCount)
     }
 
-    private fun countFiles(dir: File): Int = dir.walkTopDown().count { it.isFile }
+    /** Remove the old vault only after the new storage preference is durable. */
+    fun finalizeMigration(from: File, to: File): Boolean {
+        val source = runCatching { from.canonicalFile }.getOrNull() ?: return false
+        val destination = runCatching { to.canonicalFile }.getOrNull() ?: return false
+        if (source == destination || !source.exists()) return true
+        val sourceManifest = runCatching { manifest(source) }.getOrNull() ?: return false
+        val destinationManifest = runCatching { manifest(destination) }.getOrNull() ?: return false
+        if (sourceManifest != destinationManifest) return false
+        return source.deleteRecursively()
+    }
+
+    private data class ManifestEntry(
+        val isDirectory: Boolean,
+        val size: Long,
+        val digest: String,
+    )
+
+    private fun manifest(root: File): Map<String, ManifestEntry> {
+        if (!root.exists()) return emptyMap()
+        require(root.isDirectory) { "Vault root is not a directory" }
+        return root.walkTopDown().drop(1).associate { item ->
+            val relativePath = item.relativeTo(root).invariantSeparatorsPath
+            if (item.isDirectory) {
+                relativePath to ManifestEntry(isDirectory = true, size = 0, digest = "")
+            } else {
+                relativePath to ManifestEntry(
+                    isDirectory = false,
+                    size = item.length(),
+                    digest = sha256(item),
+                )
+            }
+        }
+    }
+
+    private fun sha256(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().buffered().use { input ->
+            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+            while (true) {
+                val read = input.read(buffer)
+                if (read < 0) break
+                digest.update(buffer, 0, read)
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
+    }
 }

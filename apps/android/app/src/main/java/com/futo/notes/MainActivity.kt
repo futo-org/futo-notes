@@ -21,9 +21,13 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -32,6 +36,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
@@ -88,6 +93,7 @@ class MainActivity : ComponentActivity() {
     private val showOnboarding = mutableStateOf(false)
     private val showRegrant = mutableStateOf(false)
     private val showStoragePicker = mutableStateOf(false)
+    private val storageSwitching = mutableStateOf(false)
 
     // The All-files-access settings screen returns no result code, so we
     // re-check the actual permission state on return and run the continuation.
@@ -230,6 +236,15 @@ class MainActivity : ComponentActivity() {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     val s = store.value
                     when {
+                        storageSwitching.value -> Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                CircularProgressIndicator()
+                                Text("Moving notes…")
+                            }
+                        }
                         s == null && showRegrant.value -> StorageRegrantScreen(
                             onGrant = { requestDeviceAccess { showRegrant.value = false; initVault(NotesStorage.deviceRoot(BuildConfig.DEBUG)) } },
                             onUseAppStorage = {
@@ -476,19 +491,51 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun performSwitch(newMode: StorageMode) {
+        if (storageSwitching.value) return
         val current = store.value ?: return
         val from = File(current.rootPath)
         val to = NotesStorage.rootFor(this, newMode, BuildConfig.DEBUG)
-        lifecycleScope.launch(Dispatchers.IO) {
-            NotesStorage.migrate(from, to)
-            // commit() (synchronous) — NOT apply(): restartApp() kills the process
-            // immediately, and an async apply() write would be lost before it
-            // flushes, stranding the app back in the old mode + re-seeding.
-            prefs.edit().putString(Prefs.STORAGE_MODE, newMode.name).commit()
-            // A vault move changes the path captured by the process-singleton
-            // search engine + sync client, so relaunch the process to rebuild
-            // them cleanly (desktop's "the app will restart" parity).
-            withContext(Dispatchers.Main) { restartApp() }
+        storageSwitching.value = true
+        current.suppressAutoPush = true
+        lifecycleScope.launch {
+            val outcome = runCatching {
+                sync.quiesceForStorageMigration()
+                current.migrateVault(to)
+            }.getOrElse {
+                NotesStorage.MigrationOutcome.Failed(
+                    "The notes folder could not be moved. The original notes are unchanged.",
+                )
+            }
+            val decision = NotesStorage.storageSwitchDecision(outcome)
+
+            if (decision.commitPreference) {
+                // commit() (synchronous) — NOT apply(): restartApp() kills the process
+                // immediately, and an async apply() write would be lost before it
+                // flushes, stranding the app back in the old mode + re-seeding.
+                val committed = withContext(Dispatchers.IO) {
+                    prefs.edit().putString(Prefs.STORAGE_MODE, newMode.name).commit()
+                }
+                if (committed) {
+                    // Source cleanup is deliberately AFTER the preference commit.
+                    // If cleanup fails, the verified destination remains active and
+                    // the intact source is a recoverable duplicate.
+                    withContext(Dispatchers.IO) { NotesStorage.finalizeMigration(from, to) }
+                    // A vault move changes the path captured by the process-singleton
+                    // search engine + sync client, so relaunch to rebuild them.
+                    if (decision.restart) restartApp()
+                    return@launch
+                }
+            }
+
+            current.suppressAutoPush = false
+            current.resumeAfterStorageMigrationFailure()
+            storageSwitching.value = false
+            sync.resumeLiveAsync()
+            Toast.makeText(
+                this@MainActivity,
+                decision.feedback ?: "The storage preference could not be saved. The original notes remain active.",
+                Toast.LENGTH_LONG,
+            ).show()
         }
     }
 

@@ -8,7 +8,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import uniffi.futo_notes_ffi.FlushOutcome
 import uniffi.futo_notes_ffi.NoteMutation
 import uniffi.futo_notes_ffi.NoteStore
 import uniffi.futo_notes_ffi.NoteMetadata
@@ -62,6 +65,18 @@ internal fun derivePendingDraft(
     content: String,
 ): PendingDraft? =
     if (loaded && content != savedContent) PendingDraft(noteId, savedContent, content) else null
+
+/** Whether a migration flush proved that the live draft is represented on disk. */
+internal fun pendingDraftIsDurable(
+    outcome: FlushOutcome,
+    hasMutation: Boolean,
+    diskContent: String?,
+    draftContent: String,
+): Boolean = when (outcome) {
+    FlushOutcome.WROTE -> hasMutation || diskContent == draftContent
+    FlushOutcome.SKIPPED_CHANGED -> diskContent == draftContent
+    FlushOutcome.SKIPPED_MISSING -> false
+}
 
 /**
  * The open editor's unsaved-draft register and its leave-foreground flush,
@@ -127,9 +142,14 @@ internal class PendingEditorDraft(private val persist: (draft: PendingDraft) -> 
      *  LAST-registered provider's draft (LinkedHashMap insertion order): the
      *  incoming editor is the user's current view, so its content wins. */
     fun flush() {
+        currentDrafts().forEach { persist(it) }
+    }
+
+    /** Snapshot and coalesce the live drafts for an exclusive vault operation. */
+    fun currentDrafts(): List<PendingDraft> {
         val byId = LinkedHashMap<String, PendingDraft>()
         providers.values.toList().forEach { provider -> provider()?.let { byId[it.id] = it } }
-        byId.values.forEach { persist(it) }
+        return byId.values.toList()
     }
 }
 
@@ -168,6 +188,10 @@ class NotesStore(notesRoot: File, searchIndex: File) {
      *  the iOS `NoteVault` actor (the handle only ever lives off-main). */
     private val core: NoteStore by lazy { NoteStore(rootPath) }
 
+    /** Serializes every FFI vault access with storage migration. */
+    private val vaultAccess = Mutex()
+    @Volatile private var vaultMigrationStarted = false
+
     /** Owns the background scan + every FFI mutation. State writes hop back to
      *  [Dispatchers.Main.immediate] (this scope's dispatcher) so Compose state is
      *  only ever touched on the main thread — same discipline as [SyncManager]. */
@@ -177,7 +201,7 @@ class NotesStore(notesRoot: File, searchIndex: File) {
         // Bootstrap, migrations, seeding, and search startup are one Rust call,
         // kept off-main so first render never waits for disk I/O.
         scope.launch {
-            val bootstrap = withContext(Dispatchers.IO) {
+            val bootstrap = withCore {
                 core.bootstrap(searchIndex.absolutePath)
             }
             applySnapshot(bootstrap.snapshot.notes, bootstrap.snapshot.folders)
@@ -199,12 +223,12 @@ class NotesStore(notesRoot: File, searchIndex: File) {
 
     /** Rescan the vault off the main thread, then publish on the main thread. */
     suspend fun reload() {
-        val snapshot = withContext(Dispatchers.IO) { core.scan() }
+        val snapshot = withCore { core.scan() }
         applySnapshot(snapshot.notes, snapshot.folders)
     }
 
-    suspend fun read(id: String): String = withContext(Dispatchers.IO) { core.read(id) }
-    suspend fun exists(id: String): Boolean = withContext(Dispatchers.IO) { core.exists(id) }
+    suspend fun read(id: String): String = withCore { core.read(id) }
+    suspend fun exists(id: String): Boolean = withCore { core.exists(id) }
 
     /** Fire-and-forget flush for the editor's leave paths (`onDispose` on pop,
      *  and the register's onPause flush): a composable's dispose callback can't
@@ -229,7 +253,7 @@ class NotesStore(notesRoot: File, searchIndex: File) {
             // leave-foreground. A failed background flush must degrade to "not
             // flushed" (the debounce / next flush retries), never crash.
             try {
-                val result = withContext(Dispatchers.IO) {
+                val result = withCore {
                     core.writeIfUnchanged(draft.id, draft.base, draft.content)
                 }
                 result.mutation?.let {
@@ -274,10 +298,56 @@ class NotesStore(notesRoot: File, searchIndex: File) {
      *  can still beat it (same on iOS). */
     fun flushPendingEditor() = pendingEditor.flush()
 
+    /**
+     * Flush live editor drafts and hold the vault gate across migration. Existing
+     * store operations finish before the copy starts; the Activity blocks new UI
+     * input and pauses sync before calling this method.
+     */
+    suspend fun migrateVault(to: File): NotesStorage.MigrationOutcome {
+        vaultMigrationStarted = true
+        val drafts = pendingEditor.currentDrafts()
+        val mutations = mutableListOf<NoteMutation>()
+        val outcome = withContext(Dispatchers.IO) {
+            vaultAccess.withLock {
+                val flushFailed = drafts.any { draft ->
+                    val result = core.writeIfUnchanged(draft.id, draft.base, draft.content)
+                    val mutation = result.mutation
+                    val diskContent = if (result.outcome != FlushOutcome.WROTE || mutation == null) {
+                        if (core.exists(draft.id)) core.read(draft.id) else null
+                    } else {
+                        null
+                    }
+                    val durable = pendingDraftIsDurable(
+                        outcome = result.outcome,
+                        hasMutation = mutation != null,
+                        diskContent = diskContent,
+                        draftContent = draft.content,
+                    )
+                    if (durable) mutation?.let(mutations::add)
+                    !durable
+                }
+                if (flushFailed) {
+                    NotesStorage.MigrationOutcome.Failed(
+                        "An open editor change could not be saved. The storage mode was not changed.",
+                    )
+                } else {
+                    NotesStorage.migrate(File(rootPath), to)
+                }
+            }
+        }
+        mutations.forEach(::applyMutation)
+        return outcome
+    }
+
+    /** Re-open the old root after a migration or preference-commit failure. */
+    fun resumeAfterStorageMigrationFailure() {
+        vaultMigrationStarted = false
+    }
+
     /** Write one note and consume the complete committed mutation. */
     suspend fun write(id: String, content: String) {
         try {
-            val mutation = withContext(Dispatchers.IO) { core.write(id, content) }
+            val mutation = withCore { core.write(id, content) }
             applyMutation(mutation)
             signalLocalChange()
         } catch (e: Exception) {
@@ -295,7 +365,7 @@ class NotesStore(notesRoot: File, searchIndex: File) {
     }
 
     suspend fun createNote(title: String, folder: String = ""): String? = try {
-        val mutation = withContext(Dispatchers.IO) { core.createNote(title, folder, "") }
+        val mutation = withCore { core.createNote(title, folder, "") }
         applyMutation(mutation)
         refreshFolders()
         signalLocalChange()
@@ -306,7 +376,7 @@ class NotesStore(notesRoot: File, searchIndex: File) {
 
     suspend fun delete(id: String) {
         try {
-            val mutation = withContext(Dispatchers.IO) { core.delete(id) }
+            val mutation = withCore { core.delete(id) }
             applyMutation(mutation)
             refreshFolders()
             signalLocalChange()
@@ -322,7 +392,7 @@ class NotesStore(notesRoot: File, searchIndex: File) {
     }
 
     suspend fun rename(oldId: String, newId: String): String = try {
-        val mutation = withContext(Dispatchers.IO) { core.rename(oldId, newId) }
+        val mutation = withCore { core.rename(oldId, newId) }
         applyMutation(mutation)
         refreshFolders()
         signalLocalChange()
@@ -332,7 +402,7 @@ class NotesStore(notesRoot: File, searchIndex: File) {
     }
 
     suspend fun moveNote(id: String, toFolder: String): String = try {
-        val mutation = withContext(Dispatchers.IO) { core.moveNote(id, toFolder) }
+        val mutation = withCore { core.moveNote(id, toFolder) }
         applyMutation(mutation)
         refreshFolders()
         signalLocalChange()
@@ -343,7 +413,7 @@ class NotesStore(notesRoot: File, searchIndex: File) {
 
     suspend fun createFolder(path: String) {
         try {
-            withContext(Dispatchers.IO) { core.createFolder(path) }
+            withCore { core.createFolder(path) }
             refreshFolders()
             signalLocalChange()
         } catch (e: Exception) {
@@ -357,7 +427,7 @@ class NotesStore(notesRoot: File, searchIndex: File) {
      *  Returns the moved-note count, or null when the FFI rejected the delete
      *  (the folder is left intact). */
     suspend fun deleteFolder(path: String): UInt? = try {
-        val mutation = withContext(Dispatchers.IO) { core.deleteFolder(path) }
+        val mutation = withCore { core.deleteFolder(path) }
         applyMutation(mutation)
         refreshFolders()
         signalLocalChange()
@@ -371,7 +441,7 @@ class NotesStore(notesRoot: File, searchIndex: File) {
      *  (src/app/resetAllNotes.ts). Callers pause sync + set [suppressAutoPush]
      *  for the duration and disconnect sync afterwards. */
     suspend fun deleteAll() {
-        withContext(Dispatchers.IO) { core.reset() }
+        withCore { core.reset() }
         notes = emptyList()
         folders = emptyList()
     }
@@ -380,7 +450,7 @@ class NotesStore(notesRoot: File, searchIndex: File) {
      *  index, then project one fresh durable snapshot. */
     fun liveDataChanged() {
         scope.launch {
-            withContext(Dispatchers.IO) { core.rescan() }
+            withCore { core.rescan() }
             reload()
         }
     }
@@ -389,8 +459,8 @@ class NotesStore(notesRoot: File, searchIndex: File) {
      *  return its ranked result set. */
     suspend fun search(query: String, limit: UInt = 50u): List<SearchHit> {
         repeat(200) {
-            if (withContext(Dispatchers.IO) { core.keywordReady() }) {
-                return withContext(Dispatchers.IO) { core.search(query, limit) }
+            if (withCore { core.keywordReady() }) {
+                return withCore { core.search(query, limit) }
             }
             delay(25)
         }
@@ -400,6 +470,14 @@ class NotesStore(notesRoot: File, searchIndex: File) {
     private fun signalLocalChange() {
         if (!suppressAutoPush) onLocalChange?.invoke()
     }
+
+    private suspend fun <T> withCore(block: () -> T): T =
+        withContext(Dispatchers.IO) {
+            vaultAccess.withLock {
+                check(!vaultMigrationStarted) { "Vault access is paused for storage migration" }
+                block()
+            }
+        }
 
     /** Immediate child folders of `folder` ("" = root). */
     fun subfolders(of: String): List<String> {
@@ -434,7 +512,7 @@ class NotesStore(notesRoot: File, searchIndex: File) {
     }
 
     private suspend fun refreshFolders() {
-        folders = withContext(Dispatchers.IO) { core.scan().folders }
+        folders = withCore { core.scan().folders }
     }
 
     private fun NoteMutation.finalId(fallback: String): String =

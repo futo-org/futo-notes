@@ -30,7 +30,12 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
   theme follows; persisted in UserDefaults `futo.themeMode` / Android
   SharedPreferences `theme_mode`; survives relaunch — verified via the
   crash-test relaunch).
-- **Storage**: a notes-directory path readout.
+- **Storage**: a notes-directory path readout. On Android, changing Device/App
+  storage shows a blocking migration state and relaunches only after the whole
+  vault is verified and the new preference is durably saved. Failure leaves the
+  current mode active and surfaces an actionable toast; a different non-empty
+  destination is never merged into or deleted. → `MainActivity.performSwitch`,
+  `NotesStorage.kt`
 - **About**: an open-source link (GitLab) and the app version.
 - **Crash reporting**: "Share crash reports" toggle with a nested "Always
   send automatically" (see app.md for the dialog flow).
