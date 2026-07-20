@@ -435,7 +435,7 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
     use std::io::{Read, Write};
-    use std::net::TcpListener;
+    use std::net::{TcpListener, TcpStream};
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 
@@ -467,6 +467,108 @@ mod tests {
         handle: Option<std::thread::JoinHandle<()>>,
     }
 
+    fn read_request(stream: &mut TcpStream) -> std::io::Result<String> {
+        const MAX_REQUEST_BYTES: usize = 1024 * 1024;
+        let mut request = Vec::new();
+        let mut chunk = [0; 4096];
+        let (header_end, content_length) = loop {
+            let read = stream.read(&mut chunk)?;
+            if read == 0 {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::UnexpectedEof,
+                    "request ended before headers",
+                ));
+            }
+            request.extend_from_slice(&chunk[..read]);
+            if request.len() > MAX_REQUEST_BYTES {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "request exceeds test server limit",
+                ));
+            }
+            let Some(header_end) = request.windows(4).position(|bytes| bytes == b"\r\n\r\n") else {
+                continue;
+            };
+            let headers = String::from_utf8_lossy(&request[..header_end]);
+            let content_length = headers
+                .lines()
+                .filter_map(|line| line.split_once(':'))
+                .find(|(name, _)| name.eq_ignore_ascii_case("content-length"))
+                .and_then(|(_, value)| value.trim().parse::<usize>().ok())
+                .unwrap_or(0);
+            break (header_end + 4, content_length);
+        };
+
+        while request.len() < header_end + content_length {
+            let read = stream.read(&mut chunk)?;
+            if read == 0 {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::UnexpectedEof,
+                    "request ended before body",
+                ));
+            }
+            request.extend_from_slice(&chunk[..read]);
+            if request.len() > MAX_REQUEST_BYTES {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "request exceeds test server limit",
+                ));
+            }
+        }
+
+        Ok(String::from_utf8_lossy(&request[..header_end]).into_owned())
+    }
+
+    fn serve_mutation_request(
+        stream: &mut TcpStream,
+        posts: &AtomicUsize,
+        remote_blob: Option<&[u8]>,
+    ) -> std::io::Result<()> {
+        let request = read_request(stream)?;
+        let request_line = request.lines().next().unwrap_or_default();
+        let (content_type, body) = if request_line
+            .starts_with("POST /api/collections/collection/blob-objects ")
+        {
+            let post = posts.fetch_add(1, Ordering::Relaxed) + 1;
+            let body = format!(
+                r#"{{"object":{{"id":"posted-{post}","version":1,"change_seq":{post},"deleted":false,"blob_key":"posted-blob-{post}","updated_at":"2026-07-20T00:00:00Z"}},"collectionVersion":{post}}}"#
+            )
+            .into_bytes();
+            ("application/json", body)
+        } else if request_line.starts_with("GET /api/collections/collection/objects?sinceVersion=")
+        {
+            let since = request_line
+                .split("sinceVersion=")
+                .nth(1)
+                .and_then(|tail| tail.split_whitespace().next())
+                .and_then(|value| value.parse::<u64>().ok())
+                .unwrap_or(0);
+            let body = if remote_blob.is_some() && since < 2 {
+                r#"{"objects":[{"id":"remote-object","version":1,"change_seq":2,"deleted":false,"blob_key":"remote-blob","updated_at":"2026-07-20T00:00:00Z"}]}"#
+            } else {
+                r#"{"objects":[]}"#
+            };
+            ("application/json", body.as_bytes().to_vec())
+        } else if request_line.starts_with("GET /api/blobs/remote-blob ") {
+            (
+                "application/octet-stream",
+                remote_blob.unwrap_or_default().to_vec(),
+            )
+        } else {
+            (
+                "application/json",
+                r#"{"error":"unexpected test request"}"#.as_bytes().to_vec(),
+            )
+        };
+        write!(
+            stream,
+            "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            body.len()
+        )?;
+        stream.write_all(&body)?;
+        stream.flush()
+    }
+
     impl MutationServer {
         fn new() -> Self {
             Self::with_remote(None)
@@ -480,70 +582,25 @@ mod tests {
 
         fn with_remote(remote_blob: Option<Vec<u8>>) -> Self {
             let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-            listener.set_nonblocking(true).unwrap();
             let address = listener.local_addr().unwrap();
             let posts = Arc::new(AtomicUsize::new(0));
             let observed_posts = Arc::clone(&posts);
             let stop = Arc::new(AtomicBool::new(false));
             let should_stop = Arc::clone(&stop);
-            let handle = std::thread::spawn(move || {
-                while !should_stop.load(Ordering::Relaxed) {
-                    match listener.accept() {
-                        Ok((mut stream, _)) => {
-                            let mut request = [0; 16 * 1024];
-                            let read = stream.read(&mut request).unwrap_or(0);
-                            let request = String::from_utf8_lossy(&request[..read]);
-                            let request_line = request.lines().next().unwrap_or_default();
-                            let (content_type, body) = if request_line
-                                .starts_with("POST /api/collections/collection/blob-objects ")
-                            {
-                                let post = observed_posts.fetch_add(1, Ordering::Relaxed) + 1;
-                                (
-                                    "application/json",
-                                    format!(
-                                    r#"{{"object":{{"id":"posted-{post}","version":1,"change_seq":{post},"deleted":false,"blob_key":"posted-blob-{post}","updated_at":"2026-07-20T00:00:00Z"}},"collectionVersion":{post}}}"#
-                                )
-                                    .into_bytes(),
-                                )
-                            } else if request_line.starts_with(
-                                "GET /api/collections/collection/objects?sinceVersion=",
-                            ) {
-                                let since = request_line
-                                    .split("sinceVersion=")
-                                    .nth(1)
-                                    .and_then(|tail| tail.split_whitespace().next())
-                                    .and_then(|value| value.parse::<u64>().ok())
-                                    .unwrap_or(0);
-                                let body = if remote_blob.is_some() && since < 2 {
-                                    r#"{"objects":[{"id":"remote-object","version":1,"change_seq":2,"deleted":false,"blob_key":"remote-blob","updated_at":"2026-07-20T00:00:00Z"}]}"#
-                                } else {
-                                    r#"{"objects":[]}"#
-                                };
-                                ("application/json", body.as_bytes().to_vec())
-                            } else if request_line.starts_with("GET /api/blobs/remote-blob ") {
-                                (
-                                    "application/octet-stream",
-                                    remote_blob.clone().unwrap_or_default(),
-                                )
-                            } else {
-                                (
-                                    "application/json",
-                                    r#"{"error":"unexpected test request"}"#.as_bytes().to_vec(),
-                                )
-                            };
-                            write!(
-                                stream,
-                                "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-                                body.len()
-                            )
-                            .unwrap();
-                            stream.write_all(&body).unwrap();
+            let handle = std::thread::spawn(move || loop {
+                match listener.accept() {
+                    Ok((mut stream, _)) => {
+                        if should_stop.load(Ordering::Relaxed) {
+                            break;
                         }
-                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                            std::thread::sleep(Duration::from_millis(5));
-                        }
-                        Err(error) => panic!("mutation server failed: {error}"),
+                        let _ = serve_mutation_request(
+                            &mut stream,
+                            &observed_posts,
+                            remote_blob.as_deref(),
+                        );
                     }
+                    Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                    Err(error) => panic!("mutation server failed: {error}"),
                 }
             });
             Self {
