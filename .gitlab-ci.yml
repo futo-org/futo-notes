@@ -1288,6 +1288,37 @@ build:ios-native:
       changes: *native-ios-changes
     - if: $CI_COMMIT_TAG
 
+# Native iOS unit tests on a concrete simulator via Cirrus. This separately
+# enforces the FutoNotesNativeTests target that build:ios-native only compiles.
+test:ios-native:
+  stage: test
+  needs: []
+  tags:
+    - macscript
+  variables:
+    GIT_STRATEGY: clone
+  before_script:
+    - env | grep -E '^(CI_|IOS_)' > .cienv
+  script:
+    - cirrus run testFutoNotesIOSNative --artifacts-dir . --env-file .cienv
+  artifacts:
+    when: always
+    paths:
+      - testFutoNotesIOSNative/ios_test_results/**/*
+    expire_in: 1 week
+  rules:
+    - if: $CI_MERGE_REQUEST_IID
+      changes: &native-ios-test-changes
+        - apps/ios/**/*
+        - tests/conformance/**/*
+        - packages/editor/src/bridge.ts
+        - scripts/build-rust-ios.sh
+        - .cirrus.yml
+        - .gitlab-ci.yml
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes: *native-ios-test-changes
+    - if: $CI_COMMIT_TAG
+
 # ─────────────────────────────────────────────────────────────
 # Windows build (Proxmox VM)
 # ─────────────────────────────────────────────────────────────
@@ -1624,6 +1655,7 @@ release:gate:
     - job: test:rust:macos
     - job: test:desktop-smoke:macos
     - job: test:cross-platform-sync
+    - job: test:ios-native
     - job: build:linux-packages
       artifacts: true
     - job: build:linux-appimage
