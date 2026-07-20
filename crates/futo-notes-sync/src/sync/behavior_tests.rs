@@ -163,6 +163,23 @@ fn combined_summary_keeps_counts_failures_and_unique_ids() {
 }
 
 #[test]
+fn combined_summary_records_checkpoint_failure_once_per_cycle() {
+    let push = SyncSummary {
+        failures: vec![failure(FailureKind::Checkpoint, None)],
+        ..Default::default()
+    };
+    let pull = SyncSummary {
+        failures: vec![failure(FailureKind::Checkpoint, None)],
+        ..Default::default()
+    };
+
+    let combined = combine(push, pull);
+
+    assert_eq!(combined.failures.len(), 1);
+    assert_eq!(combined.failures[0].kind, FailureKind::Checkpoint);
+}
+
+#[test]
 fn rename_replaces_ghost_create_and_delete_ids() {
     let push = SyncSummary {
         deleted_ids: vec!["old".into()],

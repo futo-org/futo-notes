@@ -548,6 +548,23 @@ serialization boundaries are fixed by [desktop-rust.md](desktop-rust.md).
   idempotent (`first_pass` hash/identity-dedupes, no re-downloads or conflict
   copies for already-synced notes) — and RETROACTIVELY heals any install already
   carrying hidden F32 damage. → futo-notes-sync `checkpoint.rs` + `sync/`
+- **A final checkpoint write failure does not discard successful in-memory sync
+  progress.** Push and pull return the updated `ConnectedState`, record one
+  `FailureKind::Checkpoint` in the combined `SyncSummary`, and let
+  `SyncSession` install that state. A retry in the same running session therefore
+  retains uploaded object IDs and downloaded mappings/cursors instead of
+  POSTing duplicate server objects. Pull ancestry is cleared only after its
+  checkpoint is durably saved. This preserves the push-first sequence and both
+  watermarks; it changes only how the local persistence failure is reported and
+  installed. Guarded by
+  `uploaded_state_survives_final_checkpoint_failure_in_the_running_session` and
+  `downloaded_state_survives_final_checkpoint_failure_in_the_running_session`.
+  **Crash/restart limit:** if the process exits before a later checkpoint save
+  succeeds, disk still contains the older map/cursors, so a restart can repeat a
+  successful remote create. Eliminating that window requires a server-side
+  idempotency/protocol guarantee and is outside this client-only behavior; the
+  visible checkpoint failure remains the signal that durable local state is
+  behind. → futo-notes-sync `sync/{push,pull}.rs` + `session/`
 - **A pure case-only / NFC-vs-NFD rename keeps its requested form.** Renaming
   `note` → `Note` (or a composed↔decomposed accent) on a
   case/normalization-insensitive filesystem (default APFS on macOS/iOS, NTFS)

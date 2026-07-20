@@ -11,12 +11,12 @@ use crate::session::connect::{client, collection_error};
 use super::collision_resolution::place_collision;
 use super::encrypted_note::{decrypt, state_from_remote, RemoteNote};
 use super::object_map::{mapped_name, object_is_current};
-use super::outcome::{append_derived_renames, note_id};
+use super::outcome::{append_derived_renames, note_id, record_checkpoint_failure};
 use super::tombstones::{apply_tombstone, recover_stale_claims};
 use super::vault::{content_hash, park_local, remove_local, write_content};
 use super::{
-    FailureKind, PreWrite, Progress, RenamePair, SyncErrorKind, SyncFailure, SyncProgress,
-    SyncSummary,
+    FailureKind, PreWrite, Progress, RenamePair, SaveCheckpoint, SyncErrorKind, SyncFailure,
+    SyncProgress, SyncSummary,
 };
 
 fn ancestry_for<'a>(
@@ -378,6 +378,17 @@ pub(crate) async fn pull(
     progress: &Progress,
     pre_write: &PreWrite,
 ) -> Result<(SyncSummary, ConnectedState), SyncErrorKind> {
+    pull_with_checkpoint(state, root, since, progress, pre_write, &checkpoint::save).await
+}
+
+pub(crate) async fn pull_with_checkpoint(
+    state: &ConnectedState,
+    root: &Path,
+    since: u64,
+    progress: &Progress,
+    pre_write: &PreWrite,
+    save_checkpoint: &SaveCheckpoint,
+) -> Result<(SyncSummary, ConnectedState), SyncErrorKind> {
     recover_stale_claims(root, pre_write);
     let http = client(state)?;
     let objects = http
@@ -419,8 +430,11 @@ pub(crate) async fn pull(
     append_derived_renames(&mut summary, &state.object_map, &next.object_map);
     next.max_version = cursor.value();
     next.pull_cursor = cursor.value();
-    checkpoint::save(root, &next).map_err(SyncErrorKind::Io)?;
-    if !cursor.has_failures() {
+    let checkpoint_saved = save_checkpoint(root, &next).is_ok();
+    if !checkpoint_saved {
+        record_checkpoint_failure(&mut summary);
+    }
+    if checkpoint_saved && !cursor.has_failures() {
         checkpoint::clear_ancestry(root);
     }
     Ok((summary, next))

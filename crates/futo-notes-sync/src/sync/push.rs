@@ -11,12 +11,12 @@ use crate::session::connect::{client, collection_error};
 
 use super::conflict_resolution::resolve_update_conflict;
 use super::encrypted_note::{decrypt, encrypt, object_state, state_from_remote};
-use super::outcome::{append_derived_renames, note_id};
+use super::outcome::{append_derived_renames, note_id, record_checkpoint_failure};
 use super::tombstones::recover_stale_claims;
 use super::vault::{local_files, read_content, write_content, LocalFile};
 use super::{
-    FailureKind, PreWrite, Progress, RenamePair, SyncErrorKind, SyncFailure, SyncProgress,
-    SyncSummary,
+    FailureKind, PreWrite, Progress, RenamePair, SaveCheckpoint, SyncErrorKind, SyncFailure,
+    SyncProgress, SyncSummary,
 };
 
 pub(super) struct Upload<'a> {
@@ -313,19 +313,10 @@ fn checkpoint_progress(
     state: &ConnectedState,
     summary: &mut SyncSummary,
     completed: usize,
+    save_checkpoint: &SaveCheckpoint,
 ) {
-    if completed % 50 == 0
-        && checkpoint::save(root, state).is_err()
-        && !summary
-            .failures
-            .iter()
-            .any(|failure| failure.kind == FailureKind::Checkpoint)
-    {
-        summary.failures.push(SyncFailure {
-            filename: String::new(),
-            kind: FailureKind::Checkpoint,
-            status_code: None,
-        });
+    if completed % 50 == 0 && save_checkpoint(root, state).is_err() {
+        record_checkpoint_failure(summary);
     }
 }
 
@@ -437,6 +428,16 @@ pub(crate) async fn push(
     progress: &Progress,
     pre_write: &PreWrite,
 ) -> Result<(SyncSummary, ConnectedState), SyncErrorKind> {
+    push_with_checkpoint(state, root, progress, pre_write, &checkpoint::save).await
+}
+
+pub(crate) async fn push_with_checkpoint(
+    state: &ConnectedState,
+    root: &Path,
+    progress: &Progress,
+    pre_write: &PreWrite,
+    save_checkpoint: &SaveCheckpoint,
+) -> Result<(SyncSummary, ConnectedState), SyncErrorKind> {
     recover_stale_claims(root, pre_write);
     let files = local_files(root).map_err(SyncErrorKind::Io)?;
     let http = client(state)?;
@@ -471,7 +472,7 @@ pub(crate) async fn push(
                 current: completed,
                 total: files.len() + missing.len(),
             });
-            checkpoint_progress(root, &next, &mut summary, completed);
+            checkpoint_progress(root, &next, &mut summary, completed, save_checkpoint);
         }
     }
     delete_missing_objects(
@@ -485,7 +486,9 @@ pub(crate) async fn push(
     )
     .await?;
     append_derived_renames(&mut summary, &state.object_map, &next.object_map);
-    checkpoint::save(root, &next).map_err(SyncErrorKind::Io)?;
+    if save_checkpoint(root, &next).is_err() {
+        record_checkpoint_failure(&mut summary);
+    }
     Ok((summary, next))
 }
 
