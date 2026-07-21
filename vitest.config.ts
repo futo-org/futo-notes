@@ -9,7 +9,12 @@ export default defineConfig({
   plugins: [svelte({ hot: false })],
   test: {
     globals: true,
-    include: ['src/**/*.test.ts', 'markdown-spec/**/*.test.ts', 'scripts/**/*.test.mjs'],
+    include: [
+      'src/**/*.test.ts',
+      'markdown-spec/**/*.test.ts',
+      'scripts/**/*.test.mjs',
+      'tests/lib/**/*.test.mjs',
+    ],
     mockReset: true,
     // Newer Node releases install an experimental localStorage getter that
     // shadows jsdom and returns undefined without --localstorage-file. Disable

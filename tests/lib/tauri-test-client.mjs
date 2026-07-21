@@ -4,6 +4,7 @@
 
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { URL } from 'node:url';
 import { executeJs, sleep } from './mcp-client.mjs';
 
 const SCRIPT_EXECUTION_TIMEOUT = 'Script execution timeout';
@@ -28,10 +29,11 @@ export async function waitForTestHooks(
       const parsed = JSON.parse(String(result));
       if (parsed.testSync === 'object' && parsed.notesShell === 'object') return;
       lastError = null;
-    } catch (err) {
+    } catch (error) {
       // The bridge can accept WebSocket connections before the webview is
       // ready to run JS. Treat early execute_js timeouts like a missing hook.
-      lastError = err;
+      if (error.message !== SCRIPT_EXECUTION_TIMEOUT) throw error;
+      lastError = error;
     }
     await sleep(intervalMs);
   }
@@ -79,6 +81,10 @@ export class TauriTestClient {
       url.hostname = this.loopbackHost;
     }
     return url.toString();
+  }
+
+  async readWebview(expression, label = 'webview read') {
+    return this._executeRead(expression, label);
   }
 
   async externalWriteNote(id, content) {
@@ -235,20 +241,21 @@ export class TauriTestClient {
     );
   }
 
-  // The MCP bridge (tauri-plugin-mcp-bridge) hard-caps execute_js at 5s.
-  // Sync calls can exceed that (slow-proxy scenarios, 1000-note bulk sync),
-  // so we kick off the promise into a window slot and poll for completion.
+  // The MCP bridge hard-caps every execute_js call at 5s. Reads can retry
+  // directly, but a mutation timeout leaves its execution outcome unknown.
+  // Stable guarded slots let kickoff retries poll the original result without
+  // ever applying the mutation twice.
 
   _nextAsyncSlotRef(label) {
     this._asyncSlotCounter += 1;
     return `__crossPlatformSyncCall_${label}_${this._asyncSlotCounter}`;
   }
 
-  async _executeRead(expression, label) {
+  async _executeWithBridgeTimeoutRetries(operation, label) {
     let lastError = null;
     for (let attempt = 1; attempt <= EXECUTE_JS_RETRY_ATTEMPTS; attempt += 1) {
       try {
-        return await executeJs(this.ws, expression);
+        return await operation();
       } catch (error) {
         if (error.message !== SCRIPT_EXECUTION_TIMEOUT) throw error;
         lastError = error;
@@ -257,6 +264,10 @@ export class TauriTestClient {
     throw new Error(
       `${this.name}: ${label} failed after ${EXECUTE_JS_RETRY_ATTEMPTS} bridge timeout attempts: ${lastError.message}`,
     );
+  }
+
+  async _executeRead(expression, label) {
+    return this._executeWithBridgeTimeoutRetries(() => executeJs(this.ws, expression), label);
   }
 
   async _executeMutation(expression, label, { timeoutMs = 180_000 } = {}) {
@@ -278,18 +289,9 @@ export class TauriTestClient {
       return 'started';
     })()`;
 
-    let lastError = null;
-    for (let attempt = 1; attempt <= EXECUTE_JS_RETRY_ATTEMPTS; attempt += 1) {
-      try {
-        await executeJs(this.ws, script);
-        return;
-      } catch (error) {
-        if (error.message !== SCRIPT_EXECUTION_TIMEOUT) throw error;
-        lastError = error;
-      }
-    }
-    throw new Error(
-      `${this.name}: kickoff for ${slotRef} failed after ${EXECUTE_JS_RETRY_ATTEMPTS} bridge timeout attempts: ${lastError.message}`,
+    await this._executeWithBridgeTimeoutRetries(
+      () => executeJs(this.ws, script),
+      `kickoff for ${slotRef}`,
     );
   }
 
@@ -300,14 +302,10 @@ export class TauriTestClient {
   async _awaitAsyncSlot(slotRef, timeoutMs, label) {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
-      let status;
-      try {
-        status = await executeJs(this.ws, `window[${JSON.stringify(slotRef)}]`);
-      } catch (error) {
-        if (error.message !== SCRIPT_EXECUTION_TIMEOUT) throw error;
-        await sleep(200);
-        continue;
-      }
+      const status = await this._executeRead(
+        `window[${JSON.stringify(slotRef)}]`,
+        `${label} status`,
+      );
       if (status?.done) {
         if (status.error) throw new Error(`${label} failed: ${status.error}`);
         return status.value;

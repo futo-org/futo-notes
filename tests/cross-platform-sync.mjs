@@ -24,7 +24,7 @@ import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { startDesktopTauriInstance } from './lib/tauri-instance.mjs';
 import { startServer } from './lib/sync-test-server.mjs';
-import { sleep, executeJs } from './lib/mcp-client.mjs';
+import { sleep } from './lib/mcp-client.mjs';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const REPO_ROOT = resolve(__dirname, '..');
@@ -137,9 +137,9 @@ async function externalWriteNote(client, id, content) {
 async function waitForNoteInSidebar(client, titleSubstring, timeoutMs = 5_000) {
   for (let elapsed = 0; elapsed < timeoutMs; elapsed += 500) {
     await sleep(500);
-    const items = await executeJs(
-      client.ws,
+    const items = await client.readWebview(
       `[...document.querySelectorAll('.note-row, [data-note-id]')].map(el => (el.getAttribute('data-note-id') || el.textContent.trim()))`,
+      'sidebar note list',
     );
     if (items.some((t) => t.includes(titleSubstring))) return;
   }
@@ -148,9 +148,9 @@ async function waitForNoteInSidebar(client, titleSubstring, timeoutMs = 5_000) {
 
 /** Get all note titles currently visible in the sidebar. */
 async function getSidebarTitles(client) {
-  return executeJs(
-    client.ws,
+  return client.readWebview(
     `[...document.querySelectorAll('.note-row, [data-note-id]')].map(el => (el.getAttribute('data-note-id') || el.textContent.trim()))`,
+    'sidebar note list',
   );
 }
 
