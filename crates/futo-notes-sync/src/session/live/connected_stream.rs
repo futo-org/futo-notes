@@ -59,7 +59,7 @@ impl<'a> LiveCycle<'a> {
     }
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 enum CycleOutcome {
     Continue,
     Stop,
@@ -148,10 +148,7 @@ async fn run_cycle_and_notify(live_cycle: &LiveCycle<'_>) -> CycleOutcome {
 
 fn classify_cycle_error(error: &SyncErrorKind) -> (CycleOutcome, String) {
     match error {
-        SyncErrorKind::Auth(_) => (
-            CycleOutcome::Stop,
-            format!("auth: {}", error.message()),
-        ),
+        SyncErrorKind::Auth(_) => (CycleOutcome::Stop, format!("auth: {}", error.message())),
         SyncErrorKind::CollectionGone(_) => (CycleOutcome::Stop, error.message()),
         _ => (CycleOutcome::Continue, error.message()),
     }
@@ -201,9 +198,9 @@ mod tests {
 
     #[test]
     fn collection_gone_stops_but_transient_http_errors_continue() {
-        let (gone_outcome, gone_message) = classify_cycle_error(
-            &SyncErrorKind::CollectionGone("HTTP 404: collection not found".into()),
-        );
+        let (gone_outcome, gone_message) = classify_cycle_error(&SyncErrorKind::CollectionGone(
+            "HTTP 404: collection not found".into(),
+        ));
         assert_eq!(gone_outcome, CycleOutcome::Stop);
         assert_eq!(
             gone_message,
